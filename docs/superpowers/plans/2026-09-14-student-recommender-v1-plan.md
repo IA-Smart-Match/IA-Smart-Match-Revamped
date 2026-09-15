@@ -1391,6 +1391,10 @@ from smartmatch_domain.student_recommender.policy import DefaultFeedPolicy
 from smartmatch_domain.student_recommender.ranker import ContentRanker
 from smartmatch_domain.student_recommender.recommend import recommend, student_inputs_hash
 from smartmatch_domain.student_recommender.run import StudentEventCandidate, StudentRankingRun
+from smartmatch_domain.student_recommender.student_feed import (
+    STUDENT_FEED_MAX_ITEMS,
+    STUDENT_FEED_MAX_PER_PRIMARY_TAG,
+)
 
 T0 = datetime(2026, 10, 5, 9, 0, tzinfo=UTC)
 
@@ -1512,6 +1516,15 @@ def test_candidate_evidence_covers_every_candidate_field() -> None:
     names = {f.name for f in fields(StudentEventCandidate)}
     assert names == {"event_id", "is_virtual", "starts_at", "time_precision", "publication_status", "already_registered", "tags"}
     assert len(candidate_evidence(_catalog(tags={"e1": {"finance"}})[0])) == 10
+
+
+def test_diversity_cap_applies_through_recommend_without_caller_tags() -> None:
+    catalog = _catalog(tags={f"f{i}": {"finance"} for i in range(1, 6)} | {"h1": {"hackathon"}})
+    run = replace(RUN, interests=StudentInterestEvidence(StudentInterestState.DECLARED, frozenset({"finance", "hackathon"}), VOCAB))
+    out = recommend(run, catalog, eligibility=DefaultEligibilityFilter(), ranker=_approved_ranker(), policy=DefaultFeedPolicy())
+    ids = [s.subject_id for s in out.feed.items]
+    assert ids[STUDENT_FEED_MAX_PER_PRIMARY_TAG] == "h1"          # deferred behind the first three finance items (soft preference, Task 5)
+    assert len(ids) == STUDENT_FEED_MAX_ITEMS
 ```
 
 - [ ] **Step 2: Run to verify they fail**
@@ -1726,7 +1739,7 @@ from dataclasses import dataclass
 from smartmatch_domain.factor_registry import assert_registry_approved
 from smartmatch_domain.student_recommender.eligibility import EligibilityFilter, EligibilityResult
 from smartmatch_domain.student_recommender.fingerprint import candidate_evidence, student_inputs_hash
-from smartmatch_domain.student_recommender.policy import FeedPolicy, StudentFeed
+from smartmatch_domain.student_recommender.policy import FeedPolicy, StudentFeed, primary_tag
 from smartmatch_domain.student_recommender.ranker import StudentRanker
 from smartmatch_domain.student_recommender.run import StudentEventCandidate, StudentRankingRun
 
@@ -1771,11 +1784,20 @@ def recommend(
         model_artifact_hash=ranker.model_artifact_hash,
         policy_version=policy.policy_version,
     )
-    feed = policy.select(run, ranked, inputs_hash)
+    primary_tag_by_event = {c.event_id: primary_tag(run.interests, c.tags) for c in stage_a.eligible}
+    feed = policy.select(run, ranked, inputs_hash, primary_tag_by_event=primary_tag_by_event)
     return RecommendationOutcome(feed=feed, eligibility=stage_a, inputs_hash=inputs_hash)
 ```
 
-`recommend.py` imports `policy.py`, which Task 6 creates. For this task create `policy.py` with only the `StudentFeed` dataclass and `FeedPolicy` Protocol from contracts §2 (no `DefaultFeedPolicy` yet); Task 6 adds the implementation.
+`recommend.py` imports `policy.py`, which Task 6 creates. For this task create `policy.py` with the `StudentFeed` dataclass, the `FeedPolicy` Protocol from contracts §2, and `primary_tag` (no `DefaultFeedPolicy` yet); Task 6 adds the implementation.
+
+```python
+def primary_tag(interests: StudentInterestEvidence, tags: EventTagEvidence) -> str | None:
+    if not interests.terms or tags.state.value != "tagged":
+        return None
+    matched = sorted(interests.terms & tags.mapped_terms)
+    return matched[0] if matched else None
+```
 
 - [ ] **Step 4: Run the tests**
 
@@ -1799,7 +1821,7 @@ git commit -m "feat: ContentRanker, inputs hash, and recommend() composition (AD
 
 **Interfaces:**
 - Consumes: Task 4 constants, `StageBScore`, Task 5's `RecommendationOutcome` unchanged.
-- Produces: `DefaultFeedPolicy(policy_version=STUDENT_FEED_POLICY_VERSION)`, `primary_tag(score) -> str | None` (the alphabetically first matched interest, from `FactorScore.basis`-free evidence: policy reads `score.factor_scores[0]` value only for scorability; the primary tag comes from `candidate_primary_tags: Mapping[str, str | None]` the router passes). To keep Stage C pure, `select` gains a keyword argument `primary_tag_by_event: Mapping[str, str | None] = {}` — recorded in the contracts doc §2 as an amendment.
+- Produces: `DefaultFeedPolicy(policy_version=STUDENT_FEED_POLICY_VERSION)`, `primary_tag(score) -> str | None` (the alphabetically first matched interest, from `FactorScore.basis`-free evidence: policy reads `score.factor_scores[0]` value only for scorability; the primary tag comes from `primary_tag(run.interests, candidate.tags)` computed inside `recommend()` (Task 5); no router involvement). To keep Stage C pure, `select` gains a keyword argument `primary_tag_by_event: Mapping[str, str | None] = {}` — recorded in the contracts doc §2 as an amendment.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -2184,12 +2206,6 @@ def _candidate(raw: dict) -> StudentEventCandidate:
     )
 
 
-def _primary_tags(catalog: list[dict], interests: list[str]) -> dict[str, str | None]:
-    return {
-        c["event_id"]: (sorted(set(c["tags"]) & set(interests)) or [None])[0] for c in catalog
-    }
-
-
 @pytest.mark.golden
 @pytest.mark.parametrize("path", _CASES, ids=[p.stem for p in _CASES])
 def test_golden_case(path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -2207,12 +2223,7 @@ def test_golden_case(path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(registry_module, "STUDENT_REGISTRY", approved)
     ranker = ContentRanker(registry=approved)
 
-    class TaggedPolicy(DefaultFeedPolicy):
-        def select(self, run, ranked, inputs_hash, *, primary_tag_by_event={}):
-            return super().select(run, ranked, inputs_hash,
-                                  primary_tag_by_event=_primary_tags(case["inputs"]["catalog"], case["inputs"]["run"]["interests"]))
-
-    outcome = recommend(run, catalog, eligibility=DefaultEligibilityFilter(), ranker=ranker, policy=TaggedPolicy())
+    outcome = recommend(run, catalog, eligibility=DefaultEligibilityFilter(), ranker=ranker, policy=DefaultFeedPolicy())
     assert [s.subject_id for s in outcome.feed.items] == expected["order"]
     assert (outcome.feed.wildcard.subject_id if outcome.feed.wildcard else None) == expected["wildcard"]
     assert outcome.feed.withheld_unscorable == expected["withheld_unscorable"]

@@ -204,6 +204,10 @@ class FeedPolicy(Protocol):
                primary_tag_by_event: Mapping[str, str | None] = {},   # event_id → first matched interest, for the diversity cap
                ) -> StudentFeed: ...
 
+# student_recommender/policy.py
+def primary_tag(interests: StudentInterestEvidence, tags: EventTagEvidence) -> str | None:
+    """Alphabetically first interest the event's mapped tags match; None when nothing matches or either side is absent."""
+
 # student_recommender/student_feed.py  — constants, never router literals
 STUDENT_FEED_WINDOW_DAYS: Final[int] = 7
 STUDENT_FEED_MAX_ITEMS: Final[int] = 5
@@ -219,6 +223,9 @@ def recommend(run: StudentRankingRun, catalog: Sequence[StudentEventCandidate], 
               eligibility: EligibilityFilter, ranker: StudentRanker, policy: FeedPolicy,
               ) -> tuple[StudentFeed, EligibilityResult, str]:   # (feed, exclusions, inputs_hash)
 ```
+
+`recommend` computes `primary_tag_by_event = {c.event_id: primary_tag(run.interests, c.tags) for c in eligible}`
+and passes it to `policy.select`. No caller supplies tags; the router never sees them.
 
 `recommend` calls `assert_registry_approved(registry=ranker.registry)` first and
 raises `RegistryNotApprovedError` while the registry is proposed; the router maps
