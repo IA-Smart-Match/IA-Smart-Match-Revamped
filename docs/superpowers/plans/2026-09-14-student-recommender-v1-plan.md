@@ -1422,14 +1422,9 @@ from smartmatch_domain.factors.student_interest_overlap import (
 )
 from smartmatch_domain.student_recommender import registry as registry_module
 from smartmatch_domain.student_recommender.eligibility import DefaultEligibilityFilter
-from smartmatch_domain.student_recommender.policy import DefaultFeedPolicy
 from smartmatch_domain.student_recommender.ranker import ContentRanker
 from smartmatch_domain.student_recommender.recommend import recommend, student_inputs_hash
 from smartmatch_domain.student_recommender.run import StudentEventCandidate, StudentRankingRun
-from smartmatch_domain.student_recommender.student_feed import (
-    STUDENT_FEED_MAX_ITEMS,
-    STUDENT_FEED_MAX_PER_PRIMARY_TAG,
-)
 
 T0 = datetime(2026, 10, 5, 9, 0, tzinfo=UTC)
 
@@ -1437,7 +1432,7 @@ T0 = datetime(2026, 10, 5, 9, 0, tzinfo=UTC)
 class PassThroughPolicy:
     policy_version = "test-passthrough"
 
-    def select(self, run, ranked, inputs_hash):
+    def select(self, run, ranked, inputs_hash, *, primary_tag_by_event={}):
         from smartmatch_domain.student_recommender.policy import StudentFeed
 
         return StudentFeed(
@@ -1462,7 +1457,6 @@ def _event(event_id: str, *tags: str) -> StudentEventCandidate:
     )
 
 
-VOCAB = V
 RUN = _run()
 
 
@@ -1538,8 +1532,8 @@ def test_inputs_hash_covers_the_documented_tuple() -> None:
 def test_changing_an_eligible_events_tags_changes_the_hash() -> None:
     catalog = _catalog(tags={"e1": {"finance"}, "e2": {"hackathon"}})
     edited = _catalog(tags={"e1": {"finance", "hackathon"}, "e2": {"hackathon"}})
-    a = recommend(RUN, catalog, eligibility=DefaultEligibilityFilter(), ranker=_approved_ranker(), policy=DefaultFeedPolicy())
-    b = recommend(RUN, edited, eligibility=DefaultEligibilityFilter(), ranker=_approved_ranker(), policy=DefaultFeedPolicy())
+    a = recommend(RUN, catalog, eligibility=DefaultEligibilityFilter(), ranker=_approved_ranker(), policy=PassThroughPolicy())
+    b = recommend(RUN, edited, eligibility=DefaultEligibilityFilter(), ranker=_approved_ranker(), policy=PassThroughPolicy())
     assert a.inputs_hash != b.inputs_hash
 
 
@@ -1551,16 +1545,10 @@ def test_candidate_evidence_covers_every_candidate_field() -> None:
     names = {f.name for f in fields(StudentEventCandidate)}
     assert names == {"event_id", "is_virtual", "starts_at", "time_precision", "publication_status", "already_registered", "tags"}
     assert len(candidate_evidence(_catalog(tags={"e1": {"finance"}})[0])) == 10
-
-
-def test_diversity_cap_applies_through_recommend_without_caller_tags() -> None:
-    catalog = _catalog(tags={f"f{i}": {"finance"} for i in range(1, 6)} | {"h1": {"hackathon"}})
-    run = replace(RUN, interests=StudentInterestEvidence(StudentInterestState.DECLARED, frozenset({"finance", "hackathon"}), VOCAB))
-    out = recommend(run, catalog, eligibility=DefaultEligibilityFilter(), ranker=_approved_ranker(), policy=DefaultFeedPolicy())
-    ids = [s.subject_id for s in out.feed.items]
-    assert ids[STUDENT_FEED_MAX_PER_PRIMARY_TAG] == "h1"          # deferred behind the first three finance items (soft preference, Task 5)
-    assert len(ids) == STUDENT_FEED_MAX_ITEMS
 ```
+
+The Stage-C pipeline test (`DefaultFeedPolicy` through `recommend`) belongs to
+Task 6 and is written there; this task's block never imports `DefaultFeedPolicy`.
 
 - [ ] **Step 2: Run to verify they fail**
 
@@ -1950,6 +1938,33 @@ def test_empty_ranked_gives_empty_feed() -> None:
     assert feed.items == () and feed.wildcard is None and feed.truncated is False
 ```
 
+Stage C is also exercised through the whole pipeline. Append this case to Task 5's
+`tests/unit/test_student_recommend.py` — it is new in this task, and Step 4 below
+re-runs that file:
+
+```python
+# tests/unit/test_student_recommend.py  (append; new in this task)
+# Add to that file's imports:
+#     from smartmatch_domain.student_recommender.policy import DefaultFeedPolicy
+#     from smartmatch_domain.student_recommender.student_feed import (
+#         STUDENT_FEED_MAX_ITEMS,
+#         STUDENT_FEED_MAX_PER_PRIMARY_TAG,
+#     )
+# `replace`, `V`, `RUN`, `_catalog` and `_approved_ranker` already exist in the file
+# from Task 5.
+
+
+def test_diversity_preference_applies_through_recommend_without_caller_tags() -> None:
+    catalog = _catalog(tags={f"f{i}": {"finance"} for i in range(1, 6)} | {"h1": {"hackathon"}})
+    run = replace(RUN, interests=StudentInterestEvidence(StudentInterestState.DECLARED, frozenset({"finance", "hackathon"}), V))
+    out = recommend(run, catalog, eligibility=DefaultEligibilityFilter(), ranker=_approved_ranker(), policy=DefaultFeedPolicy())
+    ids = [s.subject_id for s in out.feed.items]
+    # All six tie at Jaccard 1/2 and break by event id, so the finance run is f1..f5;
+    # the soft preference defers f4 and f5 behind h1 and the feed still fills.
+    assert ids[STUDENT_FEED_MAX_PER_PRIMARY_TAG] == "h1"
+    assert len(ids) == STUDENT_FEED_MAX_ITEMS
+```
+
 - [ ] **Step 2: Run to verify it fails**
 
 Run: `.venv/bin/python -m pytest tests/unit/test_student_feed_policy.py -q`
@@ -1967,6 +1982,10 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Protocol
 
+from smartmatch_domain.factors.student_interest_overlap import (
+    EventTagEvidence,
+    StudentInterestEvidence,
+)
 from smartmatch_domain.scoring import StageBScore
 from smartmatch_domain.student_recommender.run import StudentRankingRun
 from smartmatch_domain.student_recommender.student_feed import (
@@ -2000,6 +2019,13 @@ class FeedPolicy(Protocol):
         *,
         primary_tag_by_event: Mapping[str, str | None] = ...,
     ) -> StudentFeed: ...
+
+
+def primary_tag(interests: StudentInterestEvidence, tags: EventTagEvidence) -> str | None:
+    if not interests.terms or tags.state.value != "tagged":
+        return None
+    matched = sorted(interests.terms & tags.mapped_terms)
+    return matched[0] if matched else None
 
 
 def _apply_diversity_cap(
@@ -2058,7 +2084,7 @@ class DefaultFeedPolicy:
         )
 ```
 
-Replace the Task 5 stub of `policy.py` with this file; `StudentFeed` and `FeedPolicy` keep their shape.
+This file supersedes the Task 5 stub; `StudentFeed`, `FeedPolicy` and `primary_tag` are carried over unchanged.
 
 - [ ] **Step 4: Run the tests**
 
