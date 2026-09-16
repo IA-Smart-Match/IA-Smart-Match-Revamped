@@ -33,7 +33,7 @@
  * — and a failed read is not, so the error carries the failure and the page
  * renders that instead of an emptied list.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback } from "react";
 
 import {
   ApiRequestError,
@@ -42,6 +42,7 @@ import {
   type RewardCatalogResponse,
   type StudentAgenda,
 } from "../../../lib/api";
+import { useScopedQuery } from "../../hooks/useScopedQuery";
 
 export type StudentPortalStatus = "idle" | "loading" | "ready" | "unavailable";
 
@@ -67,73 +68,53 @@ function reasonFrom(cause: unknown, fallback: string): string {
  *   which is unset on the classroom VM, and never a browser-composed id.
  */
 export function useStudentPortalData(unitId: string | null): StudentPortalData {
-  const [status, setStatus] = useState<StudentPortalStatus>(unitId === null ? "idle" : "loading");
-  const [agenda, setAgenda] = useState<StudentAgenda | null>(null);
-  const [agendaError, setAgendaError] = useState<string | null>(null);
-  const [rewards, setRewards] = useState<RewardCatalogResponse | null>(null);
-  const [rewardsError, setRewardsError] = useState<string | null>(null);
-  const [reloadToken, setReloadToken] = useState(0);
+  // Two independent cached reads — the `allSettled` the hand-rolled version
+  // used, kept: one refusal must not discard the other answer, and each error
+  // is reported against its own half. Both are shared across `StudentHome`,
+  // `StudentHistory` and `StudentConnect`, so the second page a student opens
+  // renders from cache.
+  const agendaQuery = useScopedQuery({
+    resource: "student-agenda",
+    params: [unitId],
+    queryFn: () => fetchStudentAgenda(unitId as string),
+    enabled: unitId !== null,
+  });
+  const rewardsQuery = useScopedQuery({
+    resource: "reward-catalog",
+    params: [unitId],
+    queryFn: () => fetchRewardCatalog(unitId as string),
+    enabled: unitId !== null,
+  });
 
-  const reload = useCallback(() => setReloadToken((token) => token + 1), []);
+  const reload = useCallback(() => {
+    void agendaQuery.refetch();
+    void rewardsQuery.refetch();
+  }, [agendaQuery, rewardsQuery]);
 
-  useEffect(() => {
-    if (unitId === null) {
-      setStatus("idle");
-      setAgendaError(null);
-      setRewardsError(null);
-      return;
-    }
+  // `.data ?? null`, not an `isSuccess` gate: a failed *re*fetch keeps the
+  // last good answer in `data`, and the rule above is that a failed read
+  // leaves the previous value in place rather than clearing it to an empty
+  // list — the error carries the failure beside it.
+  const agenda = agendaQuery.data ?? null;
+  const agendaError = agendaQuery.isError
+    ? reasonFrom(agendaQuery.error, "Your events could not be read, and the server gave no reason.")
+    : null;
+  const rewards = rewardsQuery.data ?? null;
+  const rewardsError = rewardsQuery.isError
+    ? reasonFrom(rewardsQuery.error, "Your points could not be read, and the server gave no reason.")
+    : null;
 
-    let mounted = true;
-    setStatus("loading");
-
-    async function load(id: string) {
-      // `allSettled`, not `all`: one refusal must not discard the other answer.
-      const [agendaResult, rewardsResult] = await Promise.allSettled([
-        fetchStudentAgenda(id),
-        fetchRewardCatalog(id),
-      ]);
-      if (!mounted) return;
-
-      if (agendaResult.status === "fulfilled") {
-        setAgenda(agendaResult.value);
-        setAgendaError(null);
-      } else {
-        setAgendaError(
-          reasonFrom(
-            agendaResult.reason,
-            "Your events could not be read, and the server gave no reason.",
-          ),
-        );
-      }
-
-      if (rewardsResult.status === "fulfilled") {
-        setRewards(rewardsResult.value);
-        setRewardsError(null);
-      } else {
-        setRewardsError(
-          reasonFrom(
-            rewardsResult.reason,
-            "Your points could not be read, and the server gave no reason.",
-          ),
-        );
-      }
-
-      // "Unavailable" is reserved for both halves failing. One answer is a page
-      // with something true on it, and calling that unavailable would hide the
-      // half that worked.
-      setStatus(
-        agendaResult.status === "rejected" && rewardsResult.status === "rejected"
+  const status: StudentPortalStatus =
+    unitId === null
+      ? "idle"
+      : agendaQuery.isPending || rewardsQuery.isPending
+        ? "loading"
+        : // "Unavailable" is reserved for both halves failing. One answer is a
+          // page with something true on it, and calling that unavailable would
+          // hide the half that worked.
+          agendaQuery.isError && rewardsQuery.isError
           ? "unavailable"
-          : "ready",
-      );
-    }
-
-    void load(unitId);
-    return () => {
-      mounted = false;
-    };
-  }, [unitId, reloadToken]);
+          : "ready";
 
   return { status, agenda, agendaError, rewards, rewardsError, reload };
 }

@@ -55,8 +55,9 @@
  * implying it does not exist.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AlertCircle, Check, ShieldAlert, SlidersHorizontal } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 
 import {
   ApiRequestError,
@@ -64,9 +65,12 @@ import {
   updateMatchingWeights,
   type MatchingWeights,
 } from "../../../lib/api";
+import { scopedQueryKey } from "../../../lib/queryClient";
 import { grantedPortal } from "../../components/PortalGate";
+import { usePrincipalKey } from "../../components/PrincipalQueryProvider";
 import { usePortalAccess } from "../../hooks/usePortalAccess";
 import { useAuthenticatedPrincipal } from "../../hooks/useSession";
+import { useScopedQuery } from "../../hooks/useScopedQuery";
 
 /**
  * The form's text, keyed by factor. A key absent from `overrides` starts empty,
@@ -92,43 +96,48 @@ export function CoordinatorMatchingWeights() {
   const grant = grantedPortal(portalAccess, "coordinator");
   const unitId = grant?.default_unit_id ?? null;
 
-  const [weights, setWeights] = useState<MatchingWeights | null>(null);
   const [draft, setDraft] = useState<DraftOverrides>({});
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [refused, setRefused] = useState(false);
 
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState<MatchingWeights | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [conflict, setConflict] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    if (unitId === null) return;
-    try {
-      const current = await fetchMatchingWeights(unitId);
-      setWeights(current);
-      setDraft(draftFrom(current));
+  const queryClient = useQueryClient();
+  const principalKey = usePrincipalKey();
+
+  // The read goes through the shared cache like every other page-load read in
+  // this shell. A refusal is still an answer: the server decides, per request,
+  // and this page reports what it decided instead of pretending the surface
+  // does not exist. `403` is the shape a student or a volunteer gets.
+  const weightsQuery = useScopedQuery({
+    resource: "matching-weights",
+    params: [unitId],
+    queryFn: () => fetchMatchingWeights(unitId as string),
+    enabled: unitId !== null,
+  });
+  const weights = weightsQuery.data ?? null;
+  const loadError = weightsQuery.isError
+    ? weightsQuery.error instanceof ApiRequestError
+      ? weightsQuery.error.message
+      : "The weights could not be read and the server gave no reason."
+    : null;
+  const refused =
+    weightsQuery.error instanceof ApiRequestError && weightsQuery.error.status === 403;
+
+  // The form is seeded from the server's answer, and re-seeded only when that
+  // answer actually changes — React Query's structural sharing keeps the data
+  // reference stable across a refetch that returned the same rows, so a
+  // background revalidation cannot throw away a half-edited form, but a real
+  // change underneath it still can (the draft would be stale either way).
+  useEffect(() => {
+    if (weights !== null) {
+      setDraft(draftFrom(weights));
       setConflict(null);
       setSaveError(null);
       setSaved(null);
-      setLoadError(null);
-      setRefused(false);
-    } catch (cause) {
-      if (cause instanceof ApiRequestError) {
-        // A refusal is an answer. The server decides, per request, and this
-        // page reports what it decided instead of pretending the surface does
-        // not exist. `403` is the shape a student or a volunteer gets.
-        setRefused(cause.status === 403);
-        setLoadError(cause.message);
-      } else {
-        setLoadError("The weights could not be read and the server gave no reason.");
-      }
     }
-  }, [unitId]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
+  }, [weights]);
 
   // Why the button is disabled, in words a person can act on. A courtesy, not a
   // validation: every rule about what a weight may be lives server-side, and
@@ -170,7 +179,12 @@ export function CoordinatorMatchingWeights() {
       });
       // The response, not the form. Everything shown as saved is a value the
       // server read back out of the committed rows, including its new version.
-      setWeights(stored);
+      // Written into the cache slot the read came from, so the saved answer is
+      // what a revisit renders — no second fetch to see the page's own write.
+      queryClient.setQueryData(
+        scopedQueryKey(principalKey ?? "unresolved-principal", "matching-weights", unitId),
+        stored,
+      );
       setDraft(draftFrom(stored));
       setSaved(stored);
     } catch (cause) {
@@ -346,7 +360,7 @@ export function CoordinatorMatchingWeights() {
                   </p>
                   <button
                     type="button"
-                    onClick={() => void load()}
+                    onClick={() => void weightsQuery.refetch()}
                     className="min-h-11 rounded-lg border border-border/70 px-3 py-2 text-sm font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                   >
                     Read the current weights (replaces what you typed)

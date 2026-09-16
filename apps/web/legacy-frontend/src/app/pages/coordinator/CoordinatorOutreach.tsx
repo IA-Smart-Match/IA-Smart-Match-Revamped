@@ -55,7 +55,6 @@
  * {@link useOutreach} waiting for it.
  */
 
-import { useEffect, useState } from "react";
 import { AlertCircle, Clock, Mail, Send, UserCheck } from "lucide-react";
 
 import {
@@ -70,6 +69,7 @@ import {
   type QueuedSend,
 } from "../../hooks/useOutreach";
 import { usePortalAccess } from "../../hooks/usePortalAccess";
+import { useScopedQuery } from "../../hooks/useScopedQuery";
 import {
   INVITATIONS_NO_UNIT_REASON,
   useSpeakerInvitations,
@@ -479,36 +479,26 @@ function InvitationBatches({ unitId }: { unitId: string | null }) {
  * and there is no unit to make it about.
  */
 function UnitSends({ unitId }: { unitId: string | null }) {
-  const [sends, setSends] = useState<OutreachSendSummary[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [settled, setSettled] = useState(false);
+  // The same cache slot `CoordinatorHome`'s sends read uses — the dashboard's
+  // count is this listing's warm-up. The slot holds the sends array itself,
+  // matching the dashboard's shape.
+  const sendsQuery = useScopedQuery({
+    resource: "outreach-sends",
+    params: [unitId],
+    queryFn: async () => (await fetchOutreachSends(unitId as string)).sends,
+    enabled: unitId !== null,
+  });
 
-  useEffect(() => {
-    if (unitId === null) {
-      setSettled(true);
-      return;
-    }
-
-    let cancelled = false;
-    fetchOutreachSends(unitId)
-      .then((listing) => {
-        if (cancelled) return;
-        setSends(listing.sends);
-        setSettled(true);
-      })
-      .catch((cause: unknown) => {
-        if (cancelled) return;
-        // The list is left null rather than emptied. A read that failed says
-        // nothing about how many sends exist, and an empty list would be a
-        // claim this is not in a position to make (ADR-0011).
-        setError(cause instanceof Error ? cause.message : "The send listing failed.");
-        setSettled(true);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [unitId]);
+  // The list is left null rather than emptied. A read that failed says
+  // nothing about how many sends exist, and an empty list would be a
+  // claim this is not in a position to make (ADR-0011).
+  const sends: OutreachSendSummary[] | null = sendsQuery.data ?? null;
+  const error = sendsQuery.isError
+    ? sendsQuery.error instanceof Error
+      ? sendsQuery.error.message
+      : "The send listing failed."
+    : null;
+  const settled = unitId === null || !sendsQuery.isPending;
 
   return (
     <section className="space-y-3" aria-label="Outreach sends">

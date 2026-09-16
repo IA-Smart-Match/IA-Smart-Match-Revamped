@@ -67,7 +67,7 @@
  * provide anyway — the send id does not exist until the worker has run, so
  * there is nothing to poll until there is something to report.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 
 import {
   createOutreachDraft,
@@ -78,6 +78,7 @@ import {
   type OutreachDraft,
   type OutreachSend,
 } from "../../lib/api";
+import { useScopedQuery } from "./useScopedQuery";
 
 export type OutreachStatus = "idle" | "loading" | "ready" | "unavailable";
 
@@ -153,56 +154,42 @@ export function useOutreach(unitId: string | null): UseOutreachResult {
   const unresolved = unitId === null;
   const enabled = !unresolved && hasSmartmatchAuth();
 
-  const [status, setStatus] = useState<OutreachStatus>(
-    enabled ? "loading" : unresolved ? "idle" : "unavailable",
-  );
-  const [drafts, setDrafts] = useState<OutreachDraft[]>([]);
-  const [loadError, setLoadError] = useState<string | null>(
-    enabled || unresolved ? null : OUTREACH_UNAVAILABLE_REASON,
-  );
   const [sendState, setSendState] = useState<SendState>("idle");
   const [sendError, setSendError] = useState<string | null>(null);
   const [queued, setQueued] = useState<QueuedSend | null>(null);
-  const [reloadToken, setReloadToken] = useState(0);
 
-  useEffect(() => {
-    if (unitId === null) {
-      // Nothing to ask for, and no claim to make about what exists. The caller
-      // owns the difference between "still resolving" and "no unit granted".
-      setStatus("idle");
-      setLoadError(null);
-      return;
-    }
-    if (!enabled) {
-      setStatus("unavailable");
-      setLoadError(OUTREACH_UNAVAILABLE_REASON);
-      return;
-    }
+  // The drafts listing through the shared cache — the same slot
+  // `CoordinatorHome`'s drafts read uses, so the dashboard's count is this
+  // page's warm-up. A failed read renders as "unavailable", never as "no
+  // drafts" — an empty list is a claim, and a failed read is not in a
+  // position to make it.
+  const draftsQuery = useScopedQuery({
+    resource: "outreach-drafts",
+    params: [unitId],
+    // The slot holds the drafts array itself — the same shape
+    // `CoordinatorHome` caches under this key, so the two readers share one
+    // entry rather than colliding on it.
+    queryFn: async () => (await fetchOutreachDrafts(unitId as string)).drafts,
+    enabled,
+  });
 
-    let cancelled = false;
-    setStatus("loading");
-    setLoadError(null);
-
-    fetchOutreachDrafts(unitId)
-      .then((response) => {
-        if (cancelled) return;
-        setDrafts(response.drafts);
-        setStatus("ready");
-      })
-      .catch((error: unknown) => {
-        if (cancelled) return;
-        // The list is left empty rather than populated with anything. A failed
-        // read renders as "unavailable", never as "no drafts" — an empty list
-        // is a claim, and this is not in a position to make it.
-        setDrafts([]);
-        setLoadError(describeError(error));
-        setStatus("unavailable");
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [enabled, unitId, reloadToken]);
+  const status: OutreachStatus = unresolved
+    ? "idle"
+    : !enabled
+      ? "unavailable"
+      : draftsQuery.isPending
+        ? "loading"
+        : draftsQuery.isError
+          ? "unavailable"
+          : "ready";
+  const drafts: OutreachDraft[] = draftsQuery.isSuccess ? draftsQuery.data : [];
+  const loadError = unresolved
+    ? null
+    : !enabled
+      ? OUTREACH_UNAVAILABLE_REASON
+      : draftsQuery.isError
+        ? describeError(draftsQuery.error)
+        : null;
 
   const composeDraft = useCallback(
     async (input: {
@@ -218,13 +205,13 @@ export function useOutreach(unitId: string | null): UseOutreachResult {
         // Re-read rather than appending the response optimistically. The server
         // decides what a draft is, and a list patched locally would drift from
         // it the first time it decided something we did not predict.
-        setReloadToken((token) => token + 1);
+        await draftsQuery.refetch();
       } catch (error: unknown) {
         setSendError(describeError(error));
         throw error;
       }
     },
-    [unitId],
+    [unitId, draftsQuery],
   );
 
   const sendDraft = useCallback(

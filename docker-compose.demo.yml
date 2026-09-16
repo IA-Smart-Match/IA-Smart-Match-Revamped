@@ -1,0 +1,30 @@
+# Compose override for demo runs — the web service serves a production build
+# instead of the Vite dev server.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.demo.yml up -d
+#
+# Why this exists: `vite dev` compiles every module on demand, which is what
+# made page switches take 2-3 seconds even before the API reads. `vite build`
+# produces the minified bundle once, and `vite preview` serves it — the same
+# artifact shape a real deployment would ship, so demo timing is honest.
+#
+# What does NOT change: the published port stays 127.0.0.1:5173 (preview is
+# told to listen on 5173 to match), the /api and /v1 proxy still forwards to
+# the compose API by service name (vite.config.ts configures `preview.proxy`
+# identically to `server.proxy`), and VITE_SMARTMATCH_BEARER_TOKEN is still
+# the build-time variable the bundle is compiled with — it is read by
+# `vite build` inside the container, so the value in the base file's
+# `environment` block reaches it unchanged.
+#
+# First `up` is slower than the dev server's: `npm ci` (only when the
+# node_modules volume is empty) plus a full `vite build` plus `tsc --noEmit`,
+# all inside the one command. The healthcheck's 600s start_period in the base
+# file is sized for that. Every later `up` skips the install and pays only
+# the build.
+
+services:
+  web:
+    command:
+      - "sh"
+      - "-c"
+      - "[ -x node_modules/.bin/vite ] || npm ci; npm run build && exec npx vite preview --host 0.0.0.0 --port 5173"

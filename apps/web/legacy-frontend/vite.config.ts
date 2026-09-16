@@ -1,3 +1,4 @@
+import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -22,6 +23,19 @@ const apiProxyTarget =
     ? configuredProxyTarget
     : "http://127.0.0.1:8000";
 
+/**
+ * Keep-alive agent for the proxy's upstream requests.
+ *
+ * Without an agent, http-proxy sends `connection: close` to the target, the
+ * target echoes it, and the proxy tears the client socket down with the
+ * upstream one — a race that truncates larger response bodies for readers
+ * that drain the stream incrementally (browsers' `fetch`; curl reads fast
+ * enough to win the race, which is why the failure only showed in the app).
+ * A keep-alive agent removes the `connection: close` entirely: the upstream
+ * socket stays open and the client socket closes on the response's own end.
+ */
+const proxyAgent = new http.Agent({ keepAlive: true });
+
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: {
@@ -42,6 +56,7 @@ export default defineConfig({
         // Use IPv4 literal so Windows + Node do not prefer ::1 when the API binds 127.0.0.1 only.
         target: apiProxyTarget,
         changeOrigin: true,
+        agent: proxyAgent,
       },
       // Authenticated job/import routes and the planned domain routes use /v1.
       // Without this the browser gets index.html back and the failure reads as
@@ -49,6 +64,7 @@ export default defineConfig({
       "/v1": {
         target: apiProxyTarget,
         changeOrigin: true,
+        agent: proxyAgent,
       },
     },
   },
@@ -59,10 +75,12 @@ export default defineConfig({
       "/api": {
         target: apiProxyTarget,
         changeOrigin: true,
+        agent: proxyAgent,
       },
       "/v1": {
         target: apiProxyTarget,
         changeOrigin: true,
+        agent: proxyAgent,
       },
     },
   },

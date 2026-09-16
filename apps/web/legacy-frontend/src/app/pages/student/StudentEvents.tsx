@@ -83,7 +83,7 @@
  * behaviour nobody specified.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { CalendarDays, CalendarX2, Download, Info, MapPin, Video } from "lucide-react";
 
 import {
@@ -98,6 +98,7 @@ import { PagedList } from "../../components/PagedList";
 import { grantedPortal } from "../../components/PortalGate";
 import { usePortalAccess } from "../../hooks/usePortalAccess";
 import { useAuthenticatedPrincipal } from "../../hooks/useSession";
+import { useScopedQuery } from "../../hooks/useScopedQuery";
 
 /** The server's refusal codes, in the words a student reads. */
 const CALENDAR_REASON_TEXT: Record<string, string> = {
@@ -435,42 +436,44 @@ export function StudentEvents() {
   const grant = grantedPortal(portalAccess, "student");
   const unitId = grant?.default_unit_id ?? null;
 
-  const [published, setPublished] = useState<StudentEvent[]>([]);
-  const [withheldUnpublished, setWithheldUnpublished] = useState(0);
-  const [agenda, setAgenda] = useState<StudentEvent[]>([]);
-  const [withheldUndated, setWithheldUndated] = useState(0);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [loaded, setLoaded] = useState(false);
+  // The catalog and the agenda as two cached reads. The agenda slot is the
+  // same one `useStudentPortalData` fills, so a student who opened Home first
+  // finds it already warm. The pair still reports together — one refusal is
+  // one banner — and a failed *re*fetch keeps the last good lists rather than
+  // replacing them with an empty state that would read as "there is nothing".
+  const catalogQuery = useScopedQuery({
+    resource: "student-events",
+    params: [unitId],
+    queryFn: () => fetchStudentEvents(unitId as string),
+    enabled: unitId !== null,
+  });
+  const agendaQuery = useScopedQuery({
+    resource: "student-agenda",
+    params: [unitId],
+    queryFn: () => fetchStudentAgenda(unitId as string),
+    enabled: unitId !== null,
+  });
+
+  const published: StudentEvent[] = catalogQuery.data?.events ?? [];
+  const withheldUnpublished = catalogQuery.data?.withheld_unpublished ?? 0;
+  const agenda: StudentEvent[] = agendaQuery.data?.events ?? [];
+  const withheldUndated = agendaQuery.data?.withheld_unresolved_date ?? 0;
+  const failedQuery = catalogQuery.isError
+    ? catalogQuery
+    : agendaQuery.isError
+      ? agendaQuery
+      : null;
+  const loadError =
+    failedQuery === null
+      ? null
+      : failedQuery.error instanceof ApiRequestError
+        ? failedQuery.error.message
+        : "Your events could not be loaded and the server gave no reason.";
+  const loaded = !catalogQuery.isPending && !agendaQuery.isPending;
 
   const load = useCallback(async () => {
-    if (unitId === null) return;
-    try {
-      const [catalog, mine] = await Promise.all([
-        fetchStudentEvents(unitId),
-        fetchStudentAgenda(unitId),
-      ]);
-      setPublished(catalog.events);
-      setWithheldUnpublished(catalog.withheld_unpublished);
-      setAgenda(mine.events);
-      setWithheldUndated(mine.withheld_unresolved_date);
-      setLoadError(null);
-    } catch (cause) {
-      // The server's own message. Nothing is rendered from a guess, and the
-      // lists are left as they were rather than replaced by an empty state that
-      // would read as "there is nothing".
-      setLoadError(
-        cause instanceof ApiRequestError
-          ? cause.message
-          : "Your events could not be loaded and the server gave no reason.",
-      );
-    } finally {
-      setLoaded(true);
-    }
-  }, [unitId]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
+    await Promise.all([catalogQuery.refetch(), agendaQuery.refetch()]);
+  }, [catalogQuery, agendaQuery]);
 
   /**
    * What the month grid draws: the catalog, plus any agenda event the catalog

@@ -59,7 +59,7 @@
  * every other page in this shell takes.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { Info } from "lucide-react";
 
 import {
@@ -74,6 +74,7 @@ import { PagedList } from "../../components/PagedList";
 import { grantedPortal } from "../../components/PortalGate";
 import { usePortalAccess } from "../../hooks/usePortalAccess";
 import { useAuthenticatedPrincipal } from "../../hooks/useSession";
+import { useScopedQuery } from "../../hooks/useScopedQuery";
 
 /** The three tabs, in the order a coordinator works them. */
 const STATUS_TABS: readonly { value: ReviewItemStatus; label: string }[] = [
@@ -199,43 +200,39 @@ export function CoordinatorReviewQueue() {
   const unitId = grant?.default_unit_id ?? null;
 
   const [status, setStatus] = useState<ReviewItemStatus>("pending");
-  const [items, setItems] = useState<ReviewItem[]>([]);
-  const [truncated, setTruncated] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
   const [decideError, setDecideError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [loaded, setLoaded] = useState(false);
+
+  // One cache slot per status tab — the key carries the filter, so switching
+  // tabs inside `staleTime` renders the cached listing immediately while a
+  // background refetch keeps it honest. The "pending" slot is the same key
+  // the shell's badge count and `CoordinatorHome` read, so it is usually
+  // already warm.
+  const listQuery = useScopedQuery({
+    resource: "review-items",
+    params: [unitId, status],
+    queryFn: () => fetchReviewItems(unitId as string, status),
+    enabled: unitId !== null,
+  });
+
+  // A failed read shows no rows rather than the previous tab's rows under the
+  // new tab's heading: stale rows presented as current are worse than none —
+  // a coordinator would decide them believing they were what they asked for.
+  const items: ReviewItem[] = listQuery.isSuccess ? listQuery.data.items : [];
+  // Read from the response, never inferred from `items.length === cap`:
+  // the server measured it, and a client re-deriving it would be guessing
+  // at a cap it does not own.
+  const truncated = listQuery.isSuccess ? listQuery.data.truncated : false;
+  const loadError = listQuery.isError
+    ? listQuery.error instanceof ApiRequestError
+      ? listQuery.error.message
+      : "The review queue could not be loaded and the server gave no reason."
+    : null;
+  const loaded = !listQuery.isPending;
 
   const load = useCallback(async () => {
-    if (unitId === null) return;
-    try {
-      const response = await fetchReviewItems(unitId, status);
-      setItems(response.items);
-      // Read from the response, never inferred from `items.length === cap`:
-      // the server measured it, and a client re-deriving it would be guessing
-      // at a cap it does not own.
-      setTruncated(response.truncated);
-      setLoadError(null);
-    } catch (cause) {
-      // The list is emptied on failure rather than left showing the previous
-      // status's rows under the new tab's heading. Stale rows presented as
-      // current are worse than none: a coordinator would decide them believing
-      // they were what they asked for.
-      setItems([]);
-      setTruncated(false);
-      setLoadError(
-        cause instanceof ApiRequestError
-          ? cause.message
-          : "The review queue could not be loaded and the server gave no reason.",
-      );
-    } finally {
-      setLoaded(true);
-    }
-  }, [unitId, status]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
+    await listQuery.refetch();
+  }, [listQuery]);
 
   const handleDecide = useCallback(
     async (item: ReviewItem, decision: ReviewDecision) => {
@@ -301,7 +298,6 @@ export function CoordinatorReviewQueue() {
             aria-current={tab.value === status ? "page" : undefined}
             onClick={() => {
               setStatus(tab.value);
-              setLoaded(false);
             }}
             className={
               tab.value === status

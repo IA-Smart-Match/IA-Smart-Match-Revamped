@@ -51,9 +51,10 @@
  * somebody is about to act on.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { AlertCircle, CheckCircle2, ListChecks, Mail, ShieldAlert } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 
 import {
   ApiRequestError,
@@ -66,10 +67,13 @@ import {
   type SpeakerContactChannel,
   type SpeakerInvitationBatch,
 } from "../../../lib/api";
+import { scopedQueryKey } from "../../../lib/queryClient";
 import { PagedList } from "../../components/PagedList";
 import { grantedPortal } from "../../components/PortalGate";
+import { usePrincipalKey } from "../../components/PrincipalQueryProvider";
 import { usePortalAccess } from "../../hooks/usePortalAccess";
 import { useAuthenticatedPrincipal } from "../../hooks/useSession";
+import { useScopedQuery } from "../../hooks/useScopedQuery";
 
 /**
  * How a skip reads to a Connector, in terms of what they can do about it.
@@ -315,29 +319,28 @@ export function CoordinatorInvitations() {
   const [searchParams] = useSearchParams();
   const matchRunId = searchParams.get("run");
 
-  const [run, setRun] = useState<MatchRunRead | null>(null);
-  const [recipients, setRecipients] = useState<readonly Recipient[]>([]);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  const queryClient = useQueryClient();
+  const principalKey = usePrincipalKey();
 
-  const [selected, setSelected] = useState<readonly string[]>([]);
-  const [eventName, setEventName] = useState("");
-  const [eventDate, setEventDate] = useState("");
-  const [coordinatorName, setCoordinatorName] = useState("");
-
-  const [submitting, setSubmitting] = useState(false);
-  const [submitError, setSubmitError] = useState<string | null>(null);
-  const [composed, setComposed] = useState<SpeakerInvitationBatch | null>(null);
-
-  const load = useCallback(async () => {
-    if (unitId === null || matchRunId === null) return;
-    setLoading(true);
-    try {
+  // One cached composite per run: the run itself, the roster (shared with the
+  // `speaker-contacts` slot), and one channel read per shortlisted candidate.
+  // Each channel read may still fail on its own — a candidate whose channels
+  // the server refused is reported on that row rather than collapsing the
+  // whole composition into a banner.
+  const composeQuery = useScopedQuery({
+    resource: "invitation-compose",
+    params: [unitId, matchRunId],
+    enabled: unitId !== null && matchRunId !== null && principalKey !== null,
+    queryFn: async () => {
+      const id = unitId as string;
+      const runParam = matchRunId as string;
       const [readRun, roster] = await Promise.all([
-        fetchMatchRun(unitId, matchRunId),
-        fetchSpeakerContacts(unitId),
+        fetchMatchRun(id, runParam),
+        queryClient.fetchQuery({
+          queryKey: scopedQueryKey(principalKey as string, "speaker-contacts", id),
+          queryFn: () => fetchSpeakerContacts(id),
+        }),
       ]);
-      setRun(readRun);
 
       // The recipients are the run's shortlist, in the order the server
       // returned it. Nothing here re-orders or re-selects them.
@@ -346,7 +349,7 @@ export function CoordinatorInvitations() {
           const contact =
             roster.contacts.find((entry) => entry.professional_id === candidate.subject_id) ?? null;
           try {
-            const channels = await fetchSpeakerContactChannels(unitId, candidate.subject_id);
+            const channels = await fetchSpeakerContactChannels(id, candidate.subject_id);
             return {
               subjectId: candidate.subject_id,
               contact,
@@ -366,24 +369,28 @@ export function CoordinatorInvitations() {
           }
         }),
       );
-      setRecipients(rows);
-      setLoadError(null);
-    } catch (cause) {
-      setRun(null);
-      setRecipients([]);
-      setLoadError(
-        cause instanceof ApiRequestError
-          ? cause.message
-          : "The shortlist could not be read, and the server gave no reason. Nothing was composed.",
-      );
-    } finally {
-      setLoading(false);
-    }
-  }, [unitId, matchRunId]);
+      return { run: readRun, recipients: rows };
+    },
+  });
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  const run: MatchRunRead | null = composeQuery.data?.run ?? null;
+  const recipients: readonly Recipient[] = composeQuery.data?.recipients ?? [];
+  const loadError = composeQuery.isError
+    ? composeQuery.error instanceof ApiRequestError
+      ? composeQuery.error.message
+      : "The shortlist could not be read, and the server gave no reason. Nothing was composed."
+    : null;
+  const loading = composeQuery.isPending;
+
+  const [selected, setSelected] = useState<readonly string[]>([]);
+  const [eventName, setEventName] = useState("");
+  const [eventDate, setEventDate] = useState("");
+  const [coordinatorName, setCoordinatorName] = useState("");
+
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [composed, setComposed] = useState<SpeakerInvitationBatch | null>(null);
+
 
   const verdicts = useMemo(
     () => new Map(recipients.map((recipient) => [recipient.subjectId, judgeConsent(recipient)])),

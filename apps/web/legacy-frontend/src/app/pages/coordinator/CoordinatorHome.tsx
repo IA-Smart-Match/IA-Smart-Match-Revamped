@@ -181,7 +181,6 @@
  * rather than hiding them and implying the capability is absent.
  */
 
-import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router";
 import {
   BarChart3,
@@ -221,6 +220,11 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "../../components/ui/too
 import { grantedPortal } from "../../components/PortalGate";
 import { usePortalAccess } from "../../hooks/usePortalAccess";
 import { useAuthenticatedPrincipal } from "../../hooks/useSession";
+import {
+  queryToLoaded,
+  useScopedQuery,
+  type Loaded,
+} from "../../hooks/useScopedQuery";
 
 /**
  * What one read returned, or why it returned nothing.
@@ -230,18 +234,8 @@ import { useAuthenticatedPrincipal } from "../../hooks/useSession";
  * summary can still be entitled to the register, and replacing both with one
  * message would misreport which capability the server withheld.
  */
-type Loaded<T> = { data: T | null; error: string | null; settled: boolean };
-
-const PENDING = { data: null, error: null, settled: false } as const;
-
-function describeFailure(cause: unknown, subject: string): string {
-  // The server's own words where it gave any. `ApiRequestError.message` carries
-  // the API's error text, including the refusal a `403` explains, and a
-  // rephrasing here would be this page's opinion about someone else's decision.
-  return cause instanceof ApiRequestError
-    ? cause.message
-    : `${subject} could not be read and the server gave no reason.`;
-}
+// `Loaded`, `PENDING` and `describeFailure` now live in
+// `../../hooks/useScopedQuery` — the shape is unchanged, only shared.
 
 /**
  * How much attendance evidence the unit holds, by mechanism.
@@ -1013,130 +1007,78 @@ export function CoordinatorHome() {
   const grant = grantedPortal(portalAccess, "coordinator");
   const unitId = grant?.default_unit_id ?? null;
 
-  const [attendance, setAttendance] = useState<Loaded<AttendanceSummary>>(PENDING);
-  const [feedback, setFeedback] = useState<Loaded<UnitFeedbackSummary>>(PENDING);
-  const [events, setEvents] = useState<Loaded<UnitEventList>>(PENDING);
-  const [drafts, setDrafts] = useState<Loaded<OutreachDraft[]>>(PENDING);
-  const [sends, setSends] = useState<Loaded<OutreachSendSummary[]>>(PENDING);
-  // The three action-queue reads. Settled independently of each other and of
-  // everything above, for the reason the rest of this page is: a refusal on
-  // one route says nothing about another, and one banner over all of them
-  // would misreport which capability the server actually withheld.
-  const [speakerRequests, setSpeakerRequests] = useState<Loaded<SpeakerRequestList>>(PENDING);
-  const [reviewItems, setReviewItems] = useState<Loaded<ReviewItemListResponse>>(PENDING);
-  const [invitationBatches, setInvitationBatches] =
-    useState<Loaded<SpeakerInvitationBatchListResponse>>(PENDING);
+  // Eight independent reads through the shared cache, settled independently.
+  // Letting one refusal decide what another section shows would misreport
+  // which capability the server actually withheld — the same reason the
+  // hand-rolled version settled each read on its own. They now also run in
+  // parallel (the old `load()` awaited them sequentially, which was most of
+  // this page's switch-to latency) and are cached, so a revisit inside
+  // `staleTime` renders instantly.
+  //
+  // The registered metrics are not among these reads. `SpeakerPipelineSection`
+  // performs its own single one, because it needs the funnel, the conversions
+  // and the insights the register listing does not carry — and re-reading the
+  // register here would be a second request for numbers already on the screen.
+  const speakerRequestsQuery = useScopedQuery({
+    resource: "speaker-requests",
+    params: [unitId],
+    queryFn: () => fetchSpeakerRequests(unitId as string),
+    enabled: unitId !== null,
+  });
+  const reviewItemsQuery = useScopedQuery({
+    resource: "review-items",
+    params: [unitId, "pending"],
+    queryFn: () => fetchReviewItems(unitId as string, "pending"),
+    enabled: unitId !== null,
+  });
+  const invitationBatchesQuery = useScopedQuery({
+    resource: "invitation-batches",
+    params: [unitId],
+    queryFn: () => fetchSpeakerInvitationBatches(unitId as string),
+    enabled: unitId !== null,
+  });
+  const attendanceQuery = useScopedQuery({
+    resource: "attendance-summary",
+    params: [unitId],
+    queryFn: () => fetchAttendanceSummary(unitId as string),
+    enabled: unitId !== null,
+  });
+  const feedbackQuery = useScopedQuery({
+    resource: "unit-feedback-summary",
+    params: [unitId],
+    queryFn: () => fetchUnitSpeakerFeedbackSummary(unitId as string),
+    enabled: unitId !== null,
+  });
+  const eventsQuery = useScopedQuery({
+    resource: "unit-events",
+    params: [unitId],
+    queryFn: () => fetchUnitEvents(unitId as string),
+    enabled: unitId !== null,
+  });
+  // The two outreach reads settle apart from each other as well as from
+  // everything above: a unit can hold drafts it has never sent, and a refusal
+  // on one of these routes says nothing about the other.
+  const draftsQuery = useScopedQuery({
+    resource: "outreach-drafts",
+    params: [unitId],
+    queryFn: async () => (await fetchOutreachDrafts(unitId as string)).drafts,
+    enabled: unitId !== null,
+  });
+  const sendsQuery = useScopedQuery({
+    resource: "outreach-sends",
+    params: [unitId],
+    queryFn: async () => (await fetchOutreachSends(unitId as string)).sends,
+    enabled: unitId !== null,
+  });
 
-  const load = useCallback(async () => {
-    if (unitId === null) return;
-
-    // Eight independent reads, settled independently. Letting one refusal
-    // decide what another section shows would misreport which capability the
-    // server actually withheld.
-    //
-    // The three action-queue reads run first because the queue renders first:
-    // the four things a Connector owes are the reason they opened this page,
-    // and the metrics below can finish arriving while they read them.
-    //
-    // The registered metrics are not among these reads. `SpeakerPipelineSection`
-    // performs its own single one, because it needs the funnel, the conversions
-    // and the insights the register listing does not carry — and re-reading the
-    // register here would be a second request for numbers already on the screen.
-    try {
-      const listing = await fetchSpeakerRequests(unitId);
-      setSpeakerRequests({ data: listing, error: null, settled: true });
-    } catch (cause) {
-      setSpeakerRequests({
-        data: null,
-        error: describeFailure(cause, "The unit's speaker requests"),
-        settled: true,
-      });
-    }
-
-    try {
-      const listing = await fetchReviewItems(unitId, "pending");
-      setReviewItems({ data: listing, error: null, settled: true });
-    } catch (cause) {
-      setReviewItems({
-        data: null,
-        error: describeFailure(cause, "The review queue"),
-        settled: true,
-      });
-    }
-
-    try {
-      const listing = await fetchSpeakerInvitationBatches(unitId);
-      setInvitationBatches({ data: listing, error: null, settled: true });
-    } catch (cause) {
-      setInvitationBatches({
-        data: null,
-        error: describeFailure(cause, "The invitation batches"),
-        settled: true,
-      });
-    }
-
-    try {
-      const summary = await fetchAttendanceSummary(unitId);
-      setAttendance({ data: summary, error: null, settled: true });
-    } catch (cause) {
-      setAttendance({
-        data: null,
-        error: describeFailure(cause, "The attendance summary"),
-        settled: true,
-      });
-    }
-
-    try {
-      const summary = await fetchUnitSpeakerFeedbackSummary(unitId);
-      setFeedback({ data: summary, error: null, settled: true });
-    } catch (cause) {
-      setFeedback({
-        data: null,
-        error: describeFailure(cause, "The unit feedback summary"),
-        settled: true,
-      });
-    }
-
-    try {
-      const listing = await fetchUnitEvents(unitId);
-      setEvents({ data: listing, error: null, settled: true });
-    } catch (cause) {
-      setEvents({
-        data: null,
-        error: describeFailure(cause, "The unit's event listing"),
-        settled: true,
-      });
-    }
-
-    // The two outreach reads are settled apart from each other as well as from
-    // everything above: a unit can hold drafts it has never sent, and a refusal
-    // on one of these routes says nothing about the other.
-    try {
-      const listing = await fetchOutreachDrafts(unitId);
-      setDrafts({ data: listing.drafts, error: null, settled: true });
-    } catch (cause) {
-      setDrafts({
-        data: null,
-        error: describeFailure(cause, "The outreach drafts"),
-        settled: true,
-      });
-    }
-
-    try {
-      const listing = await fetchOutreachSends(unitId);
-      setSends({ data: listing.sends, error: null, settled: true });
-    } catch (cause) {
-      setSends({
-        data: null,
-        error: describeFailure(cause, "The outreach sends"),
-        settled: true,
-      });
-    }
-  }, [unitId]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
+  const speakerRequests = queryToLoaded(speakerRequestsQuery, "The unit's speaker requests");
+  const reviewItems = queryToLoaded(reviewItemsQuery, "The review queue");
+  const invitationBatches = queryToLoaded(invitationBatchesQuery, "The invitation batches");
+  const attendance = queryToLoaded(attendanceQuery, "The attendance summary");
+  const feedback = queryToLoaded(feedbackQuery, "The unit feedback summary");
+  const events = queryToLoaded(eventsQuery, "The unit's event listing");
+  const drafts = queryToLoaded(draftsQuery, "The outreach drafts");
+  const sends = queryToLoaded(sendsQuery, "The outreach sends");
 
   // `CoordinatorPortalLayout` already renders `PortalGate` when the server granted
   // no such portal, so reaching here without a grant means the mapping is

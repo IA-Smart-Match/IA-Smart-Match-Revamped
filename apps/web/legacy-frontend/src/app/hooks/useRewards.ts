@@ -53,7 +53,7 @@
  * cost, and re-ordering in the browser would be the first step back toward a
  * catalog the browser owns.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 
 import {
   fetchOwnRedemptions,
@@ -63,6 +63,7 @@ import {
   type Redemption,
   type RewardCatalogResponse,
 } from "../../lib/api";
+import { useScopedQuery } from "./useScopedQuery";
 
 export type RewardsStatus = "idle" | "loading" | "ready" | "unavailable";
 
@@ -123,62 +124,56 @@ export function useRewards(unitId: string | null): UseRewardsResult {
   const unresolved = unitId === null;
   const enabled = !unresolved && authConfigured;
 
-  const [status, setStatus] = useState<RewardsStatus>(
-    enabled ? "loading" : unresolved ? "idle" : "unavailable",
-  );
-  const [catalog, setCatalog] = useState<RewardCatalogResponse | null>(null);
-  const [redemptions, setRedemptions] = useState<Redemption[]>([]);
-  const [loadError, setLoadError] = useState<string | null>(
-    enabled || unresolved ? null : REWARDS_UNAVAILABLE_REASON,
-  );
   const [pendingItemIds, setPendingItemIds] = useState<Set<string>>(() => new Set());
   const [requestError, setRequestError] = useState<string | null>(null);
-  const [reloadToken, setReloadToken] = useState(0);
 
-  useEffect(() => {
-    if (unitId === null) {
-      // Nothing to ask for, and no claim to make about what is funded. The
-      // caller owns the difference between "still resolving" and "no unit".
-      setStatus("idle");
-      setLoadError(null);
-      return;
-    }
-    if (!enabled) {
-      setStatus("unavailable");
-      setLoadError(REWARDS_UNAVAILABLE_REASON);
-      return;
-    }
+  // The catalog read is the same slot `useStudentPortalData` fills for the
+  // student home page — a student who opened Home first finds this already
+  // warm. The pair still fails together (`Promise.all`'s rule, kept): either
+  // read's refusal marks the hook "unavailable" rather than showing half a
+  // wallet.
+  const catalogQuery = useScopedQuery({
+    resource: "reward-catalog",
+    params: [unitId],
+    queryFn: () => fetchRewardCatalog(unitId as string),
+    enabled,
+  });
+  const redemptionsQuery = useScopedQuery({
+    resource: "own-redemptions",
+    params: [unitId],
+    queryFn: () => fetchOwnRedemptions(unitId as string),
+    enabled,
+  });
 
-    let mounted = true;
-    setStatus("loading");
-    setLoadError(null);
+  const failedQuery = catalogQuery.isError
+    ? catalogQuery
+    : redemptionsQuery.isError
+      ? redemptionsQuery
+      : null;
 
-    async function load(id: string) {
-      try {
-        const [nextCatalog, tickets] = await Promise.all([
-          fetchRewardCatalog(id),
-          fetchOwnRedemptions(id),
-        ]);
-        if (!mounted) return;
-        setCatalog(nextCatalog);
-        setRedemptions(tickets.redemptions);
-        setStatus("ready");
-      } catch (error) {
-        if (!mounted) return;
-        // The catalog is left as it was rather than cleared to an empty list: an
-        // empty catalog is a claim ("nothing is funded") and a failed read is
-        // not, so `status` carries the failure and the consumer renders that
-        // instead of an emptied shelf.
-        setStatus("unavailable");
-        setLoadError(error instanceof Error ? error.message : "Failed to load rewards.");
-      }
-    }
-
-    void load(unitId);
-    return () => {
-      mounted = false;
-    };
-  }, [enabled, unitId, reloadToken]);
+  const status: RewardsStatus = unresolved
+    ? "idle"
+    : !enabled
+      ? "unavailable"
+      : catalogQuery.isPending || redemptionsQuery.isPending
+        ? "loading"
+        : failedQuery !== null
+          ? "unavailable"
+          : "ready";
+  // `.data ?? …`, not an `isSuccess` gate: a failed *re*fetch keeps the last
+  // good answer in `data`, and the rule is that a failed read leaves the
+  // catalog as it was rather than clearing it to an empty shelf.
+  const catalog = catalogQuery.data ?? null;
+  const redemptions: Redemption[] = redemptionsQuery.data?.redemptions ?? [];
+  const loadError = unresolved
+    ? null
+    : !enabled
+      ? REWARDS_UNAVAILABLE_REASON
+      : failedQuery !== null
+        ? failedQuery.error instanceof Error
+          ? failedQuery.error.message
+          : "Failed to load rewards."
+        : null;
 
   const requestItem = useCallback(
     async (itemId: string) => {
@@ -187,7 +182,7 @@ export function useRewards(unitId: string | null): UseRewardsResult {
       setPendingItemIds((previous) => new Set([...previous, itemId]));
       try {
         await requestRedemption(unitId, itemId);
-        setReloadToken((token) => token + 1);
+        await Promise.all([catalogQuery.refetch(), redemptionsQuery.refetch()]);
       } catch (error) {
         setRequestError(
           error instanceof Error ? error.message : "Could not request that redemption.",
@@ -200,7 +195,7 @@ export function useRewards(unitId: string | null): UseRewardsResult {
         });
       }
     },
-    [unitId],
+    [unitId, catalogQuery, redemptionsQuery],
   );
 
   return {
