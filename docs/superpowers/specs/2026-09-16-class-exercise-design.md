@@ -7,7 +7,7 @@
 **Scope:** `ProductScope.CLASS_EXERCISE` only. The CBA platform track continues
 unchanged; this spec touches shared code in exactly two places (§4.1, §4.2).
 **Requirements:** [`docs/product/class-exercise-requirements.md`](../../product/class-exercise-requirements.md)
-**Architecture:** [ADR-0019](../../architecture/decisions/ADR-0019-class-exercise-scope-shares-the-matching-mechanism.md)
+**Architecture:** [ADR-0025](../../architecture/decisions/ADR-0025-class-exercise-scope-shares-the-matching-mechanism.md)
 **Register:** [`class-exercise-open-questions.md`](../../plans/open-questions/class-exercise-open-questions.md)
 
 ## 0. Scope, non-goals, not-now
@@ -87,7 +87,7 @@ a small fixed list.
 
 ## 4. Factors, weights, tie-break, reasons
 
-### 4.1 Shared: the `FactorRegistry` parameterisation (ADR-0018 D2)
+### 4.1 Shared: the `FactorRegistry` parameterisation (ADR-0024 D2)
 
 Executed once, first, exactly as Task 1 of
 `docs/superpowers/plans/2026-09-14-student-recommender-v1-plan.md`: a frozen
@@ -140,7 +140,7 @@ through `assert_one_sentence`. The two sentences Ann specifies verbatim:
 ordered by year" (a tie resolved by §4.4). Other cases name the factors that
 contributed, in Ann's words.
 
-### 4.6 No numeric score on any screen (ADR-0019 D8)
+### 4.6 No numeric score on any screen (ADR-0025 D8)
 
 The response carries `rank`, `reason`, `marker`, and the factor keys that
 contributed. No number named like a score.

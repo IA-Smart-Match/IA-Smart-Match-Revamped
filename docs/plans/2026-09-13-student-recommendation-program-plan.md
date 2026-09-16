@@ -53,7 +53,7 @@ never degrading to a default (ADR-0011 rule 1), `ALLOW_LIVE_PROVIDERS` and
 | **W1a** | `smartmatch_domain/student_interests.py` — the vocabulary binding and nothing else | none | none | **Historical proposal; use canonical entry gates** |
 | **W1b** | `student_profile` + `student_profile_interest`, and the three student-owned routes | OQ-SC-02 | **current-head-plus-one at merge readiness** | **Historical proposal; use canonical entry gates** |
 | **W2a** | Parameterise `factor_registry` so two registries can coexist | none | none | **Historical proposal; use canonical entry gates** |
-| **W2b** | The student registry, the factors, the composition, golden cases, ADR-0018 | W1a + W2a | none | **Historical proposal; use canonical entry gates** |
+| **W2b** | The student registry, the factors, the composition, golden cases, ADR-0024 | W1a + W2a | none | **Historical proposal; use canonical entry gates** |
 | **W3** | The weekly digest: student channel consent plus a separate producer before dispatch | OQ-SC-03 | **current-head-plus-one at merge readiness** | **Historical proposal; use canonical entry gates** |
 | **W4** | The aggregate demand read | W1b | none | **STOPPED — canonical OQ-SE-04 through OQ-SE-08** |
 | **W5** | Naming a speaker on a student-facing card | OQ-CBA-064 **and** OQ-CBA-051 | — | **Historical and not scheduled** |

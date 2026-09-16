@@ -12,12 +12,12 @@
 - `docs/architecture/student-recommender-contracts.md` (contracts)
 - `docs/superpowers/plans/2026-09-14-student-recommender-v1-plan.md` (V1 plan)
 - `docs/decisions/student-recommender-decision-record.md` (decision record)
-- `docs/architecture/decisions/ADR-0018-staged-student-event-recommender.md` (ADR-0018)
+- `docs/architecture/decisions/ADR-0024-staged-student-event-recommender.md` (ADR-0024)
 - `docs/plans/open-questions/student-engagement-deferred.md` (register)
 
 ## Global Constraints
 
-- ADR-0018 stays `Proposed`; edits to it are wording corrections to D7 and D4 only, never a status change.
+- ADR-0024 stays `Proposed`; edits to it are wording corrections to D7 and D4 only, never a status change.
 - No register row is closed by this plan. OQ-SC-11, OQ-SE-19, OQ-SE-01 stay OPEN.
 - Constants stay domain constants (`STUDENT_FEED_MAX_PER_PRIMARY_TAG = 3`, `STUDENT_FEED_MAX_ITEMS = 5`, `STUDENT_FEED_WINDOW_DAYS = 7`, `STUDENT_FEED_WILDCARD_SLOTS = 1`).
 - `FactorScore.value` stays bounded to `[0.0, 1.0]` (`python/smartmatch_domain/smartmatch_domain/factors/__init__.py:95`); the fix adapts the learned ranker, not the value object.
@@ -36,7 +36,7 @@
 - Modify: `docs/architecture/student-recommender-contracts.md:15` (intro), `:309` (§4 heading), `:383-397` (§5.3)
 - Modify: `docs/decisions/student-recommender-decision-record.md:118-131` (§4.6)
 - Modify: `docs/plans/open-questions/student-engagement-deferred.md:58` (OQ-SE-19 row)
-- Modify: `docs/architecture/decisions/ADR-0018-staged-student-event-recommender.md:156` (D4 paragraph naming OQ-SE-19)
+- Modify: `docs/architecture/decisions/ADR-0024-staged-student-event-recommender.md:156` (D4 paragraph naming OQ-SE-19)
 
 - [ ] **Step 1: Contracts §5.3 — rename the gate and add the prerequisite sentence**
 
@@ -82,7 +82,7 @@ Extend `**Closure evidence:**` with `, and an OQ-SC-11 closure or an explicit OQ
 
 In the OQ-SE-19 row's last column (`Field classification, retention/deletion decision, \`training_example\` schema, purge-on-profile-delete tests`) append `; OQ-SC-11 closed or scoped by this decision (an example row is an exposure record)`.
 
-- [ ] **Step 5: ADR-0018 D4**
+- [ ] **Step 5: ADR-0024 D4**
 
 At line 156, after `**OQ-SE-19** decides` locate the end of that sentence and append: ` Because each example records an exposure, OQ-SC-11 must close or be scoped by that decision as well.`
 
@@ -94,7 +94,7 @@ Expected: PASS
 - [ ] **Step 7: Commit**
 
 ```bash
-git add docs/architecture/student-recommender-contracts.md docs/decisions/student-recommender-decision-record.md docs/plans/open-questions/student-engagement-deferred.md docs/architecture/decisions/ADR-0018-staged-student-event-recommender.md
+git add docs/architecture/student-recommender-contracts.md docs/decisions/student-recommender-decision-record.md docs/plans/open-questions/student-engagement-deferred.md docs/architecture/decisions/ADR-0024-staged-student-event-recommender.md
 git commit -m "docs: gate training_example on OQ-SC-11 exposure decision as well as OQ-SE-19"
 ```
 
@@ -380,18 +380,18 @@ git commit -m "docs: recommend() derives primary tags for the diversity cap; dro
 
 ### Task 5 (P2): Make the diversity rule an explicit soft preference
 
-**Review text:** *"appending deferred candidates before taking the first five violates ADR-0018 D7's maximum of three ranked items per primary tag... Keep over-cap candidates outside ranked slots, allowing a shorter feed, or obtain an explicit change from a hard cap to a soft diversity preference."*
+**Review text:** *"appending deferred candidates before taking the first five violates ADR-0024 D7's maximum of three ranked items per primary tag... Keep over-cap candidates outside ranked slots, allowing a shorter feed, or obtain an explicit change from a hard cap to a soft diversity preference."*
 
-**Verified:** V1 plan `_apply_diversity_cap` returns `kept + deferred` and `select` takes `ordered[:STUDENT_FEED_MAX_ITEMS]` (lines 1889–1926), which is a soft preference. ADR-0018 D7 (line 202–204) words it as "no more than 3 ranked items sharing the same primary tag", a hard cap. The two disagree; `test_diversity_cap_reorders_without_promoting_unscorables` asserts only `ids[:3]` and `ids[3] == "h1"`, so it does not pin either reading.
+**Verified:** V1 plan `_apply_diversity_cap` returns `kept + deferred` and `select` takes `ordered[:STUDENT_FEED_MAX_ITEMS]` (lines 1889–1926), which is a soft preference. ADR-0024 D7 (line 202–204) words it as "no more than 3 ranked items sharing the same primary tag", a hard cap. The two disagree; `test_diversity_cap_reorders_without_promoting_unscorables` asserts only `ids[:3]` and `ids[3] == "h1"`, so it does not pin either reading.
 
 **Decision (program owner, 2026-09-14):** the rule is a **soft preference**, not a cap. Items past `STUDENT_FEED_MAX_PER_PRIMARY_TAG` are deferred behind every other scorable item and then fill the remaining ranked slots; the feed always fills to `STUDENT_FEED_MAX_ITEMS` when enough scorable items exist. The implementation stands; the ADR, the contracts, and the tests are corrected to say so. No new response field.
 
 **Files:**
-- Modify: ADR-0018 D7 (line 202–204) and the "Consequences" mention of the diversity cap (line ≈259)
+- Modify: ADR-0024 D7 (line 202–204) and the "Consequences" mention of the diversity cap (line ≈259)
 - Modify: contracts §2 constants comment (line 198), §5.1 "minimum set" sentence (≈line 371–375), §5.5 test row for `test_student_feed_policy.py` (line 425)
 - Modify: V1 plan Task 6 (`_apply_diversity_cap` docstring, `select`, tests at 1822–1830), Task 7 golden case list (line ≈2047 table) and the SE-GC case that exercises the rule
 
-- [ ] **Step 1: ADR-0018 D7 wording**
+- [ ] **Step 1: ADR-0024 D7 wording**
 
 Replace `(3) a **diversity cap** — no more than \`STUDENT_FEED_MAX_PER_PRIMARY_TAG = 3\`
 ranked items sharing the same primary tag, stated as a constant, applied as a
@@ -409,11 +409,11 @@ At line ≈259 (Consequences) replace `the diversity cap` with `the diversity pr
 
 - [ ] **Step 2: Contracts wording**
 
-Line 198: change the comment on `STUDENT_FEED_MAX_PER_PRIMARY_TAG` to `# soft preference: items past this per-tag count are deferred, then fill open slots (ADR-0018 D7)`. In §5.1 replace `one diversity-cap re-order` with `one diversity re-order where deferred same-tag items still fill the feed`. In §5.5 replace `diversity cap never promotes an unscorable` with `diversity preference defers past-3 same-tag items behind other tags, then fills to five; never promotes an unscorable`.
+Line 198: change the comment on `STUDENT_FEED_MAX_PER_PRIMARY_TAG` to `# soft preference: items past this per-tag count are deferred, then fill open slots (ADR-0024 D7)`. In §5.1 replace `one diversity-cap re-order` with `one diversity re-order where deferred same-tag items still fill the feed`. In §5.5 replace `diversity cap never promotes an unscorable` with `diversity preference defers past-3 same-tag items behind other tags, then fills to five; never promotes an unscorable`.
 
 - [ ] **Step 3: V1 plan Task 6 — docstring and precise tests**
 
-Change the `_apply_diversity_cap` docstring to `"""Soft preference (ADR-0018 D7): an item past the per-tag count is deferred behind every other scorable item, never dropped; the feed still fills."""`. Replace `test_diversity_cap_reorders_without_promoting_unscorables` with:
+Change the `_apply_diversity_cap` docstring to `"""Soft preference (ADR-0024 D7): an item past the per-tag count is deferred behind every other scorable item, never dropped; the feed still fills."""`. Replace `test_diversity_cap_reorders_without_promoting_unscorables` with:
 
 ```python
 def test_diversity_preference_defers_same_tag_items_but_still_fills_the_feed() -> None:
@@ -457,7 +457,7 @@ Expected: PASS
 - [ ] **Step 6: Commit**
 
 ```bash
-git add docs/architecture/decisions/ADR-0018-staged-student-event-recommender.md docs/architecture/student-recommender-contracts.md docs/superpowers/plans/2026-09-14-student-recommender-v1-plan.md
+git add docs/architecture/decisions/ADR-0024-staged-student-event-recommender.md docs/architecture/student-recommender-contracts.md docs/superpowers/plans/2026-09-14-student-recommender-v1-plan.md
 git commit -m "docs: diversity rule is an explicit soft preference; tests pin the deferred ordering"
 ```
 

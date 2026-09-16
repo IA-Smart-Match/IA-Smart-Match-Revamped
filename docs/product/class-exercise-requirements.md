@@ -4,7 +4,7 @@
 **Source:** Ann Wang, "Smart Match — Marketing Class Exercise and Minimum Build
 Requirements", 15 September 2026, and her email of the same date to the team.
 **Authority:** this document is the authority for the **class-exercise product
-scope** (`ProductScope.CLASS_EXERCISE`, ADR-0019). It amends nothing in
+scope** (`ProductScope.CLASS_EXERCISE`, ADR-0025). It amends nothing in
 [`cba-smart-match-customer-requirements.md`](cba-smart-match-customer-requirements.md),
 which remains the authority for the CBA platform scope. The two scopes share
 the domain matching mechanism and share no data, route, role, or table.
@@ -115,6 +115,6 @@ have" and "phase two". It is logged in [`../plans/backlog.md`](../plans/backlog.
 
 ## Where the rest lives
 
-- Architecture: [ADR-0019](../architecture/decisions/ADR-0019-class-exercise-scope-shares-the-matching-mechanism.md).
+- Architecture: [ADR-0025](../architecture/decisions/ADR-0025-class-exercise-scope-shares-the-matching-mechanism.md).
 - Design spec: [`../superpowers/specs/2026-09-16-class-exercise-design.md`](../superpowers/specs/2026-09-16-class-exercise-design.md).
 - Open questions for this scope: [`../plans/open-questions/class-exercise-open-questions.md`](../plans/open-questions/class-exercise-open-questions.md).

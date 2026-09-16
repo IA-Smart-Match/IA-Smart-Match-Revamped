@@ -1,4 +1,4 @@
-# ADR-0018 — A staged student→event recommender: eligibility, a swappable ranker, and a policy re-rank
+# ADR-0024 — A staged student→event recommender: eligibility, a swappable ranker, and a policy re-rank
 
 **Status:** Accepted
 **Date:** 14 September 2026
@@ -118,7 +118,7 @@ moves to the registry. Every existing constant stays exported and bound to
 is **imported** by the student registry, never copied.
 
 The student factor functions themselves live in `smartmatch_domain/student_factors/`
-and are shared with the class exercise's `EXERCISE_REGISTRY` (ADR-0019, 16
+and are shared with the class exercise's `EXERCISE_REGISTRY` (ADR-0025, 16
 September 2026): `student_interest_overlap` and `student_program_affinity` are
 the same functions the exercise labels "said they are interested in this topic"
 and "same major". Sharing an implementation changes nothing above about this

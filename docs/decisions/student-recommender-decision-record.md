@@ -10,13 +10,13 @@ entry gates OQ-SC-02, OQ-SE-01, OQ-SE-02.
 scoring-registry owner (registry, factors, weights, golden cases); records/privacy
 owner (any stored student datum: OQ-SC-02, OQ-SC-09, OQ-SC-11, OQ-SE-19, OQ-SE-21,
 OQ-SE-22).
-**Architecture:** [ADR-0018](../architecture/decisions/ADR-0018-staged-student-event-recommender.md) (Proposed).
+**Architecture:** [ADR-0024](../architecture/decisions/ADR-0024-staged-student-event-recommender.md) (Proposed).
 **Contracts:** [`docs/architecture/student-recommender-contracts.md`](../architecture/student-recommender-contracts.md).
 **Register:** [`docs/plans/open-questions/student-engagement-deferred.md`](../plans/open-questions/student-engagement-deferred.md).
 
 This record does not build anything. It puts the *product* questions of the
 student recommender to their owners in the D6 record's form — one decision per
-section, the safe default stated, the closure evidence named — so that ADR-0018
+section, the safe default stated, the closure evidence named — so that ADR-0024
 can move from Proposed to Accepted on an owner's signature rather than on a
 plan's momentum.
 
@@ -60,9 +60,9 @@ retrieval; popularity or time-ordered fallback presented as recommendations;
 endless feed mechanics; inferring interests from registrations.
 
 - **Owner:** program owner with the scoring-registry owner. **Closure evidence:**
-  ADR-0018 moved to Accepted with this table's order confirmed or amended.
+  ADR-0024 moved to Accepted with this table's order confirmed or amended.
 - **Disposition (program owner, 2026-09-16):** approved — the table's order
-  stands. ADR-0018 was ratified Accepted the same day; that ratification is
+  stands. ADR-0024 was ratified Accepted the same day; that ratification is
   this row's closure artifact.
 
 ## 3. Resource envelope
@@ -114,7 +114,7 @@ student-initiated "show me more" draws up to `STUDENT_FEED_WILDCARD_BATCH = 5`
 further wildcards per request, without replacement, against the same
 `inputs_hash` sequence, until the scorable pool is exhausted — so a student
 can browse every scorable event in the catalog. The stream is bounded and
-ends; it is not an endless feed (ADR-0018 D9).
+ends; it is not an endless feed (ADR-0024 D9).
 **Safe default:** identical. **Owner:** program + web/API owners.
 **Disposition (program owner, 2026-09-16):** confirmed as amended — first feed
 one wildcard, continuations of up to five until catalog exhaustion.
@@ -142,7 +142,7 @@ decision (§4.6, path b).
 
 ### 4.6 OQ-SE-19 — may a student's own registration/attendance become a *training label*? (new)
 
-**Question:** ADR-0018 D4 distinguishes reading a behavioural datum at request
+**Question:** ADR-0024 D4 distinguishes reading a behavioural datum at request
 time (barred by `PROHIBITED_INPUTS` and OQ-CBA-053) from using it, after the
 fact, as a label to fit a ranking model. Is the second use permitted, for which
 rows (`event_registration.status = 'registered'`, `attendance_record`), with what
@@ -216,7 +216,7 @@ with what retention, and is it the same decision as OQ-SC-11 or a stricter one?
 ## 6. Signatories
 
 Dispositions above were recorded 2026-09-16. Signatures for the register rows
-and the ADR-0018 ratification:
+and the ADR-0024 ratification:
 
 - **BrooklynD23** — program owner, scoring-registry owner, and records/privacy
   owner (all three roles, per owner direction).

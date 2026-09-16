@@ -1,17 +1,17 @@
-# ADR-0019 — The class exercise is a second product scope that shares the matching mechanism
+# ADR-0025 — The class exercise is a second product scope that shares the matching mechanism
 
 **Status:** Accepted
 **Date:** 16 September 2026
 **Owner of record:** Ann Wang (class-exercise scope), with the team (Chau, Danny, Janice, Justin)
-**Decides:** how the Spring 2027 class exercise is built on this platform without touching the CBA platform scope: a second `ProductScope`, its own tables and routers, one shared domain matching mechanism, and one shared student-factor module that both `STUDENT_REGISTRY` (ADR-0018) and the new `EXERCISE_REGISTRY` compose from.
+**Decides:** how the Spring 2027 class exercise is built on this platform without touching the CBA platform scope: a second `ProductScope`, its own tables and routers, one shared domain matching mechanism, and one shared student-factor module that both `STUDENT_REGISTRY` (ADR-0024) and the new `EXERCISE_REGISTRY` compose from.
 **Requirements:** `docs/product/class-exercise-requirements.md`
 **Design:** `docs/superpowers/specs/2026-09-16-class-exercise-design.md`
 **Register:** `docs/plans/open-questions/class-exercise-open-questions.md`
-**Relates to:** ADR-0016 (CBA scoring policy), ADR-0018 (staged student→event recommender). Amends neither.
+**Relates to:** ADR-0016 (CBA scoring policy), ADR-0024 (staged student→event recommender). Amends neither.
 
 > **Accepted.** This ADR adds a scope; it removes, pauses, or re-decides
 > nothing. The CBA platform track — student engagement, retention,
-> speaker-to-event matching, ADR-0018's recommender — continues on its own plan
+> speaker-to-event matching, ADR-0024's recommender — continues on its own plan
 > for its own stakeholder. What this ADR fixes is that the class exercise and
 > the CBA track run on **one matching mechanism with two rulebooks in two
 > processes**, never as a second scoring system and never in the same process
@@ -31,7 +31,7 @@ adjustable weights, the ranked list with reasons, and the results screen.
 The platform already has the "how": a registry of weighted factors
 (`smartmatch_domain.factor_registry`, ADR-0016), a composition that keeps
 `unknown` distinct from `0` (ADR-0011), a spec-driven explanation module, and
-ADR-0018's decision D2 that the registry mechanism is parameterised into a
+ADR-0024's decision D2 that the registry mechanism is parameterised into a
 `FactorRegistry` value object so a second registry can sit beside
 `CBA_REGISTRY`. What the platform does not have is any of the exercise's
 "who": no profile with a major, year, interests, or career goal; no
@@ -42,7 +42,7 @@ The two audiences are different people with different data. The CBA track
 serves real students and real events under tenancy, principals, and the
 student-engagement register's privacy rows. The exercise serves six teams of
 class participants over fictional rows, with no account and no consent
-question. The exercise also ranks in the opposite direction: ADR-0018 ranks
+question. The exercise also ranks in the opposite direction: ADR-0024 ranks
 events for one student; Ann ranks profiles for one event.
 
 ## Decision
@@ -74,22 +74,22 @@ importing `smartmatch_authz` or any tenant-scoped repository.
 The four factors Ann names are implemented once, as pure functions over a
 `(profile, event)` pair in `smartmatch_domain/student_factors/`:
 
-| Function | Ann's words | ADR-0018 name |
+| Function | Ann's words | ADR-0024 name |
 |---|---|---|
 | `same_major` | same major | `student_program_affinity` (declared, unbuilt at 0.0) |
 | `stated_interest_overlap` | said they are interested in this topic | `student_interest_overlap` (Jaccard over the G3 vocabulary) |
 | `career_goal_fit` | career goal fits this event | — |
 | `past_event_topic_overlap` | went to similar events before | — |
 
-Two registries compose them, each a `FactorRegistry` from ADR-0018 D2:
+Two registries compose them, each a `FactorRegistry` from ADR-0024 D2:
 
 - **`EXERCISE_REGISTRY`** (this ADR): the four functions with Ann's labels,
   team-adjustable weights, `status = "approved"` on the authority of the
   requirements document. No owner gate: the exercise has no privacy question
   to wait on.
-- **`STUDENT_REGISTRY`** (ADR-0018): the same functions under the
+- **`STUDENT_REGISTRY`** (ADR-0024): the same functions under the
   student-engagement owners' governance, `status = "proposed"`, failing closed
-  until OQ-SE-01. ADR-0018's decisions about it are unchanged; what changes is
+  until OQ-SE-01. ADR-0024's decisions about it are unchanged; what changes is
   only that its factor implementations are imported from `student_factors/`
   rather than written a second time.
 
@@ -100,7 +100,7 @@ imported, never redefined.
 ### D4. Two rankers over the same functions
 
 `rank_profiles_for_event(event, profiles, ...)` is built for the exercise and
-returns `StageBScore` with `subject_id` holding the profile id. ADR-0018's
+returns `StageBScore` with `subject_id` holding the profile id. ADR-0024's
 `rank_events_for_student` is built on the CBA track's own schedule and holds
 the event id in the same field, as its contracts already document. Neither
 ranker imports the other. Unavailable information is `unknown`, never `0`
@@ -133,7 +133,7 @@ the same answer, and a team's reset touches only that team's rows.
 
 ### D8. No numeric score reaches a class participant
 
-Carried over from ADR-0018 D8 because it costs nothing and keeps the two
+Carried over from ADR-0024 D8 because it costs nothing and keeps the two
 scopes' surfaces alike: the exercise shows rank, the four weights the team
 set, and one reason per name. It shows no percentage, score, or confidence.
 
@@ -141,7 +141,7 @@ set, and one reason per name. It shows no percentage, score, or confidence.
 
 - **A standalone exercise scorer** that never touches `factor_registry.py`.
   Cleanest separation, but a second scoring system beside the first, which
-  ADR-0016 and ADR-0018 D1 forbid.
+  ADR-0016 and ADR-0024 D1 forbid.
 - **Per-route bypass of `get_current_principal`** inside the CBA scope.
   Smallest diff, but puts a no-auth route in the same process as real data.
 - **A separate repository.** Would vendor `smartmatch_domain`, turning the
@@ -164,7 +164,7 @@ the D2 parameterisation and the factor module, and everything else is
 additive. The exercise adds a table set, a migration, a CSV path, and a
 hosting target that exist for one course.
 
-**Verification.** ADR-0018 D2's parameterisation lands with
+**Verification.** ADR-0024 D2's parameterisation lands with
 `test_factor_registry.py` untouched; `make imports` enforces D2's boundary;
 `make scan` enforces D9's naming; the scope-absence tests enforce D1; the
 schema walk enforces D6; golden cases under `tests/golden/exercise/` cover

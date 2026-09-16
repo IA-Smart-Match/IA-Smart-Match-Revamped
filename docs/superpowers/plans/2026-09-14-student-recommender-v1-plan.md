@@ -2,20 +2,20 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Ship the content-based student→event recommender (ADR-0018 D1–D3, D7, D8) behind a closed gate, with the Stage B interface and the V2 feature registry shaped so a learned ranker replaces one component later without touching the HTTP contract.
+**Goal:** Ship the content-based student→event recommender (ADR-0024 D1–D3, D7, D8) behind a closed gate, with the Stage B interface and the V2 feature registry shaped so a learned ranker replaces one component later without touching the HTTP contract.
 
 **Architecture:** Three stages behind protocols — `EligibilityFilter` → `StudentRanker` → `FeedPolicy` — composed by one `recommend()` function. Stage B V1 is a `ContentRanker` over a separate `STUDENT_REGISTRY` (Jaccard over the shared G3 vocabulary), built by parameterising the existing CBA `factor_registry` mechanism into a `FactorRegistry` value object. The registry ships `proposed` and fails closed; the route returns a worded 409 until OQ-SE-01 closes.
 
 **Tech Stack:** Python 3.12, frozen dataclasses, `smartmatch_domain` (pure), FastAPI + Pydantic v2 in `services/api`, pytest (`make test`, no database), `make openapi` for the exported contract. No new runtime dependency in V1.
 
-**Spec:** `docs/architecture/decisions/ADR-0018-staged-student-event-recommender.md`, `docs/architecture/student-recommender-contracts.md`, `docs/decisions/student-recommender-decision-record.md`.
+**Spec:** `docs/architecture/decisions/ADR-0024-staged-student-event-recommender.md`, `docs/architecture/student-recommender-contracts.md`, `docs/decisions/student-recommender-decision-record.md`.
 
 **Review amendments (2026-09-14):** see `docs/superpowers/plans/2026-09-14-student-recommender-review-fixes.md` — soft diversity preference (owner decision), hour-anchored window, candidate evidence in `inputs_hash`, in-pipeline primary tags, bounded learned factors, and OQ-SC-11 as a training prerequisite.
 
 ## Global Constraints
 
 - `tests/unit/test_factor_registry.py` is **not edited by one line** in any task. It is the pin that the CBA path did not move.
-- No student module imports `student_speaker_feedback`, `attendance`, `event_registration`, or `feedback` (ADR-0018 D4 condition 2; OQ-CBA-053).
+- No student module imports `student_speaker_feedback`, `attendance`, `event_registration`, or `feedback` (ADR-0024 D4 condition 2; OQ-CBA-053).
 - `PROHIBITED_INPUTS` is imported from `smartmatch_domain.factor_registry`, never redefined.
 - No number-typed property named like `score|value|percent|match|fit|rating|confidence` on the student HTTP response. `rank` and `withheld_*` are the only integers on items and the envelope.
 - `STUDENT_REGISTRY_STATUS = "proposed"` until an OQ-SE-01 artifact flips it. Tests assert the closed gate as a positive assertion.
@@ -30,7 +30,7 @@
 
 ### Task 1: `FactorRegistry` value object — parameterise the CBA mechanism (W2a)
 
-> **Shared with the class exercise (ADR-0019, 2026-09-16).** This task is the one
+> **Shared with the class exercise (ADR-0025, 2026-09-16).** This task is the one
 > piece of work both tracks need. Land it first and once; the exercise's
 > `EXERCISE_REGISTRY` and this plan's `STUDENT_REGISTRY` are both instances of the
 > value object it introduces.
@@ -200,7 +200,7 @@ class ScoringModel:
     is_current: bool
     #: The closed mode vocabulary this model must belong to. Defaults to the
     #: CBA vocabulary so every existing construction site is unchanged; a
-    #: second registry passes its own (ADR-0018 D2).
+    #: second registry passes its own (ADR-0024 D2).
     mode_vocabulary: frozenset[str] = CBA_SCORING_MODES
 
     def __post_init__(self) -> None:
@@ -222,7 +222,7 @@ class ScoringModel:
 class FactorRegistry:
     """One rulebook: its factors, its approval state, and its closed mode set.
 
-    ADR-0018 D2. The CBA registry and the student registry are two values of
+    ADR-0024 D2. The CBA registry and the student registry are two values of
     this type sharing one mechanism; nothing here is copied per registry.
     """
 
@@ -451,14 +451,14 @@ Expected: clean.
 
 ```bash
 git add python/smartmatch_domain/smartmatch_domain/factor_registry.py python/smartmatch_domain/smartmatch_domain/scoring.py python/smartmatch_domain/smartmatch_domain/explanation.py tests/unit/test_factor_registry_parametrised.py
-git commit -m "refactor: parameterise factor_registry into a FactorRegistry value object (ADR-0018 D2, W2a)"
+git commit -m "refactor: parameterise factor_registry into a FactorRegistry value object (ADR-0024 D2, W2a)"
 ```
 
 ---
 
 ### Task 2: `student_interest_overlap` — evidence dataclasses and the Jaccard factor
 
-> **Implement in `smartmatch_domain/student_factors/` (ADR-0019).** The exercise
+> **Implement in `smartmatch_domain/student_factors/` (ADR-0025).** The exercise
 > imports this function as "said they are interested in this topic"; do not write
 > it a second time there. The registry that composes it stays this plan's.
 
@@ -587,7 +587,7 @@ Expected: FAIL with `ModuleNotFoundError: smartmatch_domain.factors.student_inte
 # python/smartmatch_domain/smartmatch_domain/factors/student_interest_overlap.py
 """Set overlap between a student's declared interests and an event's mapped tags.
 
-ADR-0018 D3. Lexical and deterministic over the closed G3 vocabulary; no
+ADR-0024 D3. Lexical and deterministic over the closed G3 vocabulary; no
 provider, no neutral. A set that was read and does not overlap is a measured
 zero; a set that could not be established is unknown (ADR-0011).
 """
@@ -734,7 +734,7 @@ Expected: 8 PASS. If `assert_one_sentence` rejects the version token, check that
 
 ```bash
 git add python/smartmatch_domain/smartmatch_domain/factors/student_interest_overlap.py tests/unit/test_student_interest_overlap.py
-git commit -m "feat: student_interest_overlap factor with six evidence rows (ADR-0018 D3)"
+git commit -m "feat: student_interest_overlap factor with six evidence rows (ADR-0024 D3)"
 ```
 
 ---
@@ -901,7 +901,7 @@ Expected: FAIL with `ModuleNotFoundError: smartmatch_domain.student_recommender`
 
 ```python
 # python/smartmatch_domain/smartmatch_domain/student_recommender/__init__.py
-"""Student→event recommender (ADR-0018). Three stages behind fixed interfaces."""
+"""Student→event recommender (ADR-0024). Three stages behind fixed interfaces."""
 ```
 
 ```python
@@ -1025,7 +1025,7 @@ Expected: registry and isolation PASS; wiring PASSes for the two built modules a
 
 ```bash
 git add python/smartmatch_domain/smartmatch_domain/student_recommender tests/unit/test_student_factor_registry.py tests/unit/test_scoring_registry_isolation.py tests/unit/test_student_scoring_inputs_wiring.py
-git commit -m "feat: STUDENT_REGISTRY 0.1.0 shipped proposed and failing closed (ADR-0018 D2, W2b)"
+git commit -m "feat: STUDENT_REGISTRY 0.1.0 shipped proposed and failing closed (ADR-0024 D2, W2b)"
 ```
 
 ---
@@ -1151,12 +1151,12 @@ Expected: FAIL with `ModuleNotFoundError`
 
 ```python
 # python/smartmatch_domain/smartmatch_domain/student_recommender/student_feed.py
-"""Feed bounds. Domain constants, never router literals (ADR-0018 D7)."""
+"""Feed bounds. Domain constants, never router literals (ADR-0024 D7)."""
 
 from datetime import UTC, datetime, timedelta
 from typing import Final
 
-STUDENT_FEED_WINDOW_DAYS: Final[int] = 30  # sign-up lead time, not a calendar week (ADR-0018 D7)
+STUDENT_FEED_WINDOW_DAYS: Final[int] = 30  # sign-up lead time, not a calendar week (ADR-0024 D7)
 STUDENT_FEED_MAX_ITEMS: Final[int] = 5
 STUDENT_FEED_WILDCARD_SLOTS: Final[int] = 1
 STUDENT_FEED_WILDCARD_BATCH: Final[int] = 5  # max draws per continuation request (OQ-SE-02)
@@ -1358,7 +1358,7 @@ Expected: 4 PASS
 
 ```bash
 git add python/smartmatch_domain/smartmatch_domain/student_recommender tests/unit/test_student_eligibility.py
-git commit -m "feat: student recommender Stage A eligibility filter and feed constants (ADR-0018 D1, D7)"
+git commit -m "feat: student recommender Stage A eligibility filter and feed constants (ADR-0024 D1, D7)"
 ```
 
 ---
@@ -1902,7 +1902,7 @@ def _compose(
 
 @dataclass(frozen=True, slots=True)
 class ContentRanker:
-    """ADR-0018 D3. Jaccard over the closed vocabulary; deterministic; no provider."""
+    """ADR-0024 D3. Jaccard over the closed vocabulary; deterministic; no provider."""
 
     ranker_id: RankerId = "content-1"
     registry: FactorRegistry = field(default_factory=lambda: registry_module.STUDENT_REGISTRY)
@@ -2028,7 +2028,7 @@ Expected: all PASS; the wiring test now imports `ranker` and `recommend` and fin
 
 ```bash
 git add python/smartmatch_domain/smartmatch_domain/match_run.py python/smartmatch_domain/smartmatch_domain/student_recommender tests/unit/test_student_scoring.py tests/unit/test_student_recommend.py
-git commit -m "feat: ContentRanker, inputs hash, and recommend() composition (ADR-0018 D1, D3)"
+git commit -m "feat: ContentRanker, inputs hash, and recommend() composition (ADR-0024 D1, D3)"
 ```
 
 ---
@@ -2221,7 +2221,7 @@ Expected: FAIL with `ImportError: cannot import name 'DefaultFeedPolicy'`
 
 ```python
 # python/smartmatch_domain/smartmatch_domain/student_recommender/policy.py
-"""Stage C. A constrained re-rank, always on (ADR-0018 D7)."""
+"""Stage C. A constrained re-rank, always on (ADR-0024 D7)."""
 
 from __future__ import annotations
 
@@ -2283,7 +2283,7 @@ def primary_tag(interests: StudentInterestEvidence, tags: EventTagEvidence) -> s
 def _apply_diversity_preference(
     scorable: list[StageBScore], primary_tag_by_event: Mapping[str, str | None], cap: int
 ) -> list[StageBScore]:
-    """Soft preference (ADR-0018 D7): an item past the per-tag count is deferred behind every other scorable item, never dropped; the feed still fills."""
+    """Soft preference (ADR-0024 D7): an item past the per-tag count is deferred behind every other scorable item, never dropped; the feed still fills."""
     taken: dict[str, int] = {}
     kept: list[StageBScore] = []
     deferred: list[StageBScore] = []
@@ -2364,7 +2364,7 @@ Expected: all PASS
 
 ```bash
 git add python/smartmatch_domain/smartmatch_domain/student_recommender/policy.py tests/unit/test_student_feed_policy.py tests/unit/test_student_recommend.py
-git commit -m "feat: DefaultFeedPolicy with bound, diversity preference, and declared wildcard (ADR-0018 D7)"
+git commit -m "feat: DefaultFeedPolicy with bound, diversity preference, and declared wildcard (ADR-0024 D7)"
 ```
 
 ---
@@ -2647,7 +2647,7 @@ git commit -m "test: eleven proposed student golden cases for OQ-SE-01 review"
 
 ```python
 # tests/contract/test_student_recommendations_api.py
-"""ADR-0018 D8 and contracts §1: shape, refusals, determinism."""
+"""ADR-0024 D8 and contracts §1: shape, refusals, determinism."""
 
 from __future__ import annotations
 
@@ -2991,7 +2991,7 @@ def absent_evidence() -> StudentInterestEvidence:
 
 ```python
 # services/api/smartmatch_api/routers/student_recommendations.py
-"""ADR-0018 delivery: a synchronous read, pinned in the response, never stored."""
+"""ADR-0024 delivery: a synchronous read, pinned in the response, never stored."""
 
 from __future__ import annotations
 
@@ -3243,7 +3243,7 @@ Expected: PASS; `contracts/openapi/smartmatch.json` gains the route and models.
 
 ```bash
 git add services/api/smartmatch_api/routers/student_recommendations.py services/api/smartmatch_api/student_profile_reader.py services/api/smartmatch_api/main.py services/api/smartmatch_api/routers/student_events.py tests/contract/conftest.py tests/contract/test_student_recommendations_api.py tests/unit/test_matching_fail_closed.py tests/authz/test_policy_matrix.py contracts/openapi/smartmatch.json
-git commit -m "feat: GET /student/recommendations behind the proposed-registry gate (ADR-0018 D8)"
+git commit -m "feat: GET /student/recommendations behind the proposed-registry gate (ADR-0024 D8)"
 ```
 
 ---
@@ -3355,7 +3355,7 @@ Expected: FAIL with `ModuleNotFoundError`
 
 ```python
 # python/smartmatch_domain/smartmatch_domain/student_recommender/features.py
-"""V2 feature registry (ADR-0018 D4 condition 2). Shape only; no model here."""
+"""V2 feature registry (ADR-0024 D4 condition 2). Shape only; no model here."""
 
 from __future__ import annotations
 
@@ -3497,7 +3497,7 @@ Expected: PASS (add `smartmatch_domain.student_recommender.features` to the wiri
 
 ```bash
 git add python/smartmatch_domain/smartmatch_domain/student_recommender/features.py tests/unit/test_feature_spec.py tests/unit/test_student_scoring_inputs_wiring.py
-git commit -m "feat: V2 feature registry shape with prohibited-source refusal (ADR-0018 D4)"
+git commit -m "feat: V2 feature registry shape with prohibited-source refusal (ADR-0024 D4)"
 ```
 
 ---
@@ -3646,7 +3646,7 @@ Expected: FAIL with `ModuleNotFoundError`
 
 ```python
 # python/smartmatch_domain/smartmatch_domain/student_recommender/learned.py
-"""V2 Stage B skeleton (ADR-0018 D4). Shadow-only until OQ-SE-19/20; no model library here."""
+"""V2 Stage B skeleton (ADR-0024 D4). Shadow-only until OQ-SE-19/20; no model library here."""
 
 from __future__ import annotations
 
@@ -3772,7 +3772,7 @@ Expected: the three known local `.env`-related failures at most (see memory); no
 
 ```bash
 git add python/smartmatch_domain/smartmatch_domain/student_recommender/learned.py tools/evaluate_student_ranker.py tests/golden/student/gold/README.md tests/unit/test_learned_ranker_fallback.py tests/unit/test_student_ranker_evaluator.py tests/unit/test_student_scoring_inputs_wiring.py
-git commit -m "feat: LearnedRanker shadow skeleton, fallback builder, and gold-set evaluator (ADR-0018 D4)"
+git commit -m "feat: LearnedRanker shadow skeleton, fallback builder, and gold-set evaluator (ADR-0024 D4)"
 ```
 
 ---
