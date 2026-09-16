@@ -114,3 +114,22 @@ everywhere else in the tree and its history.
 """
 regexTarget = "match"
 regexes = ['''abcdefgh12345678ABCDEFGH''']
+
+[[allowlists]]
+description = """
+`docs/plans/open-questions/student-engagement-deferred.md` asks, in OQ-SE-17,
+what "idempotency key, late/retry/outage/DST policy" should govern digest
+production. `generic-api-key` reads `key,` as a credential assignment and the
+slash-joined policy list that follows it as the credential's value.
+
+`late/retry/outage/DST` is that value: four English words naming the failure
+modes a schedule must define. No provider issued it, it authenticates nothing,
+and rewording the question would not remove the finding — the scan covers
+history, so the phrase lives in the commit that introduced it regardless.
+
+Scoped to the exact string, matching the allowlists above: the file is still
+scanned for every other secret shape, and `generic-api-key` still fires
+everywhere else in the tree and its history.
+"""
+regexTarget = "match"
+regexes = ['''late/retry/outage/DST''']
