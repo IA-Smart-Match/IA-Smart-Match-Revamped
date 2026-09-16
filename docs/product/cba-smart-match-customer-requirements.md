@@ -3,6 +3,7 @@
 **Last updated:** 2026-09-04  
 **Purpose:** Single source of truth for implementation agents.  
 **Authority rule:** When requirements conflict, use the most recent customer instruction unless explicitly marked unresolved.
+**Scope note (2026-09-16):** This document remains the single source of truth for the **CBA platform scope** (`ProductScope.CBA`). A second product scope, `CLASS_EXERCISE` (Dr. Lin's Spring 2027 class exercise, Ann Wang's requirements of 2026-09-15), is governed by [`class-exercise-requirements.md`](class-exercise-requirements.md) and ADR-0019. The two scopes share the domain matching mechanism and share no data, route, role, or table. Neither pauses the other.
 
 ---
 

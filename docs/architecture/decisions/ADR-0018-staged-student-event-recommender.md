@@ -1,14 +1,15 @@
 # ADR-0018 — A staged student→event recommender: eligibility, a swappable ranker, and a policy re-rank
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 14 September 2026
+**Ratified:** 16 September 2026 — BrooklynD23 (program owner, scoring-registry owner, records/privacy owner); starey and chau, collaborators
 **Owner of record:** Student-engagement program owner, with the scoring-registry owner and the records/privacy owner
 **Decides:** the *architecture* of the student→event recommender and the order in which recommender families may be admitted into it. It closes no register row. OQ-SC-02, OQ-SE-01 and OQ-SE-02 still need their named owners; this ADR adds OQ-SE-19 through OQ-SE-22 to the canonical register for the learned stages.
 **Contract:** `docs/architecture/student-recommender-contracts.md`; `docs/decisions/student-recommender-decision-record.md`; ADR-0011; ADR-0012; ADR-0016
 **Register:** `docs/plans/open-questions/student-engagement-deferred.md`
 **Evidence:** `docs/plans/2026-09-13-w2-student-event-ranking-plan.md` (superseded, retained as ranking-design evidence); `docs/plans/research/2026-09-13-engagement-feed-research.md`; `docs/plans/research/2026-09-07-matching-expansion-options.md` §3.3 ("no outcome loop")
 
-> **Proposed.** Nothing in this ADR licenses a route, a table, a model artifact,
+> **Accepted.** Nothing in this ADR licenses a route, a table, a model artifact,
 > or a scoring path. What it fixes is the *shape* the student recommender must
 > take so that the first version (content-based) and every later version
 > (learned ranking, collaborative signal, session adaptation) are replacements
@@ -82,7 +83,7 @@ Stage B  StudentRanker            V1 ContentRanker   (STUDENT_REGISTRY, Jaccard)
         │                         V2 LearnedRanker   (LambdaMART, same protocol, same StageBScore)
         │                         unknown stays unknown; unscorable sorts last
         ▼
-Stage C  FeedPolicy               bounded top-N · one declared wildcard · diversity preference
+Stage C  FeedPolicy               bounded top-N · declared wildcard stream · diversity preference
         │                         · session exclusions supplied by the caller · governance
         ▼
 StudentFeed (items, wildcard, withheld counts, provenance pins, inputs_hash)
@@ -115,6 +116,13 @@ moves to the registry. Every existing constant stays exported and bound to
 `CBA_REGISTRY`; every free function defaults to `CBA_REGISTRY`; and
 `tests/unit/test_factor_registry.py` is not edited by one line. `PROHIBITED_INPUTS`
 is **imported** by the student registry, never copied.
+
+The student factor functions themselves live in `smartmatch_domain/student_factors/`
+and are shared with the class exercise's `EXERCISE_REGISTRY` (ADR-0019, 16
+September 2026): `student_interest_overlap` and `student_program_affinity` are
+the same functions the exercise labels "said they are interested in this topic"
+and "same major". Sharing an implementation changes nothing above about this
+registry's status, gate, or governance.
 
 `STUDENT_REGISTRY` ships with `status = "proposed"` and fails closed until
 OQ-SE-01 closes. Its V1 contents are exactly W2 §4: `student_interest_overlap`
@@ -193,24 +201,32 @@ The server stores nothing (OQ-SC-09 safe default) and returns the same
 *learned* exploration policy (LinUCB / VW) needs logged
 `(context, actions, chosen, propensity, reward, policy_version)` rows, which are
 per-student behavioural records; **OQ-SE-22** owns that. Until then exploration
-is exactly the one declared wildcard OQ-SE-02 governs, selected by an index
-derived from `inputs_hash` with the seed returned.
+is exactly the declared wildcard stream OQ-SE-02 governs: one draw in the first
+feed, then student-initiated continuation draws of up to
+`STUDENT_FEED_WILDCARD_BATCH` at a time — each selected by an index derived
+from `inputs_hash` with the seed returned, drawn without replacement from the
+scorable pool, ending at exhaustion.
 
 ### D7. Stage C is a constrained re-rank, and it is always on
 
 Stage C applies, in this order: (1) bounded window and size
-(`STUDENT_FEED_WINDOW_DAYS = 7`, `STUDENT_FEED_MAX_ITEMS = 5`,
-`STUDENT_FEED_WILDCARD_SLOTS = 1`, domain constants); (2) session exclusions;
-(3) a **diversity preference** — items beyond `STUDENT_FEED_MAX_PER_PRIMARY_TAG = 3`
-sharing one primary tag are deferred behind every other scorable item and then
-fill any ranked slots still open, so the feed stays full whenever enough
-scorable items exist; stated as a constant, applied as a stable re-order that
-never promotes an unscorable item and never shortens the feed; (4) the declared
-wildcard from the scorable pool outside the ranked list, or `null`; (5)
-governance: unscorable events counted under `withheld_unscorable`, events with
-no mapped tag counted under `withheld_untagged` (OQ-SC-12 default), and a
-worded refusal through the standard error envelope while the registry is
-`proposed`. Capacity and host-side constraints are deliberately **not** in V1
+(`STUDENT_FEED_WINDOW_DAYS = 30` — sized to the sign-up lead time events
+actually carry, not to a calendar week — `STUDENT_FEED_MAX_ITEMS = 5`,
+`STUDENT_FEED_WILDCARD_SLOTS = 1`, `STUDENT_FEED_WILDCARD_BATCH = 5`, domain
+constants); (2) session exclusions (`STUDENT_FEED_MAX_SESSION_EXCLUSIONS = 200`,
+so continuation can reach the whole catalog); (3) a **diversity preference** —
+items beyond `STUDENT_FEED_MAX_PER_PRIMARY_TAG = 3` sharing one primary tag are
+deferred behind every other scorable item and then fill any ranked slots still
+open, so the feed stays full whenever enough scorable items exist; stated as a
+constant, applied as a stable re-order that never promotes an unscorable item
+and never shortens the feed; (4) the declared wildcard — one draw in the first
+feed, then student-initiated continuation draws of up to
+`STUDENT_FEED_WILDCARD_BATCH` from the scorable pool outside the ranked list,
+without replacement, `null`/empty when the pool is exhausted, so a student can
+browse every scorable event without the feed ever padding; (5) governance:
+unscorable events counted under `withheld_unscorable`, events with no mapped
+tag counted under `withheld_untagged` (OQ-SC-12 default), and a worded refusal
+through the standard error envelope while the registry is `proposed`. Capacity and host-side constraints are deliberately **not** in V1
 (no capacity datum exists on `event`); they are the natural next Stage C rule
 and need no ADR, only a constant and a golden case.
 
@@ -232,7 +248,9 @@ no more a "match percentage" than Jaccard is.
 - **A popularity or time-ordered fallback** dressed as recommendations when the
   profile is absent or the catalog is untagged.
 - **Endless feed, autoplay, variable-ratio reward, streak mechanics** (feed
-  research "Refused" column).
+  research "Refused" column). The wildcard stream is not this: it is
+  student-initiated and bounded by the scorable catalog — it ends at
+  exhaustion, it does not pad.
 - **Inferring interests from behaviour** ("registered for three hackathons ⇒
   `hackathon` interest"; W1 §"No inference").
 

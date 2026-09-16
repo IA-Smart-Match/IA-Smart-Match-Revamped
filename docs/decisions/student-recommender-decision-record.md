@@ -38,6 +38,7 @@ engagement proxy are not objectives, not tie-breaks, and not model labels.
   buildable without contradicting the register.
 - **Owner:** program owner. **Closure evidence:** a dated line in the register
   naming the objective and the two metric names it maps to under OQ-SE-04.
+- **Disposition (program owner, 2026-09-16):** confirmed as proposed.
 
 ## 2. Which recommender families, in what order
 
@@ -60,6 +61,9 @@ endless feed mechanics; inferring interests from registrations.
 
 - **Owner:** program owner with the scoring-registry owner. **Closure evidence:**
   ADR-0018 moved to Accepted with this table's order confirmed or amended.
+- **Disposition (program owner, 2026-09-16):** approved — the table's order
+  stands. ADR-0018 was ratified Accepted the same day; that ratification is
+  this row's closure artifact.
 
 ## 3. Resource envelope
 
@@ -83,6 +87,8 @@ The recommendation path adds no service, no vector store, no external provider.
 student-owned `GET`/`PUT`/`DELETE`, no coordinator/host/admin read of an
 individual profile, no free text, no `program_of_study` column.
 **Safe default:** no profile table, no ranking. **Owner:** program + records/privacy.
+**Disposition (program owner, 2026-09-16):** confirmed as proposed; awaits the
+records/privacy co-signature the row requires.
 
 ### 4.2 OQ-SE-01 — approve `STUDENT_REGISTRY` 0.1.0 (existing row)
 
@@ -94,19 +100,33 @@ in `tests/golden/student/`. Promotion flips `STUDENT_REGISTRY_STATUS` to
 `REGISTRY_APPROVED_ON` do for CBA.
 **Safe default:** `proposed`; the route refuses with a worded error.
 **Owner:** program owner + scoring-registry owner.
+**Disposition (program owner, 2026-09-16):** confirmed as proposed; the golden
+case set (now eleven cases, including the wildcard-stream case) is the review
+artifact.
 
 ### 4.3 OQ-SE-02 — wildcard contract (existing row)
 
-**Proposal:** one wildcard, a separate named field, drawn only from scorable
+**Proposal (amended 2026-09-16):** a wildcard *stream*. The first feed carries
+one declared wildcard — a separate named field, drawn only from scorable
 events outside the ranked list, `null` when the pool is empty, selected by an
-index derived from `inputs_hash`, seed returned; no backend toggle.
+index derived from `inputs_hash`, seed returned; no backend toggle. A
+student-initiated "show me more" draws up to `STUDENT_FEED_WILDCARD_BATCH = 5`
+further wildcards per request, without replacement, against the same
+`inputs_hash` sequence, until the scorable pool is exhausted — so a student
+can browse every scorable event in the catalog. The stream is bounded and
+ends; it is not an endless feed (ADR-0018 D9).
 **Safe default:** identical. **Owner:** program + web/API owners.
+**Disposition (program owner, 2026-09-16):** confirmed as amended — first feed
+one wildcard, continuations of up to five until catalog exhaustion.
 
 ### 4.4 OQ-SC-12 — untagged eligible events (existing row)
 
 **Proposal:** keep `unknown`; report `withheld_untagged` in the payload; make tag
 coverage a coordinator-visible number on the existing review surface so the
 fix is tagging, not a neutral. **Safe default:** identical. **Owner:** program owner.
+**Disposition (program owner, 2026-09-16):** confirmed — `unknown` stays
+`unknown`; coordinators or event hosts tag the gaps (pending the speaker
+connector review for host-side tagging).
 
 ### 4.5 OQ-SC-09 and OQ-SC-11 — skips and exposure (existing rows)
 
@@ -114,6 +134,11 @@ fix is tagging, not a neutral. **Safe default:** identical. **Owner:** program o
 caller-supplied `exclude_event_ids` parameter that the server never stores;
 exposure is pinned *in the response* (`inputs_hash`, versions), not in a table.
 **Owner:** program + records/privacy.
+**Disposition (program owner, 2026-09-16):** both **deferred** — the safe
+defaults stay in force through V1. Skips are wanted eventually as training
+labels for the learned ranker, so OQ-SC-09 is revisited with OQ-SE-19 after
+V1 ships rather than closed now. OQ-SC-11 is scoped inside the OQ-SE-19
+decision (§4.6, path b).
 
 ### 4.6 OQ-SE-19 — may a student's own registration/attendance become a *training label*? (new)
 
@@ -137,6 +162,11 @@ synthetic pilot data only, and is never promoted.
 `training_example` schema, and tests that a deleted profile's rows are purged,
 and an OQ-SC-11 closure or an explicit OQ-SC-11 scope statement inside the
 OQ-SE-19 decision.
+**Disposition (program owner, 2026-09-16):** approved for scoping path **(b)** —
+OQ-SC-11 is decided *inside* the OQ-SE-19 decision as an explicit scope
+statement, not as a separate prior closure. The label signal itself is
+confirmed as wanted for the learned ranker; the privacy terms are the
+records/privacy owner's to write.
 
 ### 4.7 OQ-SE-20 — who promotes a learned ranker, and how is it rolled back? (new)
 
@@ -148,6 +178,9 @@ only in tests.
 **Owner:** scoring-registry owner + program owner.
 **Closure evidence:** a signed promotion artifact naming `model_artifact_hash`,
 the evaluation numbers, and the rollback test.
+**Disposition (program owner, 2026-09-16):** scoring-registry owner named —
+**BrooklynD23** signs `ltr-x.y.z` promotions and owns rollback to `content-1`.
+This governs the learned ranker for matching, not V1.
 
 ### 4.8 OQ-SE-21 — may a student×event interaction matrix exist? (new)
 
@@ -157,6 +190,7 @@ only? attendance? never skips?), at what minimum density, and is it ever
 readable outside the training job?
 **Safe default:** no matrix; no collaborative feature.
 **Owner:** records/privacy + program owner.
+**Disposition (program owner, 2026-09-16):** no — the safe default stands.
 
 ### 4.9 OQ-SE-22 — may recommendation decisions be logged with propensities? (new)
 
@@ -164,8 +198,9 @@ readable outside the training job?
 propensity, reward, policy_version, timestamp)` rows — a per-student
 behavioural record of what was shown and what happened. Is that log permitted,
 with what retention, and is it the same decision as OQ-SC-11 or a stricter one?
-**Safe default:** no log; exploration is the one declared wildcard.
+**Safe default:** no log; exploration is the declared wildcard stream.
 **Owner:** records/privacy + program owner + security owner.
+**Disposition (program owner, 2026-09-16):** no — the safe default stands.
 
 ## 5. What this record does not decide
 
@@ -177,3 +212,18 @@ with what retention, and is it the same decision as OQ-SC-11 or a stricter one?
 - It does not add `xgboost` or any ML dependency to `requirements/*.in`; that
   is a slice-6 phase-2 change that lands with the shadow evaluator, behind
   OQ-SE-20's safe default.
+
+## 6. Signatories
+
+Dispositions above were recorded 2026-09-16. Signatures for the register rows
+and the ADR-0018 ratification:
+
+- **BrooklynD23** — program owner, scoring-registry owner, and records/privacy
+  owner (all three roles, per owner direction).
+- **starey**, **chau** — collaborators (Git contributors).
+
+Recorded dispositions do not close register rows: a row closes when its dated,
+attributed closure evidence lands in
+`docs/plans/open-questions/student-engagement-deferred.md`. Rows whose
+disposition is "defer" or "safe default stands" keep their current default
+with no further artifact needed until revisited.

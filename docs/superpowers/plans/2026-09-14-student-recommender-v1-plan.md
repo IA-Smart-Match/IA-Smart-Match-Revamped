@@ -19,7 +19,7 @@
 - `PROHIBITED_INPUTS` is imported from `smartmatch_domain.factor_registry`, never redefined.
 - No number-typed property named like `score|value|percent|match|fit|rating|confidence` on the student HTTP response. `rank` and `withheld_*` are the only integers on items and the envelope.
 - `STUDENT_REGISTRY_STATUS = "proposed"` until an OQ-SE-01 artifact flips it. Tests assert the closed gate as a positive assertion.
-- Domain constants live in `smartmatch_domain/student_recommender/student_feed.py`: `STUDENT_FEED_WINDOW_DAYS = 7`, `STUDENT_FEED_MAX_ITEMS = 5`, `STUDENT_FEED_WILDCARD_SLOTS = 1`, `STUDENT_FEED_MAX_PER_PRIMARY_TAG = 3`, `STUDENT_FEED_POLICY_VERSION = "feed-1.0.0"`.
+- Domain constants live in `smartmatch_domain/student_recommender/student_feed.py`: `STUDENT_FEED_WINDOW_DAYS = 30`, `STUDENT_FEED_MAX_ITEMS = 5`, `STUDENT_FEED_WILDCARD_SLOTS = 1`, `STUDENT_FEED_WILDCARD_BATCH = 5`, `STUDENT_FEED_MAX_SESSION_EXCLUSIONS = 200`, `STUDENT_FEED_MAX_PER_PRIMARY_TAG = 3`, `STUDENT_FEED_POLICY_VERSION = "feed-1.0.0"`.
 - Vocabulary: `smartmatch_domain.event_vocabulary.VOCABULARY_VERSION` (`"g3-2026-08-29"`), referenced, never retyped.
 - Every `basis` and `reason` string passes `smartmatch_domain.one_sentence.assert_one_sentence(text, field=...)`.
 - Package boundaries (`make imports`, ADR-0002): `smartmatch_domain` imports nothing from `services/` or `smartmatch_persistence`.
@@ -29,6 +29,11 @@
 ---
 
 ### Task 1: `FactorRegistry` value object — parameterise the CBA mechanism (W2a)
+
+> **Shared with the class exercise (ADR-0019, 2026-09-16).** This task is the one
+> piece of work both tracks need. Land it first and once; the exercise's
+> `EXERCISE_REGISTRY` and this plan's `STUDENT_REGISTRY` are both instances of the
+> value object it introduces.
 
 **Files:**
 - Modify: `python/smartmatch_domain/smartmatch_domain/factor_registry.py`
@@ -442,6 +447,10 @@ git commit -m "refactor: parameterise factor_registry into a FactorRegistry valu
 ---
 
 ### Task 2: `student_interest_overlap` — evidence dataclasses and the Jaccard factor
+
+> **Implement in `smartmatch_domain/student_factors/` (ADR-0019).** The exercise
+> imports this function as "said they are interested in this topic"; do not write
+> it a second time there. The registry that composes it stays this plan's.
 
 **Files:**
 - Create: `python/smartmatch_domain/smartmatch_domain/factors/student_interest_overlap.py`
@@ -1109,12 +1118,13 @@ Expected: FAIL with `ModuleNotFoundError`
 from datetime import UTC, datetime, timedelta
 from typing import Final
 
-STUDENT_FEED_WINDOW_DAYS: Final[int] = 7
+STUDENT_FEED_WINDOW_DAYS: Final[int] = 30   # sign-up lead time, not a calendar week (ADR-0018 D7)
 STUDENT_FEED_MAX_ITEMS: Final[int] = 5
 STUDENT_FEED_WILDCARD_SLOTS: Final[int] = 1
+STUDENT_FEED_WILDCARD_BATCH: Final[int] = 5   # max draws per continuation request (OQ-SE-02)
 STUDENT_FEED_MAX_PER_PRIMARY_TAG: Final[int] = 3
 STUDENT_FEED_POLICY_VERSION: Final[str] = "feed-1.0.0"
-STUDENT_FEED_MAX_SESSION_EXCLUSIONS: Final[int] = 50
+STUDENT_FEED_MAX_SESSION_EXCLUSIONS: Final[int] = 200   # continuation must reach the whole catalog
 STUDENT_FEED_WINDOW_ANCHOR: Final[str] = "hour"   # documented in contracts §1.1
 
 
@@ -1432,11 +1442,11 @@ T0 = datetime(2026, 10, 5, 9, 0, tzinfo=UTC)
 class PassThroughPolicy:
     policy_version = "test-passthrough"
 
-    def select(self, run, ranked, inputs_hash, *, primary_tag_by_event={}):
+    def select(self, run, ranked, inputs_hash, *, primary_tag_by_event={}, wildcard_count=1):
         from smartmatch_domain.student_recommender.policy import StudentFeed
 
         return StudentFeed(
-            items=ranked, wildcard=None, wildcard_pool_size=0, wildcard_seed="",
+            items=ranked, wildcard=None, wildcards=(), wildcard_pool_size=0, wildcard_seed="",
             withheld_unscorable=sum(1 for s in ranked if s.value is None),
             withheld_untagged=0, truncated=False, policy_version=self.policy_version,
         )
@@ -1783,6 +1793,7 @@ def recommend(
     eligibility: EligibilityFilter,
     ranker: StudentRanker,
     policy: FeedPolicy,
+    wildcard_count: int = 1,
 ) -> RecommendationOutcome:
     assert_registry_approved(registry=ranker.registry)
     stage_a = eligibility.apply(run, catalog)
@@ -1808,7 +1819,7 @@ def recommend(
         policy_version=policy.policy_version,
     )
     primary_tag_by_event = {c.event_id: primary_tag(run.interests, c.tags) for c in stage_a.eligible}
-    feed = policy.select(run, ranked, inputs_hash, primary_tag_by_event=primary_tag_by_event)
+    feed = policy.select(run, ranked, inputs_hash, primary_tag_by_event=primary_tag_by_event, wildcard_count=wildcard_count)
     return RecommendationOutcome(feed=feed, eligibility=stage_a, inputs_hash=inputs_hash)
 ```
 
@@ -1863,6 +1874,7 @@ from smartmatch_domain.student_recommender.run import StudentRankingRun
 from smartmatch_domain.student_recommender.student_feed import (
     STUDENT_FEED_MAX_ITEMS,
     STUDENT_FEED_POLICY_VERSION,
+    STUDENT_FEED_WILDCARD_BATCH,
 )
 
 T0 = datetime(2026, 10, 5, 9, 0, tzinfo=UTC)
@@ -1912,6 +1924,18 @@ def test_wildcard_is_never_unscorable_and_is_hash_deterministic() -> None:
     assert one.wildcard.subject_id == two.wildcard.subject_id
     assert one.wildcard_seed == two.wildcard_seed
     assert one.withheld_unscorable == 2
+
+
+def test_wildcard_stream_draws_distinct_ids_and_ends_at_exhaustion() -> None:
+    ranked = _ranked(*[(f"e{i}", 0.9 - i / 100) for i in range(8)])
+    first = DefaultFeedPolicy().select(RUN, ranked, HASH)
+    batch = DefaultFeedPolicy().select(RUN, ranked, HASH, wildcard_count=STUDENT_FEED_WILDCARD_BATCH)
+    assert len(batch.wildcards) == 3                       # 8 scorable - 5 ranked = 3 in the pool
+    assert len({s.subject_id for s in batch.wildcards}) == 3
+    assert batch.wildcard == batch.wildcards[0]
+    assert first.wildcard == batch.wildcards[0]            # count truncates one fixed sequence
+    assert all(s.value is not None for s in batch.wildcards)
+    assert not {s.subject_id for s in batch.wildcards} & {s.subject_id for s in batch.items}
 
 
 def test_diversity_preference_defers_same_tag_items_but_still_fills_the_feed() -> None:
@@ -1992,6 +2016,7 @@ from smartmatch_domain.student_recommender.student_feed import (
     STUDENT_FEED_MAX_ITEMS,
     STUDENT_FEED_MAX_PER_PRIMARY_TAG,
     STUDENT_FEED_POLICY_VERSION,
+    STUDENT_FEED_WILDCARD_BATCH,
     STUDENT_FEED_WILDCARD_SLOTS,
 )
 
@@ -1999,7 +2024,8 @@ from smartmatch_domain.student_recommender.student_feed import (
 @dataclass(frozen=True, slots=True)
 class StudentFeed:
     items: tuple[StageBScore, ...]
-    wildcard: StageBScore | None
+    wildcard: StageBScore | None            # == wildcards[0] when the draw is non-empty
+    wildcards: tuple[StageBScore, ...]      # the draw: ≤ wildcard_count, without replacement, never unscorable
     wildcard_pool_size: int
     wildcard_seed: str
     withheld_unscorable: int
@@ -2018,6 +2044,7 @@ class FeedPolicy(Protocol):
         inputs_hash: str,
         *,
         primary_tag_by_event: Mapping[str, str | None] = ...,
+        wildcard_count: int = 1,
     ) -> StudentFeed: ...
 
 
@@ -2061,21 +2088,30 @@ class DefaultFeedPolicy:
         inputs_hash: str,
         *,
         primary_tag_by_event: Mapping[str, str | None] = {},
+        wildcard_count: int = 1,
     ) -> StudentFeed:
         scorable = [s for s in ranked if s.value is not None]
         unscorable = [s for s in ranked if s.value is None]
         ordered = _apply_diversity_preference(scorable, primary_tag_by_event, STUDENT_FEED_MAX_PER_PRIMARY_TAG)
         items = tuple(ordered[:STUDENT_FEED_MAX_ITEMS])
-        pool = ordered[STUDENT_FEED_MAX_ITEMS:]
+        pool = list(ordered[STUDENT_FEED_MAX_ITEMS:])
         seed = inputs_hash.removeprefix("sha256:")[:16]
-        wildcard: StageBScore | None = None
-        if pool and STUDENT_FEED_WILDCARD_SLOTS:
-            index = int(seed, 16) % len(pool)
-            wildcard = pool[index]
+        # Wildcard stream (OQ-SE-02): the k-th draw uses the k-th 2-byte stride of
+        # the seed, so the drawn order is one fixed deterministic sequence per
+        # (run, catalog, exclusions); wildcard_count only truncates it. Draws are
+        # without replacement and the stream ends at pool exhaustion — never pads.
+        draws = min(wildcard_count, STUDENT_FEED_WILDCARD_BATCH) if STUDENT_FEED_WILDCARD_SLOTS else 0
+        wildcards: list[StageBScore] = []
+        for k in range(draws):
+            if not pool:
+                break
+            index = int(seed[4 * k : 4 * k + 4], 16) % len(pool)
+            wildcards.append(pool.pop(index))
         return StudentFeed(
             items=items,
-            wildcard=wildcard,
-            wildcard_pool_size=len(pool),
+            wildcard=wildcards[0] if wildcards else None,
+            wildcards=tuple(wildcards),
+            wildcard_pool_size=len(pool) + len(wildcards),
             wildcard_seed=seed,
             withheld_unscorable=len(unscorable),
             withheld_untagged=sum(1 for s in unscorable if _is_untagged(s)),
@@ -2104,7 +2140,7 @@ git commit -m "feat: DefaultFeedPolicy with bound, diversity preference, and dec
 
 **Files:**
 - Create: `tests/golden/student/golden_case.schema.json`
-- Create: `tests/golden/student/proposed/SE-GC-001..010.json` (ten cases listed below)
+- Create: `tests/golden/student/proposed/SE-GC-001..011.json` (eleven cases listed below)
 - Test: `tests/unit/test_student_golden.py`, `tests/unit/test_student_golden_case_schema.py`
 
 **Interfaces:**
@@ -2128,6 +2164,7 @@ git commit -m "feat: DefaultFeedPolicy with bound, diversity preference, and dec
     "inputs": {
       "type": "object", "additionalProperties": false, "required": ["run", "catalog"],
       "properties": {
+        "wildcard_count": {"type": "integer", "minimum": 1, "maximum": 5},
         "run": {
           "type": "object", "additionalProperties": false,
           "required": ["interest_state", "interests", "modality_preference", "window_start", "window_end", "exclude_event_ids", "profile_version"],
@@ -2168,6 +2205,7 @@ git commit -m "feat: DefaultFeedPolicy with bound, diversity preference, and dec
         "refused": {"type": "boolean"},
         "order": {"type": "array", "items": {"type": "string"}},
         "wildcard": {"type": ["string", "null"]},
+        "wildcards": {"type": "array", "items": {"type": "string"}},
         "withheld_unscorable": {"type": "integer"},
         "withheld_untagged": {"type": "integer"},
         "excluded": {"type": "object", "additionalProperties": {"type": "integer"}},
@@ -2178,9 +2216,9 @@ git commit -m "feat: DefaultFeedPolicy with bound, diversity preference, and dec
 }
 ```
 
-- [ ] **Step 2: Author the ten cases**
+- [ ] **Step 2: Author the eleven cases**
 
-One file each, `tests/golden/student/proposed/SE-GC-00N.json`. All use `window_start = "2026-10-05T09:00:00+00:00"`, `window_end = "2026-10-12T09:00:00+00:00"`, events at `"2026-10-06T18:00:00+00:00"` unless stated, `publication_status = "published"`, `quarantined_count = 0`, `profile_version = 1`:
+One file each, `tests/golden/student/proposed/SE-GC-00N.json`. All use `window_start = "2026-10-05T09:00:00+00:00"`, `window_end = "2026-11-04T09:00:00+00:00"` (`STUDENT_FEED_WINDOW_DAYS = 30`), events at `"2026-10-06T18:00:00+00:00"` unless stated, `publication_status = "published"`, `quarantined_count = 0`, `profile_version = 1`:
 
 | id | symptom_class | inputs | expected |
 |---|---|---|---|
@@ -2191,8 +2229,9 @@ One file each, `tests/golden/student/proposed/SE-GC-00N.json`. All use `window_s
 | 005 | tie | interests `[finance]`; `b` `[finance]`, `a` `[finance]` | `order: [a, b]` |
 | 006 | anti_gaming | interests = all twelve vocabulary terms; `e1` `[finance, hackathon]`; second run with `[finance, hackathon]` encoded as a second case 007 | 006: `order: [e1]` and the runner asserts `value == round(2/12, 4)`; 007: `value == 1.0` |
 | 008 | diversity | interests `[finance, hackathon]`; `f1..f4` `[finance]`, `h1` `[hackathon]`; all five tie at 1/2 and break by event id | `order: [f1, f2, f3, h1, f4]`, `wildcard: null`, `withheld_unscorable: 0`, `withheld_untagged: 0` |
-| 009 | wildcard | interests `[finance]`; `e1..e8` `[finance]` | `order: [e1..e5]`, `wildcard` = the id the runner computes from the hash (author it by running once and pinning), `withheld_unscorable: 0` |
-| 010 | eligibility | `in_person`; `exclude_event_ids: [skip]`; catalog of `ok`, `virtual`, `late (2026-10-20)`, `undated (unresolved, starts_at null)`, `mine (already_registered)`, `skip`, `unpub` | `order: [ok]`, `excluded: {not_published:1, unresolved_date:1, outside_window:1, modality_mismatch:1, already_registered:1, session_excluded:1}` |
+| 009 | wildcard | interests `[finance]`; `e1..e8` `[finance]` | `order: [e1..e5]`, `wildcard` = the id the runner computes from the hash (author it by running once and pinning), `wildcards` = that one id, `withheld_unscorable: 0` |
+| 010 | eligibility | `in_person`; `exclude_event_ids: [skip]`; catalog of `ok`, `virtual`, `late (2026-11-20)`, `undated (unresolved, starts_at null)`, `mine (already_registered)`, `skip`, `unpub` | `order: [ok]`, `excluded: {not_published:1, unresolved_date:1, outside_window:1, modality_mismatch:1, already_registered:1, session_excluded:1}` |
+| 011 | wildcard | interests `[finance]`; `e1..e9` `[finance]`; `wildcard_count: 5` | `order: [e1..e5]`, `wildcards` = the four distinct ids the runner computes (pool of 4 exhausts the draw), `wildcard` = `wildcards[0]`, `withheld_unscorable: 0` |
 
 - [ ] **Step 3: Write the runner and the schema test**
 
@@ -2293,14 +2332,17 @@ def test_golden_case(path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(registry_module, "STUDENT_REGISTRY", approved)
     ranker = ContentRanker(registry=approved)
 
-    outcome = recommend(run, catalog, eligibility=DefaultEligibilityFilter(), ranker=ranker, policy=DefaultFeedPolicy())
+    outcome = recommend(run, catalog, eligibility=DefaultEligibilityFilter(), ranker=ranker, policy=DefaultFeedPolicy(),
+                        wildcard_count=case["inputs"].get("wildcard_count", 1))
     assert [s.subject_id for s in outcome.feed.items] == expected["order"]
     assert (outcome.feed.wildcard.subject_id if outcome.feed.wildcard else None) == expected["wildcard"]
+    if "wildcards" in expected:
+        assert [s.subject_id for s in outcome.feed.wildcards] == expected["wildcards"]
     assert outcome.feed.withheld_unscorable == expected["withheld_unscorable"]
     assert outcome.feed.withheld_untagged == expected["withheld_untagged"]
     for reason, count in expected["excluded"].items():
         assert outcome.eligibility.excluded[reason] == count
-    by_id = {s.subject_id: s for s in (*outcome.feed.items, *(outcome.feed.wildcard,) if outcome.feed.wildcard else ())}
+    by_id = {s.subject_id: s for s in (*outcome.feed.items, *outcome.feed.wildcards)}
     for event_id, states in expected["factor_states"].items():
         score = by_id.get(event_id)
         if score is None:
@@ -2310,16 +2352,16 @@ def test_golden_case(path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
             assert actual.state.value == state
 ```
 
-- [ ] **Step 4: Run and pin the wildcard id for SE-GC-009**
+- [ ] **Step 4: Run and pin the wildcard ids for SE-GC-009 and SE-GC-011**
 
 Run: `.venv/bin/python -m pytest tests/unit/test_student_golden_case_schema.py tests/unit/test_student_golden.py -q`
-Expected: 009 fails once with the computed wildcard id in the assertion message; write that id into the case, rerun, all PASS.
+Expected: 009 and 011 fail once with the computed wildcard ids in the assertion messages; write those ids into the cases, rerun, all PASS.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add tests/golden/student tests/unit/test_student_golden.py tests/unit/test_student_golden_case_schema.py
-git commit -m "test: ten proposed student golden cases for OQ-SE-01 review"
+git commit -m "test: eleven proposed student golden cases for OQ-SE-01 review"
 ```
 
 ---
@@ -2400,10 +2442,17 @@ def test_proposed_registry_is_a_409_not_an_empty_200(student_client: TestClient,
 
 
 @pytest.mark.usefixtures("student_client")
-def test_more_than_fifty_exclusions_is_a_422(student_client: TestClient, unit_id: str) -> None:
-    params = [("exclude_event_ids", f"00000000-0000-0000-0000-{i:012d}") for i in range(51)]
+def test_more_than_two_hundred_exclusions_is_a_422(student_client: TestClient, unit_id: str) -> None:
+    params = [("exclude_event_ids", f"00000000-0000-0000-0000-{i:012d}") for i in range(201)]
     response = student_client.get(f"/v1/units/{unit_id}/student/recommendations", params=params)
     assert response.status_code == 422
+
+
+@pytest.mark.usefixtures("student_client")
+def test_wildcard_count_outside_the_batch_is_a_422(student_client: TestClient, unit_id: str) -> None:
+    for bad in (0, 6):
+        response = student_client.get(f"/v1/units/{unit_id}/student/recommendations", params={"wildcard_count": bad})
+        assert response.status_code == 422
 
 
 def test_two_requests_in_the_same_hour_share_inputs_hash_and_wildcard(
@@ -2663,6 +2712,7 @@ from smartmatch_domain.student_recommender.recommend import recommend
 from smartmatch_domain.student_recommender.run import StudentEventCandidate, StudentRankingRun
 from smartmatch_domain.student_recommender.student_feed import (
     STUDENT_FEED_MAX_SESSION_EXCLUSIONS,
+    STUDENT_FEED_WILDCARD_BATCH,
     feed_window_for,
 )
 
@@ -2720,7 +2770,8 @@ class StudentRecommendationsResponse(BaseModel):
     profile_state: Literal["present", "absent"]
     feed_window: StudentFeedWindow
     items: list[StudentRecommendationItem]
-    wildcard: StudentRecommendationWildcard | None
+    wildcard: StudentRecommendationWildcard | None   # == wildcards[0] when the draw is non-empty
+    wildcards: list[StudentRecommendationWildcard]   # the draw: 1 on a first feed, ≤ STUDENT_FEED_WILDCARD_BATCH on continuation
     withheld_unscorable: int
     withheld_untagged: int
     withheld_unresolved_date: int
@@ -2752,6 +2803,7 @@ def _reason(matched: list[str], total_tags: int) -> str:
 def get_student_recommendations(
     unit_id: uuid.UUID,
     exclude_event_ids: list[uuid.UUID] = Query(default=[], max_length=STUDENT_FEED_MAX_SESSION_EXCLUSIONS),
+    wildcard_count: int = Query(default=1, ge=1, le=STUDENT_FEED_WILDCARD_BATCH),
     ctx=Depends(require_student_in_unit),          # the same dependency student_events.py uses
     session=Depends(get_session),
     profiles: StudentProfileReader = Depends(get_student_profile_reader),
@@ -2771,7 +2823,8 @@ def get_student_recommendations(
     ranker = ContentRanker()
     policy = DefaultFeedPolicy()
     try:
-        outcome = recommend(run, catalog, eligibility=DefaultEligibilityFilter(), ranker=ranker, policy=policy)
+        outcome = recommend(run, catalog, eligibility=DefaultEligibilityFilter(), ranker=ranker, policy=policy,
+                            wildcard_count=wildcard_count)
     except RegistryNotApprovedError as exc:
         raise ApiError(status_code=409, code="student_registry_not_approved", message=str(exc)) from exc
 
@@ -2781,20 +2834,22 @@ def get_student_recommendations(
         return StudentRecommendationItem(rank=rank, event=summary, matched_interests=matched, reason=_reason(matched, len(summary.tags)))
 
     feed = outcome.feed
-    wildcard = None
-    if feed.wildcard is not None:
-        summary = by_id[feed.wildcard.subject_id]
-        wildcard = StudentRecommendationWildcard(
-            event=summary, selection_basis="deterministic_index_from_inputs_hash",
+
+    def _wildcard(score) -> StudentRecommendationWildcard:
+        return StudentRecommendationWildcard(
+            event=by_id[score.subject_id], selection_basis="deterministic_index_from_inputs_hash",
             pool_size=feed.wildcard_pool_size, seed=feed.wildcard_seed,
             reason=assert_one_sentence("This is a wildcard drawn from events that matched your interests but did not rank in the top five.", field="reason"),
         )
+
+    wildcards = [_wildcard(s) for s in feed.wildcards]
+    wildcard = wildcards[0] if wildcards else None
     model = ranker.registry.scoring_modes[ranker.scoring_mode]
     profile_state = "present" if profile else "absent"
     caption = (
         "No interest profile is on file, so there is nothing to rank yet."
         if profile is None
-        else f"Ranked {len(feed.items)} of {len(outcome.eligibility.eligible)} eligible events this week; {feed.withheld_unscorable} could not be scored."
+        else f"Ranked {len(feed.items)} of {len(outcome.eligibility.eligible)} eligible events in the feed window; {feed.withheld_unscorable} could not be scored."
     )
     return StudentRecommendationsResponse(
         unit_id=unit_id,
@@ -2802,6 +2857,7 @@ def get_student_recommendations(
         feed_window=StudentFeedWindow(starts_at=window[0], ends_at=window[1], time_zone="UTC"),
         items=[item(i + 1, s) for i, s in enumerate(feed.items)],
         wildcard=wildcard,
+        wildcards=wildcards,
         withheld_unscorable=feed.withheld_unscorable,
         withheld_untagged=feed.withheld_untagged,
         withheld_unresolved_date=outcome.eligibility.excluded["unresolved_date"],
@@ -2909,7 +2965,7 @@ def test_unbounded_feature_without_transform_is_rejected() -> None:
         FeatureSpec("raw_count", FeatureSource.EVENT, True, "OQ-SE-01", "x")
 
 
-@pytest.mark.parametrize("key,raw,expected", [("interest_count", 2.0, 2 / 12), ("event_tag_count", 12.0, 1.0), ("event_tag_count", 30.0, 1.0), ("days_until_event", 3.5, 0.5)])
+@pytest.mark.parametrize("key,raw,expected", [("interest_count", 2.0, 2 / 12), ("event_tag_count", 12.0, 1.0), ("event_tag_count", 30.0, 1.0), ("days_until_event", 15.0, 0.5)])
 def test_as_factor_is_bounded(key: str, raw: float, expected: float) -> None:
     spec = next(f for f in STUDENT_FEATURES if f.key == key)
     assert spec.as_factor(raw) == pytest.approx(expected)

@@ -22,13 +22,25 @@ Contracts 1–3 are V1. Contract 4 and the `training_example` half of 5 are V2 a
 
 ```
 GET /v1/units/{unit_id}/student/recommendations
-    ?exclude_event_ids=<uuid>&exclude_event_ids=<uuid>   (optional, ≤ 50, session-only)
+    ?exclude_event_ids=<uuid>&exclude_event_ids=<uuid>   (optional, ≤ 200, session-only)
+    ?wildcard_count=<int>                                     (optional, 1..STUDENT_FEED_WILDCARD_BATCH, default 1)
 Roles: {student}     Module: services/api/smartmatch_api/routers/student_recommendations.py
 Rate limit: yes (the only student read whose work is proportional to the catalog)
 ```
 
 `exclude_event_ids` is the whole of session adaptation (ADR-0018 D6). It is
 never stored; it is folded into `inputs_hash` so two identical calls agree.
+
+`wildcard_count` is the wildcard stream's continuation knob (ADR-0018 D7,
+OQ-SE-02): `1` is the first feed's single declared draw; a student-initiated
+"show me more" sends a larger count (≤ `STUDENT_FEED_WILDCARD_BATCH`) together
+with the already-shown ids in `exclude_event_ids`, and the policy draws that
+many distinct wildcards without replacement from the scorable pool outside the
+ranked list. `wildcard_count` is **not** folded into `inputs_hash`: the drawn
+sequence is a pure function of the run, the catalog, and the exclusions — the
+count only truncates it — so a continuation never reorders what a first feed
+already showed. The stream ends at pool exhaustion; it never recycles and
+never pads.
 
 `feed_window` is anchored, not sampled: `starts_at` is the request clock
 floored to the hour (UTC), `ends_at = starts_at + STUDENT_FEED_WINDOW_DAYS`.
@@ -79,7 +91,8 @@ class StudentRecommendationsResponse(BaseModel):
     profile_state: Literal["present", "absent"]
     feed_window: StudentFeedWindow
     items: list[StudentRecommendationItem]                    # ≤ STUDENT_FEED_MAX_ITEMS, rank ascending
-    wildcard: StudentRecommendationWildcard | None
+    wildcard: StudentRecommendationWildcard | None            # == wildcards[0] when the draw is non-empty
+    wildcards: list[StudentRecommendationWildcard]            # the draw: 1 item on a first feed, ≤ STUDENT_FEED_WILDCARD_BATCH on continuation
     withheld_unscorable: int                                  # eligible, but composite unknown
     withheld_untagged: int                                    # subset of the above with zero mapped tags (OQ-SC-12)
     withheld_unresolved_date: int                             # time_precision = 'unresolved'
@@ -96,9 +109,12 @@ class StudentRecommendationsResponse(BaseModel):
   counters are the only integers; `applied_weights` is provenance and is the one
   float map, nested under `provenance` and never under an item.
 - `wildcard.event.id ∉ {item.event.id}`; `wildcard` is `null` when `pool_size`
-  would be 0; a wildcard is never an unscorable event.
-- `profile_state == "absent"` ⇒ `items == []`, `wildcard is None`, and the
-  caption says there is no profile. Never a fallback list.
+  would be 0; a wildcard is never an unscorable event. `wildcards` entries are
+  pairwise-distinct, none appears in `items`, and `wildcard == wildcards[0]`
+  whenever the draw is non-empty.
+- `profile_state == "absent"` ⇒ `items == []`, `wildcard is None`,
+  `wildcards == []`, and the caption says there is no profile. Never a
+  fallback list.
 - `items` is sorted by `rank`; ties in Stage B are broken by event id ascending.
 - Two calls with identical inputs return identical `inputs_hash` and identical order.
 
@@ -107,7 +123,8 @@ class StudentRecommendationsResponse(BaseModel):
 | Condition | Status | `code` |
 |---|---|---|
 | `STUDENT_REGISTRY.status != "approved"` | 409 | `student_registry_not_approved` |
-| `len(exclude_event_ids) > 50` | 422 | validation |
+| `len(exclude_event_ids) > 200` | 422 | validation |
+| `wildcard_count` outside `1..STUDENT_FEED_WILDCARD_BATCH` | 422 | validation |
 | caller lacks `student` role in unit | 403 | existing authz envelope |
 
 ### 1.4 The canonical `inputs_hash` tuple
@@ -196,7 +213,8 @@ class StudentRanker(Protocol):
 @dataclass(frozen=True, slots=True)
 class StudentFeed:
     items: tuple[StageBScore, ...]                # ≤ STUDENT_FEED_MAX_ITEMS, already ordered
-    wildcard: StageBScore | None
+    wildcard: StageBScore | None                  # == wildcards[0] when the draw is non-empty
+    wildcards: tuple[StageBScore, ...]            # the draw: ≤ wildcard_count, without replacement, never unscorable
     wildcard_pool_size: int
     wildcard_seed: str
     withheld_unscorable: int
@@ -210,6 +228,7 @@ class FeedPolicy(Protocol):
                ranked: tuple[StageBScore, ...],
                inputs_hash: str, *,
                primary_tag_by_event: Mapping[str, str | None] = {},   # event_id → first matched interest, for the diversity preference
+               wildcard_count: int = 1,                             # ≤ STUDENT_FEED_WILDCARD_BATCH; the stream's draw size
                ) -> StudentFeed: ...
 
 # student_recommender/policy.py
@@ -217,9 +236,11 @@ def primary_tag(interests: StudentInterestEvidence, tags: EventTagEvidence) -> s
     """Alphabetically first interest the event's mapped tags match; None when nothing matches or either side is absent."""
 
 # student_recommender/student_feed.py  — constants, never router literals
-STUDENT_FEED_WINDOW_DAYS: Final[int] = 7
+STUDENT_FEED_WINDOW_DAYS: Final[int] = 30  # sign-up lead time, not a calendar week (ADR-0018 D7)
 STUDENT_FEED_MAX_ITEMS: Final[int] = 5
-STUDENT_FEED_WILDCARD_SLOTS: Final[int] = 1
+STUDENT_FEED_WILDCARD_SLOTS: Final[int] = 1        # first-feed draw
+STUDENT_FEED_WILDCARD_BATCH: Final[int] = 5        # max draws per continuation request (OQ-SE-02)
+STUDENT_FEED_MAX_SESSION_EXCLUSIONS: Final[int] = 200  # continuation must reach the whole catalog
 STUDENT_FEED_MAX_PER_PRIMARY_TAG: Final[int] = 3   # soft preference: items past this per-tag count are deferred, then fill open slots (ADR-0018 D7)
 STUDENT_FEED_POLICY_VERSION: Final[str] = "feed-1.0.0"
 ```
@@ -411,8 +432,9 @@ Schema `tests/golden/student/golden_case.schema.json`, mirroring
 
 Minimum set the owner reviews to close OQ-SE-01: one case per row of §3.3's
 table, one tie broken by event id, one diversity re-order where deferred same-tag items still fill the feed, one wildcard
-drawn / one `null`, one `proposed`-status refusal, one anti-gaming case (12
-declared interests vs 2 accurate).
+drawn / one `null`, one wildcard-stream continuation (a `wildcard_count` draw
+of distinct ids ending at exhaustion), one `proposed`-status refusal, one
+anti-gaming case (12 declared interests vs 2 accurate).
 
 ### 5.2 Gold sets — `tests/golden/student/gold/` (V2 offline evaluation, no student data)
 
@@ -490,13 +512,13 @@ OQ-SE-20 owner's role may submit.
 | `tests/unit/test_student_scoring_inputs_wiring.py` | no module under `student_recommender/` imports `student_speaker_feedback`, `attendance`, `event_registration`, or `feedback` |
 | `tests/unit/test_student_interest_overlap.py` | all six rows; version mismatch raises at construction; exact Jaccard values; anti-gaming property |
 | `tests/unit/test_student_eligibility.py` | each reason in `ELIGIBILITY_REASONS` produced exactly once by a purpose-built candidate; counts sum to `len(catalog) - len(eligible)` |
-| `tests/unit/test_student_feed_policy.py` | bound; diversity preference defers past-3 same-tag items behind other tags, then fills to five; never promotes an unscorable; wildcard from outside pool only, `null` when empty, index derived from `inputs_hash` |
+| `tests/unit/test_student_feed_policy.py` | bound; diversity preference defers past-3 same-tag items behind other tags, then fills to five; never promotes an unscorable; wildcard from outside pool only, `null` when empty, index derived from `inputs_hash`; a `wildcard_count` draw returns that many distinct ids, ends at exhaustion, and `wildcard == wildcards[0]` |
 | `tests/unit/test_student_feed_window.py` | two requests in the same clock hour share a window; crossing the hour boundary moves it; a naive clock raises |
 | `tests/unit/test_student_recommend.py` | determinism (same inputs ⇒ same `inputs_hash` and order); `exclude_event_ids` changes the hash; proposed registry raises; editing an eligible event's tags changes the hash; evidence tuple covers every candidate field |
 | `tests/unit/test_feature_spec.py` | `FeatureSpec` with a prohibited key/source raises; `OUTCOME` source raises; required-unknown ⇒ `unknown_required_keys` non-empty |
 | `tests/unit/test_learned_ranker_fallback.py` | missing artifact ⇒ `ContentRanker`, `fallback_from="ltr-1"` |
 | `tests/golden/student/` + `tests/unit/test_student_golden.py` | every case in §5.1 |
 | `tests/unit/test_matching_fail_closed.py` | forbidden segments widened to `recommendation(s)`, `ranking`, `suggest`; exact path allowlisted |
-| `tests/contract/test_student_recommendations_api.py` | schema walk (no numeric score); every `reason` one sentence; wildcard distinct; refusal is 409 not 200; `exclude_event_ids` > 50 is 422 |
+| `tests/contract/test_student_recommendations_api.py` | schema walk (no numeric score); every `reason` one sentence; wildcard distinct; refusal is 409 not 200; `exclude_event_ids` > 200 is 422; `wildcard_count` outside `1..5` is 422 |
 | `tests/contract/test_student_recommendations_api.py` (determinism) | two requests in one clock hour return the same `inputs_hash`, the same `wildcard`, and the same `feed_window` |
 | `tests/authz/test_policy_matrix.py` | route allowed to `student` only |

@@ -1,6 +1,6 @@
 # Planning navigation authority
 
-**Status:** current navigation authority, updated 2026-09-14.
+**Status:** current navigation authority, updated 2026-09-16.
 
 This index tells contributors where current truth and planning authority live.
 It does not make a dated plan active, authorize implementation, or prove that a
@@ -15,7 +15,9 @@ target capability exists.
 | Accepted architecture decisions | [ADR index](../architecture/decisions/README.md) |
 | Tentative development direction | [Pilot decisions](../decisions/pilot-decisions.md); tentative is not organizational ratification |
 | Current student-engagement program | [2026-09-14 student-engagement program](2026-09-14-student-engagement-program-plan.md) and its canonical [open-question register](open-questions/student-engagement-deferred.md) |
-| Student→event recommender (slice 6, proposed) | [ADR-0018](../architecture/decisions/ADR-0018-staged-student-event-recommender.md) (Proposed), [decision record](../decisions/student-recommender-decision-record.md) (draft), [contracts](../architecture/student-recommender-contracts.md), [implementation plan](../superpowers/plans/2026-09-14-student-recommender-v1-plan.md) with its [review-fixes plan](../superpowers/plans/2026-09-14-student-recommender-review-fixes.md); gated on OQ-SC-02, OQ-SE-01, OQ-SE-02 |
+| Student→event recommender (slice 6, proposed) | [ADR-0018](../architecture/decisions/ADR-0018-staged-student-event-recommender.md) (Accepted 2026-09-16), [decision record](../decisions/student-recommender-decision-record.md) (draft), [contracts](../architecture/student-recommender-contracts.md), [implementation plan](../superpowers/plans/2026-09-14-student-recommender-v1-plan.md) with its [review-fixes plan](../superpowers/plans/2026-09-14-student-recommender-review-fixes.md); gated on OQ-SC-02, OQ-SE-01, OQ-SE-02 |
+| Class exercise for Dr. Lin's Spring 2027 course (Ann Wang, second product scope, runs in parallel with the CBA track) | [Requirements](../product/class-exercise-requirements.md), [ADR-0019](../architecture/decisions/ADR-0019-class-exercise-scope-shares-the-matching-mechanism.md), [design spec](../superpowers/specs/2026-09-16-class-exercise-design.md), [scoped register](open-questions/class-exercise-open-questions.md) |
+| Ideas logged but not scheduled | [Backlog](backlog.md) |
 
 These links put implementation truth, the active frontend contract, accepted
 decisions, tentative direction, and the current student program within two
@@ -25,6 +27,7 @@ hops of the repository root.
 
 - Student engagement: [canonical OQ-SC/OQ-SE register](open-questions/student-engagement-deferred.md).
 - CBA matching: [CBA phase deferred register](open-questions/cba-phase-deferred.md).
+- Class exercise: [scoped OQ-CE register](open-questions/class-exercise-open-questions.md); it closes no OQ-SC/OQ-SE/OQ-CBA row.
 - Historical attendance/disclosure register: [engagement deferred register](open-questions/engagement-deferred.md),
   preserved as a point-in-time record; current student decisions live in the
   [canonical OQ-SC/OQ-SE register](open-questions/student-engagement-deferred.md).
