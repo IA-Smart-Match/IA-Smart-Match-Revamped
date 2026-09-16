@@ -50,6 +50,7 @@
 ```python
 # tests/unit/test_factor_registry_parametrised.py
 """W2a pin: the CBA registry is a value object, and every free function defaults to it."""
+
 from __future__ import annotations
 
 import pytest
@@ -244,7 +245,9 @@ class FactorRegistry:
                 raise ValueError(f"scoring_modes[{mode!r}] names mode {model.scoring_mode!r}")
             unknown = set(model.scoring_keys) - set(keys)
             if unknown:
-                raise ValueError(f"scoring_modes[{mode!r}] scores undeclared keys {sorted(unknown)}")
+                raise ValueError(
+                    f"scoring_modes[{mode!r}] scores undeclared keys {sorted(unknown)}"
+                )
         object.__setattr__(self, "scoring_modes", MappingProxyType(dict(self.scoring_modes)))
 
     @property
@@ -263,7 +266,9 @@ class FactorRegistry:
                 [spec.key, spec.kind.value, repr(spec.active_weight), spec.implemented]
                 for spec in self.factors
             ],
-            "modes": {mode: list(model.scoring_keys) for mode, model in sorted(self.scoring_modes.items())},
+            "modes": {
+                mode: list(model.scoring_keys) for mode, model in sorted(self.scoring_modes.items())
+            },
         }
         rendered = json.dumps(payload, sort_keys=True, separators=(",", ":"))
         return "sha256:" + hashlib.sha256(rendered.encode("utf-8")).hexdigest()
@@ -339,7 +344,9 @@ def factor_keys(*, registry: FactorRegistry = CBA_REGISTRY) -> tuple[str, ...]:
 
 def implemented_scoring_keys(*, registry: FactorRegistry = CBA_REGISTRY) -> frozenset[str]:
     return frozenset(
-        spec.key for spec in registry.factors if spec.implemented and spec.is_scoring and not spec.is_retired
+        spec.key
+        for spec in registry.factors
+        if spec.implemented and spec.is_scoring and not spec.is_retired
     )
 
 
@@ -401,7 +408,10 @@ def display_weights(
     model: ScoringModel = CBA_PHYSICAL_MODEL, *, registry: FactorRegistry = CBA_REGISTRY
 ) -> Mapping[str, float]:
     return MappingProxyType(
-        {key: round(value, _WEIGHT_DISPLAY_PRECISION) for key, value in normalize_weights(model=model, registry=registry).items()}
+        {
+            key: round(value, _WEIGHT_DISPLAY_PRECISION)
+            for key, value in normalize_weights(model=model, registry=registry).items()
+        }
     )
 ```
 
@@ -501,21 +511,28 @@ def _assert_unknown(score, needle: str) -> None:
 
 def test_no_profile_is_unknown() -> None:
     interests = StudentInterestEvidence(StudentInterestState.NO_PROFILE, frozenset(), V)
-    _assert_unknown(score_student_interest_overlap(interests, _tagged("finance")), "No interest profile")
+    _assert_unknown(
+        score_student_interest_overlap(interests, _tagged("finance")), "No interest profile"
+    )
 
 
 def test_declared_but_empty_is_unknown() -> None:
-    _assert_unknown(score_student_interest_overlap(_declared(), _tagged("finance")), "lists no interests")
+    _assert_unknown(
+        score_student_interest_overlap(_declared(), _tagged("finance")), "lists no interests"
+    )
 
 
 def test_no_tag_records_is_unknown() -> None:
     tags = EventTagEvidence(EventTagState.NO_TAG_RECORDS, frozenset(), 0, V)
-    _assert_unknown(score_student_interest_overlap(_declared("finance"), tags), "no vocabulary tags")
+    _assert_unknown(
+        score_student_interest_overlap(_declared("finance"), tags), "no vocabulary tags"
+    )
 
 
 def test_tagged_but_none_mapped_is_unknown() -> None:
     _assert_unknown(
-        score_student_interest_overlap(_declared("finance"), _tagged(quarantined=2)), "None of this event's tags"
+        score_student_interest_overlap(_declared("finance"), _tagged(quarantined=2)),
+        "None of this event's tags",
     )
 
 
@@ -529,7 +546,9 @@ def test_disjoint_sets_are_a_measured_zero() -> None:
 
 
 def test_overlap_is_jaccard_rounded() -> None:
-    score = score_student_interest_overlap(_declared("finance", "hackathon"), _tagged("hackathon", "workshop", "finance"))
+    score = score_student_interest_overlap(
+        _declared("finance", "hackathon"), _tagged("hackathon", "workshop", "finance")
+    )
     assert score.value == round(2 / 3, FACTOR_SCORE_PRECISION)
     assert score.state is FactorState.MEASURED
     assert score.zero_classification is None
@@ -543,12 +562,16 @@ def test_declaring_everything_scores_worse_than_declaring_accurately() -> None:
     two = _declared("finance", "hackathon")
     event = _tagged("finance", "hackathon")
     assert score_student_interest_overlap(two, event).value == 1.0
-    assert score_student_interest_overlap(twelve, event).value == round(2 / 12, FACTOR_SCORE_PRECISION)
+    assert score_student_interest_overlap(twelve, event).value == round(
+        2 / 12, FACTOR_SCORE_PRECISION
+    )
 
 
 def test_vocabulary_mismatch_raises_at_construction() -> None:
     with pytest.raises(ValueError, match="vocabulary_version"):
-        StudentInterestEvidence(StudentInterestState.DECLARED, frozenset({"finance"}), "g3-1999-01-01")
+        StudentInterestEvidence(
+            StudentInterestState.DECLARED, frozenset({"finance"}), "g3-1999-01-01"
+        )
     with pytest.raises(ValueError, match="vocabulary_version"):
         EventTagEvidence(EventTagState.TAGGED, frozenset({"finance"}), 0, "g3-1999-01-01")
 ```
@@ -639,7 +662,9 @@ class EventTagEvidence:
         _check_version(self.vocabulary_version)
         if self.quarantined_count < 0:
             raise ValueError("quarantined_count: must not be negative")
-        if self.state is EventTagState.NO_TAG_RECORDS and (self.mapped_terms or self.quarantined_count):
+        if self.state is EventTagState.NO_TAG_RECORDS and (
+            self.mapped_terms or self.quarantined_count
+        ):
             raise ValueError("NO_TAG_RECORDS evidence cannot carry tags")
 
 
@@ -681,9 +706,7 @@ def score_student_interest_overlap(
 
     shared = interests.terms & tags.mapped_terms
     if not shared:
-        text = (
-            f"None of your interests appear among this event's {len(tags.mapped_terms)} tags ({version})."
-        )
+        text = f"None of your interests appear among this event's {len(tags.mapped_terms)} tags ({version})."
         return FactorScore(
             factor_key=STUDENT_INTEREST_OVERLAP_FACTOR_KEY,
             value=0.0,
@@ -832,6 +855,7 @@ def test_prohibited_inputs_is_one_shared_object() -> None:
 ```python
 # tests/unit/test_student_scoring_inputs_wiring.py
 """OQ-CBA-053 as an executable control: no student scoring path can reach outcome data."""
+
 from __future__ import annotations
 
 import subprocess
@@ -857,7 +881,9 @@ def test_student_module_imports_no_outcome_source(module: str) -> None:
         f"importlib.import_module({module!r})\n"
         "print('\\n'.join(sorted(sys.modules)))\n"
     )
-    result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=False)
+    result = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, check=False
+    )
     if result.returncode != 0 and "No module named" in result.stderr:
         pytest.skip(f"{module} not built yet")
     assert result.returncode == 0, result.stderr
@@ -923,7 +949,9 @@ STUDENT_STAGE_B_FORMULA_VERSION: Final[str] = "1.0.0"
 STUDENT_SCORING_MODES: Final[frozenset[str]] = frozenset({STUDENT_SCORING_MODE})
 STUDENT_MODALITY_ELIGIBILITY_FACTOR_KEY: Final[str] = "student_modality_eligibility"
 
-APPROVED_STUDENT_SCORING_KEYS: Final[frozenset[str]] = frozenset({STUDENT_INTEREST_OVERLAP_FACTOR_KEY})
+APPROVED_STUDENT_SCORING_KEYS: Final[frozenset[str]] = frozenset(
+    {STUDENT_INTEREST_OVERLAP_FACTOR_KEY}
+)
 
 STUDENT_FACTORS: Final[tuple[FactorSpec, ...]] = (
     FactorSpec(
@@ -1040,11 +1068,15 @@ WINDOW = (T0, T0 + timedelta(days=7))
 TAGS = EventTagEvidence(EventTagState.TAGGED, frozenset({"finance"}), 0, VOCABULARY_VERSION)
 
 
-def _run(modality: str = "no_preference", exclude: frozenset[str] = frozenset()) -> StudentRankingRun:
+def _run(
+    modality: str = "no_preference", exclude: frozenset[str] = frozenset()
+) -> StudentRankingRun:
     return StudentRankingRun(
         unit_id="unit-1",
         subject_id="stu-1",
-        interests=StudentInterestEvidence(StudentInterestState.DECLARED, frozenset({"finance"}), VOCABULARY_VERSION),
+        interests=StudentInterestEvidence(
+            StudentInterestState.DECLARED, frozenset({"finance"}), VOCABULARY_VERSION
+        ),
         modality_preference=modality,
         feed_window=WINDOW,
         exclude_event_ids=exclude,
@@ -1079,8 +1111,12 @@ def test_each_reason_is_produced_exactly_once_and_counts_reconcile() -> None:
     result = DefaultEligibilityFilter().apply(_run("in_person", frozenset({"skipped"})), catalog)
     assert [c.event_id for c in result.eligible] == ["ok"]
     assert result.excluded == {
-        "not_published": 1, "outside_window": 1, "unresolved_date": 1,
-        "modality_mismatch": 1, "already_registered": 1, "session_excluded": 1,
+        "not_published": 1,
+        "outside_window": 1,
+        "unresolved_date": 1,
+        "modality_mismatch": 1,
+        "already_registered": 1,
+        "session_excluded": 1,
     }
     assert set(result.excluded) == ELIGIBILITY_REASONS
     assert sum(result.excluded.values()) == len(catalog) - len(result.eligible)
@@ -1093,7 +1129,9 @@ def test_no_preference_excludes_nothing_on_modality() -> None:
 
 
 def test_virtual_preference_excludes_in_person() -> None:
-    result = DefaultEligibilityFilter().apply(_run("virtual"), (_event("v", is_virtual=True), _event("p")))
+    result = DefaultEligibilityFilter().apply(
+        _run("virtual"), (_event("v", is_virtual=True), _event("p"))
+    )
     assert [c.event_id for c in result.eligible] == ["v"]
 
 
@@ -1118,14 +1156,14 @@ Expected: FAIL with `ModuleNotFoundError`
 from datetime import UTC, datetime, timedelta
 from typing import Final
 
-STUDENT_FEED_WINDOW_DAYS: Final[int] = 30   # sign-up lead time, not a calendar week (ADR-0018 D7)
+STUDENT_FEED_WINDOW_DAYS: Final[int] = 30  # sign-up lead time, not a calendar week (ADR-0018 D7)
 STUDENT_FEED_MAX_ITEMS: Final[int] = 5
 STUDENT_FEED_WILDCARD_SLOTS: Final[int] = 1
-STUDENT_FEED_WILDCARD_BATCH: Final[int] = 5   # max draws per continuation request (OQ-SE-02)
+STUDENT_FEED_WILDCARD_BATCH: Final[int] = 5  # max draws per continuation request (OQ-SE-02)
 STUDENT_FEED_MAX_PER_PRIMARY_TAG: Final[int] = 3
 STUDENT_FEED_POLICY_VERSION: Final[str] = "feed-1.0.0"
-STUDENT_FEED_MAX_SESSION_EXCLUSIONS: Final[int] = 200   # continuation must reach the whole catalog
-STUDENT_FEED_WINDOW_ANCHOR: Final[str] = "hour"   # documented in contracts §1.1
+STUDENT_FEED_MAX_SESSION_EXCLUSIONS: Final[int] = 200  # continuation must reach the whole catalog
+STUDENT_FEED_WINDOW_ANCHOR: Final[str] = "hour"  # documented in contracts §1.1
 
 
 def feed_window_for(now: datetime) -> tuple[datetime, datetime]:
@@ -1141,17 +1179,29 @@ def feed_window_for(now: datetime) -> tuple[datetime, datetime]:
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from smartmatch_domain.student_recommender.student_feed import STUDENT_FEED_WINDOW_DAYS, feed_window_for
+from smartmatch_domain.student_recommender.student_feed import (
+    STUDENT_FEED_WINDOW_DAYS,
+    feed_window_for,
+)
 
 
 def test_requests_in_the_same_hour_share_a_window() -> None:
     a = feed_window_for(datetime(2026, 10, 5, 14, 3, 7, 123456, tzinfo=UTC))
     b = feed_window_for(datetime(2026, 10, 5, 14, 59, 59, 999999, tzinfo=UTC))
-    assert a == b == (datetime(2026, 10, 5, 14, tzinfo=UTC), datetime(2026, 10, 5, 14, tzinfo=UTC) + timedelta(days=STUDENT_FEED_WINDOW_DAYS))
+    assert (
+        a
+        == b
+        == (
+            datetime(2026, 10, 5, 14, tzinfo=UTC),
+            datetime(2026, 10, 5, 14, tzinfo=UTC) + timedelta(days=STUDENT_FEED_WINDOW_DAYS),
+        )
+    )
 
 
 def test_crossing_the_hour_moves_the_window() -> None:
-    assert feed_window_for(datetime(2026, 10, 5, 14, 59, tzinfo=UTC)) != feed_window_for(datetime(2026, 10, 5, 15, 0, tzinfo=UTC))
+    assert feed_window_for(datetime(2026, 10, 5, 14, 59, tzinfo=UTC)) != feed_window_for(
+        datetime(2026, 10, 5, 15, 0, tzinfo=UTC)
+    )
 
 
 def test_naive_clock_is_rejected() -> None:
@@ -1169,7 +1219,10 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal
 
-from smartmatch_domain.factors.student_interest_overlap import EventTagEvidence, StudentInterestEvidence
+from smartmatch_domain.factors.student_interest_overlap import (
+    EventTagEvidence,
+    StudentInterestEvidence,
+)
 
 ModalityPreference = Literal["in_person", "virtual", "no_preference"]
 TimePrecision = Literal["exact", "date_only", "unresolved"]
@@ -1353,15 +1406,26 @@ T0 = datetime(2026, 10, 5, 9, 0, tzinfo=UTC)
 
 def _run(*terms: str) -> StudentRankingRun:
     return StudentRankingRun(
-        "unit-1", "stu-1",
+        "unit-1",
+        "stu-1",
         StudentInterestEvidence(StudentInterestState.DECLARED, frozenset(terms), V),
-        "no_preference", (T0, T0 + timedelta(days=7)), frozenset(), 1,
+        "no_preference",
+        (T0, T0 + timedelta(days=7)),
+        frozenset(),
+        1,
     )
 
 
-def _event(event_id: str, *tags: str, state: EventTagState = EventTagState.TAGGED) -> StudentEventCandidate:
+def _event(
+    event_id: str, *tags: str, state: EventTagState = EventTagState.TAGGED
+) -> StudentEventCandidate:
     return StudentEventCandidate(
-        event_id, False, T0 + timedelta(days=1), "exact", "published", False,
+        event_id,
+        False,
+        T0 + timedelta(days=1),
+        "exact",
+        "published",
+        False,
         EventTagEvidence(state, frozenset(tags), 0, V),
     )
 
@@ -1380,7 +1444,11 @@ def test_scores_carry_the_student_pins_and_event_id_as_subject() -> None:
 def test_unknown_dominates_and_sorts_last() -> None:
     scores = ContentRanker().rank(
         _run("finance"),
-        (_event("untagged", state=EventTagState.NO_TAG_RECORDS), _event("zero", "hackathon"), _event("hit", "finance")),
+        (
+            _event("untagged", state=EventTagState.NO_TAG_RECORDS),
+            _event("zero", "hackathon"),
+            _event("hit", "finance"),
+        ),
     )
     assert [s.subject_id for s in scores] == ["hit", "zero", "untagged"]
     assert scores[-1].value is None
@@ -1446,23 +1514,38 @@ class PassThroughPolicy:
         from smartmatch_domain.student_recommender.policy import StudentFeed
 
         return StudentFeed(
-            items=ranked, wildcard=None, wildcards=(), wildcard_pool_size=0, wildcard_seed="",
+            items=ranked,
+            wildcard=None,
+            wildcards=(),
+            wildcard_pool_size=0,
+            wildcard_seed="",
             withheld_unscorable=sum(1 for s in ranked if s.value is None),
-            withheld_untagged=0, truncated=False, policy_version=self.policy_version,
+            withheld_untagged=0,
+            truncated=False,
+            policy_version=self.policy_version,
         )
 
 
 def _run(exclude: frozenset[str] = frozenset()) -> StudentRankingRun:
     return StudentRankingRun(
-        "unit-1", "stu-1",
+        "unit-1",
+        "stu-1",
         StudentInterestEvidence(StudentInterestState.DECLARED, frozenset({"finance"}), V),
-        "no_preference", (T0, T0 + timedelta(days=7)), exclude, 1,
+        "no_preference",
+        (T0, T0 + timedelta(days=7)),
+        exclude,
+        1,
     )
 
 
 def _event(event_id: str, *tags: str) -> StudentEventCandidate:
     return StudentEventCandidate(
-        event_id, False, T0 + timedelta(days=1), "exact", "published", False,
+        event_id,
+        False,
+        T0 + timedelta(days=1),
+        "exact",
+        "published",
+        False,
         EventTagEvidence(EventTagState.TAGGED, frozenset(tags), 0, V),
     )
 
@@ -1478,8 +1561,12 @@ def _catalog(*, tags: Mapping[str, set[str]]) -> tuple[StudentEventCandidate, ..
 def _approved_ranker() -> ContentRanker:
     """A ranker over an approved copy of the registry; the shipped constant stays 'proposed'."""
     return ContentRanker(
-        registry=replace(registry_module.STUDENT_REGISTRY, status="approved",
-                         approver="test", approved_on="2026-10-05"),
+        registry=replace(
+            registry_module.STUDENT_REGISTRY,
+            status="approved",
+            approver="test",
+            approved_on="2026-10-05",
+        ),
     )
 
 
@@ -1488,32 +1575,70 @@ def approved_registry(monkeypatch: pytest.MonkeyPatch):
     """Flip the gate for a test only; the shipped constant stays 'proposed'."""
     from dataclasses import replace
 
-    approved = replace(registry_module.STUDENT_REGISTRY, status="approved", approver="test", approved_on="2026-10-05")
+    approved = replace(
+        registry_module.STUDENT_REGISTRY,
+        status="approved",
+        approver="test",
+        approved_on="2026-10-05",
+    )
     monkeypatch.setattr(registry_module, "STUDENT_REGISTRY", approved)
     return approved
 
 
 def test_proposed_registry_refuses_before_reading_evidence() -> None:
     with pytest.raises(RegistryNotApprovedError):
-        recommend(_run(), (_event("e1", "finance"),), eligibility=DefaultEligibilityFilter(),
-                  ranker=ContentRanker(), policy=PassThroughPolicy())
+        recommend(
+            _run(),
+            (_event("e1", "finance"),),
+            eligibility=DefaultEligibilityFilter(),
+            ranker=ContentRanker(),
+            policy=PassThroughPolicy(),
+        )
 
 
 def test_same_inputs_same_hash_and_order(approved_registry) -> None:
     ranker = ContentRanker(registry=approved_registry)
     catalog = (_event("b", "finance"), _event("a", "finance"), _event("c", "hackathon"))
-    one = recommend(_run(), catalog, eligibility=DefaultEligibilityFilter(), ranker=ranker, policy=PassThroughPolicy())
-    two = recommend(_run(), tuple(reversed(catalog)), eligibility=DefaultEligibilityFilter(), ranker=ranker, policy=PassThroughPolicy())
+    one = recommend(
+        _run(),
+        catalog,
+        eligibility=DefaultEligibilityFilter(),
+        ranker=ranker,
+        policy=PassThroughPolicy(),
+    )
+    two = recommend(
+        _run(),
+        tuple(reversed(catalog)),
+        eligibility=DefaultEligibilityFilter(),
+        ranker=ranker,
+        policy=PassThroughPolicy(),
+    )
     assert one.inputs_hash == two.inputs_hash
     assert one.inputs_hash.startswith("sha256:")
-    assert [s.subject_id for s in one.feed.items] == [s.subject_id for s in two.feed.items] == ["a", "b", "c"]
+    assert (
+        [s.subject_id for s in one.feed.items]
+        == [s.subject_id for s in two.feed.items]
+        == ["a", "b", "c"]
+    )
 
 
 def test_session_exclusions_change_the_hash_and_are_counted(approved_registry) -> None:
     ranker = ContentRanker(registry=approved_registry)
     catalog = (_event("a", "finance"), _event("b", "finance"))
-    plain = recommend(_run(), catalog, eligibility=DefaultEligibilityFilter(), ranker=ranker, policy=PassThroughPolicy())
-    skipped = recommend(_run(frozenset({"a"})), catalog, eligibility=DefaultEligibilityFilter(), ranker=ranker, policy=PassThroughPolicy())
+    plain = recommend(
+        _run(),
+        catalog,
+        eligibility=DefaultEligibilityFilter(),
+        ranker=ranker,
+        policy=PassThroughPolicy(),
+    )
+    skipped = recommend(
+        _run(frozenset({"a"})),
+        catalog,
+        eligibility=DefaultEligibilityFilter(),
+        ranker=ranker,
+        policy=PassThroughPolicy(),
+    )
     assert plain.inputs_hash != skipped.inputs_hash
     assert skipped.eligibility.excluded["session_excluded"] == 1
     assert [s.subject_id for s in skipped.feed.items] == ["b"]
@@ -1521,20 +1646,40 @@ def test_session_exclusions_change_the_hash_and_are_counted(approved_registry) -
 
 def test_inputs_hash_covers_the_documented_tuple() -> None:
     h = student_inputs_hash(
-        unit_id="u", subject_id="s", profile_version=1, interest_terms=frozenset({"b", "a"}),
-        modality_preference="no_preference", vocabulary_version=V,
-        window=(T0, T0 + timedelta(days=7)), eligible=(_event("y", "finance"), _event("x", "finance")),
-        exclude_event_ids=frozenset(), registry_version="r", registry_hash="sha256:0",
-        scoring_mode="m", scoring_mode_version="1", formula_version="f",
-        model_artifact_hash=None, policy_version="p",
+        unit_id="u",
+        subject_id="s",
+        profile_version=1,
+        interest_terms=frozenset({"b", "a"}),
+        modality_preference="no_preference",
+        vocabulary_version=V,
+        window=(T0, T0 + timedelta(days=7)),
+        eligible=(_event("y", "finance"), _event("x", "finance")),
+        exclude_event_ids=frozenset(),
+        registry_version="r",
+        registry_hash="sha256:0",
+        scoring_mode="m",
+        scoring_mode_version="1",
+        formula_version="f",
+        model_artifact_hash=None,
+        policy_version="p",
     )
     same_different_order = student_inputs_hash(
-        unit_id="u", subject_id="s", profile_version=1, interest_terms=frozenset({"a", "b"}),
-        modality_preference="no_preference", vocabulary_version=V,
-        window=(T0, T0 + timedelta(days=7)), eligible=(_event("x", "finance"), _event("y", "finance")),
-        exclude_event_ids=frozenset(), registry_version="r", registry_hash="sha256:0",
-        scoring_mode="m", scoring_mode_version="1", formula_version="f",
-        model_artifact_hash=None, policy_version="p",
+        unit_id="u",
+        subject_id="s",
+        profile_version=1,
+        interest_terms=frozenset({"a", "b"}),
+        modality_preference="no_preference",
+        vocabulary_version=V,
+        window=(T0, T0 + timedelta(days=7)),
+        eligible=(_event("x", "finance"), _event("y", "finance")),
+        exclude_event_ids=frozenset(),
+        registry_version="r",
+        registry_hash="sha256:0",
+        scoring_mode="m",
+        scoring_mode_version="1",
+        formula_version="f",
+        model_artifact_hash=None,
+        policy_version="p",
     )
     assert h == same_different_order
 
@@ -1542,8 +1687,20 @@ def test_inputs_hash_covers_the_documented_tuple() -> None:
 def test_changing_an_eligible_events_tags_changes_the_hash() -> None:
     catalog = _catalog(tags={"e1": {"finance"}, "e2": {"hackathon"}})
     edited = _catalog(tags={"e1": {"finance", "hackathon"}, "e2": {"hackathon"}})
-    a = recommend(RUN, catalog, eligibility=DefaultEligibilityFilter(), ranker=_approved_ranker(), policy=PassThroughPolicy())
-    b = recommend(RUN, edited, eligibility=DefaultEligibilityFilter(), ranker=_approved_ranker(), policy=PassThroughPolicy())
+    a = recommend(
+        RUN,
+        catalog,
+        eligibility=DefaultEligibilityFilter(),
+        ranker=_approved_ranker(),
+        policy=PassThroughPolicy(),
+    )
+    b = recommend(
+        RUN,
+        edited,
+        eligibility=DefaultEligibilityFilter(),
+        ranker=_approved_ranker(),
+        policy=PassThroughPolicy(),
+    )
     assert a.inputs_hash != b.inputs_hash
 
 
@@ -1552,8 +1709,17 @@ def test_candidate_evidence_covers_every_candidate_field() -> None:
 
     from smartmatch_domain.student_recommender.recommend import candidate_evidence
     from smartmatch_domain.student_recommender.run import StudentEventCandidate
+
     names = {f.name for f in fields(StudentEventCandidate)}
-    assert names == {"event_id", "is_virtual", "starts_at", "time_precision", "publication_status", "already_registered", "tags"}
+    assert names == {
+        "event_id",
+        "is_virtual",
+        "starts_at",
+        "time_precision",
+        "publication_status",
+        "already_registered",
+        "tags",
+    }
     assert len(candidate_evidence(_catalog(tags={"e1": {"finance"}})[0])) == 10
 ```
 
@@ -1585,11 +1751,16 @@ from smartmatch_domain.student_recommender.run import StudentEventCandidate
 def candidate_evidence(c: StudentEventCandidate) -> tuple:
     """Every candidate field a ranker or policy may read; folded into inputs_hash (contracts §1.4)."""
     return (
-        c.event_id, c.is_virtual,
+        c.event_id,
+        c.is_virtual,
         None if c.starts_at is None else c.starts_at.isoformat(),
-        c.time_precision, c.publication_status, c.already_registered,
-        c.tags.state.value, sorted(c.tags.mapped_terms),
-        c.tags.quarantined_count, c.tags.vocabulary_version,
+        c.time_precision,
+        c.publication_status,
+        c.already_registered,
+        c.tags.state.value,
+        sorted(c.tags.mapped_terms),
+        c.tags.quarantined_count,
+        c.tags.vocabulary_version,
     )
 
 
@@ -1676,7 +1847,9 @@ class StudentRanker(Protocol):
     ) -> tuple[StageBScore, ...]: ...
 
 
-def _factor_scores(run: StudentRankingRun, candidate: StudentEventCandidate) -> tuple[FactorScore, ...]:
+def _factor_scores(
+    run: StudentRankingRun, candidate: StudentEventCandidate
+) -> tuple[FactorScore, ...]:
     """Every scoring factor the student model admits, in registry order."""
     return (score_student_interest_overlap(run.interests, candidate.tags),)
 
@@ -1709,7 +1882,9 @@ def _compose(
         total = 0.0
         for s in factor_scores:
             assert s.value is not None
-            contribution = s.value if kinds[s.factor_key] is FactorKind.SUITABILITY else 1.0 - s.value
+            contribution = (
+                s.value if kinds[s.factor_key] is FactorKind.SUITABILITY else 1.0 - s.value
+            )
             total += applied_weights[s.factor_key] * contribution
         value = round(total, 6)
     return StageBScore(
@@ -1771,7 +1946,10 @@ from dataclasses import dataclass
 
 from smartmatch_domain.factor_registry import assert_registry_approved
 from smartmatch_domain.student_recommender.eligibility import EligibilityFilter, EligibilityResult
-from smartmatch_domain.student_recommender.fingerprint import candidate_evidence, student_inputs_hash
+from smartmatch_domain.student_recommender.fingerprint import (
+    candidate_evidence,
+    student_inputs_hash,
+)
 from smartmatch_domain.student_recommender.policy import FeedPolicy, StudentFeed, primary_tag
 from smartmatch_domain.student_recommender.ranker import StudentRanker
 from smartmatch_domain.student_recommender.run import StudentEventCandidate, StudentRankingRun
@@ -1818,8 +1996,16 @@ def recommend(
         model_artifact_hash=ranker.model_artifact_hash,
         policy_version=policy.policy_version,
     )
-    primary_tag_by_event = {c.event_id: primary_tag(run.interests, c.tags) for c in stage_a.eligible}
-    feed = policy.select(run, ranked, inputs_hash, primary_tag_by_event=primary_tag_by_event, wildcard_count=wildcard_count)
+    primary_tag_by_event = {
+        c.event_id: primary_tag(run.interests, c.tags) for c in stage_a.eligible
+    }
+    feed = policy.select(
+        run,
+        ranked,
+        inputs_hash,
+        primary_tag_by_event=primary_tag_by_event,
+        wildcard_count=wildcard_count,
+    )
     return RecommendationOutcome(feed=feed, eligibility=stage_a, inputs_hash=inputs_hash)
 ```
 
@@ -1867,7 +2053,10 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 from smartmatch_domain.event_vocabulary import VOCABULARY_VERSION as V
-from smartmatch_domain.factors.student_interest_overlap import StudentInterestEvidence, StudentInterestState
+from smartmatch_domain.factors.student_interest_overlap import (
+    StudentInterestEvidence,
+    StudentInterestState,
+)
 from smartmatch_domain.scoring import StageBScore
 from smartmatch_domain.student_recommender.policy import DefaultFeedPolicy
 from smartmatch_domain.student_recommender.run import StudentRankingRun
@@ -1879,17 +2068,28 @@ from smartmatch_domain.student_recommender.student_feed import (
 
 T0 = datetime(2026, 10, 5, 9, 0, tzinfo=UTC)
 RUN = StudentRankingRun(
-    "u", "s", StudentInterestEvidence(StudentInterestState.DECLARED, frozenset({"finance"}), V),
-    "no_preference", (T0, T0 + timedelta(days=7)), frozenset(), 1,
+    "u",
+    "s",
+    StudentInterestEvidence(StudentInterestState.DECLARED, frozenset({"finance"}), V),
+    "no_preference",
+    (T0, T0 + timedelta(days=7)),
+    frozenset(),
+    1,
 )
 HASH = "sha256:" + "ab" * 32
 
 
 def _score(event_id: str, value: float | None) -> StageBScore:
     return StageBScore(
-        subject_id=event_id, value=value, factor_scores=(), applied_weights={},
+        subject_id=event_id,
+        value=value,
+        factor_scores=(),
+        applied_weights={},
         unknown_factor_keys=("student_interest_overlap",) if value is None else (),
-        registry_version="r", formula_version="f", scoring_mode="student-event-1", scoring_mode_version="1.0.0",
+        registry_version="r",
+        formula_version="f",
+        scoring_mode="student-event-1",
+        scoring_mode_version="1.0.0",
     )
 
 
@@ -1929,18 +2129,30 @@ def test_wildcard_is_never_unscorable_and_is_hash_deterministic() -> None:
 def test_wildcard_stream_draws_distinct_ids_and_ends_at_exhaustion() -> None:
     ranked = _ranked(*[(f"e{i}", 0.9 - i / 100) for i in range(8)])
     first = DefaultFeedPolicy().select(RUN, ranked, HASH)
-    batch = DefaultFeedPolicy().select(RUN, ranked, HASH, wildcard_count=STUDENT_FEED_WILDCARD_BATCH)
-    assert len(batch.wildcards) == 3                       # 8 scorable - 5 ranked = 3 in the pool
+    batch = DefaultFeedPolicy().select(
+        RUN, ranked, HASH, wildcard_count=STUDENT_FEED_WILDCARD_BATCH
+    )
+    assert len(batch.wildcards) == 3  # 8 scorable - 5 ranked = 3 in the pool
     assert len({s.subject_id for s in batch.wildcards}) == 3
     assert batch.wildcard == batch.wildcards[0]
-    assert first.wildcard == batch.wildcards[0]            # count truncates one fixed sequence
+    assert first.wildcard == batch.wildcards[0]  # count truncates one fixed sequence
     assert all(s.value is not None for s in batch.wildcards)
     assert not {s.subject_id for s in batch.wildcards} & {s.subject_id for s in batch.items}
 
 
 def test_diversity_preference_defers_same_tag_items_but_still_fills_the_feed() -> None:
-    ranked = _ranked(("f1", 0.9), ("f2", 0.8), ("f3", 0.7), ("f4", 0.6), ("h1", 0.5), ("f5", 0.4), ("u", None))
-    tags = {"f1": "finance", "f2": "finance", "f3": "finance", "f4": "finance", "h1": "hackathon", "f5": "finance", "u": None}
+    ranked = _ranked(
+        ("f1", 0.9), ("f2", 0.8), ("f3", 0.7), ("f4", 0.6), ("h1", 0.5), ("f5", 0.4), ("u", None)
+    )
+    tags = {
+        "f1": "finance",
+        "f2": "finance",
+        "f3": "finance",
+        "f4": "finance",
+        "h1": "hackathon",
+        "f5": "finance",
+        "u": None,
+    }
     feed = DefaultFeedPolicy().select(RUN, ranked, HASH, primary_tag_by_event=tags)
     assert [s.subject_id for s in feed.items] == ["f1", "f2", "f3", "h1", "f4"]
     assert feed.wildcard is not None and feed.wildcard.subject_id == "f5"
@@ -1980,8 +2192,19 @@ re-runs that file:
 
 def test_diversity_preference_applies_through_recommend_without_caller_tags() -> None:
     catalog = _catalog(tags={f"f{i}": {"finance"} for i in range(1, 6)} | {"h1": {"hackathon"}})
-    run = replace(RUN, interests=StudentInterestEvidence(StudentInterestState.DECLARED, frozenset({"finance", "hackathon"}), V))
-    out = recommend(run, catalog, eligibility=DefaultEligibilityFilter(), ranker=_approved_ranker(), policy=DefaultFeedPolicy())
+    run = replace(
+        RUN,
+        interests=StudentInterestEvidence(
+            StudentInterestState.DECLARED, frozenset({"finance", "hackathon"}), V
+        ),
+    )
+    out = recommend(
+        run,
+        catalog,
+        eligibility=DefaultEligibilityFilter(),
+        ranker=_approved_ranker(),
+        policy=DefaultFeedPolicy(),
+    )
     ids = [s.subject_id for s in out.feed.items]
     # All six tie at Jaccard 1/2 and break by event id, so the finance run is f1..f5;
     # the soft preference defers f4 and f5 behind h1 and the feed still fills.
@@ -2024,8 +2247,10 @@ from smartmatch_domain.student_recommender.student_feed import (
 @dataclass(frozen=True, slots=True)
 class StudentFeed:
     items: tuple[StageBScore, ...]
-    wildcard: StageBScore | None            # == wildcards[0] when the draw is non-empty
-    wildcards: tuple[StageBScore, ...]      # the draw: ≤ wildcard_count, without replacement, never unscorable
+    wildcard: StageBScore | None  # == wildcards[0] when the draw is non-empty
+    wildcards: tuple[
+        StageBScore, ...
+    ]  # the draw: ≤ wildcard_count, without replacement, never unscorable
     wildcard_pool_size: int
     wildcard_seed: str
     withheld_unscorable: int
@@ -2074,7 +2299,11 @@ def _apply_diversity_preference(
 
 
 def _is_untagged(score: StageBScore) -> bool:
-    return any("no vocabulary tags" in f.basis or "tags resolved" in f.basis for f in score.factor_scores if f.is_unknown)
+    return any(
+        "no vocabulary tags" in f.basis or "tags resolved" in f.basis
+        for f in score.factor_scores
+        if f.is_unknown
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -2092,7 +2321,9 @@ class DefaultFeedPolicy:
     ) -> StudentFeed:
         scorable = [s for s in ranked if s.value is not None]
         unscorable = [s for s in ranked if s.value is None]
-        ordered = _apply_diversity_preference(scorable, primary_tag_by_event, STUDENT_FEED_MAX_PER_PRIMARY_TAG)
+        ordered = _apply_diversity_preference(
+            scorable, primary_tag_by_event, STUDENT_FEED_MAX_PER_PRIMARY_TAG
+        )
         items = tuple(ordered[:STUDENT_FEED_MAX_ITEMS])
         pool = list(ordered[STUDENT_FEED_MAX_ITEMS:])
         seed = inputs_hash.removeprefix("sha256:")[:16]
@@ -2100,7 +2331,9 @@ class DefaultFeedPolicy:
         # the seed, so the drawn order is one fixed deterministic sequence per
         # (run, catalog, exclusions); wildcard_count only truncates it. Draws are
         # without replacement and the stream ends at pool exhaustion — never pads.
-        draws = min(wildcard_count, STUDENT_FEED_WILDCARD_BATCH) if STUDENT_FEED_WILDCARD_SLOTS else 0
+        draws = (
+            min(wildcard_count, STUDENT_FEED_WILDCARD_BATCH) if STUDENT_FEED_WILDCARD_SLOTS else 0
+        )
         wildcards: list[StageBScore] = []
         for k in range(draws):
             if not pool:
@@ -2292,26 +2525,35 @@ from smartmatch_domain.student_recommender.ranker import ContentRanker
 from smartmatch_domain.student_recommender.recommend import recommend
 from smartmatch_domain.student_recommender.run import StudentEventCandidate, StudentRankingRun
 
-_CASES = sorted((Path(__file__).resolve().parents[1] / "golden" / "student" / "proposed").glob("SE-GC-*.json"))
+_CASES = sorted(
+    (Path(__file__).resolve().parents[1] / "golden" / "student" / "proposed").glob("SE-GC-*.json")
+)
 
 
 def _run(raw: dict) -> StudentRankingRun:
     state = StudentInterestState(raw["interest_state"])
     return StudentRankingRun(
-        "unit-golden", "student-golden",
+        "unit-golden",
+        "student-golden",
         StudentInterestEvidence(state, frozenset(raw["interests"]), V),
         raw["modality_preference"],
         (datetime.fromisoformat(raw["window_start"]), datetime.fromisoformat(raw["window_end"])),
-        frozenset(raw["exclude_event_ids"]), raw["profile_version"],
+        frozenset(raw["exclude_event_ids"]),
+        raw["profile_version"],
     )
 
 
 def _candidate(raw: dict) -> StudentEventCandidate:
     return StudentEventCandidate(
-        raw["event_id"], raw["is_virtual"],
+        raw["event_id"],
+        raw["is_virtual"],
         None if raw["starts_at"] is None else datetime.fromisoformat(raw["starts_at"]),
-        raw["time_precision"], raw["publication_status"], raw["already_registered"],
-        EventTagEvidence(EventTagState(raw["tag_state"]), frozenset(raw["tags"]), raw["quarantined_count"], V),
+        raw["time_precision"],
+        raw["publication_status"],
+        raw["already_registered"],
+        EventTagEvidence(
+            EventTagState(raw["tag_state"]), frozenset(raw["tags"]), raw["quarantined_count"], V
+        ),
     )
 
 
@@ -2325,17 +2567,36 @@ def test_golden_case(path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
     if expected["refused"]:
         with pytest.raises(RegistryNotApprovedError):
-            recommend(run, catalog, eligibility=DefaultEligibilityFilter(), ranker=ContentRanker(), policy=DefaultFeedPolicy())
+            recommend(
+                run,
+                catalog,
+                eligibility=DefaultEligibilityFilter(),
+                ranker=ContentRanker(),
+                policy=DefaultFeedPolicy(),
+            )
         return
 
-    approved = replace(registry_module.STUDENT_REGISTRY, status="approved", approver="golden", approved_on="2026-10-05")
+    approved = replace(
+        registry_module.STUDENT_REGISTRY,
+        status="approved",
+        approver="golden",
+        approved_on="2026-10-05",
+    )
     monkeypatch.setattr(registry_module, "STUDENT_REGISTRY", approved)
     ranker = ContentRanker(registry=approved)
 
-    outcome = recommend(run, catalog, eligibility=DefaultEligibilityFilter(), ranker=ranker, policy=DefaultFeedPolicy(),
-                        wildcard_count=case["inputs"].get("wildcard_count", 1))
+    outcome = recommend(
+        run,
+        catalog,
+        eligibility=DefaultEligibilityFilter(),
+        ranker=ranker,
+        policy=DefaultFeedPolicy(),
+        wildcard_count=case["inputs"].get("wildcard_count", 1),
+    )
     assert [s.subject_id for s in outcome.feed.items] == expected["order"]
-    assert (outcome.feed.wildcard.subject_id if outcome.feed.wildcard else None) == expected["wildcard"]
+    assert (outcome.feed.wildcard.subject_id if outcome.feed.wildcard else None) == expected[
+        "wildcard"
+    ]
     if "wildcards" in expected:
         assert [s.subject_id for s in outcome.feed.wildcards] == expected["wildcards"]
     assert outcome.feed.withheld_unscorable == expected["withheld_unscorable"]
@@ -2387,6 +2648,7 @@ git commit -m "test: eleven proposed student golden cases for OQ-SE-01 review"
 ```python
 # tests/contract/test_student_recommendations_api.py
 """ADR-0018 D8 and contracts §1: shape, refusals, determinism."""
+
 from __future__ import annotations
 
 import re
@@ -2410,7 +2672,11 @@ def _walk(schema: dict, components: dict, path: str = "", seen: set[str] | None 
         return
     for prop, sub in schema.get("properties", {}).items():
         here = f"{path}.{prop}"
-        if sub.get("type") in {"number", "integer"} and _NUMERIC_NAME.search(prop) and prop != "rank":
+        if (
+            sub.get("type") in {"number", "integer"}
+            and _NUMERIC_NAME.search(prop)
+            and prop != "rank"
+        ):
             yield here
         yield from _walk(sub, components, here, seen)
         if sub.get("type") == "array":
@@ -2429,39 +2695,55 @@ def test_no_numeric_score_anywhere_in_the_response_schema() -> None:
 
 
 def test_route_is_student_only_in_the_policy_matrix() -> None:
-    from tests.authz.test_policy_matrix import ROUTE_ROLES  # the matrix the authz suite already asserts
+    from tests.authz.test_policy_matrix import (
+        ROUTE_ROLES,
+    )  # the matrix the authz suite already asserts
 
     assert ROUTE_ROLES["GET /v1/units/{unit_id}/student/recommendations"] == {"student"}
 
 
 @pytest.mark.usefixtures("student_client")
-def test_proposed_registry_is_a_409_not_an_empty_200(student_client: TestClient, unit_id: str) -> None:
+def test_proposed_registry_is_a_409_not_an_empty_200(
+    student_client: TestClient, unit_id: str
+) -> None:
     response = student_client.get(f"/v1/units/{unit_id}/student/recommendations")
     assert response.status_code == 409
     assert response.json()["error"]["code"] == "student_registry_not_approved"
 
 
 @pytest.mark.usefixtures("student_client")
-def test_more_than_two_hundred_exclusions_is_a_422(student_client: TestClient, unit_id: str) -> None:
+def test_more_than_two_hundred_exclusions_is_a_422(
+    student_client: TestClient, unit_id: str
+) -> None:
     params = [("exclude_event_ids", f"00000000-0000-0000-0000-{i:012d}") for i in range(201)]
     response = student_client.get(f"/v1/units/{unit_id}/student/recommendations", params=params)
     assert response.status_code == 422
 
 
 @pytest.mark.usefixtures("student_client")
-def test_wildcard_count_outside_the_batch_is_a_422(student_client: TestClient, unit_id: str) -> None:
+def test_wildcard_count_outside_the_batch_is_a_422(
+    student_client: TestClient, unit_id: str
+) -> None:
     for bad in (0, 6):
-        response = student_client.get(f"/v1/units/{unit_id}/student/recommendations", params={"wildcard_count": bad})
+        response = student_client.get(
+            f"/v1/units/{unit_id}/student/recommendations", params={"wildcard_count": bad}
+        )
         assert response.status_code == 422
 
 
 def test_two_requests_in_the_same_hour_share_inputs_hash_and_wildcard(
-    student_client: TestClient, unit_id: str, approved_registry, seeded_catalog, monkeypatch: pytest.MonkeyPatch
+    student_client: TestClient,
+    unit_id: str,
+    approved_registry,
+    seeded_catalog,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import smartmatch_api.routers.student_recommendations as mod
 
     url = f"/v1/units/{unit_id}/student/recommendations"
-    clock = iter([datetime(2026, 10, 5, 14, 3, tzinfo=UTC), datetime(2026, 10, 5, 14, 41, tzinfo=UTC)])
+    clock = iter(
+        [datetime(2026, 10, 5, 14, 3, tzinfo=UTC), datetime(2026, 10, 5, 14, 41, tzinfo=UTC)]
+    )
     monkeypatch.setattr(mod, "_now", lambda: next(clock))
     first = student_client.get(url).json()
     second = student_client.get(url).json()
@@ -2485,6 +2767,7 @@ The insert shapes are taken from ``tests/contract/test_student_events_api.py``
 new, because that file keeps its world in a ``_World`` helper rather than in
 named fixtures.
 """
+
 from __future__ import annotations
 
 import os
@@ -2533,7 +2816,14 @@ def tenant_id(engine: Engine) -> Iterator[uuid.UUID]:
         )
     yield tid
     with engine.begin() as conn:
-        for table in ("event_tag", "event", "membership", "user_account", "org_unit", "rate_limit_counter"):
+        for table in (
+            "event_tag",
+            "event",
+            "membership",
+            "user_account",
+            "org_unit",
+            "rate_limit_counter",
+        ):
             conn.execute(text(f"DELETE FROM {table} WHERE tenant_id = :tid"), {"tid": tid})
         conn.execute(text("DELETE FROM tenant WHERE id = :tid"), {"tid": tid})
 
@@ -2625,9 +2915,13 @@ def seeded_catalog(engine: Engine, tenant_id: uuid.UUID, unit_id: uuid.UUID) -> 
                     ":resolved, 'published', 0, 'coordinator_entry')"
                 ),
                 {
-                    "id": event_id, "tid": tenant_id, "unit": unit_id,
-                    "title": f"Recommendable {index}", "norm": f"recommendable {index}",
-                    "starts": starts_at, "ends": starts_at + timedelta(minutes=90),
+                    "id": event_id,
+                    "tid": tenant_id,
+                    "unit": unit_id,
+                    "title": f"Recommendable {index}",
+                    "norm": f"recommendable {index}",
+                    "starts": starts_at,
+                    "ends": starts_at + timedelta(minutes=90),
                     "resolved": starts_at.date(),
                 },
             )
@@ -2638,8 +2932,12 @@ def seeded_catalog(engine: Engine, tenant_id: uuid.UUID, unit_id: uuid.UUID) -> 
                     "VALUES (:id, :tid, :eid, 'mapped', :term, :raw, :version)"
                 ),
                 {
-                    "id": uuid.uuid4(), "tid": tenant_id, "eid": event_id,
-                    "term": term, "raw": term.title(), "version": VOCABULARY_VERSION,
+                    "id": uuid.uuid4(),
+                    "tid": tenant_id,
+                    "eid": event_id,
+                    "term": term,
+                    "raw": term.title(),
+                    "version": VOCABULARY_VERSION,
                 },
             )
             event_ids.append(event_id)
@@ -2660,7 +2958,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal, Protocol
 
-from smartmatch_domain.factors.student_interest_overlap import StudentInterestEvidence, StudentInterestState
+from smartmatch_domain.factors.student_interest_overlap import (
+    StudentInterestEvidence,
+    StudentInterestState,
+)
 from smartmatch_domain.factors.student_interest_overlap import STUDENT_INTEREST_VOCABULARY_VERSION
 
 
@@ -2683,7 +2984,9 @@ class AbsentProfileReader:
 
 
 def absent_evidence() -> StudentInterestEvidence:
-    return StudentInterestEvidence(StudentInterestState.NO_PROFILE, frozenset(), STUDENT_INTEREST_VOCABULARY_VERSION)
+    return StudentInterestEvidence(
+        StudentInterestState.NO_PROFILE, frozenset(), STUDENT_INTEREST_VOCABULARY_VERSION
+    )
 ```
 
 ```python
@@ -2723,7 +3026,7 @@ from smartmatch_api.student_profile_reader import StudentProfileReader, absent_e
 router = APIRouter(tags=["student"])
 
 
-def _now() -> datetime:                    # the test seam; the only clock read in this router
+def _now() -> datetime:  # the test seam; the only clock read in this router
     return datetime.now(tz=UTC)
 
 
@@ -2770,8 +3073,10 @@ class StudentRecommendationsResponse(BaseModel):
     profile_state: Literal["present", "absent"]
     feed_window: StudentFeedWindow
     items: list[StudentRecommendationItem]
-    wildcard: StudentRecommendationWildcard | None   # == wildcards[0] when the draw is non-empty
-    wildcards: list[StudentRecommendationWildcard]   # the draw: 1 on a first feed, ≤ STUDENT_FEED_WILDCARD_BATCH on continuation
+    wildcard: StudentRecommendationWildcard | None  # == wildcards[0] when the draw is non-empty
+    wildcards: list[
+        StudentRecommendationWildcard
+    ]  # the draw: 1 on a first feed, ≤ STUDENT_FEED_WILDCARD_BATCH on continuation
     withheld_unscorable: int
     withheld_untagged: int
     withheld_unresolved_date: int
@@ -2781,7 +3086,9 @@ class StudentRecommendationsResponse(BaseModel):
     provenance: StudentRecommendationProvenance
 
 
-def _candidate(summary: StudentEventSummary, starts_at: datetime | None, precision: str, status: str) -> StudentEventCandidate:
+def _candidate(
+    summary: StudentEventSummary, starts_at: datetime | None, precision: str, status: str
+) -> StudentEventCandidate:
     state = EventTagState.TAGGED if summary.tags or precision else EventTagState.NO_TAG_RECORDS
     return StudentEventCandidate(
         event_id=str(summary.id),
@@ -2789,22 +3096,36 @@ def _candidate(summary: StudentEventSummary, starts_at: datetime | None, precisi
         starts_at=starts_at,
         time_precision=precision,  # type: ignore[arg-type]
         publication_status=status,
-        already_registered=summary.registration is not None and summary.registration.status == "registered",
-        tags=EventTagEvidence(state, frozenset(summary.tags), 0, STUDENT_INTEREST_VOCABULARY_VERSION),
+        already_registered=summary.registration is not None
+        and summary.registration.status == "registered",
+        tags=EventTagEvidence(
+            state, frozenset(summary.tags), 0, STUDENT_INTEREST_VOCABULARY_VERSION
+        ),
     )
 
 
 def _reason(matched: list[str], total_tags: int) -> str:
-    words = " and ".join(matched) if len(matched) <= 2 else ", ".join(matched[:-1]) + " and " + matched[-1]
-    return assert_one_sentence(f"Recommended because your interests {words} match {len(matched)} of this event's {total_tags} tags.", field="reason")
+    words = (
+        " and ".join(matched)
+        if len(matched) <= 2
+        else ", ".join(matched[:-1]) + " and " + matched[-1]
+    )
+    return assert_one_sentence(
+        f"Recommended because your interests {words} match {len(matched)} of this event's {total_tags} tags.",
+        field="reason",
+    )
 
 
-@router.get("/v1/units/{unit_id}/student/recommendations", response_model=StudentRecommendationsResponse)
+@router.get(
+    "/v1/units/{unit_id}/student/recommendations", response_model=StudentRecommendationsResponse
+)
 def get_student_recommendations(
     unit_id: uuid.UUID,
-    exclude_event_ids: list[uuid.UUID] = Query(default=[], max_length=STUDENT_FEED_MAX_SESSION_EXCLUSIONS),
+    exclude_event_ids: list[uuid.UUID] = Query(
+        default=[], max_length=STUDENT_FEED_MAX_SESSION_EXCLUSIONS
+    ),
     wildcard_count: int = Query(default=1, ge=1, le=STUDENT_FEED_WILDCARD_BATCH),
-    ctx=Depends(require_student_in_unit),          # the same dependency student_events.py uses
+    ctx=Depends(require_student_in_unit),  # the same dependency student_events.py uses
     session=Depends(get_session),
     profiles: StudentProfileReader = Depends(get_student_profile_reader),
 ) -> StudentRecommendationsResponse:
@@ -2812,34 +3133,59 @@ def get_student_recommendations(
     profile = profiles.read(unit_id=str(unit_id), subject_id=str(ctx.subject_id))
     interests = profile.interests if profile else absent_evidence()
     run = StudentRankingRun(
-        unit_id=str(unit_id), subject_id=str(ctx.subject_id), interests=interests,
+        unit_id=str(unit_id),
+        subject_id=str(ctx.subject_id),
+        interests=interests,
         modality_preference=profile.modality_preference if profile else "no_preference",
-        feed_window=window, exclude_event_ids=frozenset(str(e) for e in exclude_event_ids),
+        feed_window=window,
+        exclude_event_ids=frozenset(str(e) for e in exclude_event_ids),
         profile_version=profile.profile_version if profile else 1,
     )
-    rows = load_published_events(session, unit_id=unit_id, subject_id=ctx.subject_id)   # (summary, starts_at, precision, status)
+    rows = load_published_events(
+        session, unit_id=unit_id, subject_id=ctx.subject_id
+    )  # (summary, starts_at, precision, status)
     by_id = {str(s.id): s for s, *_ in rows}
-    catalog = tuple(_candidate(s, starts, precision, status) for s, starts, precision, status in rows)
+    catalog = tuple(
+        _candidate(s, starts, precision, status) for s, starts, precision, status in rows
+    )
     ranker = ContentRanker()
     policy = DefaultFeedPolicy()
     try:
-        outcome = recommend(run, catalog, eligibility=DefaultEligibilityFilter(), ranker=ranker, policy=policy,
-                            wildcard_count=wildcard_count)
+        outcome = recommend(
+            run,
+            catalog,
+            eligibility=DefaultEligibilityFilter(),
+            ranker=ranker,
+            policy=policy,
+            wildcard_count=wildcard_count,
+        )
     except RegistryNotApprovedError as exc:
-        raise ApiError(status_code=409, code="student_registry_not_approved", message=str(exc)) from exc
+        raise ApiError(
+            status_code=409, code="student_registry_not_approved", message=str(exc)
+        ) from exc
 
     def item(rank: int, score) -> StudentRecommendationItem:
         summary = by_id[score.subject_id]
         matched = sorted(set(summary.tags) & interests.terms)
-        return StudentRecommendationItem(rank=rank, event=summary, matched_interests=matched, reason=_reason(matched, len(summary.tags)))
+        return StudentRecommendationItem(
+            rank=rank,
+            event=summary,
+            matched_interests=matched,
+            reason=_reason(matched, len(summary.tags)),
+        )
 
     feed = outcome.feed
 
     def _wildcard(score) -> StudentRecommendationWildcard:
         return StudentRecommendationWildcard(
-            event=by_id[score.subject_id], selection_basis="deterministic_index_from_inputs_hash",
-            pool_size=feed.wildcard_pool_size, seed=feed.wildcard_seed,
-            reason=assert_one_sentence("This is a wildcard drawn from events that matched your interests but did not rank in the top five.", field="reason"),
+            event=by_id[score.subject_id],
+            selection_basis="deterministic_index_from_inputs_hash",
+            pool_size=feed.wildcard_pool_size,
+            seed=feed.wildcard_seed,
+            reason=assert_one_sentence(
+                "This is a wildcard drawn from events that matched your interests but did not rank in the top five.",
+                field="reason",
+            ),
         )
 
     wildcards = [_wildcard(s) for s in feed.wildcards]
@@ -2865,13 +3211,18 @@ def get_student_recommendations(
         truncated=feed.truncated,
         caption=assert_one_sentence(caption, field="caption"),
         provenance=StudentRecommendationProvenance(
-            ranker=ranker.ranker_id, registry_version=ranker.registry.version,
-            registry_hash=ranker.registry.registry_hash, registry_status="approved",
-            scoring_mode=ranker.scoring_mode, scoring_mode_version=model.scoring_mode_version or "",
-            formula_version=ranker.formula_version, model_artifact_hash=ranker.model_artifact_hash,
+            ranker=ranker.ranker_id,
+            registry_version=ranker.registry.version,
+            registry_hash=ranker.registry.registry_hash,
+            registry_status="approved",
+            scoring_mode=ranker.scoring_mode,
+            scoring_mode_version=model.scoring_mode_version or "",
+            formula_version=ranker.formula_version,
+            model_artifact_hash=ranker.model_artifact_hash,
             applied_weights=dict(feed.items[0].applied_weights) if feed.items else {},
             interest_vocabulary_version=STUDENT_INTEREST_VOCABULARY_VERSION,
-            profile_version=run.profile_version, inputs_hash=outcome.inputs_hash,
+            profile_version=run.profile_version,
+            inputs_hash=outcome.inputs_hash,
             policy_version=policy.policy_version,
         ),
     )
@@ -2944,16 +3295,32 @@ def test_a_prohibited_source_or_key_cannot_be_constructed() -> None:
 
 def test_registered_features_never_name_an_outcome_source() -> None:
     assert all(f.source is not FeatureSource.OUTCOME for f in STUDENT_FEATURES)
-    assert {f.key for f in STUDENT_FEATURES} >= {"student_interest_overlap", "modality_match", "days_until_event"}
+    assert {f.key for f in STUDENT_FEATURES} >= {
+        "student_interest_overlap",
+        "modality_match",
+        "days_until_event",
+    }
 
 
 def test_required_unknown_is_reported_not_imputed() -> None:
     run = StudentRankingRun(
-        "u", "s", StudentInterestEvidence(StudentInterestState.NO_PROFILE, frozenset(), V),
-        "no_preference", (T0, T0 + timedelta(days=7)), frozenset(), 1,
+        "u",
+        "s",
+        StudentInterestEvidence(StudentInterestState.NO_PROFILE, frozenset(), V),
+        "no_preference",
+        (T0, T0 + timedelta(days=7)),
+        frozenset(),
+        1,
     )
-    candidate = StudentEventCandidate("e", False, T0 + timedelta(days=2), "exact", "published", False,
-                                      EventTagEvidence(EventTagState.TAGGED, frozenset({"finance"}), 0, V))
+    candidate = StudentEventCandidate(
+        "e",
+        False,
+        T0 + timedelta(days=2),
+        "exact",
+        "published",
+        False,
+        EventTagEvidence(EventTagState.TAGGED, frozenset({"finance"}), 0, V),
+    )
     vector = build_feature_vector(run, candidate)
     assert vector.values["student_interest_overlap"] is None
     assert "student_interest_overlap" in vector.unknown_required_keys
@@ -2965,7 +3332,15 @@ def test_unbounded_feature_without_transform_is_rejected() -> None:
         FeatureSpec("raw_count", FeatureSource.EVENT, True, "OQ-SE-01", "x")
 
 
-@pytest.mark.parametrize("key,raw,expected", [("interest_count", 2.0, 2 / 12), ("event_tag_count", 12.0, 1.0), ("event_tag_count", 30.0, 1.0), ("days_until_event", 15.0, 0.5)])
+@pytest.mark.parametrize(
+    "key,raw,expected",
+    [
+        ("interest_count", 2.0, 2 / 12),
+        ("event_tag_count", 12.0, 1.0),
+        ("event_tag_count", 30.0, 1.0),
+        ("days_until_event", 15.0, 0.5),
+    ],
+)
 def test_as_factor_is_bounded(key: str, raw: float, expected: float) -> None:
     spec = next(f for f in STUDENT_FEATURES if f.key == key)
     assert spec.as_factor(raw) == pytest.approx(expected)
@@ -3012,7 +3387,7 @@ class FeatureSpec:
     admitted_by: str
     rationale: str
     factor_transform: Callable[[float], float] | None = None
-    raw_bounded: bool = False          # True when raw values are already in [0, 1]
+    raw_bounded: bool = False  # True when raw values are already in [0, 1]
 
     def as_factor(self, raw: float) -> float:
         value = raw if self.factor_transform is None else self.factor_transform(raw)
@@ -3031,15 +3406,50 @@ class FeatureSpec:
 
 STUDENT_FEATURE_REGISTRY_VERSION: Final[str] = "0.1.0-proposed-oq-se-19"
 
-STUDENT_INTEREST_VOCABULARY_SIZE: Final[int] = 12     # W1: the twelve G3 terms
-STUDENT_MAX_TAGS_PER_EVENT: Final[int] = 12          # same vocabulary
+STUDENT_INTEREST_VOCABULARY_SIZE: Final[int] = 12  # W1: the twelve G3 terms
+STUDENT_MAX_TAGS_PER_EVENT: Final[int] = 12  # same vocabulary
 
 STUDENT_FEATURES: Final[tuple[FeatureSpec, ...]] = (
-    FeatureSpec("student_interest_overlap", FeatureSource.DERIVED, True, "OQ-SE-01", "Jaccard, the V1 factor.", raw_bounded=True),
-    FeatureSpec("interest_count", FeatureSource.STUDENT_PROFILE, True, "OQ-SE-01", "How many interests were declared.", factor_transform=lambda n: n / STUDENT_INTEREST_VOCABULARY_SIZE),
-    FeatureSpec("event_tag_count", FeatureSource.EVENT, True, "OQ-SE-01", "How many mapped tags the event carries.", factor_transform=lambda n: n / STUDENT_MAX_TAGS_PER_EVENT),
-    FeatureSpec("modality_match", FeatureSource.DERIVED, True, "OQ-SE-01", "1.0 when modality is compatible, else 0.0.", raw_bounded=True),
-    FeatureSpec("days_until_event", FeatureSource.EVENT, False, "OQ-SE-01", "Days from window start; missing when unresolved.", factor_transform=lambda d: d / STUDENT_FEED_WINDOW_DAYS),
+    FeatureSpec(
+        "student_interest_overlap",
+        FeatureSource.DERIVED,
+        True,
+        "OQ-SE-01",
+        "Jaccard, the V1 factor.",
+        raw_bounded=True,
+    ),
+    FeatureSpec(
+        "interest_count",
+        FeatureSource.STUDENT_PROFILE,
+        True,
+        "OQ-SE-01",
+        "How many interests were declared.",
+        factor_transform=lambda n: n / STUDENT_INTEREST_VOCABULARY_SIZE,
+    ),
+    FeatureSpec(
+        "event_tag_count",
+        FeatureSource.EVENT,
+        True,
+        "OQ-SE-01",
+        "How many mapped tags the event carries.",
+        factor_transform=lambda n: n / STUDENT_MAX_TAGS_PER_EVENT,
+    ),
+    FeatureSpec(
+        "modality_match",
+        FeatureSource.DERIVED,
+        True,
+        "OQ-SE-01",
+        "1.0 when modality is compatible, else 0.0.",
+        raw_bounded=True,
+    ),
+    FeatureSpec(
+        "days_until_event",
+        FeatureSource.EVENT,
+        False,
+        "OQ-SE-01",
+        "Days from window start; missing when unresolved.",
+        factor_transform=lambda d: d / STUDENT_FEED_WINDOW_DAYS,
+    ),
 )
 
 
@@ -3056,16 +3466,26 @@ def build_feature_vector(run: StudentRankingRun, candidate: StudentEventCandidat
         run.modality_preference == "no_preference"
         or (run.modality_preference == "virtual") == candidate.is_virtual
     )
-    days = None if candidate.starts_at is None else (candidate.starts_at - run.feed_window[0]).total_seconds() / 86400.0
+    days = (
+        None
+        if candidate.starts_at is None
+        else (candidate.starts_at - run.feed_window[0]).total_seconds() / 86400.0
+    )
     values: dict[str, float | None] = {
         "student_interest_overlap": overlap.value,
         "interest_count": None if not run.interests.terms else float(len(run.interests.terms)),
-        "event_tag_count": None if candidate.tags.state.value != "tagged" else float(len(candidate.tags.mapped_terms)),
+        "event_tag_count": None
+        if candidate.tags.state.value != "tagged"
+        else float(len(candidate.tags.mapped_terms)),
         "modality_match": 1.0 if compatible else 0.0,
         "days_until_event": days,
     }
-    unknown_required = tuple(f.key for f in STUDENT_FEATURES if f.required and values[f.key] is None)
-    return FeatureVector(STUDENT_FEATURE_REGISTRY_VERSION, MappingProxyType(values), unknown_required)
+    unknown_required = tuple(
+        f.key for f in STUDENT_FEATURES if f.required and values[f.key] is None
+    )
+    return FeatureVector(
+        STUDENT_FEATURE_REGISTRY_VERSION, MappingProxyType(values), unknown_required
+    )
 ```
 
 - [ ] **Step 4: Run**
@@ -3121,9 +3541,13 @@ from smartmatch_domain.student_recommender.run import StudentEventCandidate, Stu
 
 T0 = datetime(2026, 10, 5, 9, 0, tzinfo=UTC)
 RUN = StudentRankingRun(
-    "unit-1", "stu-1",
+    "unit-1",
+    "stu-1",
     StudentInterestEvidence(StudentInterestState.DECLARED, frozenset({"finance"}), VOCAB),
-    "no_preference", (T0, T0 + timedelta(days=7)), frozenset(), 1,
+    "no_preference",
+    (T0, T0 + timedelta(days=7)),
+    frozenset(),
+    1,
 )
 
 
@@ -3131,7 +3555,12 @@ def _catalog(*, tags: Mapping[str, set[str]]) -> tuple[StudentEventCandidate, ..
     """Same helper Task 5's tests define; one candidate per entry, insertion order preserved."""
     return tuple(
         StudentEventCandidate(
-            event_id, False, T0 + timedelta(days=1), "exact", "published", False,
+            event_id,
+            False,
+            T0 + timedelta(days=1),
+            "exact",
+            "published",
+            False,
             EventTagEvidence(EventTagState.TAGGED, frozenset(terms), 0, VOCAB),
         )
         for event_id, terms in tags.items()
@@ -3165,16 +3594,28 @@ def test_a_loaded_artifact_yields_the_learned_ranker() -> None:
 
 
 def test_learned_ranker_ranks_multi_interest_multi_tag_candidates() -> None:
-    run = replace(RUN, interests=StudentInterestEvidence(StudentInterestState.DECLARED, frozenset({"finance", "hackathon"}), VOCAB))
+    run = replace(
+        RUN,
+        interests=StudentInterestEvidence(
+            StudentInterestState.DECLARED, frozenset({"finance", "hackathon"}), VOCAB
+        ),
+    )
     candidates = _catalog(tags={"e1": {"finance", "hackathon"}, "e2": {"finance"}, "e3": set()})
     ranker = LearnedRanker(predictor=_Constant(), model_artifact_hash=None)
     ranked = ranker.rank(run, candidates)
-    assert [s.subject_id for s in ranked][:2] == ["e1", "e2"]            # constant margin ⇒ event-id tie-break
+    assert [s.subject_id for s in ranked][:2] == [
+        "e1",
+        "e2",
+    ]  # constant margin ⇒ event-id tie-break
     e1 = next(s for s in ranked if s.subject_id == "e1")
     assert e1.value is not None
     assert all(0.0 <= f.value <= 1.0 for f in e1.factor_scores if f.value is not None)
-    assert next(f for f in e1.factor_scores if f.factor_key == "interest_count").value == pytest.approx(2 / 12)
-    assert next(s for s in ranked if s.subject_id == "e3").value is None   # untagged ⇒ unscorable, not raised
+    assert next(
+        f for f in e1.factor_scores if f.factor_key == "interest_count"
+    ).value == pytest.approx(2 / 12)
+    assert (
+        next(s for s in ranked if s.subject_id == "e3").value is None
+    )  # untagged ⇒ unscorable, not raised
 ```
 
 ```python
@@ -3243,9 +3684,13 @@ class LearnedRanker:
     scoring_mode: str = LEARNED_SCORING_MODE
     formula_version: str = LEARNED_FORMULA_VERSION
 
-    def rank(self, run: StudentRankingRun, candidates: Sequence[StudentEventCandidate]) -> tuple[StageBScore, ...]:
+    def rank(
+        self, run: StudentRankingRun, candidates: Sequence[StudentEventCandidate]
+    ) -> tuple[StageBScore, ...]:
         vectors = [build_feature_vector(run, c) for c in candidates]
-        scorable = [(c, v) for c, v in zip(candidates, vectors, strict=True) if not v.unknown_required_keys]
+        scorable = [
+            (c, v) for c, v in zip(candidates, vectors, strict=True) if not v.unknown_required_keys
+        ]
         margins = list(self.predictor.predict([v.values for _, v in scorable])) if scorable else []
         lo, hi = (min(margins), max(margins)) if margins else (0.0, 0.0)
         rescale = (lambda m: 0.5) if hi == lo else (lambda m: (m - lo) / (hi - lo))
@@ -3269,14 +3714,21 @@ class LearnedRanker:
             for k in required
         )
         return StageBScore(
-            subject_id=event_id, value=None if value is None else round(value, 6),
-            factor_scores=factor_scores, applied_weights={k: 1.0 / len(required) for k in required},
-            unknown_factor_keys=vector.unknown_required_keys, registry_version=self.registry.version,
-            formula_version=self.formula_version, scoring_mode=self.scoring_mode, scoring_mode_version="1.0.0",
+            subject_id=event_id,
+            value=None if value is None else round(value, 6),
+            factor_scores=factor_scores,
+            applied_weights={k: 1.0 / len(required) for k in required},
+            unknown_factor_keys=vector.unknown_required_keys,
+            registry_version=self.registry.version,
+            formula_version=self.formula_version,
+            scoring_mode=self.scoring_mode,
+            scoring_mode_version="1.0.0",
         )
 
 
-def build_student_ranker(*, learned_artifact: Callable[[], Predictor] | None) -> tuple[StudentRanker, str | None]:
+def build_student_ranker(
+    *, learned_artifact: Callable[[], Predictor] | None
+) -> tuple[StudentRanker, str | None]:
     """D4's fallback rule: a learned artifact that fails to load yields content-1, named."""
     if learned_artifact is None:
         return ContentRanker(), None
@@ -3297,7 +3749,11 @@ def ndcg_at_k(order: Sequence[str], graded: Mapping[str, int], *, k: int = 5) ->
 
 def agreement_at_k(a: Sequence[str], b: Sequence[str], *, k: int = 5) -> float:
     top_a, top_b = set(a[:k]), set(b[:k])
-    return 0.0 if not top_a and not top_b else round(len(top_a & top_b) / max(len(top_a), len(top_b)), 6)
+    return (
+        0.0
+        if not top_a and not top_b
+        else round(len(top_a & top_b) / max(len(top_a), len(top_b)), 6)
+    )
 ```
 
 `tools/evaluate_student_ranker.py` loads every `tests/golden/student/gold/*.json` (same `inputs` shape as §5.1 plus `graded_relevance`), runs `ContentRanker` and, if `--artifact PATH` is given, a `LearnedRanker` over a predictor the tool constructs (`ArtifactUnavailable` when the path is missing), and prints a table of NDCG@5 and agreement@5 per case and in aggregate. It is a CLI over the two functions above; write it with `argparse` and no third-party import.

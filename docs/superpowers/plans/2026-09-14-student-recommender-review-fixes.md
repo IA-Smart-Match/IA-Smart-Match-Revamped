@@ -210,11 +210,16 @@ In Task 5's `student_inputs_hash` definition, replace the parameter `eligible_ev
 def candidate_evidence(c: StudentEventCandidate) -> tuple:
     """Every candidate field a ranker or policy may read; folded into inputs_hash (contracts §1.4)."""
     return (
-        c.event_id, c.is_virtual,
+        c.event_id,
+        c.is_virtual,
         None if c.starts_at is None else c.starts_at.isoformat(),
-        c.time_precision, c.publication_status, c.already_registered,
-        c.tags.state.value, sorted(c.tags.mapped_terms),
-        c.tags.quarantined_count, c.tags.vocabulary_version,
+        c.time_precision,
+        c.publication_status,
+        c.already_registered,
+        c.tags.state.value,
+        sorted(c.tags.mapped_terms),
+        c.tags.quarantined_count,
+        c.tags.vocabulary_version,
     )
 ```
 
@@ -230,8 +235,20 @@ Append to the `tests/unit/test_student_recommend.py` block:
 def test_changing_an_eligible_events_tags_changes_the_hash() -> None:
     catalog = _catalog(tags={"e1": {"finance"}, "e2": {"hackathon"}})
     edited = _catalog(tags={"e1": {"finance", "hackathon"}, "e2": {"hackathon"}})
-    a = recommend(RUN, catalog, eligibility=DefaultEligibilityFilter(), ranker=_approved_ranker(), policy=DefaultFeedPolicy())
-    b = recommend(RUN, edited, eligibility=DefaultEligibilityFilter(), ranker=_approved_ranker(), policy=DefaultFeedPolicy())
+    a = recommend(
+        RUN,
+        catalog,
+        eligibility=DefaultEligibilityFilter(),
+        ranker=_approved_ranker(),
+        policy=DefaultFeedPolicy(),
+    )
+    b = recommend(
+        RUN,
+        edited,
+        eligibility=DefaultEligibilityFilter(),
+        ranker=_approved_ranker(),
+        policy=DefaultFeedPolicy(),
+    )
     assert a.inputs_hash != b.inputs_hash
 
 
@@ -239,8 +256,17 @@ def test_candidate_evidence_covers_every_candidate_field() -> None:
     from dataclasses import fields
     from smartmatch_domain.student_recommender.candidate import StudentEventCandidate
     from smartmatch_domain.student_recommender.recommend import candidate_evidence
+
     names = {f.name for f in fields(StudentEventCandidate)}
-    assert names == {"event_id", "is_virtual", "starts_at", "time_precision", "publication_status", "already_registered", "tags"}
+    assert names == {
+        "event_id",
+        "is_virtual",
+        "starts_at",
+        "time_precision",
+        "publication_status",
+        "already_registered",
+        "tags",
+    }
     assert len(candidate_evidence(_catalog(tags={"e1": {"finance"}})[0])) == 10
 ```
 
@@ -318,10 +344,23 @@ Append to `tests/unit/test_student_recommend.py`:
 ```python
 def test_diversity_cap_applies_through_recommend_without_caller_tags() -> None:
     catalog = _catalog(tags={f"f{i}": {"finance"} for i in range(1, 6)} | {"h1": {"hackathon"}})
-    run = replace(RUN, interests=StudentInterestEvidence(terms=frozenset({"finance", "hackathon"}), vocabulary_version=VOCAB))
-    out = recommend(run, catalog, eligibility=DefaultEligibilityFilter(), ranker=_approved_ranker(), policy=DefaultFeedPolicy())
+    run = replace(
+        RUN,
+        interests=StudentInterestEvidence(
+            terms=frozenset({"finance", "hackathon"}), vocabulary_version=VOCAB
+        ),
+    )
+    out = recommend(
+        run,
+        catalog,
+        eligibility=DefaultEligibilityFilter(),
+        ranker=_approved_ranker(),
+        policy=DefaultFeedPolicy(),
+    )
     ids = [s.subject_id for s in out.feed.items]
-    assert ids[STUDENT_FEED_MAX_PER_PRIMARY_TAG] == "h1"          # deferred behind the first three finance items (soft preference, Task 5)
+    assert (
+        ids[STUDENT_FEED_MAX_PER_PRIMARY_TAG] == "h1"
+    )  # deferred behind the first three finance items (soft preference, Task 5)
     assert len(ids) == STUDENT_FEED_MAX_ITEMS
 ```
 
@@ -378,8 +417,18 @@ Change the `_apply_diversity_cap` docstring to `"""Soft preference (ADR-0018 D7)
 
 ```python
 def test_diversity_preference_defers_same_tag_items_but_still_fills_the_feed() -> None:
-    ranked = _ranked(("f1", 0.9), ("f2", 0.8), ("f3", 0.7), ("f4", 0.6), ("h1", 0.5), ("f5", 0.4), ("u", None))
-    tags = {"f1": "finance", "f2": "finance", "f3": "finance", "f4": "finance", "h1": "hackathon", "f5": "finance", "u": None}
+    ranked = _ranked(
+        ("f1", 0.9), ("f2", 0.8), ("f3", 0.7), ("f4", 0.6), ("h1", 0.5), ("f5", 0.4), ("u", None)
+    )
+    tags = {
+        "f1": "finance",
+        "f2": "finance",
+        "f3": "finance",
+        "f4": "finance",
+        "h1": "hackathon",
+        "f5": "finance",
+        "u": None,
+    }
     feed = DefaultFeedPolicy().select(RUN, ranked, HASH, primary_tag_by_event=tags)
     assert [s.subject_id for s in feed.items] == ["f1", "f2", "f3", "h1", "f4"]
     assert feed.wildcard is not None and feed.wildcard.subject_id == "f5"
@@ -444,7 +493,8 @@ tuple itself.
 In `student_feed.py` add:
 
 ```python
-STUDENT_FEED_WINDOW_ANCHOR: Final[str] = "hour"   # documented in contracts §1.1
+STUDENT_FEED_WINDOW_ANCHOR: Final[str] = "hour"  # documented in contracts §1.1
+
 
 def feed_window_for(now: datetime) -> tuple[datetime, datetime]:
     """Anchor the window to the top of the UTC hour so refreshes within an hour share an inputs_hash."""
@@ -459,17 +509,29 @@ Test in `tests/unit/test_student_feed_window.py`:
 ```python
 from datetime import UTC, datetime, timedelta
 import pytest
-from smartmatch_domain.student_recommender.student_feed import STUDENT_FEED_WINDOW_DAYS, feed_window_for
+from smartmatch_domain.student_recommender.student_feed import (
+    STUDENT_FEED_WINDOW_DAYS,
+    feed_window_for,
+)
 
 
 def test_requests_in_the_same_hour_share_a_window() -> None:
     a = feed_window_for(datetime(2026, 10, 5, 14, 3, 7, 123456, tzinfo=UTC))
     b = feed_window_for(datetime(2026, 10, 5, 14, 59, 59, 999999, tzinfo=UTC))
-    assert a == b == (datetime(2026, 10, 5, 14, tzinfo=UTC), datetime(2026, 10, 5, 14, tzinfo=UTC) + timedelta(days=STUDENT_FEED_WINDOW_DAYS))
+    assert (
+        a
+        == b
+        == (
+            datetime(2026, 10, 5, 14, tzinfo=UTC),
+            datetime(2026, 10, 5, 14, tzinfo=UTC) + timedelta(days=STUDENT_FEED_WINDOW_DAYS),
+        )
+    )
 
 
 def test_crossing_the_hour_moves_the_window() -> None:
-    assert feed_window_for(datetime(2026, 10, 5, 14, 59, tzinfo=UTC)) != feed_window_for(datetime(2026, 10, 5, 15, 0, tzinfo=UTC))
+    assert feed_window_for(datetime(2026, 10, 5, 14, 59, tzinfo=UTC)) != feed_window_for(
+        datetime(2026, 10, 5, 15, 0, tzinfo=UTC)
+    )
 
 
 def test_naive_clock_is_rejected() -> None:
@@ -488,9 +550,14 @@ Replace the two `now`/`window` lines with:
 and add module-level `def _now() -> datetime: return datetime.now(tz=UTC)` (the test seam). Add to Task 8's HTTP tests:
 
 ```python
-def test_two_requests_in_the_same_hour_share_inputs_hash_and_wildcard(client, approved_registry, seeded_catalog, monkeypatch) -> None:
+def test_two_requests_in_the_same_hour_share_inputs_hash_and_wildcard(
+    client, approved_registry, seeded_catalog, monkeypatch
+) -> None:
     import smartmatch_api.routers.student_recommendations as mod
-    clock = iter([datetime(2026, 10, 5, 14, 3, tzinfo=UTC), datetime(2026, 10, 5, 14, 41, tzinfo=UTC)])
+
+    clock = iter(
+        [datetime(2026, 10, 5, 14, 3, tzinfo=UTC), datetime(2026, 10, 5, 14, 41, tzinfo=UTC)]
+    )
     monkeypatch.setattr(mod, "_now", lambda: next(clock))
     first = client.get(URL).json()
     second = client.get(URL).json()
@@ -536,12 +603,13 @@ Add to the `FeatureSpec` field list: `factor_transform: Callable[[float], float]
 Add fields to `FeatureSpec`:
 
 ```python
-    factor_transform: Callable[[float], float] | None = None
-    raw_bounded: bool = False          # True when raw values are already in [0, 1]
+factor_transform: Callable[[float], float] | None = None
+raw_bounded: bool = False  # True when raw values are already in [0, 1]
 
-    def as_factor(self, raw: float) -> float:
-        value = raw if self.factor_transform is None else self.factor_transform(raw)
-        return min(1.0, max(0.0, value))
+
+def as_factor(self, raw: float) -> float:
+    value = raw if self.factor_transform is None else self.factor_transform(raw)
+    return min(1.0, max(0.0, value))
 ```
 
 and extend `__post_init__`:
@@ -554,19 +622,54 @@ and extend `__post_init__`:
 Add constants above `STUDENT_FEATURES`:
 
 ```python
-STUDENT_INTEREST_VOCABULARY_SIZE: Final[int] = 12     # W1: the twelve G3 terms
-STUDENT_MAX_TAGS_PER_EVENT: Final[int] = 12          # same vocabulary
+STUDENT_INTEREST_VOCABULARY_SIZE: Final[int] = 12  # W1: the twelve G3 terms
+STUDENT_MAX_TAGS_PER_EVENT: Final[int] = 12  # same vocabulary
 ```
 
 Rewrite the registry rows:
 
 ```python
 STUDENT_FEATURES: Final[tuple[FeatureSpec, ...]] = (
-    FeatureSpec("student_interest_overlap", FeatureSource.STUDENT_PROFILE, True, "OQ-SE-01", "Jaccard over the shared vocabulary.", raw_bounded=True),
-    FeatureSpec("interest_count", FeatureSource.STUDENT_PROFILE, True, "OQ-SE-01", "How many interests were declared.", factor_transform=lambda n: n / STUDENT_INTEREST_VOCABULARY_SIZE),
-    FeatureSpec("event_tag_count", FeatureSource.EVENT, True, "OQ-SE-01", "How many mapped tags the event carries.", factor_transform=lambda n: n / STUDENT_MAX_TAGS_PER_EVENT),
-    FeatureSpec("modality_match", FeatureSource.EVENT, True, "OQ-SE-01", "Preference and modality agree.", raw_bounded=True),
-    FeatureSpec("days_until_event", FeatureSource.EVENT, False, "OQ-SE-01", "Days from window start.", factor_transform=lambda d: d / STUDENT_FEED_WINDOW_DAYS),
+    FeatureSpec(
+        "student_interest_overlap",
+        FeatureSource.STUDENT_PROFILE,
+        True,
+        "OQ-SE-01",
+        "Jaccard over the shared vocabulary.",
+        raw_bounded=True,
+    ),
+    FeatureSpec(
+        "interest_count",
+        FeatureSource.STUDENT_PROFILE,
+        True,
+        "OQ-SE-01",
+        "How many interests were declared.",
+        factor_transform=lambda n: n / STUDENT_INTEREST_VOCABULARY_SIZE,
+    ),
+    FeatureSpec(
+        "event_tag_count",
+        FeatureSource.EVENT,
+        True,
+        "OQ-SE-01",
+        "How many mapped tags the event carries.",
+        factor_transform=lambda n: n / STUDENT_MAX_TAGS_PER_EVENT,
+    ),
+    FeatureSpec(
+        "modality_match",
+        FeatureSource.EVENT,
+        True,
+        "OQ-SE-01",
+        "Preference and modality agree.",
+        raw_bounded=True,
+    ),
+    FeatureSpec(
+        "days_until_event",
+        FeatureSource.EVENT,
+        False,
+        "OQ-SE-01",
+        "Days from window start.",
+        factor_transform=lambda d: d / STUDENT_FEED_WINDOW_DAYS,
+    ),
 )
 ```
 
@@ -578,7 +681,15 @@ def test_unbounded_feature_without_transform_is_rejected() -> None:
         FeatureSpec("raw_count", FeatureSource.EVENT, True, "OQ-SE-01", "x")
 
 
-@pytest.mark.parametrize("key,raw,expected", [("interest_count", 2.0, 2 / 12), ("event_tag_count", 12.0, 1.0), ("event_tag_count", 30.0, 1.0), ("days_until_event", 3.5, 0.5)])
+@pytest.mark.parametrize(
+    "key,raw,expected",
+    [
+        ("interest_count", 2.0, 2 / 12),
+        ("event_tag_count", 12.0, 1.0),
+        ("event_tag_count", 30.0, 1.0),
+        ("days_until_event", 3.5, 0.5),
+    ],
+)
 def test_as_factor_is_bounded(key: str, raw: float, expected: float) -> None:
     spec = next(f for f in STUDENT_FEATURES if f.key == key)
     assert spec.as_factor(raw) == pytest.approx(expected)
@@ -606,16 +717,28 @@ Append to `tests/unit/test_student_learned_ranker.py`:
 
 ```python
 def test_learned_ranker_ranks_multi_interest_multi_tag_candidates() -> None:
-    run = replace(RUN, interests=StudentInterestEvidence(terms=frozenset({"finance", "hackathon"}), vocabulary_version=VOCAB))
+    run = replace(
+        RUN,
+        interests=StudentInterestEvidence(
+            terms=frozenset({"finance", "hackathon"}), vocabulary_version=VOCAB
+        ),
+    )
     candidates = _catalog(tags={"e1": {"finance", "hackathon"}, "e2": {"finance"}, "e3": set()})
     ranker = LearnedRanker(predictor=_Constant(), model_artifact_hash=None)
     ranked = ranker.rank(run, candidates)
-    assert [s.subject_id for s in ranked][:2] == ["e1", "e2"]            # constant margin ⇒ event-id tie-break
+    assert [s.subject_id for s in ranked][:2] == [
+        "e1",
+        "e2",
+    ]  # constant margin ⇒ event-id tie-break
     e1 = next(s for s in ranked if s.subject_id == "e1")
     assert e1.value is not None
     assert all(0.0 <= f.value <= 1.0 for f in e1.factor_scores if f.value is not None)
-    assert next(f for f in e1.factor_scores if f.factor_key == "interest_count").value == pytest.approx(2 / 12)
-    assert next(s for s in ranked if s.subject_id == "e3").value is None   # untagged ⇒ unscorable, not raised
+    assert next(
+        f for f in e1.factor_scores if f.factor_key == "interest_count"
+    ).value == pytest.approx(2 / 12)
+    assert (
+        next(s for s in ranked if s.subject_id == "e3").value is None
+    )  # untagged ⇒ unscorable, not raised
 ```
 
 (`RUN`, `VOCAB`, `_catalog`, `StudentInterestEvidence` are the fixtures Task 5's tests define; import them or duplicate the three-line helper.)

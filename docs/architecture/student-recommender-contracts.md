@@ -53,52 +53,58 @@ tuple itself. The anchor is UTC regardless of the unit's display `time_zone`.
 
 ```python
 class StudentRecommendationItem(BaseModel):
-    rank: int = Field(ge=1)                                   # the ordering; the only integer
-    event: StudentEventSummary                                # reuse routers/student_events.py verbatim
-    matched_interests: list[str]                              # ∩ of declared interests and mapped tags, vocabulary order
-    reason: str                                               # exactly one sentence (assert_one_sentence)
+    rank: int = Field(ge=1)  # the ordering; the only integer
+    event: StudentEventSummary  # reuse routers/student_events.py verbatim
+    matched_interests: list[str]  # ∩ of declared interests and mapped tags, vocabulary order
+    reason: str  # exactly one sentence (assert_one_sentence)
+
 
 class StudentRecommendationWildcard(BaseModel):
     event: StudentEventSummary
     selection_basis: Literal["deterministic_index_from_inputs_hash"]
-    pool_size: int = Field(ge=1)                              # scorable events outside the ranked list
-    seed: str                                                 # the index derivation input, hex
-    reason: str                                               # one sentence; must say it is a wildcard
+    pool_size: int = Field(ge=1)  # scorable events outside the ranked list
+    seed: str  # the index derivation input, hex
+    reason: str  # one sentence; must say it is a wildcard
+
 
 class StudentFeedWindow(BaseModel):
-    starts_at: datetime                                       # tz-aware, inclusive
-    ends_at: datetime                                         # tz-aware, exclusive
-    time_zone: str                                            # IANA, the unit's
+    starts_at: datetime  # tz-aware, inclusive
+    ends_at: datetime  # tz-aware, exclusive
+    time_zone: str  # IANA, the unit's
+
 
 class StudentRecommendationProvenance(BaseModel):
-    ranker: Literal["content-1", "ltr-1"]                     # which Stage B ran; "content-1" in V1
-    fallback_from: Literal["ltr-1"] | None = None             # set when a learned artifact failed to load
-    registry_version: str                                     # STUDENT_REGISTRY.version
+    ranker: Literal["content-1", "ltr-1"]  # which Stage B ran; "content-1" in V1
+    fallback_from: Literal["ltr-1"] | None = None  # set when a learned artifact failed to load
+    registry_version: str  # STUDENT_REGISTRY.version
     registry_hash: str
-    registry_status: Literal["approved"]                      # "proposed" never reaches a 200
-    scoring_mode: str                                         # "student-event-1" | "student-event-ltr-1"
+    registry_status: Literal["approved"]  # "proposed" never reaches a 200
+    scoring_mode: str  # "student-event-1" | "student-event-ltr-1"
     scoring_mode_version: str
-    formula_version: str                                      # "1.0.0" | "ltr-x.y.z"
-    model_artifact_hash: str | None = None                    # V2 only
-    applied_weights: dict[str, float]                         # {"student_interest_overlap": 1.0} in V1
-    interest_vocabulary_version: str                          # "g3-2026-08-29"
-    profile_version: int                                      # student_profile.version — the input pin
-    inputs_hash: str                                          # canonical_digest over §1.4's tuple
-    policy_version: str                                       # FeedPolicy constants version, e.g. "feed-1.0.0"
+    formula_version: str  # "1.0.0" | "ltr-x.y.z"
+    model_artifact_hash: str | None = None  # V2 only
+    applied_weights: dict[str, float]  # {"student_interest_overlap": 1.0} in V1
+    interest_vocabulary_version: str  # "g3-2026-08-29"
+    profile_version: int  # student_profile.version — the input pin
+    inputs_hash: str  # canonical_digest over §1.4's tuple
+    policy_version: str  # FeedPolicy constants version, e.g. "feed-1.0.0"
+
 
 class StudentRecommendationsResponse(BaseModel):
     unit_id: uuid.UUID
     profile_state: Literal["present", "absent"]
     feed_window: StudentFeedWindow
-    items: list[StudentRecommendationItem]                    # ≤ STUDENT_FEED_MAX_ITEMS, rank ascending
-    wildcard: StudentRecommendationWildcard | None            # == wildcards[0] when the draw is non-empty
-    wildcards: list[StudentRecommendationWildcard]            # the draw: 1 item on a first feed, ≤ STUDENT_FEED_WILDCARD_BATCH on continuation
-    withheld_unscorable: int                                  # eligible, but composite unknown
-    withheld_untagged: int                                    # subset of the above with zero mapped tags (OQ-SC-12)
-    withheld_unresolved_date: int                             # time_precision = 'unresolved'
-    withheld_ineligible: dict[str, int]                       # Stage A exclusion reasons → counts
-    truncated: bool                                           # more scorable events than STUDENT_FEED_MAX_ITEMS
-    caption: str                                              # one sentence, worded from the counts
+    items: list[StudentRecommendationItem]  # ≤ STUDENT_FEED_MAX_ITEMS, rank ascending
+    wildcard: StudentRecommendationWildcard | None  # == wildcards[0] when the draw is non-empty
+    wildcards: list[
+        StudentRecommendationWildcard
+    ]  # the draw: 1 item on a first feed, ≤ STUDENT_FEED_WILDCARD_BATCH on continuation
+    withheld_unscorable: int  # eligible, but composite unknown
+    withheld_untagged: int  # subset of the above with zero mapped tags (OQ-SC-12)
+    withheld_unresolved_date: int  # time_precision = 'unresolved'
+    withheld_ineligible: dict[str, int]  # Stage A exclusion reasons → counts
+    truncated: bool  # more scorable events than STUDENT_FEED_MAX_ITEMS
+    caption: str  # one sentence, worded from the counts
     provenance: StudentRecommendationProvenance
 ```
 
@@ -162,13 +168,15 @@ Task 5 asserts the dataclass fields and the evidence tuple agree).
 @dataclass(frozen=True, slots=True)
 class StudentRankingRun:
     """Everything a run may see about the student. One per request, never per candidate."""
+
     unit_id: str
     subject_id: str
-    interests: StudentInterestEvidence            # §3.3
+    interests: StudentInterestEvidence  # §3.3
     modality_preference: Literal["in_person", "virtual", "no_preference"]
-    feed_window: tuple[datetime, datetime]       # closed-open, tz-aware
+    feed_window: tuple[datetime, datetime]  # closed-open, tz-aware
     exclude_event_ids: frozenset[str]
     profile_version: int
+
 
 @dataclass(frozen=True, slots=True)
 class StudentEventCandidate:
@@ -178,43 +186,62 @@ class StudentEventCandidate:
     time_precision: Literal["exact", "date_only", "unresolved"]
     publication_status: str
     already_registered: bool
-    tags: EventTagEvidence                        # §3.3
+    tags: EventTagEvidence  # §3.3
+
 
 # student_recommender/eligibility.py
 @dataclass(frozen=True, slots=True)
 class EligibilityResult:
     eligible: tuple[StudentEventCandidate, ...]
-    excluded: Mapping[str, int]                   # reason → count; reasons are a closed set below
+    excluded: Mapping[str, int]  # reason → count; reasons are a closed set below
 
-ELIGIBILITY_REASONS = frozenset({
-    "not_published", "outside_window", "unresolved_date",
-    "modality_mismatch", "already_registered", "session_excluded",
-})
+
+ELIGIBILITY_REASONS = frozenset(
+    {
+        "not_published",
+        "outside_window",
+        "unresolved_date",
+        "modality_mismatch",
+        "already_registered",
+        "session_excluded",
+    }
+)
+
 
 class EligibilityFilter(Protocol):
     version: str
-    def apply(self, run: StudentRankingRun,
-              candidates: Sequence[StudentEventCandidate]) -> EligibilityResult: ...
+
+    def apply(
+        self, run: StudentRankingRun, candidates: Sequence[StudentEventCandidate]
+    ) -> EligibilityResult: ...
+
 
 # student_recommender/ranker.py
 class StudentRanker(Protocol):
     """Stage B. Every implementation returns smartmatch_domain.scoring.StageBScore
     unchanged in shape; StageBScore.subject_id holds the EVENT id."""
+
     ranker_id: Literal["content-1", "ltr-1"]
     registry: FactorRegistry
     scoring_mode: str
     formula_version: str
     model_artifact_hash: str | None
-    def rank(self, run: StudentRankingRun,
-             candidates: Sequence[StudentEventCandidate]) -> tuple[StageBScore, ...]: ...
+
+    def rank(
+        self, run: StudentRankingRun, candidates: Sequence[StudentEventCandidate]
+    ) -> tuple[StageBScore, ...]: ...
+
     # ordering: scoring._ranked — known first, value desc, subject_id asc
+
 
 # student_recommender/policy.py
 @dataclass(frozen=True, slots=True)
 class StudentFeed:
-    items: tuple[StageBScore, ...]                # ≤ STUDENT_FEED_MAX_ITEMS, already ordered
-    wildcard: StageBScore | None                  # == wildcards[0] when the draw is non-empty
-    wildcards: tuple[StageBScore, ...]            # the draw: ≤ wildcard_count, without replacement, never unscorable
+    items: tuple[StageBScore, ...]  # ≤ STUDENT_FEED_MAX_ITEMS, already ordered
+    wildcard: StageBScore | None  # == wildcards[0] when the draw is non-empty
+    wildcards: tuple[
+        StageBScore, ...
+    ]  # the draw: ≤ wildcard_count, without replacement, never unscorable
     wildcard_pool_size: int
     wildcard_seed: str
     withheld_unscorable: int
@@ -222,26 +249,37 @@ class StudentFeed:
     truncated: bool
     policy_version: str
 
+
 class FeedPolicy(Protocol):
     policy_version: str
-    def select(self, run: StudentRankingRun,
-               ranked: tuple[StageBScore, ...],
-               inputs_hash: str, *,
-               primary_tag_by_event: Mapping[str, str | None] = {},   # event_id → first matched interest, for the diversity preference
-               wildcard_count: int = 1,                             # ≤ STUDENT_FEED_WILDCARD_BATCH; the stream's draw size
-               ) -> StudentFeed: ...
+
+    def select(
+        self,
+        run: StudentRankingRun,
+        ranked: tuple[StageBScore, ...],
+        inputs_hash: str,
+        *,
+        primary_tag_by_event: Mapping[
+            str, str | None
+        ] = {},  # event_id → first matched interest, for the diversity preference
+        wildcard_count: int = 1,  # ≤ STUDENT_FEED_WILDCARD_BATCH; the stream's draw size
+    ) -> StudentFeed: ...
+
 
 # student_recommender/policy.py
 def primary_tag(interests: StudentInterestEvidence, tags: EventTagEvidence) -> str | None:
     """Alphabetically first interest the event's mapped tags match; None when nothing matches or either side is absent."""
 
+
 # student_recommender/student_feed.py  — constants, never router literals
 STUDENT_FEED_WINDOW_DAYS: Final[int] = 30  # sign-up lead time, not a calendar week (ADR-0018 D7)
 STUDENT_FEED_MAX_ITEMS: Final[int] = 5
-STUDENT_FEED_WILDCARD_SLOTS: Final[int] = 1        # first-feed draw
-STUDENT_FEED_WILDCARD_BATCH: Final[int] = 5        # max draws per continuation request (OQ-SE-02)
+STUDENT_FEED_WILDCARD_SLOTS: Final[int] = 1  # first-feed draw
+STUDENT_FEED_WILDCARD_BATCH: Final[int] = 5  # max draws per continuation request (OQ-SE-02)
 STUDENT_FEED_MAX_SESSION_EXCLUSIONS: Final[int] = 200  # continuation must reach the whole catalog
-STUDENT_FEED_MAX_PER_PRIMARY_TAG: Final[int] = 3   # soft preference: items past this per-tag count are deferred, then fill open slots (ADR-0018 D7)
+STUDENT_FEED_MAX_PER_PRIMARY_TAG: Final[int] = (
+    3  # soft preference: items past this per-tag count are deferred, then fill open slots (ADR-0018 D7)
+)
 STUDENT_FEED_POLICY_VERSION: Final[str] = "feed-1.0.0"
 ```
 
@@ -286,12 +324,13 @@ class FactorRegistry:
     approved_on: str | None
     factors: tuple[FactorSpec, ...]
     approved_scoring_keys: frozenset[str]
-    scoring_modes: Mapping[str, ScoringModel]     # this registry's closed mode vocabulary
+    scoring_modes: Mapping[str, ScoringModel]  # this registry's closed mode vocabulary
 
     @property
-    def registry_hash(self) -> str: ...           # sha256 over (version, keys, weights, modes), hex
+    def registry_hash(self) -> str: ...  # sha256 over (version, keys, weights, modes), hex
 
-CBA_REGISTRY: Final[FactorRegistry]               # bound to every existing module constant
+
+CBA_REGISTRY: Final[FactorRegistry]  # bound to every existing module constant
 ```
 
 Functions gaining a keyword-only `registry: FactorRegistry = CBA_REGISTRY`:
@@ -306,18 +345,46 @@ Functions gaining a keyword-only `registry: FactorRegistry = CBA_REGISTRY`:
 ### 3.2 `STUDENT_REGISTRY` (W2b)
 
 ```python
-STUDENT_REGISTRY_VERSION: Final[str]        = "0.1.0-proposed-oq-se-01"
-STUDENT_REGISTRY_STATUS: Final[str]         = "proposed"
-STUDENT_SCORING_MODE: Final[str]            = "student-event-1"
-STUDENT_SCORING_MODE_VERSION: Final[str]    = "1.0.0"
+STUDENT_REGISTRY_VERSION: Final[str] = "0.1.0-proposed-oq-se-01"
+STUDENT_REGISTRY_STATUS: Final[str] = "proposed"
+STUDENT_SCORING_MODE: Final[str] = "student-event-1"
+STUDENT_SCORING_MODE_VERSION: Final[str] = "1.0.0"
 STUDENT_STAGE_B_FORMULA_VERSION: Final[str] = "1.0.0"
 APPROVED_STUDENT_SCORING_KEYS: Final[frozenset[str]] = frozenset({"student_interest_overlap"})
 
 STUDENT_FACTORS = (
-    FactorSpec("student_interest_overlap",      "Interest overlap",   FactorKind.SUITABILITY, 1.00, implemented=True,  rationale=...),
-    FactorSpec("student_modality_eligibility",  "Modality",           FactorKind.ELIGIBILITY, 0.0,  implemented=True,  rationale=...),
-    FactorSpec("student_availability_fit",      "Availability",       FactorKind.SUITABILITY, 0.0,  implemented=False, rationale="OQ-SC-02: no availability datum may be stored"),
-    FactorSpec("student_program_affinity",      "Program affinity",   FactorKind.SUITABILITY, 0.0,  implemented=False, rationale="OQ-SC-02; event audience is unvalidated free text"),
+    FactorSpec(
+        "student_interest_overlap",
+        "Interest overlap",
+        FactorKind.SUITABILITY,
+        1.00,
+        implemented=True,
+        rationale=...,
+    ),
+    FactorSpec(
+        "student_modality_eligibility",
+        "Modality",
+        FactorKind.ELIGIBILITY,
+        0.0,
+        implemented=True,
+        rationale=...,
+    ),
+    FactorSpec(
+        "student_availability_fit",
+        "Availability",
+        FactorKind.SUITABILITY,
+        0.0,
+        implemented=False,
+        rationale="OQ-SC-02: no availability datum may be stored",
+    ),
+    FactorSpec(
+        "student_program_affinity",
+        "Program affinity",
+        FactorKind.SUITABILITY,
+        0.0,
+        implemented=False,
+        rationale="OQ-SC-02; event audience is unvalidated free text",
+    ),
 )
 # PROHIBITED_INPUTS is imported from factor_registry, never redefined.
 ```
@@ -365,40 +432,80 @@ def score_student_interest_overlap(interests: StudentInterestEvidence,
 
 ```python
 class FeatureSource(StrEnum):
-    STUDENT_PROFILE = "student_profile"          # declared interests, modality
-    EVENT           = "event"                    # tags, modality, days_until, host unit
-    DERIVED         = "derived"                  # overlap, jaccard, tag counts — computed from the two above
-    OUTCOME         = "outcome"                  # registration/attendance — admissible ONLY as a LABEL (OQ-SE-19), never as a feature
-    INTERACTION     = "interaction"              # collaborative affinity (OQ-SE-21)
+    STUDENT_PROFILE = "student_profile"  # declared interests, modality
+    EVENT = "event"  # tags, modality, days_until, host unit
+    DERIVED = "derived"  # overlap, jaccard, tag counts — computed from the two above
+    OUTCOME = "outcome"  # registration/attendance — admissible ONLY as a LABEL (OQ-SE-19), never as a feature
+    INTERACTION = "interaction"  # collaborative affinity (OQ-SE-21)
+
 
 @dataclass(frozen=True, slots=True)
 class FeatureSpec:
     key: str
     source: FeatureSource
-    required: bool                               # True: unknown ⇒ composite unknown (ADR-0011). False: encoded as missing
-    admitted_by: str                             # register row id, e.g. "OQ-SE-01"
+    required: bool  # True: unknown ⇒ composite unknown (ADR-0011). False: encoded as missing
+    admitted_by: str  # register row id, e.g. "OQ-SE-01"
     rationale: str
-    factor_transform: Callable[[float], float] | None = None   # raw → [0,1] for FactorScore provenance; None ⇒ the spec must declare `raw_bounded=True`; otherwise construction raises
-    raw_bounded: bool = False                    # True when the raw value is already in [0, 1]
+    factor_transform: Callable[[float], float] | None = (
+        None  # raw → [0,1] for FactorScore provenance; None ⇒ the spec must declare `raw_bounded=True`; otherwise construction raises
+    )
+    raw_bounded: bool = False  # True when the raw value is already in [0, 1]
     # __post_init__: raises ValueError if key or source names any PROHIBITED_INPUTS entry,
     #                if source is OUTCOME (labels are not features),
     #                or if factor_transform is None and raw_bounded is False.
 
+
 STUDENT_FEATURE_REGISTRY_VERSION: Final[str] = "0.1.0-proposed-oq-se-19"
 STUDENT_FEATURES: Final[tuple[FeatureSpec, ...]] = (
-    FeatureSpec("student_interest_overlap", FeatureSource.DERIVED, required=True,  admitted_by="OQ-SE-01", rationale=..., raw_bounded=True),
-    FeatureSpec("interest_count",           FeatureSource.STUDENT_PROFILE, required=True, admitted_by="OQ-SE-01", rationale=..., factor_transform=lambda n: n / STUDENT_INTEREST_VOCABULARY_SIZE),
-    FeatureSpec("event_tag_count",          FeatureSource.EVENT,   required=True,  admitted_by="OQ-SE-01", rationale=..., factor_transform=lambda n: n / STUDENT_MAX_TAGS_PER_EVENT),
-    FeatureSpec("modality_match",           FeatureSource.DERIVED, required=True,  admitted_by="OQ-SE-01", rationale=..., raw_bounded=True),
-    FeatureSpec("days_until_event",         FeatureSource.EVENT,   required=False, admitted_by="OQ-SE-01", rationale=..., factor_transform=lambda d: d / STUDENT_FEED_WINDOW_DAYS),
+    FeatureSpec(
+        "student_interest_overlap",
+        FeatureSource.DERIVED,
+        required=True,
+        admitted_by="OQ-SE-01",
+        rationale=...,
+        raw_bounded=True,
+    ),
+    FeatureSpec(
+        "interest_count",
+        FeatureSource.STUDENT_PROFILE,
+        required=True,
+        admitted_by="OQ-SE-01",
+        rationale=...,
+        factor_transform=lambda n: n / STUDENT_INTEREST_VOCABULARY_SIZE,
+    ),
+    FeatureSpec(
+        "event_tag_count",
+        FeatureSource.EVENT,
+        required=True,
+        admitted_by="OQ-SE-01",
+        rationale=...,
+        factor_transform=lambda n: n / STUDENT_MAX_TAGS_PER_EVENT,
+    ),
+    FeatureSpec(
+        "modality_match",
+        FeatureSource.DERIVED,
+        required=True,
+        admitted_by="OQ-SE-01",
+        rationale=...,
+        raw_bounded=True,
+    ),
+    FeatureSpec(
+        "days_until_event",
+        FeatureSource.EVENT,
+        required=False,
+        admitted_by="OQ-SE-01",
+        rationale=...,
+        factor_transform=lambda d: d / STUDENT_FEED_WINDOW_DAYS,
+    ),
     # ("collaborative_affinity", INTERACTION, required=False, admitted_by="OQ-SE-21") — absent until that row closes
 )
+
 
 @dataclass(frozen=True, slots=True)
 class FeatureVector:
     feature_registry_version: str
-    values: Mapping[str, float | None]           # None = missing; never imputed here
-    unknown_required_keys: tuple[str, ...]       # non-empty ⇒ LearnedRanker returns value=None
+    values: Mapping[str, float | None]  # None = missing; never imputed here
+    unknown_required_keys: tuple[str, ...]  # non-empty ⇒ LearnedRanker returns value=None
 ```
 
 `FeatureVector.values` are raw model inputs. `StageBScore.factor_scores` are
