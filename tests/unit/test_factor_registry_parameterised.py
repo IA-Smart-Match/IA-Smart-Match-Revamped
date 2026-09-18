@@ -314,9 +314,7 @@ def test_normalize_weights_ignores_overrides_for_keys_outside_the_registry() -> 
     model = toy.scoring_modes[_TOY_MODE]
     baseline = dict(normalize_weights(model=model, registry=toy))
     with_foreign = dict(
-        normalize_weights(
-            {"industry_match": 99.0, "toy_absent": 5.0}, model=model, registry=toy
-        )
+        normalize_weights({"industry_match": 99.0, "toy_absent": 5.0}, model=model, registry=toy)
     )
     assert with_foreign == baseline
     assert "industry_match" not in with_foreign
@@ -326,9 +324,7 @@ def test_normalize_weights_ignores_overrides_for_keys_outside_the_registry() -> 
 def test_normalize_weights_rejects_a_negative_override_under_any_registry() -> None:
     toy = _two_factor_toy_registry()
     with pytest.raises(ValueError, match="negative"):
-        normalize_weights(
-            {"toy_overlap": -1.0}, model=toy.scoring_modes[_TOY_MODE], registry=toy
-        )
+        normalize_weights({"toy_overlap": -1.0}, model=toy.scoring_modes[_TOY_MODE], registry=toy)
 
 
 def test_display_weights_rounds_the_supplied_registrys_weights() -> None:

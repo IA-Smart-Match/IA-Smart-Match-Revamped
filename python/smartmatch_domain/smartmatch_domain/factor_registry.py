@@ -78,6 +78,8 @@ declared anywhere in the runtime.
 
 from __future__ import annotations
 
+import hashlib
+import json
 from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
@@ -98,6 +100,7 @@ from smartmatch_domain.factors.role_match import ROLE_MATCH_FACTOR_KEY
 __all__ = [
     "APPROVED_SCORING_KEYS",
     "CBA_PHYSICAL_MODEL",
+    "CBA_REGISTRY",
     "CBA_VIRTUAL_MODEL",
     "PROHIBITED_INPUTS",
     "PROPOSED_FACTORS",
@@ -111,6 +114,7 @@ __all__ = [
     "SUPERSEDED_REGISTRY_VERSION",
     "SUPERSEDED_SCORING_KEYS",
     "FactorKind",
+    "FactorRegistry",
     "FactorSpec",
     "RegistryNotApprovedError",
     "RegistryNotReadyError",
@@ -123,6 +127,8 @@ __all__ = [
     "implemented_scoring_keys",
     "normalize_weights",
     "proposed_weights",
+    "register_registry",
+    "registry_for_version",
     "resolve_scoring_model",
 ]
 
@@ -433,6 +439,13 @@ class ScoringModel:
         is_current: Whether this model is the one :data:`REGISTRY_VERSION`
             declares. ``False`` means the model is retained for reproducing
             stored runs and must not be selected for a new one.
+        mode_vocabulary: The closed mode vocabulary this model must belong to.
+            Defaults to :data:`~smartmatch_domain.factors.proximity.CBA_SCORING_MODES`,
+            so every existing construction site keeps the check it already had;
+            a second registry (ADR-0024 D2) passes its own vocabulary instead of
+            widening this one. A vocabulary is per registry precisely because
+            ADR-0016 Proposal 5 closes the CBA one: a second rulebook's mode
+            names must not become nameable inside it.
     """
 
     registry_version: str
@@ -440,6 +453,7 @@ class ScoringModel:
     scoring_mode_version: str | None
     scoring_keys: tuple[str, ...]
     is_current: bool
+    mode_vocabulary: frozenset[str] = CBA_SCORING_MODES
 
     def __post_init__(self) -> None:
         if not self.scoring_keys:
@@ -449,9 +463,9 @@ class ScoringModel:
                 "scoring_mode and scoring_mode_version must be set or unset together; "
                 f"got {self.scoring_mode!r} and {self.scoring_mode_version!r}"
             )
-        if self.scoring_mode is not None and self.scoring_mode not in CBA_SCORING_MODES:
+        if self.scoring_mode is not None and self.scoring_mode not in self.mode_vocabulary:
             raise UnknownScoringModeError(
-                f"scoring_mode: must be one of {sorted(CBA_SCORING_MODES)} or None, got "
+                f"scoring_mode: must be one of {sorted(self.mode_vocabulary)} or None, got "
                 f"{self.scoring_mode!r}. The mode vocabulary is closed (ADR-0016 Proposal 5)."
             )
 
@@ -506,31 +520,192 @@ SCORING_MODELS: Final[Mapping[str, ScoringModel]] = MappingProxyType(
 )
 
 
-def resolve_scoring_model(scoring_mode: str | None) -> ScoringModel:
+@dataclass(frozen=True, slots=True)
+class FactorRegistry:
+    """One rulebook: its factors, its approval state, and its closed mode set.
+
+    ADR-0024 D2 / ADR-0025 D3. Everything this module already did for the CBA
+    factor set is expressed here as a *value*, so a second rulebook is a second
+    value rather than a second copy of the mechanism. :data:`CBA_REGISTRY` is
+    the only registry this package declares; every free function below defaults
+    to it, so no existing caller changes and no existing number moves.
+
+    The object is immutable in the way the module's constants already were: the
+    factor tuple and the approved-key frozenset are immutable by type, and
+    ``scoring_modes`` is re-wrapped in a :class:`~types.MappingProxyType` at
+    construction so a caller's dict cannot become a live back door into an
+    approved registry.
+
+    Validation is fail-closed at construction, matching how the module validates
+    today: an unrecognised status, a duplicate factor key, a mode keyed under a
+    name it does not carry, or a model scoring a key the registry never declared
+    all raise here rather than surfacing later as a silently wrong score.
+
+    Attributes:
+        version: The rulebook's own version string.
+        status: ``"approved"`` or ``"proposed"``. Nothing else: a third word
+            would be a gate nobody defined.
+        approver: Who accepted it, or ``None`` while it is proposed.
+        approved_on: The acceptance date, or ``None`` while it is proposed.
+        factors: Every declared :class:`FactorSpec`, in registry order.
+        approved_scoring_keys: The Stage B keys the approval covers.
+        scoring_modes: The models this registry admits, keyed by scoring mode.
+    """
+
+    version: str
+    status: str
+    approver: str | None
+    approved_on: str | None
+    factors: tuple[FactorSpec, ...]
+    approved_scoring_keys: frozenset[str]
+    scoring_modes: Mapping[str, ScoringModel]
+
+    def __post_init__(self) -> None:
+        if self.status not in {"approved", "proposed"}:
+            raise ValueError(f"status: must be 'approved' or 'proposed', got {self.status!r}")
+        keys = [spec.key for spec in self.factors]
+        if len(set(keys)) != len(keys):
+            raise ValueError(f"factors: duplicate factor key in {keys}")
+        for mode, model in self.scoring_modes.items():
+            if model.scoring_mode != mode:
+                raise ValueError(
+                    f"scoring_modes[{mode!r}] names mode {model.scoring_mode!r}; a model "
+                    "filed under a name it does not carry would resolve to the wrong mode"
+                )
+            unknown = set(model.scoring_keys) - set(keys)
+            if unknown:
+                raise ValueError(
+                    f"scoring_modes[{mode!r}] scores undeclared keys {sorted(unknown)}"
+                )
+        object.__setattr__(self, "scoring_modes", MappingProxyType(dict(self.scoring_modes)))
+
+    @property
+    def spec_by_key(self) -> Mapping[str, FactorSpec]:
+        """This registry's specs by key — the table an explanation reads."""
+        return MappingProxyType({spec.key: spec for spec in self.factors})
+
+    @property
+    def kind_by_key(self) -> Mapping[str, FactorKind]:
+        """This registry's factor kinds by key — the table a composition reads."""
+        return MappingProxyType({spec.key: spec.kind for spec in self.factors})
+
+    @property
+    def registry_hash(self) -> str:
+        """A stable fingerprint of what this registry actually scores.
+
+        Covers the version, each factor's key/kind/active weight/implementation
+        flag, and each mode's key set — the facts that change a score. Two
+        registries that would score identically fingerprint identically.
+        """
+        payload = {
+            "version": self.version,
+            "factors": [
+                [spec.key, spec.kind.value, repr(spec.active_weight), spec.implemented]
+                for spec in self.factors
+            ],
+            "modes": {
+                mode: list(model.scoring_keys) for mode, model in sorted(self.scoring_modes.items())
+            },
+        }
+        rendered = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+        return "sha256:" + hashlib.sha256(rendered.encode("utf-8")).hexdigest()
+
+
+#: The CBA rulebook as a value. Every constant above is bound here rather than
+#: re-stated: this object *is* the module's existing registry, named so a second
+#: one can sit beside it without either becoming reachable by accident.
+CBA_REGISTRY: Final[FactorRegistry] = FactorRegistry(
+    version=REGISTRY_VERSION,
+    status=REGISTRY_STATUS,
+    approver=REGISTRY_APPROVER,
+    approved_on=REGISTRY_APPROVED_ON,
+    factors=PROPOSED_FACTORS,
+    approved_scoring_keys=APPROVED_SCORING_KEYS,
+    scoring_modes=SCORING_MODELS,
+)
+
+#: Which rulebook a stored score's ``registry_version`` names. The superseded
+#: G1 pin maps to :data:`CBA_REGISTRY` because its two factors are still
+#: declared there (OQ-CBA-025: coexist) — a ``1.x`` score has always been
+#: labelled and explained from this module's one spec table, and that is
+#: preserved exactly.
+_REGISTRIES_BY_VERSION: dict[str, FactorRegistry] = {
+    CBA_REGISTRY.version: CBA_REGISTRY,
+    SUPERSEDED_REGISTRY_VERSION: CBA_REGISTRY,
+}
+
+
+def register_registry(registry: FactorRegistry) -> None:
+    """Make ``registry`` findable by version for readers of stored scores.
+
+    Raises:
+        ValueError: when a *different* registry is already bound to that
+            version. Rebinding a version would silently re-label every stored
+            score that names it.
+    """
+    existing = _REGISTRIES_BY_VERSION.get(registry.version)
+    if existing is not None and existing is not registry:
+        raise ValueError(f"registry version {registry.version!r} is already bound")
+    _REGISTRIES_BY_VERSION[registry.version] = registry
+
+
+def registry_for_version(version: str, *, default: FactorRegistry | None = None) -> FactorRegistry:
+    """Return the registry a stored score names.
+
+    Args:
+        version: The ``registry_version`` a stored score carries.
+        default: Returned when no registry is bound to ``version``. Callers on
+            a scoring or explanation path pass :data:`CBA_REGISTRY` so an
+            unrecognised pin keeps reading the table it has always read; a
+            caller that needs the pin to exist omits it and handles ``KeyError``.
+
+    Raises:
+        KeyError: when ``version`` is unknown and no ``default`` was given.
+    """
+    found = _REGISTRIES_BY_VERSION.get(version)
+    if found is not None:
+        return found
+    if default is not None:
+        return default
+    raise KeyError(version)
+
+
+def resolve_scoring_model(
+    scoring_mode: str | None, *, registry: FactorRegistry = CBA_REGISTRY
+) -> ScoringModel:
     """Return the model a run scores under, from its mode.
 
     Args:
-        scoring_mode: A member of :data:`SCORING_MODELS`, or ``None`` for a
+        scoring_mode: A member of ``registry.scoring_modes``, or ``None`` for a
             pre-ADR-0016 run.
+        registry: The rulebook to resolve against. Defaults to
+            :data:`CBA_REGISTRY`, so every existing caller is unchanged.
 
     Returns:
-        The matching :class:`ScoringModel`. ``None`` resolves to
-        :data:`SUPERSEDED_G1_MODEL` — a run that names no mode predates the
-        vocabulary and is read at the pin it was produced under, never
-        upgraded to ``cba-physical-1`` (ADR-0016 Proposal 7).
+        The matching :class:`ScoringModel`. Under :data:`CBA_REGISTRY`, ``None``
+        resolves to :data:`SUPERSEDED_G1_MODEL` — a run that names no mode
+        predates the vocabulary and is read at the pin it was produced under,
+        never upgraded to ``cba-physical-1`` (ADR-0016 Proposal 7).
 
     Raises:
-        UnknownScoringModeError: for any string outside the closed vocabulary.
-            Refused rather than defaulted: a typo'd mode that silently became
-            the physical model would score a virtual event on proximity.
+        UnknownScoringModeError: for any string outside the registry's closed
+            vocabulary. Refused rather than defaulted: a typo'd mode that
+            silently became the physical model would score a virtual event on
+            proximity. Also raised for ``None`` under any registry other than
+            the CBA one, which has no pre-mode model to fall back to.
     """
     if scoring_mode is None:
-        return SUPERSEDED_G1_MODEL
+        if registry is CBA_REGISTRY:
+            return SUPERSEDED_G1_MODEL
+        raise UnknownScoringModeError(
+            f"scoring_mode: registry {registry.version!r} declares no pre-mode model, so "
+            "None is refused rather than defaulted. The mode vocabulary is closed."
+        )
     try:
-        return SCORING_MODELS[scoring_mode]
+        return registry.scoring_modes[scoring_mode]
     except KeyError:
         raise UnknownScoringModeError(
-            f"scoring_mode: must be one of {sorted(SCORING_MODELS)} or None, got "
+            f"scoring_mode: must be one of {sorted(registry.scoring_modes)} or None, got "
             f"{scoring_mode!r}. The mode vocabulary is closed (ADR-0016 Proposal 5); "
             "an unrecognised mode is refused rather than defaulted."
         ) from None
@@ -540,19 +715,24 @@ class RegistryNotApprovedError(RuntimeError):
     """Raised when scoring is attempted before the G1 gate closes."""
 
 
-def assert_registry_approved() -> None:
+def assert_registry_approved(*, registry: FactorRegistry = CBA_REGISTRY) -> None:
     """Fail closed unless the factor registry has been approved.
 
     Any code path that produces a user-visible match score must call this first.
     Architecture v1.1 gate G1 blocks R1 on registry approval; failing closed here
     means the gate is enforced by the code rather than by a checklist.
 
+    Args:
+        registry: The rulebook whose gate is checked. Defaults to
+            :data:`CBA_REGISTRY`, whose status is :data:`REGISTRY_STATUS`.
+
     Raises:
-        RegistryNotApprovedError: while ``REGISTRY_STATUS`` is not ``"approved"``.
+        RegistryNotApprovedError: while the registry's status is not
+            ``"approved"``.
     """
-    if REGISTRY_STATUS != "approved":
+    if registry.status != "approved":
         raise RegistryNotApprovedError(
-            f"Factor registry {REGISTRY_VERSION} is {REGISTRY_STATUS!r}. "
+            f"Factor registry {registry.version} is {registry.status!r}. "
             "Architecture v1.1 gate G1 blocks match scoring until the program owner "
             "approves the registry contents and the golden case set. "
             "See docs/architecture/review/contract-findings.md (F-001)."
@@ -563,26 +743,34 @@ class RegistryNotReadyError(RuntimeError):
     """Raised when the implemented scoring set is not the approved scoring set."""
 
 
-def factor_keys() -> tuple[str, ...]:
+def factor_keys(*, registry: FactorRegistry = CBA_REGISTRY) -> tuple[str, ...]:
     """Return every declared factor key, in registry order.
 
     Includes retired factors. An explanation for a stored ``1.x`` run still has
     to order ``topic_relevance`` and ``travel_burden``, and dropping them from
     this tuple would leave that ordering undefined.
+
+    Args:
+        registry: The rulebook to read. Defaults to :data:`CBA_REGISTRY`, whose
+            factors are :data:`PROPOSED_FACTORS`.
     """
-    return tuple(spec.key for spec in PROPOSED_FACTORS)
+    return tuple(spec.key for spec in registry.factors)
 
 
-def implemented_scoring_keys() -> frozenset[str]:
-    """Return the keys of every implemented, non-retired Stage B factor."""
+def implemented_scoring_keys(*, registry: FactorRegistry = CBA_REGISTRY) -> frozenset[str]:
+    """Return the keys of every implemented, non-retired Stage B factor.
+
+    Args:
+        registry: The rulebook to read. Defaults to :data:`CBA_REGISTRY`.
+    """
     return frozenset(
         spec.key
-        for spec in PROPOSED_FACTORS
+        for spec in registry.factors
         if spec.implemented and spec.is_scoring and not spec.is_retired
     )
 
 
-def assert_scoring_ready() -> None:
+def assert_scoring_ready(*, registry: FactorRegistry = CBA_REGISTRY) -> None:
     """Fail closed unless the implemented scoring set is exactly the approved set.
 
     :func:`assert_registry_approved` proves the program owner signed off. This
@@ -595,23 +783,34 @@ def assert_scoring_ready() -> None:
     weights did not sum to one would deflate exactly the way the legacy engine
     did, on a code path a physical-only check never touches.
 
+    Args:
+        registry: The rulebook to check. Defaults to :data:`CBA_REGISTRY`, whose
+            approved set is :data:`APPROVED_SCORING_KEYS` and whose current
+            models are :data:`CBA_PHYSICAL_MODEL` and :data:`CBA_VIRTUAL_MODEL`.
+
     Raises:
-        RegistryNotReadyError: when the implemented scoring set differs from
-            :data:`APPROVED_SCORING_KEYS`, or when either current model's
+        RegistryNotReadyError: when the implemented scoring set differs from the
+            registry's approved scoring keys, or when any current model's
             normalized weights do not sum to 1.0 within ``1e-9``.
     """
-    implemented = implemented_scoring_keys()
-    if implemented != APPROVED_SCORING_KEYS:
-        missing = APPROVED_SCORING_KEYS - implemented
-        extra = implemented - APPROVED_SCORING_KEYS
+    implemented = implemented_scoring_keys(registry=registry)
+    approved = registry.approved_scoring_keys
+    if implemented != approved:
+        missing = approved - implemented
+        extra = implemented - approved
         raise RegistryNotReadyError(
             "Implemented Stage B scoring set does not match the approved set "
-            f"{sorted(APPROVED_SCORING_KEYS)}. "
+            f"{sorted(approved)}. "
             f"Missing: {sorted(missing) or 'none'}. Extra: {sorted(extra) or 'none'}."
         )
 
-    for model in (CBA_PHYSICAL_MODEL, CBA_VIRTUAL_MODEL):
-        weight_total = sum(normalize_weights(model=model).values())
+    # Every *current* model, not just the physical one. Under CBA_REGISTRY this
+    # is exactly (CBA_PHYSICAL_MODEL, CBA_VIRTUAL_MODEL): SUPERSEDED_G1_MODEL is
+    # is_current=False and is not in SCORING_MODELS at all.
+    for model in registry.scoring_modes.values():
+        if not model.is_current:
+            continue
+        weight_total = sum(normalize_weights(model=model, registry=registry).values())
         if abs(weight_total - 1.0) > 1e-9:
             raise RegistryNotReadyError(
                 f"Normalized Stage B weights for {model.scoring_mode!r} sum to "
@@ -620,20 +819,27 @@ def assert_scoring_ready() -> None:
             )
 
 
-def proposed_weights() -> Mapping[str, float]:
+def proposed_weights(*, registry: FactorRegistry = CBA_REGISTRY) -> Mapping[str, float]:
     """Return the weights this registry *proposes*, including retired factors.
 
     For review and documentation. Never use this to score — it includes factors
     no current model admits, and summing scores against them is exactly the
     legacy defect. Use :func:`normalize_weights` instead.
+
+    Args:
+        registry: The rulebook to read. Defaults to :data:`CBA_REGISTRY`.
     """
-    return MappingProxyType({spec.key: spec.proposed_weight for spec in PROPOSED_FACTORS})
+    return MappingProxyType({spec.key: spec.proposed_weight for spec in registry.factors})
 
 
-def active_weights() -> Mapping[str, float]:
-    """Return the unnormalized weights the current model's factors carry."""
+def active_weights(*, registry: FactorRegistry = CBA_REGISTRY) -> Mapping[str, float]:
+    """Return the unnormalized weights the current model's factors carry.
+
+    Args:
+        registry: The rulebook to read. Defaults to :data:`CBA_REGISTRY`.
+    """
     return MappingProxyType(
-        {spec.key: spec.active_weight for spec in PROPOSED_FACTORS if spec.active_weight > 0.0}
+        {spec.key: spec.active_weight for spec in registry.factors if spec.active_weight > 0.0}
     )
 
 
@@ -641,6 +847,7 @@ def normalize_weights(
     weights: Mapping[str, float] | None = None,
     *,
     model: ScoringModel = CBA_PHYSICAL_MODEL,
+    registry: FactorRegistry = CBA_REGISTRY,
 ) -> Mapping[str, float]:
     """Normalize Stage B weights across **one model's factor set only**.
 
@@ -665,6 +872,10 @@ def normalize_weights(
             :data:`CBA_PHYSICAL_MODEL`; pass :data:`CBA_VIRTUAL_MODEL` for a
             virtual event, or :data:`SUPERSEDED_G1_MODEL` to reproduce a stored
             ``1.x`` run.
+        registry: The rulebook whose specs supply the default weights. Defaults
+            to :data:`CBA_REGISTRY`. ``model`` must be one of this registry's
+            models; keys the registry does not declare are ignored exactly as
+            keys outside ``model.scoring_keys`` already are.
 
     Returns:
         An immutable mapping over the model's factors summing to 1.0, or all
@@ -673,7 +884,7 @@ def normalize_weights(
     Raises:
         ValueError: if any supplied weight is negative.
     """
-    by_key = {spec.key: spec for spec in PROPOSED_FACTORS}
+    by_key = registry.spec_by_key
     scoring = {
         key: by_key[key].proposed_weight
         for key in model.scoring_keys
@@ -701,7 +912,9 @@ def normalize_weights(
 _WEIGHT_DISPLAY_PRECISION: Final[int] = 6
 
 
-def display_weights(model: ScoringModel = CBA_PHYSICAL_MODEL) -> Mapping[str, float]:
+def display_weights(
+    model: ScoringModel = CBA_PHYSICAL_MODEL, *, registry: FactorRegistry = CBA_REGISTRY
+) -> Mapping[str, float]:
     """Render a model's normalized weights to six places, for a human.
 
     The approved §11 values — Industry ``0.428571``, Role ``0.357143``, Topic
@@ -713,10 +926,14 @@ def display_weights(model: ScoringModel = CBA_PHYSICAL_MODEL) -> Mapping[str, fl
 
     Never use the result to score. Rounding before composing would let two
     genuinely different weight sets compose identically.
+
+    Args:
+        model: The model to render. Defaults to :data:`CBA_PHYSICAL_MODEL`.
+        registry: The rulebook to read. Defaults to :data:`CBA_REGISTRY`.
     """
     return MappingProxyType(
         {
             key: round(value, _WEIGHT_DISPLAY_PRECISION)
-            for key, value in normalize_weights(model=model).items()
+            for key, value in normalize_weights(model=model, registry=registry).items()
         }
     )

@@ -67,9 +67,11 @@ from enum import StrEnum
 from typing import Any, Final
 
 from smartmatch_domain.factor_registry import (
-    PROPOSED_FACTORS,
+    CBA_REGISTRY,
+    FactorRegistry,
     FactorSpec,
     assert_registry_approved,
+    registry_for_version,
 )
 from smartmatch_domain.factors import FactorScore, FactorState, ZeroClassification
 from smartmatch_domain.scoring import StageBScore
@@ -122,12 +124,21 @@ COMPOSITE_NEUTRAL_CAPTION: Final[str] = "Includes a neutral default for missing 
 #: — and never a silently absent row, which reads as an oversight.
 VIRTUAL_EVENT_CAPTION: Final[str] = "Virtual event — proximity not scored"
 
-#: Registry specs by key, built once. Used only to attach a factor's
-#: coordinator-facing label and its Stage A/B kind to an explanation; the
-#: weights come from the score's own ``applied_weights`` and never from here,
-#: because the weights that applied to a *stored* score are the ones that were
-#: in force then, not the ones in force now.
-_SPECS_BY_KEY: Final[Mapping[str, FactorSpec]] = {spec.key: spec for spec in PROPOSED_FACTORS}
+
+def _registry_for_score(registry_version: str) -> FactorRegistry:
+    """Return the rulebook a score's ``registry_version`` names.
+
+    Its ``spec_by_key`` table is used only to attach a factor's
+    coordinator-facing label and its Stage A/B kind to an explanation; the
+    weights come from the score's own ``applied_weights`` and never from the
+    registry, because the weights that applied to a *stored* score are the ones
+    that were in force then, not the ones in force now. The spec table now
+    follows the score for the same reason the weights already did (ADR-0024 D2).
+    An unrecognised pin falls back to
+    :data:`~smartmatch_domain.factor_registry.CBA_REGISTRY`, the one table this
+    module read before the registry became a parameter.
+    """
+    return registry_for_version(registry_version, default=CBA_REGISTRY)
 
 
 class ScoreState(StrEnum):
@@ -418,9 +429,11 @@ _STATE_BY_FACTOR_STATE: Final[Mapping[FactorState, ScoreState]] = {
 }
 
 
-def _explain_factor(score: FactorScore, weight: float) -> FactorExplanation:
+def _explain_factor(
+    score: FactorScore, weight: float, *, spec_by_key: Mapping[str, FactorSpec]
+) -> FactorExplanation:
     """Build one :class:`FactorExplanation` from a factor's own result."""
-    spec = _SPECS_BY_KEY.get(score.factor_key)
+    spec = spec_by_key.get(score.factor_key)
     classification: ZeroClassification | None = score.zero_classification
     return FactorExplanation(
         factor_key=score.factor_key,
@@ -457,7 +470,13 @@ def explain_candidate(score: StageBScore) -> CandidateExplanation:
             Raised before anything is assembled: an explanation is the visible
             end of a scoring path, and the standing rule guards it too.
     """
-    assert_registry_approved()
+    # The score's own rulebook, not whichever one this process last imported:
+    # the gate that guards an explanation is the gate of the registry the score
+    # was produced under (ADR-0024 D2). For every score this package produces
+    # that registry is CBA_REGISTRY, so the check is the one it always was.
+    registry = _registry_for_score(score.registry_version)
+    assert_registry_approved(registry=registry)
+    spec_by_key = registry.spec_by_key
 
     # Unknown dominates (ADR-0016 Proposal 7). Taken from the score's own key
     # lists rather than re-derived from its value, so the composite's state and
@@ -484,7 +503,11 @@ def explain_candidate(score: StageBScore) -> CandidateExplanation:
             # the same keys — ``score_candidate`` refuses to return a score
             # where they diverge, which is its guard against the legacy
             # deflation defect — so this lookup cannot miss.
-            _explain_factor(factor, score.applied_weights[factor.factor_key])
+            _explain_factor(
+                factor,
+                score.applied_weights[factor.factor_key],
+                spec_by_key=spec_by_key,
+            )
             for factor in score.factor_scores
         ),
     )
