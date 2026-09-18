@@ -222,7 +222,9 @@ export const router = createBrowserRouter([
   // the instructor opens in front of the room (requirements row "Asking for
   // more"). Public by construction, like the exercise itself: ADR-0025 D1
   // gives that scope no login at all, so there is nothing here to sit behind.
-  // It reads no API and shows no real person's data.
+  // It reads no API and shows no real person's data. This static screen is the
+  // only exercise mount allowed in this router: a screen that calls the
+  // exercise API belongs behind the `CLASS_EXERCISE` scope once it exists.
   {
     path: "exercise/profile-card",
     element: withSuspense(<ProfileCardMockup />),

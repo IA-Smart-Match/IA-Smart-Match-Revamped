@@ -59,7 +59,7 @@ const CARD_QUESTIONS: readonly CardQuestion[] = [
   {
     field: "class_year",
     prompt: "What year are you in?",
-    example: "First year, second, third, fourth, or beyond.",
+    example: "The year your programme has you in.",
   },
   {
     field: "stated_interests",
