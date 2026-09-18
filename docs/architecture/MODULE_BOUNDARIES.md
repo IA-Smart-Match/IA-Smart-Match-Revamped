@@ -678,12 +678,13 @@ types, build, audit* — now runs, in order: `npm ci --no-audit --no-fund`;
 `npm run build` (which is `npm run typecheck && vite build`);
 `npm run test:components` (`vitest run`); a runtime advisory gate
 `npm audit --audit-level=high --omit=dev --package-lock-only`, failing on high +
-critical; and a dev-included gate `npm audit --audit-level=high
---package-lock-only` over the whole tree, on `main` today also failing on high +
-critical and printing anything below that as a warning. That last threshold is
-the one on `main` at the time of writing — open PR #172 *proposes* moving it to
-`--audit-level=moderate` with a `vitest` 4.1.11 bump, which is unmerged and is
-not described here as current.
+critical; and a dev-included gate `npm audit --audit-level=moderate
+--package-lock-only` over the whole tree, failing on **moderate, high or
+critical** and printing only `low` and `info` as warnings. That last threshold
+moved from `high` to `moderate` in **merged PR #172, 2026-09-18**, whose
+`vitest` 4.1.11 bump closed the `@vitest/mocker` advisory that had justified the
+looser gate; the verdict is read from the `--json` counts rather than npm's exit
+code. **The runtime `--omit=dev` gate was not relaxed and remains at `high`.**
 
 **The disposition is unchanged.** `npm run test:components` is scoped by
 `apps/web/legacy-frontend/vitest.config.ts` to `include: ["src/**/*.test.tsx"]`

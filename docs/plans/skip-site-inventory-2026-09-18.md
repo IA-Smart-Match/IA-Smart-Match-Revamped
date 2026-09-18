@@ -28,6 +28,19 @@ Three of the 75 `tests/` hits are likewise prose — two module docstrings and o
 comment. All eleven are listed in §6, so that **83 = 72 call sites + 11 prose
 lines** is checkable rather than asserted. **Real call sites: 72.**
 
+**Two drift notes, already true of this file.**
+
+1. **The survey counts itself.** Once this document is committed, the same
+   command returns **87**, because four lines *of this file* match it (§2's
+   `xfail` row, §5.2's sentence, and two rows of §6's reconciliation table).
+   None is a skip site. A later reader re-running the command should expect 87
+   on a tree containing this file, and should subtract this file before
+   comparing to the 83 above.
+2. **A line number has already moved.** `tests/integration/conftest.py`'s skip
+   was at `:203` when this survey ran and is at `:235` after merging
+   `origin/main` on the same day. The table below carries `:235`. This is what
+   the header means by "will drift" — it took hours, not weeks.
+
 A count of call sites is **not** a count of tests skipped in a CI run. One site
 can skip many parametrised cases; one `skipif` can skip none; a site inside a
 session- or module-scoped fixture takes the whole module with it. `pytest -ra`
@@ -113,7 +126,7 @@ job provides a migrated PostgreSQL, so all thirty **run** in CI.
 
 | file:line | kind | condition / reason (verbatim) | class | runs in CI |
 |---|---|---|---|---|
-| `tests/integration/conftest.py:203` | `skip` | `f"no PostgreSQL available at {DATABASE_URL}: {exc}"` — session-scoped `engine` fixture, so this takes every test that depends on it | environment-conditional | yes |
+| `tests/integration/conftest.py:235` | `skip` | `f"no PostgreSQL available at {DATABASE_URL}: {exc}"` — session-scoped `engine` fixture, so this takes every test that depends on it | environment-conditional | yes |
 | `tests/integration/migration_harness.py:95` | `skip` | `f"{engine.url.username} lacks the privilege to create a database, so this migration cannot be exercised here: {exc.orig}"` — fires only on SQLSTATE `INSUFFICIENT_PRIVILEGE` from `CREATE DATABASE` | environment-conditional | yes — the service's `POSTGRES_USER: smartmatch` is the database's own superuser-equivalent owner created by the `postgres:16` image, so `CREATE DATABASE` is permitted. Not machine-checked here |
 | `tests/integration/test_contact_lifecycle.py:204` | `skip` | `f"no migrated PostgreSQL available at {DATABASE_URL}: {exc}"` (probes `speaker_profile.full_name` and `contact_channel_transition`) | environment-conditional | yes |
 | `tests/integration/test_rewards_api.py:202` | `skip` | `f"no migrated PostgreSQL available at {DATABASE_URL}: {exc}"` (probe: `redemption`) | environment-conditional | yes |

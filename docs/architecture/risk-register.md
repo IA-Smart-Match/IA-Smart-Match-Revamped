@@ -52,13 +52,16 @@ R-09's evidence cell says the `web` job "runs only `npm ci`, `npm run build`,
 4. `npm audit --audit-level=high --omit=dev --package-lock-only`, the runtime
    gate, whose verdict is read from the JSON counts and **fails on high +
    critical**;
-5. `npm audit --audit-level=high --package-lock-only`, the dev-included gate
-   over the whole tree — on `main` today also **high + critical**, with
-   anything below that printed as a warning rather than gated.
+5. `npm audit --audit-level=moderate --package-lock-only`, the dev-included
+   gate over the whole tree — it **fails on moderate, high or critical**, and
+   only `low` and `info` are printed as warnings rather than gated.
 
-The threshold in (5) is the one on `main` at the time of writing. Open PR #172
-*proposes* moving it to `--audit-level=moderate` together with a `vitest`
-4.1.11 bump; that is unmerged and is not current behaviour.
+The threshold in (5) moved from `high` to `moderate` in **merged PR #172,
+2026-09-18**, which bumped `vitest` to 4.1.11 and so closed the
+`@vitest/mocker` advisory (GHSA-82fw-gwwq-j7x9) that had been the stated reason
+for gating a level lower. The verdict is read from the `--json` counts, not from
+npm's exit code. **The runtime `--omit=dev` gate in (4) was not relaxed and
+remains at `high`.**
 
 **R-09 itself stands, at the same P0.** Step (3) is scoped by
 `apps/web/legacy-frontend/vitest.config.ts` to `include: ["src/**/*.test.tsx"]`

@@ -204,15 +204,19 @@ types, build, audit*) runs five steps, not three:
 | Typecheck and build | `npm run build` → `npm run typecheck && vite build` | `tsc --noEmit`, then a production build |
 | Component tests | `npm run test:components` → `vitest run` | The `src` tree's rendered-DOM assertions |
 | Audit dependency vulnerabilities | `npm audit --audit-level=high --omit=dev --package-lock-only` | Runtime advisories; the verdict is read from the JSON counts and **fails on high + critical** |
-| Audit dependency vulnerabilities (including dev) | `npm audit --audit-level=high --package-lock-only` | The full tree, dev tooling included; on `main` today this gate is also **high + critical**, with anything below it printed as a warning |
+| Audit dependency vulnerabilities (including dev) | `npm audit --audit-level=moderate --package-lock-only` | The full tree, dev tooling included; **fails on moderate, high or critical**, with only `low` and `info` left as warnings |
 
 Two qualifications on that table:
 
-- The dev-included gate's threshold is the one on `main` **at the time of
-  writing**. Open PR #172 *proposes* raising it to `--audit-level=moderate` (a
-  moderate advisory anywhere in the tree would then fail the step) alongside a
-  `vitest` 4.1.11 bump. That is a proposal, not current behaviour, and is not
-  described here as current.
+- The dev-included gate moved from `high` to `moderate` in **merged PR #172,
+  2026-09-18**, which bumped `vitest` to 4.1.11 — carrying the patched
+  `@vitest/mocker` that closed GHSA-82fw-gwwq-j7x9 while keeping Node 20 and the
+  `vite ^6` peer. Both halves of the threshold moved together: the
+  `--audit-level` flag shapes npm's output, while the verdict that decides the
+  step is read from the `--json` counts and now exits 1 on
+  `moderate + high + critical`. **The runtime `--omit=dev` gate was not
+  relaxed and remains at `high`** — a runtime advisory still fails on its own,
+  unmixed with tooling noise.
 - The component-test step is scoped by `apps/web/legacy-frontend/vitest.config.ts`
   to `include: ["src/**/*.test.tsx"]` — **two** files today
   (`src/app/pages/exercise/ExerciseResultsChart.test.tsx`,
