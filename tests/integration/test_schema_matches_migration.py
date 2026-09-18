@@ -34,6 +34,15 @@ from __future__ import annotations
 import pytest
 import sqlalchemy as sa
 from smartmatch_persistence import schema
+
+# Imported for its side effect: the class-exercise tables of migration ``0037``
+# are defined in their own module and register themselves on the shared
+# ``METADATA`` when it is imported (ADR-0025 D2 keeps them in their own
+# package; it does not give them their own mirror). Without this line they are
+# absent from every comparison below *and*
+# ``test_no_migrated_table_is_missing_from_code`` reports eight unmodelled
+# tables — which is the failure that would send someone here anyway.
+from smartmatch_persistence.exercise import schema as _exercise_schema  # noqa: F401
 from sqlalchemy import Engine, inspect, text
 from sqlalchemy.dialects import postgresql
 

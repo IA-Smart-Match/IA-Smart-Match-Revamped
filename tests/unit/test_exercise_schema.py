@@ -154,9 +154,11 @@ def test_hidden_true_interests_is_the_withheld_field():
 def test_every_withheld_field_is_a_real_column():
     """A withheld name that matches no column protects nothing."""
     columns = {
-        column.name for table in exercise_schema.EXERCISE_TABLES.values() for column in table.columns
+        column.name
+        for table in exercise_schema.EXERCISE_TABLES.values()
+        for column in table.columns
     }
-    assert exercise_schema.EXERCISE_WITHHELD_FIELDS <= columns
+    assert columns >= exercise_schema.EXERCISE_WITHHELD_FIELDS
 
 
 @pytest.mark.parametrize("column_name", PLACEHOLDER_PROFILE_COLUMNS)

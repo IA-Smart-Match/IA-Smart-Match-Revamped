@@ -193,6 +193,37 @@ layers = [
 # Persistence is allowed SQLAlchemy — it is the storage layer — but it must not
 # reach the network, spawn processes, or call providers. Storage that quietly
 # makes an HTTP call is the coupling this contract exists to prevent.
+# ADR-0025 D2. The class exercise keeps its own tables, with no tenant_id, no
+# owning_unit_id and no foreign key to user_account — "a team is not a tenant
+# and a made-up profile is not an account". The ADR states the boundary as an
+# import rule as well as a schema one: the exercise code may not import
+# smartmatch_authz or any tenant-scoped repository.
+#
+# This contract is the first half. smartmatch_authz is named here because it is
+# the package whose absence makes the rule true: exercise code that could ask a
+# policy question would have something to ask it about, and the answer would be
+# a tenant. The second half — the repositories — is an allow-list in
+# tests/unit/test_exercise_schema.py rather than a denial list here, so a
+# repository added later is refused without anyone remembering to extend a list
+# of names.
+#
+# The exercise routers (services/api/smartmatch_api/routers/exercise_*) are not
+# named: they do not exist yet, and import-linter refuses a contract naming a
+# module it cannot import. Adding them is part of the CE-ROUTERS card.
+[[tool.importlinter.contracts]]
+name = "Class exercise persistence carries no tenancy — ADR-0025 D2"
+type = "forbidden"
+source_modules = ["smartmatch_persistence.exercise"]
+forbidden_modules = [
+    "smartmatch_authz",
+    "smartmatch_providers",
+    "fastapi",
+    "starlette",
+    "httpx",
+    "requests",
+    "subprocess",
+]
+
 [[tool.importlinter.contracts]]
 name = "Persistence is storage only — no network, providers, or frameworks"
 type = "forbidden"
