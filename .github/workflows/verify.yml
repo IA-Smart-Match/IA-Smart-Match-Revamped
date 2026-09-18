@@ -306,8 +306,10 @@ jobs:
         #     registry errored" — conflating those is what made this gate
         #     untrustworthy. A genuine advisory still fails the step: high +
         #     critical > 0 exits 1 below.
-        # --omit=dev scopes the gate to what ships; dev-only build tooling is
-        # covered by keeping it pinned in the lock.
+        # --omit=dev scopes THIS gate to what ships, and it stays that way: a
+        # runtime advisory must fail on its own, unmixed with tooling noise.
+        # Dev dependencies are not left unaudited — the step below audits the
+        # whole tree, including them.
         timeout-minutes: 9
         env:
           REPORT: ${{ runner.temp }}/npm-audit.json
@@ -346,6 +348,80 @@ jobs:
             console.log(JSON.stringify(v));
             if ((v.high || 0) + (v.critical || 0) > 0) {
               console.log("::error::high or critical advisory in production dependencies");
+              process.exit(1);
+            }'
+
+      - name: Audit dependency vulnerabilities (including dev)
+        # PR #162 added vitest, jsdom and @testing-library as devDependencies
+        # (+80 lockfile packages). The step above passes --omit=dev, so none of
+        # them were audited by anything: dev tooling executes on CI runners and
+        # on developer machines with the checkout in reach, so "it does not
+        # ship" is not the same as "it cannot hurt us".
+        #
+        # This is deliberately a SECOND step rather than a relaxation of the
+        # first. The runtime gate keeps its own verdict and its own failure
+        # message; this one covers the rest of the tree at the same
+        # --audit-level=high threshold.
+        #
+        # Threshold chosen from evidence, not from what happens to be green:
+        # on this lock the full tree reports 2 moderate advisories
+        # (GHSA-82fw-gwwq-j7x9, @vitest/mocker <= 4.1.10 reached through
+        # vitest), whose only fix today is a breaking major bump. Gating at
+        # moderate would therefore fail the branch on day one for a
+        # dev-only path traversal; gating at high is a stated gap, recorded on
+        # the PR, NOT a claim that those two advisories are harmless. Raise
+        # this to moderate once the vitest bump lands.
+        #
+        # Mechanics are the ones the step above justifies in full:
+        # --package-lock-only against the lockfileVersion 3 lock, `timeout 120`
+        # per attempt under a bounded step, both streams printed on a failed
+        # attempt, and the verdict read from --json counts rather than npm's
+        # exit code (npm exits 1 for "advisory found" and for "registry
+        # errored" alike).
+        timeout-minutes: 9
+        env:
+          REPORT: ${{ runner.temp }}/npm-audit-all.json
+          AUDIT_STDERR: ${{ runner.temp }}/npm-audit-all.stderr
+        run: |
+          set -euo pipefail
+          reported=
+          for attempt in 1 2 3; do
+            set +e
+            timeout 120 npm audit --audit-level=high \
+              --package-lock-only --json --loglevel=http \
+              > "$REPORT" 2> "$AUDIT_STDERR"
+            status=$?
+            set -e
+            if node -e 'const r=require(process.env.REPORT);
+              process.exit(r.metadata && r.metadata.vulnerabilities ? 0 : 1)'; then
+              reported=yes
+              break
+            fi
+            echo "attempt ${attempt}: npm exited ${status} (124 = killed by timeout), \
+              report is $(wc -c < "$REPORT") bytes"
+            echo "--- npm stderr (tail) ---"
+            tail -n 60 "$AUDIT_STDERR" || true
+            echo "--- npm stdout ---"
+            cat "$REPORT" || true
+            if [ "$attempt" -lt 3 ]; then
+              echo "::warning::npm audit (full tree) attempt ${attempt} produced no usable report; retrying"
+              sleep "$((attempt * 10))"
+            fi
+          done
+          if [ -z "$reported" ]; then
+            echo "::error::npm audit (full tree) could not obtain an advisory report after 3 attempts"
+            exit 1
+          fi
+          node -e 'const v = require(process.env.REPORT).metadata.vulnerabilities;
+            console.log(JSON.stringify(v));
+            const below = (v.moderate || 0) + (v.low || 0);
+            if (below > 0) {
+              console.log("::warning::" + below +
+                " advisory/advisories below the high gate in the full dependency tree" +
+                " (dev included) — visible, not gated");
+            }
+            if ((v.high || 0) + (v.critical || 0) > 0) {
+              console.log("::error::high or critical advisory in the full dependency tree (dev included)");
               process.exit(1);
             }'
 
