@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Speaker Events Board — UI Prototype</title>
+<!--
+  Static prototype of SpeakerEventsBoard.tsx from the closed PR #125
+  (frontend-dev branch). Self-contained: mock data, no build, no backend.
+  Open in a browser to review the two-role speaker-event workflow:
+  Speaker Connector tracks outside outreach and hands off; Event Host
+  confirms and records attendance. Toggle the role in the header.
+-->
+<style>
+  :root {
+    --bg: #faf7f5;
+    --card: #ffffff;
+    --border: #e7ded8;
+    --accent-border: #cfbab0;
+    --text: #2b2320;
+    --muted: #8a7a72;
+    --muted-bg: #f3ede9;
+    --primary: #8c4a32;
+    --primary-fg: #ffffff;
+    --primary-soft: rgba(140, 74, 50, 0.06);
+    --destructive: #b3352b;
+    --radius: 16px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+    line-height: 1.45;
+  }
+  .page { max-width: 1180px; margin: 0 auto; padding: 32px 24px 64px; }
+  .prototype-banner {
+    background: var(--muted-bg);
+    border: 1px dashed var(--accent-border);
+    border-radius: 12px;
+    padding: 10px 14px;
+    font-size: 13px;
+    color: var(--muted);
+    margin-bottom: 24px;
+  }
+  header.top { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 16px; }
+  h1 { font-size: 30px; font-weight: 600; margin: 0; }
+  .subtitle { margin: 8px 0 0; color: var(--muted); max-width: 640px; }
+  .role-toggle { display: inline-flex; border: 1px solid var(--border); border-radius: 999px; overflow: hidden; background: var(--card); }
+  .role-toggle button {
+    border: 0; background: transparent; padding: 8px 16px; font-size: 14px;
+    font-weight: 600; color: var(--muted); cursor: pointer;
+  }
+  .role-toggle button.active { background: var(--primary); color: var(--primary-fg); }
+  .grid { display: grid; gap: 24px; margin-top: 24px; }
+  @media (min-width: 1200px) { .grid { grid-template-columns: 0.9fr 1.1fr; } }
+  .card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 20px 24px;
+    box-shadow: 0 1px 2px rgba(43, 35, 32, 0.05);
+  }
+  .card h2 { font-size: 20px; margin: 0; }
+  .card h3 { font-size: 18px; margin: 0; }
+  .list-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
+  .list-head label { font-size: 14px; }
+  select, input[type="text"] {
+    border: 1px solid var(--border); border-radius: 10px;
+    background: #fbf9f8; padding: 7px 10px; font-size: 14px; color: var(--text);
+    font-family: inherit;
+  }
+  .records { margin-top: 16px; display: flex; flex-direction: column; gap: 8px; }
+  .record {
+    width: 100%; text-align: left; border: 1px solid var(--border);
+    border-radius: 12px; background: var(--card); padding: 14px 16px; cursor: pointer;
+    font-family: inherit;
+  }
+  .record:hover { background: var(--muted-bg); }
+  .record.selected { border-color: var(--primary); background: var(--primary-soft); }
+  .record .name { font-weight: 600; margin: 0; }
+  .record .event { font-size: 14px; color: var(--muted); margin: 2px 0 0; }
+  .pill {
+    display: inline-block; margin-top: 8px; background: var(--muted-bg);
+    border-radius: 999px; padding: 3px 10px; font-size: 12px; font-weight: 600;
+  }
+  .empty { margin-top: 24px; text-align: center; font-size: 14px; color: var(--muted); }
+  .empty .icon { font-size: 26px; display: block; margin-bottom: 6px; }
+  .detail-title { font-size: 24px; margin: 0; }
+  .detail-sub { margin: 4px 0 0; color: var(--muted); }
+  .actions { margin-top: 20px; display: flex; flex-wrap: wrap; gap: 8px; }
+  .btn-primary {
+    min-height: 44px; border: 0; border-radius: 12px; background: var(--primary);
+    color: var(--primary-fg); padding: 0 16px; font-size: 14px; font-weight: 600;
+    cursor: pointer; font-family: inherit;
+  }
+  .btn-primary:disabled { opacity: 0.6; cursor: default; }
+  .btn-secondary {
+    min-height: 40px; border: 1px solid var(--border); border-radius: 12px;
+    background: var(--card); padding: 0 16px; font-size: 14px; font-weight: 600;
+    cursor: pointer; font-family: inherit; color: var(--text);
+  }
+  .no-action { margin-top: 20px; background: var(--muted-bg); border-radius: 12px; padding: 12px; font-size: 14px; }
+  .section { margin-top: 24px; border-top: 1px solid var(--border); padding-top: 20px; }
+  .note-form { margin-top: 12px; display: flex; gap: 8px; }
+  .note-form input { flex: 1; min-width: 0; padding: 9px 12px; }
+  .note { margin-top: 10px; background: var(--muted-bg); border-radius: 12px; padding: 12px; font-size: 14px; }
+  .note p { margin: 0; }
+  .note time { display: block; margin-top: 4px; font-size: 12px; color: var(--muted); }
+  .history { margin: 12px 0 0; padding: 0; list-style: none; }
+  .history li { border-left: 2px solid rgba(140, 74, 50, 0.3); padding-left: 12px; margin-top: 12px; font-size: 14px; }
+  .history .what { font-weight: 500; margin: 0; }
+  .history .when { font-size: 12px; color: var(--muted); margin: 2px 0 0; }
+  .correction { margin-top: 24px; border: 1px solid var(--accent-border); border-radius: 12px; padding: 16px; }
+  .correction h3 { font-size: 16px; }
+  .correction .hint { margin: 4px 0 0; font-size: 12px; color: var(--muted); }
+  .correction .fields { margin-top: 12px; display: grid; gap: 8px; }
+  @media (min-width: 640px) { .correction .fields { grid-template-columns: 1fr 1fr; } }
+  .alert { margin-top: 16px; font-size: 14px; color: var(--destructive); }
+  .placeholder { padding: 40px 0; text-align: center; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="prototype-banner">
+    UI prototype — salvaged from PR #125 (<code>SpeakerEventsBoard.tsx</code>).
+    Mock data only; transitions, notes, and corrections update in-page for review.
+  </div>
+
+  <header class="top">
+    <div>
+      <h1 id="board-title">Invitations</h1>
+      <p class="subtitle" id="board-subtitle"></p>
+    </div>
+    <div class="role-toggle" role="group" aria-label="Preview role">
+      <button id="role-connector" class="active" onclick="setRole('connector')">Speaker Connector</button>
+      <button id="role-host" onclick="setRole('host')">Event Host</button>
+    </div>
+  </header>
+
+  <div class="grid">
+    <section class="card">
+      <div class="list-head">
+        <h2>Speaker-event list</h2>
+        <label>Status
+          <select id="status-filter" onchange="renderList()">
+            <option value="all">All</option>
+          </select>
+        </label>
+      </div>
+      <div class="records" id="records"></div>
+      <div class="empty" id="list-empty" hidden>
+        <span class="icon">🕒</span><span id="list-empty-text"></span>
+      </div>
+    </section>
+
+    <section class="card" id="detail"></section>
+  </div>
+</div>
+
+<script>
+const LABELS = {
+  not_emailed_yet: "Not Emailed Yet",
+  awaiting_response: "Awaiting Response",
+  declined: "Declined",
+  ready_for_handoff: "Ready for Handoff",
+  handed_off: "Handed Off",
+  awaiting_final_confirmation: "Awaiting Final Confirmation",
+  confirmed: "Confirmed",
+  withdrawn: "Withdrawn",
+  attended: "Attended",
+  did_not_attend: "Did Not Attend",
+  event_cancelled: "Event Cancelled",
+};
+const CONNECTOR_ACTIONS = {
+  not_emailed_yet: [["awaiting_response", "Mark outside email sent"]],
+  awaiting_response: [["ready_for_handoff", "Record interest"], ["declined", "Record decline"]],
+  ready_for_handoff: [["handed_off", "Hand off to Event Host"]],
+};
+const HOST_ACTIONS = {
+  handed_off: [["awaiting_final_confirmation", "Request final confirmation"]],
+  awaiting_final_confirmation: [["confirmed", "Record confirmation"], ["withdrawn", "Record withdrawal"]],
+  confirmed: [["attended", "Check in"], ["withdrawn", "Record withdrawal"]],
+};
+const TERMINAL = ["event_cancelled", "attended", "did_not_attend"];
+
+// Mock records shaped like the branch's SpeakerEventRecord.
+const records = [
+  {
+    id: "r1", speaker_name: "Dr. Priya Raman", event_title: "Spring Career Panel",
+    status: "awaiting_response", version: 3,
+    notes: [
+      { id: "n1", body: "Emailed via alumni address on file; she asked for the agenda.", created_at: "2026-09-10T14:22:00" },
+    ],
+    history: [
+      { id: "h1", to_status: "not_emailed_yet", created_at: "2026-09-08T09:05:00", correction_reason: null },
+      { id: "h2", to_status: "awaiting_response", created_at: "2026-09-10T14:22:00", correction_reason: null },
+    ],
+  },
+  {
+    id: "r2", speaker_name: "Marcus Webb", event_title: "Resume Workshop",
+    status: "handed_off", version: 5,
+    notes: [
+      { id: "n2", body: "Very interested — wants to bring a colleague from his team.", created_at: "2026-09-12T11:40:00" },
+      { id: "n3", body: "Prefers morning slots; avoid the first week of October.", created_at: "2026-09-13T16:03:00" },
+    ],
+    history: [
+      { id: "h3", to_status: "not_emailed_yet", created_at: "2026-09-05T10:00:00", correction_reason: null },
+      { id: "h4", to_status: "awaiting_response", created_at: "2026-09-06T08:30:00", correction_reason: null },
+      { id: "h5", to_status: "ready_for_handoff", created_at: "2026-09-12T11:40:00", correction_reason: null },
+      { id: "h6", to_status: "handed_off", created_at: "2026-09-14T09:15:00", correction_reason: null },
+    ],
+  },
+  {
+    id: "r3", speaker_name: "Alina Torres", event_title: "Industry Night",
+    status: "confirmed", version: 7,
+    notes: [],
+    history: [
+      { id: "h7", to_status: "confirmed", created_at: "2026-09-11T13:00:00", correction_reason: null },
+      { id: "h8", to_status: "awaiting_final_confirmation", created_at: "2026-09-11T12:45:00", correction_reason: "Status was set ahead of the host's request" },
+    ],
+  },
+  {
+    id: "r4", speaker_name: "Prof. Daniel Okafor", event_title: "Guest Lecture: Distributed Systems",
+    status: "not_emailed_yet", version: 1,
+    notes: [],
+    history: [
+      { id: "h9", to_status: "not_emailed_yet", created_at: "2026-09-15T10:12:00", correction_reason: null },
+    ],
+  },
+];
+
+let role = "connector";
+let selectedId = null;
+let statusFilter = "all";
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const fmt = (iso) => new Date(iso).toLocaleString();
+
+function setRole(r) {
+  role = r;
+  $("role-connector").classList.toggle("active", r === "connector");
+  $("role-host").classList.toggle("active", r === "host");
+  $("board-title").textContent = r === "connector" ? "Invitations" : "Speaker handoffs";
+  $("board-subtitle").textContent = r === "connector"
+    ? "Track outreach completed outside Smart Match and hand interested speakers to Event Hosts."
+    : "Request final confirmation and record attendance after a Speaker Connector hands someone off.";
+  renderDetail();
+}
+
+function renderFilter() {
+  const sel = $("status-filter");
+  Object.entries(LABELS).forEach(([v, l]) => {
+    const o = document.createElement("option");
+    o.value = v; o.textContent = l;
+    sel.appendChild(o);
+  });
+  sel.addEventListener("change", () => { statusFilter = sel.value; renderList(); });
+}
+
+function renderList() {
+  const shown = statusFilter === "all" ? records : records.filter((r) => r.status === statusFilter);
+  $("records").innerHTML = shown.map((r) => `
+    <button class="record ${r.id === selectedId ? "selected" : ""}" onclick="select('${r.id}')">
+      <p class="name">${esc(r.speaker_name)}</p>
+      <p class="event">${esc(r.event_title)}</p>
+      <span class="pill">${LABELS[r.status]}</span>
+    </button>`).join("");
+  const empty = $("list-empty");
+  empty.hidden = shown.length > 0;
+  $("list-empty-text").textContent = records.length ? "No invitations match this filter." : "No speaker invitations yet.";
+}
+
+function select(id) { selectedId = id; renderList(); renderDetail(); }
+
+function renderDetail() {
+  const el = $("detail");
+  const r = records.find((x) => x.id === selectedId);
+  if (!r) {
+    el.innerHTML = `<div class="placeholder">Choose a speaker-event record to see its next actions and history.</div>`;
+    return;
+  }
+  const actions = (role === "connector" ? CONNECTOR_ACTIONS : HOST_ACTIONS)[r.status] || [];
+  const canCorrect = role === "connector" && !TERMINAL.includes(r.status);
+  el.innerHTML = `
+    <h2 class="detail-title">${esc(r.speaker_name)}</h2>
+    <p class="detail-sub">${esc(r.event_title)} · ${LABELS[r.status]}</p>
+    <div class="actions">${actions.map(([s, l]) =>
+      `<button class="btn-primary" onclick="transition('${r.id}','${s}')">${l}</button>`).join("")}</div>
+    ${actions.length ? "" : `<p class="no-action">No action is needed from your role at this stage.</p>`}
+    <form class="section" onsubmit="event.preventDefault(); addNote('${r.id}');">
+      <h3>▢ Internal notes</h3>
+      <div class="note-form">
+        <input type="text" id="note-input" required placeholder="Add context for the other role" />
+        <button class="btn-secondary" type="submit">Add</button>
+      </div>
+      <div>${r.notes.map((n) => `
+        <div class="note"><p>${esc(n.body)}</p><time>${fmt(n.created_at)}</time></div>`).join("")}</div>
+    </form>
+    <div class="section">
+      <h3>Status history</h3>
+      <ol class="history">${r.history.map((h) => `
+        <li><p class="what">${LABELS[h.to_status]}</p>
+        <p class="when">${fmt(h.created_at)}${h.correction_reason ? " · Correction: " + esc(h.correction_reason) : ""}</p></li>`).join("")}</ol>
+    </div>
+    ${canCorrect ? `
+    <form class="correction" onsubmit="event.preventDefault(); correct('${r.id}');">
+      <h3>Correct an error</h3>
+      <p class="hint">Corrections are recorded in the history and require a reason.</p>
+      <div class="fields">
+        <select id="correction-status">${Object.entries(LABELS)
+          .filter(([k]) => !TERMINAL.includes(k))
+          .map(([k, l]) => `<option value="${k}">${l}</option>`).join("")}</select>
+        <input type="text" id="correction-reason" required placeholder="Reason for correction" />
+      </div>
+      <button class="btn-secondary" style="margin-top:12px" type="submit">Save correction</button>
+    </form>` : ""}`;
+}
+
+function transition(id, status) {
+  const r = records.find((x) => x.id === id);
+  r.status = status; r.version += 1;
+  r.history.push({ id: "h" + Date.now(), to_status: status, created_at: new Date().toISOString(), correction_reason: null });
+  renderList(); renderDetail();
+}
+
+function addNote(id) {
+  const input = $("note-input");
+  const r = records.find((x) => x.id === id);
+  r.notes.push({ id: "n" + Date.now(), body: input.value, created_at: new Date().toISOString() });
+  renderDetail();
+}
+
+function correct(id) {
+  const r = records.find((x) => x.id === id);
+  const status = $("correction-status").value;
+  const reason = $("correction-reason").value;
+  r.status = status; r.version += 1;
+  r.history.push({ id: "h" + Date.now(), to_status: status, created_at: new Date().toISOString(), correction_reason: reason });
+  renderList(); renderDetail();
+}
+
+renderFilter();
+setRole("connector");
+renderList();
+renderDetail();
+</script>
+</body>
+</html>
