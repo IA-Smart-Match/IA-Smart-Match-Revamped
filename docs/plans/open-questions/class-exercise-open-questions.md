@@ -21,6 +21,8 @@ or replaces them.
 | OQ-CE-07 | How is the instructor passcode set and shared with Ann and Dr. Lin? | Danny + Ann | One environment variable per deployment; shared out of band; rotated after the spring run. | Instructor page | OPEN |
 | OQ-CE-08 | Do two browser tabs that enter the same team number share one workspace, or is each tab its own workspace? | Ann | Shared per team number: Ann's table says "one browser tab per team, team number entered", so a second tab on the same team sees the same saved runs. | Team workspaces | OPEN — confirm on 9/18 |
 | OQ-CE-09 | What license line goes on the opening screen? | Ann | None shown until Ann provides the sentence. | Opening screen | OPEN — by Nov 20 |
+| OQ-CE-10 | How many points does a profile earn per attended event, and for completing a card? | Ann + Chau | One point each, as named placeholder constants in `smartmatch_domain/exercise_points.py`; equal so the code does not rank attendance above card completion. Unknown card completion earns nothing. | Points | OPEN |
+| OQ-CE-11 | What are the five questions on the "five quick questions" card? The requirements name only stated interests and career goal as what a completed card holds. | Ann | The mock-up shows the five profile fields design spec §2 names (major, year, stated interests, career goal, past events), marked as a mock-up; the hidden true interests are never asked. Depends on OQ-CE-01 for wording. | Profile-card mock-up | OPEN — confirm before the November practice run |
 
 ## Closure discipline
 
