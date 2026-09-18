@@ -730,9 +730,16 @@ def assert_registry_approved(*, registry: FactorRegistry = CBA_REGISTRY) -> None
         RegistryNotApprovedError: while the registry's status is not
             ``"approved"``.
     """
-    if registry.status != "approved":
+    # For the CBA registry the gate is read from :data:`REGISTRY_STATUS`
+    # itself, not from the copy :data:`CBA_REGISTRY` took at import. The module
+    # constant is the declared contract — ADR-0016's acceptance is recorded
+    # there — and leaving the gate on it keeps exactly one source of truth for
+    # the CBA status instead of two that could drift. A second registry
+    # declares its own status and is read from it.
+    status = REGISTRY_STATUS if registry is CBA_REGISTRY else registry.status
+    if status != "approved":
         raise RegistryNotApprovedError(
-            f"Factor registry {registry.version} is {registry.status!r}. "
+            f"Factor registry {registry.version} is {status!r}. "
             "Architecture v1.1 gate G1 blocks match scoring until the program owner "
             "approves the registry contents and the golden case set. "
             "See docs/architecture/review/contract-findings.md (F-001)."
@@ -793,7 +800,14 @@ def assert_scoring_ready(*, registry: FactorRegistry = CBA_REGISTRY) -> None:
             registry's approved scoring keys, or when any current model's
             normalized weights do not sum to 1.0 within ``1e-9``.
     """
-    implemented = implemented_scoring_keys(registry=registry)
+    # The default path calls the module-level helper exactly as it did before
+    # the registry became a parameter, so the seam a caller substitutes at is
+    # unchanged; the parameterised path passes the registry explicitly.
+    implemented = (
+        implemented_scoring_keys()
+        if registry is CBA_REGISTRY
+        else implemented_scoring_keys(registry=registry)
+    )
     approved = registry.approved_scoring_keys
     if implemented != approved:
         missing = approved - implemented
