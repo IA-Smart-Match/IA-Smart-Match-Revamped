@@ -1,0 +1,498 @@
+"""Unit tests for the class exercise's simulated-results rule (ADR-0025 D7).
+
+Every coefficient set in this file is **test-only**. OQ-CE-03 is open and the
+module ships none; these exist to exercise the shape of the rule, and none of
+them is a proposal for Ann.
+"""
+
+from __future__ import annotations
+
+import dataclasses
+import math
+import random
+
+import pytest
+from smartmatch_domain.exercise import EXERCISE_WITHHELD_FIELDS
+from smartmatch_domain.exercise.simulation import (
+    EVENT_SEATS,
+    EXERCISE_SIMULATION_COEFFICIENTS,
+    EXISTING_SIGNUPS,
+    CoefficientsNotConfirmedError,
+    InviteLimitExceededError,
+    SimulationCoefficients,
+    SimulationCoefficientsError,
+    SimulationEvent,
+    SimulationProfile,
+    SimulationResult,
+    require_coefficients,
+    run_email_everyone,
+    seats_empty,
+    simulate_results,
+)
+
+# --- Test-only coefficients (NOT a proposal for OQ-CE-03) ------------------
+
+TEST_ONLY_COEFFICIENTS = SimulationCoefficients(
+    base_signup_rate=0.10,
+    true_fit_lift=0.60,
+    frequent_attender_lift=0.05,
+    same_major_lift=0.08,
+    chance_spread=0.10,
+    attend_given_signup=0.90,
+    frequent_attender_events=3,
+)
+
+EVENT = SimulationEvent(
+    event_key="northline",
+    topic_tags=frozenset({"analytics", "data_career"}),
+    target_majors=frozenset({"marketing"}),
+)
+
+
+def _true_fit_profile(profile_no: int) -> SimulationProfile:
+    """A profile whose hidden interests and career goal both fit the event."""
+    return SimulationProfile(
+        profile_no=profile_no,
+        major="history",
+        true_interests=frozenset({"analytics"}),
+        career_goal="data_career",
+    )
+
+
+def _same_major_only_profile(profile_no: int) -> SimulationProfile:
+    """A profile in the target major with nothing true that fits."""
+    return SimulationProfile(
+        profile_no=profile_no,
+        major="marketing",
+        true_interests=frozenset({"theatre"}),
+        career_goal="stage_career",
+    )
+
+
+def _mixed_list() -> tuple[SimulationProfile, ...]:
+    """A small invited list with every branch of the rule represented."""
+    return (
+        _true_fit_profile(1),
+        _same_major_only_profile(2),
+        SimulationProfile(profile_no=3, major="history", past_event_count=9),
+        SimulationProfile(profile_no=4, major="history", career_goal=None),
+        SimulationProfile(
+            profile_no=5,
+            major="marketing",
+            true_interests=frozenset({"analytics"}),
+            non_responding=True,
+        ),
+    )
+
+
+# --- Determinism -----------------------------------------------------------
+
+
+def test_same_inputs_twice_give_the_same_result():
+    profiles = _mixed_list()
+    first = simulate_results(
+        profiles, EVENT, seed=4242, coefficients=TEST_ONLY_COEFFICIENTS, invite_limit=30
+    )
+    second = simulate_results(
+        profiles, EVENT, seed=4242, coefficients=TEST_ONLY_COEFFICIENTS, invite_limit=30
+    )
+    assert first == second
+
+
+def test_permuting_the_invited_list_changes_nothing():
+    profiles = list(_mixed_list())
+    straight = simulate_results(
+        tuple(profiles), EVENT, seed=77, coefficients=TEST_ONLY_COEFFICIENTS, invite_limit=30
+    )
+    shuffler = random.Random(0)
+    for _ in range(5):
+        shuffler.shuffle(profiles)
+        assert (
+            simulate_results(
+                tuple(profiles),
+                EVENT,
+                seed=77,
+                coefficients=TEST_ONLY_COEFFICIENTS,
+                invite_limit=30,
+            )
+            == straight
+        )
+
+
+def test_other_invitees_do_not_change_a_given_profiles_outcome():
+    alone = simulate_results(
+        (_true_fit_profile(11),),
+        EVENT,
+        seed=9,
+        coefficients=TEST_ONLY_COEFFICIENTS,
+        invite_limit=30,
+    )
+    crowded = simulate_results(
+        (_true_fit_profile(11), *(_same_major_only_profile(n) for n in range(20, 40))),
+        EVENT,
+        seed=9,
+        coefficients=TEST_ONLY_COEFFICIENTS,
+        invite_limit=30,
+    )
+    assert (11 in alone.signed_up) == (11 in crowded.signed_up)
+    assert (11 in alone.attended) == (11 in crowded.attended)
+
+
+def test_a_team_list_and_email_everyone_agree_on_a_shared_profile():
+    everyone = tuple(_true_fit_profile(n) for n in range(1, 200))
+    panel = run_email_everyone(everyone, EVENT, seed=5, coefficients=TEST_ONLY_COEFFICIENTS)
+    team = simulate_results(
+        everyone[:25], EVENT, seed=5, coefficients=TEST_ONLY_COEFFICIENTS, invite_limit=30
+    )
+    shared = set(team.invited)
+    assert set(team.signed_up) == {n for n in panel.signed_up if n in shared}
+    assert set(team.attended) == {n for n in panel.attended if n in shared}
+
+
+def test_a_different_seed_generally_gives_a_different_result():
+    everyone = tuple(_true_fit_profile(n) for n in range(1, 200))
+    results = {
+        run_email_everyone(
+            everyone, EVENT, seed=seed, coefficients=TEST_ONLY_COEFFICIENTS
+        ).signed_up
+        for seed in range(6)
+    }
+    assert len(results) > 1
+
+
+def test_a_different_event_key_gives_a_different_draw():
+    everyone = tuple(_true_fit_profile(n) for n in range(1, 200))
+    harbor = dataclasses.replace(EVENT, event_key="harbor")
+    northline = run_email_everyone(everyone, EVENT, seed=5, coefficients=TEST_ONLY_COEFFICIENTS)
+    other = run_email_everyone(everyone, harbor, seed=5, coefficients=TEST_ONLY_COEFFICIENTS)
+    assert northline.signed_up != other.signed_up
+
+
+# --- The five behaviours ---------------------------------------------------
+
+
+def test_true_fit_profiles_sign_up_far_more_often_than_same_major_only_ones():
+    """Behaviour (1) against behaviour (3), over a few hundred profiles."""
+    true_fit = tuple(_true_fit_profile(n) for n in range(1, 301))
+    same_major = tuple(_same_major_only_profile(n) for n in range(301, 601))
+    fit_rate = (
+        len(
+            run_email_everyone(
+                true_fit, EVENT, seed=31337, coefficients=TEST_ONLY_COEFFICIENTS
+            ).signed_up
+        )
+        / 300
+    )
+    major_rate = (
+        len(
+            run_email_everyone(
+                same_major, EVENT, seed=31337, coefficients=TEST_ONLY_COEFFICIENTS
+            ).signed_up
+        )
+        / 300
+    )
+    # Expected rates are about 0.70 and 0.18; a 0.25 margin is far wider than
+    # any sampling wobble at a fixed seed, so this cannot flake.
+    assert fit_rate - major_rate > 0.25
+
+
+def test_a_frequent_attender_gets_less_lift_than_a_true_fit_profile():
+    """Behaviour (2): only a little more likely."""
+    attender = tuple(
+        SimulationProfile(profile_no=n, major="history", past_event_count=9) for n in range(1, 301)
+    )
+    true_fit = tuple(_true_fit_profile(n) for n in range(1, 301))
+    attender_rate = len(
+        run_email_everyone(attender, EVENT, seed=555, coefficients=TEST_ONLY_COEFFICIENTS).signed_up
+    )
+    fit_rate = len(
+        run_email_everyone(true_fit, EVENT, seed=555, coefficients=TEST_ONLY_COEFFICIENTS).signed_up
+    )
+    assert fit_rate > attender_rate
+
+
+def test_non_responding_profiles_never_sign_up():
+    """Behaviour from §13's round two, enforced here."""
+    profiles = tuple(
+        dataclasses.replace(_true_fit_profile(n), non_responding=True) for n in range(1, 201)
+    )
+    result = run_email_everyone(profiles, EVENT, seed=12, coefficients=TEST_ONLY_COEFFICIENTS)
+    assert result.signed_up == ()
+    assert result.attended == ()
+    assert len(result.invited) == 200
+
+
+def test_the_seed_is_the_only_per_team_state():
+    """Behaviour (5): one team's reset is another team's business."""
+    profiles = _mixed_list()
+    before = simulate_results(
+        profiles, EVENT, seed=1, coefficients=TEST_ONLY_COEFFICIENTS, invite_limit=30
+    )
+    simulate_results(profiles, EVENT, seed=2, coefficients=TEST_ONLY_COEFFICIENTS, invite_limit=30)
+    after = simulate_results(
+        profiles, EVENT, seed=1, coefficients=TEST_ONLY_COEFFICIENTS, invite_limit=30
+    )
+    assert before == after
+
+
+# --- Output shape ----------------------------------------------------------
+
+
+def test_attended_is_a_subset_of_signed_up_is_a_subset_of_invited():
+    everyone = tuple(_true_fit_profile(n) for n in range(1, 300))
+    result = run_email_everyone(everyone, EVENT, seed=808, coefficients=TEST_ONLY_COEFFICIENTS)
+    assert set(result.attended) <= set(result.signed_up) <= set(result.invited)
+
+
+@pytest.mark.parametrize("field", ["invited", "signed_up", "attended"])
+def test_every_output_tuple_is_sorted_and_deduplicated(field: str):
+    duplicated = (_true_fit_profile(4), _true_fit_profile(4), _true_fit_profile(2))
+    result = simulate_results(
+        duplicated, EVENT, seed=3, coefficients=TEST_ONLY_COEFFICIENTS, invite_limit=30
+    )
+    values = getattr(result, field)
+    assert list(values) == sorted(set(values))
+
+
+def test_no_output_field_can_carry_true_interests():
+    """ADR-0025 D6: the rule reads hidden interests and returns numbers."""
+    for field in dataclasses.fields(SimulationResult):
+        assert field.name not in EXERCISE_WITHHELD_FIELDS
+        assert "interest" not in field.name
+        assert field.type in {"tuple[int, ...]"}
+
+
+def test_the_result_carries_no_number_that_looks_like_a_score():
+    """ADR-0025 D8."""
+    names = {field.name for field in dataclasses.fields(SimulationResult)}
+    assert not {n for n in names if "score" in n or "rate" in n or "probability" in n}
+
+
+def test_the_result_is_frozen():
+    result = simulate_results(
+        _mixed_list(), EVENT, seed=1, coefficients=TEST_ONLY_COEFFICIENTS, invite_limit=30
+    )
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        result.invited = ()  # type: ignore[misc]
+
+
+# --- Unknown is not a mismatch (ADR-0011) ----------------------------------
+
+
+def test_a_missing_career_goal_is_not_a_penalty():
+    """A profile with no goal scores exactly a profile whose goal is unrelated."""
+    without = SimulationProfile(
+        profile_no=1, major="history", true_interests=frozenset({"analytics"})
+    )
+    unrelated = dataclasses.replace(without, career_goal="stage_career")
+    a = simulate_results(
+        (without,), EVENT, seed=6, coefficients=TEST_ONLY_COEFFICIENTS, invite_limit=30
+    )
+    b = simulate_results(
+        (unrelated,), EVENT, seed=6, coefficients=TEST_ONLY_COEFFICIENTS, invite_limit=30
+    )
+    assert a == b
+
+
+def test_terms_are_compared_after_trimming_and_case_folding():
+    shouted = SimulationProfile(
+        profile_no=1,
+        major="  MARKETING ",
+        true_interests=frozenset({" Analytics "}),
+        career_goal="DATA_CAREER",
+    )
+    quiet = SimulationProfile(
+        profile_no=1,
+        major="marketing",
+        true_interests=frozenset({"analytics"}),
+        career_goal="data_career",
+    )
+    assert simulate_results(
+        (shouted,), EVENT, seed=6, coefficients=TEST_ONLY_COEFFICIENTS, invite_limit=30
+    ) == simulate_results(
+        (quiet,), EVENT, seed=6, coefficients=TEST_ONLY_COEFFICIENTS, invite_limit=30
+    )
+
+
+# --- Invite limit ----------------------------------------------------------
+
+
+def test_a_list_longer_than_the_invite_limit_is_refused_in_plain_words():
+    profiles = tuple(_true_fit_profile(n) for n in range(1, 32))
+    with pytest.raises(InviteLimitExceededError) as excinfo:
+        simulate_results(
+            profiles, EVENT, seed=1, coefficients=TEST_ONLY_COEFFICIENTS, invite_limit=30
+        )
+    assert "31 profiles" in str(excinfo.value)
+    assert "invite limit is 30" in str(excinfo.value)
+
+
+def test_a_list_exactly_at_the_invite_limit_is_allowed():
+    profiles = tuple(_true_fit_profile(n) for n in range(1, 31))
+    assert (
+        len(
+            simulate_results(
+                profiles, EVENT, seed=1, coefficients=TEST_ONLY_COEFFICIENTS, invite_limit=30
+            ).invited
+        )
+        == 30
+    )
+
+
+def test_email_everyone_has_no_invite_limit():
+    everyone = tuple(_true_fit_profile(n) for n in range(1, 301))
+    assert (
+        len(
+            run_email_everyone(everyone, EVENT, seed=1, coefficients=TEST_ONLY_COEFFICIENTS).invited
+        )
+        == 300
+    )
+
+
+def test_a_negative_invite_limit_is_refused():
+    with pytest.raises(ValueError, match="must not be negative"):
+        simulate_results((), EVENT, seed=1, coefficients=TEST_ONLY_COEFFICIENTS, invite_limit=-1)
+
+
+# --- Coefficient validation ------------------------------------------------
+
+
+def _valid_kwargs() -> dict[str, float | int]:
+    return dataclasses.asdict(TEST_ONLY_COEFFICIENTS)
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"true_fit_lift": 0.05, "frequent_attender_lift": 0.05},
+        {"true_fit_lift": 0.04, "frequent_attender_lift": 0.05},
+        {"true_fit_lift": 0.08, "same_major_lift": 0.08},
+        {"true_fit_lift": 0.07, "same_major_lift": 0.08},
+    ],
+)
+def test_the_requirements_ordering_is_enforced_by_validation(overrides: dict[str, float]):
+    with pytest.raises(SimulationCoefficientsError):
+        SimulationCoefficients(**{**_valid_kwargs(), **overrides})
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "base_signup_rate",
+        "true_fit_lift",
+        "frequent_attender_lift",
+        "same_major_lift",
+        "chance_spread",
+        "attend_given_signup",
+    ],
+)
+@pytest.mark.parametrize("bad", [-0.01, 1.01, math.nan, math.inf, -math.inf])
+def test_every_probability_must_be_finite_and_within_the_unit_interval(name: str, bad: float):
+    with pytest.raises(SimulationCoefficientsError):
+        SimulationCoefficients(**{**_valid_kwargs(), name: bad})
+
+
+@pytest.mark.parametrize("bad", [0, -1, 2.5, True, "3"])
+def test_the_frequent_attender_threshold_must_be_a_positive_whole_number(bad: object):
+    with pytest.raises(SimulationCoefficientsError):
+        SimulationCoefficients(**{**_valid_kwargs(), "frequent_attender_events": bad})
+
+
+def test_a_non_numeric_coefficient_is_refused():
+    with pytest.raises(SimulationCoefficientsError, match="must be a number"):
+        SimulationCoefficients(**{**_valid_kwargs(), "chance_spread": "wide"})
+
+
+def test_zero_chance_spread_is_allowed_and_removes_the_chance():
+    steady = SimulationCoefficients(**{**_valid_kwargs(), "chance_spread": 0.0})
+    profiles = tuple(_true_fit_profile(n) for n in range(1, 50))
+    assert run_email_everyone(profiles, EVENT, seed=1, coefficients=steady) == (
+        run_email_everyone(profiles, EVENT, seed=1, coefficients=steady)
+    )
+
+
+def test_coefficients_are_frozen():
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        TEST_ONLY_COEFFICIENTS.chance_spread = 0.5  # type: ignore[misc]
+
+
+# --- OQ-CE-03 is open ------------------------------------------------------
+
+
+def test_the_shipped_coefficients_are_still_a_placeholder():
+    assert EXERCISE_SIMULATION_COEFFICIENTS is None
+
+
+def test_require_coefficients_refuses_while_the_placeholder_is_none():
+    with pytest.raises(CoefficientsNotConfirmedError) as excinfo:
+        require_coefficients()
+    assert str(excinfo.value) == ("The results rule has no confirmed coefficients yet (OQ-CE-03).")
+
+
+# --- Seats -----------------------------------------------------------------
+
+
+def test_the_seat_constants_are_the_case_facts():
+    assert EVENT_SEATS == 60
+    assert EXISTING_SIGNUPS == 8
+
+
+@pytest.mark.parametrize(
+    ("attended", "expected"),
+    [(0, 52), (10, 42), (52, 0), (53, 0), (200, 0)],
+)
+def test_seats_empty_counts_down_and_floors_at_zero(attended: int, expected: int):
+    assert seats_empty(attended) == expected
+
+
+def test_seats_empty_refuses_a_negative_count():
+    with pytest.raises(ValueError, match="must not be negative"):
+        seats_empty(-1)
+
+
+# --- The plain-words statement ---------------------------------------------
+
+BEHAVIOUR_PHRASES = [
+    # (1) true interests and career goal match the event
+    "hidden true interests and its career goal match the event",
+    # (2) frequent attenders are only a little more likely
+    "smaller than the true-fit lift",
+    # (3) same major alone gives only a small lift
+    "Same major alone gives only a small lift",
+    # (4) a small element of chance, fixed per team
+    "A small element of chance, fixed for each team",
+    # (5) a reset per team that does not touch other teams
+    "A reset per team touches no other team",
+]
+
+
+@pytest.mark.parametrize("phrase", BEHAVIOUR_PHRASES)
+def test_the_module_docstring_names_each_of_the_five_behaviours(phrase: str):
+    from smartmatch_domain.exercise import simulation
+
+    assert simulation.__doc__ is not None
+    assert phrase in simulation.__doc__
+
+
+def test_the_module_docstring_keeps_the_design_spec_draft_paragraph():
+    from smartmatch_domain.exercise import simulation
+
+    assert simulation.__doc__ is not None
+    text = " ".join(simulation.__doc__.split())
+    assert (
+        "For each invited profile the app decides whether the person signs up, "
+        "then whether they attend." in text
+    )
+    assert (
+        "The app uses each profile's true interests for this, not what the "
+        "profile has told the app" in text
+    )
+
+
+def test_the_module_docstring_records_the_hash_deviation():
+    from smartmatch_domain.exercise import simulation
+
+    assert simulation.__doc__ is not None
+    text = " ".join(simulation.__doc__.split())
+    assert "PYTHONHASHSEED" in text
+    assert "SHA-256" in text
