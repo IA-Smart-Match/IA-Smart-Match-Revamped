@@ -10,6 +10,8 @@ security, and operating choice is owned by the canonical
 register. Older recommendation plans are historical evidence, not implementation
 authority.
 
+**Decision record:** [`ADR-0026`](../architecture/decisions/ADR-0026-student-program-and-student-centric-classroom.md) (Proposed) records the student-centric priority, this plan's eight slices with the register row each one waits on, and the rule that an open gate stops a slice at a plan rather than code.
+
 ## 1. Outcome and priority
 
 The primary outcome is that students find useful CBA services and events, register,
