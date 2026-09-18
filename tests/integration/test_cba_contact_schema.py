@@ -153,6 +153,7 @@ _HEAD_REVISION = "0037_exercise_tables"
 #: descending order. Listed rather than derived, so extending the chain is a
 #: deliberate edit here — which is the whole point of the assertion.
 _REVISIONS_BETWEEN_HEAD_AND_THIS_CARD = (
+    "0036_host_organization",
     "0035_manual_event_detail",
     "0034_cba_meeting",
     "0033_event_filed_by",

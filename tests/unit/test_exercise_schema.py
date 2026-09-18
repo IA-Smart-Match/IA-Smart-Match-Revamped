@@ -94,7 +94,33 @@ def test_every_exercise_table_is_registered_on_the_shared_metadata():
         assert name in core_schema.METADATA.tables, f"{name} is not on the shared METADATA"
 
 
-@pytest.mark.parametrize("table_name", EXPECTED_TABLES)
+#: The table names the registry actually holds, read off the ``sa.Table``
+#: objects rather than off :data:`EXPECTED_TABLES`.
+#:
+#: The prefix rule below is parametrized over this on purpose. Parametrized over
+#: the literal, it asserted that eight strings this file wrote start with
+#: ``exercise_`` — true by inspection and true no matter what ``schema.py``
+#: says. A ninth table registered under a name outside the family would not
+#: appear in the parametrization at all, so the rule it exists to enforce would
+#: be enforced against nothing. Read from the registry, the same test fails on
+#: exactly that change. ``test_the_eight_tables_of_design_spec_section_2_are_defined``
+#: remains the assertion that the registry is the *expected* eight.
+REGISTERED_TABLE_NAMES = tuple(
+    sorted(table.name for table in exercise_schema.EXERCISE_TABLES.values())
+)
+
+
+def test_the_registry_is_not_empty():
+    """Guards the parametrization below, which an empty registry would vacate.
+
+    ``@parametrize`` over an empty sequence does not fail; it collects zero
+    cases and reports green. That is the one way the derived prefix rule could
+    stop enforcing anything without anyone noticing.
+    """
+    assert REGISTERED_TABLE_NAMES
+
+
+@pytest.mark.parametrize("table_name", REGISTERED_TABLE_NAMES)
 def test_every_table_is_prefixed_exercise(table_name: str):
     assert table_name.startswith("exercise_")
 
