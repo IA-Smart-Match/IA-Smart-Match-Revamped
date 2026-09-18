@@ -90,9 +90,17 @@ def _rank_key(seed: int, salt: str, profile_no: int) -> tuple[bytes, int]:
     process, so a shuffle keyed on it would pick different profiles in a
     different process. The profile number is the second element so two profiles
     with the same digest still have one fixed order.
+
+    Each field is length-prefixed rather than joined by ``":"``, so a salt that
+    contains the separator cannot produce the digest of a different set of
+    fields.
     """
-    digest = hashlib.sha256(f"{seed}:{salt}:{profile_no}".encode()).digest()
-    return digest, profile_no
+    hasher = hashlib.sha256()
+    for field in (seed, salt, profile_no):
+        encoded = str(field).encode()
+        hasher.update(f"{len(encoded)}:".encode())
+        hasher.update(encoded)
+    return hasher.digest(), profile_no
 
 
 def select_share(

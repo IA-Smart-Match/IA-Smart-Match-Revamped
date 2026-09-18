@@ -139,3 +139,19 @@ def test_one_teams_pick_is_a_subset_shape_that_does_not_depend_on_group_size():
 def test_a_share_outside_zero_to_one_is_refused(share: float):
     with pytest.raises(ValueError, match="between 0 and 1"):
         select_share(range(1, 10), share, seed=1, salt="x")
+
+
+def test_the_rank_key_separates_fields_that_a_naive_join_would_merge():
+    """``1 + "a:2"`` and ``1 + "a"`` + ``2`` both join to ``"1:a:2"``."""
+    from smartmatch_domain.exercise import asking
+
+    assert asking._rank_key(1, "a:2", 3)[0] != asking._rank_key(1, "a", 23)[0]
+    assert asking._rank_key(1, "a:b", 3)[0] != asking._rank_key(1, "a", 3)[0]
+
+
+def test_salts_containing_a_colon_are_ordinary_salts():
+    first = select_share(range(1, 101), 0.5, seed=1, salt="round:1")
+    second = select_share(range(1, 101), 0.5, seed=1, salt="round:2")
+    again = select_share(range(1, 101), 0.5, seed=1, salt="round:1")
+    assert first != second
+    assert first == again

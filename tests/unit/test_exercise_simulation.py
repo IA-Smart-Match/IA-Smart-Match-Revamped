@@ -24,6 +24,7 @@ from smartmatch_domain.exercise.simulation import (
     SimulationEvent,
     SimulationProfile,
     SimulationResult,
+    _fit_share,
     require_coefficients,
     run_email_everyone,
     seats_empty,
@@ -40,6 +41,7 @@ TEST_ONLY_COEFFICIENTS = SimulationCoefficients(
     chance_spread=0.10,
     attend_given_signup=0.90,
     frequent_attender_events=3,
+    true_interest_share_of_fit=0.5,
 )
 
 EVENT = SimulationEvent(
@@ -384,6 +386,7 @@ def test_the_requirements_ordering_is_enforced_by_validation(overrides: dict[str
         "same_major_lift",
         "chance_spread",
         "attend_given_signup",
+        "true_interest_share_of_fit",
     ],
 )
 @pytest.mark.parametrize("bad", [-0.01, 1.01, math.nan, math.inf, -math.inf])
@@ -496,3 +499,126 @@ def test_the_module_docstring_records_the_hash_deviation():
     text = " ".join(simulation.__doc__.split())
     assert "PYTHONHASHSEED" in text
     assert "SHA-256" in text
+
+
+def test_the_module_docstring_lists_all_eight_quantities_oq_ce_03_must_supply():
+    from smartmatch_domain.exercise import simulation
+
+    assert simulation.__doc__ is not None
+    text = " ".join(simulation.__doc__.split())
+    assert "The rule needs **eight**" in text
+    for field in dataclasses.fields(SimulationCoefficients):
+        assert f"``{field.name}``" in text
+
+
+# --- The true-fit split is a coefficient, not a constant --------------------
+
+
+def _with(**overrides: object) -> SimulationCoefficients:
+    """Test-only coefficients with some fields replaced."""
+    return SimulationCoefficients(**{**_valid_kwargs(), **overrides})
+
+
+def test_the_split_decides_whether_interests_or_the_goal_carry_the_fit():
+    interests_only = SimulationProfile(
+        profile_no=1, major="history", true_interests=frozenset({"analytics"})
+    )
+    goal_only = SimulationProfile(profile_no=1, major="history", career_goal="data_career")
+    all_on_interests = _with(true_interest_share_of_fit=1.0, chance_spread=0.0)
+    all_on_goal = _with(true_interest_share_of_fit=0.0, chance_spread=0.0)
+
+    assert _fit_share(interests_only, EVENT, all_on_interests) == 1.0
+    assert _fit_share(goal_only, EVENT, all_on_interests) == 0.0
+    assert _fit_share(interests_only, EVENT, all_on_goal) == 0.0
+    assert _fit_share(goal_only, EVENT, all_on_goal) == 1.0
+
+
+def test_a_profile_with_both_reaches_the_whole_lift_at_any_split():
+    both = _true_fit_profile(1)
+    for share in (0.0, 0.25, 0.5, 0.75, 1.0):
+        assert _fit_share(both, EVENT, _with(true_interest_share_of_fit=share)) == 1.0
+
+
+def test_the_split_is_the_ceiling_for_a_profile_with_no_career_goal():
+    """ADR-0011: the unknown is not penalised, it is simply not collected."""
+    no_goal = SimulationProfile(
+        profile_no=1, major="history", true_interests=frozenset({"analytics"})
+    )
+    for share in (0.2, 0.5, 0.9):
+        assert _fit_share(no_goal, EVENT, _with(true_interest_share_of_fit=share)) == (
+            pytest.approx(share)
+        )
+
+
+def test_the_module_defines_no_constant_for_the_true_fit_split():
+    """OQ-CE-03 owns the split; a module constant would decide it here."""
+    from smartmatch_domain.exercise import simulation
+
+    assert not hasattr(simulation, "_FIT_HALF")
+
+
+# --- The uniform draw really is half-open ----------------------------------
+
+
+def test_the_largest_possible_digest_still_draws_below_one(monkeypatch):
+    """A draw of exactly 1.0 would make a certainty fail."""
+    from smartmatch_domain.exercise import simulation
+
+    monkeypatch.setattr(simulation, "_digest", lambda *fields: b"\xff" * 32)
+    drawn = simulation._uniform(1, "northline", 1, "signup")
+    assert drawn < 1.0
+    assert drawn == pytest.approx(1.0, abs=1e-15)
+
+
+def test_the_smallest_possible_digest_draws_exactly_zero(monkeypatch):
+    from smartmatch_domain.exercise import simulation
+
+    monkeypatch.setattr(simulation, "_digest", lambda *fields: b"\x00" * 32)
+    assert simulation._uniform(1, "northline", 1, "signup") == 0.0
+
+
+def test_a_certain_profile_signs_up_even_on_the_largest_digest(monkeypatch):
+    """The bug the bound fixes, seen at the level of a result."""
+    from smartmatch_domain.exercise import simulation
+
+    monkeypatch.setattr(simulation, "_digest", lambda *fields: b"\xff" * 32)
+    certain = _with(base_signup_rate=1.0, chance_spread=0.0, attend_given_signup=1.0)
+    result = simulate_results(
+        (_true_fit_profile(1),), EVENT, seed=1, coefficients=certain, invite_limit=30
+    )
+    assert result.signed_up == (1,)
+    assert result.attended == (1,)
+
+
+# --- Digest fields cannot run together -------------------------------------
+
+
+def test_the_digest_separates_fields_that_a_naive_join_would_merge():
+    """``"a:b" + "c"`` and ``"a" + "b:c"`` both join to ``"a:b:c"``."""
+    from smartmatch_domain.exercise import simulation
+
+    assert simulation._digest("a:b", "c") != simulation._digest("a", "b:c")
+
+
+def test_event_keys_containing_a_colon_are_ordinary_keys():
+    profiles = tuple(_true_fit_profile(n) for n in range(1, 60))
+    first = run_email_everyone(
+        profiles,
+        dataclasses.replace(EVENT, event_key="a:1"),
+        seed=7,
+        coefficients=TEST_ONLY_COEFFICIENTS,
+    )
+    second = run_email_everyone(
+        profiles,
+        dataclasses.replace(EVENT, event_key="a:2"),
+        seed=7,
+        coefficients=TEST_ONLY_COEFFICIENTS,
+    )
+    again = run_email_everyone(
+        profiles,
+        dataclasses.replace(EVENT, event_key="a:1"),
+        seed=7,
+        coefficients=TEST_ONLY_COEFFICIENTS,
+    )
+    assert first != second
+    assert first == again

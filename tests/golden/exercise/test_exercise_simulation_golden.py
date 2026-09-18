@@ -30,7 +30,7 @@ from smartmatch_domain.exercise.simulation import (
     run_email_everyone,
 )
 
-GOLDEN_SEED = 20270308
+GOLDEN_SEED = 20270333
 GOLDEN_EVENT_KEY = "northline"
 
 # Test-only. NOT a proposal for OQ-CE-03.
@@ -42,6 +42,7 @@ GOLDEN_COEFFICIENTS = SimulationCoefficients(
     chance_spread=0.12,
     attend_given_signup=0.85,
     frequent_attender_events=3,
+    true_interest_share_of_fit=0.5,
 )
 
 GOLDEN_EVENT = SimulationEvent(
@@ -84,8 +85,18 @@ def _golden_profiles() -> tuple[SimulationProfile, ...]:
 #: The pinned outcome. If a change to the rule moves these, that is a change to
 #: what Ann and Dr. Lin were told, and the docstring in ``simulation.py`` has to
 #: move with it.
-GOLDEN_SIGNED_UP = (1, 3, 8, 9, 10, 12)
-GOLDEN_ATTENDED = (1, 8, 9, 10)
+#:
+#: Regenerated once, deliberately, in review: the uniform draw moved from 64
+#: bits over ``2 ** 64`` (which rounds the largest digests to exactly ``1.0``,
+#: so the documented half-open interval was false) to the top 53 bits over
+#: ``2 ** 53``, and the digest's fields became length-prefixed. Both change
+#: every draw. The seed moved with them, to one whose run has a sign-up that
+#: does not attend, so the golden still exercises that branch. Making the
+#: true-fit split a coefficient did **not** move these: at
+#: ``true_interest_share_of_fit=0.5`` it reproduces the previous values
+#: exactly, which was checked against the old draw before repinning.
+GOLDEN_SIGNED_UP = (1, 2, 6, 8, 9, 12)
+GOLDEN_ATTENDED = (1, 6, 8, 12)
 
 
 @pytest.mark.golden
@@ -138,6 +149,7 @@ _SUBPROCESS_SOURCE = textwrap.dedent(
         chance_spread=0.12,
         attend_given_signup=0.85,
         frequent_attender_events=3,
+        true_interest_share_of_fit=0.5,
     )
     event = SimulationEvent(
         event_key="northline",

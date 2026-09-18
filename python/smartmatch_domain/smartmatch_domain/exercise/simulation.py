@@ -42,15 +42,20 @@ refuses any set where ``true_fit_lift`` does not exceed both
 
 For one profile and one event, with coefficients ``c``:
 
-* ``fit_share`` is ``0.5`` for a true-interest overlap with the event's topics,
-  plus ``0.5`` for a career goal that is one of the event's topics — so ``1.0``
-  when both hold, ``0.5`` when one does, ``0.0`` when neither does.
+* ``fit_share`` is ``c.true_interest_share_of_fit`` for a true-interest overlap
+  with the event's topics, plus ``1.0 - c.true_interest_share_of_fit`` for a
+  career goal that is one of the event's topics — so ``1.0`` when both hold and
+  ``0.0`` when neither does. How the true-fit lift divides between the two
+  halves is **not** a constant in this module: it is a coefficient, because
+  choosing it decides whether Ann's "true interests and career goal" leans on
+  interests or on goals, and that is hers to decide (OQ-CE-03).
 * ``lift = c.true_fit_lift * fit_share``
   ``+ c.frequent_attender_lift`` if the profile attended at least
   ``c.frequent_attender_events`` past events,
   ``+ c.same_major_lift`` if the profile's major is one of the event's target
   majors.
-* ``chance = (u - 0.5) * c.chance_spread`` for a uniform ``u`` in ``[0, 1)``.
+* ``chance = u * c.chance_spread - c.chance_spread / 2`` for a uniform ``u`` in
+  ``[0, 1)`` — a band of width ``chance_spread`` centred on zero.
 * ``p = clamp(c.base_signup_rate + lift + chance, 0.0, 1.0)``. The clamp is
   what keeps the number a probability when the lifts add past one; it is a
   ceiling, never a re-spread of weight.
@@ -62,9 +67,14 @@ There is no vocabulary and no synonym table here: which terms exist is
 OQ-CE-01 and is not this module's to decide.
 
 **Unknown is not a mismatch (ADR-0011).** A profile with no career goal simply
-does not collect the career-goal half of ``fit_share``. It is not penalised,
+does not collect the career-goal part of ``fit_share``. It is not penalised,
 and it is not recorded as a goal that failed to fit. The same holds for an
-empty true-interest set.
+empty true-interest set. Note what follows: ``true_interest_share_of_fit`` is
+also the ceiling on the true-fit lift available to a profile whose career goal
+the file does not carry, since that profile can reach at most the
+true-interest part. That ceiling is a consequence of the split, not a penalty
+applied to the unknown, and it is one more reason the split is a coefficient
+rather than a constant chosen here.
 
 ## Determinism, and a deviation from design spec §11
 
@@ -73,11 +83,19 @@ Design spec §11 writes the chance draw as
 not use that**, deliberately: Python's ``hash()`` of a string is salted per
 process (``PYTHONHASHSEED``), so the same team, the same list, and the same
 event would give different results in a different process — which is exactly
-what behaviour (4) forbids. The draws here come from a SHA-256 digest over
-``f"{seed}:{event_key}:{profile_no}:{purpose}"`` instead, which is stable
-across processes, machines, and Python builds. A test runs the rule in a fresh
-subprocess under a different ``PYTHONHASHSEED`` and requires an identical
-result.
+what behaviour (4) forbids. The draws here come from a SHA-256 digest over the
+seed, the event key, the profile number, and what is being drawn, instead,
+which is stable across processes, machines, and Python builds. A test runs the
+rule in a fresh subprocess under a different ``PYTHONHASHSEED`` and requires an
+identical result.
+
+Each field goes into the digest length-prefixed rather than joined by a
+separator, so an event key that itself contains the separator cannot collide
+with a different set of fields. The uniform value is the top 53 bits of the
+digest over ``2**53``, which is the widest draw a float represents exactly, so
+the result is genuinely in ``[0, 1)``: dividing 64 bits by ``2**64`` rounds the
+largest digests up to exactly ``1.0``, and a profile at probability ``1.0``
+would then fail to sign up.
 
 Each profile's draws depend on that profile's number alone, never on the order
 of the list or on who else was invited. So "email everyone" and a team's list
@@ -105,6 +123,23 @@ OQ-CE-03 is OPEN: "Chau proposes; Ann confirms". This module therefore ships
 **no coefficient values**. :data:`EXERCISE_SIMULATION_COEFFICIENTS` is ``None``
 and :func:`require_coefficients` refuses until it is not. Tests construct their
 own, clearly labelled as test-only.
+
+The register names four quantities. The rule needs **eight**, and the four it
+adds are named here rather than invented as constants:
+
+1. ``true_fit_lift`` — as registered.
+2. ``frequent_attender_lift`` — as registered.
+3. ``same_major_lift`` — as registered.
+4. ``chance_spread`` — as registered ("chance size").
+5. ``attend_given_signup`` — named in design spec §11's constant list, but not
+   in the register row.
+6. ``base_signup_rate`` — the rule cannot say "more likely to sign up" without
+   something to be more likely *than*.
+7. ``frequent_attender_events`` — the requirements say "many past events"
+   without saying how many.
+8. ``true_interest_share_of_fit`` — how the true-fit lift divides between the
+   interest overlap and the career goal, and so the ceiling for a profile with
+   no career goal on file.
 """
 
 from __future__ import annotations
@@ -143,11 +178,17 @@ EVENT_SEATS: Final[int] = 60
 #: sentence of the case. Also a case fact.
 EXISTING_SIGNUPS: Final[int] = 8
 
-#: The share of :data:`SimulationCoefficients.true_fit_lift` earned by a
-#: true-interest overlap, and again by a career goal that fits. Two halves so
-#: that "true interests **and** career goal match" is the full lift and one of
-#: the two is half of it.
-_FIT_HALF: Final[float] = 0.5
+#: The centre of the symmetric chance band, as a structural fact rather than a
+#: coefficient: the band runs from ``-spread / 2`` to ``+spread / 2``, so half
+#: of it is below zero and half above. Nothing about the exercise decides this
+#: number — moving it would make the chance term a bias, which is not what
+#: "a small element of chance" means.
+_CHANCE_BAND_CENTRE: Final[float] = 0.5
+
+#: How many bits of a digest become a uniform draw. 53 is the width of a
+#: float's significand, so every value below is exact and the quotient is
+#: strictly less than 1.0.
+_UNIFORM_BITS: Final[int] = 53
 
 
 class SimulationCoefficientsError(ValueError):
@@ -273,6 +314,13 @@ class SimulationCoefficients:
             seventh quantity OQ-CE-03 must supply: the requirements say
             "attended many past events" without saying how many, and inventing
             a threshold here would be inventing a coefficient.
+        true_interest_share_of_fit: How much of ``true_fit_lift`` a
+            true-interest overlap earns; the career goal earns the rest. An
+            eighth quantity OQ-CE-03 must supply. It decides whether Ann's
+            "true interests and career goal" leans on interests or on goals,
+            and it is also the ceiling on the lift a profile with no career
+            goal on file can reach — which is a consequence of the split, not a
+            penalty for the unknown (ADR-0011).
     """
 
     base_signup_rate: float
@@ -282,6 +330,7 @@ class SimulationCoefficients:
     chance_spread: float
     attend_given_signup: float
     frequent_attender_events: int
+    true_interest_share_of_fit: float
 
     def __post_init__(self) -> None:
         """Refuse a set that is not usable, before any result is drawn."""
@@ -292,6 +341,7 @@ class SimulationCoefficients:
             "same_major_lift",
             "chance_spread",
             "attend_given_signup",
+            "true_interest_share_of_fit",
         ):
             _check_unit_interval(name, getattr(self, name))
         _check_attender_threshold(self.frequent_attender_events)
@@ -363,29 +413,57 @@ def _normalized(term: str) -> str:
     return term.strip().casefold()
 
 
+def _digest(*fields: object) -> bytes:
+    """A stable SHA-256 digest over some fields, each one length-prefixed.
+
+    Length-prefixed rather than joined by ``":"`` so that a field containing
+    the separator cannot produce the digest of a different set of fields. The
+    event key is free text from a data file, so this is reachable rather than
+    theoretical.
+    """
+    hasher = hashlib.sha256()
+    for field in fields:
+        encoded = str(field).encode()
+        hasher.update(f"{len(encoded)}:".encode())
+        hasher.update(encoded)
+    return hasher.digest()
+
+
 def _uniform(seed: int, event_key: str, profile_no: int, purpose: str) -> float:
     """A stable uniform draw in ``[0, 1)`` for one profile and one purpose.
 
     Not :mod:`random` and not :mod:`secrets`: see this module's docstring. The
     digest is the whole of the state, so the draw depends on nothing but its
     four arguments — not on call order, not on the process.
+
+    The top :data:`_UNIFORM_BITS` bits of the digest over ``2 ** 53``: every
+    numerator is exactly representable, so the result is strictly below ``1.0``
+    and the documented half-open interval is true. Dividing 64 bits by
+    ``2 ** 64`` would round the largest digests to exactly ``1.0``, and a
+    profile whose probability had been clamped to ``1.0`` would then fail to
+    sign up.
     """
-    digest = hashlib.sha256(f"{seed}:{event_key}:{profile_no}:{purpose}".encode()).digest()
-    return int.from_bytes(digest[:8], "big") / 2.0**64
+    digest = _digest(seed, event_key, profile_no, purpose)
+    return (int.from_bytes(digest[:8], "big") >> (64 - _UNIFORM_BITS)) / 2.0**_UNIFORM_BITS
 
 
-def _fit_share(profile: SimulationProfile, event: SimulationEvent) -> float:
+def _fit_share(
+    profile: SimulationProfile,
+    event: SimulationEvent,
+    coefficients: SimulationCoefficients,
+) -> float:
     """How much of the true-fit lift this profile earns, in ``[0, 1]``.
 
     Reads the hidden true interests and the hidden career goal — never what the
-    app has on file. A missing career goal earns nothing and costs nothing.
+    app has on file. A missing career goal earns nothing and costs nothing; it
+    simply cannot reach past ``coefficients.true_interest_share_of_fit``.
     """
     topics = {_normalized(tag) for tag in event.topic_tags}
     share = 0.0
     if topics & {_normalized(term) for term in profile.true_interests}:
-        share += _FIT_HALF
+        share += coefficients.true_interest_share_of_fit
     if profile.career_goal is not None and _normalized(profile.career_goal) in topics:
-        share += _FIT_HALF
+        share += 1.0 - coefficients.true_interest_share_of_fit
     return share
 
 
@@ -395,7 +473,7 @@ def _sign_up_lift(
     coefficients: SimulationCoefficients,
 ) -> float:
     """The lift above the base rate, before chance and before the clamp."""
-    lift = coefficients.true_fit_lift * _fit_share(profile, event)
+    lift = coefficients.true_fit_lift * _fit_share(profile, event, coefficients)
     if profile.past_event_count >= coefficients.frequent_attender_events:
         lift += coefficients.frequent_attender_lift
     if _normalized(profile.major) in {_normalized(major) for major in event.target_majors}:
@@ -412,8 +490,11 @@ def _outcome(
     """Whether one profile signs up, and whether it then attends."""
     if profile.non_responding:
         return False, False
-    chance = (_uniform(seed, event.event_key, profile.profile_no, "chance") - 0.5) * (
-        coefficients.chance_spread
+    # A band of width `chance_spread` centred on zero, written so the only
+    # bare number is the band's centre and not a share of anything.
+    chance = (
+        _uniform(seed, event.event_key, profile.profile_no, "chance") * coefficients.chance_spread
+        - coefficients.chance_spread * _CHANCE_BAND_CENTRE
     )
     probability = coefficients.base_signup_rate + _sign_up_lift(profile, event, coefficients)
     probability = min(1.0, max(0.0, probability + chance))
