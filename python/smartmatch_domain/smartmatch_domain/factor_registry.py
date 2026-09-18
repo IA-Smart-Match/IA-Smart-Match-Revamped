@@ -74,6 +74,17 @@ renders them to six places for a screen or a fingerprint discussion; the
 approved values (``0.428571`` / ``0.357143`` / ``0.214286``) are asserted
 against that rendering in ``tests/unit/test_factor_registry.py`` rather than
 declared anywhere in the runtime.
+
+## The registry is a value, not a module (ADR-0024 D2, ADR-0025 D3)
+
+:class:`FactorRegistry` names what this module has always been: one rulebook —
+its factors, its approval state, and its closed mode vocabulary.
+:data:`CBA_REGISTRY` *is* that rulebook, bound to the constants above rather
+than restating them, and every free function below takes a keyword-only
+``registry`` defaulting to it. Nothing about the CBA registry's contents,
+weights, gate, or scores changes; what changes is that a second rulebook can
+later be a second value instead of a second copy of the mechanism. No second
+registry is declared in this package.
 """
 
 from __future__ import annotations
