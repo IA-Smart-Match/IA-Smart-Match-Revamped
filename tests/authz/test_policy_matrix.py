@@ -8341,6 +8341,148 @@ def test_the_routes_parse_and_there_are_some() -> None:
     assert any(route.authenticated for route in routes.values())
 
 
+# ---------------------------------------------------------------------------
+# The ledger's blind spots, made into failures
+# ---------------------------------------------------------------------------
+#
+# Everything above rests on `_declared_routes` seeing every route. It has two
+# shapes it cannot see, and both are shapes a reasonable person might write
+# without knowing:
+#
+#   * a router in a *subpackage* of `routers/`, because `_source_files` globs
+#     `routers/*.py` and does not recurse;
+#   * an *annotated* router assignment (`router: APIRouter = APIRouter(...)`),
+#     because `_router_prefixes` matches `ast.Assign` and an annotation makes
+#     the node an `ast.AnnAssign`.
+#
+# In either case the module's routes vanish from the ledger, and a route that is
+# not in the ledger is not required to be authenticated, authorized, or declared
+# public with a reason. It fails nothing; it is simply invisible. So the two
+# shapes are refused here rather than documented, and the refusal names the fix.
+
+
+def test_the_routers_directory_has_no_subpackages() -> None:
+    """``_source_files`` globs ``routers/*.py`` and does not recurse.
+
+    A ``routers/exercise/`` package would read as tidier and would take every
+    module inside it out of this file's sight. The rule is flat: one module per
+    router file, directly under ``routers/``.
+
+    This is also why ``pyproject.toml``'s exercise contract lists each router by
+    name rather than moving them into a subpackage — the comment there records
+    the same trade and settles it the same way.
+    """
+    subpackages = sorted(
+        path.name
+        for path in (API_PACKAGE / "routers").iterdir()
+        if path.is_dir() and path.name != "__pycache__"
+    )
+    assert subpackages == [], (
+        "routers/ must stay flat: the route ledger globs routers/*.py and would "
+        f"not see anything inside {subpackages}"
+    )
+
+
+def _annotated_router_assignments(source: str) -> list[str]:
+    """Names assigned an ``APIRouter(...)`` through an annotated assignment.
+
+    The shape ``_router_prefixes`` cannot see. Reported by name so the failure
+    message tells the author exactly which line to un-annotate.
+    """
+    tree = ast.parse(source)
+    found: list[str] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.AnnAssign) or node.value is None:
+            continue
+        value = node.value
+        if not (isinstance(value, ast.Call) and isinstance(value.func, ast.Name)):
+            continue
+        if value.func.id == "APIRouter" and isinstance(node.target, ast.Name):
+            found.append(node.target.id)
+    return found
+
+
+def _module_level_router_assignments(source: str) -> list[str]:
+    """Names assigned an ``APIRouter(...)`` as a bare, module-level assignment."""
+    tree = ast.parse(source)
+    return [
+        target.id
+        for node in tree.body
+        if isinstance(node, ast.Assign) and len(node.targets) == 1
+        for target in node.targets
+        if isinstance(target, ast.Name)
+        and isinstance(node.value, ast.Call)
+        and isinstance(node.value.func, ast.Name)
+        and node.value.func.id == "APIRouter"
+    ]
+
+
+def _nested_router_constructions(source: str) -> int:
+    """``APIRouter(...)`` calls that are not a bare module-level assignment.
+
+    Counted rather than named: an ``APIRouter`` built inside a function or a
+    comprehension has no assignment target to report, and its routes are
+    invisible to the ledger for the same reason an annotated one's are.
+    """
+    tree = ast.parse(source)
+    module_level = {
+        id(node.value)
+        for node in tree.body
+        if isinstance(node, ast.Assign)
+        and isinstance(node.value, ast.Call)
+        and isinstance(node.value.func, ast.Name)
+        and node.value.func.id == "APIRouter"
+    }
+    return sum(
+        1
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "APIRouter"
+        and id(node) not in module_level
+    )
+
+
+@pytest.mark.parametrize("source_path", _source_files(API_PACKAGE), ids=lambda p: str(p.name))
+def test_every_router_is_a_bare_module_level_assignment(source_path: Path) -> None:
+    """``name = APIRouter(...)``, unannotated, at module level — the only shape seen.
+
+    Every router in the package satisfies this today, so the guard is scoped to
+    the whole package rather than to the exercise modules alone; nothing had to
+    be rewritten to make it true.
+    """
+    source = source_path.read_text(encoding="utf-8")
+
+    annotated = _annotated_router_assignments(source)
+    assert annotated == [], (
+        f"{source_path.name} annotates {annotated}; the route ledger matches "
+        "`name = APIRouter(...)` and an annotated assignment hides the module's "
+        "routes from every check in this file. Drop the annotation."
+    )
+
+    nested = _nested_router_constructions(source)
+    assert nested == 0, (
+        f"{source_path.name} builds {nested} APIRouter(s) somewhere other than a "
+        "bare module-level assignment; the route ledger cannot see them."
+    )
+
+
+def test_the_router_shape_guard_would_actually_catch_the_two_shapes() -> None:
+    """The guard above passes on every real module, so prove it can fail."""
+    assert _annotated_router_assignments(
+        "from fastapi import APIRouter\nrouter: APIRouter = APIRouter(prefix='/v1/x')\n"
+    ) == ["router"]
+    assert _module_level_router_assignments(
+        "from fastapi import APIRouter\nrouter = APIRouter(prefix='/v1/x')\n"
+    ) == ["router"]
+    assert (
+        _nested_router_constructions(
+            "from fastapi import APIRouter\ndef build():\n    return APIRouter()\n"
+        )
+        == 1
+    )
+
+
 def test_every_authenticated_route_has_a_matrix_row() -> None:
     """A new operation with no row is a hole, and must be visible as one."""
     missing = _missing_rows(_declared_routes())
