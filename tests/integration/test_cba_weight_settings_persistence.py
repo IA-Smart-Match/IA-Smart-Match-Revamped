@@ -181,7 +181,12 @@ _PREVIOUS_REVISION = "0026_event_registration"
 #: (``host_organization_id``). It touches ``match_weight_setting`` and
 #: ``match_weight_setting_revision`` not at all, so this file's surface is
 #: untouched by it as well.
-_HEAD_REVISION = "0036_host_organization"
+#: Moved again by the class-exercise schema card:
+#: ``0037_exercise_tables`` chains to ``0036_host_organization`` and is now the
+#: head. It creates eight ``exercise_`` tables and alters nothing that already
+#: existed -- ADR-0025 D2 forbids it a foreign key out of that family at all --
+#: so this file's surface is untouched by it as well.
+_HEAD_REVISION = "0037_exercise_tables"
 
 NEED = "need-weight-settings-1"
 

@@ -142,12 +142,18 @@ _PARENT_REVISION = "0024_cba_classification"
 #: ALTERs exactly one existing table -- ``event``, gaining the nullable
 #: ``host_organization_id`` -- and writes no rows. ``speaker_profile`` is not
 #: that table, so this file's surface is untouched by it as well.
-_HEAD_REVISION = "0036_host_organization"
+#: Moved again by the class-exercise schema card:
+#: ``0037_exercise_tables`` chains to ``0036_host_organization`` and is the
+#: head. It CREATEs eight ``exercise_`` tables (ADR-0025 D2), ALTERs nothing,
+#: and writes no rows, so this file's ``speaker_profile`` surface is untouched
+#: by it too.
+_HEAD_REVISION = "0037_exercise_tables"
 
 #: Every revision between :data:`_HEAD_REVISION` and :data:`_THIS_REVISION`, in
 #: descending order. Listed rather than derived, so extending the chain is a
 #: deliberate edit here — which is the whole point of the assertion.
 _REVISIONS_BETWEEN_HEAD_AND_THIS_CARD = (
+    "0036_host_organization",
     "0035_manual_event_detail",
     "0034_cba_meeting",
     "0033_event_filed_by",

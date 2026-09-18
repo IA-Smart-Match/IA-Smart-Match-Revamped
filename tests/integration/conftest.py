@@ -21,7 +21,7 @@ import pytest
 pytest.importorskip("sqlalchemy")
 
 from smartmatch_domain.events import normalize_title
-from sqlalchemy import Engine, create_engine, text
+from sqlalchemy import Connection, Engine, create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 
 DATABASE_URL = os.getenv(
@@ -34,6 +34,38 @@ DATABASE_URL = os.getenv(
 #: which on this project is the ordinary case, not the edge case — cannot collide
 #: with a row this run creates.
 _RUN_TOKEN = uuid.uuid4().hex[:8]
+
+#: Slug prefix every tenant this suite creates carries. It is the *only* thing
+#: that distinguishes a row an abandoned earlier run left behind from a row that
+#: belongs to whoever owns the database — the run token above cannot do it,
+#: because by definition an abandoned row carries some *other* run's token, and
+#: an id tells a reader nothing at all.
+#:
+#: Used by :func:`clear_dispatch_state` to decide what it is allowed to delete,
+#: and by the ``tenant_id`` fixture that mints the slugs, so the two cannot
+#: drift apart. The contract fixtures under ``tests/contract`` use it too, with
+#: their own infixes (``test-invites-``, ``test-matching-``, …); the prefix is
+#: what they share.
+#:
+#: Two knowingly-outside cases, both harmless today and both worth naming rather
+#: than discovering later: ``test_principal_identity.py`` creates a ``second-``
+#: tenant, and ``scripts/seed_pilot`` writes a ``pilot`` tenant into a dev
+#: database. Neither writes a ``cba_invitation_batch``. If the first ever does,
+#: the sweep will refuse with :class:`ForeignInvitationBatchError` naming it —
+#: which is a loud, fixable failure rather than a silent deletion, and that is
+#: the trade this prefix is chosen to make.
+TEST_TENANT_SLUG_PREFIX = "test-"
+
+
+class ForeignInvitationBatchError(RuntimeError):
+    """A ``cba_invitation_batch`` blocks the sweep and this suite does not own it.
+
+    Raised instead of letting PostgreSQL report
+    ``cba_invitation_batch_tenant_id_match_run_id_fkey``, which names the
+    constraint and not the row, and instead of deleting the row — which on a
+    shared or dev database would be somebody's real data removed to make a test
+    pass.
+    """
 
 
 def unique_subject(name: str) -> str:
@@ -210,6 +242,123 @@ def session_factory(engine: Engine) -> sessionmaker[Session]:
     return sessionmaker(bind=engine, expire_on_commit=False, future=True)
 
 
+def _blocking_invitation_batches(conn: Connection) -> list[str]:
+    """Return the batches that would block ``DELETE FROM match_run``, and only those.
+
+    A ``cba_invitation_batch`` with a non-null ``match_run_id`` holds migration
+    ``0029``'s ``ON DELETE RESTRICT`` reference to ``match_run``. One such row
+    left by a run that was killed makes the sweep's ``DELETE FROM match_run``
+    fail *forever*, in every integration test — which is the wedge this function
+    exists to clear.
+
+    It reads and raises; it deletes nothing. The caller deletes the ids it
+    returns, at the one point in the order where deleting them is legal — after
+    ``cba_invitation``, which RESTRICTs against the batch in turn, and before
+    ``match_run``, which the batch RESTRICTs against. Separating the decision
+    from the deletion is what lets the refusal below happen before the
+    transaction has changed anything.
+
+    Two things it deliberately does **not** select.
+
+    Not every batch. The note in :func:`clear_dispatch_state`
+    about keeping this table tenant-scoped is still right: a batch with no
+    ``match_run_id`` blocks nothing here, and clearing it would take another
+    test's live row with it — ``test_cba_confirmed_handoff.py`` builds batches
+    that way, under a tenant whose own fixture is still using them. Those rows
+    are untouched. Only the ones actually in the way are considered, which is the
+    narrowest set that unblocks the sweep.
+
+    Not a batch under a tenant this suite did not create. The
+    sweep's premise — stated for ``job`` and ``match_run``, and true — is that
+    nothing but these tests writes those rows today. That premise does not extend
+    to invitation batches: a dev database carries a ``pilot`` tenant with real
+    ones. So the blocking rows are split by :data:`TEST_TENANT_SLUG_PREFIX`, the
+    suite's own are returned for deletion, and anything else raises
+    :class:`ForeignInvitationBatchError` naming the rows, the tenants they belong
+    to, and what to do about them. Failing that way is the deliberate choice: an
+    integration suite that cannot tell its own leftovers from somebody's data
+    should stop, not guess.
+    """
+    blocking = conn.execute(
+        text(
+            "SELECT CAST(b.id AS text) AS batch_id, t.slug AS slug "
+            "FROM cba_invitation_batch AS b "
+            "JOIN tenant AS t ON t.id = b.tenant_id "
+            "WHERE b.match_run_id IS NOT NULL"
+        )
+    ).all()
+
+    foreign = [row for row in blocking if not row.slug.startswith(TEST_TENANT_SLUG_PREFIX)]
+    if foreign:
+        listed = ", ".join(f"{row.batch_id} (tenant {row.slug!r})" for row in foreign)
+        raise ForeignInvitationBatchError(
+            "cba_invitation_batch holds an ON DELETE RESTRICT reference to match_run, "
+            "which the integration sweep clears globally, and these rows belong to a "
+            f"tenant this suite did not create: {listed}. The suite will not delete "
+            "them. Either point SMARTMATCH_DATABASE_URL at a database the tests own, "
+            "or remove those rows deliberately if they are in fact test leftovers "
+            f"(the suite's own tenants are the ones slugged {TEST_TENANT_SLUG_PREFIX!r})."
+        )
+
+    return [row.batch_id for row in blocking]
+
+
+def clear_dispatch_state(engine: Engine) -> None:
+    """Clear the coordination tables, children before parents, in one transaction.
+
+    The body of the :func:`_clean_dispatch_state` fixture, as a function, so the
+    regression test in ``test_dispatch_state_cleanup.py`` can plant an abandoned
+    chain and then run *this* rather than reasoning about fixture ordering.
+
+    The order is the whole content of this function, and every line of it was
+    paid for by a failure:
+
+    ``delivery_event`` -> ``outreach_send`` -> ``cba_invitation`` ->
+    ``cba_invitation_batch`` -> ``match_run`` -> ``job``.
+
+    ``match_run`` used to be first, above the invitation tables, on the argument
+    that it had to precede ``job``. It does — but ``cba_invitation_batch``
+    references ``match_run`` under ``ON DELETE RESTRICT`` in turn, so putting
+    ``match_run`` first only moved the failure one table along: a single batch
+    left by an aborted run made ``DELETE FROM match_run`` fail in every test.
+    Parents last is the rule; ``job`` is simply the last parent, not the only
+    one.
+    """
+    with engine.begin() as conn:
+        # Read and decide before any DELETE, so a refusal leaves the database
+        # exactly as it was rather than half-swept.
+        batch_ids = _blocking_invitation_batches(conn)
+        conn.execute(text("DELETE FROM job_event"))
+        conn.execute(text("DELETE FROM outbox_record"))
+        conn.execute(text("DELETE FROM redrive_record"))
+        # Migration 0021. Both hold an ON DELETE RESTRICT foreign key to `job`,
+        # so a send left behind by an aborted earlier run would make the
+        # `DELETE FROM job` below fail in *every* test, including every test
+        # written before these tables existed. `delivery_event` first, since it
+        # RESTRICTs against `outreach_send` in turn.
+        conn.execute(text("DELETE FROM delivery_event"))
+        conn.execute(text("DELETE FROM outreach_send"))
+        # Migration 0029, for the same reason: `cba_invitation` holds an ON
+        # DELETE RESTRICT foreign key to `job`, so an invitation left behind by
+        # an aborted earlier run makes the `DELETE FROM job` below fail in
+        # *every* integration test, including all of the ones written before
+        # invitations existed. That is how this line was found. It also
+        # RESTRICTs against `cba_invitation_batch`, which is why it precedes the
+        # batch cleanup below rather than following it.
+        conn.execute(text("DELETE FROM cba_invitation"))
+        # Only the batches `_blocking_invitation_batches` selected, never the
+        # table: a batch with no `match_run_id` is a tenant-scoped row that
+        # `_TENANT_SCOPED_TABLES` owns, and clearing it here would delete another
+        # test's batch while its own tenant fixture still expects it.
+        if batch_ids:
+            conn.execute(
+                text("DELETE FROM cba_invitation_batch WHERE id = ANY(CAST(:ids AS uuid[]))"),
+                {"ids": batch_ids},
+            )
+        conn.execute(text("DELETE FROM match_run"))
+        conn.execute(text("DELETE FROM job"))
+
+
 @pytest.fixture(autouse=True)
 def _clean_dispatch_state(engine: Engine) -> Iterator[None]:
     """Clear jobs and outbox rows left by earlier runs.
@@ -226,37 +375,17 @@ def _clean_dispatch_state(engine: Engine) -> Iterator[None]:
     ``match_run`` is cleared here too, and it is the one table in this sweep that
     is not itself a coordination table. Migration ``0018`` gives it an
     ``ON DELETE RESTRICT`` foreign key to ``job``, so a run left behind by an
-    aborted earlier run would make the ``DELETE FROM job`` below fail — in
-    *every* test, including every test written before that table existed. It is
-    deleted first for that reason, and it is safe to delete globally for the
-    same reason ``job`` is: nothing but these tests writes one today.
+    aborted earlier run would make the ``DELETE FROM job`` fail — in *every*
+    test, including every test written before that table existed. It is safe to
+    delete globally for the same reason ``job`` is: nothing but these tests
+    writes one today.
+
+    The order, and the one batch cleanup that is not global, live in
+    :func:`clear_dispatch_state`. They are a function rather than a fixture body
+    so ``test_dispatch_state_cleanup.py`` can plant an abandoned chain and call
+    the sweep directly.
     """
-    with engine.begin() as conn:
-        conn.execute(text("DELETE FROM job_event"))
-        conn.execute(text("DELETE FROM outbox_record"))
-        conn.execute(text("DELETE FROM redrive_record"))
-        conn.execute(text("DELETE FROM match_run"))
-        # Migration 0021, for exactly the reason `match_run` is here: both hold
-        # an ON DELETE RESTRICT foreign key to `job`, so a send left behind by
-        # an aborted earlier run would make the `DELETE FROM job` below fail in
-        # *every* test, including every test written before these tables
-        # existed. `delivery_event` first, since it RESTRICTs against
-        # `outreach_send` in turn.
-        conn.execute(text("DELETE FROM delivery_event"))
-        conn.execute(text("DELETE FROM outreach_send"))
-        # Migration 0029, for the third time the same reason: `cba_invitation`
-        # holds an ON DELETE RESTRICT foreign key to `job`, so an invitation left
-        # behind by an aborted earlier run makes the `DELETE FROM job` below fail
-        # in *every* integration test, including all of the ones written before
-        # invitations existed. That is how this line was found.
-        #
-        # Only the invitation, not its batch: the batch references `match_run`
-        # and `org_unit` rather than `job`, so it is a tenant-scoped row and
-        # `_TENANT_SCOPED_TABLES` is where it belongs. Clearing it globally here
-        # would delete another test's batch while its own tenant fixture still
-        # expects it.
-        conn.execute(text("DELETE FROM cba_invitation"))
-        conn.execute(text("DELETE FROM job"))
+    clear_dispatch_state(engine)
     yield
 
 
@@ -264,7 +393,7 @@ def _clean_dispatch_state(engine: Engine) -> Iterator[None]:
 def tenant_id(engine: Engine) -> Iterator[uuid.UUID]:
     """Create one isolated tenant, and clean up everything it owns."""
     tid = uuid.uuid4()
-    slug = f"test-{tid.hex[:12]}"
+    slug = f"{TEST_TENANT_SLUG_PREFIX}{tid.hex[:12]}"
 
     with engine.begin() as conn:
         conn.execute(
