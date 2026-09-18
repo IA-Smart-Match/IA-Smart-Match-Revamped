@@ -89,10 +89,9 @@ registry is declared in this package.
 
 from __future__ import annotations
 
-import hashlib
-import json
+import threading
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from types import MappingProxyType
 from typing import Final
@@ -130,6 +129,7 @@ __all__ = [
     "RegistryNotApprovedError",
     "RegistryNotReadyError",
     "ScoringModel",
+    "UnknownRegistryVersionError",
     "active_weights",
     "assert_registry_approved",
     "assert_scoring_ready",
@@ -549,8 +549,18 @@ class FactorRegistry:
 
     Validation is fail-closed at construction, matching how the module validates
     today: an unrecognised status, a duplicate factor key, a mode keyed under a
-    name it does not carry, or a model scoring a key the registry never declared
-    all raise here rather than surfacing later as a silently wrong score.
+    name it does not carry, a model pinned to a different rulebook or carrying a
+    different mode vocabulary, or a model scoring a key the registry never
+    declared all raise here rather than surfacing later as a silently wrong
+    score.
+
+    The registry is hashable so it can be a key or a set member like any other
+    value. Equality compares every declared field, ``scoring_modes`` included;
+    the hash deliberately excludes that one field, because a mapping is not
+    hashable and because the remaining fields — version, status, approver,
+    approval date, factors, approved keys, vocabulary — already separate two
+    registries far more finely than a hash bucket needs. Equal registries still
+    hash equal, which is the contract that matters.
 
     Attributes:
         version: The rulebook's own version string.
@@ -561,6 +571,13 @@ class FactorRegistry:
         factors: Every declared :class:`FactorSpec`, in registry order.
         approved_scoring_keys: The Stage B keys the approval covers.
         scoring_modes: The models this registry admits, keyed by scoring mode.
+        mode_vocabulary: The closed set of mode names this rulebook may use.
+            Defaults to
+            :data:`~smartmatch_domain.factors.proximity.CBA_SCORING_MODES`, and
+            every model in ``scoring_modes`` must declare the same one. Without
+            that check a second rulebook would inherit the CBA vocabulary from
+            :class:`ScoringModel`'s own default and could name ``cba-physical-1``
+            as one of its modes.
     """
 
     version: str
@@ -569,7 +586,19 @@ class FactorRegistry:
     approved_on: str | None
     factors: tuple[FactorSpec, ...]
     approved_scoring_keys: frozenset[str]
-    scoring_modes: Mapping[str, ScoringModel]
+    # Compared, but not hashed: see the class docstring.
+    scoring_modes: Mapping[str, ScoringModel] = field(hash=False)
+    mode_vocabulary: frozenset[str] = CBA_SCORING_MODES
+    # Derived tables, built once at construction. Scoring reads them per factor
+    # per candidate, so rebuilding them per access would put a dict comprehension
+    # over the whole registry inside the scoring loop. Excluded from equality and
+    # the hash because they are a function of ``factors``.
+    _spec_by_key: Mapping[str, FactorSpec] = field(
+        init=False, repr=False, compare=False, hash=False
+    )
+    _kind_by_key: Mapping[str, FactorKind] = field(
+        init=False, repr=False, compare=False, hash=False
+    )
 
     def __post_init__(self) -> None:
         if self.status not in {"approved", "proposed"}:
@@ -583,43 +612,41 @@ class FactorRegistry:
                     f"scoring_modes[{mode!r}] names mode {model.scoring_mode!r}; a model "
                     "filed under a name it does not carry would resolve to the wrong mode"
                 )
+            if model.registry_version != self.version:
+                raise ValueError(
+                    f"scoring_modes[{mode!r}] has registry_version "
+                    f"{model.registry_version!r}, not {self.version!r}; a model belongs to "
+                    "the rulebook it is pinned to, and a stored score resolved through the "
+                    "wrong one would be read under weights it never saw"
+                )
+            if model.mode_vocabulary != self.mode_vocabulary:
+                raise ValueError(
+                    f"scoring_modes[{mode!r}] carries a mode_vocabulary this registry does "
+                    "not declare. A second rulebook must state its own closed vocabulary "
+                    "rather than inherit the CBA default (ADR-0016 Proposal 5)"
+                )
             unknown = set(model.scoring_keys) - set(keys)
             if unknown:
                 raise ValueError(
                     f"scoring_modes[{mode!r}] scores undeclared keys {sorted(unknown)}"
                 )
         object.__setattr__(self, "scoring_modes", MappingProxyType(dict(self.scoring_modes)))
+        object.__setattr__(
+            self, "_spec_by_key", MappingProxyType({spec.key: spec for spec in self.factors})
+        )
+        object.__setattr__(
+            self, "_kind_by_key", MappingProxyType({spec.key: spec.kind for spec in self.factors})
+        )
 
     @property
     def spec_by_key(self) -> Mapping[str, FactorSpec]:
         """This registry's specs by key — the table an explanation reads."""
-        return MappingProxyType({spec.key: spec for spec in self.factors})
+        return self._spec_by_key
 
     @property
     def kind_by_key(self) -> Mapping[str, FactorKind]:
         """This registry's factor kinds by key — the table a composition reads."""
-        return MappingProxyType({spec.key: spec.kind for spec in self.factors})
-
-    @property
-    def registry_hash(self) -> str:
-        """A stable fingerprint of what this registry actually scores.
-
-        Covers the version, each factor's key/kind/active weight/implementation
-        flag, and each mode's key set — the facts that change a score. Two
-        registries that would score identically fingerprint identically.
-        """
-        payload = {
-            "version": self.version,
-            "factors": [
-                [spec.key, spec.kind.value, repr(spec.active_weight), spec.implemented]
-                for spec in self.factors
-            ],
-            "modes": {
-                mode: list(model.scoring_keys) for mode, model in sorted(self.scoring_modes.items())
-            },
-        }
-        rendered = json.dumps(payload, sort_keys=True, separators=(",", ":"))
-        return "sha256:" + hashlib.sha256(rendered.encode("utf-8")).hexdigest()
+        return self._kind_by_key
 
 
 #: The CBA rulebook as a value. Every constant above is bound here rather than
@@ -645,40 +672,80 @@ _REGISTRIES_BY_VERSION: dict[str, FactorRegistry] = {
     SUPERSEDED_REGISTRY_VERSION: CBA_REGISTRY,
 }
 
+#: The two pins that mean "the CBA rulebook". Every score this package has ever
+#: produced carries one of them, and nothing may unbind them.
+_CBA_REGISTRY_VERSIONS: Final[frozenset[str]] = frozenset(
+    {REGISTRY_VERSION, SUPERSEDED_REGISTRY_VERSION}
+)
+
+#: Guards :data:`_REGISTRIES_BY_VERSION`. Registration is check-then-set on
+#: process-global state, and two threads registering at once could otherwise
+#: both pass the check and the loser's binding would vanish silently.
+_REGISTRY_LOCK: Final[threading.Lock] = threading.Lock()
+
 
 def register_registry(registry: FactorRegistry) -> None:
     """Make ``registry`` findable by version for readers of stored scores.
+
+    Registering the same object twice is a no-op, so an import-order-dependent
+    second call is not an error.
 
     Raises:
         ValueError: when a *different* registry is already bound to that
             version. Rebinding a version would silently re-label every stored
             score that names it.
     """
-    existing = _REGISTRIES_BY_VERSION.get(registry.version)
-    if existing is not None and existing is not registry:
-        raise ValueError(f"registry version {registry.version!r} is already bound")
-    _REGISTRIES_BY_VERSION[registry.version] = registry
+    with _REGISTRY_LOCK:
+        existing = _REGISTRIES_BY_VERSION.get(registry.version)
+        if existing is not None:
+            if existing is registry:
+                return
+            raise ValueError(f"registry version {registry.version!r} is already bound")
+        _REGISTRIES_BY_VERSION[registry.version] = registry
 
 
-def registry_for_version(version: str, *, default: FactorRegistry | None = None) -> FactorRegistry:
+def _unregister_for_tests(version: str) -> None:
+    """Undo one :func:`register_registry` call. Tests only, hence private.
+
+    The version map is process-global, so a test that registered a rulebook and
+    left it there would change what every later test resolves that version to.
+    There is deliberately no public unregister: in a running process, unbinding
+    a version that stored scores name is never a thing to do.
+
+    Raises:
+        ValueError: when asked to unbind one of the CBA pins.
+        KeyError: when nothing is bound to ``version``.
+    """
+    if version in _CBA_REGISTRY_VERSIONS:
+        raise ValueError(f"registry version {version!r} is a CBA pin and is never unbound")
+    with _REGISTRY_LOCK:
+        del _REGISTRIES_BY_VERSION[version]
+
+
+def registry_for_version(version: str) -> FactorRegistry:
     """Return the registry a stored score names.
+
+    There is no default. ``registry_version`` is free-form data on a stored
+    score, and resolving an unrecognised one to :data:`CBA_REGISTRY` would hand
+    it the CBA rulebook's *approval* as well as its spec table — so a score
+    pinned to a rulebook nobody approved would pass the G1 gate. It is refused
+    instead.
 
     Args:
         version: The ``registry_version`` a stored score carries.
-        default: Returned when no registry is bound to ``version``. Callers on
-            a scoring or explanation path pass :data:`CBA_REGISTRY` so an
-            unrecognised pin keeps reading the table it has always read; a
-            caller that needs the pin to exist omits it and handles ``KeyError``.
 
     Raises:
-        KeyError: when ``version`` is unknown and no ``default`` was given.
+        UnknownRegistryVersionError: when no registry is bound to ``version``.
     """
-    found = _REGISTRIES_BY_VERSION.get(version)
-    if found is not None:
-        return found
-    if default is not None:
-        return default
-    raise KeyError(version)
+    with _REGISTRY_LOCK:
+        found = _REGISTRIES_BY_VERSION.get(version)
+    if found is None:
+        raise UnknownRegistryVersionError(
+            f"registry version {version!r} is not declared by this build. A score can only "
+            "be scored or explained under the rulebook it names, and an unrecognised "
+            "rulebook is refused rather than read as the CBA one."
+        )
+    return found
 
 
 def resolve_scoring_model(
@@ -706,7 +773,13 @@ def resolve_scoring_model(
             the CBA one, which has no pre-mode model to fall back to.
     """
     if scoring_mode is None:
-        if registry is CBA_REGISTRY:
+        # Keyed on the version, not on ``is``: a ``dataclasses.replace`` copy,
+        # an unpickled one, or one from a reloaded module is still the CBA
+        # rulebook and must still resolve to the pre-mode model. On this path
+        # the module constants — not the registry's own fields — are the source
+        # of truth, because SUPERSEDED_G1_MODEL is a CBA fact that no other
+        # rulebook has an equivalent of.
+        if registry.version == CBA_REGISTRY.version:
             return SUPERSEDED_G1_MODEL
         raise UnknownScoringModeError(
             f"scoring_mode: registry {registry.version!r} declares no pre-mode model, so "
@@ -746,8 +819,10 @@ def assert_registry_approved(*, registry: FactorRegistry = CBA_REGISTRY) -> None
     # constant is the declared contract — ADR-0016's acceptance is recorded
     # there — and leaving the gate on it keeps exactly one source of truth for
     # the CBA status instead of two that could drift. A second registry
-    # declares its own status and is read from it.
-    status = REGISTRY_STATUS if registry is CBA_REGISTRY else registry.status
+    # declares its own status and is read from it. The CBA path is recognised
+    # by version rather than by ``is`` so a copy of the CBA registry is gated
+    # the same way the original is.
+    status = REGISTRY_STATUS if registry.version == CBA_REGISTRY.version else registry.status
     if status != "approved":
         raise RegistryNotApprovedError(
             f"Factor registry {registry.version} is {status!r}. "
@@ -759,6 +834,17 @@ def assert_registry_approved(*, registry: FactorRegistry = CBA_REGISTRY) -> None
 
 class RegistryNotReadyError(RuntimeError):
     """Raised when the implemented scoring set is not the approved scoring set."""
+
+
+class UnknownRegistryVersionError(RegistryNotReadyError):
+    """Raised when a score names a factor registry this build does not declare.
+
+    A subclass of :class:`RegistryNotReadyError` rather than a new top-level
+    error, because it means the same thing to every caller: the rulebook this
+    request needs is not usable here. The API router and the worker handler
+    already turn that pair into a refusal, and an unresolvable pin belongs in
+    the same bucket rather than surfacing as an unhandled lookup failure.
+    """
 
 
 def factor_keys(*, registry: FactorRegistry = CBA_REGISTRY) -> tuple[str, ...]:
@@ -812,11 +898,14 @@ def assert_scoring_ready(*, registry: FactorRegistry = CBA_REGISTRY) -> None:
             normalized weights do not sum to 1.0 within ``1e-9``.
     """
     # The default path calls the module-level helper exactly as it did before
-    # the registry became a parameter, so the seam a caller substitutes at is
-    # unchanged; the parameterised path passes the registry explicitly.
+    # the registry became a parameter — with no arguments — so the seam a
+    # caller substitutes at is unchanged (``tests/unit/test_scoring.py`` patches
+    # this name with a zero-argument stub). The parameterised path passes the
+    # registry explicitly. Recognised by version rather than by ``is``, so a
+    # copy of the CBA registry takes the same path the original does.
     implemented = (
         implemented_scoring_keys()
-        if registry is CBA_REGISTRY
+        if registry.version == CBA_REGISTRY.version
         else implemented_scoring_keys(registry=registry)
     )
     approved = registry.approved_scoring_keys

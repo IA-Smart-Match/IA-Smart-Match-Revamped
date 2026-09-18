@@ -67,7 +67,6 @@ from enum import StrEnum
 from typing import Any, Final
 
 from smartmatch_domain.factor_registry import (
-    CBA_REGISTRY,
     FactorRegistry,
     FactorSpec,
     assert_registry_approved,
@@ -134,11 +133,17 @@ def _registry_for_score(registry_version: str) -> FactorRegistry:
     registry, because the weights that applied to a *stored* score are the ones
     that were in force then, not the ones in force now. The spec table now
     follows the score for the same reason the weights already did (ADR-0024 D2).
-    An unrecognised pin falls back to
-    :data:`~smartmatch_domain.factor_registry.CBA_REGISTRY`, the one table this
-    module read before the registry became a parameter.
+
+    An unrecognised pin is refused rather than read as the CBA rulebook.
+    ``registry_version`` is free-form data on a stored score, and falling back
+    would give a score pinned to some other rulebook the CBA rulebook's
+    *approval* — passing a G1 gate that has to fail.
+
+    Raises:
+        UnknownRegistryVersionError: when the pin names no registry this build
+            declares.
     """
-    return registry_for_version(registry_version, default=CBA_REGISTRY)
+    return registry_for_version(registry_version)
 
 
 class ScoreState(StrEnum):
@@ -469,11 +474,14 @@ def explain_candidate(score: StageBScore) -> CandidateExplanation:
         RegistryNotApprovedError: while the factor registry is not approved.
             Raised before anything is assembled: an explanation is the visible
             end of a scoring path, and the standing rule guards it too.
+        UnknownRegistryVersionError: when the score names a registry this build
+            does not declare.
     """
     # The score's own rulebook, not whichever one this process last imported:
     # the gate that guards an explanation is the gate of the registry the score
-    # was produced under (ADR-0024 D2). For every score this package produces
-    # that registry is CBA_REGISTRY, so the check is the one it always was.
+    # was produced under (ADR-0024 D2). Every score this package produces is
+    # pinned to one of the two CBA versions, so the check is the one it always
+    # was; a pin naming anything else is refused rather than read as CBA.
     registry = _registry_for_score(score.registry_version)
     assert_registry_approved(registry=registry)
     spec_by_key = registry.spec_by_key
