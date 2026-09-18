@@ -98,11 +98,67 @@ describe("<ExerciseResultsChart /> with nothing to draw", () => {
   });
 });
 
+/**
+ * Every place the title could reach a screen reader.
+ *
+ * An accessible name arrives either as an `aria-label`, as the text of a node
+ * that names something else (a heading referenced through `aria-labelledby`),
+ * or as the text of a naming element — an SVG `<title>`, a `<figcaption>`, a
+ * table `<caption>`. Counting all three is how a test notices the title being
+ * announced more than once; counting only roles would miss a duplicate that
+ * merely repeats the words.
+ */
+function titleAnnouncements(container: HTMLElement, title: string): readonly string[] {
+  const labels = Array.from(container.querySelectorAll("[aria-label]"))
+    .filter((node) => node.getAttribute("aria-label") === title)
+    .map((node) => `aria-label on <${node.tagName.toLowerCase()}>`);
+
+  const namingElements = Array.from(container.querySelectorAll("caption, figcaption, title"))
+    .filter((node) => (node.textContent ?? "").includes(title))
+    .map((node) => `<${node.tagName.toLowerCase()}> text`);
+
+  const textNodes = Array.from(container.querySelectorAll("h1, h2, h3, h4, h5, h6, p, span"))
+    .filter((node) => (node.textContent ?? "").trim() === title)
+    .map((node) => `<${node.tagName.toLowerCase()}> text`);
+
+  return [...labels, ...namingElements, ...textNodes];
+}
+
+describe("<ExerciseResultsChart /> accessible name", () => {
+  it("announces the title exactly once", () => {
+    const { container } = render(
+      <ExerciseResultsChart title="Northline results" series={[teamPanel]} />,
+    );
+
+    expect(titleAnnouncements(container, "Northline results")).toEqual(["<h2> text"]);
+  });
+
+  it("gives the chart graphic exactly one accessible name, and it is the title", () => {
+    render(<ExerciseResultsChart title="Northline results" series={[teamPanel]} />);
+
+    expect(screen.getAllByRole("img", { name: "Northline results" })).toHaveLength(1);
+    expect(screen.queryAllByRole("region", { name: "Northline results" })).toHaveLength(0);
+  });
+
+  it("announces the title exactly once in the empty state too", () => {
+    const { container } = render(<ExerciseResultsChart title="Northline results" series={[]} />);
+
+    expect(titleAnnouncements(container, "Northline results")).toEqual(["<h2> text"]);
+  });
+
+  it("keeps every count reachable, so nothing is hidden from assistive tech", () => {
+    render(<ExerciseResultsChart title="Northline results" series={[teamPanel]} />);
+
+    const table = screen.getByTestId("exercise-results-table");
+    expect(table.closest("[aria-hidden='true']")).toBeNull();
+    expect(within(table).getByRole("row", { name: /Your list/ })).toBeTruthy();
+  });
+});
+
 describe("<ExerciseResultsChart /> with counts", () => {
   it("names the chart accessibly", () => {
     render(<ExerciseResultsChart title="Northline results" series={[teamPanel]} />);
 
-    expect(screen.getByRole("region", { name: "Northline results" })).toBeTruthy();
     expect(screen.getByRole("img", { name: "Northline results" })).toBeTruthy();
   });
 
