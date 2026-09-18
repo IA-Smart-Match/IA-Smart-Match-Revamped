@@ -359,18 +359,27 @@ jobs:
         # ship" is not the same as "it cannot hurt us".
         #
         # This is deliberately a SECOND step rather than a relaxation of the
-        # first. The runtime gate keeps its own verdict and its own failure
-        # message; this one covers the rest of the tree at the same
-        # --audit-level=high threshold.
+        # first. The runtime gate keeps its own verdict, its own failure
+        # message and its own --omit=dev scope at --audit-level=high; this one
+        # covers the rest of the tree, and gates one level lower.
         #
         # Threshold chosen from evidence, not from what happens to be green:
-        # on this lock the full tree reports 2 moderate advisories
+        # when this step landed, the full tree reported 2 moderate advisories
         # (GHSA-82fw-gwwq-j7x9, @vitest/mocker <= 4.1.10 reached through
-        # vitest), whose only fix today is a breaking major bump. Gating at
-        # moderate would therefore fail the branch on day one for a
-        # dev-only path traversal; gating at high is a stated gap, recorded on
-        # the PR, NOT a claim that those two advisories are harmless. Raise
-        # this to moderate once the vitest bump lands.
+        # vitest), whose only fix npm offered was a breaking major bump to
+        # vitest@5, which does not run on this job's Node 20. So the step
+        # shipped gated at high, with that gap stated on PR #164 rather than
+        # dressed up as a verdict that the advisories were harmless. vitest
+        # 4.1.11 carries the patched @vitest/mocker, keeps Node 20 in engines
+        # and keeps the vite ^6 peer, so the bump landed and the full tree now
+        # reports 0 advisories at every severity. The gap is closed, so the
+        # gate moves to moderate: a moderate advisory anywhere in the tree —
+        # dev tooling included — now FAILS this step instead of only warning.
+        #
+        # The threshold lives in TWO places and both must move together: the
+        # --audit-level flag only shapes npm's human-readable output, while
+        # the verdict below is what actually decides the step. Changing the
+        # flag alone changes nothing.
         #
         # Mechanics are the ones the step above justifies in full:
         # --package-lock-only against the lockfileVersion 3 lock, `timeout 120`
@@ -387,7 +396,7 @@ jobs:
           reported=
           for attempt in 1 2 3; do
             set +e
-            timeout 120 npm audit --audit-level=high \
+            timeout 120 npm audit --audit-level=moderate \
               --package-lock-only --json --loglevel=http \
               > "$REPORT" 2> "$AUDIT_STDERR"
             status=$?
@@ -414,14 +423,14 @@ jobs:
           fi
           node -e 'const v = require(process.env.REPORT).metadata.vulnerabilities;
             console.log(JSON.stringify(v));
-            const below = (v.moderate || 0) + (v.low || 0);
+            const below = (v.low || 0) + (v.info || 0);
             if (below > 0) {
               console.log("::warning::" + below +
-                " advisory/advisories below the high gate in the full dependency tree" +
+                " advisory/advisories below the moderate gate in the full dependency tree" +
                 " (dev included) — visible, not gated");
             }
-            if ((v.high || 0) + (v.critical || 0) > 0) {
-              console.log("::error::high or critical advisory in the full dependency tree (dev included)");
+            if ((v.moderate || 0) + (v.high || 0) + (v.critical || 0) > 0) {
+              console.log("::error::moderate, high or critical advisory in the full dependency tree (dev included)");
               process.exit(1);
             }'
 
