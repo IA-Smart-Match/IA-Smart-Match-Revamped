@@ -33,6 +33,15 @@
  * nothing to draw and the component says so. It never substitutes example
  * data, and there is no fallback dataset in this file.
  *
+ * ## The title is written once and announced once
+ *
+ * The visible heading is the chart's only name. The graphic points at it with
+ * `aria-labelledby`, so the words exist in one place and a screen reader
+ * reaches them once; the wrapper carries no `aria-label`, and the table's
+ * caption says what the table is rather than repeating the heading. Naming the
+ * same thing in several ways does not make it clearer — it makes the title
+ * arrive three or four times before any count does.
+ *
  * ## Readable at classroom distance, and not by colour alone
  *
  * Large type throughout; every bar carries its value as a direct label, so
@@ -41,6 +50,7 @@
  * whole chart is repeated as a real `<table>` for screen readers and for
  * anyone the colours fail.
  */
+import { useId } from "react";
 import { Bar, BarChart, CartesianGrid, LabelList, Legend, XAxis, YAxis } from "recharts";
 
 /**
@@ -139,10 +149,14 @@ export function ExerciseResultsChart({
   caption,
   emptyMessage = "No results to show yet. Run the results for this event to see the counts here.",
 }: ExerciseResultsChartProps): JSX.Element {
+  const headingId = `${useId()}-exercise-results-title`;
+
   if (!hasDrawableCounts(series)) {
     return (
-      <section aria-label={title} data-testid="exercise-results-chart-empty">
-        <h2 style={{ fontSize: 30, margin: "0 0 12px" }}>{title}</h2>
+      <section data-testid="exercise-results-chart-empty">
+        <h2 id={headingId} style={{ fontSize: 30, margin: "0 0 12px" }}>
+          {title}
+        </h2>
         <p style={{ fontSize: 24, lineHeight: 1.4 }}>{emptyMessage}</p>
       </section>
     );
@@ -162,15 +176,17 @@ export function ExerciseResultsChart({
   );
 
   return (
-    <section aria-label={title} data-testid="exercise-results-chart">
-      <h2 style={{ fontSize: 30, margin: "0 0 12px" }}>{title}</h2>
+    <section data-testid="exercise-results-chart">
+      <h2 id={headingId} style={{ fontSize: 30, margin: "0 0 12px" }}>
+        {title}
+      </h2>
 
       <BarChart
         width={880}
         height={460}
         data={rows}
         role="img"
-        aria-label={title}
+        aria-labelledby={headingId}
         margin={{ top: 32, right: 24, bottom: 16, left: 16 }}
       >
         <defs>
@@ -222,7 +238,7 @@ export function ExerciseResultsChart({
 
       <table data-testid="exercise-results-table" style={{ fontSize: 22, borderCollapse: "collapse" }}>
         <caption style={{ fontSize: 22, textAlign: "left" }}>
-          {title} — the same counts as a table.
+          The same counts as a table.
         </caption>
         <thead>
           <tr>
