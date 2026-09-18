@@ -85,6 +85,15 @@ export const CBA_CAPABILITY_POLICY = {
   chapter_membership_dues: false,
   /** Presenting `member_inquiry` as a CBA funnel outcome. No CBA equivalent. */
   member_inquiry_narrative: false,
+  /**
+   * The Spring 2027 class exercise (ADR-0025 D1).
+   *
+   * `false` here does not mean "a CBA feature switched off this phase". It
+   * means *this build is not that product*: the exercise is its own
+   * `ProductScope`, served by its own process over its own made-up rows, with
+   * no login and no tenant. This app never asks for it and expects a yes.
+   */
+  class_exercise: false,
 } as const;
 
 /** A named product capability. Derived from the policy so the two cannot drift. */

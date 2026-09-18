@@ -42,7 +42,7 @@ from smartmatch_providers import build_token_verifier
 from starlette.datastructures import Headers
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from smartmatch_api.config import get_settings
+from smartmatch_api.config import Settings, get_settings
 from smartmatch_api.errors import EXCEPTION_HANDLERS, ErrorEnvelope, error_response
 from smartmatch_api.routers import (
     attendance,
@@ -247,23 +247,42 @@ for exception_type, handler in EXCEPTION_HANDLERS.items():
 # for an oversized body. See MaxBodySizeMiddleware's docstring.
 app.add_middleware(MaxBodySizeMiddleware, max_bytes=MAX_REQUEST_BODY_BYTES)
 
-# Infrastructure routers: the durable command/job substrate every capability
-# rides on, and the operator paths that keep it honest. They are not a product
-# capability of their own — there is no version of this product that offers
-# match runs but not the job lifecycle that carries them — so they are mounted
-# unconditionally rather than classified below.
-app.include_router(jobs.router)
-app.include_router(redrive.router)
-app.include_router(engagement.router)
-app.include_router(review.router)
-# The unit-scoped half of the same resource: `GET /v1/units/{unit_id}/review-items`,
-# the queue behind the `pending_review_items` badge `routers/metrics.py` already
-# published. Mounted here rather than folded into `review.router` because the two
-# prefixes genuinely differ — `/v1/units` against `/v1/review-items` — and a
-# FastAPI prefix cannot be escaped per-route. Unconditional, beside the decision
-# route it is the read half of: a route that lists what another route decides
-# should not be able to disappear separately from it.
-app.include_router(review.unit_router)
+#: Infrastructure routers: the durable command/job substrate every capability
+#: rides on, and the operator paths that keep it honest. They are not a product
+#: capability of their own — there is no version of this product that offers
+#: match runs but not the job lifecycle that carries them — so they are not
+#: classified in the capability table below.
+#:
+#: They are, however, every one of them *principal-bearing*: each route here
+#: resolves a principal and authorizes against a tenant. So they ride
+#: `AUTHENTICATED_LOGIN` — not as a product decision about the job substrate,
+#: but as the plain statement that a product with no login has nobody to serve
+#: them to. ADR-0025 D1 requires the authenticated CBA routers to be *absent*
+#: from the route table in the class-exercise scope, so that
+#: `get_current_principal` is unreachable rather than bypassed (D9 rejected the
+#: per-route bypass). Leaving these five mounted unconditionally would have made
+#: that statement false for five routers while the table made it true for the
+#: rest.
+#:
+#: Under both scopes that have a login — `cba` and `ia_west_legacy` — this
+#: mounts exactly what mounting them unconditionally did, so the served contract
+#: is unchanged.
+#:
+#: `review.unit_router` is the unit-scoped half of the same resource:
+#: `GET /v1/units/{unit_id}/review-items`, the queue behind the
+#: `pending_review_items` badge `routers/metrics.py` already published. Listed
+#: separately rather than folded into `review.router` because the two prefixes
+#: genuinely differ — `/v1/units` against `/v1/review-items` — and a FastAPI
+#: prefix cannot be escaped per-route. It stays beside the decision route it is
+#: the read half of: a route that lists what another route decides should not be
+#: able to disappear separately from it.
+PRINCIPAL_BEARING_INFRASTRUCTURE_ROUTERS: Final[tuple[APIRouter, ...]] = (
+    jobs.router,
+    redrive.router,
+    engagement.router,
+    review.router,
+    review.unit_router,
+)
 
 #: Every router that answers to a named product capability, paired with the
 #: capability it serves.
@@ -524,9 +543,33 @@ CAPABILITY_SCOPED_ROUTERS: Final[tuple[tuple[APIRouter, Capability], ...]] = (
     (manual_events.public_router, Capability.EVENT_READS),
 )
 
-for _capability_router, _required_capability in CAPABILITY_SCOPED_ROUTERS:
-    if get_settings().capability_enabled(_required_capability):
-        app.include_router(_capability_router)
+def routers_for(settings: Settings) -> tuple[APIRouter, ...]:
+    """Every router a process configured by ``settings`` mounts, in mount order.
+
+    The composition rule as a function, so "which routes does this product
+    serve" can be answered — by a test, or by a reader — without booting a
+    second interpreter to observe the answer. The application below is built
+    from it, so there is one rule rather than a rule and a description of it.
+
+    Mounting is decided once, at import, from the settings the process booted
+    with. This function is pure and takes its settings as an argument; it is
+    *not* a per-request hook, and calling it with other settings does not change
+    the running application.
+    """
+    infrastructure = (
+        PRINCIPAL_BEARING_INFRASTRUCTURE_ROUTERS
+        if settings.capability_enabled(Capability.AUTHENTICATED_LOGIN)
+        else ()
+    )
+    return infrastructure + tuple(
+        router
+        for router, capability in CAPABILITY_SCOPED_ROUTERS
+        if settings.capability_enabled(capability)
+    )
+
+
+for _mounted_router in routers_for(get_settings()):
+    app.include_router(_mounted_router)
 
 
 @app.get("/api/health", tags=["operations"], summary="Liveness probe")

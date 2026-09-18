@@ -79,12 +79,12 @@ _IA_WEST_LEGACY_BEFORE: dict[str, bool] = {
 _AUTHENTICATED_CBA_PATH_PREFIXES = (
     "/v1/jobs",
     "/v1/review-items",
-    "/v1/units",
-    "/v1/events",
     "/v1/me",
-    "/v1/match-runs",
-    "/v1/metrics",
-    "/v1/rewards",
+    "/v1/auth",
+    # Every tenant-scoped surface: events, match runs, metrics, rewards,
+    # outreach, the roster, the funnel. All of them resolve a principal and
+    # authorize against the unit in the path.
+    "/v1/units",
 )
 
 
@@ -274,10 +274,12 @@ def test_the_composition_function_describes_the_running_app() -> None:
     from smartmatch_api.main import app
 
     served = set(app.openapi()["paths"])
-    assert _mounted_paths_under(DEFAULT_PRODUCT_SCOPE) <= served
-    assert served - _mounted_paths_under(DEFAULT_PRODUCT_SCOPE) <= {"/api/health", "/u/{token}"} | {
-        path for path in served if path.startswith("/r/")
-    }
+    mounted = _mounted_paths_under(DEFAULT_PRODUCT_SCOPE)
+    assert mounted <= served
+    # The only served paths `routers_for` does not account for are the three
+    # declared on the application itself: liveness, and the two token-addressed
+    # HTML pages. Nothing else may appear without going through the rule.
+    assert served - mounted == {"/api/health", "/u/{token}", "/i/{token}"}
 
 
 def test_the_legacy_scope_is_untouched_by_the_gating() -> None:
