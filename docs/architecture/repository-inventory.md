@@ -194,11 +194,42 @@ OIDC with *separate audiences and separate service-account allowlists*
 | image hardening probes | `build.yml` `images` | Non-root, read-only app dir, no `.env`/history/tests in image, SIGTERM |
 | compose smoke + pilot e2e | `build.yml` | 26 numbered end-to-end steps |
 
+**Updated 2026-09-18 — the `web` row above is no longer the whole job.** As of
+this date `.github/workflows/verify.yml`'s `web` job (named *web — install,
+types, build, audit*) runs five steps, not three:
+
+| Step | Command | What it asserts |
+|---|---|---|
+| Install locked dependencies | `npm ci --no-audit --no-fund` | The lock installs |
+| Typecheck and build | `npm run build` → `npm run typecheck && vite build` | `tsc --noEmit`, then a production build |
+| Component tests | `npm run test:components` → `vitest run` | The `src` tree's rendered-DOM assertions |
+| Audit dependency vulnerabilities | `npm audit --audit-level=high --omit=dev --package-lock-only` | Runtime advisories; the verdict is read from the JSON counts and **fails on high + critical** |
+| Audit dependency vulnerabilities (including dev) | `npm audit --audit-level=high --package-lock-only` | The full tree, dev tooling included; on `main` today this gate is also **high + critical**, with anything below it printed as a warning |
+
+Two qualifications on that table:
+
+- The dev-included gate's threshold is the one on `main` **at the time of
+  writing**. Open PR #172 *proposes* raising it to `--audit-level=moderate` (a
+  moderate advisory anywhere in the tree would then fail the step) alongside a
+  `vitest` 4.1.11 bump. That is a proposal, not current behaviour, and is not
+  described here as current.
+- The component-test step is scoped by `apps/web/legacy-frontend/vitest.config.ts`
+  to `include: ["src/**/*.test.tsx"]` — **two** files today
+  (`src/app/pages/exercise/ExerciseResultsChart.test.tsx`,
+  `ProfilePointsCounter.test.tsx`).
+
 **OBSERVED — gap.** The `web` CI job runs `npm ci`, `npm run build` and
 `npm audit`. It does **not** run `npm test`, although
 `package.json` defines `"test": "node --test tests/*.test.ts"` and eight test
 files exist under `apps/web/legacy-frontend/tests/`. Those tests are never
 executed by any workflow. See `risk-register.md` R-09.
+
+**Updated 2026-09-18.** The gap above is narrower but **not closed**. The `web`
+job now runs `npm run test:components` (`vitest run`), which covers only
+`src/**/*.test.tsx`. `npm test` — the `node --test tests/*.test.ts` suite — is
+still invoked by no workflow (`grep -rn "npm test" .github/` returns nothing),
+and that directory now holds **24** files rather than eight, including
+`queryClient.principal-isolation.test.ts`. R-09 stands as written.
 
 **OBSERVED — gap.** `pytest --cov` names only the four `python/` packages.
 `services/api` (≈14k lines) and `services/worker` (≈7k lines) are exercised by
