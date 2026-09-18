@@ -705,6 +705,58 @@ CHECK_CONSTRAINT_DEFINITIONS = {
     ("host_organization", "ck_host_organization_logistics_contact_shape"): (
         "CHECK (((logistics_contact IS NULL) OR (length(btrim(logistics_contact)) > 0)))"
     ),
+    # --- The class-exercise tables (migration 0037) -----------------------
+    #
+    # Exercised below rather than in the revision's own file, which is the
+    # opposite of the 0035/0036 convention and is deliberate: the exercise
+    # family carries no tenancy at all (ADR-0025 D2), so none of these rows can
+    # be built by the tenant-scoped helpers the rest of this file uses, and
+    # test_exercise_schema_migration.py is about the *shape* of the eight
+    # tables rather than about the values they refuse. The builders and the
+    # attempted writes are together in the "Migration 0037" section below.
+    #
+    # Two of these are worth reading twice. `ck_exercise_team_workspace_team_number`
+    # is the ceiling Ann's six teams are counted against — a seventh team is a
+    # refusal rather than a warning. And
+    # `ck_exercise_team_workspace_refresh_after_choice` is the §13 ordering
+    # rule: a refresh recorded before the team has chosen would attribute a
+    # share to a choice that was never made.
+    ("exercise_dataset", "ck_exercise_dataset_invite_limit"): "CHECK ((invite_limit >= 1))",
+    ("exercise_dataset", "ck_exercise_dataset_label_shape"): (
+        "CHECK (((length(btrim(label)) > 0) AND (length(label) <= 200)))"
+    ),
+    ("exercise_dataset", "ck_exercise_dataset_row_count"): "CHECK ((row_count >= 0))",
+    ("exercise_event", "ck_exercise_event_key_shape"): ("CHECK ((length(btrim(event_key)) > 0))"),
+    ("exercise_event", "ck_exercise_event_name_shape"): "CHECK ((length(btrim(name)) > 0))",
+    ("exercise_event", "ck_exercise_event_sequence"): "CHECK ((sequence >= 1))",
+    ("exercise_profile", "ck_exercise_profile_display_name_shape"): (
+        "CHECK ((length(btrim(display_name)) > 0))"
+    ),
+    ("exercise_profile", "ck_exercise_profile_profile_no"): "CHECK ((profile_no >= 1))",
+    # `round IN (1, 2)` as written in the migration; PostgreSQL renders every
+    # `IN` as `= ANY (ARRAY[...])`, which is why this is pinned as rendered
+    # rather than as declared.
+    ("exercise_result_run", "ck_exercise_result_run_round"): (
+        "CHECK ((round = ANY (ARRAY[1, 2])))"
+    ),
+    ("exercise_result_run", "ck_exercise_result_run_seats_empty"): "CHECK ((seats_empty >= 0))",
+    ("exercise_saved_setting", "ck_exercise_saved_setting_name_shape"): (
+        "CHECK (((length(btrim(name)) > 0) AND (length(name) <= 100)))"
+    ),
+    ("exercise_team_workspace", "ck_exercise_team_workspace_asking_choice"): (
+        "CHECK (((asking_choice IS NULL) OR (asking_choice = ANY "
+        "(ARRAY['better_recommendations'::text, 'small_reward'::text, 'required'::text]))))"
+    ),
+    ("exercise_team_workspace", "ck_exercise_team_workspace_refresh_after_choice"): (
+        "CHECK (((refreshed_at IS NULL) OR (asking_choice IS NOT NULL)))"
+    ),
+    # `team_number BETWEEN 1 AND 6` as written; PostgreSQL expands BETWEEN.
+    ("exercise_team_workspace", "ck_exercise_team_workspace_team_number"): (
+        "CHECK (((team_number >= 1) AND (team_number <= 6)))"
+    ),
+    ("exercise_team_workspace", "ck_exercise_team_workspace_token_hash_shape"): (
+        "CHECK ((length(btrim(workspace_token_hash)) > 0))"
+    ),
 }
 
 #: Where each constraint's forbidden and permitted writes are attempted. Six are
@@ -1278,6 +1330,90 @@ BEHAVIOURAL_COVERAGE = {
         "0036 added, test_host_organization_migration.py"
         "::test_a_blank_descriptive_field_is_refused[logistics_contact]. Permitted half: "
         "::test_a_fully_described_organization_is_stored"
+    ),
+    # --- The class-exercise tables (migration 0037) -----------------------
+    #
+    # In this file, for the reason the matching block of
+    # CHECK_CONSTRAINT_DEFINITIONS gives: no exercise row has a tenant, so none
+    # of them can be built by the helpers the 0034-0036 files use.
+    ("exercise_dataset", "ck_exercise_dataset_label_shape"): (
+        "0037 added, ::test_exercise_dataset_label_rejects_a_blank_or_overlong_label — '   ' "
+        "and 201 characters, the two ends. The permitted half is "
+        "::test_exercise_dataset_accepts_a_labelled_dataset, which writes a real label and "
+        "the 200-character boundary the constraint still admits"
+    ),
+    ("exercise_dataset", "ck_exercise_dataset_row_count"): (
+        "0037 added, ::test_exercise_dataset_rejects_a_negative_row_count. Permitted half: "
+        "::test_exercise_dataset_accepts_zero_and_positive_row_counts — zero is the "
+        "uploaded-but-empty spreadsheet, which is a real state rather than an error"
+    ),
+    ("exercise_dataset", "ck_exercise_dataset_invite_limit"): (
+        "0037 added, ::test_exercise_dataset_rejects_an_invite_limit_below_one. The floor is "
+        "1 rather than 0 because a dataset nobody can be invited to is not a runnable "
+        "exercise. Permitted half: ::test_exercise_dataset_accepts_an_invite_limit_of_one"
+    ),
+    ("exercise_profile", "ck_exercise_profile_profile_no"): (
+        "0037 added, ::test_exercise_profile_rejects_a_profile_number_below_one. Permitted "
+        "half: ::test_exercise_profile_accepts_a_numbered_named_profile"
+    ),
+    ("exercise_profile", "ck_exercise_profile_display_name_shape"): (
+        "0037 added, ::test_exercise_profile_rejects_a_blank_display_name, which inserts "
+        "'   '. The column is NOT NULL, so a blank is the only way a nameless profile could "
+        "reach a team's screen — it would render as an empty card. Permitted half: "
+        "::test_exercise_profile_accepts_a_numbered_named_profile"
+    ),
+    ("exercise_event", "ck_exercise_event_sequence"): (
+        "0037 added, ::test_exercise_event_rejects_a_sequence_below_one. Permitted half: "
+        "::test_exercise_event_accepts_a_well_formed_event"
+    ),
+    ("exercise_event", "ck_exercise_event_key_shape"): (
+        "0037 added, ::test_exercise_event_rejects_a_blank_key_or_name[event_key], which "
+        "inserts '   '. event_key is half the primary key and what every child table "
+        "references, so a blank one is an event nothing can name. Permitted half: "
+        "::test_exercise_event_accepts_a_well_formed_event"
+    ),
+    ("exercise_event", "ck_exercise_event_name_shape"): (
+        "0037 added, ::test_exercise_event_rejects_a_blank_key_or_name[name]. Permitted "
+        "half: ::test_exercise_event_accepts_a_well_formed_event"
+    ),
+    ("exercise_team_workspace", "ck_exercise_team_workspace_team_number"): (
+        "0037 added, ::test_exercise_workspace_rejects_a_team_number_outside_one_to_six — 0 "
+        "and 7, both ends, which is what makes this a range rather than a floor. A seventh "
+        "team is the case the exercise actually meets. Permitted half: "
+        "::test_exercise_workspace_accepts_every_team_number_in_range, which writes all six. "
+        "Also reached by test_exercise_schema_migration.py::test_a_seventh_team_is_refused"
+    ),
+    ("exercise_team_workspace", "ck_exercise_team_workspace_token_hash_shape"): (
+        "0037 added, ::test_exercise_workspace_rejects_a_blank_token_hash, which inserts "
+        "'   '. Permitted half: ::test_exercise_workspace_accepts_every_team_number_in_range"
+    ),
+    ("exercise_team_workspace", "ck_exercise_team_workspace_asking_choice"): (
+        "0037 added, ::test_exercise_workspace_rejects_an_asking_choice_outside_the_vocabulary. "
+        "Permitted half: ::test_exercise_workspace_accepts_every_asking_choice_and_none_at_all "
+        "— the three values and NULL, NULL being 'has not chosen', which is the "
+        "three-valued-logic case a vocabulary test misses"
+    ),
+    ("exercise_team_workspace", "ck_exercise_team_workspace_refresh_after_choice"): (
+        "0037 added, ::test_exercise_workspace_rejects_a_refresh_before_a_choice — a "
+        "refreshed_at with no asking_choice, on INSERT and on UPDATE. Permitted half: "
+        "::test_exercise_workspace_accepts_a_refresh_after_a_choice and the unrefreshed "
+        "rows of ::test_exercise_workspace_accepts_every_asking_choice_and_none_at_all"
+    ),
+    ("exercise_saved_setting", "ck_exercise_saved_setting_name_shape"): (
+        "0037 added, ::test_exercise_saved_setting_rejects_a_blank_or_overlong_name — '   ' "
+        "and 101 characters. Permitted half: "
+        "::test_exercise_saved_setting_accepts_a_named_setting, which writes a real name and "
+        "the 100-character boundary"
+    ),
+    ("exercise_result_run", "ck_exercise_result_run_round"): (
+        "0037 added, ::test_exercise_result_run_rejects_a_round_outside_one_and_two — 0 and "
+        "3. The exercise has exactly two rounds (§9), so this is a closed vocabulary rather "
+        "than a bound. Permitted half: ::test_exercise_result_run_accepts_both_rounds"
+    ),
+    ("exercise_result_run", "ck_exercise_result_run_seats_empty"): (
+        "0037 added, ::test_exercise_result_run_rejects_negative_empty_seats. Permitted "
+        "half: ::test_exercise_result_run_accepts_both_rounds, which records zero empty "
+        "seats — the full-event case"
     ),
 }
 
@@ -2069,6 +2205,537 @@ def test_pilot_login_attempt_count_accepts_zero_and_above(engine: Engine) -> Non
     with engine.begin() as conn:
         _insert_pilot_login_attempt(conn, caller_key=f"caller-{uuid.uuid4()}", count=0)
         _insert_pilot_login_attempt(conn, caller_key=f"caller-{uuid.uuid4()}", count=1)
+
+
+# ---------------------------------------------------------------------------
+# Migration 0037's class-exercise constraints
+#
+# These rows take no `tenant_id` fixture, and that is the point rather than an
+# omission: ADR-0025 D2 gives the exercise family no tenancy column and no
+# foreign key out of itself, so every helper above — each of which threads a
+# tenant through — is the wrong instrument here. The builders below are the
+# exercise-shaped equivalents.
+#
+# `exercise_dataset` is the root every other table cascades from, so the
+# `exercise_dataset` fixture is also the cleanup: deleting the dataset removes
+# the profiles, events, workspaces, settings and runs hung off it. Without that
+# these rows would outlive the session, and the autouse truncation fixture in
+# conftest.py does not know these eight tables.
+# ---------------------------------------------------------------------------
+
+#: A JSONB literal standing in for §6's four weights. Its contents are the
+#: domain's business (``validate_weight_overrides``) and nothing this file
+#: asserts, so it is a constant rather than a parameter.
+_EXERCISE_WEIGHTS = '{"interest": 1.0, "major": 1.0, "history": 1.0, "goal": 1.0}'
+
+#: §10's second panel, likewise stored as written and not inspected here.
+_EXERCISE_EMAIL_EVERYONE = '{"invited": 0, "signed_up": 0, "attended": 0}'
+
+
+@pytest.fixture
+def exercise_dataset(engine: Engine):
+    """A dataset builder whose rows are removed when the test ends.
+
+    Yields a callable rather than an id because three of the constraints under
+    test are *on* ``exercise_dataset`` — a fixture that had already inserted a
+    valid row could not be used to attempt an invalid one. Ids are registered
+    as they are handed out, including ids whose INSERT then fails: that
+    transaction rolls back, so the teardown delete simply matches nothing.
+    """
+    created: list[uuid.UUID] = []
+
+    def make(conn, **kwargs) -> uuid.UUID:
+        dataset_id = uuid.uuid4()
+        created.append(dataset_id)
+        _insert_exercise_dataset(conn, dataset_id, **kwargs)
+        return dataset_id
+
+    yield make
+
+    with engine.begin() as conn:
+        for dataset_id in created:
+            conn.execute(text("DELETE FROM exercise_dataset WHERE id = :id"), {"id": dataset_id})
+
+
+def _insert_exercise_dataset(
+    conn,
+    dataset_id: uuid.UUID,
+    *,
+    label: str = "Ann's section, autumn",
+    row_count: int = 3,
+    invite_limit: int = 30,
+) -> None:
+    conn.execute(
+        text(
+            "INSERT INTO exercise_dataset "
+            "(id, label, source_filename, row_count, checksum, invite_limit) "
+            "VALUES (:id, :label, :filename, :row_count, :checksum, :invite_limit)"
+        ),
+        {
+            "id": dataset_id,
+            "label": label,
+            "filename": f"roster-{dataset_id.hex[:8]}.xlsx",
+            "row_count": row_count,
+            "checksum": dataset_id.hex,
+            "invite_limit": invite_limit,
+        },
+    )
+
+
+def _insert_exercise_profile(
+    conn,
+    dataset_id: uuid.UUID,
+    *,
+    profile_no: int = 1,
+    display_name: str = "Robin Ellery",
+) -> None:
+    conn.execute(
+        text(
+            "INSERT INTO exercise_profile (dataset_id, profile_no, display_name) "
+            "VALUES (:dataset_id, :profile_no, :display_name)"
+        ),
+        {"dataset_id": dataset_id, "profile_no": profile_no, "display_name": display_name},
+    )
+
+
+def _insert_exercise_event(
+    conn,
+    dataset_id: uuid.UUID,
+    *,
+    event_key: str | None = None,
+    name: str = "Careers in public health",
+    sequence: int = 1,
+) -> str:
+    key = event_key if event_key is not None else f"evt-{uuid.uuid4().hex[:12]}"
+    conn.execute(
+        text(
+            "INSERT INTO exercise_event (dataset_id, event_key, name, sequence) "
+            "VALUES (:dataset_id, :event_key, :name, :sequence)"
+        ),
+        {"dataset_id": dataset_id, "event_key": key, "name": name, "sequence": sequence},
+    )
+    return key
+
+
+def _insert_exercise_workspace(
+    conn,
+    dataset_id: uuid.UUID,
+    *,
+    workspace_id: uuid.UUID | None = None,
+    team_number: int = 1,
+    workspace_token_hash: str | None = None,
+    asking_choice: str | None = None,
+    refreshed_at: str | None = None,
+) -> uuid.UUID:
+    identifier = workspace_id if workspace_id is not None else uuid.uuid4()
+    conn.execute(
+        text(
+            "INSERT INTO exercise_team_workspace "
+            "(id, dataset_id, team_number, workspace_token_hash, seed, asking_choice, "
+            "refreshed_at) "
+            "VALUES (:id, :dataset_id, :team_number, :token_hash, :seed, :asking_choice, "
+            ":refreshed_at)"
+        ),
+        {
+            "id": identifier,
+            "dataset_id": dataset_id,
+            "team_number": team_number,
+            "token_hash": (
+                workspace_token_hash
+                if workspace_token_hash is not None
+                else f"hash-{uuid.uuid4().hex}"
+            ),
+            "seed": 1,
+            "asking_choice": asking_choice,
+            "refreshed_at": refreshed_at,
+        },
+    )
+    return identifier
+
+
+def _insert_exercise_saved_setting(
+    conn,
+    dataset_id: uuid.UUID,
+    workspace_id: uuid.UUID,
+    event_key: str,
+    *,
+    name: str = "Interest-led",
+) -> None:
+    conn.execute(
+        text(
+            "INSERT INTO exercise_saved_setting "
+            "(id, workspace_id, dataset_id, event_key, name, weights) "
+            "VALUES (:id, :workspace_id, :dataset_id, :event_key, :name, "
+            "CAST(:weights AS jsonb))"
+        ),
+        {
+            "id": uuid.uuid4(),
+            "workspace_id": workspace_id,
+            "dataset_id": dataset_id,
+            "event_key": event_key,
+            "name": name,
+            "weights": _EXERCISE_WEIGHTS,
+        },
+    )
+
+
+def _insert_exercise_result_run(
+    conn,
+    dataset_id: uuid.UUID,
+    workspace_id: uuid.UUID,
+    event_key: str,
+    *,
+    round_: int = 1,
+    seats_empty: int = 0,
+) -> None:
+    conn.execute(
+        text(
+            "INSERT INTO exercise_result_run "
+            "(id, workspace_id, dataset_id, event_key, round, email_everyone, seats_empty) "
+            "VALUES (:id, :workspace_id, :dataset_id, :event_key, :round, "
+            "CAST(:email_everyone AS jsonb), :seats_empty)"
+        ),
+        {
+            "id": uuid.uuid4(),
+            "workspace_id": workspace_id,
+            "dataset_id": dataset_id,
+            "event_key": event_key,
+            "round": round_,
+            "email_everyone": _EXERCISE_EMAIL_EVERYONE,
+            "seats_empty": seats_empty,
+        },
+    )
+
+
+# --- exercise_dataset ------------------------------------------------------
+
+
+@pytest.mark.parametrize("label", ["   ", "x" * 201])
+def test_exercise_dataset_label_rejects_a_blank_or_overlong_label(
+    engine: Engine, exercise_dataset, label: str
+) -> None:
+    """Both ends. A one-sided test would miss the half that was dropped."""
+    with (
+        pytest.raises(IntegrityError, match="ck_exercise_dataset_label_shape"),
+        engine.begin() as conn,
+    ):
+        exercise_dataset(conn, label=label)
+
+
+def test_exercise_dataset_accepts_a_labelled_dataset(engine: Engine, exercise_dataset) -> None:
+    """Including the 200-character boundary, which the constraint still admits."""
+    with engine.begin() as conn:
+        exercise_dataset(conn, label="Ann's section, autumn")
+        exercise_dataset(conn, label="x" * 200)
+
+
+def test_exercise_dataset_rejects_a_negative_row_count(engine: Engine, exercise_dataset) -> None:
+    with (
+        pytest.raises(IntegrityError, match="ck_exercise_dataset_row_count"),
+        engine.begin() as conn,
+    ):
+        exercise_dataset(conn, row_count=-1)
+
+
+def test_exercise_dataset_accepts_zero_and_positive_row_counts(
+    engine: Engine, exercise_dataset
+) -> None:
+    """Zero is the uploaded-but-empty spreadsheet, which is a state rather than an error."""
+    with engine.begin() as conn:
+        exercise_dataset(conn, row_count=0)
+        exercise_dataset(conn, row_count=1)
+
+
+def test_exercise_dataset_rejects_an_invite_limit_below_one(
+    engine: Engine, exercise_dataset
+) -> None:
+    """The floor is 1, not 0: a dataset nobody can be invited to is not runnable."""
+    with (
+        pytest.raises(IntegrityError, match="ck_exercise_dataset_invite_limit"),
+        engine.begin() as conn,
+    ):
+        exercise_dataset(conn, invite_limit=0)
+
+
+def test_exercise_dataset_accepts_an_invite_limit_of_one(engine: Engine, exercise_dataset) -> None:
+    with engine.begin() as conn:
+        exercise_dataset(conn, invite_limit=1)
+
+
+# --- exercise_profile ------------------------------------------------------
+
+
+def test_exercise_profile_rejects_a_profile_number_below_one(
+    engine: Engine, exercise_dataset
+) -> None:
+    with engine.begin() as conn:
+        dataset_id = exercise_dataset(conn)
+
+    with (
+        pytest.raises(IntegrityError, match="ck_exercise_profile_profile_no"),
+        engine.begin() as conn,
+    ):
+        _insert_exercise_profile(conn, dataset_id, profile_no=0)
+
+
+def test_exercise_profile_rejects_a_blank_display_name(engine: Engine, exercise_dataset) -> None:
+    """The column is NOT NULL, so a blank is the only nameless profile there can be."""
+    with engine.begin() as conn:
+        dataset_id = exercise_dataset(conn)
+
+    with (
+        pytest.raises(IntegrityError, match="ck_exercise_profile_display_name_shape"),
+        engine.begin() as conn,
+    ):
+        _insert_exercise_profile(conn, dataset_id, display_name="   ")
+
+
+def test_exercise_profile_accepts_a_numbered_named_profile(
+    engine: Engine, exercise_dataset
+) -> None:
+    with engine.begin() as conn:
+        dataset_id = exercise_dataset(conn)
+        _insert_exercise_profile(conn, dataset_id, profile_no=1, display_name="Robin Ellery")
+
+
+# --- exercise_event --------------------------------------------------------
+
+
+def test_exercise_event_rejects_a_sequence_below_one(engine: Engine, exercise_dataset) -> None:
+    with engine.begin() as conn:
+        dataset_id = exercise_dataset(conn)
+
+    with (
+        pytest.raises(IntegrityError, match="ck_exercise_event_sequence"),
+        engine.begin() as conn,
+    ):
+        _insert_exercise_event(conn, dataset_id, sequence=0)
+
+
+@pytest.mark.parametrize(
+    ("column", "constraint"),
+    [
+        ("event_key", "ck_exercise_event_key_shape"),
+        ("name", "ck_exercise_event_name_shape"),
+    ],
+    ids=["event_key", "name"],
+)
+def test_exercise_event_rejects_a_blank_key_or_name(
+    engine: Engine, exercise_dataset, column: str, constraint: str
+) -> None:
+    """``event_key`` is half the primary key; a blank one is an event nothing can name.
+
+    The constraint name is a parameter rather than derived from the column,
+    so the assertion names the constraint it expects instead of a string this
+    test built — a blank ``name`` caught by the ``event_key`` constraint would
+    be a real finding, and a derived name could not tell the two apart.
+    """
+    with engine.begin() as conn:
+        dataset_id = exercise_dataset(conn)
+
+    with (
+        pytest.raises(IntegrityError, match=constraint),
+        engine.begin() as conn,
+    ):
+        _insert_exercise_event(conn, dataset_id, **{column: "   "})
+
+
+def test_exercise_event_accepts_a_well_formed_event(engine: Engine, exercise_dataset) -> None:
+    with engine.begin() as conn:
+        dataset_id = exercise_dataset(conn)
+        _insert_exercise_event(conn, dataset_id, name="Careers in public health", sequence=1)
+
+
+# --- exercise_team_workspace -----------------------------------------------
+
+
+@pytest.mark.parametrize("team_number", [0, 7])
+def test_exercise_workspace_rejects_a_team_number_outside_one_to_six(
+    engine: Engine, exercise_dataset, team_number: int
+) -> None:
+    """Both ends, which is what makes this a range rather than a floor.
+
+    The seventh team is the case the exercise actually meets;
+    ``test_exercise_schema_migration.py::test_a_seventh_team_is_refused`` reaches
+    the same constraint from the revision's own file.
+    """
+    with engine.begin() as conn:
+        dataset_id = exercise_dataset(conn)
+
+    with (
+        pytest.raises(IntegrityError, match="ck_exercise_team_workspace_team_number"),
+        engine.begin() as conn,
+    ):
+        _insert_exercise_workspace(conn, dataset_id, team_number=team_number)
+
+
+def test_exercise_workspace_accepts_every_team_number_in_range(
+    engine: Engine, exercise_dataset
+) -> None:
+    with engine.begin() as conn:
+        dataset_id = exercise_dataset(conn)
+        for team_number in range(1, 7):
+            _insert_exercise_workspace(conn, dataset_id, team_number=team_number)
+
+
+def test_exercise_workspace_rejects_a_blank_token_hash(engine: Engine, exercise_dataset) -> None:
+    with engine.begin() as conn:
+        dataset_id = exercise_dataset(conn)
+
+    with (
+        pytest.raises(IntegrityError, match="ck_exercise_team_workspace_token_hash_shape"),
+        engine.begin() as conn,
+    ):
+        _insert_exercise_workspace(conn, dataset_id, workspace_token_hash="   ")
+
+
+def test_exercise_workspace_rejects_an_asking_choice_outside_the_vocabulary(
+    engine: Engine, exercise_dataset
+) -> None:
+    with engine.begin() as conn:
+        dataset_id = exercise_dataset(conn)
+
+    with (
+        pytest.raises(IntegrityError, match="ck_exercise_team_workspace_asking_choice"),
+        engine.begin() as conn,
+    ):
+        _insert_exercise_workspace(conn, dataset_id, asking_choice="whatever_they_typed")
+
+
+@pytest.mark.parametrize(
+    "asking_choice", [None, "better_recommendations", "small_reward", "required"]
+)
+def test_exercise_workspace_accepts_every_asking_choice_and_none_at_all(
+    engine: Engine, exercise_dataset, asking_choice: str | None
+) -> None:
+    """NULL is "has not chosen", which is none of the three and must stay writable."""
+    with engine.begin() as conn:
+        dataset_id = exercise_dataset(conn)
+        _insert_exercise_workspace(conn, dataset_id, asking_choice=asking_choice)
+
+
+def test_exercise_workspace_rejects_a_refresh_before_a_choice(
+    engine: Engine, exercise_dataset
+) -> None:
+    """§13's ordering, on INSERT and on UPDATE.
+
+    The UPDATE half is the one that matters in practice: the row is created
+    without a choice, and the refresh arrives later. A constraint that only
+    held at INSERT would let the same row reach the same forbidden state one
+    statement further on.
+    """
+    with engine.begin() as conn:
+        dataset_id = exercise_dataset(conn)
+
+    with (
+        pytest.raises(IntegrityError, match="ck_exercise_team_workspace_refresh_after_choice"),
+        engine.begin() as conn,
+    ):
+        _insert_exercise_workspace(conn, dataset_id, refreshed_at=_LATE)
+
+    with engine.begin() as conn:
+        workspace_id = _insert_exercise_workspace(conn, dataset_id, team_number=2)
+
+    with (
+        pytest.raises(IntegrityError, match="ck_exercise_team_workspace_refresh_after_choice"),
+        engine.begin() as conn,
+    ):
+        conn.execute(
+            text("UPDATE exercise_team_workspace SET refreshed_at = :at WHERE id = :id"),
+            {"at": _LATE, "id": workspace_id},
+        )
+
+
+def test_exercise_workspace_accepts_a_refresh_after_a_choice(
+    engine: Engine, exercise_dataset
+) -> None:
+    with engine.begin() as conn:
+        dataset_id = exercise_dataset(conn)
+        _insert_exercise_workspace(
+            conn, dataset_id, asking_choice="small_reward", refreshed_at=_LATE
+        )
+
+
+# --- exercise_saved_setting ------------------------------------------------
+
+
+@pytest.mark.parametrize("name", ["   ", "x" * 101])
+def test_exercise_saved_setting_rejects_a_blank_or_overlong_name(
+    engine: Engine, exercise_dataset, name: str
+) -> None:
+    with engine.begin() as conn:
+        dataset_id = exercise_dataset(conn)
+        workspace_id = _insert_exercise_workspace(conn, dataset_id)
+        event_key = _insert_exercise_event(conn, dataset_id)
+
+    with (
+        pytest.raises(IntegrityError, match="ck_exercise_saved_setting_name_shape"),
+        engine.begin() as conn,
+    ):
+        _insert_exercise_saved_setting(conn, dataset_id, workspace_id, event_key, name=name)
+
+
+def test_exercise_saved_setting_accepts_a_named_setting(engine: Engine, exercise_dataset) -> None:
+    """A real name and the 100-character boundary the constraint still admits."""
+    with engine.begin() as conn:
+        dataset_id = exercise_dataset(conn)
+        workspace_id = _insert_exercise_workspace(conn, dataset_id)
+        event_key = _insert_exercise_event(conn, dataset_id)
+        _insert_exercise_saved_setting(
+            conn, dataset_id, workspace_id, event_key, name="Interest-led"
+        )
+        _insert_exercise_saved_setting(conn, dataset_id, workspace_id, event_key, name="x" * 100)
+
+
+# --- exercise_result_run ---------------------------------------------------
+
+
+@pytest.mark.parametrize("round_", [0, 3])
+def test_exercise_result_run_rejects_a_round_outside_one_and_two(
+    engine: Engine, exercise_dataset, round_: int
+) -> None:
+    """The exercise has exactly two rounds (§9): a closed vocabulary, not a bound."""
+    with engine.begin() as conn:
+        dataset_id = exercise_dataset(conn)
+        workspace_id = _insert_exercise_workspace(conn, dataset_id)
+        event_key = _insert_exercise_event(conn, dataset_id)
+
+    with (
+        pytest.raises(IntegrityError, match="ck_exercise_result_run_round"),
+        engine.begin() as conn,
+    ):
+        _insert_exercise_result_run(conn, dataset_id, workspace_id, event_key, round_=round_)
+
+
+def test_exercise_result_run_rejects_negative_empty_seats(engine: Engine, exercise_dataset) -> None:
+    with engine.begin() as conn:
+        dataset_id = exercise_dataset(conn)
+        workspace_id = _insert_exercise_workspace(conn, dataset_id)
+        event_key = _insert_exercise_event(conn, dataset_id)
+
+    with (
+        pytest.raises(IntegrityError, match="ck_exercise_result_run_seats_empty"),
+        engine.begin() as conn,
+    ):
+        _insert_exercise_result_run(conn, dataset_id, workspace_id, event_key, seats_empty=-1)
+
+
+def test_exercise_result_run_accepts_both_rounds(engine: Engine, exercise_dataset) -> None:
+    """Zero empty seats is the full-event case, and is permitted.
+
+    Each round is written against its own event because
+    ``uq_exercise_result_run_workspace_event`` is §9's one-run-per-event rule —
+    two runs for one team and one event is the refusal
+    ``test_exercise_schema_migration.py`` covers, and is not what this asserts.
+    """
+    with engine.begin() as conn:
+        dataset_id = exercise_dataset(conn)
+        workspace_id = _insert_exercise_workspace(conn, dataset_id)
+        for round_ in (1, 2):
+            event_key = _insert_exercise_event(conn, dataset_id, sequence=round_)
+            _insert_exercise_result_run(
+                conn, dataset_id, workspace_id, event_key, round_=round_, seats_empty=0
+            )
 
 
 # ---------------------------------------------------------------------------

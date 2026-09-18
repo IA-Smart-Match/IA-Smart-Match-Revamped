@@ -70,7 +70,12 @@ REVISION = "0033_event_filed_by"
 #: invent a filer either. The claim below still holds through it, and
 #: :func:`test_the_upgrade_writes_no_row_at_all` is what proves that rather
 #: than this comment.
-HEAD_REVISION = "0036_host_organization"
+#: Moved again by the class-exercise schema card:
+#: ``0037_exercise_tables`` chains to ``0036_host_organization`` and is the
+#: head. It touches ``event`` not at all -- ADR-0025 D2 forbids the eight
+#: ``exercise_`` tables it creates any foreign key outside their own family --
+#: so the claim below still holds through it.
+HEAD_REVISION = "0037_exercise_tables"
 
 ON_DATE = "2026-10-14"
 ZONE = "America/Los_Angeles"

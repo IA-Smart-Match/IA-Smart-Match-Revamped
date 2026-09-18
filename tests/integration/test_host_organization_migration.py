@@ -70,14 +70,18 @@ pytestmark = pytest.mark.integration
 #: ``revision = "0024_cba_classification"``.
 REVISION_BEFORE = "0035_manual_event_detail"
 
-#: The revision under test, and the head at the time of writing. The upgrades
-#: below run to ``head`` rather than to this id on purpose, for the reason
-#: ``test_event_filed_by_migration.py`` gives about its own pin: the claim is
-#: that a pre-existing row survives *every* later revision untouched, not
-#: merely the one that added the column. Extending the chain is a deliberate
-#: edit here.
+#: The revision under test. The upgrades below run to ``head`` rather than to
+#: this id on purpose, for the reason ``test_event_filed_by_migration.py``
+#: gives about its own pin: the claim is that a pre-existing row survives
+#: *every* later revision untouched, not merely the one that added the column.
+#: Extending the chain is a deliberate edit to :data:`HEAD_REVISION` below.
 REVISION = "0036_host_organization"
-HEAD_REVISION = "0036_host_organization"
+
+#: The current head. ``0037_exercise_tables`` chains to this file's revision
+#: and creates the eight ``exercise_`` tables of ADR-0025 D2, which by that
+#: decision may not reference ``host_organization``, ``event`` or
+#: ``user_account`` at all — so every claim below still holds through it.
+HEAD_REVISION = "0037_exercise_tables"
 
 ON_DATE = "2026-10-14"
 ZONE = "America/Los_Angeles"
