@@ -543,6 +543,7 @@ CAPABILITY_SCOPED_ROUTERS: Final[tuple[tuple[APIRouter, Capability], ...]] = (
     (manual_events.public_router, Capability.EVENT_READS),
 )
 
+
 def routers_for(settings: Settings) -> tuple[APIRouter, ...]:
     """Every router a process configured by ``settings`` mounts, in mount order.
 

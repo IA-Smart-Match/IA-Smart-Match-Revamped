@@ -20,10 +20,13 @@ are true:
 
 The route-table claim (ADR-0025 D1: "in the exercise scope the authenticated CBA
 routers are **not registered**, so ``get_current_principal`` is unreachable
-rather than bypassed") is asserted against a process booted in that scope. Its
-twin — that the exercise routes answer 404 under CBA — belongs to the track that
-builds those routers; there are none yet, and a test asserting the absence of
-something nobody wrote would pass for the wrong reason.
+rather than bypassed") is asserted against ``smartmatch_api.main.routers_for``,
+which is the composition rule the running application is built from — and one
+test here pins that it *is* what the application is built from, so the other two
+cannot pass against a function nothing calls. Its twin — that the exercise routes
+answer 404 under CBA — belongs to the track that builds those routers; there are
+none yet, and a test asserting the absence of something nobody wrote would pass
+for the wrong reason.
 
 This track closes no row in
 ``docs/plans/open-questions/class-exercise-open-questions.md`` and no row there
@@ -67,9 +70,7 @@ _CBA_BEFORE: dict[str, bool] = {
 }
 
 #: The ``ia_west_legacy`` column exactly as it stood before this track.
-_IA_WEST_LEGACY_BEFORE: dict[str, bool] = {
-    name: True for name in _CBA_BEFORE
-}
+_IA_WEST_LEGACY_BEFORE: dict[str, bool] = {name: True for name in _CBA_BEFORE}
 
 #: Route-path prefixes that belong to authenticated CBA surfaces and must be
 #: absent from a process running the exercise scope. The first two are served by
