@@ -442,6 +442,32 @@ make test-integration  # pytest tests/ -m integration — requires PostgreSQL
 make test-all          # pytest tests/ -m "not e2e" — everything that needs no running appliance
 ```
 
+### What `make test-integration` does to the database it points at
+
+`SMARTMATCH_DATABASE_URL` is the one knob, and it defaults to your local
+`smartmatch` database. Before **every** integration test, a fixture sweeps the
+coordination tables globally — `job`, `job_event`, `outbox_record`,
+`redrive_record`, `match_run`, `outreach_send`, `delivery_event` and
+`cba_invitation` — on the premise that nothing but these tests writes those rows.
+If that premise is false for your database, point the variable somewhere else
+before running:
+
+```bash
+createdb smartmatch_integration
+SMARTMATCH_DATABASE_URL=postgresql+psycopg://smartmatch:smartmatch@localhost:5432/smartmatch_integration \
+  make migrate test-integration
+```
+
+One table is deliberately **not** swept globally: `cba_invitation_batch`. It
+holds an `ON DELETE RESTRICT` reference to `match_run`, so a batch left behind by
+a run that was killed blocks the sweep's `DELETE FROM match_run` in every test
+thereafter. The fixture clears only the blocking batches, and only those under a
+tenant this suite created — the ones slugged `test-…`. A blocking batch under any
+other tenant (the `pilot` tenant `scripts/seed_pilot` writes, for instance) is
+reported by id and tenant slug and left alone; the suite stops rather than delete
+data it does not own. If you see that message, the fix is the separate database
+above, not a manual `DELETE`.
+
 `make check` is a **subset** of CI, not the whole of it — CI additionally
 checks that migrations apply from empty, runs the full test suite with
 coverage, verifies the committed OpenAPI document is current, recompiles the
