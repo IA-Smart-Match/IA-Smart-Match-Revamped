@@ -269,6 +269,12 @@ jobs:
       - name: Typecheck and build
         run: npm run build
 
+      - name: Component tests
+        # The exercise screens' "not available, never 0" and "no ratio on the
+        # surface" rules are asserted on the rendered DOM; without this step
+        # nothing gates them.
+        run: npm run test:components
+
       - name: Audit dependency vulnerabilities
         # Three observed failures of this step were registry-side, none a real
         # advisory: on PR #14 npm fell back to the retired quick-audit endpoint

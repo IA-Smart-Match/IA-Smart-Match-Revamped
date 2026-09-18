@@ -92,6 +92,11 @@ class TestInputValidationAndImmutability:
         with pytest.raises(ValueError):
             profile_points(_events(attended=-1))
 
+    @pytest.mark.parametrize("bad", [2.7, 2.0, True, "3", None])
+    def test_an_attendance_count_that_is_not_a_whole_number_is_refused(self, bad: object) -> None:
+        with pytest.raises(TypeError):
+            profile_points(_events(attended=bad))  # type: ignore[arg-type]
+
     def test_the_input_is_frozen(self) -> None:
         events = _events(attended=1)
         with pytest.raises(dataclasses.FrozenInstanceError):

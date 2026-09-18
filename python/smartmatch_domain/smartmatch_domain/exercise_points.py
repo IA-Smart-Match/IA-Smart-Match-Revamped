@@ -140,10 +140,17 @@ def profile_points(events: ProfilePointsInput) -> ProfilePoints:
         frozen and is not stored.
 
     Raises:
+        TypeError: If ``attended_count`` is not an ``int`` (a ``bool`` is
+            refused too).
         ValueError: If ``attended_count`` is negative. A negative head count
             is not a low score, it is a bad read, and failing here keeps a
             nonsense number off the projector.
     """
+    # `bool` is an `int` in Python, and a dataclass does not enforce its
+    # annotations, so a bad parse (2.7, True, "3") would otherwise reach the
+    # projector as a points total.
+    if isinstance(events.attended_count, bool) or not isinstance(events.attended_count, int):
+        raise TypeError(f"attended_count must be a whole number; got {events.attended_count!r}.")
     if events.attended_count < 0:
         raise ValueError(
             "attended_count must not be negative; "
