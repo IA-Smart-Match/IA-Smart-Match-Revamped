@@ -18,6 +18,7 @@ target capability exists.
 | Student→event recommender (slice 6, proposed) | [ADR-0024](../architecture/decisions/ADR-0024-staged-student-event-recommender.md) (Accepted 2026-09-16), [decision record](../decisions/student-recommender-decision-record.md) (draft), [contracts](../architecture/student-recommender-contracts.md), [implementation plan](../superpowers/plans/2026-09-14-student-recommender-v1-plan.md) with its [review-fixes plan](../superpowers/plans/2026-09-14-student-recommender-review-fixes.md); gated on OQ-SC-02, OQ-SE-01, OQ-SE-02 |
 | Class exercise for Dr. Lin's Spring 2027 course (Ann Wang, second product scope, runs in parallel with the CBA track) | [Requirements](../product/class-exercise-requirements.md), [ADR-0025](../architecture/decisions/ADR-0025-class-exercise-scope-shares-the-matching-mechanism.md), [design spec](../superpowers/specs/2026-09-16-class-exercise-design.md), [scoped register](open-questions/class-exercise-open-questions.md) |
 | Ideas logged but not scheduled | [Backlog](backlog.md) |
+| Whether any `TODO`/`FIXME` marker is outstanding in code | [TODO disposition register](todo-disposition-register.md) — a 2026-09-18 survey; it recommends only, and authorizes no change |
 
 These links put implementation truth, the active frontend contract, accepted
 decisions, tentative direction, and the current student program within two
