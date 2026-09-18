@@ -164,28 +164,41 @@ def test_the_scope_and_capability_exist_with_the_spelled_names() -> None:
     assert Capability.CLASS_EXERCISE.value == "class_exercise"
 
 
-def test_no_name_in_the_policy_trips_the_forbidden_scanner() -> None:
-    """ADR-0025 D9, asserted with the gate's own matcher rather than beside it.
+def test_no_name_in_the_policy_says_demo_or_trips_the_forbidden_scanner() -> None:
+    """ADR-0025 D9: the word in code is *exercise*. Two assertions, both needed.
 
-    The previous version of this test asserted ``"demo" not in name`` — its own
-    substring rule, which agreed with ``tools/scan_forbidden.py`` by coincidence
-    and would have kept agreeing if the tool's rule changed underneath it. It
-    now runs the tool's ``demo-mode-fallback`` regex, so "the policy names
-    nothing the gate rejects" is a claim about the gate.
+    The first version of this test asserted only ``"demo" not in name`` — its
+    own substring rule, which agreed with ``tools/scan_forbidden.py`` by
+    coincidence and would have kept agreeing if the tool's rule changed
+    underneath it. Replacing it with the tool's regex alone was worse, and the
+    security review caught it: ``demo-mode-fallback`` matches ``demo_mode``,
+    ``DEMO_MODE``, ``load_fixture(`` and ``if demo``, so a capability named
+    plainly ``demo`` — or ``cba_demo`` — would have passed this test *and*
+    ``make scan``, leaving D9's naming rule guarded by nothing at all.
 
-    The control — that this rule fires on a synthetic offending string, so a
-    rule that matched nothing could not pass quietly — is deliberately *not*
+    So both run, and they are guarding different things. The substring rule is
+    D9's actual claim about *this policy's vocabulary*: no scope or capability
+    name contains the word, in any casing, however it is embedded. The regex is
+    the claim that the names also survive the repository-wide gate, which is a
+    weaker condition over a broader alphabet — a name can be fine by the gate
+    and still wrong here.
+
+    The control for the regex — that it fires on a synthetic offending string,
+    so a rule matching nothing could not pass quietly — is deliberately not
     duplicated here. It is
     ``tests/unit/test_forbidden_scanner.py::test_catches_demo_mode_fallback``,
     which feeds the rule ``from src.demo_mode import load_fixture`` and asserts
     it fires. That file is the only one ``tools/scan_forbidden.py`` excludes
-    from its own sweep, which is precisely why the offending string can be
-    written there and not here: a copy of it in this file would make ``make
-    scan`` fail on the test that checks ``make scan``.
+    from its own sweep, which is why the offending string lives there and not
+    here. The bare word below is not such a string: none of the rule's four
+    alternatives matches ``demo`` on its own, so writing it costs nothing and
+    the file stays out of the scanner's exclusions.
     """
     rule = _naming_rule()
+    names = [scope.value for scope in ProductScope] + [c.value for c in Capability]
 
-    for name in [scope.value for scope in ProductScope] + [c.value for c in Capability]:
+    for name in names:
+        assert "demo" not in name.lower(), f"{name!r} says demo; ADR-0025 D9 says exercise"
         assert rule.regex.search(name) is None, f"{name!r} trips {rule.code}"
 
 

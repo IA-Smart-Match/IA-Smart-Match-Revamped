@@ -112,6 +112,36 @@ def _imported_modules(tree: ast.Module) -> set[str]:
     return imported
 
 
+def _getattr_string_dodges(tree: ast.Module) -> set[str]:
+    """Banned names reached as a string through ``getattr(obj, "state")``.
+
+    ``request.app.state`` is an :class:`ast.Attribute` and
+    ``getattr(request.app, "state")`` is a string constant, and the two do the
+    same thing. Without this the whole attribute guard is one builtin away from
+    being decorative.
+
+    Deliberately narrow — only the second positional argument of a call to
+    ``getattr``. Matching every string constant in the module would flag a
+    docstring-adjacent literal, a log message, or a column name, and a guard
+    that cries wolf gets a blanket ignore rather than a fix. The remaining
+    dodges (``vars()``, ``operator.attrgetter``, a name assembled from pieces)
+    are not reachable by accident and would be a deliberate act, which is a
+    review problem rather than a lint problem.
+    """
+    found: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        if not (isinstance(node.func, ast.Name) and node.func.id == "getattr"):
+            continue
+        if len(node.args) < 2:
+            continue
+        second = node.args[1]
+        if isinstance(second, ast.Constant) and second.value in _FORBIDDEN_NAMES:
+            found.add(str(second.value))
+    return found
+
+
 def _referenced_names(tree: ast.Module) -> set[str]:
     """Every bare name and every attribute name the module mentions.
 
@@ -168,11 +198,40 @@ def test_no_exercise_router_reaches_a_session_or_a_principal(module_path: Path) 
     to get one fails here.
     """
     tree = ast.parse(module_path.read_text(encoding="utf-8"))
-    offenders = sorted(_referenced_names(tree) & _FORBIDDEN_NAMES)
+    offenders = sorted((_referenced_names(tree) & _FORBIDDEN_NAMES) | _getattr_string_dodges(tree))
     assert offenders == [], (
         f"{module_path.name} reaches {offenders}; the only sanctioned database "
         f"access for an exercise router is {_SANCTIONED_SESSION_MODULE}."
     )
+
+
+def test_the_reachability_guard_catches_the_shapes_it_claims_to() -> None:
+    """Every real exercise module passes the guard, so prove the guard can fail.
+
+    One case per shape: the attribute walk the import contract cannot see, the
+    ``getattr`` string that the attribute walk alone would not see, and a
+    handler annotating with a CBA dependency alias.
+    """
+    attribute_walk = ast.parse("def h(request):\n    return request.app.state.session_factory\n")
+    assert _referenced_names(attribute_walk) & _FORBIDDEN_NAMES == {"state", "session_factory"}
+
+    string_dodge = ast.parse('def h(request):\n    return getattr(request.app, "state")\n')
+    assert _getattr_string_dodges(string_dodge) == {"state"}
+    assert _referenced_names(string_dodge) & _FORBIDDEN_NAMES == set(), (
+        "the attribute guard alone does not see the string form — which is why "
+        "_getattr_string_dodges exists"
+    )
+
+    alias = ast.parse("def h(principal: CurrentPrincipal):\n    return principal\n")
+    assert _referenced_names(alias) & _FORBIDDEN_NAMES == {"CurrentPrincipal"}
+
+    # And the sanctioned shape is not flagged.
+    sanctioned = ast.parse(
+        "from smartmatch_api.exercise_dependencies import ExerciseSession\n"
+        "def h(session: ExerciseSession):\n    return session\n"
+    )
+    assert _referenced_names(sanctioned) & _FORBIDDEN_NAMES == set()
+    assert _getattr_string_dodges(sanctioned) == set()
 
 
 def test_the_sanctioned_door_exists_and_is_importable_by_an_exercise_router() -> None:

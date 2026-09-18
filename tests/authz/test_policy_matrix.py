@@ -8383,27 +8383,50 @@ def test_the_routers_directory_has_no_subpackages() -> None:
     )
 
 
+def _is_router_construction(node: ast.AST) -> bool:
+    """Whether ``node`` builds an ``APIRouter``, written either way.
+
+    ``APIRouter(...)`` after ``from fastapi import APIRouter`` is an
+    :class:`ast.Name`; ``fastapi.APIRouter(...)`` after ``import fastapi`` is an
+    :class:`ast.Attribute`. They construct the same object and the second is
+    perfectly ordinary Python, but ``_router_prefixes`` matches only the first —
+    so a module written the second way is invisible to the ledger exactly as an
+    annotated assignment is. Both forms are therefore *found* here, and only the
+    first is *accepted* by :func:`_ledger_visible_router_assignments` below.
+    """
+    if not isinstance(node, ast.Call):
+        return False
+    func = node.func
+    return (isinstance(func, ast.Name) and func.id == "APIRouter") or (
+        isinstance(func, ast.Attribute) and func.attr == "APIRouter"
+    )
+
+
 def _annotated_router_assignments(source: str) -> list[str]:
     """Names assigned an ``APIRouter(...)`` through an annotated assignment.
 
-    The shape ``_router_prefixes`` cannot see. Reported by name so the failure
-    message tells the author exactly which line to un-annotate.
+    One of the shapes ``_router_prefixes`` cannot see. Reported by name so the
+    failure message tells the author exactly which line to un-annotate.
     """
     tree = ast.parse(source)
-    found: list[str] = []
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.AnnAssign) or node.value is None:
-            continue
-        value = node.value
-        if not (isinstance(value, ast.Call) and isinstance(value.func, ast.Name)):
-            continue
-        if value.func.id == "APIRouter" and isinstance(node.target, ast.Name):
-            found.append(node.target.id)
-    return found
+    return [
+        node.target.id
+        for node in ast.walk(tree)
+        if isinstance(node, ast.AnnAssign)
+        and node.value is not None
+        and _is_router_construction(node.value)
+        and isinstance(node.target, ast.Name)
+    ]
 
 
-def _module_level_router_assignments(source: str) -> list[str]:
-    """Names assigned an ``APIRouter(...)`` as a bare, module-level assignment."""
+def _ledger_visible_router_assignments(source: str) -> list[str]:
+    """Names assigned an ``APIRouter(...)`` in the one shape the ledger reads.
+
+    A bare, single-target, module-level ``ast.Assign`` whose call is the
+    *imported-name* form. Deliberately the narrowest of the three helpers: it is
+    a restatement of what ``_router_prefixes`` matches, and everything it does
+    not return is something the ledger cannot see.
+    """
     tree = ast.parse(source)
     return [
         target.id
@@ -8417,29 +8440,28 @@ def _module_level_router_assignments(source: str) -> list[str]:
     ]
 
 
-def _nested_router_constructions(source: str) -> int:
-    """``APIRouter(...)`` calls that are not a bare module-level assignment.
+def _router_constructions_the_ledger_cannot_see(source: str) -> int:
+    """``APIRouter(...)`` calls the ledger would miss, in any of their shapes.
 
-    Counted rather than named: an ``APIRouter`` built inside a function or a
-    comprehension has no assignment target to report, and its routes are
-    invisible to the ledger for the same reason an annotated one's are.
+    Counted rather than named: a router built inside a function or a
+    comprehension has no assignment target to report. Covers three cases at
+    once — built somewhere other than module level, written as
+    ``fastapi.APIRouter(...)``, or assigned to something other than a single
+    bare name.
     """
     tree = ast.parse(source)
-    module_level = {
+    visible = {
         id(node.value)
         for node in tree.body
         if isinstance(node, ast.Assign)
+        and len(node.targets) == 1
+        and isinstance(node.targets[0], ast.Name)
         and isinstance(node.value, ast.Call)
         and isinstance(node.value.func, ast.Name)
         and node.value.func.id == "APIRouter"
     }
     return sum(
-        1
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Name)
-        and node.func.id == "APIRouter"
-        and id(node) not in module_level
+        1 for node in ast.walk(tree) if _is_router_construction(node) and id(node) not in visible
     )
 
 
@@ -8460,26 +8482,57 @@ def test_every_router_is_a_bare_module_level_assignment(source_path: Path) -> No
         "routes from every check in this file. Drop the annotation."
     )
 
-    nested = _nested_router_constructions(source)
-    assert nested == 0, (
-        f"{source_path.name} builds {nested} APIRouter(s) somewhere other than a "
-        "bare module-level assignment; the route ledger cannot see them."
+    invisible = _router_constructions_the_ledger_cannot_see(source)
+    assert invisible == 0, (
+        f"{source_path.name} builds {invisible} APIRouter(s) the route ledger "
+        "cannot see — not a bare module-level assignment, or written as "
+        "`fastapi.APIRouter(...)` rather than the imported name."
     )
 
 
-def test_the_router_shape_guard_would_actually_catch_the_two_shapes() -> None:
-    """The guard above passes on every real module, so prove it can fail."""
+def test_the_router_shape_guard_would_actually_catch_each_shape() -> None:
+    """The guard above passes on every real module, so prove it can fail.
+
+    One case per shape the ledger is blind to, including the attribute form
+    ``fastapi.APIRouter(...)`` — ordinary Python that ``_router_prefixes``
+    silently skips, which the security review of #176 pointed out the first
+    version of this guard skipped too.
+    """
     assert _annotated_router_assignments(
         "from fastapi import APIRouter\nrouter: APIRouter = APIRouter(prefix='/v1/x')\n"
     ) == ["router"]
-    assert _module_level_router_assignments(
+    assert _annotated_router_assignments(
+        "import fastapi\nrouter: fastapi.APIRouter = fastapi.APIRouter(prefix='/v1/x')\n"
+    ) == ["router"]
+
+    # The one accepted shape, and the only one that reports a name.
+    assert _ledger_visible_router_assignments(
         "from fastapi import APIRouter\nrouter = APIRouter(prefix='/v1/x')\n"
     ) == ["router"]
     assert (
-        _nested_router_constructions(
+        _ledger_visible_router_assignments(
+            "import fastapi\nrouter = fastapi.APIRouter(prefix='/v1/x')\n"
+        )
+        == []
+    )
+
+    assert (
+        _router_constructions_the_ledger_cannot_see(
             "from fastapi import APIRouter\ndef build():\n    return APIRouter()\n"
         )
         == 1
+    )
+    assert (
+        _router_constructions_the_ledger_cannot_see(
+            "import fastapi\nrouter = fastapi.APIRouter(prefix='/v1/x')\n"
+        )
+        == 1
+    )
+    assert (
+        _router_constructions_the_ledger_cannot_see(
+            "from fastapi import APIRouter\nrouter = APIRouter(prefix='/v1/x')\n"
+        )
+        == 0
     )
 
 
