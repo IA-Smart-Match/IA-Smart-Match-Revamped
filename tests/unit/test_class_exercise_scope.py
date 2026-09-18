@@ -36,6 +36,8 @@ gates it.
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 from smartmatch_api.config import Settings
 from smartmatch_domain.product_scope import (
@@ -47,6 +49,21 @@ from smartmatch_domain.product_scope import (
     enabled_capabilities,
     is_capability_enabled,
 )
+
+
+def _naming_rule() -> Any:
+    """The scanner's own ``demo-mode-fallback`` rule.
+
+    Imported rather than re-stated, so ADR-0025 D9's naming claim is checked
+    against the gate that enforces it. ``tools`` is importable because the
+    repository root is on ``pythonpath`` (``[tool.pytest.ini_options]``).
+    """
+    from tools.scan_forbidden import RULES
+
+    rules = [rule for rule in RULES if rule.code == "demo-mode-fallback"]
+    assert len(rules) == 1, "the scanner no longer has exactly one demo-mode rule"
+    return rules[0]
+
 
 #: The CBA column exactly as it stood before this track, restated as a literal.
 #:
@@ -110,6 +127,32 @@ def _mounted_paths_under(scope: ProductScope) -> frozenset[str]:
     )
 
 
+#: The one route no composition rule accounts for: declared with ``@app.get`` and
+#: ungated in every scope, because a liveness probe a product decision could
+#: remove is a liveness probe a monitor cannot rely on.
+_UNGATED_APP_ROUTES = frozenset({"/api/health"})
+
+
+def _app_level_paths_under(scope: ProductScope) -> frozenset[str]:
+    """Every path a process in ``scope`` serves from the application module itself.
+
+    The residue: what is left of the served surface once ``routers_for`` has
+    accounted for everything in ``routers/``. Asserted as an equality below,
+    because the interesting failure is a route *appearing* here — a handler
+    declared on the application escapes both the capability table and the
+    exercise's scope isolation.
+    """
+    from smartmatch_api.main import app_level_routers_for
+
+    settings = Settings(product_scope=scope)
+    return _UNGATED_APP_ROUTES | frozenset(
+        route.path
+        for router in app_level_routers_for(settings)
+        for route in router.routes
+        if hasattr(route, "path")
+    )
+
+
 # ---------------------------------------------------------------------------
 # The names
 # ---------------------------------------------------------------------------
@@ -121,10 +164,29 @@ def test_the_scope_and_capability_exist_with_the_spelled_names() -> None:
     assert Capability.CLASS_EXERCISE.value == "class_exercise"
 
 
-def test_no_name_in_the_policy_says_demo() -> None:
-    """ADR-0025 D9 and ``tools/scan_forbidden.py``: the scope is called *exercise*."""
+def test_no_name_in_the_policy_trips_the_forbidden_scanner() -> None:
+    """ADR-0025 D9, asserted with the gate's own matcher rather than beside it.
+
+    The previous version of this test asserted ``"demo" not in name`` — its own
+    substring rule, which agreed with ``tools/scan_forbidden.py`` by coincidence
+    and would have kept agreeing if the tool's rule changed underneath it. It
+    now runs the tool's ``demo-mode-fallback`` regex, so "the policy names
+    nothing the gate rejects" is a claim about the gate.
+
+    The control — that this rule fires on a synthetic offending string, so a
+    rule that matched nothing could not pass quietly — is deliberately *not*
+    duplicated here. It is
+    ``tests/unit/test_forbidden_scanner.py::test_catches_demo_mode_fallback``,
+    which feeds the rule ``from src.demo_mode import load_fixture`` and asserts
+    it fires. That file is the only one ``tools/scan_forbidden.py`` excludes
+    from its own sweep, which is precisely why the offending string can be
+    written there and not here: a copy of it in this file would make ``make
+    scan`` fail on the test that checks ``make scan``.
+    """
+    rule = _naming_rule()
+
     for name in [scope.value for scope in ProductScope] + [c.value for c in Capability]:
-        assert "demo" not in name.lower()
+        assert rule.regex.search(name) is None, f"{name!r} trips {rule.code}"
 
 
 # ---------------------------------------------------------------------------
@@ -281,10 +343,53 @@ def test_the_composition_function_describes_the_running_app() -> None:
     served = set(app.openapi()["paths"])
     mounted = _mounted_paths_under(DEFAULT_PRODUCT_SCOPE)
     assert mounted <= served
-    # The only served paths `routers_for` does not account for are the three
-    # declared on the application itself: liveness, and the two token-addressed
-    # HTML pages. Nothing else may appear without going through the rule.
+    # The only served paths `routers_for` does not account for are the three the
+    # application module declares: liveness, and the two token-addressed HTML
+    # pages. Nothing else may appear without going through one of the two rules.
+    assert served - mounted == _app_level_paths_under(DEFAULT_PRODUCT_SCOPE)
     assert served - mounted == {"/api/health", "/u/{token}", "/i/{token}"}
+
+
+def test_the_token_pages_are_gated_on_the_capability_that_owns_them() -> None:
+    """``/u/{token}`` and ``/i/{token}`` ride ``CONSENTED_OUTREACH``, not a scope literal.
+
+    They are CBA outreach pages — the read half of the unsubscribe pair and the
+    page a speaker invitation links to — and the tokens that address them are
+    minted by the machinery ``CONSENTED_OUTREACH`` gates. The gate is that same
+    capability rather than a comparison against ``ProductScope.CLASS_EXERCISE``,
+    so a later scope with outreach gets them and a later scope without does not,
+    with no edit to the composition.
+    """
+    from smartmatch_api.main import APP_LEVEL_ROUTERS
+
+    assert [capability for _router, capability in APP_LEVEL_ROUTERS] == [
+        Capability.CONSENTED_OUTREACH
+    ]
+
+
+def test_the_application_level_residue_under_the_default_scope_is_unchanged() -> None:
+    """The CBA contract is untouched by moving the two pages behind a capability."""
+    assert _app_level_paths_under(DEFAULT_PRODUCT_SCOPE) == {
+        "/api/health",
+        "/u/{token}",
+        "/i/{token}",
+    }
+    assert _app_level_paths_under(ProductScope.IA_WEST_LEGACY) == {
+        "/api/health",
+        "/u/{token}",
+        "/i/{token}",
+    }
+
+
+def test_the_exercise_scope_serves_no_cba_outreach_page() -> None:
+    """ADR-0025 D1 reaches the application module too, not only ``routers/``.
+
+    An equality, not a containment: the exercise process serves exactly one
+    route from the application module — liveness — and a second one appearing
+    here is a CBA surface that escaped the capability table by being declared
+    one level up.
+    """
+    assert _app_level_paths_under(ProductScope.CLASS_EXERCISE) == {"/api/health"}
 
 
 def test_the_legacy_scope_is_untouched_by_the_gating() -> None:
