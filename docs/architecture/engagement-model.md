@@ -1,13 +1,24 @@
 # The engagement surface — attendance, points, rewards, and disclosure
 
+> **Historical design snapshot; partially implemented as of 2026-09-14.** This
+> document preserves the reasoning that shaped attendance, registration,
+> points, rewards, and disclosure. Registration/agenda routes, attendance
+> evidence, the server-owned points ledger/balance fold, funded-catalog reads,
+> redemption operations, and feedback QR now have implementation seams; other
+> target behavior here remains absent or gated. Use the root
+> [README](../../README.md) for current implementation truth. Use the canonical
+> [student-engagement program](../plans/2026-09-14-student-engagement-program-plan.md)
+> and [decision register](../plans/open-questions/student-engagement-deferred.md)
+> for current future-program authority and open blockers.
+
 The design for the one part of SmartMatch a student touches. It exists because
 the stakeholder test log of 19–20 August 2026 found four defects on this surface
 (Fix #9, #10, #11, #15) and the revamp had classified none of them — the surface
 was neither ported nor archived, it was simply absent.
 
-This document is a design, not an implementation. Nothing here ships in
-Foundation. The tables land in **R2**, alongside attendance and QR check-in
-(`MM-F02`), per the sequencing in `docs/plans/remaining-foundation-r1-work.md`.
+This document was a design, not an implementation report. Its original
+Foundation/R2 sequencing is retained as historical context; it is not a current
+statement that every table or route below is absent.
 
 **Decisions this document depends on and does not make:** D6 (a rewards budget
 owner), D7 (the economy calibration N), D8 (disclosure-consent policy, including
@@ -135,10 +146,14 @@ anyone who did it.
 
 Formally: `min(points_cost over listed items) ≤ N × points_per_event`.
 
-**Proposed default N = 3.** This is a recommendation, not a decision — it is
-**D7**, and the owner is the program owner. What is decided (ADR-0013) is that
-an N exists, is written down, and is asserted by a test against the live catalog,
-so a catalog edit that breaks it fails rather than ships.
+**Historical proposal: default N = 3.** At the time of this snapshot it was a
+recommendation rather than a decision. Its current disposition is
+**tentative-development D7**, not organizational ratification; see
+[pilot decisions](../decisions/pilot-decisions.md) and OQ-SC-01 in the canonical
+[student register](../plans/open-questions/student-engagement-deferred.md).
+ADR-0013 decides that an N exists, is written down, and is asserted by a test
+against the operated catalog, so a catalog edit that breaks it fails rather
+than ships.
 
 "Attendance alone" is deliberate. Crediting the streak makes the property depend
 on a student's history rather than on the catalog, and a property that different
@@ -216,9 +231,9 @@ as something nobody got to. The legacy surface's one retained requirement is
 
 ---
 
-## 8. What this does not settle
+## 8. What this did not settle when drafted
 
-| | Owner |
+| Historical open item | Owner at the snapshot |
 |---|---|
 | D6 — who owns the rewards budget | Program owner |
 | D7 — the N in §3 | Program owner |
@@ -228,3 +243,10 @@ as something nobody got to. The legacy surface's one retained requirement is
 
 The seven legacy catalog items carry forward as *content to re-price*, not as
 values. None of the seven costs is retained.
+
+**Current disposition as of 2026-09-14:** D6 is closed for pilot scope; D7
+remains tentative-development; D8 and related disclosure decisions remain
+constrained by the canonical student register; and the frontend contract now
+has an assigned owner and lives in [`apps/web/DESIGN.md`](../../apps/web/DESIGN.md).
+Use the root [README](../../README.md) for what exists now and
+[pilot decisions](../decisions/pilot-decisions.md) for the dated decision trail.

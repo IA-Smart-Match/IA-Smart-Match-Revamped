@@ -4,7 +4,7 @@
 
 **Applies to:** `apps/web/legacy-frontend` and any replacement frontend created under `apps/web`
 
-**Last updated:** 2026-09-07
+**Last updated:** 2026-09-14
 
 This file is the implementation contract for people and coding agents changing the Smart Match frontend. Read it before editing a screen, component, route, or frontend API call. Existing code may not satisfy every rule yet; new work must move toward this standard and must not introduce a new exception.
 
@@ -147,7 +147,9 @@ Use the horizontal CPP logo through `src/app/components/BrandLogo.tsx`. The bund
 
 ### Signed-in shells
 
-Speaker Connector, Event Host, Speaker, and Student experiences share the same visual language but may expose different navigation based on server-authorized roles.
+Speaker Connector, Event Host, and Student signed-in experiences share the same
+visual language but expose navigation from server-authorized roles. A Speaker is
+a non-account contact persona, not a stored role and not a signed-in shell.
 
 - The left sidebar owns the product identity, current section navigation, profile summary, and sign-out action.
 - Place sign out directly beneath the profile area on desktop. Use the corresponding account area on mobile.
@@ -155,12 +157,12 @@ Speaker Connector, Event Host, Speaker, and Student experiences share the same v
 - Use one `h1` for the page name. Do not place a generic category label such as “Volunteer management” or “Master calendar” above it.
 - Do not place decorative icons beside page headings. Icons are appropriate inside actions, statuses, empty states, or navigation when they improve recognition.
 - Put the action queue before summary statistics on Speaker Connector and Event Host home pages. For a small count, name the people or records rather than hiding them behind an average.
-- Mobile layouts use a compact header and a usable navigation drawer. Student and Speaker tasks are phone-first; Speaker Connector and Event Host tables must remain useful at tablet and desktop widths and collapse deliberately on phones.
+- Mobile layouts use a compact header and a usable navigation drawer. Student tasks are phone-first; Speaker Connector and Event Host tables must remain useful at tablet and desktop widths and collapse deliberately on phones.
 
 ### Events and feedback QR codes
 
 - Manual event entry is the primary event source. Do not add crawler controls, crawler status, discovery feeds, or background-scraping language to a visible frontend path.
-- Speaker Connectors may create, edit, and publish events. Event Hosts consume the canonical event endpoint read-only and must never see drafts or feedback destinations.
+- Manual-event writes are limited to the `admin` role, displayed as **Speaker Connector (administrator)**. Event Hosts consume the canonical event endpoint read-only and must never see drafts or feedback destinations.
 - Preserve the event's IANA time zone. Convert a local form time using the selected zone, and display the saved instant in that same named zone.
 - Keep drafts usable when details are incomplete. Publishing must surface the backend's missing-field response without clearing the form.
 - Feedback QR management belongs only on the Speaker Connector event screen. One QR maps to one event and its encoded redirect URL remains stable when the external destination changes.
@@ -320,13 +322,39 @@ Do not copy a component merely to change its colors or spacing. Extend the share
 
 Manual events are canonical `event` rows: a Speaker Connector-filed event is
 written into the same `event` table every other event lives in, carrying
-`origin="manual"` and `filed_by_user_id`, not a separate `managed_event`
+`origin="coordinator_entry"` and `filed_by_user_id`, not a separate `managed_event`
 table. `GET /v1/units/{unit_id}/events`, `CoordinatorEvents`, and
 `StudentEvents` therefore list a manually filed event exactly as they list a
 crawler-sourced one, with its provenance intact. Event-level detail specific
 to manual filing (staffing needs, publish state, the per-event feedback QR)
 lives in a side table keyed to the canonical event id, not in a parallel event
 model.
+
+## Planned and gated student-engagement target
+
+**PLANNED/GATED — documentation target, not current behavior.** The canonical
+[student-engagement program](../../docs/plans/2026-09-14-student-engagement-program-plan.md)
+and [student-engagement decision register](../../docs/plans/open-questions/student-engagement-deferred.md)
+define the future direction. They authorize no endpoint, role, schema, or
+frontend wiring. Until gated implementation lands, the OpenAPI contract and
+code win, manual-event writes remain `admin`-only, and the Event Host remains
+read-only.
+
+The planned target is:
+
+- Filer-scoped Event Host drafts whose submitted revisions are immutable;
+  edits after submission create a new revision.
+- Review and approval of the exact revision before it becomes student-visible.
+  The reviewer/approver role set is unresolved in OQ-SE-09 and OQ-SE-10 and
+  must not be inferred from `volunteer`, `coordinator`, `admin`, or host
+  organization provenance.
+- Approved accommodations and perks, plus private media/video with scanning,
+  authorization, moderation, retention, and captions/transcripts.
+- Approved, scoped announcements and a registration-QR deep link to the one
+  authenticated registration truth; neither is implemented today.
+- Responsive student web as the primary experience. Installable PWA behavior,
+  offline behavior, push, native mobile, and app-store distribution are
+  deferred pending their recorded decisions.
 
 ## Speaker roster and invitation workflow
 
@@ -340,8 +368,13 @@ use cases are also being carried forward for a possible future agentic
 service offering; no such service exists yet, and this document does not
 define one.
 
-- Keep authorization keys `admin`, `coordinator`, `volunteer`, and `student`; display them as Speaker Connector, Event Host, Speaker, and Student.
-- Speaker Connectors maintain private contact details in `speaker_contacts` and read/write them from `CoordinatorSpeakerContacts`. Event Hosts and Speakers never see raw email or phone; they see only the fields the granting endpoint publishes.
+- Keep authorization keys `admin`, `coordinator`, `volunteer`, and `student`.
+  Display `admin` and `coordinator` as Speaker Connector, `volunteer` as Event
+  Host, and `student` as Student. There is no stored Speaker role or Speaker
+  account; a Speaker is a contact record.
+- Speaker Connectors maintain private contact details in `speaker_contacts` and
+  read/write them from `CoordinatorSpeakerContacts`. Event Hosts never see raw
+  speaker email or phone; they see only fields the granting endpoint publishes.
 - A match run (`CoordinatorMatchRuns`, `/coordinator-portal/match-runs`) scores stored speaker contacts against a filed Speaker Request and produces a shortlist. Explain relevant topics and regional service in words; never display internal weights, scores, percentages, or confidence (OQ-CBA-005).
 - Submitting a shortlist opens `CoordinatorInvitations` (`/coordinator-portal/invitations`), which composes and sends an **approved, consented invitation batch** — real email/batch send controls, gated on `cold_unknown_contact_outreach` / `external_speaker_acquisition` for the legacy admin `/outreach` surface, and on `CONSENTED_OUTREACH` for the coordinator-portal compose path. A draft is sent only to a contact whose consent is already on record, re-checked at delivery.
 - Both roles use one shared speaker-event record, notes, and append-only history. Render only actions authorized for the signed-in role and current status.
