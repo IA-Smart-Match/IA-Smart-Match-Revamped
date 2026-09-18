@@ -187,6 +187,67 @@ def test_every_withheld_field_is_a_real_column():
     assert columns >= exercise_schema.EXERCISE_WITHHELD_FIELDS
 
 
+def test_the_withheld_set_is_the_domain_constant_and_not_a_second_copy():
+    """One answer to "what is withheld", held in the domain.
+
+    The set was defined twice — here in persistence and in
+    ``smartmatch_domain.exercise``, whose docstring asks for exactly this
+    dedupe once the persistence package exists. Two frozensets with the same
+    member today are two places to edit tomorrow, and the failure mode of
+    editing one is a field that leaves the server because the *other* copy was
+    the one a response model was written against. Identity, not equality: equal
+    literals are what the situation already was.
+    """
+    from smartmatch_domain.exercise import EXERCISE_WITHHELD_FIELDS as domain_withheld
+
+    assert exercise_schema.EXERCISE_WITHHELD_FIELDS is domain_withheld
+
+
+def test_the_public_projection_excludes_exactly_the_withheld_columns():
+    """ADR-0025 D6's guard against ``sa.select(exercise_profile)``.
+
+    The withheld column is on the profile row, so any repository that selects
+    the table selects it. The helper is the projection a response-serving
+    repository is required to go through, and the two assertions below are its
+    whole contract: nothing withheld is in it, and nothing else is left out.
+    """
+    profile = _table("exercise_profile")
+    public = exercise_schema.exercise_profile_public_columns()
+    names = [column.name for column in public]
+
+    assert set(names).isdisjoint(exercise_schema.EXERCISE_WITHHELD_FIELDS)
+    assert (
+        set(names)
+        == {column.name for column in profile.columns} - exercise_schema.EXERCISE_WITHHELD_FIELDS
+    )
+
+
+def test_the_public_projection_returns_the_profile_table_s_own_columns():
+    """Columns, not names — the helper feeds ``sa.select(*...)`` directly."""
+    profile = _table("exercise_profile")
+    for column in exercise_schema.exercise_profile_public_columns():
+        assert column is profile.columns[column.name]
+
+
+def test_the_public_projection_refuses_a_withheld_name_that_is_not_a_column(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """A guard that silently ignores a typo guards nothing.
+
+    ``test_every_withheld_field_is_a_real_column`` covers the module-level set.
+    This covers the helper: a name added to the withheld set that matches no
+    ``exercise_profile`` column would otherwise subtract nothing and read as a
+    passing projection.
+    """
+    monkeypatch.setattr(
+        exercise_schema,
+        "EXERCISE_WITHHELD_FIELDS",
+        frozenset({"hidden_true_interests", "not_a_column"}),
+    )
+    with pytest.raises(ValueError, match="not_a_column"):
+        exercise_schema.exercise_profile_public_columns()
+
+
 @pytest.mark.parametrize("column_name", PLACEHOLDER_PROFILE_COLUMNS)
 def test_profile_carries_the_placeholder_columns(column_name: str):
     assert column_name in _table("exercise_profile").columns

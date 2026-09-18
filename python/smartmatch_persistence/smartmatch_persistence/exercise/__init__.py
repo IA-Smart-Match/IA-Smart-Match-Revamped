@@ -23,6 +23,11 @@ spreadsheet ingest are later tracks.
 from smartmatch_persistence.exercise.schema import (
     EXERCISE_TABLES,
     EXERCISE_WITHHELD_FIELDS,
+    exercise_profile_public_columns,
 )
 
-__all__ = ["EXERCISE_TABLES", "EXERCISE_WITHHELD_FIELDS"]
+__all__ = [
+    "EXERCISE_TABLES",
+    "EXERCISE_WITHHELD_FIELDS",
+    "exercise_profile_public_columns",
+]
