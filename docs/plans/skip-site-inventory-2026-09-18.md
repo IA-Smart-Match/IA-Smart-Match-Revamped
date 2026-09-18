@@ -214,6 +214,26 @@ markers that document a policy rather than markers that exist. `wip-analysis.md`
 nothing in the repository asserts that the CI database user may `CREATE
 DATABASE`.
 
+### 5.4 One observed `pilot-e2e` run, 2026-09-18
+
+The `pilot-e2e` job on the pull request carrying this file reported:
+
+```
+31 passed, 2 skipped in 23.90s
+SKIPPED [1] tests/e2e/test_pilot_clickthrough.py:1426: no funded reward item exists on this appliance…
+SKIPPED [1] tests/e2e/test_pilot_clickthrough.py:1489: the portal pages fetch /api/portals/*…
+```
+
+That is one run, not a guarantee, and it is recorded rather than generalized.
+It does agree with §4.4 on every count: the two sites this inventory marks
+**no** are exactly the two that skipped; `:1444` did not report, consistent with
+being unreachable behind `:1426`; and none of the 27 predecessor-conditional
+guards fired, which is what "yes (guard fires only if the named earlier step
+failed)" predicts of a healthy run. The e2e half of the last column is
+therefore observed for this run. **The `verify.yml` half — the 35
+database-conditional sites in §4.1 and §4.2 — is still read from the workflow
+file only.**
+
 ---
 
 ## 6. The eleven non-site grep hits, for reconciliation
@@ -241,8 +261,10 @@ checkable rather than asserted.
 
 - It is a **snapshot**. Line numbers move with the next edit to any of these
   files; re-run the command in §1 rather than trusting the table.
-- The "runs in CI" column is read from workflow files, not from a CI run. No
-  `pytest -ra` summary was collected and none is quoted.
+- The "runs in CI" column is read from **workflow files**, with one exception:
+  the single observed `pilot-e2e` run quoted in §5.4, which covers the `e2e`
+  rows only. No `verify.yml` `-ra` summary was collected, so every yes/no on the
+  35 database-conditional rows is a reading of the workflow, not of a run.
 - It **authorizes nothing**. It proposes no test change, no workflow change and
   no status change, and it is not a production-readiness claim.
 
