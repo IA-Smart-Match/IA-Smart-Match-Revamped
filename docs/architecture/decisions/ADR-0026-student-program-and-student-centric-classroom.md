@@ -56,8 +56,10 @@ track's student factors, built once in `smartmatch_domain/student_factors/` and
 composed by two registries. ADR-0024 records the recommender's staged shape and
 that `STUDENT_REGISTRY` stays `status = "proposed"` and fails closed until
 OQ-SE-01. The classroom is therefore the only place on this platform where the
-student-side factors can be run end to end at all today, because the CBA side of
-them is gated and the exercise side is not.
+student-side factors are authorised to run end to end, because the CBA side of
+them is gated and the exercise side is not. Neither side runs today: as of this
+ADR's date `ProductScope.CLASS_EXERCISE`, the `exercise_` tables, and
+`student_factors/` are decided in ADR-0025 and not yet built.
 
 **What is not recorded.** The push notification wording in the 12 September
 relay and the outbound-delivery slice in the canonical plan are not the same
