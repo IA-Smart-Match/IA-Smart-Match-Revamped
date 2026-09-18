@@ -34,6 +34,9 @@ hops of the repository root.
   [canonical OQ-SC/OQ-SE register](open-questions/student-engagement-deferred.md).
 - Other scoped registers remain in [`open-questions/`](open-questions/); their
   safe defaults stay active until attributed closure evidence lands.
+- Workshop framing for gated items: [decision packets](../decision-packets/README.md).
+  A packet frames a decision for its named owners; it closes no row, changes no
+  status, and is not closure evidence.
 
 For student engagement, the canonical register owns the open decisions. W4 is
 **STOPPED** until OQ-SE-04 through OQ-SE-08 close in a way that satisfies
