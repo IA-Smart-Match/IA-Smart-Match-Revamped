@@ -46,7 +46,7 @@ not be added.
 values. No requirement, ADR, or design section fixes them; the requirements row
 only says the counter *rises* with each. The simplest defaults that satisfy
 "rises" are used, deliberately equal so neither behaviour is implicitly
-declared the more valuable one. Confirming them is a register row in
+declared the more valuable one. Confirming them is register row OQ-CE-10 in
 ``docs/plans/open-questions/class-exercise-open-questions.md`` (ADR-0025's
 amendment discipline: "changing a coefficient ... is a register row, not an
 amendment"), not a change to this module's shape.
@@ -67,12 +67,12 @@ __all__ = [
 ]
 
 
-#: PLACEHOLDER (pending register row): points earned for each past event a
+#: PLACEHOLDER (OQ-CE-10): points earned for each past event a
 #: profile attended. One point per event is the simplest value that satisfies
 #: "rises with attendance" and keeps the counter readable from a projector.
 POINTS_PER_ATTENDANCE: int = 1
 
-#: PLACEHOLDER (pending register row): points earned once, when a profile has
+#: PLACEHOLDER (OQ-CE-10): points earned once, when a profile has
 #: completed its five-questions card. Equal to :data:`POINTS_PER_ATTENDANCE`
 #: so this module does not quietly decide that one behaviour is worth more
 #: than the other; that ranking is Ann's to make.

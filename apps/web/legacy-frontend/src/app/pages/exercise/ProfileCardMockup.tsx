@@ -48,7 +48,9 @@ interface CardQuestion {
  * The `field` strings are the design spec's column names rather than a
  * vocabulary of answers. OQ-CE-01 — what the data file's columns are actually
  * called and what values they may take — is open, so this screen shows the
- * shape of a card and never a fixed list of majors or years.
+ * shape of a card and never a fixed list of majors or years. OQ-CE-11 — what
+ * the five questions actually are — is open too, so the five below are a
+ * mock-up's stand-in until Ann confirms them.
  */
 const CARD_QUESTIONS: readonly CardQuestion[] = [
   {
