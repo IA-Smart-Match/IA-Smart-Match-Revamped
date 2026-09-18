@@ -54,6 +54,7 @@ from smartmatch_api.routers import (
     cba_invitations,
     engagement,
     events,
+    exercise_public,
     host_organizations,
     imports,
     jobs,
@@ -191,6 +192,27 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     Settings are read (and validated) at startup, so a misconfigured
     deployment — a classroom edition carrying provider credentials, say — fails
     to boot rather than failing later under load.
+
+    ## The token verifier is built only where there is a login
+
+    ADR-0025 D1 makes ``get_current_principal`` *unreachable* in the
+    class-exercise scope by not mounting any router that resolves one. Building
+    the verifier anyway would leave the other half of that machinery sitting on
+    ``app.state`` in a process with nothing to verify — one line in a future
+    handler away from being the bypass D9 rejected. A product with no login has
+    no token, so it builds nothing to check one with, and
+    ``app.state.token_verifier`` is set to ``None`` rather than left unset, so a
+    reader of the state sees a decision rather than an omission.
+
+    ``AUTHENTICATED_LOGIN`` is the condition rather than a comparison against
+    ``ProductScope.CLASS_EXERCISE``: it is the same capability
+    ``routers_for`` drops the principal-bearing infrastructure routers on, so
+    the verifier exists in exactly the processes that mount something able to
+    use it, and a later scope with a login gets it without editing this line.
+
+    The session factory is built in every scope. The exercise has its own
+    ``exercise_`` tables and will need it; what it must not have is a principal.
+    Nothing here issues a query in any scope.
     """
     settings = get_settings()
 
@@ -201,10 +223,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.product_scope = settings.product_scope
     app.state.enabled_capabilities = settings.enabled_capabilities()
     app.state.session_factory = create_session_factory(settings.database_url)
-    app.state.token_verifier = build_token_verifier(
-        settings.edition,
-        use_fixture=settings.use_fixture_providers,
-        fixture_principals=settings.dev_principals,
+    app.state.token_verifier = (
+        build_token_verifier(
+            settings.edition,
+            use_fixture=settings.use_fixture_providers,
+            fixture_principals=settings.dev_principals,
+        )
+        if settings.capability_enabled(Capability.AUTHENTICATED_LOGIN)
+        else None
     )
 
     yield
@@ -541,6 +567,29 @@ CAPABILITY_SCOPED_ROUTERS: Final[tuple[tuple[APIRouter, Capability], ...]] = (
     # a deployment already uses to decide whether it shows events at all.
     (manual_events.router, Capability.EVENT_READS),
     (manual_events.public_router, Capability.EVENT_READS),
+    # The class exercise (ADR-0025 D1). Listed here, beside
+    # `outreach.public_router` and `cba_invitations.public_router`, because it is
+    # the same kind of declaration those two are: a router that takes no
+    # principal, said out loud in the table rather than discovered by reading a
+    # handler.
+    #
+    # It differs from them in one way that matters, and the difference is the
+    # ADR's whole point. Those two are unauthenticated routes inside a product
+    # that has a login; this one belongs to a product that has none. Under
+    # `CLASS_EXERCISE` the capability table turns every other row here off and
+    # `routers_for` drops the principal-bearing infrastructure with them, so
+    # `get_current_principal` is not reachable in that process at all — which is
+    # what D9 rejected the per-route bypass in favour of. Under `cba` and
+    # `ia_west_legacy` this row is off, so the CBA contract is unchanged and the
+    # exercise route answers 404 there.
+    #
+    # `exercise_instructor.router` (`/v1/exercise/instructor`, passcode session)
+    # is named by design spec §1 and belongs to track CE-INSTRUCTOR. It is
+    # deliberately not listed with a stub: a route mounted before the passcode
+    # machinery that gates it exists is an open route, not a placeholder. The
+    # workspace, matching, results, and ingest routers join this row the same
+    # way, each with the migration that gives them something to answer from.
+    (exercise_public.router, Capability.CLASS_EXERCISE),
 )
 
 

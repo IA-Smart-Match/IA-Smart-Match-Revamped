@@ -66,7 +66,7 @@ typecheck: ## Static typing (strict)
 
 .PHONY: imports
 imports: ## Enforce architectural import boundaries
-	PYTHONPATH="$(DOMAIN_PATH)" $(VENV)/bin/lint-imports --config pyproject.toml
+	PYTHONPATH="$(DOMAIN_PATH):services/api" $(VENV)/bin/lint-imports --config pyproject.toml
 
 .PHONY: test
 test: ## Run unit, golden, authz, and contract tests (no database needed)

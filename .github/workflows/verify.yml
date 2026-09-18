@@ -101,7 +101,7 @@ jobs:
       - name: Architecture import boundaries
         # Domain and authz packages must import no framework, storage, provider,
         # filesystem, or network module. See pyproject [tool.importlinter].
-        run: PYTHONPATH="$DOMAIN_PATH" lint-imports --config pyproject.toml
+        run: PYTHONPATH="$DOMAIN_PATH:services/api" lint-imports --config pyproject.toml
 
       - name: Migrations apply from an empty database
         run: cd db && alembic upgrade head
