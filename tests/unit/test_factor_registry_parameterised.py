@@ -313,9 +313,55 @@ def test_a_model_refuses_a_mode_outside_its_own_vocabulary() -> None:
         )
 
 
-def test_scoring_model_mode_vocabulary_defaults_to_the_cba_vocabulary() -> None:
+def test_every_cba_model_states_the_cba_vocabulary_explicitly() -> None:
+    """Stated at the construction site, not inherited from the field default.
+
+    ``ScoringModel.mode_vocabulary`` keeps its default only because
+    ``tests/unit/test_factor_registry.py`` constructs a model without it and
+    that file is not edited by this work. The default is not what stops a
+    second rulebook's model from inheriting the CBA vocabulary —
+    :class:`FactorRegistry` is, by requiring its own and refusing a model that
+    disagrees (see ``test_a_registry_refuses_a_model_carrying_another_
+    registrys_vocabulary``). A model can only inherit this default while it
+    belongs to no registry.
+    """
     assert CBA_PHYSICAL_MODEL.mode_vocabulary == CBA_SCORING_MODES
+    assert CBA_VIRTUAL_MODEL.mode_vocabulary == CBA_SCORING_MODES
     assert SUPERSEDED_G1_MODEL.mode_vocabulary == CBA_SCORING_MODES
+
+
+def test_a_registry_must_declare_its_own_mode_vocabulary() -> None:
+    """Omitting it is a TypeError, not an inherited CBA vocabulary."""
+    with pytest.raises(TypeError, match="mode_vocabulary"):
+        FactorRegistry(  # type: ignore[call-arg]
+            version="0.0.8-toy",
+            status="approved",
+            approver=None,
+            approved_on=None,
+            factors=(_toy_spec("toy_overlap", 1.0),),
+            approved_scoring_keys=frozenset({"toy_overlap"}),
+            scoring_modes={},
+        )
+
+
+def test_a_registry_refuses_a_mode_named_outside_its_vocabulary() -> None:
+    """A toy rulebook cannot file a mode under ``cba-physical-1``.
+
+    The vocabulary is what the registry may *name*, so it is checked against
+    the keys of ``scoring_modes`` directly rather than only through each
+    model's own copy of it.
+    """
+    with pytest.raises(ValueError, match="outside its mode_vocabulary"):
+        FactorRegistry(
+            version=REGISTRY_VERSION,
+            status="approved",
+            approver=None,
+            approved_on=None,
+            factors=PROPOSED_FACTORS,
+            approved_scoring_keys=APPROVED_SCORING_KEYS,
+            scoring_modes={"cba-physical-1": CBA_PHYSICAL_MODEL},
+            mode_vocabulary=_TOY_VOCABULARY,
+        )
 
 
 def test_a_registry_refuses_a_model_that_scores_an_undeclared_key() -> None:
@@ -346,6 +392,7 @@ def test_a_registry_refuses_a_duplicate_factor_key_and_an_unknown_status() -> No
             factors=(_toy_spec("toy_overlap", 0.5), _toy_spec("toy_overlap", 0.5)),
             approved_scoring_keys=frozenset({"toy_overlap"}),
             scoring_modes={},
+            mode_vocabulary=_TOY_VOCABULARY,
         )
     with pytest.raises(ValueError, match="status"):
         FactorRegistry(
@@ -356,6 +403,7 @@ def test_a_registry_refuses_a_duplicate_factor_key_and_an_unknown_status() -> No
             factors=(_toy_spec("toy_overlap", 1.0),),
             approved_scoring_keys=frozenset({"toy_overlap"}),
             scoring_modes={},
+            mode_vocabulary=_TOY_VOCABULARY,
         )
 
 
@@ -462,9 +510,15 @@ def test_registry_for_version_refuses_an_unknown_pin_rather_than_defaulting() ->
     ``registry_version`` on a stored score is free-form data. Resolving an
     unrecognised one to the CBA rulebook would hand it the CBA rulebook's
     *approval*, so a gate that must refuse would pass. The lookup refuses
-    instead, and it refuses with the module's registry error type so the API
-    and worker handlers that already catch ``RegistryNotReadyError`` keep
-    turning it into a refusal rather than an unhandled ``KeyError``.
+    instead, with the module's registry error type rather than a bare
+    ``KeyError``.
+
+    That type is not yet caught anywhere useful — the API and worker handlers
+    wrap only their own bare gate calls — and it does not need to be: this
+    build declares no version but the two CBA pins, so no score can carry an
+    unknown one. See the class docstring on
+    ``UnknownRegistryVersionError``; widening those handlers belongs to the
+    track that ships a second registry.
     """
     with pytest.raises(UnknownRegistryVersionError, match=re.escape("9.9.9-nowhere")):
         registry_for_version("9.9.9-nowhere")
@@ -635,14 +689,15 @@ def test_a_registry_refuses_a_model_pinned_to_another_registry() -> None:
 
 
 def test_a_registry_refuses_a_model_carrying_another_registrys_vocabulary() -> None:
-    """A second rulebook must not silently inherit the CBA vocabulary.
+    """The registry and its models must agree on which vocabulary is in force.
 
-    ``ScoringModel.mode_vocabulary`` defaults to the CBA one so every existing
-    construction site keeps the check it had. That default must not become a
-    way for a second registry to declare ``cba-physical-1`` as one of its own
-    modes.
+    The mode *name* here is inside the registry's declared vocabulary, so the
+    key check passes; what fails is that the model belongs to a wider
+    vocabulary than the registry admits. Agreeing on the names alone would let
+    a model be shared between two rulebooks that close their vocabularies
+    differently.
     """
-    with pytest.raises(ValueError, match="mode_vocabulary"):
+    with pytest.raises(ValueError, match="mode_vocabulary this registry does not declare"):
         FactorRegistry(
             version=REGISTRY_VERSION,
             status="approved",
@@ -650,16 +705,60 @@ def test_a_registry_refuses_a_model_carrying_another_registrys_vocabulary() -> N
             approved_on=None,
             factors=PROPOSED_FACTORS,
             approved_scoring_keys=APPROVED_SCORING_KEYS,
-            scoring_modes=dict(SCORING_MODELS),
-            # The registry claims a toy vocabulary while its models carry the
-            # CBA one.
-            mode_vocabulary=_TOY_VOCABULARY,
+            scoring_modes={"cba-physical-1": CBA_PHYSICAL_MODEL},
+            # Narrower than CBA_PHYSICAL_MODEL's own vocabulary, which is both
+            # CBA modes.
+            mode_vocabulary=frozenset({"cba-physical-1"}),
         )
 
 
 def test_the_cba_registry_declares_the_cba_vocabulary() -> None:
     assert CBA_REGISTRY.mode_vocabulary == CBA_SCORING_MODES
     assert set(CBA_REGISTRY.scoring_modes) <= CBA_REGISTRY.mode_vocabulary
+
+
+def _cba_impostor() -> FactorRegistry:
+    """A registry that claims a CBA version without being the CBA rulebook."""
+    return FactorRegistry(
+        version=REGISTRY_VERSION,
+        status="proposed",
+        approver=None,
+        approved_on=None,
+        factors=(_toy_spec("toy_overlap", 1.0),),
+        approved_scoring_keys=frozenset({"toy_overlap"}),
+        scoring_modes={},
+        mode_vocabulary=_TOY_VOCABULARY,
+    )
+
+
+def test_the_gates_refuse_a_registry_impersonating_a_cba_version() -> None:
+    """Claiming a CBA version must not buy a CBA reading of the gate.
+
+    The gates recognise the CBA path by version so that a copy of the CBA
+    registry behaves like the original. That recognition is exactly what a
+    foreign registry could abuse: stamping ``REGISTRY_VERSION`` on its own
+    factors would make ``assert_registry_approved`` read the module's
+    ``"approved"`` constant instead of the registry's own ``"proposed"``
+    status. Equality decides, so a structurally equal copy still passes and an
+    impostor does not.
+    """
+    impostor = _cba_impostor()
+    assert impostor.version == CBA_REGISTRY.version
+    assert impostor != CBA_REGISTRY
+
+    with pytest.raises(RegistryNotApprovedError, match="claims registry version"):
+        assert_registry_approved(registry=impostor)
+    with pytest.raises(RegistryNotApprovedError, match="claims registry version"):
+        assert_scoring_ready(registry=impostor)
+
+    # The superseded pin is a CBA pin too, and equally not for hire.
+    superseded_impostor = dataclasses.replace(impostor, version=SUPERSEDED_REGISTRY_VERSION)
+    with pytest.raises(RegistryNotApprovedError, match="claims registry version"):
+        assert_registry_approved(registry=superseded_impostor)
+
+    # A genuine copy is unaffected: this is equality, not identity.
+    assert_registry_approved(registry=dataclasses.replace(CBA_REGISTRY))
+    assert_scoring_ready(registry=dataclasses.replace(CBA_REGISTRY))
 
 
 # ---------------------------------------------------------------------------
