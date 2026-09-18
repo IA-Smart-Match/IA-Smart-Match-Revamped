@@ -59,6 +59,14 @@ packets show both sides and resolve none of them:
   [`../decisions/pilot-login-decision-2026-09-04.md`](../decisions/pilot-login-decision-2026-09-04.md)
   substitutes a pilot database-credential login and defers production SSO.
 
+**Updated 2026-09-18.** All four conflicts above now carry dated supersession
+notes inside the plan itself — at §2 and at §5.1 (G1), §5.2 (G3), §5.4
+(metrics) and Wave C item 4 (A1b) of
+[`../plans/remaining-engineering-implementation-plan.md`](../plans/remaining-engineering-implementation-plan.md).
+Those notes quote each later artifact's own status words, leave the original
+plan text intact, and end with what is still open. They resolve nothing: the
+reconciliation remains the owners' decision.
+
 Reconciling the plan text with these artifacts is itself a decision for the
 owners, and each affected packet lists it under evidence needed to close.
 [`../plans/README.md`](../plans/README.md) states the discipline: "When a dated
