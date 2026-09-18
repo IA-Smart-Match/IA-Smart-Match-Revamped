@@ -466,6 +466,24 @@ UNAUTHENTICATED_ROUTES: dict[tuple[str, str], str] = {
         "(MM-A01), which was public *and* let the caller choose an identity. "
         "Here the caller must present a secret only the account holder has."
     ),
+    ("GET", "/v1/exercise"): (
+        "The class exercise's scope facts (ADR-0025 D1). Public in a stronger "
+        "sense than every other row here: the others are unauthenticated routes "
+        "inside a product that has a login, whereas this one belongs to a "
+        "product that has none — a no-login site over made-up profiles for "
+        "Dr. Lin's Spring 2027 class. It is mounted only under "
+        "`Capability.CLASS_EXERCISE`, which is granted only in "
+        "`ProductScope.CLASS_EXERCISE`, and that scope registers none of the "
+        "authenticated CBA routers, so `get_current_principal` is unreachable "
+        "in the process that serves it rather than bypassed in the handler "
+        "(D9 rejected the per-route bypass). In a CBA process this route does "
+        "not exist and answers 404. "
+        "It is also an oracle for nothing: it reads no table, takes no "
+        "parameter, and returns three constants of the scope — the scope name, "
+        "the team numbers 1-6 the requirements document fixes, and the "
+        "synthetic-data marker. There is no real record in this scope for it to "
+        "disclose."
+    ),
 }
 
 

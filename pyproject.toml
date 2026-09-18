@@ -139,6 +139,12 @@ root_packages = [
     "smartmatch_authz",
     "smartmatch_providers",
     "smartmatch_persistence",
+    # Added by CE-ROUTERS so ADR-0025 D2's boundary can be expressed at all:
+    # the rule is about a *router*, and a contract cannot name a module in a
+    # package the graph does not contain. No layers contract names it, so the
+    # API package is unconstrained here except by the exercise contract below —
+    # this widens what can be said, not what is forbidden.
+    "smartmatch_api",
 ]
 # Required so the forbidden contracts below can name third-party and stdlib
 # modules. Without it, "domain must not import FastAPI" cannot be expressed.
@@ -204,4 +210,37 @@ forbidden_modules = [
     "requests",
     "subprocess",
     "smartmatch_providers",
+]
+
+# ADR-0025 D2, as a rule rather than a habit. The class exercise is a no-login
+# product over made-up rows: its routers must not be able to resolve a
+# principal or reach a tenant-scoped repository, so that "unauthenticated" is a
+# property of the module rather than a promise in its docstring.
+#
+# Every exercise router is listed by name, and a later one must add itself here.
+# A pattern was tried first and import-linter rejects it: a wildcard may only
+# replace a *whole* module name ("A wildcard can only replace a whole module"),
+# so `smartmatch_api.routers.exercise_*` is not expressible, and the shapes that
+# are — `smartmatch_api.routers.*`, or moving these into an
+# `smartmatch_api.routers.exercise` subpackage — each cost more than they save.
+# The first would put every CBA router under a rule written for the exercise;
+# the second would hide these modules from the route ledger in
+# `tests/authz/test_policy_matrix.py`, which globs `routers/*.py` and is what
+# forces every unauthenticated route to be declared with a reason. So: one line
+# per router, and CE-INSTRUCTOR, CE-WORKSPACE, CE-SIMULATION and CE-INGEST each
+# add theirs with the module.
+#
+# `smartmatch_persistence.exercise` gets its own contract from CE-SCHEMA, which
+# owns those modules; this one is about the API surface.
+[[tool.importlinter.contracts]]
+name = "Class exercise routers carry no principal or tenancy"
+type = "forbidden"
+source_modules = ["smartmatch_api.routers.exercise_public"]
+forbidden_modules = [
+    "smartmatch_authz",
+    "smartmatch_persistence",
+    "smartmatch_api.dependencies",
+    "smartmatch_api.units",
+    "smartmatch_api.job_authz",
+    "smartmatch_api.routers.auth",
 ]

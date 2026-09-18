@@ -24,9 +24,10 @@ rather than bypassed") is asserted against ``smartmatch_api.main.routers_for``,
 which is the composition rule the running application is built from — and one
 test here pins that it *is* what the application is built from, so the other two
 cannot pass against a function nothing calls. Its twin — that the exercise routes
-answer 404 under CBA — belongs to the track that builds those routers; there are
-none yet, and a test asserting the absence of something nobody wrote would pass
-for the wrong reason.
+answer 404 under CBA — arrived with CE-ROUTERS, which wrote the first of them,
+and lives beside that router in ``tests/unit/test_exercise_public_router.py``:
+a test asserting the absence of something nobody had written would have passed
+for the wrong reason, so it waited for something to be absent.
 
 This track closes no row in
 ``docs/plans/open-questions/class-exercise-open-questions.md`` and no row there
@@ -251,9 +252,12 @@ def test_cba_authenticated_routes_are_absent_under_class_exercise() -> None:
     assert offenders == [], (
         f"authenticated CBA routes still mounted under CLASS_EXERCISE: {offenders}"
     )
-    # Nothing at all yet: the exercise routers are the next track's work, and a
-    # scope that mounted a CBA `/v1` path would be the failure this guards.
-    assert exercise_paths == frozenset()
+    # Exactly the exercise's own public route, and nothing else. CE-ROUTERS
+    # mounted it (`routers/exercise_public.py`); every later exercise track adds
+    # its own path to this set, and a CBA `/v1` path appearing in it is the
+    # failure this guards. Stated as an equality rather than a containment so
+    # that a router mounted under the wrong capability cannot slip in unnamed.
+    assert exercise_paths == frozenset({"/v1/exercise"})
 
 
 def test_the_cba_scope_still_mounts_every_one_of_them() -> None:
