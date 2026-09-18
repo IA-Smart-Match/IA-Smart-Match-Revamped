@@ -49,6 +49,12 @@ const GATED: readonly Capability[] = [
   "cold_unknown_contact_outreach",
   "chapter_membership_dues",
   "member_inquiry_narrative",
+  // ADR-0025 D1: the class exercise is a *different product scope*, not a CBA
+  // feature that happens to be switched off this phase. It is listed here
+  // because this build is the CBA build and the mirror carries the CBA column —
+  // `false` here says "this product is not that product", which is why no
+  // navigation in this app may ever ask for it and expect a yes.
+  "class_exercise",
 ];
 
 test("every capability carries an explicit decision", () => {
