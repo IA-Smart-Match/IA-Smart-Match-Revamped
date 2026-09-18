@@ -51,6 +51,8 @@ Sources
 * ``docs/product/cba-smart-match-customer-requirements.md`` §§1, 4, 20, 22
 * ``docs/plans/open-questions/cba-phase-deferred.md`` (CBA-gated capabilities)
 * ``docs/product/cba-capability-policy.md`` (this policy, in prose)
+* ``docs/architecture/decisions/ADR-0025-class-exercise-scope-shares-the-matching-mechanism.md``
+  D1 (the ``CLASS_EXERCISE`` scope and capability)
 """
 
 from __future__ import annotations
@@ -90,10 +92,19 @@ class ProductScope(StrEnum):
     capabilities CBA gates are *out of the current product's scope*, not
     defective: the code, data, and history stay in the repository, and this
     enum is what says which product they belong to.
+
+    ``CLASS_EXERCISE`` is the Spring 2027 classroom exercise (ADR-0025): a
+    no-login site over made-up profiles, run by six teams of class
+    participants. It is a scope rather than a flag on the CBA product because
+    the two share a *mechanism* and no data at all — the exercise stores no real
+    student and no real event, has no tenant, no principal, and no consent
+    question, and ADR-0025 D1 requires that it never run in the same process as
+    real records. A process is one product or the other.
     """
 
     CBA = "cba"
     IA_WEST_LEGACY = "ia_west_legacy"
+    CLASS_EXERCISE = "class_exercise"
 
 
 #: The scope an unconfigured process runs. The narrower product, so a missing
@@ -203,6 +214,21 @@ class Capability(StrEnum):
     #: produce one.
     MEMBER_INQUIRY_NARRATIVE = "member_inquiry_narrative"
 
+    #: The Spring 2027 class exercise: its unauthenticated team surface and its
+    #: instructor surface, over the ``exercise_`` tables (ADR-0025 D1, D2).
+    #:
+    #: Granted only in :attr:`ProductScope.CLASS_EXERCISE`, and that scope grants
+    #: nothing else. Not a sub-capability of :attr:`MATCH_RUNS`: a match run is
+    #: an immutable, versioned, tenant-scoped run over records a principal
+    #: entered, and the exercise has none of those four things. Sharing the flag
+    #: would mean a CBA deployment could not offer matching without also
+    #: offering a no-login surface, which is exactly the process mixing
+    #: ADR-0025 D1 forbids.
+    #:
+    #: The word in code is *exercise*, never "demo" — ADR-0025 D9 and
+    #: ``tools/scan_forbidden.py``.
+    CLASS_EXERCISE = "class_exercise"
+
 
 def _classified(decisions: dict[Capability, bool]) -> Mapping[Capability, bool]:
     """Freeze one scope's column, refusing it if any capability is missing."""
@@ -235,6 +261,10 @@ _POLICY: Final[Mapping[ProductScope, Mapping[Capability, bool]]] = MappingProxyT
                 Capability.COLD_UNKNOWN_CONTACT_OUTREACH: False,
                 Capability.CHAPTER_MEMBERSHIP_DUES: False,
                 Capability.MEMBER_INQUIRY_NARRATIVE: False,
+                # A different product, not a CBA feature deferred. The CBA
+                # process holds real students and real events; the exercise
+                # surface takes no principal. ADR-0025 D1.
+                Capability.CLASS_EXERCISE: False,
             }
         ),
         ProductScope.IA_WEST_LEGACY: _classified(
@@ -256,6 +286,48 @@ _POLICY: Final[Mapping[ProductScope, Mapping[Capability, bool]]] = MappingProxyT
                 Capability.COLD_UNKNOWN_CONTACT_OUTREACH: True,
                 Capability.CHAPTER_MEMBERSHIP_DUES: True,
                 Capability.MEMBER_INQUIRY_NARRATIVE: True,
+                # False here even though this is the *wider* scope, and that is
+                # not an exception to the rule above it: the four capabilities
+                # this column enables and CBA does not are ones CBA *removed*
+                # from a shared product. The exercise was never part of this
+                # product at all. "Wider" means a superset of the same product's
+                # capabilities, not a union of every product in the repository.
+                Capability.CLASS_EXERCISE: False,
+            }
+        ),
+        # The class exercise (ADR-0025). One capability on; every capability
+        # that implies an authenticated CBA router or a CBA datum explicitly
+        # off — not by omission, which this module makes impossible, but as a
+        # decision a reader can see.
+        #
+        # `EVENT_READS` and `MATCH_RUNS` are the two worth pausing on, because
+        # the exercise plainly does read events and plainly does rank. It reads
+        # `exercise_event` rows and ranks with `rank_profiles_for_event` over
+        # `exercise_profile` rows (ADR-0025 D2, D4). Those capabilities name the
+        # *CBA* catalog and the *CBA* tenant-scoped, versioned match run, and a
+        # `True` here would mount the routers that serve them — which is the
+        # process mixing ADR-0025 D1 exists to prevent.
+        #
+        # `AUTHENTICATED_LOGIN` off is what makes `get_current_principal`
+        # unreachable rather than bypassed: ADR-0025 D9 rejected a per-route
+        # bypass inside the CBA scope precisely so that this stays a composition
+        # fact rather than a handler's good behaviour.
+        ProductScope.CLASS_EXERCISE: _classified(
+            {
+                Capability.AUTHENTICATED_LOGIN: False,
+                Capability.EVENT_READS: False,
+                Capability.SPEAKER_REQUEST_INTAKE: False,
+                Capability.SPEAKER_CONTACT_MANAGEMENT: False,
+                Capability.MATCH_RUNS: False,
+                Capability.DISCOVERY_METRICS: False,
+                Capability.CONSENTED_OUTREACH: False,
+                Capability.REWARDS_LEDGER: False,
+                Capability.OPERATOR_RECORD_IMPORT: False,
+                Capability.EXTERNAL_SPEAKER_ACQUISITION: False,
+                Capability.COLD_UNKNOWN_CONTACT_OUTREACH: False,
+                Capability.CHAPTER_MEMBERSHIP_DUES: False,
+                Capability.MEMBER_INQUIRY_NARRATIVE: False,
+                Capability.CLASS_EXERCISE: True,
             }
         ),
     }
