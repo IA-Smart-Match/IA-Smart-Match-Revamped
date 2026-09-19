@@ -1,91 +1,70 @@
 """Read and validate the class exercise's data file (design spec §3).
 
-Bytes in, a :class:`ParsedDataset` or a single plain sentence out. Nothing here
+Bytes in, a :class:`ParsedDataset` or one plain sentence out. Nothing here
 opens a file, touches a path, imports ``sqlalchemy``, or writes anything down:
 the route hands over the uploaded bytes and this module answers. That is the
-same separation ``smartmatch_domain/ingest.py`` states for the CBA import path
-— file handling belongs to an adapter, validation belongs to the domain —
-applied to an upload that has no adapter because it has no pipeline (§3: the
-instructor needs an answer on the spot, so the job and review path behind
-``routers/imports.py`` is not used).
+separation ``smartmatch_domain/ingest.py`` states for the CBA import path —
+file handling belongs to an adapter, validation to the domain — applied to an
+upload that has no adapter because it has no pipeline (§3: the instructor
+needs an answer on the spot).
 
-One sentence, aimed at an instructor
-====================================
-Every refusal is one sentence a non-programmer can act on, in the order §3
-names, and the first failure is the whole answer. The spec's own example is
-carried verbatim by :func:`_missing_columns_sentence`: *The file is missing the
-column ``major``.* The requirements ask Danny for "data-file loading with a
-plain error when a column is missing", and a stack trace, a field path, or a
-list of twelve problems are all worse answers to that than the first one.
+Every refusal is one sentence a non-programmer can act on, in §3's order, and
+the first failure is the whole answer. The spec's own example is carried
+verbatim by :func:`_missing_columns_sentence`: *The file is missing the column
+``major``.* The requirements ask Danny for "data-file loading with a plain
+error when a column is missing", and a stack trace, a field path or a list of
+twelve problems are all worse answers than the first one.
 
-PLACEHOLDER (OQ-CE-01) — the layout, and why it is one object
-=============================================================
-Ann's 20-row sample with the final column names has not arrived, and the owner
-ruled on 2026-09-18 to build to the placeholder columns now. So **every column
-name, the list-cell separator, and the way a row declares what it is** are
-fields of :class:`ExerciseFileLayout`, and :data:`PLACEHOLDER_LAYOUT` is this
-module's guess at them. Closing OQ-CE-01 is editing that one object; no
-function below contains a column name.
-
-Design spec §3 says "multipart, one file" while §2 needs about 300 profiles
-*and* 12 events. The format is undecided, so the placeholder picks the layout
-that keeps both facts true: **one CSV with a ``record_type`` column** whose
-value says whether the row describes a profile or an event. The alternatives
-considered, and why they lost, are on this track's pull request and in the
-question list for Ann. None of them is refused forever — each is a different
-``ExerciseFileLayout``, and the discriminator lives in that object precisely so
-that "two files" or "profiles only" is a layout change rather than a parser
-rewrite.
+PLACEHOLDER (OQ-CE-01) — the layout
+===================================
+Ann's 20-row sample has not arrived; the owner ruled on 2026-09-18 to build to
+the placeholder columns now. Every column name, the list-cell separator and
+the way a row declares what it is live on
+:class:`~smartmatch_domain.exercise.layout.ExerciseFileLayout`; no function
+below contains a column name. §3 says "multipart, one file" while §2 needs
+about 300 profiles *and* 12 events, so the placeholder is **one CSV with a
+``record_type`` column** saying which a row is. The alternatives, and why they
+lost, are on this track's pull request — each is a different layout object
+rather than a different parser.
 
 PLACEHOLDER (OQ-CE-05) — CSV, and what happens to an XLSX
 =========================================================
-``csv.DictReader`` from the standard library, as §3 and the register row both
-say. ``openpyxl`` is not imported, is not a dependency, and is not a fallback
-here: an XLSX upload is **refused with a sentence asking for a CSV export**,
-detected by the ZIP magic bytes as well as by the file name, because a
-spreadsheet renamed ``.csv`` is still a spreadsheet and the byte-level check is
-the one a rename cannot get past.
+``csv.DictReader`` from the standard library. ``openpyxl`` is not imported, is
+not a dependency and is not a fallback: an XLSX is **refused with a sentence
+asking for a CSV export**, detected by ZIP magic bytes as well as by name,
+because a workbook renamed ``.csv`` is still a workbook.
 
 No vocabulary is closed here
 ============================
-§3 asks for "every ``class_year`` in the vocabulary" and for interest terms
-"mapped to G3". Both vocabularies are OQ-CE-01, and the G3 mapping is a gated
-area besides. Inventing either would answer an open question in code, so this
-module does neither. It validates ``class_year`` only for the things the
-database would refuse anyway, and **reports the distinct values it found** so
-the instructor — and Ann — can read the vocabulary off the file instead of off
-a guess. Terms are normalized and counted, never mapped and never dropped:
-ADR-0011's "counted, never silently dropped", with the counting on
-:class:`IngestReport`.
+§3 asks for "every ``class_year`` in the vocabulary" and interest terms
+"mapped to G3". Both vocabularies are OQ-CE-01 and the G3 mapping is a gated
+area, so this module does neither. ``class_year`` is validated only for what
+the database would refuse, and the distinct values found are **reported** so
+the vocabulary can be read off the file instead of off a guess. Terms are
+normalized and counted, never mapped; the one thing a list cell can lose is an
+entry that is punctuation only, and that is counted too (ADR-0011).
 
 ADR-0025 D6 — the withheld column
 =================================
-``hidden_true_interests`` is parsed and carried on :class:`ParsedProfile`, so
-that the repository can store it and the simulated-results rule can read it.
-It appears in **no** refusal sentence, on :class:`IngestReport` in no form, and
-in no log line. The log records counts only — never a cell, never a name.
+``hidden_true_interests`` is parsed onto :class:`ParsedProfile` so the
+repository can store it and the simulated-results rule can read it. It appears
+in no refusal sentence, on :class:`IngestReport` in no form, in no ``repr``
+and in no log line. The log records counts only.
 
 Untrusted input
 ===============
-This parses a file a browser uploaded. The byte cap, the cell cap, the column
-cap and the row cap below are all checked *before* any per-row work, the row
-cap is applied to a slice rather than to a fully read file, NUL bytes are
-refused outright, and the two numeric columns are bounded to what a
-PostgreSQL ``integer`` can hold. ``csv.field_size_limit`` is **not** touched —
+The byte cap, the cell cap, the column cap and the row cap are checked before
+any per-row work; the row cap is applied to a slice rather than to a fully
+read file; NUL bytes are refused; the two numeric columns are bounded to what
+a PostgreSQL ``integer`` holds. ``csv.field_size_limit`` is **not** touched —
 it is process-global, so setting and restoring it around a parse corrupts it
-for every other reader in the process when two parses overlap;
-:func:`_read_rows` says what stands in for it.
+for every other reader when two parses overlap; :func:`_read_rows` says what
+stands in for it. Every refusal that quotes the file passes it through
+:func:`_quote` first — a heading and a cell are whatever the uploader typed.
 
-Every refusal that quotes a piece of the file passes it through
-:func:`_quote` first, because a column heading and a cell are whatever the
-uploader typed: newlines that turn one log line into several, control
-characters, a backtick that breaks the quoting these sentences use, ten
-thousand characters where forty would do.
-
-No cell is ever evaluated: a leading ``=``, ``+`` or ``@`` is data here and
-nothing reads it as a formula. The CSV-injection risk of those prefixes
-belongs to the **download** track of §8, which writes cells rather than
-reading them; it is noted here and acted on there.
+No cell is ever evaluated: a leading ``=``, ``+`` or ``@`` is data here. The
+CSV-injection risk of those prefixes belongs to the **download** track of §8,
+which writes cells rather than reading them; noted here, acted on there.
 """
 
 from __future__ import annotations
@@ -112,10 +91,8 @@ from smartmatch_domain.exercise.layout import (
 )
 from smartmatch_domain.ingest import normalize_header
 
-# Re-exported so that a caller needs one import to parse a file and read the
-# answer. ``layout.py`` holds the definitions — the shape of the file is
-# description and changes when Ann's sample arrives, and this module is
-# behaviour and changes when a rule does.
+# The layout types are re-exported so a caller needs one import to parse a file
+# and read the answer; ``layout.py`` holds their definitions.
 __all__ = [
     "EXERCISE_EVENT_ROW_COUNT",
     "MAX_CELL_CHARACTERS",
@@ -193,20 +170,17 @@ _OVERFLOW_KEY: Final[str] = "__extra_cells__"
 def _quote(text: str) -> str:
     """Render a piece of the uploaded file for a sentence an instructor reads.
 
-    Every refusal that names something the uploader typed — a column heading, a
-    cell, an event key — goes through this first. File content is untrusted
-    text: it can carry newlines that turn one log line into several, control
-    characters, a backtick that breaks out of the quoting the sentences use,
-    and ten thousand characters where forty would do.
+    Every refusal that names something the uploader typed — a heading, a cell,
+    an event key — goes through this first, because file content can carry
+    newlines that turn one log line into several, control characters, a
+    backtick that breaks out of the quoting these sentences use, and ten
+    thousand characters where forty would do. Unprintables become spaces,
+    whitespace collapses, backticks are removed (they are this module's
+    delimiter, not the uploader's), and the result is truncated. Empty input
+    reads as ``(blank)``.
 
-    So: unprintable characters become spaces, runs of whitespace collapse,
-    backticks are removed (they are this module's own delimiter, not the
-    uploader's), and the result is truncated with an ellipsis. Empty input
-    reads as ``(blank)``, because a sentence with nothing between its backticks
-    tells an instructor less than the word does.
-
-    This is presentation, not sanitisation of stored data: nothing here is ever
-    written to a row. The stored values keep their own spelling.
+    Presentation only: nothing here is ever written to a row, and the stored
+    values keep their own spelling.
     """
     flattened = "".join(character if character.isprintable() else " " for character in text)
     cleaned = " ".join(flattened.replace("`", "").split())
@@ -326,20 +300,18 @@ def _read_rows(text: str, layout: ExerciseFileLayout) -> _Sheet | IngestRefusal:
     """Read the CSV, one row past the cap and no further.
 
     **``csv.field_size_limit`` is deliberately not touched.** It is
-    process-global rather than per-reader, so setting and restoring it around
-    this call is only safe in a single-threaded process: two parses running at
-    once interleave, and whichever restores last leaves the global at the
+    process-global rather than per-reader, so two parses running at once
+    interleave the set and the restore and the loser leaves the global at the
     other's value for every reader in the process — including the CBA import
-    path. Nothing here needs it raised. The 2 MiB upload cap bounds the file,
+    path. Nothing here needs it raised: the 2 MiB upload cap bounds the file,
     :data:`MAX_CELL_CHARACTERS` bounds a cell, and the stdlib default of
-    131072 is itself a bound; a cell larger than that raises ``csv.Error`` and
-    becomes the plain sentence below rather than a lowered global limit.
+    131072 is itself a bound, above which ``csv.Error`` becomes the plain
+    sentence below.
 
-    Rows are taken through :func:`itertools.islice` at one past
-    :data:`MAX_DATA_ROW_COUNT`, so a file of a million rows costs the cap and
-    not the file. That extra row is what :func:`_collect_rows` refuses on, and
-    it is why the sentence says "more than" instead of a total: the total was
-    never counted.
+    Rows come through :func:`itertools.islice` at one past
+    :data:`MAX_DATA_ROW_COUNT`, so a million-row file costs the cap and not
+    the file. That extra row is what :func:`_collect_rows` refuses on, and it
+    is why the sentence says "more than" rather than a total.
     """
     reader = csv.DictReader(io.StringIO(text), restkey=_OVERFLOW_KEY, restval="")
     try:
@@ -363,10 +335,9 @@ def _read_rows(text: str, layout: ExerciseFileLayout) -> _Sheet | IngestRefusal:
 def _header_map(fieldnames: Sequence[str] | None) -> Mapping[str, str] | IngestRefusal:
     """Normalized column name to the file's own spelling.
 
-    Headers are compared through ``normalize_header``, so ``"Class Year"``,
-    ``"class_year"`` and ``" CLASS-YEAR "`` are the same column — header text
-    is presentation and never an identity, which is the rule the CBA import
-    path already follows.
+    Compared through ``normalize_header``, so ``"Class Year"`` and
+    ``" CLASS-YEAR "`` are one column: header text is presentation, never an
+    identity — the rule the CBA import path already follows.
     """
     if not fieldnames:
         return IngestRefusal("no_header_row", "The file has no header row naming its columns.")
@@ -403,9 +374,8 @@ def _missing_columns(
     """Design spec §3's first check, reporting every missing column at once.
 
     All of them in one sentence rather than one at a time: an instructor fixing
-    a file five minutes before class should learn everything that is wrong with
-    its header in one upload, and the spec's example sentence composes into a
-    list without becoming a list of sentences.
+    a file five minutes before class should learn everything wrong with its
+    header in one upload.
     """
     missing = [
         column for column in layout.required_columns if normalize_header(column) not in headers
@@ -428,12 +398,11 @@ def _collect_rows(
 ) -> _Sheet | IngestRefusal:
     """Bound the row count and every cell, and drop rows that are entirely blank.
 
-    ``body`` carries each row's **file line number**, taken from
-    ``csv.DictReader.line_num`` rather than counted off the row's position. A
-    quoted cell may contain a newline, and when one does every row after it
-    sits on a later line than its index suggests — so an instructor told to
-    look at "row 12" would be looking at the wrong row, which is worse than
-    not being told.
+    ``body`` carries each row's **file line number** from
+    ``csv.DictReader.line_num`` rather than its position: a quoted cell may
+    contain a newline, and then every row after it sits on a later line than
+    its index suggests — so "row 12" would point at the wrong row, which is
+    worse than not saying.
     """
     if len(body) > MAX_DATA_ROW_COUNT:
         return IngestRefusal(
@@ -653,14 +622,12 @@ def _positive_int(text: str) -> int | None:
     """A whole number the column can hold, or ``None`` for anything else.
 
     Bounded at both ends by what ``exercise_profile.profile_no`` and
-    ``exercise_event.sequence`` actually are: ``CHECK (… >= 1)`` below, and
-    PostgreSQL ``integer`` above. Python's ``int`` has neither bound, so
-    without this a four-hundred-digit cell would parse here and be refused by
-    a driver later, with the row in the error text.
-
-    The digit-count check comes before ``int()`` rather than after, because
-    converting a very long digit string is itself work an uploaded file should
-    not be able to ask for.
+    ``exercise_event.sequence`` are: ``CHECK (… >= 1)`` below, PostgreSQL
+    ``integer`` above. Python's ``int`` has neither bound, so without this a
+    four-hundred-digit cell parses here and is refused by a driver later, with
+    the row in the error text. The digit count is checked before ``int()``,
+    because converting a very long digit string is itself work an uploaded
+    file should not be able to ask for.
     """
     if len(text) > _MAX_NUMBER_DIGITS:
         return None
@@ -674,9 +641,9 @@ def _positive_int(text: str) -> int | None:
 def _boolean(text: str, layout: ExerciseFileLayout) -> bool | None:
     """A yes or a no out of a cell, or ``None`` when it is neither.
 
-    ``None`` rather than a default: a cell nobody can read as yes or no is not
-    evidence that the answer is no, and guessing here would silently decide
-    which two events the teams run.
+    ``None`` rather than a default: a cell nobody can read as yes or no is no
+    evidence that the answer is no, and guessing would silently decide which
+    two events the teams run.
     """
     folded = text.casefold()
     if folded in {value.casefold() for value in layout.true_values}:
@@ -696,18 +663,15 @@ def _split_cell(text: str, layout: ExerciseFileLayout) -> tuple[str, ...]:
 def _terms(text: str, layout: ExerciseFileLayout) -> tuple[tuple[str, ...], int]:
     """A list cell as normalized terms, plus how many entries it lost.
 
-    ``normalize_tag_value`` is the repository's existing fold (case, whitespace
-    and punctuation), reused rather than restated so that an exercise term and
-    a CBA tag compare the same way. No term is looked up in a vocabulary: the
-    G3 mapping design spec §3 mentions is OQ-CE-01 and a gated area, so this
-    module counts instead (ADR-0011).
+    ``normalize_tag_value`` is the repository's existing fold, reused rather
+    than restated so an exercise term and a CBA tag compare the same way. No
+    term is looked up in a vocabulary: the G3 mapping §3 mentions is OQ-CE-01
+    and a gated area, so this module counts instead (ADR-0011).
 
-    One kind of entry cannot survive the fold at all — ``---`` and ``***`` are
-    punctuation only and normalise to the empty string. Storing that empty
-    string would put a term nobody wrote into an array; dropping it silently
-    would be exactly the thing ADR-0011 forbids. So it is dropped **and
-    returned as a count**, which reaches the instructor on
-    ``IngestReport.discarded_list_entries``.
+    One kind of entry cannot survive the fold — ``---`` is punctuation only
+    and normalises to the empty string. Storing it would put a term nobody
+    wrote into an array; dropping it silently is what ADR-0011 forbids. So it
+    is dropped **and counted**, onto ``IngestReport.discarded_list_entries``.
     """
     seen: dict[str, None] = {}
     discarded = 0
@@ -762,10 +726,10 @@ def _check_past_event_keys(
 ) -> IngestRefusal | None:
     """Every attended event must be an event in the file.
 
-    Refused rather than trimmed. ADR-0011's rule is that nothing is silently
-    dropped, and quietly discarding an attendance would change who "went to
-    similar events before" without telling anybody — a wrong ranked list that
-    looks right. The sentence names the keys and how many rows used them.
+    Refused rather than trimmed: quietly discarding an attendance would change
+    who "went to similar events before" without telling anybody — a wrong
+    ranked list that looks right (ADR-0011). The sentence names the keys and
+    how many rows used them.
     """
     known = {event.event_key for event in events}
     counts: dict[str, int] = {}
