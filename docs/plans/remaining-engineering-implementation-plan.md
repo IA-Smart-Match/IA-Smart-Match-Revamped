@@ -53,6 +53,44 @@ Standing rules for every wave:
 For each such item, the preparation below is safe, but the plan explicitly says
 where implementation must stop.
 
+### Supersession notes — 2026-09-18
+
+Per [`README.md`](README.md): *“When a dated plan is superseded or its
+implementation state changes, preserve the original evidence and add a dated
+supersession/current-state note pointing to the new authority.”* The
+classification table above is preserved unchanged. These notes record only what
+a **later artifact says about itself**, quoting its own status words. They close
+no row, change no status, decide nothing, and are not a production-readiness
+claim.
+
+**Row 1 — Matching/scoring (G1).** A later artifact,
+[`workshops/g1-workshop-output-worksheet.md`](workshops/g1-workshop-output-worksheet.md),
+records at its head: *“**Status: RATIFIED — 2026-09-03.** Gate G1 / D1 closed.
+M1 complete in code.”* — ratified by Danny Tran (@BrooklynD23). See §5.1 below
+for what the worksheet itself leaves open.
+
+**Row 2 — Crawler/event pipeline (G3, S4/S5).**
+[`../decisions/g3-crawler-decision.md`](../decisions/g3-crawler-decision.md)
+records: *“**Status:** **SIGNED** 2026-08-29 by Danny Tran, Development Lead. No
+required field is blank. This artifact passes P6’s G3 stop-gate.”* The same
+artifact states that its signature *“does NOT authorize live targets.”* See §5.2
+below for the residual conditions it names.
+
+**Row 4 — Metrics role-gating.**
+[`../decisions/metrics-authorization-decision-draft.md`](../decisions/metrics-authorization-decision-draft.md)
+records: *“**Status:** **CLOSED — 2026-09-02.** Product owner and
+security/privacy owner named and signed (same person, both roles). Engineering
+may implement per §5.”* See §5.4 below for the code that implements it and for
+what remains open around it.
+
+**Row 7 — Login caller-chosen role cards / A1b follow-up.**
+[`../decisions/pilot-login-decision-2026-09-04.md`](../decisions/pilot-login-decision-2026-09-04.md)
+records: *“**Status: DECIDED for the pilot, by the project owner,
+2026-09-04.** **Scope: the synthetic pilot only. Not production
+authentication.**”* It states of itself (:37-40) that *“It does not close A1b,
+A0, or A1.”* The row’s own words — *“A1b remains a separate blocked
+follow-up”* — are unchanged by it. See the Wave C note below.
+
 ## 3. Sequenced waves
 
 ### Wave A — close the safe frontend defect now
@@ -90,6 +128,28 @@ After the corresponding written decisions:
 
 These slices do not require matching scores, crawler output, rewards content, or
 opportunity counts.
+
+**Supersession note — 2026-09-18, item 4 (A1b).** A later artifact,
+[`../decisions/pilot-login-decision-2026-09-04.md`](../decisions/pilot-login-decision-2026-09-04.md),
+records: *“**Status: DECIDED for the pilot, by the project owner, 2026-09-04.**
+**Scope: the synthetic pilot only. Not production authentication.**”* It
+replaced the unavailable-login state with *“a real login page backed by database
+credentials”*, one login per role, and states that *“Production SSO is
+**explicitly deferred until after the pilot**.”*
+
+**It explicitly does not close A1b.** Its own §“What this decision does **not**
+do” (:37-43) says: *“**It does not close A1b, A0, or A1.** A1b remains blocked
+on the same thing it was blocked on: an identity provider nobody has configured.
+This document is not a substitute for that configuration and must not be read as
+progress toward it.”* and *“**It does not wire the JWKS verifier.** The verifier
+core landed in PR #27 and stays unwired.”*
+
+So: **pilot DB-credential login exists; A1b live IdP remains open.** Item 4
+above — configuring A1b and wiring the real institutional sign-in flow — is
+neither done nor unblocked. Still open: the issuer, audience, JWKS URI and
+client id, none of which may be invented
+([`../decisions/a1b-idp-configuration-worksheet.md`](../decisions/a1b-idp-configuration-worksheet.md)
+is unfilled), and the `smartmatch_providers.jwks` wiring.
 
 ### Wave D — build evidence foundations after gates close
 
@@ -239,6 +299,38 @@ CI remains the clean install/build proof.
 **Do not build yet:** do not flip `REGISTRY_STATUS`, port the legacy engine,
 implement optimizer-backed match runs, or expose any score/rank until G1 closes.
 
+**Supersession note — 2026-09-18.** The section above is preserved as written.
+Two later artifacts record that G1 closed.
+
+- [`workshops/g1-workshop-output-worksheet.md`](workshops/g1-workshop-output-worksheet.md)
+  states at its head: *“**Status: RATIFIED — 2026-09-03.** Gate G1 / D1 closed.
+  M1 complete in code.”* **Ratified by:** Danny Tran (@BrooklynD23), 2026-09-03.
+  It records the surviving factors and weights (`topic_relevance` **0.70**,
+  `travel_burden` **0.30**, Stage B sum **1.0**), the Q6 answers (`DROP` for
+  both `historical_conversion` and `student_interest`), the ADR-0011
+  `zero_classification` for each golden case, the tie-break rule (lexicographic
+  ascending by `subject_id`), and the weight-governance owner.
+- `python/smartmatch_domain/smartmatch_domain/factor_registry.py:149` reads
+  `REGISTRY_STATUS: Final[str] = "approved"`, with
+  `REGISTRY_VERSION = "2.0.0-approved-oq-cba-004"` (`:137`),
+  `REGISTRY_APPROVER = "Danny Tran, Development Lead / program owner of record"`
+  and `REGISTRY_APPROVED_ON = "2026-09-05"`. The comment at `:145-148` attributes
+  that later approval to ADR-0016 and says the 2026-09-03 G1 approval *“stands
+  for :data:`SUPERSEDED_REGISTRY_VERSION`”* (`"1.1.1-approved-g1-m6j"`, `:143`).
+
+  This also affects the standing rule in §1 above — *“Matching remains
+  fail-closed while `factor_registry.REGISTRY_STATUS == "proposed"`”* — whose
+  antecedent is no longer the value in the code.
+
+**Still open, per the worksheet’s own text:** the factors it marks **Deferred**
+or **Dropped** — `engagement_load` (“Deferred post-pilot; Wang two-factor
+model”), `credential_check`, `contact_status`, `declared_cap`, and the dropped
+`role_fit` and `repeat_penalty`; `travel_burden` as a *“Proximity proxy
+(straight-line until D3)”*, so **D3** is unclosed by this worksheet; the
+governance condition that *“no weight change ships without shadow evaluation
+pass”* (MM-005); and the directive row pointing *“Single standard login; roles
+in backend”* at **P2 A1b**, which the A1b note above records as still open.
+
 ### 5.2 Crawler/event pipeline (G3, S4/S5) — blocked-on-stakeholder
 
 **Required workshop/decision**
@@ -284,6 +376,53 @@ implement optimizer-backed match runs, or expose any score/rank until G1 closes.
 
 **Do not build yet:** no crawler route, crawl worker, crawl UI, network call, or
 actual tag vocabulary before G3 and the threat-model review.
+
+**Supersession note — 2026-09-18.** The section above is preserved as written.
+
+[`../decisions/g3-crawler-decision.md`](../decisions/g3-crawler-decision.md)
+states: *“**Status:** **SIGNED** 2026-08-29 by Danny Tran, Development Lead. No
+required field is blank. This artifact passes P6’s G3 stop-gate.”* It records
+the allowlist governance, the approved sources, the rate/cost ceilings, the
+twelve initial vocabulary terms, and the escalation design.
+
+**This does not unblock the crawler for implementation, and the artifact says so
+itself.** Its own header note (`:12-13`) reads: *“**This closes the G3 half of
+P6’s gate only.** The R3 threat model remains unsigned, so cards gated on R3
+still stop and report.”* Its signature block (§11) reads: *“This signature
+ratifies §1–§10. It does NOT ratify the R3 threat model, which is reviewed
+separately and remains unsigned. It does NOT authorize live targets.”*
+
+Residual conditions the artifact names, verbatim or by its own words:
+
+- **§8 — R3.** *“The threat model is not signed and must not be signed as
+  drafted.”* **T-13 (egress policy) accepted as an open risk**, risk owner
+  Danny Tran, with the condition of record: *“egress enforcement is not required
+  for fixture-based work, and is required before the first live fetch.”*
+- **§4.1 — the ADR-0015 amendment.** *“amend ADR-0015 to distinguish counting
+  quota … from monetary spend … **New work item; must land before cost ceilings
+  are implemented.**”* **Owner: GitHub user BrooklynD23 — named by the
+  repository owner on 2026-09-18.** (Recorded here only; the decision artifact
+  is not edited.)
+- **§4 — A3 unverified.** *“**A3 (LLM price per page) is unverified** and must be
+  confirmed against the actual provider.”*
+- **§7 — T-11.** Indirect prompt injection is *“a live first-release threat”*,
+  its controls *“required, not optional.”*
+- **§9 — standing constraints.** *“**Pointing the adapter at live hosts remains
+  prohibited** and was not authorized by any decision in this file.”*
+
+**Discrepancy to flag, not to resolve here.** The G3 artifact’s two statements
+that the R3 threat model *“remains unsigned”* are dated 2026-08-29 and are stale
+against the threat model’s own current status line:
+[`../security/crawler-threat-model-draft.md`](../security/crawler-threat-model-draft.md)
+now reads *“**Status:** **SIGNED — design requirements approved 2026-09-03.**
+Not implemented; live fetch gated on S6a evidence pass.”* The companion record
+[`../decisions/r3-signing-decisions-2026-09-03.md`](../decisions/r3-signing-decisions-2026-09-03.md)
+is *“**RATIFIED — SESSION POLICY** (engineering record; design requirements
+only)”* and states that it *“does **not** attest that controls are implemented;
+card S6a remains separate.”* Both later artifacts therefore gate live fetch on
+**S6a evidence**, which no artifact read here records as passed. Reconciling the
+G3 artifact’s wording is a decision for its owner; this note changes neither
+document.
 
 ### 5.3 Shippable rewards catalog (D6/D7) — blocked-on-stakeholder
 
@@ -373,6 +512,49 @@ authorization to edit code.
 **Do not build yet:** current intentional ungating remains until the explicit
 product/security decision. Do not silently mirror imports or silently bless the
 status quo.
+
+**Supersession note — 2026-09-18.** The section above is preserved as written.
+
+[`../decisions/metrics-authorization-decision-draft.md`](../decisions/metrics-authorization-decision-draft.md)
+states: *“**Status:** **CLOSED — 2026-09-02.** Product owner and
+security/privacy owner named and signed (same person, both roles). Engineering
+may implement per §5.”* Its §1 records the four answers this section asked for:
+student and school-coordinator aggregate scope **Subtree**; `admin`
+**unrestricted within tenant**; a bare `resource_grant` reads aggregates
+**“No — role required”**; row drill-down **“Option B — split: any active
+membership reads aggregates; `admin` and `coordinator` only for
+`metrics.drill_down`”**; metric-specific exceptions **“None”**.
+
+The code implements it:
+
+- `services/api/smartmatch_api/routers/metrics.py:385` —
+  `_DRILL_DOWN_ROLES: Final[frozenset[str]] = frozenset({"admin", "coordinator"})`,
+  passed as `required_roles=_DRILL_DOWN_ROLES` at `:484`.
+- `tests/authz/test_policy_matrix.py:2102` —
+  `INTENTIONALLY_UNGATED_OPERATIONS: frozenset[str] = frozenset()`; its
+  docstring at `:106-107` records that *“both metrics operations have left
+  `INTENTIONALLY_UNGATED_OPERATIONS` for good.”* `metrics.read` is instead the
+  first member of the membership-only category (`:2105-2113`), expressing the
+  decision’s *“any active unit membership with a role”* while still refusing a
+  bare grant.
+
+So the “Do not build yet” line above — *“current intentional ungating remains”* —
+no longer describes the tree.
+
+**Still open, and separate from this decision:** the student-engagement W4 rows.
+[`open-questions/student-engagement-deferred.md`](open-questions/student-engagement-deferred.md)
+records **OQ-SE-08** (*“Which roles may read W4 aggregates and which may read
+exact rows?”*, `:47`) and **OQ-SC-13** (*“May Event Host (`volunteer`) read
+aggregate student demand?”*, `:34`) as **“OPEN — tentative-development”**.
+**OQ-CBA-042** (*“Who may see that a professional **declined**?”*) stands in the
+Open-questions table of
+[`open-questions/cba-phase-deferred.md`](open-questions/cba-phase-deferred.md)
+(`:53`) carrying no **“Closed …”** note — unlike the closed rows in that same
+table — so its safe default remains in force: *“The narrow reading,
+deliberately.”*
+Per [`README.md`](README.md), W4 is **STOPPED** until OQ-SE-04 through OQ-SE-08
+close. Nothing in the metrics-authorization decision closes any of those three
+rows.
 
 ### 5.5 `board_role` ownership — human-decision-required
 

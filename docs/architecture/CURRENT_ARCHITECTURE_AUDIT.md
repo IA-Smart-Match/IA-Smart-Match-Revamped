@@ -47,6 +47,32 @@ not counts, and each was re-checked against `5fca118`:
   written for the precise invariant a just-shipped change touches, and it is
   still not executed. That is the strongest evidence yet that the one-line fix
   is worth making before anything else in this register.
+
+  **Updated 2026-09-18.** The first sentence of that bullet — *"The `web` job on
+  `main` still runs only `npm ci`, `npm run build` and `npm audit`"* — is left
+  as written for `5fca118` but is no longer true of `main`. The `web` job
+  (`.github/workflows/verify.yml`, *web — install, types, build, audit*) now
+  runs five steps: `npm ci --no-audit --no-fund`; `npm run build`
+  (`npm run typecheck && vite build`); `npm run test:components`
+  (`vitest run`); a runtime advisory gate
+  `npm audit --audit-level=high --omit=dev --package-lock-only`, failing on
+  high + critical; and a dev-included full-tree gate
+  `npm audit --audit-level=moderate --package-lock-only` which, since **merged
+  PR #172, 2026-09-18** (`vitest` bumped to 4.1.11, carrying the patched
+  `@vitest/mocker`), **fails on moderate, high or critical** — the verdict is
+  read from the `--json` counts, with only `low` and `info` left as warnings.
+
+  **The rest of the bullet stands unchanged, and R-09 is narrowed, not
+  closed.** `npm run test:components` is scoped by
+  `apps/web/legacy-frontend/vitest.config.ts` to
+  `include: ["src/**/*.test.tsx"]` — two files — and reaches nothing in
+  `apps/web/legacy-frontend/tests/`. `npm test`, the
+  `node --test tests/*.test.ts` suite that holds
+  `queryClient.principal-isolation.test.ts`, is **still invoked by no
+  workflow**, and that directory now holds **24** files rather than the eight
+  the register records. The one-line fix is still unmade and R-09 is still the
+  register's only P0. Companion notes: `repository-inventory.md` §8,
+  `risk-register.md`, `MODULE_BOUNDARIES.md` §5.5, all dated 2026-09-18.
 * **R-05 / R-06** — the service manifests and `root_packages` are untouched.
 * The new work *narrows* R-02 without closing it: `main` adds five Python-side
   frontend contract tests (`tests/unit/test_frontend_{auth,granted_unit,

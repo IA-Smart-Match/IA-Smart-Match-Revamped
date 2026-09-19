@@ -671,6 +671,29 @@ is genuinely mixed.
 | **Operational concerns** | The team believes a security-relevant invariant is guarded. It is not. This is the register's only P0. |
 | **Disposition** | **remain, attach.** One line in the `web` job at M0, then confirm the isolation test asserts what its name claims. Written code that no lane runs is not attached code (AP-08). Cited: R-09. |
 
+**Updated 2026-09-18.** The **Tests** row above describes the `web` job as
+`npm ci`, `npm run build`, `npm audit` "and nothing else". That is no longer
+what the job does. `.github/workflows/verify.yml`'s `web` job — *web — install,
+types, build, audit* — now runs, in order: `npm ci --no-audit --no-fund`;
+`npm run build` (which is `npm run typecheck && vite build`);
+`npm run test:components` (`vitest run`); a runtime advisory gate
+`npm audit --audit-level=high --omit=dev --package-lock-only`, failing on high +
+critical; and a dev-included gate `npm audit --audit-level=moderate
+--package-lock-only` over the whole tree, failing on **moderate, high or
+critical** and printing only `low` and `info` as warnings. That last threshold
+moved from `high` to `moderate` in **merged PR #172, 2026-09-18**, whose
+`vitest` 4.1.11 bump closed the `@vitest/mocker` advisory that had justified the
+looser gate; the verdict is read from the `--json` counts rather than npm's exit
+code. **The runtime `--omit=dev` gate was not relaxed and remains at `high`.**
+
+**The disposition is unchanged.** `npm run test:components` is scoped by
+`apps/web/legacy-frontend/vitest.config.ts` to `include: ["src/**/*.test.tsx"]`
+and reaches **nothing in this module**: `tests/*.test.ts` still runs only under
+`npm test`, which no workflow invokes. This directory now holds **24** files
+rather than the eight recorded above, `queryClient.principal-isolation.test.ts`
+among them. The module is still unattached (AP-08), and R-09 is still the
+register's only P0.
+
 ---
 
 ## 6. Disposition ledger

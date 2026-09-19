@@ -40,6 +40,37 @@ repository fact.
 | **R-21** | **Deployment configuration was outside this audit's evidence base, and a live authentication bypass sat in it.** §8 audits authentication as written in the repository — verifier, principal assembly, scanner rules — and treats `docker-compose.yml` and the deployed environment as operational detail rather than as part of the trust boundary. Commit `ee277ba` shows the cost: the pilot VM published its compose network to the internet with no Access wall while four fixture bearer tokens mapped to real seeded principals sat in a **public** repository, one of them also shipped in the web bundle. The specific hole is fixed; the coverage gap is structural. | `ee277ba` (fix and its account of the exposure); `17b1fb1` (CI now asserts from outside that no fixture token authenticates); this audit's own §0, which quoted the fixture-token arrangement as evidence of a synthetic deployment rather than flagging it | High (it happened) | **High** — authentication bypass on an internet-reachable host. Mitigated only by the data behind it being synthetic, and "the data is synthetic" is not a control | **P1** | Treat deployed configuration as in-scope for security review, not as operations. Concretely: assert from outside the appliance that no credential in a committed file authenticates (`17b1fb1` is the pattern), and extend §8's trust-boundary map to name `docker-compose.yml`, the compose environment, and the tunnel/Access posture as boundary-bearing artifacts. |
 
 
+### Updated 2026-09-18 — R-09's evidence column no longer describes the `web` job
+
+R-09's evidence cell says the `web` job "runs only `npm ci`, `npm run build`,
+`npm audit`". As of 2026-09-18 that job — `.github/workflows/verify.yml`,
+*web — install, types, build, audit* — runs five steps:
+
+1. `npm ci --no-audit --no-fund`;
+2. `npm run build` (`npm run typecheck && vite build`);
+3. `npm run test:components` (`vitest run`);
+4. `npm audit --audit-level=high --omit=dev --package-lock-only`, the runtime
+   gate, whose verdict is read from the JSON counts and **fails on high +
+   critical**;
+5. `npm audit --audit-level=moderate --package-lock-only`, the dev-included
+   gate over the whole tree — it **fails on moderate, high or critical**, and
+   only `low` and `info` are printed as warnings rather than gated.
+
+The threshold in (5) moved from `high` to `moderate` in **merged PR #172,
+2026-09-18**, which bumped `vitest` to 4.1.11 and so closed the
+`@vitest/mocker` advisory (GHSA-82fw-gwwq-j7x9) that had been the stated reason
+for gating a level lower. The verdict is read from the `--json` counts, not from
+npm's exit code. **The runtime `--omit=dev` gate in (4) was not relaxed and
+remains at `high`.**
+
+**R-09 itself stands, at the same P0.** Step (3) is scoped by
+`apps/web/legacy-frontend/vitest.config.ts` to `include: ["src/**/*.test.tsx"]`
+— two files. `npm test`, the `node --test tests/*.test.ts` suite that holds
+`queryClient.principal-isolation.test.ts`, is still invoked by no workflow, and
+`apps/web/legacy-frontend/tests/` now holds **24** files rather than the eight
+the row records. The remediation in the row — one line adding `npm test` to the
+`web` job — is unchanged.
+
 ---
 
 ## Priority summary

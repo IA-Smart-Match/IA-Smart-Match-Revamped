@@ -19,6 +19,39 @@ files under `python/`, `services/`, `apps/`, `tools/`, `db/`, `infra/` found:
 | `NotImplementedError` | **0** |
 | skipped/xfail tests | **1** (`test_vm_deploy_script.py:38`, a platform `skipif`) |
 
+**Updated 2026-09-18 — the "skipped/xfail tests" row is a point-in-time figure
+for commit `c72dced` and is left as written.** Beside it, as of 2026-09-18 on
+`origin/main`:
+
+```
+git grep -nE "pytest\.(mark\.)?(skip|skipif|xfail)" -- .   →  83
+```
+
+Per top-level directory: **`tests/` 83−8 = 75**, `docs/` **7**, `Makefile`
+**1**. Within `tests/`: `tests/e2e` **35**, `tests/contract` **30**,
+`tests/integration` **6**, `tests/unit` **4**. The `docs/` and `Makefile` hits
+are prose *about* skips, not skip sites.
+
+Three things this figure is not:
+
+1. **It is not a count of tests skipped in CI.** It counts *call sites*. One
+   site can skip many parametrised cases, one `skipif` can skip none, and a
+   site inside a session- or module-scoped fixture can take a whole module with
+   it. `pytest -ra` would report a different number again.
+2. **It is not a WIP marker count.** The sampled sites are
+   environment-conditional (no reachable or insufficiently migrated
+   PostgreSQL; a missing `git`/`flock`; no compose appliance) or
+   predecessor-conditional (an e2e step whose earlier step did not produce the
+   state it needs). See
+   [`../plans/todo-disposition-register.md`](../plans/todo-disposition-register.md)
+   §2.1, which reaches the same reading and declines to disposition them as
+   TODOs on the ground that doing so would be a category error.
+3. **It is not an audit.** The sites had **not** been exhaustively read when
+   that register was written; it proposes a `skip-inventory-audit` track for
+   exactly that. A first exhaustive pass, dated the same day, is at
+   [`../plans/skip-site-inventory-2026-09-18.md`](../plans/skip-site-inventory-2026-09-18.md)
+   — a snapshot that authorizes no change and will drift.
+
 **INFERRED.** WIP in this repository is not marked in code. It is tracked in a
 parallel documentation system — named gates (G1–G5, A1b, F5, R2, R4, S12),
 `docs/plans/open-questions/*-deferred.md` records, and an agent-memory ledger
