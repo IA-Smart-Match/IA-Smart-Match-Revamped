@@ -215,6 +215,38 @@ still needed" column is satisfied and its owner has answered.
 - **Owner:** engineering.
 - **Related:** ADR-0003; the displaced reservation, below.
 
+### B-10 — `registry_hash` names two different digests — **RECORDED 2026-09-19, unresolved**
+
+- **Candidate title:** (unwritten) One name, one digest: `registry_hash`
+- **Would decide:** which of the two live meanings keeps the name
+  `registry_hash`, and what the other is renamed to.
+- **The clash, both meanings, as they stand today:**
+  - **ADR-0016 §Proposal 7 area (`ADR-0016-cba-scoring-policy.md:336`), in tree
+    as `MatchRunPins.registry_hash` (`smartmatch_domain/match_run.py:213,278`),
+    persisted as the `match_run.registry_hash` column
+    (`smartmatch_persistence/schema.py:1522`):** `weights_fingerprint` over the
+    **weights in force for that run**. Two runs of the same rulebook in
+    different scoring modes have the same `registry_version` and **different**
+    `registry_hash` (golden case G-CBA-09), which is the intended reading.
+  - **`docs/architecture/student-recommender-contracts.md:331`:** a
+    `FactorRegistry.registry_hash` property — sha256 over
+    `(version, factor keys, weights, modes)`, i.e. a fingerprint of the
+    **rulebook as a whole**, constant across the modes it admits.
+- **Why it matters:** one name over a per-run digest and a per-rulebook digest
+  means a reader comparing two values can conclude "different rulebook" from
+  what is only "different mode", or the reverse. Nothing in tree reconciles
+  them; the two are simply computed over different inputs.
+- **Why not now:** renaming either is a contract change. The CBA meaning is on
+  a stored, immutable column and in an accepted ADR; the registry-level meaning
+  is in an unmerged contract. Picking which moves is an owner decision, not an
+  engineering preference, and no ADR yet claims either name.
+- **Evidence still needed:** none — both meanings are verified above. This
+  entry is a record, not a proposal, and asserts no resolution.
+- **Owner:** program owner of record (Danny Tran), as the ADR-0016 side is
+  accepted and stored.
+- **Related:** ADR-0016; `docs/architecture/registry-supersession-record.md:81`;
+  `docs/architecture/student-recommender-contracts.md`.
+
 ---
 
 ## Process — how these ADRs reach Accepted
