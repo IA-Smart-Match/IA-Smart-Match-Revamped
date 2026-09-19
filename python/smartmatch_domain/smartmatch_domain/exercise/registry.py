@@ -52,6 +52,7 @@ offending field at once.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping
 from types import MappingProxyType
 from typing import Final
@@ -237,14 +238,23 @@ class InvalidExerciseWeightError(ValueError):
 
 
 def _coerce_weight(key: str, raw: object) -> float:
-    """One proposed weight as a float, or a sentence saying why it is not."""
+    """One proposed weight as a float, or a sentence saying why it is not.
+
+    Raises :class:`InvalidExerciseWeightError` rather than :class:`TypeError`:
+    every one of these is a fact about the *value a team typed*, not about a
+    Python type the code got wrong, and the caller collects them into one
+    refusal of that same type. A ``TypeError`` escaping this module would read
+    as a defect in the domain rather than as a settings form that needs fixing.
+    """
     if isinstance(raw, bool) or not isinstance(raw, int | float):
-        raise TypeError(f"{key}: weight must be a number, got {type(raw).__name__}")
+        raise InvalidExerciseWeightError(
+            f"{key}: weight must be a number, got {type(raw).__name__}"
+        )
     value = float(raw)
-    if value != value or value in {float("inf"), float("-inf")}:
-        raise TypeError(f"{key}: weight must be a finite number, got {raw!r}")
+    if not math.isfinite(value):
+        raise InvalidExerciseWeightError(f"{key}: weight must be a finite number, got {raw!r}")
     if value < 0.0:
-        raise TypeError(f"{key}: weight must not be negative, got {value}")
+        raise InvalidExerciseWeightError(f"{key}: weight must not be negative, got {value}")
     return value
 
 
@@ -283,7 +293,9 @@ def validate_exercise_weight_overrides(raw: Mapping[str, object]) -> Mapping[str
             continue
         try:
             weights[key] = _coerce_weight(key, raw[key])
-        except TypeError as exc:
+        except InvalidExerciseWeightError as exc:
+            # Collected rather than raised, so a team fixing a settings form
+            # sees every problem at once instead of one per submission.
             problems.append(str(exc))
 
     if not problems and weights:

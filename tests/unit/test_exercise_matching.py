@@ -10,6 +10,10 @@ outrank one whose card genuinely matches.
 
 from __future__ import annotations
 
+import ast
+import pathlib
+from types import ModuleType
+
 import pytest
 from smartmatch_domain.exercise.markers import InformationMarker
 from smartmatch_domain.exercise.matching import (
@@ -281,10 +285,80 @@ def test_a_measured_zero_factor_is_not_named_as_contributing() -> None:
     assert listing.entries[0].contributing_factor_keys == ("same_major",)
 
 
-def test_a_year_resolved_tie_gets_anns_sentence_on_the_list() -> None:
+def _reasons(profiles: list[ExerciseProfile]) -> list[str]:
+    listing = exercise_ranked_list(
+        EVENT,
+        profiles,
+        invite_limit=30,
+        year_rank=TEST_ONLY_YEAR_RANK,
+        dataset_checksum=CHECKSUM,
+    )
+    return [entry.reason for entry in listing.entries]
+
+
+def test_a_year_resolved_tie_on_major_alone_gets_anns_sentence_on_the_list() -> None:
     profiles = [
         ExerciseProfile(1, "Sophomore", _major_only("younger")),
         ExerciseProfile(2, "Senior", _major_only("older")),
+    ]
+    assert _reasons(profiles) == [
+        "Tied on major; ordered by year.",
+        "Tied on major; ordered by year.",
+    ]
+
+
+def test_two_zero_scoring_names_are_never_told_they_share_a_major() -> None:
+    """MEDIUM 1, end to end: neither profile's major is a target major."""
+    profiles = [
+        ExerciseProfile(1, "Sophomore", _major_only("younger", major="History")),
+        ExerciseProfile(2, "Senior", _major_only("older", major="Physics")),
+    ]
+    assert _reasons(profiles) == [
+        "Tied on what counted; ordered by year.",
+        "Tied on what counted; ordered by year.",
+    ]
+
+
+def test_two_identical_full_cards_are_not_told_they_tied_on_major() -> None:
+    """They tied on all four factors; the major is not what separated them."""
+    profiles = [
+        ExerciseProfile(1, "Sophomore", _full_card("younger")),
+        ExerciseProfile(2, "Senior", _full_card("older")),
+    ]
+    assert _reasons(profiles) == [
+        "Tied on what counted; ordered by year.",
+        "Tied on what counted; ordered by year.",
+    ]
+
+
+def test_an_information_resolved_tie_names_the_information_key() -> None:
+    thin = ProfileEvidence("thin", "Marketing")
+    thick = ProfileEvidence("thick", "Marketing", attended_event_topics=(("sports",),))
+    profiles = [ExerciseProfile(1, "Senior", thin), ExerciseProfile(2, "Senior", thick)]
+    assert _reasons(profiles) == [
+        "Tied; more information on file first.",
+        "Tied; more information on file first.",
+    ]
+
+
+def test_a_permutation_resolved_tie_names_the_fixed_order() -> None:
+    profiles = [
+        ExerciseProfile(number, "Senior", _major_only(f"p{number}")) for number in range(1, 4)
+    ]
+    assert _reasons(profiles) == ["Tied; placed in a fixed order that never changes."] * 3
+
+
+def test_no_reason_on_any_list_claims_a_major_tie_that_was_not_one() -> None:
+    """One sweep over mixed evidence: the sentence never overstates the tie."""
+    profiles = [
+        ExerciseProfile(1, "Senior", _major_only("major_only")),
+        ExerciseProfile(2, "Junior", _major_only("wrong_major", major="History")),
+        ExerciseProfile(3, "Senior", _full_card("full")),
+        ExerciseProfile(
+            4,
+            "Junior",
+            ProfileEvidence("partial", "Marketing", card=ProfileCard(("analytics",))),
+        ),
     ]
     listing = exercise_ranked_list(
         EVENT,
@@ -293,10 +367,9 @@ def test_a_year_resolved_tie_gets_anns_sentence_on_the_list() -> None:
         year_rank=TEST_ONLY_YEAR_RANK,
         dataset_checksum=CHECKSUM,
     )
-    assert [entry.reason for entry in listing.entries] == [
-        "Tied on major; ordered by year.",
-        "Tied on major; ordered by year.",
-    ]
+    for entry in listing.entries:
+        if "Tied on major" in entry.reason:
+            assert entry.contributing_factor_keys == ("same_major",)
 
 
 def test_the_tie_break_reason_is_read_from_the_whole_set_not_the_cut() -> None:
@@ -321,11 +394,37 @@ def test_the_tie_break_reason_is_read_from_the_whole_set_not_the_cut() -> None:
     assert [entry.reason for entry in cut.entries] == [entry.reason for entry in whole.entries[:2]]
 
 
+def _imported_names(module: ModuleType) -> set[tuple[str, str]]:
+    """Every ``(module, name)`` pair one module imports, read from its source."""
+    tree = ast.parse(pathlib.Path(module.__file__ or "").read_text())
+    pairs: set[tuple[str, str]] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module is not None:
+            pairs.update((node.module, alias.name) for alias in node.names)
+        elif isinstance(node, ast.Import):
+            pairs.update(("", alias.name) for alias in node.names)
+    return pairs
+
+
 def test_neither_ranker_imports_the_other() -> None:
-    """ADR-0025 D5: ``scoring._ranked`` is untouched and unreferenced here."""
+    """ADR-0025 D5, read from the source rather than from attribute presence.
+
+    ``scoring._ranked`` is the ratified CBA tie-break and is untouched. This
+    module is allowed exactly one thing from :mod:`smartmatch_domain.scoring` —
+    the ``StageBScore`` shape its results take (ADR-0025 D4) — and the CBA
+    scorer is allowed nothing at all from the exercise package.
+    """
     import smartmatch_domain.exercise.matching as matching_module
     import smartmatch_domain.scoring as scoring_module
 
-    assert not hasattr(matching_module, "_ranked")
-    assert not hasattr(scoring_module, "_exercise_ranked")
-    assert "exercise" not in scoring_module.__file__.rsplit("/", 2)[-2]
+    from_scoring = {
+        name for module, name in _imported_names(matching_module) if module.endswith("scoring")
+    }
+    assert from_scoring == {"StageBScore"}
+
+    exercise_imports = {
+        (module, name)
+        for module, name in _imported_names(scoring_module)
+        if "exercise" in module or "exercise" in name
+    }
+    assert exercise_imports == set()

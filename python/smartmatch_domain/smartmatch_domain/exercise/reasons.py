@@ -20,21 +20,37 @@ asserts both halves, so neither can drift from the other. **This is the only
 liberty taken with Ann's wording, and it is noted on this track's pull
 request.**
 
+**A tie sentence must describe the tie it names.** Ann's second phrase says
+*tied on major*, and that is a claim about the evidence, not a label for "the
+year key ran". Two profiles that both score zero share no major at all; two
+identical completed cards are tied on all four factors, not on the major. Both
+would be told "tied on major" by a rule that keyed only on which tie-break
+column separated them, and both would be wrong. So her phrase is emitted only
+when the tie really is on the major — ``same_major`` is the one thing that
+counted, **for this name and for the neighbour it tied with** — and every
+other tie gets a sentence that names what actually happened.
+
 **Which reason a name gets.** In order, first match wins:
 
-1. The year key decided this name's place against an equal neighbour — Ann's
-   tie sentence. It takes precedence over everything below because it is the
-   case she wrote it for.
+1. The year key decided this name's place against an equal neighbour: Ann's
+   sentence when the tie was on major alone, otherwise the sibling phrase.
 2. Nothing but the major is on file — Ann's major-only sentence. The trigger is
    the *marker*, not whether the major matched: "for everyone else the reason
    line says so" is about what is on file, and a profile whose major is not a
    target major still has nothing else on file to say.
-3. Another key decided the tie — how much is on file, or the fixed order. Said
-   in the same shape as Ann's sentence so the three read as one family.
+3. Another key decided the tie — how much is on file, or the fixed order. Each
+   names its own key and claims nothing about the major.
 4. Otherwise: the factors that contributed, named in Ann's plain words, in
    registry order.
 5. Nothing contributed although something is on file — said plainly rather
    than left blank.
+
+Rules 1 and 2 can both be true of one name: a major-only profile whose place
+was decided by the year. The requirements list both lines as things "the
+reason line says" and do not say which wins, so the choice is
+:data:`TIE_LINE_WINS_OVER_MAJOR_ONLY_LINE` — one flag, one line to flip, and
+a question recorded for Ann on PR #180 rather than a precedence buried in an
+``if``.
 
 A factor "contributes" when its value is known and above zero. A measured zero
 adds nothing to the composition, and naming it would tell a class participant
@@ -56,6 +72,7 @@ from smartmatch_domain.one_sentence import assert_one_sentence
 __all__ = [
     "ANN_MAJOR_ONLY_PHRASE",
     "ANN_TIED_ON_YEAR_PHRASE",
+    "TIE_LINE_WINS_OVER_MAJOR_ONLY_LINE",
     "TieBreakKey",
     "exercise_reason",
     "phrase_as_sentence",
@@ -68,11 +85,27 @@ ANN_MAJOR_ONLY_PHRASE: Final[str] = "same major; nothing else on file"
 #: Ann's words for a name the year key placed, verbatim from the same row.
 ANN_TIED_ON_YEAR_PHRASE: Final[str] = "tied on major; ordered by year"
 
-#: The same shape as Ann's tie sentence, for the two tie-break keys she did not
-#: write a line for. Phrases, not sentences, so they go through the same
-#: rendering her two do.
-_TIED_ON_INFORMATION_PHRASE: Final[str] = "tied on major; ordered by how much is on file"
-_TIED_ON_FIXED_ORDER_PHRASE: Final[str] = "tied on major; ordered by the fixed order"
+#: **PLACEHOLDER (wording pending Ann; see PR #180).** Ann wrote a line for a
+#: tie on major and for nothing else. This is the same sentence with the claim
+#: it cannot make removed: the year still decided the order, but what the two
+#: names were tied on was everything that counted, not the major. No open-question
+#: row governs it yet, so it is marked rather than treated as settled.
+_TIED_ON_WHAT_COUNTED_YEAR_PHRASE: Final[str] = "tied on what counted; ordered by year"
+
+#: **PLACEHOLDER (wording pending Ann; see PR #180).** The other two tie-break
+#: keys, each naming the key that actually decided and claiming nothing about
+#: the major. Phrases, not sentences, so they go through the same rendering
+#: Ann's two do.
+_TIED_ON_INFORMATION_PHRASE: Final[str] = "tied; more information on file first"
+_TIED_ON_FIXED_ORDER_PHRASE: Final[str] = "tied; placed in a fixed order that never changes"
+
+#: Whether a tie line replaces Ann's major-only line when both apply — a
+#: major-only profile whose place the tie-break decided. The requirements name
+#: both lines and rank neither, so the choice is stated here, in one place, and
+#: is a question for Ann (PR #180). ``True`` keeps the behaviour the list
+#: shipped with: the tie line wins, because it is the more specific account of
+#: *why this name is here rather than one row lower*.
+TIE_LINE_WINS_OVER_MAJOR_ONLY_LINE: Final[bool] = True
 
 #: Said when a profile has a card or past events on file and none of it
 #: overlapped this event. Not blank, and not Ann's major-only line, which would
@@ -93,9 +126,11 @@ class TieBreakKey(StrEnum):
     FIXED_ORDER = "fixed_order"
 
 
+#: The phrase for each tie-break key that makes no claim about the major.
+#: :attr:`TieBreakKey.YEAR` is absent because it is the one key whose phrase
+#: depends on *what* the tie was on; :func:`exercise_reason` chooses it.
 _TIE_PHRASES: Final[Mapping[TieBreakKey, str]] = {
     TieBreakKey.INFORMATION: _TIED_ON_INFORMATION_PHRASE,
-    TieBreakKey.YEAR: ANN_TIED_ON_YEAR_PHRASE,
     TieBreakKey.FIXED_ORDER: _TIED_ON_FIXED_ORDER_PHRASE,
 }
 
@@ -141,6 +176,7 @@ def exercise_reason(
     marker: InformationMarker,
     contributing_keys: Sequence[str],
     tie_break_key: TieBreakKey = TieBreakKey.NONE,
+    tied_on_major: bool = False,
 ) -> str:
     """The one sentence shown next to one name.
 
@@ -151,18 +187,26 @@ def exercise_reason(
         tie_break_key: Which tie-break key settled this name's place, or
             :attr:`TieBreakKey.NONE` when no neighbour composed to the same
             value.
+        tied_on_major: Whether the tie was on the major *alone* — ``same_major``
+            the only thing that counted, for this name and for the neighbour it
+            tied with. Ann's "tied on major" sentence is emitted when and only
+            when this is true, because otherwise it would be a false statement
+            about two names that may share no major at all.
 
     Returns:
         Exactly one sentence, checked by
         :func:`~smartmatch_domain.one_sentence.assert_one_sentence`. No number
         appears in it (ADR-0025 D8).
     """
-    if tie_break_key is TieBreakKey.YEAR:
-        return phrase_as_sentence(ANN_TIED_ON_YEAR_PHRASE)
+    tied = tie_break_key is not TieBreakKey.NONE
+    if tied and (TIE_LINE_WINS_OVER_MAJOR_ONLY_LINE or marker is not InformationMarker.MAJOR_ONLY):
+        if tie_break_key is TieBreakKey.YEAR:
+            return phrase_as_sentence(
+                ANN_TIED_ON_YEAR_PHRASE if tied_on_major else _TIED_ON_WHAT_COUNTED_YEAR_PHRASE
+            )
+        return phrase_as_sentence(_TIE_PHRASES[tie_break_key])
     if marker is InformationMarker.MAJOR_ONLY:
         return phrase_as_sentence(ANN_MAJOR_ONLY_PHRASE)
-    if tie_break_key is not TieBreakKey.NONE:
-        return phrase_as_sentence(_TIE_PHRASES[tie_break_key])
     if contributing_keys:
         return phrase_as_sentence(_factor_phrase(contributing_keys))
     return phrase_as_sentence(_NOTHING_MATCHED_PHRASE)

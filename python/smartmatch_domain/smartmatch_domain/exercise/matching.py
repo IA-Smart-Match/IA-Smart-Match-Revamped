@@ -13,23 +13,27 @@ module, so nothing in the CBA process can resolve the exercise rulebook.
 and neither ranker imports the other. There is likewise no
 ``rank_events_for_student`` here: that is OQ-SE-01's, and it is deferred.
 
-## The composition, and the one place it differs from ADR-0011
+## The composition (design spec §4.3, ADR-0025 D4, ADR-0016)
 
-ADR-0011 makes an unknown factor make the *composite* unknown, and
-:func:`~smartmatch_domain.scoring.score_cba_candidate` implements exactly that.
-The exercise cannot: Ann's requirement is that the other three factors "count
-only for profiles that have that information", and about two thirds of the 300
-have no card. A rule that made every one of them unscorable would produce a
-ranked list of the seventy profiles with cards and no others, which is neither
-what she asked for nor a list a marketer would recognise.
+The accepted rule, implemented as written: an unknown factor **contributes
+nothing**, and **its weight is not re-spread** over the factors that are known
+(ADR-0016). Design spec §4.3 states the consequence in one line — *a profile
+with only major on file gets exactly the major contribution* — and ADR-0025 D4
+restates it beside "unavailable information is ``unknown``, never ``0``". This
+module does not decide any of that; it builds it.
 
-So in this composition an unknown factor **contributes nothing**, and — this
-is the part ADR-0016 governs and the part a plausible implementation gets
-wrong — **its weight is not re-spread over the factors that are known**. A
-profile with only a major on file receives exactly the major factor's
-contribution: not that contribution scaled up to fill the other three
-factors' share, which would let a profile nobody knows anything about outrank
-one whose card genuinely matches. The absence costs what it costs.
+Re-spreading is the part a plausible implementation gets wrong, so it is worth
+naming what it would cost: the major-only profile's one contribution scaled up
+to fill the other three factors' share would compose to a perfect score, and a
+profile nobody knows anything about would tie the profile whose card genuinely
+matches. The absence costs what it costs.
+
+*By way of explanation, not as a decision taken here:* this is not what
+:func:`~smartmatch_domain.scoring.score_cba_candidate` does. Under ADR-0011 an
+unknown factor makes the whole composite unknown, and that is right for a CBA
+shortlist. It would not work here — about two thirds of the 300 have no card,
+so every one of them would be unscorable and the ranked list would be the
+seventy carded profiles and nobody else. Which is why §4.3 says what it says.
 
 Unknown is still never ``0.0``: the factor score keeps ``value=None``, the
 key is listed in ``unknown_factor_keys``, the marker says what is on file, and
@@ -293,6 +297,10 @@ def _exercise_ranked(entries: Sequence[_Ranked]) -> tuple[_Ranked, ...]:
         sorted(
             entries,
             key=lambda entry: (
+                # Unreachable today: ``same_major`` is never unknown, so the
+                # exercise composite is never ``None``. Kept because §4.4 states
+                # the key with this element first, and a key that silently drops
+                # a column is a key that has quietly stopped being the spec's.
                 entry.score.value is None,
                 -(entry.score.value or 0.0),
                 -entry.info_rank,
@@ -303,34 +311,77 @@ def _exercise_ranked(entries: Sequence[_Ranked]) -> tuple[_Ranked, ...]:
     )
 
 
-def _tie_break_key(entries: Sequence[_Ranked], index: int) -> TieBreakKey:
-    """Which key settled this name's place against an equal-valued neighbour.
+@dataclass(frozen=True, slots=True)
+class _TieContext:
+    """What a name's reason line needs to know about its tie. Internal.
 
-    The *finest* key that had to be read against any adjacent neighbour of the
-    same composite value: if some neighbour ties on value, information, and
-    year, the fixed order is what separated them; if one ties on value and
-    information but not year, the year did; if one only ties on value, how much
-    is on file did.
+    Attributes:
+        key: Which tie-break key settled the order against an equal-valued
+            neighbour, or :attr:`TieBreakKey.NONE`.
+        on_major: Whether the tie was on the major *alone* — ``same_major`` the
+            only contributing factor for this name **and** for the neighbour it
+            tied with. Ann's "tied on major" sentence may only be printed when
+            this is true; two profiles that both score zero share no major, and
+            two identical completed cards are tied on all four factors.
+    """
+
+    key: TieBreakKey
+    on_major: bool
+
+
+#: The tie-break precedence, finest last: a neighbour that ties on more columns
+#: was separated by a later key. Read as an index so "finer than" is a
+#: comparison rather than a chain of ``if``\\ s.
+_TIE_PRECEDENCE: Final[tuple[TieBreakKey, ...]] = (
+    TieBreakKey.NONE,
+    TieBreakKey.INFORMATION,
+    TieBreakKey.YEAR,
+    TieBreakKey.FIXED_ORDER,
+)
+
+
+def _key_against(entry: _Ranked, neighbour: _Ranked) -> TieBreakKey:
+    """Which column separated two adjacent entries, if their values are equal."""
+    if neighbour.score.value != entry.score.value:
+        return TieBreakKey.NONE
+    if neighbour.info_rank != entry.info_rank:
+        return TieBreakKey.INFORMATION
+    if neighbour.year_rank != entry.year_rank:
+        return TieBreakKey.YEAR
+    return TieBreakKey.FIXED_ORDER
+
+
+def _tied_on_major_alone(entry: _Ranked, neighbour: _Ranked) -> bool:
+    """Whether the major, and only the major, counted for *both* of a tied pair."""
+    major_alone = (SAME_MAJOR_FACTOR_KEY,)
+    return (
+        _contributing_keys(entry.score) == major_alone
+        and _contributing_keys(neighbour.score) == major_alone
+    )
+
+
+def _tie_context(entries: Sequence[_Ranked], index: int) -> _TieContext:
+    """What settled this name's place, and whether the major is what it tied on.
+
+    The *finest* key that had to be read against either adjacent neighbour of
+    the same composite value: a neighbour tying on value, information, and year
+    was separated by the fixed order; one tying on value and information by the
+    year; one tying on value alone by how much is on file. ``on_major`` is read
+    from that same neighbour, not from the entry alone, because "tied on major"
+    is a claim about a pair.
     """
     entry = entries[index]
-    finest = TieBreakKey.NONE
+    context = _TieContext(key=TieBreakKey.NONE, on_major=False)
     for offset in (-1, 1):
         neighbour_index = index + offset
         if not 0 <= neighbour_index < len(entries):
             continue
         neighbour = entries[neighbour_index]
-        if neighbour.score.value != entry.score.value:
+        key = _key_against(entry, neighbour)
+        if _TIE_PRECEDENCE.index(key) <= _TIE_PRECEDENCE.index(context.key):
             continue
-        if neighbour.info_rank != entry.info_rank:
-            if finest is TieBreakKey.NONE:
-                finest = TieBreakKey.INFORMATION
-            continue
-        if neighbour.year_rank != entry.year_rank:
-            if finest in {TieBreakKey.NONE, TieBreakKey.INFORMATION}:
-                finest = TieBreakKey.YEAR
-            continue
-        return TieBreakKey.FIXED_ORDER
-    return finest
+        context = _TieContext(key=key, on_major=_tied_on_major_alone(entry, neighbour))
+    return context
 
 
 def _contributing_keys(score: StageBScore) -> tuple[str, ...]:
@@ -463,6 +514,7 @@ def exercise_ranked_list(
     listed: list[ExerciseListEntry] = []
     for position, entry in enumerate(entries[:invite_limit]):
         contributing = _contributing_keys(entry.score)
+        tie = _tie_context(entries, position)
         listed.append(
             ExerciseListEntry(
                 rank=position + 1,
@@ -471,7 +523,8 @@ def exercise_ranked_list(
                 reason=exercise_reason(
                     marker=entry.marker,
                     contributing_keys=contributing,
-                    tie_break_key=_tie_break_key(entries, position),
+                    tie_break_key=tie.key,
+                    tied_on_major=tie.on_major,
                 ),
                 contributing_factor_keys=contributing,
             )
