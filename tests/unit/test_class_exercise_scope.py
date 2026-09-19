@@ -327,12 +327,21 @@ def test_cba_authenticated_routes_are_absent_under_class_exercise() -> None:
     assert offenders == [], (
         f"authenticated CBA routes still mounted under CLASS_EXERCISE: {offenders}"
     )
-    # Exactly the exercise's own public route, and nothing else. CE-ROUTERS
-    # mounted it (`routers/exercise_public.py`); every later exercise track adds
-    # its own path to this set, and a CBA `/v1` path appearing in it is the
-    # failure this guards. Stated as an equality rather than a containment so
-    # that a router mounted under the wrong capability cannot slip in unnamed.
-    assert exercise_paths == frozenset({"/v1/exercise"})
+    # Exactly the exercise's own routes, and nothing else. CE-ROUTERS mounted
+    # the first (`routers/exercise_public.py`) and CE-WORKSPACE the three team
+    # workspace routes (`routers/exercise_workspace.py`); every later exercise
+    # track adds its own path to this set, and a CBA `/v1` path appearing in it
+    # is the failure this guards. Stated as an equality rather than a
+    # containment so that a router mounted under the wrong capability cannot
+    # slip in unnamed.
+    assert exercise_paths == frozenset(
+        {
+            "/v1/exercise",
+            "/v1/exercise/workspaces",
+            "/v1/exercise/workspaces/current",
+            "/v1/exercise/workspaces/current/reset",
+        }
+    )
 
 
 def test_the_cba_scope_still_mounts_every_one_of_them() -> None:

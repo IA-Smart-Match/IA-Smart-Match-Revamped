@@ -274,10 +274,44 @@ forbidden_modules = [
 #
 # `smartmatch_persistence.exercise` gets its own contract from CE-SCHEMA, which
 # owns those modules; this one is about the API surface.
+# CE-WORKSPACE, design decision 1. `smartmatch_persistence` stays forbidden and
+# the exercise still needs its own tables, so the door is a single ignored edge
+# rather than a hole in the wall.
+#
+# The shape that was tried first and rejected: allow an exercise router to import
+# `smartmatch_persistence.exercise` directly. Import-linter cannot express
+# "forbidden except this subpackage" — `forbidden_modules` covers descendants and
+# there is no allow-list — so it would have to be written as one `ignore_imports`
+# line per router per repository, and each of those lines blinds the contract to
+# everything *that* router reaches through *that* repository.
+#
+# What is built instead: routers import `smartmatch_api.exercise_dependencies`
+# and nothing else, that module imports the exercise repositories, and the one
+# edge below is ignored. It is narrow in all three coordinates — one source
+# module (the door), one destination subpackage (`.exercise`), and nothing else
+# on the forbidden list is relaxed. A router that imports any repository
+# directly still fails. A router that reaches `smartmatch_authz`,
+# `smartmatch_api.dependencies`, or a tenant-scoped repository through the door
+# still fails, because the ignore names only `smartmatch_persistence.exercise`
+# and the contract keeps its chain-following behaviour for everything else.
+#
+# Verified by a negative probe rather than by reading: adding
+# `from smartmatch_persistence.pilot_auth import PilotSessionRepository` to
+# `routers/exercise_workspace.py` fails this contract; so does adding it to
+# `exercise_dependencies.py`. Both were run and reverted; the output is in the
+# PR body.
+#
+# What this ignore cannot see, and who does: that a module under
+# `smartmatch_persistence.exercise` touches only `exercise_`-prefixed tables.
+# That half is `tests/unit/test_exercise_persistence_tables.py`, which walks
+# every module in the package and refuses a table name without the prefix.
 [[tool.importlinter.contracts]]
 name = "Class exercise routers carry no principal or tenancy"
 type = "forbidden"
-source_modules = ["smartmatch_api.routers.exercise_public"]
+source_modules = [
+    "smartmatch_api.routers.exercise_public",
+    "smartmatch_api.routers.exercise_workspace",
+]
 forbidden_modules = [
     "smartmatch_authz",
     "smartmatch_persistence",
@@ -285,6 +319,9 @@ forbidden_modules = [
     "smartmatch_api.units",
     "smartmatch_api.job_authz",
     "smartmatch_api.routers.auth",
+]
+ignore_imports = [
+    "smartmatch_api.exercise_dependencies -> smartmatch_persistence.exercise.workspace_repository",
 ]
 
 # SQLAlchemy is deliberately *not* on the list above, and this is why it gets a
@@ -308,6 +345,9 @@ forbidden_modules = [
 [[tool.importlinter.contracts]]
 name = "Class exercise routers do not touch SQLAlchemy directly"
 type = "forbidden"
-source_modules = ["smartmatch_api.routers.exercise_public"]
+source_modules = [
+    "smartmatch_api.routers.exercise_public",
+    "smartmatch_api.routers.exercise_workspace",
+]
 forbidden_modules = ["sqlalchemy"]
 allow_indirect_imports = true

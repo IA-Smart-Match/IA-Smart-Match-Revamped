@@ -97,13 +97,25 @@ def test_the_router_is_declared_under_the_class_exercise_capability() -> None:
 
 
 def test_no_other_router_rides_the_class_exercise_capability() -> None:
-    """Nothing CBA-shaped may be smuggled in on the new flag."""
+    """Nothing CBA-shaped may be smuggled in on the new flag.
+
+    The exercise's own routers ride it, and each track adds one: CE-ROUTERS
+    this module's, CE-WORKSPACE ``exercise_workspace``. The claim is that
+    *every* rider is an exercise router — asserted by where the router lives
+    rather than by a list of objects, so a track that adds one cannot make the
+    check pass by editing the list it fails.
+    """
     riders = [
         router
         for router, capability in CAPABILITY_SCOPED_ROUTERS
         if capability is Capability.CLASS_EXERCISE
     ]
-    assert riders == [exercise_public.router]
+    assert exercise_public.router in riders
+    for router in riders:
+        prefixes = {route.path for route in router.routes if hasattr(route, "path")}
+        assert all(path.startswith("/v1/exercise") for path in prefixes), (
+            f"a router serving {sorted(prefixes)} rides Capability.CLASS_EXERCISE"
+        )
 
 
 def test_the_exercise_route_is_mounted_only_under_the_exercise_scope() -> None:
@@ -126,7 +138,21 @@ def test_the_exercise_route_answers_404_in_a_cba_process(scope: ProductScope) ->
 
 
 def test_the_exercise_scope_mounts_this_route_and_nothing_authenticated() -> None:
-    assert _paths_under(ProductScope.CLASS_EXERCISE) == frozenset({"/v1/exercise"})
+    """An equality over the whole exercise surface, extended by each track.
+
+    CE-WORKSPACE added the three team-workspace paths
+    (``routers/exercise_workspace.py``). They are listed here rather than the
+    assertion being loosened to a containment, because what this test is for is
+    catching a route that appears without anybody naming it.
+    """
+    assert _paths_under(ProductScope.CLASS_EXERCISE) == frozenset(
+        {
+            "/v1/exercise",
+            "/v1/exercise/workspaces",
+            "/v1/exercise/workspaces/current",
+            "/v1/exercise/workspaces/current/reset",
+        }
+    )
 
 
 # ---------------------------------------------------------------------------

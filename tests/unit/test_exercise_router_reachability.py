@@ -237,8 +237,157 @@ def test_the_reachability_guard_catches_the_shapes_it_claims_to() -> None:
 def test_the_sanctioned_door_exists_and_is_importable_by_an_exercise_router() -> None:
     """The names a later track will write, pinned now so they are not re-invented."""
     assert exercise_dependencies.__name__ == _SANCTIONED_SESSION_MODULE
-    assert set(exercise_dependencies.__all__) == {"ExerciseSession", "get_exercise_session"}
+    assert {"ExerciseSession", "get_exercise_session"} <= set(exercise_dependencies.__all__)
     assert callable(exercise_dependencies.get_exercise_session)
+
+
+def test_the_door_exports_nothing_that_could_resolve_a_principal() -> None:
+    """The names grew (CE-WORKSPACE); the rule about what they may be did not.
+
+    The original assertion here was an equality over ``__all__``, which said
+    "these two names and no others". CE-WORKSPACE needed the door to widen —
+    it is where the exercise repositories, the workspace cookie and its two
+    refusals are injected from, so that a router imports this module and
+    nothing else — and an equality would have been edited into a longer
+    equality on every exercise track, which is a list nobody reads.
+
+    What the equality was actually protecting is stated directly instead: no
+    name this module exports may be one of the CBA request machinery's, and the
+    names it does export are the exercise's own. A principal, a quota or an
+    authorizer appearing here is the failure; a fourth workspace helper is not.
+    """
+    forbidden = {
+        "CurrentPrincipal",
+        "DbSession",
+        "ResolvedPrincipal",
+        "charge_quota",
+        "enforce_rate_limit",
+        "get_current_principal",
+        "get_session",
+        "get_token_verifier",
+    }
+    assert set(exercise_dependencies.__all__) & forbidden == set()
+    for name in exercise_dependencies.__all__:
+        assert hasattr(exercise_dependencies, name), f"{name} is exported but does not exist"
+
+
+#: Modules an ``exercise_dependencies`` export may have come from.
+#:
+#: The exercise's own two, plus the libraries whose types an annotation is built
+#: out of. Everything else — and ``smartmatch_api.dependencies`` and
+#: ``smartmatch_authz`` above all — is a name that travelled through the door
+#: from the wrong side.
+_PERMITTED_EXPORT_MODULES = frozenset(
+    {
+        "smartmatch_api.exercise_dependencies",
+        "smartmatch_api.exercise_errors",
+        "smartmatch_persistence.exercise.workspace_repository",
+        "typing",
+        "builtins",
+        # ``ExerciseSession`` wraps SQLAlchemy's ``Session``. Admitted
+        # deliberately, which is the point of the list: the door's whole job is
+        # to hand an exercise router a session *without* the principal
+        # machinery beside it, so a session type arriving from SQLAlchemy is
+        # the design working rather than a leak.
+        "sqlalchemy.orm.session",
+    }
+)
+
+#: Modules no export may come from, whatever the allow-list says. Stated
+#: separately so the failure message can say *which* rule was broken, and so
+#: that widening the allow-list can never accidentally admit one of these.
+_FORBIDDEN_EXPORT_MODULES = ("smartmatch_api.dependencies", "smartmatch_authz")
+
+
+def _module_of(obj: object) -> set[str]:
+    """The module an object was defined in, as a set so "none" composes."""
+    module = getattr(obj, "__module__", None)
+    return {module} if isinstance(module, str) else set()
+
+
+def _origin_modules(exported: object) -> set[str]:
+    """Every module an exported object was assembled from.
+
+    ``Annotated[Session, Depends(get_exercise_session)]`` is unwrapped rather
+    than read directly, and that is not a detail: reading ``__module__`` off an
+    ``Annotated`` alias gives a *different answer on different interpreters* —
+    some proxy attribute access through to the wrapped type, some do not — so a
+    check written that way passes locally and fails in CI, which is exactly what
+    happened to the first version of this test. Unwrapping asks the question
+    the test actually means, and asks it the same way everywhere.
+
+    What comes back for an annotation is the wrapped type's module plus the
+    module of every ``Depends(...)`` callable attached to it — which is the
+    pair that matters here, since a dependency callable is what would reach the
+    principal machinery.
+    """
+    metadata = getattr(exported, "__metadata__", None)
+    if metadata is None:
+        return _module_of(exported)
+    modules = set()
+    origin = getattr(exported, "__origin__", None)
+    if origin is not None:
+        modules |= _module_of(origin)
+    for item in metadata:
+        dependency = getattr(item, "dependency", None)
+        if dependency is not None:
+            modules |= _module_of(dependency)
+    return modules
+
+
+def test_every_name_the_door_exports_came_from_a_permitted_module() -> None:
+    """The denial list above says what may not be exported; this says what may.
+
+    A denial list only catches the names somebody thought to write down.
+    ``CurrentPrincipal`` is on it; a CBA helper added next month under a name
+    nobody predicted is not. Asking instead where each exported object was
+    *defined* catches the whole class: an object defined in
+    ``smartmatch_api.dependencies`` fails here no matter what it is called, and
+    a ``Depends(...)`` on a CBA callable fails even wrapped in an annotation.
+
+    Modules are read rather than names, because re-exporting under an alias is
+    exactly how a forbidden name would arrive looking innocent.
+    """
+    checked = 0
+    for name in exercise_dependencies.__all__:
+        for origin in _origin_modules(getattr(exercise_dependencies, name)):
+            checked += 1
+            assert not origin.startswith(_FORBIDDEN_EXPORT_MODULES), (
+                f"{name} is built from {origin}; the door does not re-export "
+                "the CBA request machinery"
+            )
+            assert origin in _PERMITTED_EXPORT_MODULES, (
+                f"{name} is built from {origin}, which is not on the permitted "
+                "list. If that module is legitimate, add it deliberately — the "
+                "point of the list is that widening it is a decision somebody "
+                "makes."
+            )
+    assert checked, "no export resolved to a module; the check passed over nothing"
+
+
+def test_the_export_check_unwraps_annotations_rather_than_trusting_them() -> None:
+    """The regression that broke CI, pinned so it cannot come back quietly.
+
+    ``ExerciseSession`` must resolve to SQLAlchemy's session module on every
+    interpreter, and the ``Depends`` callable inside it must resolve to this
+    module — neither of which is what ``__module__`` on the alias reliably
+    reports.
+    """
+    modules = _origin_modules(exercise_dependencies.ExerciseSession)
+    assert "sqlalchemy.orm.session" in modules
+    assert _SANCTIONED_SESSION_MODULE in modules
+
+    # And a forbidden dependency inside an annotation is caught, not hidden.
+    from typing import Annotated
+
+    from fastapi import Depends
+
+    def _pretend_cba_dependency() -> None:  # pragma: no cover - never called
+        return None
+
+    _pretend_cba_dependency.__module__ = "smartmatch_api.dependencies"
+    smuggled = Annotated[str, Depends(_pretend_cba_dependency)]
+    assert "smartmatch_api.dependencies" in _origin_modules(smuggled)
 
 
 def test_the_sanctioned_door_is_not_on_the_forbidden_list() -> None:
