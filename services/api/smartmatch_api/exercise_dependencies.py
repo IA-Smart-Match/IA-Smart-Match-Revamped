@@ -227,13 +227,20 @@ class WorkspaceCookiePolicy:
             considered and rejected: a team following a link to the exercise
             from the course page would arrive logged out of its own workspace,
             which in a classroom reads as the site being broken.
-        secure: ``True`` in every edition but ``dev``. A ``Secure`` cookie is
-            simply not stored over plain ``http``, so pinning it ``True``
-            everywhere would break the one environment that is reached over
-            ``http://localhost`` — and pinning it ``False`` everywhere would
-            put the classroom's cookie on the wire. It follows the edition,
-            which is the deployment fact that answers "is this served over
-            TLS".
+        secure: Whether the cookie is withheld from a plain ``http`` request.
+            Decided by ``SMARTMATCH_EXERCISE_COOKIE_SECURE`` when the
+            deployment sets it, and otherwise by a *fallback* rule: off in
+            ``dev``, on in every other edition.
+
+            The fallback is a guess and is named as one. ``edition`` answers
+            "which deployment is this", not "is this served over TLS", and the
+            two come apart exactly where it matters: the pilot VM is reached
+            over HTTPS while its compose file pins ``SMARTMATCH_EDITION=dev``,
+            so the classroom cookie would have gone over the wire without
+            ``Secure``. A deployment that knows the answer says so; ``true``
+            belongs on any TLS host. Pinning ``True`` unconditionally is not
+            the fix, because a ``Secure`` cookie is simply not stored over
+            plain ``http`` and local development would break instead.
     """
 
     name: str
@@ -246,13 +253,20 @@ class WorkspaceCookiePolicy:
 def workspace_cookie_policy(
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> WorkspaceCookiePolicy:
-    """The cookie flags for this deployment. See :class:`WorkspaceCookiePolicy`."""
+    """The cookie flags for this deployment. See :class:`WorkspaceCookiePolicy`.
+
+    ``exercise_cookie_secure`` is honoured when set — including when it is set
+    to ``False``, which is a deployment saying "this really is plain HTTP"
+    rather than a value to second-guess. ``None`` falls back to the edition
+    rule, which is documented as a guess on the attribute above.
+    """
+    configured = settings.exercise_cookie_secure
     return WorkspaceCookiePolicy(
         name=WORKSPACE_COOKIE_NAME,
         path="/v1/exercise",
         http_only=True,
         same_site="lax",
-        secure=settings.edition is not Edition.DEV,
+        secure=configured if configured is not None else settings.edition is not Edition.DEV,
     )
 
 
@@ -302,10 +316,19 @@ def get_current_workspace(
 ) -> ExerciseWorkspace:
     """The workspace this browser's cookie points at.
 
-    One refusal for every way of not having one — no cookie, a cookie from a
-    previous dataset, a cookie minted under a rotated secret, a cookie somebody
-    typed — so the route cannot be used to tell a real workspace token from an
-    invented one.
+    One refusal for every way of not having one — no cookie, a cookie minted
+    under a secret that has since been rotated, a cookie whose workspace was
+    deleted, a cookie somebody typed — so the route cannot be used to tell a
+    real workspace token from an invented one.
+
+    A cookie from a **previous dataset** is not one of those ways, and an
+    earlier draft of this docstring said it was. Design spec §3: existing
+    workspaces keep pointing at their old dataset until the instructor
+    re-points them, and a re-point resets every team. So a team holding a
+    cookie from before an upload keeps working, in its old dataset, and that is
+    the specified behaviour rather than a gap. See the repository's
+    ``find_by_token_hash`` for why the lookup is deliberately not scoped to the
+    active dataset.
 
     The status is 401 and the code is the exercise's own. It is deliberately
     **not** the CBA ``unauthenticated`` code and carries no

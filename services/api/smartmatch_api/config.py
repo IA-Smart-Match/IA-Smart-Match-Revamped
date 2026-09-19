@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from pydantic import Field, model_validator
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from smartmatch_domain.exercise.workspace_token import MINIMUM_WORKSPACE_SECRET_LENGTH
 from smartmatch_domain.product_scope import (
@@ -138,7 +138,24 @@ class Settings(BaseSettings):
     #: a person — the exercise has no login — but it is what stops a workspace
     #: id from being a workspace token, which is the whole of the cookie's
     #: strength.
-    exercise_workspace_secret: str | None = None
+    exercise_workspace_secret: SecretStr | None = None
+
+    #: Whether the class exercise's workspace cookie carries ``Secure``.
+    #: Read from ``SMARTMATCH_EXERCISE_COOKIE_SECURE``.
+    #:
+    #: ``None`` — the default — means "follow the edition": off in ``dev``, on
+    #: everywhere else. That rule is a *guess* and is documented as one, because
+    #: ``edition`` does not answer "is this served over TLS". The pilot VM is
+    #: reached over HTTPS while its compose file pins
+    #: ``SMARTMATCH_EDITION=dev``, which is precisely the deployment where the
+    #: guess is wrong and the classroom's cookie would go over the wire without
+    #: ``Secure``.
+    #:
+    #: So the deployment can say. ``true`` on any TLS host — set it on the VM —
+    #: and ``false`` only where the site is genuinely served over ``http``,
+    #: since a ``Secure`` cookie is simply not stored over plain HTTP and
+    #: pinning it on would break local development rather than protect it.
+    exercise_cookie_secure: bool | None = None
 
     #: Included in the health response so a deployment can be identified without
     #: exposing topology.
@@ -212,7 +229,12 @@ def require_exercise_workspace_secret(settings: Settings) -> str:
         settings: The process's settings.
 
     Returns:
-        The secret, for the scope that needs it.
+        The secret, unwrapped, for the scope that needs it. It is stored as a
+        :class:`~pydantic.SecretStr` so that ``repr(settings)`` and
+        ``settings.model_dump()`` — the two shapes that reach a debugger, a
+        crash report and a log line without anybody deciding they should —
+        print ``**********`` instead of the HMAC key. Unwrapping happens here,
+        at the one call that needs the bytes.
 
     Raises:
         ValueError: if the scope needs a secret and none is configured, or the
@@ -221,7 +243,8 @@ def require_exercise_workspace_secret(settings: Settings) -> str:
             The message names the variable and the length and quotes no part of
             the value.
     """
-    secret = settings.exercise_workspace_secret
+    stored = settings.exercise_workspace_secret
+    secret = stored.get_secret_value() if stored is not None else None
     if secret is None or not secret.strip():
         raise ValueError(
             "SMARTMATCH_EXERCISE_WORKSPACE_SECRET is required when "

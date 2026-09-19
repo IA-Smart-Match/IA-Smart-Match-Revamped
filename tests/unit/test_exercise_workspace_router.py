@@ -159,11 +159,17 @@ class _FakeSession:
         return _EmptyResult()
 
 
-def _settings(*, edition: Edition = Edition.DEV, secret: str | None = _TEST_SECRET) -> Settings:
+def _settings(
+    *,
+    edition: Edition = Edition.DEV,
+    secret: str | None = _TEST_SECRET,
+    cookie_secure: bool | None = None,
+) -> Settings:
     return Settings(
         product_scope=ProductScope.CLASS_EXERCISE,
         edition=edition,
         exercise_workspace_secret=secret,
+        exercise_cookie_secure=cookie_secure,
     )
 
 
@@ -184,7 +190,9 @@ def _exercise_app(settings: Settings, repository: _FakeRepository) -> FastAPI:
     app.dependency_overrides[get_exercise_session] = lambda: session
     app.dependency_overrides[get_workspace_repository] = lambda: repository
     app.dependency_overrides[get_active_dataset] = lambda: _DATASET
-    app.dependency_overrides[get_workspace_secret] = lambda: settings.exercise_workspace_secret
+    app.dependency_overrides[get_workspace_secret] = lambda: require_exercise_workspace_secret(
+        settings
+    )
     app.dependency_overrides[workspace_cookie_policy] = lambda: exercise_workspace_policy(settings)
     return app
 
@@ -327,10 +335,46 @@ def test_the_cookie_is_httponly_lax_and_scoped_to_the_exercise(client: TestClien
     assert "max-age" not in header and "expires" not in header, "a session cookie"
 
 
-def test_the_cookie_is_secure_outside_development(repository: _FakeRepository) -> None:
-    """``Secure`` follows the edition, for the reason on ``WorkspaceCookiePolicy``."""
+def test_the_cookie_is_secure_outside_development_by_default(
+    repository: _FakeRepository,
+) -> None:
+    """The fallback rule, when the deployment has not said (``None``)."""
     with TestClient(_exercise_app(_settings(edition=Edition.CLASSROOM), repository)) as client:
         assert "secure" in _enter(client, 1).headers["set-cookie"].lower()
+
+
+def test_the_cookie_is_not_secure_in_development_by_default(
+    repository: _FakeRepository,
+) -> None:
+    """The other half of the fallback: a ``Secure`` cookie is not stored over http."""
+    with TestClient(_exercise_app(_settings(edition=Edition.DEV), repository)) as client:
+        assert "secure" not in _enter(client, 1).headers["set-cookie"].lower()
+
+
+def test_a_deployment_can_require_secure_regardless_of_edition(
+    repository: _FakeRepository,
+) -> None:
+    """M4. The pilot VM is HTTPS while its compose file pins ``edition=dev``.
+
+    ``edition`` answers "which deployment is this", not "is this TLS". Without
+    this override the classroom's cookie would have gone over the wire without
+    ``Secure`` on exactly the host that serves the exercise.
+    """
+    settings = _settings(edition=Edition.DEV, cookie_secure=True)
+    with TestClient(_exercise_app(settings, repository)) as client:
+        assert "secure" in _enter(client, 1).headers["set-cookie"].lower()
+
+
+def test_a_deployment_can_say_it_really_is_plain_http(repository: _FakeRepository) -> None:
+    """``False`` is honoured, not second-guessed.
+
+    A deployment that sets this to ``false`` is stating a fact about how it is
+    served. Overriding it would make the flag advisory, and a flag that is only
+    obeyed when it agrees with the guess is not a setting.
+    """
+    settings = _settings(edition=Edition.CLASSROOM, cookie_secure=False)
+    with TestClient(_exercise_app(settings, repository)) as client:
+        assert "secure" not in _enter(client, 1).headers["set-cookie"].lower()
 
 
 def test_the_cookie_value_is_not_the_workspace_id(
@@ -606,6 +650,23 @@ def test_a_short_secret_is_refused_rather_than_quietly_accepted() -> None:
         require_exercise_workspace_secret(
             _settings(secret="x" * (MINIMUM_WORKSPACE_SECRET_LENGTH - 1))
         )
+
+
+def test_the_secret_does_not_appear_in_a_repr_or_a_dump() -> None:
+    """The two shapes that reach a debugger and a crash report unasked.
+
+    ``repr(settings)`` is what a traceback frame prints and what most loggers
+    call on an object they were handed; ``model_dump()`` is what anything that
+    serialises configuration calls. Neither may carry the HMAC key, which is
+    why the field is a ``SecretStr`` rather than a ``str`` with a comment
+    saying not to log it.
+    """
+    settings = _settings()
+    assert _TEST_SECRET not in repr(settings)
+    assert _TEST_SECRET not in str(settings.model_dump())
+    assert _TEST_SECRET not in str(settings.exercise_workspace_secret)
+    # And it is still reachable where it is needed.
+    assert require_exercise_workspace_secret(settings) == _TEST_SECRET
 
 
 def test_the_refusal_quotes_no_part_of_the_configured_value() -> None:
