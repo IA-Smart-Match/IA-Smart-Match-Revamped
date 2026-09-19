@@ -45,6 +45,7 @@ from smartmatch_api.exercise_dependencies import (
     DatasetSummary,
     ExerciseDatasetSummary,
     ExerciseDatasetWriteError,
+    MaybeDataset,
     get_active_dataset,
     get_dataset_repository,
     get_exercise_session,
@@ -312,7 +313,7 @@ def _exercise_app(settings: Settings, state: dict[str, Any]) -> FastAPI:
     app.dependency_overrides[get_instructor_repository] = lambda: state["instructor"]
     app.dependency_overrides[get_workspace_repository] = lambda: state["workspaces"]
     app.dependency_overrides[get_active_dataset] = lambda: _DATASET
-    app.dependency_overrides[get_maybe_active_dataset] = lambda: _DATASET
+    app.dependency_overrides[get_maybe_active_dataset] = lambda: MaybeDataset(dataset=_DATASET)
     app.dependency_overrides[get_workspace_secret] = lambda: require_exercise_workspace_secret(
         settings
     )

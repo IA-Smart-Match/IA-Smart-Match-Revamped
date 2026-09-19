@@ -161,6 +161,7 @@ __all__ = [
     "InstructorSavedSetting",
     "InstructorWorkspaceRow",
     "MaybeActiveDataset",
+    "MaybeDataset",
     "TeamWorkspaceHandle",
     "WorkingDataset",
     "WorkspaceCookiePolicy",
@@ -560,8 +561,24 @@ def get_active_dataset(session: ExerciseSession) -> ExerciseDatasetSummary:
 ActiveDataset = Annotated[ExerciseDatasetSummary, Depends(get_active_dataset)]
 
 
-def get_maybe_active_dataset(session: ExerciseSession) -> ExerciseDatasetSummary | None:
-    """The dataset a team entering a number would join, or ``None``.
+@dataclass(frozen=True, slots=True)
+class MaybeDataset:
+    """The newest uploaded dataset, or the fact that there is not one.
+
+    A named wrapper rather than ``ExerciseDatasetSummary | None``, for
+    :class:`ConfiguredPasscode`'s second reason — which is a real guard and not
+    a style rule. The door's export check walks the type behind every
+    annotation in ``__all__``, and a union answers ``types``: the module of
+    *every* union. Admitting it here to allow this one would also admit
+    ``ExerciseDatasetSummary | ResolvedPrincipal`` tomorrow. A named type from
+    this module answers this module.
+    """
+
+    dataset: ExerciseDatasetSummary | None
+
+
+def get_maybe_active_dataset(session: ExerciseSession) -> MaybeDataset:
+    """The dataset a team entering a number would join, or the absence of one.
 
     The same question :func:`get_active_dataset` asks, without the refusal. A
     team route cannot do anything useful before a file exists, so 409 is the
@@ -569,13 +586,19 @@ def get_maybe_active_dataset(session: ExerciseSession) -> ExerciseDatasetSummary
     file has been uploaded yet" is *information* — it is the state her next
     action changes — and a 409 would blank a page that should be telling her
     what to do next.
+
+    Note what this is **not** for. It answers "which file is newest", never
+    "which file are the teams in". Design spec §3 keeps those apart, and
+    confusing them is exactly the defect the instructor routes were corrected
+    for; the second question is
+    ``ExerciseInstructorRepository.datasets_with_workspaces``.
     """
-    return active_dataset(session)
+    return MaybeDataset(dataset=active_dataset(session))
 
 
 #: The annotation an instructor handler writes to ask which dataset is newest
 #: without refusing when there is none.
-MaybeActiveDataset = Annotated[ExerciseDatasetSummary | None, Depends(get_maybe_active_dataset)]
+MaybeActiveDataset = Annotated[MaybeDataset, Depends(get_maybe_active_dataset)]
 
 
 def get_current_workspace(

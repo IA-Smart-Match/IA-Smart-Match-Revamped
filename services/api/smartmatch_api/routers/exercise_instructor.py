@@ -634,7 +634,7 @@ def list_team_workspaces(
     and inventing one would report six teams working when two are.
     """
     return TeamListView(
-        active_dataset_label=active.label if active is not None else None,
+        active_dataset_label=active.dataset.label if active.dataset else None,
         teams=tuple(team_view(row) for row in instructor.list_workspaces(session)),
     )
 
