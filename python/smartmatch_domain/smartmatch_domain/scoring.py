@@ -41,7 +41,6 @@ from dataclasses import dataclass
 from typing import Final
 
 from smartmatch_domain.factor_registry import (
-    PROPOSED_FACTORS,
     SUPERSEDED_G1_MODEL,
     FactorKind,
     RegistryNotReadyError,
@@ -50,6 +49,7 @@ from smartmatch_domain.factor_registry import (
     assert_scoring_ready,
     factor_keys,
     normalize_weights,
+    registry_for_version,
     resolve_scoring_model,
 )
 from smartmatch_domain.factors import FactorScore
@@ -97,11 +97,28 @@ STAGE_B_FORMULA_VERSION: Final[str] = "1.0.0"
 #: it, and neither version is ever read as the other.
 CBA_STAGE_B_FORMULA_VERSION: Final[str] = "2.0.0-cba"
 
-#: Kind lookup for composing a factor's contribution (F-25 / ADR-0011): a
-#: SUITABILITY factor's value contributes directly, a PENALTY factor's value
-#: contributes as its complement. Built once from the registry so this module
-#: never hand-encodes which key is which kind.
-_FACTOR_KIND: Final[Mapping[str, FactorKind]] = {spec.key: spec.kind for spec in PROPOSED_FACTORS}
+
+def _kind_table(registry_version: str) -> Mapping[str, FactorKind]:
+    """Return the kind lookup of the registry a score is pinned to.
+
+    Composing a factor's contribution needs its kind (F-25 / ADR-0011): a
+    SUITABILITY factor's value contributes directly, a PENALTY factor's value
+    contributes as its complement. The table is looked up per score rather than
+    captured once at import, so the kind that applies to a score is the one its
+    own rulebook declares (ADR-0024 D2). It is resolved once per composition
+    and then indexed per factor, the way the module-level constant it replaces
+    was.
+
+    An unrecognised pin is refused, not defaulted: reading a score under a
+    rulebook it does not name is how a factor could be composed with the wrong
+    kind — a penalty added where its complement belonged.
+
+    Raises:
+        UnknownRegistryVersionError: when ``registry_version`` names no
+            registry this build declares.
+    """
+    return registry_for_version(registry_version).kind_by_key
+
 
 #: Tolerance for the composite-score bound check, matching the tolerance
 #: :func:`~smartmatch_domain.factor_registry.assert_scoring_ready` uses for
@@ -300,6 +317,7 @@ def score_candidate(
         # evidence-free candidate outrank an evidenced one).
         value = None
     else:
+        kind_by_key = _kind_table(SUPERSEDED_G1_MODEL.registry_version)
         total = 0.0
         for score in factor_scores:
             factor_value = score.value
@@ -309,7 +327,7 @@ def score_candidate(
             assert factor_value is not None, (
                 f"{score.factor_key}: unreachable — is_unknown was False"
             )
-            kind = _FACTOR_KIND[score.factor_key]
+            kind = kind_by_key[score.factor_key]
             # F-25 penalty-complement rule: subtracting a penalty directly
             # would put the composite in [-w_penalty, 1 - w_penalty], which
             # is not a score. Its complement (1 - value) is an affine
@@ -597,13 +615,14 @@ def _compose_cba(
         # candidate.
         value = None
     else:
+        kind_by_key = _kind_table(model.registry_version)
         total = 0.0
         for score in factor_scores:
             factor_value = score.value
             assert factor_value is not None, (
                 f"{score.factor_key}: unreachable — is_unknown was False"
             )
-            kind = _FACTOR_KIND[score.factor_key]
+            kind = kind_by_key[score.factor_key]
             # Every current CBA factor is SUITABILITY, including proximity —
             # its band table is stated on the proximity scale, so complementing
             # it would invert the customer's own numbers. The penalty branch is
