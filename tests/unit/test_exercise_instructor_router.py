@@ -78,6 +78,10 @@ from smartmatch_providers import Edition
 _TEST_SECRET = "-".join(("exercise", "workspace", "key", "for", "tests", "only"))
 _TEST_PASSCODE = "-".join(("classroom", "passcode", "for", "tests"))
 
+#: A second deployment's exercise secret, for the "another deployment's session
+#: is refused" case. Assembled from pieces for the same reason as the first.
+_OTHER_SECRET = "-".join(("another", "deployment", "key", "entirely", "for", "tests"))
+
 _DATASET_ID = uuid.UUID("11111111-1111-1111-1111-111111111111")
 _DATASET = ExerciseDatasetSummary(
     id=_DATASET_ID, label="Made-up student body (sample)", invite_limit=30
@@ -465,7 +469,7 @@ def test_a_team_workspace_cookie_does_not_open_the_instructor_page(
 def test_a_session_from_another_deployment_is_refused(client: TestClient) -> None:
     client.cookies.set(
         INSTRUCTOR_COOKIE_NAME,
-        mint_instructor_session(secret="a-different-deployments-key-entirely", now=_WHEN),
+        mint_instructor_session(secret=_OTHER_SECRET, now=_WHEN),
         path="/v1/exercise/instructor",
     )
     assert client.get("/v1/exercise/instructor/workspaces").status_code == 401
