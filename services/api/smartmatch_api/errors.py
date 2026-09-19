@@ -28,6 +28,8 @@ from smartmatch_domain.jobs import InvalidTransitionError
 from smartmatch_persistence.idempotency import IdempotencyConflictError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from smartmatch_api.exercise_errors import ExerciseError
+
 #: Field-level problems reported in a single 422. A request with a thousand bad
 #: entries produces a thousand errors, and echoing them all makes the error
 #: larger than the request that caused it. The full count is reported alongside,
@@ -154,6 +156,23 @@ async def api_error_handler(_request: Request, exc: Exception) -> JSONResponse:
     )
 
 
+async def exercise_error_handler(_request: Request, exc: Exception) -> JSONResponse:
+    """Render an :class:`ExerciseError` in the standard envelope.
+
+    The exercise's refusals share this envelope and nothing else. The exception
+    class lives in a module that imports no authz and no persistence — see
+    :mod:`smartmatch_api.exercise_errors` — so that an exercise router can raise
+    it without reaching the CBA request machinery through this module's own
+    imports. The rendering stays here because the envelope does.
+
+    Carries no ``details``: every refusal an exercise route can raise is a
+    whole answer in one sentence, and a structured detail block on a no-login
+    product is a place for an identifier to end up.
+    """
+    assert isinstance(exc, ExerciseError)
+    return error_response(exc.status_code, code=exc.code, message=exc.message)
+
+
 async def idempotency_conflict_handler(_request: Request, exc: Exception) -> JSONResponse:
     """Map an idempotency-key conflict to 409.
 
@@ -266,6 +285,7 @@ EXCEPTION_HANDLERS = {
     ConsentViolationError: consent_error_handler,
     InvalidTransitionError: invalid_transition_handler,
     IdempotencyConflictError: idempotency_conflict_handler,
+    ExerciseError: exercise_error_handler,
     RequestValidationError: request_validation_handler,
     StarletteHTTPException: http_exception_handler,
 }

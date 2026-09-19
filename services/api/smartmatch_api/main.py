@@ -42,7 +42,7 @@ from smartmatch_providers import build_token_verifier
 from starlette.datastructures import Headers
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from smartmatch_api.config import Settings, get_settings
+from smartmatch_api.config import Settings, get_settings, require_exercise_workspace_secret
 from smartmatch_api.errors import EXCEPTION_HANDLERS, ErrorEnvelope, error_response
 from smartmatch_api.routers import (
     attendance,
@@ -55,6 +55,7 @@ from smartmatch_api.routers import (
     engagement,
     events,
     exercise_public,
+    exercise_workspace,
     host_organizations,
     imports,
     jobs,
@@ -590,6 +591,16 @@ CAPABILITY_SCOPED_ROUTERS: Final[tuple[tuple[APIRouter, Capability], ...]] = (
     # workspace, matching, results, and ingest routers join this row the same
     # way, each with the migration that gives them something to answer from.
     (exercise_public.router, Capability.CLASS_EXERCISE),
+    # CE-WORKSPACE: the team workspaces design spec §15 and the requirements'
+    # "Getting in" row describe. Same capability, same no-principal declaration,
+    # and the first exercise router that reads and writes a table — through
+    # `exercise_dependencies`, which is the one sanctioned door (ADR-0025 D2).
+    #
+    # Its `POST` routes are cookie-authenticated with no login behind them, so
+    # they carry a CSRF requirement the CBA bearer routes do not need; that is
+    # stated on `exercise_dependencies.EXERCISE_REQUEST_HEADER` rather than
+    # here, because it is a property of the dependency both routes take.
+    (exercise_workspace.router, Capability.CLASS_EXERCISE),
 )
 
 
@@ -616,6 +627,23 @@ def routers_for(settings: Settings) -> tuple[APIRouter, ...]:
         for router, capability in CAPABILITY_SCOPED_ROUTERS
         if settings.capability_enabled(capability)
     )
+
+
+# The class exercise's workspace cookie is derived from a deployment secret
+# (design spec §15; PLACEHOLDER, OQ-CE-08). A process that serves the exercise
+# without one would either derive every token from an empty key — making a
+# workspace id a workspace token — or fall back to per-entry random tokens,
+# which silently logs a team's first laptop out when its second one enters the
+# same number. Neither is a thing to discover in a classroom, so the process
+# refuses to start instead.
+#
+# Checked here, at import, rather than in `Settings`: several tests construct
+# `Settings(product_scope=class_exercise)` to ask which routes that scope
+# mounts, and a construction-time raise would make that question unanswerable
+# without a secret in the environment. This is the boundary where the answer
+# actually matters — the application either exists or it does not.
+if get_settings().capability_enabled(Capability.CLASS_EXERCISE):
+    require_exercise_workspace_secret(get_settings())
 
 
 for _mounted_router in routers_for(get_settings()):
