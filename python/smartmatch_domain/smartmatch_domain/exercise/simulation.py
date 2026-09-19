@@ -144,10 +144,16 @@ adds are named here rather than invented as constants:
 
 from __future__ import annotations
 
-import hashlib
 import math
 from dataclasses import dataclass
 from typing import Final
+
+# A pure move, not a change: these two helpers were defined privately in this
+# module and are now shared, unchanged, with the matching track that needs the
+# same digest for the fixed order and the same term rule for the four factors.
+# Two copies of "how a term is compared" is one more than the question has.
+from smartmatch_domain.exercise.determinism import stable_digest as _digest
+from smartmatch_domain.student_factors.terms import normalized_term as _normalized
 
 __all__ = [
     "EVENT_SEATS",
@@ -406,27 +412,6 @@ def require_coefficients() -> SimulationCoefficients:
             "The results rule has no confirmed coefficients yet (OQ-CE-03)."
         )
     return EXERCISE_SIMULATION_COEFFICIENTS
-
-
-def _normalized(term: str) -> str:
-    """One term as it is compared: trimmed and case-folded, nothing more."""
-    return term.strip().casefold()
-
-
-def _digest(*fields: object) -> bytes:
-    """A stable SHA-256 digest over some fields, each one length-prefixed.
-
-    Length-prefixed rather than joined by ``":"`` so that a field containing
-    the separator cannot produce the digest of a different set of fields. The
-    event key is free text from a data file, so this is reachable rather than
-    theoretical.
-    """
-    hasher = hashlib.sha256()
-    for field in fields:
-        encoded = str(field).encode()
-        hasher.update(f"{len(encoded)}:".encode())
-        hasher.update(encoded)
-    return hasher.digest()
 
 
 def _uniform(seed: int, event_key: str, profile_no: int, purpose: str) -> float:
