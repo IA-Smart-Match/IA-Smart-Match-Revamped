@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Final
 
 from pydantic import BaseModel, ConfigDict, Field
 from smartmatch_domain.exercise.ingest import ParsedDataset
@@ -39,7 +40,16 @@ from smartmatch_api.exercise_dependencies import (
     InstructorWorkspaceRow,
 )
 
+#: The longest passcode the login will read. A bound rather than a policy: the
+#: value is a human-shared string (OQ-CE-07), and the cost of *not* bounding it
+#: is that every oversized body reaching the route buys a key derivation over
+#: however many kilobytes somebody cared to send. Refused by the model, before
+#: the handler and before the KDF.
+MAX_PASSCODE_CHARACTERS: Final[int] = 256
+
 __all__ = [
+    "MAX_PASSCODE_CHARACTERS",
+    "TEAMS_HAVE_NOT_MOVED",
     "DatasetView",
     "IngestReportView",
     "InstructorLoginRequest",
@@ -67,6 +77,7 @@ class InstructorLoginRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     passcode: str = Field(
+        max_length=MAX_PASSCODE_CHARACTERS,
         description=(
             "The instructor passcode for this deployment (OQ-CE-07: one "
             "environment variable, shared out of band). Never logged, never "
@@ -160,21 +171,52 @@ class IngestReportView(BaseModel):
     completed_card: int
 
 
+#: What an upload says about the teams, in one plain sentence. Design spec §3:
+#: *existing workspaces keep pointing at their old dataset until the instructor
+#: re-points them.* The rule is right and it is not what an instructor expects
+#: from a button labelled "upload the data file", so the response says it out
+#: loud rather than leaving her to notice that nothing changed.
+TEAMS_HAVE_NOT_MOVED: Final[str] = (
+    "The teams are still working in the data file they entered on; "
+    "re-point them to move them to this one."
+)
+
+
 class UploadedDatasetView(BaseModel):
-    """The answer to an upload: the stored file, and what was in it."""
+    """The answer to an upload: the stored file, what was in it, and one warning."""
 
     model_config = ConfigDict(extra="forbid")
 
     dataset: DatasetView
     report: IngestReportView
+    notice: str = Field(
+        description=(
+            "One plain sentence saying that uploading a file moves no team "
+            "(design spec §3). Constant; the screen shows it beside the "
+            "re-point button."
+        )
+    )
 
 
 class TeamSummaryView(BaseModel):
-    """One team, in the instructor's list of teams."""
+    """One team, in the instructor's list of teams.
+
+    Carries the **data file this team is actually on**, not the newest upload.
+    Design spec §3 keeps a team where it is until an instructor re-points it,
+    so a list that named one file for every team would be wrong the moment a
+    file was uploaded — which is exactly the defect this field fixes.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
     team_number: int
+    dataset_id: uuid.UUID = Field(
+        description=(
+            "The data file this team is working in. Pass it to the unlock, "
+            "reset and detail routes to act on this team's file rather than "
+            "letting the server guess."
+        )
+    )
     dataset_label: str
     created_at: datetime = Field(description="When this team first entered its number.")
     saved_setting_count: int
@@ -188,12 +230,23 @@ class TeamSummaryView(BaseModel):
 
 
 class TeamListView(BaseModel):
-    """Every team working in the current data file."""
+    """Every team that exists, each with the data file it is on.
+
+    Not "every team in the active data file". Uploading a file moves no team
+    (design spec §3), so scoping this list to the newest upload emptied the
+    instructor's own screen the moment she used the upload button.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
-    dataset_label: str
     teams: tuple[TeamSummaryView, ...]
+    active_dataset_label: str | None = Field(
+        description=(
+            "The data file a team entering a number right now would join, or "
+            "null when nothing has been uploaded. It is *not* necessarily the "
+            "file the teams below are on — only a re-point moves them."
+        )
+    )
 
 
 class SavedSettingView(BaseModel):
@@ -307,6 +360,7 @@ def report_view(parsed: ParsedDataset) -> IngestReportView:
 def team_view(row: InstructorWorkspaceRow) -> TeamSummaryView:
     return TeamSummaryView(
         team_number=row.team_number,
+        dataset_id=row.dataset_id,
         dataset_label=row.dataset_label,
         created_at=row.created_at,
         saved_setting_count=row.saved_setting_count,

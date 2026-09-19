@@ -86,13 +86,13 @@ from smartmatch_domain.exercise import EXERCISE_TEAM_NUMBERS
 from smartmatch_domain.exercise.ingest import IngestRefusal, parse_exercise_file
 from smartmatch_domain.exercise.instructor_session import (
     mint_instructor_session,
+    spend_a_verification,
     verify_instructor_passcode,
 )
 
 from smartmatch_api.exercise_dependencies import (
     MAX_INVITE_LIMIT,
     MIN_INVITE_LIMIT,
-    ActiveDataset,
     DatasetRepository,
     ExerciseDatasetLabelError,
     ExerciseDatasetWriteError,
@@ -101,7 +101,9 @@ from smartmatch_api.exercise_dependencies import (
     InstructorCookiePolicy,
     InstructorPasscode,
     InstructorRepository,
+    MaybeActiveDataset,
     TeamWorkspaceHandle,
+    WorkingDataset,
     WorkspaceRepository,
     WorkspaceSecret,
     require_exercise_request_header,
@@ -116,6 +118,7 @@ from smartmatch_api.exercise_rate_limit import (
     FixedWindowLimiter,
 )
 from smartmatch_api.routers.exercise_instructor_models import (
+    TEAMS_HAVE_NOT_MOVED,
     DatasetView,
     InstructorLoginRequest,
     InstructorSessionView,
@@ -203,53 +206,83 @@ def instructor_login(
 ) -> InstructorSessionView:
     """Design spec §14's one door.
 
-    The rate limit is charged as the **first statement**, before the passcode
-    is looked at, so a wrong passcode and a right one cost the same and a
-    caller cannot spend unlimited attempts by never being right. It is a
-    PLACEHOLDER (OQ-CE-06) — in-process, per worker — and is described as such
-    on :mod:`smartmatch_api.exercise_rate_limit`.
+    **The two bounds are not the same bound** (OQ-CE-06 PLACEHOLDER; see
+    :class:`~smartmatch_api.exercise_rate_limit.Allowance`).
 
-    **Fail closed.** A deployment with no passcode, or one shorter than the
-    floor, reaches the same refusal as a wrong passcode: there is no branch
-    here that skips the check, so an unconfigured instructor page is a shut
-    door rather than an open one. The response cannot be used to tell the three
-    apart; the server log records which, because an operator who mistyped the
-    variable has to be able to find out.
+    * The **per-key** bound is the caller's own budget and is charged first. If
+      it is spent, this refuses without looking at the passcode at all: no key
+      derivation, no global budget consumed. The earlier version charged the
+      global window first, so fifty attempts a caller's own key had already
+      refused still spent fifty units of everybody else's allowance — one
+      script could lock the real instructor out for a lesson.
+    * The **global** bound is the one an attacker can exhaust on somebody
+      else's behalf, so it may not be the reason a *correct* passcode is
+      refused. When it is spent the passcode is still checked, and a correct one
+      is let in and **refunds** its unit. The window is left holding only the
+      attempts that were wrong.
+
+    **Fail closed, and at the same cost.** A deployment with no usable passcode
+    reaches the same refusal as a wrong one *and pays the same key derivation*
+    to get there — see
+    :func:`~smartmatch_domain.exercise.instructor_session.spend_a_verification`.
+    Returning early would have answered "is there an instructor page on this
+    host?" to anyone with a stopwatch. The response cannot tell the cases apart;
+    the server log records which, because an operator who mistyped the variable
+    has to be able to find out.
 
     Raises:
-        ExerciseError: 429 when the attempt allowance is spent, 401 when the
-            passcode is not this deployment's, 403 when the request carries no
+        ExerciseError: 429 when this caller's attempts are spent or a wrong
+            passcode arrives on a spent global window, 401 when the passcode is
+            not this deployment's, 403 when the request carries no
             ``X-Exercise-Request`` header.
     """
-    if not _LOGIN_LIMITER.charge(_client_key(request), now=utc_now()):
-        _LOGGER.warning("exercise instructor login rate limited")
-        raise ExerciseError(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            code="exercise_instructor_login_rate_limited",
-            message="Too many passcode attempts. Please wait a few minutes and try again.",
-        )
+    allowance = _LOGIN_LIMITER.charge(_client_key(request), now=utc_now())
+    if not allowance.key_allows:
+        _LOGGER.warning("exercise instructor login rate limited: this caller's attempts are spent")
+        raise _too_many_attempts()
+
     if passcode.value is None:
+        # The same work a real verification costs, discarded. Not an early
+        # return: that is the timing oracle this branch used to be.
+        spend_a_verification(payload.passcode, secret=secret)
         _LOGGER.error(
             "exercise instructor login refused: no usable "
             "SMARTMATCH_EXERCISE_INSTRUCTOR_PASSCODE is configured (OQ-CE-07)"
         )
-        raise ExerciseError(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            code="exercise_instructor_passcode_refused",
-            message=_LOGIN_REFUSED,
-        )
+        raise _passcode_refused()
+
     if not verify_instructor_passcode(payload.passcode, configured=passcode.value, secret=secret):
         _LOGGER.warning("exercise instructor login refused: passcode did not match")
-        raise ExerciseError(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            code="exercise_instructor_passcode_refused",
-            message=_LOGIN_REFUSED,
-        )
+        if not allowance.global_allows:
+            raise _too_many_attempts()
+        raise _passcode_refused()
+
+    # Correct. The global window never holds a unit for an attempt that was
+    # right, so a flood from many addresses cannot lock the passcode holder out.
+    _LOGIN_LIMITER.refund_global()
     _set_instructor_cookie(
         response, policy=policy, token=mint_instructor_session(secret=secret, now=utc_now())
     )
     _LOGGER.info("exercise instructor signed in")
     return InstructorSessionView(signed_in=True)
+
+
+def _too_many_attempts() -> ExerciseError:
+    """One sentence for both ways of running out of attempts."""
+    return ExerciseError(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        code="exercise_instructor_login_rate_limited",
+        message="Too many passcode attempts. Please wait a few minutes and try again.",
+    )
+
+
+def _passcode_refused() -> ExerciseError:
+    """One sentence for every way a passcode can be wrong. See :data:`_LOGIN_REFUSED`."""
+    return ExerciseError(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        code="exercise_instructor_passcode_refused",
+        message=_LOGIN_REFUSED,
+    )
 
 
 @login_router.post(
@@ -395,7 +428,11 @@ def upload_dataset(
             message=str(error),
         ) from error
     session.commit()
-    return UploadedDatasetView(dataset=dataset_view(summary), report=report_view(parsed))
+    return UploadedDatasetView(
+        dataset=dataset_view(summary),
+        report=report_view(parsed),
+        notice=TEAMS_HAVE_NOT_MOVED,
+    )
 
 
 @router.patch(
@@ -521,8 +558,8 @@ def _no_such_dataset() -> ExerciseError:
 def unlock_results(
     event_key: str,
     session: ExerciseSession,
-    dataset: ActiveDataset,
     instructor: InstructorRepository,
+    dataset_id: _DatasetChoice = None,
 ) -> UnlockView:
     """Write the ``exercise_result_unlock`` row design spec §9 reads.
 
@@ -530,24 +567,30 @@ def unlock_results(
     and answers the same sentence — an instructor pressing a button twice in a
     classroom is the expected case, not the exceptional one.
 
-    Scoped to the **active** data file, which is the one teams entering today
-    join. Whether the instructor should be able to unlock an event of an older
-    file is an owner question recorded on this track's pull request; the safe
-    behaviour is the narrow one, because the wrong answer here opens results on
-    a file nobody is using and looks like nothing happening.
+    **Scoped to the data file the teams are on**, resolved by
+    :func:`_teams_dataset`, and this is a correction rather than a preference.
+    It used to be scoped to the *active* file — the newest upload — and since
+    design spec §3 has an upload move nobody, one upload was enough to make
+    every unlock write a row keyed to a file no team was in. The button
+    reported success; the teams stayed locked out; nothing in the system was
+    wrong enough to complain. A data file with no teams in it is now refused
+    with a sentence instead.
 
     Raises:
-        ExerciseError: 404 when the event is not in the active data file, 409
-            when no data file has been uploaded or the write is refused.
+        ExerciseError: 404 when the event is not in that data file, 409 when no
+            data file can be resolved or the write is refused.
     """
-    if not instructor.event_exists(session, dataset_id=dataset.id, event_key=event_key):
+    dataset = _teams_dataset(instructor, session, requested=dataset_id)
+    if not instructor.event_exists(session, dataset_id=dataset.dataset_id, event_key=event_key):
         raise ExerciseError(
             status_code=status.HTTP_404_NOT_FOUND,
             code="exercise_event_unknown",
-            message="That event is not in the loaded data file.",
+            message="That event is not in the data file the teams are working in.",
         )
     try:
-        newly = instructor.unlock_results(session, dataset_id=dataset.id, event_key=event_key)
+        newly = instructor.unlock_results(
+            session, dataset_id=dataset.dataset_id, event_key=event_key
+        )
     except ExerciseWriteRefused as error:
         raise ExerciseError(
             status_code=status.HTTP_409_CONFLICT,
@@ -567,23 +610,32 @@ def unlock_results(
 @router.get(
     "/workspaces",
     response_model=TeamListView,
-    summary="Every team working in the current data file",
+    summary="Every team that exists, with the data file each is on",
 )
 def list_team_workspaces(
     session: ExerciseSession,
-    dataset: ActiveDataset,
     instructor: InstructorRepository,
+    active: MaybeActiveDataset,
 ) -> TeamListView:
     """Design spec §14's "list workspaces".
 
-    A team that has not entered its number yet is simply absent — there is no
-    row for it, and inventing one would report six teams working when two are.
+    **Not scoped to the active data file**, and that is the fix for a defect
+    rather than a preference. Design spec §3: uploading a file moves no team.
+    This list used to be filtered by the newest upload, so the instructor
+    pressing "upload" watched her own list of teams go empty while six teams
+    carried on working — with nothing on the screen to say why, and a re-point
+    she had no reason to think she needed as the only way back.
+
+    Every team is listed with the file it is on. ``active_dataset_label`` says
+    separately which file a team entering *now* would join, so the two facts are
+    two fields instead of one misleading one.
+
+    A team that has not entered its number is absent: there is no row for it,
+    and inventing one would report six teams working when two are.
     """
     return TeamListView(
-        dataset_label=dataset.label,
-        teams=tuple(
-            team_view(row) for row in instructor.list_workspaces(session, dataset_id=dataset.id)
-        ),
+        active_dataset_label=active.label if active is not None else None,
+        teams=tuple(team_view(row) for row in instructor.list_workspaces(session)),
     )
 
 
@@ -595,19 +647,27 @@ def list_team_workspaces(
 def read_team_workspace(
     team_number: int,
     session: ExerciseSession,
-    dataset: ActiveDataset,
     instructor: InstructorRepository,
+    dataset_id: _DatasetChoice = None,
 ) -> TeamDetailView:
     """Design spec §14's "open any team's saved settings and results". Read-only.
+
+    Addressed by *the data file the teams are on* (see :func:`_teams_dataset`),
+    not by the newest upload — which is why this no longer 404s on a team that
+    is plainly still working the moment a new file is uploaded.
 
     ``result_runs`` is empty until the results track lands, which is a real
     answer: design spec §9's route does not exist yet, so no team can have run
     results.
 
     Raises:
-        ExerciseError: 404 when that team has not entered its number.
+        ExerciseError: 404 when that team has not entered its number, 422 for a
+            team number outside 1-6, 409 when no data file can be resolved.
     """
-    workspace = _require_team(instructor, session, dataset_id=dataset.id, team_number=team_number)
+    dataset = _teams_dataset(instructor, session, requested=dataset_id)
+    workspace = _require_team(
+        instructor, session, dataset_id=dataset.dataset_id, team_number=team_number
+    )
     return TeamDetailView(
         team_number=workspace.team_number,
         saved_settings=tuple(
@@ -629,9 +689,9 @@ def read_team_workspace(
 def reset_team_workspace(
     team_number: int,
     session: ExerciseSession,
-    dataset: ActiveDataset,
     instructor: InstructorRepository,
     workspaces: WorkspaceRepository,
+    dataset_id: _DatasetChoice = None,
 ) -> TeamSummaryView:
     """Design spec §11's per-team reset, from the instructor's side.
 
@@ -647,14 +707,33 @@ def reset_team_workspace(
     passcode is an open owner decision recorded on the pull request; this route
     adds an instructor path to it without removing the team's.
 
+    Addressed by the data file the teams are on (see :func:`_teams_dataset`),
+    so a fresh upload does not make this 404 on a team that is still working.
+
     Raises:
-        ExerciseError: 404 when that team has not entered its number.
+        ExerciseError: 404 when that team has not entered its number, 422 for a
+            team number outside 1-6, 409 when no data file can be resolved or
+            the write is refused.
     """
-    workspace = _require_team(instructor, session, dataset_id=dataset.id, team_number=team_number)
-    workspaces.reset_team(session, workspace_id=workspace.id)
+    dataset = _teams_dataset(instructor, session, requested=dataset_id)
+    workspace = _require_team(
+        instructor, session, dataset_id=dataset.dataset_id, team_number=team_number
+    )
+    try:
+        instructor.reset_team(
+            session,
+            dataset_id=dataset.dataset_id,
+            workspace_id=workspace.id,
+            workspaces=workspaces,
+        )
+    except ExerciseWriteRefused as error:
+        raise ExerciseError(
+            status_code=status.HTTP_409_CONFLICT,
+            code="exercise_reset_write_refused",
+            message=str(error),
+        ) from error
     session.commit()
-    rows = instructor.list_workspaces(session, dataset_id=dataset.id)
-    for row in rows:
+    for row in instructor.list_workspaces(session, dataset_id=dataset.dataset_id):
         if row.team_number == team_number:
             return team_view(row)
     raise _no_such_team()  # pragma: no cover - the row was just read back
@@ -662,9 +741,16 @@ def reset_team_workspace(
 
 @router.post(
     "/refresh-all",
-    status_code=status.HTTP_409_CONFLICT,
     summary="PLACEHOLDER — refuses until the results track lands",
     dependencies=_STATE_CHANGING,
+    responses={
+        status.HTTP_409_CONFLICT: {
+            "description": (
+                "Always. Design spec §13's refresh needs the asking choice the "
+                "results track stores; until then this route refuses."
+            )
+        }
+    },
 )
 def refresh_all_workspaces() -> None:
     """Design spec §13's "refresh all", declared and deliberately not built.
@@ -680,6 +766,11 @@ def refresh_all_workspaces() -> None:
     instead of the frontend discovering a 404 in a classroom. It is registered
     in the route ledger as exactly that.
 
+    Declared with a ``responses`` entry rather than ``status_code=409``: the
+    latter is FastAPI's *success* status, and putting a refusal there told the
+    generated contract that 409 was the happy path of a handler that has none.
+    The route's only outcome is documented as the error it is.
+
     Raises:
         ExerciseError: 409, always, until CE-RESULTS lands.
     """
@@ -688,6 +779,83 @@ def refresh_all_workspaces() -> None:
         code="exercise_refresh_not_ready",
         message="Refreshing every team is not switched on yet.",
     )
+
+
+#: The query parameter every team-addressed instructor route accepts.
+#:
+#: Optional, and what it addresses is *the data file the teams are on* — never
+#: the newest upload. See :func:`_teams_dataset` for what happens when it is
+#: omitted and why omitting it can be refused.
+_DatasetChoice = Annotated[
+    uuid.UUID | None,
+    Query(
+        alias="dataset_id",
+        description=(
+            "The data file to act on. Omit it when every team is in the same "
+            "file, which is the ordinary case; pass the `dataset_id` from the "
+            "team list when they are not."
+        ),
+    ),
+]
+
+
+def _teams_dataset(
+    instructor: InstructorRepository,
+    session: ExerciseSession,
+    *,
+    requested: uuid.UUID | None,
+) -> WorkingDataset:
+    """The data file an instructor action applies to, or one plain sentence.
+
+    **Never the active data file.** "Active" means *most recently uploaded*,
+    which is the file a team entering a number right now would join — and
+    design spec §3 is explicit that uploading moves nobody. Routing the
+    instructor's actions through it meant that, one upload later, ``unlock``
+    wrote a row against a file no team could see, ``reset`` and the team detail
+    404'd on teams that were plainly still working, and nothing said why.
+
+    So the question this answers is the one that was always meant: *which file
+    are the teams in*. The rule:
+
+    * a ``dataset_id`` the instructor passed is honoured, and refused if no team
+      is in it — never silently redirected, because a refusal she can read beats
+      an action against a file she did not name;
+    * omitted, with exactly one file in use, resolves to that file;
+    * omitted, with several in use — which a re-point exists to end — is refused
+      with a sentence asking which, rather than guessing;
+    * omitted, with none in use, is refused with a sentence. **A data file with
+      zero workspaces is never targeted**, which is the whole of what stopped
+      the unlock-into-the-void.
+
+    Raises:
+        ExerciseError: 409, with the sentence for whichever case applies.
+    """
+    in_use = instructor.datasets_with_workspaces(session)
+    if requested is not None:
+        for candidate in in_use:
+            if candidate.dataset_id == requested:
+                return candidate
+        raise ExerciseError(
+            status_code=status.HTTP_409_CONFLICT,
+            code="exercise_dataset_has_no_teams",
+            message="No team is working in that data file.",
+        )
+    if not in_use:
+        raise ExerciseError(
+            status_code=status.HTTP_409_CONFLICT,
+            code="exercise_no_teams_yet",
+            message="No team has entered a number yet.",
+        )
+    if len(in_use) > 1:
+        raise ExerciseError(
+            status_code=status.HTTP_409_CONFLICT,
+            code="exercise_teams_span_datasets",
+            message=(
+                "The teams are split across more than one data file; "
+                "choose which one this applies to."
+            ),
+        )
+    return in_use[0]
 
 
 def _require_team(

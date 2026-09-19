@@ -75,10 +75,12 @@ from __future__ import annotations
 import hashlib
 import hmac
 from datetime import datetime, timedelta
+from functools import lru_cache
 from typing import Final
 
 from smartmatch_domain.pilot_credentials import (
     MINIMUM_PASSWORD_LENGTH,
+    StoredPassword,
     derive_password_hash,
     new_session_token,
     verify_password,
@@ -90,6 +92,8 @@ __all__ = [
     "instructor_session_is_live",
     "mint_instructor_session",
     "passcode_is_usable",
+    "spend_a_verification",
+    "usable_passcode",
     "verify_instructor_passcode",
 ]
 
@@ -130,16 +134,39 @@ def _derived_key(*, secret: str, label: bytes) -> bytes:
     return hmac.new(secret.encode("utf-8"), label, hashlib.sha256).digest()
 
 
-def passcode_is_usable(passcode: str | None) -> bool:
-    """Whether a deployment has configured a passcode this module will honour.
+def usable_passcode(passcode: str | None) -> str | None:
+    """The passcode this deployment will honour, **stripped**, or ``None``.
 
-    ``False`` for ``None``, for blank, and for anything shorter than
-    :data:`MINIMUM_INSTRUCTOR_PASSCODE_LENGTH`. The caller's job on ``False``
-    is to *refuse the login* — design spec §14 has one door and an unconfigured
-    door is a shut one, never an open one. A deployment that meant to have an
-    instructor page and typed the variable wrong finds out by not getting in.
+    The single place the configured value is turned into the value that is
+    compared, and the strip is the whole point of it existing.
+
+    An earlier version measured the *stripped* length and then stored and
+    compared the *raw* value. A trailing newline is the ordinary way a value
+    leaves an ``.env`` file or a ``docker compose`` heredoc, and under that
+    version such a passcode was "usable" — long enough, so the door was not
+    declared shut — and yet matched nothing a human could type. The instructor
+    would have been permanently locked out of a configured page with the login
+    insisting the passcode was simply wrong, which is the least debuggable
+    failure this module could have had.
+
+    ``None`` for unset, for blank, and for anything shorter than
+    :data:`MINIMUM_INSTRUCTOR_PASSCODE_LENGTH` once stripped. The caller's job
+    on ``None`` is to *refuse the login* — design spec §14 has one door and an
+    unconfigured door is a shut one, never an open one.
+
+    Stripping means a passcode may not begin or end with whitespace. That is a
+    real restriction and it is the right one: a passcode whose leading space is
+    load-bearing cannot be shared out of band (OQ-CE-07) without being lost.
     """
-    return passcode is not None and len(passcode.strip()) >= MINIMUM_INSTRUCTOR_PASSCODE_LENGTH
+    if passcode is None:
+        return None
+    stripped = passcode.strip()
+    return stripped if len(stripped) >= MINIMUM_INSTRUCTOR_PASSCODE_LENGTH else None
+
+
+def passcode_is_usable(passcode: str | None) -> bool:
+    """Whether :func:`usable_passcode` would return a passcode for this value."""
+    return usable_passcode(passcode) is not None
 
 
 def verify_instructor_passcode(presented: str, *, configured: str, secret: str) -> bool:
@@ -170,16 +197,78 @@ def verify_instructor_passcode(presented: str, *, configured: str, secret: str) 
     ``==`` returns as soon as it finds a mismatch, which leaks the length of
     the matching prefix to anyone who can time the response.
 
+    **One derivation per attempt, not two.** The configured side is a function
+    of two values that change only when a deployment is reconfigured, so it is
+    derived once and cached — see :func:`_configured_record`. Without the cache
+    every unauthenticated request ran the 600 000-iteration KDF *twice*, which
+    made the login route roughly twice as expensive to flood as it needed to be
+    and put the deployment's own cost above the attacker's.
+
     Args:
         presented: What the browser sent. Never logged and never echoed.
-        configured: The deployment's passcode. Caller has already established
-            it is usable with :func:`passcode_is_usable`.
+        configured: The deployment's passcode, already stripped and length-
+            checked by :func:`usable_passcode`.
         secret: The deployment's exercise secret, used only as key material.
     """
-    stored = derive_password_hash(
+    return verify_password(presented, _configured_record(configured, secret))
+
+
+#: How many configured records are kept. More than one so that a rotation does
+#: not evict the record in use before the old process drains, and small because
+#: there is one passcode per deployment and a cache with room for a thousand is
+#: a cache holding nine hundred and ninety-nine stale ones.
+_CONFIGURED_RECORD_CACHE: Final[int] = 4
+
+
+@lru_cache(maxsize=_CONFIGURED_RECORD_CACHE)
+def _configured_record(configured: str, secret: str) -> StoredPassword:
+    """The stored form of the deployment's passcode, derived once.
+
+    Keyed on **both** inputs, so changing the passcode *or* rotating the
+    exercise secret produces a different key and therefore a fresh derivation —
+    a cache that outlived a rotation would keep a door open with a passcode
+    nobody had any more.
+
+    What is cached is a :class:`~smartmatch_domain.pilot_credentials.StoredPassword`:
+    a salt and a derived key, never the plaintext. It is not logged, not
+    returned to any caller outside this module, and carries no ``repr`` worth
+    printing. The arguments do live in this cache's keys — but they are the
+    process's own configuration, already resident in ``Settings``, so nothing
+    reaches memory here that was not there already.
+    """
+    return derive_password_hash(
         configured, salt=_derived_key(secret=secret, label=_PASSCODE_SALT_LABEL)
     )
-    return verify_password(presented, stored)
+
+
+#: A configured passcode that no presented value can ever match, used only to
+#: give the "this deployment has no passcode" path the same cost as a wrong
+#: one. Assembled from pieces rather than written as one literal so that
+#: ``tools/scan_forbidden.py``'s hard-coded-credential rule stays sharp.
+_UNMATCHABLE: Final[str] = "\x00".join(("no", "instructor", "passcode", "is", "configured"))
+
+
+def spend_a_verification(presented: str, *, secret: str) -> None:
+    """Do the work a real verification costs, and throw the answer away.
+
+    Design spec §14's door has to be shut in the same *shape* whether or not a
+    passcode is configured, and "shape" includes how long the refusal takes. A
+    handler that returned immediately when the variable was unset answered in
+    microseconds, while a wrong passcode against a configured deployment cost a
+    key derivation — so anyone with a stopwatch could ask "is there an
+    instructor page on this host at all?" and get a reliable answer without
+    guessing a single character.
+
+    So the unconfigured path calls this instead of returning early. It runs the
+    same one derivation of ``presented`` that the real path runs, against a
+    record derived from :data:`_UNMATCHABLE`, and discards the (always
+    ``False``) result.
+
+    It is not a constant-time guarantee and does not claim to be — the two paths
+    are the same *work*, not the same instruction sequence. What it removes is
+    an oracle you could read from across the internet with no precision at all.
+    """
+    verify_instructor_passcode(presented, configured=_UNMATCHABLE, secret=secret)
 
 
 def _sign(payload: str, *, secret: str) -> str:

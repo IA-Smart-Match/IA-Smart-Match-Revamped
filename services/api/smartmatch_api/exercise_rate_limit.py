@@ -63,6 +63,7 @@ __all__ = [
     "INSTRUCTOR_LOGIN_WINDOW",
     "MAX_TRACKED_CLIENTS",
     "UNRESOLVED_CALLER_KEY",
+    "Allowance",
     "FixedWindowLimiter",
 ]
 
@@ -104,6 +105,34 @@ class _Window:
     spent: int
 
 
+@dataclass(frozen=True, slots=True)
+class Allowance:
+    """What each of the two bounds said about one attempt.
+
+    Reported separately rather than reduced to a single boolean, because the
+    caller must treat them differently and the first version of this module did
+    not:
+
+    * ``key_allows`` is the caller's **own** budget. Spent means refused, full
+      stop — a correct passcode does not buy more of it, and a person who has
+      typed ten wrong passcodes in five minutes waits.
+    * ``global_allows`` is the bound that exists for a caller spread across many
+      addresses. It is the one an attacker can exhaust *on somebody else's
+      behalf*, so it must never be the reason a correct passcode is refused.
+      When it is spent, the login still checks the passcode and lets a correct
+      one through, refunding the unit.
+
+    The cost of that, stated plainly: once the global window is spent, each
+    further attempt still pays for one key derivation, so this bound limits how
+    many wrong passcodes are *accepted for checking* rather than how much CPU a
+    flood can burn. Bounding the CPU as well needs the edge limiting OQ-CE-06 is
+    open about.
+    """
+
+    key_allows: bool
+    global_allows: bool
+
+
 class FixedWindowLimiter:
     """A per-key and global fixed-window counter, held in this process only.
 
@@ -129,12 +158,17 @@ class FixedWindowLimiter:
         #: would be a naive datetime in a module whose callers are aware ones.
         self._global: _Window | None = None
 
-    def charge(self, key: str, *, now: datetime) -> bool:
-        """Spend one attempt for ``key``, or report that it has none left.
+    def charge(self, key: str, *, now: datetime) -> Allowance:
+        """Spend one attempt for ``key`` and report what each bound said.
 
-        Charged **before** the passcode is checked, so that a wrong passcode and
-        a right one cost the same, and a caller cannot spend an unlimited number
-        of attempts by never being right.
+        **The per-key bound is charged first, and the global bound only if the
+        per-key one allowed the attempt.** The other order is what the first
+        version of this module did, and it was a denial-of-service hole rather
+        than a rate limit: a script posting sixty times from one address spent
+        sixty *global* units — fifty of them on attempts its own key had already
+        refused — and the real instructor, on a different address, was then
+        locked out for the rest of the window. A caller must not be able to
+        spend budget it is not allowed to use.
 
         Args:
             key: The client address, or :data:`UNRESOLVED_CALLER_KEY`.
@@ -142,21 +176,48 @@ class FixedWindowLimiter:
                 cross a window boundary without sleeping.
 
         Returns:
-            ``True`` when the attempt is allowed, ``False`` when either bound is
-            already spent.
+            An :class:`Allowance` saying what each bound answered. The caller
+            decides what to do with them — see :class:`Allowance` for why the
+            two are reported separately rather than reduced to one boolean.
         """
         with self._lock:
-            if self._global is None:
-                self._global = _Window(started_at=now, spent=0)
-            if not self._spend(self._global, now=now, allowance=self._total):
-                return False
             window = self._keys.get(key)
             if window is None:
                 window = _Window(started_at=now, spent=0)
                 self._evict_if_full()
                 self._keys[key] = window
             self._keys.move_to_end(key)
-            return self._spend(window, now=now, allowance=self._per_key)
+            if not self._spend(window, now=now, allowance=self._per_key):
+                return Allowance(key_allows=False, global_allows=False)
+
+            if self._global is None:
+                self._global = _Window(started_at=now, spent=0)
+            return Allowance(
+                key_allows=True,
+                global_allows=self._spend(self._global, now=now, allowance=self._total),
+            )
+
+    def refund_global(self) -> None:
+        """Give one global unit back, because the attempt turned out to be honest.
+
+        The global bound exists for the caller the per-key bound cannot see: one
+        behind many addresses, or behind a proxy this module deliberately does
+        not parse. That makes it the one bound an attacker can drive up on the
+        real instructor's behalf, and a bound that locks the passcode holder out
+        of her own classroom is worse than the flood it was meant to stop.
+
+        So a **correct** passcode costs no global budget at all: the login
+        handler refunds it, and the window is left holding only the attempts
+        that were wrong. The per-key bound is not refunded and is not meant to
+        be — it is the caller's own budget, and a person who has just typed ten
+        wrong passcodes waiting a few minutes is the limiter working.
+
+        Floored at zero, so a refund without a matching spend cannot mint
+        budget.
+        """
+        with self._lock:
+            if self._global is not None and self._global.spent > 0:
+                self._global.spent -= 1
 
     def _spend(self, window: _Window, *, now: datetime, allowance: int) -> bool:
         """Roll ``window`` over if it has elapsed, then spend one of ``allowance``."""

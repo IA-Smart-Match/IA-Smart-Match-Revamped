@@ -99,7 +99,7 @@ from typing import Annotated, Final, Literal
 from fastapi import Cookie, Depends, Header, Request, status
 from smartmatch_domain.exercise.instructor_session import (
     instructor_session_is_live,
-    passcode_is_usable,
+    usable_passcode,
 )
 from smartmatch_domain.exercise.workspace_token import (
     derive_workspace_token,
@@ -120,6 +120,7 @@ from smartmatch_persistence.exercise.instructor_repository import (
     InstructorSavedSetting,
     InstructorWorkspaceRow,
     TeamWorkspaceHandle,
+    WorkingDataset,
 )
 from smartmatch_persistence.exercise.workspace_repository import (
     ExerciseDatasetSummary,
@@ -159,7 +160,9 @@ __all__ = [
     "InstructorResultRun",
     "InstructorSavedSetting",
     "InstructorWorkspaceRow",
+    "MaybeActiveDataset",
     "TeamWorkspaceHandle",
+    "WorkingDataset",
     "WorkspaceCookiePolicy",
     "WorkspaceRepository",
     "WorkspaceSecret",
@@ -169,6 +172,7 @@ __all__ = [
     "get_exercise_session",
     "get_instructor_passcode",
     "get_instructor_repository",
+    "get_maybe_active_dataset",
     "get_workspace_repository",
     "get_workspace_secret",
     "instructor_cookie_policy",
@@ -362,14 +366,40 @@ def instructor_cookie_policy(
 
     ``SameSite=Lax`` and the ``X-Exercise-Request`` header still both apply —
     this cookie is the one whose forgery would matter most.
+
+    **And a third difference, on ``Secure``, which is the one that matters.**
+    The workspace cookie falls back to the edition when
+    ``SMARTMATCH_EXERCISE_COOKIE_SECURE`` is unset: off in ``dev``, on
+    elsewhere. That fallback is documented as a guess, and on the pilot VM it
+    guesses **wrong** — the site is served over HTTPS while
+    ``docker-compose.vm.yml`` pins ``SMARTMATCH_EDITION=dev``, so an unset
+    variable would have sent the instructor's session cookie over the wire
+    without ``Secure``.
+
+    A team's workspace token is a pointer to made-up rows and every participant
+    in the room is handed one. This cookie is the only credential in the
+    product. They do not deserve the same default, so this one **defaults to
+    ``True``** and is turned off only by a deployment saying ``false``
+    explicitly — a statement of fact about plain HTTP, not a value to
+    second-guess.
+
+    The cost, named rather than discovered: **local development over plain
+    ``http`` must set ``SMARTMATCH_EXERCISE_COOKIE_SECURE=false``** to use the
+    instructor page at all, because a browser does not store a ``Secure``
+    cookie on an ``http`` origin. That is the right way round — the failure is
+    immediate and local, where the old default's failure was silent and in a
+    classroom.
+
+    The workspace cookie's own behaviour is deliberately unchanged.
     """
     workspace = workspace_cookie_policy(settings)
+    configured = settings.exercise_cookie_secure
     return ExerciseCookiePolicy(
         name=INSTRUCTOR_COOKIE_NAME,
         path="/v1/exercise/instructor",
         http_only=workspace.http_only,
         same_site=workspace.same_site,
-        secure=workspace.secure,
+        secure=configured if configured is not None else True,
     )
 
 
@@ -422,10 +452,18 @@ def get_instructor_passcode(
     classroom down over a screen only Ann uses. What it must never do is open
     the door — a deployment with no passcode serves an instructor login that
     refuses every attempt, which is the shut door, not the missing one.
+
+    **Stripped here, once.** ``usable_passcode`` returns the value that will be
+    compared rather than a verdict about the value that was read, which is what
+    keeps "long enough to be usable" and "what a person has to type" the same
+    string. A trailing newline is the ordinary way a value leaves an ``.env``
+    file, and the earlier version of this function measured the stripped length
+    and then stored the raw value — a configured passcode that could never
+    match, reported to the instructor as simply wrong.
     """
     stored = settings.exercise_instructor_passcode
-    passcode = stored.get_secret_value() if stored is not None else None
-    return ConfiguredPasscode(value=passcode if passcode_is_usable(passcode) else None)
+    raw = stored.get_secret_value() if stored is not None else None
+    return ConfiguredPasscode(value=usable_passcode(raw))
 
 
 #: The annotation the login handler writes to get the configured passcode.
@@ -520,6 +558,24 @@ def get_active_dataset(session: ExerciseSession) -> ExerciseDatasetSummary:
 
 #: The annotation a handler writes to require an uploaded dataset.
 ActiveDataset = Annotated[ExerciseDatasetSummary, Depends(get_active_dataset)]
+
+
+def get_maybe_active_dataset(session: ExerciseSession) -> ExerciseDatasetSummary | None:
+    """The dataset a team entering a number would join, or ``None``.
+
+    The same question :func:`get_active_dataset` asks, without the refusal. A
+    team route cannot do anything useful before a file exists, so 409 is the
+    right answer there. The instructor's own screens are the place where "no
+    file has been uploaded yet" is *information* — it is the state her next
+    action changes — and a 409 would blank a page that should be telling her
+    what to do next.
+    """
+    return active_dataset(session)
+
+
+#: The annotation an instructor handler writes to ask which dataset is newest
+#: without refusing when there is none.
+MaybeActiveDataset = Annotated[ExerciseDatasetSummary | None, Depends(get_maybe_active_dataset)]
 
 
 def get_current_workspace(

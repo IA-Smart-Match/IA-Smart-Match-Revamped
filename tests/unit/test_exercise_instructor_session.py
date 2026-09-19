@@ -27,6 +27,8 @@ from smartmatch_domain.exercise.instructor_session import (
     instructor_session_is_live,
     mint_instructor_session,
     passcode_is_usable,
+    spend_a_verification,
+    usable_passcode,
     verify_instructor_passcode,
 )
 from smartmatch_domain.exercise.workspace_token import derive_workspace_token
@@ -87,11 +89,98 @@ def test_the_same_passcode_under_another_deployments_secret_is_refused() -> None
 @pytest.mark.parametrize("configured", [None, "", "   ", "short", "x" * 11])
 def test_an_unconfigured_or_too_short_passcode_is_not_usable(configured: str | None) -> None:
     assert passcode_is_usable(configured) is False
+    assert usable_passcode(configured) is None
 
 
 def test_a_passcode_at_the_floor_is_usable() -> None:
     assert passcode_is_usable("x" * MINIMUM_INSTRUCTOR_PASSCODE_LENGTH) is True
     assert MINIMUM_INSTRUCTOR_PASSCODE_LENGTH >= 12
+
+
+@pytest.mark.parametrize(
+    "configured",
+    [
+        PASSCODE + "\n",
+        PASSCODE + "\r\n",
+        PASSCODE + "  ",
+        "  " + PASSCODE,
+        "\t" + PASSCODE + "\n",
+    ],
+)
+def test_whitespace_around_a_configured_passcode_is_stripped_not_merely_measured(
+    configured: str,
+) -> None:
+    """A trailing newline is how a value leaves an ``.env`` file.
+
+    The bug this pins: the length check stripped, and the value stored did not.
+    Such a passcode was "usable" — long enough, so the door was not declared
+    shut — and yet matched nothing a human could type. The instructor would
+    have been permanently locked out of a configured page, with the login
+    insisting the passcode was simply wrong.
+    """
+    stripped = usable_passcode(configured)
+
+    assert stripped == PASSCODE
+    assert verify_instructor_passcode(PASSCODE, configured=stripped, secret=SECRET) is True
+
+
+def test_a_value_that_is_only_long_enough_before_stripping_is_not_usable() -> None:
+    """The strip happens first, so padding cannot smuggle a short passcode past the floor."""
+    padded = "  " + "x" * (MINIMUM_INSTRUCTOR_PASSCODE_LENGTH - 2) + "  "
+
+    assert len(padded) > MINIMUM_INSTRUCTOR_PASSCODE_LENGTH
+    assert usable_passcode(padded) is None
+
+
+def test_a_second_verification_reuses_the_derived_record_rather_than_deriving_again() -> None:
+    """One key derivation per attempt, not two.
+
+    Asserted through the cache's own counters rather than by timing, which on a
+    loaded CI runner is a coin flip. What the assertion means: the *configured*
+    side is derived once and hit thereafter, so an unauthenticated request pays
+    for one derivation (the presented value) instead of two.
+    """
+    from smartmatch_domain.exercise.instructor_session import _configured_record
+
+    _configured_record.cache_clear()
+    verify_instructor_passcode("first attempt", configured=PASSCODE, secret=SECRET)
+    after_first = _configured_record.cache_info()
+    verify_instructor_passcode("second attempt", configured=PASSCODE, secret=SECRET)
+    after_second = _configured_record.cache_info()
+
+    assert after_first.misses == 1
+    assert after_second.misses == 1
+    assert after_second.hits == after_first.hits + 1
+
+
+def test_rotating_the_secret_or_the_passcode_does_not_reuse_the_old_record() -> None:
+    """A cache that outlived a rotation would keep a door open with a dead passcode."""
+    from smartmatch_domain.exercise.instructor_session import _configured_record
+
+    _configured_record.cache_clear()
+    assert verify_instructor_passcode(PASSCODE, configured=PASSCODE, secret=SECRET) is True
+    rotated = "-".join(("rotated", "classroom", "passcode"))
+
+    assert verify_instructor_passcode(PASSCODE, configured=rotated, secret=SECRET) is False
+    assert verify_instructor_passcode(rotated, configured=rotated, secret=SECRET) is True
+    assert _configured_record.cache_info().misses == 2
+
+
+def test_spending_a_verification_answers_nothing_and_raises_nothing() -> None:
+    """The unconfigured path's stand-in for a real check (the timing oracle fix).
+
+    It exists to cost what a real verification costs. What it must not do is
+    raise, return a verdict, or ever be satisfiable — pinned here because a
+    future edit that made it cheap would restore the oracle silently.
+    """
+    assert spend_a_verification("anything at all", secret=SECRET) is None
+
+    from smartmatch_domain.exercise.instructor_session import _UNMATCHABLE
+
+    assert verify_instructor_passcode(_UNMATCHABLE, configured=PASSCODE, secret=SECRET) is False
+    assert usable_passcode(_UNMATCHABLE) is not None, (
+        "the stand-in must be long enough to look like a real configured value"
+    )
 
 
 # ---------------------------------------------------------------------------
