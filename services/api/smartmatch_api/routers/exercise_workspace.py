@@ -259,6 +259,22 @@ def reset_current_workspace(
     repository runs is keyed on this workspace's id, which came from this
     browser's cookie and cannot name another team's row.
 
+    **What this is not protected against, said out loud.** The isolation above
+    is against *accident* and against a parameter — there is no parameter here
+    through which one team could name another's workspace. It is not protection
+    against *intent*: the cookie this route resolves is obtainable by anyone who
+    types the team's number, because that is what the product is (OQ-CE-08's
+    shared-per-team default; the requirements' "Getting in" row: no login, a
+    team enters its number). A class participant who enters team 4's number
+    holds team 4's cookie and can clear team 4's work.
+
+    That follows from the product having no login rather than from anything in
+    this handler, and it is not silently accepted: whether reset should sit
+    behind the instructor passcode or a per-team word is an owner decision
+    recorded on the pull request. The requirements list per-team reset as a
+    *team* action, and Session 2 has no backup, so both directions cost
+    something. Behaviour here is unchanged until that is answered.
+
     Raises:
         ExerciseError: 401 when the cookie is absent or names no workspace, 403
             when the request carries no ``X-Exercise-Request`` header.
