@@ -77,9 +77,22 @@ def get_session(request: Request) -> Iterator[Session]:
         session.close()
 
 
-def get_token_verifier(request: Request) -> TokenVerifier:
-    """Return the configured token verifier."""
-    verifier: TokenVerifier = request.app.state.token_verifier
+def get_token_verifier(request: Request) -> TokenVerifier | None:
+    """Return the configured token verifier, or ``None`` where there is no login.
+
+    ``None`` is a real answer, not a missing one. ``lifespan`` sets
+    ``app.state.token_verifier`` to ``None`` in a process whose scope does not
+    grant :attr:`~smartmatch_domain.product_scope.Capability.AUTHENTICATED_LOGIN`
+    (ADR-0025 D1): a product with no login builds nothing to check a token with.
+    So the annotation says ``TokenVerifier | None`` — declaring a
+    :class:`TokenVerifier` here would be a lie the type checker believed, and
+    every caller downstream would inherit it.
+
+    The refusal is not made here. This reads state; :func:`get_current_principal`
+    decides what an absent verifier means, because that is where the caller is
+    being identified and where the answer has a status code.
+    """
+    verifier: TokenVerifier | None = request.app.state.token_verifier
     return verifier
 
 
@@ -118,10 +131,30 @@ def _subject_for_token(session: Session, verifier: TokenVerifier, token: str) ->
 
 def get_current_principal(
     session: Annotated[Session, Depends(get_session)],
-    verifier: Annotated[TokenVerifier, Depends(get_token_verifier)],
+    verifier: Annotated[TokenVerifier | None, Depends(get_token_verifier)],
     authorization: Annotated[str | None, Header()] = None,
 ) -> ResolvedPrincipal:
     """Resolve the caller from their bearer token.
+
+    ## No login means no principal, decided first
+
+    A process whose scope does not grant ``AUTHENTICATED_LOGIN`` has no token
+    verifier (ADR-0025 D1), and this function refuses before it does anything
+    else — before the header is read and, crucially, before
+    :func:`_subject_for_token` consults ``pilot_session``. Order is the whole
+    point: the pilot-session path is a *second* credential kind, and it resolves
+    a subject out of the database with no verifier involved at all. Left after
+    the header checks it would have been a working login in a product that has
+    none, which is precisely the bypass ADR-0025 D9 rejected.
+
+    The refusal is a **503**, not a 401, and the distinction is the one
+    ``routers/match_runs.py``'s ``registry_not_ready`` already draws: nothing the
+    caller sent is wrong, and no credential they could produce would help.
+    Authentication is a capability this deployment does not offer. A 401 would
+    invite a retry with a better token and would read, in a log, as a caller who
+    failed to authenticate rather than as a deployment that cannot.
+
+    ## Four failure modes behind one 401
 
     Four failure modes, all answered with the same 401 and the same message: no
     token, a token no credential path recognises (an expired or revoked pilot
@@ -136,8 +169,16 @@ def get_current_principal(
     is auditable as a suspension rather than as a generic absence of permission.
 
     Raises:
-        ApiError: 401 when the caller cannot be identified.
+        ApiError: 503 ``authentication_unavailable`` when this process has no
+            login at all; 401 when the caller cannot be identified.
     """
+    if verifier is None:
+        raise ApiError(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            code="authentication_unavailable",
+            message="This deployment does not offer authentication.",
+        )
+
     unauthenticated = ApiError(
         status_code=status.HTTP_401_UNAUTHORIZED,
         code="unauthenticated",

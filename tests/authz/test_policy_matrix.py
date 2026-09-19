@@ -8341,6 +8341,201 @@ def test_the_routes_parse_and_there_are_some() -> None:
     assert any(route.authenticated for route in routes.values())
 
 
+# ---------------------------------------------------------------------------
+# The ledger's blind spots, made into failures
+# ---------------------------------------------------------------------------
+#
+# Everything above rests on `_declared_routes` seeing every route. It has two
+# shapes it cannot see, and both are shapes a reasonable person might write
+# without knowing:
+#
+#   * a router in a *subpackage* of `routers/`, because `_source_files` globs
+#     `routers/*.py` and does not recurse;
+#   * an *annotated* router assignment (`router: APIRouter = APIRouter(...)`),
+#     because `_router_prefixes` matches `ast.Assign` and an annotation makes
+#     the node an `ast.AnnAssign`.
+#
+# In either case the module's routes vanish from the ledger, and a route that is
+# not in the ledger is not required to be authenticated, authorized, or declared
+# public with a reason. It fails nothing; it is simply invisible. So the two
+# shapes are refused here rather than documented, and the refusal names the fix.
+
+
+def test_the_routers_directory_has_no_subpackages() -> None:
+    """``_source_files`` globs ``routers/*.py`` and does not recurse.
+
+    A ``routers/exercise/`` package would read as tidier and would take every
+    module inside it out of this file's sight. The rule is flat: one module per
+    router file, directly under ``routers/``.
+
+    This is also why ``pyproject.toml``'s exercise contract lists each router by
+    name rather than moving them into a subpackage — the comment there records
+    the same trade and settles it the same way.
+    """
+    subpackages = sorted(
+        path.name
+        for path in (API_PACKAGE / "routers").iterdir()
+        if path.is_dir() and path.name != "__pycache__"
+    )
+    assert subpackages == [], (
+        "routers/ must stay flat: the route ledger globs routers/*.py and would "
+        f"not see anything inside {subpackages}"
+    )
+
+
+def _is_router_construction(node: ast.AST) -> bool:
+    """Whether ``node`` builds an ``APIRouter``, written either way.
+
+    ``APIRouter(...)`` after ``from fastapi import APIRouter`` is an
+    :class:`ast.Name`; ``fastapi.APIRouter(...)`` after ``import fastapi`` is an
+    :class:`ast.Attribute`. They construct the same object and the second is
+    perfectly ordinary Python, but ``_router_prefixes`` matches only the first —
+    so a module written the second way is invisible to the ledger exactly as an
+    annotated assignment is. Both forms are therefore *found* here, and only the
+    first is *accepted* by :func:`_ledger_visible_router_assignments` below.
+    """
+    if not isinstance(node, ast.Call):
+        return False
+    func = node.func
+    return (isinstance(func, ast.Name) and func.id == "APIRouter") or (
+        isinstance(func, ast.Attribute) and func.attr == "APIRouter"
+    )
+
+
+def _annotated_router_assignments(source: str) -> list[str]:
+    """Names assigned an ``APIRouter(...)`` through an annotated assignment.
+
+    One of the shapes ``_router_prefixes`` cannot see. Reported by name so the
+    failure message tells the author exactly which line to un-annotate.
+    """
+    tree = ast.parse(source)
+    return [
+        node.target.id
+        for node in ast.walk(tree)
+        if isinstance(node, ast.AnnAssign)
+        and node.value is not None
+        and _is_router_construction(node.value)
+        and isinstance(node.target, ast.Name)
+    ]
+
+
+def _ledger_visible_router_assignments(source: str) -> list[str]:
+    """Names assigned an ``APIRouter(...)`` in the one shape the ledger reads.
+
+    A bare, single-target, module-level ``ast.Assign`` whose call is the
+    *imported-name* form. Deliberately the narrowest of the three helpers: it is
+    a restatement of what ``_router_prefixes`` matches, and everything it does
+    not return is something the ledger cannot see.
+    """
+    tree = ast.parse(source)
+    return [
+        target.id
+        for node in tree.body
+        if isinstance(node, ast.Assign) and len(node.targets) == 1
+        for target in node.targets
+        if isinstance(target, ast.Name)
+        and isinstance(node.value, ast.Call)
+        and isinstance(node.value.func, ast.Name)
+        and node.value.func.id == "APIRouter"
+    ]
+
+
+def _router_constructions_the_ledger_cannot_see(source: str) -> int:
+    """``APIRouter(...)`` calls the ledger would miss, in any of their shapes.
+
+    Counted rather than named: a router built inside a function or a
+    comprehension has no assignment target to report. Covers three cases at
+    once — built somewhere other than module level, written as
+    ``fastapi.APIRouter(...)``, or assigned to something other than a single
+    bare name.
+    """
+    tree = ast.parse(source)
+    visible = {
+        id(node.value)
+        for node in tree.body
+        if isinstance(node, ast.Assign)
+        and len(node.targets) == 1
+        and isinstance(node.targets[0], ast.Name)
+        and isinstance(node.value, ast.Call)
+        and isinstance(node.value.func, ast.Name)
+        and node.value.func.id == "APIRouter"
+    }
+    return sum(
+        1 for node in ast.walk(tree) if _is_router_construction(node) and id(node) not in visible
+    )
+
+
+@pytest.mark.parametrize("source_path", _source_files(API_PACKAGE), ids=lambda p: str(p.name))
+def test_every_router_is_a_bare_module_level_assignment(source_path: Path) -> None:
+    """``name = APIRouter(...)``, unannotated, at module level — the only shape seen.
+
+    Every router in the package satisfies this today, so the guard is scoped to
+    the whole package rather than to the exercise modules alone; nothing had to
+    be rewritten to make it true.
+    """
+    source = source_path.read_text(encoding="utf-8")
+
+    annotated = _annotated_router_assignments(source)
+    assert annotated == [], (
+        f"{source_path.name} annotates {annotated}; the route ledger matches "
+        "`name = APIRouter(...)` and an annotated assignment hides the module's "
+        "routes from every check in this file. Drop the annotation."
+    )
+
+    invisible = _router_constructions_the_ledger_cannot_see(source)
+    assert invisible == 0, (
+        f"{source_path.name} builds {invisible} APIRouter(s) the route ledger "
+        "cannot see — not a bare module-level assignment, or written as "
+        "`fastapi.APIRouter(...)` rather than the imported name."
+    )
+
+
+def test_the_router_shape_guard_would_actually_catch_each_shape() -> None:
+    """The guard above passes on every real module, so prove it can fail.
+
+    One case per shape the ledger is blind to, including the attribute form
+    ``fastapi.APIRouter(...)`` — ordinary Python that ``_router_prefixes``
+    silently skips, which the security review of #176 pointed out the first
+    version of this guard skipped too.
+    """
+    assert _annotated_router_assignments(
+        "from fastapi import APIRouter\nrouter: APIRouter = APIRouter(prefix='/v1/x')\n"
+    ) == ["router"]
+    assert _annotated_router_assignments(
+        "import fastapi\nrouter: fastapi.APIRouter = fastapi.APIRouter(prefix='/v1/x')\n"
+    ) == ["router"]
+
+    # The one accepted shape, and the only one that reports a name.
+    assert _ledger_visible_router_assignments(
+        "from fastapi import APIRouter\nrouter = APIRouter(prefix='/v1/x')\n"
+    ) == ["router"]
+    assert (
+        _ledger_visible_router_assignments(
+            "import fastapi\nrouter = fastapi.APIRouter(prefix='/v1/x')\n"
+        )
+        == []
+    )
+
+    assert (
+        _router_constructions_the_ledger_cannot_see(
+            "from fastapi import APIRouter\ndef build():\n    return APIRouter()\n"
+        )
+        == 1
+    )
+    assert (
+        _router_constructions_the_ledger_cannot_see(
+            "import fastapi\nrouter = fastapi.APIRouter(prefix='/v1/x')\n"
+        )
+        == 1
+    )
+    assert (
+        _router_constructions_the_ledger_cannot_see(
+            "from fastapi import APIRouter\nrouter = APIRouter(prefix='/v1/x')\n"
+        )
+        == 0
+    )
+
+
 def test_every_authenticated_route_has_a_matrix_row() -> None:
     """A new operation with no row is a hole, and must be visible as one."""
     missing = _missing_rows(_declared_routes())

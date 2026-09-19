@@ -169,6 +169,13 @@ forbidden_modules = [
     "socket",
     "subprocess",
     "smartmatch_providers",
+    # Added by CE-HARDENING. The API package entered the graph with CE-ROUTERS,
+    # and until now "the domain does not import the web service" was true only
+    # because nobody had written the line. The layers contract below cannot say
+    # it — `smartmatch_api` is deliberately not one of its layers — so it is said
+    # here, in the three packages that must never depend on the service that
+    # composes them.
+    "smartmatch_api",
 ]
 
 [[tool.importlinter.contracts]]
@@ -184,6 +191,8 @@ forbidden_modules = [
     "os",
     "subprocess",
     "smartmatch_providers",
+    # CE-HARDENING, for the reason given on the domain contract above.
+    "smartmatch_api",
 ]
 
 [[tool.importlinter.contracts]]
@@ -241,6 +250,8 @@ forbidden_modules = [
     "requests",
     "subprocess",
     "smartmatch_providers",
+    # CE-HARDENING, for the reason given on the domain contract above.
+    "smartmatch_api",
 ]
 
 # ADR-0025 D2, as a rule rather than a habit. The class exercise is a no-login
@@ -275,3 +286,28 @@ forbidden_modules = [
     "smartmatch_api.job_authz",
     "smartmatch_api.routers.auth",
 ]
+
+# SQLAlchemy is deliberately *not* on the list above, and this is why it gets a
+# contract of its own instead.
+#
+# The exercise's later tracks need to read and write the `exercise_` tables, and
+# ADR-0025 D2 permits exactly that. `smartmatch_api.exercise_dependencies` is
+# the one sanctioned door (`get_exercise_session` / `ExerciseSession`), and it
+# necessarily imports SQLAlchemy to hand back a `Session`. Adding "sqlalchemy"
+# to the contract above — which forbids *indirect* imports, as a forbidden
+# contract does by default — would therefore ban the door along with the wall,
+# the moment a router walked through it.
+#
+# So the rule is stated as what it actually is: an exercise router does not
+# touch SQLAlchemy *itself*. It takes `ExerciseSession`, which carries the type
+# for it, and never writes a query, a `select()`, or a `sessionmaker` of its
+# own. `allow_indirect_imports` narrows this contract to direct imports, which
+# is the whole of its claim; it does not weaken the contract above, which keeps
+# its default chain-following behaviour for authz, persistence, and the CBA
+# request machinery.
+[[tool.importlinter.contracts]]
+name = "Class exercise routers do not touch SQLAlchemy directly"
+type = "forbidden"
+source_modules = ["smartmatch_api.routers.exercise_public"]
+forbidden_modules = ["sqlalchemy"]
+allow_indirect_imports = true

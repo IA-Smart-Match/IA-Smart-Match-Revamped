@@ -88,13 +88,19 @@ def test_unsubscribe_get_is_declared_safe():
 
     The corrected design puts the state change on a signed POST; this asserts
     the GET path exists and is registered for GET only.
+
+    Read off the OpenAPI document rather than off ``app.routes``, for exactly
+    the reason the docstring two tests above already gives: ``app.routes`` mixes
+    route objects with router wrappers that have no ``.path``, so which of the
+    two a route appears as depends on whether it was declared with ``@app.get``
+    or included from a router — a composition detail, not a contract one. These
+    pages moved behind ``Capability.CONSENTED_OUTREACH`` (ADR-0025 D1: a
+    no-login product serves no CBA outreach page), which changed them from the
+    first form to the second and changed nothing a client sees. The document is
+    what a client sees, and it is byte-identical.
     """
-    methods = {
-        frozenset(route.methods)  # type: ignore[attr-defined]
-        for route in app.routes
-        if getattr(route, "path", None) == "/u/{token}"
-    }
-    assert methods == {frozenset({"GET"})}
+    operations = set(app.openapi()["paths"]["/u/{token}"])
+    assert operations == {"get"}
 
 
 # ---------------------------------------------------------------------------

@@ -635,7 +635,43 @@ def health() -> dict[str, Any]:
     return {"status": "ok", "release": settings.release}
 
 
-@app.get(
+#: The two token-addressed HTML pages a CBA email links to, as a router rather
+#: than two bare ``@app.get`` declarations, so that the capability that owns
+#: them can decide whether they are mounted at all.
+#:
+#: They are outreach pages: ``/u/{token}`` is the read half of the unsubscribe
+#: pair whose write half is ``POST /v1/unsubscribe``, and ``/i/{token}`` is the
+#: page the link in a speaker invitation actually carries. Both are addressed by
+#: a token minted by the CBA outreach and invitation machinery, and neither can
+#: be reached by anyone who was not sent one. Declared on the application rather
+#: than inside ``routers/outreach.py`` and ``routers/cba_invitations.py`` only
+#: because they sit at the root of the path space, which is a URL fact, not a
+#: product one.
+#:
+#: Left on the application unconditionally they were served in *every* scope,
+#: including ``CLASS_EXERCISE`` — a no-login product over made-up rows, which has
+#: no unsubscribe list and sends no invitation. Two CBA outreach pages answering
+#: 200 in that process is exactly the surface ADR-0025 D1 keeps out of it. The
+#: gate is :attr:`Capability.CONSENTED_OUTREACH`, which is the same capability
+#: ``outreach.public_router`` and ``cba_invitations.public_router`` are declared
+#: under above — the capability that owns the machinery that mints these tokens —
+#: rather than a comparison against ``ProductScope.CLASS_EXERCISE``. A later
+#: scope that has outreach gets these pages without editing this line, and a
+#: later scope that does not, does not.
+#:
+#: Under ``cba`` and ``ia_west_legacy`` ``CONSENTED_OUTREACH`` is on, so the
+#: served contract is unchanged: same paths, same handlers, same documented
+#: responses, and the same place in the OpenAPI document — which is why the
+#: router is included *below* ``/api/health`` rather than joining
+#: ``CAPABILITY_SCOPED_ROUTERS``, where it would have moved ahead of it.
+#:
+#: A bare assignment, not an annotated one, for ``exercise_public.router``'s
+#: reason: the route ledger in ``tests/authz/test_policy_matrix.py`` reads
+#: router prefixes out of the AST and matches ``name = APIRouter(...)``.
+token_pages_router = APIRouter()
+
+
+@token_pages_router.get(
     "/u/{token}",
     tags=["outreach"],
     summary="Unsubscribe confirmation page",
@@ -678,7 +714,7 @@ def unsubscribe_page(token: str) -> HTMLResponse:
     )
 
 
-@app.get(
+@token_pages_router.get(
     "/i/{token}",
     tags=["speaker-invitations"],
     summary="Speaker invitation response page",
@@ -714,3 +750,35 @@ def invitation_response_page(token: str) -> HTMLResponse:
         "you receive other messages.</p>",
         status_code=status.HTTP_200_OK,
     )
+
+
+#: The routers declared on the application module itself rather than in
+#: ``routers/``, each with the capability that decides whether it is mounted.
+#: One entry today; a second would be listed here rather than gated inline, for
+#: the reason ``CAPABILITY_SCOPED_ROUTERS`` is a table.
+APP_LEVEL_ROUTERS: Final[tuple[tuple[APIRouter, Capability], ...]] = (
+    (token_pages_router, Capability.CONSENTED_OUTREACH),
+)
+
+
+def app_level_routers_for(settings: Settings) -> tuple[APIRouter, ...]:
+    """The application-module routers a process configured by ``settings`` mounts.
+
+    The companion to :func:`routers_for`, and separate from it because the two
+    are included at different points in the application's route order and that
+    order is the order of the exported OpenAPI document.
+
+    ``GET /api/health`` is deliberately not here. It is declared with
+    ``@app.get`` and is ungated in every scope — a liveness probe that a product
+    decision could remove is a liveness probe a monitor cannot rely on — so it,
+    and only it, is the route no composition rule accounts for.
+    """
+    return tuple(
+        router
+        for router, capability in APP_LEVEL_ROUTERS
+        if settings.capability_enabled(capability)
+    )
+
+
+for _app_level_router in app_level_routers_for(get_settings()):
+    app.include_router(_app_level_router)
