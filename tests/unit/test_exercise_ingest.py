@@ -367,7 +367,7 @@ def test_an_xlsx_upload_asks_for_a_csv_export() -> None:
     assert "CSV" in refusal.message
 
 
-def test_a_workbook_renamed_to_csv_is_still_recognised_by_its_bytes() -> None:
+def test_a_workbook_given_a_csv_name_is_still_recognised_by_its_bytes() -> None:
     refusal = _refusal(b"PK\x03\x04" + b"rest of a workbook", filename="ann-data.csv")
 
     assert refusal.code == "spreadsheet_not_csv"
