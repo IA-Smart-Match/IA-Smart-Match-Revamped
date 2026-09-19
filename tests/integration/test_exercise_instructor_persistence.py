@@ -42,6 +42,7 @@ from smartmatch_persistence.exercise.instructor_repository import (
 )
 from smartmatch_persistence.exercise.workspace_repository import ExerciseWorkspaceRepository
 from sqlalchemy import Engine
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
 pytestmark = pytest.mark.integration
@@ -419,6 +420,121 @@ def test_a_result_run_is_read_back_as_counts_and_never_as_profile_numbers(
 # ---------------------------------------------------------------------------
 # A refused write (review follow-up (b))
 # ---------------------------------------------------------------------------
+
+
+def test_a_failing_child_delete_is_scrubbed_like_every_other_write(
+    exercise_sessions: sessionmaker[Session],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Review follow-up M7: these three deletes used a bare ``session.execute``.
+
+    That quietly contradicted this module's own "the driver's exception never
+    escapes" contract — a delete that failed would have raised a ``DBAPIError``
+    whose rendering carries ``[parameters: …]``, out of the one module that
+    promises it does not do that.
+
+    The failure is produced deterministically by poisoning the transaction
+    first: after a statement against a table that does not exist, PostgreSQL
+    refuses everything until rollback, so the next delete fails for a reason
+    that has nothing to do with this test's timing.
+    """
+    with exercise_sessions() as session:
+        dataset_id = _insert_dataset(session, label="scrubbed-delete")
+        workspace_id = _enter(session, dataset_id=dataset_id, team_number=3)
+
+        with pytest.raises(SQLAlchemyError):
+            session.execute(sa.text("SELECT 1 FROM a_table_that_does_not_exist"))
+
+        with (
+            caplog.at_level(logging.WARNING),
+            pytest.raises(ExerciseWriteRefused) as raised,
+        ):
+            REPOSITORY.reset_workspace_children(
+                session, dataset_id=dataset_id, workspace_id=workspace_id
+            )
+        session.rollback()
+
+    assert str(raised.value) == "That team's work could not be cleared."
+    assert "parameters" not in str(raised.value).lower()
+    assert raised.value.__context__ is None
+    logged = "\n".join(record.getMessage() for record in caplog.records)
+    assert str(dataset_id) in logged
+    assert "parameters" not in logged.lower()
+
+
+def test_a_failing_team_reset_is_scrubbed_too(
+    exercise_sessions: sessionmaker[Session],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Review follow-up L4, and the reason the scrubber is a context manager.
+
+    The per-team reset is four statements inside *another* module —
+    ``ExerciseWorkspaceRepository.reset_team``, which raises the driver's
+    exception as it finds it because its own caller is a team route. An
+    instructor route reaching it would otherwise be the one path out of this
+    repository that could render ``[parameters: …]``.
+    """
+    with exercise_sessions() as session:
+        dataset_id = _insert_dataset(session, label="scrubbed-reset")
+        workspace_id = _enter(session, dataset_id=dataset_id, team_number=3)
+
+        with pytest.raises(SQLAlchemyError):
+            session.execute(sa.text("SELECT 1 FROM a_table_that_does_not_exist"))
+
+        with (
+            caplog.at_level(logging.WARNING),
+            pytest.raises(ExerciseWriteRefused) as raised,
+        ):
+            REPOSITORY.reset_team(
+                session,
+                dataset_id=dataset_id,
+                workspace_id=workspace_id,
+                workspaces=WORKSPACES,
+            )
+        session.rollback()
+
+    assert raised.value.__context__ is None
+    assert "parameters" not in str(raised.value).lower()
+
+
+def test_a_repoint_holds_a_row_lock_against_a_team_entering_at_the_same_moment(
+    exercise_sessions: sessionmaker[Session],
+) -> None:
+    """Review follow-up M6, proved by a second connection rather than by timing.
+
+    The re-point scans the workspaces it is about to move and the ones already
+    on the target file. Without ``FOR UPDATE`` that scan had a window with two
+    bad ends, and a classroom is where they happen — the instructor presses
+    "re-point" while six laptops are typing their numbers:
+
+    * a team whose ``enter`` committed after the scan and before the update
+      stayed on the old file, silently, while the screen said it had moved; or
+    * that insert landed on the target for a team already being moved, and the
+      update tripped ``uq_exercise_team_workspace_dataset_team``, failing the
+      **whole** re-point after some teams had been reset.
+
+    Asserted with ``FOR UPDATE NOWAIT`` from a second connection: it fails
+    immediately rather than waiting, so the test is deterministic and cannot
+    hang a suite. A lock error is the lock existing; no error would mean the
+    re-point had left the rows unprotected.
+    """
+    table = schema.exercise_team_workspace
+    with exercise_sessions() as writer, exercise_sessions() as other:
+        old = _insert_dataset(writer, label="old-file")
+        new = _insert_dataset(writer, label="new-file")
+        workspace_id = _enter(writer, dataset_id=old, team_number=3)
+
+        # Uncommitted on purpose: this is the window the lock has to cover.
+        REPOSITORY.repoint_workspaces(writer, dataset_id=new)
+
+        with pytest.raises(SQLAlchemyError) as blocked:
+            other.execute(
+                sa.select(table.c.id).where(table.c.id == workspace_id).with_for_update(nowait=True)
+            )
+        other.rollback()
+        writer.rollback()
+
+    assert "could not obtain lock" in str(blocked.value).lower()
 
 
 def test_a_refused_write_logs_the_constraint_and_the_dataset_id_and_nothing_else(

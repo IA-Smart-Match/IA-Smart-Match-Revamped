@@ -62,6 +62,7 @@ from smartmatch_persistence.exercise.schema import (
     exercise_saved_setting,
     exercise_team_workspace,
 )
+from smartmatch_persistence.exercise.workspace_repository import ExerciseWorkspaceRepository
 
 __all__ = [
     "MAX_INVITE_LIMIT",
@@ -73,6 +74,7 @@ __all__ = [
     "InstructorWorkspaceRow",
     "RepointOutcome",
     "TeamWorkspaceHandle",
+    "WorkingDataset",
 ]
 
 _LOGGER = logging.getLogger(__name__)
@@ -153,12 +155,29 @@ class InstructorWorkspaceRow:
     """
 
     team_number: int
+    dataset_id: uuid.UUID
     dataset_label: str
     created_at: datetime
     saved_setting_count: int
     result_run_count: int
     asking_choice: str | None
     refreshed_at: datetime | None
+
+
+@dataclass(frozen=True, slots=True)
+class WorkingDataset:
+    """A data file that at least one team is actually working in.
+
+    Distinct from "the active data file" — the newest upload, which teams join
+    only on a fresh entry — because design spec §3 keeps existing workspaces
+    where they are until an instructor re-points them. Every instructor action
+    that operates on teams is addressed by one of these, never by the newest
+    row.
+    """
+
+    dataset_id: uuid.UUID
+    label: str
+    team_count: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -212,20 +231,32 @@ class ExerciseInstructorRepository:
     # -----------------------------------------------------------------------
 
     def list_workspaces(
-        self, session: Session, *, dataset_id: uuid.UUID
+        self, session: Session, *, dataset_id: uuid.UUID | None = None
     ) -> tuple[InstructorWorkspaceRow, ...]:
-        """Every team working in ``dataset_id``, by team number.
+        """Every team that exists, each with the data file it is actually on.
 
-        Scoped to one dataset rather than listing every workspace ever created:
-        the instructor's question is "what are my six teams doing", and a team
-        whose workspace belongs to a replaced file is not one of them until it
-        is re-pointed.
+        **``dataset_id`` defaults to "all of them", and that default is the
+        fix for a real defect.** This read used to be scoped to the *active*
+        data file — the most recently uploaded row — and design spec §3 is
+        explicit that uploading a file moves no team. So the instant the
+        instructor uploaded, her own list of teams went empty: six teams still
+        working, the screen reporting none, and the only way back a re-point she
+        had no reason to think she needed.
+
+        A team is a row in this table. The instructor's question is "what are
+        my teams doing", and the honest answer names each team's file rather
+        than filtering by a file chosen for it.
+
+        Ordered by data file and then team number, so a classroom that has
+        somehow split across two files reads as two groups rather than as
+        interleaved duplicates of team 3.
         """
         settings = self._child_count(exercise_saved_setting).label("saved_setting_count")
         runs = self._child_count(exercise_result_run).label("result_run_count")
         statement = (
             sa.select(
                 exercise_team_workspace.c.team_number,
+                exercise_team_workspace.c.dataset_id,
                 exercise_dataset.c.label,
                 exercise_team_workspace.c.created_at,
                 exercise_team_workspace.c.asking_choice,
@@ -239,12 +270,14 @@ class ExerciseInstructorRepository:
                     exercise_team_workspace.c.dataset_id == exercise_dataset.c.id,
                 )
             )
-            .where(exercise_team_workspace.c.dataset_id == dataset_id)
-            .order_by(exercise_team_workspace.c.team_number)
+            .order_by(exercise_dataset.c.uploaded_at, exercise_team_workspace.c.team_number)
         )
+        if dataset_id is not None:
+            statement = statement.where(exercise_team_workspace.c.dataset_id == dataset_id)
         return tuple(
             InstructorWorkspaceRow(
                 team_number=row.team_number,
+                dataset_id=row.dataset_id,
                 dataset_label=row.label,
                 created_at=row.created_at,
                 saved_setting_count=row.saved_setting_count,
@@ -252,6 +285,39 @@ class ExerciseInstructorRepository:
                 asking_choice=row.asking_choice,
                 refreshed_at=row.refreshed_at,
             )
+            for row in session.execute(statement).all()
+        )
+
+    def datasets_with_workspaces(self, session: Session) -> tuple[WorkingDataset, ...]:
+        """The data files teams are actually working in, oldest upload first.
+
+        The read behind "which data file does an instructor action apply to".
+        Design spec §3's separation of *uploaded* from *in use* is what makes it
+        necessary: the newest file is the one a team entering now would join,
+        and it is emphatically not the one the teams already in the room are on.
+
+        Empty when nobody has entered a number yet — a real answer, and the one
+        that stops an unlock from writing a row against a file no team can see.
+        """
+        statement = (
+            sa.select(
+                exercise_dataset.c.id,
+                exercise_dataset.c.label,
+                sa.func.count().label("team_count"),
+            )
+            .select_from(
+                exercise_team_workspace.join(
+                    exercise_dataset,
+                    exercise_team_workspace.c.dataset_id == exercise_dataset.c.id,
+                )
+            )
+            .group_by(
+                exercise_dataset.c.id, exercise_dataset.c.label, exercise_dataset.c.uploaded_at
+            )
+            .order_by(exercise_dataset.c.uploaded_at, exercise_dataset.c.id)
+        )
+        return tuple(
+            WorkingDataset(dataset_id=row.id, label=row.label, team_count=row.team_count)
             for row in session.execute(statement).all()
         )
 
@@ -430,7 +496,9 @@ class ExerciseInstructorRepository:
         )
         return bool(inserted.all())
 
-    def reset_workspace_children(self, session: Session, *, workspace_id: uuid.UUID) -> None:
+    def reset_workspace_children(
+        self, session: Session, *, dataset_id: uuid.UUID, workspace_id: uuid.UUID
+    ) -> None:
         """Delete one workspace's overlay, saved settings and result runs.
 
         The delete half of a reset, without the seed regeneration
@@ -441,9 +509,62 @@ class ExerciseInstructorRepository:
 
         Every statement is keyed on ``workspace_id`` and therefore cannot reach
         another team's rows: the isolation is a key, not a discipline.
+
+        **Run through the scrubber**, like every other write here. These three
+        deletes used a bare ``session.execute``, which quietly contradicted this
+        module's own "the driver's exception never escapes" contract: a delete
+        that failed — a lock timeout, a statement timeout, a connection lost
+        mid-transaction — would have raised a ``DBAPIError`` whose rendering
+        carries ``[parameters: …]``, out of the one module that promises it
+        does not do that.
+
+        Args:
+            dataset_id: Not used in any statement's ``WHERE``; carried so a
+                refusal can be logged against the data file it happened in.
+            workspace_id: The one workspace whose rows are deleted.
         """
         for child in (exercise_profile_overlay, exercise_saved_setting, exercise_result_run):
-            session.execute(sa.delete(child).where(child.c.workspace_id == workspace_id))
+            self._execute(
+                session,
+                sa.delete(child).where(child.c.workspace_id == workspace_id),
+                dataset_id=dataset_id,
+                refusal="That team's work could not be cleared.",
+            )
+
+    def reset_team(
+        self,
+        session: Session,
+        *,
+        dataset_id: uuid.UUID,
+        workspace_id: uuid.UUID,
+        workspaces: ExerciseWorkspaceRepository,
+    ) -> None:
+        """Design spec §11's per-team reset, run through this module's scrubber.
+
+        Delegates to ``ExerciseWorkspaceRepository.reset_team`` rather than
+        reimplementing it, so "what a reset deletes" keeps one answer and the
+        instructor's reset and the team's own reset cannot drift apart.
+
+        What this wrapper adds is the refusal contract: the workspace
+        repository is CE-WORKSPACE's module and raises the driver's exception as
+        it finds it, which is correct there — its caller is a team route with
+        its own error envelope. An instructor route reaching it through *this*
+        module would otherwise be the one path out of here that could render
+        ``[parameters: …]``.
+
+        Raises:
+            ExerciseWriteRefused: if the database refuses any of the four
+                statements. The driver's exception never escapes.
+        """
+        try:
+            workspaces.reset_team(session, workspace_id=workspace_id)
+            return
+        except SQLAlchemyError as exc:
+            failure = self._failure_for(
+                exc, dataset_id=dataset_id, refusal="That team's work could not be cleared."
+            )
+        # Outside the ``except`` block, for :meth:`_failure_for`'s reason.
+        raise failure
 
     def repoint_workspaces(self, session: Session, *, dataset_id: uuid.UUID) -> RepointOutcome:
         """Design spec §3: point every team at ``dataset_id``, resetting them all.
@@ -470,6 +591,26 @@ class ExerciseInstructorRepository:
         work is lost, because the work was on the row that was discarded and a
         re-point resets every team in any case.
 
+        **Serialised against a team entering at the same moment.** Both reads
+        below take ``FOR UPDATE``, which holds every workspace row this
+        statement will touch until the caller commits. Without it the re-point
+        had a window with two bad ends, and a classroom is exactly where they
+        happen — the instructor presses "re-point" while six laptops are typing
+        their numbers:
+
+        * a team whose ``enter`` committed *after* the scan and *before* the
+          update stayed on the old data file, silently, and the instructor's
+          screen said every team had moved; or
+        * that same insert landed on the target file for a team this method had
+          already decided to move, and the update tripped
+          ``uq_exercise_team_workspace_dataset_team`` — failing the **whole**
+          re-point, after some teams had already been reset.
+
+        ``FOR UPDATE`` on the target scan is what closes the second: a
+        concurrent ``get_or_create_workspace`` for that pair blocks on the row
+        lock, or on the unique index, until this transaction ends, and then sees
+        the moved row rather than racing it.
+
         Returns:
             How many workspaces moved and how many stale ones were discarded.
 
@@ -480,16 +621,18 @@ class ExerciseInstructorRepository:
         target_team_numbers = {
             row.team_number
             for row in session.execute(
-                sa.select(exercise_team_workspace.c.team_number).where(
-                    exercise_team_workspace.c.dataset_id == dataset_id
-                )
+                sa.select(exercise_team_workspace.c.team_number)
+                .where(exercise_team_workspace.c.dataset_id == dataset_id)
+                .with_for_update()
             ).all()
         }
         moving = session.execute(
             sa.select(
                 exercise_team_workspace.c.id,
                 exercise_team_workspace.c.team_number,
-            ).where(exercise_team_workspace.c.dataset_id != dataset_id)
+            )
+            .where(exercise_team_workspace.c.dataset_id != dataset_id)
+            .with_for_update()
         ).all()
 
         moved = 0
@@ -498,7 +641,7 @@ class ExerciseInstructorRepository:
             # Children first, always — see the module docstring. Both branches
             # need it: a discard relies on CASCADE, but doing it explicitly
             # keeps one order in this method rather than two.
-            self.reset_workspace_children(session, workspace_id=row.id)
+            self.reset_workspace_children(session, dataset_id=dataset_id, workspace_id=row.id)
             if row.team_number in target_team_numbers:
                 self._execute(
                     session,
@@ -531,6 +674,37 @@ class ExerciseInstructorRepository:
     # Internals
     # -----------------------------------------------------------------------
 
+    def _failure_for(
+        self, error: SQLAlchemyError, *, dataset_id: uuid.UUID, refusal: str
+    ) -> ExerciseWriteRefused:
+        """Log a refused write and build the exception to raise for it.
+
+        **Builds, and deliberately does not raise.** Every caller raises the
+        returned value *after* its own ``except`` block has ended, which is the
+        whole of what makes ``__context__`` ``None`` — see
+        :class:`ExerciseWriteRefused`.
+
+        A context manager was tried here and reverted: when a ``@contextmanager``
+        is resumed through ``gen.throw()``, the driver's exception is still the
+        one being handled inside the generator frame, so a ``raise`` anywhere in
+        it chains — and the chained ``DBAPIError`` renders as
+        ``[parameters: …]``, every value of every row (ADR-0025 D6). The
+        existing ``__context__ is None`` test caught it; four duplicated lines
+        at two call sites are cheaper than the property being conditional on an
+        interpreter detail.
+
+        What is logged is the review follow-up: the **constraint name** and the
+        **dataset id**, and nothing that could be a row value. A constraint name
+        is schema; a dataset id names a file, not a row in it.
+        """
+        _LOGGER.warning(
+            "exercise instructor write refused: constraint=%s dataset_id=%s error=%s",
+            _constraint_name(error),
+            dataset_id,
+            type(error).__name__,
+        )
+        return ExerciseWriteRefused(refusal)
+
     def _execute(
         self,
         session: Session,
@@ -539,23 +713,13 @@ class ExerciseInstructorRepository:
         dataset_id: uuid.UUID,
         refusal: str,
     ) -> sa.CursorResult[sa.Row[tuple[object, ...]]]:
-        """Run one statement, letting no driver text out of this module.
-
-        The one place an instructor write can fail, so the log line the review
-        follow-up asks for is written once: the **constraint name** and the
-        **dataset id**, and nothing that could be a row value.
-        """
+        """Run one statement, letting no driver text out of this module."""
         try:
             return session.execute(statement)  # type: ignore[return-value]
         except SQLAlchemyError as exc:
-            _LOGGER.warning(
-                "exercise instructor write refused: constraint=%s dataset_id=%s error=%s",
-                _constraint_name(exc),
-                dataset_id,
-                type(exc).__name__,
-            )
-            failure = ExerciseWriteRefused(refusal)
+            failure = self._failure_for(exc, dataset_id=dataset_id, refusal=refusal)
         # Raised outside the ``except`` block, so the new exception carries no
-        # ``__context__`` — and therefore none of the driver's ``[parameters: …]``
-        # (ADR-0025 D6).
+        # ``__context__``. ``raise ... from None`` would only set
+        # ``__suppress_context__``, leaving the original — and its parameters —
+        # reachable on the object.
         raise failure
