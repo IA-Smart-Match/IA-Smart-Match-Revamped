@@ -11,6 +11,44 @@ Sharing the ``MetaData`` is not sharing tenancy. Nothing here has a
 ``tenant_id``, nothing here references a table outside this family, and
 ``tests/unit/test_exercise_schema.py`` walks both directions of that claim.
 
+Registration is an import side effect
+=====================================
+The eight tables join the shared ``METADATA`` when **this module is imported**
+and not before. A consumer that needs them on the mirror — anything that walks
+``METADATA`` for structure rather than looking up one table by name — must
+import ``smartmatch_persistence.exercise.schema`` itself; importing
+``smartmatch_persistence`` is not enough.
+
+That is deliberate, and the alternative was measured rather than assumed.
+Eager registration (a side-effect import in the persistence package
+``__init__``) would make every consumer of the package load the exercise family
+to fix a problem no consumer currently has: ``db/migrations/env.py`` sets
+``target_metadata = None``, so Alembic never autogenerates against the mirror;
+nothing in the repository calls ``create_all`` or ``drop_all``; and the only
+code that iterates ``METADATA`` for structure is
+``tests/integration/test_schema_matches_migration.py``, which imports this
+module by name and explains why in a comment beside the import.
+``tests/unit/test_exercise_schema_registration.py`` pins the behaviour in fresh
+subprocesses and shows both import orders are cycle-free and agree — it is the
+place to revisit this if a consumer that does walk ``METADATA`` ever lands.
+
+Arrays where the rest of the repository uses JSONB
+==================================================
+The columns design spec §2 writes as ``[]`` are PostgreSQL ``TEXT[]`` and
+``INTEGER[]``, not JSONB. Everywhere else in ``schema.py`` a list is JSONB, so
+this is a deliberate exception rather than an oversight: these lists are
+compared and filtered as sets of scalars (a team's invited numbers, a profile's
+topic keys), which is what array containment operators are for, and the
+placeholder note above turns on being able to change *values* without a
+migration — ``TEXT[]`` keeps that true where a normalized side table would not.
+JSONB is kept for the two columns that hold a *structure* rather than a list:
+``exercise_saved_setting.weights`` and ``exercise_result_run.email_everyone``.
+
+No GIN index exists on any of them, and none is added here. An index for a
+containment query belongs with the query that needs it; nothing reads these
+tables yet, so an index today would be migration ``0038`` written on a guess —
+and the first repository track can measure instead.
+
 PLACEHOLDER (OQ-CE-01)
 ======================
 The columns describing a profile and an event are built to the *shape* design
@@ -32,6 +70,7 @@ Marked here and in the migration docstring, and asserted literally by
 from __future__ import annotations
 
 import sqlalchemy as sa
+from smartmatch_domain.exercise import EXERCISE_WITHHELD_FIELDS
 from sqlalchemy.dialects import postgresql
 
 from smartmatch_persistence.schema import METADATA
@@ -43,6 +82,7 @@ __all__ = [
     "exercise_event",
     "exercise_profile",
     "exercise_profile_overlay",
+    "exercise_profile_public_columns",
     "exercise_result_run",
     "exercise_result_unlock",
     "exercise_saved_setting",
@@ -60,15 +100,17 @@ _INTS = postgresql.ARRAY(sa.Integer)
 #: make every reader choose between ``COALESCE`` and a crash.
 _EMPTY_ARRAY = sa.text("'{}'")
 
-#: ADR-0025 D6. The data file's hidden "true interests" column is stored on
-#: the profile row, is read by the simulated-results rule alone, appears on no
-#: response model, and is named here so that removing it from the withheld set
-#: is a failing test rather than a silent widening.
-#:
-#: A frozenset of *column names*, not of paths: the rule is about the field
-#: wherever it appears, and the response models that must not carry it are
-#: written in later tracks against this name.
-EXERCISE_WITHHELD_FIELDS: frozenset[str] = frozenset({"hidden_true_interests"})
+# ADR-0025 D6. The data file's hidden "true interests" column is stored on the
+# profile row, is read by the simulated-results rule alone, and appears on no
+# response model.
+#
+# Re-exported from ``smartmatch_domain.exercise`` rather than restated here.
+# The name was defined in both places; the domain copy is the canonical one and
+# its docstring asks for this dedupe by name, because two answers to "what is
+# withheld" is one more than the question has — and the failure mode of editing
+# one copy is a field leaving the server because a response model was written
+# against the other. It stays importable from this module so that persistence
+# code and its tests can read it beside the table it guards.
 
 
 exercise_dataset = sa.Table(
@@ -167,6 +209,26 @@ exercise_event = sa.Table(
 )
 
 
+# Re-pointing a workspace at a new dataset is a DELETE-then-UPDATE, and the
+# order is not optional (design spec §3: "Existing workspaces keep pointing at
+# their old dataset until the instructor re-points them; a re-point resets
+# every team").
+#
+# The re-point is an UPDATE of ``dataset_id`` on the row below. The composite
+# foreign keys from ``exercise_profile_overlay``, ``exercise_saved_setting`` and
+# ``exercise_result_run`` all reference ``(dataset_id, id)`` here, and they are
+# ``ON DELETE CASCADE`` only — not ``ON UPDATE CASCADE`` and not
+# ``DEFERRABLE``. So the child rows do not follow the update and the constraint
+# is checked immediately: the UPDATE is refused while any of them exist, and
+# were it to succeed it would leave a team's overlay, saved settings and result
+# runs pointing at profiles and events from the dataset it no longer uses.
+#
+# A repository implementing the re-point must therefore delete this workspace's
+# overlay rows, saved settings and result runs *before* updating
+# ``dataset_id``, in one transaction. That is not a workaround for the keys —
+# it is the spec's own semantics, since a re-point resets every team. Changing
+# the keys to ``ON UPDATE CASCADE`` would carry the stale rows across instead,
+# which is the outcome the spec rules out.
 exercise_team_workspace = sa.Table(
     "exercise_team_workspace",
     METADATA,
@@ -402,3 +464,33 @@ EXERCISE_TABLES: dict[str, sa.Table] = {
         exercise_result_unlock,
     )
 }
+
+
+def exercise_profile_public_columns() -> tuple[sa.Column[object], ...]:
+    """Every ``exercise_profile`` column except the withheld ones (ADR-0025 D6).
+
+    ``sa.select(exercise_profile)`` carries ``hidden_true_interests``, and a
+    repository that then builds a response out of the row it got back has
+    served the withheld field without anyone writing a line that names it. The
+    table cannot refuse the projection, so this is the projection to use
+    instead: **any repository serving a response selects through this helper**,
+    and only the simulation loader — the simulated-results rule of design spec
+    §11, which is what the field exists for — selects the withheld column, by
+    naming it explicitly so the exception is visible at the call site.
+
+    Returns the ``sa.Column`` objects themselves, in table order, so the caller
+    writes ``sa.select(*exercise_profile_public_columns())``.
+
+    :raises ValueError: if a withheld name matches no ``exercise_profile``
+        column. Every withheld field is on the profile row today; a name that
+        matches nothing would subtract nothing and read as a passing
+        projection, which is the one way this guard could quietly stop
+        guarding.
+    """
+    columns = {column.name for column in exercise_profile.columns}
+    unknown = sorted(EXERCISE_WITHHELD_FIELDS - columns)
+    if unknown:
+        raise ValueError(f"withheld fields name no exercise_profile column: {unknown}")
+    return tuple(
+        column for column in exercise_profile.columns if column.name not in EXERCISE_WITHHELD_FIELDS
+    )
