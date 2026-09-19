@@ -48,7 +48,7 @@ def test_a_major_only_profile_gets_anns_sentence() -> None:
 
 
 def test_a_major_only_profile_whose_major_misses_still_gets_anns_sentence() -> None:
-    """"For everyone else the reason line says so" is about what is on file."""
+    """ "For everyone else the reason line says so" is about what is on file."""
     reason = exercise_reason(marker=InformationMarker.MAJOR_ONLY, contributing_keys=())
     assert reason == "Same major; nothing else on file."
 
@@ -121,9 +121,7 @@ def test_every_branch_produces_exactly_one_sentence_with_no_number(
     marker: InformationMarker, tie_break_key: TieBreakKey
 ) -> None:
     for keys in ((), ("same_major",), ("same_major", "career_goal_fit")):
-        reason = exercise_reason(
-            marker=marker, contributing_keys=keys, tie_break_key=tie_break_key
-        )
+        reason = exercise_reason(marker=marker, contributing_keys=keys, tie_break_key=tie_break_key)
         assert_one_sentence(reason, field="reason")
         assert not any(character.isdigit() for character in reason)
         assert "%" not in reason

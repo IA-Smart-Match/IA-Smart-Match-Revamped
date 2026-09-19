@@ -37,9 +37,7 @@ def normalized_terms(terms: Iterable[str]) -> frozenset[str]:
     to match.
     """
     return frozenset(
-        normalized
-        for normalized in (normalized_term(term) for term in terms)
-        if normalized
+        normalized for normalized in (normalized_term(term) for term in terms) if normalized
     )
 
 

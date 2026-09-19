@@ -94,9 +94,7 @@ FACTOR_CASES = [
     ),
     (
         "G-CE-05 past events only",
-        ProfileEvidence(
-            "p05", "Marketing", attended_event_topics=(("analytics", "careers"),)
-        ),
+        ProfileEvidence("p05", "Marketing", attended_event_topics=(("analytics", "careers"),)),
         0.5,
         ("stated_interest_overlap", "career_goal_fit"),
     ),
@@ -151,9 +149,16 @@ def _rank(profiles: list[ExerciseProfile], *, limit: int = 30) -> list[str]:
 @pytest.mark.golden
 def test_g_ce_07_value_orders_before_every_other_key() -> None:
     profiles = [
-        ExerciseProfile(11, "First year", ProfileEvidence("best", "Marketing",
-                        card=ProfileCard(("analytics", "careers"), career_goal="analytics"),
-                        attended_event_topics=(("analytics", "careers"),))),
+        ExerciseProfile(
+            11,
+            "First year",
+            ProfileEvidence(
+                "best",
+                "Marketing",
+                card=ProfileCard(("analytics", "careers"), career_goal="analytics"),
+                attended_event_topics=(("analytics", "careers"),),
+            ),
+        ),
         ExerciseProfile(12, "Senior", ProfileEvidence("worse", "Marketing")),
     ]
     assert _rank(profiles) == ["best", "worse"]

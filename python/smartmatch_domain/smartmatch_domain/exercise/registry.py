@@ -311,6 +311,4 @@ def exercise_applied_weights(
     :func:`~smartmatch_domain.factor_registry.normalize_weights` pinned to this
     rulebook and its one model, so no caller has to remember to pass both.
     """
-    return normalize_weights(
-        overrides, model=EXERCISE_SCORING_MODEL, registry=EXERCISE_REGISTRY
-    )
+    return normalize_weights(overrides, model=EXERCISE_SCORING_MODEL, registry=EXERCISE_REGISTRY)

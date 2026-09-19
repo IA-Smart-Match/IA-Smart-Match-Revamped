@@ -261,6 +261,6 @@ def test_prohibited_inputs_is_imported_not_redefined() -> None:
             elif isinstance(node, ast.AnnAssign):
                 targets = [node.target]
             for target in targets:
-                assert not (
-                    isinstance(target, ast.Name) and target.id == "PROHIBITED_INPUTS"
-                ), f"{source}: PROHIBITED_INPUTS is imported, never redefined"
+                assert not (isinstance(target, ast.Name) and target.id == "PROHIBITED_INPUTS"), (
+                    f"{source}: PROHIBITED_INPUTS is imported, never redefined"
+                )

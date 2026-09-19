@@ -105,9 +105,7 @@ def test_the_score_is_pinned_to_the_exercise_rulebook_and_mode() -> None:
 
 
 def test_team_weights_change_the_composition() -> None:
-    heavy_major = score_exercise_pair(
-        _major_only("p1"), EVENT, weights={"same_major": 4.0}
-    )
+    heavy_major = score_exercise_pair(_major_only("p1"), EVENT, weights={"same_major": 4.0})
     assert heavy_major.value is not None
     assert heavy_major.value > SAME_MAJOR_DEFAULT_WEIGHT
 
@@ -156,8 +154,7 @@ def test_the_year_breaks_a_tie_on_value_and_information() -> None:
 
 def test_the_fixed_order_breaks_a_tie_on_everything_else() -> None:
     profiles = [
-        ExerciseProfile(number, "Senior", _major_only(f"p{number}"))
-        for number in range(1, 6)
+        ExerciseProfile(number, "Senior", _major_only(f"p{number}")) for number in range(1, 6)
     ]
     order = _ranked_ids(profiles)
     assert sorted(order) == sorted(f"p{number}" for number in range(1, 6))
@@ -204,8 +201,7 @@ def test_an_unlisted_year_still_ranks_last_when_the_listed_ranks_are_negative() 
 
 def test_the_list_is_cut_at_the_invite_limit() -> None:
     profiles = [
-        ExerciseProfile(number, "Senior", _major_only(f"p{number}"))
-        for number in range(1, 40)
+        ExerciseProfile(number, "Senior", _major_only(f"p{number}")) for number in range(1, 40)
     ]
     assert len(_ranked_ids(profiles, limit=30)) == 30
 
@@ -306,8 +302,7 @@ def test_a_year_resolved_tie_gets_anns_sentence_on_the_list() -> None:
 def test_the_tie_break_reason_is_read_from_the_whole_set_not_the_cut() -> None:
     """The last name on the list says what it would have said one place down."""
     profiles = [
-        ExerciseProfile(number, "Senior", _major_only(f"p{number}"))
-        for number in range(1, 6)
+        ExerciseProfile(number, "Senior", _major_only(f"p{number}")) for number in range(1, 6)
     ]
     cut = exercise_ranked_list(
         EVENT,
@@ -323,9 +318,7 @@ def test_the_tie_break_reason_is_read_from_the_whole_set_not_the_cut() -> None:
         year_rank=TEST_ONLY_YEAR_RANK,
         dataset_checksum=CHECKSUM,
     )
-    assert [entry.reason for entry in cut.entries] == [
-        entry.reason for entry in whole.entries[:2]
-    ]
+    assert [entry.reason for entry in cut.entries] == [entry.reason for entry in whole.entries[:2]]
 
 
 def test_neither_ranker_imports_the_other() -> None:

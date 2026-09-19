@@ -60,9 +60,7 @@ def permutation_key(dataset_checksum: str, profile_no: int) -> bytes:
     return stable_digest(dataset_checksum, profile_no)
 
 
-def exercise_permutation(
-    dataset_checksum: str, profile_nos: Iterable[int]
-) -> Mapping[int, int]:
+def exercise_permutation(dataset_checksum: str, profile_nos: Iterable[int]) -> Mapping[int, int]:
     """The fixed shuffle of a dataset's profile numbers.
 
     Args:

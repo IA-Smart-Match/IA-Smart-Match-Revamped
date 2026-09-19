@@ -1,4 +1,4 @@
-""""How much we know", and "who is on the list" (requirements; design spec §7).
+""" "How much we know", and "who is on the list" (requirements; design spec §7).
 
 Two things Janice's screens need and nothing else does:
 

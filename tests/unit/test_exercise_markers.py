@@ -1,4 +1,4 @@
-""""How much we know" and "who is on the list" (requirements; design spec §7)."""
+""" "How much we know" and "who is on the list" (requirements; design spec §7)."""
 
 from __future__ import annotations
 
