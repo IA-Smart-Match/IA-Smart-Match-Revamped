@@ -284,6 +284,12 @@ _PERMITTED_EXPORT_MODULES = frozenset(
         "smartmatch_persistence.exercise.workspace_repository",
         "typing",
         "builtins",
+        # ``ExerciseSession`` wraps SQLAlchemy's ``Session``. Admitted
+        # deliberately, which is the point of the list: the door's whole job is
+        # to hand an exercise router a session *without* the principal
+        # machinery beside it, so a session type arriving from SQLAlchemy is
+        # the design working rather than a leak.
+        "sqlalchemy.orm.session",
     }
 )
 
@@ -293,6 +299,42 @@ _PERMITTED_EXPORT_MODULES = frozenset(
 _FORBIDDEN_EXPORT_MODULES = ("smartmatch_api.dependencies", "smartmatch_authz")
 
 
+def _module_of(obj: object) -> set[str]:
+    """The module an object was defined in, as a set so "none" composes."""
+    module = getattr(obj, "__module__", None)
+    return {module} if isinstance(module, str) else set()
+
+
+def _origin_modules(exported: object) -> set[str]:
+    """Every module an exported object was assembled from.
+
+    ``Annotated[Session, Depends(get_exercise_session)]`` is unwrapped rather
+    than read directly, and that is not a detail: reading ``__module__`` off an
+    ``Annotated`` alias gives a *different answer on different interpreters* —
+    some proxy attribute access through to the wrapped type, some do not — so a
+    check written that way passes locally and fails in CI, which is exactly what
+    happened to the first version of this test. Unwrapping asks the question
+    the test actually means, and asks it the same way everywhere.
+
+    What comes back for an annotation is the wrapped type's module plus the
+    module of every ``Depends(...)`` callable attached to it — which is the
+    pair that matters here, since a dependency callable is what would reach the
+    principal machinery.
+    """
+    metadata = getattr(exported, "__metadata__", None)
+    if metadata is None:
+        return _module_of(exported)
+    modules = set()
+    origin = getattr(exported, "__origin__", None)
+    if origin is not None:
+        modules |= _module_of(origin)
+    for item in metadata:
+        dependency = getattr(item, "dependency", None)
+        if dependency is not None:
+            modules |= _module_of(dependency)
+    return modules
+
+
 def test_every_name_the_door_exports_came_from_a_permitted_module() -> None:
     """The denial list above says what may not be exported; this says what may.
 
@@ -300,28 +342,52 @@ def test_every_name_the_door_exports_came_from_a_permitted_module() -> None:
     ``CurrentPrincipal`` is on it; a CBA helper added next month under a name
     nobody predicted is not. Asking instead where each exported object was
     *defined* catches the whole class: an object defined in
-    ``smartmatch_api.dependencies`` fails here no matter what it is called.
+    ``smartmatch_api.dependencies`` fails here no matter what it is called, and
+    a ``Depends(...)`` on a CBA callable fails even wrapped in an annotation.
 
-    ``__module__`` is read rather than the name, because re-exporting under an
-    alias is exactly how a forbidden name would arrive looking innocent.
-    ``Annotated`` aliases have no ``__module__`` and are skipped by the
-    ``getattr`` default — they are types, not objects, and the objects inside
-    them (the repository class, the dataclass) are exported in their own right
-    and checked here.
+    Modules are read rather than names, because re-exporting under an alias is
+    exactly how a forbidden name would arrive looking innocent.
     """
+    checked = 0
     for name in exercise_dependencies.__all__:
-        exported = getattr(exercise_dependencies, name)
-        origin = getattr(exported, "__module__", None)
-        if origin is None:  # a typing alias, e.g. Annotated[...]
-            continue
-        assert not origin.startswith(_FORBIDDEN_EXPORT_MODULES), (
-            f"{name} is defined in {origin}; the door does not re-export the CBA request machinery"
-        )
-        assert origin in _PERMITTED_EXPORT_MODULES, (
-            f"{name} is defined in {origin}, which is not on the permitted list. "
-            "If that module is legitimate, add it deliberately — the point of "
-            "the list is that widening it is a decision somebody makes."
-        )
+        for origin in _origin_modules(getattr(exercise_dependencies, name)):
+            checked += 1
+            assert not origin.startswith(_FORBIDDEN_EXPORT_MODULES), (
+                f"{name} is built from {origin}; the door does not re-export "
+                "the CBA request machinery"
+            )
+            assert origin in _PERMITTED_EXPORT_MODULES, (
+                f"{name} is built from {origin}, which is not on the permitted "
+                "list. If that module is legitimate, add it deliberately — the "
+                "point of the list is that widening it is a decision somebody "
+                "makes."
+            )
+    assert checked, "no export resolved to a module; the check passed over nothing"
+
+
+def test_the_export_check_unwraps_annotations_rather_than_trusting_them() -> None:
+    """The regression that broke CI, pinned so it cannot come back quietly.
+
+    ``ExerciseSession`` must resolve to SQLAlchemy's session module on every
+    interpreter, and the ``Depends`` callable inside it must resolve to this
+    module — neither of which is what ``__module__`` on the alias reliably
+    reports.
+    """
+    modules = _origin_modules(exercise_dependencies.ExerciseSession)
+    assert "sqlalchemy.orm.session" in modules
+    assert _SANCTIONED_SESSION_MODULE in modules
+
+    # And a forbidden dependency inside an annotation is caught, not hidden.
+    from typing import Annotated
+
+    from fastapi import Depends
+
+    def _pretend_cba_dependency() -> None:  # pragma: no cover - never called
+        return None
+
+    _pretend_cba_dependency.__module__ = "smartmatch_api.dependencies"
+    smuggled = Annotated[str, Depends(_pretend_cba_dependency)]
+    assert "smartmatch_api.dependencies" in _origin_modules(smuggled)
 
 
 def test_the_sanctioned_door_is_not_on_the_forbidden_list() -> None:
