@@ -71,14 +71,12 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime
 from enum import Enum
 from typing import Annotated, Final
 
 from fastapi import APIRouter, Body, Depends, Query, Request, Response, status
-from pydantic import BaseModel, ConfigDict, Field
 from smartmatch_domain.exercise import EXERCISE_TEAM_NUMBERS
-from smartmatch_domain.exercise.ingest import IngestRefusal, ParsedDataset, parse_exercise_file
+from smartmatch_domain.exercise.ingest import IngestRefusal, parse_exercise_file
 from smartmatch_domain.exercise.instructor_session import (
     mint_instructor_session,
     verify_instructor_passcode,
@@ -89,7 +87,6 @@ from smartmatch_api.exercise_dependencies import (
     MIN_INVITE_LIMIT,
     ActiveDataset,
     DatasetRepository,
-    DatasetSummary,
     ExerciseDatasetLabelError,
     ExerciseDatasetWriteError,
     ExerciseSession,
@@ -97,9 +94,6 @@ from smartmatch_api.exercise_dependencies import (
     InstructorCookiePolicy,
     InstructorPasscode,
     InstructorRepository,
-    InstructorResultRun,
-    InstructorSavedSetting,
-    InstructorWorkspaceRow,
     TeamWorkspaceHandle,
     WorkspaceRepository,
     WorkspaceSecret,
@@ -113,6 +107,23 @@ from smartmatch_api.exercise_rate_limit import (
     INSTRUCTOR_LOGIN_WINDOW,
     UNRESOLVED_CALLER_KEY,
     FixedWindowLimiter,
+)
+from smartmatch_api.routers.exercise_instructor_models import (
+    DatasetView,
+    InstructorLoginRequest,
+    InstructorSessionView,
+    InviteLimitRequest,
+    RepointView,
+    TeamDetailView,
+    TeamListView,
+    TeamSummaryView,
+    UnlockView,
+    UploadedDatasetView,
+    dataset_view,
+    report_view,
+    run_view,
+    setting_view,
+    team_view,
 )
 from smartmatch_api.utils import utc_now
 
@@ -155,211 +166,6 @@ _LOGIN_LIMITER: Final[FixedWindowLimiter] = FixedWindowLimiter(
 #: and are deliberately not reported, so the response cannot be used to learn
 #: whether this deployment has an instructor page at all.
 _LOGIN_REFUSED: Final[str] = "That passcode was not recognised."
-
-
-# ---------------------------------------------------------------------------
-# Models
-# ---------------------------------------------------------------------------
-
-
-class InstructorLoginRequest(BaseModel):
-    """The login screen's whole input."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    passcode: str = Field(
-        description=(
-            "The instructor passcode for this deployment (OQ-CE-07: one "
-            "environment variable, shared out of band). Never logged, never "
-            "echoed, and never compared with `==`."
-        ),
-    )
-
-
-class InstructorSessionView(BaseModel):
-    """What a successful login says. Deliberately almost nothing.
-
-    There is no account to name, no role to report and no expiry to publish:
-    the expiry is inside the signed cookie and saying it again here would be a
-    second copy to disagree with the first.
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    signed_in: bool = Field(description="True. The screen switches on this and nothing else.")
-
-
-class InviteLimitRequest(BaseModel):
-    """Design spec §5: how many names a ranked list may hold."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    invite_limit: int = Field(
-        description=(
-            "The cap on a ranked list for this data file. Thirty by default — "
-            "Ann's stated number, held in the column's server default rather "
-            "than repeated here."
-        ),
-    )
-
-
-class DatasetView(BaseModel):
-    """One uploaded data file, as the instructor page lists it.
-
-    Every field is something the instructor's own screen shows. No profile and
-    no event row is on it, so a list of files is not a reader of every file.
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    dataset_id: uuid.UUID = Field(description="The data file, for the re-point and limit routes.")
-    label: str = Field(description="What the instructor called this upload.")
-    source_filename: str = Field(description="The uploaded file's name, reduced to a basename.")
-    uploaded_at: datetime = Field(description="When it was stored.")
-    row_count: int = Field(description="How many made-up profiles it carried.")
-    event_count: int = Field(description="How many events it carried.")
-    checksum: str = Field(description="SHA-256 of the uploaded bytes, hex. Two uploads compare.")
-    invite_limit: int = Field(description="Design spec §5's cap for this file.")
-    license_line: str | None = Field(
-        description=(
-            "OQ-CE-09's sentence, or null while Ann has not provided one. Null "
-            "is 'she has not said', not 'there is none'."
-        ),
-    )
-
-
-class IngestReportView(BaseModel):
-    """What an accepted file turned out to contain (design spec §3).
-
-    Counts and the year values found, so the vocabulary can be read off the
-    file rather than guessed at (OQ-CE-01 stays open — nothing here closes a
-    vocabulary). No cell of the withheld column appears in any form.
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    profile_count: int
-    event_count: int
-    exercise_event_count: int
-    distinct_class_years: tuple[str, ...] = Field(
-        description="The year values this file used, sorted. Reported, never validated."
-    )
-    profiles_missing_major: int
-    profiles_missing_class_year: int
-    profiles_without_card: int
-    distinct_stated_interest_terms: int
-    distinct_topic_tag_terms: int
-    events_without_topic_tags: int
-    discarded_list_entries: int = Field(
-        description=(
-            "List-cell entries that were punctuation only and could not become "
-            "a term. Counted rather than silently dropped (ADR-0011)."
-        )
-    )
-    major_only: int
-    major_plus_events: int
-    completed_card: int
-
-
-class UploadedDatasetView(BaseModel):
-    """The answer to an upload: the stored file, and what was in it."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    dataset: DatasetView
-    report: IngestReportView
-
-
-class TeamSummaryView(BaseModel):
-    """One team, in the instructor's list of teams."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    team_number: int
-    dataset_label: str
-    created_at: datetime = Field(description="When this team first entered its number.")
-    saved_setting_count: int
-    result_run_count: int
-    asking_choice: str | None = Field(
-        description="Design spec §12's choice, or null when the team has not chosen."
-    )
-    refreshed_at: datetime | None = Field(
-        description="Design spec §13's one refresh, or null when it has not happened."
-    )
-
-
-class TeamListView(BaseModel):
-    """Every team working in the current data file."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    dataset_label: str
-    teams: tuple[TeamSummaryView, ...]
-
-
-class SavedSettingView(BaseModel):
-    """One saved setting, by name. The weights are the team's own work."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    event_key: str
-    name: str
-    created_at: datetime
-
-
-class ResultRunView(BaseModel):
-    """One result run, by counts (ADR-0025 D8: no number about how well)."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    event_key: str
-    round: int
-    setting_name: str | None
-    invited_count: int
-    signed_up_count: int
-    attended_count: int
-    seats_empty: int
-    created_at: datetime
-
-
-class TeamDetailView(BaseModel):
-    """One team's saved settings and result runs, read-only.
-
-    ``result_runs`` is empty until the results track lands, and that is a real
-    answer rather than a gap: design spec §9's route does not exist yet, so no
-    team can have run results.
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    team_number: int
-    saved_settings: tuple[SavedSettingView, ...]
-    result_runs: tuple[ResultRunView, ...]
-
-
-class UnlockView(BaseModel):
-    """Design spec §9: results for one event are now open to the teams."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    event_key: str
-    unlocked: bool = Field(description="True. A second press says the same thing.")
-
-
-class RepointView(BaseModel):
-    """What a re-point did (design spec §3: it resets every team)."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    dataset_label: str
-    teams_moved: int
-    teams_discarded: int = Field(
-        description=(
-            "Stale workspaces dropped because the team already had one on this "
-            "data file. Their work was already unreachable; a re-point resets "
-            "every team in any case."
-        )
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -498,49 +304,6 @@ def _set_instructor_cookie(
 # ---------------------------------------------------------------------------
 
 
-def _dataset_view(summary: DatasetSummary) -> DatasetView:
-    """The one place a dataset becomes a response.
-
-    Field by field rather than by ``model_validate``, for
-    ``exercise_workspace._view``'s reason: a from-attributes conversion
-    publishes whatever a later track adds to the dataclass.
-    """
-    return DatasetView(
-        dataset_id=summary.dataset_id,
-        label=summary.label,
-        source_filename=summary.source_filename,
-        uploaded_at=summary.uploaded_at,
-        row_count=summary.row_count,
-        event_count=summary.event_count,
-        checksum=summary.checksum,
-        invite_limit=summary.invite_limit,
-        license_line=summary.license_line,
-    )
-
-
-def _report_view(parsed: ParsedDataset) -> IngestReportView:
-    """The accepted file's counts. Named field by field, so a field added to
-    the domain report is a deliberate addition here rather than an automatic
-    disclosure."""
-    report = parsed.report
-    return IngestReportView(
-        profile_count=report.profile_count,
-        event_count=report.event_count,
-        exercise_event_count=report.exercise_event_count,
-        distinct_class_years=report.distinct_class_years,
-        profiles_missing_major=report.profiles_missing_major,
-        profiles_missing_class_year=report.profiles_missing_class_year,
-        profiles_without_card=report.profiles_without_card,
-        distinct_stated_interest_terms=report.distinct_stated_interest_terms,
-        distinct_topic_tag_terms=report.distinct_topic_tag_terms,
-        events_without_topic_tags=report.events_without_topic_tags,
-        discarded_list_entries=report.discarded_list_entries,
-        major_only=report.markers.major_only,
-        major_plus_events=report.markers.major_plus_events,
-        completed_card=report.markers.completed_card,
-    )
-
-
 #: How many uploads the list route returns. Bounded because an instructor page
 #: showing every file ever uploaded is a page nobody scrolls.
 _DATASET_LIST_LIMIT: Final[int] = 50
@@ -557,7 +320,7 @@ def list_datasets(
 ) -> tuple[DatasetView, ...]:
     """What the instructor may re-point the teams at."""
     return tuple(
-        _dataset_view(summary)
+        dataset_view(summary)
         for summary in repository.list_datasets(session, limit=_DATASET_LIST_LIMIT)
     )
 
@@ -625,7 +388,7 @@ def upload_dataset(
             message=str(error),
         ) from error
     session.commit()
-    return UploadedDatasetView(dataset=_dataset_view(summary), report=_report_view(parsed))
+    return UploadedDatasetView(dataset=dataset_view(summary), report=report_view(parsed))
 
 
 @router.patch(
@@ -675,7 +438,7 @@ def set_invite_limit(
     summary = repository.get_dataset_summary(session, dataset_id=dataset_id)
     if summary is None:  # pragma: no cover - the update above just matched it
         raise _no_such_dataset()
-    return _dataset_view(summary)
+    return dataset_view(summary)
 
 
 @router.post(
@@ -794,35 +557,6 @@ def unlock_results(
 # ---------------------------------------------------------------------------
 
 
-def _team_view(row: InstructorWorkspaceRow) -> TeamSummaryView:
-    return TeamSummaryView(
-        team_number=row.team_number,
-        dataset_label=row.dataset_label,
-        created_at=row.created_at,
-        saved_setting_count=row.saved_setting_count,
-        result_run_count=row.result_run_count,
-        asking_choice=row.asking_choice,
-        refreshed_at=row.refreshed_at,
-    )
-
-
-def _setting_view(row: InstructorSavedSetting) -> SavedSettingView:
-    return SavedSettingView(event_key=row.event_key, name=row.name, created_at=row.created_at)
-
-
-def _run_view(row: InstructorResultRun) -> ResultRunView:
-    return ResultRunView(
-        event_key=row.event_key,
-        round=row.round,
-        setting_name=row.setting_name,
-        invited_count=row.invited_count,
-        signed_up_count=row.signed_up_count,
-        attended_count=row.attended_count,
-        seats_empty=row.seats_empty,
-        created_at=row.created_at,
-    )
-
-
 @router.get(
     "/workspaces",
     response_model=TeamListView,
@@ -841,7 +575,7 @@ def list_team_workspaces(
     return TeamListView(
         dataset_label=dataset.label,
         teams=tuple(
-            _team_view(row) for row in instructor.list_workspaces(session, dataset_id=dataset.id)
+            team_view(row) for row in instructor.list_workspaces(session, dataset_id=dataset.id)
         ),
     )
 
@@ -870,12 +604,11 @@ def read_team_workspace(
     return TeamDetailView(
         team_number=workspace.team_number,
         saved_settings=tuple(
-            _setting_view(row)
+            setting_view(row)
             for row in instructor.list_saved_settings(session, workspace_id=workspace.id)
         ),
         result_runs=tuple(
-            _run_view(row)
-            for row in instructor.list_result_runs(session, workspace_id=workspace.id)
+            run_view(row) for row in instructor.list_result_runs(session, workspace_id=workspace.id)
         ),
     )
 
@@ -916,7 +649,7 @@ def reset_team_workspace(
     rows = instructor.list_workspaces(session, dataset_id=dataset.id)
     for row in rows:
         if row.team_number == team_number:
-            return _team_view(row)
+            return team_view(row)
     raise _no_such_team()  # pragma: no cover - the row was just read back
 
 

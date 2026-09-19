@@ -310,6 +310,7 @@ name = "Class exercise routers carry no principal or tenancy"
 type = "forbidden"
 source_modules = [
     "smartmatch_api.routers.exercise_instructor",
+    "smartmatch_api.routers.exercise_instructor_models",
     "smartmatch_api.routers.exercise_public",
     "smartmatch_api.routers.exercise_workspace",
 ]
@@ -353,6 +354,7 @@ name = "Class exercise routers do not touch SQLAlchemy directly"
 type = "forbidden"
 source_modules = [
     "smartmatch_api.routers.exercise_instructor",
+    "smartmatch_api.routers.exercise_instructor_models",
     "smartmatch_api.routers.exercise_public",
     "smartmatch_api.routers.exercise_workspace",
 ]
