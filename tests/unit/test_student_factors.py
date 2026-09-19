@@ -218,17 +218,18 @@ def _code_names(source: pathlib.Path) -> set[str]:
             names.add(node.id)
         elif isinstance(node, ast.Attribute):
             names.add(node.attr)
-        elif isinstance(node, ast.arg):
-            names.add(node.arg)
-        elif isinstance(node, ast.keyword) and node.arg is not None:
+        elif isinstance(node, ast.arg) or (isinstance(node, ast.keyword) and node.arg is not None):
             names.add(node.arg)
         elif isinstance(node, ast.FunctionDef | ast.ClassDef):
             names.add(node.name)
         elif isinstance(node, ast.alias):
             names.add(node.asname or node.name)
-        elif isinstance(node, ast.Constant) and isinstance(node.value, str):
-            if node.value not in docstrings:
-                names.add(node.value)
+        elif (
+            isinstance(node, ast.Constant)
+            and isinstance(node.value, str)
+            and node.value not in docstrings
+        ):
+            names.add(node.value)
     return names
 
 

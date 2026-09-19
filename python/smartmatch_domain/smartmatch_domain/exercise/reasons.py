@@ -116,14 +116,24 @@ def phrase_as_sentence(phrase: str, *, field: str = "reason") -> str:
     return assert_one_sentence(sentence, field=field)
 
 
+#: Opens the sentence that names the contributing factors. A frame is needed
+#: rather than the bare label: "same major" alone is a two-word fragment, which
+#: :func:`~smartmatch_domain.one_sentence.assert_one_sentence` refuses — and
+#: rightly, because a class participant cannot tell a deliberate fragment from
+#: a truncated line. The frame is four plain words and adds no number.
+_CONTRIBUTION_OPENER: Final[str] = "what counted"
+
+
 def _factor_phrase(contributing_keys: Sequence[str]) -> str:
     """The contributing factors named in Ann's words, as one phrase."""
     labels = [EXERCISE_FACTOR_LABELS[key] for key in contributing_keys]
     if len(labels) == 1:
-        return labels[0]
-    if len(labels) == 2:
-        return f"{labels[0]} and {labels[1]}"
-    return f"{', '.join(labels[:-1])}, and {labels[-1]}"
+        joined = labels[0]
+    elif len(labels) == 2:
+        joined = f"{labels[0]} and {labels[1]}"
+    else:
+        joined = f"{', '.join(labels[:-1])}, and {labels[-1]}"
+    return f"{_CONTRIBUTION_OPENER}: {joined}"
 
 
 def exercise_reason(
