@@ -159,6 +159,15 @@ class ExerciseWorkspaceRepository:
         hash stored is a function of the winning id, and every caller that
         re-derives from the id it read back gets exactly that value.
 
+        **Repairs the stored hash on the way through**, which is what makes
+        rotating ``SMARTMATCH_EXERCISE_WORKSPACE_SECRET`` survivable. Without
+        it, ``ON CONFLICT DO NOTHING`` keeps the hash derived under the *old*
+        secret while this method hands the team a cookie derived under the new
+        one, so every later request 401s forever and no amount of re-entering
+        the team number fixes it — permanent damage from an operation the
+        documentation calls an inconvenience. See :meth:`repair_token_hash` for
+        why ``ON CONFLICT DO UPDATE`` cannot do this.
+
         Args:
             session: Not committed here.
             dataset_id: The active dataset, from :func:`active_dataset`.
@@ -204,7 +213,61 @@ class ExerciseWorkspaceRepository:
                 "the team workspace could not be read back after insert; "
                 "the dataset was removed while the team was entering"
             )
+        self.repair_token_hash(session, workspace_id=found.id, workspace_secret=workspace_secret)
         return found
+
+    def repair_token_hash(
+        self, session: Session, *, workspace_id: uuid.UUID, workspace_secret: str
+    ) -> bool:
+        """Make the stored hash agree with the secret this process is holding.
+
+        The one statement that lets ``SMARTMATCH_EXERCISE_WORKSPACE_SECRET`` be
+        rotated. A row written under an older secret carries a hash no cookie
+        this process can mint will ever match; re-deriving from the row's own
+        id and writing it back restores the invariant the whole design rests
+        on — *the stored hash is the hash of the token derived from this row's
+        id under this process's secret*.
+
+        **Why not ``ON CONFLICT DO UPDATE``.** The obvious fix is to let the
+        insert update the hash on conflict. It cannot: ``EXCLUDED`` carries the
+        *losing candidate's* id, so the conflict path would store
+        ``SHA-256(HMAC(secret, candidate_id))`` for a row whose id is something
+        else entirely — turning a repair into the exact corruption it is meant
+        to undo, and doing it on every ordinary entry rather than only after a
+        rotation.
+
+        Guarded by ``workspace_token_hash != expected`` so the ordinary case —
+        six teams entering their numbers all lesson under an unchanged secret —
+        writes no row at all.
+
+        Args:
+            session: Not committed here.
+            workspace_id: The row to repair. Its own id is the HMAC input, which
+                is why nothing else has to be passed.
+            workspace_secret: The secret this process booted with.
+
+        Returns:
+            ``True`` if a row was rewritten, which means a rotation happened and
+            every tab holding an older cookie has just been logged out. They
+            lose no work: re-entering the team number returns this same
+            workspace, because the workspace is identified by
+            ``(dataset, team number)`` and only *addressed* by the token.
+        """
+        table = schema.exercise_team_workspace
+        expected = hash_workspace_token(
+            derive_workspace_token(secret=workspace_secret, workspace_id=workspace_id)
+        )
+        # ``RETURNING id`` rather than ``rowcount``: the row count on a
+        # ``Result`` is a DBAPI detail that mypy will not vouch for and that
+        # some drivers report as -1. What is wanted is "did a row change", and
+        # asking the database to name the changed row answers it directly.
+        changed = session.execute(
+            sa.update(table)
+            .where(table.c.id == workspace_id, table.c.workspace_token_hash != expected)
+            .values(workspace_token_hash=expected)
+            .returning(table.c.id)
+        ).all()
+        return bool(changed)
 
     def find_by_token_hash(self, session: Session, *, token_hash: str) -> ExerciseWorkspace | None:
         """The workspace a cookie addresses, or ``None`` if it addresses nothing.
@@ -212,9 +275,19 @@ class ExerciseWorkspaceRepository:
         Looked up **by hash**, not by comparing a presented token against a
         stored one: the column holds the SHA-256 and the index on it does the
         constant-time work an equality comparison would otherwise have to be
-        careful about. ``None`` covers every "no" the same way — a token from a
-        previous dataset, from a rotated secret, from a deleted workspace, or
-        simply invented — so the route cannot be used to tell those apart.
+        careful about. ``None`` covers every "no" the same way — a token minted
+        under a secret that has since been rotated, one whose workspace was
+        deleted, or one simply invented — so the route cannot be used to tell
+        those apart.
+
+        A cookie from a **previous dataset** is not on that list, and an earlier
+        draft of this docstring wrongly said it was. An upload does not re-point
+        live workspaces: design spec §3 has existing workspaces keep pointing at
+        their old dataset until the instructor re-points them, and a re-point
+        resets every team. So an old cookie keeps resolving, to its own dataset,
+        and this lookup is deliberately **not** scoped to the active dataset —
+        scoping it would break the spec's stated behaviour in order to make a
+        docstring true.
         """
         return self._select_one(
             session, schema.exercise_team_workspace.c.workspace_token_hash == token_hash

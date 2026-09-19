@@ -242,6 +242,148 @@ def test_the_stored_hash_matches_the_token_derived_from_the_row_that_won(
     assert found == workspace
 
 
+def test_rotating_the_secret_does_not_brick_a_team(
+    exercise_sessions: sessionmaker[Session],
+) -> None:
+    """H1. A rotated secret costs a team its cookie, never its work.
+
+    Before the repair-on-entry this file's fix added, rotation was permanent
+    damage: ``ON CONFLICT DO NOTHING`` kept the hash derived under the *old*
+    secret, so a team that re-entered its number got 200 and a cookie derived
+    under the *new* one, and every later request 401'd forever with no way back
+    short of an operator editing the table. That contradicted ``.env.example``,
+    ``workspace_token.py``'s docstring and the PR body, all three of which
+    promise that re-entering the number restores the workspace.
+
+    What must be true: the team's saved work is still there afterwards, found
+    through a cookie derived under the new secret.
+    """
+    repository = ExerciseWorkspaceRepository()
+    rotated = _SECRET + "-rotated"
+    with exercise_sessions() as session:
+        dataset_id = _insert_dataset(session, label="rotation")
+        before = repository.get_or_create_workspace(
+            session, dataset_id=dataset_id, team_number=3, workspace_secret=_SECRET
+        )
+        session.commit()
+        _add_team_work(session, workspace_id=before.id, dataset_id=dataset_id)
+        seed_before = _seed_of(session, before.id)
+
+        # The team re-enters its number in a process booted with the new secret.
+        after = repository.get_or_create_workspace(
+            session, dataset_id=dataset_id, team_number=3, workspace_secret=rotated
+        )
+        session.commit()
+
+        assert after.id == before.id, "the same workspace, not a new one"
+        assert _child_counts(session, after.id) == (1, 1, 1), "the team's work survived"
+        assert _seed_of(session, after.id) == seed_before, "a rotation is not a reset"
+
+        new_cookie = hash_workspace_token(
+            derive_workspace_token(secret=rotated, workspace_id=after.id)
+        )
+        assert repository.find_by_token_hash(session, token_hash=new_cookie) == after
+
+
+def test_a_cookie_from_before_a_rotation_is_refused_after_the_repair(
+    exercise_sessions: sessionmaker[Session],
+) -> None:
+    """The other half of H1, and the cost the PR body has to state.
+
+    Repair-on-entry rewrites the stored hash, so the tab that was holding a
+    cookie derived under the old secret is logged out. That is the honest
+    outcome of rotating a key and it loses nothing: the team re-enters its
+    number and is back in the same workspace, as the test above proves.
+    """
+    repository = ExerciseWorkspaceRepository()
+    rotated = _SECRET + "-rotated"
+    with exercise_sessions() as session:
+        dataset_id = _insert_dataset(session, label="rotation-old-cookie")
+        workspace = repository.get_or_create_workspace(
+            session, dataset_id=dataset_id, team_number=4, workspace_secret=_SECRET
+        )
+        session.commit()
+        old_cookie = hash_workspace_token(
+            derive_workspace_token(secret=_SECRET, workspace_id=workspace.id)
+        )
+        assert repository.find_by_token_hash(session, token_hash=old_cookie) == workspace
+
+        repository.get_or_create_workspace(
+            session, dataset_id=dataset_id, team_number=4, workspace_secret=rotated
+        )
+        session.commit()
+
+        assert repository.find_by_token_hash(session, token_hash=old_cookie) is None
+
+
+def test_entry_under_an_unchanged_secret_rewrites_nothing(
+    exercise_sessions: sessionmaker[Session],
+) -> None:
+    """The repair is guarded, so the ordinary path is still one read.
+
+    ``WHERE ... AND workspace_token_hash != expected`` means an entry that
+    changes nothing updates no row — which is what keeps six teams entering
+    their numbers all lesson from writing to the same row every time.
+    """
+    repository = ExerciseWorkspaceRepository()
+    with exercise_sessions() as session:
+        dataset_id = _insert_dataset(session, label="no-needless-write")
+        workspace = repository.get_or_create_workspace(
+            session, dataset_id=dataset_id, team_number=5, workspace_secret=_SECRET
+        )
+        session.commit()
+        repaired = repository.repair_token_hash(
+            session, workspace_id=workspace.id, workspace_secret=_SECRET
+        )
+    assert repaired is False
+
+
+def test_an_existing_cookie_keeps_its_old_dataset_after_a_new_upload(
+    exercise_sessions: sessionmaker[Session],
+) -> None:
+    """M2. Design spec §3, pinned, because the PR body claimed the opposite.
+
+    An upload does not re-point live workspaces. A team holding a cookie from
+    before it keeps working in its old dataset until the instructor re-points,
+    and a re-point resets every team. What the review corrected is the claim
+    that such a cookie 401s — it does not, and scoping the lookup to the active
+    dataset to *make* it 401 would break the spec's stated behaviour.
+    """
+    repository = ExerciseWorkspaceRepository()
+    now = datetime.now(UTC)
+    with exercise_sessions() as session:
+        first_dataset = _insert_dataset(
+            session, label="round-one", uploaded_at=now - timedelta(hours=1)
+        )
+        workspace = repository.get_or_create_workspace(
+            session, dataset_id=first_dataset, team_number=2, workspace_secret=_SECRET
+        )
+        session.commit()
+        cookie = hash_workspace_token(
+            derive_workspace_token(secret=_SECRET, workspace_id=workspace.id)
+        )
+
+        second_dataset = _insert_dataset(session, label="round-two", uploaded_at=now)
+        assert active_dataset(session) is not None
+        assert active_dataset(session).id == second_dataset  # type: ignore[union-attr]
+
+        # The old cookie still resolves, to its own dataset.
+        still_there = repository.find_by_token_hash(session, token_hash=cookie)
+        assert still_there == workspace
+        assert still_there is not None
+        assert still_there.dataset_label == "round-one"
+
+        # A *new* entry for the same team number lands on the newest dataset,
+        # in a second workspace row. CE-INSTRUCTOR owns whether that is right;
+        # this test records that it is what happens today.
+        fresh = repository.get_or_create_workspace(
+            session, dataset_id=second_dataset, team_number=2, workspace_secret=_SECRET
+        )
+        session.commit()
+    assert fresh.id != workspace.id
+    assert fresh.dataset_label == "round-two"
+
+
 def test_an_unknown_token_hash_finds_nothing(exercise_sessions: sessionmaker[Session]) -> None:
     repository = ExerciseWorkspaceRepository()
     with exercise_sessions() as session:
