@@ -144,17 +144,26 @@ def _require_a_database_this_file_may_clear(engine: Engine) -> None:
     is named ``smartmatch`` — the *same* name a developer's local database
     carries (``verify.yml``: ``POSTGRES_DB: smartmatch``) — so a prefix check
     alone would silently skip this file on every CI run, which is the failure
-    mode that leaves a green tick over tests nobody executed. ``CI`` is set by
-    GitHub Actions and by nothing on a laptop, so it distinguishes the two
-    databases that share a name.
+    mode that leaves a green tick over tests nobody executed.
+
+    **The second gate is the exact variable, with its exact value.** It was
+    ``os.getenv("CI")``, which is truthy for *any* non-empty value of a name
+    half the tooling in the world sets: ``CI=1`` in a personal shell profile,
+    a Makefile, a container image, or a git hook is enough to turn an
+    unqualified ``DELETE`` loose on a developer's own database. That is the
+    review follow-up this line carries. ``GITHUB_ACTIONS`` is set to the
+    literal ``"true"`` by the one runner that actually owns a throwaway
+    database, and comparing the value rather than testing truthiness means an
+    empty or accidental setting does not open the gate either.
     """
     name = engine.url.database or ""
-    if name.startswith(SCRATCH_DATABASE_PREFIX) or os.getenv("CI"):
+    if name.startswith(SCRATCH_DATABASE_PREFIX) or os.environ.get("GITHUB_ACTIONS") == "true":
         return
     pytest.skip(
         f"this file deletes every exercise_dataset row, and {name!r} is neither a "
-        f"scratch database (a name starting {SCRATCH_DATABASE_PREFIX!r}) nor a CI "
-        "runner. Point SMARTMATCH_DATABASE_URL at a database these tests own."
+        f"scratch database (a name starting {SCRATCH_DATABASE_PREFIX!r}) nor a "
+        "GitHub Actions runner. Point SMARTMATCH_DATABASE_URL at a database "
+        "these tests own."
     )
 
 

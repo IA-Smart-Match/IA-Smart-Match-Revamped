@@ -67,6 +67,18 @@ An exercise router that reaches a tenant-scoped repository through this module
 still fails, because the ignore names only ``smartmatch_persistence.exercise``.
 The negative probe in the PR body is the evidence, not this paragraph.
 
+The value types travel through the door too
+===========================================
+
+A router that may not import ``smartmatch_persistence`` may not import the
+*dataclasses* a repository returns or the *exceptions* it raises either — the
+contract forbids the module, not a subset of its names. So this module
+re-exports them: :class:`ExerciseWorkspace` and :class:`DatasetSummary`, the
+instructor rows, the two write refusals, and the invite-limit bounds. It is
+not tidiness. A handler that caught ``ExerciseDatasetWriteError`` by importing
+it directly would be a handler that had walked around the wall to reach a
+name, and the next thing imported that way is a repository.
+
 The cookie
 ==========
 
@@ -81,13 +93,34 @@ ones on another is a cookie with the wrong flags.
 from __future__ import annotations
 
 from collections.abc import Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Annotated, Final, Literal
 
 from fastapi import Cookie, Depends, Header, Request, status
+from smartmatch_domain.exercise.instructor_session import (
+    instructor_session_is_live,
+    usable_passcode,
+)
 from smartmatch_domain.exercise.workspace_token import (
     derive_workspace_token,
     hash_workspace_token,
+)
+from smartmatch_persistence.exercise.dataset_repository import (
+    DatasetSummary,
+    ExerciseDatasetLabelError,
+    ExerciseDatasetRepository,
+    ExerciseDatasetWriteError,
+)
+from smartmatch_persistence.exercise.instructor_repository import (
+    MAX_INVITE_LIMIT,
+    MIN_INVITE_LIMIT,
+    ExerciseInstructorRepository,
+    ExerciseWriteRefused,
+    InstructorResultRun,
+    InstructorSavedSetting,
+    InstructorWorkspaceRow,
+    TeamWorkspaceHandle,
+    WorkingDataset,
 )
 from smartmatch_persistence.exercise.workspace_repository import (
     ExerciseDatasetSummary,
@@ -100,25 +133,52 @@ from sqlalchemy.orm import Session
 
 from smartmatch_api.config import Settings, get_settings, require_exercise_workspace_secret
 from smartmatch_api.exercise_errors import ExerciseError
+from smartmatch_api.utils import utc_now
 
 __all__ = [
     "EXERCISE_REQUEST_HEADER",
+    "INSTRUCTOR_COOKIE_NAME",
+    "MAX_INVITE_LIMIT",
+    "MIN_INVITE_LIMIT",
     "WORKSPACE_COOKIE_NAME",
     "ActiveDataset",
+    "ConfiguredPasscode",
     "CookiePolicy",
     "CurrentWorkspace",
+    "DatasetRepository",
+    "DatasetSummary",
+    "ExerciseCookiePolicy",
+    "ExerciseDatasetLabelError",
     "ExerciseDatasetSummary",
+    "ExerciseDatasetWriteError",
     "ExerciseSession",
     "ExerciseWorkspace",
+    "ExerciseWriteRefused",
+    "InstructorCookiePolicy",
+    "InstructorPasscode",
+    "InstructorRepository",
+    "InstructorResultRun",
+    "InstructorSavedSetting",
+    "InstructorWorkspaceRow",
+    "MaybeActiveDataset",
+    "MaybeDataset",
+    "TeamWorkspaceHandle",
+    "WorkingDataset",
     "WorkspaceCookiePolicy",
     "WorkspaceRepository",
     "WorkspaceSecret",
     "get_active_dataset",
     "get_current_workspace",
+    "get_dataset_repository",
     "get_exercise_session",
+    "get_instructor_passcode",
+    "get_instructor_repository",
+    "get_maybe_active_dataset",
     "get_workspace_repository",
     "get_workspace_secret",
+    "instructor_cookie_policy",
     "require_exercise_request_header",
+    "require_instructor_session",
     "workspace_cookie_policy",
     "workspace_token_for",
 ]
@@ -145,6 +205,13 @@ WORKSPACE_COOKIE_NAME: Final[str] = "exercise_workspace"
 #:
 #: The frontend track (CE-MOUNT) sends ``X-Exercise-Request: 1`` on every POST.
 EXERCISE_REQUEST_HEADER: Final[str] = "X-Exercise-Request"
+
+#: The cookie the instructor's browser carries after presenting the passcode
+#: (design spec §14). Scoped to ``/v1/exercise/instructor`` by
+#: :func:`instructor_cookie_policy` — *narrower* than the workspace cookie's
+#: ``/v1/exercise``, so a class participant's browser on an ordinary exercise
+#: route is never sent it and it cannot be read back off a team's request.
+INSTRUCTOR_COOKIE_NAME: Final[str] = "exercise_instructor"
 
 
 def get_exercise_session(request: Request) -> Iterator[Session]:
@@ -273,6 +340,191 @@ def workspace_cookie_policy(
 #: The annotation a handler writes to get the cookie flags.
 CookiePolicy = Annotated[WorkspaceCookiePolicy, Depends(workspace_cookie_policy)]
 
+#: The same flags object under the name the instructor half reads by.
+#:
+#: One dataclass for both exercise cookies, deliberately: ``http_only``,
+#: ``same_site`` and ``secure`` are answers to questions about *this
+#: deployment*, and two structures would be two places for them to drift. What
+#: differs between the two cookies is the ``name`` and the ``path``, which is
+#: exactly what the two factory functions set.
+ExerciseCookiePolicy = WorkspaceCookiePolicy
+
+
+def instructor_cookie_policy(
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> ExerciseCookiePolicy:
+    """The instructor session cookie's flags (design spec §14).
+
+    Every flag is the workspace cookie's, read from the same settings, with two
+    differences:
+
+    * **the name**, so the two cookies cannot be confused for one another, and
+    * **the path**, ``/v1/exercise/instructor`` rather than ``/v1/exercise``.
+      The narrower scope is the point: a browser sitting on a team's matching
+      screen sends the workspace cookie and *not* this one, so the instructor's
+      session is not attached to thirty ordinary requests a lesson, and a
+      handler on a team route could not read it even if one tried.
+
+    ``SameSite=Lax`` and the ``X-Exercise-Request`` header still both apply —
+    this cookie is the one whose forgery would matter most.
+
+    **And a third difference, on ``Secure``, which is the one that matters.**
+    The workspace cookie falls back to the edition when
+    ``SMARTMATCH_EXERCISE_COOKIE_SECURE`` is unset: off in ``dev``, on
+    elsewhere. That fallback is documented as a guess, and on the pilot VM it
+    guesses **wrong** — the site is served over HTTPS while
+    ``docker-compose.vm.yml`` pins ``SMARTMATCH_EDITION=dev``, so an unset
+    variable would have sent the instructor's session cookie over the wire
+    without ``Secure``.
+
+    A team's workspace token is a pointer to made-up rows and every participant
+    in the room is handed one. This cookie is the only credential in the
+    product. They do not deserve the same default, so this one **defaults to
+    ``True``** and is turned off only by a deployment saying ``false``
+    explicitly — a statement of fact about plain HTTP, not a value to
+    second-guess.
+
+    The cost, named rather than discovered: **local development over plain
+    ``http`` must set ``SMARTMATCH_EXERCISE_COOKIE_SECURE=false``** to use the
+    instructor page at all, because a browser does not store a ``Secure``
+    cookie on an ``http`` origin. That is the right way round — the failure is
+    immediate and local, where the old default's failure was silent and in a
+    classroom.
+
+    The workspace cookie's own behaviour is deliberately unchanged.
+    """
+    workspace = workspace_cookie_policy(settings)
+    configured = settings.exercise_cookie_secure
+    return ExerciseCookiePolicy(
+        name=INSTRUCTOR_COOKIE_NAME,
+        path="/v1/exercise/instructor",
+        http_only=workspace.http_only,
+        same_site=workspace.same_site,
+        secure=configured if configured is not None else True,
+    )
+
+
+#: The annotation an instructor handler writes to get its cookie's flags.
+InstructorCookiePolicy = Annotated[ExerciseCookiePolicy, Depends(instructor_cookie_policy)]
+
+
+@dataclass(frozen=True, slots=True)
+class ConfiguredPasscode:
+    """This deployment's instructor passcode, or the absence of one.
+
+    A one-field wrapper rather than a bare ``str | None``, for two reasons that
+    both matter more than the extra line:
+
+    * ``repr=False``. This object reaches a handler's local scope, and a
+      default ``repr`` is what a log line, an assertion message and a debugger
+      transcript print — the same argument
+      :class:`~smartmatch_domain.exercise.layout.ParsedProfile` makes for the
+      withheld column, applied to the one credential in this product.
+    * The door's export check walks the *type* behind every annotation in
+      ``__all__`` and demands it come from a permitted module. A bare
+      ``str | None`` answers ``types`` — the module of every union — so
+      admitting it would admit ``str | ResolvedPrincipal`` too. A named type
+      from this module answers this module.
+    """
+
+    value: str | None = field(repr=False)
+
+
+def get_instructor_passcode(
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> ConfiguredPasscode:
+    """This deployment's instructor passcode, or ``None`` if it has none.
+
+    PLACEHOLDER (OQ-CE-07): one environment variable per deployment,
+    ``SMARTMATCH_EXERCISE_INSTRUCTOR_PASSCODE``, shared out of band and rotated
+    after the spring run. Nothing here closes that row.
+
+    ``None`` covers both *unset* and *set to something unusable* — blank, or
+    shorter than
+    :data:`~smartmatch_domain.exercise.instructor_session.MINIMUM_INSTRUCTOR_PASSCODE_LENGTH`.
+    The two are one answer on purpose: the login's behaviour is the same
+    refusal either way, so a caller cannot learn from the response whether the
+    variable is set.
+
+    **Fail closed, and not at boot.** Unlike
+    ``SMARTMATCH_EXERCISE_WORKSPACE_SECRET``, a missing passcode does not stop
+    the process: the exercise's team-facing routes are the product and they
+    work without an instructor page, so refusing to boot would take the
+    classroom down over a screen only Ann uses. What it must never do is open
+    the door — a deployment with no passcode serves an instructor login that
+    refuses every attempt, which is the shut door, not the missing one.
+
+    **Stripped here, once.** ``usable_passcode`` returns the value that will be
+    compared rather than a verdict about the value that was read, which is what
+    keeps "long enough to be usable" and "what a person has to type" the same
+    string. A trailing newline is the ordinary way a value leaves an ``.env``
+    file, and the earlier version of this function measured the stripped length
+    and then stored the raw value — a configured passcode that could never
+    match, reported to the instructor as simply wrong.
+    """
+    stored = settings.exercise_instructor_passcode
+    raw = stored.get_secret_value() if stored is not None else None
+    return ConfiguredPasscode(value=usable_passcode(raw))
+
+
+#: The annotation the login handler writes to get the configured passcode.
+InstructorPasscode = Annotated[ConfiguredPasscode, Depends(get_instructor_passcode)]
+
+
+def require_instructor_session(
+    instructor_cookie: Annotated[str | None, Cookie(alias=INSTRUCTOR_COOKIE_NAME)] = None,
+    secret: str = Depends(get_workspace_secret),
+) -> None:
+    """Refuse an instructor request whose cookie is not a live session.
+
+    One refusal for every way of not having one — no cookie, a forged
+    signature, an edited expiry, a session minted under a secret that has since
+    been rotated, an expired one, or a team's workspace cookie pasted in — so
+    the route cannot be used to tell a real session from an invented one.
+
+    Declared as a router-level dependency rather than a handler parameter, so
+    it cannot be dropped by editing a signature, and it yields **nothing**:
+    there is no principal here, no account, and no identity to hand a handler
+    (ADR-0025 D1). What it establishes is that the passcode was presented, and
+    that is the whole of what the instructor page knows about its caller.
+
+    Raises:
+        ExerciseError: 401, when the cookie is absent or is not a live session.
+    """
+    if instructor_cookie and instructor_session_is_live(
+        instructor_cookie, secret=secret, now=utc_now()
+    ):
+        return
+    raise ExerciseError(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        code="exercise_instructor_session_required",
+        message="Enter the instructor passcode to open this page.",
+    )
+
+
+def get_dataset_repository() -> ExerciseDatasetRepository:
+    """The one repository an exercise router may reach datasets through."""
+    return ExerciseDatasetRepository()
+
+
+#: The annotation a handler writes to get :class:`ExerciseDatasetRepository`.
+DatasetRepository = Annotated[ExerciseDatasetRepository, Depends(get_dataset_repository)]
+
+
+def get_instructor_repository() -> ExerciseInstructorRepository:
+    """The one repository the instructor routes reach their cross-team rows through.
+
+    Separate from :func:`get_workspace_repository` because the statements
+    behind it are: they span teams, they change a dataset-wide setting, and
+    they move workspaces. A team's own route takes the workspace repository and
+    therefore cannot reach any of them.
+    """
+    return ExerciseInstructorRepository()
+
+
+#: The annotation a handler writes to get :class:`ExerciseInstructorRepository`.
+InstructorRepository = Annotated[ExerciseInstructorRepository, Depends(get_instructor_repository)]
+
 
 def workspace_token_for(*, secret: str, workspace: ExerciseWorkspace) -> str:
     """The cookie value addressing ``workspace``.
@@ -307,6 +559,46 @@ def get_active_dataset(session: ExerciseSession) -> ExerciseDatasetSummary:
 
 #: The annotation a handler writes to require an uploaded dataset.
 ActiveDataset = Annotated[ExerciseDatasetSummary, Depends(get_active_dataset)]
+
+
+@dataclass(frozen=True, slots=True)
+class MaybeDataset:
+    """The newest uploaded dataset, or the fact that there is not one.
+
+    A named wrapper rather than ``ExerciseDatasetSummary | None``, for
+    :class:`ConfiguredPasscode`'s second reason — which is a real guard and not
+    a style rule. The door's export check walks the type behind every
+    annotation in ``__all__``, and a union answers ``types``: the module of
+    *every* union. Admitting it here to allow this one would also admit
+    ``ExerciseDatasetSummary | ResolvedPrincipal`` tomorrow. A named type from
+    this module answers this module.
+    """
+
+    dataset: ExerciseDatasetSummary | None
+
+
+def get_maybe_active_dataset(session: ExerciseSession) -> MaybeDataset:
+    """The dataset a team entering a number would join, or the absence of one.
+
+    The same question :func:`get_active_dataset` asks, without the refusal. A
+    team route cannot do anything useful before a file exists, so 409 is the
+    right answer there. The instructor's own screens are the place where "no
+    file has been uploaded yet" is *information* — it is the state her next
+    action changes — and a 409 would blank a page that should be telling her
+    what to do next.
+
+    Note what this is **not** for. It answers "which file is newest", never
+    "which file are the teams in". Design spec §3 keeps those apart, and
+    confusing them is exactly the defect the instructor routes were corrected
+    for; the second question is
+    ``ExerciseInstructorRepository.datasets_with_workspaces``.
+    """
+    return MaybeDataset(dataset=active_dataset(session))
+
+
+#: The annotation an instructor handler writes to ask which dataset is newest
+#: without refusing when there is none.
+MaybeActiveDataset = Annotated[MaybeDataset, Depends(get_maybe_active_dataset)]
 
 
 def get_current_workspace(

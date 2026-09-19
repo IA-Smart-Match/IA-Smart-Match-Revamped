@@ -551,6 +551,161 @@ UNAUTHENTICATED_ROUTES: dict[tuple[str, str], str] = {
         "owner decision recorded on the PR — the requirements list per-team "
         "reset as a team action, and Session 2 has no backup."
     ),
+    # ---------------------------------------------------------------------
+    # The instructor page (CE-INSTRUCTOR, design spec §14).
+    #
+    # Every row below is public in this table's sense — no `CurrentPrincipal`,
+    # because there is no principal in the class-exercise scope to take
+    # (ADR-0025 D1). They are not *unprotected*: all but the first two sit
+    # behind a passcode session, applied as a router-level dependency in
+    # `routers/exercise_instructor.py` so that it cannot be dropped by editing
+    # a handler's signature. The passcode is a door, not an identity: it
+    # resolves no account, carries no role, and is checked against one
+    # environment variable (OQ-CE-07).
+    # ---------------------------------------------------------------------
+    ("POST", "/v1/exercise/instructor/login"): (
+        "The instructor passcode, in the no-login class-exercise scope "
+        "(design spec §14). Public because there is nothing to authenticate "
+        "*as*: `routers/auth.py` is not mounted in this process, no "
+        "`user_account` is resolved and no principal is minted — ADR-0025 D1 "
+        "and D2 forbid all three. What it takes is one environment variable's "
+        "worth of secret, verified with PBKDF2-HMAC-SHA256 under a salt "
+        "derived from the deployment secret and compared with "
+        "`hmac.compare_digest`, so a wrong passcode leaks no timing. "
+        "It is not an oracle: an unconfigured passcode, a passcode below the "
+        "length floor and a wrong passcode all produce the same 401 and the "
+        "same sentence, so the response cannot be used to learn whether this "
+        "deployment has an instructor page. Which of the three it was goes to "
+        "the server log, because an operator who mistyped the variable has to "
+        "be able to find out. "
+        "**Fails closed**: a deployment with no passcode refuses every "
+        "attempt rather than admitting every attempt. "
+        "Bounded by a per-process fixed-window limiter charged as the "
+        "handler's first statement, before the passcode is looked at, so a "
+        "wrong attempt and a right one cost the same — a PLACEHOLDER marked "
+        "OQ-CE-06, because the repository's own limiter needs a principal or "
+        "`smartmatch_persistence` and an exercise router may import neither. "
+        "Requires `X-Exercise-Request` alongside SameSite=Lax: it sets a "
+        "cookie, and a cookie-addressed POST with no login behind it is "
+        "exactly the shape a cross-site form forges."
+    ),
+    ("POST", "/v1/exercise/instructor/logout"): (
+        "Clears the instructor session cookie. Takes no session of its own on "
+        "purpose: a browser holding an expired or absent cookie still means "
+        "'sign me out', and refusing it would be a refusal with nothing "
+        "behind it. It reads nothing, writes nothing, and discloses nothing. "
+        "Stated plainly: the session is a signed value with no server-side "
+        "row (no migration in this track), so this clears the *browser's* "
+        "copy rather than revoking anything. The levers that revoke are the "
+        "twelve-hour lifetime and rotating the exercise secret."
+    ),
+    ("GET", "/v1/exercise/instructor/datasets"): (
+        "Lists the uploaded data files, behind the instructor passcode "
+        "session. No principal exists in this scope to require. Every row is "
+        "about a *file* — label, sanitised file name, row and event counts, "
+        "checksum, invite limit — and carries no profile, so listing the "
+        "files is not reading any of them. `hidden_true_interests` is absent "
+        "by construction: nothing this route calls selects the column "
+        "(ADR-0025 D6)."
+    ),
+    ("POST", "/v1/exercise/instructor/datasets"): (
+        "Uploads one data file (design spec §3), behind the instructor "
+        "passcode session, synchronously — the instructor needs an answer on "
+        "the spot, so the job and review pipeline behind `routers/imports.py`, "
+        "and the principal it takes, are not used. The bytes are parsed by "
+        "`smartmatch_domain.exercise.ingest`, which caps the upload, the cell, "
+        "the column count and the row count before any per-row work, refuses "
+        "NUL bytes, and refuses an XLSX by magic bytes as well as by name. "
+        "Every refusal is one plain sentence and the first failure is the "
+        "whole answer. A refused database write becomes one sentence too: the "
+        "driver's exception never escapes the repository, because its "
+        "rendering carries `[parameters: …]` — every value of every row, the "
+        "withheld column included (D6). "
+        "It writes no workspace row: design spec §3 has existing workspaces "
+        "keep pointing at their old dataset until the instructor re-points "
+        "them. Requires `X-Exercise-Request`."
+    ),
+    ("PATCH", "/v1/exercise/instructor/datasets/{dataset_id}"): (
+        "Sets a data file's invite limit (design spec §5), behind the "
+        "instructor passcode session. One whole number, bounded in the "
+        "handler so the refusal can be a sentence rather than the generic "
+        "validation message `errors._describe_validation_error` substitutes. "
+        "Not an oracle: a data file that does not exist answers 404 with a "
+        "sentence naming nothing, and the response carries only the file's "
+        "own facts. Requires `X-Exercise-Request`."
+    ),
+    ("POST", "/v1/exercise/instructor/datasets/{dataset_id}/repoint"): (
+        "Points every team at one data file (design spec §3: *a re-point "
+        "resets every team*), behind the instructor passcode session. "
+        "Destructive by specification: each moving workspace's overlay, saved "
+        "settings and result runs are deleted **before** its `dataset_id` is "
+        "updated, in one transaction, because the composite foreign keys are "
+        "`ON DELETE CASCADE` and not `ON UPDATE CASCADE` — the update is "
+        "refused while a child row exists, and were it to succeed it would "
+        "leave a team's work pointing at another file's profiles. "
+        "A moved workspace keeps its id and therefore its cookie. A team that "
+        "had already entered on the target file keeps that workspace and its "
+        "stale one is discarded, because "
+        "`uq_exercise_team_workspace_dataset_team` admits one row per team per "
+        "file. Requires `X-Exercise-Request`."
+    ),
+    ("POST", "/v1/exercise/instructor/events/{event_key}/unlock"): (
+        "Opens results for one event (design spec §9), behind the instructor "
+        "passcode session. Idempotent by the primary key rather than by a "
+        "read first: a second press inserts nothing and moves no "
+        "`unlocked_at`, which is the expected case for a button in a "
+        "classroom. Scoped to the active data file, and an event that is not "
+        "in it answers 404 rather than a foreign-key violation. Requires "
+        "`X-Exercise-Request`."
+    ),
+    ("GET", "/v1/exercise/instructor/workspaces"): (
+        "Lists the teams working in the active data file, behind the "
+        "instructor passcode session. Counts and timestamps only — how many "
+        "settings a team has saved, how many runs it has, whether it has "
+        "chosen and refreshed. Not the seed (publishing it would let one team "
+        "predict another's simulated results), not the token, not its hash, "
+        "and not the workspace id: the cookie token is derived from the id, "
+        "so an id in a response is one secret away from being a session. A "
+        "team that has not entered its number is simply absent, which is the "
+        "honest answer rather than an invented row."
+    ),
+    ("GET", "/v1/exercise/instructor/workspaces/{team_number}"): (
+        "Opens one team's saved settings and result runs (design spec §14), "
+        "read-only, behind the instructor passcode session. Settings are "
+        "listed by name without their weights — the weights are the team's "
+        "own work and the instructor's screen says what exists rather than "
+        "reproducing it. Runs are summarised by counts, never by a score, a "
+        "percentage or a confidence (ADR-0025 D8: the instructor's screen is "
+        "on the same projector as the teams'), and the profile numbers behind "
+        "the counts are counted in SQL so they never enter this process. "
+        "`result_runs` is empty until the results track lands, which is a "
+        "real answer: design spec §9's route does not exist yet."
+    ),
+    ("POST", "/v1/exercise/instructor/workspaces/{team_number}/reset"): (
+        "Clears one team's work from the instructor's side (design spec §11), "
+        "behind the instructor passcode session. It reuses the repository "
+        "method the team's own reset runs, so 'what a reset deletes' has one "
+        "answer, and every statement is keyed on the workspace id resolved "
+        "from (active data file, team number) — one team, never two. "
+        "The team's own `POST /v1/exercise/workspaces/current/reset` is "
+        "unchanged and stays where it is; whether per-team reset should move "
+        "*behind* this passcode is an open owner decision recorded on the PR, "
+        "and this route adds an instructor path without removing the team's. "
+        "Requires `X-Exercise-Request`."
+    ),
+    ("POST", "/v1/exercise/instructor/refresh-all"): (
+        "Design spec §13's 'refresh all', declared and deliberately not "
+        "built: it **always refuses** with one sentence, behind the "
+        "instructor passcode session. The refresh copies a share of the "
+        "withheld column into each team's overlay and that share is decided "
+        "by the team's asking choice, which a route the results track owns "
+        "stores. With no choice to read, a refresh here would either do "
+        "nothing or invent one of OQ-CE-04's numbers. "
+        "It exists as a refusal rather than as an absence so the instructor "
+        "page can show the button it will need with a sentence saying why it "
+        "is off, instead of the frontend discovering a 404 in a classroom. "
+        "Requires `X-Exercise-Request`."
+    ),
 }
 
 

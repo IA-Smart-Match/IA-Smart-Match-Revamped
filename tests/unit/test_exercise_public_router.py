@@ -141,9 +141,11 @@ def test_the_exercise_scope_mounts_this_route_and_nothing_authenticated() -> Non
     """An equality over the whole exercise surface, extended by each track.
 
     CE-WORKSPACE added the three team-workspace paths
-    (``routers/exercise_workspace.py``). They are listed here rather than the
-    assertion being loosened to a containment, because what this test is for is
-    catching a route that appears without anybody naming it.
+    (``routers/exercise_workspace.py``) and CE-INSTRUCTOR the instructor page
+    (``routers/exercise_instructor.py``, two routers so the passcode session
+    can gate one of them). They are listed here rather than the assertion being
+    loosened to a containment, because what this test is for is catching a
+    route that appears without anybody naming it.
     """
     assert _paths_under(ProductScope.CLASS_EXERCISE) == frozenset(
         {
@@ -151,6 +153,16 @@ def test_the_exercise_scope_mounts_this_route_and_nothing_authenticated() -> Non
             "/v1/exercise/workspaces",
             "/v1/exercise/workspaces/current",
             "/v1/exercise/workspaces/current/reset",
+            "/v1/exercise/instructor/login",
+            "/v1/exercise/instructor/logout",
+            "/v1/exercise/instructor/datasets",
+            "/v1/exercise/instructor/datasets/{dataset_id}",
+            "/v1/exercise/instructor/datasets/{dataset_id}/repoint",
+            "/v1/exercise/instructor/events/{event_key}/unlock",
+            "/v1/exercise/instructor/workspaces",
+            "/v1/exercise/instructor/workspaces/{team_number}",
+            "/v1/exercise/instructor/workspaces/{team_number}/reset",
+            "/v1/exercise/instructor/refresh-all",
         }
     )
 
