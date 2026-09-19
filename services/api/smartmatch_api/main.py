@@ -54,6 +54,7 @@ from smartmatch_api.routers import (
     cba_invitations,
     engagement,
     events,
+    exercise_instructor,
     exercise_public,
     exercise_workspace,
     host_organizations,
@@ -584,12 +585,8 @@ CAPABILITY_SCOPED_ROUTERS: Final[tuple[tuple[APIRouter, Capability], ...]] = (
     # `ia_west_legacy` this row is off, so the CBA contract is unchanged and the
     # exercise route answers 404 there.
     #
-    # `exercise_instructor.router` (`/v1/exercise/instructor`, passcode session)
-    # is named by design spec §1 and belongs to track CE-INSTRUCTOR. It is
-    # deliberately not listed with a stub: a route mounted before the passcode
-    # machinery that gates it exists is an open route, not a placeholder. The
-    # workspace, matching, results, and ingest routers join this row the same
-    # way, each with the migration that gives them something to answer from.
+    # The matching, results, and ingest routers join this row the same way,
+    # each with the migration that gives them something to answer from.
     (exercise_public.router, Capability.CLASS_EXERCISE),
     # CE-WORKSPACE: the team workspaces design spec §15 and the requirements'
     # "Getting in" row describe. Same capability, same no-principal declaration,
@@ -601,6 +598,26 @@ CAPABILITY_SCOPED_ROUTERS: Final[tuple[tuple[APIRouter, Capability], ...]] = (
     # stated on `exercise_dependencies.EXERCISE_REQUEST_HEADER` rather than
     # here, because it is a property of the dependency both routes take.
     (exercise_workspace.router, Capability.CLASS_EXERCISE),
+    # CE-INSTRUCTOR: the instructor page design spec §14 and §1 name. Two
+    # routers from one module, and the split is the security property rather
+    # than a layout choice.
+    #
+    # `exercise_instructor.login_router` carries the two routes that must
+    # answer *before* there is a session — present the passcode, clear the
+    # cookie. `exercise_instructor.router` carries every other instructor route
+    # and takes `require_instructor_session` as a **router-level** dependency,
+    # so a route added to it is gated by existing rather than by somebody
+    # remembering to gate it. A gate written as a handler parameter comes off
+    # when a signature is edited, and an open instructor route looks exactly
+    # like a working one.
+    #
+    # Same capability and the same no-principal declaration as the two rows
+    # above: the passcode is a door, not an identity. It resolves no
+    # `user_account`, mints no principal, and reaches no CBA table (ADR-0025
+    # D1/D2) — `routers/auth.py` is not imported and is not mounted in this
+    # scope at all.
+    (exercise_instructor.login_router, Capability.CLASS_EXERCISE),
+    (exercise_instructor.router, Capability.CLASS_EXERCISE),
 )
 
 

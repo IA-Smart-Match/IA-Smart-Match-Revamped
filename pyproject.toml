@@ -309,6 +309,7 @@ forbidden_modules = [
 name = "Class exercise routers carry no principal or tenancy"
 type = "forbidden"
 source_modules = [
+    "smartmatch_api.routers.exercise_instructor",
     "smartmatch_api.routers.exercise_public",
     "smartmatch_api.routers.exercise_workspace",
 ]
@@ -322,6 +323,11 @@ forbidden_modules = [
 ]
 ignore_imports = [
     "smartmatch_api.exercise_dependencies -> smartmatch_persistence.exercise.workspace_repository",
+    # One edge per repository the door injects, never a wildcard: each line
+    # names exactly what this module may reach and blinds the contract to
+    # nothing else. CE-INSTRUCTOR adds the two below.
+    "smartmatch_api.exercise_dependencies -> smartmatch_persistence.exercise.dataset_repository",
+    "smartmatch_api.exercise_dependencies -> smartmatch_persistence.exercise.instructor_repository",
 ]
 
 # SQLAlchemy is deliberately *not* on the list above, and this is why it gets a
@@ -346,6 +352,7 @@ ignore_imports = [
 name = "Class exercise routers do not touch SQLAlchemy directly"
 type = "forbidden"
 source_modules = [
+    "smartmatch_api.routers.exercise_instructor",
     "smartmatch_api.routers.exercise_public",
     "smartmatch_api.routers.exercise_workspace",
 ]
