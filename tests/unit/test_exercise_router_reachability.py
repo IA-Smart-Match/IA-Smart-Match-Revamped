@@ -271,6 +271,59 @@ def test_the_door_exports_nothing_that_could_resolve_a_principal() -> None:
         assert hasattr(exercise_dependencies, name), f"{name} is exported but does not exist"
 
 
+#: Modules an ``exercise_dependencies`` export may have come from.
+#:
+#: The exercise's own two, plus the libraries whose types an annotation is built
+#: out of. Everything else — and ``smartmatch_api.dependencies`` and
+#: ``smartmatch_authz`` above all — is a name that travelled through the door
+#: from the wrong side.
+_PERMITTED_EXPORT_MODULES = frozenset(
+    {
+        "smartmatch_api.exercise_dependencies",
+        "smartmatch_api.exercise_errors",
+        "smartmatch_persistence.exercise.workspace_repository",
+        "typing",
+        "builtins",
+    }
+)
+
+#: Modules no export may come from, whatever the allow-list says. Stated
+#: separately so the failure message can say *which* rule was broken, and so
+#: that widening the allow-list can never accidentally admit one of these.
+_FORBIDDEN_EXPORT_MODULES = ("smartmatch_api.dependencies", "smartmatch_authz")
+
+
+def test_every_name_the_door_exports_came_from_a_permitted_module() -> None:
+    """The denial list above says what may not be exported; this says what may.
+
+    A denial list only catches the names somebody thought to write down.
+    ``CurrentPrincipal`` is on it; a CBA helper added next month under a name
+    nobody predicted is not. Asking instead where each exported object was
+    *defined* catches the whole class: an object defined in
+    ``smartmatch_api.dependencies`` fails here no matter what it is called.
+
+    ``__module__`` is read rather than the name, because re-exporting under an
+    alias is exactly how a forbidden name would arrive looking innocent.
+    ``Annotated`` aliases have no ``__module__`` and are skipped by the
+    ``getattr`` default — they are types, not objects, and the objects inside
+    them (the repository class, the dataclass) are exported in their own right
+    and checked here.
+    """
+    for name in exercise_dependencies.__all__:
+        exported = getattr(exercise_dependencies, name)
+        origin = getattr(exported, "__module__", None)
+        if origin is None:  # a typing alias, e.g. Annotated[...]
+            continue
+        assert not origin.startswith(_FORBIDDEN_EXPORT_MODULES), (
+            f"{name} is defined in {origin}; the door does not re-export the CBA request machinery"
+        )
+        assert origin in _PERMITTED_EXPORT_MODULES, (
+            f"{name} is defined in {origin}, which is not on the permitted list. "
+            "If that module is legitimate, add it deliberately — the point of "
+            "the list is that widening it is a decision somebody makes."
+        )
+
+
 def test_the_sanctioned_door_is_not_on_the_forbidden_list() -> None:
     """The rule permits the door it names, and would fail loudly if it stopped.
 
