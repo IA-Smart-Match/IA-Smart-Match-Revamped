@@ -324,7 +324,8 @@ class FactorRegistry:
     approved_on: str | None
     factors: tuple[FactorSpec, ...]
     approved_scoring_keys: frozenset[str]
-    scoring_modes: Mapping[str, ScoringModel]  # this registry's closed mode vocabulary
+    scoring_modes: Mapping[str, ScoringModel]  # the models this registry admits
+    mode_vocabulary: frozenset[str]  # required, no default: this rulebook's closed mode set
 
     @property
     def registry_hash(self) -> str: ...  # sha256 over (version, keys, weights, modes), hex
@@ -337,8 +338,15 @@ Functions gaining a keyword-only `registry: FactorRegistry = CBA_REGISTRY`:
 `assert_registry_approved`, `assert_scoring_ready`, `factor_keys`,
 `implemented_scoring_keys`, `resolve_scoring_model`, `normalize_weights`,
 `display_weights`, `proposed_weights`, `active_weights`. `ScoringModel` gains
-`registry_version`-driven mode validation via `registry.scoring_modes` instead of
-`CBA_SCORING_MODES`. `scoring._FACTOR_KIND` and `explanation._SPECS_BY_KEY` become
+`mode_vocabulary: frozenset[str] = CBA_SCORING_MODES` as its last field and
+validates its mode against that instead of the module-level `CBA_SCORING_MODES`.
+As shipped in PR #173, the model-level default is retained only so the pinned
+`tests/unit/test_factor_registry.py` need not be edited; it is **not** how a
+second rulebook is kept out of the CBA vocabulary. `FactorRegistry.mode_vocabulary`
+is required with no default, and construction refuses any model in
+`scoring_modes` whose `mode_vocabulary` is not the registry's own — so a model
+can only inherit the CBA default while it belongs to no registry
+(ADR-0016 Proposal 5). `scoring._FACTOR_KIND` and `explanation._SPECS_BY_KEY` become
 `registry_for_version(version).kind_by_key` / `.spec_by_key` lookups.
 **Pin:** `tests/unit/test_factor_registry.py` is not edited.
 

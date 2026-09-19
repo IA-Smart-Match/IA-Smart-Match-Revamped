@@ -111,9 +111,18 @@ ranker imports the other. Unavailable information is `unknown`, never `0`
 `smartmatch_domain.scoring._ranked` (known first, value descending, subject id
 ascending) is untouched. The exercise adds `_exercise_ranked`, which extends
 the same key: more information on file first, then year with seniors first,
-then a fixed permutation seeded from the dataset id alone, so the order never
-changes between runs, teams, or processes. The reason line names the case:
+then a fixed permutation seeded from the dataset checksum alone, so the order
+never changes between runs, teams, or processes. The reason line names the case:
 "tied on major; ordered by year."
+
+> **Correction, 19 September 2026.** This paragraph read "seeded from the
+> dataset id alone". The seed is the dataset **checksum**, as the design spec
+> §4.4 and `rank_profiles_for_event(..., dataset_checksum=...)` in
+> `smartmatch_domain/exercise/matching.py` have both always said. A factual
+> correction of a detail, not a re-decision: the decision — that the exercise
+> has its own tie-break, ending in a fixed permutation seeded from the dataset
+> — is unchanged, so the status and date above stand and this is not an
+> amendment.
 
 ### D6. Hidden true interests are stored and never leave the server
 
