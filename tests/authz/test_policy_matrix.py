@@ -484,6 +484,56 @@ UNAUTHENTICATED_ROUTES: dict[tuple[str, str], str] = {
         "synthetic-data marker. There is no real record in this scope for it to "
         "disclose."
     ),
+    ("POST", "/v1/exercise/workspaces"): (
+        "The class exercise's entry screen (design spec §15, CE-WORKSPACE). "
+        "Public for the reason the row above is, and no more than it: this is "
+        "a no-login product over made-up profiles, mounted only under "
+        "`Capability.CLASS_EXERCISE`, in a scope that registers none of the "
+        "authenticated CBA routers, so there is no principal to require and "
+        "none reachable in the process. In a CBA process it is a 404. "
+        "What it accepts is one whole number, 1-6, validated against "
+        '`EXERCISE_TEAM_NUMBERS`; `extra="forbid"` rejects a body naming '
+        "anything else rather than ignoring it. What it does is create or "
+        "return the one workspace for (active dataset, team number) and set an "
+        "httpOnly, SameSite=Lax cookie pointing at it — a pointer to a server "
+        "row, carrying no claim, whose raw value is never stored. It is not an "
+        "oracle: entering a number another team used opens that team's "
+        "workspace *by design* (OQ-CE-08), and the response is identical "
+        "whether the workspace was just created or already existed, so it "
+        "cannot report whether anyone else has been there. Unbounded "
+        "creation is impossible rather than rate-limited: "
+        "`uq_exercise_team_workspace_dataset_team` caps the product at six "
+        "rows per dataset. Because the cookie is what a later request "
+        "presents, and a cookie is sent by a cross-site form where a bearer "
+        "header is not, this route additionally requires the "
+        "`X-Exercise-Request` header (see `exercise_dependencies`)."
+    ),
+    ("GET", "/v1/exercise/workspaces/current"): (
+        "Reads back the workspace the caller's own cookie points at, in the "
+        "no-login class-exercise scope. The cookie is the whole of the "
+        "addressing and it is not a credential for a person — there is no "
+        "person here, only a team number entered on a classroom laptop. It is "
+        "looked up by the SHA-256 of the presented token, so the server holds "
+        "no raw token to leak, and every way of not having a workspace — no "
+        "cookie, a cookie from a previous dataset, a cookie minted under a "
+        "rotated secret, an invented one — produces the same 401 and the same "
+        "sentence, so the route cannot be used to tell a real token from a "
+        "guess. The response carries the team number, the dataset label and "
+        "the invite limit; not the seed, the token, its hash, or the "
+        "workspace id."
+    ),
+    ("POST", "/v1/exercise/workspaces/current/reset"): (
+        "The per-team reset design spec §11 requires, in the no-login "
+        "class-exercise scope. It takes no body and no identifier: the "
+        "workspace it clears is the one the caller's own cookie resolves to, "
+        "so there is no parameter through which one team could name another's "
+        "— the isolation is a key, not a check. Every statement it runs is "
+        "keyed on that workspace id, and it deletes only that team's overlay, "
+        "saved settings and result runs before regenerating that team's seed. "
+        "Requires `X-Exercise-Request` alongside SameSite=Lax, because a "
+        "cookie-addressed POST with no login behind it is exactly the shape a "
+        "cross-site form forges."
+    ),
 }
 
 

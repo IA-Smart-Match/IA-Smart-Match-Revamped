@@ -237,8 +237,38 @@ def test_the_reachability_guard_catches_the_shapes_it_claims_to() -> None:
 def test_the_sanctioned_door_exists_and_is_importable_by_an_exercise_router() -> None:
     """The names a later track will write, pinned now so they are not re-invented."""
     assert exercise_dependencies.__name__ == _SANCTIONED_SESSION_MODULE
-    assert set(exercise_dependencies.__all__) == {"ExerciseSession", "get_exercise_session"}
+    assert {"ExerciseSession", "get_exercise_session"} <= set(exercise_dependencies.__all__)
     assert callable(exercise_dependencies.get_exercise_session)
+
+
+def test_the_door_exports_nothing_that_could_resolve_a_principal() -> None:
+    """The names grew (CE-WORKSPACE); the rule about what they may be did not.
+
+    The original assertion here was an equality over ``__all__``, which said
+    "these two names and no others". CE-WORKSPACE needed the door to widen —
+    it is where the exercise repositories, the workspace cookie and its two
+    refusals are injected from, so that a router imports this module and
+    nothing else — and an equality would have been edited into a longer
+    equality on every exercise track, which is a list nobody reads.
+
+    What the equality was actually protecting is stated directly instead: no
+    name this module exports may be one of the CBA request machinery's, and the
+    names it does export are the exercise's own. A principal, a quota or an
+    authorizer appearing here is the failure; a fourth workspace helper is not.
+    """
+    forbidden = {
+        "CurrentPrincipal",
+        "DbSession",
+        "ResolvedPrincipal",
+        "charge_quota",
+        "enforce_rate_limit",
+        "get_current_principal",
+        "get_session",
+        "get_token_verifier",
+    }
+    assert set(exercise_dependencies.__all__) & forbidden == set()
+    for name in exercise_dependencies.__all__:
+        assert hasattr(exercise_dependencies, name), f"{name} is exported but does not exist"
 
 
 def test_the_sanctioned_door_is_not_on_the_forbidden_list() -> None:
