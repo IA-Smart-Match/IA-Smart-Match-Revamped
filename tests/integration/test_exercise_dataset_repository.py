@@ -20,6 +20,7 @@ Requires a live database; skipped otherwise.
 from __future__ import annotations
 
 import logging
+import os
 import uuid
 from collections.abc import Iterator
 
@@ -49,6 +50,7 @@ from smartmatch_persistence.exercise.schema import (
     exercise_profile,
     exercise_team_workspace,
 )
+from sqlalchemy import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
 pytestmark = pytest.mark.integration
@@ -124,14 +126,47 @@ def _dataset(profiles: tuple[ParsedProfile, ...] | None = None) -> ParsedDataset
     )
 
 
+#: A database whose name starts with this is one these tests own outright.
+#: ``make test-integration`` against a personal database would otherwise hand
+#: this file a ``DELETE FROM exercise_dataset`` with no ``WHERE``.
+SCRATCH_DATABASE_PREFIX = "smartmatch_scratch"
+
+
+def _require_a_database_this_file_may_clear(engine: Engine) -> None:
+    """Skip unless every ``exercise_dataset`` row here is ours to delete.
+
+    The cleanup below is an unqualified ``DELETE``, which is safe only because
+    the exercise family has no tenant column to scope it by — ADR-0025 D2 is
+    what removed the scoping every other integration file uses, so the scoping
+    has to happen one level up, at the database.
+
+    Two gates rather than one, and the second is not laziness. CI's database
+    is named ``smartmatch`` — the *same* name a developer's local database
+    carries (``verify.yml``: ``POSTGRES_DB: smartmatch``) — so a prefix check
+    alone would silently skip this file on every CI run, which is the failure
+    mode that leaves a green tick over tests nobody executed. ``CI`` is set by
+    GitHub Actions and by nothing on a laptop, so it distinguishes the two
+    databases that share a name.
+    """
+    name = engine.url.database or ""
+    if name.startswith(SCRATCH_DATABASE_PREFIX) or os.getenv("CI"):
+        return
+    pytest.skip(
+        f"this file deletes every exercise_dataset row, and {name!r} is neither a "
+        f"scratch database (a name starting {SCRATCH_DATABASE_PREFIX!r}) nor a CI "
+        "runner. Point SMARTMATCH_DATABASE_URL at a database these tests own."
+    )
+
+
 @pytest.fixture
-def session(session_factory: sessionmaker[Session]) -> Iterator[Session]:
+def session(engine: Engine, session_factory: sessionmaker[Session]) -> Iterator[Session]:
     """A session whose exercise rows are removed afterwards, whatever happened.
 
     Cleanup deletes ``exercise_dataset`` only: every other table in the family
     is ``ON DELETE CASCADE`` from it, which is the same claim
     ``test_exercise_schema_migration.py`` makes about the downgrade.
     """
+    _require_a_database_this_file_may_clear(engine)
     with session_factory() as active:
         try:
             yield active
