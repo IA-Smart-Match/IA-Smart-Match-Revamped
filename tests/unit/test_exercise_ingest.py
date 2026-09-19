@@ -431,6 +431,11 @@ def test_the_csv_field_size_limit_is_restored() -> None:
 #: purpose: a substring search for it is the whole test.
 _WITHHELD_MARKER = "secret-interest-"
 
+#: The same marker after the term fold, which is the form actually stored on
+#: :class:`ParsedProfile` — and therefore the form a leak would carry. Searching
+#: for the raw spelling alone would pass without proving anything.
+_WITHHELD_MARKER_FOLDED = "secret interest"
+
 
 def test_the_withheld_column_reaches_the_profile_and_nothing_else() -> None:
     dataset = _accepted(_good_file())
@@ -439,6 +444,24 @@ def test_the_withheld_column_reaches_the_profile_and_nothing_else() -> None:
     assert _WITHHELD_MARKER not in repr(dataset.report)
     assert "hidden" not in repr(dataset.report)
     assert not any("hidden" in field.name for field in dataclasses.fields(dataset.report))
+
+
+def test_no_repr_in_the_parsed_result_prints_the_withheld_column() -> None:
+    """H2 — the default dataclass ``repr`` is a leak nobody writes a line for.
+
+    A ``ParsedProfile`` reaches a log line, an assertion message or a driver's
+    ``[parameters: …]`` as whatever its ``repr`` says, so the withheld field is
+    excluded from it. The value is still there to be read deliberately — this
+    asserts both halves, and walks the dataset and one profile.
+    """
+    dataset = _accepted(_good_file())
+    profile = dataset.profiles[0]
+
+    assert profile.hidden_true_interests == ("secret interest 001",)
+    for rendered in (repr(profile), repr(dataset), repr(dataset.profiles), str(profile)):
+        assert _WITHHELD_MARKER_FOLDED not in rendered
+        assert _WITHHELD_MARKER not in rendered
+    assert "Fictional Profile 001" in repr(profile)
 
 
 def _corpus_of_bad_files() -> list[bytes]:

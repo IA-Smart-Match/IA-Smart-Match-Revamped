@@ -48,12 +48,13 @@ from __future__ import annotations
 
 import logging
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Final
 
 import sqlalchemy as sa
-from smartmatch_domain.exercise.ingest import ParsedDataset, ParsedProfile
+from smartmatch_domain.exercise.ingest import ParsedDataset, ParsedEvent, ParsedProfile
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from smartmatch_persistence.exercise.schema import (
@@ -64,9 +65,13 @@ from smartmatch_persistence.exercise.schema import (
 )
 
 __all__ = [
+    "MAX_DATASET_LABEL_CHARACTERS",
+    "MAX_LIST_LIMIT",
     "MAX_SOURCE_FILENAME_CHARACTERS",
     "DatasetSummary",
+    "ExerciseDatasetLabelError",
     "ExerciseDatasetRepository",
+    "ExerciseDatasetWriteError",
     "ExerciseEventRow",
     "ExerciseProfileRow",
     "SimulationProfileRow",
@@ -83,6 +88,79 @@ MAX_SOURCE_FILENAME_CHARACTERS: Final[int] = 120
 #: all. ``source_filename`` is ``NOT NULL`` and a blank would fail no
 #: constraint while telling a reader nothing, so the absence is spelled out.
 _UNNAMED_SOURCE: Final[str] = "(unnamed upload)"
+
+#: The label bound of ``ck_exercise_dataset_label_shape`` in migration ``0037``
+#: (``length(btrim(label)) > 0 AND length(label) <= 200``), restated here so
+#: the check can happen before a row is attempted. The constraint remains the
+#: one that cannot be bypassed; this is the one that can produce a sentence.
+MAX_DATASET_LABEL_CHARACTERS: Final[int] = 200
+
+#: The most rows any read here will return. A caller asking for more has a bug
+#: or a query string; either way an unbounded ``LIMIT`` on a table that holds
+#: three hundred rows per dataset is a page nobody wants to render.
+MAX_LIST_LIMIT: Final[int] = 5_000
+
+
+class ExerciseDatasetWriteError(Exception):
+    """The database refused a dataset write, with no driver text attached.
+
+    ADR-0025 D6, through the one door nobody writes a line for.
+    SQLAlchemy's ``DBAPIError`` renders as the statement **plus**
+    ``[parameters: …]`` — for a failed profile insert that is every value of
+    every row, ``hidden_true_interests`` included. Anything that then logs the
+    exception, returns its text, or lets a test runner print it has published
+    the withheld column without a single line of code naming it.
+
+    So the driver's exception does not leave this module. It is caught, its
+    *type name* alone is logged, and this is raised instead — from outside the
+    ``except`` block, so that ``__context__`` is ``None`` rather than merely
+    suppressed. ``raise ... from None`` would set ``__suppress_context__`` and
+    hide the chain from a printed traceback while leaving the original, and its
+    parameters, reachable on the object.
+
+    The caller learns that the upload failed and rolls back. Which constraint
+    refused it is in the server log, by type, and in the database's own log.
+
+    A related follow-up is recorded on this pull request rather than done here:
+    setting ``hide_parameters=True`` on the engine would close the same door
+    for every repository at once, but it changes CBA error logs too and
+    belongs in its own change.
+    """
+
+    def __init__(self, message: str = "The student body could not be stored.") -> None:
+        super().__init__(message)
+
+
+class ExerciseDatasetLabelError(ValueError):
+    """The label for an upload is blank or longer than the column allows.
+
+    Raised before any row is attempted, so the instructor reads a sentence
+    about what they typed rather than a write failure about a constraint.
+    """
+
+
+def _require_usable_label(label: str) -> None:
+    """Refuse a label ``ck_exercise_dataset_label_shape`` would refuse.
+
+    Two definitions of "a usable label" can disagree, so this one is written
+    against the constraint's own two clauses and says so: non-blank once
+    trimmed, and at most :data:`MAX_DATASET_LABEL_CHARACTERS` characters
+    untrimmed, which is what ``length(label)`` measures.
+    """
+    if not label.strip():
+        raise ExerciseDatasetLabelError("Please give this data file a name.")
+    if len(label) > MAX_DATASET_LABEL_CHARACTERS:
+        raise ExerciseDatasetLabelError(
+            f"The name for this data file is longer than "
+            f"{MAX_DATASET_LABEL_CHARACTERS} characters; please shorten it."
+        )
+
+
+def _require_usable_limit(limit: int) -> int:
+    """Refuse a limit that is not a positive, bounded row count."""
+    if limit < 1 or limit > MAX_LIST_LIMIT:
+        raise ValueError(f"limit must be between 1 and {MAX_LIST_LIMIT}, not {limit}")
+    return limit
 
 
 @dataclass(frozen=True, slots=True)
@@ -165,6 +243,12 @@ class SimulationProfileRow:
     :class:`ExerciseProfileRow` instead — and if a screen ever appears to need
     this type, that is the moment to reread D6 rather than the moment to add a
     field.
+
+    The withheld field is ``field(repr=False)`` for the reason
+    :class:`~smartmatch_domain.exercise.layout.ParsedProfile` gives: a default
+    ``repr`` is what a log line, an assertion message and a debugger transcript
+    print, so a withheld field inside one leaves the server through code nobody
+    wrote. The value is still there to be read deliberately.
     """
 
     profile_no: int
@@ -174,7 +258,7 @@ class SimulationProfileRow:
     past_event_keys: tuple[str, ...]
     stated_interests: tuple[str, ...] | None
     career_goal: str | None
-    hidden_true_interests: tuple[str, ...]
+    hidden_true_interests: tuple[str, ...] = field(repr=False)
 
 
 def sanitise_source_filename(name: str | None) -> str:
@@ -225,54 +309,42 @@ class ExerciseDatasetRepository:
             session: The caller's session. Not committed here.
             parsed: What :func:`parse_exercise_file` accepted. A refusal never
                 reaches this method — the type says so.
-            label: What the instructor called this upload. Its shape is
-                enforced by ``ck_exercise_dataset_label_shape`` and by nothing
-                here: one definition of "a usable label", in the place that
-                cannot be bypassed, rather than two that can disagree.
+            label: What the instructor called this upload. Checked here against
+                ``ck_exercise_dataset_label_shape`` *before* anything is
+                written, so a bad label is a sentence about the label rather
+                than a write failure about a constraint.
             source_filename: The browser's file name, sanitised by
                 :func:`sanitise_source_filename` before it is stored.
 
         Returns:
             The dataset as :meth:`get_dataset_summary` would read it back.
 
+        Raises:
+            ExerciseDatasetLabelError: if ``label`` is blank or too long.
+            ExerciseDatasetWriteError: if the database refuses any of the three
+                writes. The driver's own exception never escapes — see
+                :class:`ExerciseDatasetWriteError`.
+
         Touches no workspace row. Design spec §3: existing workspaces keep
         pointing at their old dataset until the instructor re-points them.
         """
+        _require_usable_label(label)
         dataset_id = uuid.uuid4()
-        session.execute(
-            sa.insert(exercise_dataset).values(
-                id=dataset_id,
-                label=label,
-                source_filename=sanitise_source_filename(source_filename),
-                row_count=parsed.row_count,
-                checksum=parsed.checksum,
-            )
+        failure = self._write_rows(
+            session,
+            parsed,
+            dataset_id=dataset_id,
+            label=label,
+            source_filename=source_filename,
         )
-        if parsed.profiles:
-            session.execute(
-                sa.insert(exercise_profile),
-                [_profile_values(dataset_id, profile) for profile in parsed.profiles],
-            )
-        if parsed.events:
-            session.execute(
-                sa.insert(exercise_event),
-                [
-                    {
-                        "dataset_id": dataset_id,
-                        "event_key": event.event_key,
-                        "name": event.name,
-                        "topic_tags": list(event.topic_tags),
-                        "target_majors": list(event.target_majors),
-                        "is_exercise_event": event.is_exercise_event,
-                        "sequence": event.sequence,
-                    }
-                    for event in parsed.events
-                ],
-            )
-        # Flushed here so that a constraint the parser did not model is raised
-        # by this call rather than by a commit somewhere up the stack, where
-        # the failure would name no upload.
-        session.flush()
+        # Raised *outside* the ``except`` block that built it, so the new
+        # exception has no ``__context__`` at all. ``raise ... from None`` only
+        # sets ``__suppress_context__``, which hides the chained driver error
+        # from a printed traceback while leaving it reachable on the object —
+        # and what it holds is ``[parameters: …]``, every value of every row
+        # (ADR-0025 D6).
+        if failure is not None:
+            raise failure
         _LOGGER.info(
             "exercise dataset stored: profiles=%d events=%d",
             len(parsed.profiles),
@@ -282,6 +354,51 @@ class ExerciseDatasetRepository:
         if summary is None:  # pragma: no cover - unreachable after a flush
             raise RuntimeError("the dataset row vanished between its insert and its read")
         return summary
+
+    def _write_rows(
+        self,
+        session: Session,
+        parsed: ParsedDataset,
+        *,
+        dataset_id: uuid.UUID,
+        label: str,
+        source_filename: str | None,
+    ) -> ExerciseDatasetWriteError | None:
+        """The three inserts and the flush, returning a failure rather than raising.
+
+        Returns rather than raises so that :meth:`create_dataset` can raise
+        outside the ``except`` block — see the comment at its call site. The
+        log line carries the exception's *type name* and nothing else: the
+        driver's message is the leak this method exists to stop.
+        """
+        try:
+            session.execute(
+                sa.insert(exercise_dataset).values(
+                    id=dataset_id,
+                    label=label,
+                    source_filename=sanitise_source_filename(source_filename),
+                    row_count=parsed.row_count,
+                    checksum=parsed.checksum,
+                )
+            )
+            if parsed.profiles:
+                session.execute(
+                    sa.insert(exercise_profile),
+                    [_profile_values(dataset_id, profile) for profile in parsed.profiles],
+                )
+            if parsed.events:
+                session.execute(
+                    sa.insert(exercise_event),
+                    [_event_values(dataset_id, event) for event in parsed.events],
+                )
+            # Flushed here so that a constraint the parser did not model is
+            # raised by this call rather than by a commit somewhere up the
+            # stack, where the failure would name no upload.
+            session.flush()
+        except SQLAlchemyError as exc:
+            _LOGGER.warning("exercise dataset write failed: error=%s", type(exc).__name__)
+            return ExerciseDatasetWriteError()
+        return None
 
     # -----------------------------------------------------------------------
     # Reads
@@ -315,7 +432,7 @@ class ExerciseDatasetRepository:
             sa.select(*exercise_profile_public_columns())
             .where(exercise_profile.c.dataset_id == dataset_id)
             .order_by(exercise_profile.c.profile_no)
-            .limit(limit)
+            .limit(_require_usable_limit(limit))
         )
         return tuple(
             ExerciseProfileRow(
@@ -431,7 +548,7 @@ class ExerciseDatasetRepository:
             )
             .where(*extra)
             .order_by(exercise_dataset.c.uploaded_at.desc(), exercise_dataset.c.id)
-            .limit(limit)
+            .limit(_require_usable_limit(limit))
         )
         return tuple(
             DatasetSummary(
@@ -468,4 +585,17 @@ def _profile_values(dataset_id: uuid.UUID, profile: ParsedProfile) -> dict[str, 
         ),
         "career_goal": profile.career_goal,
         "hidden_true_interests": list(profile.hidden_true_interests),
+    }
+
+
+def _event_values(dataset_id: uuid.UUID, event: ParsedEvent) -> dict[str, object]:
+    """One event as a row, in file order via ``sequence``."""
+    return {
+        "dataset_id": dataset_id,
+        "event_key": event.event_key,
+        "name": event.name,
+        "topic_tags": list(event.topic_tags),
+        "target_majors": list(event.target_majors),
+        "is_exercise_event": event.is_exercise_event,
+        "sequence": event.sequence,
     }

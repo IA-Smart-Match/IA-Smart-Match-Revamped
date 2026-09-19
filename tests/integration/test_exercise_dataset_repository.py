@@ -19,6 +19,7 @@ Requires a live database; skipped otherwise.
 
 from __future__ import annotations
 
+import logging
 import uuid
 from collections.abc import Iterator
 
@@ -35,8 +36,11 @@ from smartmatch_domain.exercise.ingest import (
     ParsedProfile,
 )
 from smartmatch_persistence.exercise.dataset_repository import (
+    MAX_LIST_LIMIT,
     MAX_SOURCE_FILENAME_CHARACTERS,
+    ExerciseDatasetLabelError,
     ExerciseDatasetRepository,
+    ExerciseDatasetWriteError,
     sanitise_source_filename,
 )
 from smartmatch_persistence.exercise.schema import (
@@ -45,7 +49,6 @@ from smartmatch_persistence.exercise.schema import (
     exercise_profile,
     exercise_team_workspace,
 )
-from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session, sessionmaker
 
 pytestmark = pytest.mark.integration
@@ -164,12 +167,29 @@ def test_one_upload_becomes_a_dataset_its_profiles_and_its_events(session: Sessi
     assert summary.license_line is None
 
 
-def test_a_refused_write_leaves_no_row_behind(session: Session) -> None:
-    """``ck_exercise_dataset_label_shape`` refuses a 300-character label."""
-    with pytest.raises(DBAPIError):
+def test_a_label_the_database_would_refuse_is_refused_before_any_write(
+    session: Session,
+) -> None:
+    """M5: ``ck_exercise_dataset_label_shape`` restated at the boundary.
+
+    Checked in Python *before* the insert, so the instructor gets a sentence
+    about the label rather than a write failure about a constraint — and so a
+    300-character label never reaches the database at all.
+    """
+    with pytest.raises(ExerciseDatasetLabelError) as caught:
         REPOSITORY.create_dataset(
             session, _dataset(), label="x" * 300, source_filename="ann-sample.csv"
         )
+    session.rollback()
+
+    assert "200" in str(caught.value)
+    assert _counts(session) == (0, 0, 0)
+
+
+@pytest.mark.parametrize("label", ["", "   ", "\t\n"])
+def test_a_blank_label_is_refused_with_a_sentence(session: Session, label: str) -> None:
+    with pytest.raises(ExerciseDatasetLabelError):
+        REPOSITORY.create_dataset(session, _dataset(), label=label, source_filename="a.csv")
     session.rollback()
 
     assert _counts(session) == (0, 0, 0)
@@ -179,13 +199,65 @@ def test_a_duplicate_profile_number_refuses_the_whole_upload(session: Session) -
     """The parser refuses this first; the primary key is the second line."""
     duplicated = (_profile(1), _profile(1), _profile(2))
 
-    with pytest.raises(DBAPIError):
+    with pytest.raises(ExerciseDatasetWriteError):
         REPOSITORY.create_dataset(
             session, _dataset(duplicated), label="Duplicated", source_filename="x.csv"
         )
     session.rollback()
 
     assert _counts(session) == (0, 0, 0)
+
+
+def test_a_write_failure_never_carries_the_withheld_column_out_of_the_driver(
+    session: Session,
+) -> None:
+    """H1 — ADR-0025 D6 through the one door nobody writes a line for.
+
+    A ``DBAPIError``'s text embeds ``[parameters: …]``, which for a failed
+    profile insert is every value of every row — ``hidden_true_interests``
+    included. Re-raising it, logging it, or letting pytest print it would
+    publish the withheld column without a single line of code naming it. So
+    the driver's exception is swallowed at the repository boundary and
+    replaced with one sentence, and this test walks ``str``, ``repr`` and the
+    formatted traceback of what comes out.
+    """
+    import traceback
+
+    duplicated = (_profile(1), _profile(1), _profile(2))
+
+    with pytest.raises(ExerciseDatasetWriteError) as caught:
+        REPOSITORY.create_dataset(
+            session, _dataset(duplicated), label="Duplicated", source_filename="x.csv"
+        )
+    session.rollback()
+
+    error = caught.value
+    rendered = "".join(traceback.format_exception(error))
+    assert error.__context__ is None
+    assert error.__cause__ is None
+    for text in (str(error), repr(error), rendered):
+        assert "secret-interest" not in text
+        assert "hidden_true_interests" not in text
+    assert _counts(session) == (0, 0, 0)
+
+
+def test_a_write_failure_logs_only_the_exception_type(
+    session: Session, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The log line that replaces the driver's carries no parameters either."""
+    duplicated = (_profile(1), _profile(1))
+
+    logger = "smartmatch_persistence.exercise.dataset_repository"
+    with caplog.at_level(logging.WARNING, logger=logger), pytest.raises(ExerciseDatasetWriteError):
+        REPOSITORY.create_dataset(
+            session, _dataset(duplicated), label="Duplicated", source_filename="x.csv"
+        )
+    session.rollback()
+
+    logged = "\n".join(record.getMessage() for record in caplog.records)
+    assert "IntegrityError" in logged
+    assert "secret-interest" not in logged
+    assert "Fictional Profile" not in logged
 
 
 def test_creating_a_dataset_leaves_every_workspace_alone(session: Session) -> None:
@@ -235,6 +307,17 @@ def test_list_datasets_is_newest_first(session: Session) -> None:
     listed = REPOSITORY.list_datasets(session, limit=10)
 
     assert [row.dataset_id for row in listed] == [newer.dataset_id, older.dataset_id]
+
+
+@pytest.mark.parametrize("limit", [0, -1, MAX_LIST_LIMIT + 1])
+def test_a_read_refuses_a_limit_that_is_not_a_bounded_row_count(
+    session: Session, limit: int
+) -> None:
+    """An unbounded or nonsensical ``LIMIT`` is a caller bug, not a page."""
+    with pytest.raises(ValueError, match="limit must be between"):
+        REPOSITORY.list_datasets(session, limit=limit)
+    with pytest.raises(ValueError, match="limit must be between"):
+        REPOSITORY.list_profiles(session, dataset_id=uuid.uuid4(), limit=limit)
 
 
 def test_a_summary_read_back_matches_what_was_written(session: Session) -> None:
@@ -306,6 +389,27 @@ def test_the_simulation_loader_is_the_one_read_that_sees_it(session: Session) ->
 
     assert [row.profile_no for row in rows] == list(range(1, 13))
     assert rows[0].hidden_true_interests == ("secret-interest-001",)
+
+
+def test_the_simulation_row_keeps_the_withheld_column_out_of_its_repr(
+    session: Session,
+) -> None:
+    """H2 — the default dataclass ``repr`` is a leak nobody writes a line for.
+
+    ``SimulationProfileRow`` is the one type that carries the withheld column,
+    so it is the one type whose ``repr`` would publish it — into a log line, a
+    pytest assertion message, or a debugger transcript. The field is excluded
+    from the ``repr``; the value is still there to be read deliberately.
+    """
+    summary = REPOSITORY.create_dataset(session, _dataset(), label="Repr", source_filename="i.csv")
+    session.commit()
+
+    rows = REPOSITORY.load_simulation_profiles(session, dataset_id=summary.dataset_id)
+
+    assert rows[0].hidden_true_interests == ("secret-interest-001",)
+    assert "secret-interest" not in repr(rows[0])
+    assert "secret-interest" not in repr(rows)
+    assert "Fictional Profile 001" in repr(rows[0])
 
 
 def test_the_withheld_column_is_stored_even_though_no_screen_reads_it(session: Session) -> None:

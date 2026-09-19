@@ -19,12 +19,15 @@ names and a different separator through a ``dataclasses.replace`` of it.
 ADR-0025 D6
 ===========
 ``hidden_true_interests`` is a field of :class:`ParsedProfile` and of nothing
-else here. :class:`IngestReport` has no field for it at all.
+else here, and it is declared ``field(repr=False)`` so that the value cannot
+reach a log line, an assertion message or a driver's ``[parameters: …]``
+through the default dataclass ``repr`` — a leak through code nobody wrote.
+:class:`IngestReport` has no field for it at all.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Final
 
 __all__ = [
@@ -192,7 +195,12 @@ class ParsedProfile:
     nullable column.
 
     ``hidden_true_interests`` is ADR-0025 D6's withheld list: carried here so
-    the repository can store it and named on no report.
+    the repository can store it, named on no report, and **excluded from the
+    ``repr``**. That exclusion is load-bearing rather than tidy. A dataclass's
+    default ``repr`` is what a log line, an assertion message, a debugger
+    transcript and a database driver's ``[parameters: …]`` all print, so a
+    withheld field that is in the ``repr`` leaves the server through code
+    nobody wrote. The value is still there to be read deliberately.
     """
 
     profile_no: int
@@ -202,7 +210,7 @@ class ParsedProfile:
     past_event_keys: tuple[str, ...]
     stated_interests: tuple[str, ...] | None
     career_goal: str | None
-    hidden_true_interests: tuple[str, ...]
+    hidden_true_interests: tuple[str, ...] = field(repr=False)
 
 
 @dataclass(frozen=True, slots=True)
