@@ -760,6 +760,24 @@ def test_no_route_response_mentions_the_withheld_column(signed_in: TestClient) -
             assert withheld not in body
 
 
+def test_the_served_contract_names_the_withheld_column_nowhere(
+    state: dict[str, Any],
+) -> None:
+    """ADR-0025 D6 reaches the *document*, not only the fields.
+
+    A handler docstring becomes a route's ``description``, so a route that
+    merely *explains* the withheld column publishes its name — which is how
+    ``refresh-all``'s docstring came to fail this during development. The
+    schemas are clean by construction; the prose is not, unless somebody checks
+    it.
+    """
+    app = _exercise_app(_settings(), state)
+    document = str(app.openapi())
+
+    for withheld in EXERCISE_WITHHELD_FIELDS:
+        assert withheld not in document
+
+
 # ---------------------------------------------------------------------------
 # Scope isolation (ADR-0025 D1)
 # ---------------------------------------------------------------------------

@@ -45,6 +45,13 @@ What a response may carry, and what it may never
 * **No** ``hidden_true_interests``, in any field, any log line, any exception
   text (ADR-0025 D6). Nothing in this module reads the column and nothing it
   calls returns it — the instructor repository's reads are counts and names.
+
+  The rule reaches further than the fields, and it caught one line in this
+  module: a **handler docstring becomes a route's ``description`` in the
+  exported contract**, so naming the column while explaining why ``refresh-all``
+  is switched off would have published the name D6 forbids publishing anywhere.
+  Handler docstrings here say *the withheld column*; this module docstring is
+  not served, which is why it may say it plainly.
 * **No** score, percentage or confidence (ADR-0025 D8). A team's result run is
   described by how many were invited, signed up and attended, never by a
   number about how well it did. The instructor's screen is on the same
@@ -662,7 +669,7 @@ def reset_team_workspace(
 def refresh_all_workspaces() -> None:
     """Design spec §13's "refresh all", declared and deliberately not built.
 
-    The refresh copies a share of ``hidden_true_interests`` into each team's
+    The refresh copies a share of the withheld column into each team's
     overlay, and that share is decided by the team's asking choice, which is
     stored by a route the results track owns. There is no asking choice to read
     yet, so a refresh here would either do nothing at all or invent a share —
