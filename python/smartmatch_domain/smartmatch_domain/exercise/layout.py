@@ -256,6 +256,9 @@ class IngestReport:
     The term counts are ADR-0011's "counted, never silently dropped" under a
     mapping that does not exist yet: no term is mapped to G3, so every distinct
     term is reported as-is and every row is kept.
+    ``discarded_list_entries`` is the one thing a list cell can lose — an entry
+    that is punctuation only and normalises to nothing — and it is counted here
+    for exactly that reason rather than disappearing.
 
     Attributes:
         profile_count: Profile rows accepted.
@@ -269,6 +272,8 @@ class IngestReport:
         distinct_stated_interest_terms: Distinct interest terms across cards.
         distinct_topic_tag_terms: Distinct topic terms across events.
         events_without_topic_tags: Events whose topic cell was empty.
+        discarded_list_entries: List-cell entries that normalised to nothing
+            and are therefore in no stored array.
         markers: The three "how much we know" groups.
     """
 
@@ -282,6 +287,7 @@ class IngestReport:
     distinct_stated_interest_terms: int
     distinct_topic_tag_terms: int
     events_without_topic_tags: int
+    discarded_list_entries: int
     markers: MarkerDistribution
 
 

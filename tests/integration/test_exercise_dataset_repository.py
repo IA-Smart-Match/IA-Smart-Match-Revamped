@@ -118,6 +118,7 @@ def _dataset(profiles: tuple[ParsedProfile, ...] | None = None) -> ParsedDataset
             distinct_stated_interest_terms=1,
             distinct_topic_tag_terms=2,
             events_without_topic_tags=0,
+            discarded_list_entries=0,
             markers=MarkerDistribution(major_only=0, major_plus_events=0, completed_card=len(rows)),
         ),
     )

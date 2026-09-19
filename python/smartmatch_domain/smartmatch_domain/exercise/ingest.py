@@ -68,12 +68,24 @@ in no log line. The log records counts only — never a cell, never a name.
 Untrusted input
 ===============
 This parses a file a browser uploaded. The byte cap, the cell cap, the column
-cap and the row cap below are all checked *before* any per-row work, NUL bytes
-are refused outright, and ``csv.field_size_limit`` is set to a bounded value
-and restored. No cell is ever evaluated: a leading ``=``, ``+`` or ``@`` is
-data here and nothing reads it as a formula. The CSV-injection risk of those
-prefixes belongs to the **download** track of §8, which writes cells rather
-than reading them; it is noted here and acted on there.
+cap and the row cap below are all checked *before* any per-row work, the row
+cap is applied to a slice rather than to a fully read file, NUL bytes are
+refused outright, and the two numeric columns are bounded to what a
+PostgreSQL ``integer`` can hold. ``csv.field_size_limit`` is **not** touched —
+it is process-global, so setting and restoring it around a parse corrupts it
+for every other reader in the process when two parses overlap;
+:func:`_read_rows` says what stands in for it.
+
+Every refusal that quotes a piece of the file passes it through
+:func:`_quote` first, because a column heading and a cell are whatever the
+uploader typed: newlines that turn one log line into several, control
+characters, a backtick that breaks the quoting these sentences use, ten
+thousand characters where forty would do.
+
+No cell is ever evaluated: a leading ``=``, ``+`` or ``@`` is data here and
+nothing reads it as a formula. The CSV-injection risk of those prefixes
+belongs to the **download** track of §8, which writes cells rather than
+reading them; it is noted here and acted on there.
 """
 
 from __future__ import annotations
@@ -81,6 +93,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import io
+import itertools
 import logging
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -107,6 +120,7 @@ __all__ = [
     "EXERCISE_EVENT_ROW_COUNT",
     "MAX_CELL_CHARACTERS",
     "MAX_COLUMN_COUNT",
+    "MAX_COLUMN_INTEGER",
     "MAX_DATA_ROW_COUNT",
     "MAX_PROFILE_ROW_COUNT",
     "MAX_UPLOAD_BYTES",
@@ -156,8 +170,51 @@ EXERCISE_EVENT_ROW_COUNT: Final[int] = 2
 #: them out. A sentence that lists three hundred duplicates is not a sentence.
 _MAX_NAMED_VALUES: Final[int] = 5
 
+#: The largest value ``exercise_profile.profile_no`` and
+#: ``exercise_event.sequence`` can hold. Both are PostgreSQL ``integer``
+#: (int4), and Python's ``int`` has no ceiling — so without this a
+#: four-hundred-digit cell parses happily here and is refused four layers later
+#: by a driver, which reports it with the row attached.
+MAX_COLUMN_INTEGER: Final[int] = 2_147_483_647
+
+#: The most digits a number cell may carry before it is refused unread. Ten is
+#: the width of :data:`MAX_COLUMN_INTEGER`; the point of checking the length
+#: before calling ``int()`` is that parsing a very long digit string is itself
+#: work a hostile upload should not be able to ask for.
+_MAX_NUMBER_DIGITS: Final[int] = 10
+
+#: How much of a quoted piece of the uploaded file a sentence shows.
+_QUOTED_TEXT_CHARACTERS: Final[int] = 40
+
 #: Where ``csv.DictReader`` puts cells past the end of the header.
 _OVERFLOW_KEY: Final[str] = "__extra_cells__"
+
+
+def _quote(text: str) -> str:
+    """Render a piece of the uploaded file for a sentence an instructor reads.
+
+    Every refusal that names something the uploader typed — a column heading, a
+    cell, an event key — goes through this first. File content is untrusted
+    text: it can carry newlines that turn one log line into several, control
+    characters, a backtick that breaks out of the quoting the sentences use,
+    and ten thousand characters where forty would do.
+
+    So: unprintable characters become spaces, runs of whitespace collapse,
+    backticks are removed (they are this module's own delimiter, not the
+    uploader's), and the result is truncated with an ellipsis. Empty input
+    reads as ``(blank)``, because a sentence with nothing between its backticks
+    tells an instructor less than the word does.
+
+    This is presentation, not sanitisation of stored data: nothing here is ever
+    written to a row. The stored values keep their own spelling.
+    """
+    flattened = "".join(character if character.isprintable() else " " for character in text)
+    cleaned = " ".join(flattened.replace("`", "").split())
+    if not cleaned:
+        return "(blank)"
+    if len(cleaned) > _QUOTED_TEXT_CHARACTERS:
+        return cleaned[:_QUOTED_TEXT_CHARACTERS] + "…"
+    return cleaned
 
 
 def parse_exercise_file(
@@ -266,29 +323,34 @@ class _Sheet:
 
 
 def _read_rows(text: str, layout: ExerciseFileLayout) -> _Sheet | IngestRefusal:
-    """Parse the CSV with a bounded field size, restoring the global limit.
+    """Read the CSV, one row past the cap and no further.
 
-    ``csv.field_size_limit`` is process-global: it is not a parser setting but
-    a module one, so raising it for this call would raise it for every other
-    caller in the process. It is therefore set defensively to a bounded value
-    and restored in a ``finally``, and
-    ``test_the_csv_field_size_limit_is_restored`` pins that.
+    **``csv.field_size_limit`` is deliberately not touched.** It is
+    process-global rather than per-reader, so setting and restoring it around
+    this call is only safe in a single-threaded process: two parses running at
+    once interleave, and whichever restores last leaves the global at the
+    other's value for every reader in the process — including the CBA import
+    path. Nothing here needs it raised. The 2 MiB upload cap bounds the file,
+    :data:`MAX_CELL_CHARACTERS` bounds a cell, and the stdlib default of
+    131072 is itself a bound; a cell larger than that raises ``csv.Error`` and
+    becomes the plain sentence below rather than a lowered global limit.
+
+    Rows are taken through :func:`itertools.islice` at one past
+    :data:`MAX_DATA_ROW_COUNT`, so a file of a million rows costs the cap and
+    not the file. That extra row is what :func:`_collect_rows` refuses on, and
+    it is why the sentence says "more than" instead of a total: the total was
+    never counted.
     """
-    previous = csv.field_size_limit()
+    reader = csv.DictReader(io.StringIO(text), restkey=_OVERFLOW_KEY, restval="")
     try:
-        csv.field_size_limit(MAX_CELL_CHARACTERS * 8)
-        reader = csv.DictReader(io.StringIO(text), restkey=_OVERFLOW_KEY, restval="")
-        try:
-            fieldnames = reader.fieldnames
-            body = list(reader)
-        except csv.Error:
-            return IngestRefusal(
-                "unreadable_csv",
-                "The file could not be read as a CSV table; please check it "
-                "opens as a spreadsheet and re-export it.",
-            )
-    finally:
-        csv.field_size_limit(previous)
+        fieldnames = reader.fieldnames
+        body = [(reader.line_num, row) for row in itertools.islice(reader, MAX_DATA_ROW_COUNT + 1)]
+    except csv.Error:
+        return IngestRefusal(
+            "unreadable_csv",
+            "The file could not be read as a CSV table; please check it "
+            "opens as a spreadsheet and re-export it.",
+        )
     headers = _header_map(fieldnames)
     if isinstance(headers, IngestRefusal):
         return headers
@@ -316,11 +378,18 @@ def _header_map(fieldnames: Sequence[str] | None) -> Mapping[str, str] | IngestR
         )
     mapped: dict[str, str] = {}
     for name in fieldnames:
-        key = normalize_header(name or "")
+        heading = name or ""
+        if len(heading) > MAX_CELL_CHARACTERS:
+            return IngestRefusal(
+                "column_name_too_long",
+                f"One of the column headings is longer than {MAX_CELL_CHARACTERS} "
+                "characters; please check the first row of the file.",
+            )
+        key = normalize_header(heading)
         if key and key in mapped:
             return IngestRefusal(
                 "duplicate_column",
-                f"The file has two columns named `{name.strip()}`; please leave "
+                f"The file has two columns named `{_quote(heading)}`; please leave "
                 "one of them and upload it again.",
             )
         if key:
@@ -355,18 +424,25 @@ def _missing_columns_sentence(missing: Sequence[str]) -> str:
 
 
 def _collect_rows(
-    headers: Mapping[str, str], body: Sequence[Mapping[str, object]]
+    headers: Mapping[str, str], body: Sequence[tuple[int, Mapping[str, object]]]
 ) -> _Sheet | IngestRefusal:
-    """Bound the row count and every cell, and drop rows that are entirely blank."""
+    """Bound the row count and every cell, and drop rows that are entirely blank.
+
+    ``body`` carries each row's **file line number**, taken from
+    ``csv.DictReader.line_num`` rather than counted off the row's position. A
+    quoted cell may contain a newline, and when one does every row after it
+    sits on a later line than its index suggests — so an instructor told to
+    look at "row 12" would be looking at the wrong row, which is worse than
+    not being told.
+    """
     if len(body) > MAX_DATA_ROW_COUNT:
         return IngestRefusal(
             "too_many_rows",
-            f"The file has {len(body)} rows, which is more than this page reads "
-            f"({MAX_DATA_ROW_COUNT}).",
+            f"The file has more than {MAX_DATA_ROW_COUNT} rows, which is more "
+            "than this page reads.",
         )
     kept: list[tuple[int, Mapping[str, str]]] = []
-    for index, row in enumerate(body):
-        line = index + 2
+    for line, row in body:
         if row.get(_OVERFLOW_KEY):
             return IngestRefusal(
                 "ragged_row",
@@ -379,7 +455,7 @@ def _collect_rows(
             return IngestRefusal(
                 "cell_too_long",
                 f"Row {line} has more than {MAX_CELL_CHARACTERS} characters in "
-                f"the column `{too_long}`; please shorten it and upload again.",
+                f"the column `{_quote(too_long)}`; please shorten it and upload again.",
             )
         if any(cells.values()):
             kept.append((line, cells))
@@ -420,12 +496,13 @@ def _build_dataset(
             f"The file has {count} profile rows; it needs between "
             f"{MIN_PROFILE_ROW_COUNT} and {MAX_PROFILE_ROW_COUNT}.",
         )
-    profiles = _parse_profiles(sheet, profile_rows, layout)
-    if isinstance(profiles, IngestRefusal):
-        return profiles
-    events = _parse_events(sheet, event_rows, layout)
-    if isinstance(events, IngestRefusal):
-        return events
+    profile_batch = _parse_profiles(sheet, profile_rows, layout)
+    if isinstance(profile_batch, IngestRefusal):
+        return profile_batch
+    event_batch = _parse_events(sheet, event_rows, layout)
+    if isinstance(event_batch, IngestRefusal):
+        return event_batch
+    profiles, events = profile_batch.profiles, event_batch.events
     cross = _check_across_rows(profiles, events)
     if cross is not None:
         return cross
@@ -434,7 +511,9 @@ def _build_dataset(
         events=events,
         checksum=checksum,
         row_count=count,
-        report=_build_report(profiles, events),
+        report=_build_report(
+            profiles, events, discarded=profile_batch.discarded + event_batch.discarded
+        ),
     )
 
 
@@ -456,17 +535,34 @@ def _split_by_kind(
             return IngestRefusal(
                 "unknown_record_type",
                 f"Row {line} has `{layout.record_type_column}` set to "
-                f"`{kind or '(blank)'}`; every row must say either "
+                f"`{_quote(kind)}`; every row must say either "
                 f"`{layout.profile_record_value}` or `{layout.event_record_value}`.",
             )
     return profiles, events
 
 
+@dataclass(frozen=True, slots=True)
+class _ProfileBatch:
+    """Parsed profiles, and how many list entries normalised away (ADR-0011)."""
+
+    profiles: tuple[ParsedProfile, ...]
+    discarded: int
+
+
+@dataclass(frozen=True, slots=True)
+class _EventBatch:
+    """Parsed events, and how many list entries normalised away (ADR-0011)."""
+
+    events: tuple[ParsedEvent, ...]
+    discarded: int
+
+
 def _parse_profiles(
     sheet: _Sheet, rows: Sequence[tuple[int, Mapping[str, str]]], layout: ExerciseFileLayout
-) -> tuple[ParsedProfile, ...] | IngestRefusal:
+) -> _ProfileBatch | IngestRefusal:
     """One profile per row, refusing anything ``exercise_profile`` would refuse."""
     parsed: list[ParsedProfile] = []
+    discarded = 0
     for line, row in rows:
         number = _positive_int(_get(sheet, row, layout.profile_no_column))
         if number is None:
@@ -481,6 +577,9 @@ def _parse_profiles(
                 f"Row {line} has nothing in the column `{layout.display_name_column}`.",
             )
         card = _get(sheet, row, layout.stated_interests_column)
+        interests, lost_interests = _terms(card, layout)
+        withheld, lost_withheld = _terms(_get(sheet, row, layout.hidden_interests_column), layout)
+        discarded += lost_interests + lost_withheld
         parsed.append(
             ParsedProfile(
                 profile_no=number,
@@ -490,21 +589,20 @@ def _parse_profiles(
                 past_event_keys=_split_cell(
                     _get(sheet, row, layout.past_event_keys_column), layout
                 ),
-                stated_interests=_terms(card, layout) if card else None,
+                stated_interests=interests if card else None,
                 career_goal=_get(sheet, row, layout.career_goal_column) or None,
-                hidden_true_interests=_terms(
-                    _get(sheet, row, layout.hidden_interests_column), layout
-                ),
+                hidden_true_interests=withheld,
             )
         )
-    return tuple(parsed)
+    return _ProfileBatch(profiles=tuple(parsed), discarded=discarded)
 
 
 def _parse_events(
     sheet: _Sheet, rows: Sequence[tuple[int, Mapping[str, str]]], layout: ExerciseFileLayout
-) -> tuple[ParsedEvent, ...] | IngestRefusal:
+) -> _EventBatch | IngestRefusal:
     """One event per row, refusing anything ``exercise_event`` would refuse."""
     parsed: list[ParsedEvent] = []
+    discarded = 0
     for line, row in rows:
         key = _get(sheet, row, layout.event_key_column)
         name = _get(sheet, row, layout.event_name_column)
@@ -527,11 +625,13 @@ def _parse_events(
                 f"Row {line} has a value in the column "
                 f"`{layout.is_exercise_event_column}` that is neither yes nor no.",
             )
+        topics, lost_topics = _terms(_get(sheet, row, layout.topic_tags_column), layout)
+        discarded += lost_topics
         parsed.append(
             ParsedEvent(
                 event_key=key,
                 name=name,
-                topic_tags=_terms(_get(sheet, row, layout.topic_tags_column), layout),
+                topic_tags=topics,
                 # Split, not folded: a major is stored as written on
                 # ``exercise_profile.major`` too, and folding one side of a
                 # comparison but not the other is how "Data Science" stops
@@ -541,7 +641,7 @@ def _parse_events(
                 sequence=sequence,
             )
         )
-    return tuple(parsed)
+    return _EventBatch(events=tuple(parsed), discarded=discarded)
 
 
 def _first_blank(fields: Mapping[str, str]) -> str | None:
@@ -550,12 +650,25 @@ def _first_blank(fields: Mapping[str, str]) -> str | None:
 
 
 def _positive_int(text: str) -> int | None:
-    """A whole number of at least one, or ``None`` for anything else."""
+    """A whole number the column can hold, or ``None`` for anything else.
+
+    Bounded at both ends by what ``exercise_profile.profile_no`` and
+    ``exercise_event.sequence`` actually are: ``CHECK (… >= 1)`` below, and
+    PostgreSQL ``integer`` above. Python's ``int`` has neither bound, so
+    without this a four-hundred-digit cell would parse here and be refused by
+    a driver later, with the row in the error text.
+
+    The digit-count check comes before ``int()`` rather than after, because
+    converting a very long digit string is itself work an uploaded file should
+    not be able to ask for.
+    """
+    if len(text) > _MAX_NUMBER_DIGITS:
+        return None
     try:
         value = int(text)
     except ValueError:
         return None
-    return value if value >= 1 else None
+    return value if 1 <= value <= MAX_COLUMN_INTEGER else None
 
 
 def _boolean(text: str, layout: ExerciseFileLayout) -> bool | None:
@@ -580,19 +693,31 @@ def _split_cell(text: str, layout: ExerciseFileLayout) -> tuple[str, ...]:
     return tuple(part.strip() for part in text.split(layout.list_cell_separator) if part.strip())
 
 
-def _terms(text: str, layout: ExerciseFileLayout) -> tuple[str, ...]:
-    """A list cell as normalized terms — folded for comparison, never mapped.
+def _terms(text: str, layout: ExerciseFileLayout) -> tuple[tuple[str, ...], int]:
+    """A list cell as normalized terms, plus how many entries it lost.
 
     ``normalize_tag_value`` is the repository's existing fold (case, whitespace
     and punctuation), reused rather than restated so that an exercise term and
-    a CBA tag compare the same way. No term is looked up in a vocabulary and no
-    term is dropped: the G3 mapping design spec §3 mentions is OQ-CE-01 and a
-    gated area, so this module counts instead (ADR-0011).
+    a CBA tag compare the same way. No term is looked up in a vocabulary: the
+    G3 mapping design spec §3 mentions is OQ-CE-01 and a gated area, so this
+    module counts instead (ADR-0011).
+
+    One kind of entry cannot survive the fold at all — ``---`` and ``***`` are
+    punctuation only and normalise to the empty string. Storing that empty
+    string would put a term nobody wrote into an array; dropping it silently
+    would be exactly the thing ADR-0011 forbids. So it is dropped **and
+    returned as a count**, which reaches the instructor on
+    ``IngestReport.discarded_list_entries``.
     """
     seen: dict[str, None] = {}
+    discarded = 0
     for entry in _split_cell(text, layout):
-        seen.setdefault(normalize_tag_value(entry), None)
-    return tuple(seen)
+        folded = normalize_tag_value(entry)
+        if not folded:
+            discarded += 1
+            continue
+        seen.setdefault(folded, None)
+    return tuple(seen), discarded
 
 
 # ---------------------------------------------------------------------------
@@ -651,7 +776,7 @@ def _check_past_event_keys(
     if not counts:
         return None
     named = sorted(counts.items(), key=lambda item: (-item[1], item[0]))[:_MAX_NAMED_VALUES]
-    listed = ", ".join(f"`{key}` ({used} rows)" for key, used in named)
+    listed = ", ".join(f"`{_quote(key)}` ({used} rows)" for key, used in named)
     return IngestRefusal(
         "unknown_past_event_key",
         f"Some profiles list past events that are not in the file: {listed}."
@@ -671,13 +796,15 @@ def _duplicates(values: Sequence[str]) -> tuple[str, ...]:
 
 
 def _listed(values: Sequence[str]) -> str:
-    """A few values in backticks, with a count of whatever did not fit."""
-    shown = ", ".join(f"`{value}`" for value in values[:_MAX_NAMED_VALUES])
+    """A few values in backticks, quoted from the file, with a count of the rest."""
+    shown = ", ".join(f"`{_quote(value)}`" for value in values[:_MAX_NAMED_VALUES])
     remaining = len(values) - _MAX_NAMED_VALUES
     return f"{shown} and {remaining} more" if remaining > 0 else shown
 
 
-def _build_report(profiles: Sequence[ParsedProfile], events: Sequence[ParsedEvent]) -> IngestReport:
+def _build_report(
+    profiles: Sequence[ParsedProfile], events: Sequence[ParsedEvent], *, discarded: int
+) -> IngestReport:
     """Counts only. Nothing here reads ``hidden_true_interests`` (ADR-0025 D6)."""
     years = sorted({profile.class_year for profile in profiles if profile.class_year})
     interests = {term for p in profiles for term in (p.stated_interests or ())}
@@ -693,6 +820,7 @@ def _build_report(profiles: Sequence[ParsedProfile], events: Sequence[ParsedEven
         distinct_stated_interest_terms=len(interests),
         distinct_topic_tag_terms=len(topics),
         events_without_topic_tags=sum(1 for event in events if not event.topic_tags),
+        discarded_list_entries=discarded,
         markers=_markers(profiles),
     )
 

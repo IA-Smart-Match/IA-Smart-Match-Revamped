@@ -29,6 +29,8 @@ import pytest
 from smartmatch_domain.exercise.ingest import (
     EXERCISE_EVENT_ROW_COUNT,
     MAX_CELL_CHARACTERS,
+    MAX_COLUMN_INTEGER,
+    MAX_DATA_ROW_COUNT,
     MAX_UPLOAD_BYTES,
     MIN_PROFILE_ROW_COUNT,
     PLACEHOLDER_LAYOUT,
@@ -414,13 +416,162 @@ def test_a_leading_equals_sign_is_data_and_is_never_evaluated() -> None:
     assert dataset.profiles[0].career_goal == "=2+2"
 
 
-def test_the_csv_field_size_limit_is_restored() -> None:
+def test_parsing_never_touches_the_csv_field_size_limit() -> None:
+    """M1 — the limit is process-global, so this module leaves it alone.
+
+    Setting and restoring it looks careful and is not: two threads parsing at
+    once interleave the set and the restore, and the loser leaves the global
+    limit at the other's value — permanently, for every other reader in the
+    process, including the CBA import path. The 2 MiB byte cap and the
+    per-cell check already bound what can be read, and the stdlib default
+    (131072) is itself bounded, so there is nothing to set.
+
+    Asserted twice: the value does not move, and the module does not contain
+    the call. The second half is what makes this test fail if someone puts the
+    set/restore back with a ``finally`` that looks safe.
+    """
+    from pathlib import Path
+
+    from smartmatch_domain.exercise import ingest
+
     before = csv.field_size_limit()
 
     parse_exercise_file(_good_file())
     parse_exercise_file(b"PK\x03\x04")
 
     assert csv.field_size_limit() == before
+    source = Path(ingest.__file__).read_text(encoding="utf-8")
+    assert "field_size_limit(" not in source
+
+
+def test_too_many_rows_is_refused_without_counting_all_of_them() -> None:
+    """M2 — the cap is applied to a slice, not to a fully materialised list.
+
+    ``list(reader)`` builds every row before the cap is consulted, which makes
+    the cap a statement about what is stored rather than about what is read.
+    The reader is sliced to one row past the cap instead, so the sentence can
+    say "more than" and cannot say a total — and a test that asserts the total
+    is absent is the only way to tell the two implementations apart.
+    """
+    rows = _good_rows()
+    rows += [_profile_row(1000 + index) for index in range(MAX_DATA_ROW_COUNT)]
+
+    refusal = _refusal(_build_file(rows))
+
+    assert refusal.code == "too_many_rows"
+    assert str(MAX_DATA_ROW_COUNT) in refusal.message
+    assert str(len(rows)) not in refusal.message
+
+
+@pytest.mark.parametrize("column", ["profile_no_column", "sequence_column"])
+def test_a_number_too_large_for_the_column_is_refused(column: str) -> None:
+    """M3 — ``exercise_profile.profile_no`` is an int4; 400 digits is not.
+
+    Python's ``int`` has no ceiling, so a four-hundred-digit cell parses
+    happily and is refused four layers later by a driver that reports it as a
+    numeric overflow with the row attached. Bounded here instead, with a
+    sentence.
+    """
+    rows = _good_rows()
+    target = getattr(LAYOUT, column)
+    row = next(r for r in rows if target in r)
+    row[target] = "9" * 400
+
+    refusal = _refusal(_build_file(rows))
+
+    assert refusal.code in {"bad_profile_no", "bad_event_sequence"}
+    assert "9" * 400 not in refusal.message
+
+
+def test_a_profile_number_at_the_column_ceiling_is_still_accepted() -> None:
+    rows = _good_rows()
+    rows[0][LAYOUT.profile_no_column] = str(MAX_COLUMN_INTEGER)
+
+    dataset = _accepted(_build_file(rows))
+
+    assert dataset.profiles[0].profile_no == MAX_COLUMN_INTEGER
+
+
+# ---------------------------------------------------------------------------
+# M4 — a refusal sentence quotes file content, so it sanitises it
+# ---------------------------------------------------------------------------
+
+
+def test_a_column_name_longer_than_a_cell_is_refused() -> None:
+    columns = list(LAYOUT.required_columns)
+    columns[0] = "x" * 10_000
+
+    refusal = _refusal(_build_file(_good_rows(), columns=columns))
+
+    assert refusal.code == "column_name_too_long"
+    assert len(refusal.message) < 200
+
+
+def test_a_refusal_that_quotes_a_column_name_strips_it_first() -> None:
+    """A header is file content: it carries whatever the uploader typed."""
+    # Folds to ``major`` under ``normalize_header`` — same column, hostile
+    # spelling — so the duplicate-column sentence has to quote it.
+    hostile = "` major `\n\t"
+    columns = [*LAYOUT.required_columns, hostile]
+
+    refusal = _refusal(_build_file(_good_rows(), columns=columns))
+
+    assert refusal.code == "duplicate_column"
+    assert "\n" not in refusal.message
+    assert refusal.message.count("`") == 2
+    assert len(refusal.message) < 200
+
+
+def test_a_refusal_that_quotes_a_cell_value_strips_it_first() -> None:
+    rows = _good_rows()
+    rows[7][LAYOUT.record_type_column] = "teacher\r\n`x`" + "y" * 300
+
+    refusal = _refusal(_build_file(rows))
+
+    assert refusal.code == "unknown_record_type"
+    assert "\n" not in refusal.message
+    assert "\r" not in refusal.message
+    assert "y" * 300 not in refusal.message
+    assert "…" in refusal.message
+
+
+def test_a_refusal_that_quotes_an_unknown_event_key_strips_it_first() -> None:
+    rows = _good_rows()
+    rows[2][LAYOUT.past_event_keys_column] = "career\tfair`2019`" + "z" * 200
+
+    refusal = _refusal(_build_file(rows))
+
+    assert refusal.code == "unknown_past_event_key"
+    assert "\t" not in refusal.message
+    assert "z" * 200 not in refusal.message
+
+
+# ---------------------------------------------------------------------------
+# Row numbers, and entries a list cell loses
+# ---------------------------------------------------------------------------
+
+
+def test_a_row_number_counts_file_lines_not_records() -> None:
+    """A quoted cell may contain a newline, which moves every line after it."""
+    rows = _good_rows()
+    rows[0][LAYOUT.display_name_column] = "Fictional\nProfile 001"
+    rows[1][LAYOUT.profile_no_column] = "not a number"
+
+    refusal = _refusal(_build_file(rows))
+
+    assert refusal.code == "bad_profile_no"
+    assert "Row 4" in refusal.message
+
+
+def test_a_list_entry_that_normalises_to_nothing_is_counted_not_silently_dropped() -> None:
+    """ADR-0011 — a punctuation-only entry is still something the file said."""
+    rows = _good_rows()
+    rows[4][LAYOUT.stated_interests_column] = "---; data analytics ;***"
+
+    dataset = _accepted(_build_file(rows))
+
+    assert dataset.profiles[4].stated_interests == ("data analytics",)
+    assert dataset.report.discarded_list_entries == 2
 
 
 # ---------------------------------------------------------------------------
@@ -581,6 +732,29 @@ def test_closing_the_open_question_is_one_object_and_no_parser_edit() -> None:
 
     assert isinstance(result, ParsedDataset), getattr(result, "message", result)
     assert result.report.distinct_class_years == ("Junior",)
+
+
+def test_the_required_columns_are_derived_from_the_layouts_own_fields() -> None:
+    """The other half of "no column name is written down twice".
+
+    The AST test below says the parser holds no column name. This says the
+    *required set* is not a second list either: every field of the layout whose
+    name ends in ``_column`` is required, and nothing else is. A column added
+    to the layout is therefore required without anyone editing a list, and a
+    column removed stops being required the same way.
+    """
+    declared = {
+        getattr(LAYOUT, declared_field.name)
+        for declared_field in dataclasses.fields(LAYOUT)
+        if declared_field.name.endswith("_column")
+    }
+
+    assert set(LAYOUT.required_columns) == declared
+    assert len(LAYOUT.required_columns) == len(declared)
+    assert (
+        set(LAYOUT.profile_columns) | set(LAYOUT.event_columns) | {LAYOUT.record_type_column}
+        == declared
+    )
 
 
 def test_no_function_in_the_parser_writes_a_column_name_down() -> None:
