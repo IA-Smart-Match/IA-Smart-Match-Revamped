@@ -91,7 +91,6 @@ from smartmatch_api.routers.exercise_matching_models import (
     CompareView,
     EventsView,
     EventView,
-    RankableSet,
     RankedListView,
     SavedSettingsView,
     SaveSettingRequest,
@@ -312,26 +311,6 @@ def _saved_weights_or_refusal(
     return _validated(dict(stored.weights))
 
 
-def _team_view(
-    session: ExerciseSession,
-    *,
-    datasets: DatasetRepository,
-    team_view: TeamViewRepository,
-    workspace: ExerciseWorkspace,
-) -> tuple[tuple[ExerciseEventRow, ...], RankableSet]:
-    """This team's events and its own view of the profiles, read once.
-
-    Both reads are scoped to ``workspace.dataset_id`` and ``workspace.id``,
-    which come from the cookie rather than from the request, so there is no
-    argument here a caller could have supplied.
-    """
-    events = datasets.list_events(session, dataset_id=workspace.dataset_id)
-    profiles = team_view.list_team_profiles(
-        session, dataset_id=workspace.dataset_id, workspace_id=workspace.id
-    )
-    return events, rankable_set(profiles, events)
-
-
 def _build_list(
     session: ExerciseSession,
     *,
@@ -352,10 +331,19 @@ def _build_list(
 
     The tie-break's seed is the data file's checksum (design spec §4.4), so the
     fixed order is identical across requests, teams and processes.
+
+    **The event is resolved before the profiles are read** (review round 1). The
+    events of one data file are a dozen rows and the profiles are three hundred
+    joined to an overlay; reading the larger one first meant an unknown event
+    key — the cheapest thing for a client to send, and the one an unauthenticated
+    route will be sent most — cost that join before the 404. The order of these
+    three statements is therefore load-bearing rather than tidy.
+
+    Both reads are scoped to ``workspace.dataset_id`` and ``workspace.id``, which
+    come from the cookie rather than from the request, so there is no argument
+    here a caller could have supplied.
     """
-    events, rankable = _team_view(
-        session, datasets=datasets, team_view=team_view, workspace=workspace
-    )
+    events = datasets.list_events(session, dataset_id=workspace.dataset_id)
     event = _event_or_refusal(events, event_key)
     summary = datasets.get_dataset_summary(session, dataset_id=workspace.dataset_id)
     if summary is None:  # pragma: no cover - the cookie resolved a workspace on it
@@ -364,6 +352,10 @@ def _build_list(
             code="exercise_no_dataset",
             message="The instructor has not loaded the student body yet.",
         )
+    profiles = team_view.list_team_profiles(
+        session, dataset_id=workspace.dataset_id, workspace_id=workspace.id
+    )
+    rankable = rankable_set(profiles, events)
     ranked = exercise_ranked_list(
         event_evidence(event),
         rankable.profiles,
@@ -389,12 +381,18 @@ def _overrides_for(
     event_key: str,
     setting: str | None,
     requested: Mapping[str, float] | None,
-) -> Mapping[str, float] | None:
-    """Which weighting a list request asked for: a saved name, or typed numbers.
+) -> tuple[Mapping[str, float] | None, str | None]:
+    """Which weighting a list request asked for, and the name to report for it.
 
-    Naming both is refused rather than resolved in somebody's favour: a screen
-    that sent both has a bug, and silently preferring one would hide it behind a
-    list that looks right.
+    Naming both a saved setting and a weight is refused rather than resolved in
+    somebody's favour: a screen that sent both has a bug, and silently
+    preferring one would hide it behind a list that looks right.
+
+    Returns the **trimmed** name beside the weights (review round 1). The lookup
+    already trims, so echoing the raw query value handed back a name that is not
+    the name the row is stored under — ``"  broad "`` would come back with its
+    spaces, and a client comparing the echo with what it sent to its saved-list
+    would see two different settings.
     """
     if setting is not None and requested is not None:
         raise ExerciseError(
@@ -403,16 +401,20 @@ def _overrides_for(
             message="Choose saved settings or your own weights, not both.",
         )
     if setting is not None:
-        return _saved_weights_or_refusal(
-            session,
-            repository,
-            workspace=workspace,
-            event_key=event_key,
-            name=_setting_name_or_refusal(setting),
+        name = _setting_name_or_refusal(setting)
+        return (
+            _saved_weights_or_refusal(
+                session,
+                repository,
+                workspace=workspace,
+                event_key=event_key,
+                name=name,
+            ),
+            name,
         )
     if requested is not None:
-        return _validated(dict(requested))
-    return None
+        return _validated(dict(requested)), None
+    return None, None
 
 
 # ---------------------------------------------------------------------------
@@ -507,7 +509,7 @@ def read_ranked_list(
             saved setting this team does not have, 422 for a weight the
             rulebook refuses or for naming a setting and a weight at once.
     """
-    overrides = _overrides_for(
+    overrides, setting_name = _overrides_for(
         session,
         settings,
         workspace=workspace,
@@ -527,7 +529,7 @@ def read_ranked_list(
         workspace=workspace,
         event_key=event_key,
         overrides=overrides,
-        setting_name=setting,
+        setting_name=setting_name,
     )
 
 
@@ -568,7 +570,7 @@ def download_ranked_list(
     Raises:
         ExerciseError: as the route above.
     """
-    overrides = _overrides_for(
+    overrides, setting_name = _overrides_for(
         session,
         settings,
         workspace=workspace,
@@ -588,7 +590,7 @@ def download_ranked_list(
         workspace=workspace,
         event_key=event_key,
         overrides=overrides,
-        setting_name=setting,
+        setting_name=setting_name,
     )
     return Response(
         content=ranked_list_csv(view),
@@ -628,25 +630,35 @@ def compare_settings(
     The overlap is returned in the first list's order, so a screen highlighting
     it walks one list rather than sorting a set.
 
+    **The event is resolved first** (review round 1), before either name is
+    looked up, so that every route in this module answers an event key from
+    another data file the same way. Resolving the names first made this one
+    route report "no saved settings with that name" for a request whose real
+    problem was the event — a refusal that sends a reader looking in the wrong
+    place, and two saved-setting lookups spent on a key that was never going to
+    resolve.
+
     Raises:
         ExerciseError: 401 without a workspace cookie, 404 for an event or a
             saved setting this team does not have.
     """
+    events = datasets.list_events(session, dataset_id=workspace.dataset_id)
+    event = _event_or_refusal(events, event_key)
     lists = [
         _build_list(
             session,
             datasets=datasets,
             team_view=team_view,
             workspace=workspace,
-            event_key=event_key,
+            event_key=event.event_key,
             overrides=_saved_weights_or_refusal(
                 session,
                 settings,
                 workspace=workspace,
-                event_key=event_key,
+                event_key=event.event_key,
                 name=_setting_name_or_refusal(name),
             ),
-            setting_name=name.strip(),
+            setting_name=_setting_name_or_refusal(name),
         )
         for name in (a, b)
     ]
@@ -669,6 +681,7 @@ def compare_settings(
 def read_settings(
     session: ExerciseSession,
     workspace: CurrentWorkspace,
+    datasets: DatasetRepository,
     settings: SettingsRepository,
     event_key: str = Path(description="An event key from this team's data file."),
 ) -> SavedSettingsView:
@@ -678,12 +691,23 @@ def read_settings(
     selected, because the workspace comes from the cookie and is part of the
     statement.
 
+    **The event is resolved against this team's own data file** (review round 1).
+    Without it this route echoed back whatever key was in the path — a key from
+    another data file, or a key from no file at all — beside an empty list, and
+    a screen reading ``event_key`` off the response could not tell "no settings
+    yet" from "that event does not exist here". The save route always checked;
+    the two reads did not, and inconsistency between routes on the same resource
+    is how the unchecked one gets trusted.
+
     Raises:
-        ExerciseError: 401 when the cookie is absent or names no workspace.
+        ExerciseError: 401 when the cookie is absent or names no workspace, 404
+            for an event that is not in this team's data file.
     """
-    stored = settings.list_settings(session, workspace_id=workspace.id, event_key=event_key)
+    events = datasets.list_events(session, dataset_id=workspace.dataset_id)
+    event = _event_or_refusal(events, event_key)
+    stored = settings.list_settings(session, workspace_id=workspace.id, event_key=event.event_key)
     return SavedSettingsView(
-        event_key=event_key,
+        event_key=event.event_key,
         settings=[saved_setting_view(setting) for setting in stored],
         max_settings=MAX_SAVED_SETTINGS_PER_EVENT,
     )
@@ -748,7 +772,11 @@ def save_setting(
         ) from None
     session.commit()
     return read_settings(
-        session=session, workspace=workspace, settings=settings, event_key=event.event_key
+        session=session,
+        workspace=workspace,
+        datasets=datasets,
+        settings=settings,
+        event_key=event.event_key,
     )
 
 
@@ -761,6 +789,7 @@ def save_setting(
 def delete_setting(
     session: ExerciseSession,
     workspace: CurrentWorkspace,
+    datasets: DatasetRepository,
     settings: SettingsRepository,
     event_key: str = Path(description="An event key from this team's data file."),
     name: str = Path(description="The name your team saved."),
@@ -772,16 +801,18 @@ def delete_setting(
 
     Raises:
         ExerciseError: 401 without a workspace cookie, 403 without the
-            ``X-Exercise-Request`` header, 404 for a name this team has not
-            saved, 409 for a refused write.
+            ``X-Exercise-Request`` header, 404 for an unknown event or a name
+            this team has not saved, 409 for a refused write.
     """
     usable_name = _setting_name_or_refusal(name)
+    events = datasets.list_events(session, dataset_id=workspace.dataset_id)
+    event = _event_or_refusal(events, event_key)
     try:
         removed = settings.delete_setting(
             session,
             dataset_id=workspace.dataset_id,
             workspace_id=workspace.id,
-            event_key=event_key,
+            event_key=event.event_key,
             name=usable_name,
         )
     except ExerciseSettingsWriteRefused as error:
@@ -798,7 +829,11 @@ def delete_setting(
         )
     session.commit()
     return read_settings(
-        session=session, workspace=workspace, settings=settings, event_key=event_key
+        session=session,
+        workspace=workspace,
+        datasets=datasets,
+        settings=settings,
+        event_key=event.event_key,
     )
 
 

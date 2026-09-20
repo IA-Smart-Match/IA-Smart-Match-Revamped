@@ -539,6 +539,28 @@ def test_the_response_carries_the_counts_beside_the_whole_file(client: TestClien
     }
 
 
+def test_the_table_and_the_unrankable_count_reconcile_to_the_whole_file(
+    client: TestClient,
+) -> None:
+    """Declared deviation: §7's "whole file" side counts the rankable set.
+
+    A profile the data file records no major or no year for can take no place on
+    any list, so counting it as a group with nobody on the list would produce a
+    notice nothing a team does could ever satisfy. It is reported as a count
+    instead — and the count sits on the same response as the table, so a reader
+    can add the two and get the file's own row count back. That reconciliation
+    is the whole justification for the deviation, so it is asserted rather than
+    described.
+    """
+    body = client.get(_LIST).json()
+    composition = body["composition"]
+    counted = sum(composition["by_major"]["all_profiles"].values())
+    assert counted + body["unrankable_profile_count"] == len(_PROFILES)
+    assert sum(composition["by_class_year"]["all_profiles"].values()) == counted
+    assert sum(composition["by_marker"]["all_profiles"].values()) == counted
+    assert body["unrankable_profile_count"] > 0, "the fixture must exercise the gap"
+
+
 def test_the_coverage_notice_names_a_group_with_nobody_on_the_list(
     client: TestClient,
 ) -> None:
@@ -837,6 +859,70 @@ def test_an_event_from_another_data_file_is_not_found(client: TestClient) -> Non
             "message": "That event is not in your team's data file.",
         }
     }
+
+
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [
+        ("GET", f"{_BASE}/events/harbor/list"),
+        ("GET", f"{_BASE}/events/harbor/list.csv"),
+        ("GET", f"{_BASE}/events/harbor/settings"),
+        ("PUT", f"{_BASE}/events/harbor/settings/broad"),
+        ("DELETE", f"{_BASE}/events/harbor/settings/broad"),
+        ("GET", f"{_BASE}/events/harbor/settings/compare?a=x&b=y"),
+    ],
+)
+def test_every_route_resolves_its_event_against_this_teams_data_file(
+    client: TestClient, method: str, path: str
+) -> None:
+    """Review round 1: the two settings reads used to echo an unchecked key.
+
+    ``read_settings`` and ``delete_setting`` took ``event_key`` straight from
+    the path, so a key from another data file — or from no file at all — came
+    back on the response beside an empty list, and a screen could not tell "no
+    settings yet" from "that event does not exist here". The save route always
+    checked. Inconsistency between routes on one resource is how the unchecked
+    one gets trusted, so all six now answer the same way.
+    """
+    response = client.request(method, path, json={"weights": dict(_WEIGHTS)}, headers=_HEADER)
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "exercise_event_unknown"
+
+
+def test_an_unknown_event_costs_no_profile_read(fakes: _Fakes) -> None:
+    """Review round 1: the event is resolved before the three-hundred-row join.
+
+    An unknown event key is the cheapest thing a client can send at a route with
+    no login in front of it. Reading the profiles first meant every one of those
+    cost a join across the dataset and its overlay before the 404.
+    """
+    reads: list[uuid.UUID] = []
+    original = fakes.team_view.list_team_profiles
+
+    def counted(session: object, *, dataset_id: uuid.UUID, workspace_id: uuid.UUID) -> Any:
+        reads.append(workspace_id)
+        return original(session, dataset_id=dataset_id, workspace_id=workspace_id)
+
+    with _entered(fakes, 1) as client:
+        fakes.team_view.list_team_profiles = counted  # type: ignore[method-assign]
+        assert client.get(f"{_BASE}/events/harbor/list").status_code == 404
+        assert reads == [], "an unknown event key read the profiles"
+        assert client.get(_LIST).status_code == 200
+        assert len(reads) == 1, "a known event key must still read them"
+
+
+def test_a_saved_setting_name_is_echoed_trimmed(client: TestClient) -> None:
+    """Review round 1: the lookup trims, so the echo must trim too.
+
+    Echoing the raw query value handed back a name that is not the name the row
+    is stored under, so a client comparing the echo against its own saved list
+    would see two different settings.
+    """
+    _save(client, "broad")
+    body = client.get(_LIST, params={"setting": "  broad  "}).json()
+    assert body["setting_name"] == "broad"
+    csv_rows = client.get(f"{_BASE}/events/northline/list.csv", params={"setting": "  broad  "})
+    assert csv_rows.status_code == 200
 
 
 def test_a_weight_the_rulebook_refuses_is_refused_with_a_sentence(client: TestClient) -> None:
