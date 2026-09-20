@@ -85,6 +85,15 @@ a small fixed list.
 
 **PLACEHOLDER until 9/18:** the required-column list.
 
+**As shipped (PR #184, 2026-09-19) — owner decision pending.** The route is not
+multipart. FastAPI's multipart parsing needs `python-multipart`, which this
+repository does not have, and adding it is a new runtime dependency plus a
+re-lock of hash-pinned requirements for one route. It shipped instead as a raw
+`text/csv` request body with `label` and `source_filename` as query parameters;
+the ingest core takes bytes either way, so switching back is a change to one
+handler's signature. This paragraph records what runs today, **not** a decision
+— see PR #184 "owner decision 2", still open.
+
 ## 4. Factors, weights, tie-break, reasons
 
 ### 4.1 Shared: the `FactorRegistry` parameterisation (ADR-0024 D2)
@@ -214,6 +223,17 @@ overlay, runs, and settings and regenerates its seed.
 
 **PLACEHOLDER:** the four coefficient values (OQ-CE-03).
 
+**As shipped (PR #186, 2026-09-19) — who may reset.** Owner ruling of
+2026-09-19: the per-team reset is an **instructor action only**. The
+team-facing route `POST /v1/exercise/workspaces/current/reset` is removed and
+answers 404; `POST /v1/exercise/instructor/workspaces/{team_number}/reset`,
+behind the instructor passcode session, is the only reset. *What* a reset
+deletes is unchanged — the instructor handler runs the same
+`ExerciseWorkspaceRepository.reset_team`, so the paragraph above and §2's
+overlay note still hold word for word. The ruling removes the destructive
+consequence of the shared-per-team number (OQ-CE-08), not the default itself;
+that row stays open.
+
 ## 12. Asking for more
 
 `POST .../asking-choice` with one of `better_recommendations`,
@@ -245,6 +265,52 @@ a principal. Session in an httpOnly cookie; rate-limited like
 and results; unlock results per event; set the invite limit; upload a data
 file; refresh all; reset one team.
 
+**As shipped (PR #184, 2026-09-19) — the session is signed, not stored; owner
+decision pending.** There is no server-side session row: a session table is a
+migration and that track shipped none. The cookie is
+`"<expiry>.<opaque nonce>.<HMAC>"`, the nonce is `new_session_token`, and the
+expiry is covered by the signature, so editing it invalidates rather than
+extends. The consequence, stated rather than hidden: **there is no revocation
+before expiry** — a minted session stays usable for its twelve hours
+(`INSTRUCTOR_SESSION_TTL`), and `logout` clears the browser's copy, not a row.
+The two levers that do work are that lifetime and rotating
+`SMARTMATCH_EXERCISE_WORKSPACE_SECRET`. The session key and the team workspace
+token are labelled derivations of that one secret, so a participant's workspace
+cookie can never verify as the instructor's session. Whether to buy real
+revocation with a migration is PR #184 "owner decision 1", **still open**.
+
+The cookie is named `exercise_instructor` and scoped
+`Path=/v1/exercise/instructor` — narrower than the workspace cookie's
+`/v1/exercise` — and it is **`Secure` by default**, turned off only by
+`SMARTMATCH_EXERCISE_COOKIE_SECURE=false`. Local development over plain `http`
+must set that, or the browser will not store it.
+
+**As shipped (PR #184, 2026-09-19) — the rate limit is a marked placeholder
+(OQ-CE-06, still open).** "Rate-limited like `LOGIN_RATE_LIMIT`" could not be
+built from this repository's limiter, which needs a principal or
+`smartmatch_persistence`, and an exercise router may import neither. What runs
+is `exercise_rate_limit.py`, a persistence-free **in-process** fixed-window
+limiter marked `PLACEHOLDER OQ-CE-06`: 10 attempts per client per 5 minutes
+(copied from `routers/auth.py`'s `LOGIN_RATE_LIMIT`, not invented) plus a
+60-attempt global bound. The per-client window is charged **first**, and the
+global one is refunded when the passcode turns out to be correct, so one caller
+cannot lock the instructor out. It is per process, per process lifetime, fixed
+rather than sliding windows, and parses no `X-Forwarded-For`. OQ-CE-06 stays
+open.
+
+**As shipped (PR #184 + #186, 2026-09-19) — the routes.** Under
+`/v1/exercise/instructor`: `POST /login`, `POST /logout`, `GET /datasets`,
+`POST /datasets`, `PATCH /datasets/{dataset_id}`,
+`POST /datasets/{dataset_id}/repoint`, `POST /events/{event_key}/unlock`,
+`GET /workspaces`, `GET /workspaces/{team_number}`,
+`POST /workspaces/{team_number}/reset`, and `POST /refresh-all` — the last a
+stub that refuses with a sentence until the results track lands. `unlock`,
+team detail and per-team reset resolve against **the data file the teams are
+actually on**, not the newest upload: an explicit `dataset_id` is honoured and
+refused if no team is in it, a single file in use resolves to it, several in
+use is refused with a sentence asking which, and a file with no teams in it is
+never targeted.
+
 ## 15. Team workspace identity
 
 Entry screen asks for a team number 1–6. The server creates or returns the
@@ -252,6 +318,33 @@ workspace for `(active dataset, team_number)` and sets an opaque workspace
 token in an httpOnly cookie, mirrored to `localStorage` so a reload restores
 it. The server row is the truth; the cookie is a pointer. Two tabs on one
 team share the workspace (OQ-CE-08, confirm on 9/18).
+
+**As shipped (PR #186, 2026-09-19) — an existing workspace wins over the newest
+data file.** Owner ruling of 2026-09-19. The pair is no longer
+`(active dataset, team_number)`: entry used to go straight to the most recently
+uploaded file, so the moment the instructor uploaded one, a team that pressed
+reload was handed a second, empty workspace and its work appeared to be gone —
+while §3 says in as many words that uploading moves nobody. Only an instructor
+re-point moves a team. `ExerciseWorkspaceRepository.entry_dataset_for` states
+the rule in one place, in three branches:
+
+1. **The team already has a workspace** — on any data file — and that
+   workspace's file is the answer.
+2. **A legacy team with workspaces on more than one file** (nothing creates
+   that state any more) lands on its **most recently created workspace row**,
+   `created_at DESC` then `id DESC` so a tie has one answer for every reader.
+3. **A brand-new team** joins the file the other teams are on, by that same
+   ordering. With no workspace anywhere the method answers `None` and the route
+   falls back to `active_dataset`, so the first team of a lesson joins the
+   newest upload.
+
+The decision and the insert happen under **one transaction-level advisory
+lock** — `lock_workspace_membership` on `WORKSPACE_MEMBERSHIP_LOCK_KEY`, taken
+as `entry_dataset_for`'s first statement and held continuously to the commit —
+so a re-point committing mid-entry cannot leave a team holding two workspaces.
+A re-entered or moved workspace keeps its id and therefore its cookie. The
+consequence for §16: an entry screen showing `dataset_label` may legitimately
+show an older file's label after an upload. That is the ruling, not a bug.
 
 ## 16. Frontend
 
