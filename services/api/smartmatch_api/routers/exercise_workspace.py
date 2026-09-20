@@ -233,8 +233,18 @@ def enter_team_workspace(
     reach ``get_or_create_workspace``, one row exists afterwards because the
     unique constraint admits one, and both get it.
 
+    **The two repository calls below are one atomic step**, and the order of
+    the statements in this handler is load-bearing rather than tidy: the same
+    ``session``, no commit between them, so the membership lock
+    ``entry_dataset_for`` takes is still held when ``get_or_create_workspace``
+    inserts. A commit in between would release it and reopen the window a
+    re-point races through — the team's row moves after the data file is
+    chosen and before it is used, and the entry mints a second workspace on the
+    file the team has just left.
+
     Commits explicitly — ``get_exercise_session`` rolls back on the way out, so
-    a write that is not committed here is a write that did not happen.
+    a write that is not committed here is a write that did not happen, and the
+    commit is also what releases the lock.
 
     Raises:
         ExerciseError: 409 when no dataset has been uploaded (raised by the

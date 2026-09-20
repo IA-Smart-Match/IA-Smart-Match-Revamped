@@ -115,6 +115,20 @@ def lock_workspace_membership(session: Session) -> None:
     re-point against a team pressing "enter", measured in milliseconds, and the
     alternative to waiting is refusing one of them for no reason a person in
     the room could act on.
+
+    Re-entrant within a transaction, which is what lets
+    :meth:`ExerciseWorkspaceRepository.entry_dataset_for` and
+    :meth:`ExerciseWorkspaceRepository.get_or_create_workspace` each call it
+    while together holding the key exactly once, continuously, from the
+    decision to the commit.
+
+    **Said plainly (OQ-CE-06, owner Danny):** this serialises *every* entry —
+    a public, unauthenticated, in-process-rate-limit-free route — on one
+    key, per database. Six teams on classroom laptops is nothing, and the work
+    inside the lock is three short statements; a deployment that opened this
+    route to more than a classroom would want the edge limiting OQ-CE-06 is
+    open about before it wanted a finer-grained lock. Behaviour is unchanged
+    until that is answered.
     """
     session.execute(sa.select(sa.func.pg_advisory_xact_lock(WORKSPACE_MEMBERSHIP_LOCK_KEY)))
 
@@ -244,7 +258,11 @@ class ExerciseWorkspaceRepository:
         # :data:`WORKSPACE_MEMBERSHIP_LOCK_KEY`. A re-point holds this while it
         # moves teams, so the insert below cannot land on a pair the re-point
         # has already decided to move into — which is the unique violation that
-        # used to abort the whole re-point.
+        # used to abort the whole re-point. Called again here rather than left
+        # to the caller: this method is reached from the instructor's tests and
+        # tools as well as from ``entry_dataset_for``'s caller, and an advisory
+        # lock is re-entrant within a transaction, so asking twice costs one
+        # round trip and guarantees the invariant at every entrance.
         lock_workspace_membership(session)
         candidate_id = uuid.uuid4()
         table = schema.exercise_team_workspace
@@ -311,14 +329,48 @@ class ExerciseWorkspaceRepository:
         file this classroom is most recently working in" is one fact, and
         giving it two definitions is how the two would drift.
 
+        **This reads, and it still takes the lock** (review round 1 on PR
+        #186). A decision made outside the lock is a decision that can be stale
+        before it is used, and the window is one a classroom produces on its
+        own: team 3 presses enter, this method answers "data file A", the
+        instructor's re-point — holding the lock — moves team 3 to B and
+        commits, and the entry then takes the lock and inserts a **new**
+        ``(A, team 3)`` row because the row it read has moved out from under
+        it. Team 3 ends up holding two workspaces, branch 2's newest-created
+        tie-break pins it to A for good, the re-point silently moved nobody,
+        and every instructor action without an explicit ``dataset_id`` refuses
+        with "the teams are split across more than one data file".
+
+        So :func:`lock_workspace_membership` is this method's first statement,
+        and the caller must run it and the create **in one transaction with no
+        commit between them** — which is what ``enter_team_workspace`` does.
+        ``get_or_create_workspace``'s own acquire then costs nothing: a
+        PostgreSQL advisory lock is re-entrant within a transaction, so the
+        second call returns at once and the key is held continuously from the
+        decision to the commit. The lock-first ordering is unchanged and still
+        total: on every path that takes both, this key is taken before any row
+        lock, so it cannot be one edge of a cycle.
+
+        The fallback is the one part of the decision the lock does not cover.
+        :func:`active_dataset` is read by the route's dependency, before this
+        runs, and an upload that commits in between would make "the newest
+        upload" a moment stale. That is harmless and is not worth a second
+        statement: it only applies when no workspace exists anywhere, so it
+        cannot produce a split classroom — the next team to enter sees this
+        team's row and joins it — and "an upload moves nobody" is the ruling
+        rather than an accident.
+
         Args:
-            session: Not committed here; this reads only.
+            session: Not committed here. Reads only, but **does** take a
+                transaction-level advisory lock, which the caller's commit or
+                rollback releases.
             team_number: The number entered on the laptop.
 
         Returns:
             The dataset id to open the workspace in, or ``None`` when no team
             has entered a number yet.
         """
+        lock_workspace_membership(session)
         table = schema.exercise_team_workspace
         newest_first = (table.c.created_at.desc(), table.c.id.desc())
         own = session.execute(
