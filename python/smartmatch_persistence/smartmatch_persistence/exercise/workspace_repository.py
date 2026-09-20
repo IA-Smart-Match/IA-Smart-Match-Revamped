@@ -320,10 +320,11 @@ class ExerciseWorkspaceRepository:
            the other teams are on** — again the file carrying the most recently
            created workspace row — so that team 5 arriving late lands in the
            lesson the other five are in rather than in a file nobody else can
-           see. With no workspace anywhere at all, this returns ``None`` and
-           the caller falls back to :func:`active_dataset`: the first team of
-           the lesson joins the newest upload, which is the only sensible
-           answer when there is no classroom to join.
+           see. With no workspace anywhere at all, the newest upload is the
+           answer — the first team of the lesson has no classroom to join — and
+           it is read **here, under the lock**, rather than left to the caller
+           (review follow-up, PR #186). ``None`` is returned only when no data
+           file exists at all, which is the caller's 409.
 
         One ordering serves branches 2 and 3, which is deliberate: "the data
         file this classroom is most recently working in" is one fact, and
@@ -351,14 +352,20 @@ class ExerciseWorkspaceRepository:
         total: on every path that takes both, this key is taken before any row
         lock, so it cannot be one edge of a cycle.
 
-        The fallback is the one part of the decision the lock does not cover.
-        :func:`active_dataset` is read by the route's dependency, before this
-        runs, and an upload that commits in between would make "the newest
-        upload" a moment stale. That is harmless and is not worth a second
-        statement: it only applies when no workspace exists anywhere, so it
-        cannot produce a split classroom — the next team to enter sees this
-        team's row and joins it — and "an upload moves nobody" is the ruling
-        rather than an accident.
+        **The fallback is read here too** (review follow-up, PR #186). It used
+        to be the caller's: this method returned ``None`` and
+        ``enter_team_workspace`` used the ``ActiveDataset`` dependency, which
+        had resolved :func:`active_dataset` *before* the lock was taken. So the
+        one branch that decides where a brand-new classroom starts was decided
+        on a value read outside the lock, and an upload committing in the window
+        put the first team of the lesson in a data file that was no longer the
+        newest — invisibly, since nothing afterwards disagrees with it. It is a
+        narrow window and it is the one branch nothing else corrects, because
+        every later team joins whatever this one chose. Reading the newest
+        upload inside the lock costs one statement and removes the window.
+
+        ``None`` now means one thing only: **no data file exists at all**. The
+        caller's dependency turns that into design spec §3's 409.
 
         Args:
             session: Not committed here. Reads only, but **does** take a
@@ -367,8 +374,8 @@ class ExerciseWorkspaceRepository:
             team_number: The number entered on the laptop.
 
         Returns:
-            The dataset id to open the workspace in, or ``None`` when no team
-            has entered a number yet.
+            The dataset id to open the workspace in, or ``None`` when no data
+            file has been uploaded.
         """
         lock_workspace_membership(session)
         table = schema.exercise_team_workspace
@@ -384,9 +391,12 @@ class ExerciseWorkspaceRepository:
         classroom = session.execute(
             sa.select(table.c.dataset_id).order_by(*newest_first).limit(1)
         ).one_or_none()
-        if classroom is None:
-            return None
-        return uuid.UUID(str(classroom.dataset_id))
+        if classroom is not None:
+            return uuid.UUID(str(classroom.dataset_id))
+        # No workspace anywhere: the newest upload, read under the lock this
+        # method already holds rather than handed in from before it.
+        newest = active_dataset(session)
+        return newest.id if newest is not None else None
 
     def repair_token_hash(
         self, session: Session, *, workspace_id: uuid.UUID, workspace_secret: str

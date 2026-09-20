@@ -698,18 +698,43 @@ def test_a_brand_new_team_joins_the_file_the_other_teams_are_on(
         assert repository.entry_dataset_for(session, team_number=5) != uploaded_later
 
 
-def test_the_first_team_of_the_lesson_gets_no_answer_and_the_caller_falls_back(
+def test_the_first_team_of_the_lesson_gets_the_newest_file_under_the_lock(
     exercise_sessions: sessionmaker[Session],
 ) -> None:
-    """Branch 3's other half: with no classroom to join, ``None`` is the answer.
+    """Branch 3's other half, decided here rather than by the caller (PR #186).
 
-    ``None`` rather than the newest dataset, so the fallback lives at the one
-    call site that already holds the active dataset and its refusal sentence,
-    and this method never has two rules in it.
+    With no classroom to join, the newest upload is the answer — and it is read
+    inside the advisory lock this method already holds. It used to return
+    ``None`` so that the route could use its ``ActiveDataset`` dependency, which
+    had resolved *before* the lock was taken; an upload committing in that
+    window put the first team of the lesson in a file that was no longer the
+    newest, and nothing afterwards disagrees with that choice because every
+    later team joins whatever this one picked.
+
+    The ordering under test is :func:`active_dataset`'s own — most recently
+    uploaded wins — so the two answers cannot drift.
     """
     repository = ExerciseWorkspaceRepository()
+    now = datetime.now(UTC)
     with exercise_sessions() as session:
-        _insert_dataset(session, label="nobody-has-entered")
+        _insert_dataset(session, label="older-upload", uploaded_at=now - timedelta(hours=1))
+        newest = _insert_dataset(session, label="newest-upload", uploaded_at=now)
+        session.commit()
+        chosen = repository.entry_dataset_for(session, team_number=1)
+    assert chosen == newest
+    newest_summary = None
+    with exercise_sessions() as reader:
+        newest_summary = active_dataset(reader)
+    assert newest_summary is not None
+    assert chosen == newest_summary.id
+
+
+def test_with_no_data_file_at_all_there_is_still_nothing_to_join(
+    exercise_sessions: sessionmaker[Session],
+) -> None:
+    """``None`` now means exactly one thing, and the caller's 409 answers it."""
+    repository = ExerciseWorkspaceRepository()
+    with exercise_sessions() as session:
         assert repository.entry_dataset_for(session, team_number=1) is None
 
 
