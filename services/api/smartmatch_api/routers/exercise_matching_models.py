@@ -65,7 +65,9 @@ from smartmatch_api.exercise_dependencies import (
 )
 
 __all__ = [
-    "CSV_INJECTION_PREFIXES",
+    "CSV_FORMULA_INTRODUCERS",
+    "CSV_LEADING_CONTROL",
+    "CSV_LEADING_WHITESPACE",
     "CSV_LIST_COLUMNS",
     "MAX_WEIGHT_KEYS",
     "MAX_WEIGHT_KEY_CHARACTERS",
@@ -643,17 +645,28 @@ CSV_LIST_COLUMNS: Final[tuple[str, ...]] = (
     "reason",
 )
 
-#: Leading characters a spreadsheet may read as the start of a formula.
-#:
-#: ``=``, ``+``, ``-`` and ``@`` are the four Excel and LibreOffice treat as a
-#: formula introducer. The tab and the carriage return are here because a
-#: spreadsheet strips leading whitespace before deciding, so ``"\t=cmd|…"``
-#: arrives at the same place by a route the obvious four-character check misses.
+#: The four characters Excel and LibreOffice read as the start of a formula.
 #:
 #: This matters for this product specifically: a display name, a major and a
 #: class year all come from a file an instructor uploaded, and the download is
 #: opened in a spreadsheet by definition.
-CSV_INJECTION_PREFIXES: Final[tuple[str, ...]] = ("=", "+", "-", "@", "\t", "\r")
+CSV_FORMULA_INTRODUCERS: Final[tuple[str, ...]] = ("=", "+", "-", "@")
+
+#: Whitespace a spreadsheet strips from the front of a cell **before** deciding
+#: whether the cell is a formula.
+#:
+#: Review round 1: the first version of this guard compared the cell's first
+#: character against the introducers plus tab and carriage return, which its own
+#: docstring already said was not the rule — ``" =cmd|…"`` and ``"\n=cmd|…"``
+#: both walked straight through it. The check below looks past *all* of these
+#: instead of listing two of them.
+CSV_LEADING_WHITESPACE: Final[str] = " \t\r\n\v\f"
+
+#: Leading characters that make a cell worth neutralising on their own, whatever
+#: follows them: a tab, a carriage return or a newline at the front of a cell is
+#: never data anybody typed, and it is how a cell smuggles a row break past a
+#: careless reader.
+CSV_LEADING_CONTROL: Final[tuple[str, ...]] = ("\t", "\r", "\n")
 
 #: What a neutralised cell is prefixed with. A single quote is what a spreadsheet
 #: reads as "this cell is text", and it is what the cell shows if the file is
@@ -664,12 +677,24 @@ CSV_TEXT_PREFIX: Final[str] = "'"
 def neutralised_cell(value: object) -> str:
     """One cell, with a formula introducer defused.
 
+    The rule is the spreadsheet's own: **strip the leading whitespace first, and
+    then look at the character that is left.** Checking the raw first character
+    is the version that ships with a docstring describing this rule and does not
+    implement it, which is what review round 1 found — ``" =cmd|…"`` and
+    ``"\n=cmd|…"`` are the same attack wearing a space.
+
+    A leading tab, carriage return or newline is neutralised even when nothing
+    dangerous follows: it is never data, and a cell that begins with a row break
+    is a cell worth showing rather than obeying.
+
     Applied to **every** cell rather than to the ones that look risky: ``rank``
     is an integer today and a rule that exempts a column is a rule that stops
     holding when the column changes.
     """
     text = str(value)
-    if text.startswith(CSV_INJECTION_PREFIXES):
+    if text[:1] in CSV_LEADING_CONTROL:
+        return f"{CSV_TEXT_PREFIX}{text}"
+    if text.lstrip(CSV_LEADING_WHITESPACE)[:1] in CSV_FORMULA_INTRODUCERS:
         return f"{CSV_TEXT_PREFIX}{text}"
     return text
 

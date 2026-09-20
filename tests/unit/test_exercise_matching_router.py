@@ -55,7 +55,7 @@ from smartmatch_api.exercise_errors import ExerciseError
 from smartmatch_api.main import CAPABILITY_SCOPED_ROUTERS, routers_for
 from smartmatch_api.routers import exercise_matching, exercise_matching_models
 from smartmatch_api.routers.exercise_matching_models import (
-    CSV_INJECTION_PREFIXES,
+    CSV_FORMULA_INTRODUCERS,
     CSV_LIST_COLUMNS,
     MAX_WEIGHT_KEY_CHARACTERS,
     MAX_WEIGHT_KEYS,
@@ -719,14 +719,64 @@ def test_the_csv_matches_the_list_built_from_the_same_setting(client: TestClient
         assert row.startswith(f"{entry['rank']},")
 
 
-@pytest.mark.parametrize("prefix", CSV_INJECTION_PREFIXES)
-def test_a_cell_that_would_start_a_formula_is_neutralised(prefix: str) -> None:
-    assert neutralised_cell(f"{prefix}HYPERLINK") == f"'{prefix}HYPERLINK"
+#: Cells that must be neutralised, listed here rather than derived from the
+#: constant the guard reads (review round 1). A parametrisation that iterates
+#: the implementation's own table is a test that agrees with whatever the table
+#: says, including with a table that has lost an entry — which is exactly how
+#: the leading space and the leading newline went missing.
+_MUST_NEUTRALISE = [
+    "=HYPERLINK",
+    "+HYPERLINK",
+    "-HYPERLINK",
+    "@HYPERLINK",
+    " =HYPERLINK",
+    "   =HYPERLINK",
+    "\t=HYPERLINK",
+    "\r=HYPERLINK",
+    "\n=HYPERLINK",
+    " \t \n @HYPERLINK",
+    "\t-2+3",
+    "\tplain text after a tab",
+    "\nplain text after a newline",
+]
+
+#: Cells that must be left exactly as they are. A guard that neutralises
+#: everything is a guard nobody can read the output of.
+_MUST_LEAVE_ALONE = [
+    "Avery Brooks",
+    "Marketing",
+    "one",
+    "x=1",
+    "3",
+    "a - b",
+    "Same major; nothing else on file.",
+]
 
 
-def test_an_ordinary_cell_is_left_alone() -> None:
-    assert neutralised_cell("Avery Brooks") == "Avery Brooks"
+@pytest.mark.parametrize("cell", _MUST_NEUTRALISE)
+def test_a_cell_that_would_start_a_formula_is_neutralised(cell: str) -> None:
+    """The spreadsheet's rule: strip the leading whitespace, then look."""
+    assert neutralised_cell(cell) == f"'{cell}"
+
+
+@pytest.mark.parametrize("cell", _MUST_LEAVE_ALONE)
+def test_an_ordinary_cell_is_left_alone(cell: str) -> None:
+    assert neutralised_cell(cell) == cell
+
+
+def test_an_integer_cell_is_rendered_and_left_alone() -> None:
     assert neutralised_cell(3) == "3"
+
+
+def test_the_guard_covers_every_introducer_the_module_names() -> None:
+    """The cases above are independent; this says they are not *narrower*.
+
+    The list is written out so it cannot shrink with the implementation. This
+    assertion is the other direction: an introducer added to the module must
+    also appear in the cases, or the list has stopped being complete.
+    """
+    covered = {cell.lstrip(" \t\r\n")[:1] for cell in _MUST_NEUTRALISE}
+    assert set(CSV_FORMULA_INTRODUCERS) <= covered
 
 
 def test_a_display_name_from_the_data_file_cannot_start_a_formula(fakes: _Fakes) -> None:
