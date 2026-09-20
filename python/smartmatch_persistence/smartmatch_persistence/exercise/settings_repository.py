@@ -108,9 +108,16 @@ MAX_SAVED_SETTINGS_PER_EVENT: Final[int] = 3
 #:   concurrent save's count and its commit, and under READ COMMITTED the delete
 #:   simply does not see the uncommitted row. The save then commits, and the team
 #:   is left holding a setting the reset was meant to clear.
-#: * ``instructor_repository.repoint_workspaces`` takes the membership key first,
-#:   then reaches this one through ``reset_workspace_children``, then takes row
-#:   locks. That is the full order and it is the only path that takes all three.
+#: * ``instructor_repository.repoint_workspaces`` takes the membership key,
+#:   then this key directly — before either of its ``FOR UPDATE`` scans — then
+#:   row locks. That is the full order and it is the only path that takes all
+#:   three. Review round 2 (F1) moved the acquire up front: the earlier shape
+#:   reached this key inside ``reset_workspace_children``, *after* the row
+#:   locks, which is this order read backwards — a concurrent ``save_setting``
+#:   holds this key and then needs a workspace row for
+#:   ``exercise_saved_setting``'s composite foreign key, and each waited on
+#:   what the other held. The loop's own acquire still runs, but a transaction
+#:   advisory lock is re-entrant, so it costs one round trip.
 #:
 #: Because the order is total and no path ever takes the membership key *after*
 #: this one, neither key can be an edge of a wait-for cycle. The integration
