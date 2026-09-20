@@ -29,10 +29,10 @@ PLACEHOLDER (OQ-CE-01) — the class-year order
 Design spec §4.4's tie-break reads a ``year_rank`` mapping, "seniors first". No
 such vocabulary exists: OQ-CE-01 is open, Ann's sample has not arrived, and
 ``smartmatch_domain.exercise.matching`` deliberately declares no default. This
-module therefore derives one **from the dataset** — see
-:func:`placeholder_year_rank` — rather than writing a list of year names into
-the code. It is a placeholder and it is marked as one at its definition; closing
-OQ-CE-01 replaces that one function.
+module supplies an **empty** one — :data:`PLACEHOLDER_CLASS_YEAR_RANK`, which is
+the seam Ann's order plugs into — so that the year settles no tie and no reason
+line claims it did. The constant's own comment says why an order derived from
+file order was withdrawn.
 """
 
 from __future__ import annotations
@@ -42,6 +42,7 @@ import io
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
+from types import MappingProxyType
 from typing import Final
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -66,6 +67,7 @@ from smartmatch_api.exercise_dependencies import (
 __all__ = [
     "CSV_INJECTION_PREFIXES",
     "CSV_LIST_COLUMNS",
+    "PLACEHOLDER_CLASS_YEAR_RANK",
     "CompareView",
     "EventView",
     "EventsView",
@@ -82,7 +84,6 @@ __all__ = [
     "csv_download_filename",
     "event_evidence",
     "neutralised_cell",
-    "placeholder_year_rank",
     "rankable_set",
     "ranked_list_csv",
     "ranked_list_view",
@@ -138,7 +139,9 @@ class RankableSet:
         profiles: One :class:`ExerciseProfile` per rankable profile, in data
             file order.
         facts: ``{profile_no: ProfileFacts}`` for the same set.
-        year_rank: The placeholder class-year ordering (OQ-CE-01).
+        year_rank: :data:`PLACEHOLDER_CLASS_YEAR_RANK` — empty while OQ-CE-01
+            is open, so the year never settles a tie and no sentence claims it
+            did.
         unrankable_profile_count: How many profiles were left out because the
             data file records no major or no year for them. A count, not a
             score: it tells a team that the list is drawn from fewer than the
@@ -151,51 +154,42 @@ class RankableSet:
     unrankable_profile_count: int
 
 
-def placeholder_year_rank(class_years: Sequence[str]) -> Mapping[str, int]:
-    """PLACEHOLDER (OQ-CE-01) — the tie-break's ``year_rank``, from the dataset.
-
-    Design spec §4.4 wants "seniors first". **Nobody has said which years exist
-    or which of them is senior**: OQ-CE-01 is open, Ann's 20-row sample has not
-    arrived, and the owner's ruling of 2026-09-18 is to build to the placeholder
-    and close no vocabulary in code.
-
-    Three shapes were available and only this one closes nothing:
-
-    * *A written-down list of year names, ranked*. This is the one the spec
-      sketches and the one this track may not write: it answers OQ-CE-01 in
-      code, in a file a reader would afterwards take for a decision. No year
-      name is spelled anywhere in this module, and a test walks both of this
-      track's source files to keep it that way.
-    * *No ordering at all* (an empty mapping). Honest, and it silently deletes a
-      tie-break column the spec states and the reason line Ann wrote word for
-      word — ``tied on major; ordered by year`` could never be printed.
-    * *An order derived from the data file*, which is this. The years are ranked
-      by **first appearance in ``profile_no`` order**, so the ordering is a
-      property of the dataset rather than of an opinion held here.
-
-    What it is, said plainly so nobody mistakes it for a decision: a **fixed,
-    dataset-derived order that is not a claim about seniority**. It is
-    deterministic — the same data file yields the same mapping in every process,
-    every request and for every team, which is what design spec §4.4 requires of
-    everything in the key — and it is wrong about who is senior unless Ann's
-    file happens to list her years in that order. Closing OQ-CE-01 replaces this
-    function and nothing else. Recorded as an owner question on this track's
-    pull request.
-
-    Args:
-        class_years: One entry per rankable profile, in data file order.
-
-    Returns:
-        ``{class_year: rank}``, higher first, one entry per distinct year.
-    """
-    order: list[str] = []
-    seen: set[str] = set()
-    for year in class_years:
-        if year in seen:
-            continue
-        seen.add(year)
-        order.append(year)
-    return {year: len(order) - position for position, year in enumerate(order)}
+#: **PLACEHOLDER (OQ-CE-01) — the seam where Ann's class-year order plugs in.**
+#:
+#: Design spec §4.4's tie-break reads a ``year_rank`` mapping and wants "seniors
+#: first". **Nobody has said which years exist or which of them is senior.**
+#: OQ-CE-01 is open, Ann's sample has not arrived, and the owner's standing
+#: ruling is to close no vocabulary in code and to invent nothing.
+#:
+#: So this is **empty**, and empty is a decision rather than an omission. Three
+#: shapes were available:
+#:
+#: * *A written-down list of year names, ranked.* The one the spec sketches and
+#:   the one this track may not write: it answers OQ-CE-01 in code, in a file a
+#:   later reader would take for a settled decision.
+#: * *An order derived from the data file* — years ranked by first appearance.
+#:   This shipped first and was **withdrawn in review round 1**, and the reason
+#:   is worth keeping: it is deterministic, but file order is not seniority, so
+#:   the list would print Ann's verbatim sentence *"Tied on major; ordered by
+#:   year."* about an order that is arbitrary. Telling a class participant that
+#:   the year decided, when what decided was which row the spreadsheet happened
+#:   to list first, is an untrue statement to the reader — the same class of
+#:   defect review rejected on PR #180.
+#: * *No order at all*, which is this.
+#:
+#: What the merged domain does with an empty mapping, with no edit to it:
+#: ``matching._unlisted_year_rank`` gives every year the same rank, so the year
+#: column of the key never separates two names; ``matching._key_against``
+#: therefore never returns :attr:`~smartmatch_domain.exercise.reasons.TieBreakKey.YEAR`,
+#: so **neither year sentence can be emitted at all**; a tie that the year would
+#: have settled falls through to the fixed order, which has its own honest
+#: sentence; and ``matching.unlisted_class_years`` reports every year present in
+#: the file, which this module surfaces on the response as
+#: ``unlisted_class_years`` so the gap is visible rather than silent.
+#:
+#: Closing OQ-CE-01 is replacing this one object with Ann's order. Nothing else
+#: in this track changes, and the sentences start appearing on their own.
+PLACEHOLDER_CLASS_YEAR_RANK: Final[Mapping[str, int]] = MappingProxyType({})
 
 
 def event_evidence(event: ExerciseEventRow) -> EventEvidence:
@@ -306,7 +300,7 @@ def rankable_set(
     return RankableSet(
         profiles=tuple(ranked),
         facts=facts,
-        year_rank=placeholder_year_rank([profile.class_year for profile in ranked]),
+        year_rank=PLACEHOLDER_CLASS_YEAR_RANK,
         unrankable_profile_count=unrankable,
     )
 

@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import ast
 import uuid
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Iterator, Mapping
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -56,14 +56,15 @@ from smartmatch_api.routers import exercise_matching, exercise_matching_models
 from smartmatch_api.routers.exercise_matching_models import (
     CSV_INJECTION_PREFIXES,
     CSV_LIST_COLUMNS,
+    PLACEHOLDER_CLASS_YEAR_RANK,
     csv_download_filename,
     event_evidence,
     neutralised_cell,
-    placeholder_year_rank,
     rankable_set,
 )
 from smartmatch_domain.exercise import EXERCISE_WITHHELD_FIELDS
 from smartmatch_domain.exercise.matching import exercise_ranked_list
+from smartmatch_domain.exercise.reasons import ANN_TIED_ON_YEAR_PHRASE, phrase_as_sentence
 from smartmatch_domain.exercise.registry import (
     EXERCISE_APPROVED_SCORING_KEYS,
     EXERCISE_DEFAULT_WEIGHTS,
@@ -840,17 +841,76 @@ def test_every_refusal_code_is_the_exercises_own(client: TestClient) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_the_class_year_order_comes_from_the_data_file(client: TestClient) -> None:
-    """No vocabulary of year names exists in this track, and none is invented."""
-    assert placeholder_year_rank(["Senior", "Junior", "Senior", "Sophomore"]) == {
-        "Senior": 3,
-        "Junior": 2,
-        "Sophomore": 1,
+def test_the_class_year_order_is_empty_while_ann_has_not_stated_one() -> None:
+    """(d) The seam, and the fact that nothing is plugged into it yet.
+
+    Review round 1 withdrew an order derived from the data file. It was
+    deterministic, but file order is not seniority, so the list would print
+    Ann's verbatim "Tied on major; ordered by year." about an order that is
+    arbitrary — an untrue statement to a class participant, which is the class
+    of defect review rejected on PR #180. Empty is what closes nothing.
+    """
+    assert PLACEHOLDER_CLASS_YEAR_RANK == {}
+    assert rankable_set(_PROFILES, _EVENTS).year_rank == PLACEHOLDER_CLASS_YEAR_RANK
+
+
+def test_the_year_sentences_are_never_emitted_by_the_api_today() -> None:
+    """(a) Neither year line can reach a screen while the order is empty.
+
+    Asserted over every name on every list the four weightings below produce,
+    and against the domain's own constant rather than against a copy of the
+    wording here — ``reasons.py`` owns the words (OQ-CE-12) and this file must
+    not restate them.
+    """
+    forbidden = {
+        phrase_as_sentence(ANN_TIED_ON_YEAR_PHRASE),
+        phrase_as_sentence("tied on what counted; ordered by year"),
     }
-    assert placeholder_year_rank([]) == {}
-    # Every year in the file is named by the mapping, so nothing is reported as
-    # unlisted — which is what makes the tie-break's year column live.
-    assert client.get(_LIST).json()["unlisted_class_years"] == []
+    fakes = _Fakes()
+    with _entered(fakes, 1) as client:
+        for params in (
+            {},
+            {"same_major": 1.0, "stated_interest_overlap": 0.0},
+            {"same_major": 0.0, "stated_interest_overlap": 1.0},
+            {"career_goal_fit": 1.0},
+        ):
+            body = client.get(_LIST, params=params).json()
+            reasons = {entry["reason"] for entry in body["entries"]}
+            assert reasons.isdisjoint(forbidden), f"a year sentence reached the list for {params}"
+
+
+def test_a_tie_the_year_would_have_settled_falls_to_the_fixed_order(
+    client: TestClient,
+) -> None:
+    """(b) The honest sentence for a tie nothing in the data separates.
+
+    Several profiles in the fixture share a major and a marker and have nothing
+    else on file, and differ only in a column the order no longer reads. With a
+    year order they would have been separated by it; with none, the fixed order
+    seeded from the data file's checksum decides, and the line says so.
+    """
+    fixed_order_sentence = phrase_as_sentence("tied; placed in a fixed order that never changes")
+    reasons = [entry["reason"] for entry in client.get(_LIST).json()["entries"]]
+    assert fixed_order_sentence in reasons, (
+        "no name was placed by the fixed order; this fixture no longer exercises the branch"
+    )
+
+
+def test_every_class_year_in_the_file_is_reported_as_unlisted(client: TestClient) -> None:
+    """(c) The gap is visible on the response rather than silent.
+
+    ``unlisted_class_years`` is the domain's own report of years the ordering
+    does not name. With an empty ordering that is every year in the file, which
+    is exactly the fact a screen should be able to show while OQ-CE-01 is open.
+    """
+    body = client.get(_LIST).json()
+    expected: list[str] = []
+    for profile in _PROFILES:
+        year = profile.class_year
+        if year is not None and profile.major is not None and year not in expected:
+            expected.append(year)
+    assert body["unlisted_class_years"] == expected
+    assert expected, "the fixture must carry a class year for this to mean anything"
 
 
 def test_the_placeholder_marker_is_literally_present_in_the_source() -> None:
@@ -1049,22 +1109,7 @@ def test_nothing_here_reaches_the_simulation_loader() -> None:
 
 
 def test_the_sequence_of_profiles_a_list_is_built_from_is_the_files_order() -> None:
-    """The placeholder year order depends on it, so it is pinned rather than assumed."""
+    """Everything order-dependent downstream reads this sequence, so it is pinned."""
     rankable = rankable_set(_PROFILES, _EVENTS)
     assert [profile.profile_no for profile in rankable.profiles] == [1, 2, 3, 4, 5, 6, 7]
     assert rankable.unrankable_profile_count == 1
-
-
-def _first_appearance(profiles: Sequence[TeamProfileRow]) -> list[str]:
-    seen: list[str] = []
-    for profile in profiles:
-        year = profile.class_year
-        if year is not None and year not in seen:
-            seen.append(year)
-    return seen
-
-
-def test_the_year_order_is_stable_for_one_data_file() -> None:
-    rankable = rankable_set(_PROFILES, _EVENTS)
-    assert list(rankable.year_rank) == _first_appearance(_PROFILES)
-    assert rankable_set(_PROFILES, _EVENTS).year_rank == rankable.year_rank
