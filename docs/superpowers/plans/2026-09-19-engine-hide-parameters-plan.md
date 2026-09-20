@@ -274,3 +274,62 @@ nothing to revert in the database. Reverting the commit is equally safe.
                 tests/integration/test_exercise_instructor_persistence.py -q
 make scan && make imports && make openapi-check   # 83 ops, migration head 0037
 ```
+
+---
+
+## Execution addendum, 19 September 2026
+
+Written after the tasks above ran. The plan is preserved as it was written;
+this records where reality differed from it.
+
+### The flag is narrower than this plan assumed
+
+Task 4 was written expecting a CHECK-violating insert to prove the sentinel
+absent. It did not, and the failure is the most useful thing this change
+produced:
+
+```
+(psycopg.errors.CheckViolation) new row for relation "…" violates check constraint "…"
+DETAIL:  Failing row contains (1, sentinel-value-b027cc…).
+[SQL: INSERT INTO … VALUES (%(id)s::INTEGER, %(label)s::VARCHAR)]
+[SQL parameters hidden due to hide_parameters=True]
+```
+
+SQLAlchemy's rendering is suppressed exactly as intended. **PostgreSQL's own
+`DETAIL:` line is not**, because it arrives composed inside `exc.orig`, below
+the layer the flag operates on. For a CHECK or NOT NULL refusal that line is
+the whole failing row. For a unique or foreign-key refusal it is the key only.
+
+Consequences, all carried into the change rather than left here:
+
+1. The probe was rebuilt around a primary-key refusal, where `DETAIL` names
+   only the key, so the sentinel's absence is attributable to the flag.
+2. `test_the_servers_own_detail_line_is_not_covered` asserts the limitation, so
+   it is discovered by a test rather than in a log, and fails loudly if a future
+   driver or server setting ever makes it suppressible.
+3. Every docstring this change touched says "floor, not ceiling" explicitly.
+   The per-repository scrubbers are not redundant and must not be removed on
+   the strength of this flag.
+4. `adr-backlog.md` **B-11** records the wider invariant, unresolved, with the
+   survey it would need. It is not decided here: the owner decision quoted at
+   the top of this plan is about the switch, not about a repository-wide gate.
+
+### Other differences
+
+- **No assertion was weakened or rewritten.** The inventory's prediction held:
+  no test in the repository asserts that a bound value appears in a
+  `DBAPIError`'s rendering, and the integration fixtures build their own
+  engines, so the shared-factory change does not reach them.
+- **Alembic was covered**, as planned. `db/migrations/env.py` imports the
+  resolver; `alembic upgrade head` against a scratch database still reaches
+  `0037_exercise_tables`. Note for anyone running the suite from a **git
+  worktree**: `migration_harness.py` shells out to `alembic`, which resolves
+  `smartmatch_persistence` through the venv's editable install — i.e. the
+  *parent* checkout. Run those tests with the worktree's package directory on
+  `PYTHONPATH`, or the import fails for reasons that have nothing to do with the
+  change.
+- **`_bool_from_env` is genuinely the first** of its kind here. A grep for an
+  existing boolean environment reader across `python/`, `services/`, `tools/`
+  and `db/` found none; the only prior art is `_int_from_env` in the same
+  module, which raises, and the addendum in that function's docstring explains
+  why this one deliberately does not.
