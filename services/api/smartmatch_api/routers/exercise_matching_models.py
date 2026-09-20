@@ -687,15 +687,37 @@ CSV_LIST_COLUMNS: Final[tuple[str, ...]] = (
 #: opened in a spreadsheet by definition.
 CSV_FORMULA_INTRODUCERS: Final[tuple[str, ...]] = ("=", "+", "-", "@")
 
-#: Whitespace a spreadsheet strips from the front of a cell **before** deciding
-#: whether the cell is a formula.
+#: Characters skipped when looking for a cell's first significant character.
 #:
 #: Review round 1: the first version of this guard compared the cell's first
 #: character against the introducers plus tab and carriage return, which its own
 #: docstring already said was not the rule — ``" =cmd|…"`` and ``"\n=cmd|…"``
-#: both walked straight through it. The check below looks past *all* of these
-#: instead of listing two of them.
-CSV_LEADING_WHITESPACE: Final[str] = " \t\r\n\v\f"
+#: both walked straight through it.
+#:
+#: Review round 2: the replacement was ASCII-only, and the characters that
+#: actually arrive in a file somebody pasted a spreadsheet into are not. A
+#: no-break space (U+00A0) is what a copy out of a web page leaves in front of a
+#: value; a byte-order mark (U+FEFF) is what a Windows editor writes at the head
+#: of the first cell; a zero-width space (U+200B) is invisible in every editor
+#: that would have shown the others. Each of them sat in front of ``=`` and went
+#: through untouched. The set below is the ASCII whitespace plus those three and
+#: the Unicode spaces beside them, and the check skips **all** of it.
+#:
+#: The cell itself is never rewritten — a skipped character is skipped for the
+#: purpose of *deciding*, and the value a reader sees is the value that arrived.
+CSV_LEADING_WHITESPACE: Final[str] = (
+    " \t\r\n\v\f"
+    "\x85"  # NEL
+    "\xa0"  # NO-BREAK SPACE
+    "\u1680"  # OGHAM SPACE MARK
+    "\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a"  # EN..HAIR
+    "\u200b\u200c\u200d"  # ZERO WIDTH SPACE / NON-JOINER / JOINER
+    "\u2028\u2029"  # LINE / PARAGRAPH SEPARATOR
+    "\u202f"  # NARROW NO-BREAK SPACE
+    "\u205f"  # MEDIUM MATHEMATICAL SPACE
+    "\u3000"  # IDEOGRAPHIC SPACE
+    "\ufeff"  # ZERO WIDTH NO-BREAK SPACE / BOM
+)
 
 #: Leading characters that make a cell worth neutralising on their own, whatever
 #: follows them: a tab, a carriage return or a newline at the front of a cell is
@@ -721,6 +743,12 @@ def neutralised_cell(value: object) -> str:
     A leading tab, carriage return or newline is neutralised even when nothing
     dangerous follows: it is never data, and a cell that begins with a row break
     is a cell worth showing rather than obeying.
+
+    The whitespace skipped is :data:`CSV_LEADING_WHITESPACE`, which is **not**
+    only ASCII (review round 2): a no-break space, a byte-order mark and a
+    zero-width space are what a value pasted out of a web page or written by a
+    Windows editor actually begins with, and all three used to carry an ``=``
+    past this guard while being invisible to whoever looked at the file.
 
     Applied to **every** cell rather than to the ones that look risky: ``rank``
     is an integer today and a rule that exempts a column is a rule that stops

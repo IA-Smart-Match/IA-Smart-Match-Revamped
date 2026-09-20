@@ -56,6 +56,7 @@ from smartmatch_api.main import CAPABILITY_SCOPED_ROUTERS, routers_for
 from smartmatch_api.routers import exercise_matching, exercise_matching_models
 from smartmatch_api.routers.exercise_matching_models import (
     CSV_FORMULA_INTRODUCERS,
+    CSV_LEADING_WHITESPACE,
     CSV_LIST_COLUMNS,
     MAX_WEIGHT_KEY_CHARACTERS,
     MAX_WEIGHT_KEYS,
@@ -760,6 +761,16 @@ _MUST_NEUTRALISE = [
     "\t-2+3",
     "\tplain text after a tab",
     "\nplain text after a newline",
+    # Review round 2, F3: the characters a value pasted out of a web page or
+    # written by a Windows editor actually begins with, each invisible to
+    # whoever looks at the file, each of which used to carry an `=` straight
+    # through an ASCII-only whitespace set.
+    "\xa0=HYPERLINK",  # NO-BREAK SPACE
+    "\ufeff=HYPERLINK",  # BYTE ORDER MARK
+    "\u200b=HYPERLINK",  # ZERO WIDTH SPACE
+    "\u3000=HYPERLINK",  # IDEOGRAPHIC SPACE
+    "\u202f+HYPERLINK",  # NARROW NO-BREAK SPACE
+    "\xa0\ufeff \t@HYPERLINK",  # and mixed, in any order
 ]
 
 #: Cells that must be left exactly as they are. A guard that neutralises
@@ -772,6 +783,10 @@ _MUST_LEAVE_ALONE = [
     "3",
     "a - b",
     "Same major; nothing else on file.",
+    # A no-break space in the *middle* is ordinary text and stays ordinary: the
+    # guard looks at the front of the cell, not for a character anywhere in it.
+    "Avery\xa0Brooks",
+    "caf\xe9 society",
 ]
 
 
@@ -797,8 +812,49 @@ def test_the_guard_covers_every_introducer_the_module_names() -> None:
     assertion is the other direction: an introducer added to the module must
     also appear in the cases, or the list has stopped being complete.
     """
-    covered = {cell.lstrip(" \t\r\n")[:1] for cell in _MUST_NEUTRALISE}
+    covered = {cell.lstrip(CSV_LEADING_WHITESPACE)[:1] for cell in _MUST_NEUTRALISE}
     assert set(CSV_FORMULA_INTRODUCERS) <= covered
+
+
+def test_every_skipped_character_is_covered_by_a_written_out_case() -> None:
+    """The other completeness direction, for the whitespace set (review 2, F3).
+
+    The cases above are written out so they cannot shrink with the
+    implementation. This says the written list has not fallen *behind* it: every
+    character the guard agrees to skip appears in front of an introducer in at
+    least one case, or in a case that is deliberately excused below.
+    """
+    seen = {
+        character
+        for cell in _MUST_NEUTRALISE
+        for character in cell[: len(cell) - len(cell.lstrip(CSV_LEADING_WHITESPACE))]
+    }
+    # The Unicode spaces in the U+2000..U+200A run and their two neighbours are
+    # skipped for completeness rather than because anybody has produced one;
+    # writing twelve near-identical cases would be noise. One of the run is in
+    # the cases (U+3000) and the three that actually arrive are all covered.
+    excused = set("\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a")
+    excused |= set("\u200c\u200d\u2028\u2029\u205f\u1680\x85\v\f\r")
+    assert set(CSV_LEADING_WHITESPACE) - seen <= excused
+
+
+def test_a_display_name_with_a_no_break_space_cannot_start_a_formula(
+    fakes: _Fakes,
+) -> None:
+    """F3 end to end: the invisible prefix reaches the download as text.
+
+    A name out of an uploaded file, led by a no-break space and an equals sign —
+    the shape a value pasted from a web page takes. It must arrive in the CSV
+    quoted as text, and the cell must still carry what the file said.
+    """
+    with _entered(fakes, 1) as client:
+        workspace = fakes.workspaces.rows[(_DATASET_ID, 1)]
+        base = _PROFILES[0]
+        fakes.team_view.overlays[(workspace.id, base.profile_no)] = replace(
+            base, display_name='\xa0=HYPERLINK("http://x","click")'
+        )
+        text = client.get(f"{_BASE}/events/northline/list.csv").text
+    assert "'\xa0=HYPERLINK" in text
 
 
 def test_a_display_name_from_the_data_file_cannot_start_a_formula(fakes: _Fakes) -> None:
