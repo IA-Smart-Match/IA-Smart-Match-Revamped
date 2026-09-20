@@ -628,8 +628,14 @@ class ExerciseInstructorRepository:
         """Design spec §11's per-team reset, run through this module's scrubber.
 
         Delegates to ``ExerciseWorkspaceRepository.reset_team`` rather than
-        reimplementing it, so "what a reset deletes" keeps one answer and the
-        instructor's reset and the team's own reset cannot drift apart.
+        reimplementing it, so "what a reset deletes" keeps one answer.
+
+        There is no *team's* reset to keep it in step with any more, and this
+        docstring used to say there was. The owner ruled on 2026-09-19 that the
+        per-team reset moves behind the instructor passcode, and PR #186 removed
+        ``POST /v1/exercise/workspaces/current/reset`` rather than deprecating
+        it — so ``ExerciseWorkspaceRepository.reset_team`` is reached from this
+        wrapper and from nowhere else in the application.
 
         What this wrapper adds is the refusal contract: the workspace
         repository is CE-WORKSPACE's module and raises the driver's exception as
@@ -694,7 +700,10 @@ class ExerciseInstructorRepository:
           ``uq_exercise_team_workspace_dataset_team`` — failing the **whole**
           re-point, after some teams had already been reset.
 
-        Two locks, and neither is redundant (review finding F2 on PR #184):
+        Three locks, in the order
+        :data:`~smartmatch_persistence.exercise.settings_repository.SAVED_SETTING_LOCK_KEY`
+        documents for the whole family, and none of them redundant (review
+        finding F2 on PR #184; the third added in review round 2 of PR #188):
 
         * :func:`~smartmatch_persistence.exercise.workspace_repository.lock_workspace_membership`
           is taken **first**, before any row is read. It is what closes the
@@ -709,8 +718,17 @@ class ExerciseInstructorRepository:
           statement will touch, which is what closes the first end and what
           stops a second re-point, or a reset, from interleaving with this one.
 
-        The ordering — advisory lock, then row locks, on every path that takes
-        both — is what keeps the pair deadlock-free.
+        * The **saved-settings key** is taken between them, and that position is
+          the whole of review round 2's F1. It has to be held before the row
+          locks, not after: ``save_setting`` holds it and then waits for a
+          ``FOR KEY SHARE`` lock on the workspace row its insert references, so
+          a re-point that held that row and then waited for the key would close
+          a wait-for cycle and be aborted by ``deadlock_timeout``. Taking it
+          first means the two wait for each other in one direction only.
+
+        The ordering — membership key, then saved-settings key, then row locks,
+        on every path that takes more than one — is what keeps the three
+        deadlock-free.
 
         Returns:
             How many workspaces moved and how many stale ones were discarded.
@@ -720,6 +738,23 @@ class ExerciseInstructorRepository:
                 driver's exception never escapes.
         """
         lock_workspace_membership(session)
+        # Second, and **before either FOR UPDATE below** (review round 2, F1).
+        # Round 1 put this acquire inside `reset_workspace_children`, which runs
+        # after the two row-locking selects — so this method took row locks and
+        # *then* waited for the key, while `save_setting` takes the key and then
+        # waits for a row (its insert's FK takes FOR KEY SHARE on the workspace
+        # row this method holds FOR UPDATE). That is a wait-for cycle, and
+        # PostgreSQL resolves it by aborting one of them after
+        # `deadlock_timeout` — an instructor's re-point failing because a team
+        # pressed save. Taking the key here restores the order the constant
+        # documents. `reset_workspace_children`'s own acquire stays and costs
+        # one round trip: an advisory lock is re-entrant within a transaction.
+        self._execute(
+            session,
+            sa.select(sa.func.pg_advisory_xact_lock(SAVED_SETTING_LOCK_KEY)),
+            dataset_id=dataset_id,
+            refusal="The teams could not be moved to that data file.",
+        )
         target_team_numbers = {
             row.team_number
             for row in session.execute(

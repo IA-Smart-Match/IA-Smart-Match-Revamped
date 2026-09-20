@@ -506,6 +506,11 @@ class ExerciseWorkspaceRepository:
         for a CHECK or NOT NULL refusal is outside that flag's reach, so a
         caller that logs ``str(exc)`` verbatim is still logging row values.
 
+        **Reached from the instructor route alone.** PR #186 removed
+        ``POST /v1/exercise/workspaces/current/reset`` on the owner's ruling of
+        2026-09-19, so nothing a class participant can press arrives here;
+        ``ExerciseInstructorRepository.reset_team`` is the one caller.
+
         **Takes the saved-settings key first** (review round 1). Without it a
         reset racing a team's save loses to it: the save holds
         :data:`~smartmatch_persistence.exercise.settings_repository.SAVED_SETTING_LOCK_KEY`

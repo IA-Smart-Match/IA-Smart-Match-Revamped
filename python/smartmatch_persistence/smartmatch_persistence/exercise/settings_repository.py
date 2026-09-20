@@ -92,30 +92,82 @@ MAX_SAVED_SETTINGS_PER_EVENT: Final[int] = 3
 #: statements, and a per-workspace key would be a second thing to get right for
 #: no measured gain.
 #:
-#: The lock order for this family, stated once, here (review round 1)
-#: ------------------------------------------------------------------
-#: Three kinds of lock exist in the ``exercise_`` tables, and **every path that
-#: takes more than one takes them in this order**::
+#: The lock order for this family, walked path by path (review round 2)
+#: -------------------------------------------------------------------
+#: Round 1 stated the order in prose and round 2 found it was not true of
+#: ``repoint_workspaces``, which took row locks *before* this key. So the claim
+#: is written out per path instead, and **row locks are part of the walk**, not
+#: only the two advisory keys. "Row lock" here means an explicit ``FOR UPDATE``,
+#: the implicit lock an ``UPDATE`` or ``DELETE`` takes, or the ``FOR KEY SHARE``
+#: lock an ``INSERT`` takes on the row its foreign key references.
 #:
-#:     WORKSPACE_MEMBERSHIP_LOCK_KEY  ->  SAVED_SETTING_LOCK_KEY  ->  row locks
+#: The order every path takes, and none takes any other::
 #:
-#: * ``save_setting`` / ``delete_setting`` take this key, then row-lock what they
-#:   write. They never take the membership key.
-#: * ``workspace_repository.reset_team`` and
-#:   ``instructor_repository.reset_workspace_children`` take this key before they
-#:   delete a team's settings — which is what review round 1 added, and why: a
-#:   reset that deleted outside the key could run its ``DELETE`` between a
-#:   concurrent save's count and its commit, and under READ COMMITTED the delete
-#:   simply does not see the uncommitted row. The save then commits, and the team
-#:   is left holding a setting the reset was meant to clear.
-#: * ``instructor_repository.repoint_workspaces`` takes the membership key first,
-#:   then reaches this one through ``reset_workspace_children``, then takes row
-#:   locks. That is the full order and it is the only path that takes all three.
+#:     WORKSPACE_MEMBERSHIP_LOCK_KEY -> SAVED_SETTING_LOCK_KEY -> row locks
 #:
-#: Because the order is total and no path ever takes the membership key *after*
-#: this one, neither key can be an edge of a wait-for cycle. The integration
-#: file probes both directions of that claim with
-#: ``pg_try_advisory_xact_lock`` rather than asserting it here in prose.
+#: Each path below is *keys taken, in order* → *row locks, all taken after them*.
+#:
+#: ``workspace_repository``
+#:
+#: * ``get_or_create_workspace`` — membership → INSERT ``exercise_team_workspace``;
+#:   FK FOR KEY SHARE on ``exercise_dataset``; UPDATE of that same workspace row
+#:   in ``repair_token_hash``.
+#: * ``entry_dataset_for`` — membership → none; every statement is a plain SELECT.
+#: * ``reset_team`` — saved settings → DELETE overlay, saved settings and result
+#:   runs; UPDATE the workspace row.
+#: * ``active_dataset``, ``find_by_token_hash`` — none → none.
+#:
+#: ``settings_repository``
+#:
+#: * ``save_setting`` — saved settings → INSERT/UPDATE ``exercise_saved_setting``;
+#:   FK FOR KEY SHARE on ``exercise_team_workspace`` and on ``exercise_event``.
+#: * ``delete_setting`` — saved settings → DELETE ``exercise_saved_setting``.
+#: * ``list_settings``, ``get_setting`` — none → none.
+#:
+#: ``team_view_repository``
+#:
+#: * ``list_team_profiles`` — none → none.
+#:
+#: ``instructor_repository``
+#:
+#: * ``repoint_workspaces`` — membership, then saved settings → two SELECT FOR
+#:   UPDATE on ``exercise_team_workspace``, then the children's DELETEs, then
+#:   DELETE or UPDATE of each workspace row. **The second key is taken before the
+#:   first FOR UPDATE**; that is round 2's F1.
+#: * ``reset_workspace_children`` — saved settings → DELETE overlay, saved
+#:   settings, result runs.
+#: * ``reset_team`` — saved settings, delegated → as ``workspace_repository``'s.
+#: * ``set_invite_limit`` — none → UPDATE ``exercise_dataset``, which is FOR NO
+#:   KEY UPDATE and does not conflict with the FK's FOR KEY SHARE.
+#: * ``unlock_results`` — none → INSERT ``exercise_result_unlock``; FK FOR KEY
+#:   SHARE on ``exercise_event``.
+#: * every ``list_*`` read — none → none.
+#:
+#: ``dataset_repository``
+#:
+#: * ``create_dataset`` — none → INSERT dataset, profiles, events.
+#: * every ``list_*`` read — none → none.
+#:
+#: **Why the order is the one it is.** ``save_setting`` forces it: it holds this
+#: key and then waits for a FOR KEY SHARE lock on the workspace row its insert
+#: references. Any path that held that row and *then* waited for this key would
+#: close a wait-for cycle with it, and PostgreSQL would abort one of the two
+#: after ``deadlock_timeout`` — an instructor's re-point failing because a team
+#: pressed save. ``repoint_workspaces`` was exactly that path for one round,
+#: which is why the walk above exists rather than a sentence.
+#:
+#: **Why no cycle is possible.** No path takes the membership key after this one,
+#: and no path takes a row lock before either key. A cycle needs two paths that
+#: acquire in opposite orders, and there is no second order in the list. The
+#: integration file probes both directions rather than trusting this comment:
+#: ``test_a_save_never_takes_the_membership_key`` and
+#: ``test_a_repoint_waits_for_the_saved_settings_key_before_it_locks_a_row``.
+#:
+#: **Coarse, and deliberately.** One key serialises saved-setting writes across
+#: every team rather than per workspace. Six teams saving a named weighting
+#: between two clicks is not contention, the work inside the key is two short
+#: statements, and a per-workspace key would be a second thing to get right for
+#: no measured gain.
 SAVED_SETTING_LOCK_KEY: Final[int] = int.from_bytes(
     hashlib.sha256(b"exercise_saved_setting").digest()[:8], "big", signed=True
 )

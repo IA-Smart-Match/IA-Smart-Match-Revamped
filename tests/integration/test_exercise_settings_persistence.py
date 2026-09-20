@@ -591,6 +591,162 @@ def test_a_save_never_takes_the_membership_key(
         assert _try_key(probe, SAVED_SETTING_LOCK_KEY) is True, "committing releases it"
 
 
+#: Statements that take a row lock: an explicit ``FOR UPDATE``, and the implicit
+#: lock an ``UPDATE``, ``DELETE`` or ``INSERT`` takes on the row it writes or on
+#: the row its foreign key references.
+_ROW_LOCKING = ("FOR UPDATE", "UPDATE ", "DELETE ", "INSERT ")
+
+
+def _statement_log(session: Session) -> list[tuple[str, object]]:
+    """Record every statement this session's connection executes, in order.
+
+    A SQLAlchemy ``before_cursor_execute`` listener rather than a clock or a
+    second connection. What F1 is about is the **order in which one method
+    acquires things**, and that is a property of the statements it sends — so it
+    is read off the statements, with no timing in the test at all.
+    """
+    recorded: list[tuple[str, object]] = []
+    connection = session.connection()
+
+    def record(
+        _conn: object,
+        _cursor: object,
+        statement: str,
+        parameters: object,
+        _context: object,
+        _executemany: bool,
+    ) -> None:
+        recorded.append((" ".join(statement.split()).upper(), parameters))
+
+    sa.event.listen(connection.engine, "before_cursor_execute", record)
+    session.info["_stop_recording"] = lambda: sa.event.remove(
+        connection.engine, "before_cursor_execute", record
+    )
+    return recorded
+
+
+def _advisory_key(parameters: object) -> int | None:
+    """The advisory key one recorded statement passed, if it passed one."""
+    if isinstance(parameters, dict):
+        values = list(parameters.values())
+    elif isinstance(parameters, tuple | list):
+        values = list(parameters)
+    else:
+        return None
+    keys = {SAVED_SETTING_LOCK_KEY, WORKSPACE_MEMBERSHIP_LOCK_KEY}
+    for value in values:
+        if isinstance(value, int) and value in keys:
+            return value
+    return None
+
+
+def test_a_repoint_takes_the_saved_settings_key_before_any_row_lock(
+    exercise_sessions: sessionmaker[Session],
+) -> None:
+    """Review round 2, F1: the key is acquired before both ``FOR UPDATE`` reads.
+
+    Round 1 acquired the saved-settings key inside ``reset_workspace_children``,
+    which ``repoint_workspaces`` calls **after** it has row-locked every
+    workspace. That is row locks before the key — the one order the family
+    forbids — and the cycle it opens is not hypothetical: ``save_setting`` holds
+    the key and then waits for the ``FOR KEY SHARE`` lock its insert's foreign
+    key takes on the workspace row, which is exactly the row a re-point holds
+    ``FOR UPDATE``. PostgreSQL aborts one of the two after ``deadlock_timeout``.
+
+    **Why this is asserted on the statement log and not with a NOWAIT probe.**
+    The obvious experiment — hold the key from a second connection, let the
+    re-point block under a short ``lock_timeout``, then ask a third connection
+    whether the workspace row is still free — cannot work here, and it was tried
+    first. A ``lock_timeout`` surfaces as a psycopg ``OperationalError``, which
+    SQLAlchemy treats as a disconnect and **invalidates the pooled connection**:
+    by the time the exception reaches the test the backend is gone,
+    ``pg_locks`` shows nothing for it, and the probe reports "free" whichever
+    order the code used. Measured, not assumed — the probe passed against the
+    unfixed code, which is the definition of a test that is not testing.
+
+    So the order is read where it is actually decided: off the sequence of
+    statements the method sends. No second connection, no timing, no sleep, and
+    it fails against the round-1 code because the acquire genuinely comes later
+    in that sequence.
+    """
+    repository = ExerciseInstructorRepository()
+    with exercise_sessions() as session:
+        _, _ = _classroom(session)
+        target = _insert_dataset(session, label="repoint-target")
+        session.commit()
+
+        recorded = _statement_log(session)
+        repository.repoint_workspaces(session, dataset_id=target)
+        session.info["_stop_recording"]()
+        session.commit()
+
+    membership_at = next(
+        index
+        for index, (_, parameters) in enumerate(recorded)
+        if _advisory_key(parameters) == WORKSPACE_MEMBERSHIP_LOCK_KEY
+    )
+    saved_settings_at = next(
+        index
+        for index, (_, parameters) in enumerate(recorded)
+        if _advisory_key(parameters) == SAVED_SETTING_LOCK_KEY
+    )
+    row_locks_at = [
+        index
+        for index, (statement, _) in enumerate(recorded)
+        if any(shape in statement for shape in _ROW_LOCKING)
+    ]
+
+    assert row_locks_at, "the re-point took no row lock at all; this fixture proves nothing"
+    assert membership_at < saved_settings_at, (
+        "the membership key must be taken first (the family's documented order)"
+    )
+    assert saved_settings_at < min(row_locks_at), (
+        "the re-point took a row lock before the saved-settings key: that is the "
+        "order that deadlocks against save_setting, which holds the key and then "
+        "waits for a FOR KEY SHARE lock on the workspace row"
+    )
+
+
+def test_a_repoint_still_completes_when_nothing_holds_the_key(
+    exercise_sessions: sessionmaker[Session],
+) -> None:
+    """The fix moved an acquire; it must not have moved the behaviour.
+
+    A re-point with no contention still moves every team onto the target data
+    file and clears the settings it was supposed to clear.
+    """
+    settings = ExerciseSettingsRepository()
+    repository = ExerciseInstructorRepository()
+    with exercise_sessions() as session:
+        dataset_id, (workspace_id, other_id) = _classroom(session)
+        settings.save_setting(
+            session,
+            dataset_id=dataset_id,
+            workspace_id=workspace_id,
+            event_key=_EVENT_KEY,
+            name="broad",
+            weights=_WEIGHTS,
+        )
+        target = _insert_dataset(session, label="repoint-target")
+        session.commit()
+
+        outcome = repository.repoint_workspaces(session, dataset_id=target)
+        session.commit()
+
+        table = schema.exercise_team_workspace
+        datasets = {
+            row.dataset_id
+            for row in session.execute(
+                sa.select(table.c.dataset_id).where(table.c.id.in_([workspace_id, other_id]))
+            ).all()
+        }
+        remaining = settings.list_settings(session, workspace_id=workspace_id, event_key=_EVENT_KEY)
+
+    assert outcome.moved == 2
+    assert datasets == {target}
+    assert remaining == ()
+
+
 def test_a_reset_holds_both_keys_in_the_declared_order(
     exercise_sessions: sessionmaker[Session],
 ) -> None:
