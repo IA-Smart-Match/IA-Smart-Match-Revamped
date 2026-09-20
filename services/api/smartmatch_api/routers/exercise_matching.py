@@ -320,6 +320,7 @@ def _build_list(
     event_key: str,
     overrides: Mapping[str, float] | None,
     setting_name: str | None,
+    events: Sequence[ExerciseEventRow] | None = None,
 ) -> RankedListView:
     """One ranked list, its table and its notice.
 
@@ -342,8 +343,16 @@ def _build_list(
     Both reads are scoped to ``workspace.dataset_id`` and ``workspace.id``, which
     come from the cookie rather than from the request, so there is no argument
     here a caller could have supplied.
+
+    ``events`` lets a caller that has **already** read and resolved them hand
+    that list over (review round 2, F2). The two list routes must resolve the
+    event before they look a named setting up, so that an unknown event key is
+    refused as one; passing the list they resolved it from keeps that fix at one
+    ``list_events`` per request rather than two. The resolution still happens
+    here, against the same rows, so no caller can skip it.
     """
-    events = datasets.list_events(session, dataset_id=workspace.dataset_id)
+    if events is None:
+        events = datasets.list_events(session, dataset_id=workspace.dataset_id)
     event = _event_or_refusal(events, event_key)
     summary = datasets.get_dataset_summary(session, dataset_id=workspace.dataset_id)
     if summary is None:  # pragma: no cover - the cookie resolved a workspace on it
@@ -500,6 +509,12 @@ def read_ranked_list(
     course's starting values, which are a placeholder the course owner has not
     yet replaced. Naming both a setting and a weight is refused.
 
+    **The event is resolved before ``setting`` is looked up** (review round 2,
+    F2). Resolving the name first answered an unknown event key plus an unknown
+    setting with ``exercise_setting_unknown``, while every other route in this
+    module answered the same key with ``exercise_event_unknown``. The resolved
+    list is handed to ``_build_list`` so the fix costs no second read.
+
     Profiles whose row records no major or no year take no place on a list and
     are reported as a count instead: the major is the one thing every profile
     can be matched on and the order reads the year.
@@ -509,11 +524,13 @@ def read_ranked_list(
             saved setting this team does not have, 422 for a weight the
             rulebook refuses or for naming a setting and a weight at once.
     """
+    events = datasets.list_events(session, dataset_id=workspace.dataset_id)
+    event = _event_or_refusal(events, event_key)
     overrides, setting_name = _overrides_for(
         session,
         settings,
         workspace=workspace,
-        event_key=event_key,
+        event_key=event.event_key,
         setting=setting,
         requested=_requested_weights(
             same_major=same_major,
@@ -527,9 +544,10 @@ def read_ranked_list(
         datasets=datasets,
         team_view=team_view,
         workspace=workspace,
-        event_key=event_key,
+        event_key=event.event_key,
         overrides=overrides,
         setting_name=setting_name,
+        events=events,
     )
 
 
@@ -570,11 +588,13 @@ def download_ranked_list(
     Raises:
         ExerciseError: as the route above.
     """
+    events = datasets.list_events(session, dataset_id=workspace.dataset_id)
+    event = _event_or_refusal(events, event_key)
     overrides, setting_name = _overrides_for(
         session,
         settings,
         workspace=workspace,
-        event_key=event_key,
+        event_key=event.event_key,
         setting=setting,
         requested=_requested_weights(
             same_major=same_major,
@@ -588,9 +608,10 @@ def download_ranked_list(
         datasets=datasets,
         team_view=team_view,
         workspace=workspace,
-        event_key=event_key,
+        event_key=event.event_key,
         overrides=overrides,
         setting_name=setting_name,
+        events=events,
     )
     return Response(
         content=ranked_list_csv(view),

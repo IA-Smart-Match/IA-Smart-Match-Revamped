@@ -911,6 +911,71 @@ def test_an_unknown_event_costs_no_profile_read(fakes: _Fakes) -> None:
         assert len(reads) == 1, "a known event key must still read them"
 
 
+@pytest.mark.parametrize(
+    "path",
+    [f"{_BASE}/events/harbor/list", f"{_BASE}/events/harbor/list.csv"],
+)
+def test_an_unknown_event_is_refused_before_a_saved_setting_is_looked_up(
+    fakes: _Fakes, path: str
+) -> None:
+    """Review round 2 (F2): the list routes resolved the name before the event.
+
+    Every other route in this module answers an unknown event key with
+    ``exercise_event_unknown``. These two called ``_overrides_for`` first, so
+    ``?setting=missing`` on a key from another data file came back as
+    ``exercise_setting_unknown`` — a refusal that sends a reader looking for a
+    setting when the real problem is the event, and a saved-setting lookup
+    spent on a key that was never going to resolve.
+    """
+    lookups: list[str] = []
+    profile_reads: list[uuid.UUID] = []
+    original_get = fakes.settings.get_setting
+    original_profiles = fakes.team_view.list_team_profiles
+
+    def counted_lookup(
+        session: object, *, workspace_id: uuid.UUID, event_key: str, name: str
+    ) -> Any:
+        lookups.append(name)
+        return original_get(session, workspace_id=workspace_id, event_key=event_key, name=name)
+
+    def counted_profiles(session: object, *, dataset_id: uuid.UUID, workspace_id: uuid.UUID) -> Any:
+        profile_reads.append(workspace_id)
+        return original_profiles(session, dataset_id=dataset_id, workspace_id=workspace_id)
+
+    with _entered(fakes, 1) as client:
+        fakes.settings.get_setting = counted_lookup  # type: ignore[method-assign]
+        fakes.team_view.list_team_profiles = counted_profiles  # type: ignore[method-assign]
+        response = client.get(path, params={"setting": "missing"})
+
+    assert response.status_code == 404
+    assert response.json() == {
+        "error": {
+            "code": "exercise_event_unknown",
+            "message": "That event is not in your team's data file.",
+        }
+    }
+    assert lookups == [], "an unknown event key looked a saved setting up"
+    assert profile_reads == [], "an unknown event key read the profiles"
+
+
+@pytest.mark.parametrize(
+    "path",
+    [_LIST, f"{_BASE}/events/northline/list.csv"],
+)
+def test_a_known_event_still_refuses_a_setting_this_team_has_not_saved(
+    client: TestClient, path: str
+) -> None:
+    """The other half of F2: event-first must not swallow the setting refusal."""
+    response = client.get(path, params={"setting": "missing"})
+    assert response.status_code == 404
+    assert response.json() == {
+        "error": {
+            "code": "exercise_setting_unknown",
+            "message": "Your team has no saved settings with that name.",
+        }
+    }
+
+
 def test_a_saved_setting_name_is_echoed_trimmed(client: TestClient) -> None:
     """Review round 1: the lookup trims, so the echo must trim too.
 
