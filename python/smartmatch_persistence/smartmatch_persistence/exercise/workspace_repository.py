@@ -66,6 +66,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from smartmatch_persistence.exercise import schema
+from smartmatch_persistence.exercise.settings_repository import lock_saved_settings
 
 __all__ = [
     "WORKSPACE_MEMBERSHIP_LOCK_KEY",
@@ -505,8 +506,23 @@ class ExerciseWorkspaceRepository:
         for a CHECK or NOT NULL refusal is outside that flag's reach, so a
         caller that logs ``str(exc)`` verbatim is still logging row values.
 
+        **Takes the saved-settings key first** (review round 1). Without it a
+        reset racing a team's save loses to it: the save holds
+        :data:`~smartmatch_persistence.exercise.settings_repository.SAVED_SETTING_LOCK_KEY`
+        while it counts and inserts, the reset's ``DELETE`` runs in between and
+        under READ COMMITTED simply does not see the uncommitted row, and the
+        save then commits — leaving the team holding a setting the reset was
+        meant to clear, with no error anywhere to say so. Taking the key makes
+        the two take turns, and a reset that waits for a save then deletes what
+        it wrote.
+
+        The order is the family's, stated on that constant: membership key, then
+        saved-settings key, then row locks. This method takes no membership
+        lock, so it cannot be the edge that closes a cycle.
+
         Not committed here.
         """
+        lock_saved_settings(session)
         for child in (
             schema.exercise_profile_overlay,
             schema.exercise_saved_setting,

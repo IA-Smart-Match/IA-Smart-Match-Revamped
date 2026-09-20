@@ -36,6 +36,10 @@ pytest.importorskip("sqlalchemy")
 import sqlalchemy as sa
 from migration_harness import alembic, connected, scratch_database
 from smartmatch_persistence.exercise import schema
+from smartmatch_persistence.exercise.instructor_repository import (
+    ExerciseInstructorRepository,
+    ExerciseWriteRefused,
+)
 from smartmatch_persistence.exercise.settings_repository import (
     MAX_SAVED_SETTINGS_PER_EVENT,
     SAVED_SETTING_LOCK_KEY,
@@ -44,7 +48,11 @@ from smartmatch_persistence.exercise.settings_repository import (
     TooManySavedSettingsError,
 )
 from smartmatch_persistence.exercise.team_view_repository import ExerciseTeamViewRepository
-from smartmatch_persistence.exercise.workspace_repository import ExerciseWorkspaceRepository
+from smartmatch_persistence.exercise.workspace_repository import (
+    WORKSPACE_MEMBERSHIP_LOCK_KEY,
+    ExerciseWorkspaceRepository,
+    lock_workspace_membership,
+)
 from sqlalchemy import Engine
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
@@ -472,6 +480,141 @@ def test_a_reset_takes_a_teams_settings_with_it(
         assert (
             len(settings.list_settings(session, workspace_id=team_two, event_key=_EVENT_KEY)) == 1
         )
+
+
+# ---------------------------------------------------------------------------
+# The lock order, and the clearing paths that had fallen outside it (review 1)
+# ---------------------------------------------------------------------------
+
+
+def _try_key(session: Session, key: int) -> bool:
+    """Whether one advisory key is free, from this session's view.
+
+    ``pg_try_advisory_xact_lock`` rather than a blocking acquire, so a probe can
+    ask "is it held?" without becoming the thing that waits. The caller rolls
+    back immediately: a successful try has *taken* the key, and leaving it taken
+    would make the next probe lie.
+    """
+    held = session.execute(sa.select(sa.func.pg_try_advisory_xact_lock(key))).scalar_one()
+    session.rollback()
+    return bool(held)
+
+
+def test_a_reset_takes_the_saved_settings_key_before_it_deletes(
+    exercise_sessions: sessionmaker[Session],
+) -> None:
+    """Review round 1: a reset racing a save used to lose to it.
+
+    ``reset_team`` deleted ``exercise_saved_setting`` rows without taking
+    ``SAVED_SETTING_LOCK_KEY``. A save holds that key while it counts and
+    inserts; the reset's ``DELETE`` could run in between and, under READ
+    COMMITTED, simply not see the uncommitted row; the save then committed, and
+    the team kept a setting the reset was meant to clear, with no error to say
+    so.
+
+    Asserted by holding the key from a second connection and giving the reset a
+    short ``lock_timeout``: it is refused, quickly and deterministically, rather
+    than waiting on a sleep. Before the fix it took no key at all and returned.
+    """
+    with exercise_sessions() as holder, exercise_sessions() as resetting:
+        _, (workspace_id, _) = _classroom(holder)
+        holder.execute(sa.select(sa.func.pg_advisory_xact_lock(SAVED_SETTING_LOCK_KEY)))
+
+        resetting.execute(sa.text("SET LOCAL lock_timeout = '250ms'"))
+        with pytest.raises(SQLAlchemyError) as refused:
+            ExerciseWorkspaceRepository().reset_team(resetting, workspace_id=workspace_id)
+        resetting.rollback()
+        holder.rollback()
+
+    assert "lock timeout" in str(refused.value).lower()
+
+
+def test_the_instructor_child_clear_takes_the_saved_settings_key_too(
+    exercise_sessions: sessionmaker[Session],
+) -> None:
+    """The same hole on the instructor's side, which the re-point runs through.
+
+    The refusal here is :class:`ExerciseWriteRefused` rather than the driver's
+    own error, and that is the second half of the fix: the acquire is a
+    statement, and in this module a statement that fails must not let driver
+    text out (ADR-0025 D6). Waiting is still what happened — the ``lock_timeout``
+    fires only because the acquire blocked on the key the holder has — and
+    without the acquire this method would simply have returned.
+    """
+    with exercise_sessions() as holder, exercise_sessions() as clearing:
+        dataset_id, (workspace_id, _) = _classroom(holder)
+        holder.execute(sa.select(sa.func.pg_advisory_xact_lock(SAVED_SETTING_LOCK_KEY)))
+
+        clearing.execute(sa.text("SET LOCAL lock_timeout = '250ms'"))
+        with pytest.raises(ExerciseWriteRefused) as refused:
+            ExerciseInstructorRepository().reset_workspace_children(
+                clearing, dataset_id=dataset_id, workspace_id=workspace_id
+            )
+        clearing.rollback()
+        holder.rollback()
+
+    assert str(refused.value) == "That team's work could not be cleared."
+    assert refused.value.__context__ is None
+    assert "lock timeout" not in str(refused.value).lower()
+
+
+def test_a_save_never_takes_the_membership_key(
+    exercise_sessions: sessionmaker[Session],
+) -> None:
+    """Deadlock freedom, as the property rather than as prose.
+
+    The family's order is membership key, then saved-settings key, then row
+    locks. A cycle needs a path that takes them the other way round, and the
+    only candidate is the settings write — so this probes it directly: while a
+    save holds the saved-settings key *and* the row locks its insert took, the
+    membership key is still free. Nothing therefore waits on membership while
+    holding saved-settings, and the order cannot be one edge of a cycle.
+    """
+    repository = ExerciseSettingsRepository()
+    with exercise_sessions() as saving, exercise_sessions() as probe:
+        dataset_id, (workspace_id, _) = _classroom(saving)
+        repository.save_setting(
+            saving,
+            dataset_id=dataset_id,
+            workspace_id=workspace_id,
+            event_key=_EVENT_KEY,
+            name="broad",
+            weights=_WEIGHTS,
+        )
+        assert _try_key(probe, SAVED_SETTING_LOCK_KEY) is False, (
+            "the save must be holding the saved-settings key at this point"
+        )
+        assert _try_key(probe, WORKSPACE_MEMBERSHIP_LOCK_KEY) is True, (
+            "a save that held the membership key would invert the family's lock order"
+        )
+        saving.commit()
+        assert _try_key(probe, SAVED_SETTING_LOCK_KEY) is True, "committing releases it"
+
+
+def test_a_reset_holds_both_keys_in_the_declared_order(
+    exercise_sessions: sessionmaker[Session],
+) -> None:
+    """The re-point's path: membership first, then saved settings, then rows."""
+    with exercise_sessions() as instructor, exercise_sessions() as probe:
+        dataset_id, (workspace_id, _) = _classroom(instructor)
+        assert _try_key(probe, WORKSPACE_MEMBERSHIP_LOCK_KEY) is True
+        assert _try_key(probe, SAVED_SETTING_LOCK_KEY) is True
+
+        lock_workspace_membership(instructor)
+        assert _try_key(probe, WORKSPACE_MEMBERSHIP_LOCK_KEY) is False
+        assert _try_key(probe, SAVED_SETTING_LOCK_KEY) is True, (
+            "the saved-settings key must be taken after the membership key, not before"
+        )
+
+        ExerciseInstructorRepository().reset_workspace_children(
+            instructor, dataset_id=dataset_id, workspace_id=workspace_id
+        )
+        assert _try_key(probe, SAVED_SETTING_LOCK_KEY) is False
+        assert _try_key(probe, WORKSPACE_MEMBERSHIP_LOCK_KEY) is False
+
+        instructor.commit()
+        assert _try_key(probe, WORKSPACE_MEMBERSHIP_LOCK_KEY) is True
+        assert _try_key(probe, SAVED_SETTING_LOCK_KEY) is True
 
 
 # ---------------------------------------------------------------------------

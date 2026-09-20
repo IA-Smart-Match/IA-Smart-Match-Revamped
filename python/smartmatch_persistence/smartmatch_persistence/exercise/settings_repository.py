@@ -90,8 +90,32 @@ MAX_SAVED_SETTINGS_PER_EVENT: Final[int] = 3
 #: every team rather than per workspace. Six teams saving a named weighting
 #: between two clicks is not contention, the work inside the lock is two short
 #: statements, and a per-workspace key would be a second thing to get right for
-#: no measured gain. Nothing else is locked on these paths, so this key is never
-#: one edge of a cycle.
+#: no measured gain.
+#:
+#: The lock order for this family, stated once, here (review round 1)
+#: ------------------------------------------------------------------
+#: Three kinds of lock exist in the ``exercise_`` tables, and **every path that
+#: takes more than one takes them in this order**::
+#:
+#:     WORKSPACE_MEMBERSHIP_LOCK_KEY  ->  SAVED_SETTING_LOCK_KEY  ->  row locks
+#:
+#: * ``save_setting`` / ``delete_setting`` take this key, then row-lock what they
+#:   write. They never take the membership key.
+#: * ``workspace_repository.reset_team`` and
+#:   ``instructor_repository.reset_workspace_children`` take this key before they
+#:   delete a team's settings — which is what review round 1 added, and why: a
+#:   reset that deleted outside the key could run its ``DELETE`` between a
+#:   concurrent save's count and its commit, and under READ COMMITTED the delete
+#:   simply does not see the uncommitted row. The save then commits, and the team
+#:   is left holding a setting the reset was meant to clear.
+#: * ``instructor_repository.repoint_workspaces`` takes the membership key first,
+#:   then reaches this one through ``reset_workspace_children``, then takes row
+#:   locks. That is the full order and it is the only path that takes all three.
+#:
+#: Because the order is total and no path ever takes the membership key *after*
+#: this one, neither key can be an edge of a wait-for cycle. The integration
+#: file probes both directions of that claim with
+#: ``pg_try_advisory_xact_lock`` rather than asserting it here in prose.
 SAVED_SETTING_LOCK_KEY: Final[int] = int.from_bytes(
     hashlib.sha256(b"exercise_saved_setting").digest()[:8], "big", signed=True
 )

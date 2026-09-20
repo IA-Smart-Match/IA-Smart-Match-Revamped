@@ -62,6 +62,7 @@ from smartmatch_persistence.exercise.schema import (
     exercise_saved_setting,
     exercise_team_workspace,
 )
+from smartmatch_persistence.exercise.settings_repository import SAVED_SETTING_LOCK_KEY
 from smartmatch_persistence.exercise.workspace_repository import (
     ExerciseWorkspaceRepository,
     lock_workspace_membership,
@@ -575,11 +576,39 @@ class ExerciseInstructorRepository:
         worth saying that it does not excuse one: see
         :class:`ExerciseWriteRefused`.
 
+        **Takes the saved-settings key first** (review round 1). The delete of
+        ``exercise_saved_setting`` below races a team's save otherwise: the save
+        holds
+        :data:`~smartmatch_persistence.exercise.settings_repository.SAVED_SETTING_LOCK_KEY`
+        while it counts and inserts, this delete runs in between and under READ
+        COMMITTED does not see the uncommitted row, and the save then commits —
+        so a team keeps a setting a reset or a re-point was meant to clear.
+
+        The order is the family's, stated on that constant: membership key, then
+        saved-settings key, then row locks. :meth:`repoint_workspaces` already
+        holds the membership key when it calls this, which is exactly that order;
+        an advisory lock is re-entrant within a transaction, so a caller that
+        already holds this key pays one round trip.
+
+        **The acquire runs through the scrubber too**, rather than calling
+        ``settings_repository.lock_saved_settings`` directly. It is a statement,
+        and in a transaction PostgreSQL has already poisoned it is the *first*
+        statement — so an unwrapped acquire would be the one driver exception
+        that escapes this module, out of the method whose own test exists to
+        prove none does. ``test_a_failing_child_delete_is_scrubbed_like_every_other_write``
+        caught exactly that when the lock was added.
+
         Args:
             dataset_id: Not used in any statement's ``WHERE``; carried so a
                 refusal can be logged against the data file it happened in.
             workspace_id: The one workspace whose rows are deleted.
         """
+        self._execute(
+            session,
+            sa.select(sa.func.pg_advisory_xact_lock(SAVED_SETTING_LOCK_KEY)),
+            dataset_id=dataset_id,
+            refusal="That team's work could not be cleared.",
+        )
         for child in (exercise_profile_overlay, exercise_saved_setting, exercise_result_run):
             self._execute(
                 session,
