@@ -247,6 +247,53 @@ still needed" column is satisfied and its owner has answered.
 - **Related:** ADR-0016; `docs/architecture/registry-supersession-record.md:81`;
   `docs/architecture/student-recommender-contracts.md`.
 
+### B-11 — "Error text never carries bound values" as a repository-wide invariant — **RECORDED 2026-09-19, unresolved**
+
+- **Candidate title:** (unwritten) No bound value reaches a rendered error or
+  log line
+- **Would decide:** whether the property is an invariant this repository
+  asserts and gates, rather than a default two modules happen to get right.
+- **What is already true, and is not this entry:** on 19 September 2026 the
+  shared engine began passing `hide_parameters=True`
+  (`smartmatch_persistence.engine.resolve_hide_parameters`,
+  `SMARTMATCH_DB_HIDE_PARAMETERS`, default on), under an owner decision scoped
+  to exactly that — "yes, env-switchable" (Danny Tran, 19 September 2026). The
+  plan and full inventory are
+  `docs/superpowers/plans/2026-09-19-engine-hide-parameters-plan.md`. **That
+  decision is made and is not reopened here.**
+- **Why an entry remains:** the flag is a default, not a guarantee, and the
+  three gaps are each wider than the decision that was taken.
+  - **PostgreSQL's own `DETAIL` line.** For a CHECK or NOT NULL refusal the
+    server composes `Failing row contains (…)` — the whole row — inside the
+    driver's exception, below the layer `hide_parameters` operates on. No
+    SQLAlchemy setting removes it. Pinned as an assertion in
+    `tests/integration/test_engine_hide_parameters.py`.
+  - **Engines built outside the factory.** Every `create_engine(...)` that does
+    not go through `create_db_engine` silently opts out. Today those are all
+    test fixtures and `tests/integration/migration_harness.py`, which is the
+    intended outcome; nothing stops a future production module from joining
+    them, and nothing would notice.
+  - **Nothing asserts the property.** There is no lint, import contract or
+    source-contract test saying "no module renders a `DBAPIError` into a log
+    line or a response". The two exercise repositories do the right thing
+    because two humans wrote it down, twice, and PR #184 showed how that fails.
+- **Why not now:** an invariant needs a gate, and what the gate should forbid
+  is a design question with a cost — a source-contract test over every
+  `except ... Error` that reaches a logger would catch the CBA repositories
+  too, several of which log deliberately today. Deciding what those may log is
+  a data-handling decision, not an engineering preference, and it is wider than
+  the switch the owner was asked about.
+- **Evidence still needed:** a survey of every site that renders a database
+  exception into a log line or a response body, CBA included, with what each
+  one currently publishes. None exists; the 2026-09-19 inventory covered the
+  engines and the assertion sites, not the log sites.
+- **Owner:** program owner of record (Danny Tran), as the CBA side is a
+  data-handling question, with engineering to supply the survey.
+- **Related:** ADR-0025 D6 and its 19 September 2026 implementation note;
+  `docs/superpowers/plans/2026-09-19-engine-hide-parameters-plan.md`;
+  B-03 (structured logging shape), which would be the natural place for the
+  rule to live if it becomes one.
+
 ---
 
 ## Process — how these ADRs reach Accepted

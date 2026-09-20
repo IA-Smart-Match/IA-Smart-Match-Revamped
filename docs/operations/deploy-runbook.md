@@ -198,6 +198,30 @@ Two practical points about the connection string:
    row that says what the schema is, and setting it to something the schema does
    not match converts a visible failure into an invisible one.
 
+### The failure will not show you the bound values (2026-09-19)
+
+`db/migrations/env.py` builds its engine with `hide_parameters=True`, resolved
+by the same reader the application engine uses
+(`smartmatch_persistence.engine.resolve_hide_parameters`). A revision that
+backfills data and is refused prints the statement and the constraint, then
+`[SQL parameters hidden due to hide_parameters=True]` where the row values
+would have been. That is deliberate: a backfill binds production rows, and the
+migrate container's log is not a place for them.
+
+What you still have, and should reach for first: the constraint name in the
+error, `SELECT` the offending rows yourself with the statement's own `WHERE`,
+and the database's own log. PostgreSQL's `DETAIL:` line is also unaffected, so
+a CHECK or NOT NULL refusal still tells you which row failed.
+
+If you genuinely need the bound values, reproduce it **against a scratch
+database on your own machine**:
+
+```bash
+SMARTMATCH_DB_HIDE_PARAMETERS=false alembic upgrade head
+```
+
+Never set that on a shared or deployed environment.
+
 ### Confirming the schema matches the migrations
 
 Two checks exist, and both need a database you are willing to write to:
