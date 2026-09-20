@@ -1,4 +1,4 @@
-"""Pool sizing in `smartmatch_persistence.engine`.
+"""Pool sizing and parameter hiding in `smartmatch_persistence.engine`.
 
 The pilot VM exhausted its pool under a burst of concurrent authenticated
 requests — every request holds its connection for its whole lifetime, so the
@@ -18,17 +18,30 @@ does not connect until first use:
    raises rather than falling back, so a deployment that meant to cap its pool
    and typed the number wrong fails to boot instead of quietly running with the
    wrong ceiling.
+
+A third thing is pinned here for the same reason — no database needed, because
+the switch is read at construction: **`hide_parameters`**. It is on by default
+so that a failed write's `DBAPIError` renders the statement without
+`[parameters: …]`, and it is switchable off by one environment variable for a
+local debugging session. The default direction matters more than the switch: a
+value that cannot be parsed must fail *closed*, because the two mistakes are
+not symmetric — a needlessly hidden value costs an operator a reproduction, a
+needlessly printed one is published.
 """
 
 from __future__ import annotations
 
+import logging
+
 import pytest
 from smartmatch_persistence.engine import (
+    DEFAULT_HIDE_PARAMETERS,
     DEFAULT_MAX_OVERFLOW,
     DEFAULT_POOL_RECYCLE,
     DEFAULT_POOL_SIZE,
     DEFAULT_POOL_TIMEOUT,
     create_db_engine,
+    resolve_hide_parameters,
     resolve_pool_settings,
 )
 
@@ -42,6 +55,13 @@ _ENV_VARS = (
     "SMARTMATCH_DB_POOL_RECYCLE",
 )
 
+#: Deliberately **not** in `_ENV_VARS`: that tuple is parametrized over the
+#: integer pool knobs, and this one is a boolean.
+_HIDE_PARAMETERS_VAR = "SMARTMATCH_DB_HIDE_PARAMETERS"
+
+#: The logger the engine module warns on when a value cannot be parsed.
+_ENGINE_LOGGER = "smartmatch_persistence.engine"
+
 
 @pytest.fixture(autouse=True)
 def _clean_pool_env(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -50,7 +70,7 @@ def _clean_pool_env(monkeypatch: pytest.MonkeyPatch) -> None:
     Without this a developer's own `SMARTMATCH_DB_*` export would decide
     whether the defaults case passes.
     """
-    for name in _ENV_VARS:
+    for name in (*_ENV_VARS, _HIDE_PARAMETERS_VAR):
         monkeypatch.delenv(name, raising=False)
 
 
@@ -115,3 +135,84 @@ def test_malformed_value_refuses_rather_than_defaulting(
 
     with pytest.raises(ValueError, match="SMARTMATCH_DB_POOL_SIZE"):
         resolve_pool_settings()
+
+
+def test_parameters_are_hidden_unless_a_deployment_says_otherwise() -> None:
+    """The default is the safe one, and it is the default *everywhere*.
+
+    Nothing has to be set for a deployment to be covered: the API, the worker,
+    the `tools/` scripts and the migration environment all reach this through
+    the one factory, and an unset variable means hidden.
+    """
+    assert DEFAULT_HIDE_PARAMETERS is True
+    assert resolve_hide_parameters() is True
+
+
+@pytest.mark.parametrize("value", ["1", "true", "TRUE", "  True  ", "yes", "on"])
+def test_truthy_spellings_keep_parameters_hidden(
+    value: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The spellings an operator is likely to type all mean the same thing."""
+    monkeypatch.setenv(_HIDE_PARAMETERS_VAR, value)
+
+    assert resolve_hide_parameters() is True
+
+
+@pytest.mark.parametrize("value", ["0", "false", "FALSE", "  false  ", "no", "off"])
+def test_falsy_spellings_switch_parameters_back_on(
+    value: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The switch is real; a debugging session can have its values back."""
+    monkeypatch.setenv(_HIDE_PARAMETERS_VAR, value)
+
+    assert resolve_hide_parameters() is False
+
+
+def test_blank_value_takes_the_hidden_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Compose passes `${VAR:-}`, which arrives as an empty string, not as unset."""
+    monkeypatch.setenv(_HIDE_PARAMETERS_VAR, "")
+
+    assert resolve_hide_parameters() is True
+
+
+def test_unparseable_value_fails_closed_and_warns(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A typo must never be the thing that publishes bound values.
+
+    Unlike the integer knobs, this does not raise. Refusing to boot over a
+    misspelled debugging flag is worse than the misspelling; falling back to
+    the *permissive* value would be worse than both. So it warns, names the
+    variable and the value it could not read, and stays hidden.
+    """
+    monkeypatch.setenv(_HIDE_PARAMETERS_VAR, "maybe")
+
+    with caplog.at_level(logging.WARNING, logger=_ENGINE_LOGGER):
+        assert resolve_hide_parameters() is True
+
+    logged = "\n".join(record.getMessage() for record in caplog.records)
+    assert _HIDE_PARAMETERS_VAR in logged
+    assert "maybe" in logged
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [(None, True), ("true", True), ("false", False)],
+)
+def test_the_flag_reaches_the_engine(
+    value: str | None, expected: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The resolved answer reaches `create_engine`, not just the helper.
+
+    Asserted on the engine object because that is what SQLAlchemy stamps onto
+    every `DBAPIError` it raises (`engine/base.py`), and onto its own echo
+    output — `echo=True` is not a way around this flag.
+    """
+    if value is not None:
+        monkeypatch.setenv(_HIDE_PARAMETERS_VAR, value)
+
+    engine = create_db_engine(_URL)
+    try:
+        assert engine.hide_parameters is expected
+    finally:
+        engine.dispose()

@@ -16,6 +16,7 @@ import os
 from logging.config import fileConfig
 
 from alembic import context
+from smartmatch_persistence.engine import resolve_hide_parameters
 from sqlalchemy import engine_from_config, pool
 
 config = context.config
@@ -65,11 +66,20 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
-    """Run migrations against a live database."""
+    """Run migrations against a live database.
+
+    ``hide_parameters`` is resolved by the same reader the application engine
+    uses (``smartmatch_persistence.engine``), so a migration container obeys the
+    one ``SMARTMATCH_DB_HIDE_PARAMETERS`` switch rather than being the one place
+    a failure still prints bound values. Revisions that backfill data bind real
+    rows; a refused backfill would otherwise render every one of them into the
+    operator's terminal and the container's log.
+    """
     connectable = engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
+        hide_parameters=resolve_hide_parameters(),
     )
     with connectable.connect() as connection:
         context.configure(

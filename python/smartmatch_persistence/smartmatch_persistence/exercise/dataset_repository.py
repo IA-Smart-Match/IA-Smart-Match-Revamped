@@ -121,10 +121,23 @@ class ExerciseDatasetWriteError(Exception):
     The caller learns that the upload failed and rolls back. Which constraint
     refused it is in the server log, by type, and in the database's own log.
 
-    A related follow-up is recorded on this pull request rather than done here:
-    setting ``hide_parameters=True`` on the engine would close the same door
-    for every repository at once, but it changes CBA error logs too and
-    belongs in its own change.
+    **That follow-up is now done, and this class still stands.** Since
+    2026-09-19 the shared engine is built with ``hide_parameters=True``
+    (``smartmatch_persistence.engine.resolve_hide_parameters``, switchable by
+    ``SMARTMATCH_DB_HIDE_PARAMETERS`` for a local debugging session only), so
+    every repository — including the ones with no scrubber of their own — gets
+    a ``DBAPIError`` that renders without ``[parameters: …]``.
+
+    That is a floor, not a replacement, for two reasons. First, this class also
+    nulls ``__context__``, which no engine flag does: the driver's exception
+    object, parameters attached, would otherwise still be reachable from
+    whatever caught this one. Second, the engine flag governs only
+    *SQLAlchemy's* rendering — PostgreSQL composes its own ``DETAIL: Failing
+    row contains (…)`` for a CHECK or NOT NULL refusal, which arrives inside
+    the driver's exception and which no SQLAlchemy setting can remove. Not
+    letting that exception out of this module is the only complete answer, and
+    it is what this class does. See
+    ``tests/integration/test_engine_hide_parameters.py``.
     """
 
     def __init__(self, message: str = "The student body could not be stored.") -> None:
@@ -342,7 +355,9 @@ class ExerciseDatasetRepository:
         # sets ``__suppress_context__``, which hides the chained driver error
         # from a printed traceback while leaving it reachable on the object —
         # and what it holds is ``[parameters: …]``, every value of every row
-        # (ADR-0025 D6).
+        # (ADR-0025 D6). The engine's ``hide_parameters=True`` (2026-09-19) is
+        # the first layer under this; it does not make this one redundant —
+        # see :class:`ExerciseDatasetWriteError`.
         if failure is not None:
             raise failure
         _LOGGER.info(
