@@ -700,19 +700,19 @@ def reset_team_workspace(
     workspaces: WorkspaceRepository,
     dataset_id: _DatasetChoice = None,
 ) -> TeamSummaryView:
-    """Design spec §11's per-team reset, from the instructor's side.
+    """Design spec §11's per-team reset, and **the only reset there is**.
 
-    **One team, and the same statements the team's own route runs.**
+    Owner ruling, 2026-09-19: per-team reset sits behind this passcode. The
+    team-addressed route was removed — it resolved the workspace from a cookie
+    anyone who types the team's number can obtain, so an irreversible action
+    was available to whoever wanted it, and Session 2 has no backup.
+
+    **One team, and one set of statements.**
     ``ExerciseWorkspaceRepository.reset_team`` is reused rather than
     reimplemented, so "what a reset deletes" has one answer: this team's
     overlay, saved settings and result runs, and a new seed. Every statement is
-    keyed on the workspace id resolved from ``(active dataset, team number)``,
-    so no other team's rows are reachable from here.
-
-    The team's own ``POST /v1/exercise/workspaces/current/reset`` is unchanged
-    and stays where it is. Whether per-team reset should move *behind* this
-    passcode is an open owner decision recorded on the pull request; this route
-    adds an instructor path to it without removing the team's.
+    keyed on the workspace id resolved from ``(data file, team number)``, so no
+    other team's rows are reachable from here.
 
     Addressed by the data file the teams are on (see :func:`_teams_dataset`),
     so a fresh upload does not make this 404 on a team that is still working.
