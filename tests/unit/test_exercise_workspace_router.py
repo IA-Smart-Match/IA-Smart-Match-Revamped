@@ -81,6 +81,17 @@ _DATASET = ExerciseDatasetSummary(
     invite_limit=30,
 )
 
+#: A second upload, for the owner ruling of 2026-09-19: a team that already has
+#: a workspace re-enters *that* one rather than landing on the newest file.
+_NEWER_DATASET = ExerciseDatasetSummary(
+    id=uuid.UUID("22222222-2222-2222-2222-222222222222"),
+    label="Made-up student body (second upload)",
+    invite_limit=12,
+)
+
+#: Every data file the fake repository knows how to join a workspace to.
+_DATASETS = {dataset.id: dataset for dataset in (_DATASET, _NEWER_DATASET)}
+
 
 class _FakeRepository:
     """Enough of ``ExerciseWorkspaceRepository`` to exercise the routes.
@@ -105,15 +116,28 @@ class _FakeRepository:
         assert workspace_secret == _TEST_SECRET
         key = (dataset_id, team_number)
         if key not in self.rows:
-            workspace_id = uuid.uuid4()
+            dataset = _DATASETS[dataset_id]
             self.rows[key] = ExerciseWorkspace(
-                id=workspace_id,
+                id=uuid.uuid4(),
                 dataset_id=dataset_id,
                 team_number=team_number,
-                dataset_label=_DATASET.label,
-                invite_limit=_DATASET.invite_limit,
+                dataset_label=dataset.label,
+                invite_limit=dataset.invite_limit,
             )
         return self.rows[key]
+
+    def entry_dataset_for(self, _session: object, *, team_number: int) -> uuid.UUID | None:
+        """The real method's three branches over an insertion-ordered dict.
+
+        ``rows`` preserves insertion order, so "the most recently created
+        workspace row" is the last matching key — which is what the real
+        ``created_at DESC, id DESC`` ordering answers.
+        """
+        own = [key for key in self.rows if key[1] == team_number]
+        if own:
+            return own[-1][0]
+        every = list(self.rows)
+        return every[-1][0] if every else None
 
     def find_by_token_hash(self, _session: object, *, token_hash: str) -> ExerciseWorkspace | None:
         for workspace in self.rows.values():
@@ -166,7 +190,12 @@ def _settings(
     )
 
 
-def _exercise_app(settings: Settings, repository: _FakeRepository) -> FastAPI:
+def _exercise_app(
+    settings: Settings,
+    repository: _FakeRepository,
+    *,
+    dataset: ExerciseDatasetSummary = _DATASET,
+) -> FastAPI:
     """The exercise process's routes, with the database replaced and nothing else.
 
     Built from ``routers_for`` rather than by hand, so a route that stops being
@@ -182,7 +211,7 @@ def _exercise_app(settings: Settings, repository: _FakeRepository) -> FastAPI:
     session = _FakeSession()
     app.dependency_overrides[get_exercise_session] = lambda: session
     app.dependency_overrides[get_workspace_repository] = lambda: repository
-    app.dependency_overrides[get_active_dataset] = lambda: _DATASET
+    app.dependency_overrides[get_active_dataset] = lambda: dataset
     app.dependency_overrides[get_workspace_secret] = lambda: require_exercise_workspace_secret(
         settings
     )
@@ -294,6 +323,90 @@ def test_two_teams_at_once_do_not_see_each_other(repository: _FakeRepository) ->
         assert team_one.cookies.get(
             WORKSPACE_COOKIE_NAME, path="/v1/exercise"
         ) != team_two.cookies.get(WORKSPACE_COOKIE_NAME, path="/v1/exercise")
+
+
+# ---------------------------------------------------------------------------
+# Which data file an entry lands in (owner ruling, 2026-09-19)
+# ---------------------------------------------------------------------------
+
+
+def test_a_team_with_a_workspace_re_enters_it_after_a_new_file_is_uploaded(
+    repository: _FakeRepository,
+) -> None:
+    """The ruling at the routing layer: the newest upload does not move a team.
+
+    Team 3 enters while the first file is the newest. The instructor uploads a
+    second — design spec §3: that moves nobody — and the same browser enters
+    again, this time against a process whose *active* data file is the new one.
+    It must be handed its own workspace back, label and invite limit and all,
+    and the repository must still hold exactly one row for team 3.
+    """
+    settings = _settings()
+    with TestClient(_exercise_app(settings, repository)) as before_upload:
+        assert _enter(before_upload, 3).json()["dataset_label"] == _DATASET.label
+
+    with TestClient(_exercise_app(settings, repository, dataset=_NEWER_DATASET)) as after_upload:
+        response = _enter(after_upload, 3)
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "team_number": 3,
+        "dataset_label": _DATASET.label,
+        "invite_limit": _DATASET.invite_limit,
+    }
+    assert list(repository.rows) == [(_DATASET.id, 3)], "no second workspace was minted"
+
+
+def test_a_brand_new_team_joins_the_file_the_other_teams_are_on(
+    repository: _FakeRepository,
+) -> None:
+    """Team 5 arrives after the upload and still lands in the lesson."""
+    settings = _settings()
+    with TestClient(_exercise_app(settings, repository)) as early:
+        _enter(early, 1)
+
+    with TestClient(_exercise_app(settings, repository, dataset=_NEWER_DATASET)) as late:
+        response = _enter(late, 5)
+
+    assert response.json()["dataset_label"] == _DATASET.label
+    assert {key[0] for key in repository.rows} == {_DATASET.id}
+
+
+def test_the_first_team_of_the_lesson_lands_on_the_newest_file(
+    repository: _FakeRepository,
+) -> None:
+    """The fallback, and the only case in which the active data file decides.
+
+    With no workspace anywhere there is no classroom to join, so the newest
+    upload is the answer — which is also what makes the 409 below the right
+    refusal when there is no data file at all.
+    """
+    with TestClient(_exercise_app(_settings(), repository, dataset=_NEWER_DATASET)) as client:
+        response = _enter(client, 2)
+
+    assert response.json() == {
+        "team_number": 2,
+        "dataset_label": _NEWER_DATASET.label,
+        "invite_limit": _NEWER_DATASET.invite_limit,
+    }
+
+
+def test_the_cookie_from_before_the_upload_still_resolves(
+    repository: _FakeRepository,
+) -> None:
+    """Nothing about the ruling logs a team out: the row is the same row."""
+    settings = _settings()
+    with TestClient(_exercise_app(settings, repository)) as client:
+        _enter(client, 4)
+        token = client.cookies.get(WORKSPACE_COOKIE_NAME, path="/v1/exercise")
+
+    with TestClient(_exercise_app(settings, repository, dataset=_NEWER_DATASET)) as later:
+        later.cookies.set(WORKSPACE_COOKIE_NAME, str(token), path="/v1/exercise")
+        current = later.get("/v1/exercise/workspaces/current")
+
+    assert current.status_code == 200
+    assert current.json()["team_number"] == 4
+    assert current.json()["dataset_label"] == _DATASET.label
 
 
 # ---------------------------------------------------------------------------

@@ -208,7 +208,21 @@ def enter_team_workspace(
     secret: WorkspaceSecret,
     policy: CookiePolicy,
 ) -> TeamWorkspaceView:
-    """Create or return the workspace for ``(active dataset, team number)``.
+    """Open *the* workspace for this team number, creating it if it is new.
+
+    **Which data file it opens in is not "the newest upload"** (owner ruling,
+    2026-09-19). A team that already has a workspace re-enters that workspace,
+    on whatever file it is on; only an instructor re-point moves a team. A
+    brand-new team joins the file the other teams are on, and the very first
+    team of a lesson joins the newest upload because there is no classroom yet
+    to join. The rule, with its tie-break for teams left on two files by rows
+    written before the ruling, is
+    ``ExerciseWorkspaceRepository.entry_dataset_for``; the ``dataset``
+    dependency here is the fallback and the source of the 409 below.
+
+    Before the ruling, a reload after an upload handed the team a second, empty
+    workspace on the new file — its work apparently gone — while design spec §3
+    says in as many words that uploading moves nobody.
 
     **200, not 201, in both cases.** A team entering its number is opening its
     workspace, not creating a resource; answering 201 the first time and 200
@@ -233,9 +247,10 @@ def enter_team_workspace(
             code="exercise_team_number_unknown",
             message="Pick a team number from 1 to 6.",
         )
+    dataset_id = repository.entry_dataset_for(session, team_number=payload.team_number)
     workspace = repository.get_or_create_workspace(
         session,
-        dataset_id=dataset.id,
+        dataset_id=dataset_id if dataset_id is not None else dataset.id,
         team_number=payload.team_number,
         workspace_secret=secret,
     )

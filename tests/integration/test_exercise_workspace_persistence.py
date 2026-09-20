@@ -590,3 +590,175 @@ def test_a_workspace_read_carries_no_seed_and_no_token_hash(
     assert fields == {"id", "dataset_id", "team_number", "dataset_label", "invite_limit"}
     assert workspace.invite_limit == 25
     assert workspace.dataset_label == "read-shape"
+
+
+# ---------------------------------------------------------------------------
+# Where an entry lands (owner ruling, 2026-09-19)
+# ---------------------------------------------------------------------------
+
+
+def _created_at(session: Session, workspace_id: uuid.UUID, *, when: datetime) -> None:
+    """Backdate a workspace row, so the tie-break can be tested without sleeping.
+
+    ``created_at`` is a server default, which means every row written inside one
+    test has the same-ish stamp and an ordering assertion over them would prove
+    the ``id`` tie-break rather than the rule. Written directly for the reason
+    ``_insert_dataset`` gives: the repository owns no clock parameter and should
+    not grow one for a test.
+    """
+    table = schema.exercise_team_workspace
+    session.execute(sa.update(table).where(table.c.id == workspace_id).values(created_at=when))
+    session.commit()
+
+
+def test_a_team_that_has_a_workspace_re_enters_that_one_not_the_newest_file(
+    exercise_sessions: sessionmaker[Session],
+) -> None:
+    """The ruling itself: an upload does not move a team, and neither does reload.
+
+    Team 3 enters on the old file. The instructor uploads a new one — design
+    spec §3: that moves nobody. Team 3 presses reload. Before the ruling this
+    handed it a second, empty workspace on the new file and its work looked
+    gone; now it is handed the same row back.
+    """
+    repository = ExerciseWorkspaceRepository()
+    now = datetime.now(UTC)
+    with exercise_sessions() as session:
+        old = _insert_dataset(session, label="old-file", uploaded_at=now - timedelta(hours=2))
+        first = repository.get_or_create_workspace(
+            session, dataset_id=old, team_number=3, workspace_secret=_SECRET
+        )
+        session.commit()
+
+        newest = _insert_dataset(session, label="new-file", uploaded_at=now)
+        # The newest upload really is newer — the fallback would have chosen it.
+        found = active_dataset(session)
+        assert found is not None and found.id == newest
+
+        assert repository.entry_dataset_for(session, team_number=3) == old
+        again = repository.get_or_create_workspace(
+            session, dataset_id=old, team_number=3, workspace_secret=_SECRET
+        )
+        session.commit()
+        assert again == first
+        count = session.execute(
+            sa.select(sa.func.count()).select_from(schema.exercise_team_workspace)
+        ).scalar_one()
+    assert count == 1, "a reload after an upload must not mint a second workspace"
+
+
+def test_a_legacy_team_on_two_files_lands_on_its_most_recent_workspace(
+    exercise_sessions: sessionmaker[Session],
+) -> None:
+    """Branch 2. Nothing creates this state now; rows from before the ruling are in it.
+
+    The tie-break is the most recently created workspace row — the file the
+    team most recently entered, which is the one whose work it was last looking
+    at. Asserted against the *older* row being the one on the newest data file,
+    so a rule that secretly still preferred the newest upload would fail here.
+    """
+    repository = ExerciseWorkspaceRepository()
+    now = datetime.now(UTC)
+    with exercise_sessions() as session:
+        first_file = _insert_dataset(session, label="file-a", uploaded_at=now - timedelta(hours=3))
+        second_file = _insert_dataset(session, label="file-b", uploaded_at=now)
+        on_second = repository.get_or_create_workspace(
+            session, dataset_id=second_file, team_number=4, workspace_secret=_SECRET
+        )
+        session.commit()
+        on_first = repository.get_or_create_workspace(
+            session, dataset_id=first_file, team_number=4, workspace_secret=_SECRET
+        )
+        session.commit()
+        # The row on the *older* file is the more recently created one.
+        _created_at(session, on_second.id, when=now - timedelta(hours=1))
+        _created_at(session, on_first.id, when=now)
+
+        assert repository.entry_dataset_for(session, team_number=4) == first_file
+
+
+def test_a_brand_new_team_joins_the_file_the_other_teams_are_on(
+    exercise_sessions: sessionmaker[Session],
+) -> None:
+    """Branch 3. Team 5 arriving late lands in the lesson, not in a file nobody sees."""
+    repository = ExerciseWorkspaceRepository()
+    now = datetime.now(UTC)
+    with exercise_sessions() as session:
+        in_use = _insert_dataset(session, label="in-use", uploaded_at=now - timedelta(hours=2))
+        uploaded_later = _insert_dataset(session, label="not-in-use-yet", uploaded_at=now)
+        for team_number in (1, 2, 3):
+            repository.get_or_create_workspace(
+                session, dataset_id=in_use, team_number=team_number, workspace_secret=_SECRET
+            )
+        session.commit()
+
+        assert repository.entry_dataset_for(session, team_number=5) == in_use
+        assert repository.entry_dataset_for(session, team_number=5) != uploaded_later
+
+
+def test_the_first_team_of_the_lesson_gets_no_answer_and_the_caller_falls_back(
+    exercise_sessions: sessionmaker[Session],
+) -> None:
+    """Branch 3's other half: with no classroom to join, ``None`` is the answer.
+
+    ``None`` rather than the newest dataset, so the fallback lives at the one
+    call site that already holds the active dataset and its refusal sentence,
+    and this method never has two rules in it.
+    """
+    repository = ExerciseWorkspaceRepository()
+    with exercise_sessions() as session:
+        _insert_dataset(session, label="nobody-has-entered")
+        assert repository.entry_dataset_for(session, team_number=1) is None
+
+
+def test_a_re_point_is_what_moves_a_team_and_entry_then_follows_it(
+    exercise_sessions: sessionmaker[Session],
+) -> None:
+    """The ruling's exception, stated as the behaviour it is.
+
+    "Only an instructor re-point moves a team" is a claim about this function
+    as much as about the instructor's, so the move is performed here — by the
+    statement a re-point runs — and the entry rule is asked again afterwards.
+    """
+    repository = ExerciseWorkspaceRepository()
+    table = schema.exercise_team_workspace
+    now = datetime.now(UTC)
+    with exercise_sessions() as session:
+        old = _insert_dataset(session, label="before-repoint", uploaded_at=now - timedelta(hours=2))
+        target = _insert_dataset(session, label="after-repoint", uploaded_at=now)
+        workspace = repository.get_or_create_workspace(
+            session, dataset_id=old, team_number=2, workspace_secret=_SECRET
+        )
+        session.commit()
+        assert repository.entry_dataset_for(session, team_number=2) == old
+
+        session.execute(
+            sa.update(table).where(table.c.id == workspace.id).values(dataset_id=target)
+        )
+        session.commit()
+
+        assert repository.entry_dataset_for(session, team_number=2) == target
+
+
+def test_one_teams_entry_does_not_decide_another_teams_file(
+    exercise_sessions: sessionmaker[Session],
+) -> None:
+    """Branch 1 beats branch 3: a team with a workspace is never moved by a newcomer."""
+    repository = ExerciseWorkspaceRepository()
+    now = datetime.now(UTC)
+    with exercise_sessions() as session:
+        first_file = _insert_dataset(session, label="team-one-file", uploaded_at=now - timedelta(1))
+        second_file = _insert_dataset(session, label="team-two-file", uploaded_at=now)
+        repository.get_or_create_workspace(
+            session, dataset_id=first_file, team_number=1, workspace_secret=_SECRET
+        )
+        session.commit()
+        repository.get_or_create_workspace(
+            session, dataset_id=second_file, team_number=2, workspace_secret=_SECRET
+        )
+        session.commit()
+
+        assert repository.entry_dataset_for(session, team_number=1) == first_file
+        assert repository.entry_dataset_for(session, team_number=2) == second_file
+        # And the newcomer joins the most recently created workspace's file.
+        assert repository.entry_dataset_for(session, team_number=6) == second_file
