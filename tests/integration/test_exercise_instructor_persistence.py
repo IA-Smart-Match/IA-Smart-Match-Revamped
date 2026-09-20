@@ -25,6 +25,7 @@ afterwards; skipped where no PostgreSQL is reachable.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import uuid
 from collections.abc import Iterator
@@ -35,12 +36,17 @@ pytest.importorskip("sqlalchemy")
 
 import sqlalchemy as sa
 from migration_harness import alembic, connected, scratch_database
+from smartmatch_domain.exercise import EXERCISE_TEAM_NUMBERS
 from smartmatch_persistence.exercise import schema
 from smartmatch_persistence.exercise.instructor_repository import (
+    MAX_WORKSPACE_LIST_ROWS,
     ExerciseInstructorRepository,
     ExerciseWriteRefused,
 )
-from smartmatch_persistence.exercise.workspace_repository import ExerciseWorkspaceRepository
+from smartmatch_persistence.exercise.workspace_repository import (
+    WORKSPACE_MEMBERSHIP_LOCK_KEY,
+    ExerciseWorkspaceRepository,
+)
 from sqlalchemy import Engine
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
@@ -517,24 +523,164 @@ def test_a_repoint_holds_a_row_lock_against_a_team_entering_at_the_same_moment(
     immediately rather than waiting, so the test is deterministic and cannot
     hang a suite. A lock error is the lock existing; no error would mean the
     re-point had left the rows unprotected.
+
+    **The row it locks is one the re-point only reads** (review finding F1 on
+    PR #184). The first version pointed ``NOWAIT`` at the workspace being
+    *moved* — a row the re-point ``UPDATE``s, which PostgreSQL locks on its own
+    account — so the assertion held whether or not the scan said ``FOR UPDATE``
+    and the test passed against the bug it was written for. Team 5's workspace
+    is already on the target file: the re-point reads it, to discover that team
+    5 is taken, and writes it never. A lock on it is the ``FOR UPDATE`` on the
+    target scan and can be nothing else.
     """
     table = schema.exercise_team_workspace
     with exercise_sessions() as writer, exercise_sessions() as other:
         old = _insert_dataset(writer, label="old-file")
         new = _insert_dataset(writer, label="new-file")
-        workspace_id = _enter(writer, dataset_id=old, team_number=3)
+        _enter(writer, dataset_id=old, team_number=3)
+        read_only_id = _enter(writer, dataset_id=new, team_number=5)
 
         # Uncommitted on purpose: this is the window the lock has to cover.
         REPOSITORY.repoint_workspaces(writer, dataset_id=new)
 
         with pytest.raises(SQLAlchemyError) as blocked:
             other.execute(
-                sa.select(table.c.id).where(table.c.id == workspace_id).with_for_update(nowait=True)
+                sa.select(table.c.id).where(table.c.id == read_only_id).with_for_update(nowait=True)
             )
         other.rollback()
         writer.rollback()
 
     assert "could not obtain lock" in str(blocked.value).lower()
+
+
+def test_the_repoint_and_an_entry_take_the_same_advisory_lock(
+    exercise_sessions: sessionmaker[Session],
+) -> None:
+    """Review finding F2 on PR #184: ``FOR UPDATE`` takes no predicate lock.
+
+    The row that breaks a re-point is one that does not exist when the scan
+    runs — a team entering at that moment inserts a **new** ``(target file,
+    team N)`` row, which no row lock the scan holds can cover, and the
+    re-point's own ``UPDATE`` into that pair then trips
+    ``uq_exercise_team_workspace_dataset_team`` and aborts the whole
+    transaction after teams have already been reset.
+
+    So both sides take one transaction-level advisory lock, and this is that
+    claim: while a re-point is open, the key is held, and a second connection
+    asking for it without waiting is told no. ``pg_try_advisory_xact_lock``
+    rather than a real entry, so the test states the mechanism rather than a
+    timing, and cannot hang.
+    """
+    with exercise_sessions() as writer, exercise_sessions() as other:
+        old = _insert_dataset(writer, label="lock-old")
+        new = _insert_dataset(writer, label="lock-new")
+        _enter(writer, dataset_id=old, team_number=2)
+
+        free_before = other.execute(
+            sa.select(sa.func.pg_try_advisory_xact_lock(WORKSPACE_MEMBERSHIP_LOCK_KEY))
+        ).scalar_one()
+        other.rollback()
+        assert free_before is True, "nothing else may be holding the key"
+
+        REPOSITORY.repoint_workspaces(writer, dataset_id=new)
+
+        held = other.execute(
+            sa.select(sa.func.pg_try_advisory_xact_lock(WORKSPACE_MEMBERSHIP_LOCK_KEY))
+        ).scalar_one()
+        other.rollback()
+        writer.rollback()
+
+    assert held is False, "a re-point must hold the workspace-membership lock"
+
+
+def test_an_entry_takes_the_advisory_lock_before_it_inserts(
+    exercise_sessions: sessionmaker[Session],
+) -> None:
+    """The other half of F2: the lock is pointless unless both sides take it."""
+    with exercise_sessions() as writer, exercise_sessions() as other:
+        dataset_id = _insert_dataset(writer, label="entry-lock")
+
+        WORKSPACES.get_or_create_workspace(
+            writer, dataset_id=dataset_id, team_number=4, workspace_secret=_SECRET
+        )
+
+        held = other.execute(
+            sa.select(sa.func.pg_try_advisory_xact_lock(WORKSPACE_MEMBERSHIP_LOCK_KEY))
+        ).scalar_one()
+        other.rollback()
+        writer.rollback()
+
+    assert held is False, "get_or_create_workspace must hold the lock while it inserts"
+
+
+def test_the_lock_is_released_by_the_transaction_ending(
+    exercise_sessions: sessionmaker[Session],
+) -> None:
+    """``pg_advisory_xact_lock``: nothing unlocks it, and nothing has to.
+
+    A session-scoped lock left behind by a handler that raised would wedge the
+    entry path for every team until the connection was recycled.
+    """
+    with exercise_sessions() as writer, exercise_sessions() as other:
+        dataset_id = _insert_dataset(writer, label="lock-release")
+        WORKSPACES.get_or_create_workspace(
+            writer, dataset_id=dataset_id, team_number=1, workspace_secret=_SECRET
+        )
+        writer.rollback()
+
+        free_again = other.execute(
+            sa.select(sa.func.pg_try_advisory_xact_lock(WORKSPACE_MEMBERSHIP_LOCK_KEY))
+        ).scalar_one()
+        other.rollback()
+
+    assert free_again is True
+
+
+def test_the_lock_key_is_a_stable_signed_bigint() -> None:
+    """Derived from the table's name, so it is checkable rather than magic."""
+    expected = int.from_bytes(
+        hashlib.sha256(b"exercise_team_workspace").digest()[:8], "big", signed=True
+    )
+    assert expected == WORKSPACE_MEMBERSHIP_LOCK_KEY
+    assert -(2**63) <= WORKSPACE_MEMBERSHIP_LOCK_KEY < 2**63
+
+
+def test_the_team_list_is_capped_and_cuts_at_a_stable_point(
+    exercise_sessions: sessionmaker[Session],
+) -> None:
+    """Review finding F4 on PR #184: ``list_datasets`` was bounded and this was not.
+
+    Asserted with an explicit ``limit`` rather than by writing
+    ``MAX_WORKSPACE_LIST_ROWS`` rows, which would be three hundred rows to
+    prove an argument reaches a ``LIMIT``. What is checked is that the cap is
+    applied, that it cuts at the *front* of the declared order rather than
+    wherever the planner happened to stop, and that two reads agree.
+    """
+    with exercise_sessions() as session:
+        dataset_id = _insert_dataset(session, label="capped")
+        for team_number in (1, 2, 3, 4):
+            _enter(session, dataset_id=dataset_id, team_number=team_number)
+
+        assert len(REPOSITORY.list_workspaces(session)) == 4
+        first_two = REPOSITORY.list_workspaces(session, limit=2)
+        assert [row.team_number for row in first_two] == [1, 2]
+        assert REPOSITORY.list_workspaces(session, limit=2) == first_two
+
+        with pytest.raises(ValueError, match="at least 1"):
+            REPOSITORY.list_workspaces(session, limit=0)
+
+
+def test_the_default_cap_is_the_named_constant(
+    exercise_sessions: sessionmaker[Session],
+) -> None:
+    """The bound is the constant, not a number repeated at a call site."""
+    with exercise_sessions() as session:
+        dataset_id = _insert_dataset(session, label="default-cap")
+        _enter(session, dataset_id=dataset_id, team_number=1)
+        assert REPOSITORY.list_workspaces(session) == REPOSITORY.list_workspaces(
+            session, limit=MAX_WORKSPACE_LIST_ROWS
+        )
+    assert len(EXERCISE_TEAM_NUMBERS) <= MAX_WORKSPACE_LIST_ROWS
 
 
 def test_a_refused_write_logs_the_constraint_and_the_dataset_id_and_nothing_else(

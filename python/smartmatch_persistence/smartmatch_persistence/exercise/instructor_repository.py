@@ -62,10 +62,14 @@ from smartmatch_persistence.exercise.schema import (
     exercise_saved_setting,
     exercise_team_workspace,
 )
-from smartmatch_persistence.exercise.workspace_repository import ExerciseWorkspaceRepository
+from smartmatch_persistence.exercise.workspace_repository import (
+    ExerciseWorkspaceRepository,
+    lock_workspace_membership,
+)
 
 __all__ = [
     "MAX_INVITE_LIMIT",
+    "MAX_WORKSPACE_LIST_ROWS",
     "MIN_INVITE_LIMIT",
     "ExerciseInstructorRepository",
     "ExerciseWriteRefused",
@@ -90,6 +94,22 @@ _LOGGER = logging.getLogger(__name__)
 #: column's server default and is not repeated here.
 MIN_INVITE_LIMIT: Final[int] = 1
 MAX_INVITE_LIMIT: Final[int] = 1_000
+
+#: How many team rows :meth:`ExerciseInstructorRepository.list_workspaces`
+#: returns (review finding F4 on PR #184).
+#:
+#: ``list_datasets`` is capped and this read was not, which is the asymmetry
+#: the finding names. It is not a number of Ann's and it is not a product rule:
+#: six teams per data file is the product (``EXERCISE_TEAM_NUMBERS``, and the
+#: table's ``CHECK (team_number BETWEEN 1 AND 6)``), so this is one screen's
+#: worth of *every* data file's teams and a classroom can never approach it.
+#: What it bounds is the pathological case a cap exists for — a server that has
+#: run many lessons without its old data files being cleared — where an
+#: unbounded read builds a list nobody scrolls out of rows nobody wants.
+#:
+#: A truncation cuts at a stable point because the ordering is total: upload
+#: time, then data file id, then team number.
+MAX_WORKSPACE_LIST_ROWS: Final[int] = 300
 
 
 class ExerciseWriteRefused(Exception):
@@ -231,7 +251,11 @@ class ExerciseInstructorRepository:
     # -----------------------------------------------------------------------
 
     def list_workspaces(
-        self, session: Session, *, dataset_id: uuid.UUID | None = None
+        self,
+        session: Session,
+        *,
+        dataset_id: uuid.UUID | None = None,
+        limit: int = MAX_WORKSPACE_LIST_ROWS,
     ) -> tuple[InstructorWorkspaceRow, ...]:
         """Every team that exists, each with the data file it is actually on.
 
@@ -249,8 +273,25 @@ class ExerciseInstructorRepository:
 
         Ordered by data file and then team number, so a classroom that has
         somehow split across two files reads as two groups rather than as
-        interleaved duplicates of team 3.
+        interleaved duplicates of team 3. The data file's ``id`` breaks a tie on
+        its upload time, which is what makes the ordering total and therefore
+        the truncation below stable between two identical reads.
+
+        **Capped** at :data:`MAX_WORKSPACE_LIST_ROWS` — review finding F4 on PR
+        #184: ``list_datasets`` was bounded and this read was not. A classroom
+        cannot reach the cap; a server that has run many lessons can.
+
+        Args:
+            session: Not committed here.
+            dataset_id: One data file, or ``None`` for all of them.
+            limit: How many rows to return. Refused if it is not positive, so a
+                caller that computes one cannot turn the cap into ``LIMIT 0``.
+
+        Raises:
+            ValueError: if ``limit`` is less than one.
         """
+        if limit < 1:
+            raise ValueError(f"limit must be at least 1, not {limit}")
         settings = self._child_count(exercise_saved_setting).label("saved_setting_count")
         runs = self._child_count(exercise_result_run).label("result_run_count")
         statement = (
@@ -270,7 +311,12 @@ class ExerciseInstructorRepository:
                     exercise_team_workspace.c.dataset_id == exercise_dataset.c.id,
                 )
             )
-            .order_by(exercise_dataset.c.uploaded_at, exercise_team_workspace.c.team_number)
+            .order_by(
+                exercise_dataset.c.uploaded_at,
+                exercise_dataset.c.id,
+                exercise_team_workspace.c.team_number,
+            )
+            .limit(limit)
         )
         if dataset_id is not None:
             statement = statement.where(exercise_team_workspace.c.dataset_id == dataset_id)
@@ -576,8 +622,11 @@ class ExerciseInstructorRepository:
 
         **The collision, and how it is resolved.** A team can hold two
         workspaces at once: an old one on the previous dataset and a new one on
-        the target, because entry lands on the newest dataset (see
-        ``workspace_repository.active_dataset``). Moving the old one would
+        the target. Entry no longer creates that state — owner ruling,
+        2026-09-19, implemented in
+        ``workspace_repository.entry_dataset_for``: a team that has a workspace
+        re-enters *that* one — but rows written before the ruling can still be
+        in it, and this method is what ends it. Moving the old one would
         violate ``uq_exercise_team_workspace_dataset_team``, so it is
         **discarded** instead — deleted, with its children cascading — and the
         team's workspace on the target dataset wins. That is the direction that
@@ -591,12 +640,9 @@ class ExerciseInstructorRepository:
         work is lost, because the work was on the row that was discarded and a
         re-point resets every team in any case.
 
-        **Serialised against a team entering at the same moment.** Both reads
-        below take ``FOR UPDATE``, which holds every workspace row this
-        statement will touch until the caller commits. Without it the re-point
-        had a window with two bad ends, and a classroom is exactly where they
-        happen — the instructor presses "re-point" while six laptops are typing
-        their numbers:
+        **Serialised against a team entering at the same moment.** A classroom
+        is exactly where that happens — the instructor presses "re-point" while
+        six laptops are typing their numbers — and the window has two bad ends:
 
         * a team whose ``enter`` committed *after* the scan and *before* the
           update stayed on the old data file, silently, and the instructor's
@@ -606,10 +652,23 @@ class ExerciseInstructorRepository:
           ``uq_exercise_team_workspace_dataset_team`` — failing the **whole**
           re-point, after some teams had already been reset.
 
-        ``FOR UPDATE`` on the target scan is what closes the second: a
-        concurrent ``get_or_create_workspace`` for that pair blocks on the row
-        lock, or on the unique index, until this transaction ends, and then sees
-        the moved row rather than racing it.
+        Two locks, and neither is redundant (review finding F2 on PR #184):
+
+        * :func:`~smartmatch_persistence.exercise.workspace_repository.lock_workspace_membership`
+          is taken **first**, before any row is read. It is what closes the
+          second end. ``FOR UPDATE`` alone could not: it locks the rows it
+          finds, and the row that breaks a re-point is a **new** one a
+          concurrent ``get_or_create_workspace`` inserts for a pair this scan
+          returned nothing for. ``get_or_create_workspace`` takes the same
+          advisory lock before its insert, so the two take turns; an earlier
+          version of this docstring claimed the row lock covered it, which was
+          not true.
+        * ``FOR UPDATE`` on both reads then holds every existing row this
+          statement will touch, which is what closes the first end and what
+          stops a second re-point, or a reset, from interleaving with this one.
+
+        The ordering — advisory lock, then row locks, on every path that takes
+        both — is what keeps the pair deadlock-free.
 
         Returns:
             How many workspaces moved and how many stale ones were discarded.
@@ -618,6 +677,7 @@ class ExerciseInstructorRepository:
             ExerciseWriteRefused: if the database refuses any statement. The
                 driver's exception never escapes.
         """
+        lock_workspace_membership(session)
         target_team_numbers = {
             row.team_number
             for row in session.execute(
