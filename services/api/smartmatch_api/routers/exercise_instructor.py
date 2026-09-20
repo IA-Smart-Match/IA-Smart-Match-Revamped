@@ -217,9 +217,9 @@ def instructor_login(
       script could lock the real instructor out for a lesson.
     * The **global** bound is the one an attacker can exhaust on somebody
       else's behalf, so it may not be the reason a *correct* passcode is
-      refused. When it is spent the passcode is still checked, and a correct one
-      is let in and **refunds** its unit. The window is left holding only the
-      attempts that were wrong.
+      refused. When it is spent the passcode is still checked and a correct one
+      is let in and **refunds the unit it spent** — none, if the window was
+      already full. The window is left holding only the wrong attempts.
 
     **Fail closed, and at the same cost.** A deployment with no usable passcode
     reaches the same refusal as a wrong one *and pays the same key derivation*
@@ -259,7 +259,12 @@ def instructor_login(
 
     # Correct. The global window never holds a unit for an attempt that was
     # right, so a flood from many addresses cannot lock the passcode holder out.
-    _LOGIN_LIMITER.refund_global()
+    #
+    # Guarded on this attempt having actually spent a global unit (F3, PR
+    # #184): a false ``global_allows`` means ``charge`` spent nothing, so an
+    # unconditional refund minted budget out of somebody else's wrong attempt.
+    if allowance.global_allows:
+        _LOGIN_LIMITER.refund_global()
     _set_instructor_cookie(
         response, policy=policy, token=mint_instructor_session(secret=secret, now=utc_now())
     )
@@ -631,7 +636,9 @@ def list_team_workspaces(
     two fields instead of one misleading one.
 
     A team that has not entered its number is absent: there is no row for it,
-    and inventing one would report six teams working when two are.
+    and inventing one would report six teams working when two are. Bounded by
+    the repository's ``MAX_WORKSPACE_LIST_ROWS`` rather than by a second number
+    here, so every caller of that read is capped and not only this one (F4).
     """
     return TeamListView(
         active_dataset_label=active.dataset.label if active.dataset else None,
@@ -693,19 +700,19 @@ def reset_team_workspace(
     workspaces: WorkspaceRepository,
     dataset_id: _DatasetChoice = None,
 ) -> TeamSummaryView:
-    """Design spec §11's per-team reset, from the instructor's side.
+    """Design spec §11's per-team reset, and **the only reset there is**.
 
-    **One team, and the same statements the team's own route runs.**
+    Owner ruling, 2026-09-19: per-team reset sits behind this passcode. The
+    team-addressed route was removed — it resolved the workspace from a cookie
+    anyone who types the team's number can obtain, so an irreversible action
+    was available to whoever wanted it, and Session 2 has no backup.
+
+    **One team, and one set of statements.**
     ``ExerciseWorkspaceRepository.reset_team`` is reused rather than
     reimplemented, so "what a reset deletes" has one answer: this team's
     overlay, saved settings and result runs, and a new seed. Every statement is
-    keyed on the workspace id resolved from ``(active dataset, team number)``,
-    so no other team's rows are reachable from here.
-
-    The team's own ``POST /v1/exercise/workspaces/current/reset`` is unchanged
-    and stays where it is. Whether per-team reset should move *behind* this
-    passcode is an open owner decision recorded on the pull request; this route
-    adds an instructor path to it without removing the team's.
+    keyed on the workspace id resolved from ``(data file, team number)``, so no
+    other team's rows are reachable from here.
 
     Addressed by the data file the teams are on (see :func:`_teams_dataset`),
     so a fresh upload does not make this 404 on a team that is still working.

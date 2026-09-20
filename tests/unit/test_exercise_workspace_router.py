@@ -81,6 +81,17 @@ _DATASET = ExerciseDatasetSummary(
     invite_limit=30,
 )
 
+#: A second upload, for the owner ruling of 2026-09-19: a team that already has
+#: a workspace re-enters *that* one rather than landing on the newest file.
+_NEWER_DATASET = ExerciseDatasetSummary(
+    id=uuid.UUID("22222222-2222-2222-2222-222222222222"),
+    label="Made-up student body (second upload)",
+    invite_limit=12,
+)
+
+#: Every data file the fake repository knows how to join a workspace to.
+_DATASETS = {dataset.id: dataset for dataset in (_DATASET, _NEWER_DATASET)}
+
 
 class _FakeRepository:
     """Enough of ``ExerciseWorkspaceRepository`` to exercise the routes.
@@ -93,8 +104,6 @@ class _FakeRepository:
 
     def __init__(self) -> None:
         self.rows: dict[tuple[uuid.UUID, int], ExerciseWorkspace] = {}
-        self.seeds: dict[uuid.UUID, int] = {}
-        self.reset_ids: list[uuid.UUID] = []
 
     def get_or_create_workspace(
         self,
@@ -107,16 +116,28 @@ class _FakeRepository:
         assert workspace_secret == _TEST_SECRET
         key = (dataset_id, team_number)
         if key not in self.rows:
-            workspace_id = uuid.uuid4()
+            dataset = _DATASETS[dataset_id]
             self.rows[key] = ExerciseWorkspace(
-                id=workspace_id,
+                id=uuid.uuid4(),
                 dataset_id=dataset_id,
                 team_number=team_number,
-                dataset_label=_DATASET.label,
-                invite_limit=_DATASET.invite_limit,
+                dataset_label=dataset.label,
+                invite_limit=dataset.invite_limit,
             )
-            self.seeds[workspace_id] = new_workspace_seed()
         return self.rows[key]
+
+    def entry_dataset_for(self, _session: object, *, team_number: int) -> uuid.UUID | None:
+        """The real method's three branches over an insertion-ordered dict.
+
+        ``rows`` preserves insertion order, so "the most recently created
+        workspace row" is the last matching key — which is what the real
+        ``created_at DESC, id DESC`` ordering answers.
+        """
+        own = [key for key in self.rows if key[1] == team_number]
+        if own:
+            return own[-1][0]
+        every = list(self.rows)
+        return every[-1][0] if every else None
 
     def find_by_token_hash(self, _session: object, *, token_hash: str) -> ExerciseWorkspace | None:
         for workspace in self.rows.values():
@@ -126,10 +147,6 @@ class _FakeRepository:
             if tokens_match(token_hash, expected):
                 return workspace
         return None
-
-    def reset_team(self, _session: object, *, workspace_id: uuid.UUID) -> None:
-        self.reset_ids.append(workspace_id)
-        self.seeds[workspace_id] = new_workspace_seed()
 
 
 class _EmptyResult:
@@ -173,7 +190,12 @@ def _settings(
     )
 
 
-def _exercise_app(settings: Settings, repository: _FakeRepository) -> FastAPI:
+def _exercise_app(
+    settings: Settings,
+    repository: _FakeRepository,
+    *,
+    dataset: ExerciseDatasetSummary = _DATASET,
+) -> FastAPI:
     """The exercise process's routes, with the database replaced and nothing else.
 
     Built from ``routers_for`` rather than by hand, so a route that stops being
@@ -189,7 +211,7 @@ def _exercise_app(settings: Settings, repository: _FakeRepository) -> FastAPI:
     session = _FakeSession()
     app.dependency_overrides[get_exercise_session] = lambda: session
     app.dependency_overrides[get_workspace_repository] = lambda: repository
-    app.dependency_overrides[get_active_dataset] = lambda: _DATASET
+    app.dependency_overrides[get_active_dataset] = lambda: dataset
     app.dependency_overrides[get_workspace_secret] = lambda: require_exercise_workspace_secret(
         settings
     )
@@ -303,21 +325,141 @@ def test_two_teams_at_once_do_not_see_each_other(repository: _FakeRepository) ->
         ) != team_two.cookies.get(WORKSPACE_COOKIE_NAME, path="/v1/exercise")
 
 
-def test_reset_touches_this_teams_workspace_and_no_other(
-    client: TestClient, repository: _FakeRepository
+# ---------------------------------------------------------------------------
+# Which data file an entry lands in (owner ruling, 2026-09-19)
+# ---------------------------------------------------------------------------
+
+
+def test_a_team_with_a_workspace_re_enters_it_after_a_new_file_is_uploaded(
+    repository: _FakeRepository,
 ) -> None:
-    _enter(client, 6)
-    workspace = repository.rows[(_DATASET.id, 6)]
-    seed_before = repository.seeds[workspace.id]
-    response = client.post(
-        "/v1/exercise/workspaces/current/reset", headers={EXERCISE_REQUEST_HEADER: "1"}
-    )
+    """The ruling at the routing layer: the newest upload does not move a team.
+
+    Team 3 enters while the first file is the newest. The instructor uploads a
+    second — design spec §3: that moves nobody — and the same browser enters
+    again, this time against a process whose *active* data file is the new one.
+    It must be handed its own workspace back, label and invite limit and all,
+    and the repository must still hold exactly one row for team 3.
+    """
+    settings = _settings()
+    with TestClient(_exercise_app(settings, repository)) as before_upload:
+        assert _enter(before_upload, 3).json()["dataset_label"] == _DATASET.label
+
+    with TestClient(_exercise_app(settings, repository, dataset=_NEWER_DATASET)) as after_upload:
+        response = _enter(after_upload, 3)
+
     assert response.status_code == 200
-    assert response.json()["team_number"] == 6
-    assert repository.reset_ids == [workspace.id]
-    assert repository.seeds[workspace.id] != seed_before, "the seed is regenerated"
-    # The cookie still works: a reset clears work, it does not log a team out.
+    assert response.json() == {
+        "team_number": 3,
+        "dataset_label": _DATASET.label,
+        "invite_limit": _DATASET.invite_limit,
+    }
+    assert list(repository.rows) == [(_DATASET.id, 3)], "no second workspace was minted"
+
+
+def test_a_brand_new_team_joins_the_file_the_other_teams_are_on(
+    repository: _FakeRepository,
+) -> None:
+    """Team 5 arrives after the upload and still lands in the lesson."""
+    settings = _settings()
+    with TestClient(_exercise_app(settings, repository)) as early:
+        _enter(early, 1)
+
+    with TestClient(_exercise_app(settings, repository, dataset=_NEWER_DATASET)) as late:
+        response = _enter(late, 5)
+
+    assert response.json()["dataset_label"] == _DATASET.label
+    assert {key[0] for key in repository.rows} == {_DATASET.id}
+
+
+def test_the_first_team_of_the_lesson_lands_on_the_newest_file(
+    repository: _FakeRepository,
+) -> None:
+    """The fallback, and the only case in which the active data file decides.
+
+    With no workspace anywhere there is no classroom to join, so the newest
+    upload is the answer — which is also what makes the 409 below the right
+    refusal when there is no data file at all.
+    """
+    with TestClient(_exercise_app(_settings(), repository, dataset=_NEWER_DATASET)) as client:
+        response = _enter(client, 2)
+
+    assert response.json() == {
+        "team_number": 2,
+        "dataset_label": _NEWER_DATASET.label,
+        "invite_limit": _NEWER_DATASET.invite_limit,
+    }
+
+
+def test_the_cookie_from_before_the_upload_still_resolves(
+    repository: _FakeRepository,
+) -> None:
+    """Nothing about the ruling logs a team out: the row is the same row."""
+    settings = _settings()
+    with TestClient(_exercise_app(settings, repository)) as client:
+        _enter(client, 4)
+        token = client.cookies.get(WORKSPACE_COOKIE_NAME, path="/v1/exercise")
+
+    with TestClient(_exercise_app(settings, repository, dataset=_NEWER_DATASET)) as later:
+        later.cookies.set(WORKSPACE_COOKIE_NAME, str(token), path="/v1/exercise")
+        current = later.get("/v1/exercise/workspaces/current")
+
+    assert current.status_code == 200
+    assert current.json()["team_number"] == 4
+    assert current.json()["dataset_label"] == _DATASET.label
+
+
+# ---------------------------------------------------------------------------
+# The reset that is not here (owner ruling, 2026-09-19)
+# ---------------------------------------------------------------------------
+
+#: The path the team-addressed reset used to answer on. Written out once so the
+#: two assertions below cannot drift, and kept in this file rather than deleted
+#: with the route: a removal nobody pins is a removal somebody re-adds.
+_REMOVED_TEAM_RESET_PATH = "/v1/exercise/workspaces/current/reset"
+
+
+def test_the_team_addressed_reset_is_gone_from_the_exercise_scope(
+    client: TestClient,
+) -> None:
+    """Owner ruling, 2026-09-19: per-team reset moved behind the instructor passcode.
+
+    It was resolved by the workspace cookie alone, and that cookie is
+    obtainable by anyone who types the team's number — OQ-CE-08's
+    shared-per-team default, and the requirements' "Getting in" row: no login,
+    a team enters its number. So an irreversible action was available to a
+    class participant who entered somebody else's number, in a session with no
+    backup.
+
+    Asserted as an answer on the wire rather than as an absence in a list,
+    because what a team's browser gets is the thing that matters: the path is
+    not routed, so the exercise app answers it as the absence it is. 405 would
+    be an equally correct answer from a router that kept the path for another
+    method; this one keeps none, so it is a 404.
+    """
+    _enter(client, 6)
+    response = client.post(_REMOVED_TEAM_RESET_PATH, headers={EXERCISE_REQUEST_HEADER: "1"})
+    assert response.status_code in (404, 405), (
+        "the team-addressed reset must not be routed in the exercise scope"
+    )
+    assert response.status_code == 404
+    # And the team is still in its workspace: the route went, the session did not.
     assert client.get("/v1/exercise/workspaces/current").status_code == 200
+
+
+def test_the_removed_reset_path_is_mounted_under_no_scope_at_all() -> None:
+    """Not merely unreachable in one app: absent from every composition."""
+    for scope in ProductScope:
+        assert _REMOVED_TEAM_RESET_PATH not in _paths_under(scope), (
+            f"{_REMOVED_TEAM_RESET_PATH} is still mounted under {scope}"
+        )
+
+
+def test_the_instructor_reset_is_the_one_that_remains() -> None:
+    """The ruling moved the reset; it did not delete the capability."""
+    assert "/v1/exercise/instructor/workspaces/{team_number}/reset" in _paths_under(
+        ProductScope.CLASS_EXERCISE
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -460,11 +602,6 @@ def test_a_state_changing_request_without_the_exercise_header_is_refused(
     }
 
 
-def test_the_reset_is_state_changing_too(client: TestClient) -> None:
-    _enter(client, 1)
-    assert client.post("/v1/exercise/workspaces/current/reset").status_code == 403
-
-
 def test_the_read_route_needs_no_exercise_header(client: TestClient) -> None:
     """A GET is not state-changing; requiring the header would be cargo cult."""
     _enter(client, 1)
@@ -522,7 +659,6 @@ def test_the_workspace_routes_are_mounted_only_under_the_exercise_scope() -> Non
     assert {
         "/v1/exercise/workspaces",
         "/v1/exercise/workspaces/current",
-        "/v1/exercise/workspaces/current/reset",
     } <= mounted
     for scope in (ProductScope.CBA, ProductScope.IA_WEST_LEGACY):
         assert not any(path.startswith("/v1/exercise") for path in _paths_under(scope))

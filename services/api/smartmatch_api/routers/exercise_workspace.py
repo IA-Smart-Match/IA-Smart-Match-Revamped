@@ -1,17 +1,42 @@
 """Team workspaces for the class exercise (design spec §15, requirements "Getting in").
 
 A team enters a number 1-6. The server creates or returns *the* workspace for
-``(active dataset, team number)``, sets an opaque pointer to it in an httpOnly
-cookie, and a reload — or a second tab, or the laptop next to it — gets the same
-workspace back. Plus the per-team reset design spec §11 requires. No login, no
-account, no principal, and nothing in this module that could resolve one.
+that team, sets an opaque pointer to it in an httpOnly cookie, and a reload —
+or a second tab, or the laptop next to it — gets the same workspace back. No
+login, no account, no principal, and nothing in this module that could resolve
+one.
 
-Three routes
-============
+Two routes
+==========
 
 * ``POST /v1/exercise/workspaces`` — enter a team number. Creates or returns.
 * ``GET /v1/exercise/workspaces/current`` — what the cookie points at.
-* ``POST /v1/exercise/workspaces/current/reset`` — clear this team's work.
+
+Reset is not one of them (owner ruling, 2026-09-19)
+===================================================
+
+Design spec §11's per-team reset used to live here as
+``POST /v1/exercise/workspaces/current/reset``, addressed by the cookie alone.
+The cookie is obtainable by anyone who types the team's number — that is what
+the product is (OQ-CE-08's shared-per-team default; the requirements' "Getting
+in" row: no login, a team enters its number) — so a destructive, irreversible
+action was reachable by a class participant who entered somebody else's number,
+and Session 2 has no backup.
+
+The owner ruled on 2026-09-19 that per-team reset moves **behind the instructor
+passcode**. ``POST /v1/exercise/instructor/workspaces/{team_number}/reset`` is
+now the only reset, and the statements it runs are unchanged — it calls the
+same ``ExerciseWorkspaceRepository.reset_team``. The path above is gone rather
+than deprecated, so a request to it is answered by the router as the absence it
+is.
+
+Which data file an entry lands in (owner ruling, 2026-09-19)
+============================================================
+
+Not "the newest upload". A team that already has a workspace re-enters *that*
+workspace, on whatever data file it is on; only an instructor re-point moves a
+team. See :func:`enter_team_workspace` and
+``ExerciseWorkspaceRepository.entry_dataset_for``.
 
 What a response may carry, and what it may never
 ================================================
@@ -49,8 +74,8 @@ CSRF
 
 This application had no cookie before this module and therefore no CSRF
 machinery to reuse; the pilot login is a bearer exchange, which a cross-site
-form cannot forge. A cookie can be, so both state-changing routes here require
-``X-Exercise-Request`` on top of ``SameSite=Lax`` — see
+form cannot forge. A cookie can be, so the one state-changing route here
+requires ``X-Exercise-Request`` on top of ``SameSite=Lax`` — see
 :data:`~smartmatch_api.exercise_dependencies.EXERCISE_REQUEST_HEADER`.
 
 Not in this module
@@ -89,9 +114,11 @@ from smartmatch_api.exercise_errors import ExerciseError
 #: router prefixes out of the AST and matches ``name = APIRouter(...)``.
 router = APIRouter(prefix="/v1/exercise", tags=["class-exercise"])
 
-#: Applied to both state-changing routes. Declared once so the two cannot
-#: drift, and as a router-level ``dependencies`` entry rather than a parameter
-#: so it cannot be dropped by editing a signature.
+#: Applied to every state-changing route in this module — one, since the reset
+#: moved behind the instructor passcode. Declared as a list rather than inline
+#: so a second such route cannot drift from the first, and passed as a
+#: ``dependencies`` entry rather than as a parameter so it cannot be dropped by
+#: editing a signature.
 _STATE_CHANGING = [Depends(require_exercise_request_header)]
 
 
@@ -181,7 +208,21 @@ def enter_team_workspace(
     secret: WorkspaceSecret,
     policy: CookiePolicy,
 ) -> TeamWorkspaceView:
-    """Create or return the workspace for ``(active dataset, team number)``.
+    """Open *the* workspace for this team number, creating it if it is new.
+
+    **Which data file it opens in is not "the newest upload"** (owner ruling,
+    2026-09-19). A team that already has a workspace re-enters that workspace,
+    on whatever file it is on; only an instructor re-point moves a team. A
+    brand-new team joins the file the other teams are on, and the very first
+    team of a lesson joins the newest upload because there is no classroom yet
+    to join. The rule, with its tie-break for teams left on two files by rows
+    written before the ruling, is
+    ``ExerciseWorkspaceRepository.entry_dataset_for``; the ``dataset``
+    dependency here is the fallback and the source of the 409 below.
+
+    Before the ruling, a reload after an upload handed the team a second, empty
+    workspace on the new file — its work apparently gone — while design spec §3
+    says in as many words that uploading moves nobody.
 
     **200, not 201, in both cases.** A team entering its number is opening its
     workspace, not creating a resource; answering 201 the first time and 200
@@ -192,8 +233,18 @@ def enter_team_workspace(
     reach ``get_or_create_workspace``, one row exists afterwards because the
     unique constraint admits one, and both get it.
 
+    **The two repository calls below are one atomic step**, and the order of
+    the statements in this handler is load-bearing rather than tidy: the same
+    ``session``, no commit between them, so the membership lock
+    ``entry_dataset_for`` takes is still held when ``get_or_create_workspace``
+    inserts. A commit in between would release it and reopen the window a
+    re-point races through — the team's row moves after the data file is
+    chosen and before it is used, and the entry mints a second workspace on the
+    file the team has just left.
+
     Commits explicitly — ``get_exercise_session`` rolls back on the way out, so
-    a write that is not committed here is a write that did not happen.
+    a write that is not committed here is a write that did not happen, and the
+    commit is also what releases the lock.
 
     Raises:
         ExerciseError: 409 when no dataset has been uploaded (raised by the
@@ -206,9 +257,10 @@ def enter_team_workspace(
             code="exercise_team_number_unknown",
             message="Pick a team number from 1 to 6.",
         )
+    dataset_id = repository.entry_dataset_for(session, team_number=payload.team_number)
     workspace = repository.get_or_create_workspace(
         session,
-        dataset_id=dataset.id,
+        dataset_id=dataset_id if dataset_id is not None else dataset.id,
         team_number=payload.team_number,
         workspace_secret=secret,
     )
@@ -234,51 +286,4 @@ def read_current_workspace(workspace: CurrentWorkspace) -> TeamWorkspaceView:
     Raises:
         ExerciseError: 401 when the cookie is absent or names no workspace.
     """
-    return _view(workspace)
-
-
-@router.post(
-    "/workspaces/current/reset",
-    response_model=TeamWorkspaceView,
-    status_code=status.HTTP_200_OK,
-    dependencies=_STATE_CHANGING,
-    summary="Clear this team's work and start over",
-)
-def reset_current_workspace(
-    workspace: CurrentWorkspace,
-    session: ExerciseSession,
-    repository: WorkspaceRepository,
-) -> TeamWorkspaceView:
-    """Design spec §11's per-team reset, on the team's own workspace only.
-
-    The team stays in its workspace: the row survives, the cookie still points
-    at it, and the reply is the same view the team had before. What is gone is
-    the team's overlay, saved settings and result runs, and its seed is new.
-    Justin's checklist calls this out as easy to forget — "reset clears one team
-    only" — and it is a key rather than a discipline: every statement the
-    repository runs is keyed on this workspace's id, which came from this
-    browser's cookie and cannot name another team's row.
-
-    **What this is not protected against, said out loud.** The isolation above
-    is against *accident* and against a parameter — there is no parameter here
-    through which one team could name another's workspace. It is not protection
-    against *intent*: the cookie this route resolves is obtainable by anyone who
-    types the team's number, because that is what the product is (OQ-CE-08's
-    shared-per-team default; the requirements' "Getting in" row: no login, a
-    team enters its number). A class participant who enters team 4's number
-    holds team 4's cookie and can clear team 4's work.
-
-    That follows from the product having no login rather than from anything in
-    this handler, and it is not silently accepted: whether reset should sit
-    behind the instructor passcode or a per-team word is an owner decision
-    recorded on the pull request. The requirements list per-team reset as a
-    *team* action, and Session 2 has no backup, so both directions cost
-    something. Behaviour here is unchanged until that is answered.
-
-    Raises:
-        ExerciseError: 401 when the cookie is absent or names no workspace, 403
-            when the request carries no ``X-Exercise-Request`` header.
-    """
-    repository.reset_team(session, workspace_id=workspace.id)
-    session.commit()
     return _view(workspace)

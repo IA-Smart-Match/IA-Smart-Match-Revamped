@@ -23,6 +23,12 @@ to give it one. :func:`active_dataset` states the rule in one place —
 function to replace when "active" becomes a stored fact rather than an ordering.
 See its docstring.
 
+It is **not** the rule for where an entry lands. Owner ruling, 2026-09-19: a
+team that already has a workspace re-enters *that* workspace, on whatever data
+file it is on, and only an instructor re-point moves a team.
+:meth:`ExerciseWorkspaceRepository.entry_dataset_for` states that rule, and
+``active_dataset`` is the fallback it uses when no team has entered at all.
+
 Transaction boundaries belong to the caller
 ===========================================
 
@@ -45,8 +51,10 @@ impossible rather than unlikely.
 
 from __future__ import annotations
 
+import hashlib
 import uuid
 from dataclasses import dataclass
+from typing import Final
 
 import sqlalchemy as sa
 from smartmatch_domain.exercise.workspace_token import (
@@ -60,11 +68,69 @@ from sqlalchemy.orm import Session
 from smartmatch_persistence.exercise import schema
 
 __all__ = [
+    "WORKSPACE_MEMBERSHIP_LOCK_KEY",
     "ExerciseDatasetSummary",
     "ExerciseWorkspace",
     "ExerciseWorkspaceRepository",
     "active_dataset",
+    "lock_workspace_membership",
 ]
+
+#: The advisory-lock key every statement that changes *which data file a team
+#: is in* takes first (review finding F2 on PR #184).
+#:
+#: **Why an advisory lock and not ``FOR UPDATE``.** ``SELECT … FOR UPDATE``
+#: locks the rows it finds. It cannot lock a row that does not exist yet, and
+#: the row that breaks a re-point is exactly that one: a team entering at the
+#: same moment inserts a *new* ``(target dataset, team N)`` row, which no
+#: predicate lock held by the re-point's scan covers, and the re-point's own
+#: ``UPDATE`` of some other row to that pair then trips
+#: ``uq_exercise_team_workspace_dataset_team`` and aborts the whole transaction
+#: — after some teams have already been reset. Both sides taking one
+#: transaction-level advisory lock is what makes them take turns.
+#:
+#: **Derived, not chosen.** A literal would be a number nobody could check
+#: against anything; this is the first eight bytes of the SHA-256 of the table's
+#: own name, read as PostgreSQL's signed ``bigint``. It is stable across
+#: processes and releases because SHA-256 is, and it cannot silently collide
+#: with another subsystem's key unless that subsystem picked the same name.
+#:
+#: **Lock ordering.** This lock is taken **first**, before any row lock, on
+#: every path that takes it. One lock always acquired before any other cannot
+#: participate in a deadlock cycle with them.
+WORKSPACE_MEMBERSHIP_LOCK_KEY: Final[int] = int.from_bytes(
+    hashlib.sha256(b"exercise_team_workspace").digest()[:8], "big", signed=True
+)
+
+
+def lock_workspace_membership(session: Session) -> None:
+    """Take :data:`WORKSPACE_MEMBERSHIP_LOCK_KEY` for the caller's transaction.
+
+    ``pg_advisory_xact_lock`` rather than ``pg_advisory_lock``: the transaction
+    form is released when the transaction ends, whichever way it ends, so a
+    caller that raises cannot leave the classroom's entry path wedged until the
+    connection is recycled. Nothing has to unlock it and nothing may.
+
+    Blocking rather than ``pg_try_advisory_xact_lock``: the waits here are a
+    re-point against a team pressing "enter", measured in milliseconds, and the
+    alternative to waiting is refusing one of them for no reason a person in
+    the room could act on.
+
+    Re-entrant within a transaction, which is what lets
+    :meth:`ExerciseWorkspaceRepository.entry_dataset_for` and
+    :meth:`ExerciseWorkspaceRepository.get_or_create_workspace` each call it
+    while together holding the key exactly once, continuously, from the
+    decision to the commit.
+
+    **Said plainly (OQ-CE-06, owner Danny):** this serialises *every* entry —
+    a public, unauthenticated, in-process-rate-limit-free route — on one
+    key, per database. Six teams on classroom laptops is nothing, and the work
+    inside the lock is three short statements; a deployment that opened this
+    route to more than a classroom would want the edge limiting OQ-CE-06 is
+    open about before it wanted a finer-grained lock. Behaviour is unchanged
+    until that is answered.
+    """
+    session.execute(sa.select(sa.func.pg_advisory_xact_lock(WORKSPACE_MEMBERSHIP_LOCK_KEY)))
 
 
 @dataclass(frozen=True, slots=True)
@@ -188,6 +254,16 @@ class ExerciseWorkspaceRepository:
                 already established that a dataset exists and has no sensible
                 branch for "it stopped existing mid-statement".
         """
+        # First, and before any row is touched: see
+        # :data:`WORKSPACE_MEMBERSHIP_LOCK_KEY`. A re-point holds this while it
+        # moves teams, so the insert below cannot land on a pair the re-point
+        # has already decided to move into — which is the unique violation that
+        # used to abort the whole re-point. Called again here rather than left
+        # to the caller: this method is reached from the instructor's tests and
+        # tools as well as from ``entry_dataset_for``'s caller, and an advisory
+        # lock is re-entrant within a transaction, so asking twice costs one
+        # round trip and guarantees the invariant at every entrance.
+        lock_workspace_membership(session)
         candidate_id = uuid.uuid4()
         table = schema.exercise_team_workspace
         session.execute(
@@ -215,6 +291,102 @@ class ExerciseWorkspaceRepository:
             )
         self.repair_token_hash(session, workspace_id=found.id, workspace_secret=workspace_secret)
         return found
+
+    def entry_dataset_for(self, session: Session, *, team_number: int) -> uuid.UUID | None:
+        """Which data file a team entering its number right now lands in.
+
+        **Owner ruling, 2026-09-19: an existing workspace wins over the newest
+        data file.** Entry used to go straight to :func:`active_dataset`, so
+        the moment the instructor uploaded a file, a team that pressed reload
+        was handed a *second*, empty workspace on the new file and its work
+        appeared to be gone — while design spec §3 says in as many words that
+        uploading moves nobody. Only an instructor re-point moves a team, and
+        this function is what makes that true of entry as well as of the table.
+
+        The rule, in three branches, and each one is tested:
+
+        1. **The team already has a workspace** — on any data file — and that
+           workspace's file is the answer. This is the ruling.
+        2. **A legacy team has workspaces on more than one file.** Nothing
+           creates that state any more; rows written before this ruling can
+           still be in it. The tie is broken by **the most recently created
+           workspace row** (``created_at DESC``, then ``id DESC`` so two rows
+           written inside one clock tick still order the same way for every
+           reader). That is the file the team most recently entered, which is
+           the one whose work it was last looking at — and after any re-point
+           the question does not arise, because a re-point leaves each team
+           exactly one row.
+        3. **A brand-new team**, with no workspace anywhere, joins **the file
+           the other teams are on** — again the file carrying the most recently
+           created workspace row — so that team 5 arriving late lands in the
+           lesson the other five are in rather than in a file nobody else can
+           see. With no workspace anywhere at all, this returns ``None`` and
+           the caller falls back to :func:`active_dataset`: the first team of
+           the lesson joins the newest upload, which is the only sensible
+           answer when there is no classroom to join.
+
+        One ordering serves branches 2 and 3, which is deliberate: "the data
+        file this classroom is most recently working in" is one fact, and
+        giving it two definitions is how the two would drift.
+
+        **This reads, and it still takes the lock** (review round 1 on PR
+        #186). A decision made outside the lock is a decision that can be stale
+        before it is used, and the window is one a classroom produces on its
+        own: team 3 presses enter, this method answers "data file A", the
+        instructor's re-point — holding the lock — moves team 3 to B and
+        commits, and the entry then takes the lock and inserts a **new**
+        ``(A, team 3)`` row because the row it read has moved out from under
+        it. Team 3 ends up holding two workspaces, branch 2's newest-created
+        tie-break pins it to A for good, the re-point silently moved nobody,
+        and every instructor action without an explicit ``dataset_id`` refuses
+        with "the teams are split across more than one data file".
+
+        So :func:`lock_workspace_membership` is this method's first statement,
+        and the caller must run it and the create **in one transaction with no
+        commit between them** — which is what ``enter_team_workspace`` does.
+        ``get_or_create_workspace``'s own acquire then costs nothing: a
+        PostgreSQL advisory lock is re-entrant within a transaction, so the
+        second call returns at once and the key is held continuously from the
+        decision to the commit. The lock-first ordering is unchanged and still
+        total: on every path that takes both, this key is taken before any row
+        lock, so it cannot be one edge of a cycle.
+
+        The fallback is the one part of the decision the lock does not cover.
+        :func:`active_dataset` is read by the route's dependency, before this
+        runs, and an upload that commits in between would make "the newest
+        upload" a moment stale. That is harmless and is not worth a second
+        statement: it only applies when no workspace exists anywhere, so it
+        cannot produce a split classroom — the next team to enter sees this
+        team's row and joins it — and "an upload moves nobody" is the ruling
+        rather than an accident.
+
+        Args:
+            session: Not committed here. Reads only, but **does** take a
+                transaction-level advisory lock, which the caller's commit or
+                rollback releases.
+            team_number: The number entered on the laptop.
+
+        Returns:
+            The dataset id to open the workspace in, or ``None`` when no team
+            has entered a number yet.
+        """
+        lock_workspace_membership(session)
+        table = schema.exercise_team_workspace
+        newest_first = (table.c.created_at.desc(), table.c.id.desc())
+        own = session.execute(
+            sa.select(table.c.dataset_id)
+            .where(table.c.team_number == team_number)
+            .order_by(*newest_first)
+            .limit(1)
+        ).one_or_none()
+        if own is not None:
+            return uuid.UUID(str(own.dataset_id))
+        classroom = session.execute(
+            sa.select(table.c.dataset_id).order_by(*newest_first).limit(1)
+        ).one_or_none()
+        if classroom is None:
+            return None
+        return uuid.UUID(str(classroom.dataset_id))
 
     def repair_token_hash(
         self, session: Session, *, workspace_id: uuid.UUID, workspace_secret: str
