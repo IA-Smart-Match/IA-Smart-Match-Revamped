@@ -523,8 +523,65 @@ def test_a_correct_passcode_gets_in_while_the_global_window_is_spent(
         assert _login(client, "wrong-passcode-entirely").status_code == 401
 
         assert _login(client).status_code == 200
-        # And the refund means the next correct login is not refused either.
+        # And a second one is not refused either: the global bound is never the
+        # reason a correct passcode is turned away.
         assert _login(client).status_code == 200
+
+
+def test_a_correct_login_on_a_spent_global_window_refunds_nothing(
+    state: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review finding F3 on PR #184: the refund was unconditional.
+
+    ``refund_global`` was called on every correct login, including the ones
+    whose ``charge`` had already been refused by the global bound and had
+    therefore spent nothing. Each such login handed back a unit it never took —
+    minting one unit of everybody's allowance per correct login, exactly while
+    the window is under the load it exists for, and cancelling somebody else's
+    wrong attempt to do it.
+
+    Observed through the bound rather than through the counter: with the window
+    at one, a wrong passcode spends it, a correct login must leave it spent,
+    and the next wrong passcode must therefore still be refused as 429. Before
+    the guard the refund freed the unit and that attempt came back 401.
+    """
+    monkeypatch.setattr(
+        exercise_instructor,
+        "_LOGIN_LIMITER",
+        FixedWindowLimiter(per_key=10, total=1, window=INSTRUCTOR_LOGIN_WINDOW),
+    )
+    with TestClient(_exercise_app(_settings(), state)) as client:
+        assert _login(client, "wrong-passcode-entirely").status_code == 401
+        assert _login(client).status_code == 200
+
+        after = _login(client, "wrong-passcode-entirely")
+
+    assert after.status_code == 429, "a correct login must not mint global budget"
+    assert after.json()["error"]["code"] == "exercise_instructor_login_rate_limited"
+
+
+def test_a_correct_login_inside_the_global_window_still_refunds_its_own_unit(
+    state: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The guard narrows the refund; it does not remove it.
+
+    With room in the window, a correct login spends a unit and gives that unit
+    back, so the window ends up holding only the attempts that were wrong. Two
+    correct logins against a window of two therefore leave both wrong-passcode
+    units still available.
+    """
+    monkeypatch.setattr(
+        exercise_instructor,
+        "_LOGIN_LIMITER",
+        FixedWindowLimiter(per_key=10, total=2, window=INSTRUCTOR_LOGIN_WINDOW),
+    )
+    with TestClient(_exercise_app(_settings(), state)) as client:
+        assert _login(client).status_code == 200
+        assert _login(client).status_code == 200
+
+        # Nothing wrong has been attempted, so the window is still whole.
+        assert _login(client, "wrong-passcode-entirely").status_code == 401
+        assert _login(client, "wrong-passcode-entirely").status_code == 401
 
 
 def test_a_wrong_passcode_on_a_spent_global_window_is_refused(
