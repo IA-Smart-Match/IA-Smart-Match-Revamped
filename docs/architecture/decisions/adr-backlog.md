@@ -221,7 +221,7 @@ still needed" column is satisfied and its owner has answered.
 - **Would decide:** which of the two live meanings keeps the name
   `registry_hash`, and what the other is renamed to.
 - **The clash, both meanings, as they stand today:**
-  - **ADR-0016 §Proposal 7 area (`ADR-0016-cba-scoring-policy.md:336`), in tree
+  - **ADR-0016 §Proposal 9 (`ADR-0016-cba-scoring-policy.md:336`), in tree
     as `MatchRunPins.registry_hash` (`smartmatch_domain/match_run.py:213,278`),
     persisted as the `match_run.registry_hash` column
     (`smartmatch_persistence/schema.py:1522`):** `weights_fingerprint` over the
