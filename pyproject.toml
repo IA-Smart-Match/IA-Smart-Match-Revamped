@@ -312,7 +312,9 @@ source_modules = [
     "smartmatch_api.routers.exercise_instructor",
     "smartmatch_api.routers.exercise_instructor_models",
     "smartmatch_api.routers.exercise_matching",
+    "smartmatch_api.routers.exercise_matching_csv",
     "smartmatch_api.routers.exercise_matching_models",
+    "smartmatch_api.routers.exercise_matching_weights",
     "smartmatch_api.routers.exercise_public",
     "smartmatch_api.routers.exercise_workspace",
 ]
@@ -337,6 +339,11 @@ ignore_imports = [
     # an edge that stopped describing what is reached.
     "smartmatch_api.exercise_dependencies -> smartmatch_persistence.exercise.settings_repository",
     "smartmatch_api.exercise_dependencies -> smartmatch_persistence.exercise.team_view_repository",
+    # Review round 2 (F4) split the instructor page's six value types out of
+    # `instructor_repository`, which had grown past the 800-line ceiling. The
+    # door reaches them where they now live rather than through the repository
+    # that re-exports them, so this edge says what is actually imported.
+    "smartmatch_api.exercise_dependencies -> smartmatch_persistence.exercise.instructor_rows",
 ]
 
 # SQLAlchemy is deliberately *not* on the list above, and this is why it gets a
@@ -364,7 +371,9 @@ source_modules = [
     "smartmatch_api.routers.exercise_instructor",
     "smartmatch_api.routers.exercise_instructor_models",
     "smartmatch_api.routers.exercise_matching",
+    "smartmatch_api.routers.exercise_matching_csv",
     "smartmatch_api.routers.exercise_matching_models",
+    "smartmatch_api.routers.exercise_matching_weights",
     "smartmatch_api.routers.exercise_public",
     "smartmatch_api.routers.exercise_workspace",
 ]

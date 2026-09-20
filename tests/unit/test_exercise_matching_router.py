@@ -53,18 +53,25 @@ from smartmatch_api.exercise_dependencies import (
 )
 from smartmatch_api.exercise_errors import ExerciseError
 from smartmatch_api.main import CAPABILITY_SCOPED_ROUTERS, routers_for
-from smartmatch_api.routers import exercise_matching, exercise_matching_models
-from smartmatch_api.routers.exercise_matching_models import (
+from smartmatch_api.routers import (
+    exercise_matching,
+    exercise_matching_csv,
+    exercise_matching_models,
+    exercise_matching_weights,
+)
+from smartmatch_api.routers.exercise_matching_csv import (
     CSV_FORMULA_INTRODUCERS,
     CSV_LEADING_WHITESPACE,
     CSV_LIST_COLUMNS,
+    csv_download_filename,
+    neutralised_cell,
+)
+from smartmatch_api.routers.exercise_matching_models import (
     MAX_WEIGHT_KEY_CHARACTERS,
     MAX_WEIGHT_KEYS,
     MAX_WEIGHT_REFUSAL_CHARACTERS,
     PLACEHOLDER_CLASS_YEAR_RANK,
-    csv_download_filename,
     event_evidence,
-    neutralised_cell,
     rankable_set,
 )
 from smartmatch_domain.exercise import EXERCISE_WITHHELD_FIELDS
@@ -93,6 +100,13 @@ from smartmatch_persistence.exercise.workspace_repository import (
 
 _ROUTER_SOURCE = Path(exercise_matching.__file__)
 _MODELS_SOURCE = Path(exercise_matching_models.__file__)
+_CSV_SOURCE = Path(exercise_matching_csv.__file__)
+_WEIGHTS_SOURCE = Path(exercise_matching_weights.__file__)
+
+#: Every source file this track owns on the router side. The source walks below
+#: read all of them, so a module split off in review round 2 is covered the day
+#: it lands rather than the day somebody remembers it.
+_TRACK_SOURCES = (_ROUTER_SOURCE, _MODELS_SOURCE, _CSV_SOURCE, _WEIGHTS_SOURCE)
 
 #: Assembled from pieces rather than written as one literal, for the reason
 #: ``test_exercise_workspace_router.py`` gives: ``tools/scan_forbidden.py``
@@ -1043,12 +1057,12 @@ def test_the_handlers_own_key_bound_is_still_live_for_weights_with_no_model(
     """The model bound does not make the handler's redundant: it covers a different door.
 
     Weights arriving on a query string pass through no pydantic model at all, so
-    `_within_bounds_or_refusal` is the only bound they meet. Asserted by calling
+    `within_bounds_or_refusal` is the only bound they meet. Asserted by calling
     it with a payload only a body could carry, which is also what keeps the code
     from becoming dead.
     """
     with pytest.raises(ExerciseError) as refused:
-        exercise_matching._validated({"z" * (MAX_WEIGHT_KEY_CHARACTERS + 1): 1.0})
+        exercise_matching_weights.validated({"z" * (MAX_WEIGHT_KEY_CHARACTERS + 1): 1.0})
     assert refused.value.code == "exercise_weights_key_too_long"
     assert refused.value.status_code == 422
     assert "z" not in refused.value.message
@@ -1139,7 +1153,9 @@ def test_the_same_bounds_apply_to_weights_arriving_on_the_query_string(
     with a payload only a body could carry.
     """
     with pytest.raises(ExerciseError) as refused:
-        exercise_matching._validated({f"k{index}": 1.0 for index in range(MAX_WEIGHT_KEYS + 1)})
+        exercise_matching_weights.validated(
+            {f"k{index}": 1.0 for index in range(MAX_WEIGHT_KEYS + 1)}
+        )
     assert refused.value.code == "exercise_weights_too_many"
     assert refused.value.status_code == 422
     # …and a well-formed query weighting still passes through it untouched.
@@ -1269,7 +1285,7 @@ def test_the_placeholder_marker_is_literally_present_in_the_source() -> None:
 
 def test_no_module_here_writes_down_a_class_year_or_a_major() -> None:
     """The vocabularies are Ann's; this track names none of them (OQ-CE-01)."""
-    for source_file in (_ROUTER_SOURCE, _MODELS_SOURCE):
+    for source_file in _TRACK_SOURCES:
         source = source_file.read_text(encoding="utf-8")
         for guess in ("Senior", "Junior", "Sophomore", "Freshman", "Finance", "Marketing"):
             assert guess not in source, f"{source_file.name} writes down {guess!r}"
@@ -1415,7 +1431,7 @@ def test_the_routes_answer_404_in_a_cba_process() -> None:
 
 def test_the_router_imports_no_persistence_authz_or_principal_machinery() -> None:
     """``make imports`` says this too; a reader of this file should not have to look."""
-    for source_file in (_ROUTER_SOURCE, _MODELS_SOURCE):
+    for source_file in _TRACK_SOURCES:
         tree = ast.parse(source_file.read_text(encoding="utf-8"))
         imported: set[str] = set()
         for node in ast.walk(tree):
@@ -1437,8 +1453,8 @@ def test_the_router_imports_no_persistence_authz_or_principal_machinery() -> Non
 
 
 def test_the_download_is_written_with_the_standard_library() -> None:
-    """Design spec §0: ``tools/scan_forbidden.py`` refuses ``to_csv`` by name."""
-    source = _MODELS_SOURCE.read_text(encoding="utf-8")
+    """Design spec §0: ``tools/scan_forbidden.py`` refuses the pandas writer by name."""
+    source = _CSV_SOURCE.read_text(encoding="utf-8")
     assert "csv.writer" in source
     assert "io.StringIO" in source
     # Assembled rather than written out: ``tools/scan_forbidden.py`` matches the
@@ -1451,7 +1467,7 @@ def test_the_download_is_written_with_the_standard_library() -> None:
 
 def test_nothing_here_reaches_the_simulation_loader() -> None:
     """The sole reader of the withheld column is not reachable from these routes."""
-    for source_file in (_ROUTER_SOURCE, _MODELS_SOURCE):
+    for source_file in _TRACK_SOURCES:
         assert "load_simulation_profiles(" not in source_file.read_text(encoding="utf-8")
 
 

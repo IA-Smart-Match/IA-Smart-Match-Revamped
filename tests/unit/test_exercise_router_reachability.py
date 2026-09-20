@@ -295,6 +295,9 @@ _PERMITTED_EXPORT_MODULES = frozenset(
         # ``base row ⟕ overlay``). Two origins because they are two questions.
         "smartmatch_persistence.exercise.settings_repository",
         "smartmatch_persistence.exercise.team_view_repository",
+        # Review round 2 (F4): the instructor page's value types moved out of
+        # `instructor_repository` when it passed the line ceiling.
+        "smartmatch_persistence.exercise.instructor_rows",
         "typing",
         "builtins",
         # ``ExerciseSession`` wraps SQLAlchemy's ``Session``. Admitted

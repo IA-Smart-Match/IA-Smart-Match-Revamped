@@ -117,6 +117,8 @@ from smartmatch_persistence.exercise.instructor_repository import (
     MIN_INVITE_LIMIT,
     ExerciseInstructorRepository,
     ExerciseWriteRefused,
+)
+from smartmatch_persistence.exercise.instructor_rows import (
     InstructorResultRun,
     InstructorSavedSetting,
     InstructorWorkspaceRow,
