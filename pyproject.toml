@@ -311,6 +311,8 @@ type = "forbidden"
 source_modules = [
     "smartmatch_api.routers.exercise_instructor",
     "smartmatch_api.routers.exercise_instructor_models",
+    "smartmatch_api.routers.exercise_matching",
+    "smartmatch_api.routers.exercise_matching_models",
     "smartmatch_api.routers.exercise_public",
     "smartmatch_api.routers.exercise_workspace",
 ]
@@ -329,6 +331,10 @@ ignore_imports = [
     # nothing else. CE-INSTRUCTOR adds the two below.
     "smartmatch_api.exercise_dependencies -> smartmatch_persistence.exercise.dataset_repository",
     "smartmatch_api.exercise_dependencies -> smartmatch_persistence.exercise.instructor_repository",
+    # CE-MATCHING-API adds one module and therefore one edge: the saved
+    # settings and the team's own view of the profiles share a repository
+    # module, so the door reaches them through a single line.
+    "smartmatch_api.exercise_dependencies -> smartmatch_persistence.exercise.settings_repository",
 ]
 
 # SQLAlchemy is deliberately *not* on the list above, and this is why it gets a
@@ -355,6 +361,8 @@ type = "forbidden"
 source_modules = [
     "smartmatch_api.routers.exercise_instructor",
     "smartmatch_api.routers.exercise_instructor_models",
+    "smartmatch_api.routers.exercise_matching",
+    "smartmatch_api.routers.exercise_matching_models",
     "smartmatch_api.routers.exercise_public",
     "smartmatch_api.routers.exercise_workspace",
 ]

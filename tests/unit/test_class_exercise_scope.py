@@ -353,6 +353,16 @@ def test_cba_authenticated_routes_are_absent_under_class_exercise() -> None:
             "/v1/exercise/instructor/workspaces/{team_number}",
             "/v1/exercise/instructor/workspaces/{team_number}/reset",
             "/v1/exercise/instructor/refresh-all",
+            # CE-MATCHING-API. Every one of these is addressed by the workspace
+            # cookie — `current`, never a team number or a workspace id — which
+            # is why they sit under the same prefix as
+            # `/v1/exercise/workspaces/current`.
+            "/v1/exercise/workspaces/current/events",
+            "/v1/exercise/workspaces/current/events/{event_key}/list",
+            "/v1/exercise/workspaces/current/events/{event_key}/list.csv",
+            "/v1/exercise/workspaces/current/events/{event_key}/settings",
+            "/v1/exercise/workspaces/current/events/{event_key}/settings/compare",
+            "/v1/exercise/workspaces/current/events/{event_key}/settings/{name}",
         }
     )
 

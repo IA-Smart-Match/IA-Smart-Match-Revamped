@@ -699,6 +699,76 @@ UNAUTHENTICATED_ROUTES: dict[tuple[str, str], str] = {
         "is off, instead of the frontend discovering a 404 in a classroom. "
         "Requires `X-Exercise-Request`."
     ),
+    # CE-MATCHING-API (design spec §4-§8). Six routes, one justification, and
+    # the justification is the same shape as the two workspace rows above: this
+    # is a no-login product over made-up profiles, mounted only under
+    # `Capability.CLASS_EXERCISE`, in a scope that registers none of the
+    # authenticated CBA routers, so there is no principal to require and none
+    # reachable in the process. In a CBA process each is a 404.
+    #
+    # What is specific to these six, and is the reason they are safe without a
+    # principal: **not one of them accepts an identifier from the client.**
+    # There is no team number, no dataset id and no workspace id in any path,
+    # query or body; the workspace and its data file are resolved from the
+    # `exercise_workspace` cookie by `get_current_workspace`, and every
+    # repository statement behind them is keyed on that workspace. A team
+    # cannot address another team's rows because there is no argument with
+    # which to try. That is also why the paths say `current` rather than design
+    # spec §6's `{token}`: a token in a URL is a token in a browser history.
+    ("GET", "/v1/exercise/workspaces/current/events"): (
+        "The event picker: the events in the caller's own data file, resolved "
+        "from its cookie. No oracle — the rows are the fictional events of a "
+        "file an instructor uploaded, and a caller with no cookie gets the same "
+        "401 and the same sentence as one with an invented cookie."
+    ),
+    ("GET", "/v1/exercise/workspaces/current/events/{event_key}/list"): (
+        "The ranked list for one event, with design spec §7's counts and the "
+        "empty-group notice. `event_key` is looked up in the caller's own data "
+        "file's events, so a key belonging to another file resolves to nothing "
+        "and answers 404 rather than reaching across. The response carries "
+        "rank, marker, one reason sentence and the contributing factor keys "
+        "and no number that ranks a person (ADR-0025 D8); it carries no cell "
+        "of the withheld column (D6), which no factor function reads and which "
+        "this route's repositories do not select."
+    ),
+    ("GET", "/v1/exercise/workspaces/current/events/{event_key}/list.csv"): (
+        "The same list as a CSV download (design spec §8), built by the same "
+        "call from the same weights. Written with `csv.writer` into memory, "
+        "never to disk and never through pandas, with every cell that begins "
+        "with a spreadsheet formula introducer neutralised — the names and "
+        "majors in it come from an uploaded file and the file is opened in a "
+        "spreadsheet by definition. The `Content-Disposition` filename is "
+        "built from the event key alone, through an allow-list alphabet."
+    ),
+    ("GET", "/v1/exercise/workspaces/current/events/{event_key}/settings"): (
+        "This team's saved weightings for one event. Another team's are not "
+        "filtered out of the answer; they are never selected, because the "
+        "workspace comes from the cookie and is part of the statement."
+    ),
+    ("GET", "/v1/exercise/workspaces/current/events/{event_key}/settings/compare"): (
+        "Design spec §6's side by side: two of the caller's own saved "
+        "settings, both lists, and the profile numbers on both. Both names are "
+        "resolved against the caller's workspace, so `a`/`b` cannot name "
+        "another team's setting — the lookup is scoped, not filtered."
+    ),
+    ("PUT", "/v1/exercise/workspaces/current/events/{event_key}/settings/{name}"): (
+        "Save four weights under a name (design spec §6). State-changing, and "
+        "therefore additionally gated on the `X-Exercise-Request` header on "
+        "top of `SameSite=Lax` — a cookie is sent by a cross-site form where a "
+        "bearer header is not. Unbounded creation is impossible rather than "
+        "rate-limited: at most three names per (workspace, event), counted "
+        "under an advisory lock inside the repository's transaction, and a "
+        "fourth new name is refused with one sentence. The weights are "
+        "refused, never repaired, by the exercise rulebook's own validator; "
+        '`extra="forbid"` rejects a body naming anything else.'
+    ),
+    ("DELETE", "/v1/exercise/workspaces/current/events/{event_key}/settings/{name}"): (
+        "Delete one of the caller's own saved weightings. Destructive only of "
+        "a name this team saved — the statement is keyed on the cookie's "
+        "workspace — and unlike the per-team reset it destroys no work: a "
+        "setting is four numbers a team can type again. Requires "
+        "`X-Exercise-Request`."
+    ),
 }
 
 

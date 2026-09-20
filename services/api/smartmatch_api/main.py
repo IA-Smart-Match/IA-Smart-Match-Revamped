@@ -55,6 +55,7 @@ from smartmatch_api.routers import (
     engagement,
     events,
     exercise_instructor,
+    exercise_matching,
     exercise_public,
     exercise_workspace,
     host_organizations,
@@ -618,6 +619,18 @@ CAPABILITY_SCOPED_ROUTERS: Final[tuple[tuple[APIRouter, Capability], ...]] = (
     # scope at all.
     (exercise_instructor.login_router, Capability.CLASS_EXERCISE),
     (exercise_instructor.router, Capability.CLASS_EXERCISE),
+    # CE-MATCHING-API: the matching screen design spec §4-§8 describes — the
+    # event picker, the ranked list with its "who is on the list" table, the
+    # saved settings, the side-by-side compare and the CSV download.
+    #
+    # Same capability and the same no-principal declaration as the rows above.
+    # Its prefix is `/v1/exercise/workspaces/current`, which is the deviation
+    # from design spec §6's `/v1/exercise/workspaces/{token}/...` worth seeing
+    # here rather than only in the module: every route is addressed by the
+    # workspace cookie, so no team number, dataset id or workspace id is
+    # accepted from a client on any of them, and a team can only ever act on
+    # its own rows.
+    (exercise_matching.router, Capability.CLASS_EXERCISE),
 )
 
 
