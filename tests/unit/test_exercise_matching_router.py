@@ -965,11 +965,95 @@ def test_a_body_of_many_unknown_weights_is_refused_without_describing_them(
 
 
 def test_a_very_long_weight_key_is_refused_without_echoing_it(client: TestClient) -> None:
+    """The key bound now bites on the **model**, one step earlier (review 2, F2).
+
+    Round 1 asserted the handler's own code here. Review round 2 moved the bound
+    onto `SaveSettingRequest` so that it applies before pydantic can put the key
+    in an error `loc`, so a body route's oversized key is refused by the
+    contract rather than by the handler. The claim this test exists for — the
+    key is not echoed — is unchanged and still asserted; the handler's code is
+    asserted to be live below, on the path that has no model in front of it.
+    """
     long_key = "z" * (MAX_WEIGHT_KEY_CHARACTERS + 1)
     response = client.put(f"{_SETTINGS}/broad", json={"weights": {long_key: 1.0}}, headers=_HEADER)
     assert response.status_code == 422
-    assert response.json()["error"]["code"] == "exercise_weights_key_too_long"
     assert long_key not in response.text
+    assert response.json()["error"]["code"] == "invalid_request"
+
+
+def test_the_handlers_own_key_bound_is_still_live_for_weights_with_no_model(
+    client: TestClient,
+) -> None:
+    """The model bound does not make the handler's redundant: it covers a different door.
+
+    Weights arriving on a query string pass through no pydantic model at all, so
+    `_within_bounds_or_refusal` is the only bound they meet. Asserted by calling
+    it with a payload only a body could carry, which is also what keeps the code
+    from becoming dead.
+    """
+    with pytest.raises(ExerciseError) as refused:
+        exercise_matching._validated({"z" * (MAX_WEIGHT_KEY_CHARACTERS + 1): 1.0})
+    assert refused.value.code == "exercise_weights_key_too_long"
+    assert refused.value.status_code == 422
+    assert "z" not in refused.value.message
+
+
+def test_an_oversized_key_with_an_invalid_value_never_reaches_the_response(
+    client: TestClient,
+) -> None:
+    """Review round 2, F2: pydantic used to quote the key back.
+
+    `max_length` on the field bounds the key *count*, and the handler's own
+    bound runs after validation — so a body whose key is huge **and** whose
+    value is not a number failed inside pydantic first, and
+    `errors._describe_validation_error` builds `field` by joining the error's
+    `loc`, which for a dict entry is the caller's key. Up to eight unbounded
+    keys came back in one 422.
+
+    The value here is deliberately invalid as well as the key oversized: that is
+    the combination that reached pydantic's per-entry validation, and a test
+    with a valid value would have been stopped by the handler and proved
+    nothing.
+    """
+    long_key = "q" * (MAX_WEIGHT_KEY_CHARACTERS * 64)
+    response = client.put(
+        f"{_SETTINGS}/broad",
+        json={"weights": {long_key: "not-a-number"}},
+        headers=_HEADER,
+    )
+    assert response.status_code == 422
+    assert long_key not in response.text
+    assert "q" * (MAX_WEIGHT_KEY_CHARACTERS + 1) not in response.text
+    assert len(response.text) < 500
+
+
+def test_eight_oversized_keys_are_refused_in_one_short_response(
+    client: TestClient,
+) -> None:
+    """The amplification the bound closes: the response cannot grow with the body."""
+    keys = {f"{chr(97 + index)}" * 4096: "not-a-number" for index in range(MAX_WEIGHT_KEYS)}
+    response = client.put(f"{_SETTINGS}/broad", json={"weights": keys}, headers=_HEADER)
+    assert response.status_code == 422
+    for key in keys:
+        assert key not in response.text
+    assert len(response.text) < 500
+
+
+def test_a_body_at_the_bounds_still_reaches_the_handlers_own_sentence(
+    client: TestClient,
+) -> None:
+    """The model bound must not swallow the refusal a team can act on.
+
+    Eight keys of sixty-four characters is the largest body the bounds admit, so
+    it passes the model and is refused by the rulebook with the exercise's own
+    code — not by pydantic with a generic one.
+    """
+    keys = {
+        f"{chr(97 + index)}" * MAX_WEIGHT_KEY_CHARACTERS: 1.0 for index in range(MAX_WEIGHT_KEYS)
+    }
+    response = client.put(f"{_SETTINGS}/broad", json={"weights": keys}, headers=_HEADER)
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "exercise_weights_invalid"
 
 
 def test_the_weight_refusal_is_capped_even_at_the_key_bound(client: TestClient) -> None:

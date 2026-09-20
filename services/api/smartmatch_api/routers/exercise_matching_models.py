@@ -45,7 +45,7 @@ from datetime import datetime
 from types import MappingProxyType
 from typing import Final
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from smartmatch_domain.exercise.markers import (
     GroupCounts,
     InformationMarker,
@@ -529,6 +529,41 @@ class SaveSettingRequest(BaseModel):
             "characters."
         ),
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _refuse_oversized_keys(cls, data: object) -> object:
+        """Bound the keys **before** pydantic can quote one back (review 2, F2).
+
+        ``max_length`` on the field above bounds the key *count* and nothing
+        else, and the handler's own bound runs after validation — so a body like
+        ``{"weights": {"<a megabyte>": "x"}}`` failed inside pydantic first, and
+        ``smartmatch_api.errors._describe_validation_error`` builds ``field``
+        by joining the error's ``loc``, which for a dict entry **is** the
+        caller's key. Up to eight unbounded keys came back in one 422.
+
+        ``mode="before"`` is what makes the bound early enough: it sees the raw
+        mapping, so it can refuse the shape before per-entry validation has any
+        key to put in a ``loc``. The refusal names no key and quotes no length
+        the caller chose — a refusal about a payload being too large is the last
+        place to echo the payload — and it is deliberately the same sentence for
+        "too many" and "too long", so the response distinguishes nothing about
+        what was sent.
+
+        The handler's :func:`_within_bounds_or_refusal` is not redundant with
+        this: it is what covers weights that never pass through this model at
+        all, which is every weight arriving on a query string.
+        """
+        if not isinstance(data, dict):
+            return data
+        weights = data.get("weights")
+        if not isinstance(weights, dict):
+            return data
+        if len(weights) > MAX_WEIGHT_KEYS or any(
+            isinstance(key, str) and len(key) > MAX_WEIGHT_KEY_CHARACTERS for key in weights
+        ):
+            raise ValueError("weights: too many, or named too long, to be factor keys")
+        return data
 
 
 # ---------------------------------------------------------------------------
