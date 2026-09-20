@@ -709,8 +709,27 @@ class ExerciseInstructorRepository:
           statement will touch, which is what closes the first end and what
           stops a second re-point, or a reset, from interleaving with this one.
 
-        The ordering — advisory lock, then row locks, on every path that takes
-        both — is what keeps the pair deadlock-free.
+        **And the saved-settings key, before either scan** (review round 2, F1).
+        This method reaches
+        :data:`~smartmatch_persistence.exercise.settings_repository.SAVED_SETTING_LOCK_KEY`
+        anyway, through :meth:`reset_workspace_children` in the loop below — but
+        taking it *there* put it after the row locks, which is the family's
+        order read backwards. A concurrent ``save_setting`` holds that key and
+        then needs a workspace row for ``exercise_saved_setting``'s composite
+        foreign key; this method held the rows and then wanted the key. Each
+        waits on what the other holds, and PostgreSQL breaks the cycle the only
+        way it can: by aborting one of them, mid-classroom.
+
+        Taking it here restores membership → saved settings → row locks, which
+        is what the constant's own comment has always said this path does. It
+        costs one extra round trip and nothing else: the key is a *transaction*
+        advisory lock, so :meth:`reset_workspace_children`'s own acquire is
+        re-entrant and still earns its place for every other caller. The acquire
+        runs through :meth:`_execute` for that method's reason — it is a
+        statement, and no statement in this module may let driver text out.
+
+        The ordering — advisory locks, then row locks, on every path that takes
+        both — is what keeps the family deadlock-free.
 
         Returns:
             How many workspaces moved and how many stale ones were discarded.
@@ -720,6 +739,12 @@ class ExerciseInstructorRepository:
                 driver's exception never escapes.
         """
         lock_workspace_membership(session)
+        self._execute(
+            session,
+            sa.select(sa.func.pg_advisory_xact_lock(SAVED_SETTING_LOCK_KEY)),
+            dataset_id=dataset_id,
+            refusal="The teams could not be moved to that data file.",
+        )
         target_team_numbers = {
             row.team_number
             for row in session.execute(
