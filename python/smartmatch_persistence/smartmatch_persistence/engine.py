@@ -110,7 +110,7 @@ def _int_from_env(name: str, default: int) -> int:
     return value
 
 
-def _bool_from_env(name: str, default: bool) -> bool:
+def _bool_from_env(name: str, default: bool, *, default_description: str) -> bool:
     """Read a boolean from the environment, falling back to ``default``.
 
     Deliberately unlike :func:`_int_from_env`, which raises on a malformed
@@ -121,13 +121,26 @@ def _bool_from_env(name: str, default: bool) -> bool:
     especially not fall through to the permissive answer, which would publish
     the very values the flag exists to withhold.
 
-    So an unreadable value warns, naming the variable and what it could not
-    read, and returns ``default``. Callers pass the safe direction as the
-    default, which makes an unparseable value fail closed.
+    So an unreadable value warns and returns ``default``. Callers pass the safe
+    direction as the default, which makes an unparseable value fail closed.
+
+    **The warning never quotes the value** — not truncated, not hashed, not its
+    length. A variable holds whatever was assigned to it, and the way one ends
+    up with an unrecognised value is a mistake, including a paste into the
+    wrong line of a ``.env``, which is how a password gets there. Echoing it
+    would publish a credential to the logs from inside the function whose
+    callers exist to keep values out of them; a prefix of a secret is a secret
+    and a length is a hint. The operator can read their own ``.env``. What they
+    cannot work out from the log alone is which variable was wrong, what is
+    accepted, and what was used instead, so the warning says exactly that.
 
     Args:
         name: The environment variable to read.
         default: The answer for an unset, empty or unreadable value.
+        default_description: What ``default`` *means* for this variable, in
+            the caller's own words, for the warning — "hidden" says more to an
+            operator than "True", and it keeps this helper from having to know
+            what any particular flag governs. It must not contain the value.
 
     Returns:
         The parsed boolean, or ``default``.
@@ -140,12 +153,15 @@ def _bool_from_env(name: str, default: bool) -> bool:
         return True
     if value in _FALSY_ENV_VALUES:
         return False
+    # The value itself is deliberately not an argument here. See the docstring.
     _LOGGER.warning(
-        "%s could not be read as a boolean (got %r); using %r. Accepted values: %s.",
+        "%s is set to a value that was not recognised as a boolean; "
+        "accepted values are %s, and %s was applied instead. "
+        "The value is not logged, because an environment variable may hold a "
+        "credential that was pasted into the wrong line.",
         name,
-        raw,
-        default,
         ", ".join(sorted(_TRUTHY_ENV_VALUES | _FALSY_ENV_VALUES)),
+        default_description,
     )
     return default
 
@@ -165,9 +181,14 @@ def resolve_hide_parameters() -> bool:
 
     Returns:
         ``True`` when parameters are hidden. An unset, empty or unreadable
-        value is ``True`` — see :func:`_bool_from_env`.
+        value is ``True`` — see :func:`_bool_from_env`, which also explains why
+        an unreadable value is never quoted back into the log.
     """
-    return _bool_from_env("SMARTMATCH_DB_HIDE_PARAMETERS", DEFAULT_HIDE_PARAMETERS)
+    return _bool_from_env(
+        "SMARTMATCH_DB_HIDE_PARAMETERS",
+        DEFAULT_HIDE_PARAMETERS,
+        default_description="hidden" if DEFAULT_HIDE_PARAMETERS else "shown",
+    )
 
 
 def resolve_pool_settings() -> dict[str, int]:

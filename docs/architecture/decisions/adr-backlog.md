@@ -273,6 +273,13 @@ still needed" column is satisfied and its owner has answered.
     test fixtures and `tests/integration/migration_harness.py`, which is the
     intended outcome; nothing stops a future production module from joining
     them, and nothing would notice.
+  - **A configuration value is a value too.** `_int_from_env`
+    (`smartmatch_persistence/engine.py:107`) raises
+    `f"{name} must be an integer, got {raw!r}"`, echoing whatever the variable
+    held into the traceback — the same habit `_bool_from_env` was corrected for
+    on 19 September 2026 (review round 1). Left alone deliberately: it is the
+    existing behaviour of the pool variables and out of that PR's scope. One
+    more known site, listed so it is not rediscovered as news.
   - **Nothing asserts the property.** There is no lint, import contract or
     source-contract test saying "no module renders a `DBAPIError` into a log
     line or a response". The two exercise repositories do the right thing

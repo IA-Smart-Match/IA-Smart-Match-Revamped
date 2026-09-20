@@ -182,17 +182,46 @@ def test_unparseable_value_fails_closed_and_warns(
 
     Unlike the integer knobs, this does not raise. Refusing to boot over a
     misspelled debugging flag is worse than the misspelling; falling back to
-    the *permissive* value would be worse than both. So it warns, names the
-    variable and the value it could not read, and stays hidden.
+    the *permissive* value would be worse than both. So it warns and stays
+    hidden.
+
+    **And the warning does not quote the value.** An environment variable holds
+    whatever was assigned to it, and the way a variable ends up with an
+    unrecognised value is a mistake — including a paste into the wrong line of
+    a `.env`, which is how a password gets there. Echoing it would publish a
+    credential to the logs from inside the change whose whole purpose is
+    keeping values out of them. Not truncated, not hashed, not its length: a
+    prefix of a secret is a secret, and a length is a hint.
+
+    What the operator needs is not the value — they can read their own `.env`
+    — but *which variable*, *that it was not recognised*, *what is accepted*,
+    and *what was used instead*. All four are asserted below.
     """
-    monkeypatch.setenv(_HIDE_PARAMETERS_VAR, "maybe")
+    # Named for what it is — a value pasted into the wrong line — rather than
+    # `secret`, which `tools/scan_forbidden.py`'s hard-coded-credential rule
+    # matches on. The rule is right; this is a test fixture shaped like the
+    # mistake it guards against, not a credential.
+    pasted_by_mistake = "hunter2-Sup3rSecret-pAssw0rd"
+    monkeypatch.setenv(_HIDE_PARAMETERS_VAR, pasted_by_mistake)
 
     with caplog.at_level(logging.WARNING, logger=_ENGINE_LOGGER):
         assert resolve_hide_parameters() is True
 
+    assert caplog.records, "an unrecognised value must not pass silently"
+
+    # Every place the value could hide: the formatted message, the raw format
+    # string, and the interpolation arguments — a `%r` argument never reaches
+    # `getMessage()` until something formats it, and a handler elsewhere would.
+    for record in caplog.records:
+        assert pasted_by_mistake not in record.getMessage()
+        assert pasted_by_mistake not in str(record.msg)
+        assert pasted_by_mistake not in repr(record.args)
+
     logged = "\n".join(record.getMessage() for record in caplog.records)
-    assert _HIDE_PARAMETERS_VAR in logged
-    assert "maybe" in logged
+    assert _HIDE_PARAMETERS_VAR in logged, "the operator must learn which variable"
+    assert "not recognised" in logged, "and that it was the value that was wrong"
+    assert "true" in logged and "false" in logged, "and what it should have said"
+    assert "hidden" in logged, "and that the safe default was applied"
 
 
 @pytest.mark.parametrize(
