@@ -671,9 +671,11 @@ UNAUTHENTICATED_ROUTES: dict[tuple[str, str], str] = {
     ),
     ("POST", "/v1/exercise/instructor/workspaces/{team_number}/reset"): (
         "Clears one team's work from the instructor's side (design spec §11), "
-        "behind the instructor passcode session. It reuses the repository "
-        "method the team's own reset runs, so 'what a reset deletes' has one "
-        "answer, and every statement is keyed on the workspace id resolved "
+        "behind the instructor passcode session. It delegates to "
+        "`ExerciseWorkspaceRepository.reset_team` rather than reimplementing "
+        "the statements, so 'what a reset deletes' has one answer wherever a "
+        "later track calls it from, and every statement is keyed on the "
+        "workspace id resolved "
         "from (the data file the teams are on, team number) — one team, never "
         "two. "
         "**This is the only reset.** The owner ruled on 2026-09-19 that "
