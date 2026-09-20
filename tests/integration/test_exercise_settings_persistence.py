@@ -41,9 +41,9 @@ from smartmatch_persistence.exercise.settings_repository import (
     SAVED_SETTING_LOCK_KEY,
     ExerciseSettingsRepository,
     ExerciseSettingsWriteRefused,
-    ExerciseTeamViewRepository,
     TooManySavedSettingsError,
 )
+from smartmatch_persistence.exercise.team_view_repository import ExerciseTeamViewRepository
 from smartmatch_persistence.exercise.workspace_repository import ExerciseWorkspaceRepository
 from sqlalchemy import Engine
 from sqlalchemy.exc import SQLAlchemyError

@@ -127,10 +127,12 @@ from smartmatch_persistence.exercise.settings_repository import (
     MAX_SAVED_SETTINGS_PER_EVENT,
     ExerciseSettingsRepository,
     ExerciseSettingsWriteRefused,
-    ExerciseTeamViewRepository,
     SavedSetting,
-    TeamProfileRow,
     TooManySavedSettingsError,
+)
+from smartmatch_persistence.exercise.team_view_repository import (
+    ExerciseTeamViewRepository,
+    TeamProfileRow,
 )
 from smartmatch_persistence.exercise.workspace_repository import (
     ExerciseDatasetSummary,

@@ -290,10 +290,11 @@ _PERMITTED_EXPORT_MODULES = frozenset(
         # permits, never the tenant-scoped rest of the package.
         "smartmatch_persistence.exercise.dataset_repository",
         "smartmatch_persistence.exercise.instructor_repository",
-        # CE-MATCHING-API. The saved settings and the team's own view of the
-        # profiles (design spec §2's ``base row ⟕ overlay``) share one module,
-        # so the door grew one permitted origin rather than two.
+        # CE-MATCHING-API, as two modules after review round 1: the saved
+        # settings, and the team's own view of the profiles (design spec §2's
+        # ``base row ⟕ overlay``). Two origins because they are two questions.
         "smartmatch_persistence.exercise.settings_repository",
+        "smartmatch_persistence.exercise.team_view_repository",
         "typing",
         "builtins",
         # ``ExerciseSession`` wraps SQLAlchemy's ``Session``. Admitted

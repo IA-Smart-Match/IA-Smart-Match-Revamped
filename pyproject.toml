@@ -331,10 +331,12 @@ ignore_imports = [
     # nothing else. CE-INSTRUCTOR adds the two below.
     "smartmatch_api.exercise_dependencies -> smartmatch_persistence.exercise.dataset_repository",
     "smartmatch_api.exercise_dependencies -> smartmatch_persistence.exercise.instructor_repository",
-    # CE-MATCHING-API adds one module and therefore one edge: the saved
-    # settings and the team's own view of the profiles share a repository
-    # module, so the door reaches them through a single line.
+    # CE-MATCHING-API adds two repository modules and therefore two edges. They
+    # were one module and were split in review round 1: a saved weighting and a
+    # profile read are two questions, and one edge covering both would have been
+    # an edge that stopped describing what is reached.
     "smartmatch_api.exercise_dependencies -> smartmatch_persistence.exercise.settings_repository",
+    "smartmatch_api.exercise_dependencies -> smartmatch_persistence.exercise.team_view_repository",
 ]
 
 # SQLAlchemy is deliberately *not* on the list above, and this is why it gets a

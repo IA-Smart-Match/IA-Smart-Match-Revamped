@@ -77,9 +77,9 @@ from smartmatch_persistence.exercise.dataset_repository import DatasetSummary, E
 from smartmatch_persistence.exercise.settings_repository import (
     MAX_SAVED_SETTINGS_PER_EVENT,
     SavedSetting,
-    TeamProfileRow,
     TooManySavedSettingsError,
 )
+from smartmatch_persistence.exercise.team_view_repository import TeamProfileRow
 from smartmatch_persistence.exercise.workspace_repository import (
     ExerciseDatasetSummary,
     ExerciseWorkspace,
