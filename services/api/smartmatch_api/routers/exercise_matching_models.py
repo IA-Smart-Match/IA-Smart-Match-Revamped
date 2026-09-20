@@ -161,9 +161,11 @@ def placeholder_year_rank(class_years: Sequence[str]) -> Mapping[str, int]:
 
     Three shapes were available and only this one closes nothing:
 
-    * *A list of year names* (``{"Senior": 4, "Junior": 3, …}``). This is the
-      one the spec sketches and the one this track may not write: it answers
-      OQ-CE-01 in code, in a file a reader would afterwards take for a decision.
+    * *A written-down list of year names, ranked*. This is the one the spec
+      sketches and the one this track may not write: it answers OQ-CE-01 in
+      code, in a file a reader would afterwards take for a decision. No year
+      name is spelled anywhere in this module, and a test walks both of this
+      track's source files to keep it that way.
     * *No ordering at all* (an empty mapping). Honest, and it silently deletes a
       tie-break column the spec states and the reason line Ann wrote word for
       word — ``tied on major; ordered by year`` could never be printed.

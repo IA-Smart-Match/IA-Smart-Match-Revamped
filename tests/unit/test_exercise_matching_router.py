@@ -1,0 +1,1066 @@
+"""The matching screen's routes (CE-MATCHING-API, design spec §4-§8).
+
+What is pinned here, in the order the failures would hurt:
+
+1. **The order is the domain ranker's**, name for name, against
+   ``exercise_ranked_list`` called directly on the same inputs. A route that
+   re-sorted, re-cut or re-worded would pass every other test in this file.
+2. **Nothing a response may never carry**: a schema walk over every model in
+   both modules, over the handlers' docstrings — FastAPI publishes those as
+   operation descriptions — and over the whole exercise-scope OpenAPI document,
+   refusing ``hidden_true_interests`` (ADR-0025 D6) and anything score-shaped
+   (D8).
+3. **The CSV**: design spec §8's six columns, and a cell that begins with a
+   spreadsheet formula introducer neutralised. The names and majors come out of
+   an uploaded file and the file is opened in a spreadsheet by definition.
+4. **Isolation and durability**: two teams do not see each other's settings, and
+   a reload — a new client with the same cookie — still has them.
+5. **The refusals**, each with its sentence.
+
+The database half — the at-most-three rule against a concurrent fourth, the
+overlay join against real rows, and the two-teams claim as a property of the
+statements rather than of a fake — is in
+``tests/integration/test_exercise_settings_persistence.py``. A fake repository
+cannot prove a lock.
+"""
+
+from __future__ import annotations
+
+import ast
+import uuid
+from collections.abc import Iterator, Mapping, Sequence
+from dataclasses import replace
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+
+import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+from pydantic import BaseModel
+from smartmatch_api.config import Settings
+from smartmatch_api.errors import EXCEPTION_HANDLERS
+from smartmatch_api.exercise_dependencies import (
+    EXERCISE_REQUEST_HEADER,
+    WORKSPACE_COOKIE_NAME,
+    get_active_dataset,
+    get_dataset_repository,
+    get_exercise_session,
+    get_settings_repository,
+    get_team_view_repository,
+    get_workspace_repository,
+    get_workspace_secret,
+)
+from smartmatch_api.main import CAPABILITY_SCOPED_ROUTERS, routers_for
+from smartmatch_api.routers import exercise_matching, exercise_matching_models
+from smartmatch_api.routers.exercise_matching_models import (
+    CSV_INJECTION_PREFIXES,
+    CSV_LIST_COLUMNS,
+    csv_download_filename,
+    event_evidence,
+    neutralised_cell,
+    placeholder_year_rank,
+    rankable_set,
+)
+from smartmatch_domain.exercise import EXERCISE_WITHHELD_FIELDS
+from smartmatch_domain.exercise.matching import exercise_ranked_list
+from smartmatch_domain.exercise.registry import (
+    EXERCISE_APPROVED_SCORING_KEYS,
+    EXERCISE_DEFAULT_WEIGHTS,
+)
+from smartmatch_domain.exercise.workspace_token import (
+    derive_workspace_token,
+    hash_workspace_token,
+)
+from smartmatch_domain.product_scope import Capability, ProductScope
+from smartmatch_persistence.exercise.dataset_repository import DatasetSummary, ExerciseEventRow
+from smartmatch_persistence.exercise.settings_repository import (
+    MAX_SAVED_SETTINGS_PER_EVENT,
+    SavedSetting,
+    TeamProfileRow,
+    TooManySavedSettingsError,
+)
+from smartmatch_persistence.exercise.workspace_repository import (
+    ExerciseDatasetSummary,
+    ExerciseWorkspace,
+)
+
+_ROUTER_SOURCE = Path(exercise_matching.__file__)
+_MODELS_SOURCE = Path(exercise_matching_models.__file__)
+
+#: Assembled from pieces rather than written as one literal, for the reason
+#: ``test_exercise_workspace_router.py`` gives: ``tools/scan_forbidden.py``
+#: matches the shape of a committed credential, and a gate with an exception for
+#: a test file is a gate that has learned to be waved through.
+_TEST_SECRET = "-".join(("exercise", "matching", "key", "for", "tests", "only"))
+
+_DATASET_ID = uuid.UUID("33333333-3333-3333-3333-333333333333")
+_CHECKSUM = "b" * 64
+_INVITE_LIMIT = 4
+
+_DATASET = ExerciseDatasetSummary(
+    id=_DATASET_ID, label="Made-up student body (sample)", invite_limit=_INVITE_LIMIT
+)
+
+_SUMMARY = DatasetSummary(
+    dataset_id=_DATASET_ID,
+    label=_DATASET.label,
+    source_filename="sample.csv",
+    uploaded_at=datetime(2026, 9, 19, 12, 0, tzinfo=UTC),
+    row_count=8,
+    checksum=_CHECKSUM,
+    invite_limit=_INVITE_LIMIT,
+    license_line=None,
+    event_count=2,
+)
+
+_NORTHLINE = ExerciseEventRow(
+    event_key="northline",
+    name="Northline round",
+    topic_tags=("analytics", "brand"),
+    target_majors=("Marketing",),
+    is_exercise_event=True,
+    sequence=11,
+)
+
+_PAST = ExerciseEventRow(
+    event_key="past-analytics",
+    name="An earlier analytics evening",
+    topic_tags=("analytics",),
+    target_majors=("Marketing",),
+    is_exercise_event=False,
+    sequence=1,
+)
+
+_EVENTS: tuple[ExerciseEventRow, ...] = (_PAST, _NORTHLINE)
+
+
+def _profile(
+    profile_no: int,
+    *,
+    display_name: str,
+    major: str | None = "Marketing",
+    class_year: str | None = "Senior",
+    past_event_keys: tuple[str, ...] = (),
+    stated_interests: tuple[str, ...] | None = None,
+    career_goal: str | None = None,
+) -> TeamProfileRow:
+    """One base row with no overlay. Every value is made up."""
+    return TeamProfileRow(
+        profile_no=profile_no,
+        display_name=display_name,
+        major=major,
+        class_year=class_year,
+        past_event_keys=past_event_keys,
+        stated_interests=stated_interests,
+        career_goal=career_goal,
+        overlay_added_event_topics=(),
+        overlay_card_interests=None,
+        overlay_card_career_goal=None,
+        non_responding=False,
+    )
+
+
+#: Eight fictional profiles spanning every marker and both majors, plus one row
+#: the data file records no major for — the case the ranked list cannot seat.
+_PROFILES: tuple[TeamProfileRow, ...] = (
+    _profile(
+        1,
+        display_name="Avery Brooks",
+        stated_interests=("analytics", "brand"),
+        career_goal="analytics",
+    ),
+    _profile(2, display_name="Bao Nguyen", past_event_keys=("past-analytics",)),
+    _profile(3, display_name="Cam Ellis", class_year="Junior"),
+    _profile(
+        4,
+        display_name="Devi Rao",
+        major="Finance",
+        class_year="Junior",
+        stated_interests=("brand",),
+    ),
+    _profile(5, display_name="Emery Vale", class_year="Junior"),
+    _profile(6, display_name="Fen Liu", major="Finance", past_event_keys=("past-analytics",)),
+    _profile(7, display_name="Gita Shah", major="Finance", class_year="Sophomore"),
+    _profile(8, display_name="Hal Ortiz", major=None, class_year=None),
+)
+
+
+class _FakeWorkspaceRepository:
+    """Enough of ``ExerciseWorkspaceRepository`` to run the entry route."""
+
+    def __init__(self) -> None:
+        self.rows: dict[tuple[uuid.UUID, int], ExerciseWorkspace] = {}
+
+    def get_or_create_workspace(
+        self,
+        _session: object,
+        *,
+        dataset_id: uuid.UUID,
+        team_number: int,
+        workspace_secret: str,
+    ) -> ExerciseWorkspace:
+        assert workspace_secret == _TEST_SECRET
+        key = (dataset_id, team_number)
+        if key not in self.rows:
+            self.rows[key] = ExerciseWorkspace(
+                id=uuid.uuid4(),
+                dataset_id=dataset_id,
+                team_number=team_number,
+                dataset_label=_DATASET.label,
+                invite_limit=_DATASET.invite_limit,
+            )
+        return self.rows[key]
+
+    def entry_dataset_for(self, _session: object, *, team_number: int) -> uuid.UUID | None:
+        own = [key for key in self.rows if key[1] == team_number]
+        if own:
+            return own[-1][0]
+        every = list(self.rows)
+        return every[-1][0] if every else _DATASET.id
+
+    def find_by_token_hash(self, _session: object, *, token_hash: str) -> ExerciseWorkspace | None:
+        for workspace in self.rows.values():
+            expected = hash_workspace_token(
+                derive_workspace_token(secret=_TEST_SECRET, workspace_id=workspace.id)
+            )
+            if token_hash == expected:
+                return workspace
+        return None
+
+
+class _FakeDatasetRepository:
+    """The two reads the matching routes make of a dataset."""
+
+    def list_events(
+        self, _session: object, *, dataset_id: uuid.UUID
+    ) -> tuple[ExerciseEventRow, ...]:
+        return _EVENTS if dataset_id == _DATASET_ID else ()
+
+    def get_dataset_summary(
+        self, _session: object, *, dataset_id: uuid.UUID
+    ) -> DatasetSummary | None:
+        return _SUMMARY if dataset_id == _DATASET_ID else None
+
+
+class _FakeTeamViewRepository:
+    """Design spec §2's ``base row ⟕ overlay``, over a dict of overlays.
+
+    The overlay is keyed on the workspace, like the real statement's join
+    condition, so a test can give one team a card and assert the other team's
+    view is unchanged.
+    """
+
+    def __init__(self) -> None:
+        self.overlays: dict[tuple[uuid.UUID, int], TeamProfileRow] = {}
+
+    def list_team_profiles(
+        self, _session: object, *, dataset_id: uuid.UUID, workspace_id: uuid.UUID
+    ) -> tuple[TeamProfileRow, ...]:
+        assert dataset_id == _DATASET_ID
+        return tuple(
+            self.overlays.get((workspace_id, profile.profile_no), profile) for profile in _PROFILES
+        )
+
+
+class _FakeSettingsRepository:
+    """The saved-settings rules, minus the lock the database provides.
+
+    The cap is re-implemented rather than stubbed out, because the routes'
+    behaviour around it — which status, which sentence, and that an overwrite is
+    always allowed — is what this file is for. That two concurrent saves cannot
+    both pass the count is the integration file's.
+    """
+
+    def __init__(self) -> None:
+        self.rows: dict[tuple[uuid.UUID, str, str], SavedSetting] = {}
+
+    def list_settings(
+        self, _session: object, *, workspace_id: uuid.UUID, event_key: str
+    ) -> tuple[SavedSetting, ...]:
+        return tuple(
+            setting
+            for (held_by, held_for, _), setting in self.rows.items()
+            if held_by == workspace_id and held_for == event_key
+        )
+
+    def get_setting(
+        self, _session: object, *, workspace_id: uuid.UUID, event_key: str, name: str
+    ) -> SavedSetting | None:
+        return self.rows.get((workspace_id, event_key, name))
+
+    def save_setting(
+        self,
+        session: object,
+        *,
+        dataset_id: uuid.UUID,
+        workspace_id: uuid.UUID,
+        event_key: str,
+        name: str,
+        weights: Mapping[str, float],
+    ) -> SavedSetting:
+        assert dataset_id == _DATASET_ID
+        existing = self.list_settings(session, workspace_id=workspace_id, event_key=event_key)
+        if len(existing) >= MAX_SAVED_SETTINGS_PER_EVENT and not any(
+            setting.name == name for setting in existing
+        ):
+            raise TooManySavedSettingsError(
+                f"Your team can keep {MAX_SAVED_SETTINGS_PER_EVENT} saved settings for "
+                "this event. Delete one before saving another."
+            )
+        stored = SavedSetting(
+            event_key=event_key,
+            name=name,
+            weights=dict(weights),
+            created_at=datetime(2026, 9, 19, 12, 0, tzinfo=UTC),
+        )
+        self.rows[(workspace_id, event_key, name)] = stored
+        return stored
+
+    def delete_setting(
+        self,
+        _session: object,
+        *,
+        dataset_id: uuid.UUID,
+        workspace_id: uuid.UUID,
+        event_key: str,
+        name: str,
+    ) -> bool:
+        assert dataset_id == _DATASET_ID
+        return self.rows.pop((workspace_id, event_key, name), None) is not None
+
+
+class _FakeSession:
+    """A session that can be committed and answers every read with nothing."""
+
+    def __init__(self) -> None:
+        self.commits = 0
+
+    def commit(self) -> None:
+        self.commits += 1
+
+    def execute(self, _statement: object) -> object:
+        raise AssertionError("a matching route issued a query of its own")
+
+
+def _settings() -> Settings:
+    return Settings(
+        product_scope=ProductScope.CLASS_EXERCISE,
+        exercise_workspace_secret=_TEST_SECRET,
+        exercise_cookie_secure=False,
+    )
+
+
+class _Fakes:
+    """Every fake one app is wired with, so a test can reach them by name."""
+
+    def __init__(self) -> None:
+        self.workspaces = _FakeWorkspaceRepository()
+        self.datasets = _FakeDatasetRepository()
+        self.team_view = _FakeTeamViewRepository()
+        self.settings = _FakeSettingsRepository()
+
+
+def _exercise_app(fakes: _Fakes) -> FastAPI:
+    """The exercise process's routes, with the database replaced and nothing else."""
+    app = FastAPI()
+    for exception_type, handler in EXCEPTION_HANDLERS.items():
+        app.add_exception_handler(exception_type, handler)
+    for router in routers_for(_settings()):
+        app.include_router(router)
+    session = _FakeSession()
+    app.dependency_overrides[get_exercise_session] = lambda: session
+    app.dependency_overrides[get_workspace_repository] = lambda: fakes.workspaces
+    app.dependency_overrides[get_dataset_repository] = lambda: fakes.datasets
+    app.dependency_overrides[get_team_view_repository] = lambda: fakes.team_view
+    app.dependency_overrides[get_settings_repository] = lambda: fakes.settings
+    app.dependency_overrides[get_active_dataset] = lambda: _DATASET
+    app.dependency_overrides[get_workspace_secret] = lambda: _TEST_SECRET
+    return app
+
+
+@pytest.fixture
+def fakes() -> _Fakes:
+    return _Fakes()
+
+
+def _entered(fakes: _Fakes, team_number: int) -> TestClient:
+    """A client that has entered a team number and holds its cookie."""
+    client = TestClient(_exercise_app(fakes))
+    response = client.post(
+        "/v1/exercise/workspaces",
+        json={"team_number": team_number},
+        headers={EXERCISE_REQUEST_HEADER: "1"},
+    )
+    assert response.status_code == 200, response.text
+    return client
+
+
+@pytest.fixture
+def client(fakes: _Fakes) -> Iterator[TestClient]:
+    with _entered(fakes, 1) as entered:
+        yield entered
+
+
+_BASE = "/v1/exercise/workspaces/current"
+_LIST = f"{_BASE}/events/northline/list"
+_SETTINGS = f"{_BASE}/events/northline/settings"
+_HEADER = {EXERCISE_REQUEST_HEADER: "1"}
+_WEIGHTS = {"same_major": 0.5, "stated_interest_overlap": 0.5}
+
+
+# ---------------------------------------------------------------------------
+# The event picker
+# ---------------------------------------------------------------------------
+
+
+def test_the_events_route_returns_this_teams_data_files_events(client: TestClient) -> None:
+    body = client.get(f"{_BASE}/events").json()
+    assert [event["event_key"] for event in body["events"]] == ["past-analytics", "northline"]
+    northline = body["events"][1]
+    assert northline["is_exercise_event"] is True
+    assert northline["topic_tags"] == ["analytics", "brand"]
+    assert northline["target_majors"] == ["Marketing"]
+    assert northline["sequence"] == 11
+
+
+# ---------------------------------------------------------------------------
+# The ranked list is the domain ranker's list
+# ---------------------------------------------------------------------------
+
+
+def _expected_list(weights: Mapping[str, float] | None = None) -> Any:
+    """The same call the route makes, made here, from the same inputs."""
+    rankable = rankable_set(_PROFILES, _EVENTS)
+    return exercise_ranked_list(
+        event_evidence(_NORTHLINE),
+        rankable.profiles,
+        weights=weights,
+        invite_limit=_INVITE_LIMIT,
+        year_rank=rankable.year_rank,
+        dataset_checksum=_CHECKSUM,
+    )
+
+
+def test_the_route_returns_the_domain_rankers_list_name_for_name(client: TestClient) -> None:
+    """Golden: the route composes the ranker, it does not re-implement it.
+
+    Compared against ``exercise_ranked_list`` called directly on the same rows,
+    so a handler that re-sorted, re-cut or re-worded a reason fails here even
+    though every field would still have the right shape.
+    """
+    body = client.get(_LIST).json()
+    expected = _expected_list()
+    assert [entry["profile_no"] for entry in body["entries"]] == [
+        int(entry.profile_id) for entry in expected.entries
+    ]
+    assert [entry["rank"] for entry in body["entries"]] == [
+        entry.rank for entry in expected.entries
+    ]
+    assert [entry["reason"] for entry in body["entries"]] == [
+        entry.reason for entry in expected.entries
+    ]
+    assert [entry["marker"] for entry in body["entries"]] == [
+        str(entry.marker) for entry in expected.entries
+    ]
+    assert [entry["contributing_factor_keys"] for entry in body["entries"]] == [
+        list(entry.contributing_factor_keys) for entry in expected.entries
+    ]
+
+
+def test_the_list_is_cut_at_the_data_files_invite_limit(client: TestClient) -> None:
+    body = client.get(_LIST).json()
+    assert body["invite_limit"] == _INVITE_LIMIT
+    assert len(body["entries"]) == _INVITE_LIMIT
+    assert len(body["entries"]) < len(_PROFILES), "the cut has to bite for this to mean anything"
+
+
+def test_the_same_request_twice_gives_the_same_order(client: TestClient) -> None:
+    """Design spec §4.4: the fixed order never changes between runs."""
+    assert client.get(_LIST).json()["entries"] == client.get(_LIST).json()["entries"]
+
+
+def test_two_teams_are_given_the_same_order(fakes: _Fakes) -> None:
+    """…and never between teams: the seed is the data file's checksum alone."""
+    with _entered(fakes, 2) as team_two, _entered(fakes, 3) as team_three:
+        assert team_two.get(_LIST).json()["entries"] == team_three.get(_LIST).json()["entries"]
+
+
+def test_moving_a_weight_changes_the_list(client: TestClient) -> None:
+    """The four factors are adjustable, which is the requirement being served."""
+    default_order = [entry["profile_no"] for entry in client.get(_LIST).json()["entries"]]
+    on_the_card = client.get(
+        _LIST, params={"same_major": 0.0, "stated_interest_overlap": 1.0}
+    ).json()
+    assert on_the_card["weights"]["same_major"] == 0.0
+    assert on_the_card["weights"]["stated_interest_overlap"] == 1.0
+    assert [entry["profile_no"] for entry in on_the_card["entries"]] != default_order
+
+
+def test_with_no_weights_the_placeholder_defaults_are_used_and_echoed(
+    client: TestClient,
+) -> None:
+    """OQ-CE-02: equal weights, from the rulebook's named constants."""
+    body = client.get(_LIST).json()
+    assert body["weights"] == dict(EXERCISE_DEFAULT_WEIGHTS)
+    assert body["setting_name"] is None
+
+
+def test_a_profile_with_no_major_on_file_is_counted_and_not_seated(
+    client: TestClient,
+) -> None:
+    body = client.get(_LIST).json()
+    assert body["unrankable_profile_count"] == 1
+    assert 8 not in [entry["profile_no"] for entry in body["entries"]]
+
+
+# ---------------------------------------------------------------------------
+# Who is on the list (design spec §7)
+# ---------------------------------------------------------------------------
+
+
+def test_the_response_carries_the_counts_beside_the_whole_file(client: TestClient) -> None:
+    composition = client.get(_LIST).json()["composition"]
+    assert composition["by_major"]["dimension"] == "major"
+    assert sum(composition["by_major"]["on_list"].values()) == _INVITE_LIMIT
+    # Seven rankable profiles; the eighth has no major on file and is counted
+    # by `unrankable_profile_count` instead of being made into a group.
+    assert sum(composition["by_major"]["all_profiles"].values()) == 7
+    assert sum(composition["by_class_year"]["all_profiles"].values()) == 7
+    assert set(composition["by_marker"]["all_profiles"]) == {
+        "major_only",
+        "major_plus_events",
+        "completed_card",
+    }
+
+
+def test_the_coverage_notice_names_a_group_with_nobody_on_the_list(
+    client: TestClient,
+) -> None:
+    """The #161 notice, composed from ``find_uncovered_groups`` rather than redone."""
+    body = client.get(_LIST, params={"same_major": 1.0}).json()
+    coverage = body["composition"]["coverage"]
+    listed_majors = {entry["major"] for entry in body["entries"]}
+    uncovered = {
+        major for profile in _PROFILES if profile.major is not None for major in (profile.major,)
+    } - listed_majors
+    assert set(coverage["missing_majors"]) == uncovered
+    assert coverage["has_uncovered_group"] is bool(uncovered)
+
+
+def test_an_overlay_changes_only_that_teams_view(fakes: _Fakes) -> None:
+    """Design spec §2: a team's view is base ⟕ overlay, and the overlay is keyed."""
+    with _entered(fakes, 4) as team_four, _entered(fakes, 5) as team_five:
+        workspace = fakes.workspaces.rows[(_DATASET_ID, 4)]
+        base = _PROFILES[2]
+        fakes.team_view.overlays[(workspace.id, base.profile_no)] = replace(
+            base,
+            overlay_card_interests=("analytics", "brand"),
+            overlay_card_career_goal="analytics",
+        )
+        four = client_marker(team_four, base.profile_no)
+        five = client_marker(team_five, base.profile_no)
+    assert four == "completed_card"
+    assert five == "major_only"
+
+
+def client_marker(client: TestClient, profile_no: int) -> str | None:
+    """The marker this client's list carries for one profile, if it is on it."""
+    body = client.get(_LIST, params={"same_major": 1.0, "stated_interest_overlap": 1.0}).json()
+    for entry in body["entries"]:
+        if entry["profile_no"] == profile_no:
+            return str(entry["marker"])
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Saved settings (design spec §6)
+# ---------------------------------------------------------------------------
+
+
+def _save(client: TestClient, name: str, weights: Mapping[str, float] | None = None) -> Any:
+    return client.put(
+        f"{_SETTINGS}/{name}",
+        json={"weights": dict(weights if weights is not None else _WEIGHTS)},
+        headers=_HEADER,
+    )
+
+
+def test_a_team_may_keep_three_names_and_a_fourth_is_refused(client: TestClient) -> None:
+    for name in ("broad", "narrow", "balanced"):
+        assert _save(client, name).status_code == 200
+    fourth = _save(client, "one-more")
+    assert fourth.status_code == 409
+    assert fourth.json()["error"]["code"] == "exercise_too_many_settings"
+    assert "Delete one before saving another." in fourth.json()["error"]["message"]
+    assert len(client.get(_SETTINGS).json()["settings"]) == MAX_SAVED_SETTINGS_PER_EVENT
+
+
+def test_saving_over_a_name_the_team_already_has_is_allowed(client: TestClient) -> None:
+    """Three names is a cap on names, not on saves."""
+    for name in ("broad", "narrow", "balanced"):
+        _save(client, name)
+    again = _save(client, "narrow", {"same_major": 0.9})
+    assert again.status_code == 200
+    stored = {setting["name"]: setting["weights"] for setting in again.json()["settings"]}
+    assert stored["narrow"] == {"same_major": 0.9}
+    assert len(stored) == MAX_SAVED_SETTINGS_PER_EVENT
+
+
+def test_deleting_one_frees_a_slot(client: TestClient) -> None:
+    for name in ("broad", "narrow", "balanced"):
+        _save(client, name)
+    removed = client.delete(f"{_SETTINGS}/narrow", headers=_HEADER)
+    assert removed.status_code == 200
+    assert [setting["name"] for setting in removed.json()["settings"]] == ["broad", "balanced"]
+    assert _save(client, "one-more").status_code == 200
+
+
+def test_a_reload_keeps_the_saved_settings(fakes: _Fakes) -> None:
+    """Justin's second "easy to forget" item: a reload loses no work."""
+    with _entered(fakes, 6) as first:
+        _save(first, "broad")
+        token = first.cookies.get(WORKSPACE_COOKIE_NAME, path="/v1/exercise")
+    with TestClient(_exercise_app(fakes)) as reloaded:
+        reloaded.cookies.set(WORKSPACE_COOKIE_NAME, str(token), path="/v1/exercise")
+        body = reloaded.get(_SETTINGS).json()
+    assert [setting["name"] for setting in body["settings"]] == ["broad"]
+
+
+def test_two_teams_never_see_each_others_settings(fakes: _Fakes) -> None:
+    """Justin's first "easy to forget" item, for saved settings."""
+    with _entered(fakes, 1) as team_one, _entered(fakes, 2) as team_two:
+        _save(team_one, "ours")
+        assert [setting["name"] for setting in team_one.get(_SETTINGS).json()["settings"]] == [
+            "ours"
+        ]
+        assert team_two.get(_SETTINGS).json()["settings"] == []
+        # And team two cannot build a list from a name only team one saved.
+        assert team_two.get(_LIST, params={"setting": "ours"}).status_code == 404
+
+
+def test_a_list_can_be_built_from_a_saved_setting(client: TestClient) -> None:
+    _save(client, "only-major", {"same_major": 1.0, "stated_interest_overlap": 0.0})
+    body = client.get(_LIST, params={"setting": "only-major"}).json()
+    assert body["setting_name"] == "only-major"
+    assert body["weights"]["same_major"] == 1.0
+
+
+def test_naming_a_setting_and_a_weight_at_once_is_refused(client: TestClient) -> None:
+    _save(client, "broad")
+    response = client.get(_LIST, params={"setting": "broad", "same_major": 1.0})
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "exercise_weights_ambiguous"
+
+
+# ---------------------------------------------------------------------------
+# Compare (design spec §6)
+# ---------------------------------------------------------------------------
+
+
+def test_compare_returns_both_lists_and_the_names_on_both(client: TestClient) -> None:
+    _save(client, "only-major", {"same_major": 1.0, "stated_interest_overlap": 0.0})
+    _save(client, "only-card", {"same_major": 0.0, "stated_interest_overlap": 1.0})
+    body = client.get(f"{_SETTINGS}/compare", params={"a": "only-major", "b": "only-card"}).json()
+    assert body["a"]["setting_name"] == "only-major"
+    assert body["b"]["setting_name"] == "only-card"
+    on_a = [entry["profile_no"] for entry in body["a"]["entries"]]
+    on_b = {entry["profile_no"] for entry in body["b"]["entries"]}
+    assert body["on_both_profile_nos"] == [number for number in on_a if number in on_b]
+
+
+def test_compare_refuses_a_name_this_team_has_not_saved(client: TestClient) -> None:
+    _save(client, "only-major")
+    response = client.get(f"{_SETTINGS}/compare", params={"a": "only-major", "b": "absent"})
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "exercise_setting_unknown"
+
+
+def test_compare_is_not_readable_as_a_setting_name(client: TestClient) -> None:
+    """The route is declared before the named routes; the name is refused too."""
+    refused = _save(client, "compare")
+    assert refused.status_code == 422
+    assert refused.json()["error"]["code"] == "exercise_setting_name_reserved"
+
+
+# ---------------------------------------------------------------------------
+# The download (design spec §8)
+# ---------------------------------------------------------------------------
+
+
+def test_the_csv_carries_the_six_columns_and_the_lists_rows(client: TestClient) -> None:
+    response = client.get(f"{_BASE}/events/northline/list.csv")
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/csv")
+    assert response.headers["content-disposition"] == 'attachment; filename="northline-list.csv"'
+    rows = response.text.strip().split("\r\n")
+    assert rows[0] == ",".join(CSV_LIST_COLUMNS)
+    assert len(rows) == _INVITE_LIMIT + 1
+    listed = client.get(_LIST).json()["entries"]
+    assert rows[1].split(",")[0] == str(listed[0]["rank"])
+    assert listed[0]["display_name"] in rows[1]
+
+
+def test_the_csv_matches_the_list_built_from_the_same_setting(client: TestClient) -> None:
+    _save(client, "only-major", {"same_major": 1.0, "stated_interest_overlap": 0.0})
+    listed = client.get(_LIST, params={"setting": "only-major"}).json()["entries"]
+    rows = (
+        client.get(f"{_BASE}/events/northline/list.csv", params={"setting": "only-major"})
+        .text.strip()
+        .split("\r\n")[1:]
+    )
+    assert len(rows) == len(listed)
+    for row, entry in zip(rows, listed, strict=True):
+        assert row.startswith(f"{entry['rank']},")
+
+
+@pytest.mark.parametrize("prefix", CSV_INJECTION_PREFIXES)
+def test_a_cell_that_would_start_a_formula_is_neutralised(prefix: str) -> None:
+    assert neutralised_cell(f"{prefix}HYPERLINK") == f"'{prefix}HYPERLINK"
+
+
+def test_an_ordinary_cell_is_left_alone() -> None:
+    assert neutralised_cell("Avery Brooks") == "Avery Brooks"
+    assert neutralised_cell(3) == "3"
+
+
+def test_a_display_name_from_the_data_file_cannot_start_a_formula(fakes: _Fakes) -> None:
+    """The case this guard exists for: the names come from an uploaded file."""
+    with _entered(fakes, 1) as client:
+        workspace = fakes.workspaces.rows[(_DATASET_ID, 1)]
+        base = _PROFILES[0]
+        fakes.team_view.overlays[(workspace.id, base.profile_no)] = replace(
+            base, display_name='=HYPERLINK("http://x","click")'
+        )
+        text = client.get(f"{_BASE}/events/northline/list.csv").text
+    assert "'=HYPERLINK" in text
+    assert "\n=HYPERLINK" not in text
+    assert ",=HYPERLINK" not in text
+
+
+@pytest.mark.parametrize(
+    ("event_key", "expected"),
+    [
+        ("northline", "northline-list.csv"),
+        ('x" onload="alert(1)', "x--onload--alert-1-list.csv"),
+        ("../../etc/passwd", "etc-passwd-list.csv"),
+        ("...", "list-list.csv"),
+    ],
+)
+def test_the_download_filename_is_an_allow_list_of_characters(
+    event_key: str, expected: str
+) -> None:
+    """A header value a browser parses, built from an uploaded file's key."""
+    built = csv_download_filename(event_key)
+    assert built == expected
+    assert '"' not in built and "\r" not in built and "\n" not in built and "/" not in built
+
+
+# ---------------------------------------------------------------------------
+# The refusals
+# ---------------------------------------------------------------------------
+
+
+def test_without_a_cookie_every_route_asks_for_a_team_number(fakes: _Fakes) -> None:
+    with TestClient(_exercise_app(fakes)) as stranger:
+        for response in (
+            stranger.get(f"{_BASE}/events"),
+            stranger.get(_LIST),
+            stranger.get(_SETTINGS),
+            stranger.get(f"{_BASE}/events/northline/list.csv"),
+        ):
+            assert response.status_code == 401
+            assert response.json()["error"]["code"] == "exercise_workspace_required"
+
+
+def test_an_event_from_another_data_file_is_not_found(client: TestClient) -> None:
+    response = client.get(f"{_BASE}/events/harbor/list")
+    assert response.status_code == 404
+    assert response.json() == {
+        "error": {
+            "code": "exercise_event_unknown",
+            "message": "That event is not in your team's data file.",
+        }
+    }
+
+
+def test_a_weight_the_rulebook_refuses_is_refused_with_a_sentence(client: TestClient) -> None:
+    response = client.put(
+        f"{_SETTINGS}/broad",
+        json={"weights": {"not_a_factor": 1.0}},
+        headers=_HEADER,
+    )
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "exercise_weights_invalid"
+
+
+def test_a_negative_weight_never_reaches_the_handler(client: TestClient) -> None:
+    assert client.get(_LIST, params={"same_major": -1}).status_code == 422
+
+
+def test_a_state_changing_request_without_the_exercise_header_is_refused(
+    client: TestClient,
+) -> None:
+    saved = client.put(f"{_SETTINGS}/broad", json={"weights": dict(_WEIGHTS)})
+    removed = client.delete(f"{_SETTINGS}/broad")
+    for response in (saved, removed):
+        assert response.status_code == 403
+        assert response.json()["error"]["code"] == "exercise_request_header_required"
+
+
+def test_the_read_routes_need_no_exercise_header(client: TestClient) -> None:
+    assert client.get(_LIST).status_code == 200
+    assert client.get(_SETTINGS).status_code == 200
+
+
+def test_deleting_a_name_the_team_has_not_saved_is_not_found(client: TestClient) -> None:
+    response = client.delete(f"{_SETTINGS}/absent", headers=_HEADER)
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "exercise_setting_unknown"
+
+
+def test_an_empty_setting_name_is_refused_with_a_sentence(client: TestClient) -> None:
+    response = _save(client, "%20")
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "exercise_setting_name_unusable"
+
+
+def test_every_refusal_code_is_the_exercises_own(client: TestClient) -> None:
+    codes = {
+        client.get(f"{_BASE}/events/harbor/list").json()["error"]["code"],
+        client.delete(f"{_SETTINGS}/absent", headers=_HEADER).json()["error"]["code"],
+        client.put(f"{_SETTINGS}/broad", json={"weights": {}}).json()["error"]["code"],
+    }
+    assert codes.isdisjoint({"unauthenticated", "forbidden", "invalid_token"})
+    assert all(code.startswith("exercise_") for code in codes)
+
+
+# ---------------------------------------------------------------------------
+# PLACEHOLDER (OQ-CE-01) — the class-year order closes nothing
+# ---------------------------------------------------------------------------
+
+
+def test_the_class_year_order_comes_from_the_data_file(client: TestClient) -> None:
+    """No vocabulary of year names exists in this track, and none is invented."""
+    assert placeholder_year_rank(["Senior", "Junior", "Senior", "Sophomore"]) == {
+        "Senior": 3,
+        "Junior": 2,
+        "Sophomore": 1,
+    }
+    assert placeholder_year_rank([]) == {}
+    # Every year in the file is named by the mapping, so nothing is reported as
+    # unlisted — which is what makes the tie-break's year column live.
+    assert client.get(_LIST).json()["unlisted_class_years"] == []
+
+
+def test_the_placeholder_marker_is_literally_present_in_the_source() -> None:
+    """A placeholder nobody can grep for is a decision that has quietly closed."""
+    source = _MODELS_SOURCE.read_text(encoding="utf-8")
+    assert "PLACEHOLDER (OQ-CE-01)" in source
+    assert "OQ-CE-02" in source
+
+
+def test_no_module_here_writes_down_a_class_year_or_a_major() -> None:
+    """The vocabularies are Ann's; this track names none of them (OQ-CE-01)."""
+    for source_file in (_ROUTER_SOURCE, _MODELS_SOURCE):
+        source = source_file.read_text(encoding="utf-8")
+        for guess in ("Senior", "Junior", "Sophomore", "Freshman", "Finance", "Marketing"):
+            assert guess not in source, f"{source_file.name} writes down {guess!r}"
+
+
+# ---------------------------------------------------------------------------
+# D6 / D8 — what a response may never carry
+# ---------------------------------------------------------------------------
+
+#: Names that must appear on no exercise response model here. The addressing
+#: four are the workspace router's, restated because these routes are reached
+#: with the same cookie.
+_FORBIDDEN_RESPONSE_FIELDS = frozenset(
+    {"seed", "token", "workspace_token", "workspace_token_hash", "workspace_id", "dataset_id"}
+    | set(EXERCISE_WITHHELD_FIELDS)
+)
+
+#: ADR-0025 D8: rank, counts, the team's own weights and one reason. No number
+#: that reads as a score.
+_SCORE_SHAPED = ("score", "percent", "confidence", "probability", "likelihood")
+
+
+def _models_in_modules() -> list[type[BaseModel]]:
+    found: list[type[BaseModel]] = []
+    for module in (exercise_matching, exercise_matching_models):
+        found.extend(
+            value
+            for value in vars(module).values()
+            if isinstance(value, type) and issubclass(value, BaseModel) and value is not BaseModel
+        )
+    return found
+
+
+def test_the_modules_actually_declare_models() -> None:
+    """A walk over an empty list is a green check that means nothing."""
+    assert len(_models_in_modules()) >= 8
+
+
+def test_no_response_model_carries_a_withheld_or_addressing_field() -> None:
+    for model in _models_in_modules():
+        offenders = sorted(set(model.model_fields) & _FORBIDDEN_RESPONSE_FIELDS)
+        assert offenders == [], f"{model.__name__} publishes {offenders}"
+
+
+def test_no_response_model_carries_a_score_shaped_field() -> None:
+    for model in _models_in_modules():
+        for field_name in model.model_fields:
+            assert not any(shape in field_name.lower() for shape in _SCORE_SHAPED), (
+                f"{model.__name__}.{field_name} reads as a score; ADR-0025 D8"
+            )
+
+
+def test_no_handler_docstring_names_the_withheld_column() -> None:
+    """FastAPI publishes a docstring as an operation description (ADR-0025 D6)."""
+    tree = ast.parse(_ROUTER_SOURCE.read_text(encoding="utf-8"))
+    docstrings = [
+        ast.get_docstring(node) or ""
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+    ]
+    assert docstrings, "the walk found no handlers"
+    for withheld in EXERCISE_WITHHELD_FIELDS:
+        offenders = [text for text in docstrings if withheld in text]
+        # The module docstring may name the rule; a *handler* docstring may not,
+        # because that is the text the contract publishes.
+        assert offenders == [], f"a handler docstring names {withheld}"
+
+
+def test_the_served_exercise_contract_names_neither_either() -> None:
+    """The models could be clean and the document not, if a route grew a parameter."""
+    app = FastAPI()
+    for router in routers_for(_settings()):
+        app.include_router(router)
+    document = app.openapi()
+    for withheld in EXERCISE_WITHHELD_FIELDS:
+        assert withheld not in str(document), f"{withheld} appears in the exercise contract"
+    # Scoped to this track's own models. The instructor page's `DatasetView`
+    # legitimately publishes a dataset id — it is the instructor's own screen —
+    # and widening this walk to every exercise schema would assert that track's
+    # decisions from this file rather than this track's.
+    ours = {model.__name__ for model in _models_in_modules()}
+    schemas = document.get("components", {}).get("schemas", {})
+    assert ours & set(schemas), "none of this track's models reached the contract"
+    for name, schema in schemas.items():
+        if name not in ours:
+            continue
+        offenders = sorted(set(schema.get("properties", {})) & _FORBIDDEN_RESPONSE_FIELDS)
+        assert offenders == [], f"{name} publishes {offenders}"
+        for field_name in schema.get("properties", {}):
+            assert not any(shape in field_name.lower() for shape in _SCORE_SHAPED), (
+                f"{name}.{field_name} reads as a score; ADR-0025 D8"
+            )
+
+
+def test_the_exercise_paths_carry_no_workspace_identifier() -> None:
+    """The cookie is the whole of the addressing: no id is accepted anywhere."""
+    app = FastAPI()
+    for router in routers_for(_settings()):
+        app.include_router(router)
+    for route in app.routes:
+        path = getattr(route, "path", "")
+        if not path.startswith("/v1/exercise/workspaces/current"):
+            continue
+        for forbidden in ("{workspace_id}", "{token}", "{team_number}", "{dataset_id}"):
+            assert forbidden not in path, f"{path} accepts an identifier from the client"
+
+
+# ---------------------------------------------------------------------------
+# Wiring
+# ---------------------------------------------------------------------------
+
+
+def test_the_weight_parameters_are_the_rulebooks_own_keys() -> None:
+    """Four names in a signature, checked against the registry rather than a list."""
+    assert exercise_matching.EXERCISE_WEIGHT_PARAMETER_KEYS == EXERCISE_APPROVED_SCORING_KEYS
+    signature = ast.parse(_ROUTER_SOURCE.read_text(encoding="utf-8"))
+    handlers = {
+        node.name: {argument.arg for argument in node.args.args}
+        for node in ast.walk(signature)
+        if isinstance(node, ast.FunctionDef)
+    }
+    for handler in ("read_ranked_list", "download_ranked_list"):
+        assert handlers[handler] >= EXERCISE_APPROVED_SCORING_KEYS
+
+
+def test_the_router_is_declared_under_the_class_exercise_capability() -> None:
+    declared = {
+        capability
+        for router, capability in CAPABILITY_SCOPED_ROUTERS
+        if router is exercise_matching.router
+    }
+    assert declared == {Capability.CLASS_EXERCISE}
+
+
+def test_the_routes_answer_404_in_a_cba_process() -> None:
+    app = FastAPI()
+    for router in routers_for(Settings(product_scope=ProductScope.CBA)):
+        app.include_router(router)
+    with TestClient(app) as cba:
+        assert cba.get(_LIST).status_code == 404
+        assert cba.get(f"{_BASE}/events").status_code == 404
+
+
+def test_the_router_imports_no_persistence_authz_or_principal_machinery() -> None:
+    """``make imports`` says this too; a reader of this file should not have to look."""
+    for source_file in (_ROUTER_SOURCE, _MODELS_SOURCE):
+        tree = ast.parse(source_file.read_text(encoding="utf-8"))
+        imported: set[str] = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                imported.update(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.module is not None:
+                imported.add(node.module)
+        for forbidden in (
+            "smartmatch_authz",
+            "smartmatch_persistence",
+            "smartmatch_api.dependencies",
+            "smartmatch_api.routers.auth",
+            "sqlalchemy",
+            "pandas",
+        ):
+            assert not any(
+                name == forbidden or name.startswith(f"{forbidden}.") for name in imported
+            ), f"{source_file.name} imports {forbidden}"
+
+
+def test_the_download_is_written_with_the_standard_library() -> None:
+    """Design spec §0: ``tools/scan_forbidden.py`` refuses ``to_csv`` by name."""
+    source = _MODELS_SOURCE.read_text(encoding="utf-8")
+    assert "csv.writer" in source
+    assert "io.StringIO" in source
+    assert "to_csv(" not in source
+    assert "import pandas" not in source
+
+
+def test_nothing_here_reaches_the_simulation_loader() -> None:
+    """The sole reader of the withheld column is not reachable from these routes."""
+    for source_file in (_ROUTER_SOURCE, _MODELS_SOURCE):
+        assert "load_simulation_profiles(" not in source_file.read_text(encoding="utf-8")
+
+
+def test_the_sequence_of_profiles_a_list_is_built_from_is_the_files_order() -> None:
+    """The placeholder year order depends on it, so it is pinned rather than assumed."""
+    rankable = rankable_set(_PROFILES, _EVENTS)
+    assert [profile.profile_no for profile in rankable.profiles] == [1, 2, 3, 4, 5, 6, 7]
+    assert rankable.unrankable_profile_count == 1
+
+
+def _first_appearance(profiles: Sequence[TeamProfileRow]) -> list[str]:
+    seen: list[str] = []
+    for profile in profiles:
+        year = profile.class_year
+        if year is not None and year not in seen:
+            seen.append(year)
+    return seen
+
+
+def test_the_year_order_is_stable_for_one_data_file() -> None:
+    rankable = rankable_set(_PROFILES, _EVENTS)
+    assert list(rankable.year_rank) == _first_appearance(_PROFILES)
+    assert rankable_set(_PROFILES, _EVENTS).year_rank == rankable.year_rank
