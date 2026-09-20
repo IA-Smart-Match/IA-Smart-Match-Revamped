@@ -282,6 +282,14 @@ _PERMITTED_EXPORT_MODULES = frozenset(
         "smartmatch_api.exercise_dependencies",
         "smartmatch_api.exercise_errors",
         "smartmatch_persistence.exercise.workspace_repository",
+        # CE-INSTRUCTOR. The door injects three exercise repositories now, and
+        # the value types and write refusals they hand back travel through it
+        # with them — a router that may not import ``smartmatch_persistence``
+        # may not import a dataclass out of it either. Each is named, and each
+        # is inside ``smartmatch_persistence.exercise``: the family ADR-0025 D2
+        # permits, never the tenant-scoped rest of the package.
+        "smartmatch_persistence.exercise.dataset_repository",
+        "smartmatch_persistence.exercise.instructor_repository",
         "typing",
         "builtins",
         # ``ExerciseSession`` wraps SQLAlchemy's ``Session``. Admitted

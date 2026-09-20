@@ -140,6 +140,28 @@ class Settings(BaseSettings):
     #: strength.
     exercise_workspace_secret: SecretStr | None = None
 
+    #: The class exercise's instructor passcode (design spec §14). Read from
+    #: ``SMARTMATCH_EXERCISE_INSTRUCTOR_PASSCODE``.
+    #:
+    #: PLACEHOLDER (OQ-CE-07): the register's safe default is one environment
+    #: variable per deployment, shared out of band and rotated after the spring
+    #: run. Nothing about that row is closed by this field existing.
+    #:
+    #: ``None`` — the default — means **the instructor page cannot be entered**.
+    #: It is deliberately not part of the boot guard that
+    #: :func:`require_exercise_workspace_secret` implements: the exercise's
+    #: team-facing routes are the product and they work without an instructor
+    #: page, so a missing passcode must not take a classroom down. What it must
+    #: never do is open the door, which is why the login refuses every attempt
+    #: rather than skipping the check — see
+    #: ``exercise_dependencies.get_instructor_passcode``.
+    #:
+    #: A :class:`~pydantic.SecretStr`, so ``repr(settings)`` and
+    #: ``settings.model_dump()`` — the two shapes that reach a debugger and a
+    #: crash report without anybody deciding they should — print a mask. Never
+    #: logged and never returned by any route.
+    exercise_instructor_passcode: SecretStr | None = None
+
     #: Whether the class exercise's workspace cookie carries ``Secure``.
     #: Read from ``SMARTMATCH_EXERCISE_COOKIE_SECURE``.
     #:

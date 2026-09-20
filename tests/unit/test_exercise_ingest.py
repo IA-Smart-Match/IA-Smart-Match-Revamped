@@ -574,6 +574,52 @@ def test_a_list_entry_that_normalises_to_nothing_is_counted_not_silently_dropped
     assert dataset.report.discarded_list_entries == 2
 
 
+def test_no_list_cell_anywhere_stores_an_entry_as_the_empty_string() -> None:
+    """The review follow-up, stated as the invariant rather than as one case.
+
+    A punctuation-only entry normalises to ``""``. The count above proves it
+    was *noticed*; this proves it was not **stored** — an empty string in a
+    text array is a term nobody wrote, and every reader downstream would treat
+    it as a real one: it would join a Jaccard denominator, appear in a
+    "who is on the list" group, and render as a blank chip on a card.
+
+    Asserted over every list-shaped field of every parsed row rather than over
+    the one cell the test edits, because the fold is shared by five columns and
+    a fix applied to one of them is not a fix.
+
+    The three-state rule of design spec §7 is *not* weakened by this: ``None``
+    (no card on file) stays distinct from ``()`` (a card with nothing on it),
+    and a cell whose only entries were punctuation therefore reads as an empty
+    card rather than as an absent one — which is what it is.
+    """
+    rows = _good_rows()
+    rows[4][LAYOUT.stated_interests_column] = "---; data analytics ;***"
+    rows[5][LAYOUT.stated_interests_column] = "---;***"
+    # A cell of nothing but separators and spaces. ``past_event_keys`` is split
+    # rather than folded — its entries are keys checked against the file's own
+    # events, not terms — so the way *it* can produce an empty string is a
+    # blank between two separators.
+    rows[6][LAYOUT.past_event_keys_column] = " ; ;"
+    rows[7][LAYOUT.hidden_interests_column] = "---; ;***"
+
+    dataset = _accepted(_build_file(rows))
+
+    for profile in dataset.profiles:
+        for entries in (
+            profile.past_event_keys,
+            profile.stated_interests,
+            profile.hidden_true_interests,
+        ):
+            assert "" not in (entries or ())
+    for event in dataset.events:
+        assert "" not in event.topic_tags
+        assert "" not in event.target_majors
+
+    # And the cell whose every entry was punctuation is an *empty* card, not an
+    # absent one — ``()`` rather than ``None`` (design spec §7).
+    assert dataset.profiles[5].stated_interests == ()
+
+
 # ---------------------------------------------------------------------------
 # ADR-0025 D6 — the withheld column
 # ---------------------------------------------------------------------------
@@ -757,26 +803,31 @@ def test_the_required_columns_are_derived_from_the_layouts_own_fields() -> None:
     )
 
 
-def test_no_function_in_the_parser_writes_a_column_name_down() -> None:
-    """Every name lives on the layout, which is what makes OQ-CE-01 cheap.
+def _column_names_written_inside_functions(module: object) -> list[tuple[str, str]]:
+    """Every column name a *function* in ``module`` writes down as a literal.
 
-    Walked with :mod:`ast` rather than searched as text, so that the module's
-    own prose — which necessarily quotes ``class_year`` to explain why it has
-    no vocabulary — is not mistaken for a parser that hard-codes it. Docstrings
-    are skipped; every other string literal inside a function is checked.
+    Walked with :mod:`ast` rather than searched as text, so that a module's own
+    prose — which necessarily quotes ``class_year`` to explain why it has no
+    vocabulary — is not mistaken for code that hard-codes it. Docstrings are
+    skipped; every other string literal inside a function is checked.
+
+    Deliberately scoped to *functions*, which is what lets the same walk run
+    over ``layout.py``: that module is where the names legitimately live, on
+    the one module-level ``PLACEHOLDER_LAYOUT`` object, and a name appearing
+    inside a function there would be a second copy — exactly the thing that
+    makes OQ-CE-01 expensive to close.
     """
     import ast
     from pathlib import Path
-
-    from smartmatch_domain.exercise import ingest
 
     names = {
         getattr(LAYOUT, field.name)
         for field in dataclasses.fields(LAYOUT)
         if field.name.endswith("_column")
     }
-    tree = ast.parse(Path(ingest.__file__).read_text(encoding="utf-8"))
-    offenders = [
+    source = Path(module.__file__).read_text(encoding="utf-8")  # type: ignore[attr-defined]
+    tree = ast.parse(source)
+    return [
         (node.name, literal.value)
         for node in ast.walk(tree)
         if isinstance(node, ast.FunctionDef)
@@ -787,4 +838,52 @@ def test_no_function_in_the_parser_writes_a_column_name_down() -> None:
         and literal.value in names
     ]
 
-    assert offenders == []
+
+def test_no_function_in_the_parser_writes_a_column_name_down() -> None:
+    """Every name lives on the layout, which is what makes OQ-CE-01 cheap."""
+    from smartmatch_domain.exercise import ingest
+
+    assert _column_names_written_inside_functions(ingest) == []
+
+
+def test_no_function_in_the_layout_writes_a_column_name_down_either() -> None:
+    """The review follow-up: the guard reached the parser but not the layout.
+
+    ``layout.py`` is the one place a column name is written, and it is written
+    *once*, on ``PLACEHOLDER_LAYOUT``. Its properties — ``profile_columns``,
+    ``event_columns``, ``required_columns`` — derive from the object's own
+    fields, and a literal creeping into one of them would be a second copy of a
+    name: the file would still look like the single source of truth while
+    quietly having two, which is precisely the state closing OQ-CE-01 has to
+    avoid. The parser's guard could not see it, because the parser is a
+    different file.
+    """
+    from smartmatch_domain.exercise import layout
+
+    assert _column_names_written_inside_functions(layout) == []
+
+
+def test_the_column_name_guard_can_fail() -> None:
+    """Both assertions above are negative; prove the walk is not vacuous.
+
+    A module object standing in for a file whose function *does* write a column
+    name down. Without this, deleting the walk's body would leave two passing
+    tests.
+    """
+    import types
+    from pathlib import Path
+    from tempfile import TemporaryDirectory
+
+    with TemporaryDirectory() as directory:
+        offender = Path(directory) / "offender.py"
+        offender.write_text(
+            '"""A docstring naming major, which must not count."""\n'
+            "def read(row):\n"
+            '    """Also naming major."""\n'
+            f"    return row[{LAYOUT.major_column!r}]\n",
+            encoding="utf-8",
+        )
+        module = types.ModuleType("offender")
+        module.__file__ = str(offender)
+
+        assert _column_names_written_inside_functions(module) == [("read", LAYOUT.major_column)]
