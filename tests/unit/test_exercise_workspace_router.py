@@ -93,8 +93,6 @@ class _FakeRepository:
 
     def __init__(self) -> None:
         self.rows: dict[tuple[uuid.UUID, int], ExerciseWorkspace] = {}
-        self.seeds: dict[uuid.UUID, int] = {}
-        self.reset_ids: list[uuid.UUID] = []
 
     def get_or_create_workspace(
         self,
@@ -115,7 +113,6 @@ class _FakeRepository:
                 dataset_label=_DATASET.label,
                 invite_limit=_DATASET.invite_limit,
             )
-            self.seeds[workspace_id] = new_workspace_seed()
         return self.rows[key]
 
     def find_by_token_hash(self, _session: object, *, token_hash: str) -> ExerciseWorkspace | None:
@@ -126,10 +123,6 @@ class _FakeRepository:
             if tokens_match(token_hash, expected):
                 return workspace
         return None
-
-    def reset_team(self, _session: object, *, workspace_id: uuid.UUID) -> None:
-        self.reset_ids.append(workspace_id)
-        self.seeds[workspace_id] = new_workspace_seed()
 
 
 class _EmptyResult:
@@ -303,21 +296,57 @@ def test_two_teams_at_once_do_not_see_each_other(repository: _FakeRepository) ->
         ) != team_two.cookies.get(WORKSPACE_COOKIE_NAME, path="/v1/exercise")
 
 
-def test_reset_touches_this_teams_workspace_and_no_other(
-    client: TestClient, repository: _FakeRepository
+# ---------------------------------------------------------------------------
+# The reset that is not here (owner ruling, 2026-09-19)
+# ---------------------------------------------------------------------------
+
+#: The path the team-addressed reset used to answer on. Written out once so the
+#: two assertions below cannot drift, and kept in this file rather than deleted
+#: with the route: a removal nobody pins is a removal somebody re-adds.
+_REMOVED_TEAM_RESET_PATH = "/v1/exercise/workspaces/current/reset"
+
+
+def test_the_team_addressed_reset_is_gone_from_the_exercise_scope(
+    client: TestClient,
 ) -> None:
+    """Owner ruling, 2026-09-19: per-team reset moved behind the instructor passcode.
+
+    It was resolved by the workspace cookie alone, and that cookie is
+    obtainable by anyone who types the team's number — OQ-CE-08's
+    shared-per-team default, and the requirements' "Getting in" row: no login,
+    a team enters its number. So an irreversible action was available to a
+    class participant who entered somebody else's number, in a session with no
+    backup.
+
+    Asserted as an answer on the wire rather than as an absence in a list,
+    because what a team's browser gets is the thing that matters: the path is
+    not routed, so the exercise app answers it as the absence it is. 405 would
+    be an equally correct answer from a router that kept the path for another
+    method; this one keeps none, so it is a 404.
+    """
     _enter(client, 6)
-    workspace = repository.rows[(_DATASET.id, 6)]
-    seed_before = repository.seeds[workspace.id]
-    response = client.post(
-        "/v1/exercise/workspaces/current/reset", headers={EXERCISE_REQUEST_HEADER: "1"}
+    response = client.post(_REMOVED_TEAM_RESET_PATH, headers={EXERCISE_REQUEST_HEADER: "1"})
+    assert response.status_code in (404, 405), (
+        "the team-addressed reset must not be routed in the exercise scope"
     )
-    assert response.status_code == 200
-    assert response.json()["team_number"] == 6
-    assert repository.reset_ids == [workspace.id]
-    assert repository.seeds[workspace.id] != seed_before, "the seed is regenerated"
-    # The cookie still works: a reset clears work, it does not log a team out.
+    assert response.status_code == 404
+    # And the team is still in its workspace: the route went, the session did not.
     assert client.get("/v1/exercise/workspaces/current").status_code == 200
+
+
+def test_the_removed_reset_path_is_mounted_under_no_scope_at_all() -> None:
+    """Not merely unreachable in one app: absent from every composition."""
+    for scope in ProductScope:
+        assert _REMOVED_TEAM_RESET_PATH not in _paths_under(scope), (
+            f"{_REMOVED_TEAM_RESET_PATH} is still mounted under {scope}"
+        )
+
+
+def test_the_instructor_reset_is_the_one_that_remains() -> None:
+    """The ruling moved the reset; it did not delete the capability."""
+    assert "/v1/exercise/instructor/workspaces/{team_number}/reset" in _paths_under(
+        ProductScope.CLASS_EXERCISE
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -460,11 +489,6 @@ def test_a_state_changing_request_without_the_exercise_header_is_refused(
     }
 
 
-def test_the_reset_is_state_changing_too(client: TestClient) -> None:
-    _enter(client, 1)
-    assert client.post("/v1/exercise/workspaces/current/reset").status_code == 403
-
-
 def test_the_read_route_needs_no_exercise_header(client: TestClient) -> None:
     """A GET is not state-changing; requiring the header would be cargo cult."""
     _enter(client, 1)
@@ -522,7 +546,6 @@ def test_the_workspace_routes_are_mounted_only_under_the_exercise_scope() -> Non
     assert {
         "/v1/exercise/workspaces",
         "/v1/exercise/workspaces/current",
-        "/v1/exercise/workspaces/current/reset",
     } <= mounted
     for scope in (ProductScope.CBA, ProductScope.IA_WEST_LEGACY):
         assert not any(path.startswith("/v1/exercise") for path in _paths_under(scope))

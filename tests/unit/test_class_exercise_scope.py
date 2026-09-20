@@ -328,8 +328,10 @@ def test_cba_authenticated_routes_are_absent_under_class_exercise() -> None:
         f"authenticated CBA routes still mounted under CLASS_EXERCISE: {offenders}"
     )
     # Exactly the exercise's own routes, and nothing else. CE-ROUTERS mounted
-    # the first (`routers/exercise_public.py`), CE-WORKSPACE the three team
-    # workspace routes (`routers/exercise_workspace.py`), and CE-INSTRUCTOR the
+    # the first (`routers/exercise_public.py`), CE-WORKSPACE the two team
+    # workspace routes (`routers/exercise_workspace.py` — the third, the
+    # team-addressed reset, moved behind the instructor passcode by the owner
+    # ruling of 2026-09-19), and CE-INSTRUCTOR the
     # instructor page (`routers/exercise_instructor.py`, two routers so the
     # session gate can sit on one of them); every later exercise
     # track adds its own path to this set, and a CBA `/v1` path appearing in it
@@ -341,7 +343,6 @@ def test_cba_authenticated_routes_are_absent_under_class_exercise() -> None:
             "/v1/exercise",
             "/v1/exercise/workspaces",
             "/v1/exercise/workspaces/current",
-            "/v1/exercise/workspaces/current/reset",
             "/v1/exercise/instructor/login",
             "/v1/exercise/instructor/logout",
             "/v1/exercise/instructor/datasets",

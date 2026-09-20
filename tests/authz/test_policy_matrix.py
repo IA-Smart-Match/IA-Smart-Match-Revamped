@@ -529,28 +529,16 @@ UNAUTHENTICATED_ROUTES: dict[tuple[str, str], str] = {
         "the invite limit; not the seed, the token, its hash, or the "
         "workspace id."
     ),
-    ("POST", "/v1/exercise/workspaces/current/reset"): (
-        "The per-team reset design spec §11 requires, in the no-login "
-        "class-exercise scope. It takes no body and no identifier: the "
-        "workspace it clears is the one the caller's own cookie resolves to, "
-        "so there is no parameter through which one team could name another's "
-        "— the isolation is a key, not a check. Every statement it runs is "
-        "keyed on that workspace id, and it deletes only that team's overlay, "
-        "saved settings and result runs before regenerating that team's seed. "
-        "Requires `X-Exercise-Request` alongside SameSite=Lax, because a "
-        "cookie-addressed POST with no login behind it is exactly the shape a "
-        "cross-site form forges. "
-        "Stated plainly, because the SQL being correct is not the whole "
-        "answer: the cookie this resolves is obtainable by anyone who types "
-        "the team's number, so destructive reset is unprotected against "
-        "intent (OQ-CE-08 default; requirements, 'Getting in': no login, a "
-        "team enters its number). A class participant who enters another "
-        "team's number can clear that team's work. That is a consequence of "
-        "the product having no login, not of this route, and whether reset "
-        "should move behind the instructor passcode or a per-team word is an "
-        "owner decision recorded on the PR — the requirements list per-team "
-        "reset as a team action, and Session 2 has no backup."
-    ),
+    # There is deliberately **no** `POST /v1/exercise/workspaces/current/reset`
+    # row here. Design spec §11's per-team reset used to be a team-addressed
+    # route, resolved by the cookie alone — and that cookie is obtainable by
+    # anyone who types the team's number (OQ-CE-08's shared-per-team default;
+    # requirements, 'Getting in': no login, a team enters its number), so a
+    # destructive, irreversible action was reachable by a class participant who
+    # entered somebody else's number, with no backup in Session 2. The owner
+    # ruled on 2026-09-19 that reset moves behind the instructor passcode; the
+    # route was removed and `POST
+    # /v1/exercise/instructor/workspaces/{team_number}/reset` is the only reset.
     # ---------------------------------------------------------------------
     # The instructor page (CE-INSTRUCTOR, design spec §14).
     #
@@ -686,11 +674,14 @@ UNAUTHENTICATED_ROUTES: dict[tuple[str, str], str] = {
         "behind the instructor passcode session. It reuses the repository "
         "method the team's own reset runs, so 'what a reset deletes' has one "
         "answer, and every statement is keyed on the workspace id resolved "
-        "from (active data file, team number) — one team, never two. "
-        "The team's own `POST /v1/exercise/workspaces/current/reset` is "
-        "unchanged and stays where it is; whether per-team reset should move "
-        "*behind* this passcode is an open owner decision recorded on the PR, "
-        "and this route adds an instructor path without removing the team's. "
+        "from (the data file the teams are on, team number) — one team, never "
+        "two. "
+        "**This is the only reset.** The owner ruled on 2026-09-19 that "
+        "per-team reset moves behind this passcode, and the team-addressed "
+        "`POST /v1/exercise/workspaces/current/reset` was removed: it was "
+        "resolved by a cookie that anyone who types the team's number can "
+        "obtain, which made an irreversible action available to whoever "
+        "wanted it, and Session 2 has no backup. "
         "Requires `X-Exercise-Request`."
     ),
     ("POST", "/v1/exercise/instructor/refresh-all"): (

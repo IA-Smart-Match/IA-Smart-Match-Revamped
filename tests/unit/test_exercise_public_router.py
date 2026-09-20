@@ -140,8 +140,10 @@ def test_the_exercise_route_answers_404_in_a_cba_process(scope: ProductScope) ->
 def test_the_exercise_scope_mounts_this_route_and_nothing_authenticated() -> None:
     """An equality over the whole exercise surface, extended by each track.
 
-    CE-WORKSPACE added the three team-workspace paths
-    (``routers/exercise_workspace.py``) and CE-INSTRUCTOR the instructor page
+    CE-WORKSPACE added the team-workspace paths
+    (``routers/exercise_workspace.py``; its third, the team-addressed reset,
+    moved behind the instructor passcode by the owner ruling of 2026-09-19)
+    and CE-INSTRUCTOR the instructor page
     (``routers/exercise_instructor.py``, two routers so the passcode session
     can gate one of them). They are listed here rather than the assertion being
     loosened to a containment, because what this test is for is catching a
@@ -152,7 +154,6 @@ def test_the_exercise_scope_mounts_this_route_and_nothing_authenticated() -> Non
             "/v1/exercise",
             "/v1/exercise/workspaces",
             "/v1/exercise/workspaces/current",
-            "/v1/exercise/workspaces/current/reset",
             "/v1/exercise/instructor/login",
             "/v1/exercise/instructor/logout",
             "/v1/exercise/instructor/datasets",
