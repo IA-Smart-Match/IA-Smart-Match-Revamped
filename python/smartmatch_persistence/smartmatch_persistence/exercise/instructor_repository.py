@@ -131,6 +131,14 @@ class ExerciseWriteRefused(Exception):
     is ``None`` rather than merely suppressed — ``raise ... from None`` sets
     ``__suppress_context__``, which hides the driver error from a printed
     traceback while leaving it, and its parameters, reachable on the object.
+
+    Since 2026-09-19 the shared engine is additionally built with
+    ``hide_parameters=True`` (``smartmatch_persistence.engine``), so
+    ``[parameters: …]`` is suppressed repository-wide. This class is not
+    redundant because of it: the engine flag governs SQLAlchemy's rendering
+    only, and neither nulls ``__context__`` nor removes PostgreSQL's own
+    ``DETAIL: Failing row contains (…)``. Not letting the driver's exception
+    out is still the only complete answer.
     """
 
     def __init__(self, message: str) -> None:
@@ -562,7 +570,10 @@ class ExerciseInstructorRepository:
         that failed — a lock timeout, a statement timeout, a connection lost
         mid-transaction — would have raised a ``DBAPIError`` whose rendering
         carries ``[parameters: …]``, out of the one module that promises it
-        does not do that.
+        does not do that. The engine's ``hide_parameters=True`` (2026-09-19)
+        would now blunt that particular escape, which is exactly why it is
+        worth saying that it does not excuse one: see
+        :class:`ExerciseWriteRefused`.
 
         Args:
             dataset_id: Not used in any statement's ``WHERE``; carried so a
@@ -596,7 +607,9 @@ class ExerciseInstructorRepository:
         it finds it, which is correct there — its caller is a team route with
         its own error envelope. An instructor route reaching it through *this*
         module would otherwise be the one path out of here that could render
-        ``[parameters: …]``.
+        ``[parameters: …]``. (Since 2026-09-19 the engine hides those values
+        anyway — but the server's own ``DETAIL`` line is outside that flag's
+        reach, so this wrapper still earns its place.)
 
         Raises:
             ExerciseWriteRefused: if the database refuses any of the four

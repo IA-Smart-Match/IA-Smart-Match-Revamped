@@ -950,6 +950,27 @@ ls -lh /opt/smartmatch/backups                                 # the dumps
 ... up -d --remove-orphans` and stops with `... stop` — never `down`, and never
 `-v`.
 
+### Reading the API and worker logs (2026-09-19)
+
+A failed database write logs the statement, the exception class and the
+constraint the database named — and then `[SQL parameters hidden due to
+hide_parameters=True]` where the bound values used to be. The engine is built
+with `hide_parameters=True` by default
+(`smartmatch_persistence.engine.resolve_hide_parameters`) because those values
+are real names, email addresses and invitation tokens on the CBA side and the
+withheld "true interests" column on the class-exercise side (ADR-0025 D6), and
+this VM's logs are shared.
+
+**Do not set `SMARTMATCH_DB_HIDE_PARAMETERS=false` on the VM.** It is exposed
+in `docker-compose.yml` only so a *local* reproduction can turn it off; setting
+it here puts every value of every failed write into `./smartmatch.sh logs`.
+
+To diagnose without it: the constraint name identifies the rule that refused
+the row, PostgreSQL's own `DETAIL:` line names the failing row for a CHECK or
+NOT NULL refusal, and the database log has the statement. If that is not
+enough, reproduce it on your own machine against a scratch database with the
+variable set to `false` there.
+
 ### When a deployment fails
 
 The job output is the deployment log, redacted. Read it top-down: the script

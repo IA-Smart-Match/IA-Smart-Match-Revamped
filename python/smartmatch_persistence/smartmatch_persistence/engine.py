@@ -2,20 +2,25 @@
 
 from __future__ import annotations
 
+import logging
 import os
 
 from sqlalchemy import Engine, create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 __all__ = [
+    "DEFAULT_HIDE_PARAMETERS",
     "DEFAULT_MAX_OVERFLOW",
     "DEFAULT_POOL_RECYCLE",
     "DEFAULT_POOL_SIZE",
     "DEFAULT_POOL_TIMEOUT",
     "create_db_engine",
     "create_session_factory",
+    "resolve_hide_parameters",
     "resolve_pool_settings",
 ]
+
+_LOGGER = logging.getLogger(__name__)
 
 #: Steady-state connections one process keeps open. Sized for the single-VM
 #: appliance (docker-compose), where the API and the worker are each one
@@ -48,6 +53,38 @@ DEFAULT_POOL_TIMEOUT = 30
 #: managed database is likely to impose.
 DEFAULT_POOL_RECYCLE = 1800
 
+#: Whether an engine built here withholds bound values from the text of the
+#: errors and log lines it produces. On, and the default everywhere.
+#:
+#: SQLAlchemy renders a ``DBAPIError`` as the statement **plus**
+#: ``[parameters: …]`` — every bound value of the failed statement. Anything
+#: that then logs the exception, returns its text, or lets a test runner print
+#: it has published those values without a line of code naming them. For the
+#: class exercise that is the withheld ``true interests`` column ADR-0025 D6
+#: promises never leaves the server; for the CBA track it is real names, email
+#: addresses and invitation tokens landing in the server log.
+#:
+#: With this on, the same exception reads ``[SQL parameters hidden due to
+#: hide_parameters=True]``. Nothing else moves: the SQL text, the exception
+#: class, the constraint the database named, and ``exc.orig`` (and so
+#: ``exc.orig.diag.constraint_name``) are all exactly what they were. The
+#: values remain on the exception object for a debugger; what changes is what
+#: gets *rendered*. The same suppression applies to ``echo=True`` output, so
+#: turning echo on is not a way around this.
+#:
+#: Per-repository scrubbing stays where it exists — it additionally nulls the
+#: exception's ``__context__``, which this flag does not do. This is the floor
+#: under those modules, and the only protection for every repository that has
+#: no scrubber of its own.
+DEFAULT_HIDE_PARAMETERS = True
+
+#: What a deployment may spell to mean each answer for
+#: ``SMARTMATCH_DB_HIDE_PARAMETERS``. Compared case-insensitively after
+#: stripping, because these arrive from shells, ``.env`` files and compose
+#: interpolation, all of which pass through whatever was typed.
+_TRUTHY_ENV_VALUES = frozenset({"1", "true", "yes", "on"})
+_FALSY_ENV_VALUES = frozenset({"0", "false", "no", "off"})
+
 
 def _int_from_env(name: str, default: int) -> int:
     """Read a non-negative integer from the environment.
@@ -71,6 +108,87 @@ def _int_from_env(name: str, default: int) -> int:
     if value < 0:
         raise ValueError(f"{name} must be >= 0, got {value}")
     return value
+
+
+def _bool_from_env(name: str, default: bool, *, default_description: str) -> bool:
+    """Read a boolean from the environment, falling back to ``default``.
+
+    Deliberately unlike :func:`_int_from_env`, which raises on a malformed
+    value. The two variables are not symmetric. A mistyped pool ceiling must
+    stop the boot, because the deployment meant to cap something and now has
+    not. A mistyped *privacy* flag must not stop the boot — refusing to start
+    over a misspelled debugging switch is worse than the misspelling — and must
+    especially not fall through to the permissive answer, which would publish
+    the very values the flag exists to withhold.
+
+    So an unreadable value warns and returns ``default``. Callers pass the safe
+    direction as the default, which makes an unparseable value fail closed.
+
+    **The warning never quotes the value** — not truncated, not hashed, not its
+    length. A variable holds whatever was assigned to it, and the way one ends
+    up with an unrecognised value is a mistake, including a paste into the
+    wrong line of a ``.env``, which is how a password gets there. Echoing it
+    would publish a credential to the logs from inside the function whose
+    callers exist to keep values out of them; a prefix of a secret is a secret
+    and a length is a hint. The operator can read their own ``.env``. What they
+    cannot work out from the log alone is which variable was wrong, what is
+    accepted, and what was used instead, so the warning says exactly that.
+
+    Args:
+        name: The environment variable to read.
+        default: The answer for an unset, empty or unreadable value.
+        default_description: What ``default`` *means* for this variable, in
+            the caller's own words, for the warning — "hidden" says more to an
+            operator than "True", and it keeps this helper from having to know
+            what any particular flag governs. It must not contain the value.
+
+    Returns:
+        The parsed boolean, or ``default``.
+    """
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return default
+    value = raw.strip().lower()
+    if value in _TRUTHY_ENV_VALUES:
+        return True
+    if value in _FALSY_ENV_VALUES:
+        return False
+    # The value itself is deliberately not an argument here. See the docstring.
+    _LOGGER.warning(
+        "%s is set to a value that was not recognised as a boolean; "
+        "accepted values are %s, and %s was applied instead. "
+        "The value is not logged, because an environment variable may hold a "
+        "credential that was pasted into the wrong line.",
+        name,
+        ", ".join(sorted(_TRUTHY_ENV_VALUES | _FALSY_ENV_VALUES)),
+        default_description,
+    )
+    return default
+
+
+def resolve_hide_parameters() -> bool:
+    """Whether engines built here withhold bound values from rendered text.
+
+    ``SMARTMATCH_DB_HIDE_PARAMETERS`` overrides
+    :data:`DEFAULT_HIDE_PARAMETERS`. Read here rather than through either
+    service's pydantic ``Settings`` for the same reason the pool settings are:
+    this package is shared by the API, the worker and the ``tools/`` scripts,
+    and each has its own settings object or none at all.
+
+    Set it to a falsy value **only** for a local debugging session, never on a
+    shared or deployed environment: it puts every bound value of every failed
+    statement back into the server log.
+
+    Returns:
+        ``True`` when parameters are hidden. An unset, empty or unreadable
+        value is ``True`` — see :func:`_bool_from_env`, which also explains why
+        an unreadable value is never quoted back into the log.
+    """
+    return _bool_from_env(
+        "SMARTMATCH_DB_HIDE_PARAMETERS",
+        DEFAULT_HIDE_PARAMETERS,
+        default_description="hidden" if DEFAULT_HIDE_PARAMETERS else "shown",
+    )
 
 
 def resolve_pool_settings() -> dict[str, int]:
@@ -103,12 +221,19 @@ def create_db_engine(database_url: str, *, echo: bool = False) -> Engine:
     constants for what the defaults are sized against and why a per-deployment
     override exists.
 
+    ``hide_parameters`` comes from :func:`resolve_hide_parameters` and is on
+    unless a deployment turns it off — see :data:`DEFAULT_HIDE_PARAMETERS` for
+    what it withholds and why. Note that it also covers ``echo``: SQLAlchemy
+    suppresses the parameter tuple in echo output under the same flag, so
+    passing ``echo=True`` does not reopen the door.
+
     Raises:
         ValueError: when a pool environment variable holds a non-integer.
     """
     return create_engine(
         database_url,
         echo=echo,
+        hide_parameters=resolve_hide_parameters(),
         pool_pre_ping=True,
         future=True,
         **resolve_pool_settings(),

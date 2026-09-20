@@ -108,6 +108,24 @@ needs filled in are:
   never a live or external provider either way.
   See `docs/architecture/decisions/ADR-0017-offline-embedding-topic-semantics.md`.
 
+`SMARTMATCH_DB_HIDE_PARAMETERS` also lives in `.env.example`, empty, and
+should stay that way for ordinary work. Empty means bound values are withheld
+from error and log text, so a failed write shows you the SQL, the exception
+class and the constraint the database named, then `[SQL parameters hidden due
+to hide_parameters=True]` instead of the row.
+
+When you are chasing a write failure **on your own machine** and the constraint
+name is not enough, set it for that one run:
+
+```bash
+SMARTMATCH_DB_HIDE_PARAMETERS=false make run-api
+```
+
+Put it back afterwards, and never carry it to the VM or any shared
+environment — see `docs/operations/vm-deploy.md`. Note also what it does not
+cover: PostgreSQL's own `DETAIL: Failing row contains (…)` is unaffected either
+way, which is often the line you actually wanted.
+
 `SMARTMATCH_DEV_PRINCIPALS` also lives in `.env.example`, defaulting to `{}`.
 You will need to set it later, in step 6, only if you run
 `tools/generate_pilot_dataset.py` — it needs a bearer token mapped to the

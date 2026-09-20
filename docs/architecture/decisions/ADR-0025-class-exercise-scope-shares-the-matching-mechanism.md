@@ -132,6 +132,34 @@ is read by no factor function. Only the simulated-results rule reads it. A
 schema-walking test asserts the field name appears in no exercise response and
 in the exported OpenAPI document nowhere.
 
+> **Implementation note, 19 September 2026.** The paragraph above is unchanged
+> and this is not an amendment: it records how D6 is now enforced, not a
+> different decision.
+>
+> D6's hardest route out was never a response model — it was a *failed write*.
+> SQLAlchemy renders a `DBAPIError` as the statement plus `[parameters: …]`,
+> which for a refused profile insert is every value of every row, the withheld
+> column included, published by anything that logs the exception without a line
+> of code naming the column. It was found on PR #179 and again on PR #184,
+> where three deletes had bypassed the per-repository scrubber.
+>
+> Since this date the shared engine is built with `hide_parameters=True` —
+> `smartmatch_persistence.engine.resolve_hide_parameters`, on by default and
+> switchable off by `SMARTMATCH_DB_HIDE_PARAMETERS` for a local debugging
+> session only (owner decision, Danny Tran, 19 September 2026: "yes,
+> env-switchable"). The plan and the inventory behind it are
+> `docs/superpowers/plans/2026-09-19-engine-hide-parameters-plan.md`.
+>
+> Two limits belong in the record rather than in a commit message. The flag
+> governs SQLAlchemy's rendering only: PostgreSQL's own `DETAIL: Failing row
+> contains (…)` for a CHECK or NOT NULL refusal arrives inside the driver's
+> exception and no SQLAlchemy setting removes it. And an engine built outside
+> `create_db_engine` does not inherit it. So the per-repository scrubbers in
+> `smartmatch_persistence.exercise` remain the enforcing layer, with the engine
+> flag as the floor beneath them — and this paragraph's "**Verification**"
+> entry below gains
+> `tests/integration/test_engine_hide_parameters.py` beside the schema walk.
+
 ### D7. The simulated-results rule is deterministic per team and written in words
 
 The rule that turns a list into invited / signed up / attended lives in one

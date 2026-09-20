@@ -485,6 +485,16 @@ class ExerciseWorkspaceRepository:
         clearing the choice while leaving the refresh timestamp would be a
         refresh with no share behind it.
 
+        This module deliberately lets a driver exception reach its caller — a
+        team route with its own error envelope — rather than scrubbing it the
+        way ``instructor_repository`` does. Since 2026-09-19 that exception
+        renders without ``[parameters: …]``, because the shared engine is built
+        with ``hide_parameters=True``
+        (``smartmatch_persistence.engine.resolve_hide_parameters``). Note the
+        remaining gap: PostgreSQL's own ``DETAIL: Failing row contains (…)``
+        for a CHECK or NOT NULL refusal is outside that flag's reach, so a
+        caller that logs ``str(exc)`` verbatim is still logging row values.
+
         Not committed here.
         """
         for child in (
