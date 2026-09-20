@@ -51,11 +51,15 @@ from smartmatch_api.exercise_dependencies import (
     get_workspace_repository,
     get_workspace_secret,
 )
+from smartmatch_api.exercise_errors import ExerciseError
 from smartmatch_api.main import CAPABILITY_SCOPED_ROUTERS, routers_for
 from smartmatch_api.routers import exercise_matching, exercise_matching_models
 from smartmatch_api.routers.exercise_matching_models import (
     CSV_INJECTION_PREFIXES,
     CSV_LIST_COLUMNS,
+    MAX_WEIGHT_KEY_CHARACTERS,
+    MAX_WEIGHT_KEYS,
+    MAX_WEIGHT_REFUSAL_CHARACTERS,
     PLACEHOLDER_CLASS_YEAR_RANK,
     csv_download_filename,
     event_evidence,
@@ -797,6 +801,73 @@ def test_a_weight_the_rulebook_refuses_is_refused_with_a_sentence(client: TestCl
 
 def test_a_negative_weight_never_reaches_the_handler(client: TestClient) -> None:
     assert client.get(_LIST, params={"same_major": -1}).status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# The refusal is bounded, because the route has no login in front of it
+# ---------------------------------------------------------------------------
+
+
+def test_a_body_of_many_unknown_weights_is_refused_without_describing_them(
+    client: TestClient,
+) -> None:
+    """The amplification, closed at the door (review round 1).
+
+    The rulebook's validator names every offending field at once and quotes each
+    rejected key verbatim — about 190 bytes per key. Unbounded, a body of a few
+    thousand short unknown keys is a request that returns megabytes and reflects
+    the caller's own text onto a classroom projector. The refusal must therefore
+    quote nothing and must be shorter than what was sent.
+    """
+    keys = {f"k{index}": 1.0 for index in range(MAX_WEIGHT_KEYS + 1)}
+    response = client.put(f"{_SETTINGS}/broad", json={"weights": keys}, headers=_HEADER)
+    assert response.status_code == 422
+    body = response.json()
+    assert body["error"]["code"] in {"exercise_weights_too_many", "invalid_request"}
+    assert "k0" not in response.text, "the refusal quoted a key the caller sent"
+    assert len(response.text) < 500
+
+
+def test_a_very_long_weight_key_is_refused_without_echoing_it(client: TestClient) -> None:
+    long_key = "z" * (MAX_WEIGHT_KEY_CHARACTERS + 1)
+    response = client.put(f"{_SETTINGS}/broad", json={"weights": {long_key: 1.0}}, headers=_HEADER)
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "exercise_weights_key_too_long"
+    assert long_key not in response.text
+
+
+def test_the_weight_refusal_is_capped_even_at_the_key_bound(client: TestClient) -> None:
+    """The second line: the message is cut whatever the validator says.
+
+    Eight keys of sixty-four characters is the largest input the bounds admit,
+    and the response to it must still be a sentence rather than a page.
+    """
+    keys = {
+        f"{chr(97 + index)}" * MAX_WEIGHT_KEY_CHARACTERS: 1.0 for index in range(MAX_WEIGHT_KEYS)
+    }
+    response = client.put(f"{_SETTINGS}/broad", json={"weights": keys}, headers=_HEADER)
+    assert response.status_code == 422
+    message = response.json()["error"]["message"]
+    assert len(message) <= MAX_WEIGHT_REFUSAL_CHARACTERS + 40
+
+
+def test_the_same_bounds_apply_to_weights_arriving_on_the_query_string(
+    client: TestClient,
+) -> None:
+    """The list and CSV routes take weights too, and go through the same check.
+
+    The four weight parameters are declared, so a count above the bound cannot
+    arrive that way — which is the point: the bound lives in the one function
+    both paths call, rather than on the body model alone, so it cannot be true
+    of one route and not the other. Asserted by calling that function directly
+    with a payload only a body could carry.
+    """
+    with pytest.raises(ExerciseError) as refused:
+        exercise_matching._validated({f"k{index}": 1.0 for index in range(MAX_WEIGHT_KEYS + 1)})
+    assert refused.value.code == "exercise_weights_too_many"
+    assert refused.value.status_code == 422
+    # …and a well-formed query weighting still passes through it untouched.
+    assert client.get(_LIST, params={"same_major": 1.0}).status_code == 200
 
 
 def test_a_state_changing_request_without_the_exercise_header_is_refused(

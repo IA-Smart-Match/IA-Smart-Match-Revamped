@@ -67,6 +67,9 @@ from smartmatch_api.exercise_dependencies import (
 __all__ = [
     "CSV_INJECTION_PREFIXES",
     "CSV_LIST_COLUMNS",
+    "MAX_WEIGHT_KEYS",
+    "MAX_WEIGHT_KEY_CHARACTERS",
+    "MAX_WEIGHT_REFUSAL_CHARACTERS",
     "PLACEHOLDER_CLASS_YEAR_RANK",
     "CompareView",
     "EventView",
@@ -485,16 +488,43 @@ class SavedSettingsView(BaseModel):
     max_settings: int = Field(description="How many names your team may keep for one event.")
 
 
+#: How many weights one request may propose.
+#:
+#: The rulebook names four. Eight leaves room for a client that sends a key the
+#: registry has since dropped without turning a typo into a refusal nobody can
+#: read — and, far more importantly, it is what stops the refusal from being an
+#: amplifier: see :data:`MAX_WEIGHT_REFUSAL_CHARACTERS`.
+MAX_WEIGHT_KEYS: Final[int] = 8
+
+#: How long one proposed weight's key may be. Generous against the longest key
+#: the rulebook actually has, and short enough that a key cannot be a payload.
+MAX_WEIGHT_KEY_CHARACTERS: Final[int] = 64
+
+#: How much of a refusal about weights may be returned.
+#:
+#: **This is a bound on amplification, not tidiness.** These routes take no
+#: login; the weight validator names every offending field at once and quotes
+#: each rejected key verbatim, at about 190 bytes per key. Unbounded, a body of
+#: a few thousand short unknown keys turns a request into a multi-megabyte
+#: response and reflects the caller's own text back onto a classroom projector.
+#: The key count and key length above bound the input; this bounds the output
+#: even if a future validator grows more to say per key.
+MAX_WEIGHT_REFUSAL_CHARACTERS: Final[int] = 400
+
+
 class SaveSettingRequest(BaseModel):
     """The body of a save: four weights and nothing else."""
 
     model_config = ConfigDict(extra="forbid")
 
     weights: dict[str, float] = Field(
+        max_length=MAX_WEIGHT_KEYS,
         description=(
             "The weights, keyed by factor key. A key the rulebook does not name, "
             "a value that is not a finite number, and a negative value are each "
-            "refused rather than repaired."
+            "refused rather than repaired. At most "
+            f"{MAX_WEIGHT_KEYS} keys, each at most {MAX_WEIGHT_KEY_CHARACTERS} "
+            "characters."
         ),
     )
 

@@ -85,6 +85,9 @@ from smartmatch_api.exercise_dependencies import (
 )
 from smartmatch_api.exercise_errors import ExerciseError
 from smartmatch_api.routers.exercise_matching_models import (
+    MAX_WEIGHT_KEY_CHARACTERS,
+    MAX_WEIGHT_KEYS,
+    MAX_WEIGHT_REFUSAL_CHARACTERS,
     CompareView,
     EventsView,
     EventView,
@@ -161,6 +164,40 @@ def _requested_weights(
     return present or None
 
 
+def _within_bounds_or_refusal(raw: Mapping[str, object]) -> None:
+    """Refuse a weighting that is too large to describe before describing it.
+
+    **The refusal is the attack surface, not the weighting.** These routes take
+    no login. ``validate_exercise_weight_overrides`` names every offending field
+    at once and quotes each rejected key verbatim, at roughly 190 bytes per key,
+    so an unbounded body of short unknown keys is a request that returns
+    megabytes and reflects the caller's own text onto a classroom projector.
+    Bounding the input is what stops that at the door; capping the message in
+    :func:`_validated` is the second line, for a validator that grows more to
+    say per key later.
+
+    The two refusals quote **nothing the caller sent** — not a key, not a count
+    of the caller's making — because a refusal about a payload being too large
+    is the last place to echo the payload.
+
+    Raises:
+        ExerciseError: 422, with one plain sentence, for too many keys or a key
+            that is too long.
+    """
+    if len(raw) > MAX_WEIGHT_KEYS:
+        raise ExerciseError(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            code="exercise_weights_too_many",
+            message=f"Send at most {MAX_WEIGHT_KEYS} weights.",
+        )
+    if any(len(key) > MAX_WEIGHT_KEY_CHARACTERS for key in raw):
+        raise ExerciseError(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            code="exercise_weights_key_too_long",
+            message="One of those weights is not named like a factor.",
+        )
+
+
 def _validated(raw: Mapping[str, object]) -> Mapping[str, float]:
     """Run a team's proposed weighting through the rulebook's own check.
 
@@ -174,15 +211,30 @@ def _validated(raw: Mapping[str, object]) -> Mapping[str, float]:
     name every offending field at once. Widening the shared function would be an
     edit to a G1-governed module this track is not authorised to make. Noted as
     a deviation on this track's pull request.
+
+    Bounded twice: :func:`_within_bounds_or_refusal` first, so a body too large
+    to describe is refused without describing it, and the resulting sentence
+    truncated to :data:`MAX_WEIGHT_REFUSAL_CHARACTERS` so the response cannot
+    amplify the request whatever the validator decides to say. Both apply to
+    weights arriving in a body and to weights arriving on a query string,
+    because both arrive here.
     """
+    _within_bounds_or_refusal(raw)
     try:
         return validate_exercise_weight_overrides(raw)
     except InvalidExerciseWeightError as error:
         raise ExerciseError(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             code="exercise_weights_invalid",
-            message=f"Those weights were not accepted. {error}",
+            message=f"Those weights were not accepted. {_capped(str(error))}",
         ) from None
+
+
+def _capped(detail: str) -> str:
+    """One refusal's detail, cut to a length a response may carry."""
+    if len(detail) <= MAX_WEIGHT_REFUSAL_CHARACTERS:
+        return detail
+    return f"{detail[:MAX_WEIGHT_REFUSAL_CHARACTERS].rstrip()}…"
 
 
 def _effective_weights(overrides: Mapping[str, float] | None) -> Mapping[str, float]:
