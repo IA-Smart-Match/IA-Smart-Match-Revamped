@@ -130,7 +130,11 @@ export function ExerciseMatching(): React.JSX.Element {
         <div className="flex flex-col gap-8">
           {panelRefusal === null ? null : <ExerciseNotice message={panelRefusal} />}
           {state.refusal === null ? null : (
-            <ExerciseNotice message={state.refusal.message} tone="problem" />
+            <ExerciseNotice
+              id="exercise-list-refusal"
+              message={state.refusal.message}
+              tone="problem"
+            />
           )}
 
           {/*
@@ -149,7 +153,10 @@ export function ExerciseMatching(): React.JSX.Element {
             }}
           />
 
-          <section className="flex flex-col gap-3">
+          <section
+            className="flex flex-col gap-3"
+            aria-describedby={state.refusal === null ? undefined : "exercise-list-refusal"}
+          >
             <div className="flex flex-wrap items-baseline justify-between gap-3">
               <h2 className="text-3xl font-semibold text-slate-900 dark:text-slate-50">
                 The list
@@ -172,6 +179,21 @@ export function ExerciseMatching(): React.JSX.Element {
                 Download this list as a spreadsheet
               </a>
             </div>
+            {state.refusal === null ? null : (
+              // The list below is stale the moment a commit is refused: it is
+              // still the answer to the *previous* weighting, not to the one
+              // the refusal sentence above is about. `aria-describedby` on the
+              // section carries that for assistive tech; this carries it for
+              // sighted readers who may not read the notice above as tied to
+              // the rows below it.
+              <p
+                data-slot="exercise-list-stale"
+                className="text-lg italic text-slate-600 dark:text-slate-300"
+              >
+                This is the list from before that change — it was refused, so the list has not
+                changed.
+              </p>
+            )}
             <p className="text-xl text-slate-600 dark:text-slate-300">
               Cut at {state.data.list.invite_limit} names, the limit set for this data file.
               {state.data.list.setting_name === null

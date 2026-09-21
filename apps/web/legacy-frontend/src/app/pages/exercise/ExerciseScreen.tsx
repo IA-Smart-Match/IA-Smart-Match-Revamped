@@ -95,10 +95,13 @@ export function ExerciseNotice({
   message,
   tone = "calm",
   children,
+  id,
 }: {
   readonly message: string;
   readonly tone?: "calm" | "problem";
   readonly children?: React.ReactNode;
+  /** Lets another element point at this notice with `aria-describedby`. */
+  readonly id?: string;
 }): React.JSX.Element {
   const palette =
     tone === "problem"
@@ -106,6 +109,7 @@ export function ExerciseNotice({
       : "border-slate-300 bg-slate-50 text-slate-800 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100";
   return (
     <div
+      id={id}
       role="status"
       data-slot="exercise-notice"
       className={`rounded-lg border-2 px-5 py-4 text-xl leading-snug ${palette}`}
