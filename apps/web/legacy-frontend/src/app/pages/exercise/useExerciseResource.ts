@@ -18,8 +18,31 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ExerciseRefusal, ExerciseUnreachable } from "../../../lib/exerciseApi";
 
 export type ExerciseResourceState<T> =
+  /** Nothing has arrived yet. Only ever the *first* load — see `refreshing`. */
   | { readonly status: "loading" }
-  | { readonly status: "ready"; readonly data: T }
+  | {
+      readonly status: "ready";
+      readonly data: T;
+      /**
+       * The refusal the *latest* load got, with the previous answer still on
+       * screen beside it.
+       *
+       * Only ever non-null for a caller that passed `keepDataOnRefusal` — see
+       * the hook's own docstring for why that is opt-in rather than the
+       * default. `null` on every successful load, so a stale sentence cannot
+       * outlive the request that produced it.
+       */
+      readonly refusal: ExerciseRefusal | null;
+      /**
+       * A newer load is in flight and this is the previous answer.
+       *
+       * The screen stays mounted while it runs. Dropping back to `loading`
+       * would unmount the whole panel — which on the matching screen took the
+       * weight inputs down mid-keystroke, and on the asking screen threw away
+       * the counts from a refresh that may only happen once.
+       */
+      readonly refreshing: boolean;
+    }
   /** The server refused, with a code to branch on and a sentence to show. */
   | { readonly status: "refused"; readonly refusal: ExerciseRefusal }
   /** The request never landed, or the answer was not the envelope. */
@@ -40,6 +63,29 @@ export function stateFromError<T>(error: unknown): ExerciseResourceState<T> {
   return { status: "unreachable", message: new ExerciseUnreachable().message };
 }
 
+export interface ExerciseResourceOptions {
+  /**
+   * Keep the answer already on screen when a later load is refused.
+   *
+   * **Opt-in, and deliberately not the default.** Whether a stale answer
+   * beside a refusal is honest or dishonest depends entirely on what the
+   * answer is.
+   *
+   * The matching screen wants it: a team asks for a weighting the server will
+   * not take, and the list it is looking at is still the true answer to the
+   * question it asked before that. Throwing the screen away to show one
+   * sentence takes the weight boxes with it, leaving nothing to correct the
+   * mistake in.
+   *
+   * The instructor and results screens must not have it. A refused read there
+   * means the session has gone or the run cannot be produced, and showing the
+   * previous dataset list or the previous run underneath that sentence would
+   * be showing something that is no longer known to be true. They keep the
+   * discarding behaviour: the refusal replaces the screen.
+   */
+  readonly keepDataOnRefusal?: boolean;
+}
+
 /**
  * Load a resource on mount and whenever `deps` change.
  *
@@ -50,7 +96,9 @@ export function stateFromError<T>(error: unknown): ExerciseResourceState<T> {
 export function useExerciseResource<T>(
   load: (signal: AbortSignal) => Promise<T>,
   deps: readonly unknown[],
-): { readonly state: ExerciseResourceState<T>; readonly reload: () => void } {
+  options: ExerciseResourceOptions = {},
+): { readonly state: ExerciseResourceState<T>; readonly reload: () => Promise<void> } {
+  const keepDataOnRefusal = options.keepDataOnRefusal ?? false;
   const [state, setState] = useState<ExerciseResourceState<T>>({ status: "loading" });
   const [attempt, setAttempt] = useState(0);
 
@@ -59,33 +107,85 @@ export function useExerciseResource<T>(
   const loadRef = useRef(load);
   loadRef.current = load;
 
+  // Resolved when the *next* effect run settles, so a caller of `reload` can
+  // tell the difference between "the request is in flight" and "the state on
+  // screen now reflects it" — a once-only button must stay disabled for the
+  // whole of that, not just for its own network call.
+  const settled = useRef<(() => void)[]>([]);
+
   useEffect(() => {
     const controller = new AbortController();
     let live = true;
-    setState({ status: "loading" });
+    let settledThisRun = false;
+    // Resolvers queued by `reload` calls made before this run started. If
+    // this run itself gets superseded before settling (a second `reload`
+    // arriving while the first is still in flight), they are handed to the
+    // next run rather than dropped, so a caller awaiting the first `reload`
+    // still resolves once *some* later state lands, rather than never.
+    const resolvers = settled.current;
+    settled.current = [];
+    const resolveAll = (): void => {
+      settledThisRun = true;
+      for (const resolve of resolvers) {
+        resolve();
+      }
+    };
+    // Keep whatever is on screen while the new answer is fetched. Only a
+    // screen that has never had data drops to `loading`; one that has shows
+    // the previous answer and says it is busy. This is what keeps the weight
+    // inputs mounted between keystrokes and the refresh counts on screen
+    // across the reload that follows them.
+    setState((previous) =>
+      previous.status === "ready"
+        ? { status: "ready", data: previous.data, refreshing: true, refusal: null }
+        : { status: "loading" },
+    );
     loadRef
       .current(controller.signal)
       .then((data) => {
         if (live) {
-          setState({ status: "ready", data });
+          setState({ status: "ready", data, refreshing: false, refusal: null });
+          resolveAll();
         }
       })
       .catch((error: unknown) => {
         if (!live || controller.signal.aborted) {
           return;
         }
-        setState(stateFromError<T>(error));
+        setState((previous) => {
+          if (
+            keepDataOnRefusal &&
+            previous.status === "ready" &&
+            error instanceof ExerciseRefusal
+          ) {
+            // The answer on screen is still the true answer to the question
+            // that produced it. The refusal is about the *new* question.
+            return { status: "ready", data: previous.data, refreshing: false, refusal: error };
+          }
+          return stateFromError<T>(error);
+        });
+        resolveAll();
       });
     return () => {
       live = false;
       controller.abort();
+      if (!settledThisRun) {
+        // This run never settled — hand its waiters to whichever run
+        // replaces it, rather than resolving early (the state has not
+        // changed yet) or forgetting them (a caller of `reload` would hang).
+        settled.current = [...resolvers, ...settled.current];
+      }
     };
-    // `deps` is the caller's declared dependency list; `attempt` forces a reload.
+    // `deps` is the caller's declared dependency list; `attempt` forces a
+    // reload. `keepDataOnRefusal` is a caller constant, not a dependency.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [...deps, attempt]);
 
   const reload = useCallback(() => {
-    setAttempt((value) => value + 1);
+    return new Promise<void>((resolve) => {
+      settled.current = [...settled.current, resolve];
+      setAttempt((value) => value + 1);
+    });
   }, []);
 
   return { state, reload };

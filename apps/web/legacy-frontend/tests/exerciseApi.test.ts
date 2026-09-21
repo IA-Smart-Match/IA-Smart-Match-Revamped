@@ -21,6 +21,7 @@ import {
   EXERCISE_API_BASE,
   ExerciseRefusal,
   ExerciseUnreachable,
+  NOT_THE_EXERCISE,
   exerciseRequest,
   exerciseUrl,
   isRefusal,
@@ -156,6 +157,84 @@ test("a transport failure becomes one sentence, not the underlying error", async
   )) as Error;
   assert.ok(error instanceof ExerciseUnreachable);
   assert.ok(!error.message.includes("NetworkError"));
+});
+
+test("a 200 whose body is not JSON is unreachable, not an empty success", async () => {
+  // F2. A dev server that proxies `/api` but not `/v1` answers every exercise
+  // call with the SPA's own `index.html` at status 200. This used to return
+  // `null as T`, so the HTML travelled on as a `TeamWorkspaceView`, the first
+  // property read threw, and react-router rendered the 404 page — with nothing
+  // anywhere pointing at the proxy.
+  //
+  // Fails on the old code: it resolved with `null`, so `assert.ok(error
+  // instanceof ExerciseUnreachable)` had `null` to work with and threw.
+  answerWith(() => new Response("<!doctype html><title>Smart Match</title>", { status: 200 }));
+  const error = await exerciseRequest("/workspaces/current").then(
+    () => null,
+    (caught: unknown) => caught,
+  );
+  assert.ok(error instanceof ExerciseUnreachable);
+});
+
+test("a 204 is still a success, with no body to parse", async () => {
+  answerWith(() => new Response(null, { status: 204 }));
+  const answer = await exerciseRequest("/workspaces/current");
+  assert.equal(answer, null);
+});
+
+test("a refusal that is not the exercise's own does not put its words on screen", async () => {
+  // F4. Starlette's own 404 body is `{"detail": "Not Found"}` or plain text,
+  // and a CBA-scope deployment answers every `/v1/exercise` call that way
+  // because the routers are not registered at all (ADR-0025 D1). Rendering
+  // "Not Found" verbatim on a projector is what this stops.
+  //
+  // Fails on the old code: `refusalFrom` took any `message` string it found,
+  // so `refusal.message` was "Not Found" and the assertion below failed.
+  answerWith(() =>
+    json({ error: { code: "not_found", message: "Not Found" } }, 404),
+  );
+  const error = (await exerciseRequest("/workspaces/current/events/nope/list").then(
+    () => null,
+    (caught: unknown) => caught,
+  )) as ExerciseRefusal;
+
+  assert.ok(error instanceof ExerciseRefusal);
+  assert.equal(error.message, NOT_THE_EXERCISE);
+  assert.ok(!error.message.includes("Not Found"));
+  // The code is still there to branch on and to read in a console.
+  assert.equal(error.code, "not_found");
+});
+
+test("the exercise's own sentence is still shown exactly as written", async () => {
+  answerWith(() =>
+    json(
+      {
+        error: {
+          code: "exercise_event_unknown",
+          message: "That event is not in your team's data file.",
+        },
+      },
+      404,
+    ),
+  );
+  const error = (await exerciseRequest("/workspaces/current/events/nope/list").then(
+    () => null,
+    (caught: unknown) => caught,
+  )) as ExerciseRefusal;
+  assert.equal(error.message, "That event is not in your team's data file.");
+});
+
+test("the shared validation refusal keeps its own plain sentence", async () => {
+  // `invalid_request` is the API's shared validation code and its message is
+  // written plainly, so it is allowed through with the exercise's own codes.
+  answerWith(() =>
+    json({ error: { code: "invalid_request", message: "Team number must be between 1 and 6." } }, 422),
+  );
+  const error = (await exerciseRequest("/workspaces", { method: "POST" }).then(
+    () => null,
+    (caught: unknown) => caught,
+  )) as ExerciseRefusal;
+  assert.equal(error.message, "Team number must be between 1 and 6.");
 });
 
 test("a JSON body is sent with its content type", async () => {

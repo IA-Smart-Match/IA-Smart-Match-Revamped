@@ -64,6 +64,7 @@ function stub(overrides: Record<string, { body: unknown; status?: number }> = {}
   const answers: Record<string, { body: unknown; status?: number }> = {
     "/v1/exercise/workspaces/current/events/northline/list": { body: LIST },
     "/v1/exercise/workspaces/current/events/northline/settings": { body: SETTINGS },
+    "/v1/exercise/workspaces/current/events/northline/settings/Wide%20net": { body: SETTINGS },
     ...overrides,
   };
   vi.stubGlobal(
@@ -92,6 +93,11 @@ function renderMatching() {
     { initialEntries: ["/exercise/events/northline"] },
   );
   return render(<RouterProvider router={router} />);
+}
+
+/** Just the ranked-list GETs, which is what a keystroke used to multiply. */
+function listCalls(): { url: string; init: RequestInit }[] {
+  return calls.filter((call) => call.url.split("?")[0].endsWith("/list"));
 }
 
 beforeEach(() => {
@@ -195,6 +201,162 @@ describe("<ExerciseMatching />", () => {
       );
       expect(new Headers(put?.init.headers).get("X-Exercise-Request")).toBe("1");
     });
+  });
+
+
+  it("keeps the weight boxes mounted, and focused, while the list is rebuilt", async () => {
+    // F1. This is the whole defect in one assertion: the element identity
+    // before and after a committed weighting has to be the same node.
+    //
+    // Fails on the merged code: committing dropped the hook to `loading`, the
+    // ready branch rendered `null`, and the input was unmounted — so the
+    // `before === after` identity check had a detached node on one side, and
+    // `document.activeElement` was the body.
+    stub();
+    renderMatching();
+    const before = (await screen.findByLabelText("same major")) as HTMLInputElement;
+    before.focus();
+
+    fireEvent.change(before, { target: { value: "0.75" } });
+    fireEvent.blur(before);
+
+    await waitFor(() =>
+      expect(
+        calls.filter((call) => call.url.includes("/list?") || call.url.endsWith("/list")).length,
+      ).toBeGreaterThan(1),
+    );
+
+    const after = screen.getByLabelText("same major");
+    expect(after).toBe(before);
+  });
+
+  it("issues one list request for a multi-character number, not one per keystroke", async () => {
+    // Fails on the merged code: "0.75" is four change events and each one set
+    // a new weighting object, so the list was fetched four extra times.
+    stub();
+    renderMatching();
+    const box = await screen.findByLabelText("same major");
+    await waitFor(() => expect(listCalls().length).toBe(1));
+
+    fireEvent.focus(box);
+    fireEvent.change(box, { target: { value: "0" } });
+    fireEvent.change(box, { target: { value: "0." } });
+    fireEvent.change(box, { target: { value: "0.7" } });
+    fireEvent.change(box, { target: { value: "0.75" } });
+    fireEvent.blur(box);
+
+    await waitFor(() => expect(listCalls().length).toBe(2));
+    // Give any stray refetch a chance to arrive before declaring the count.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(listCalls().length).toBe(2);
+  });
+
+  it("shows the previous list while the new one is fetched, rather than a blank screen", async () => {
+    // Fails on the merged code: the ready branch was replaced by the loading
+    // line, so the previous rows were gone from the DOM entirely.
+    stub();
+    renderMatching();
+    const box = await screen.findByLabelText("same major");
+    fireEvent.focus(box);
+    fireEvent.change(box, { target: { value: "0.9" } });
+    fireEvent.blur(box);
+
+    // The names are still on screen throughout, and the screen says it is busy.
+    expect(screen.getByText("Rosa Villalobos")).toBeDefined();
+    await waitFor(() => expect(listCalls().length).toBe(2));
+  });
+
+  it("shows a refused list GET as a sentence and leaves the rest of the screen usable", async () => {
+    // G2. Fails on the merged code: without `keepDataOnRefusal`, a refused
+    // list GET dropped the whole hook to `status: "refused"`, which
+    // `ExerciseMatching` renders as `workspaceRequiredNotice` in place of
+    // everything else — the weight boxes, the previous list, the save panel.
+    // A team that typed a weight the server refuses should see one sentence
+    // *and* keep the list and controls it already had.
+    let listCallCount = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string, init: RequestInit) => {
+        calls.push({ url, init });
+        const path = url.split("?")[0];
+        if (path.endsWith("/list")) {
+          listCallCount += 1;
+          if (listCallCount > 1) {
+            return Promise.resolve(
+              new Response(
+                JSON.stringify({
+                  error: { code: "exercise_invalid_weights", message: "Weights must sum to 1." },
+                }),
+                { status: 400 },
+              ),
+            );
+          }
+          return Promise.resolve(new Response(JSON.stringify(LIST), { status: 200 }));
+        }
+        if (path.endsWith("/settings")) {
+          return Promise.resolve(new Response(JSON.stringify(SETTINGS), { status: 200 }));
+        }
+        return Promise.resolve(
+          new Response(JSON.stringify({ error: { code: "test_unstubbed", message: url } }), {
+            status: 404,
+          }),
+        );
+      }),
+    );
+    renderMatching();
+
+    const box = await screen.findByLabelText("same major");
+    expect(screen.getByText("Rosa Villalobos")).toBeDefined();
+
+    fireEvent.focus(box);
+    fireEvent.change(box, { target: { value: "0.9" } });
+    fireEvent.blur(box);
+
+    await waitFor(() => expect(screen.getByText("Weights must sum to 1.")).toBeDefined());
+
+    // The list from before the refused request, and the controls to fix the
+    // mistake, are still on screen next to the sentence.
+    expect(screen.getByText("Rosa Villalobos")).toBeDefined();
+    expect(screen.getByLabelText("same major")).toBeDefined();
+    expect(document.querySelector('[data-slot="exercise-csv-download"]')).not.toBeNull();
+  });
+
+  it("keeps the name a team typed when the save is refused", async () => {
+    // F5. Fails on the merged code: the screen's `guard` swallowed the refusal
+    // and resolved, the panel read that as success and called `setName("")`,
+    // so the box was empty and the team had to retype a name to try again.
+    stub({
+      "/v1/exercise/workspaces/current/events/northline/settings/Wide%20net": {
+        body: {
+          error: {
+            code: "exercise_too_many_settings",
+            message: "Your team may keep three settings for this event. Delete one first.",
+          },
+        },
+        status: 409,
+      },
+    });
+    renderMatching();
+    const name = (await screen.findByLabelText(/call these weights/i)) as HTMLInputElement;
+    fireEvent.change(name, { target: { value: "Wide net" } });
+    fireEvent.click(screen.getByRole("button", { name: /save these weights/i }));
+
+    await waitFor(() =>
+      expect(
+        screen.getByText("Your team may keep three settings for this event. Delete one first."),
+      ).toBeDefined(),
+    );
+    expect(name.value).toBe("Wide net");
+  });
+
+  it("clears the name once the save is accepted", async () => {
+    stub();
+    renderMatching();
+    const name = (await screen.findByLabelText(/call these weights/i)) as HTMLInputElement;
+    fireEvent.change(name, { target: { value: "Wide net" } });
+    fireEvent.click(screen.getByRole("button", { name: /save these weights/i }));
+
+    await waitFor(() => expect(name.value).toBe(""));
   });
 
   it("offers no way to clear this team's work", async () => {

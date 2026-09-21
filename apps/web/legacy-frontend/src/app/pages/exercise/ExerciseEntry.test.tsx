@@ -98,6 +98,23 @@ describe("<ExerciseEntry />", () => {
     }
   });
 
+  it("names each radio for a screen reader as just the team", async () => {
+    // L4. Fails on the merged code: the input took its name from the label's
+    // text, which holds both the big projected numeral and a hidden word, so
+    // the accessible name was "4 Team 4". An exact-string match catches it;
+    // the regex the other tests use would not.
+    stubFetch({
+      "/v1/exercise": { body: SCOPE },
+      "/v1/exercise/workspaces/current": {
+        body: { error: { code: "exercise_workspace_required", message: "Enter your team number." } },
+        status: 401,
+      },
+    });
+    renderEntry();
+    await waitFor(() => expect(screen.getAllByRole("radio").length).toBe(6));
+    expect(screen.getByRole("radio", { name: "Team 4" })).toBeDefined();
+  });
+
   it("offers the team numbers the server named, and no others", async () => {
     stubFetch({
       "/v1/exercise": { body: { ...SCOPE, team_numbers: [1, 2, 3] } },

@@ -123,14 +123,47 @@ interface ErrorEnvelope {
   readonly error?: { readonly code?: unknown; readonly message?: unknown };
 }
 
+/**
+ * The one sentence shown when the refusal is not the exercise's own.
+ *
+ * Exported so the screens' own fallbacks read identically — there is exactly
+ * one sentence for "this did not work and the reason is not yours to read".
+ */
+export const NOT_THE_EXERCISE =
+  "This part of the exercise is not available at this address. Check the link, or ask your instructor.";
+
+/**
+ * Whether a refusal's sentence was written for a class participant.
+ *
+ * Only the exercise's own codes carry one. `exercise_errors.py` documents the
+ * contract: one plain sentence, naming no table, no column and no identifier,
+ * for a student in a marketing class to read on a projector. `invalid_request`
+ * is the shared validation code and its message is plain too, so it is allowed
+ * through.
+ *
+ * Everything else is somebody else's refusal reaching this code by accident —
+ * a Starlette 404 whose whole body is `"Not Found"`, which is what a mistyped
+ * event URL produces, and what *every* exercise call produces in a CBA-scope
+ * deployment where these routers are not registered at all (ADR-0025 D1).
+ * Rendering `Not Found` verbatim on a projector is the failure this guards.
+ */
+function hasParticipantSentence(code: string): boolean {
+  return code.startsWith("exercise_") || code === "invalid_request";
+}
+
 function refusalFrom(status: number, payload: unknown): ExerciseRefusal {
   const body = payload as ErrorEnvelope | null;
   const code = typeof body?.error?.code === "string" ? body.error.code : "exercise_unknown_refusal";
-  const message =
+  const stated =
     typeof body?.error?.message === "string" && body.error.message.trim() !== ""
       ? body.error.message
-      : "The exercise refused that, and did not say why.";
-  return new ExerciseRefusal(status, code, message);
+      : null;
+  if (!hasParticipantSentence(code)) {
+    // The code is kept on the object — a screen may still branch on it and a
+    // developer may still read it — but it never becomes the text on screen.
+    return new ExerciseRefusal(status, code, NOT_THE_EXERCISE);
+  }
+  return new ExerciseRefusal(status, code, stated ?? "The exercise refused that, and did not say why.");
 }
 
 export interface ExerciseRequestOptions {
@@ -201,6 +234,16 @@ export async function exerciseRequest<T>(
 
   if (!response.ok) {
     throw refusalFrom(response.status, payload);
+  }
+  if (response.status !== 204 && payload === null) {
+    // A 200 whose body is not JSON is not an exercise response at all. The way
+    // this happens is mundane and total: a dev server that proxies `/api` but
+    // not `/v1` answers every exercise call with the SPA's `index.html` at
+    // status 200, and returning `null as T` from here let that HTML travel on
+    // as a `TeamWorkspaceView` — the first property read threw, react-router
+    // caught it, and a participant got the 404 page with nothing pointing at
+    // the proxy. It stops here, as one sentence.
+    throw new ExerciseUnreachable();
   }
   return payload as T;
 }

@@ -47,6 +47,35 @@ function orderedKeys(factorLabels: Readonly<Record<string, string>>): string[] {
   return [...known, ...extra];
 }
 
+/**
+ * A strict decimal, ASCII-digit only, or `null`.
+ *
+ * `Number.parseFloat` reads a *prefix*: `"0.5abc"` is `0.5`, `"1,5"` (a
+ * comma-locale team's five tenths) is `1` — both silently coerce a rejected
+ * or foreign number into an accepted, wrong one. This instead matches the
+ * whole string against one plain decimal shape and returns `null` for
+ * anything else, `""` included, so the caller can tell "nothing usable was
+ * typed" from "the number is legitimately unchanged".
+ */
+function strictDecimal(text: string): number | null {
+  if (!/^-?\d+(\.\d+)?$/.test(text)) {
+    return null;
+  }
+  return Number(text);
+}
+
+/** The server's numbers as the text the boxes start from. */
+function textOf(
+  weights: Readonly<Record<string, number>>,
+  keys: readonly string[],
+): Record<string, string> {
+  const text: Record<string, string> = {};
+  for (const key of keys) {
+    text[key] = String(weights[key] ?? 0);
+  }
+  return text;
+}
+
 export function WeightsControls({
   factorLabels,
   weights,
@@ -55,13 +84,102 @@ export function WeightsControls({
 }: WeightsControlsProps): React.JSX.Element {
   const keys = orderedKeys(factorLabels);
 
-  function setOne(key: string, raw: string): void {
-    const value = Number.parseFloat(raw);
-    if (Number.isNaN(value)) {
+  /**
+   * What is in the boxes, as text, while a team is typing.
+   *
+   * The inputs used to be driven straight from the server's echo, with every
+   * keystroke sent upstream as a new weighting. That made typing `0.75`
+   * impossible: `0` refetched the list, the refetch re-rendered the panel, and
+   * the `.` had nowhere to land. A number input also reports an in-progress
+   * `0.` as the empty string, so a controlled value parsed per keystroke
+   * cannot represent one.
+   *
+   * So the text lives here until the team finishes with a box, and the server
+   * hears about it once, on blur or on Enter.
+   */
+  const [draft, setDraft] = React.useState<Record<string, string>>(() => textOf(weights, keys));
+
+  /**
+   * Which box has focus, so the server's echo does not overwrite it.
+   *
+   * When a committed weighting comes back the response's numbers are adopted —
+   * they are the truth about what the list was built from — but never into the
+   * box the team is still in.
+   */
+  const focused = React.useRef<string | null>(null);
+
+  /**
+   * The base a commit merges onto: the last weighting this component asked
+   * for, not necessarily the last one the server has confirmed.
+   *
+   * `weights` (the prop) only advances once a response lands, and the hook
+   * keeps the *previous* ready data on screen while a request is in flight
+   * (`refreshing`). Without this ref, committing box B before box A's
+   * request had resolved built B's payload on top of the stale prop — the
+   * answer to a question the server hadn't been asked yet — and silently
+   * dropped A's edit from the request that went out for B. One team's two
+   * commits in one round trip must both reach the server; the second must
+   * build on the first, not erase it.
+   */
+  const pendingBase = React.useRef<Readonly<Record<string, number>>>(weights);
+
+  /**
+   * One box's rejection sentence, or `null`. Cleared the moment that box's
+   * text changes again — the team is already fixing it.
+   */
+  const [errors, setErrors] = React.useState<Record<string, string | null>>({});
+
+  React.useEffect(() => {
+    // A confirmed response is the newest truth about what was asked for —
+    // resync the base to it. Any edit still in flight already advanced this
+    // ref past this value when it was made, so this only ever catches up.
+    pendingBase.current = weights;
+    setDraft((previous) => {
+      const next = textOf(weights, keys);
+      if (focused.current !== null && focused.current in previous) {
+        next[focused.current] = previous[focused.current];
+      }
+      return next;
+    });
+    // `keys` is derived from `factorLabels`; both change only with a new event.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [weights, factorLabels]);
+
+  /**
+   * Send the box's value upstream, once, when the team is done with it.
+   *
+   * A number the server will not take — a negative weight — is sent anyway and
+   * refused with the server's own plain sentence, like every other refusal on
+   * this screen. Guessing at the wording here would put a second copy of it in
+   * the client. A number that is not a number at all — `"0.5abc"`, `"1,5"`,
+   * an empty box — never reaches the server: it is rejected here, visibly,
+   * rather than `Number.parseFloat` reading a prefix and sending a value the
+   * team never typed.
+   */
+  function commit(key: string): void {
+    const text = draft[key] ?? "";
+    const value = strictDecimal(text);
+    if (value === null) {
+      setErrors((previous) => ({
+        ...previous,
+        [key]:
+          text.trim() === ""
+            ? "Type a number for this weight."
+            : `"${text}" is not a plain number. Use digits and one decimal point, like 0.5.`,
+      }));
       return;
     }
-    // A new object, never a mutation of the one the response gave us.
-    onChange({ ...weights, [key]: value });
+    setErrors((previous) => (previous[key] === null ? previous : { ...previous, [key]: null }));
+    if (value === pendingBase.current[key]) {
+      // Nothing changed: do not spend a request.
+      return;
+    }
+    // A new object, never a mutation of the one the response gave us, built
+    // on the last weighting asked for so a second commit before the first
+    // round trip completes still carries both edits.
+    const next = { ...pendingBase.current, [key]: value };
+    pendingBase.current = next;
+    onChange(next);
   }
 
   return (
@@ -81,14 +199,57 @@ export function WeightsControls({
               <input
                 id={inputId}
                 name={key}
-                type="number"
-                min={0}
-                step={0.05}
-                value={weights[key] ?? 0}
+                // `text`, not `number`. A number input *sanitizes its own
+                // value*: while `0.` is being typed, `input.value` reads as
+                // the empty string, in jsdom and in every browser, because
+                // `0.` is not yet a valid floating-point number. A controlled
+                // input therefore cannot hold a half-typed decimal at all —
+                // which is the exact character this whole change exists to let
+                // a team type. `inputMode="decimal"` still brings up the right
+                // keyboard, and the value is parsed on commit.
+                type="text"
+                inputMode="decimal"
+                value={draft[key] ?? ""}
                 disabled={disabled}
-                onChange={(event) => setOne(key, event.target.value)}
+                onChange={(event) => {
+                  const typed = event.target.value;
+                  setDraft((previous) => ({ ...previous, [key]: typed }));
+                  // The team is already fixing whatever was rejected.
+                  setErrors((previous) =>
+                    previous[key] === null || previous[key] === undefined
+                      ? previous
+                      : { ...previous, [key]: null },
+                  );
+                }}
+                aria-invalid={errors[key] != null}
+                aria-describedby={errors[key] == null ? undefined : `${inputId}-error`}
+                onFocus={() => {
+                  focused.current = key;
+                }}
+                onBlur={() => {
+                  focused.current = null;
+                  commit(key);
+                }}
+                onKeyDown={(event) => {
+                  // Enter in a single-input form would submit it; here it means
+                  // "I am done with this box", which is the same as blurring.
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    commit(key);
+                  }
+                }}
                 className="w-40 rounded-lg border-2 border-slate-400 px-3 py-2 text-2xl focus-visible:outline-2 focus-visible:outline-offset-2 dark:border-slate-500 dark:bg-slate-900 dark:text-slate-50"
               />
+              {errors[key] == null ? null : (
+                <p
+                  id={`${inputId}-error`}
+                  role="alert"
+                  data-slot="exercise-weight-error"
+                  className="text-lg text-red-800 dark:text-red-300"
+                >
+                  {errors[key]}
+                </p>
+              )}
             </div>
           );
         })}
