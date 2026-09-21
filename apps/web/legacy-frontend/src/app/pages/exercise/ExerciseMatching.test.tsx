@@ -319,6 +319,17 @@ describe("<ExerciseMatching />", () => {
     expect(screen.getByText("Rosa Villalobos")).toBeDefined();
     expect(screen.getByLabelText("same major")).toBeDefined();
     expect(document.querySelector('[data-slot="exercise-csv-download"]')).not.toBeNull();
+
+    // Round 3 finding 3: the list shown is the *previous* answer, not the
+    // answer to the weighting that was just refused — that has to be said,
+    // not left for a reader to assume from the rows simply not moving.
+    expect(document.querySelector('[data-slot="exercise-list-stale"]')).not.toBeNull();
+    const listSection = document.querySelector('[data-slot="exercise-list-stale"]')
+      ?.parentElement as HTMLElement;
+    expect(listSection.getAttribute("aria-describedby")).toBe("exercise-list-refusal");
+    expect(document.getElementById("exercise-list-refusal")?.textContent).toContain(
+      "Weights must sum to 1.",
+    );
   });
 
   it("keeps the name a team typed when the save is refused", async () => {

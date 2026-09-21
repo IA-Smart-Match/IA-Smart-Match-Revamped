@@ -113,6 +113,31 @@ export function useExerciseResource<T>(
   // whole of that, not just for its own network call.
   const settled = useRef<(() => void)[]>([]);
 
+  // Set the moment this hook's owner unmounts, and nowhere else. A run's
+  // cleanup hands its unresolved waiters to "whichever run replaces it" —
+  // there is no such run on an unmount, so without this they wait forever.
+  // React runs every effect's unmount cleanup in *declaration* order (verified
+  // against react-dom directly — not the reverse-order teardown a class
+  // component or a stack-based mental model would suggest), so this effect,
+  // declared *before* the data-fetching one below, has already set this to
+  // `true` by the time that effect's own cleanup checks it.
+  const unmounted = useRef(false);
+  useEffect(() => {
+    // `React.StrictMode` (`main.tsx` wraps the app in it) mounts every
+    // component twice in development: mount, cleanup, mount again, all
+    // synchronously. That first cleanup would otherwise leave this `true`
+    // for the component's entire real life — every `reload()` in dev would
+    // then resolve immediately, before its data ever lands, silently
+    // breaking G3 in exactly the environment this is developed in.
+    // Un-setting it here, in the effect's own setup, is what makes the
+    // *second* mount's cleanup (the one that fires on a genuine unmount) the
+    // one that sticks.
+    unmounted.current = false;
+    return () => {
+      unmounted.current = true;
+    };
+  }, []);
+
   useEffect(() => {
     const controller = new AbortController();
     let live = true;
@@ -169,12 +194,24 @@ export function useExerciseResource<T>(
     return () => {
       live = false;
       controller.abort();
-      if (!settledThisRun) {
-        // This run never settled — hand its waiters to whichever run
-        // replaces it, rather than resolving early (the state has not
-        // changed yet) or forgetting them (a caller of `reload` would hang).
-        settled.current = [...resolvers, ...settled.current];
+      if (settledThisRun) {
+        return;
       }
+      if (unmounted.current) {
+        // There is no next run to hand these to — the component that asked
+        // is gone. Resolve rather than leak: a caller awaiting `reload()`
+        // (a once-only button's `run`, for instance) must not hang forever
+        // just because the screen it was on has since unmounted.
+        for (const resolve of resolvers) {
+          resolve();
+        }
+        return;
+      }
+      // This run never settled and the hook is still mounted — hand its
+      // waiters to whichever run replaces it, rather than resolving early
+      // (the state has not changed yet) or forgetting them (a caller of
+      // `reload` would hang).
+      settled.current = [...resolvers, ...settled.current];
     };
     // `deps` is the caller's declared dependency list; `attempt` forces a
     // reload. `keepDataOnRefusal` is a caller constant, not a dependency.

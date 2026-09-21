@@ -14,6 +14,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { ExerciseRefusal } from "../../../lib/exerciseApi";
 import { WeightsControls } from "./WeightsControls";
 
 const LABELS = {
@@ -124,34 +125,186 @@ describe("<WeightsControls />", () => {
   });
 
   it("carries a first commit into a second one made before the response lands", () => {
-    // G1. Fails on the merged code: the second `commit` built its payload
-    // from the `weights` prop, which had not advanced yet because no
-    // response had come back for the first edit — so the second `onChange`
-    // silently dropped the first box's change instead of carrying it
-    // forward. The prop only updates on rerender, which stands in for "the
-    // round trip has not resolved yet".
+    // G1 / round 4 finding 2(b): "A accepted, B queued -> B's body contains
+    // A's value." The first commit is sent immediately; the second, made
+    // while the first is still in flight, is now QUEUED rather than sent
+    // concurrently (round 4's serialization fix — see the block below for
+    // the interleaving this replaced) and goes out only once the first
+    // settles, merged onto its confirmed result. This is the same claim the
+    // original G1 test made ("the second carries the first forward"), aimed
+    // at the queue instead of at a same-tick send.
     const onChange = vi.fn();
-    render(<WeightsControls factorLabels={LABELS} weights={WEIGHTS} onChange={onChange} />);
+    const { rerender } = render(
+      <WeightsControls factorLabels={LABELS} weights={WEIGHTS} onChange={onChange} />,
+    );
 
     const first = screen.getByLabelText("same major");
     fireEvent.focus(first);
     fireEvent.change(first, { target: { value: "0.6" } });
     fireEvent.blur(first);
 
-    // The prop the server would eventually confirm has not arrived — this
-    // component is still rendering with the original `weights`.
+    // The prop the server would eventually confirm has not arrived yet —
+    // this component is still rendering with the original `weights` — so
+    // the second commit below queues instead of sending.
     const second = screen.getByLabelText("career goal fits this event");
     fireEvent.focus(second);
     fireEvent.change(second, { target: { value: "0.4" } });
     fireEvent.blur(second);
 
-    expect(onChange).toHaveBeenCalledTimes(2);
+    expect(onChange).toHaveBeenCalledTimes(1);
     expect(onChange).toHaveBeenNthCalledWith(1, { ...WEIGHTS, same_major: 0.6 });
-    // The second call must still carry the first edit, not just its own.
+
+    // The first commit is accepted.
+    rerender(
+      <WeightsControls
+        factorLabels={LABELS}
+        weights={{ ...WEIGHTS, same_major: 0.6 }}
+        onChange={onChange}
+      />,
+    );
+
+    // The queued second commit goes out now, carrying the first edit forward.
+    expect(onChange).toHaveBeenCalledTimes(2);
     expect(onChange).toHaveBeenNthCalledWith(2, {
       ...WEIGHTS,
       same_major: 0.6,
       career_goal_fit: 0.4,
+    });
+  });
+
+  describe("serializing commits made while one is already in flight (round 4, finding 2)", () => {
+    // At most one request in flight, at most one commit queued behind it.
+    // Before this, a second commit went out concurrently with the first,
+    // built by merging onto a `pendingBase` that had been advanced
+    // optimistically for a request nobody had answered yet — so if the
+    // first was refused and the second accepted, the accepted request's own
+    // payload could still carry the first's rejected, unconfirmed number.
+
+    it("(a) does not carry a refused commit's value into the one queued behind it", () => {
+      const onChange = vi.fn();
+      const { rerender } = render(
+        <WeightsControls factorLabels={LABELS} weights={WEIGHTS} onChange={onChange} />,
+      );
+
+      const boxA = screen.getByLabelText("same major");
+      fireEvent.focus(boxA);
+      fireEvent.change(boxA, { target: { value: "0.9" } });
+      fireEvent.blur(boxA);
+      expect(onChange).toHaveBeenCalledTimes(1);
+
+      const boxB = screen.getByLabelText("career goal fits this event");
+      fireEvent.focus(boxB);
+      fireEvent.change(boxB, { target: { value: "0.4" } });
+      fireEvent.blur(boxB);
+      // B is queued, not sent, while A is still in flight.
+      expect(onChange).toHaveBeenCalledTimes(1);
+
+      // A is refused. `weights` stays the confirmed WEIGHTS.
+      rerender(
+        <WeightsControls
+          factorLabels={LABELS}
+          weights={WEIGHTS}
+          onChange={onChange}
+          refusal={new ExerciseRefusal(409, "exercise_invalid_weights", "Weights must sum to 1.")}
+        />,
+      );
+
+      expect(onChange).toHaveBeenCalledTimes(2);
+      expect(onChange).toHaveBeenNthCalledWith(2, { ...WEIGHTS, career_goal_fit: 0.4 });
+    });
+
+    it("(b) carries an accepted commit's value into the one queued behind it", () => {
+      const onChange = vi.fn();
+      const { rerender } = render(
+        <WeightsControls factorLabels={LABELS} weights={WEIGHTS} onChange={onChange} />,
+      );
+
+      const boxA = screen.getByLabelText("same major");
+      fireEvent.focus(boxA);
+      fireEvent.change(boxA, { target: { value: "0.9" } });
+      fireEvent.blur(boxA);
+
+      const boxB = screen.getByLabelText("career goal fits this event");
+      fireEvent.focus(boxB);
+      fireEvent.change(boxB, { target: { value: "0.4" } });
+      fireEvent.blur(boxB);
+      expect(onChange).toHaveBeenCalledTimes(1);
+
+      // A is accepted.
+      rerender(
+        <WeightsControls
+          factorLabels={LABELS}
+          weights={{ ...WEIGHTS, same_major: 0.9 }}
+          onChange={onChange}
+        />,
+      );
+
+      expect(onChange).toHaveBeenCalledTimes(2);
+      expect(onChange).toHaveBeenNthCalledWith(2, {
+        ...WEIGHTS,
+        same_major: 0.9,
+        career_goal_fit: 0.4,
+      });
+    });
+
+    it("(c) three quick edits produce two requests total, the second carrying both later edits", () => {
+      const onChange = vi.fn();
+      const { rerender } = render(
+        <WeightsControls factorLabels={LABELS} weights={WEIGHTS} onChange={onChange} />,
+      );
+
+      const boxA = screen.getByLabelText("same major");
+      fireEvent.focus(boxA);
+      fireEvent.change(boxA, { target: { value: "0.6" } });
+      fireEvent.blur(boxA);
+      expect(onChange).toHaveBeenCalledTimes(1);
+
+      const boxB = screen.getByLabelText("career goal fits this event");
+      fireEvent.focus(boxB);
+      fireEvent.change(boxB, { target: { value: "0.4" } });
+      fireEvent.blur(boxB);
+
+      const boxC = screen.getByLabelText("said they are interested in this topic");
+      fireEvent.focus(boxC);
+      fireEvent.change(boxC, { target: { value: "0.1" } });
+      fireEvent.blur(boxC);
+
+      // A is in flight; B and C both queued behind it — still one request.
+      expect(onChange).toHaveBeenCalledTimes(1);
+
+      rerender(
+        <WeightsControls
+          factorLabels={LABELS}
+          weights={{ ...WEIGHTS, same_major: 0.6 }}
+          onChange={onChange}
+        />,
+      );
+
+      expect(onChange).toHaveBeenCalledTimes(2);
+      expect(onChange).toHaveBeenNthCalledWith(2, {
+        ...WEIGHTS,
+        same_major: 0.6,
+        career_goal_fit: 0.4,
+        stated_interest_overlap: 0.1,
+      });
+    });
+
+    it("keeps the boxes editable while a commit is queued", () => {
+      const onChange = vi.fn();
+      render(<WeightsControls factorLabels={LABELS} weights={WEIGHTS} onChange={onChange} />);
+
+      const boxA = screen.getByLabelText("same major");
+      fireEvent.focus(boxA);
+      fireEvent.change(boxA, { target: { value: "0.9" } });
+      fireEvent.blur(boxA);
+
+      const boxB = screen.getByLabelText("career goal fits this event") as HTMLInputElement;
+      expect(boxB.disabled).toBe(false);
+      fireEvent.focus(boxB);
+      fireEvent.change(boxB, { target: { value: "0.4" } });
+
+      expect(boxB.value).toBe("0.4");
+      expect(boxB.disabled).toBe(false);
     });
   });
 
@@ -164,6 +317,9 @@ describe("<WeightsControls />", () => {
       ["1,5", "comma-locale"],
       ["0.5abc", "trailing junk"],
       ["", "empty"],
+      ["5.", "trailing dot with nothing after it"],
+      ["1e3", "scientific notation"],
+      ["+1", "leading plus"],
     ])("rejects %s (%s) rather than silently coercing it", (typed) => {
       const onChange = vi.fn();
       render(<WeightsControls factorLabels={LABELS} weights={WEIGHTS} onChange={onChange} />);
@@ -205,6 +361,144 @@ describe("<WeightsControls />", () => {
       expect(onChange).toHaveBeenCalledWith({ ...WEIGHTS, same_major: 0.6 });
       expect(document.querySelector('[data-slot="exercise-weight-error"]')).toBeNull();
     });
+
+    it("accepts a leading-dot decimal, the same value as its 0-prefixed spelling", () => {
+      // Round 3 finding: the shape `^-?\d+(\.\d+)?$` required a digit before
+      // the dot, so a team that typed ".5" instead of "0.5" — an ordinary way
+      // to write the number — was refused for a reason that has nothing to
+      // do with what G5 exists to catch.
+      const onChange = vi.fn();
+      render(<WeightsControls factorLabels={LABELS} weights={WEIGHTS} onChange={onChange} />);
+
+      const box = screen.getByLabelText("same major");
+      fireEvent.focus(box);
+      fireEvent.change(box, { target: { value: ".5" } });
+      fireEvent.blur(box);
+
+      expect(onChange).toHaveBeenCalledWith({ ...WEIGHTS, same_major: 0.5 });
+      expect(document.querySelector('[data-slot="exercise-weight-error"]')).toBeNull();
+    });
+
+    // Negative weights are deliberately NOT rejected here. Round 1 (this PR's
+    // own description, "Dropping `min={0}` with the number type") states why:
+    // the server is the one place `InvalidExerciseWeightError` wording lives
+    // (`exercise/registry.py`'s `_coerce_weight`, "weight must not be
+    // negative"), and a client-side copy of that sentence is a second copy to
+    // keep in sync, which ADR-0025 D6 and this codebase's own error-handling
+    // convention both argue against. `-1` still reaches `strictDecimal` as a
+    // valid shape and is sent, refused, and shown in the server's own words —
+    // consistent with every other exercise refusal on this screen.
+    it("still sends a negative number rather than guessing at the server's own refusal wording", () => {
+      const onChange = vi.fn();
+      render(<WeightsControls factorLabels={LABELS} weights={WEIGHTS} onChange={onChange} />);
+
+      const box = screen.getByLabelText("same major");
+      fireEvent.focus(box);
+      fireEvent.change(box, { target: { value: "-1" } });
+      fireEvent.blur(box);
+
+      expect(onChange).toHaveBeenCalledWith({ ...WEIGHTS, same_major: -1 });
+    });
+  });
+
+  it("does not let a refused commit become the base of the next one", () => {
+    // H1 (round 3). `weights` does not change on a refusal — the screen's
+    // hook deliberately keeps the same, previous `data` object — so nothing
+    // told `pendingBase` that box A's commit was rejected. The next commit,
+    // for box B, kept merging onto A's never-confirmed value instead of onto
+    // `weights` (the confirmed truth), so B's request silently carried A's
+    // rejected number along with it.
+    //
+    // Fails on 83cf0a77: the second `onChange` call includes
+    // `same_major: 0.9` even though A was refused.
+    const onChange = vi.fn();
+    const { rerender } = render(
+      <WeightsControls
+        factorLabels={LABELS}
+        weights={WEIGHTS}
+        onChange={onChange}
+        refusal={null}
+      />,
+    );
+
+    const boxA = screen.getByLabelText("same major");
+    fireEvent.focus(boxA);
+    fireEvent.change(boxA, { target: { value: "0.9" } });
+    fireEvent.blur(boxA);
+    expect(onChange).toHaveBeenCalledTimes(1);
+
+    // The screen reports A was refused. `weights` is unchanged — it is still
+    // the last confirmed weighting — but a fresh refusal object arrives.
+    rerender(
+      <WeightsControls
+        factorLabels={LABELS}
+        weights={WEIGHTS}
+        onChange={onChange}
+        refusal={new ExerciseRefusal(409, "exercise_invalid_weights", "Weights must sum to 1.")}
+      />,
+    );
+
+    const boxB = screen.getByLabelText("career goal fits this event");
+    fireEvent.focus(boxB);
+    fireEvent.change(boxB, { target: { value: "0.4" } });
+    fireEvent.blur(boxB);
+
+    expect(onChange).toHaveBeenCalledTimes(2);
+    // B's request is built on the confirmed WEIGHTS, not on A's rejected 0.9.
+    expect(onChange).toHaveBeenNthCalledWith(2, { ...WEIGHTS, career_goal_fit: 0.4 });
+  });
+
+  it("shows the confirmed number, not a silently fabricated one, once a commit is refused", () => {
+    // A refused commit is answered with the screen's own refusal sentence
+    // (rendered above this component), so this box falling back to the last
+    // confirmed number — not staying on the rejected 0.9, and not some third
+    // value nobody asked for — is an honest state, not a silent one.
+    const { rerender } = render(
+      <WeightsControls factorLabels={LABELS} weights={WEIGHTS} onChange={vi.fn()} refusal={null} />,
+    );
+
+    const box = screen.getByLabelText("same major") as HTMLInputElement;
+    fireEvent.focus(box);
+    fireEvent.change(box, { target: { value: "0.9" } });
+    fireEvent.blur(box);
+
+    rerender(
+      <WeightsControls
+        factorLabels={LABELS}
+        weights={WEIGHTS}
+        onChange={vi.fn()}
+        refusal={new ExerciseRefusal(409, "exercise_invalid_weights", "Weights must sum to 1.")}
+      />,
+    );
+
+    expect(box.value).toBe(String(WEIGHTS.same_major));
+  });
+
+  it("keeps a still-focused box's own text when the refusal for it arrives", () => {
+    // If the team is already back in the box when the refusal lands, wiping
+    // what they are mid-typing would be the same mid-keystroke loss F1 fixed
+    // — just triggered by a refusal instead of a refetch.
+    const { rerender } = render(
+      <WeightsControls factorLabels={LABELS} weights={WEIGHTS} onChange={vi.fn()} refusal={null} />,
+    );
+
+    const box = screen.getByLabelText("same major") as HTMLInputElement;
+    fireEvent.focus(box);
+    fireEvent.change(box, { target: { value: "0.9" } });
+    fireEvent.blur(box);
+    fireEvent.focus(box);
+    fireEvent.change(box, { target: { value: "0.6" } });
+
+    rerender(
+      <WeightsControls
+        factorLabels={LABELS}
+        weights={WEIGHTS}
+        onChange={vi.fn()}
+        refusal={new ExerciseRefusal(409, "exercise_invalid_weights", "Weights must sum to 1.")}
+      />,
+    );
+
+    expect(box.value).toBe("0.6");
   });
 
   it("never renders a rulebook key as a label", () => {
