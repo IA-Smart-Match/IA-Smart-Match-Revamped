@@ -76,10 +76,14 @@ placeholder values that nobody chose.
    participant see?
 4. **Asking for more.** Confirm 30 / 55 / 80 percent, and the 15 percent who
    stop opening messages after the required option. When the share lands on an
-   exact half — 30 percent of 25 invited people is 7.5 — round up or down?
+   exact half — 55 percent of a full list of 30 invited people is 16.5 — round
+   up or down?
 5. **Copied cards.** When the refresh gives someone a card, does that card
-   carry the career goal already on their record, or nothing? We default to
-   carrying it.
+   carry the career goal already on their record, or nothing? Today the card
+   itself stores no goal; the app reads the goal off the person's record
+   instead, so it is never lost, only stored in one place rather than two.
+   Unless you say otherwise, we will make the copied card carry the goal from
+   the record, and carry none only when the record has none.
 
 ### Can wait
 
@@ -93,35 +97,25 @@ placeholder values that nobody chose.
 - **A career goal with no card behind it** is ignored today, because the
   refresh copies a card and a goal alone is not one. Worth confirming.
 
-## What each answer changes
-
-| Answer | What moves |
-|---|---|
-| The eight rule quantities | One set of numbers; *Run results* stops refusing |
-| Starting weights, points | Four numbers, then two |
-| Column names, values, year order | One description of the file; the year tie-break switches on |
-| Spreadsheet or CSV | Either the same reader, or one added library |
-| Reason-line words and precedence | The sentences themselves, and one true/false switch |
-| Percentages and half-rounding | Four numbers, and one rounding rule |
-| Copied-card career goal | One switch in the refresh |
-| Two tabs | Either nothing, or how a team is recognised |
-| Five questions, license line | The card mock-up; one line on the opening screen |
-
 ## Reply form
 
-Tick or fill in and send back; anything left blank stays open.
+Answers are cheap to apply: each one lands in a single named place, listed in
+the appendix. Tick or fill in and send back; anything left blank stays open.
 
 - [ ] Eight rule quantities: 1 ___ 2 ___ 3 ___ 4 ___ 5 ___ 6 ___ 7 ___ 8 ___
 - [ ] Starting weights: same major ___ interested ___ career goal ___ past events ___
 - [ ] Points: per attended event ___ per completed card ___
-- [ ] Sample file attached ☐ · year order, most senior first: ___
-- [ ] File is: ☐ CSV ☐ .xlsx · one file ☐ two files ☐ · cell separator ___
+- [ ] Sample file attached ☐ · final column names and the values each may hold: ___ · year order, most senior first: ___
+- [ ] File is: ☐ CSV ☐ .xlsx · ☐ one file ☐ two files · cell separator ___
+- [ ] A past event is named on a person by ☐ its short key ☐ its title
+- [ ] An empty interests cell means ☐ no card at all ☐ a card with nothing on it
 - [ ] Reason lines: renderings ☐ fine ☐ change to ___ · three sentences: ___ · when both fit, show ☐ the tie line ☐ the major-only line
 - [ ] Percentages: ☐ 30/55/80 and 15 as written ☐ instead ___ · exact half ☐ up ☐ down
 - [ ] Copied card carries the career goal ☐ yes ☐ no
 - [ ] Two tabs on one team number ☐ share saved runs ☐ separate
 - [ ] Five questions: ___ · License line: ___
 - [ ] No major or no year: ☐ a count is fine ☐ the screen should say ___
+- [ ] A career goal with no card behind it ☐ stays ignored ☐ should count
 
 ## Appendix — for the builders
 
