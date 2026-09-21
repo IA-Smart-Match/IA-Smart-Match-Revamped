@@ -547,7 +547,12 @@ UNAUTHENTICATED_ROUTES: dict[tuple[str, str], str] = {
     # (ADR-0025 D1). They are not *unprotected*: all but the first two sit
     # behind a passcode session, applied as a router-level dependency in
     # `routers/exercise_instructor.py` so that it cannot be dropped by editing
-    # a handler's signature. The passcode is a door, not an identity: it
+    # a handler's signature. The first two — login and logout, which must
+    # answer *before* there is a session — are the whole of
+    # `routers/exercise_instructor_session.py`, the one instructor module with
+    # no such dependency; they were an ungated second router inside
+    # `exercise_instructor.py` until SPLIT-INSTRUCTOR-SESSION moved them out.
+    # The passcode is a door, not an identity: it
     # resolves no account, carries no role, and is checked against one
     # environment variable (OQ-CE-07).
     # ---------------------------------------------------------------------

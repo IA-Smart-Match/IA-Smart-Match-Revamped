@@ -4,8 +4,11 @@ What is pinned here, in the order the failures would hurt:
 
 1. **Every route but login and logout is shut without a session** — asserted
    over the app's own route table rather than route by route, so a route added
-   to this module and left ungated fails here without anybody remembering to
-   add a test.
+   to either instructor module and left ungated fails here without anybody
+   remembering to add a test. Login and logout are
+   ``routers/exercise_instructor_session.py``; everything else is
+   ``routers/exercise_instructor.py``, and the whole table — codes, response
+   models and dependency names — is pinned at the foot of this file.
 2. **A team's workspace cookie does not open the instructor page.** Every class
    participant holds one.
 3. **Fail closed**: a deployment with no passcode, a blank one and a
@@ -62,7 +65,7 @@ from smartmatch_api.exercise_rate_limit import (
     FixedWindowLimiter,
 )
 from smartmatch_api.main import routers_for
-from smartmatch_api.routers import exercise_instructor
+from smartmatch_api.routers import exercise_instructor, exercise_instructor_session
 from smartmatch_domain.exercise import EXERCISE_WITHHELD_FIELDS
 from smartmatch_domain.exercise.instructor_session import mint_instructor_session
 from smartmatch_domain.exercise.workspace_token import derive_workspace_token
@@ -335,9 +338,15 @@ def _real_policy(settings: Settings) -> Any:
 
 @pytest.fixture(autouse=True)
 def fresh_limiter(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A limiter per test. The real one is module-level and would leak counts."""
+    """A limiter per test. The real one is module-level and would leak counts.
+
+    Patched on ``exercise_instructor_session``, which is where the limiter has
+    lived since SPLIT-INSTRUCTOR-SESSION took the login route out of
+    ``exercise_instructor``. There is still exactly one instance and it is
+    still that module's.
+    """
     monkeypatch.setattr(
-        exercise_instructor,
+        exercise_instructor_session,
         "_LOGIN_LIMITER",
         FixedWindowLimiter(
             per_key=INSTRUCTOR_LOGIN_ATTEMPTS_PER_CLIENT,
@@ -514,7 +523,7 @@ def test_a_correct_passcode_gets_in_while_the_global_window_is_spent(
     would bring it back.
     """
     monkeypatch.setattr(
-        exercise_instructor,
+        exercise_instructor_session,
         "_LOGIN_LIMITER",
         FixedWindowLimiter(per_key=10, total=1, window=INSTRUCTOR_LOGIN_WINDOW),
     )
@@ -546,7 +555,7 @@ def test_a_correct_login_on_a_spent_global_window_refunds_nothing(
     the guard the refund freed the unit and that attempt came back 401.
     """
     monkeypatch.setattr(
-        exercise_instructor,
+        exercise_instructor_session,
         "_LOGIN_LIMITER",
         FixedWindowLimiter(per_key=10, total=1, window=INSTRUCTOR_LOGIN_WINDOW),
     )
@@ -571,7 +580,7 @@ def test_a_correct_login_inside_the_global_window_still_refunds_its_own_unit(
     units still available.
     """
     monkeypatch.setattr(
-        exercise_instructor,
+        exercise_instructor_session,
         "_LOGIN_LIMITER",
         FixedWindowLimiter(per_key=10, total=2, window=INSTRUCTOR_LOGIN_WINDOW),
     )
@@ -589,7 +598,7 @@ def test_a_wrong_passcode_on_a_spent_global_window_is_refused(
 ) -> None:
     """The bound still bounds: only a *correct* passcode survives it."""
     monkeypatch.setattr(
-        exercise_instructor,
+        exercise_instructor_session,
         "_LOGIN_LIMITER",
         FixedWindowLimiter(per_key=10, total=1, window=INSTRUCTOR_LOGIN_WINDOW),
     )
@@ -614,7 +623,7 @@ def test_the_per_key_bound_still_applies_to_a_correct_passcode(
     guessed one.
     """
     monkeypatch.setattr(
-        exercise_instructor,
+        exercise_instructor_session,
         "_LOGIN_LIMITER",
         FixedWindowLimiter(per_key=2, total=100, window=INSTRUCTOR_LOGIN_WINDOW),
     )
@@ -682,11 +691,11 @@ def _instructor_routes(settings: Settings) -> list[tuple[str, str]]:
     made the guard's coverage a property of a *name*: a future ungated route
     called ``/token-refresh`` would have been checked (correctly), but a gated
     one called ``.../datasets/login`` would have been skipped (wrongly), and —
-    worse — moving a route onto ``login_router`` without renaming it would have
-    kept it in the checked set while removing its gate, so the test would fail
-    for the right reason only by luck. ``router`` is the object the session
-    dependency is attached to; asking which router a route came from is asking
-    the question the test is about.
+    worse — moving a route onto the ungated router without renaming it would
+    have kept it in the checked set while removing its gate, so the test would
+    fail for the right reason only by luck. ``exercise_instructor.router`` is
+    the object the session dependency is attached to; asking which router a
+    route came from is asking the question the test is about.
     """
     gated = {id(route) for route in exercise_instructor.router.routes}
     found: list[tuple[str, str]] = []
@@ -1102,15 +1111,24 @@ def test_this_module_no_longer_declares_refresh_all() -> None:
     Asserted on **this module's own routes** rather than on the mounted app: two
     handlers at one path is exactly the failure a deletion can leave behind, and
     the app would answer with whichever was mounted first without saying so.
+
+    Both instructor modules are walked, because the second router this file
+    used to declare (``login_router``) is now
+    ``exercise_instructor_session.router`` and a stub could be reintroduced on
+    either one.
     """
     declared = {
         (method, route.path)
-        for route in (*exercise_instructor.router.routes, *exercise_instructor.login_router.routes)
+        for route in (
+            *exercise_instructor.router.routes,
+            *exercise_instructor_session.router.routes,
+        )
         for method in getattr(route, "methods", ())
     }
 
     assert ("POST", "/v1/exercise/instructor/refresh-all") not in declared
     assert "refresh_all_workspaces" not in vars(exercise_instructor)
+    assert "refresh_all_workspaces" not in vars(exercise_instructor_session)
 
 
 # ---------------------------------------------------------------------------
@@ -1133,11 +1151,21 @@ _SCORE_SHAPED = ("score", "percent", "confidence", "probability", "weight")
 #: response model accidentally named ``…Request`` cannot exempt itself.
 _REQUEST_MODELS = frozenset({"InstructorLoginRequest", "InviteLimitRequest"})
 
+#: Every module on the instructor side of this track, walked as one.
+#:
+#: Two entries rather than one since SPLIT-INSTRUCTOR-SESSION, and the second
+#: is not optional: ``InstructorLoginRequest`` and ``InstructorSessionView``
+#: are named by the login module alone now, so a walk over
+#: ``exercise_instructor`` by itself would quietly stop checking them — which
+#: is the drift the results track's review named as carry-over item (a).
+_TRACK_MODULES = (exercise_instructor, exercise_instructor_session)
+
 
 def _models(*, responses_only: bool = True) -> list[type[BaseModel]]:
     return [
         value
-        for value in vars(exercise_instructor).values()
+        for module in _TRACK_MODULES
+        for value in vars(module).values()
         if isinstance(value, type)
         and issubclass(value, BaseModel)
         and value is not BaseModel
@@ -1162,9 +1190,9 @@ def test_the_request_models_are_the_only_exemption_and_they_are_inputs() -> None
     """So the exemption above cannot quietly grow to cover a response."""
     declared = {model.__name__ for model in _models(responses_only=False)}
     assert declared >= _REQUEST_MODELS
+    by_name = {model.__name__: model for model in _models(responses_only=False)}
     for name in _REQUEST_MODELS:
-        model = getattr(exercise_instructor, name)
-        assert model.model_config.get("extra") == "forbid"
+        assert by_name[name].model_config.get("extra") == "forbid"
 
 
 def test_no_response_model_carries_anything_score_shaped() -> None:
@@ -1224,3 +1252,238 @@ def test_the_instructor_routes_are_absent_under_the_cba_scope() -> None:
     }
     offenders = sorted(path for path in cba_paths if path.startswith("/v1/exercise"))
     assert offenders == []
+
+
+# ---------------------------------------------------------------------------
+# The instructor scope's whole route table, pinned
+# ---------------------------------------------------------------------------
+
+#: Every route the class-exercise scope serves under ``/v1/exercise/instructor``
+#: — method, path, status code, response model and the *whole* dependency tree
+#: each one resolves, by name.
+#:
+#: Written out rather than derived, because its job is to be the thing a move
+#: is checked against. SPLIT-INSTRUCTOR-SESSION took the login and logout
+#: routes out of ``routers/exercise_instructor.py`` and into
+#: ``routers/exercise_instructor_session.py``, and "behaviour-preserving" for a
+#: router move means exactly this table: the same eleven routes, the same
+#: codes, the same models, and — the half that is a security property rather
+#: than a shape — the same dependencies, so that ``require_instructor_session``
+#: appears on the nine that must have it and on neither of the two that must
+#: not.
+#:
+#: ``get_settings`` and ``get_workspace_secret`` are here because the walk
+#: recurses: they are sub-dependencies of the cookie policy and the session
+#: guard rather than anything a handler names.
+_EXPECTED_INSTRUCTOR_ROUTES: dict[tuple[str, str], tuple[int, str, tuple[str, ...]]] = {
+    ("POST", "/v1/exercise/instructor/login"): (
+        200,
+        "InstructorSessionView",
+        (
+            "get_instructor_passcode",
+            "get_settings",
+            "get_workspace_secret",
+            "instructor_cookie_policy",
+            "require_exercise_request_header",
+        ),
+    ),
+    ("POST", "/v1/exercise/instructor/logout"): (
+        200,
+        "InstructorSessionView",
+        ("get_settings", "instructor_cookie_policy", "require_exercise_request_header"),
+    ),
+    ("GET", "/v1/exercise/instructor/datasets"): (
+        200,
+        "tuple[DatasetView, Ellipsis]",
+        (
+            "get_dataset_repository",
+            "get_exercise_session",
+            "get_settings",
+            "get_workspace_secret",
+            "require_instructor_session",
+        ),
+    ),
+    ("POST", "/v1/exercise/instructor/datasets"): (
+        201,
+        "UploadedDatasetView",
+        (
+            "get_dataset_repository",
+            "get_exercise_session",
+            "get_settings",
+            "get_workspace_secret",
+            "require_exercise_request_header",
+            "require_instructor_session",
+        ),
+    ),
+    ("PATCH", "/v1/exercise/instructor/datasets/{dataset_id}"): (
+        200,
+        "DatasetView",
+        (
+            "get_dataset_repository",
+            "get_exercise_session",
+            "get_instructor_repository",
+            "get_settings",
+            "get_workspace_secret",
+            "require_exercise_request_header",
+            "require_instructor_session",
+        ),
+    ),
+    ("POST", "/v1/exercise/instructor/datasets/{dataset_id}/repoint"): (
+        200,
+        "RepointView",
+        (
+            "get_dataset_repository",
+            "get_exercise_session",
+            "get_instructor_repository",
+            "get_settings",
+            "get_workspace_secret",
+            "require_exercise_request_header",
+            "require_instructor_session",
+        ),
+    ),
+    ("POST", "/v1/exercise/instructor/events/{event_key}/unlock"): (
+        200,
+        "UnlockView",
+        (
+            "get_exercise_session",
+            "get_instructor_repository",
+            "get_settings",
+            "get_workspace_secret",
+            "require_exercise_request_header",
+            "require_instructor_session",
+        ),
+    ),
+    ("GET", "/v1/exercise/instructor/workspaces"): (
+        200,
+        "TeamListView",
+        (
+            "get_exercise_session",
+            "get_instructor_repository",
+            "get_maybe_active_dataset",
+            "get_settings",
+            "get_workspace_secret",
+            "require_instructor_session",
+        ),
+    ),
+    ("GET", "/v1/exercise/instructor/workspaces/{team_number}"): (
+        200,
+        "TeamDetailView",
+        (
+            "get_exercise_session",
+            "get_instructor_repository",
+            "get_settings",
+            "get_workspace_secret",
+            "require_instructor_session",
+        ),
+    ),
+    ("POST", "/v1/exercise/instructor/workspaces/{team_number}/reset"): (
+        200,
+        "TeamSummaryView",
+        (
+            "get_exercise_session",
+            "get_instructor_repository",
+            "get_settings",
+            "get_workspace_repository",
+            "get_workspace_secret",
+            "require_exercise_request_header",
+            "require_instructor_session",
+        ),
+    ),
+    ("POST", "/v1/exercise/instructor/refresh-all"): (
+        200,
+        "RefreshAllView",
+        (
+            "get_dataset_repository",
+            "get_exercise_session",
+            "get_results_repository",
+            "get_settings",
+            "get_team_view_repository",
+            "get_workspace_secret",
+            "require_exercise_request_header",
+            "require_instructor_session",
+        ),
+    ),
+}
+
+#: The two that answer without a session, named here so the pin above is read
+#: rather than only compared.
+_UNGATED_INSTRUCTOR_ROUTES = frozenset(
+    {
+        ("POST", "/v1/exercise/instructor/login"),
+        ("POST", "/v1/exercise/instructor/logout"),
+    }
+)
+
+
+def _model_name(model: Any) -> str:
+    """A stable name for a response model, generic aliases included.
+
+    ``tuple[DatasetView, ...]`` has ``__name__ == "tuple"``, which would let the
+    item type change without this pin noticing.
+    """
+    if model is None:
+        return "None"
+    args = getattr(model, "__args__", None)
+    base = getattr(model, "__name__", None) or str(model)
+    if args:
+        return f"{base}[{', '.join(_model_name(arg) for arg in args)}]"
+    return base
+
+
+def _dependency_names(dependant: Any, found: set[str]) -> set[str]:
+    """Every callable in a route's dependency tree, by name, recursively."""
+    for sub in dependant.dependencies:
+        name = getattr(getattr(sub, "call", None), "__name__", None)
+        if name:
+            found.add(name)
+        _dependency_names(sub, found)
+    return found
+
+
+def _instructor_route_table(settings: Settings) -> dict[tuple[str, str], Any]:
+    table: dict[tuple[str, str], Any] = {}
+    for mounted in routers_for(settings):
+        for route in mounted.routes:
+            path = getattr(route, "path", "")
+            if not path.startswith("/v1/exercise/instructor"):
+                continue
+            for method in sorted(getattr(route, "methods", set()) - {"HEAD", "OPTIONS"}):
+                table[(method, path)] = (
+                    getattr(route, "status_code", None) or 200,
+                    _model_name(getattr(route, "response_model", None)),
+                    tuple(sorted(_dependency_names(route.dependant, set()))),
+                )
+    return table
+
+
+def test_the_instructor_scope_serves_exactly_this_route_table() -> None:
+    """The whole contract of the instructor prefix, in one comparison.
+
+    A router move is allowed to change which file a handler lives in and
+    nothing else. Compared as a whole dictionary rather than key by key, so a
+    route that disappears fails as loudly as one that changes.
+    """
+    assert _instructor_route_table(_settings()) == _EXPECTED_INSTRUCTOR_ROUTES
+
+
+def test_the_session_gate_is_on_every_route_but_the_two_that_open_the_door() -> None:
+    """Read off the pinned table, so the gate is a stated fact and not a side effect."""
+    for key, (_status, _model, dependencies) in _EXPECTED_INSTRUCTOR_ROUTES.items():
+        gated = "require_instructor_session" in dependencies
+        assert gated is (key not in _UNGATED_INSTRUCTOR_ROUTES), key
+
+
+def test_both_instructor_modules_stay_under_the_line_ceiling() -> None:
+    """The reason the split happened, kept as a rule rather than a one-off.
+
+    ``exercise_instructor.py`` was 856 lines — past the repository's 800-line
+    ceiling, and the review of PR #188 had already asked it to stop growing.
+    Asserted on both files, because a split that leaves one of them free to
+    grow has only moved the problem.
+    """
+    from pathlib import Path
+
+    for module in _TRACK_MODULES:
+        source = Path(module.__file__ or "")
+        lines = len(source.read_text(encoding="utf-8").splitlines())
+        assert lines <= 800, f"{source.name} is {lines} lines"

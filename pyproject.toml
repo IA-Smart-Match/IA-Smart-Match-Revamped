@@ -312,10 +312,15 @@ source_modules = [
     "smartmatch_api.routers.exercise_instructor",
     "smartmatch_api.routers.exercise_instructor_models",
     # CE-RESULTS-API, instructor half. A router of its own because
-    # `exercise_instructor` is already past the 800-line ceiling, and it must be
+    # `exercise_instructor` was past the 800-line ceiling, and it must be
     # listed here by hand like every other one: import-linter cannot express
     # `smartmatch_api.routers.exercise_*`.
     "smartmatch_api.routers.exercise_instructor_refresh",
+    # SPLIT-INSTRUCTOR-SESSION: the passcode login and logout, moved out of
+    # `exercise_instructor` to bring it back under the ceiling. The one
+    # instructor router with no session dependency on it, which is exactly why
+    # it must be on this list by hand like the one above.
+    "smartmatch_api.routers.exercise_instructor_session",
     "smartmatch_api.routers.exercise_matching",
     "smartmatch_api.routers.exercise_matching_csv",
     "smartmatch_api.routers.exercise_matching_models",
@@ -393,10 +398,15 @@ source_modules = [
     "smartmatch_api.routers.exercise_instructor",
     "smartmatch_api.routers.exercise_instructor_models",
     # CE-RESULTS-API, instructor half. A router of its own because
-    # `exercise_instructor` is already past the 800-line ceiling, and it must be
+    # `exercise_instructor` was past the 800-line ceiling, and it must be
     # listed here by hand like every other one: import-linter cannot express
     # `smartmatch_api.routers.exercise_*`.
     "smartmatch_api.routers.exercise_instructor_refresh",
+    # SPLIT-INSTRUCTOR-SESSION: the passcode login and logout, moved out of
+    # `exercise_instructor` to bring it back under the ceiling. The one
+    # instructor router with no session dependency on it, which is exactly why
+    # it must be on this list by hand like the one above.
+    "smartmatch_api.routers.exercise_instructor_session",
     "smartmatch_api.routers.exercise_matching",
     "smartmatch_api.routers.exercise_matching_csv",
     "smartmatch_api.routers.exercise_matching_models",
