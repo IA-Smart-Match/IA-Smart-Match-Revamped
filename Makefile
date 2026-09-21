@@ -1,10 +1,6 @@
 SHELL := /bin/bash
 VENV := .venv
-# Overridable for the same reason PYTEST is below: the pilot-e2e CI job
-# installs the pinned requirements into the runner's own interpreter rather
-# than into ./.venv, and needs `make seed-pilot-engagement PY=python` to reach
-# it instead of a venv this job never created.
-PY ?= $(VENV)/bin/python
+PY := $(VENV)/bin/python
 PIP := $(VENV)/bin/pip
 # Overridable so `make e2e` can run on a CI runner that installed the pinned
 # requirements into its own interpreter instead of into ./.venv.
@@ -96,10 +92,15 @@ e2e: ## Click through the synthetic pilot against a RUNNING compose appliance
 	# it by hand wants the stack still standing afterwards to look at.
 	#
 	# `-ra` is not decoration. Rewards (steps 14-15) walks for real when the
-	# appliance was seeded first — `make seed-pilot-engagement PY=python
-	# SEED_PILOT_ENGAGEMENT_ARGS="--subjects fixture --items-from-worksheet"`
-	# on a fixture-bearer stack, the pilot-e2e CI job's own step — and still
-	# degrades to a named skip on an appliance nobody seeded, per
+	# appliance was seeded first: run the dataset generator so a hosted event
+	# with a resolved date exists to attend
+	# (`docker compose --profile dataset run --rm dataset`), then seed the
+	# worksheet catalog and engagement fixtures against it
+	# (`docker compose --profile dataset run --rm --no-deps --entrypoint python
+	# dataset /home/smartmatch/seed_pilot_engagement.py --subjects fixture
+	# --items-from-worksheet` on a fixture-bearer stack) — the pilot-e2e CI
+	# job's own two steps. On an appliance nobody seeded this way, steps 14-15
+	# still degrade to a named skip rather than failing, per
 	# docs/pilot-data/rewards-catalog-worksheet.md. The portal pages still have
 	# no backend in this repository and always skip. Every step that cannot
 	# run calls pytest.skip naming its reason, and `-ra` prints every one of
