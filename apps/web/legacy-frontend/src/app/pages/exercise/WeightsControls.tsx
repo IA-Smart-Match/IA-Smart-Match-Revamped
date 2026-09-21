@@ -47,6 +47,23 @@ function orderedKeys(factorLabels: Readonly<Record<string, string>>): string[] {
   return [...known, ...extra];
 }
 
+/**
+ * A strict decimal, ASCII-digit only, or `null`.
+ *
+ * `Number.parseFloat` reads a *prefix*: `"0.5abc"` is `0.5`, `"1,5"` (a
+ * comma-locale team's five tenths) is `1` — both silently coerce a rejected
+ * or foreign number into an accepted, wrong one. This instead matches the
+ * whole string against one plain decimal shape and returns `null` for
+ * anything else, `""` included, so the caller can tell "nothing usable was
+ * typed" from "the number is legitimately unchanged".
+ */
+function strictDecimal(text: string): number | null {
+  if (!/^-?\d+(\.\d+)?$/.test(text)) {
+    return null;
+  }
+  return Number(text);
+}
+
 /** The server's numbers as the text the boxes start from. */
 function textOf(
   weights: Readonly<Record<string, number>>,
@@ -106,6 +123,12 @@ export function WeightsControls({
    */
   const pendingBase = React.useRef<Readonly<Record<string, number>>>(weights);
 
+  /**
+   * One box's rejection sentence, or `null`. Cleared the moment that box's
+   * text changes again — the team is already fixing it.
+   */
+  const [errors, setErrors] = React.useState<Record<string, string | null>>({});
+
   React.useEffect(() => {
     // A confirmed response is the newest truth about what was asked for —
     // resync the base to it. Any edit still in flight already advanced this
@@ -128,13 +151,27 @@ export function WeightsControls({
    * A number the server will not take — a negative weight — is sent anyway and
    * refused with the server's own plain sentence, like every other refusal on
    * this screen. Guessing at the wording here would put a second copy of it in
-   * the client.
+   * the client. A number that is not a number at all — `"0.5abc"`, `"1,5"`,
+   * an empty box — never reaches the server: it is rejected here, visibly,
+   * rather than `Number.parseFloat` reading a prefix and sending a value the
+   * team never typed.
    */
   function commit(key: string): void {
-    const value = Number.parseFloat(draft[key] ?? "");
-    if (Number.isNaN(value) || value === pendingBase.current[key]) {
-      // Nothing usable typed, or nothing changed: do not spend a request, and
-      // do not silently rewrite what the team left in the box.
+    const text = draft[key] ?? "";
+    const value = strictDecimal(text);
+    if (value === null) {
+      setErrors((previous) => ({
+        ...previous,
+        [key]:
+          text.trim() === ""
+            ? "Type a number for this weight."
+            : `"${text}" is not a plain number. Use digits and one decimal point, like 0.5.`,
+      }));
+      return;
+    }
+    setErrors((previous) => (previous[key] === null ? previous : { ...previous, [key]: null }));
+    if (value === pendingBase.current[key]) {
+      // Nothing changed: do not spend a request.
       return;
     }
     // A new object, never a mutation of the one the response gave us, built
@@ -177,7 +214,15 @@ export function WeightsControls({
                 onChange={(event) => {
                   const typed = event.target.value;
                   setDraft((previous) => ({ ...previous, [key]: typed }));
+                  // The team is already fixing whatever was rejected.
+                  setErrors((previous) =>
+                    previous[key] === null || previous[key] === undefined
+                      ? previous
+                      : { ...previous, [key]: null },
+                  );
                 }}
+                aria-invalid={errors[key] != null}
+                aria-describedby={errors[key] == null ? undefined : `${inputId}-error`}
                 onFocus={() => {
                   focused.current = key;
                 }}
@@ -195,6 +240,16 @@ export function WeightsControls({
                 }}
                 className="w-40 rounded-lg border-2 border-slate-400 px-3 py-2 text-2xl focus-visible:outline-2 focus-visible:outline-offset-2 dark:border-slate-500 dark:bg-slate-900 dark:text-slate-50"
               />
+              {errors[key] == null ? null : (
+                <p
+                  id={`${inputId}-error`}
+                  role="alert"
+                  data-slot="exercise-weight-error"
+                  className="text-lg text-red-800 dark:text-red-300"
+                >
+                  {errors[key]}
+                </p>
+              )}
             </div>
           );
         })}

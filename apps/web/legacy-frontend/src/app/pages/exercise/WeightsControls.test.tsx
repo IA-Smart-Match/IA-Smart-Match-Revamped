@@ -149,6 +149,58 @@ describe("<WeightsControls />", () => {
     });
   });
 
+  describe("rejecting a number that is not strictly a number", () => {
+    // G5. `Number.parseFloat` reads a *prefix* of its argument: "0.5abc"
+    // parses as 0.5 and "1,5" (a comma-locale team's one-and-a-half, or five
+    // tenths) parses as 1 — both would fail on the merged code by sending a
+    // value the team never typed, silently, with no message at all.
+    it.each([
+      ["1,5", "comma-locale"],
+      ["0.5abc", "trailing junk"],
+      ["", "empty"],
+    ])("rejects %s (%s) rather than silently coercing it", (typed) => {
+      const onChange = vi.fn();
+      render(<WeightsControls factorLabels={LABELS} weights={WEIGHTS} onChange={onChange} />);
+
+      const box = screen.getByLabelText("same major");
+      fireEvent.focus(box);
+      fireEvent.change(box, { target: { value: typed } });
+      fireEvent.blur(box);
+
+      expect(onChange).not.toHaveBeenCalled();
+      expect(document.querySelector('[data-slot="exercise-weight-error"]')).not.toBeNull();
+    });
+
+    it("clears the message once the team starts fixing the box", () => {
+      const onChange = vi.fn();
+      render(<WeightsControls factorLabels={LABELS} weights={WEIGHTS} onChange={onChange} />);
+
+      const box = screen.getByLabelText("same major");
+      fireEvent.focus(box);
+      fireEvent.change(box, { target: { value: "1,5" } });
+      fireEvent.blur(box);
+      expect(document.querySelector('[data-slot="exercise-weight-error"]')).not.toBeNull();
+
+      fireEvent.focus(box);
+      fireEvent.change(box, { target: { value: "0.5" } });
+
+      expect(document.querySelector('[data-slot="exercise-weight-error"]')).toBeNull();
+    });
+
+    it("still accepts an ordinary decimal", () => {
+      const onChange = vi.fn();
+      render(<WeightsControls factorLabels={LABELS} weights={WEIGHTS} onChange={onChange} />);
+
+      const box = screen.getByLabelText("same major");
+      fireEvent.focus(box);
+      fireEvent.change(box, { target: { value: "0.6" } });
+      fireEvent.blur(box);
+
+      expect(onChange).toHaveBeenCalledWith({ ...WEIGHTS, same_major: 0.6 });
+      expect(document.querySelector('[data-slot="exercise-weight-error"]')).toBeNull();
+    });
+  });
+
   it("never renders a rulebook key as a label", () => {
     render(<WeightsControls factorLabels={LABELS} weights={WEIGHTS} onChange={vi.fn()} />);
     const panel = document.querySelector('[data-slot="exercise-weights"]');
