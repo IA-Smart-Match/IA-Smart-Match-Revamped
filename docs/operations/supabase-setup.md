@@ -169,17 +169,52 @@ drift guard between the hand-written `schema.py` mirror and the migrated
 database, and it is the acceptance test that Supabase matches the contract
 in both directions.
 
-## 9. Role / GRANT model — least privilege
+## 9. Role / GRANT model
 
-Mirror the exercise-scope decision already made for the class-exercise
-database role: the application connects with a role that can read and write
-only the tables it needs, not the Supabase project's default `postgres`
-superuser-equivalent role, for anything beyond initial setup and migrations.
+There are **two different roles in play here, and they are not the same
+model.** Do not call the whole-app role below "least privilege" without
+reading this reconciliation first — it is broader than the exercise
+convention on purpose, and that gap is documented, not accidental.
+
+### 9a. The exercise-scoped role — mirrors the existing convention exactly
+
+[`docs/operations/exercise-hosting.md` §3, "The database role"](exercise-hosting.md#3-the-database-role)
+already defines the owner-decided (2026-09-21) convention for anything
+touching `exercise_*` tables: a dedicated role with narrow, **per-table,
+per-verb** `GRANT`s on `exercise_*` tables only, no `CREATE`, and migrations
+run as a separate owner role rather than this one. If the workload connecting
+to this Supabase project is (or includes) the class-exercise product scope,
+**follow that document's grant statements as written** — they are
+reproduced there, not here, so this file cannot drift out of sync with the
+owner-decided list of tables and verbs. Do not re-derive or paraphrase that
+SQL in this file.
+
+### 9b. The whole-app staging role — broader than 9a, and that is explicit
+
+For a **whole-app staging deployment** (CBA scope, not the exercise scope
+alone) the role below grants blanket read/write across every table in
+`public`, rather than the exercise convention's per-table, per-verb list.
+This is a real difference in security posture, not a rounding error: a role
+built this way can read and write tables the application code never
+touches, where the exercise-scoped role in 9a cannot. It is used here only
+because a whole-app staging role has no equivalent "the code only ever
+touches N named tables" boundary the way the exercise scope does — the CBA
+schema is ~49 tables and growing, and enumerating every one here would
+silently drift out of sync with `smartmatch_persistence/schema.py`, the
+same failure mode 9a avoids by linking out instead of duplicating SQL. If
+that boundary is ever defined for the CBA scope, this section should be
+narrowed to match 9a's shape rather than kept as blanket grants.
 
 1. Run project creation and `alembic upgrade head` (step 7) as the
-   Supabase-provisioned `postgres` role — migrations need DDL privileges.
+   Supabase-provisioned `postgres` role — migrations need DDL privileges,
+   and `postgres` is the role that owns the schema and every table
+   `alembic upgrade head` creates. `ALTER DEFAULT PRIVILEGES` in step 2
+   below is scoped to grants made *by* the role that runs it, so running
+   migrations consistently as `postgres` is what makes that default-privilege
+   grant apply automatically to tables a future migration creates, without
+   a repeated manual `GRANT` after every migration.
 2. Create a dedicated application role scoped to the `public` schema (adjust
-   the table list as the schema evolves; `smartmatch_persistence/schema.py`
+   the table list as the schema evolves; `python/smartmatch_persistence/smartmatch_persistence/schema.py`
    is the source of truth for what exists):
 
    ```sql
