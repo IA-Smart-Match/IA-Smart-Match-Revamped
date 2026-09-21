@@ -519,21 +519,22 @@ class _FakeResultsRepository:
             if row.profile_no in set(card_profile_nos)
         ]
         cards = {row.profile_no: row.hidden_true_interests for row in chosen}
-        #: OQ-CE-13, mirrored from ``results_repository.apply_refresh`` so the
-        #: fake and the real one cannot disagree about what a copied card says.
+        #: OQ-CE-13, mirrored from ``results_cards.copied_cards`` so the fake and
+        #: the real one cannot disagree about what a copied card says — including
+        #: the ``None`` entries being **dropped** rather than written, which is
+        #: what makes "a policy that says nothing writes no statement" true on
+        #: this side too.
         goals = {
-            row.profile_no: copied_card_career_goal(row.career_goal, career_goal_policy)
+            row.profile_no: goal
             for row in chosen
+            if (goal := copied_card_career_goal(row.career_goal, career_goal_policy)) is not None
         }
         for profile_no in sorted(set(topic_gainers)):
             self._patch(workspace_id, profile_no, overlay_added_event_topics=tuple(added_topics))
         for profile_no, interests in sorted(cards.items()):
-            self._patch(
-                workspace_id,
-                profile_no,
-                overlay_card_interests=interests,
-                overlay_card_career_goal=goals[profile_no],
-            )
+            self._patch(workspace_id, profile_no, overlay_card_interests=interests)
+        for profile_no, goal in sorted(goals.items()):
+            self._patch(workspace_id, profile_no, overlay_card_career_goal=goal)
         for profile_no in sorted(set(non_responding_profile_nos)):
             self._patch(workspace_id, profile_no, non_responding=True)
         return RefreshCounts(

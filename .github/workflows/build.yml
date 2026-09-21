@@ -397,13 +397,16 @@ jobs:
     # delivery event and no provider message id. Every address composed is
     # under RFC 2606's reserved `.invalid` TLD, which cannot resolve.
     #
-    # Some steps CANNOT run on this appliance and are skipped by name rather
-    # than faked — rewards is gated on the `student` role alone pending the D6
-    # decision, so the coordinator principal is correctly refused; the portal
-    # pages fetch /api/portals/*, which no service in this repository serves.
-    # `-ra` in the `make e2e` target prints every skip in the summary, so a
-    # step that did not run can never be mistaken for one that passed. Nothing
-    # in that suite widens authorization to turn a refusal into a green check.
+    # This job runs the `dataset` profile and then seeds the rewards catalog
+    # and engagement fixtures (worksheet values, fixture-bearer subjects)
+    # before `make e2e`, so steps 14-15 walk the request/decide path for real
+    # rather than only proving the empty-catalog refusal. One step still
+    # CANNOT run on this appliance and is
+    # skipped by name rather than faked — the portal pages fetch
+    # /api/portals/*, which no service in this repository serves. `-ra` in the
+    # `make e2e` target prints every skip in the summary, so a step that did
+    # not run can never be mistaken for one that passed. Nothing in that suite
+    # widens authorization to turn a refusal into a green check.
     #
     # Same posture as the two jobs above: no login, no push, no registry, no
     # cloud resource, no permission beyond `contents: read`, and fixtures only.
@@ -434,6 +437,47 @@ jobs:
         # bounded poll for that (`compose ps -a` until it reports `exited`)
         # rather than a sleep here. That race is exactly what PR #31 hit.
         run: docker compose up --build -d
+
+      - name: Generate the synthetic pilot dataset
+        # Required before the engagement seed below: `seed_pilot_engagement.py`
+        # credits the student's balance from *attendance against a hosted
+        # event with a resolved date*, and nothing in the `up -d` one-shots
+        # above creates one — `up` never runs the `dataset` service, which
+        # docker-compose.yml puts behind `profiles: ["dataset"]` on purpose
+        # (deploying, migrating and generating a demo dataset are three
+        # operations, not one; see that service's own header comment). This
+        # is the exact invocation docs/operations/pilot-dataset-rebuild.md and
+        # local-dev-walkthrough.md §6 document for the compose route. The
+        # service's own `depends_on` (api healthy, scheduler started,
+        # seed-review completed) is already satisfied by "Bring the stack up".
+        run: docker compose --profile dataset run --rm dataset
+
+      - name: Seed the rewards catalog and engagement fixtures
+        # Without this, steps 14-15 below still pass, but only by hitting the
+        # empty-catalog branch and skipping the request/decide walk — see
+        # docs/pilot-data/rewards-catalog-worksheet.md and Makefile's `e2e`
+        # comment. Run through the `dataset` service's own image rather than
+        # `make seed-pilot-engagement` on the runner: the tool needs a hosted
+        # event to credit attendance against (the step above), and
+        # docker-compose.yml's `dataset` service already mounts
+        # seed_pilot_engagement.py and documents exactly this invocation
+        # (`--no-deps` because this is a top-up against a tenant the generator
+        # already filled, not a second generator run). `--subjects fixture`
+        # targets the compose-pilot-* accounts this job's bearer tokens
+        # (compose-student, compose-admin, ...) actually resolve to, matching
+        # tests/e2e/conftest.py. `--skip-redemptions` leaves the tool's fixed
+        # three-state redemption history unwritten: that history closes the
+        # cheapest catalog item as `fulfilled`, which broke
+        # test_14_the_rewards_catalog_is_a_students_to_read_and_nobody_elses's
+        # "a freshly seeded appliance hands back no tickets nobody requested"
+        # assertion — the catalog and the student's attendance-derived balance
+        # are unaffected; only the pre-opened/approved/fulfilled rows are
+        # skipped, leaving step 15 free to open and decide its own.
+        run: |
+          docker compose --profile dataset run --rm --no-deps \
+            --entrypoint python dataset \
+            /home/smartmatch/seed_pilot_engagement.py --subjects fixture \
+            --items-from-worksheet --skip-redemptions
 
       - name: Click through the synthetic pilot
         # `make e2e` owns the invocation, including the `-ra` that surfaces

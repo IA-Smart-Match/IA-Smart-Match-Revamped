@@ -5,6 +5,7 @@ from __future__ import annotations
 import random
 import re
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 from smartmatch_domain.exercise import asking
@@ -116,12 +117,41 @@ def test_the_default_is_the_module_constant(base: str | None):
 
 
 def test_every_member_is_answered_rather_than_falling_through():
-    """A third member added without a branch must not silently mean ``NONE``."""
+    """A third member added without a branch must not silently mean ``NONE``.
+
+    The membership assertion is the half that can actually fail when somebody
+    adds a member: without it this test just reads the two it already knows
+    about and stays green while a third falls through.
+    """
     answers = {
         member: copied_card_career_goal("analytics", member) for member in CopiedCardCareerGoal
     }
+    assert set(answers) == {CopiedCardCareerGoal.BASE_GOAL, CopiedCardCareerGoal.NONE}, (
+        "a member was added; give it a branch in copied_card_career_goal and a case here"
+    )
     assert answers[CopiedCardCareerGoal.BASE_GOAL] == "analytics"
     assert answers[CopiedCardCareerGoal.NONE] is None
+
+
+def test_a_policy_that_is_not_a_member_is_refused_rather_than_answered():
+    """The fall-through F1 fixed: an unknown policy must raise, not mean ``NONE``.
+
+    A member added without a branch arrives here as a value ``match`` does not
+    cover, and the wrong answer — silently carrying no goal — is the one that
+    looks like a deliberate reading. ``assert_never`` raises ``AssertionError``,
+    not ``ValueError`` — the point of using it over a hand-rolled raise is that
+    mypy also flags an unhandled member statically.
+    """
+    with pytest.raises(AssertionError, match="stated_interest"):
+        copied_card_career_goal("analytics", cast(Any, "stated_interest"))
+
+
+def test_the_refusal_names_the_policy_and_nothing_else():
+    """No base career goal in the message: it is a data-file value."""
+    with pytest.raises(AssertionError) as refused:
+        copied_card_career_goal("a-private-goal", cast(Any, "stated_interest"))
+
+    assert "a-private-goal" not in str(refused.value)
 
 
 # --- select_share ----------------------------------------------------------

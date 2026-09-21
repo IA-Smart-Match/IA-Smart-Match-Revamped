@@ -385,3 +385,155 @@ def test_the_schema_module_declares_every_table_it_exports() -> None:
     for name, table in EXERCISE_TABLES.items():
         assert name == table.name
         assert name.startswith(_REQUIRED_PREFIX), f"{name} is in EXERCISE_TABLES without the prefix"
+
+
+# ---------------------------------------------------------------------------
+# ADR-0025 D6 — the withheld column has one reader, with known callers
+# ---------------------------------------------------------------------------
+#
+# The walk above is D2. This is D6, added in the review of PR #195 for the same
+# reason the D2 walk exists: "``dataset_repository`` is the only module that
+# reads ``hidden_true_interests``" was a claim three module docstrings made and
+# **nothing enforced**. A fourth module selecting that column passed every gate
+# in this repository.
+#
+# Prose is excluded by construction. The walk is an ``ast`` parse that looks at
+# attribute access and at string constants which are not docstrings, so the many
+# places that discuss the column in a docstring stay invisible.
+
+#: The column ADR-0025 D6 withholds, and the one module that may *select* it.
+_WITHHELD_COLUMN = "hidden_true_interests"
+_WITHHELD_READER = "dataset_repository.py"
+
+#: ``schema.py`` names the column too, but as the table definition — it declares
+#: the ``sa.Column``, it does not select or read a value. Exempt on its own
+#: account rather than folded into the reader/caller sets below.
+_WITHHELD_COLUMN_DEFINER = "schema.py"
+
+#: Every module that may call ``load_simulation_profiles``, the one method that
+#: returns the withheld column. ``results_cards`` is design spec §13's card copy;
+#: ``exercise_results_run`` is the simulated-results rule's own input. A new name
+#: here is a D6 decision, not a refactor. Each one holds a ``SimulationProfileRow``
+#: and reads ``row.hidden_true_interests`` off it — an attribute access this
+#: walk's own shape (1) catches, so these are named exemptions, not blind spots.
+_SIMULATION_PROFILE_CALLERS = frozenset(
+    {
+        "python/smartmatch_persistence/smartmatch_persistence/exercise/results_cards.py",
+        "services/api/smartmatch_api/routers/exercise_results_run.py",
+    }
+)
+_SIMULATION_PROFILE_CALLER_NAMES = frozenset(
+    Path(path).name for path in _SIMULATION_PROFILE_CALLERS
+)
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _docstring_nodes(tree: ast.AST) -> set[ast.AST]:
+    """Every string constant that is a module, class or function docstring."""
+    return {
+        node.body[0].value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Module | ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef)
+        and node.body
+        and isinstance(node.body[0], ast.Expr)
+        and isinstance(node.body[0].value, ast.Constant)
+        and isinstance(node.body[0].value.value, str)
+    }
+
+
+def _names_the_withheld_column(tree: ast.AST) -> bool:
+    """True if this module reaches the column in *code* rather than in prose.
+
+    Two shapes, which are the two ways to name a column in this package:
+
+    * ``exercise_profile.c.hidden_true_interests`` — attribute access, how every
+      ``select()`` here names a column, and how a row's field is read.
+    * a bare ``"hidden_true_interests"`` string that is not a docstring, which
+      covers ``getattr``, a ``text()`` fragment and a column-name mapping.
+    """
+    docstrings = _docstring_nodes(tree)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute) and node.attr == _WITHHELD_COLUMN:
+            return True
+        if (
+            isinstance(node, ast.Constant)
+            and isinstance(node.value, str)
+            and node.value == _WITHHELD_COLUMN
+            and node not in docstrings
+        ):
+            return True
+    return False
+
+
+@pytest.mark.parametrize("module_path", _package_modules(), ids=_module_ids())
+def test_only_one_persistence_module_reaches_the_withheld_column(module_path: Path) -> None:
+    """ADR-0025 D6, as a walk rather than as three docstrings that claim it."""
+    tree = ast.parse(module_path.read_text(encoding="utf-8"))
+
+    if module_path.name == _WITHHELD_READER:
+        assert _names_the_withheld_column(tree), (
+            f"{_WITHHELD_READER} is the one permitted reader and no longer names the column; "
+            "if the reader moved, move this pin with it deliberately"
+        )
+        return
+
+    if module_path.name == _WITHHELD_COLUMN_DEFINER:
+        assert _names_the_withheld_column(tree), (
+            f"{_WITHHELD_COLUMN_DEFINER} no longer declares {_WITHHELD_COLUMN}; "
+            "if the column moved, move this pin with it deliberately"
+        )
+        return
+
+    if module_path.name in _SIMULATION_PROFILE_CALLER_NAMES:
+        assert _names_the_withheld_column(tree), (
+            f"{module_path.name} is a named load_simulation_profiles caller and no longer reads "
+            f"{_WITHHELD_COLUMN} off the row; if it stopped, drop it from "
+            "_SIMULATION_PROFILE_CALLERS deliberately"
+        )
+        return
+
+    assert not _names_the_withheld_column(tree), (
+        f"{module_path.name} reaches {_WITHHELD_COLUMN} in code. ADR-0025 D6 keeps it to "
+        f"{_WITHHELD_READER}, {_WITHHELD_COLUMN_DEFINER}, and the named "
+        "load_simulation_profiles callers; go through load_simulation_profiles instead"
+    )
+
+
+def test_the_withheld_walk_is_capable_of_failing() -> None:
+    """The pin above is known to catch what it claims, not assumed to.
+
+    A module whose only mention is a docstring must stay invisible, and both
+    code shapes must be caught — otherwise the parametrised test is a row of
+    passes that would survive the thing it exists to stop.
+    """
+    prose_only = ast.parse(f'"""A module that discusses {_WITHHELD_COLUMN} and reads nothing."""')
+    assert not _names_the_withheld_column(prose_only)
+
+    attribute = ast.parse(f"row = exercise_profile.c.{_WITHHELD_COLUMN}")
+    assert _names_the_withheld_column(attribute)
+
+    literal = ast.parse(f'column = getattr(row, "{_WITHHELD_COLUMN}")')
+    assert _names_the_withheld_column(literal)
+
+
+def test_load_simulation_profiles_has_exactly_the_known_callers() -> None:
+    """The one method that returns the withheld column, and who may call it.
+
+    Searched over source text across both trees rather than through the import
+    graph, because what matters is a *call* and an import of the repository
+    class is not one. The definition site is excluded by name.
+    """
+    called_from = set()
+    for tree_root in ("python", "services"):
+        for path in sorted((_REPO_ROOT / tree_root).rglob("*.py")):
+            if path.name == _WITHHELD_READER:
+                continue
+            if "load_simulation_profiles(" in path.read_text(encoding="utf-8"):
+                called_from.add(path.relative_to(_REPO_ROOT).as_posix())
+
+    assert called_from == set(_SIMULATION_PROFILE_CALLERS), (
+        "the set of modules calling load_simulation_profiles changed. Every caller holds the "
+        "withheld column in memory, so adding one is an ADR-0025 D6 decision: "
+        f"expected {sorted(_SIMULATION_PROFILE_CALLERS)}, found {sorted(called_from)}"
+    )

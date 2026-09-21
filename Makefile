@@ -91,10 +91,23 @@ e2e: ## Click through the synthetic pilot against a RUNNING compose appliance
 	# always-run `down -v` so logs survive a failure, and a developer running
 	# it by hand wants the stack still standing afterwards to look at.
 	#
-	# `-ra` is not decoration. Several steps in this suite cannot run on this
-	# appliance at all — rewards is gated on the `student` role pending the D6
-	# decision, and the portal pages have no backend in this repository — and
-	# each one calls pytest.skip naming its reason. `-ra` prints every one of
+	# `-ra` is not decoration. Rewards (steps 14-15) walks for real when the
+	# appliance was seeded first: run the dataset generator so a hosted event
+	# with a resolved date exists to attend
+	# (`docker compose --profile dataset run --rm dataset`), then seed the
+	# worksheet catalog and engagement fixtures against it
+	# (`docker compose --profile dataset run --rm --no-deps --entrypoint python
+	# dataset /home/smartmatch/seed_pilot_engagement.py --subjects fixture
+	# --items-from-worksheet --skip-redemptions` on a fixture-bearer stack) —
+	# the pilot-e2e CI job's own two steps. `--skip-redemptions` matters here:
+	# the tool's demo redemption history closes the cheapest catalog item as
+	# already `fulfilled`, which is correct for a demo and wrong for a suite
+	# about to open its own redemption against a catalog it expects untouched.
+	# On an appliance nobody seeded this way, steps 14-15
+	# still degrade to a named skip rather than failing, per
+	# docs/pilot-data/rewards-catalog-worksheet.md. The portal pages still have
+	# no backend in this repository and always skip. Every step that cannot
+	# run calls pytest.skip naming its reason, and `-ra` prints every one of
 	# them in the summary, so a skipped step can never be read as a passed one.
 	#
 	# $(PYTEST) rather than $(VENV)/bin/pytest directly: the CI job for this

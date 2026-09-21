@@ -64,10 +64,15 @@ Makefile target passes ``-ra`` so each one is printed in the summary. Nothing
 here asserts a fake success and nothing here widens authorization to make a
 test pass.
 
-* **Rewards is gated on the ``student`` role alone.** The compose principal is
-  a coordinator, so the catalog and the redemption self-read are ``403``. That
-  is deliberate pending the D6 role decision, so this module asserts the 403 is
-  a *correct refusal* and skips the catalog walk by name.
+* **Rewards is gated on the ``student`` role, and asserted as gated.** The
+  compose coordinator principal still gets ``403`` on the catalog and the
+  redemption self-read, and ``test_14_the_rewards_catalog_is_a_students_to_read_and_nobody_elses``
+  asserts that refusal before switching to the pre-loaded student principal to
+  read the catalog. Whether step 15 walks the request/decide path or only
+  proves the empty-catalog ``404`` refusal depends on whether the appliance was
+  seeded with ``make seed-pilot-engagement --subjects fixture
+  --items-from-worksheet`` first — the pilot-e2e CI job's own step — per
+  ``docs/pilot-data/rewards-catalog-worksheet.md``.
 * **The review queue has no list route.** The API exposes only
   ``POST /v1/review-items/{id}/decision``; the id a coordinator would click is
   not obtainable from any ``/v1`` path. The item ids below are therefore read
