@@ -1060,6 +1060,79 @@ def test_a_refresh_claims_the_row_after_the_key_and_before_the_overlay(
         assert statement.count("EXCLUDED.") == 1, "a narrow upsert writes exactly one column"
 
 
+def test_a_none_policy_issues_no_career_goal_statement_at_all(
+    exercise_sessions: sessionmaker[Session],
+) -> None:
+    """ "Writes no statement" is a claim about the log, so read the log.
+
+    Three ``NULL``s could equally mean three ``NULL``s were *written*. What the
+    docstrings actually promise is that a policy yielding nothing leaves the
+    refresh's statement sequence exactly as PR #190 shipped it — which is only
+    visible here, and is what lets `_overlay_upsert`'s early return be load
+    bearing rather than an optimisation.
+    """
+    results = ExerciseResultsRepository()
+    with exercise_sessions() as session:
+        dataset_id, (workspace_id, _) = _classroom(session)
+        results.choose_asking(session, workspace_id=workspace_id, choice="required")
+        session.commit()
+
+        recorded = _statement_log(session)
+        results.apply_refresh(
+            session,
+            dataset_id=dataset_id,
+            workspace_id=workspace_id,
+            added_topics=["analytics"],
+            topic_gainers=[1],
+            card_profile_nos=[1, 2, 3],
+            non_responding_profile_nos=[],
+            now=_now(session),
+            career_goal_policy=CopiedCardCareerGoal.NONE,
+        )
+        session.info["_stop_recording"]()
+        session.commit()
+
+    overlay_writes = [
+        statement
+        for statement, _ in recorded
+        if "INSERT INTO EXERCISE_PROFILE_OVERLAY" in statement
+    ]
+    assert overlay_writes, "the refresh wrote no overlay at all, so this proves nothing"
+    assert not [
+        statement for statement in overlay_writes if "EXCLUDED.CARD_CAREER_GOAL" in statement
+    ], "a NONE policy must issue no card_career_goal statement, not write NULLs"
+
+
+def test_a_base_goal_policy_issues_exactly_one_career_goal_statement(
+    exercise_sessions: sessionmaker[Session],
+) -> None:
+    """The other side of the pin above, so it cannot pass by writing nothing."""
+    results = ExerciseResultsRepository()
+    with exercise_sessions() as session:
+        dataset_id, (workspace_id, _) = _classroom(session)
+        results.choose_asking(session, workspace_id=workspace_id, choice="required")
+        session.commit()
+
+        recorded = _statement_log(session)
+        results.apply_refresh(
+            session,
+            dataset_id=dataset_id,
+            workspace_id=workspace_id,
+            added_topics=["analytics"],
+            topic_gainers=[1],
+            card_profile_nos=[1, 2, 3],
+            non_responding_profile_nos=[],
+            now=_now(session),
+        )
+        session.info["_stop_recording"]()
+        session.commit()
+
+    assert (
+        len([statement for statement, _ in recorded if "EXCLUDED.CARD_CAREER_GOAL" in statement])
+        == 1
+    ), "the default policy writes the goals in one narrow upsert"
+
+
 def test_a_reset_takes_all_three_keys_in_the_declared_order(
     exercise_sessions: sessionmaker[Session],
 ) -> None:
