@@ -39,6 +39,12 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
+
+    from fastapi import FastAPI
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -209,6 +215,68 @@ class TestNoCompositionRootImportsIt:
         assert result.stdout.strip() == "False"
 
 
+def _nested_route_paths(routes: Iterable[object]) -> set[str]:
+    """Best-effort descent into nested routers, for the paths OpenAPI omits.
+
+    Purely additive, and deliberately so. Reaching the routes inside an
+    ``_IncludedRouter`` means touching ``original_router``, which is FastAPI's
+    private business and may be renamed without notice. So every step is a
+    ``getattr`` with a default: on a FastAPI that spells it differently this
+    returns fewer paths — in the limit, none — and :func:`_app_paths` still has
+    the whole OpenAPI document underneath it. A version bump can therefore cost
+    this walk some reach, but it cannot make it wrong, and it cannot make the
+    guard below vacuous the way reading ``app.routes`` did.
+    """
+    found: set[str] = set()
+    seen: set[int] = set()
+
+    def visit(route: object) -> None:
+        if id(route) in seen:  # a router included twice, or any cycle
+            return
+        seen.add(id(route))
+
+        inner = getattr(route, "original_router", None) or getattr(route, "router", None)
+        if inner is not None:
+            for nested in getattr(inner, "routes", ()) or ():
+                visit(nested)
+            return
+
+        path = getattr(route, "path", None)
+        if isinstance(path, str) and path:
+            found.add(path)
+        for nested in getattr(route, "routes", ()) or ():
+            visit(nested)
+
+    for route in routes:
+        visit(route)
+    return found
+
+
+def _app_paths(app: FastAPI) -> set[str]:
+    """Every path an app actually serves. Not ``app.routes``.
+
+    ``app.routes`` is the obvious place to look and it is the wrong one. On
+    FastAPI 0.141 ``include_router`` leaves an ``_IncludedRouter`` wrapper in
+    ``app.routes`` — 35 of the live API's 40 entries — and a wrapper carries no
+    ``.path``. So the set comprehension this function replaced,
+    ``{str(getattr(route, "path", "")) for route in app.routes}``, collapsed
+    every included route to ``""`` and returned six items: ``""``, the one
+    route declared with ``@app.get``, and the four documentation routes. The
+    app serves 66. A crawl route mounted through any router — which is how
+    every route in this app but one is mounted — never appeared in that set,
+    and the guard that reads it would have passed with
+    ``POST /api/crawler/start`` live. ``tests/contract/test_api_health.py``
+    reaches for the OpenAPI document for this same reason, in these same words.
+
+    The document is what a client sees, so it is also the more meaningful
+    thing to assert on. Its one gap is ``include_in_schema=False``, which
+    :func:`_nested_route_paths` covers on a best-effort basis. On this app that
+    gap is exactly four routes — ``/docs``, ``/docs/oauth2-redirect``,
+    ``/openapi.json`` and ``/redoc`` — and none is crawl-shaped.
+    """
+    return set(app.openapi()["paths"]) | _nested_route_paths(app.routes)
+
+
 class TestNoRuntimeSurface:
     """No worker command, no HTTP route, no contract change."""
 
@@ -244,15 +312,61 @@ class TestNoRuntimeSurface:
         """The app object, not only the committed file.
 
         A route added to `main.py` without regenerating the contract would slip
-        past the assertion above; this one reads the router table itself.
+        past the assertion above; this one reads what the app itself serves.
+        See :func:`_app_paths` for why that is not ``app.routes``.
         """
         from smartmatch_api.main import app
 
-        routes = {str(getattr(route, "path", "")) for route in app.routes}
+        paths = _app_paths(app)
 
-        assert not any(token in path.lower() for path in routes for token in _CRAWL_TOKENS), (
-            f"routes: {sorted(routes)}"
+        assert len(paths) > 10, (
+            f"the walk found only {len(paths)} path(s): {sorted(paths)}. A set "
+            "this small does not mean the app is small — it serves dozens — it "
+            "means the walk went blind, and a blind walk reports no crawl route "
+            "no matter what is mounted."
         )
+        assert not any(token in path.lower() for path in paths for token in _CRAWL_TOKENS), (
+            f"routes: {sorted(paths)}"
+        )
+
+    def test_the_route_walk_sees_a_crawl_route_mounted_through_include_router(self):
+        """The guard above, proved able to fail.
+
+        The defect this file carried was not a wrong answer but a vacuous one,
+        and vacuity is invisible from a green test run: every assertion passed,
+        every time, over a six-item set that could not have contained the thing
+        being looked for. So the repair owes a demonstration. This mounts the
+        route the guard exists to catch — on a throwaway app, through
+        ``include_router``, the exact composition that hid it — and asserts the
+        same helper the real check uses flags it.
+
+        The fake router is a path string and a stub that is never called. It
+        imports no crawler module, reaches no provider, and is unreachable from
+        anything but this function's body. G3 keeps the crawl surface absent;
+        this test is here to keep proving that, and a decoy with no
+        implementation behind it is the only way to prove a guard can fire
+        without building the thing it guards against.
+        """
+        from fastapi import APIRouter, FastAPI
+
+        router = APIRouter()
+
+        @router.post("/api/crawler/start")
+        def _decoy() -> dict[str, str]:  # pragma: no cover - mounted, never called
+            raise AssertionError("decoy route: this test asserts on the path table only")
+
+        probe = FastAPI()
+        probe.include_router(router)
+
+        paths = _app_paths(probe)
+
+        assert "/api/crawler/start" in paths, (
+            "the walk cannot see a route added by include_router, so the guard "
+            f"above is vacuous: {sorted(paths)}"
+        )
+        assert sorted(
+            path for path in paths if any(token in path.lower() for token in _CRAWL_TOKENS)
+        ) == ["/api/crawler/start"]
 
 
 class TestNoPersistence:
