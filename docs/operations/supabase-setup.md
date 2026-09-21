@@ -144,7 +144,7 @@ SMARTMATCH_DB_MAX_OVERFLOW=<fits under the plan limit>
 ```
 
 `pool_pre_ping=True` is already on by default in
-`smartmatch_persistence/engine.py` and covers idle-connection drops, but not
+`python/smartmatch_persistence/smartmatch_persistence/engine.py` and covers idle-connection drops, but not
 pool exhaustion — an undersized plan limit against the default pool sizing
 surfaces as `TimeoutError` from the pool, or SQLSTATE `53300` ("too many
 connections") from Postgres itself. See
@@ -215,7 +215,7 @@ touches, where the exercise-scoped role in 9a cannot. It is used here only
 because a whole-app staging role has no equivalent "the code only ever
 touches N named tables" boundary the way the exercise scope does — the CBA
 schema is ~49 tables and growing, and enumerating every one here would
-silently drift out of sync with `smartmatch_persistence/schema.py`, the
+silently drift out of sync with `python/smartmatch_persistence/smartmatch_persistence/schema.py`, the
 same failure mode 9a avoids by linking out instead of duplicating SQL. If
 that boundary is ever defined for the CBA scope, this section should be
 narrowed to match 9a's shape rather than kept as blanket grants.
