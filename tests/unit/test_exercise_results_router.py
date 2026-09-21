@@ -1507,6 +1507,37 @@ def test_a_response_body_carries_no_withheld_value(
             assert f'"{term}"' not in bodies, f"{term} left the server"
 
 
+def test_a_team_seed_never_reaches_a_printed_form() -> None:
+    """Review round 1, F4: a ``repr`` is what a log line and an assertion print.
+
+    A seed is not a credential — it forges nothing, and the workspace token is
+    derived from the id under a separate secret. What it *is* is the whole of
+    what makes one team's results that team's: two teams handed the same seed
+    see the same answers, which this file's own
+    ``test_the_same_request_twice_gives_the_same_panels`` relies on. So a seed
+    in a shared log or on a projector is an invitation to compare notes with a
+    number instead of with a screen.
+
+    ``RefreshCandidate`` matters more sharply than ``TeamResultsState``:
+    "refresh all" builds a list of them, so one ``repr`` of that list would
+    print every team's seed at once.
+    """
+    seed = 123_456_789
+    state = TeamResultsState(seed=seed, asking_choice="required", refreshed_at=None)
+    candidate = RefreshCandidate(
+        workspace_id=uuid.uuid4(),
+        dataset_id=_DATASET_ID,
+        team_number=4,
+        asking_choice="required",
+        seed=seed,
+    )
+
+    assert str(seed) not in repr(state)
+    assert str(seed) not in repr([candidate])
+    assert state.seed == seed, "the value is still there to be read deliberately"
+    assert candidate.seed == seed
+
+
 def test_a_simulation_profile_never_prints_its_true_interests() -> None:
     """A ``repr`` is what a log line and an assertion message publish."""
     profile = SimulationProfile(

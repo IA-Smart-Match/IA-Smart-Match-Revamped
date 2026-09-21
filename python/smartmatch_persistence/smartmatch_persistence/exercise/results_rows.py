@@ -22,7 +22,7 @@ own single ``ignore_imports`` edge.
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 
 __all__ = [
@@ -92,13 +92,24 @@ class TeamResultsState:
             (design spec §11). Read here because
             ``workspace_repository.ExerciseWorkspace`` deliberately does not
             carry it; see this module's docstring.
+
+            ``repr=False`` (review round 1, F4). A seed is not a credential —
+            possession of it forges nothing and the workspace token is derived
+            from the id under a separate secret — but it **is** the whole of
+            what makes one team's results that team's, and a default ``repr``
+            is what a log line, an assertion message and a debugger transcript
+            print. Two teams handed the same seed see the same answers, so a
+            seed on a projector or in a shared log is an invitation to compare
+            notes with a number instead of with a screen. It is left out of the
+            printed form for the reason ``ExerciseWorkspace`` leaves it out of
+            the type altogether: reaching it should be deliberate.
         asking_choice: One of ``AskingChoice``'s three values, or ``None`` when
             the team has not chosen. ``None`` is a different fact from any
             choice, which is why the column is nullable.
         refreshed_at: When the one refresh happened, or ``None``.
     """
 
-    seed: int
+    seed: int = field(repr=False)
     asking_choice: str | None
     refreshed_at: datetime | None
 
@@ -110,13 +121,17 @@ class RefreshCandidate:
     *Chosen and not yet refreshed* — the two conditions the instructor route
     filters on, expressed as the read rather than as a filter somebody applies
     afterwards.
+
+    ``seed`` is ``repr=False`` for :class:`TeamResultsState`'s reason, and more
+    sharply here: "refresh all" builds a list of these, so one ``repr`` of that
+    list would print every team's seed at once.
     """
 
     workspace_id: uuid.UUID
     dataset_id: uuid.UUID
     team_number: int
     asking_choice: str
-    seed: int
+    seed: int = field(repr=False)
 
 
 @dataclass(frozen=True, slots=True)
