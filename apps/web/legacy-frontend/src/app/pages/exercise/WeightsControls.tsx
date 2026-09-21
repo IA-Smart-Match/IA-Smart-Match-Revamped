@@ -141,23 +141,74 @@ export function WeightsControls({
   const pendingBase = React.useRef<Readonly<Record<string, number>>>(weights);
 
   /**
+   * Whether a commit's request is currently in flight — i.e. `onChange` has
+   * been called and neither `weights` nor `refusal` has answered it yet.
+   *
+   * At most one request in flight, at most one commit queued behind it (see
+   * `queuedEdits`). Sending a second commit while the first is still open
+   * used to let the two race: if the server processed them out of order, or
+   * refused the first but accepted the second, the accepted commit's own
+   * payload still carried the *other* commit's now-meaningless number,
+   * because it was built by merging onto a `pendingBase` that had already
+   * been advanced optimistically for a request nobody had answered yet.
+   * Queuing removes the interleaving entirely — the second commit is built
+   * only once the first is known to have succeeded or failed.
+   */
+  const [inFlight, setInFlight] = React.useState(false);
+
+  /**
+   * Edits committed while a request was in flight, merged into one map and
+   * sent as a single follow-up commit once that request settles — built on
+   * whatever the settled request's outcome says the confirmed weights now
+   * are, never on the in-flight request's own optimistic guess.
+   */
+  const queuedEdits = React.useRef<Record<string, number> | null>(null);
+
+  /**
    * One box's rejection sentence, or `null`. Cleared the moment that box's
    * text changes again — the team is already fixing it.
    */
   const [errors, setErrors] = React.useState<Record<string, string | null>>({});
 
-  React.useEffect(() => {
-    // A confirmed response is the newest truth about what was asked for —
-    // resync the base to it. Any edit still in flight already advanced this
-    // ref past this value when it was made, so this only ever catches up.
-    pendingBase.current = weights;
+  /**
+   * Common to both ways a commit settles: a successful load (`weights`
+   * changed) and a refusal (`weights` unchanged, `refusal` fresh). Either
+   * way `weights` is the newest confirmed truth — on a refusal because
+   * `useExerciseResource` never applied the rejected data at all.
+   *
+   * If an edit was queued while the just-settled request was in flight, it
+   * is sent now, merged onto this confirmed base — never onto the settled
+   * request's own optimistic `pendingBase`, which is exactly the base a
+   * refused commit must not be built on (H1's fix, extended to the queue).
+   */
+  function onSettled(confirmed: Readonly<Record<string, number>>): void {
+    pendingBase.current = confirmed;
+    setInFlight(false);
+    const queued = queuedEdits.current;
+    queuedEdits.current = null;
     setDraft((previous) => {
-      const next = textOf(weights, keys);
-      if (focused.current !== null && focused.current in previous) {
-        next[focused.current] = previous[focused.current];
+      const next = textOf(confirmed, keys);
+      // Keep whatever the team is still typing in the focused box, and
+      // whatever a queued-but-not-yet-sent edit set for any other box — both
+      // are truer than the confirmed number for a box that has moved on.
+      for (const key of Object.keys(next)) {
+        if (key === focused.current || (queued !== null && key in queued)) {
+          next[key] = previous[key] ?? next[key];
+        }
       }
       return next;
     });
+    if (queued !== null) {
+      const next = { ...confirmed, ...queued };
+      pendingBase.current = next;
+      setInFlight(true);
+      onChange(next);
+    }
+  }
+
+  React.useEffect(() => {
+    // A confirmed response is the newest truth about what was asked for.
+    onSettled(weights);
     // `keys` is derived from `factorLabels`; both change only with a new event.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [weights, factorLabels]);
@@ -178,25 +229,17 @@ export function WeightsControls({
     if (refusal === null) {
       return;
     }
-    pendingBase.current = weights;
-    setDraft((previous) => {
-      const confirmed = textOf(weights, keys);
-      if (focused.current !== null && focused.current in previous) {
-        // The team may still be in the box that was refused; keep what they
-        // typed so the refusal sentence next to it is about something still
-        // on screen, not a value this effect just made vanish.
-        confirmed[focused.current] = previous[focused.current];
-      }
-      return confirmed;
-    });
-    // `weights` and `keys` are read for their value as of the refusal, not
-    // watched — this effect's own trigger is `refusal` itself, a fresh
-    // object per refused attempt.
+    onSettled(weights);
+    // `weights` is read for its value as of the refusal, not watched — this
+    // effect's own trigger is `refusal` itself, a fresh object per refused
+    // attempt.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refusal]);
 
   /**
-   * Send the box's value upstream, once, when the team is done with it.
+   * Send the box's value upstream, once, when the team is done with it — or,
+   * if another commit is already in flight, fold it into the one commit
+   * queued behind it (see `queuedEdits`).
    *
    * A number the server will not take — a negative weight — is sent anyway and
    * refused with the server's own plain sentence, like every other refusal on
@@ -220,15 +263,26 @@ export function WeightsControls({
       return;
     }
     setErrors((previous) => (previous[key] === null ? previous : { ...previous, [key]: null }));
-    if (value === pendingBase.current[key]) {
-      // Nothing changed: do not spend a request.
+    // What the next request would ask for if it went out right now: the
+    // last confirmed base, with any already-queued edit layered on top.
+    const effectiveBase = { ...pendingBase.current, ...(queuedEdits.current ?? {}) };
+    if (value === effectiveBase[key]) {
+      // Nothing changed relative to what has already been asked for or
+      // queued: do not spend a request.
+      return;
+    }
+    if (inFlight) {
+      // The boxes stay editable while queued; this edit joins whatever else
+      // is already waiting and both go out together once the in-flight
+      // request settles.
+      queuedEdits.current = { ...(queuedEdits.current ?? {}), [key]: value };
       return;
     }
     // A new object, never a mutation of the one the response gave us, built
-    // on the last weighting asked for so a second commit before the first
-    // round trip completes still carries both edits.
+    // on the last confirmed weighting.
     const next = { ...pendingBase.current, [key]: value };
     pendingBase.current = next;
+    setInFlight(true);
     onChange(next);
   }
 
