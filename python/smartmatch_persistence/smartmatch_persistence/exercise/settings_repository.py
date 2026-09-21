@@ -171,14 +171,14 @@ MAX_SAVED_SETTINGS_PER_EVENT: Final[int] = 3
 #: * ``refresh_all`` (the instructor router, through ``results_repository``) —
 #:   result runs, once → whatever ``apply_refresh`` takes, per workspace. The key
 #:   is re-entrant, so holding it across the loop costs one acquire.
-#: * every ``list_*`` read — none → none.
+#: * every other read — none → none.
 #:
 #: ``dataset_repository``
 #:
 #: * ``create_dataset`` — none → INSERT dataset, profiles, events.
 #: * ``load_simulation_profiles`` — none → none. Called from inside
 #:   ``results_repository.apply_refresh``, which already holds the third key.
-#: * every ``list_*`` read — none → none.
+#: * every other read — none → none.
 #:
 #: **Why the order is the one it is.** ``save_setting`` forces it: it holds this
 #: key and then waits for a FOR KEY SHARE lock on the workspace row its insert
