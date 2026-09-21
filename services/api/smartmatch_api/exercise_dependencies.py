@@ -131,6 +131,8 @@ from smartmatch_persistence.exercise.results_repository import (
     AlreadyRunError,
     ExerciseResultsRepository,
     ExerciseResultsWriteRefused,
+)
+from smartmatch_persistence.exercise.results_rows import (
     RefreshCandidate,
     RefreshCounts,
     ResultPanel,

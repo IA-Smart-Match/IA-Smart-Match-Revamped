@@ -579,7 +579,9 @@ def read_asking_choice(
         ExerciseError: 401 when the cookie is absent or names no workspace.
     """
     team_state = _team_state_or_refusal(session, results, workspace)
-    return asking_state_view(team_state.asking_choice, refreshed=team_state.refreshed_at is not None)
+    return asking_state_view(
+        team_state.asking_choice, refreshed=team_state.refreshed_at is not None
+    )
 
 
 @router.post(
@@ -616,7 +618,9 @@ def choose_asking(
         )
     session.commit()
     team_state = _team_state_or_refusal(session, results, workspace)
-    return asking_state_view(team_state.asking_choice, refreshed=team_state.refreshed_at is not None)
+    return asking_state_view(
+        team_state.asking_choice, refreshed=team_state.refreshed_at is not None
+    )
 
 
 def _choice_or_refusal(raw: str) -> AskingChoice:

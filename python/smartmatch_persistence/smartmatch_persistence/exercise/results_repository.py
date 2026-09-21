@@ -57,7 +57,6 @@ import hashlib
 import logging
 import uuid
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass
 from datetime import datetime
 from typing import Final
 
@@ -67,6 +66,13 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from smartmatch_persistence.exercise.dataset_repository import ExerciseDatasetRepository
+from smartmatch_persistence.exercise.results_rows import (
+    RefreshCandidate,
+    RefreshCounts,
+    ResultPanel,
+    StoredResultRun,
+    TeamResultsState,
+)
 from smartmatch_persistence.exercise.schema import (
     exercise_profile_overlay,
     exercise_result_run,
@@ -202,105 +208,6 @@ def _constraint_name(error: SQLAlchemyError) -> str:
     diagnostic = getattr(original, "diag", None)
     name = getattr(diagnostic, "constraint_name", None)
     return str(name) if name else "unknown"
-
-
-@dataclass(frozen=True, slots=True)
-class ResultPanel:
-    """One run of the simulated-results rule, as profile numbers only.
-
-    The shape design spec §10's panels share — the team's own list and "email
-    everyone" are the same three sets over different inputs, so they are the
-    same value here rather than two near-identical ones.
-
-    Carries no name, no major, no interest and no number resembling a score
-    (ADR-0025 D6 and D8). ``attended ⊆ signed_up ⊆ invited`` holds because
-    ``smartmatch_domain.exercise.simulation`` produced it and this type only
-    carries it.
-    """
-
-    invited_profile_nos: tuple[int, ...]
-    signed_up_profile_nos: tuple[int, ...]
-    attended_profile_nos: tuple[int, ...]
-
-
-@dataclass(frozen=True, slots=True)
-class StoredResultRun:
-    """One row of ``exercise_result_run``, as the API may read it back.
-
-    Carries no ``id``, no ``workspace_id`` and no ``dataset_id``: a team
-    addresses its own run through its own cookie, and an identifier on this
-    value is an identifier one ``model_dump()`` away from a response.
-
-    Attributes:
-        event_key: The event the run was for.
-        round: 1 or 2, as ``ck_exercise_result_run_round`` admits.
-        setting_name: Which saved weighting the list came from, or ``None``.
-            Nullable on purpose (``schema.py``): a setting renamed or deleted
-            afterwards must not rewrite what was run.
-        team: The team's own invited list through the rule.
-        email_everyone: Design spec §10's second panel — everybody, same seed.
-        seats_empty: ``60 - 8 - attended`` as it was stored, not as it would be
-            recomputed, so what a team keeps is what it was shown.
-        created_at: When the row was written.
-    """
-
-    event_key: str
-    round: int
-    setting_name: str | None
-    team: ResultPanel
-    email_everyone: ResultPanel
-    seats_empty: int
-    created_at: datetime
-
-
-@dataclass(frozen=True, slots=True)
-class TeamResultsState:
-    """The three per-team facts design spec §12 and §13 turn on.
-
-    Attributes:
-        seed: The team's seed. The simulated-results rule's only per-team input
-            (design spec §11). Read here because
-            ``workspace_repository.ExerciseWorkspace`` deliberately does not
-            carry it; see this module's docstring.
-        asking_choice: One of ``AskingChoice``'s three values, or ``None`` when
-            the team has not chosen. ``None`` is a different fact from any
-            choice, which is why the column is nullable.
-        refreshed_at: When the one refresh happened, or ``None``.
-    """
-
-    seed: int
-    asking_choice: str | None
-    refreshed_at: datetime | None
-
-
-@dataclass(frozen=True, slots=True)
-class RefreshCandidate:
-    """One workspace design spec §13's "refresh all" applies to.
-
-    *Chosen and not yet refreshed* — the two conditions the instructor route
-    filters on, expressed as the read rather than as a filter somebody applies
-    afterwards.
-    """
-
-    workspace_id: uuid.UUID
-    dataset_id: uuid.UUID
-    team_number: int
-    asking_choice: str
-    seed: int
-
-
-@dataclass(frozen=True, slots=True)
-class RefreshCounts:
-    """What one refresh changed, in three integers (ADR-0025 D8).
-
-    Counts, never contents: which profiles were given a card is a fact the team
-    discovers by looking at its own list, and reporting it here would put the
-    shape of the withheld column on a response.
-    """
-
-    cards_completed: int
-    non_responding: int
-    topics_added: int
 
 
 def _ints(value: object) -> tuple[int, ...]:

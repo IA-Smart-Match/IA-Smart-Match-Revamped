@@ -303,6 +303,10 @@ _PERMITTED_EXPORT_MODULES = frozenset(
         # value types and the two refusals they hand back. One module and one
         # entry, because it answers one question.
         "smartmatch_persistence.exercise.results_repository",
+        # And its five value types, split out when that module passed the line
+        # ceiling — the same split `instructor_rows` is, and the same reason it
+        # gets an entry of its own.
+        "smartmatch_persistence.exercise.results_rows",
         "typing",
         "builtins",
         # ``ExerciseSession`` wraps SQLAlchemy's ``Session``. Admitted

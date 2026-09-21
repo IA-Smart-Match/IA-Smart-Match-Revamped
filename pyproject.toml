@@ -360,6 +360,11 @@ ignore_imports = [
     # this door that reaches the withheld column at all, which is a reason to
     # name it on its own line rather than to widen an existing one.
     "smartmatch_api.exercise_dependencies -> smartmatch_persistence.exercise.results_repository",
+    # The results routes' five value types, split out of that module when it
+    # passed the line ceiling — the same cut `instructor_rows` took, and the
+    # door reaches them where they live rather than through the repository that
+    # re-exports them, so this edge says what is actually imported.
+    "smartmatch_api.exercise_dependencies -> smartmatch_persistence.exercise.results_rows",
 ]
 
 # SQLAlchemy is deliberately *not* on the list above, and this is why it gets a
