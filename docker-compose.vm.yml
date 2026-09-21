@@ -92,6 +92,18 @@ services:
     healthcheck:
       disable: true
 
+  # api-exercise is profile-gated (docker-compose.yml) so it never starts on a
+  # plain `docker compose up`, but when an operator does bring it up on the VM
+  # with `--profile exercise`, it must survive a reboot like every other
+  # long-running service here. SMARTMATCH_EXERCISE_COOKIE_SECURE is pinned to
+  # true here — owner decision 2026-09-21, exercise-hosting.md §2 — because
+  # this VM is HTTPS and the base file's variable has no default of its own.
+  api-exercise:
+    restart: unless-stopped
+    environment:
+      SMARTMATCH_RELEASE: ${SMARTMATCH_RELEASE:-vm-unknown}
+      SMARTMATCH_EXERCISE_COOKIE_SECURE: "true"
+
   web:
     restart: unless-stopped
     environment:
