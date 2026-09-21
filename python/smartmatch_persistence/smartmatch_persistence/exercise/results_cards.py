@@ -1,15 +1,14 @@
 """Design spec §13's card copy: what a refreshed profile's card says.
 
-Split out of ``results_repository.py``, which reached 799 lines — one under this
-repository's 800-line ceiling — when the copied card gained a career goal. The
-same cut ``results_rows.py`` took, along the seam the module docstring there
-describes: what is left in the repository is **statements**, and what comes here
+Split out of ``results_repository.py``, along the seam ``results_rows.py``
+already cut: what stays in the repository is **statements**, and what comes here
 is the one read that is about the *content* of a card rather than about the
 shape of a write.
 
-The seam is worth having on its own account. This is the one function in the
-package whose purpose is to touch ``hidden_true_interests``, and a reviewer
-checking ADR-0025 D6 now has a file to read rather than a method to find.
+The reason for the seam is D6, not arithmetic. :func:`copied_cards` is the one
+function in this package whose *purpose* is to touch ``hidden_true_interests``,
+so a reviewer checking ADR-0025 D6 has a file to read rather than a method to
+find inside a repository that answers four other questions.
 
 ADR-0025 D6 — the withheld column
 =================================
@@ -52,10 +51,18 @@ def copied_cards(
 ) -> tuple[dict[int, list[str]], dict[int, str]]:
     """The cards design spec §13 copies, for the chosen profiles only.
 
+    **Exactly one intended caller**, ``results_repository.apply_refresh``. It is
+    public only because it lives in another module now; a second caller is a
+    reason to reread ADR-0025 D6 rather than to import this. The pin in
+    ``tests/unit/test_exercise_persistence_tables.py`` is what holds that.
+
     Two mappings rather than one row type: the interests are withheld values and
-    the career goals are public ones, and keeping them apart is what stops a
-    single ``repr`` of "the copied card" printing both (ADR-0025 D6). Neither
-    mapping travels further than the overlay write.
+    the career goals are public ones, and a single mapping would put both behind
+    one name that a later caller could pass around whole. Neither mapping travels
+    further than the overlay write. (The two are returned in one tuple, so this
+    buys no ``repr`` protection — what keeps a withheld value out of a printed
+    form is that nothing holds this result beyond ``apply_refresh``, and that
+    ``SimulationProfileRow.hidden_true_interests`` is ``field(repr=False)``.)
 
     **The career goal follows a named policy.** The owner ruled on 2026-09-21
     that a copied card carries the base row's ``career_goal``, and ``NULL`` only

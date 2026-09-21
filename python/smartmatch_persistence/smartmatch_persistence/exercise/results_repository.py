@@ -63,6 +63,7 @@ import logging
 import uuid
 from collections.abc import Iterable, Mapping, Sequence
 from datetime import datetime
+from functools import partial
 from typing import Final
 
 import sqlalchemy as sa
@@ -582,40 +583,28 @@ class ExerciseResultsRepository:
         wants_card = sorted(set(card_profile_nos))
         silent = sorted(set(non_responding_profile_nos))
 
-        self._overlay_upsert(
-            session,
-            dataset_id=dataset_id,
-            workspace_id=workspace_id,
-            column="added_event_topics",
-            values={profile_no: list(added_topics) for profile_no in gainers},
+        write = partial(
+            self._overlay_upsert, session, dataset_id=dataset_id, workspace_id=workspace_id
         )
+        write(column="added_event_topics", values={no: list(added_topics) for no in gainers})
+        # The read sits here, between the first and second write, exactly where
+        # it sat before: it takes no lock, but the statement log is a pinned
+        # property of this method and moving a statement is not a tidy-up.
         cards, goals = copied_cards(
             session,
             dataset_id=dataset_id,
             profile_nos=wants_card,
             career_goal_policy=career_goal_policy,
         )
-        self._overlay_upsert(
-            session,
-            dataset_id=dataset_id,
-            workspace_id=workspace_id,
-            column="card_interests",
-            values=cards,
-        )
-        self._overlay_upsert(
-            session,
-            dataset_id=dataset_id,
-            workspace_id=workspace_id,
-            column="card_career_goal",
-            values=goals,
-        )
-        self._overlay_upsert(
-            session,
-            dataset_id=dataset_id,
-            workspace_id=workspace_id,
-            column="non_responding",
-            values=dict.fromkeys(silent, True),
-        )
+        # The remaining three narrow upserts, in the order the sequence test
+        # pins. Pairs rather than three more call blocks, so that a fifth column
+        # is a pair and not another twelve lines.
+        for column, values in (
+            ("card_interests", cards),
+            ("card_career_goal", goals),
+            ("non_responding", dict.fromkeys(silent, True)),
+        ):
+            write(column=column, values=values)
         return RefreshCounts(
             cards_completed=len(cards),
             non_responding=len(silent),
@@ -637,13 +626,17 @@ class ExerciseResultsRepository:
     ) -> None:
         """Write one overlay column for a set of profiles, creating rows as needed.
 
-        One statement per column rather than one per profile, and **three narrow
-        upserts rather than one wide one**: the three groups design spec §13
-        names overlap — a profile that attended round one may also be given a
-        card — and a single upsert would have to decide what to write for a
-        column this group says nothing about. ``DO UPDATE SET <column> =
-        EXCLUDED.<column>`` touches only the column this call is for, so the
-        other two survive whatever order the three run in.
+        One statement per column rather than one per profile, and **four narrow
+        upserts rather than one wide one**: the groups design spec §13 names
+        overlap — a profile that attended round one may also be given a card, and
+        a card carries both its interests and its career goal — and a single
+        upsert would have to decide what to write for a column this group says
+        nothing about. ``DO UPDATE SET <column> = EXCLUDED.<column>`` touches
+        only the column this call is for, so the other three survive whatever
+        order the four run in.
+
+        A call with no values writes nothing at all, which is how a policy that
+        yields no career goal leaves the statement sequence as it was.
         """
         if not values:
             return
