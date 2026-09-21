@@ -445,6 +445,25 @@ It is idempotent for an identical repeat (reported as a no-op, not an error)
 and refuses a second call for the same `--name` with any different value
 rather than silently changing a catalog row.
 
+To seed the whole worksheet catalog in one call, plus the engagement rows
+(`event_registration`, `cba_meeting`, one host-filed Speaker Request) and the
+student's attendance-derived balance, run:
+
+```bash
+make seed-pilot-engagement
+```
+
+**Prerequisite: step 6's dataset generator must have run first.** The balance
+credit comes from attendance against a *hosted event with a resolved date*,
+and nothing before step 6 creates one — an empty appliance refuses with "this
+unit hosts no event with a resolved date ... Run the dataset generator
+first." `SEED_PILOT_ENGAGEMENT_ARGS` is left empty above: the Makefile target
+already appends `--items-from-worksheet`, and `--subjects` is left at its
+default (`login`) on purpose — this walkthrough signs in from a browser at
+step 7 with the `pilot-login-*` credentials `make seed-pilot-logins` created,
+and `login` is the family that writes rows under those accounts rather than
+under the compose bearer-token fixtures.
+
 ---
 
 ## 10. Running the tests

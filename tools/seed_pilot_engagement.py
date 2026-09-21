@@ -912,12 +912,26 @@ def seed_engagement(
     coordinator_subject: str,
     host_subject: str,
     budget_owner_subject: str,
+    skip_redemptions: bool = False,
 ) -> EngagementReport:
     """Seed every engagement surface, under the demo accounts that read them.
 
     Order matters once: the catalog must exist before a redemption can reference
     it, and the student's attendance must be credited before a redemption can be
     afforded. Everything else is independent.
+
+    Args:
+        skip_redemptions: Leave :data:`REDEMPTION_PLAN` unwritten. The catalog
+            and the student's attendance-derived balance are seeded either way
+            — only the fixed three-state redemption history is skipped. For a
+            *demo* appliance the history is the point (a requested, an
+            approved and a fulfilled row are more to look at than three
+            requested ones). For an appliance a test suite is about to exercise
+            its own request/decide path against — the pilot-e2e suite's
+            rewards steps, specifically — the fixed history is the opposite of
+            useful: it pre-fills the catalog's cheapest item as already
+            ``fulfilled``, which is not what "a freshly seeded appliance" means
+            to a step asserting the caller's own ticket list is empty.
 
     Raises:
         SeedEngagementError: a tenant, unit, principal or resolved event that
@@ -952,14 +966,21 @@ def seed_engagement(
     _seed_student(
         session, tenant_id=tenant_id, unit_id=unit_id, student_id=student_id, report=report
     )
-    _seed_redemptions(
-        session,
-        tenant_id=tenant_id,
-        student_id=student_id,
-        approver_id=coordinator_id,
-        item_ids=item_ids,
-        report=report,
-    )
+    if skip_redemptions:
+        report.notes.append(
+            "--skip-redemptions: REDEMPTION_PLAN was not written. The catalog and the "
+            "student's attendance-derived balance are seeded as usual; nothing opened, "
+            "approved or fulfilled a redemption."
+        )
+    else:
+        _seed_redemptions(
+            session,
+            tenant_id=tenant_id,
+            student_id=student_id,
+            approver_id=coordinator_id,
+            item_ids=item_ids,
+            report=report,
+        )
     _seed_meetings(
         session, tenant_id=tenant_id, unit_id=unit_id, created_by=coordinator_id, report=report
     )
@@ -1037,6 +1058,17 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
             "worksheet rows are the ones they mean."
         ),
     )
+    parser.add_argument(
+        "--skip-redemptions",
+        action="store_true",
+        help=(
+            "Seed the catalog and the student's attendance-derived balance, but leave "
+            "REDEMPTION_PLAN's fixed three-state redemption history unwritten. For an "
+            "appliance a test suite is about to open its own redemption against — the "
+            "cheapest catalog item would otherwise already be `fulfilled` — not for a "
+            "demo, where the history is the point."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -1087,6 +1119,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 coordinator_subject=chosen["coordinator"],
                 host_subject=chosen["volunteer"],
                 budget_owner_subject=chosen["admin"],
+                skip_redemptions=args.skip_redemptions,
             )
             session.commit()
         except (SeedEngagementError, SeedConflictError, SeedConfigurationError) as exc:
