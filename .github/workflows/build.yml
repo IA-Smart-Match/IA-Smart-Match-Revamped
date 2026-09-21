@@ -439,6 +439,7 @@ jobs:
         run: docker compose up --build -d
 
       - name: Generate the synthetic pilot dataset
+        # This step is why this job now takes ~15 min instead of ~2 min — expected, not flakiness.
         # Required before the engagement seed below: `seed_pilot_engagement.py`
         # credits the student's balance from *attendance against a hosted
         # event with a resolved date*, and nothing in the `up -d` one-shots
@@ -488,6 +489,11 @@ jobs:
         # PYTEST=pytest because the step above installed into the runner's own
         # interpreter rather than into ./.venv, which is what the target's
         # default $(VENV)/bin/pytest would look for.
+        env:
+          # This job seeded the appliance itself (the two steps above), so
+          # step 15's two reward skip branches would mean the seed silently
+          # stopped walking the request/decide path — fail loudly instead.
+          SMARTMATCH_E2E_REQUIRE_REWARDS: "true"
         run: make e2e PYTEST=pytest
 
       - name: Service states and logs on failure

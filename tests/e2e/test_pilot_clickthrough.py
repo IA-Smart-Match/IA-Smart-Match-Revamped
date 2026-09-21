@@ -70,9 +70,15 @@ test pass.
   asserts that refusal before switching to the pre-loaded student principal to
   read the catalog. Whether step 15 walks the request/decide path or only
   proves the empty-catalog ``404`` refusal depends on whether the appliance was
-  seeded with ``make seed-pilot-engagement --subjects fixture
-  --items-from-worksheet`` first — the pilot-e2e CI job's own step — per
-  ``docs/pilot-data/rewards-catalog-worksheet.md``.
+  seeded with the dataset generator plus ``seed_pilot_engagement.py --subjects
+  fixture --items-from-worksheet --skip-redemptions`` first — the pilot-e2e CI
+  job's own two steps — per ``docs/pilot-data/rewards-catalog-worksheet.md``.
+  Setting ``SMARTMATCH_E2E_REQUIRE_REWARDS`` truthy turns step 15's two reward
+  skip branches (empty catalog; balance short of the cheapest item) into
+  ``pytest.fail`` instead of ``pytest.skip``, same reason text either way —
+  for a job that seeded the appliance itself and therefore has no legitimate
+  reason to see either branch. Unset (the default everywhere but the
+  pilot-e2e CI job), an unseeded appliance still skips exactly as before.
 * **The review queue has no list route.** The API exposes only
   ``POST /v1/review-items/{id}/decision``; the id a coordinator would click is
   not obtainable from any ``/v1`` path. The item ids below are therefore read
@@ -107,6 +113,7 @@ failing a second time for the same cause.
 from __future__ import annotations
 
 import json
+import os
 import re
 import uuid
 from typing import Any
@@ -148,6 +155,33 @@ REJECT_ROW_NAME = f"E2E Reject {RUN_TAG}"
 #: RFC 2606 reserves ``.invalid``: it cannot resolve, and no mailbox can exist
 #: behind it. Per-session, so this module's contact is never a previous run's.
 OUTREACH_ADDRESS = f"e2e-outreach-{RUN_TAG}@synthetic.invalid"
+
+#: Opt-in strict mode for step 15's two reward skip branches (empty catalog;
+#: balance short of the cheapest item), named in the style of conftest's own
+#: env vars (``API_BASE``, ``STUDENT_BEARER``, ...). Unset (the default), an
+#: unseeded appliance still degrades to a named skip — that behaviour is
+#: unchanged. Set truthy on a job that seeded the appliance itself (the
+#: pilot-e2e CI job, since the dataset-generator + engagement-seed commit),
+#: and the same two branches call ``pytest.fail`` with the identical reason
+#: text instead: "rewards mandatory" cannot silently degrade back to a skip on
+#: a stack that was supposed to walk the request/decide path for real.
+REQUIRE_REWARDS = os.environ.get("SMARTMATCH_E2E_REQUIRE_REWARDS", "").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+}
+
+
+def _skip_or_fail(reason: str) -> None:
+    """``pytest.skip`` unless :data:`REQUIRE_REWARDS`, which ``pytest.fail`` s instead.
+
+    Same reason text either way — the env var changes only whether a step that
+    cannot walk the reward path is reported as "did not run" or as "failed".
+    """
+    if REQUIRE_REWARDS:
+        pytest.fail(reason)
+    pytest.skip(reason)
+
 
 #: One of the three shipped templates. There is no request field that carries
 #: message text, which is what keeps unreviewed copy out of the send path.
@@ -1410,6 +1444,11 @@ def test_15_a_redemption_decision_walks_when_a_funded_item_exists(
     existence would manufacture the evidence the decision route exists to
     check, exactly the reasoning that governed the version of this step it
     replaces.
+
+    Both skip branches route through :func:`_skip_or_fail`, which calls
+    ``pytest.fail`` instead of ``pytest.skip`` — same reason text — when
+    :data:`REQUIRE_REWARDS` (``SMARTMATCH_E2E_REQUIRE_REWARDS``) is set truthy.
+    Unset, an unseeded appliance still skips exactly as before.
     """
     if flow.unit_id is None:
         pytest.skip("step 02 did not resolve a unit id from GET /v1/me")
@@ -1428,7 +1467,7 @@ def test_15_a_redemption_decision_walks_when_a_funded_item_exists(
             f"again; 201 would mean an item had been conjured: {invented.text[:300]}"
         )
         assert json_body(invented)["error"]["code"] == "reward_item_not_found"
-        pytest.skip(
+        _skip_or_fail(
             "no funded reward item exists on this appliance: nothing seeds a "
             "rewards catalog automatically and no /v1 route creates one. Run "
             "`make seed-pilot-rewards` with owner-supplied values (see "
@@ -1446,7 +1485,7 @@ def test_15_a_redemption_decision_walks_when_a_funded_item_exists(
         assert code in {"balance_unknown", "insufficient_balance"}, (
             f"a redemption request refused with an unexpected code {code!r}: {response.text[:300]}"
         )
-        pytest.skip(
+        _skip_or_fail(
             f"a funded reward item exists, but the student's balance does not "
             f"cover it yet (server code {code!r}); Gap 3's attendance route "
             "credits the balance this step needs — verify one has run"
@@ -1474,6 +1513,11 @@ def test_15_a_redemption_decision_walks_when_a_funded_item_exists(
     assert decided["state"] == "approved", (
         f"the coordinator approved the redemption and the server reported "
         f"state={decided['state']!r}"
+    )
+
+    print(
+        f"  requested and decided redemption {requested['redemption_id']} for item "
+        f"{cheapest['item_id']} ({cheapest['points_cost']} pts) -> approved"
     )
 
 
