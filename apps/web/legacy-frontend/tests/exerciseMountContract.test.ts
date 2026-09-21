@@ -99,6 +99,11 @@ test("no exercise screen reaches into the CBA app", () => {
     /from "[^"]*queryClient"/,
     /from "[^"]*\/pages\/AIMatching"/,
     /@tanstack\/react-query/,
+    // The provenance *barrel* re-exports `MetricDrilldownSheet`, which imports
+    // `@/lib/api`. Importing the barrel would hand every exercise screen a
+    // path to the CBA client through a module it does not use. The marker is
+    // imported from its own module instead.
+    /from "[^"]*components\/provenance"/,
   ];
   const offenders: string[] = [];
   for (const { name, text } of exerciseSources()) {

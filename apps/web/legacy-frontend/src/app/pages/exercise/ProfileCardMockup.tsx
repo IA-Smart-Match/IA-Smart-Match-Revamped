@@ -30,7 +30,12 @@
  */
 import * as React from "react";
 
-import { SyntheticDataBanner } from "../../components/provenance";
+// From the module rather than the `components/provenance` barrel: the barrel
+// re-exports `MetricDrilldownSheet`, which imports `@/lib/api`, so importing
+// it would give this screen an import path to the CBA client — the edge
+// ADR-0025 D1 forbids. Changed by CE-MOUNT, which added the test that fails
+// on it; nothing this screen renders changes.
+import { SyntheticDataBanner } from "../../components/provenance/SyntheticDataMarker";
 
 interface CardQuestion {
   /** The `exercise_profile` column this question would fill (design spec §2). */

@@ -21,7 +21,13 @@
  */
 import * as React from "react";
 
-import { SyntheticDataBanner } from "../../components/provenance";
+// Imported from the module, not from `components/provenance`'s barrel. The
+// barrel re-exports `MetricDrilldownSheet`, which imports `@/lib/api` — so a
+// barrel import would give every exercise screen a path to the CBA client,
+// which is exactly the edge ADR-0025 D1 forbids, and would pull it into the
+// exercise chunks besides. `SyntheticDataMarker` itself reaches only `clsx`,
+// `tailwind-merge` and an icon.
+import { SyntheticDataBanner } from "../../components/provenance/SyntheticDataMarker";
 
 /**
  * Why every exercise screen is synthetic, in one sentence.
