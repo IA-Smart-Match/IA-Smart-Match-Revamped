@@ -103,7 +103,14 @@ export function WeightsControls({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [weights, factorLabels]);
 
-  /** Send the box's value upstream, once, when the team is done with it. */
+  /**
+   * Send the box's value upstream, once, when the team is done with it.
+   *
+   * A number the server will not take — a negative weight — is sent anyway and
+   * refused with the server's own plain sentence, like every other refusal on
+   * this screen. Guessing at the wording here would put a second copy of it in
+   * the client.
+   */
   function commit(key: string): void {
     const value = Number.parseFloat(draft[key] ?? "");
     if (Number.isNaN(value) || value === weights[key]) {
@@ -132,9 +139,16 @@ export function WeightsControls({
               <input
                 id={inputId}
                 name={key}
-                type="number"
-                min={0}
-                step={0.05}
+                // `text`, not `number`. A number input *sanitizes its own
+                // value*: while `0.` is being typed, `input.value` reads as
+                // the empty string, in jsdom and in every browser, because
+                // `0.` is not yet a valid floating-point number. A controlled
+                // input therefore cannot hold a half-typed decimal at all —
+                // which is the exact character this whole change exists to let
+                // a team type. `inputMode="decimal"` still brings up the right
+                // keyboard, and the value is parsed on commit.
+                type="text"
+                inputMode="decimal"
                 value={draft[key] ?? ""}
                 disabled={disabled}
                 onChange={(event) => {
