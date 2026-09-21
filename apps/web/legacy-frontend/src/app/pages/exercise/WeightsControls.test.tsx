@@ -117,6 +117,38 @@ describe("<WeightsControls />", () => {
     );
   });
 
+  it("carries a first commit into a second one made before the response lands", () => {
+    // G1. Fails on the merged code: the second `commit` built its payload
+    // from the `weights` prop, which had not advanced yet because no
+    // response had come back for the first edit — so the second `onChange`
+    // silently dropped the first box's change instead of carrying it
+    // forward. The prop only updates on rerender, which stands in for "the
+    // round trip has not resolved yet".
+    const onChange = vi.fn();
+    render(<WeightsControls factorLabels={LABELS} weights={WEIGHTS} onChange={onChange} />);
+
+    const first = screen.getByLabelText("same major");
+    fireEvent.focus(first);
+    fireEvent.change(first, { target: { value: "0.6" } });
+    fireEvent.blur(first);
+
+    // The prop the server would eventually confirm has not arrived — this
+    // component is still rendering with the original `weights`.
+    const second = screen.getByLabelText("career goal fits this event");
+    fireEvent.focus(second);
+    fireEvent.change(second, { target: { value: "0.4" } });
+    fireEvent.blur(second);
+
+    expect(onChange).toHaveBeenCalledTimes(2);
+    expect(onChange).toHaveBeenNthCalledWith(1, { ...WEIGHTS, same_major: 0.6 });
+    // The second call must still carry the first edit, not just its own.
+    expect(onChange).toHaveBeenNthCalledWith(2, {
+      ...WEIGHTS,
+      same_major: 0.6,
+      career_goal_fit: 0.4,
+    });
+  });
+
   it("never renders a rulebook key as a label", () => {
     render(<WeightsControls factorLabels={LABELS} weights={WEIGHTS} onChange={vi.fn()} />);
     const panel = document.querySelector('[data-slot="exercise-weights"]');

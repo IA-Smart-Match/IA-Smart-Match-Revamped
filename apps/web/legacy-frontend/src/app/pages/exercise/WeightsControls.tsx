@@ -91,7 +91,26 @@ export function WeightsControls({
    */
   const focused = React.useRef<string | null>(null);
 
+  /**
+   * The base a commit merges onto: the last weighting this component asked
+   * for, not necessarily the last one the server has confirmed.
+   *
+   * `weights` (the prop) only advances once a response lands, and the hook
+   * keeps the *previous* ready data on screen while a request is in flight
+   * (`refreshing`). Without this ref, committing box B before box A's
+   * request had resolved built B's payload on top of the stale prop — the
+   * answer to a question the server hadn't been asked yet — and silently
+   * dropped A's edit from the request that went out for B. One team's two
+   * commits in one round trip must both reach the server; the second must
+   * build on the first, not erase it.
+   */
+  const pendingBase = React.useRef<Readonly<Record<string, number>>>(weights);
+
   React.useEffect(() => {
+    // A confirmed response is the newest truth about what was asked for —
+    // resync the base to it. Any edit still in flight already advanced this
+    // ref past this value when it was made, so this only ever catches up.
+    pendingBase.current = weights;
     setDraft((previous) => {
       const next = textOf(weights, keys);
       if (focused.current !== null && focused.current in previous) {
@@ -113,13 +132,17 @@ export function WeightsControls({
    */
   function commit(key: string): void {
     const value = Number.parseFloat(draft[key] ?? "");
-    if (Number.isNaN(value) || value === weights[key]) {
+    if (Number.isNaN(value) || value === pendingBase.current[key]) {
       // Nothing usable typed, or nothing changed: do not spend a request, and
       // do not silently rewrite what the team left in the box.
       return;
     }
-    // A new object, never a mutation of the one the response gave us.
-    onChange({ ...weights, [key]: value });
+    // A new object, never a mutation of the one the response gave us, built
+    // on the last weighting asked for so a second commit before the first
+    // round trip completes still carries both edits.
+    const next = { ...pendingBase.current, [key]: value };
+    pendingBase.current = next;
+    onChange(next);
   }
 
   return (
