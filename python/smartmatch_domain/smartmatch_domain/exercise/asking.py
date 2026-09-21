@@ -155,10 +155,20 @@ def copied_card_career_goal(
     Returns:
         The value to store in ``exercise_profile_overlay.card_career_goal``, or
         ``None`` for "this card says nothing about a career goal".
+
+    Raises:
+        ValueError: If ``policy`` is not a member of :class:`CopiedCardCareerGoal`.
+            A third member added without a branch here must be refused, not
+            silently read as :attr:`CopiedCardCareerGoal.NONE` — the wrong
+            answer that looks like a deliberate one.
     """
-    if policy is CopiedCardCareerGoal.BASE_GOAL:
-        return base_career_goal
-    return None
+    match policy:
+        case CopiedCardCareerGoal.BASE_GOAL:
+            return base_career_goal
+        case CopiedCardCareerGoal.NONE:
+            return None
+        case _:
+            raise ValueError(f"unknown CopiedCardCareerGoal policy: {policy!r}")
 
 
 def _rank_key(seed: int, salt: str, profile_no: int) -> tuple[bytes, int]:
