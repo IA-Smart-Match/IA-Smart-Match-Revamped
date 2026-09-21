@@ -1408,6 +1408,9 @@ _FORBIDDEN_RESPONSE_FIELDS = frozenset(
 #: ADR-0025 D8: counts of people and of chairs. No number that reads as a score.
 _SCORE_SHAPED = ("score", "percent", "confidence", "probability", "likelihood", "share")
 
+#: How the OpenAPI document spells a reference to a component schema.
+_SCHEMA_PREFIX = "#/components/schemas/"
+
 
 def _models_in_modules() -> list[type[BaseModel]]:
     found: list[type[BaseModel]] = []
@@ -1461,26 +1464,114 @@ def test_no_handler_docstring_names_the_withheld_column() -> None:
         assert offenders == [], f"a handler docstring names {withheld}"
 
 
+def _schema_names_in(node: object) -> set[str]:
+    """Every ``#/components/schemas/<name>`` reference anywhere under ``node``."""
+    found: set[str] = set()
+    if isinstance(node, dict):
+        reference = node.get("$ref")
+        if isinstance(reference, str) and reference.startswith(_SCHEMA_PREFIX):
+            found.add(reference.removeprefix(_SCHEMA_PREFIX))
+        for value in node.values():
+            found |= _schema_names_in(value)
+    elif isinstance(node, list):
+        for item in node:
+            found |= _schema_names_in(item)
+    return found
+
+
+def _schemas_reachable_from_exercise_paths(document: Mapping[str, object]) -> set[str]:
+    """Every schema an exercise route can actually publish, transitively.
+
+    Review round 1, F9. The earlier walk filtered on the models *this file's
+    modules declare*, which is the set it is easiest to keep clean and the set
+    least likely to be the problem: a nested model declared elsewhere, a shared
+    envelope, or a model pulled in by a ``$ref`` two levels down would have been
+    skipped in silence. What a client sees is the transitive closure from the
+    exercise paths, so that is what is checked.
+
+    Followed to a fixed point rather than one level deep, because a response
+    model's field can be a model whose field is a model.
+    """
+    paths = document.get("paths", {})
+    assert isinstance(paths, dict)
+    reachable = set()
+    for path, operations in paths.items():
+        if isinstance(path, str) and path.startswith("/v1/exercise"):
+            reachable |= _schema_names_in(operations)
+
+    schemas = document.get("components", {})
+    assert isinstance(schemas, dict)
+    declared = schemas.get("schemas", {})
+    assert isinstance(declared, dict)
+    while True:
+        grown = set(reachable)
+        for name in reachable:
+            grown |= _schema_names_in(declared.get(name, {}))
+        if grown == reachable:
+            return reachable & set(declared)
+        reachable = grown
+
+
 def test_the_served_exercise_contract_names_neither_either() -> None:
-    """The models could be clean and the document not, if a route grew a parameter."""
+    """The models could be clean and the document not, if a route grew a parameter.
+
+    Widened in review round 1 (F9) from "the models this file's modules declare"
+    to **every schema an exercise path can reach**, transitively. The narrow
+    version could not see a nested model, a shared envelope, or anything a
+    ``$ref`` pulled in from another track's module — and those are the ones
+    nobody is looking at.
+    """
     app = FastAPI()
     for router in routers_for(_settings()):
         app.include_router(router)
     document = app.openapi()
     for withheld in EXERCISE_WITHHELD_FIELDS:
         assert withheld not in str(document), f"{withheld} appears in the exercise contract"
+
+    reachable = _schemas_reachable_from_exercise_paths(document)
     ours = {model.__name__ for model in _models_in_modules()}
-    schemas = document.get("components", {}).get("schemas", {})
-    assert ours & set(schemas), "none of this track's models reached the contract"
-    for name, schema in schemas.items():
-        if name not in ours:
-            continue
-        offenders = sorted(set(schema.get("properties", {})) & _FORBIDDEN_RESPONSE_FIELDS)
-        assert offenders == [], f"{name} publishes {offenders}"
-        for field_name in schema.get("properties", {}):
+    schemas = document["components"]["schemas"]  # type: ignore[index]
+
+    assert ours & reachable, "none of this track's models reached the contract"
+    assert len(reachable) >= len(ours), (
+        "the reachable set must be at least this track's own models; "
+        "a walk that shrank below them has stopped following references"
+    )
+
+    # **D8 is walked over everything reachable**, because "no number that ranks
+    # a person" is a property of the whole exercise surface: the instructor's
+    # screen is on the same projector as the teams'.
+    for name in sorted(reachable):
+        for field_name in schemas[name].get("properties", {}):
             assert not any(shape in field_name.lower() for shape in _SCORE_SHAPED), (
                 f"{name}.{field_name} reads as a score; ADR-0025 D8"
             )
+
+    # **The addressing fields are walked over this track's own models only**,
+    # and that is a real exemption rather than a narrower net. The instructor
+    # page's `DatasetView` legitimately publishes `dataset_id` — it is the
+    # instructor's own screen, and she is the person who uploaded the file —
+    # so asserting the team routes' rule over it would be this file deciding
+    # another track's contract. The withheld columns are still checked over the
+    # **whole** document, by the `str(document)` walk above.
+    for name in sorted(reachable & ours):
+        offenders = sorted(set(schemas[name].get("properties", {})) & _FORBIDDEN_RESPONSE_FIELDS)
+        assert offenders == [], f"{name} publishes {offenders}"
+
+
+def test_the_reachability_walk_finds_more_than_this_tracks_own_models() -> None:
+    """A closure that returned only what it started from would prove nothing."""
+    app = FastAPI()
+    for router in routers_for(_settings()):
+        app.include_router(router)
+
+    reachable = _schemas_reachable_from_exercise_paths(app.openapi())
+    ours = {model.__name__ for model in _models_in_modules()}
+
+    assert reachable - ours, (
+        "the walk found only this track's own models, so it is not following "
+        "references into the other exercise tracks' schemas"
+    )
 
 
 def test_a_response_body_carries_no_withheld_value(
