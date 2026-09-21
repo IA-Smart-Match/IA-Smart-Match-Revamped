@@ -1,9 +1,12 @@
 """Design spec §14's "refresh all", as a router of its own.
 
 One route, and a separate module for it rather than a ninth section of
-``routers/exercise_instructor.py``: that file is 898 lines, already past this
-repository's 800-line ceiling, and adding the handler that *replaces its stub*
-to it would have grown the file the review of PR #188 asked to stop growing.
+``routers/exercise_instructor.py``: that file is already past this repository's
+800-line ceiling, and adding the handler that *replaces its stub* to it would
+have grown the file the review of PR #188 asked to stop growing. No count is
+written down here (review round 1, F6) — a number in a docstring is a fact that
+goes stale the next time somebody edits the other file, and the ceiling is the
+thing that matters.
 
 The split is along a seam the instructor page already has. Everything in
 ``exercise_instructor.py`` is about the **data file and the teams in it** —
@@ -112,6 +115,11 @@ def refresh_all_workspaces(
 
     Each team is refreshed in its own right, from its own seed, so this produces
     exactly what six teams pressing their own button would have produced.
+
+    **All or nothing.** Every team is refreshed inside one transaction, so a
+    refusal for any one of them rolls back every team in the same request and
+    nothing is left half applied. Pressing the button again after a refusal
+    therefore starts from where it started, not from part way through.
 
     Raises:
         ExerciseError: 401 without a live instructor session, 403 without the
