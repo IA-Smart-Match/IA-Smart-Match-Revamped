@@ -65,6 +65,10 @@ from smartmatch_api.routers import (
     exercise_results_refresh,
     exercise_results_run,
 )
+from smartmatch_api.routers.exercise_matching_models import (
+    event_evidence,
+    rankable_set,
+)
 from smartmatch_api.routers.exercise_results_models import (
     EXERCISE_ROUNDS,
     FIRST_ROUND,
@@ -82,6 +86,7 @@ from smartmatch_domain.exercise.asking import (
     AskingChoice,
 )
 from smartmatch_domain.exercise.instructor_session import mint_instructor_session
+from smartmatch_domain.student_factors import career_goal_fit
 from smartmatch_domain.exercise.simulation import (
     EVENT_SEATS,
     EXISTING_SIGNUPS,
@@ -1192,6 +1197,42 @@ def test_a_card_exists_when_either_side_recorded_interests() -> None:
     assert 3 in without
     given = replace(_PROFILES[2], overlay_card_interests=())
     assert 3 not in invited_without_a_card((given,), invited)
+
+
+def test_a_copied_card_already_reads_the_base_rows_career_goal() -> None:
+    """**The step-1 characterisation.** What a team sees *today*, before OQ-CE-13.
+
+    A profile whose base row carries a career goal and whose overlay now carries
+    a copied card, with ``card_career_goal`` left ``NULL`` as PR #190 shipped it:
+    ``_profile_evidence`` resolves the overlay **over** the base, so the goal it
+    finds is the base row's. The card exists — the overlay recorded interests —
+    so a :class:`ProfileCard` is built, and ``career_goal_fit`` can already earn
+    on it.
+
+    So writing the goal onto the copied row **changes no ranking**: it makes an
+    implicit resolution explicit at the row. If this test ever goes red, the two
+    readings have stopped agreeing and OQ-CE-13 has become a behaviour change.
+    """
+    base = _Row(4, "Devi Rao", career_goal="analytics").team_row()
+    copied = replace(base, overlay_card_interests=("brand",), overlay_card_career_goal=None)
+
+    rankable = rankable_set((copied,), _EVENTS)
+
+    assert len(rankable.profiles) == 1
+    card = rankable.profiles[0].evidence.card
+    assert card is not None, "the copied interests are a card"
+    assert card.career_goal == "analytics", "the base row's goal is read through the overlay"
+    fit = career_goal_fit(rankable.profiles[0].evidence, event_evidence(_ROUND_ONE))
+    assert fit.value == 1.0, "the factor already earns on a goal the copied row does not carry"
+
+
+def test_writing_the_base_goal_onto_the_copied_card_reads_the_same() -> None:
+    """The ruling's row and today's row resolve identically (OQ-CE-13)."""
+    base = _Row(4, "Devi Rao", career_goal="analytics").team_row()
+    today = replace(base, overlay_card_interests=("brand",), overlay_card_career_goal=None)
+    ruled = replace(today, overlay_card_career_goal="analytics")
+
+    assert rankable_set((today,), _EVENTS).profiles == rankable_set((ruled,), _EVENTS).profiles
 
 
 def test_the_two_draws_are_independent() -> None:
