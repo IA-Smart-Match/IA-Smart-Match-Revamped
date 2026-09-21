@@ -76,16 +76,26 @@ export function ExerciseMatching(): React.JSX.Element {
   );
   const { state, reload } = useExerciseResource(load, [eventKey, weighting]);
 
-  async function guard(action: () => Promise<void>): Promise<void> {
+  /**
+   * Run one action; show any refusal, and say whether it worked.
+   *
+   * The boolean matters. This used to swallow the refusal and resolve, which
+   * from the saved-settings panel's side was indistinguishable from success —
+   * so a refused save still cleared the name box. The one error slot on this
+   * screen is `panelRefusal`; the outcome goes back to the caller.
+   */
+  async function guard(action: () => Promise<void>): Promise<boolean> {
     setPanelRefusal(null);
     try {
       await action();
+      return true;
     } catch (error) {
-      if (isRefusal(error)) {
-        setPanelRefusal(error.message);
-        return;
-      }
-      throw error;
+      setPanelRefusal(
+        isRefusal(error)
+          ? error.message
+          : "The exercise could not be reached. Check the connection and try again.",
+      );
+      return false;
     }
   }
 
@@ -113,6 +123,12 @@ export function ExerciseMatching(): React.JSX.Element {
         <div className="flex flex-col gap-8">
           {panelRefusal === null ? null : <ExerciseNotice message={panelRefusal} />}
 
+          {/*
+            Mounted continuously, including while a new list is being fetched.
+            It holds the text a team is typing, so unmounting it between
+            keystrokes — which is what happened while a refetch dropped the
+            screen to `loading` — made a decimal impossible to type.
+          */}
           <WeightsControls
             factorLabels={state.data.list.factor_labels}
             weights={state.data.list.weights}
@@ -127,6 +143,15 @@ export function ExerciseMatching(): React.JSX.Element {
               <h2 className="text-3xl font-semibold text-slate-900 dark:text-slate-50">
                 The list
               </h2>
+              {state.refreshing ? (
+                <p
+                  role="status"
+                  data-slot="exercise-list-refreshing"
+                  className="text-xl text-slate-600 dark:text-slate-300"
+                >
+                  Rebuilding the list…
+                </p>
+              ) : null}
               <a
                 href={rankedListCsvHref(eventKey, weighting)}
                 download

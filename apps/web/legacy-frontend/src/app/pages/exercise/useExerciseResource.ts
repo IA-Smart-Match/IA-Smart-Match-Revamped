@@ -18,8 +18,21 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ExerciseRefusal, ExerciseUnreachable } from "../../../lib/exerciseApi";
 
 export type ExerciseResourceState<T> =
+  /** Nothing has arrived yet. Only ever the *first* load — see `refreshing`. */
   | { readonly status: "loading" }
-  | { readonly status: "ready"; readonly data: T }
+  | {
+      readonly status: "ready";
+      readonly data: T;
+      /**
+       * A newer load is in flight and this is the previous answer.
+       *
+       * The screen stays mounted while it runs. Dropping back to `loading`
+       * would unmount the whole panel — which on the matching screen took the
+       * weight inputs down mid-keystroke, and on the asking screen threw away
+       * the counts from a refresh that may only happen once.
+       */
+      readonly refreshing: boolean;
+    }
   /** The server refused, with a code to branch on and a sentence to show. */
   | { readonly status: "refused"; readonly refusal: ExerciseRefusal }
   /** The request never landed, or the answer was not the envelope. */
@@ -62,12 +75,21 @@ export function useExerciseResource<T>(
   useEffect(() => {
     const controller = new AbortController();
     let live = true;
-    setState({ status: "loading" });
+    // Keep whatever is on screen while the new answer is fetched. Only a
+    // screen that has never had data drops to `loading`; one that has shows
+    // the previous answer and says it is busy. This is what keeps the weight
+    // inputs mounted between keystrokes and the refresh counts on screen
+    // across the reload that follows them.
+    setState((previous) =>
+      previous.status === "ready"
+        ? { status: "ready", data: previous.data, refreshing: true }
+        : { status: "loading" },
+    );
     loadRef
       .current(controller.signal)
       .then((data) => {
         if (live) {
-          setState({ status: "ready", data });
+          setState({ status: "ready", data, refreshing: false });
         }
       })
       .catch((error: unknown) => {

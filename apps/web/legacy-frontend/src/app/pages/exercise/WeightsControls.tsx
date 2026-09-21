@@ -47,6 +47,18 @@ function orderedKeys(factorLabels: Readonly<Record<string, string>>): string[] {
   return [...known, ...extra];
 }
 
+/** The server's numbers as the text the boxes start from. */
+function textOf(
+  weights: Readonly<Record<string, number>>,
+  keys: readonly string[],
+): Record<string, string> {
+  const text: Record<string, string> = {};
+  for (const key of keys) {
+    text[key] = String(weights[key] ?? 0);
+  }
+  return text;
+}
+
 export function WeightsControls({
   factorLabels,
   weights,
@@ -55,9 +67,48 @@ export function WeightsControls({
 }: WeightsControlsProps): React.JSX.Element {
   const keys = orderedKeys(factorLabels);
 
-  function setOne(key: string, raw: string): void {
-    const value = Number.parseFloat(raw);
-    if (Number.isNaN(value)) {
+  /**
+   * What is in the boxes, as text, while a team is typing.
+   *
+   * The inputs used to be driven straight from the server's echo, with every
+   * keystroke sent upstream as a new weighting. That made typing `0.75`
+   * impossible: `0` refetched the list, the refetch re-rendered the panel, and
+   * the `.` had nowhere to land. A number input also reports an in-progress
+   * `0.` as the empty string, so a controlled value parsed per keystroke
+   * cannot represent one.
+   *
+   * So the text lives here until the team finishes with a box, and the server
+   * hears about it once, on blur or on Enter.
+   */
+  const [draft, setDraft] = React.useState<Record<string, string>>(() => textOf(weights, keys));
+
+  /**
+   * Which box has focus, so the server's echo does not overwrite it.
+   *
+   * When a committed weighting comes back the response's numbers are adopted —
+   * they are the truth about what the list was built from — but never into the
+   * box the team is still in.
+   */
+  const focused = React.useRef<string | null>(null);
+
+  React.useEffect(() => {
+    setDraft((previous) => {
+      const next = textOf(weights, keys);
+      if (focused.current !== null && focused.current in previous) {
+        next[focused.current] = previous[focused.current];
+      }
+      return next;
+    });
+    // `keys` is derived from `factorLabels`; both change only with a new event.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [weights, factorLabels]);
+
+  /** Send the box's value upstream, once, when the team is done with it. */
+  function commit(key: string): void {
+    const value = Number.parseFloat(draft[key] ?? "");
+    if (Number.isNaN(value) || value === weights[key]) {
+      // Nothing usable typed, or nothing changed: do not spend a request, and
+      // do not silently rewrite what the team left in the box.
       return;
     }
     // A new object, never a mutation of the one the response gave us.
@@ -84,9 +135,27 @@ export function WeightsControls({
                 type="number"
                 min={0}
                 step={0.05}
-                value={weights[key] ?? 0}
+                value={draft[key] ?? ""}
                 disabled={disabled}
-                onChange={(event) => setOne(key, event.target.value)}
+                onChange={(event) => {
+                  const typed = event.target.value;
+                  setDraft((previous) => ({ ...previous, [key]: typed }));
+                }}
+                onFocus={() => {
+                  focused.current = key;
+                }}
+                onBlur={() => {
+                  focused.current = null;
+                  commit(key);
+                }}
+                onKeyDown={(event) => {
+                  // Enter in a single-input form would submit it; here it means
+                  // "I am done with this box", which is the same as blurring.
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    commit(key);
+                  }
+                }}
                 className="w-40 rounded-lg border-2 border-slate-400 px-3 py-2 text-2xl focus-visible:outline-2 focus-visible:outline-offset-2 dark:border-slate-500 dark:bg-slate-900 dark:text-slate-50"
               />
             </div>
