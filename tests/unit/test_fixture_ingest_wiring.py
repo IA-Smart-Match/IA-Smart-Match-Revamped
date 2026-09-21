@@ -215,6 +215,13 @@ class TestNoCompositionRootImportsIt:
         assert result.stdout.strip() == "False"
 
 
+#: How many levels :func:`_nested_route_paths` will descend before giving up.
+#: Router nesting in a real application is a handful of levels deep; this is
+#: far enough that no honest composition reaches it, and small enough that a
+#: self-mount is cut short well before the interpreter's own recursion limit.
+_MAX_DESCENT_DEPTH = 50
+
+
 def _nested_route_paths(routes: Iterable[object]) -> set[str]:
     """Best-effort descent into nested routers, for the paths OpenAPI omits.
 
@@ -235,9 +242,22 @@ def _nested_route_paths(routes: Iterable[object]) -> set[str]:
     walk. Keying on identity-at-a-prefix keeps the cycle guard while letting a
     genuine second mounting through.
 
+    That key is why there is also a depth bound. ``app.mount("/sub", app)``
+    revisits the same object at a prefix one lap longer every time, so the key
+    is never a repeat and the identity guard never fires; unbounded, it ends in
+    ``RecursionError``. :data:`_MAX_DESCENT_DEPTH` stops the descent instead,
+    keeping whatever was found above it. Quiet truncation is the right failure
+    here for the same reason the whole function is additive: this is a
+    supplement to the OpenAPI document, and a supplement that raises would take
+    the guard down with it over a pathological app shape that is not what the
+    guard is about.
+
     **What this covers**: routes reached through ``include_router``, at any
     depth, under any composition of prefixes; and sub-applications reached
     through ``app.mount()``, whose mount path is itself treated as a prefix.
+    Both branches are pinned by a decoy in :class:`TestTheGuardCanFire` — the
+    live app happens to use neither a prefix nor a mount, so a test is the only
+    thing holding either of them up.
     **What it does not cover**: anything whose path is not a static string —
     a route added by a custom ``APIRoute`` subclass that computes its path at
     request time, or an ASGI app mounted as a bare callable with no ``routes``
@@ -255,7 +275,9 @@ def _nested_route_paths(routes: Iterable[object]) -> set[str]:
     found: set[str] = set()
     seen: set[tuple[int, str]] = set()
 
-    def visit(route: object, prefix: str) -> None:
+    def visit(route: object, prefix: str, depth: int) -> None:
+        if depth >= _MAX_DESCENT_DEPTH:  # a self-mount; keep what we have
+            return
         key = (id(route), prefix)
         if key in seen:  # a cycle; a second mounting has a different prefix
             return
@@ -266,7 +288,7 @@ def _nested_route_paths(routes: Iterable[object]) -> set[str]:
             context = getattr(route, "include_context", None)
             nested_prefix = prefix + (getattr(context, "prefix", "") or "")
             for nested in getattr(inner, "routes", ()) or ():
-                visit(nested, nested_prefix)
+                visit(nested, nested_prefix, depth + 1)
             return
 
         path = getattr(route, "path", None)
@@ -276,10 +298,10 @@ def _nested_route_paths(routes: Iterable[object]) -> set[str]:
             # routes are relative to it — so its own path is the prefix for them.
             prefix += path
         for nested in getattr(route, "routes", ()) or ():
-            visit(nested, prefix)
+            visit(nested, prefix, depth + 1)
 
     for route in routes:
-        visit(route, "")
+        visit(route, "", 0)
     return found
 
 
@@ -504,6 +526,73 @@ class TestTheGuardCanFire:
         assert {"/api/harmless/start", "/api/crawler/start"} <= paths, (
             f"a router included twice yielded only one of its mountings: {sorted(paths)}"
         )
+
+    def test_it_sees_a_crawl_token_that_lives_only_in_a_mount_path(self):
+        """``app.mount()`` is the other way a sub-tree acquires a prefix.
+
+        A mounted sub-application does not appear in the parent's OpenAPI
+        document at all, so the descent is the only thing that can see inside
+        it, and the sub-app's own route reads ``/start``.
+
+        Worth being exact about what this buys, because it is less than the
+        ``include_router`` case. A ``Mount``'s own path is recorded too, so a
+        mount named ``/api/crawler`` trips the token check whether or not the
+        prefix is composed. What composition buys here is the *reported path*:
+        without it the walk claims the app serves ``/start``, which is not a
+        path the app serves, and the failure message would send the next reader
+        looking for a route that does not exist. A guard is also a report, and
+        a report that names the wrong path is how a real finding gets dismissed
+        as noise.
+        """
+        from fastapi import FastAPI
+
+        sub = FastAPI()
+
+        @sub.get("/start", include_in_schema=False)
+        def _decoy() -> dict[str, str]:  # pragma: no cover - mounted, never called
+            raise AssertionError("decoy route: this test asserts on the path table only")
+
+        probe = FastAPI()
+        probe.mount("/api/crawler", sub)
+
+        assert set(probe.openapi()["paths"]) == set(), (
+            "precondition: a mounted sub-app must not reach the parent's "
+            "document, or the test is not exercising the descent"
+        )
+
+        paths = _app_paths(probe)
+
+        assert "/api/crawler/start" in paths, f"the descent dropped the mount: {sorted(paths)}"
+        assert any(token in path.lower() for path in paths for token in _CRAWL_TOKENS)
+
+    def test_it_terminates_on_an_app_mounted_inside_itself(self):
+        """A self-mount must truncate, not raise.
+
+        ``app.mount("/sub", app)`` revisits the same object at a longer prefix
+        every lap, so the ``(id, prefix)`` key is never a repeat and the cycle
+        guard never fires. Unbounded, this walk ends in ``RecursionError`` —
+        which would take down a guard about crawl routes over an app shape that
+        has nothing to do with crawl routes. :data:`_MAX_DESCENT_DEPTH` stops it
+        quietly instead, keeping the paths found on the way down.
+
+        Nobody writes a self-mount on purpose. The point is the failure mode:
+        this function is a supplement to the OpenAPI document, and a supplement
+        must never be the reason the suite falls over.
+        """
+        from fastapi import FastAPI
+
+        probe = FastAPI()
+        probe.mount("/sub", probe)
+
+        # Terminating at all is the assertion; reaching this line is it being
+        # met, because the unbounded version raises RecursionError here.
+        paths = _nested_route_paths(probe.routes)
+
+        deepest = max(path.count("/sub") for path in paths)
+        assert deepest <= _MAX_DESCENT_DEPTH, (
+            f"the descent recursed {deepest} levels, past {_MAX_DESCENT_DEPTH}"
+        )
+        assert "/sub" in paths, f"truncation lost the paths found above it: {sorted(paths)}"
 
 
 class TestNoPersistence:
