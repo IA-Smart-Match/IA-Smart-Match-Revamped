@@ -5,6 +5,17 @@ into the table below, with `make seed-pilot-rewards`.
 **Gates:** D6 (budget owner per item), D7 (calibration N), S6/S7 before S8/S9.  
 **Schema proof:** migration `0009` + `tests/integration/test_engagement_schema_constraints.py`
 
+**TENTATIVE (pilot-decisions.md).** Every value the seed tools read from this
+file — the two economy parameters and every catalog row below — is a
+pilot-demo figure recorded under D6/D7 in
+[`../decisions/pilot-decisions.md`](../decisions/pilot-decisions.md), whose own
+banner states none of its decisions is organizationally ratified. D6 is
+"closed for pilot scope" against a **$5,000 placeholder ceiling**, not a
+confirmed institutional budget, and D7's bands, N, and earn rate are marked
+"tentative" there in full. Seeding these values onto a pilot appliance is not
+ratification; it is walking the catalog with the same provisional numbers the
+decision record already carries.
+
 ## Purpose
 
 Capture the accountable catalog content stakeholders must approve before any

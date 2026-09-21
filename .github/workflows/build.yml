@@ -397,13 +397,15 @@ jobs:
     # delivery event and no provider message id. Every address composed is
     # under RFC 2606's reserved `.invalid` TLD, which cannot resolve.
     #
-    # Some steps CANNOT run on this appliance and are skipped by name rather
-    # than faked — rewards is gated on the `student` role alone pending the D6
-    # decision, so the coordinator principal is correctly refused; the portal
-    # pages fetch /api/portals/*, which no service in this repository serves.
-    # `-ra` in the `make e2e` target prints every skip in the summary, so a
-    # step that did not run can never be mistaken for one that passed. Nothing
-    # in that suite widens authorization to turn a refusal into a green check.
+    # This job seeds the rewards catalog and engagement fixtures (worksheet
+    # values, fixture-bearer subjects) before `make e2e`, so steps 14-15 walk
+    # the request/decide path for real rather than only proving the empty-
+    # catalog refusal. One step still CANNOT run on this appliance and is
+    # skipped by name rather than faked — the portal pages fetch
+    # /api/portals/*, which no service in this repository serves. `-ra` in the
+    # `make e2e` target prints every skip in the summary, so a step that did
+    # not run can never be mistaken for one that passed. Nothing in that suite
+    # widens authorization to turn a refusal into a green check.
     #
     # Same posture as the two jobs above: no login, no push, no registry, no
     # cloud resource, no permission beyond `contents: read`, and fixtures only.
@@ -434,6 +436,22 @@ jobs:
         # bounded poll for that (`compose ps -a` until it reports `exited`)
         # rather than a sleep here. That race is exactly what PR #31 hit.
         run: docker compose up --build -d
+
+      - name: Seed the rewards catalog and engagement fixtures
+        # Without this, steps 14-15 below still pass, but only by hitting the
+        # empty-catalog branch and skipping the request/decide walk — see
+        # docs/pilot-data/rewards-catalog-worksheet.md and Makefile's `e2e`
+        # comment. `--subjects fixture` targets the compose-pilot-* accounts
+        # this job's bearer tokens (compose-student, compose-admin, ...)
+        # actually resolve to, matching tests/e2e/conftest.py; `db` publishes
+        # 5432 on the runner (docker-compose.yml), which is what the tool's
+        # default SMARTMATCH_DATABASE_URL points at. PY=python because this
+        # job installed the pinned requirements into the runner's own
+        # interpreter, not into ./.venv, for the same reason the next step
+        # overrides PYTEST.
+        run: |
+          make seed-pilot-engagement PY=python \
+            SEED_PILOT_ENGAGEMENT_ARGS="--subjects fixture --items-from-worksheet"
 
       - name: Click through the synthetic pilot
         # `make e2e` owns the invocation, including the `-ra` that surfaces

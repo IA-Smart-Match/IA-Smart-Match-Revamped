@@ -1,6 +1,10 @@
 SHELL := /bin/bash
 VENV := .venv
-PY := $(VENV)/bin/python
+# Overridable for the same reason PYTEST is below: the pilot-e2e CI job
+# installs the pinned requirements into the runner's own interpreter rather
+# than into ./.venv, and needs `make seed-pilot-engagement PY=python` to reach
+# it instead of a venv this job never created.
+PY ?= $(VENV)/bin/python
 PIP := $(VENV)/bin/pip
 # Overridable so `make e2e` can run on a CI runner that installed the pinned
 # requirements into its own interpreter instead of into ./.venv.
@@ -91,10 +95,14 @@ e2e: ## Click through the synthetic pilot against a RUNNING compose appliance
 	# always-run `down -v` so logs survive a failure, and a developer running
 	# it by hand wants the stack still standing afterwards to look at.
 	#
-	# `-ra` is not decoration. Several steps in this suite cannot run on this
-	# appliance at all — rewards is gated on the `student` role pending the D6
-	# decision, and the portal pages have no backend in this repository — and
-	# each one calls pytest.skip naming its reason. `-ra` prints every one of
+	# `-ra` is not decoration. Rewards (steps 14-15) walks for real when the
+	# appliance was seeded first — `make seed-pilot-engagement PY=python
+	# SEED_PILOT_ENGAGEMENT_ARGS="--subjects fixture --items-from-worksheet"`
+	# on a fixture-bearer stack, the pilot-e2e CI job's own step — and still
+	# degrades to a named skip on an appliance nobody seeded, per
+	# docs/pilot-data/rewards-catalog-worksheet.md. The portal pages still have
+	# no backend in this repository and always skip. Every step that cannot
+	# run calls pytest.skip naming its reason, and `-ra` prints every one of
 	# them in the summary, so a skipped step can never be read as a passed one.
 	#
 	# $(PYTEST) rather than $(VENV)/bin/pytest directly: the CI job for this

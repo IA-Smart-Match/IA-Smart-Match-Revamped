@@ -648,6 +648,33 @@ missing from `apps/web/legacy-frontend/vite.config.ts:39`; a Cloudflare error
 page instead means the tunnel or the Access application, neither of which lives
 in this repository.
 
+**7. Seed the rewards catalog (once, not part of `up`).** The compose seed
+one-shots in step 4 create the tenant, unit, accounts and a pending review
+item; they do not create any `reward_item` row, by design — the values are
+D6/D7 tentative pilot-demo figures ([`pilot-decisions.md`](../decisions/pilot-decisions.md)),
+not something engineering may invent, so nothing auto-seeds them onto the VM.
+Run the same command the local walkthrough uses, from `~/src/IA-Smart-Match-Revamped`
+on the VM, with a `--budget-owner-subject` that already has a seeded login:
+
+```bash
+make seed-pilot-rewards PY=python3 SEED_PILOT_REWARD_ARGS='--name "Bronco Bookstore $10 Gift Card" \
+  --points-cost 300 --fulfilment-cost 10.00 --budget-owner-subject compose-pilot-admin --funded'
+```
+
+or, to seed the whole worksheet catalog plus engagement fixtures (registrations,
+meetings, and the student's attendance-derived balance) in one call:
+
+```bash
+make seed-pilot-engagement PY=python3 SEED_PILOT_ENGAGEMENT_ARGS='--subjects fixture --items-from-worksheet'
+```
+
+`PY=python3` because the VM's `make setup` target is what creates `.venv`; if
+that has already been run, drop the override and let it use `.venv/bin/python`
+as usual. Both commands are idempotent — see
+[`docs/pilot-data/rewards-catalog-worksheet.md`](../pilot-data/rewards-catalog-worksheet.md)
+and `docs/operations/local-dev-walkthrough.md` §9 for the full argument
+reference and the schema rules they enforce.
+
 ---
 
 ## What the scripted path has, now that it is what runs
