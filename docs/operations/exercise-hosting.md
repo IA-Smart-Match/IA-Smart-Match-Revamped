@@ -17,11 +17,17 @@ this becomes production" are all still open.
 `deploy-runbook.md`, `containers.md` — and `vm-deploy.md` is past 1,000 lines
 about a different product scope. The two link to each other.
 
-**The hostname is not decided.** Everywhere below, `<EXERCISE_HOST>` is a
-**PLACEHOLDER (OQ-CE-06)**. The owner's decision of 2026-09-21 fixes the
-*shape* — a **subdomain on the pilot VM**, its own origin, so an exercise cookie
-is never sent to a CBA route — and not the name. Do not substitute a real
-hostname into this file; substitute it in your shell.
+**The address: `exercise.plated.blog`** — owner decision, 2026-09-21
+(OQ-CE-06, owner Danny). A **second public hostname on the existing Cloudflare
+Tunnel**, serving the exercise scope only. Its own origin is the point: an
+exercise cookie is scoped to that host and is never sent to a CBA route on
+`pilot.plated.blog`, and vice versa.
+
+**No Cloudflare Access policy is applied to it** — also the owner's decision of
+2026-09-21, and the one thing here that differs from the sibling host. What
+stands in for it is [§5](#5-rate-limiting-belongs-at-the-proxy-oq-ce-06). See
+[§4a](#4a-the-tunnel-and-why-there-is-no-access-policy) for what that trades
+away and why it is acceptable for this scope and not for the other one.
 
 ---
 
@@ -30,8 +36,8 @@ hostname into this file; substitute it in your shell.
 | Gap | Why | Consequence |
 |---|---|---|
 | **No compose service runs this scope** | `SMARTMATCH_PRODUCT_SCOPE` appears in **no** `.yml` file in this repository (verified by grep across `docker-compose.yml`, `docker-compose.vm.yml`, `docker-compose.demo.yml`) | There is no second `api` service to start. Standing the exercise up needs a compose change that is **not** in this repository yet. No YAML is invented here. |
-| **The Vite dev server rejects a new hostname** | `apps/web/legacy-frontend/vite.config.ts:53` sets `allowedHosts: ["pilot.plated.blog"]` and nothing else | `<EXERCISE_HOST>` served through that dev server answers **"Blocked request"** until the host is added there. That is a code change, owned by the frontend track. |
-| **No proxy rate-limit config is in the repository** | The only documented front door is a dashboard-managed Cloudflare Tunnel (`vm-deploy.md:78-87`); there is no nginx/Caddy/Traefik config checked in | The per-client limit for the instructor login has to be built in the Cloudflare dashboard by hand, and cannot be reviewed in git. See [§5](#5-rate-limiting-belongs-at-the-proxy-oq-ce-06-open). |
+| **The Vite dev server rejects `exercise.plated.blog`** | `apps/web/legacy-frontend/vite.config.ts:53` is `allowedHosts: ["pilot.plated.blog"]` — one host, and it is the other one | `exercise.plated.blog` served through that dev server answers **"Blocked request"**, exactly as `pilot.plated.blog` did before commit `d5ffcb05` fixed it there. `"exercise.plated.blog"` must be added to that array. Code change, frontend track. |
+| **No proxy rate-limit config is in the repository** | The only front door is a dashboard-managed Cloudflare Tunnel (`vm-deploy.md:78-87`); there is no nginx/Caddy/Traefik config checked in | The per-client limit on the instructor login has to be built in the Cloudflare dashboard by hand, and cannot be reviewed in git. With no Access policy on this host, that rule is the **only** edge protection. See [§5](#5-rate-limiting-belongs-at-the-proxy-oq-ce-06). |
 
 Everything below is still worth doing in order; step 1 tells you what the
 process must be, and the gaps tell you what you must build to get one.
@@ -88,7 +94,7 @@ misused. Every CBA route answers 404 in this process.
 |---|---|---|---|
 | `SMARTMATCH_PRODUCT_SCOPE` | **Yes** | `class_exercise` | Defaults to `cba`. Every `/v1/exercise/...` path answers **404** and the process silently serves the wrong product. |
 | `SMARTMATCH_EXERCISE_WORKSPACE_SECRET` | **Yes** | 43 URL-safe chars from `token_urlsafe(32)` | **The process does not boot.** `main.py:696-697` calls `require_exercise_workspace_secret` at import; `config.py:268-283` raises, naming the variable and the length and quoting no part of the value. Minimum **32 characters** (`workspace_token.py:87`). |
-| `SMARTMATCH_EXERCISE_COOKIE_SECURE` | **Yes on the HTTPS VM** (owner decision, 2026-09-21) | `true` | Unset, the *workspace* cookie follows the edition — off in `dev` — and `docker-compose.vm.yml` pins `SMARTMATCH_EDITION=dev` while the site is HTTPS, so the classroom's cookie ships **without `Secure`** (`exercise_dependencies.py:346-359`). The *instructor* cookie defaults to `Secure` regardless (`:452`). |
+| `SMARTMATCH_EXERCISE_COOKIE_SECURE` | **Yes on the HTTPS VM** (owner decision, 2026-09-21) | `true` | Unset, the *workspace* cookie follows the edition — off in `dev` — and `SMARTMATCH_EDITION: dev` is pinned in the **base** compose file, at `docker-compose.yml:292` (`api`) and `:339` (`worker`), not in the VM override. The site is HTTPS, so the classroom's cookie would ship **without `Secure`** (`exercise_dependencies.py:346-359`). The *instructor* cookie defaults to `Secure` regardless (`:452`). |
 | `SMARTMATCH_EXERCISE_INSTRUCTOR_PASSCODE` | No — but the instructor page is shut without it | 16+ characters, owner-supplied | Unset (or unusable) means every instructor login attempt is refused with the same sentence a wrong passcode gets (`exercise_dependencies.py:498-516`). Team routes keep working — deliberately, so a missing passcode cannot take a classroom down. |
 | `SMARTMATCH_DATABASE_URL` | **Yes** | `postgresql+psycopg://<EXERCISE_DB_ROLE>:<EXERCISE_DB_PASSWORD>@db:5432/smartmatch` | No database. Point it at the **restricted role** from [§3](#3-the-database-role), not at the owner role. |
 | `SMARTMATCH_DB_HIDE_PARAMETERS` | Leave **empty** | *(empty)* | Empty means hidden, which is the default and the only correct value on a shared host. Setting `false` puts every bound value of every failed statement — including the withheld "true interests" column, ADR-0025 D6 — into the server log (`engine.py:236`, `.env.example:82-104`). |
@@ -107,7 +113,8 @@ The passcode floor is `MINIMUM_INSTRUCTOR_PASSCODE_LENGTH`, which is
 `MINIMUM_PASSWORD_LENGTH = 12`
 (`instructor_session.py:112`, `pilot_credentials.py:114`). The value is
 **stripped before it is measured and before it is compared**
-(`instructor_session.py:137-160`), so a trailing newline pasted into a deploy
+(`instructor_session.py:137-164`, the strip and the length test at `:163-164`),
+so a trailing newline pasted into a deploy
 console does not become a permanent lockout — but a value that is long enough
 only *before* stripping is refused.
 
@@ -168,22 +175,69 @@ GRANT SELECT, INSERT, UPDATE         ON exercise_dataset         TO "<EXERCISE_D
 GRANT SELECT, INSERT                 ON exercise_profile         TO "<EXERCISE_DB_ROLE>";
 GRANT SELECT, INSERT                 ON exercise_event           TO "<EXERCISE_DB_ROLE>";
 GRANT SELECT, INSERT, UPDATE, DELETE ON exercise_team_workspace  TO "<EXERCISE_DB_ROLE>";
-GRANT SELECT, INSERT, DELETE         ON exercise_profile_overlay TO "<EXERCISE_DB_ROLE>";
-GRANT SELECT, INSERT, DELETE         ON exercise_saved_setting   TO "<EXERCISE_DB_ROLE>";
+GRANT SELECT, INSERT, UPDATE, DELETE ON exercise_profile_overlay TO "<EXERCISE_DB_ROLE>";
+GRANT SELECT, INSERT, UPDATE, DELETE ON exercise_saved_setting   TO "<EXERCISE_DB_ROLE>";
 GRANT SELECT, INSERT, DELETE         ON exercise_result_run      TO "<EXERCISE_DB_ROLE>";
 GRANT SELECT, INSERT                 ON exercise_result_unlock   TO "<EXERCISE_DB_ROLE>";
 ```
 
-Where each privilege comes from, so the list can be re-derived rather than
-trusted:
+### `ON CONFLICT DO UPDATE` needs `UPDATE` even when nothing conflicts
 
-| Table | Statements in `smartmatch_persistence/exercise/` |
-|---|---|
-| `exercise_dataset` | `sa.insert`, `sa.update` (`dataset_repository.py`) |
-| `exercise_profile`, `exercise_event` | `sa.insert` only — ingest writes them once |
-| `exercise_team_workspace` | `pg_insert ... on_conflict_do_nothing` (`workspace_repository.py:272-282`), `sa.update` (`:541-544`), `sa.delete` on re-point (`instructor_repository.py:699-702`) |
-| `exercise_profile_overlay`, `exercise_saved_setting`, `exercise_result_run` | `insert`, plus `sa.delete` in the reset walk (`workspace_repository.py:535-540`, `instructor_repository.py:531-535`) |
-| `exercise_result_unlock` | `pg_insert ... on_conflict_do_nothing` (`instructor_repository.py:459-466`) — no `UPDATE` |
+The two `UPDATE`s on `exercise_profile_overlay` and `exercise_saved_setting`
+are the ones a reader is most likely to drop, so they get their own paragraph.
+PostgreSQL checks **both** `INSERT` and `UPDATE` privilege when it plans an
+`INSERT ... ON CONFLICT DO UPDATE`, whether or not a row actually conflicts. A
+role holding only `INSERT` does not fail "sometimes, under contention" — it
+fails **every time**, which takes out `POST
+/v1/exercise/workspaces/current/refresh` and `POST
+/v1/exercise/instructor/refresh-all` (overlay) and every save of a named
+setting (saved setting).
+
+`ON CONFLICT DO NOTHING` is the opposite case and needs `INSERT` alone, which
+is why `exercise_team_workspace`'s entry upsert and `exercise_result_unlock`
+contribute no `UPDATE` of their own.
+
+### Every statement, and the privilege it needs
+
+Re-derived by grepping `pg_insert`, `on_conflict_do_update`,
+`on_conflict_do_nothing`, `sa.insert`, `sa.update`, `sa.delete` and
+`with_for_update` across
+`python/smartmatch_persistence/smartmatch_persistence/exercise/*.py`. One row
+per statement, so the grant above can be rebuilt rather than trusted.
+
+| Statement | Table | Privilege |
+|---|---|---|
+| `dataset_repository.py:391` `sa.insert(exercise_dataset)` | `exercise_dataset` | INSERT |
+| `dataset_repository.py:401` `sa.insert(exercise_profile)` | `exercise_profile` | INSERT |
+| `dataset_repository.py:406` `sa.insert(exercise_event)` | `exercise_event` | INSERT |
+| `instructor_repository.py:436` `sa.update(exercise_dataset)` | `exercise_dataset` | UPDATE |
+| `instructor_repository.py:460-462` `pg_insert(...).on_conflict_do_nothing` | `exercise_result_unlock` | INSERT |
+| `instructor_repository.py:531-535` `sa.delete(child)`, three children | `exercise_profile_overlay`, `exercise_saved_setting`, `exercise_result_run` | DELETE |
+| `instructor_repository.py:676-678` `sa.select(...).with_for_update()` | `exercise_team_workspace` | SELECT **+ UPDATE** (a row lock needs `UPDATE` or `DELETE` beside `SELECT`) |
+| `instructor_repository.py:684-686` `sa.select(...).with_for_update()` | `exercise_team_workspace` | SELECT + UPDATE |
+| `instructor_repository.py:699-702` `sa.delete(exercise_team_workspace)` | `exercise_team_workspace` | DELETE |
+| `instructor_repository.py:709` `sa.update(exercise_team_workspace)` | `exercise_team_workspace` | UPDATE |
+| `results_repository.py:432` `sa.insert(exercise_result_run)` | `exercise_result_run` | INSERT |
+| `results_repository.py:473` `sa.update(exercise_team_workspace)` | `exercise_team_workspace` | UPDATE |
+| `results_repository.py:553` `sa.update(exercise_team_workspace)` | `exercise_team_workspace` | UPDATE |
+| `results_repository.py:650-656` `pg_insert(...).on_conflict_do_update` | `exercise_profile_overlay` | INSERT **+ UPDATE** |
+| `settings_repository.py:386-398` `pg_insert(...).on_conflict_do_update` | `exercise_saved_setting` | INSERT **+ UPDATE** |
+| `settings_repository.py:436` `sa.delete(exercise_saved_setting)` | `exercise_saved_setting` | DELETE |
+| `workspace_repository.py:272-282` `pg_insert(...).on_conflict_do_nothing` | `exercise_team_workspace` | INSERT |
+| `workspace_repository.py:449-452` `sa.update(table)` — the token-hash repair | `exercise_team_workspace` | UPDATE |
+| `workspace_repository.py:535-540` `sa.delete(child)`, three children | `exercise_profile_overlay`, `exercise_saved_setting`, `exercise_result_run` | DELETE |
+| `workspace_repository.py:543` `sa.update(table)` — reset regenerates the seed | `exercise_team_workspace` | UPDATE |
+| every repository read (`sa.select`) | all eight | SELECT |
+| `sa.select(sa.func.pg_advisory_xact_lock(...))` (e.g. `instructor_repository.py:668`) | none | none — see below |
+
+**Advisory locks need no grant.** The exercise repositories serialize with
+`pg_advisory_xact_lock`, which is a function, not a table: `EXECUTE` on it is
+granted to `PUBLIC` by default, so nothing above covers it and nothing needs
+to. The warning is in the other direction — **a hardening pass that runs
+`REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA pg_catalog FROM PUBLIC` would break
+every workspace write**, because every write path takes one of these locks
+first. If someone proposes that hardening, this role needs `EXECUTE ON
+FUNCTION pg_advisory_xact_lock(bigint)` granted back explicitly.
 
 **No sequence grants are needed.** Every primary key is a `UUID` the
 application generates or a natural composite key — `schema.py:119`, `:235`,
@@ -194,25 +248,83 @@ no `IDENTITY` and no `CREATE SEQUENCE` in the revision.
 
 ### Prove the role cannot read a CBA table
 
-Connect **as the new role** and run this. It must fail.
+Two checks. Run them after every change to the grant, and before the class.
+
+**1. The spot check.** Connect **as the new role**. It must fail.
 
 ```sql
 -- Expect: ERROR: permission denied for table user_account
 SELECT count(*) FROM user_account;
 ```
 
-And this, which lists every table the role can read — the result must contain
-only `exercise_` names:
+**2. The exhaustive check.** This is the one that matters, and it asks
+PostgreSQL what the role can *effectively* do rather than what was written in a
+`GRANT`:
 
 ```sql
 SELECT table_name
-FROM information_schema.table_privileges
-WHERE grantee = '<EXERCISE_DB_ROLE>' AND privilege_type = 'SELECT'
+FROM information_schema.tables
+WHERE table_schema = 'public'
+  AND has_table_privilege(
+        '<EXERCISE_DB_ROLE>',
+        format('%I.%I', table_schema, table_name),
+        'SELECT'
+      )
 ORDER BY table_name;
 ```
 
-If a non-`exercise_` name appears, a `GRANT ... ON ALL TABLES IN SCHEMA public`
-was run somewhere. Revoke it; the per-table list above is the whole grant.
+**`has_table_privilege` rather than `information_schema.table_privileges`.**
+The privileges view lists grants *made to this grantee by name*, and so misses
+three ways a role ends up able to read a table anyway: a grant made to
+`PUBLIC`, a `ALTER DEFAULT PRIVILEGES` rule that fires on tables created later,
+and privileges inherited through `GRANT <other_role> TO <EXERCISE_DB_ROLE>`. A
+query that misses those reports a clean result on a role that can read
+everything, which is the worst possible answer from a check like this.
+`has_table_privilege` resolves all three.
+
+**Expected result: only `exercise_` names — eight of them.**
+
+* **A non-`exercise_` name is a failure.** Find where it came from — usually a
+  `GRANT ... ON ALL TABLES IN SCHEMA public`, a `PUBLIC` grant, or a role
+  membership — revoke it, and re-run. The per-table list above is the whole
+  grant.
+* **`alembic_version` is the one name to expect and still not accept.** It is
+  not an `exercise_` table and this role has no business reading it: migrations
+  run as the owner, not as this role ([above](#3-the-database-role)). If it
+  appears, it arrived through a `PUBLIC` or all-tables grant — which means
+  other tables almost certainly came with it. Treat its presence as a signal to
+  re-check the whole result, not as a harmless exception to wave through.
+
+**3. And confirm the role CAN do what it needs.** A too-narrow grant fails in
+the classroom, not in this check, so verify the positive direction too:
+
+```sql
+SELECT table_name,
+       has_table_privilege('<EXERCISE_DB_ROLE>', format('%I.%I', table_schema, table_name), 'SELECT') AS sel,
+       has_table_privilege('<EXERCISE_DB_ROLE>', format('%I.%I', table_schema, table_name), 'INSERT') AS ins,
+       has_table_privilege('<EXERCISE_DB_ROLE>', format('%I.%I', table_schema, table_name), 'UPDATE') AS upd,
+       has_table_privilege('<EXERCISE_DB_ROLE>', format('%I.%I', table_schema, table_name), 'DELETE') AS del
+FROM information_schema.tables
+WHERE table_schema = 'public' AND table_name LIKE 'exercise\_%'
+ORDER BY table_name;
+```
+
+It must match the grant block above exactly:
+
+| `table_name` | `sel` | `ins` | `upd` | `del` |
+|---|---|---|---|---|
+| `exercise_dataset` | t | t | t | f |
+| `exercise_event` | t | t | f | f |
+| `exercise_profile` | t | t | f | f |
+| `exercise_profile_overlay` | t | t | **t** | t |
+| `exercise_result_run` | t | t | f | t |
+| `exercise_result_unlock` | t | t | f | f |
+| `exercise_saved_setting` | t | t | **t** | t |
+| `exercise_team_workspace` | t | t | t | t |
+
+The two bold `upd` cells are the `ON CONFLICT DO UPDATE` ones. If either reads
+`f`, refresh and saved settings are broken and no other check in this document
+will tell you.
 
 ---
 
@@ -245,7 +357,7 @@ prefix — gets **no cookie**, and every authenticated-by-cookie route answers a
 if the team had never entered. The failure looks like "the app logged me out",
 not like a routing bug.
 
-So the reverse proxy in front of `<EXERCISE_HOST>` must route, to the exercise
+So the reverse proxy in front of `exercise.plated.blog` must route, to the exercise
 API process:
 
 * `/v1/exercise` and everything under it — **without rewriting the path**;
@@ -253,14 +365,92 @@ API process:
 
 The existing Vite dev server already proxies `/v1` unrewritten to the API
 (`vite.config.ts:62-67`), which is the shape to copy. What it does **not** have
-is `<EXERCISE_HOST>` in `allowedHosts` (`vite.config.ts:53`) — see the gaps
+is `exercise.plated.blog` in `allowedHosts` (`vite.config.ts:53`) — see the gaps
 table at the top.
 
 ---
 
-## 5. Rate limiting belongs at the proxy (OQ-CE-06, OPEN)
+## 4a. The tunnel, and why there is no Access policy
 
-The instructor login has an in-process limiter today, and it is a **marked
+### Adding the hostname
+
+`exercise.plated.blog` is a **second public hostname on the tunnel that already
+exists**, not a second tunnel. The tunnel is
+`smartmatch-classroom-pilot`, built by
+[`classroom-vm-cloudflare-tunnel.md`](classroom-vm-cloudflare-tunnel.md) Part 2,
+and `cloudflared` is already installed and running on the VM as a service. **No
+new token, no second `cloudflared service install`, no change on the VM.**
+
+The steps are the ones that guide's Part 2 step 4 already describes, applied a
+second time to the same tunnel:
+
+1. Cloudflare Zero Trust → **Networks** → **Tunnels** → open
+   `smartmatch-classroom-pilot`.
+2. Add a **Public hostname**: subdomain `exercise`, the same zone as
+   `pilot.plated.blog`, type **HTTP**, URL the exercise process's loopback
+   origin on the VM.
+3. Save. Creating the public hostname in the dashboard normally adds the CNAME
+   `exercise.plated.blog` → `<tunnel-id>.cfargotunnel.com`
+   (`classroom-vm-cloudflare-tunnel.md` Part 2 step 3). If it did not, add it
+   there; that guide is the authority on the DNS half.
+
+**Which loopback port is a gap, not a decision this document can make.** The
+base compose file binds the CBA API to `127.0.0.1:8080` and `web` to
+`127.0.0.1:5173` (`vm-deploy.md:308-322`), and there is **no second API service
+in any compose file** to give a port to — the first gap at the top of this
+file. Point the hostname at whatever origin the compose change lands on. This
+mapping is dashboard-managed and lives in no file in this repository
+(`vm-deploy.md:78-87`), exactly as `pilot.plated.blog`'s does.
+
+### No Cloudflare Access policy on this host
+
+Owner decision, 2026-09-21. This is a deliberate difference from
+`pilot.plated.blog`, and
+[`classroom-vm-cloudflare-tunnel.md`](classroom-vm-cloudflare-tunnel.md) Part 3
+says the opposite for *that* host — "if you skip Access, anyone who guesses the
+hostname gets the demo. Do not skip it." Both are right, for different
+products, and the difference is worth stating rather than leaving a reader to
+find the contradiction:
+
+| | `pilot.plated.blog` (CBA) | `exercise.plated.blog` (this scope) |
+|---|---|---|
+| What is behind it | Seeded CBA portals with real-shaped student and speaker records | Six team workspaces over **fictional** rows (ADR-0025 D2) |
+| Login | None of its own — Access **is** the door | None **by design**: no CBA authenticated router is mounted (ADR-0025 D1), so there is no account to protect |
+| Credential in the product | Fixture bearer tokens, emptied on the VM | One: the instructor passcode |
+| Edge protection | Cloudflare Access allowlist | The passcode, plus the rate-limit rule in [§5](#5-rate-limiting-belongs-at-the-proxy-oq-ce-06) |
+
+Why an Access wall is the wrong tool here, stated plainly: the exercise is a
+classroom activity that thirty participants open on their own laptops within a
+few minutes of each other, with no accounts. An email allowlist in front of it
+is a second sign-in for a product whose whole design is that it has none, and
+the first five minutes of the class would be spent on Cloudflare's login
+instead of the exercise.
+
+**What that trades away, said without softening it:** anyone who learns
+`exercise.plated.blog` can open the team surface, enter a team number and see
+that team's workspace. The data is invented and there is no account to
+compromise, which is what makes the trade acceptable *for this scope*. The
+instructor surface is the part that is actually defended, by two things:
+
+* the passcode (`SMARTMATCH_EXERCISE_INSTRUCTOR_PASSCODE`), with PBKDF2 in
+  front of every attempt; and
+* the rate-limit rule at the proxy, which is **the only edge protection this
+  host has** and is therefore not optional — see the next section.
+
+This is not a production-readiness claim about either host.
+`ALLOW_CLOUD_DEPLOY=false` is unchanged.
+
+---
+
+## 5. Rate limiting belongs at the proxy (OQ-CE-06)
+
+The path to limit is `POST /v1/exercise/instructor/login` — the literal
+`"/login"` on `login_router` at
+`services/api/smartmatch_api/routers/exercise_instructor.py:192-193`, under the
+router prefix `/v1/exercise/instructor` (`:155`). It is the one unauthenticated
+guessing surface in the product.
+
+It has an in-process limiter today, and that limiter is a **marked
 placeholder** (`services/api/smartmatch_api/exercise_rate_limit.py:1`, whose
 first line is the word `PLACEHOLDER`). What it is:
 
@@ -285,24 +475,34 @@ That last point is the requirement: **per-client rate limiting has to happen at
 the reverse proxy**, because the proxy is the only hop that knows the real
 client address.
 
-**The configuration is a gap.** The only front door documented for this VM is a
-Cloudflare Tunnel whose hostname mapping is dashboard-managed and checked into
-nothing (`vm-deploy.md:78-87`). There is no nginx, Caddy or Traefik config in
-this repository to add a `limit_req` zone to. So the requirement, stated so it
-can be built and reviewed by hand:
+**With no Access policy on this host ([§4a](#4a-the-tunnel-and-why-there-is-no-access-policy)),
+this rule is the only edge protection `exercise.plated.blog` has.** It is not
+optional, and it is not in git: the front door is a dashboard-managed
+Cloudflare Tunnel (`vm-deploy.md:78-87`) and there is no nginx, Caddy or
+Traefik config in this repository to add a `limit_req` zone to. So the rule is
+specified here, concretely enough to be built and reviewed by hand:
 
-| Setting | Value | Why |
-|---|---|---|
-| Path | `POST <EXERCISE_HOST>/v1/exercise/instructor/login` | The one unauthenticated guessing surface |
-| Counting key | client IP | The app cannot do this; the proxy can |
-| Budget | 10 requests / 5 minutes / IP | Matches `INSTRUCTOR_LOGIN_ATTEMPTS_PER_CLIENT` so the two bounds do not disagree |
-| Action | block, with the same refusal the app gives | A different response teaches an attacker where the limit lives |
+| Setting | Value |
+|---|---|
+| Rule type | Cloudflare **Rate Limiting Rule** (WAF), on the zone serving `exercise.plated.blog` |
+| Match | `http.host eq "exercise.plated.blog" and http.request.method eq "POST" and http.request.uri.path eq "/v1/exercise/instructor/login"` |
+| Counting key | **client IP** — the app parses no `X-Forwarded-For`, so the proxy is the only hop that can do this |
+| Budget | **10 requests / 5 minutes** per IP — deliberately equal to `INSTRUCTOR_LOGIN_ATTEMPTS_PER_CLIENT` (`exercise_rate_limit.py:74`) and `INSTRUCTOR_LOGIN_WINDOW` (`:85`), so the two bounds cannot disagree |
+| Action | **Block**, 429, with a response indistinguishable from the app's own refusal — a different page tells an attacker exactly where the limit lives |
+| Scope check | The rule must match **only** that path. A rate limit on all of `exercise.plated.blog` would throttle thirty laptops loading the exercise at the same moment, which is the normal start of a class. |
 
-In Cloudflare terms that is a **Rate Limiting Rule** on the Zero Trust/WAF side
-for that hostname and path. It cannot be expressed in this repository today, and
-this document does not pretend otherwise. OQ-CE-06 stays **OPEN**; when it is
-answered, `exercise_rate_limit.py` is deleted and the dependency comes off the
-route, which the module's own docstring already anticipates.
+Do **not** put a matching rule on `pilot.plated.blog`; that host has Access in
+front of it and a different threat model.
+
+**Verify it by hand before the class** from a machine that is not the
+classroom's: send 11 `POST`s with a wrong passcode and confirm the 11th is
+refused by Cloudflare rather than by the application. Nothing in this
+repository can test a dashboard rule.
+
+OQ-CE-06's address half is **decided** (2026-09-21); this rule is the part that
+is still to be applied. When it is, `exercise_rate_limit.py` is deleted and the
+dependency comes off the route, which the module's own docstring already
+anticipates.
 
 ---
 
@@ -319,7 +519,7 @@ How to measure:
 2. DevTools → **Performance** → check *Disable cache*, throttling **No
    throttling** (the classroom network is the condition under test, not a
    simulated one).
-3. Load `https://<EXERCISE_HOST>/` from a cold profile. Record **Time to
+3. Load `https://exercise.plated.blog/` from a cold profile. Record **Time to
    Interactive** from the trace summary.
 4. Repeat three times; record all three, not the best one.
 5. Record the Chrome version and the machine, because the number means nothing
@@ -341,8 +541,28 @@ is not a built bundle's first load.
 
 ## 7. Day-of-class runbook
 
-All seven steps are instructor-page actions; every one needs a live instructor
-session (the passcode) and sends `X-Exercise-Request`.
+Steps 1-7 are instructor-page actions; every one needs a live instructor
+session (the passcode) and sends `X-Exercise-Request`. Step 0 needs neither.
+
+0. **Is it up?**
+
+   ```bash
+   curl -sS https://exercise.plated.blog/api/health
+   # {"status":"ok","release":"..."}
+   ```
+
+   The `release` value is whatever `SMARTMATCH_RELEASE` the exercise process
+   was given; do not read anything into it until the compose change that
+   creates that process decides what to pass.
+
+   `/api/health` is declared on the application itself, **outside** the
+   scope-filtered router table (`main.py:704-706`, after the
+   `routers_for(get_settings())` loop at `:700-701`), so it is served in this
+   scope exactly as it is in the CBA one. It **touches no database and needs no
+   cookie** — it reads `settings.release` and returns (`main.py:713-714`). That
+   is what makes it the right probe: a green answer proves the process and the
+   tunnel hostname, and proves nothing about the database or the grant. Use the
+   checks in [§3](#3-the-database-role) for those.
 
 1. **Upload the data file.** `POST /v1/exercise/instructor/datasets` with a raw
    `text/csv` **body** — `Content-Type: text/csv`, the file's bytes, **no
@@ -403,7 +623,7 @@ session (the passcode) and sends `X-Exercise-Request`.
    which also ends every team's cookie. Owner decision, 2026-09-21: this stands
    for the pilot.
 2. **The login limiter is in-process.** Per process, per process lifetime,
-   fixed windows, no `X-Forwarded-For` — see [§5](#5-rate-limiting-belongs-at-the-proxy-oq-ce-06-open).
+   fixed windows, no `X-Forwarded-For` — see [§5](#5-rate-limiting-belongs-at-the-proxy-oq-ce-06).
    It is usable only because the VM runs one API container.
 3. **`hide_parameters` does not suppress PostgreSQL's own `DETAIL:` line
    (B-11).** SQLAlchemy's `[parameters: ...]` is withheld, but a CHECK or NOT
@@ -440,7 +660,7 @@ session (the passcode) and sends `X-Exercise-Request`.
 
 | ID | Question | Status | Where it bites here |
 |---|---|---|---|
-| **OQ-CE-06** | "Where does the site live and what is its stable address?" — owner Danny. The 2026-09-21 decision fixes the *shape* (a subdomain on the pilot VM) and not the name, and `exercise_rate_limit.py` carries the same id for the edge-limiting half | **OPEN** | `<EXERCISE_HOST>` is unresolved everywhere in this file; the proxy rate-limit rule in [§5](#5-rate-limiting-belongs-at-the-proxy-oq-ce-06-open) cannot be checked into git |
+| **OQ-CE-06** | "Where does the site live and what is its stable address?" — owner Danny. `exercise_rate_limit.py` carries the same id for the edge-limiting half | **Address decided 2026-09-21** (`exercise.plated.blog`, second hostname on the existing tunnel, no Access policy); **rate-limit rule still to be applied at the proxy** | The rule in [§5](#5-rate-limiting-belongs-at-the-proxy-oq-ce-06) is specified here but lives in the Cloudflare dashboard, not in git. This file does not edit the register; the dated OQ-CE-06 line is another agent's change. |
 | **OQ-CE-07** | "How is the instructor passcode set and shared with Ann and Dr. Lin?" — owner Danny + Ann | **OPEN** | [§2](#2-environment-variables) documents the register's safe default — one env var, out of band, rotated after the spring run — and closes nothing |
 | **OQ-CE-09** | "What license line goes on the opening screen?" — owner Ann; none shown until she provides the sentence | **OPEN — by Nov 20** | Nothing in this document adds or removes a license line; the opening screen ships without one |
 | **B-11** | "Error text never carries bound values" as a repository-wide invariant. PostgreSQL's `DETAIL: Failing row contains (…)` sits below the layer `hide_parameters` operates on | **RECORDED 2026-09-19, unresolved** — [`docs/architecture/decisions/adr-backlog.md:250`](../architecture/decisions/adr-backlog.md) | [§8](#8-known-limits) item 3 |
