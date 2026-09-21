@@ -8,6 +8,7 @@
  * whose caller unmounts before the reload it started has settled.
  */
 import { act, renderHook, waitFor } from "@testing-library/react";
+import * as React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { useExerciseResource } from "./useExerciseResource";
@@ -107,5 +108,65 @@ describe("useExerciseResource's reload()", () => {
 
     await waitFor(() => expect(firstSettled).toBe(true));
     expect(secondSettled).toBe(true);
+  });
+
+  it("does not resolve reload() early under React.StrictMode's dev double-mount", async () => {
+    // Round 4, finding 1 (HIGH, dev-only). `main.tsx` wraps the whole app in
+    // `React.StrictMode`, which in development mounts every component's
+    // effects twice on initial mount, synchronously: setup, cleanup, setup
+    // again. `unmounted` was only ever set to `true`, never back to `false`
+    // — so that first, StrictMode-only cleanup left it `true` for the rest
+    // of the component's real life. Every `reload()` afterwards took the
+    // "there is no next run, resolve now" branch immediately, before the
+    // fetch it started had even settled — silently breaking G3's whole point
+    // in exactly the environment this is developed in.
+    //
+    // Fails on a4d69d5b: `settled` is `true` before `release()` is ever
+    // called.
+    const initial: Array<(value: string) => void> = [];
+    const load = vi.fn(() => new Promise<string>((resolve) => initial.push(resolve)));
+
+    const { result } = renderHook(() => useExerciseResource(load, []), {
+      wrapper: ({ children }: { children: React.ReactNode }) => (
+        <React.StrictMode>{children}</React.StrictMode>
+      ),
+    });
+
+    // StrictMode may call `load` once or twice before the hook settles on
+    // "ready" (the first invocation's own effect run is cleaned up before it
+    // resolves, so resolving it is a no-op — only whichever invocation is
+    // still live when it resolves sets state). Resolve every call that has
+    // arrived so far either way.
+    await waitFor(() => expect(initial.length).toBeGreaterThanOrEqual(1));
+    act(() => {
+      while (initial.length > 0) {
+        initial.shift()?.("initial");
+      }
+    });
+    await waitFor(() => expect(result.current.state.status).toBe("ready"));
+
+    let release: (() => void) | null = null;
+    load.mockImplementationOnce(
+      () =>
+        new Promise<string>((resolve) => {
+          release = () => resolve("reloaded");
+        }),
+    );
+
+    let settled = false;
+    act(() => {
+      void result.current.reload().then(() => {
+        settled = true;
+      });
+    });
+
+    await waitFor(() => expect(release).not.toBeNull());
+    // The fetch this `reload()` started is still open — nothing has resolved
+    // or rejected it — so the promise must still be pending.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(settled).toBe(false);
+
+    release?.();
+    await waitFor(() => expect(settled).toBe(true));
   });
 });

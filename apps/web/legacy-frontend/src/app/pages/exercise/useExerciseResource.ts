@@ -123,6 +123,16 @@ export function useExerciseResource<T>(
   // `true` by the time that effect's own cleanup checks it.
   const unmounted = useRef(false);
   useEffect(() => {
+    // `React.StrictMode` (`main.tsx` wraps the app in it) mounts every
+    // component twice in development: mount, cleanup, mount again, all
+    // synchronously. That first cleanup would otherwise leave this `true`
+    // for the component's entire real life — every `reload()` in dev would
+    // then resolve immediately, before its data ever lands, silently
+    // breaking G3 in exactly the environment this is developed in.
+    // Un-setting it here, in the effect's own setup, is what makes the
+    // *second* mount's cleanup (the one that fires on a genuine unmount) the
+    // one that sticks.
+    unmounted.current = false;
     return () => {
       unmounted.current = true;
     };
