@@ -295,6 +295,8 @@ Contract-Refs: v1.1 §N.N
 | [Container operations](docs/operations/containers.md) | The images, the compose appliance, the launchers, and the health suite |
 | [Pilot VM and `deploy` branch](docs/operations/vm-deploy.md) | The synthetic GCE instance: how a commit actually reaches it today, the scripted deployment design that was never bootstrapped onto it, and the gates before production |
 | [Deploy runbook](docs/operations/deploy-runbook.md) | Migration policy, forward-only rollback, and the dispatcher alerts |
+| [Supabase setup](docs/operations/supabase-setup.md) | Standing up managed Postgres (Supabase) for staging/synthetic use — connection strings, roles, migrations; `ALLOW_CLOUD_DEPLOY` stays false |
+| [Supabase maintenance](docs/operations/supabase-maintenance.md) | Backups, restore drill, migration procedure, credential rotation, and incident steps for a Supabase-hosted database |
 | [Command path](docs/architecture/command-path.md) | Diagrams: the durable command path end to end, the job state machine, the re-drive cycle |
 | [Contract review and findings](docs/architecture/review/contract-findings.md) | Consistency checks, six findings, scaffold gate result |
 | [Migration manifest](docs/migration/migration-manifest.yaml) | Every legacy component: ported, blocked, or archived, with reasons |
