@@ -246,9 +246,8 @@ test("the exercise routes are mounted", () => {
   }
 });
 
-test("no exercise module uses the forbidden word for this scope", () => {
-  // ADR-0025 D9 and tools/scan_forbidden.py: the word in code is `exercise`.
-  for (const { name, text } of exerciseSources()) {
-    assert.ok(!/demo_mode|DEMO_MODE|if demo/.test(text), `${name} uses a forbidden identifier`);
-  }
-});
+// ADR-0025 D9 — "the word in code is `exercise`" — is deliberately *not*
+// asserted here. `tools/scan_forbidden.py` already enforces it across the
+// whole repository, and a copy of the rule in this file would have to spell
+// the forbidden identifiers out to match them, which trips the real scanner on
+// this very file. The rule has an owner; this file is not it.
