@@ -298,6 +298,15 @@ _PERMITTED_EXPORT_MODULES = frozenset(
         # Review round 2 (F4): the instructor page's value types moved out of
         # `instructor_repository` when it passed the line ceiling.
         "smartmatch_persistence.exercise.instructor_rows",
+        # CE-RESULTS-API: design spec §9-§13's reads and writes — the results
+        # lock, the one-run rule, the asking choice and the refresh — plus the
+        # value types and the two refusals they hand back. One module and one
+        # entry, because it answers one question.
+        "smartmatch_persistence.exercise.results_repository",
+        # And its five value types, split out when that module passed the line
+        # ceiling — the same split `instructor_rows` is, and the same reason it
+        # gets an entry of its own.
+        "smartmatch_persistence.exercise.results_rows",
         "typing",
         "builtins",
         # ``ExerciseSession`` wraps SQLAlchemy's ``Session``. Admitted

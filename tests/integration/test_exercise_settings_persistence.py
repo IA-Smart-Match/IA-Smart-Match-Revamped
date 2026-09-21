@@ -661,12 +661,19 @@ def test_a_repoint_takes_the_saved_settings_key_before_any_row_lock(
     The obvious experiment — hold the key from a second connection, let the
     re-point block under a short ``lock_timeout``, then ask a third connection
     whether the workspace row is still free — cannot work here, and it was tried
-    first. A ``lock_timeout`` surfaces as a psycopg ``OperationalError``, which
-    SQLAlchemy treats as a disconnect and **invalidates the pooled connection**:
-    by the time the exception reaches the test the backend is gone,
-    ``pg_locks`` shows nothing for it, and the probe reports "free" whichever
-    order the code used. Measured, not assumed — the probe passed against the
-    unfixed code, which is the definition of a test that is not testing.
+    first, and it failed for a reason worth stating correctly (CE-RESULTS-API
+    correction; the earlier wording here overstated the mechanism). A
+    ``lock_timeout`` surfaces as a psycopg ``OperationalError``. SQLAlchemy does
+    **not** invalidate the connection for every ``OperationalError`` — it
+    invalidates when the dialect's ``is_disconnect`` says so, and a lock timeout
+    is not a disconnect. What it more usually leaves is a **failed transaction**:
+    the backend is still there, sitting ``idle in transaction (aborted)``, having
+    released every lock it held when the statement rolled back. Either way — an
+    invalidated connection or an aborted transaction — the locks are gone before
+    the third connection asks, so the probe reports "free" whichever order the
+    code used. The conclusion is unchanged and was measured, not assumed: the
+    probe passed against the unfixed code, which is the definition of a test that
+    is not testing.
 
     So the order is read where it is actually decided: off the sequence of
     statements the method sends. No second connection, no timing, no sleep, and

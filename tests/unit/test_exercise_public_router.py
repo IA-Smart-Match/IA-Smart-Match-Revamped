@@ -174,6 +174,12 @@ def test_the_exercise_scope_mounts_this_route_and_nothing_authenticated() -> Non
             "/v1/exercise/workspaces/current/events/{event_key}/settings",
             "/v1/exercise/workspaces/current/events/{event_key}/settings/compare",
             "/v1/exercise/workspaces/current/events/{event_key}/settings/{name}",
+            # CE-RESULTS-API added the results lock and one-run route, the
+            # asking choice and the one refresh (design spec §9-§13), under the
+            # same prefix and for the same reason.
+            "/v1/exercise/workspaces/current/events/{event_key}/results",
+            "/v1/exercise/workspaces/current/asking-choice",
+            "/v1/exercise/workspaces/current/refresh",
         }
     )
 

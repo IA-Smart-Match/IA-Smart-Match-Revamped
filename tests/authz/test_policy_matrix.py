@@ -687,16 +687,29 @@ UNAUTHENTICATED_ROUTES: dict[tuple[str, str], str] = {
         "Requires `X-Exercise-Request`."
     ),
     ("POST", "/v1/exercise/instructor/refresh-all"): (
-        "Design spec §13's 'refresh all', declared and deliberately not "
-        "built: it **always refuses** with one sentence, behind the "
-        "instructor passcode session. The refresh copies a share of the "
-        "withheld column into each team's overlay and that share is decided "
-        "by the team's asking choice, which a route the results track owns "
-        "stores. With no choice to read, a refresh here would either do "
-        "nothing or invent one of OQ-CE-04's numbers. "
-        "It exists as a refusal rather than as an absence so the instructor "
-        "page can show the button it will need with a sentence saying why it "
-        "is off, instead of the frontend discovering a 404 in a classroom. "
+        "Design spec §13's 'refresh all', **now built** (CE-RESULTS-API): it "
+        "runs each team's own refresh for every team that has chosen how to "
+        "ask and has not yet refreshed. Behind the instructor passcode "
+        "session, which sits on the router rather than on the handler, so the "
+        "gate cannot be dropped by editing a signature; the handler lives in "
+        "`routers/exercise_instructor_refresh.py` because "
+        "`routers/exercise_instructor.py` is past the repository's line "
+        "ceiling, and it replaces the refusing stub that shipped at this path "
+        "in PR #184. "
+        "It takes no identifier from the caller at all — not even a team "
+        "number — so there is nothing to authorize against: the set of teams "
+        "it visits is a predicate on the rows (`asking_choice IS NOT NULL AND "
+        "refreshed_at IS NULL`), and each team's refresh is keyed on that "
+        "team's own workspace. "
+        "Destructive only in the sense design spec §13 intends: it consumes "
+        "each team's one refresh and writes that team's own overlay rows. It "
+        "cannot be run twice against a team, because `refreshed_at` is claimed "
+        "under a once-only `UPDATE` predicate before any overlay row is "
+        "written. "
+        "The share it applies copies a card out of the withheld column, which "
+        "happens inside the repository, behind "
+        "`load_simulation_profiles`; the response is team numbers and counts "
+        "(ADR-0025 D6, D8). "
         "Requires `X-Exercise-Request`."
     ),
     # CE-MATCHING-API (design spec §4-§8). Six routes, one justification, and
@@ -761,6 +774,69 @@ UNAUTHENTICATED_ROUTES: dict[tuple[str, str], str] = {
         "fourth new name is refused with one sentence. The weights are "
         "refused, never repaired, by the exercise rulebook's own validator; "
         '`extra="forbid"` rejects a body naming anything else.'
+    ),
+    # CE-RESULTS-API (design spec §9-§13). Five routes, and the justification
+    # is the six above it word for word: a no-login product over made-up
+    # profiles, mounted only under `Capability.CLASS_EXERCISE`, in a scope that
+    # registers none of the authenticated CBA routers, and **not one of them
+    # accepts an identifier from the client**. What is specific to these five is
+    # that each write is permitted exactly *once* per team, by a database
+    # constraint or a once-only `UPDATE` predicate rather than by a check in
+    # code — which is also what bounds them in the absence of the rate limiting
+    # OQ-CE-06 is open about.
+    ("POST", "/v1/exercise/workspaces/current/events/{event_key}/results"): (
+        "Run the caller's own invited list through the simulated-results rule "
+        "and keep the answer (design spec §9-§11). State-changing, and "
+        "therefore gated on `X-Exercise-Request` on top of `SameSite=Lax`. "
+        "Two gates stand in front of it that are not authorization and are "
+        "stronger here than authorization would be: the event must have been "
+        "unlocked by the instructor (`exercise_result_unlock`), and a team may "
+        "run it **once** — "
+        "`uq_exercise_result_run_workspace_event`, a constraint rather than a "
+        "count, so two presses arriving together cannot both succeed and the "
+        "second is refused with the sentence design spec §9 writes out. "
+        "Unbounded creation is therefore impossible rather than rate-limited. "
+        "The rule reads the withheld column, which is the one thing that "
+        "column is for; what it returns is profile numbers, and the response "
+        "carries counts of people and of chairs and no number that ranks "
+        "anybody (ADR-0025 D6, D8). While OQ-CE-03 is open the route refuses "
+        "with one sentence naming it rather than running on invented "
+        "coefficients."
+    ),
+    ("GET", "/v1/exercise/workspaces/current/events/{event_key}/results"): (
+        "The caller's own stored run, read back from the row rather than "
+        "recomputed, so a reload shows what the team was shown. Another team's "
+        "run is not filtered out of this answer; it is never selected, because "
+        "the workspace comes from the cookie and is part of the statement."
+    ),
+    ("GET", "/v1/exercise/workspaces/current/asking-choice"): (
+        "How the caller's own team chose to ask, the three choices it may "
+        "make, and whether it has refreshed (design spec §12). No oracle: the "
+        "three names are the course's own vocabulary and are on the response "
+        "so a screen renders them rather than writing them into a component."
+    ),
+    ("POST", "/v1/exercise/workspaces/current/asking-choice"): (
+        "Store the caller's own one choice of how to ask. State-changing, and "
+        "therefore gated on `X-Exercise-Request`. Once only, as the "
+        "statement's own `WHERE asking_choice IS NULL` rather than a read "
+        "followed by a write — a second choice is refused rather than quietly "
+        "replacing the first, because the share it decides is what the refresh "
+        "then applies. The value must be one of the three the domain declares "
+        "and the database's check constraint admits; a refusal quotes nothing "
+        "the caller sent, and an oversized value is refused by a "
+        '`mode="before"` validator before pydantic has a key to echo.'
+    ),
+    ("POST", "/v1/exercise/workspaces/current/refresh"): (
+        "Apply the caller's own way of asking to the caller's own view of the "
+        "profiles, once (design spec §13). State-changing, and therefore gated "
+        "on `X-Exercise-Request`. Destructive of nothing: it only adds — "
+        "topics to the people who attended the first round, a card to a share "
+        "of those who had none, and a not-answering mark under the third way "
+        "of asking. Every write is keyed on the cookie's workspace, so one "
+        "team's refresh cannot reach another team's overlay. Once only, as "
+        "`WHERE refreshed_at IS NULL`, claimed before any overlay row is "
+        "written. The card it copies comes out of the withheld column inside "
+        "the repository; the response is three counts (ADR-0025 D6, D8)."
     ),
     ("DELETE", "/v1/exercise/workspaces/current/events/{event_key}/settings/{name}"): (
         "Delete one of the caller's own saved weightings. Destructive only of "

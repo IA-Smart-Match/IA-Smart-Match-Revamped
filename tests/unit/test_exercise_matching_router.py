@@ -1373,9 +1373,26 @@ _FORBIDDEN_RESPONSE_FIELDS = frozenset(
 _SCORE_SHAPED = ("score", "percent", "confidence", "probability", "likelihood")
 
 
+#: The same four modules ``_TRACK_SOURCES`` reads, as modules.
+#:
+#: Widened from ``(exercise_matching, exercise_matching_models)`` by
+#: CE-RESULTS-API, carrying a LOW item from PR #188's re-review: review round 2's
+#: F4 split the weights helpers and the CSV download into modules of their own
+#: and widened the three **source** walks to cover them, but this **model** walk
+#: kept reading two of the four. A response model declared in ``_csv`` or
+#: ``_weights`` would have escaped the D6 and D8 field checks entirely — quietly,
+#: because a walk that reads fewer modules still passes.
+_TRACK_MODULES = (
+    exercise_matching,
+    exercise_matching_models,
+    exercise_matching_csv,
+    exercise_matching_weights,
+)
+
+
 def _models_in_modules() -> list[type[BaseModel]]:
     found: list[type[BaseModel]] = []
-    for module in (exercise_matching, exercise_matching_models):
+    for module in _TRACK_MODULES:
         found.extend(
             value
             for value in vars(module).values()
@@ -1387,6 +1404,15 @@ def _models_in_modules() -> list[type[BaseModel]]:
 def test_the_modules_actually_declare_models() -> None:
     """A walk over an empty list is a green check that means nothing."""
     assert len(_models_in_modules()) >= 8
+
+
+def test_the_model_walk_reads_every_module_the_source_walks_read() -> None:
+    """The two lists must not drift apart again (PR #188 LOW item).
+
+    A module added to ``_TRACK_SOURCES`` and forgotten here is a module whose
+    response models never meet the D6 and D8 field checks.
+    """
+    assert {Path(module.__file__ or "") for module in _TRACK_MODULES} == set(_TRACK_SOURCES)
 
 
 def test_no_response_model_carries_a_withheld_or_addressing_field() -> None:
@@ -1446,14 +1472,26 @@ def test_the_served_exercise_contract_names_neither_either() -> None:
 
 
 def test_the_exercise_paths_carry_no_workspace_identifier() -> None:
-    """The cookie is the whole of the addressing: no id is accepted anywhere."""
+    """The cookie is the whole of the addressing: no id is accepted anywhere.
+
+    **Read off the OpenAPI document, not ``app.routes``** (CE-RESULTS-API
+    correction). On this FastAPI version ``include_router`` leaves an
+    ``_IncludedRouter`` wrapper in ``app.routes`` whose ``path`` is ``None``, so
+    the earlier walk's ``startswith`` matched nothing at all and this guard
+    passed over an empty set. The count below is what stops that coming back:
+    a walk with nothing in it now fails instead of passing.
+    """
     app = FastAPI()
     for router in routers_for(_settings()):
         app.include_router(router)
-    for route in app.routes:
-        path = getattr(route, "path", "")
-        if not path.startswith("/v1/exercise/workspaces/current"):
-            continue
+    team_paths = {
+        path
+        for path in app.openapi().get("paths", {})
+        if path.startswith("/v1/exercise/workspaces/current")
+    }
+
+    assert len(team_paths) >= 6, "the walk found none of this track's paths"
+    for path in sorted(team_paths):
         for forbidden in ("{workspace_id}", "{token}", "{team_number}", "{dataset_id}"):
             assert forbidden not in path, f"{path} accepts an identifier from the client"
 

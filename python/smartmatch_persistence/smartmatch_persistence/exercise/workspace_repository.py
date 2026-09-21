@@ -66,6 +66,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from smartmatch_persistence.exercise import schema
+from smartmatch_persistence.exercise.results_repository import lock_result_runs
 from smartmatch_persistence.exercise.settings_repository import lock_saved_settings
 
 __all__ = [
@@ -511,23 +512,26 @@ class ExerciseWorkspaceRepository:
         2026-09-19, so nothing a class participant can press arrives here;
         ``ExerciseInstructorRepository.reset_team`` is the one caller.
 
-        **Takes the saved-settings key first** (review round 1). Without it a
-        reset racing a team's save loses to it: the save holds
-        :data:`~smartmatch_persistence.exercise.settings_repository.SAVED_SETTING_LOCK_KEY`
-        while it counts and inserts, the reset's ``DELETE`` runs in between and
-        under READ COMMITTED simply does not see the uncommitted row, and the
-        save then commits — leaving the team holding a setting the reset was
-        meant to clear, with no error anywhere to say so. Taking the key makes
-        the two take turns, and a reset that waits for a save then deletes what
-        it wrote.
+        **Takes the saved-settings key and then the results key, both before any
+        row lock.** Without the first, a reset racing a team's save loses to it:
+        the save holds the key while it counts and inserts, the reset's
+        ``DELETE`` runs in between and under READ COMMITTED simply does not see
+        the uncommitted row, and the save then commits — leaving the team holding
+        a setting the reset was meant to clear, with no error anywhere to say so
+        (review round 1, item 9). The second key is the same defect with
+        ``exercise_result_run`` and ``exercise_profile_overlay`` in place of
+        ``exercise_saved_setting``, and it arrived with the routes that write
+        them (CE-RESULTS-API).
 
-        The order is the family's, stated on that constant: membership key, then
-        saved-settings key, then row locks. This method takes no membership
-        lock, so it cannot be the edge that closes a cycle.
+        **The order, and the one place it is written down:**
+        :data:`~smartmatch_persistence.exercise.settings_repository.SAVED_SETTING_LOCK_KEY`
+        carries the per-path walk for all four repositories. This method takes no
+        membership lock, so it cannot be the edge that closes a cycle.
 
         Not committed here.
         """
         lock_saved_settings(session)
+        lock_result_runs(session)
         for child in (
             schema.exercise_profile_overlay,
             schema.exercise_saved_setting,

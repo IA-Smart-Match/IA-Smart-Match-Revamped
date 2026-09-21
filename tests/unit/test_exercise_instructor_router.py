@@ -1089,15 +1089,28 @@ def test_a_passcode_longer_than_the_bound_is_refused_before_the_handler(
     assert _TEST_PASSCODE not in response.text
 
 
-def test_refresh_all_refuses_with_a_sentence_until_the_results_track_lands(
-    signed_in: TestClient,
-) -> None:
-    response = signed_in.post(
-        "/v1/exercise/instructor/refresh-all", headers={EXERCISE_REQUEST_HEADER: "1"}
-    )
+def test_this_module_no_longer_declares_refresh_all() -> None:
+    """The refusing stub is **deleted**, not deprecated (CE-RESULTS-API).
 
-    assert response.status_code == 409
-    assert response.json()["error"]["message"] == ("Refreshing every team is not switched on yet.")
+    PR #184 shipped ``POST /v1/exercise/instructor/refresh-all`` as a route that
+    always refused, because the share a refresh applies is decided by an asking
+    choice no route stored yet. The choice is stored now, so the real handler
+    lives in ``routers/exercise_instructor_refresh.py`` — a module of its own,
+    because this file is already past the repository's 800-line ceiling — and
+    this one must not still be answering at that path.
+
+    Asserted on **this module's own routes** rather than on the mounted app: two
+    handlers at one path is exactly the failure a deletion can leave behind, and
+    the app would answer with whichever was mounted first without saying so.
+    """
+    declared = {
+        (method, route.path)
+        for route in (*exercise_instructor.router.routes, *exercise_instructor.login_router.routes)
+        for method in getattr(route, "methods", ())
+    }
+
+    assert ("POST", "/v1/exercise/instructor/refresh-all") not in declared
+    assert "refresh_all_workspaces" not in vars(exercise_instructor)
 
 
 # ---------------------------------------------------------------------------

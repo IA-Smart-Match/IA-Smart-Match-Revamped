@@ -92,6 +92,7 @@ from smartmatch_api.routers.exercise_matching_models import (
     SavedSettingsView,
     SaveSettingRequest,
     event_evidence,
+    event_or_refusal,
     rankable_set,
     ranked_list_view,
     saved_setting_view,
@@ -102,6 +103,17 @@ from smartmatch_api.routers.exercise_matching_weights import (
     validated,
     weight_query,
 )
+
+#: What this module offers, declared where a reader looks for it rather than
+#: seven hundred lines down.
+#:
+#: ``event_or_refusal`` is **re-exported**: it lives in
+#: ``exercise_matching_models`` now, beside ``event_evidence`` and
+#: ``rankable_set``, because that is where the results track reaches it from and
+#: a router importing a router for one helper is an edge that grows (review
+#: round 1, F8). The name here is the same object, so this module's own callers
+#: and anything that imported it from here keep working.
+__all__ = ["EXERCISE_WEIGHT_PARAMETER_KEYS", "event_or_refusal", "router"]
 
 #: A bare assignment, not an annotated one, for ``exercise_public.router``'s
 #: reason: the route ledger in ``tests/authz/test_policy_matrix.py`` reads
@@ -122,23 +134,6 @@ _MAX_SETTING_NAME_CHARACTERS = 100
 #: A name the settings routes will not store, because the compare route already
 #: answers on it. Refusing it is cheaper than a path that means two things.
 _RESERVED_SETTING_NAME = "compare"
-
-
-def _event_or_refusal(events: Sequence[ExerciseEventRow], event_key: str) -> ExerciseEventRow:
-    """The named event from this team's own data file, or one plain sentence.
-
-    Looked up in the list already read for the topic lookup rather than by a
-    second query, so an event key belonging to another data file cannot resolve:
-    the only events in scope are this workspace's.
-    """
-    for event in events:
-        if event.event_key == event_key:
-            return event
-    raise ExerciseError(
-        status_code=status.HTTP_404_NOT_FOUND,
-        code="exercise_event_unknown",
-        message="That event is not in your team's data file.",
-    )
 
 
 def _setting_name_or_refusal(name: str) -> str:
@@ -227,7 +222,7 @@ def _build_list(
     """
     if events is None:
         events = datasets.list_events(session, dataset_id=workspace.dataset_id)
-    event = _event_or_refusal(events, event_key)
+    event = event_or_refusal(events, event_key)
     summary = datasets.get_dataset_summary(session, dataset_id=workspace.dataset_id)
     if summary is None:  # pragma: no cover - the cookie resolved a workspace on it
         raise ExerciseError(
@@ -399,7 +394,7 @@ def read_ranked_list(
             rulebook refuses or for naming a setting and a weight at once.
     """
     events = datasets.list_events(session, dataset_id=workspace.dataset_id)
-    event = _event_or_refusal(events, event_key)
+    event = event_or_refusal(events, event_key)
     overrides, setting_name = _overrides_for(
         session,
         settings,
@@ -463,7 +458,7 @@ def download_ranked_list(
         ExerciseError: as the route above.
     """
     events = datasets.list_events(session, dataset_id=workspace.dataset_id)
-    event = _event_or_refusal(events, event_key)
+    event = event_or_refusal(events, event_key)
     overrides, setting_name = _overrides_for(
         session,
         settings,
@@ -538,7 +533,7 @@ def compare_settings(
             saved setting this team does not have.
     """
     events = datasets.list_events(session, dataset_id=workspace.dataset_id)
-    event = _event_or_refusal(events, event_key)
+    event = event_or_refusal(events, event_key)
     lists = [
         _build_list(
             session,
@@ -599,7 +594,7 @@ def read_settings(
             for an event that is not in this team's data file.
     """
     events = datasets.list_events(session, dataset_id=workspace.dataset_id)
-    event = _event_or_refusal(events, event_key)
+    event = event_or_refusal(events, event_key)
     stored = settings.list_settings(session, workspace_id=workspace.id, event_key=event.event_key)
     return SavedSettingsView(
         event_key=event.event_key,
@@ -643,7 +638,7 @@ def save_setting(
     usable_name = _setting_name_or_refusal(name)
     weights = validated(dict(payload.weights))
     events = datasets.list_events(session, dataset_id=workspace.dataset_id)
-    event = _event_or_refusal(events, event_key)
+    event = event_or_refusal(events, event_key)
     try:
         settings.save_setting(
             session,
@@ -701,7 +696,7 @@ def delete_setting(
     """
     usable_name = _setting_name_or_refusal(name)
     events = datasets.list_events(session, dataset_id=workspace.dataset_id)
-    event = _event_or_refusal(events, event_key)
+    event = event_or_refusal(events, event_key)
     try:
         removed = settings.delete_setting(
             session,

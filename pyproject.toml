@@ -311,11 +311,22 @@ type = "forbidden"
 source_modules = [
     "smartmatch_api.routers.exercise_instructor",
     "smartmatch_api.routers.exercise_instructor_models",
+    # CE-RESULTS-API, instructor half. A router of its own because
+    # `exercise_instructor` is already past the 800-line ceiling, and it must be
+    # listed here by hand like every other one: import-linter cannot express
+    # `smartmatch_api.routers.exercise_*`.
+    "smartmatch_api.routers.exercise_instructor_refresh",
     "smartmatch_api.routers.exercise_matching",
     "smartmatch_api.routers.exercise_matching_csv",
     "smartmatch_api.routers.exercise_matching_models",
     "smartmatch_api.routers.exercise_matching_weights",
     "smartmatch_api.routers.exercise_public",
+    # CE-RESULTS-API, team half: the routes, the response contract, how one run
+    # is built, and the refresh policy the two refresh routes share.
+    "smartmatch_api.routers.exercise_results",
+    "smartmatch_api.routers.exercise_results_models",
+    "smartmatch_api.routers.exercise_results_refresh",
+    "smartmatch_api.routers.exercise_results_run",
     "smartmatch_api.routers.exercise_workspace",
 ]
 forbidden_modules = [
@@ -344,6 +355,17 @@ ignore_imports = [
     # door reaches them where they now live rather than through the repository
     # that re-exports them, so this edge says what is actually imported.
     "smartmatch_api.exercise_dependencies -> smartmatch_persistence.exercise.instructor_rows",
+    # CE-RESULTS-API adds one repository and therefore one edge. Design spec
+    # §9-§13's reads and writes are its own question — the lock, the one-run
+    # rule, the asking choice and the refresh — and it is the only module behind
+    # this door that reaches the withheld column at all, which is a reason to
+    # name it on its own line rather than to widen an existing one.
+    "smartmatch_api.exercise_dependencies -> smartmatch_persistence.exercise.results_repository",
+    # The results routes' five value types, split out of that module when it
+    # passed the line ceiling — the same cut `instructor_rows` took, and the
+    # door reaches them where they live rather than through the repository that
+    # re-exports them, so this edge says what is actually imported.
+    "smartmatch_api.exercise_dependencies -> smartmatch_persistence.exercise.results_rows",
 ]
 
 # SQLAlchemy is deliberately *not* on the list above, and this is why it gets a
@@ -370,11 +392,22 @@ type = "forbidden"
 source_modules = [
     "smartmatch_api.routers.exercise_instructor",
     "smartmatch_api.routers.exercise_instructor_models",
+    # CE-RESULTS-API, instructor half. A router of its own because
+    # `exercise_instructor` is already past the 800-line ceiling, and it must be
+    # listed here by hand like every other one: import-linter cannot express
+    # `smartmatch_api.routers.exercise_*`.
+    "smartmatch_api.routers.exercise_instructor_refresh",
     "smartmatch_api.routers.exercise_matching",
     "smartmatch_api.routers.exercise_matching_csv",
     "smartmatch_api.routers.exercise_matching_models",
     "smartmatch_api.routers.exercise_matching_weights",
     "smartmatch_api.routers.exercise_public",
+    # CE-RESULTS-API, team half: the routes, the response contract, how one run
+    # is built, and the refresh policy the two refresh routes share.
+    "smartmatch_api.routers.exercise_results",
+    "smartmatch_api.routers.exercise_results_models",
+    "smartmatch_api.routers.exercise_results_refresh",
+    "smartmatch_api.routers.exercise_results_run",
     "smartmatch_api.routers.exercise_workspace",
 ]
 forbidden_modules = ["sqlalchemy"]

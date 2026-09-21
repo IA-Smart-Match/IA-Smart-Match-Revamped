@@ -746,48 +746,6 @@ def reset_team_workspace(
     raise _no_such_team()  # pragma: no cover - the row was just read back
 
 
-@router.post(
-    "/refresh-all",
-    summary="PLACEHOLDER — refuses until the results track lands",
-    dependencies=_STATE_CHANGING,
-    responses={
-        status.HTTP_409_CONFLICT: {
-            "description": (
-                "Always. Design spec §13's refresh needs the asking choice the "
-                "results track stores; until then this route refuses."
-            )
-        }
-    },
-)
-def refresh_all_workspaces() -> None:
-    """Design spec §13's "refresh all", declared and deliberately not built.
-
-    The refresh copies a share of the withheld column into each team's
-    overlay, and that share is decided by the team's asking choice, which is
-    stored by a route the results track owns. There is no asking choice to read
-    yet, so a refresh here would either do nothing at all or invent a share —
-    and inventing a share is inventing one of OQ-CE-04's numbers.
-
-    It is a **route that refuses** rather than an absent one so the instructor
-    page can show the button it will need with a sentence saying why it is off,
-    instead of the frontend discovering a 404 in a classroom. It is registered
-    in the route ledger as exactly that.
-
-    Declared with a ``responses`` entry rather than ``status_code=409``: the
-    latter is FastAPI's *success* status, and putting a refusal there told the
-    generated contract that 409 was the happy path of a handler that has none.
-    The route's only outcome is documented as the error it is.
-
-    Raises:
-        ExerciseError: 409, always, until CE-RESULTS lands.
-    """
-    raise ExerciseError(
-        status_code=status.HTTP_409_CONFLICT,
-        code="exercise_refresh_not_ready",
-        message="Refreshing every team is not switched on yet.",
-    )
-
-
 #: The query parameter every team-addressed instructor route accepts.
 #:
 #: Optional, and what it addresses is *the data file the teams are on* — never
