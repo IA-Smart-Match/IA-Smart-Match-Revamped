@@ -15,13 +15,47 @@ import { ExerciseInstructor } from "./ExerciseInstructor";
 
 let calls: { url: string; init: RequestInit }[] = [];
 
+/**
+ * Whether the stubbed server has issued a session cookie yet.
+ *
+ * The screen now *probes* for a live cookie on mount, so a stub that answered
+ * the gated reads unconditionally would sign every test in automatically and
+ * the passcode form would never render. This models the real thing instead:
+ * gated routes refuse until a login has succeeded.
+ */
+let hasSession = false;
+
+const SESSION_REFUSAL = {
+  body: {
+    error: {
+      code: "exercise_instructor_session_required",
+      message: "Enter the instructor passcode to open this page.",
+    },
+  },
+  status: 401,
+};
+
 function stub(answers: Record<string, { body: unknown; status?: number }>): void {
   vi.stubGlobal(
     "fetch",
     vi.fn((url: string, init: RequestInit) => {
       calls.push({ url, init });
       const path = url.split("?")[0];
-      const answer = answers[`${init.method ?? "GET"} ${path}`] ??
+      const method = init.method ?? "GET";
+      if (path === LOGIN && method === "POST") {
+        const answer = answers[`POST ${LOGIN}`];
+        if (answer !== undefined && (answer.status ?? 200) < 400) {
+          hasSession = true;
+        }
+      }
+      // Everything under /instructor except login and logout is gated.
+      const gated = path.startsWith("/v1/exercise/instructor") && path !== LOGIN && path !== LOGOUT;
+      if (gated && !hasSession) {
+        return Promise.resolve(
+          new Response(JSON.stringify(SESSION_REFUSAL.body), { status: SESSION_REFUSAL.status }),
+        );
+      }
+      const answer = answers[`${method} ${path}`] ??
         answers[path] ?? {
           body: { error: { code: "test_unstubbed", message: path } },
           status: 404,
@@ -34,6 +68,7 @@ function stub(answers: Record<string, { body: unknown; status?: number }>): void
 }
 
 const LOGIN = "/v1/exercise/instructor/login";
+const LOGOUT = "/v1/exercise/instructor/logout";
 const DATASETS = "/v1/exercise/instructor/datasets";
 const WORKSPACES = "/v1/exercise/instructor/workspaces";
 const EVENTS = "/v1/exercise/workspaces/current/events";
@@ -67,13 +102,17 @@ function renderInstructor() {
 }
 
 async function signIn(): Promise<void> {
-  fireEvent.change(screen.getByLabelText(/passcode/i), { target: { value: "open sesame" } });
+  // The probe runs first and has to land on the passcode form before anything
+  // can be typed into it.
+  const box = await screen.findByLabelText(/passcode/i);
+  fireEvent.change(box, { target: { value: "open sesame" } });
   fireEvent.click(screen.getByRole("button", { name: /open the instructor page/i }));
   await waitFor(() => expect(screen.getByText("Data files")).toBeDefined());
 }
 
 beforeEach(() => {
   calls = [];
+  hasSession = false;
 });
 
 afterEach(() => {
@@ -82,10 +121,31 @@ afterEach(() => {
 });
 
 describe("<ExerciseInstructor />", () => {
-  it("marks the screen as synthetic before anyone signs in", () => {
+  it("marks the screen as synthetic before anyone signs in", async () => {
     stub({});
     renderInstructor();
     expect(document.querySelector('[data-slot="synthetic-data-banner"]')).not.toBeNull();
+    await screen.findByLabelText(/passcode/i);
+  });
+
+  it("opens straight to the page when this browser still has a live session", async () => {
+    // L1. Fails on the merged code: `signedIn` seeded `false` and nothing ever
+    // asked the server, so a reload with a perfectly good twelve-hour cookie
+    // showed the passcode form — `findByText("Data files")` timed out.
+    hasSession = true;
+    stub(signedInStubs());
+    renderInstructor();
+    await screen.findByText("Data files");
+    expect(screen.queryByLabelText(/passcode/i)).toBeNull();
+  });
+
+  it("asks for the passcode when the probe is refused", async () => {
+    stub(signedInStubs());
+    renderInstructor();
+    await screen.findByLabelText(/passcode/i);
+    const probe = calls.find((call) => call.url.startsWith(WORKSPACES));
+    expect(probe).toBeDefined();
+    expect(probe?.init.method ?? "GET").toBe("GET");
   });
 
   it("posts the passcode to the literal instructor path, with the header", async () => {
@@ -112,7 +172,7 @@ describe("<ExerciseInstructor />", () => {
       },
     });
     renderInstructor();
-    fireEvent.change(screen.getByLabelText(/passcode/i), { target: { value: "wrong" } });
+    fireEvent.change(await screen.findByLabelText(/passcode/i), { target: { value: "wrong" } });
     fireEvent.click(screen.getByRole("button", { name: /open the instructor page/i }));
     await waitFor(() => expect(screen.getByText("That passcode was not recognised.")).toBeDefined());
   });
@@ -161,6 +221,52 @@ describe("<ExerciseInstructor />", () => {
     renderInstructor();
     await signIn();
     expect(screen.getByText(/if it cannot be done, no team is changed/i)).toBeDefined();
+  });
+
+
+  it("reports a re-point as an outcome, not as a refusal", async () => {
+    // L2. Fails on the merged code: the sentence went through `setRefusal`, so
+    // "Moved 1 team" was rendered by the panel that otherwise only ever says
+    // something went wrong — and there was no `exercise-instructor-done` slot
+    // in the DOM at all for this query to find.
+    stub(
+      signedInStubs({
+        [`GET ${DATASETS}`]: {
+          body: [
+            {
+              dataset_id: "11111111-1111-1111-1111-111111111111",
+              label: "Autumn draft",
+              source_filename: "autumn.csv",
+              uploaded_at: "2026-09-21T10:00:00Z",
+              row_count: 300,
+              event_count: 12,
+              checksum: "abc",
+              invite_limit: 30,
+              license_line: null,
+            },
+          ],
+        },
+        [`POST /v1/exercise/instructor/datasets/11111111-1111-1111-1111-111111111111/repoint`]: {
+          body: { dataset_label: "Autumn draft", teams_moved: 1, teams_discarded: 1 },
+        },
+      }),
+    );
+    renderInstructor();
+    await signIn();
+
+    fireEvent.click(await screen.findByRole("button", { name: /move every team to this file/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /yes, move every team here/i }));
+
+    const done = await waitFor(() => {
+      const found = document.querySelector('[data-slot="exercise-instructor-done"]');
+      expect(found).not.toBeNull();
+      return found;
+    });
+    expect(done?.textContent).toContain("Moved 1 team");
+    expect(done?.getAttribute("aria-live")).toBe("polite");
+    // And it is not in the refusal panel.
+    const notices = [...document.querySelectorAll('[data-slot="exercise-notice"]')];
+    expect(notices.some((notice) => notice.textContent?.includes("Moved 1 team"))).toBe(false);
   });
 
   it("uploads a data file as a raw text/csv body, not multipart", async () => {

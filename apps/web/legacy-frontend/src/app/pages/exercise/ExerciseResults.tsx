@@ -115,7 +115,13 @@ async function namesForEvent(eventKey: string, signal: AbortSignal): Promise<Nam
   try {
     const list = await readRankedList(eventKey, { kind: "default" }, signal);
     return new Map(list.entries.map((entry) => [entry.profile_no, entry.display_name]));
-  } catch {
+  } catch (error) {
+    // An abort is not a missing list — it is this load being replaced. It has
+    // to propagate, or a superseded load resolves with an empty map and the
+    // hook settles a stale answer over the live one.
+    if (signal.aborted) {
+      throw error;
+    }
     return new Map();
   }
 }

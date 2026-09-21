@@ -155,10 +155,14 @@ function EntryForm({ data }: { readonly data: EntryData }): React.JSX.Element {
                 value={number}
                 checked={selected === number}
                 onChange={() => setSelected(number)}
+                // The accessible name is stated rather than inherited from the
+                // label's text. The label holds both the big projected numeral
+                // and a visually-hidden word, so an inherited name read out as
+                // "4 Team 4".
+                aria-label={`Team ${number}`}
                 className="sr-only"
               />
-              <span>{number}</span>
-              <span className="sr-only">Team {number}</span>
+              <span aria-hidden="true">{number}</span>
             </label>
           ))}
         </div>

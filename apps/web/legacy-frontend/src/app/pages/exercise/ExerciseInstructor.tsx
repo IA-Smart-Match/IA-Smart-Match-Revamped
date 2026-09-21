@@ -27,12 +27,13 @@ import { isRefusal } from "../../../lib/exerciseApi";
 import {
   instructorLogin,
   instructorLogout,
+  listTeamWorkspaces,
   readEvents,
   refreshAllWorkspaces,
   unlockResults,
   type RefreshAllView,
 } from "../../../lib/exerciseClient";
-import { ExerciseNotice, ExerciseScreen } from "./ExerciseScreen";
+import { ExerciseLoading, ExerciseNotice, ExerciseScreen } from "./ExerciseScreen";
 import { InstructorDatasets } from "./InstructorDatasets";
 import { InstructorTeams } from "./InstructorTeams";
 import { INSTRUCTOR_SESSION_REQUIRED } from "./refusals";
@@ -40,19 +41,55 @@ import { INSTRUCTOR_SESSION_REQUIRED } from "./refusals";
 const BUTTON =
   "rounded-lg border-2 border-slate-400 px-5 py-3 text-xl font-semibold text-slate-800 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 dark:border-slate-500 dark:text-slate-100 dark:hover:bg-slate-800";
 
+/** Whether this browser's instructor cookie is still good. */
+type SessionProbe = "checking" | "signed-in" | "signed-out";
+
 export function ExerciseInstructor(): React.JSX.Element {
-  const [signedIn, setSignedIn] = React.useState(false);
+  /**
+   * Ask the server whether this browser is already signed in.
+   *
+   * The session is a signed cookie with a twelve-hour life and no server-side
+   * row, and it is `httpOnly`, so JavaScript cannot look at it. Seeding this
+   * to "signed out" meant a reload — or an instructor reopening the page
+   * between classes — was asked for the passcode again, with a live session
+   * sitting in the browser the whole time.
+   *
+   * There is no session-probe route, and this PR adds no backend. So the probe
+   * is an ordinary gated read: `GET …/instructor/workspaces` is behind
+   * `require_instructor_session` like every other instructor route, so its
+   * answer *is* the session's state. 200 means signed in; a 401
+   * `exercise_instructor_session_required` means the passcode form. Anything
+   * else is left as signed out, because a page that cannot reach the server
+   * has nothing to show behind the passcode either.
+   */
+  const [probe, setProbe] = React.useState<SessionProbe>("checking");
+
+  React.useEffect(() => {
+    const controller = new AbortController();
+    listTeamWorkspaces(controller.signal)
+      .then(() => {
+        if (!controller.signal.aborted) {
+          setProbe("signed-in");
+        }
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setProbe("signed-out");
+        }
+      });
+    return () => controller.abort();
+  }, []);
 
   return (
     <ExerciseScreen
       title="Instructor"
       intro="Load a data file, open results for an event, and see what each team has done."
     >
-      {signedIn ? (
-        <SignedIn onSignedOut={() => setSignedIn(false)} />
-      ) : (
-        <PasscodeForm onSignedIn={() => setSignedIn(true)} />
-      )}
+      {probe === "checking" ? <ExerciseLoading what="the instructor page" /> : null}
+      {probe === "signed-in" ? <SignedIn onSignedOut={() => setProbe("signed-out")} /> : null}
+      {probe === "signed-out" ? (
+        <PasscodeForm onSignedIn={() => setProbe("signed-in")} />
+      ) : null}
     </ExerciseScreen>
   );
 }
@@ -180,15 +217,24 @@ function UnlockPanel({
   React.useEffect(() => {
     const controller = new AbortController();
     readEvents(controller.signal)
-      .then((view) =>
+      .then((view) => {
+        // The abort check is on both paths: a panel unmounted while this was
+        // in flight must not set state, and an aborted request rejects, so
+        // without the guard the `catch` below would run on every unmount.
+        if (controller.signal.aborted) {
+          return;
+        }
         setEvents(
           view.events
             .filter((event) => event.is_exercise_event)
             .sort((a, b) => a.sequence - b.sequence)
             .map((event) => ({ key: event.event_key, name: event.name })),
-        ),
-      )
+        );
+      })
       .catch(() => {
+        if (controller.signal.aborted) {
+          return;
+        }
         // The instructor's own event list comes from a team route, which needs
         // a workspace cookie this browser may not have. An empty list and the
         // sentence below is the honest state, not an error worth shouting.

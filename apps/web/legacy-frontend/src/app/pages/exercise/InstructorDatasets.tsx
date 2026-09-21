@@ -48,6 +48,16 @@ const INPUT =
 export function InstructorDatasets(): React.JSX.Element {
   const { state, reload } = useExerciseResource(listDatasets, []);
   const [refusal, setRefusal] = React.useState<string | null>(null);
+  /**
+   * What just worked, in its own slot.
+   *
+   * A re-point's outcome used to be pushed through `setRefusal`, so "moved 4
+   * teams" was rendered by the panel that otherwise only ever says something
+   * went wrong. Two different things deserve two slots, and this one is a
+   * polite live region: an instructor using a screen reader hears the outcome
+   * without it arriving as an alert.
+   */
+  const [done, setDone] = React.useState<string | null>(null);
   const [uploaded, setUploaded] = React.useState<UploadedDatasetView | null>(null);
   const [pending, setPending] = React.useState(false);
 
@@ -57,6 +67,7 @@ export function InstructorDatasets(): React.JSX.Element {
     }
     setPending(true);
     setRefusal(null);
+    setDone(null);
     try {
       await action();
     } catch (error) {
@@ -75,6 +86,16 @@ export function InstructorDatasets(): React.JSX.Element {
       <h2 className="text-3xl font-semibold text-slate-900 dark:text-slate-50">Data files</h2>
 
       {refusal === null ? null : <ExerciseNotice message={refusal} />}
+      {done === null ? null : (
+        <p
+          role="status"
+          aria-live="polite"
+          data-slot="exercise-instructor-done"
+          className="rounded-lg border-2 border-slate-300 px-5 py-4 text-xl text-slate-800 dark:border-slate-600 dark:text-slate-100"
+        >
+          {done}
+        </p>
+      )}
 
       <UploadForm
         pending={pending}
@@ -141,7 +162,7 @@ export function InstructorDatasets(): React.JSX.Element {
                 onRepoint={() =>
                   run(async () => {
                     const moved = await repointWorkspaces(dataset.dataset_id);
-                    setRefusal(
+                    setDone(
                       `Moved ${moved.teams_moved} ${
                         moved.teams_moved === 1 ? "team" : "teams"
                       } to ${moved.dataset_label}, clearing the work of ${
