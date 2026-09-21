@@ -56,6 +56,7 @@ from smartmatch_api.routers import (
     events,
     exercise_instructor,
     exercise_instructor_refresh,
+    exercise_instructor_session,
     exercise_matching,
     exercise_public,
     exercise_results,
@@ -602,24 +603,26 @@ CAPABILITY_SCOPED_ROUTERS: Final[tuple[tuple[APIRouter, Capability], ...]] = (
     # here, because it is a property of the dependency both routes take.
     (exercise_workspace.router, Capability.CLASS_EXERCISE),
     # CE-INSTRUCTOR: the instructor page design spec §14 and §1 name. Two
-    # routers from one module, and the split is the security property rather
+    # routers from two modules, and the split is the security property rather
     # than a layout choice.
     #
-    # `exercise_instructor.login_router` carries the two routes that must
+    # `exercise_instructor_session.router` carries the two routes that must
     # answer *before* there is a session — present the passcode, clear the
-    # cookie. `exercise_instructor.router` carries every other instructor route
-    # and takes `require_instructor_session` as a **router-level** dependency,
-    # so a route added to it is gated by existing rather than by somebody
-    # remembering to gate it. A gate written as a handler parameter comes off
-    # when a signature is edited, and an open instructor route looks exactly
-    # like a working one.
+    # cookie — and is therefore the one instructor router with no session
+    # dependency on it. `exercise_instructor.router` carries every other
+    # instructor route and takes `require_instructor_session` as a
+    # **router-level** dependency, so a route added to it is gated by existing
+    # rather than by somebody remembering to gate it. A gate written as a
+    # handler parameter comes off when a signature is edited, and an open
+    # instructor route looks exactly like a working one. They were one module
+    # until SPLIT-INSTRUCTOR-SESSION; each file's docstring says why.
     #
     # Same capability and the same no-principal declaration as the two rows
     # above: the passcode is a door, not an identity. It resolves no
     # `user_account`, mints no principal, and reaches no CBA table (ADR-0025
     # D1/D2) — `routers/auth.py` is not imported and is not mounted in this
     # scope at all.
-    (exercise_instructor.login_router, Capability.CLASS_EXERCISE),
+    (exercise_instructor_session.router, Capability.CLASS_EXERCISE),
     (exercise_instructor.router, Capability.CLASS_EXERCISE),
     # CE-MATCHING-API: the matching screen design spec §4-§8 describes — the
     # event picker, the ranked list with its "who is on the list" table, the
