@@ -142,6 +142,7 @@ export function ExerciseMatching(): React.JSX.Element {
           <WeightsControls
             factorLabels={state.data.list.factor_labels}
             weights={state.data.list.weights}
+            refusal={state.refusal}
             onChange={(weights) => {
               setComparison(null);
               setWeighting({ kind: "weights", weights });

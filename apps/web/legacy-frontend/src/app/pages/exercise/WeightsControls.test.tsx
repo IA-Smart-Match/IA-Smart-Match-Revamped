@@ -14,6 +14,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { ExerciseRefusal } from "../../../lib/exerciseApi";
 import { WeightsControls } from "./WeightsControls";
 
 const LABELS = {
@@ -205,6 +206,106 @@ describe("<WeightsControls />", () => {
       expect(onChange).toHaveBeenCalledWith({ ...WEIGHTS, same_major: 0.6 });
       expect(document.querySelector('[data-slot="exercise-weight-error"]')).toBeNull();
     });
+  });
+
+  it("does not let a refused commit become the base of the next one", () => {
+    // H1 (round 3). `weights` does not change on a refusal — the screen's
+    // hook deliberately keeps the same, previous `data` object — so nothing
+    // told `pendingBase` that box A's commit was rejected. The next commit,
+    // for box B, kept merging onto A's never-confirmed value instead of onto
+    // `weights` (the confirmed truth), so B's request silently carried A's
+    // rejected number along with it.
+    //
+    // Fails on 83cf0a77: the second `onChange` call includes
+    // `same_major: 0.9` even though A was refused.
+    const onChange = vi.fn();
+    const { rerender } = render(
+      <WeightsControls
+        factorLabels={LABELS}
+        weights={WEIGHTS}
+        onChange={onChange}
+        refusal={null}
+      />,
+    );
+
+    const boxA = screen.getByLabelText("same major");
+    fireEvent.focus(boxA);
+    fireEvent.change(boxA, { target: { value: "0.9" } });
+    fireEvent.blur(boxA);
+    expect(onChange).toHaveBeenCalledTimes(1);
+
+    // The screen reports A was refused. `weights` is unchanged — it is still
+    // the last confirmed weighting — but a fresh refusal object arrives.
+    rerender(
+      <WeightsControls
+        factorLabels={LABELS}
+        weights={WEIGHTS}
+        onChange={onChange}
+        refusal={new ExerciseRefusal(409, "exercise_invalid_weights", "Weights must sum to 1.")}
+      />,
+    );
+
+    const boxB = screen.getByLabelText("career goal fits this event");
+    fireEvent.focus(boxB);
+    fireEvent.change(boxB, { target: { value: "0.4" } });
+    fireEvent.blur(boxB);
+
+    expect(onChange).toHaveBeenCalledTimes(2);
+    // B's request is built on the confirmed WEIGHTS, not on A's rejected 0.9.
+    expect(onChange).toHaveBeenNthCalledWith(2, { ...WEIGHTS, career_goal_fit: 0.4 });
+  });
+
+  it("shows the confirmed number, not a silently fabricated one, once a commit is refused", () => {
+    // A refused commit is answered with the screen's own refusal sentence
+    // (rendered above this component), so this box falling back to the last
+    // confirmed number — not staying on the rejected 0.9, and not some third
+    // value nobody asked for — is an honest state, not a silent one.
+    const { rerender } = render(
+      <WeightsControls factorLabels={LABELS} weights={WEIGHTS} onChange={vi.fn()} refusal={null} />,
+    );
+
+    const box = screen.getByLabelText("same major") as HTMLInputElement;
+    fireEvent.focus(box);
+    fireEvent.change(box, { target: { value: "0.9" } });
+    fireEvent.blur(box);
+
+    rerender(
+      <WeightsControls
+        factorLabels={LABELS}
+        weights={WEIGHTS}
+        onChange={vi.fn()}
+        refusal={new ExerciseRefusal(409, "exercise_invalid_weights", "Weights must sum to 1.")}
+      />,
+    );
+
+    expect(box.value).toBe(String(WEIGHTS.same_major));
+  });
+
+  it("keeps a still-focused box's own text when the refusal for it arrives", () => {
+    // If the team is already back in the box when the refusal lands, wiping
+    // what they are mid-typing would be the same mid-keystroke loss F1 fixed
+    // — just triggered by a refusal instead of a refetch.
+    const { rerender } = render(
+      <WeightsControls factorLabels={LABELS} weights={WEIGHTS} onChange={vi.fn()} refusal={null} />,
+    );
+
+    const box = screen.getByLabelText("same major") as HTMLInputElement;
+    fireEvent.focus(box);
+    fireEvent.change(box, { target: { value: "0.9" } });
+    fireEvent.blur(box);
+    fireEvent.focus(box);
+    fireEvent.change(box, { target: { value: "0.6" } });
+
+    rerender(
+      <WeightsControls
+        factorLabels={LABELS}
+        weights={WEIGHTS}
+        onChange={vi.fn()}
+        refusal={new ExerciseRefusal(409, "exercise_invalid_weights", "Weights must sum to 1.")}
+      />,
+    );
+
+    expect(box.value).toBe("0.6");
   });
 
   it("never renders a rulebook key as a label", () => {

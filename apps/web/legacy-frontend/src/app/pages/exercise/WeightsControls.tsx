@@ -21,15 +21,25 @@
  */
 import * as React from "react";
 
+import type { ExerciseRefusal } from "../../../lib/exerciseApi";
 import { EXERCISE_FACTOR_KEYS } from "../../../lib/exerciseClient";
 
 export interface WeightsControlsProps {
   /** Ann's words per factor key, from the list response. */
   readonly factorLabels: Readonly<Record<string, string>>;
-  /** The weights the current list was built with. */
+  /** The weights the current list was built with — always the last CONFIRMED weighting. */
   readonly weights: Readonly<Record<string, number>>;
   readonly onChange: (weights: Readonly<Record<string, number>>) => void;
   readonly disabled?: boolean;
+  /**
+   * The refusal the *latest* commit got, if any — from the screen's
+   * `useExerciseResource` state, which keeps `weights` unchanged (the same
+   * object reference) when a request is refused. Without this, a refused
+   * commit's speculative base is never told it was rejected: `weights`
+   * changing is this component's only signal that anything happened, and a
+   * refusal produces no change at all to notice.
+   */
+  readonly refusal?: ExerciseRefusal | null;
 }
 
 /**
@@ -81,6 +91,7 @@ export function WeightsControls({
   weights,
   onChange,
   disabled = false,
+  refusal = null,
 }: WeightsControlsProps): React.JSX.Element {
   const keys = orderedKeys(factorLabels);
 
@@ -144,6 +155,39 @@ export function WeightsControls({
     // `keys` is derived from `factorLabels`; both change only with a new event.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [weights, factorLabels]);
+
+  /**
+   * A refused commit never changes `weights` — `useExerciseResource`
+   * deliberately keeps the same, previous `data` object when a request is
+   * refused, so the effect above (keyed on `weights`) never reruns for it.
+   * Without this, `pendingBase` stayed on the rejected value forever: every
+   * later commit merged onto a base the server had already said no to,
+   * instead of onto the truth `weights` still holds.
+   *
+   * `refusal` is a fresh `ExerciseRefusal` instance per failed attempt, so
+   * it is a reliable trigger even when two commits in a row are refused for
+   * the same reason.
+   */
+  React.useEffect(() => {
+    if (refusal === null) {
+      return;
+    }
+    pendingBase.current = weights;
+    setDraft((previous) => {
+      const confirmed = textOf(weights, keys);
+      if (focused.current !== null && focused.current in previous) {
+        // The team may still be in the box that was refused; keep what they
+        // typed so the refusal sentence next to it is about something still
+        // on screen, not a value this effect just made vanish.
+        confirmed[focused.current] = previous[focused.current];
+      }
+      return confirmed;
+    });
+    // `weights` and `keys` are read for their value as of the refusal, not
+    // watched — this effect's own trigger is `refusal` itself, a fresh
+    // object per refused attempt.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refusal]);
 
   /**
    * Send the box's value upstream, once, when the team is done with it.
