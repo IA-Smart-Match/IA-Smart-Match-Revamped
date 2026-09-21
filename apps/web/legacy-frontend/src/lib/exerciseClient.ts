@@ -301,6 +301,17 @@ export interface RepointView {
 // Team-facing calls
 // ---------------------------------------------------------------------------
 
+/**
+ * `GET /v1/exercise` — the scope's constants, before any data file exists.
+ *
+ * The entry screen reads its team numbers from here rather than writing 1-6
+ * into a component: the requirements fix them and this route reports them,
+ * so there is one place they live.
+ */
+export function readScopeFacts(signal?: AbortSignal) {
+  return exerciseRequest<ExerciseScopeFacts>("", { signal });
+}
+
 /** `POST /v1/exercise/workspaces` — the entry screen's whole input. */
 export function enterTeamWorkspace(teamNumber: number, signal?: AbortSignal) {
   return exerciseRequest<TeamWorkspaceView>("/workspaces", {
