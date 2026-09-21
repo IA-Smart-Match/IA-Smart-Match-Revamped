@@ -74,45 +74,23 @@ bounded by the six teams the product has.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
-
 from fastapi import APIRouter, Body, Depends, Path, status
 from smartmatch_domain.exercise.asking import AskingChoice
-from smartmatch_domain.exercise.matching import exercise_ranked_list
-from smartmatch_domain.exercise.simulation import (
-    CoefficientsNotConfirmedError,
-    InviteLimitExceededError,
-    SimulationCoefficients,
-    require_coefficients,
-    run_email_everyone,
-    seats_empty,
-    simulate_results,
-)
 
 from smartmatch_api.exercise_dependencies import (
-    AlreadyRunError,
     CurrentWorkspace,
     DatasetRepository,
-    ExerciseEventRow,
-    ExerciseResultsWriteRefused,
     ExerciseSession,
     ExerciseWorkspace,
-    ResultPanel,
     ResultsRepository,
     SettingsRepository,
     StoredResultRun,
-    TeamProfileRow,
     TeamResultsState,
     TeamViewRepository,
     require_exercise_request_header,
 )
 from smartmatch_api.exercise_errors import ExerciseError
 from smartmatch_api.routers.exercise_matching import event_or_refusal
-from smartmatch_api.routers.exercise_matching_models import (
-    event_evidence,
-    rankable_set,
-)
-from smartmatch_api.routers.exercise_matching_weights import validated
 from smartmatch_api.routers.exercise_results_models import (
     FIRST_ROUND,
     AskingChoiceRequest,
@@ -121,12 +99,16 @@ from smartmatch_api.routers.exercise_results_models import (
     ResultsView,
     RunResultsRequest,
     asking_state_view,
-    round_of,
-    simulation_event,
-    simulation_profiles,
     stored_results_view,
 )
 from smartmatch_api.routers.exercise_results_refresh import refresh_one_team
+from smartmatch_api.routers.exercise_results_run import (
+    coefficients_or_refusal,
+    invited_list,
+    run_the_rule,
+    runnable_or_refusal,
+    store,
+)
 from smartmatch_api.utils import utc_now
 
 #: A bare assignment, not an annotated one, for ``exercise_public.router``'s
@@ -142,27 +124,6 @@ _STATE_CHANGING = [Depends(require_exercise_request_header)]
 # ---------------------------------------------------------------------------
 # Resolving what a request is about
 # ---------------------------------------------------------------------------
-
-
-def _round_or_refusal(events: Sequence[ExerciseEventRow], event_key: str) -> int:
-    """Which round this event is, or one plain sentence.
-
-    Read off the data file's own rows by ``round_of`` — the exercise events in
-    sequence order — rather than matched against a name, because the two names
-    are Ann's and OQ-CE-01 is open.
-
-    A past event has no round, and ``exercise_result_run.round`` admits 1 and 2,
-    so a run for one has nothing to store. Refusing it here makes that a sentence
-    a class participant can read rather than a constraint violation.
-    """
-    number = round_of(events, event_key)
-    if number is None:
-        raise ExerciseError(
-            status_code=status.HTTP_409_CONFLICT,
-            code="exercise_event_is_not_a_round",
-            message="Results are only run for the two rounds of the exercise.",
-        )
-    return number
 
 
 def _team_state_or_refusal(
@@ -182,100 +143,6 @@ def _team_state_or_refusal(
             message="Enter your team number to open your team's workspace.",
         )
     return team_state
-
-
-def _coefficients_or_refusal() -> SimulationCoefficients:
-    """The results rule's coefficients, or **OQ-CE-03's own sentence**.
-
-    The register's answer is "Chau proposes; Ann confirms", and nothing has been
-    confirmed — so the domain ships none and refuses. The sentence a team reads
-    is the domain's, passed through unchanged rather than rewritten here: the
-    open question's identifier belongs in it, and two wordings of "this is not
-    decided yet" would be one more than the question has.
-    """
-    try:
-        return require_coefficients()
-    except CoefficientsNotConfirmedError as error:
-        raise ExerciseError(
-            status_code=status.HTTP_409_CONFLICT,
-            code="exercise_results_rule_not_confirmed",
-            message=str(error),
-        ) from None
-
-
-def _weights_or_refusal(
-    session: ExerciseSession,
-    settings: SettingsRepository,
-    *,
-    workspace: ExerciseWorkspace,
-    event_key: str,
-    setting_name: str | None,
-) -> tuple[Mapping[str, float] | None, str | None]:
-    """The weighting a run's list is built from, and the name to store for it.
-
-    ``None`` weights mean the course's starting values (OQ-CE-02), which
-    ``exercise_ranked_list`` resolves through the exercise rulebook — not
-    restated here, so there is one answer to what the defaults are.
-
-    Re-validated on the way out rather than trusted because it was validated on
-    the way in, for ``exercise_matching._saved_weights_or_refusal``'s reason: the
-    rulebook is a value object and a later version could name different factors,
-    at which point a stored weighting is input again.
-    """
-    if setting_name is None:
-        return None, None
-    name = setting_name.strip()
-    stored = settings.get_setting(
-        session, workspace_id=workspace.id, event_key=event_key, name=name
-    )
-    if stored is None:
-        raise ExerciseError(
-            status_code=status.HTTP_404_NOT_FOUND,
-            code="exercise_setting_unknown",
-            message="Your team has no saved settings with that name.",
-        )
-    return validated(dict(stored.weights)), name
-
-
-def _invited_profile_nos(
-    session: ExerciseSession,
-    *,
-    datasets: DatasetRepository,
-    profiles: Sequence[TeamProfileRow],
-    events: Sequence[ExerciseEventRow],
-    event: ExerciseEventRow,
-    workspace: ExerciseWorkspace,
-    weights: Mapping[str, float] | None,
-) -> tuple[int, ...]:
-    """The ranked list's profile numbers, in order — the team's invited set.
-
-    **Composed, never re-derived.** The order, the cut at the invite limit and
-    the tie-break are ``exercise_ranked_list``'s, reached through the same
-    ``rankable_set`` / ``event_evidence`` helpers the matching routes use, so the
-    names a team invited are the names its screen showed it. Re-deriving them
-    here would be a second ranker, and the failure mode of two rankers is a team
-    told it invited somebody it did not.
-
-    The year rank is ``rankable_set``'s ``PLACEHOLDER_CLASS_YEAR_RANK`` (empty
-    while OQ-CE-01 is open); this module does not touch it.
-    """
-    summary = datasets.get_dataset_summary(session, dataset_id=workspace.dataset_id)
-    if summary is None:  # pragma: no cover - the cookie resolved a workspace on it
-        raise ExerciseError(
-            status_code=status.HTTP_409_CONFLICT,
-            code="exercise_no_dataset",
-            message="The instructor has not loaded the student body yet.",
-        )
-    rankable = rankable_set(profiles, events)
-    ranked = exercise_ranked_list(
-        event_evidence(event),
-        rankable.profiles,
-        weights=weights,
-        invite_limit=summary.invite_limit,
-        year_rank=rankable.year_rank,
-        dataset_checksum=summary.checksum,
-    )
-    return tuple(int(entry.profile_id) for entry in ranked.entries)
 
 
 def _round_one_or_none(
@@ -323,9 +190,10 @@ def run_results(
     """Run your team's invited list through the results rule and keep the answer.
 
     Allowed **once** per team per event: the second attempt is refused with one
-    sentence, and it is the database's UNIQUE constraint rather than a check in
-    code that decides, so two presses arriving together cannot both succeed.
-    Allowed at all only after the instructor has unlocked this event.
+    sentence. Two presses arriving together cannot both succeed, because the
+    write takes an advisory key and the table carries a UNIQUE constraint behind
+    it — a read alone would not be enough. Allowed at all only after the
+    instructor has unlocked this event.
 
     The invited list is the ranked list this team's screen shows, built from a
     saved weighting when ``setting_name`` names one and from the course's
@@ -345,41 +213,22 @@ def run_results(
             the two rounds, has already been run, has no confirmed rule, or the
             write is refused.
     """
-    events = datasets.list_events(session, dataset_id=workspace.dataset_id)
-    event = event_or_refusal(events, event_key)
-    round_number = _round_or_refusal(events, event.event_key)
-    if not results.results_unlocked(
-        session, dataset_id=workspace.dataset_id, event_key=event.event_key
-    ):
-        raise ExerciseError(
-            status_code=status.HTTP_409_CONFLICT,
-            code="exercise_results_locked",
-            message="The instructor has not opened results for this event yet.",
-        )
-    if results.get_run(session, workspace_id=workspace.id, event_key=event.event_key) is not None:
-        raise _already_run()
-    coefficients = _coefficients_or_refusal()
+    events, event, round_number = runnable_or_refusal(
+        session, results, datasets=datasets, workspace=workspace, event_key=event_key
+    )
+    coefficients = coefficients_or_refusal()
     team_state = _team_state_or_refusal(session, results, workspace)
-    weights, setting_name = _weights_or_refusal(
-        session,
-        settings,
-        workspace=workspace,
-        event_key=event.event_key,
-        setting_name=payload.setting_name,
-    )
-    profiles = team_view.list_team_profiles(
-        session, dataset_id=workspace.dataset_id, workspace_id=workspace.id
-    )
-    invited = _invited_profile_nos(
+    profiles, invited, setting_name = invited_list(
         session,
         datasets=datasets,
-        profiles=profiles,
+        team_view=team_view,
+        settings=settings,
+        workspace=workspace,
         events=events,
         event=event,
-        workspace=workspace,
-        weights=weights,
+        requested_setting=payload.setting_name,
     )
-    team, everyone = _run_the_rule(
+    team, everyone = run_the_rule(
         session,
         datasets=datasets,
         profiles=profiles,
@@ -389,7 +238,7 @@ def run_results(
         seed=team_state.seed,
         coefficients=coefficients,
     )
-    stored = _store(
+    stored = store(
         session,
         results,
         workspace=workspace,
@@ -406,111 +255,6 @@ def run_results(
         round_one=_round_one_or_none(
             session, results, workspace=workspace, round_number=round_number
         ),
-    )
-
-
-def _run_the_rule(
-    session: ExerciseSession,
-    *,
-    datasets: DatasetRepository,
-    profiles: Sequence[TeamProfileRow],
-    event: ExerciseEventRow,
-    workspace: ExerciseWorkspace,
-    invited: Sequence[int],
-    seed: int,
-    coefficients: SimulationCoefficients,
-) -> tuple[ResultPanel, ResultPanel]:
-    """Design spec §10's first two panels, from one load and one seed.
-
-    **The same seed for both**, which is what makes them a comparison rather than
-    two simulations: a profile on both lists has the same outcome in both, so the
-    difference a team reads is the difference between *who was asked*, which is
-    the lesson.
-
-    Profiles this team's refresh marked as not answering are carried into both
-    panels, so design spec §13's cost under ``required`` shows up in round two on
-    the team's list and in what "email everyone" would have got.
-    """
-    rows = datasets.load_simulation_profiles(session, dataset_id=workspace.dataset_id)
-    silent = frozenset(profile.profile_no for profile in profiles if profile.non_responding)
-    everybody = simulation_profiles(rows, non_responding_profile_nos=silent)
-    wanted = set(invited)
-    invited_profiles = tuple(profile for profile in everybody if profile.profile_no in wanted)
-    simulation = simulation_event(event)
-    try:
-        team = simulate_results(
-            invited_profiles,
-            simulation,
-            seed=seed,
-            coefficients=coefficients,
-            invite_limit=workspace.invite_limit,
-        )
-    except InviteLimitExceededError as error:
-        raise ExerciseError(
-            status_code=status.HTTP_409_CONFLICT,
-            code="exercise_invite_limit_exceeded",
-            message=str(error),
-        ) from None
-    everyone = run_email_everyone(everybody, simulation, seed=seed, coefficients=coefficients)
-    return (
-        ResultPanel(
-            invited_profile_nos=team.invited,
-            signed_up_profile_nos=team.signed_up,
-            attended_profile_nos=team.attended,
-        ),
-        ResultPanel(
-            invited_profile_nos=everyone.invited,
-            signed_up_profile_nos=everyone.signed_up,
-            attended_profile_nos=everyone.attended,
-        ),
-    )
-
-
-def _store(
-    session: ExerciseSession,
-    results: ResultsRepository,
-    *,
-    workspace: ExerciseWorkspace,
-    event: ExerciseEventRow,
-    round_number: int,
-    setting_name: str | None,
-    team: ResultPanel,
-    everyone: ResultPanel,
-) -> StoredResultRun:
-    """Write the run, turning the repository's two refusals into two sentences."""
-    try:
-        return results.record_run(
-            session,
-            dataset_id=workspace.dataset_id,
-            workspace_id=workspace.id,
-            event_key=event.event_key,
-            round_number=round_number,
-            setting_name=setting_name,
-            team=team,
-            email_everyone=everyone,
-            seats_empty=seats_empty(len(team.attended_profile_nos)),
-        )
-    except AlreadyRunError:
-        raise _already_run() from None
-    except ExerciseResultsWriteRefused as error:
-        raise ExerciseError(
-            status_code=status.HTTP_409_CONFLICT,
-            code="exercise_results_write_refused",
-            message=str(error),
-        ) from None
-
-
-def _already_run() -> ExerciseError:
-    """Design spec §9's sentence, written once and raised from two places.
-
-    The spec writes it out, so it is stored on the repository as
-    ``ALREADY_RUN_SENTENCE`` and reaches here as the exception's message rather
-    than as a second copy of the words.
-    """
-    return ExerciseError(
-        status_code=status.HTTP_409_CONFLICT,
-        code="exercise_results_already_run",
-        message=str(AlreadyRunError()),
     )
 
 

@@ -63,6 +63,7 @@ from smartmatch_api.routers import (
     exercise_results,
     exercise_results_models,
     exercise_results_refresh,
+    exercise_results_run,
 )
 from smartmatch_api.routers.exercise_results_models import (
     EXERCISE_ROUNDS,
@@ -111,11 +112,24 @@ from smartmatch_persistence.exercise.workspace_repository import (
 _ROUTER_SOURCE = Path(exercise_results.__file__)
 _MODELS_SOURCE = Path(exercise_results_models.__file__)
 _REFRESH_SOURCE = Path(exercise_results_refresh.__file__)
+_RUN_SOURCE = Path(exercise_results_run.__file__)
 _INSTRUCTOR_SOURCE = Path(exercise_instructor_refresh.__file__)
 
-#: Every source file this track owns on the router side. The source walks below
-#: read all of them, so a module split off later is covered the day it lands.
-_TRACK_SOURCES = (_ROUTER_SOURCE, _MODELS_SOURCE, _REFRESH_SOURCE, _INSTRUCTOR_SOURCE)
+#: Every module this track owns on the router side, and the files they live in.
+#:
+#: **One** list, derived twice, because review round 1's carry-over item (a) was
+#: exactly the drift between two such lists on the matching track: its model walk
+#: read two of four modules while its source walks read all four, so a response
+#: model declared in either of the other two met no D6 or D8 check.
+#: ``test_the_model_walk_reads_every_module_the_source_walks_read`` is the guard.
+_TRACK_MODULES = (
+    exercise_results,
+    exercise_results_models,
+    exercise_results_refresh,
+    exercise_results_run,
+    exercise_instructor_refresh,
+)
+_TRACK_SOURCES = tuple(Path(module.__file__ or "") for module in _TRACK_MODULES)
 
 #: Assembled from pieces rather than written as one literal, for the reason the
 #: other exercise test files give: ``tools/scan_forbidden.py`` matches the shape
@@ -1397,12 +1411,7 @@ _SCORE_SHAPED = ("score", "percent", "confidence", "probability", "likelihood", 
 
 def _models_in_modules() -> list[type[BaseModel]]:
     found: list[type[BaseModel]] = []
-    for module in (
-        exercise_results,
-        exercise_results_models,
-        exercise_results_refresh,
-        exercise_instructor_refresh,
-    ):
+    for module in _TRACK_MODULES:
         found.extend(
             value
             for value in vars(module).values()
@@ -1428,6 +1437,12 @@ def test_no_response_model_carries_a_score_shaped_field() -> None:
             assert not any(shape in field_name.lower() for shape in _SCORE_SHAPED), (
                 f"{model.__name__}.{field_name} reads as a score; ADR-0025 D8"
             )
+
+
+def test_the_model_walk_reads_every_module_the_source_walks_read() -> None:
+    """The two lists are one list, and this is what keeps them one (round 1, (a))."""
+    assert {Path(module.__file__ or "") for module in _TRACK_MODULES} == set(_TRACK_SOURCES)
+    assert len(_TRACK_SOURCES) == 5
 
 
 def test_no_handler_docstring_names_the_withheld_column() -> None:
@@ -1601,9 +1616,10 @@ def test_the_routers_import_no_persistence_authz_or_principal_machinery() -> Non
 def test_only_the_models_module_reaches_the_simulation_loader() -> None:
     """The withheld column has one door on the router side, and it is named.
 
-    ``exercise_results`` calls ``load_simulation_profiles`` to hand rows to the
-    rule; nothing else in this track does, and the instructor half does not touch
-    it at all — its card copy happens inside the repository.
+    ``exercise_results_run.run_the_rule`` calls ``load_simulation_profiles`` to
+    hand rows to design spec §11's rule; nothing else in this track does, and the
+    instructor half does not touch it at all — its card copy happens inside the
+    repository.
     """
     callers = [
         source_file.name
@@ -1611,7 +1627,7 @@ def test_only_the_models_module_reaches_the_simulation_loader() -> None:
         if "load_simulation_profiles(" in source_file.read_text(encoding="utf-8")
     ]
 
-    assert callers == [_ROUTER_SOURCE.name]
+    assert callers == [_RUN_SOURCE.name]
 
 
 def test_the_instructor_half_is_a_module_of_its_own_and_both_stay_under_the_ceiling() -> None:

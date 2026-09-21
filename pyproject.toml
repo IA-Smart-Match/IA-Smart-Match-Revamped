@@ -321,11 +321,12 @@ source_modules = [
     "smartmatch_api.routers.exercise_matching_models",
     "smartmatch_api.routers.exercise_matching_weights",
     "smartmatch_api.routers.exercise_public",
-    # CE-RESULTS-API, team half: the routes, the response contract, and the
-    # refresh policy the two refresh routes share.
+    # CE-RESULTS-API, team half: the routes, the response contract, how one run
+    # is built, and the refresh policy the two refresh routes share.
     "smartmatch_api.routers.exercise_results",
     "smartmatch_api.routers.exercise_results_models",
     "smartmatch_api.routers.exercise_results_refresh",
+    "smartmatch_api.routers.exercise_results_run",
     "smartmatch_api.routers.exercise_workspace",
 ]
 forbidden_modules = [
@@ -401,11 +402,12 @@ source_modules = [
     "smartmatch_api.routers.exercise_matching_models",
     "smartmatch_api.routers.exercise_matching_weights",
     "smartmatch_api.routers.exercise_public",
-    # CE-RESULTS-API, team half: the routes, the response contract, and the
-    # refresh policy the two refresh routes share.
+    # CE-RESULTS-API, team half: the routes, the response contract, how one run
+    # is built, and the refresh policy the two refresh routes share.
     "smartmatch_api.routers.exercise_results",
     "smartmatch_api.routers.exercise_results_models",
     "smartmatch_api.routers.exercise_results_refresh",
+    "smartmatch_api.routers.exercise_results_run",
     "smartmatch_api.routers.exercise_workspace",
 ]
 forbidden_modules = ["sqlalchemy"]
