@@ -63,7 +63,7 @@ redemption, balance or catalog path could:
 Same shape as the two flips above, made in the commit that lands the capability,
 and narrower than the gate it opens. :data:`_D6_FORBIDDEN_SEGMENTS` is
 *untouched* — ``rewards`` and ``redemptions`` are still forbidden segments, so a
-sixth rewards path is refused by the segment rule — and
+fifth rewards path is refused by the segment rule — and
 :data:`D6_AUTHORIZED_REWARD_PATHS` is an exact, literal allowlist of the four
 paths those five operations occupy, admitted by name. ``balance``, ``balances``
 and ``catalog`` remain forbidden with no exception at all: the balance is a field inside the catalog
@@ -292,7 +292,7 @@ G1_AUTHORIZED_MATCH_RUN_PATHS = frozenset(
 # D6 — the exact unit-scoped rewards paths card P-REWARDS-API authorizes, plus
 # the coordinator discovery route PR #200 added, and no others.
 # `_D6_FORBIDDEN_SEGMENTS` still names `rewards` and `redemptions`, so these
-# four are admitted by name and a sixth is refused; `balance`, `balances` and
+# four are admitted by name and a fifth is refused; `balance`, `balances` and
 # `catalog` are not admitted at all, by this list or any other.
 D6_AUTHORIZED_REWARD_PATHS = frozenset(
     {

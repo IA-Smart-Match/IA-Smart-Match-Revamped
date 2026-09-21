@@ -880,6 +880,7 @@ class RewardsRepository:
         tenant_id: uuid.UUID,
         state: RedemptionState,
         unit_path: str,
+        subject_roles: frozenset[str],
         at: datetime,
         limit: int,
     ) -> tuple[RedemptionQueueRow, ...]:
@@ -944,6 +945,19 @@ class RewardsRepository:
                 parameter and cast to ``ltree`` by PostgreSQL — never
                 interpolated, the same discipline ``units_in_subtree`` states
                 at length for the identical bind.
+            subject_roles: The role set a qualifying membership's ``role`` must
+                fall within. Owner review, 2026-09-21: without this, a caller
+                who is ``coordinator`` under this unit and merely
+                ``student`` under a *different* one would surface their own
+                redemption here on the strength of the wrong-department grant.
+                The router passes ``_REWARDS_STUDENT_ROLES`` — the identical
+                set :func:`~smartmatch_api.routers.rewards.request_redemption_route`
+                gates opening a redemption on — so a membership counts here
+                only if it could have opened the ticket in the first place.
+                Passed in rather than imported from ``smartmatch_api``: this
+                package sits below the API in the import-boundary graph
+                (``pyproject.toml``'s ``importlinter`` contracts), so the
+                router owns the constant and hands it down.
             at: The moment membership activity is measured at. The caller
                 passes its own ``utc_now()``, the same value every authorizer
                 in this module already uses for the caller's own membership.
@@ -956,6 +970,7 @@ class RewardsRepository:
                 membership.c.tenant_id == table.c.tenant_id,
                 membership.c.user_id == table.c.subject_id,
                 membership.c.granted_path.op("<@")(sa.cast(sa.literal(unit_path), schema.LTree())),
+                membership.c.role.in_(subject_roles),
                 sa.or_(membership.c.valid_from.is_(None), membership.c.valid_from <= at),
                 sa.or_(membership.c.valid_until.is_(None), membership.c.valid_until > at),
             )

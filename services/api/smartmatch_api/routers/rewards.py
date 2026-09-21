@@ -462,10 +462,13 @@ class RedemptionQueueResponse(BaseModel):
     ``redemption`` itself carries no owning unit (module docstring, "No unit
     ownership claim"), so unit scoping is not a column filter — it is derived
     from *who redeemed*: :meth:`RewardsRepository.redemptions_at_state` keeps
-    only redemptions whose subject holds an active membership at or beneath
-    ``unit_id``'s own path (owner decision, 2026-09-21, PR #200 review). A
-    coordinator therefore sees their own department's tickets and not a
-    sibling's; an admin granted at a parent unit sees every descendant
+    only redemptions whose subject holds an active membership, in
+    :data:`_REWARDS_STUDENT_ROLES`, at or beneath ``unit_id``'s own path
+    (owner decision, 2026-09-21, PR #200 review). The role filter matters:
+    without it, a subject who is ``coordinator`` here and merely ``student``
+    under a different unit would surface on the strength of the wrong-department
+    grant. A coordinator therefore sees their own department's tickets and not
+    a sibling's; an admin granted at a parent unit sees every descendant
     department's, the same containment
     :func:`~smartmatch_api.units.units_in_subtree` already applies to org
     units. ``decide_redemption`` is unchanged and stays tenant-scoped by id —
@@ -957,11 +960,15 @@ def read_redemption_queue(
     not already act on there.
 
     **Rows are unit-scoped** (owner decision, 2026-09-21, PR #200 review): a
-    student's membership must fall at or beneath the authorized unit's path —
-    see :meth:`RewardsRepository.redemptions_at_state` for the containment
-    query — so a coordinator of one department never sees a sibling
-    department's tickets, and an admin granted at a parent unit sees every
-    descendant department's. ``decide_redemption`` itself is deliberately
+    student's membership must fall at or beneath the authorized unit's path
+    **and** hold a role in :data:`_REWARDS_STUDENT_ROLES` — see
+    :meth:`RewardsRepository.redemptions_at_state` for the containment query —
+    so a coordinator of one department never sees a sibling department's
+    tickets, and an admin granted at a parent unit sees every descendant
+    department's. The role filter is what keeps a caller who is
+    ``coordinator`` under this unit and merely ``student`` under a *different*
+    one from surfacing their own redemption on the strength of the
+    wrong-department grant. ``decide_redemption`` itself is deliberately
     **not** touched by this: deciding a redemption by id stays tenant-scoped,
     exactly as it always has, because the owner chose to leave that surface
     alone in this pass — this route narrows only the discovery step that feeds
@@ -997,6 +1004,11 @@ def read_redemption_queue(
         tenant_id=principal.tenant_id,
         state=RedemptionState(status_filter),
         unit_path=authorized_unit.path,
+        # The same role set `request_redemption_route` gates opening a
+        # redemption on (owner review, 2026-09-21): a membership counts toward
+        # this queue's row scoping only if it could have opened the ticket in
+        # the first place — a coordinator-only grant under this unit does not.
+        subject_roles=_REWARDS_STUDENT_ROLES,
         at=utc_now(),
         limit=REDEMPTION_QUEUE_MAX_ROWS + 1,
     )

@@ -140,13 +140,31 @@ def _insert_user(conn, tenant_id: uuid.UUID, label: str) -> tuple[uuid.UUID, str
     return user_id, subject
 
 
-def _grant(conn, tenant_id: uuid.UUID, user_id: uuid.UUID, path: str, role: str) -> None:
+def _grant(
+    conn,
+    tenant_id: uuid.UUID,
+    user_id: uuid.UUID,
+    path: str,
+    role: str,
+    *,
+    valid_until: str | None = None,
+) -> None:
+    """A membership row. ``valid_until`` is an ISO timestamp in the past for a
+    deliberately expired grant, or ``None`` (the default) for one with no
+    upper bound."""
     conn.execute(
         text(
-            "INSERT INTO membership (id, tenant_id, user_id, granted_path, role) "
-            "VALUES (:id, :tid, :uid, CAST(:path AS ltree), :role)"
+            "INSERT INTO membership (id, tenant_id, user_id, granted_path, role, valid_until) "
+            "VALUES (:id, :tid, :uid, CAST(:path AS ltree), :role, :valid_until)"
         ),
-        {"id": uuid.uuid4(), "tid": tenant_id, "uid": user_id, "path": path, "role": role},
+        {
+            "id": uuid.uuid4(),
+            "tid": tenant_id,
+            "uid": user_id,
+            "path": path,
+            "role": role,
+            "valid_until": valid_until,
+        },
     )
 
 
@@ -182,6 +200,43 @@ def _insert_item(
         },
     )
     return item_id
+
+
+def _insert_redemption(
+    conn,
+    tenant_id: uuid.UUID,
+    *,
+    subject_id: uuid.UUID,
+    item_id: uuid.UUID,
+    item_name: str,
+    cost: int,
+) -> uuid.UUID:
+    """One ``requested`` redemption, written directly rather than through the API.
+
+    For the absence tests below: a subject with no qualifying membership under
+    the queried unit cannot pass ``_authorize_student_rewards`` to open a
+    ticket through ``POST .../redemptions`` in the first place, so proving the
+    *queue* excludes such a ticket needs one to already exist. This is the
+    identical bypass ``_insert_item`` already uses for the catalog side.
+    """
+    redemption_id = uuid.uuid4()
+    conn.execute(
+        text(
+            "INSERT INTO redemption "
+            "(id, tenant_id, subject_id, item_id, item_name_snapshot, "
+            "points_cost_snapshot, state) "
+            "VALUES (:id, :tid, :subject, :item, :name, :cost, 'requested')"
+        ),
+        {
+            "id": redemption_id,
+            "tid": tenant_id,
+            "subject": subject_id,
+            "item": item_id,
+            "name": item_name,
+            "cost": cost,
+        },
+    )
+    return redemption_id
 
 
 def _record_attendance(session: Session, tenant_id: uuid.UUID, subject_id: uuid.UUID) -> uuid.UUID:
@@ -278,7 +333,18 @@ def rewards_api(engine_or_skip: Engine) -> Iterator[Fixture]:
             ("sibling_coordinator", "coordinator", SIBLING_UNIT_PATH),
             ("root_admin", "admin", ROOT_UNIT_PATH),
             ("multi_membership_student", "student", unit_path),
+            ("dual_role_user", "coordinator", unit_path),
+            ("no_membership_student", None, None),
+            ("expired_membership_student", None, None),
         ):
+            if role is None:
+                # No grant at all — inserted here so it shares this loop's user
+                # creation rather than a third helper, but deliberately skipped
+                # below; each is granted (or not) by the tests that use it.
+                user_id, subject = _insert_user(conn, tenant_id, label)
+                fixture.users[label] = user_id
+                fixture.tokens[label] = subject
+                continue
             user_id, subject = _insert_user(conn, tenant_id, label)
             _grant(conn, tenant_id, user_id, path, role)
             fixture.users[label] = user_id
@@ -294,6 +360,25 @@ def rewards_api(engine_or_skip: Engine) -> Iterator[Fixture]:
             fixture.users["multi_membership_student"],
             f"{unit_path}.sub",
             "student",
+        )
+
+        # `dual_role_user` also holds `student` at `SIBLING_UNIT_PATH`, on top
+        # of the `coordinator` grant at `unit_path` the loop above gave them —
+        # the role-filter fixture: a role that qualifies them for the queue
+        # under one unit and does not under the other.
+        _grant(conn, tenant_id, fixture.users["dual_role_user"], SIBLING_UNIT_PATH, "student")
+
+        # `expired_membership_student` holds one `student` grant at
+        # `unit_path`, already lapsed — the fixture for the expired-membership
+        # absence test. Reactivating it is each test's own job (this file does
+        # not add a second, active grant here, so the row starts absent).
+        _grant(
+            conn,
+            tenant_id,
+            fixture.users["expired_membership_student"],
+            unit_path,
+            "student",
+            valid_until="2000-01-01T00:00:00Z",
         )
 
         owner_id, _ = _insert_user(conn, tenant_id, "budget-owner")
@@ -986,6 +1071,117 @@ def test_a_multi_membership_student_appears_once(
         for row in rewards_api.get("/redemptions/queue", "coordinator").json()["redemptions"]
     ]
     assert ids.count(ticket_id) == 1
+
+
+def test_a_dual_role_subject_counts_only_under_their_qualifying_role(
+    rewards_api: Fixture, engine_or_skip: Engine
+) -> None:
+    """A membership that is the wrong role does not qualify a subject for the queue.
+
+    Owner review, 2026-09-21: `dual_role_user` is `coordinator` at `unit_path`
+    and `student` at `SIBLING_UNIT_PATH`. Their ticket must be absent from
+    `unit_id`'s queue — the only membership they hold there is the wrong role
+    — and present in `sibling_unit_id`'s, where their membership is `student`,
+    the same role `request_redemption_route` required to let them open it.
+    """
+    _credit(engine_or_skip, rewards_api.tenant_id, rewards_api.users["dual_role_user"])
+
+    response = rewards_api.post_at(
+        rewards_api.sibling_unit_id,
+        "/redemptions",
+        "dual_role_user",
+        {"item_id": str(rewards_api.items["cheap"])},
+    )
+    assert response.status_code == 201, response.text
+    ticket_id = str(response.json()["redemption_id"])
+
+    own_unit_ids = [
+        row["redemption_id"]
+        for row in rewards_api.get("/redemptions/queue", "coordinator").json()["redemptions"]
+    ]
+    assert ticket_id not in own_unit_ids
+
+    sibling_ids = [
+        row["redemption_id"]
+        for row in rewards_api.get_at(
+            rewards_api.sibling_unit_id, "/redemptions/queue", "sibling_coordinator"
+        ).json()["redemptions"]
+    ]
+    assert ticket_id in sibling_ids
+
+
+def test_a_subject_with_no_membership_under_the_unit_is_absent(
+    rewards_api: Fixture, engine_or_skip: Engine
+) -> None:
+    """A redemption whose subject holds no membership at all is simply absent.
+
+    `no_membership_student` has a `user_account` row and a ticket but no
+    `membership` row anywhere — the ``EXISTS`` predicate has nothing to find,
+    so the row is excluded the same way `_authorize_student_rewards` would
+    refuse them a token to open one honestly.
+    """
+    with engine_or_skip.begin() as conn:
+        ticket_id = _insert_redemption(
+            conn,
+            rewards_api.tenant_id,
+            subject_id=rewards_api.users["no_membership_student"],
+            item_id=rewards_api.items["cheap"],
+            item_name="Synthetic cheap reward",
+            cost=CHEAP_COST,
+        )
+
+    ids = [
+        row["redemption_id"]
+        for row in rewards_api.get("/redemptions/queue", "coordinator").json()["redemptions"]
+    ]
+    assert str(ticket_id) not in ids
+
+
+def test_a_subject_whose_only_membership_has_expired_is_absent_then_present_when_reactivated(
+    rewards_api: Fixture, engine_or_skip: Engine
+) -> None:
+    """A lapsed membership does not qualify a subject; an active one does.
+
+    `expired_membership_student`'s only grant carries `valid_until` in the
+    past — absent from the queue, the same as an unauthorized caller would be
+    refused. Granting a second, open-ended membership at the same path makes
+    the identical ticket appear, proving the window is evaluated live rather
+    than cached from request-time.
+    """
+    with engine_or_skip.begin() as conn:
+        ticket_id = _insert_redemption(
+            conn,
+            rewards_api.tenant_id,
+            subject_id=rewards_api.users["expired_membership_student"],
+            item_id=rewards_api.items["cheap"],
+            item_name="Synthetic cheap reward",
+            cost=CHEAP_COST,
+        )
+
+    before = [
+        row["redemption_id"]
+        for row in rewards_api.get("/redemptions/queue", "coordinator").json()["redemptions"]
+    ]
+    assert str(ticket_id) not in before
+
+    with engine_or_skip.begin() as conn:
+        unit_path = conn.execute(
+            text("SELECT CAST(path AS text) FROM org_unit WHERE id = :id"),
+            {"id": rewards_api.unit_id},
+        ).scalar_one()
+        _grant(
+            conn,
+            rewards_api.tenant_id,
+            rewards_api.users["expired_membership_student"],
+            unit_path,
+            "student",
+        )
+
+    after = [
+        row["redemption_id"]
+        for row in rewards_api.get("/redemptions/queue", "coordinator").json()["redemptions"]
+    ]
+    assert str(ticket_id) in after
 
 
 # ---------------------------------------------------------------------------
