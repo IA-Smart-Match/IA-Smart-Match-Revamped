@@ -282,19 +282,32 @@ def test_a_second_run_is_refused_with_the_specs_own_sentence(
 def test_two_runs_arriving_together_leave_exactly_one_row(
     exercise_sessions: sessionmaker[Session],
 ) -> None:
-    """The one-run rule **as a constraint**, which is the whole of design spec §9.
+    """Two transactions, one row — and **the courtesy read is what refuses**.
 
-    Both transactions pass ``record_run``'s courtesy read — the first has not
-    committed, so under READ COMMITTED the second simply does not see its row —
-    and the constraint is what decides. The second's ``INSERT`` violates
-    ``uq_exercise_result_run_workspace_event``, the repository's scrubber
-    recognises that constraint by name, and the caller gets the spec's sentence
-    rather than a driver error.
+    Round 1's F1 corrected this docstring, which claimed the constraint decided
+    here. It does not, and the correction matters because it is the difference
+    between a test that covers the constraint branch and one that only looks
+    like it does.
 
-    Serialised rather than raced on two threads: what this proves is that the
-    **constraint** is load-bearing, not that a particular interleaving is timed
-    right, and a read-then-write that both sides passed is exactly the
-    interleaving reproduced here.
+    What actually happens on this path: both connections read "no run yet"
+    before either commits, the first commits, and the second then calls
+    ``record_run`` — whose **first** act after taking the advisory key is a
+    fresh ``get_run``. Under READ COMMITTED that statement takes a new snapshot
+    and *sees* the committed row, so :class:`AlreadyRunError` is raised there and
+    the ``INSERT`` is never sent. In the real classroom
+    :data:`RESULT_RUN_LOCK_KEY` makes it even more certain: the second caller
+    blocks on the key until the first commits, then reads.
+
+    So ``uq_exercise_result_run_workspace_event`` is **defence in depth on this
+    path**, not the deciding mechanism. It is still load-bearing — it is the only
+    thing standing if the read ever stops being taken, and it is what makes the
+    rule a property of the schema rather than of a method's statement order — and
+    :func:`test_the_constraint_refuses_a_duplicate_the_read_did_not_see` is the
+    test that exercises it, by taking the read out of the way.
+
+    What this test proves, then: the ordinary second press is refused with the
+    spec's sentence, exactly one row survives, and no driver text travels with
+    the refusal.
     """
     results = ExerciseResultsRepository()
     with exercise_sessions() as first, exercise_sessions() as second:
@@ -320,6 +333,61 @@ def test_two_runs_arriving_together_leave_exactly_one_row(
     assert str(refused.value) == ALREADY_RUN_SENTENCE
     assert rows == 1
     assert refused.value.__context__ is None, "the driver's exception must not travel with it"
+
+
+def test_the_constraint_refuses_a_duplicate_the_read_did_not_see(
+    exercise_sessions: sessionmaker[Session],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The UNIQUE branch of :meth:`_failure_for`, which nothing else reaches.
+
+    ``record_run``'s courtesy read refuses a second run before the ``INSERT`` is
+    ever sent (see the test above), so on every ordinary path the constraint is
+    never violated and the branch that turns
+    ``uq_exercise_result_run_workspace_event`` into design spec §9's sentence is
+    never executed. A branch no test reaches is a branch that can be deleted, or
+    broken, without anything going red — and this one is the schema-level half of
+    the one-run rule.
+
+    So the read is taken out of the way: ``get_run`` is patched to answer
+    ``None``, which is exactly what it would answer if the check were ever
+    dropped, if a future isolation level hid the row, or if the rows were
+    deleted between the read and the insert. The ``INSERT`` then reaches the
+    constraint, and what the caller must get is the **same sentence** — not a
+    driver error, and not an ``ExerciseResultsWriteRefused`` with different
+    words.
+
+    Proved RED before it was kept: with the constraint name in
+    :meth:`ExerciseResultsRepository._failure_for` changed by one character the
+    refusal arrives as ``ExerciseResultsWriteRefused("Your results could not be
+    stored.")`` and this test fails on the ``pytest.raises`` line. Restored, it
+    passes.
+    """
+    results = ExerciseResultsRepository()
+    with exercise_sessions() as session:
+        dataset_id, (workspace_id, _) = _classroom(session)
+        _record(results, session, dataset_id=dataset_id, workspace_id=workspace_id)
+        session.commit()
+
+        monkeypatch.setattr(
+            ExerciseResultsRepository,
+            "get_run",
+            lambda *_args, **_kwargs: None,
+        )
+        with pytest.raises(AlreadyRunError) as refused:
+            _record(results, session, dataset_id=dataset_id, workspace_id=workspace_id)
+        session.rollback()
+
+        rows = session.execute(
+            sa.select(sa.func.count())
+            .select_from(schema.exercise_result_run)
+            .where(schema.exercise_result_run.c.workspace_id == workspace_id)
+        ).scalar_one()
+
+    assert str(refused.value) == ALREADY_RUN_SENTENCE
+    assert refused.value.__context__ is None, "the driver's exception must not travel with it"
+    assert "parameters" not in str(refused.value).lower()
+    assert rows == 1, "the refused insert must have left the first run alone"
 
 
 def test_one_team_may_run_both_rounds_and_another_team_the_same_event(
