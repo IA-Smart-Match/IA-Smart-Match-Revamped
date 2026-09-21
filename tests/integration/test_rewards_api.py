@@ -328,17 +328,9 @@ def rewards_api(engine_or_skip: Engine) -> Iterator[Fixture]:
     session = session_factory()
     repository = RewardsRepository()
     try:
-        # `sibling_student` and `multi_membership_student` are credited the same
-        # as `student` — both open a redemption in the row-scoping tests below,
-        # and an uncredited student has a measured balance of zero, which would
-        # refuse every fixture item at a nonzero cost with `insufficient_balance`
-        # before row scoping is ever reached.
-        for label in ("student", "sibling_student", "multi_membership_student"):
-            for _ in range(CREDITED_ATTENDANCES):
-                attendance_id = _record_attendance(session, tenant_id, fixture.users[label])
-                repository.credit_attendance(
-                    session, tenant_id=tenant_id, attendance_id=attendance_id
-                )
+        for _ in range(CREDITED_ATTENDANCES):
+            attendance_id = _record_attendance(session, tenant_id, fixture.users["student"])
+            repository.credit_attendance(session, tenant_id=tenant_id, attendance_id=attendance_id)
         # Attendance on file, deliberately uncredited: the shape that makes a
         # balance unknown rather than zero.
         _record_attendance(session, tenant_id, fixture.users["uncredited_student"])
@@ -375,6 +367,37 @@ def rewards_api(engine_or_skip: Engine) -> Iterator[Fixture]:
         ):
             conn.execute(text(f"DELETE FROM {table} WHERE tenant_id = :tid"), {"tid": tenant_id})
         conn.execute(text("DELETE FROM tenant WHERE id = :tid"), {"tid": tenant_id})
+
+
+def _credit(
+    engine: Engine,
+    tenant_id: uuid.UUID,
+    subject_id: uuid.UUID,
+    *,
+    times: int = CREDITED_ATTENDANCES,
+) -> None:
+    """Credit ``subject_id`` ``times`` verified attendances, in this test's own session.
+
+    A per-test opt-in rather than a fixture-wide credit for everyone: the fixture
+    credits exactly ``student`` (``CREDITED_ATTENDANCES`` attendances), and
+    ``test_approval_then_fulfilment_takes_exactly_one_debit`` /
+    ``test_a_denial_is_terminal_and_debits_nothing`` assert the *total* ledger
+    row count against that one number. Crediting a second or third principal in
+    the shared fixture setup would silently inflate their count; this function
+    lets the row-scoping tests below give a specific principal spendable points
+    without touching what every other test in this file already counts on.
+    """
+    session_factory = sessionmaker(bind=engine, expire_on_commit=False, future=True)
+    session = session_factory()
+    repository = RewardsRepository()
+    try:
+        for _ in range(times):
+            attendance_id = _record_attendance(session, tenant_id, subject_id)
+            repository.credit_attendance(session, tenant_id=tenant_id, attendance_id=attendance_id)
+        session.commit()
+    finally:
+        session.rollback()
+        session.close()
 
 
 def _ledger_rows(engine: Engine, tenant_id: uuid.UUID) -> list:
@@ -837,20 +860,24 @@ def test_an_unknown_unit_for_the_queue_is_a_404(rewards_api: Fixture) -> None:
     assert response.json()["error"]["code"] == "unit_not_found"
 
 
-def test_the_queue_is_oldest_first_and_bounded(rewards_api: Fixture) -> None:
+def test_the_queue_is_oldest_first_and_bounded(
+    rewards_api: Fixture, engine_or_skip: Engine
+) -> None:
     """Two tickets under one unit, still in request order.
 
     Both against the ``cheap`` item and both by credited students — ``student``
-    (``_open_ticket``) and ``multi_membership_student`` (credited the same
-    three attendances so a nonzero-cost item is affordable; also under
-    ``unit_path``, so both tickets land in the same coordinator's queue) —
-    since an uncredited student's measured-zero balance would refuse the
-    second request with ``insufficient_balance`` before ordering is ever
-    reached. Not a test of the ``MAX_ROWS`` cap itself — opening 201 tickets in
-    an integration test would be its own liability — just that ``truncated``
-    is ``False`` under the cap and the order is oldest request first, matching
-    ``ReviewRepository.list_for_unit``'s own queue.
+    (``_open_ticket``) and ``multi_membership_student`` (``_credit`` gives them
+    a spendable balance without touching the fixture-wide ledger count other
+    tests assert; also under ``unit_path``, so both tickets land in the same
+    coordinator's queue) — since an uncredited student's measured-zero balance
+    would refuse the second request with ``insufficient_balance`` before
+    ordering is ever reached. Not a test of the ``MAX_ROWS`` cap itself —
+    opening 201 tickets in an integration test would be its own liability —
+    just that ``truncated`` is ``False`` under the cap and the order is oldest
+    request first, matching ``ReviewRepository.list_for_unit``'s own queue.
     """
+    _credit(engine_or_skip, rewards_api.tenant_id, rewards_api.users["multi_membership_student"])
+
     first = _open_ticket(rewards_api)
     second_response = rewards_api.post(
         "/redemptions",
@@ -866,7 +893,9 @@ def test_the_queue_is_oldest_first_and_bounded(rewards_api: Fixture) -> None:
     assert body["truncated"] is False
 
 
-def test_each_coordinator_sees_only_their_own_units_student(rewards_api: Fixture) -> None:
+def test_each_coordinator_sees_only_their_own_units_student(
+    rewards_api: Fixture, engine_or_skip: Engine
+) -> None:
     """Two units, a student in each: neither coordinator's queue crosses into the other's.
 
     Owner decision, 2026-09-21 (PR #200 review): rows are scoped by the
@@ -876,6 +905,8 @@ def test_each_coordinator_sees_only_their_own_units_student(rewards_api: Fixture
     same root but neither contains the other — so this is the row-level
     analogue of `test_a_student_in_a_sibling_department_is_refused`.
     """
+    _credit(engine_or_skip, rewards_api.tenant_id, rewards_api.users["sibling_student"])
+
     own_ticket = _open_ticket(rewards_api)
     sibling_response = rewards_api.post_at(
         rewards_api.sibling_unit_id,
@@ -901,7 +932,9 @@ def test_each_coordinator_sees_only_their_own_units_student(rewards_api: Fixture
     assert sibling_queue == [sibling_ticket]
 
 
-def test_a_parent_unit_admin_sees_both_departments_tickets(rewards_api: Fixture) -> None:
+def test_a_parent_unit_admin_sees_both_departments_tickets(
+    rewards_api: Fixture, engine_or_skip: Engine
+) -> None:
     """An admin granted at the common ancestor sees both departments' queues at once.
 
     `root_admin` is granted `admin` at `ROOT_UNIT_PATH` ("iawest"), the
@@ -910,6 +943,8 @@ def test_a_parent_unit_admin_sees_both_departments_tickets(rewards_api: Fixture)
     both tickets, the same descendant containment
     `~smartmatch_api.units.units_in_subtree` already applies to org units.
     """
+    _credit(engine_or_skip, rewards_api.tenant_id, rewards_api.users["sibling_student"])
+
     own_ticket = _open_ticket(rewards_api)
     sibling_response = rewards_api.post_at(
         rewards_api.sibling_unit_id,
@@ -929,13 +964,17 @@ def test_a_parent_unit_admin_sees_both_departments_tickets(rewards_api: Fixture)
     assert root_queue == {own_ticket, sibling_ticket}
 
 
-def test_a_multi_membership_student_appears_once(rewards_api: Fixture) -> None:
+def test_a_multi_membership_student_appears_once(
+    rewards_api: Fixture, engine_or_skip: Engine
+) -> None:
     """A student with two memberships under the unit is not double-counted.
 
     `multi_membership_student` holds one membership at `unit_path` and a
     second, deeper one at `unit_path + ".sub"` — both satisfy the queue's
     `EXISTS` predicate, so a plain join would return this ticket twice.
     """
+    _credit(engine_or_skip, rewards_api.tenant_id, rewards_api.users["multi_membership_student"])
+
     response = rewards_api.post(
         "/redemptions", "multi_membership_student", {"item_id": str(rewards_api.items["cheap"])}
     )
