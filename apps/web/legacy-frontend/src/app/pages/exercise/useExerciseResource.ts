@@ -97,7 +97,7 @@ export function useExerciseResource<T>(
   load: (signal: AbortSignal) => Promise<T>,
   deps: readonly unknown[],
   options: ExerciseResourceOptions = {},
-): { readonly state: ExerciseResourceState<T>; readonly reload: () => void } {
+): { readonly state: ExerciseResourceState<T>; readonly reload: () => Promise<void> } {
   const keepDataOnRefusal = options.keepDataOnRefusal ?? false;
   const [state, setState] = useState<ExerciseResourceState<T>>({ status: "loading" });
   const [attempt, setAttempt] = useState(0);
@@ -107,9 +107,29 @@ export function useExerciseResource<T>(
   const loadRef = useRef(load);
   loadRef.current = load;
 
+  // Resolved when the *next* effect run settles, so a caller of `reload` can
+  // tell the difference between "the request is in flight" and "the state on
+  // screen now reflects it" — a once-only button must stay disabled for the
+  // whole of that, not just for its own network call.
+  const settled = useRef<(() => void)[]>([]);
+
   useEffect(() => {
     const controller = new AbortController();
     let live = true;
+    let settledThisRun = false;
+    // Resolvers queued by `reload` calls made before this run started. If
+    // this run itself gets superseded before settling (a second `reload`
+    // arriving while the first is still in flight), they are handed to the
+    // next run rather than dropped, so a caller awaiting the first `reload`
+    // still resolves once *some* later state lands, rather than never.
+    const resolvers = settled.current;
+    settled.current = [];
+    const resolveAll = (): void => {
+      settledThisRun = true;
+      for (const resolve of resolvers) {
+        resolve();
+      }
+    };
     // Keep whatever is on screen while the new answer is fetched. Only a
     // screen that has never had data drops to `loading`; one that has shows
     // the previous answer and says it is busy. This is what keeps the weight
@@ -125,6 +145,7 @@ export function useExerciseResource<T>(
       .then((data) => {
         if (live) {
           setState({ status: "ready", data, refreshing: false, refusal: null });
+          resolveAll();
         }
       })
       .catch((error: unknown) => {
@@ -143,10 +164,17 @@ export function useExerciseResource<T>(
           }
           return stateFromError<T>(error);
         });
+        resolveAll();
       });
     return () => {
       live = false;
       controller.abort();
+      if (!settledThisRun) {
+        // This run never settled — hand its waiters to whichever run
+        // replaces it, rather than resolving early (the state has not
+        // changed yet) or forgetting them (a caller of `reload` would hang).
+        settled.current = [...resolvers, ...settled.current];
+      }
     };
     // `deps` is the caller's declared dependency list; `attempt` forces a
     // reload. `keepDataOnRefusal` is a caller constant, not a dependency.
@@ -154,7 +182,10 @@ export function useExerciseResource<T>(
   }, [...deps, attempt]);
 
   const reload = useCallback(() => {
-    setAttempt((value) => value + 1);
+    return new Promise<void>((resolve) => {
+      settled.current = [...settled.current, resolve];
+      setAttempt((value) => value + 1);
+    });
   }, []);
 
   return { state, reload };

@@ -182,6 +182,78 @@ describe("<ExerciseAskingForMore />", () => {
     expect(document.body.textContent).not.toContain("%");
   });
 
+  it("keeps the once-only button disabled until the reload after it settles", async () => {
+    // G3. Fails on the merged code: `run` cleared `pending` in its `finally`
+    // as soon as the refresh's own POST resolved, without waiting for the
+    // reload it triggers. `asking.refreshed` is still `false` — the stale
+    // value from before the refresh — until that reload's GET lands, so
+    // there was a real window where the button read enabled and a second
+    // click could fire a second, illegal refresh. This test holds that GET
+    // open and looks at the button while it is still in flight.
+    let releaseSecondGet: (() => void) | null = null;
+    let getCount = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string, init: RequestInit) => {
+        calls.push({ url, init });
+        const method = init.method ?? "GET";
+        if (url === ASKING && method === "GET") {
+          getCount += 1;
+          if (getCount === 1) {
+            return Promise.resolve(
+              new Response(
+                JSON.stringify({ choice: "required", choices: ["required"], refreshed: false }),
+                { status: 200 },
+              ),
+            );
+          }
+          // The reload triggered by the refresh: held open on purpose.
+          return new Promise<Response>((resolve) => {
+            releaseSecondGet = () =>
+              resolve(
+                new Response(
+                  JSON.stringify({ choice: "required", choices: ["required"], refreshed: true }),
+                  { status: 200 },
+                ),
+              );
+          });
+        }
+        if (url === REFRESH && method === "POST") {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({ choice: "required", cards_completed: 1, non_responding: 0, topics_added: 0 }),
+              { status: 200 },
+            ),
+          );
+        }
+        return Promise.resolve(
+          new Response(JSON.stringify({ error: { code: "test_unstubbed", message: url } }), {
+            status: 404,
+          }),
+        );
+      }),
+    );
+
+    renderAsking();
+    const ask = (await screen.findByRole("button", {
+      name: /ask them now/i,
+    })) as HTMLButtonElement;
+    fireEvent.click(ask);
+
+    // The refresh POST has landed and the reload's GET is in flight, held
+    // open by `releaseSecondGet`.
+    await waitFor(() => expect(calls.some((call) => call.url === REFRESH)).toBe(true));
+    await waitFor(() => expect(getCount).toBe(2));
+
+    expect(ask.disabled).toBe(true);
+
+    releaseSecondGet?.();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /your team has already asked/i })).toBeDefined(),
+    );
+    expect(calls.filter((call) => call.url === REFRESH).length).toBe(1);
+  });
+
   it("renders a refresh refused before a first round as a state, not an error", async () => {
     stub({
       [`GET ${ASKING}`]: { body: { choice: "required", choices: ["required"], refreshed: false } },

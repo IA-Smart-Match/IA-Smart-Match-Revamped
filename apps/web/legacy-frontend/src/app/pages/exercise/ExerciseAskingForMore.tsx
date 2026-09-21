@@ -102,7 +102,7 @@ function AskingPanels({
   onRefreshed,
 }: {
   readonly asking: AskingStateView;
-  readonly onChanged: () => void;
+  readonly onChanged: () => Promise<void>;
   /** The once-only refresh result, owned by the screen. */
   readonly refreshed: RefreshView | null;
   readonly onRefreshed: (view: RefreshView) => void;
@@ -110,6 +110,16 @@ function AskingPanels({
   const [pending, setPending] = React.useState(false);
   const [refusal, setRefusal] = React.useState<string | null>(null);
 
+  /**
+   * Run one action and stay disabled until the screen actually reflects it.
+   *
+   * `onChanged` (the hook's `reload`) resolves once the *refreshed* state has
+   * landed, not once the network call it started has. Clearing `pending`
+   * right after the mutation's own request settled — and before that reload
+   * resolved — left a window where `asking.choice` / `asking.refreshed` were
+   * still the old, unlocked values and the button was clickable again: a
+   * once-only action could be fired twice inside that window.
+   */
   async function run(action: () => Promise<void>): Promise<void> {
     if (pending) {
       return;
@@ -149,7 +159,7 @@ function AskingPanels({
                   onClick={() =>
                     void run(async () => {
                       await chooseAsking(choice);
-                      onChanged();
+                      await onChanged();
                     })
                   }
                   className={`${BUTTON} ${
@@ -191,7 +201,7 @@ function AskingPanels({
             onClick={() =>
               void run(async () => {
                 onRefreshed(await refreshProfiles());
-                onChanged();
+                await onChanged();
               })
             }
             className={BUTTON}
