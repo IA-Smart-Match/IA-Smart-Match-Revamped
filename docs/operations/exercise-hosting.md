@@ -667,7 +667,314 @@ session (the passcode) and sends `X-Exercise-Request`. Step 0 needs neither.
 
 ---
 
-## 9. Open questions
+## 9. Deploy and verify checklist
+
+**Read [§0](#read-this-first-three-things-you-cannot-do-today) before you run
+this.** The first gap — no compose service runs `SMARTMATCH_PRODUCT_SCOPE=class_exercise`
+in this repository today — means steps 4 onward **cannot be executed as
+written until that compose change lands**. This checklist is written so the
+operator can run everything up to that point today, and run the rest the day
+the compose change merges, without rewriting the procedure. Steps that are
+blocked on that gap are marked **BLOCKED — needs the compose change**, not
+silently skipped.
+
+This is an operator procedure, not a proof of readiness. Nothing here has been
+run. See [§9b](#9b-what-this-checklist-does-not-prove).
+
+Evidence table template — copy this into a dated entry when you run the
+checklist for real:
+
+| Step | Result | Date | SHA | Operator |
+|---|---|---|---|---|
+| 1 |  |  |  |  |
+| 2 |  |  |  |  |
+| … |  |  |  |  |
+
+### Pre-flight
+
+1. **Confirm the branch and SHA `deploy` will fast-forward to.**
+   ```bash
+   git -C /opt/smartmatch/app fetch origin
+   git rev-parse origin/deploy origin/main
+   ```
+   Pass: the two SHAs match, or `origin/main` is a fast-forward ahead of
+   `origin/deploy` (the shape [`promote.yml`](../../.github/workflows/promote.yml)
+   requires — it refuses a non-fast-forward push). Fail: `origin/deploy` has
+   diverged; resolve before promoting, per
+   [`vm-deploy.md`](vm-deploy.md#promoting-a-commit-to-the-vm).
+
+2. **Confirm the migration head is `0037_exercise_tables`.**
+   ```bash
+   grep -L 'down_revision = "0037_exercise_tables"' /dev/null; \
+   grep -rl 'down_revision = "0037_exercise_tables"' db/migrations/versions/*.py
+   ```
+   Pass: the second command prints **nothing** — no later revision points back
+   at `0037_exercise_tables`, so it is the head
+   (`db/migrations/versions/0037_exercise_tables.py:99` sets its own
+   `down_revision = "0036_host_organization"`). Fail: a revision is printed —
+   the head has moved past `0037`; re-derive this step against the new file
+   before continuing, since the tables the grant in [§3](#3-the-database-role)
+   depends on may have changed shape.
+
+3. **Confirm every required env var is present — names only, never values.**
+   ```bash
+   for v in SMARTMATCH_PRODUCT_SCOPE SMARTMATCH_EXERCISE_WORKSPACE_SECRET \
+            SMARTMATCH_EXERCISE_COOKIE_SECURE SMARTMATCH_DATABASE_URL; do
+     printf '%s: %s\n' "$v" "$([ -n "${!v:-}" ] && echo present || echo MISSING)"
+   done
+   ```
+   Names come from [§2](#2-environment-variables); every one there marked
+   **Yes** must print `present`. `SMARTMATCH_EXERCISE_INSTRUCTOR_PASSCODE` is
+   not required to boot but must be `present` before the day-of-class runbook
+   in [§7](#7-day-of-class-runbook) can do anything instructor-facing. Fail:
+   any required name prints `MISSING` — the process will not boot
+   (`main.py:696-697`) or will boot into the wrong scope silently
+   (`SMARTMATCH_PRODUCT_SCOPE` unset defaults to `cba`, serving no exercise
+   route at all).
+
+### DB role
+
+4. **BLOCKED on nothing — this can run today.** Create the restricted role and
+   verify it per [§3](#3-the-database-role) in full: the `CREATE ROLE` /
+   `GRANT` block, then all three verification queries (the spot check, the
+   exhaustive `has_table_privilege` check, and the positive-privilege table).
+   Pass: the exhaustive check returns exactly the eight `exercise_*` names and
+   the positive check matches the table in §3 exactly, including both bold
+   `upd` cells. Fail: any other criterion in §3's own pass/fail language — do
+   not re-derive it here, §3 is the authority.
+
+### Env / secrets
+
+5. **Generate the two secrets** using the commands in
+   [§2](#2-environment-variables) ("Generating the two secrets"). Store both
+   out of band — not in this repository, not in a ticket, not in a chat
+   channel that outlives the class (OQ-CE-07). Pass: `SMARTMATCH_EXERCISE_WORKSPACE_SECRET`
+   is at least 32 characters and `SMARTMATCH_EXERCISE_INSTRUCTOR_PASSCODE` is
+   at least 12 characters **after stripping** whitespace
+   (`instructor_session.py:112,163-164`).
+
+6. **Set `SMARTMATCH_EXERCISE_COOKIE_SECURE=true`** on the VM's exercise
+   process env, per [§4](#4-https-and-cookies). Pass: the workspace cookie
+   (`exercise_workspace`) carries `Secure` on a response from
+   `https://exercise.plated.blog`. **VERIFY ON VM** — cannot be checked before
+   the process exists.
+
+### Compose up
+
+7. **BLOCKED — needs the compose change.** There is no second `api`-shaped
+   service for `SMARTMATCH_PRODUCT_SCOPE=class_exercise` in
+   `docker-compose.yml`, `docker-compose.vm.yml`, or `docker-compose.demo.yml`
+   as of this writing (verified by `grep -rn SMARTMATCH_PRODUCT_SCOPE
+   docker-compose*.yml`, which returns nothing). When that service exists,
+   bring the stack up with **both** override files and a rebuild — the same
+   requirement `vm-deploy.md` states for the CBA appliance and repeated in
+   [§8](#8-known-limits) item 5 of this file:
+   ```bash
+   docker compose -f docker-compose.yml -f docker-compose.vm.yml up -d --build
+   docker compose ps
+   ```
+   Pass: the new exercise service is `Up`, and its one-shot `migrate` (if it
+   has its own, or the shared one if it reuses `migrate`) is `exited (0)`.
+   Omitting `docker-compose.vm.yml` strips restart policies; omitting
+   `--build` reuses a stale image — neither is a valid partial run.
+
+8. **Size the exercise process's connection pool down explicitly** before
+   first boot, per [§8](#8-known-limits) item 4 — do not let it take the
+   default `20 + 10`. **BLOCKED — needs the compose change** to know where
+   this env var is set.
+
+### Tunnel hostname
+
+9. **Add the `exercise.plated.blog` public hostname** to the existing
+   `smartmatch-classroom-pilot` tunnel, per [§4a](#4a-the-tunnel-and-why-there-is-no-access-policy).
+   No new tunnel, no new `cloudflared service install`. Pass: Cloudflare Zero
+   Trust → Networks → Tunnels → `smartmatch-classroom-pilot` lists a public
+   hostname for `exercise.plated.blog` pointing at the exercise process's
+   loopback origin. **Which loopback port that is depends on the compose
+   change** — BLOCKED until step 7 lands and picks one.
+
+10. **Apply the rate-limit rule** in [§5](#5-rate-limiting-belongs-at-the-proxy-oq-ce-06)
+    on the zone serving `exercise.plated.blog` — Cloudflare Rate Limiting
+    Rule, `POST /v1/exercise/instructor/login`, 10 requests / 5 minutes per
+    client IP, action Block. This is the **only** edge protection this host
+    has ([§4a](#4a-the-tunnel-and-why-there-is-no-access-policy)) — do not skip
+    it because §9 step 9 feels done. Do **not** apply a matching rule to
+    `pilot.plated.blog`.
+
+### Smoke tests
+
+Steps 11-16 need step 9 (and, for the instructor ones, an instructor session)
+to be live. All are **VERIFY ON VM** until then.
+
+11. **Health.**
+    ```bash
+    curl -sS https://exercise.plated.blog/api/health
+    ```
+    Pass: `{"status":"ok","release":"..."}`. This proves the process and the
+    tunnel hostname, and nothing about the database or the grant
+    (`main.py:704-706,713-714`, [§7](#7-day-of-class-runbook) step 0). Use
+    step 4 above for the database side.
+
+12. **Exercise entry page loads at the exercise hostname.**
+    ```bash
+    curl -sS -o /dev/null -w '%{http_code}\n' https://exercise.plated.blog/
+    ```
+    Pass: `200`.
+
+13. **Scope isolation, direction one — a CBA route is NOT reachable on the
+    exercise hostname.**
+    ```bash
+    curl -sS -o /dev/null -w '%{http_code}\n' https://exercise.plated.blog/v1/jobs
+    ```
+    Pass: `404`. ADR-0025 D1 means the five principal-bearing CBA routers are
+    never registered in the `class_exercise` scope process
+    (`main.py:281-315`) — this is a route-table property, not a firewall rule,
+    so this check exercises the real guarantee.
+
+14. **Scope isolation, direction two — an exercise route is NOT reachable on
+    the pilot hostname.**
+    ```bash
+    curl -sS -o /dev/null -w '%{http_code}\n' https://pilot.plated.blog/v1/exercise/public
+    ```
+    Pass: `404` (or an Access challenge if it is reached before routing, which
+    also counts as "not reachable" — either way the CBA process must never
+    answer as the exercise scope). The CBA process has
+    `SMARTMATCH_PRODUCT_SCOPE` unset/`cba`, so none of the seven exercise
+    routers in [§1](#which-routers-this-scope-mounts) are mounted there.
+
+15. **Instructor route refuses without the passcode.**
+    ```bash
+    curl -sS -o /dev/null -w '%{http_code}\n' \
+      -X POST https://exercise.plated.blog/v1/exercise/instructor/login \
+      -H 'Content-Type: application/json' -H 'X-Exercise-Request: 1' \
+      -d '{"passcode":"wrong-passcode-value"}'
+    ```
+    Pass: a refusal status (401/403 — confirm the exact code against
+    `exercise_instructor.py` when the process is live; do not guess it here),
+    the **same sentence** a missing passcode gets
+    (`exercise_dependencies.py:498-516`).
+
+16. **Rate limiting answers 429 under burst.** Send 11 `POST`s with a wrong
+    passcode from a machine that is not the classroom's own; confirm the 11th
+    is refused by Cloudflare (429), not by the application. This is the check
+    [§5](#5-rate-limiting-belongs-at-the-proxy-oq-ce-06) itself specifies —
+    nothing in this repository can execute a dashboard rule, so this remains a
+    by-hand step even after the compose change lands.
+
+17. **Cookie carries `Secure`/`HttpOnly`/`SameSite`.**
+    ```bash
+    curl -sSI https://exercise.plated.blog/v1/exercise/public/something | grep -i set-cookie
+    ```
+    Pass, against [§4](#4-https-and-cookies)'s table: `exercise_workspace` has
+    `HttpOnly`, `SameSite=Lax`, and `Secure` (from
+    `SMARTMATCH_EXERCISE_COOKIE_SECURE=true`, step 6). `exercise_instructor`
+    (path `/v1/exercise/instructor`) defaults to `Secure` even if that variable
+    is unset.
+
+### Rollback
+
+18. **Roll back exactly as `vm-deploy.md` describes for the CBA appliance** —
+    this document adds no second rollback mechanism. A failed health check on
+    the exercise process should be treated the same way `deploy.sh`'s existing
+    health gate treats a CBA failure: do not promote past a red health check,
+    and use the pre-migration backup `deploy.sh` already takes
+    (`vm-deploy.md`'s "A backup before every migration" row) to restore if a
+    migration on shared infrastructure went wrong. There is no exercise-only
+    rollback because there is no exercise-only backup — the database is
+    shared. **VERIFY ON VM**: confirm the exercise service is included in
+    whatever service list `deploy.sh` health-gates once step 7 names it.
+
+### Post-class teardown / reset
+
+19. **Reset a single team's workspace** with `POST
+    /v1/exercise/instructor/workspaces/{team_number}/reset`
+    ([§7](#7-day-of-class-runbook) step 5) if a team needs a clean run
+    mid-class. There is no team-facing reset and no bulk reset endpoint (PR
+    #186, owner ruling 2026-09-19) — reset teams one at a time.
+
+20. **End of day: rotate `SMARTMATCH_EXERCISE_WORKSPACE_SECRET`** per
+    [§2](#2-environment-variables) ("What rotating the workspace secret
+    does") if the class is fully over and no re-entry is expected — this ends
+    every team's cookie and every live instructor session in one action. Do
+    **not** rotate it between class sessions on the same day; a team that
+    re-enters expects its same workspace back.
+
+21. **Rotate `SMARTMATCH_EXERCISE_INSTRUCTOR_PASSCODE` after the spring run**,
+    per OQ-CE-07's recorded safe default ([§2](#2-environment-variables),
+    "Sharing and rotating the passcode"). Restart the exercise process after
+    changing it; this does not end live instructor sessions (they are signed
+    with the workspace secret, not the passcode).
+
+22. **Nothing here removes the exercise tables or the exercise DB role.**
+    Teardown of the process itself (stopping the container, removing the
+    tunnel hostname) is out of scope for this checklist — it is a compose and
+    dashboard action with no data-safety concern of its own, unlike anything
+    touching the database.
+
+## 9a. Promote dry run
+
+[`promote.yml`](../../.github/workflows/promote.yml) is `workflow_dispatch`
+only — an operator runs it by hand with a `source_ref` input (default `main`)
+— specifically so "merge to main" and "deploy to the VM" stay two distinct,
+human-decided events. It does two things: fast-forward-only pushes the
+resolved SHA to `deploy` (`git push origin "${SOURCE_SHA}:refs/heads/deploy"`,
+which fails loudly on a non-fast-forward rather than forcing it), then
+dispatches [`deploy.yml`](../../.github/workflows/deploy.yml) against
+`deploy` via `gh workflow run deploy.yml --ref deploy`. `deploy.yml` in turn
+runs `build` and `verify`, authenticates to GCP over OIDC, reaches the VM
+through IAP/OS Login, and runs `scripts/vm/deploy.sh` there.
+
+**What a dry run can show without deploying, and how:**
+
+* **What would be promoted**, without pushing anything:
+  ```bash
+  git fetch origin
+  git log --oneline origin/deploy..origin/main
+  git rev-parse origin/main
+  ```
+  This is exactly what promote.yml's "Resolve and sanity-check the source
+  commit" step computes (`git rev-parse --verify "${SOURCE_REF}^{commit}"`)
+  and what the fast-forward push would move `deploy` to — read-only.
+
+* **Whether the push would be a fast-forward or would be refused**: `git
+  merge-base --is-ancestor origin/deploy origin/main && echo
+  fast-forward-ok || echo would-be-refused`.
+
+* **What `deploy.yml` would run, without triggering it**: read the workflow
+  file itself (already done for this checklist — see the summary above) or
+  `gh workflow view deploy.yml` for its current definition on `main`. There is
+  no `--dry-run` flag on `workflow_dispatch` for either workflow; "would run"
+  here means "read the script", not "execute with side effects suppressed."
+
+**Do not run `gh workflow run promote.yml` or `gh workflow run deploy.yml`**
+as part of this checklist — that deploys. Capture evidence of a dry run as:
+the `git log --oneline origin/deploy..origin/main` output, the fast-forward
+check result, and the date/SHA — in the evidence table above.
+
+## 9b. What this checklist does not prove
+
+* **No real students ran it.** Every step above, where marked, is either
+  unexecuted or executed by the documenting agent's own repo inspection, not
+  by an operator on the VM against real traffic.
+* **The dataset is a synthetic/placeholder layout, not a graded one.**
+  OQ-CE-01 (the synthetic dataset's exact shape) is **OPEN** — the CSV upload
+  in [§7](#7-day-of-class-runbook) step 1 accepts whatever raw CSV is handed
+  to it; nothing here asserts that shape matches what the class actually
+  needs.
+* **The matching coefficients are a placeholder.** OQ-CE-03/04 are **OPEN** —
+  [§7](#7-day-of-class-runbook) step 6 documents that the results endpoint
+  answers `409` by design until they are confirmed. This is expected, not a
+  deployment defect, and remains true after this checklist passes.
+* **Engineering did not execute this.** An operator must run it for real, on
+  the VM, and record the date, the deployed SHA, and their name in the
+  evidence table in [§9](#9-deploy-and-verify-checklist) before the "Deployed
+  & reachable" row can move past "checklist ready, operator run pending."
+* **The compose change is not in this repository.** Steps 7-10 and 18 of §9
+  are blocked on it; nothing above pretends otherwise.
+
+---
+
+## 10. Open questions
 
 | ID | Question | Status | Where it bites here |
 |---|---|---|---|
