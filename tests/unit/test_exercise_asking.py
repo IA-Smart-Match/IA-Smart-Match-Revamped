@@ -101,7 +101,7 @@ def test_under_base_goal_the_copied_card_carries_the_base_goal(base: str):
 
 
 def test_under_base_goal_a_base_with_no_goal_carries_none():
-    """"NULL only when the base has none" — the second half of the ruling."""
+    """``NULL`` only when the base has none — the second half of the ruling."""
     assert copied_card_career_goal(None, CopiedCardCareerGoal.BASE_GOAL) is None
 
 
@@ -117,7 +117,9 @@ def test_the_default_is_the_module_constant(base: str | None):
 
 def test_every_member_is_answered_rather_than_falling_through():
     """A third member added without a branch must not silently mean ``NONE``."""
-    answers = {member: copied_card_career_goal("analytics", member) for member in CopiedCardCareerGoal}
+    answers = {
+        member: copied_card_career_goal("analytics", member) for member in CopiedCardCareerGoal
+    }
     assert answers[CopiedCardCareerGoal.BASE_GOAL] == "analytics"
     assert answers[CopiedCardCareerGoal.NONE] is None
 

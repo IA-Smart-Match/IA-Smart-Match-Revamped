@@ -24,10 +24,15 @@ ADR-0025 D6 — the withheld column
 Design spec §13's refresh copies a card **from** the withheld column, so this is
 the one module in the exercise whose *purpose* touches it. It still does not read
 it: :meth:`ExerciseResultsRepository.apply_refresh` calls
-``dataset_repository.load_simulation_profiles``, which stays the single reader in
-this package, and the values it hands back never leave this method — they are
-written straight into ``exercise_profile_overlay.card_interests``, where they are
-an ordinary card that the team was given and every later reader treats as one.
+``results_cards.copied_cards``, which calls
+``dataset_repository.load_simulation_profiles`` — still the single reader in this
+package — and the values it hands back never leave this method: they are written
+straight into ``exercise_profile_overlay.card_interests``, where they are an
+ordinary card that the team was given and every later reader treats as one.
+
+What the *same* copied card says about a career goal is a separate, **public**
+question and follows a named policy — ``asking.COPIED_CARD_CAREER_GOAL``,
+PLACEHOLDER (OQ-CE-13). See :meth:`ExerciseResultsRepository.apply_refresh`.
 
 No caller of this module ever holds a withheld value. The router side passes
 **profile numbers and a share** and gets **counts** back; there is no parameter
@@ -61,11 +66,12 @@ from datetime import datetime
 from typing import Final
 
 import sqlalchemy as sa
+from smartmatch_domain.exercise.asking import COPIED_CARD_CAREER_GOAL, CopiedCardCareerGoal
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from smartmatch_persistence.exercise.dataset_repository import ExerciseDatasetRepository
+from smartmatch_persistence.exercise.results_cards import copied_cards
 from smartmatch_persistence.exercise.results_rows import (
     RefreshCandidate,
     RefreshCounts,
@@ -493,6 +499,7 @@ class ExerciseResultsRepository:
         card_profile_nos: Iterable[int],
         non_responding_profile_nos: Iterable[int],
         now: datetime,
+        career_goal_policy: CopiedCardCareerGoal = COPIED_CARD_CAREER_GOAL,
     ) -> RefreshCounts | None:
         """Design spec §13's refresh, for this team's overlay and nothing else.
 
@@ -516,11 +523,14 @@ class ExerciseResultsRepository:
         written they are an ordinary card the team was given, which is what
         design spec §13 describes and what every later reader treats them as.
 
-        ``card_career_goal`` is deliberately left ``NULL``. The refresh copies a
-        card, and the base row's ``career_goal`` is not withheld and already
-        stands behind it — writing a second copy would be two homes for one fact
-        (``exercise_matching_models._profile_evidence`` resolves the overlay over
-        the base, so the base's goal is read either way).
+        **``card_career_goal`` follows a named policy, not this method.** The
+        owner ruled on 2026-09-21 that a copied card carries the base row's
+        ``career_goal``, ``NULL`` only when the base has none;
+        ``asking.copied_card_career_goal`` is where that is written and
+        ``career_goal_policy`` is how it is switched. The base goal is a
+        **public** column and is read off rows this method has already loaded for
+        the card copy, so nothing new queries anything and
+        ``load_simulation_profiles`` stays the one reader of the withheld column.
 
         Every statement is keyed on ``workspace_id``, so no other team's rows are
         reachable from here — the isolation is a key, not a discipline.
@@ -540,6 +550,10 @@ class ExerciseResultsRepository:
                 share that stops answering.
             now: The refresh timestamp, passed rather than read from the clock so
                 that a caller refreshing six teams stamps them identically.
+            career_goal_policy: PLACEHOLDER (OQ-CE-13) — which reading the copied
+                card's career goal takes. Defaults to
+                ``asking.COPIED_CARD_CAREER_GOAL``, so a caller never states it
+                and Ann's answer is one constant in the domain.
 
         Returns:
             :class:`RefreshCounts`, or ``None`` when the team may not refresh.
@@ -575,13 +589,25 @@ class ExerciseResultsRepository:
             column="added_event_topics",
             values={profile_no: list(added_topics) for profile_no in gainers},
         )
-        cards = self._withheld_cards(session, dataset_id=dataset_id, profile_nos=wants_card)
+        cards, goals = copied_cards(
+            session,
+            dataset_id=dataset_id,
+            profile_nos=wants_card,
+            career_goal_policy=career_goal_policy,
+        )
         self._overlay_upsert(
             session,
             dataset_id=dataset_id,
             workspace_id=workspace_id,
             column="card_interests",
             values=cards,
+        )
+        self._overlay_upsert(
+            session,
+            dataset_id=dataset_id,
+            workspace_id=workspace_id,
+            column="card_career_goal",
+            values=goals,
         )
         self._overlay_upsert(
             session,
@@ -599,32 +625,6 @@ class ExerciseResultsRepository:
     # -----------------------------------------------------------------------
     # Internals
     # -----------------------------------------------------------------------
-
-    @staticmethod
-    def _withheld_cards(
-        session: Session, *, dataset_id: uuid.UUID, profile_nos: Sequence[int]
-    ) -> dict[int, list[str]]:
-        """The cards design spec §13 copies, for the chosen profiles only.
-
-        Goes through ``ExerciseDatasetRepository.load_simulation_profiles``
-        rather than selecting ``hidden_true_interests`` here, so that the package
-        keeps **one** reader of the withheld column and a reviewer has one place
-        to look (ADR-0025 D6). The rows are filtered down to the chosen profiles
-        immediately and the values are used for nothing but the overlay write.
-
-        A profile number with no row in the data file contributes nothing, which
-        cannot happen for a number that came off a ranked list and is handled
-        anyway rather than raising on a screen.
-        """
-        wanted = set(profile_nos)
-        if not wanted:
-            return {}
-        rows = ExerciseDatasetRepository().load_simulation_profiles(session, dataset_id=dataset_id)
-        return {
-            row.profile_no: list(row.hidden_true_interests)
-            for row in rows
-            if row.profile_no in wanted
-        }
 
     def _overlay_upsert(
         self,
