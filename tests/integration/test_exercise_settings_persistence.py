@@ -26,6 +26,8 @@ afterwards; skipped where no PostgreSQL is reachable.
 
 from __future__ import annotations
 
+import threading
+import time
 import uuid
 from collections.abc import Iterator
 
@@ -39,6 +41,7 @@ from smartmatch_persistence.exercise import schema
 from smartmatch_persistence.exercise.instructor_repository import (
     ExerciseInstructorRepository,
     ExerciseWriteRefused,
+    RepointOutcome,
 )
 from smartmatch_persistence.exercise.settings_repository import (
     MAX_SAVED_SETTINGS_PER_EVENT,
@@ -46,6 +49,7 @@ from smartmatch_persistence.exercise.settings_repository import (
     ExerciseSettingsRepository,
     ExerciseSettingsWriteRefused,
     TooManySavedSettingsError,
+    lock_saved_settings,
 )
 from smartmatch_persistence.exercise.team_view_repository import ExerciseTeamViewRepository
 from smartmatch_persistence.exercise.workspace_repository import (
@@ -771,6 +775,121 @@ def test_a_reset_holds_both_keys_in_the_declared_order(
         instructor.commit()
         assert _try_key(probe, WORKSPACE_MEMBERSHIP_LOCK_KEY) is True
         assert _try_key(probe, SAVED_SETTING_LOCK_KEY) is True
+
+
+def _wait_until_a_backend_waits_for_an_advisory_key(
+    session: Session, *, seconds: float = 30.0
+) -> None:
+    """Block until some backend on this database is queued for an advisory key.
+
+    The barrier the re-point regression coordinates on. It is an **observed
+    lock** rather than a sleep: ``pg_locks`` says whether the other transaction
+    has actually reached its acquire and is waiting, so the probe that follows
+    cannot run early on a slow machine or late on a fast one. Bounded, so a
+    re-point that never waits fails the test rather than hanging the suite.
+
+    Scoped to ``current_database()`` because ``pg_locks`` is cluster-wide and a
+    scratch database is not the only one on the server.
+    """
+    statement = sa.text(
+        "SELECT count(*) FROM pg_locks "
+        "WHERE locktype = 'advisory' AND NOT granted "
+        "AND database = (SELECT oid FROM pg_database WHERE datname = current_database())"
+    )
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        waiting = session.execute(statement).scalar_one()
+        session.rollback()
+        if waiting:
+            return
+        time.sleep(0.05)
+    raise AssertionError("no backend ever queued for an advisory key")
+
+
+def test_a_repoint_takes_the_saved_settings_key_before_any_workspace_row(
+    exercise_sessions: sessionmaker[Session],
+) -> None:
+    """Review round 2 (F1): the re-point inverted the family's lock order.
+
+    ``repoint_workspaces`` took the membership key, then row-locked every
+    workspace with two ``FOR UPDATE`` scans, and only then reached
+    ``SAVED_SETTING_LOCK_KEY`` through ``reset_workspace_children``. A save
+    takes the settings key first and then needs a workspace row for its
+    composite foreign key — so the two could wait on each other in a cycle, and
+    PostgreSQL would break it by aborting one of them mid-classroom.
+
+    The regression runs both transactions for real. A saver holds the settings
+    key; a re-point starts on another connection and is observed, through
+    ``pg_locks``, to be queued for that key; while it waits, this test takes
+    ``FOR UPDATE NOWAIT`` on every workspace row. Under the old order the
+    re-point is holding those rows and ``NOWAIT`` fails at once — which is the
+    deadlock edge, stated as a lock that exists rather than as timing. Under the
+    fixed order it holds no row at all, the save commits, the key is released
+    and the re-point finishes: no deadlock, the team moved, and the setting the
+    save had just written is gone, because a re-point resets every team.
+    """
+    repository = ExerciseSettingsRepository()
+    moved: list[RepointOutcome] = []
+    failures: list[BaseException] = []
+
+    with exercise_sessions() as setup:
+        old_dataset, (workspace_id,) = _classroom(setup, teams=1)
+        target_dataset = _insert_dataset(setup, label="target")
+        _insert_event(setup, dataset_id=target_dataset)
+        setup.commit()
+
+    def repoint() -> None:
+        with exercise_sessions() as instructor:
+            try:
+                # Bounded, so a fix that never releases cannot hang the suite.
+                instructor.execute(sa.text("SET LOCAL lock_timeout = '60s'"))
+                moved.append(
+                    ExerciseInstructorRepository().repoint_workspaces(
+                        instructor, dataset_id=target_dataset
+                    )
+                )
+                instructor.commit()
+            except BaseException as exc:  # carried to the main thread and re-reported there
+                failures.append(exc)
+                instructor.rollback()
+
+    saver = exercise_sessions()
+    thread = threading.Thread(target=repoint, name="repoint", daemon=True)
+    try:
+        lock_saved_settings(saver)
+        thread.start()
+        with exercise_sessions() as watcher:
+            _wait_until_a_backend_waits_for_an_advisory_key(watcher)
+            watcher.execute(sa.text("SET LOCAL lock_timeout = '2s'"))
+            held = watcher.execute(
+                sa.select(schema.exercise_team_workspace.c.id).with_for_update(nowait=True)
+            ).all()
+            watcher.rollback()
+        assert [row.id for row in held] == [workspace_id], (
+            "a re-point waiting for the saved-settings key must hold no workspace row"
+        )
+        repository.save_setting(
+            saver,
+            dataset_id=old_dataset,
+            workspace_id=workspace_id,
+            event_key=_EVENT_KEY,
+            name="broad",
+            weights=_WEIGHTS,
+        )
+        saver.commit()
+    finally:
+        saver.close()
+        thread.join(timeout=90)
+
+    assert not thread.is_alive(), "the re-point never finished"
+    assert failures == [], f"the re-point failed: {failures}"
+    assert moved == [RepointOutcome(moved=1, discarded=0)]
+
+    with exercise_sessions() as after:
+        assert _dataset_of(after, workspace_id) == target_dataset
+        assert (
+            repository.list_settings(after, workspace_id=workspace_id, event_key=_EVENT_KEY) == ()
+        ), "a re-point resets every team, so the saved setting must be gone"
 
 
 # ---------------------------------------------------------------------------

@@ -132,8 +132,15 @@ MAX_SAVED_SETTINGS_PER_EVENT: Final[int] = 3
 #:
 #: * ``repoint_workspaces`` — membership, then saved settings → two SELECT FOR
 #:   UPDATE on ``exercise_team_workspace``, then the children's DELETEs, then
-#:   DELETE or UPDATE of each workspace row. **The second key is taken before the
-#:   first FOR UPDATE**; that is round 2's F1.
+#:   DELETE or UPDATE of each workspace row. It is the only path that takes all
+#:   three. **The second key is taken directly, before either FOR UPDATE scan**,
+#:   which is round 2's F1: the earlier shape reached this key inside
+#:   ``reset_workspace_children``, *after* the row locks, which is this order
+#:   read backwards — a concurrent ``save_setting`` holds this key and then
+#:   needs a workspace row for ``exercise_saved_setting``'s composite foreign
+#:   key, and each waited on what the other held. The loop's own acquire still
+#:   runs, but a transaction advisory lock is re-entrant, so it costs one round
+#:   trip.
 #: * ``reset_workspace_children`` — saved settings → DELETE overlay, saved
 #:   settings, result runs.
 #: * ``reset_team`` — saved settings, delegated → as ``workspace_repository``'s.

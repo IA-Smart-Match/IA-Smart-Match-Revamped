@@ -632,17 +632,27 @@ class ExerciseInstructorRepository:
           statement will touch, which is what closes the first end and what
           stops a second re-point, or a reset, from interleaving with this one.
 
-        * The **saved-settings key** is taken between them, and that position is
-          the whole of review round 2's F1. It has to be held before the row
-          locks, not after: ``save_setting`` holds it and then waits for a
-          ``FOR KEY SHARE`` lock on the workspace row its insert references, so
-          a re-point that held that row and then waited for the key would close
-          a wait-for cycle and be aborted by ``deadlock_timeout``. Taking it
-          first means the two wait for each other in one direction only.
+        **And the saved-settings key, before either scan** (review round 2, F1).
+        This method reaches
+        :data:`~smartmatch_persistence.exercise.settings_repository.SAVED_SETTING_LOCK_KEY`
+        anyway, through :meth:`reset_workspace_children` in the loop below — but
+        taking it *there* put it after the row locks, which is the family's
+        order read backwards. A concurrent ``save_setting`` holds that key and
+        then needs a workspace row for ``exercise_saved_setting``'s composite
+        foreign key; this method held the rows and then wanted the key. Each
+        waits on what the other holds, and PostgreSQL breaks the cycle the only
+        way it can: by aborting one of them, mid-classroom.
 
-        The ordering — membership key, then saved-settings key, then row locks,
-        on every path that takes more than one — is what keeps the three
-        deadlock-free.
+        Taking it here restores membership → saved settings → row locks, which
+        is what the constant's own comment has always said this path does. It
+        costs one extra round trip and nothing else: the key is a *transaction*
+        advisory lock, so :meth:`reset_workspace_children`'s own acquire is
+        re-entrant and still earns its place for every other caller. The acquire
+        runs through :meth:`_execute` for that method's reason — it is a
+        statement, and no statement in this module may let driver text out.
+
+        The ordering — advisory locks, then row locks, on every path that takes
+        both — is what keeps the family deadlock-free.
 
         Returns:
             How many workspaces moved and how many stale ones were discarded.
@@ -652,17 +662,6 @@ class ExerciseInstructorRepository:
                 driver's exception never escapes.
         """
         lock_workspace_membership(session)
-        # Second, and **before either FOR UPDATE below** (review round 2, F1).
-        # Round 1 put this acquire inside `reset_workspace_children`, which runs
-        # after the two row-locking selects — so this method took row locks and
-        # *then* waited for the key, while `save_setting` takes the key and then
-        # waits for a row (its insert's FK takes FOR KEY SHARE on the workspace
-        # row this method holds FOR UPDATE). That is a wait-for cycle, and
-        # PostgreSQL resolves it by aborting one of them after
-        # `deadlock_timeout` — an instructor's re-point failing because a team
-        # pressed save. Taking the key here restores the order the constant
-        # documents. `reset_workspace_children`'s own acquire stays and costs
-        # one round trip: an advisory lock is re-entrant within a transaction.
         self._execute(
             session,
             sa.select(sa.func.pg_advisory_xact_lock(SAVED_SETTING_LOCK_KEY)),
