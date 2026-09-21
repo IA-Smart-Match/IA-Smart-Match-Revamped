@@ -4587,6 +4587,98 @@
         "title": "RedemptionListResponse",
         "type": "object"
       },
+      "RedemptionQueueItemResponse": {
+        "description": "One redemption as the coordinator queue discloses it.\n\nDeliberately carries no subject identifier. :class:`RedemptionResponse` \u2014\nthe same view a coordinator already receives back from\n:func:`decide_redemption` for the one id they were given out of band \u2014\ndiscloses none today, and this list is the wider surface: it returns many\nstudents' tickets at once to anyone holding the unit's role, rather than\none ticket in response to an id the caller already had. Widening\ndisclosure here would be a product decision with its own justification to\nwrite down, and this route is not where that decision is made. A\ncoordinator decides by redemption id, the same opaque handle\n:func:`decide_redemption` has always taken.",
+        "properties": {
+          "item_name": {
+            "description": "The item's name as the student was shown it",
+            "title": "Item Name",
+            "type": "string"
+          },
+          "points_cost": {
+            "description": "The cost snapshotted when the request was made",
+            "title": "Points Cost",
+            "type": "integer"
+          },
+          "redemption_id": {
+            "description": "This ticket's id \u2014 what a decision names",
+            "format": "uuid",
+            "title": "Redemption Id",
+            "type": "string"
+          },
+          "requested_at": {
+            "description": "When this ticket was opened",
+            "format": "date-time",
+            "title": "Requested At",
+            "type": "string"
+          },
+          "state": {
+            "description": "Where this ticket sits right now",
+            "enum": [
+              "requested",
+              "approved",
+              "fulfilled",
+              "denied",
+              "expired"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "redemption_id",
+          "item_name",
+          "points_cost",
+          "state",
+          "requested_at"
+        ],
+        "title": "RedemptionQueueItemResponse",
+        "type": "object"
+      },
+      "RedemptionQueueResponse": {
+        "description": "A tenant's redemption queue at one state, oldest request first.\n\nNot unit-scoped in its rows: ``redemption`` carries no owning unit (module\ndocstring, \"No unit ownership claim\"), so \u2014 exactly as\n:func:`decide_redemption` already authorizes an id against the path unit\nwithout that unit owning the row \u2014 this queue authorizes the *read*\nagainst the path unit and then lists the whole tenant's tickets at the\nrequested state. ``unit_id`` below echoes what the read was authorized\nagainst, not a claim that the listed tickets belong to it.",
+        "properties": {
+          "redemptions": {
+            "description": "Tickets at this state, oldest request first",
+            "items": {
+              "$ref": "#/components/schemas/RedemptionQueueItemResponse"
+            },
+            "title": "Redemptions",
+            "type": "array"
+          },
+          "status": {
+            "description": "The state these tickets were filtered to; echoes the request",
+            "enum": [
+              "requested",
+              "approved",
+              "fulfilled",
+              "denied",
+              "expired"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "truncated": {
+            "description": "True when more tickets exist at this state than this response returns",
+            "title": "Truncated",
+            "type": "boolean"
+          },
+          "unit_id": {
+            "description": "The unit this read was authorized against",
+            "format": "uuid",
+            "title": "Unit Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "unit_id",
+          "status",
+          "redemptions",
+          "truncated"
+        ],
+        "title": "RedemptionQueueResponse",
+        "type": "object"
+      },
       "RedemptionRequest": {
         "additionalProperties": false,
         "description": "A student asking for one reward.\n\nOne field, and that is the design. There is no ``subject_id`` here and there\nwill not be one: identity comes from the verified token (module docstring,\nMM-A01). There is no ``points_cost`` either \u2014 a caller naming their own price\nis the same defect wearing a different hat, and the snapshot is taken\nserver-side from the row.\n\n``extra=\"forbid\"`` so a body that *tries* to name a subject is refused\nrather than silently ignored. Ignoring it would be safe \u2014 nothing reads it \u2014\nbut a caller who sent ``subject_id`` and received a ``201`` has been told\ntheir request was honoured as sent, and the next person to read this route's\ntraffic would reasonably conclude the field does something. A 422 says\nplainly that there is no such field.",
@@ -14735,6 +14827,155 @@
           }
         },
         "summary": "Request a redemption against one funded reward",
+        "tags": [
+          "rewards"
+        ]
+      }
+    },
+    "/v1/units/{unit_id}/redemptions/queue": {
+      "get": {
+        "description": "Return this tenant's redemptions at one state, oldest request first.\n\nThis is the discovery route the module docstring said did not exist: today\n:func:`decide_redemption` acts on an id a coordinator has to be handed out\nof band, and this route is how they find that id themselves. It is gated\non exactly :data:`_REDEMPTION_DECISION_ROLES` \u2014 the same two roles\n``decide_redemption`` already requires, no wider \u2014 via\n:func:`_authorize_redemption_queue`, so nobody gains a read here they could\nnot already act on there.\n\nEvery row comes from :meth:`RewardsRepository.redemptions_at_state`, scoped\nto the caller's own tenant and nothing narrower: see\n:class:`RedemptionQueueResponse` for why ``redemption`` has no owning unit\nto filter rows by. Each row discloses exactly what\n:class:`RedemptionResponse` already discloses back to a coordinator who\ndecides one id \u2014 id, item name and cost snapshots, and state \u2014 and nothing\nit does not: no subject, no student name, no email, no balance. The\nstudent-only catalog and balance surfaces (:func:`read_reward_catalog`,\n:func:`read_own_redemptions`) stay gated on :data:`_REWARDS_STUDENT_ROLES`\nand this route does not touch either.\n\nReads at most :data:`REDEMPTION_QUEUE_MAX_ROWS` + 1 rows so ``truncated``\nis answered by the same query that produced the page, the shape\n``review.py::list_unit_review_items`` uses for its own queue.\n\nQuota is charged before the unit is loaded and before authorization runs\n(ADR-0015), matching every other route in this module.\n\nRaises:\n    ApiError: 403 when the caller holds no `_REDEMPTION_DECISION_ROLES`\n        membership covering this unit; 404 when the unit is not this\n        tenant's; 429 when the minute's quota is spent. A 422 comes from\n        Pydantic when `status` is not one of the five the column admits.",
+        "operationId": "read_redemption_queue_v1_units__unit_id__redemptions_queue_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Which state to list. Defaults to the queue a coordinator works.",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "default": "requested",
+              "description": "Which state to list. Defaults to the queue a coordinator works.",
+              "enum": [
+                "requested",
+                "approved",
+                "fulfilled",
+                "denied",
+                "expired"
+              ],
+              "title": "Status",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RedemptionQueueResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "List redemptions a coordinator may decide, at one state",
         "tags": [
           "rewards"
         ]

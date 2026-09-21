@@ -241,6 +241,7 @@ def rewards_api(engine_or_skip: Engine) -> Iterator[Fixture]:
             ("uncredited_student", "student", unit_path),
             ("coordinator", "coordinator", unit_path),
             ("sibling_student", "student", SIBLING_UNIT_PATH),
+            ("sibling_coordinator", "coordinator", SIBLING_UNIT_PATH),
         ):
             user_id, subject = _insert_user(conn, tenant_id, label)
             _grant(conn, tenant_id, user_id, path, role)
@@ -695,6 +696,110 @@ def test_an_unknown_redemption_is_a_404(rewards_api: Fixture) -> None:
     )
     assert response.status_code == 404, response.text
     assert response.json()["error"]["code"] == "redemption_not_found"
+
+
+# ---------------------------------------------------------------------------
+# The coordinator's discovery route — GET .../redemptions/queue
+# ---------------------------------------------------------------------------
+
+
+def test_the_queue_is_empty_before_any_request_is_opened(rewards_api: Fixture) -> None:
+    response = rewards_api.get("/redemptions/queue", "coordinator")
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["redemptions"] == []
+    assert body["truncated"] is False
+    assert body["status"] == "requested"
+
+
+def test_the_queue_lists_a_pending_ticket_by_default(rewards_api: Fixture) -> None:
+    """``status`` defaults to ``requested`` — the queue a coordinator works."""
+    redemption_id = _open_ticket(rewards_api)
+
+    body = rewards_api.get("/redemptions/queue", "coordinator").json()
+    assert [row["redemption_id"] for row in body["redemptions"]] == [redemption_id]
+    row = body["redemptions"][0]
+    assert row["item_name"] == "Synthetic cheap reward"
+    assert row["points_cost"] == CHEAP_COST
+    assert row["state"] == "requested"
+    assert "requested_at" in row
+
+    # Opaque identity: nothing here names the student who opened it.
+    assert "subject_id" not in row
+    assert "student_id" not in row
+    assert "email" not in row
+    assert "name" not in row or row.get("name") == row.get("item_name")
+
+
+def test_a_decided_ticket_leaves_the_pending_queue_and_appears_at_its_own_status(
+    rewards_api: Fixture,
+) -> None:
+    redemption_id = _open_ticket(rewards_api)
+    rewards_api.post(
+        f"/redemptions/{redemption_id}/decision", "coordinator", {"decision": "approved"}
+    )
+
+    pending = rewards_api.get("/redemptions/queue", "coordinator").json()
+    assert redemption_id not in [row["redemption_id"] for row in pending["redemptions"]]
+
+    approved = rewards_api.get("/redemptions/queue?status=approved", "coordinator").json()
+    assert redemption_id in [row["redemption_id"] for row in approved["redemptions"]]
+    assert approved["status"] == "approved"
+
+
+def test_an_out_of_vocabulary_status_is_a_422(rewards_api: Fixture) -> None:
+    response = rewards_api.get("/redemptions/queue?status=bogus", "coordinator")
+    assert response.status_code == 422, response.text
+
+
+def test_a_student_is_refused_the_queue(rewards_api: Fixture) -> None:
+    """The queue is gated exactly like the decision it feeds: no wider."""
+    assert rewards_api.get("/redemptions/queue", "student").status_code == 403
+
+
+def test_a_sibling_coordinator_is_refused_the_queue(rewards_api: Fixture) -> None:
+    """A coordinator whose membership does not cover this unit gets 403 here too.
+
+    ``redemption`` carries no owning unit — the row-level scope is the queue's
+    tenant, not this unit — but the *read* is still authorized against the path
+    unit exactly as ``decide_redemption`` authorizes acting on a single id, and
+    a sibling department's coordinator does not cover it.
+    """
+    response = rewards_api.client.get(
+        f"/v1/units/{rewards_api.unit_id}/redemptions/queue",
+        headers={"Authorization": f"Bearer {rewards_api.tokens['sibling_coordinator']}"},
+    )
+    assert response.status_code == 403, response.text
+
+
+def test_an_unknown_unit_for_the_queue_is_a_404(rewards_api: Fixture) -> None:
+    response = rewards_api.client.get(
+        f"/v1/units/{uuid.uuid4()}/redemptions/queue",
+        headers={"Authorization": f"Bearer {rewards_api.tokens['coordinator']}"},
+    )
+    assert response.status_code == 404, response.text
+    assert response.json()["error"]["code"] == "unit_not_found"
+
+
+def test_the_queue_is_oldest_first_and_bounded(rewards_api: Fixture) -> None:
+    """Three pending tickets against the two funded items, still in request order.
+
+    Not a test of the ``MAX_ROWS`` cap itself — opening 201 tickets in an
+    integration test would be its own liability — just that ``truncated`` is
+    ``False`` under the cap and the order is oldest request first, matching
+    ``ReviewRepository.list_for_unit``'s own queue.
+    """
+    first = _open_ticket(rewards_api)
+    second_response = rewards_api.post(
+        "/redemptions", "other_student", {"item_id": str(rewards_api.items["dear"])}
+    )
+    assert second_response.status_code == 201, second_response.text
+    second = str(second_response.json()["redemption_id"])
+
+    body = rewards_api.get("/redemptions/queue", "coordinator").json()
+    ids = [row["redemption_id"] for row in body["redemptions"]]
+    assert ids.index(first) < ids.index(second)
+    assert body["truncated"] is False
 
 
 # ---------------------------------------------------------------------------

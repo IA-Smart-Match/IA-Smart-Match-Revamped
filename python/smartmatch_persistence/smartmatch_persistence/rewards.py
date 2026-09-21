@@ -85,6 +85,8 @@ still deny or expire it. Fail-closed, and visible.
 from __future__ import annotations
 
 import uuid
+from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Final
 
 import sqlalchemy as sa
@@ -250,6 +252,31 @@ def redemption_debit_is_representable() -> bool:
         and "source_redemption_id" in ledger.c
         and "redemption" in schema.METADATA.tables
     )
+
+
+@dataclass(frozen=True, slots=True)
+class RedemptionQueueRow:
+    """One redemption as the coordinator queue reads it — never as the state
+    machine's value.
+
+    A separate type from :class:`smartmatch_domain.rewards.Redemption` rather
+    than that type with an added field, for the reason
+    :func:`_redemption_from` already states: the domain value deliberately
+    excludes ``requested_at`` so no transition is ever computed from a
+    timestamp. This row carries it because a queue that lists and orders by
+    request time needs it to display, and displaying it drives no transition.
+
+    Carries no ``subject_id`` and no ``tenant_id``: the router already knows
+    the tenant it queried, and the subject is exactly the field this queue
+    does not disclose — see ``RedemptionQueueItemResponse`` in
+    ``routers/rewards.py``.
+    """
+
+    redemption_id: uuid.UUID
+    item_name_snapshot: str
+    points_cost_snapshot: int
+    state: RedemptionState
+    requested_at: datetime
 
 
 class RewardsRepository:
@@ -845,6 +872,62 @@ class RewardsRepository:
             .order_by(table.c.requested_at.desc(), table.c.id)
         ).all()
         return tuple(_redemption_from(row) for row in rows)
+
+    def redemptions_at_state(
+        self,
+        session: Session,
+        *,
+        tenant_id: uuid.UUID,
+        state: RedemptionState,
+        limit: int,
+    ) -> tuple[RedemptionQueueRow, ...]:
+        """This tenant's redemptions at one state, oldest request first, capped at ``limit``.
+
+        The coordinator queue's read. ``redemption`` carries no owning unit —
+        the module docstring says why: it is tenant-scoped, exactly as
+        :meth:`transition_redemption` already treats it, so this method scopes
+        by ``tenant_id`` alone and the router's authorization against the path
+        unit is the only unit-shaped gate this queue has, matching the gate
+        the router already applies when it acts on a single id in
+        ``decide_redemption``.
+
+        Returns :class:`RedemptionQueueRow`, not
+        :class:`~smartmatch_domain.rewards.Redemption`: that domain type
+        deliberately omits ``requested_at`` (see :func:`_redemption_from`) so a
+        transition is never computed from a timestamp, and a queue that orders
+        and displays by that same timestamp is a read the state machine has no
+        stake in — it names no subject and drives no transition.
+
+        Oldest first — ``requested_at`` ascending, id breaking ties — so a
+        coordinator works the queue in the order requests arrived, the same
+        ordering ``ReviewRepository.list_for_unit`` uses for its own queue.
+        ``limit`` is passed by the caller as one more than the page size it
+        actually renders, so it can tell a full page from a complete one
+        without a second count query.
+        """
+        table = schema.redemption
+        rows = session.execute(
+            sa.select(
+                table.c.id,
+                table.c.item_name_snapshot,
+                table.c.points_cost_snapshot,
+                table.c.state,
+                table.c.requested_at,
+            )
+            .where(table.c.tenant_id == tenant_id, table.c.state == state.value)
+            .order_by(table.c.requested_at.asc(), table.c.id)
+            .limit(limit)
+        ).all()
+        return tuple(
+            RedemptionQueueRow(
+                redemption_id=row.id,
+                item_name_snapshot=row.item_name_snapshot,
+                points_cost_snapshot=row.points_cost_snapshot,
+                state=RedemptionState(row.state),
+                requested_at=row.requested_at,
+            )
+            for row in rows
+        )
 
     def transition_redemption(
         self,

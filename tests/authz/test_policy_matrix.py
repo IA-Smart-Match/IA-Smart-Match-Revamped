@@ -1612,6 +1612,22 @@ OPERATIONS: tuple[Operation, ...] = (
         resource_type="org_unit",
         unit_scoped=True,
     ),
+    # The coordinator's discovery route for the queue above: same two roles,
+    # its own authorizer (`_authorize_redemption_queue`) so a widening of the
+    # read cannot silently widen the decide, and vice versa — the split
+    # `review.py`'s own list/decide pair keeps for the identical reason.
+    Operation(
+        key="redemption.queue.read",
+        method="GET",
+        path="/v1/units/{unit_id}/redemptions/queue",
+        module="smartmatch_api.routers.rewards",
+        authorizer="_authorize_redemption_queue",
+        roles_constant="_REDEMPTION_DECISION_ROLES",
+        authorizer_module=None,
+        required_roles=frozenset({"admin", "coordinator"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
     # The R2 engagement read. `{admin, coordinator}` and its own authorizer,
     # `_authorize_engagement_read`, rather than a share of `events.py`'s: the
     # two role sets agree today and a widening of one is not a reason to widen
@@ -4760,6 +4776,78 @@ MATRIX: dict[str, dict[str, Cell]] = {
                 "most on this surface: a student approving their own redemption "
                 "would delete ADR-0013's approval step, and fulfilling it would "
                 "let them hand themselves the reward and take the debit"
+            ),
+        ),
+        "volunteer_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "`volunteer` is not in this operation's role set, and the "
+                "membership is active at exactly the owning unit — so the "
+                "role is the only thing left that can refuse it"
+            ),
+        ),
+        "member_with_no_memberships": deny("no_grant"),
+        "resource_grant_only": deny(
+            "resource_grant_lacks_required_role",
+            why="S-007. A grant conveys reach, not authority.",
+        ),
+        "admin_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="v1.1 §2.1: an explicit deny on the resource beats inheritance",
+        ),
+        "expired_coordinator_at_owning_unit": deny("no_grant"),
+        "suspended_admin": deny(
+            "principal_suspended",
+            why="suspension is checked first and does not wait for the IdP to revoke a token",
+        ),
+        "cross_tenant_coordinator": deny(
+            "tenant_mismatch",
+            why="tenant isolation is structural and precedes every grant question",
+        ),
+        "job_actor_without_role": deny(
+            "no_grant",
+            why="there is no job on this path; the shape degenerates to a role-less member",
+        ),
+        "job_actor_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="the actor half is inert; what is left is a deny on the unit",
+        ),
+    },
+    # The queue's own authorizer, `_authorize_redemption_queue`, reads the same
+    # `_REDEMPTION_DECISION_ROLES` constant `redemption.decide` does, so this
+    # rectangle is identical to that one cell for cell — a fact the two
+    # authorizers being distinct functions is what keeps from becoming
+    # coincidence. Written out in full rather than reused, for the reason
+    # `pipeline.record.read` below gives for its own twin: a shared dict object
+    # would make widening one operation's role set widen the other's silently.
+    "redemption.queue.read": {
+        "admin_at_org_root": permit(
+            why="an admin grant at the root covers every unit beneath it",
+        ),
+        "coordinator_at_owning_unit": permit(
+            why=(
+                "containment is inclusive, and this is the shape the queue is "
+                "written for: the coordinator who administers the unit's rewards "
+                "program discovers what they may decide"
+            ),
+        ),
+        "coordinator_at_sibling_unit": deny(
+            "no_grant",
+            why=(
+                "the read is gated exactly as the decision it feeds is: a "
+                "sibling department's coordinator does not cover this unit"
+            ),
+        ),
+        "admin_at_sibling_unit": deny(
+            "no_grant",
+            why="the role is right and the department is not; no tenant-wide reach is passed",
+        ),
+        "student_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "the wrong-role cell for this operation: this is the discovery "
+                "route for `redemption.decide`, and a student holds no more "
+                "business finding other students' tickets than deciding them"
             ),
         ),
         "volunteer_at_owning_unit": deny(
@@ -8404,6 +8492,7 @@ def _authorize(operation: Operation, shape: Shape) -> None:
         "_authorize_match_run",
         "_authorize_student_rewards",
         "_authorize_redemption_decision",
+        "_authorize_redemption_queue",
         "_authorize_outreach",
         "_authorize_pipeline",
         "_authorize_invite_read",

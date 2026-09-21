@@ -11,6 +11,9 @@ formulas that used to stand in for all three. This module is the HTTP half.
   See :func:`request_redemption_route`.
 * ``GET  /v1/units/{unit_id}/redemptions`` — the caller's own tickets. See
   :func:`read_own_redemptions`.
+* ``GET  /v1/units/{unit_id}/redemptions/queue`` — the coordinator's discovery
+  route: every redemption at one state, tenant-wide, with no subject
+  disclosed. See :func:`read_redemption_queue`.
 * ``POST /v1/units/{unit_id}/redemptions/{redemption_id}/decision`` — the
   coordinator hop through the state machine. See :func:`decide_redemption`.
 
@@ -93,14 +96,20 @@ a fulfilment is that repository call.
 
 ## What this module deliberately does not ship
 
-**No coordinator queue.** There is no route listing *other* people's
-redemptions. ``GET /v1/units/{unit_id}/redemptions`` is a self-read, scoped to
+**A coordinator queue, but not a coordinator identity surface.**
+``GET /v1/units/{unit_id}/redemptions`` stays a self-read, scoped to
 ``principal.user_id`` in the query rather than filtered afterwards, so a
-coordinator calling it would see their own tickets and nobody else's. A queue is
-a surface over other students' engagement records and needs the read-role
-decision ``docs/decisions/d6-rewards-budget-decision-record.md`` §5 still lists
-as open; :func:`decide_redemption` therefore acts on an id a coordinator was
-given out of band.
+coordinator calling *that* route still sees only their own tickets, if any.
+:func:`read_redemption_queue` is the separate route that gives a coordinator
+what :func:`decide_redemption` used to require out of band: it lists every
+redemption at one state, gated on :data:`_REDEMPTION_DECISION_ROLES` — the
+same two roles ``decide_redemption`` already requires, no wider. It still
+discloses no subject, no student name, and no email: D6 §5 still lists
+"Read/redemption roles" as a field no artifact has formally resolved, and
+widening disclosure past what ``decide_redemption``'s own response already
+carries — id, item snapshot, state — would be inventing a role or a field this
+record does not authorize. A coordinator identifies whom a ticket belongs to
+the same way they always have: out of band.
 
 **No catalog writer, no seeding, and no money — through this API.**
 ``reward_item`` rows are written by ``tools/seed_pilot_rewards.py``, an
@@ -125,11 +134,11 @@ per-unit catalog the schema cannot store.
 from __future__ import annotations
 
 import uuid
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Annotated, Final, Literal
 
 import sqlalchemy as sa
-from fastapi import APIRouter, Path, status
+from fastapi import APIRouter, Path, Query, status
 from pydantic import BaseModel, ConfigDict, Field
 from smartmatch_authz import OrgPath, Resource, assert_allowed
 from smartmatch_domain.rewards import (
@@ -147,6 +156,7 @@ from smartmatch_persistence import schema
 from smartmatch_persistence.rate_limit import RateLimit
 from smartmatch_persistence.rewards import (
     InsufficientBalanceError,
+    RedemptionQueueRow,
     RewardsRepository,
     UnknownRedemptionError,
     UnknownRewardItemError,
@@ -218,6 +228,24 @@ REDEMPTION_DECISION_RATE_LIMIT = RateLimit(
     max_requests=60,
     window=timedelta(minutes=1),
 )
+
+#: Reading the coordinator queue, charged separately from deciding in it — the
+#: same split ``review.py::REVIEW_LIST_RATE_LIMIT`` keeps from
+#: ``REVIEW_DECISION_RATE_LIMIT``, and for the identical reason: a coordinator
+#: who has spent their minute's decisions must still be able to see what is
+#: left, so a read exhausting its own quota never blocks on the decision one.
+REDEMPTION_QUEUE_LIST_RATE_LIMIT: Final[RateLimit] = RateLimit(
+    operation="redemption.queue.list",
+    max_requests=120,
+    window=timedelta(minutes=1),
+)
+
+#: The most queue rows one response returns. The same cap and the same reason
+#: ``review.py::MAX_ROWS`` gives: paging is deliberately not shipped, and
+#: :attr:`RedemptionQueueResponse.truncated` — read from ``MAX_ROWS + 1`` rows
+#: fetched by the same query, never a second count — is what keeps a full page
+#: from reading as a complete one (ADR-0011 rule 1).
+REDEMPTION_QUEUE_MAX_ROWS: Final[int] = 200
 
 #: Whether a points figure in a response is a number at all. Two values and no
 #: third: there is no "stale", no "partial", and no "estimated" — a figure this
@@ -391,6 +419,62 @@ class RedemptionListResponse(BaseModel):
     )
 
 
+#: Every state a coordinator may filter the queue to. The same five
+#: :class:`~smartmatch_domain.rewards.RedemptionState` values
+#: :attr:`RedemptionResponse.state` already renders — never a wider or
+#: narrower vocabulary — spelled as a literal ``str`` enum rather than an
+#: import of ``RedemptionDecisionValue`` because that type answers a different
+#: question (what a decision may *write*) and does not include ``requested``,
+#: which is exactly the state a queue defaults to.
+RedemptionQueueStatusFilter = Literal["requested", "approved", "fulfilled", "denied", "expired"]
+
+
+class RedemptionQueueItemResponse(BaseModel):
+    """One redemption as the coordinator queue discloses it.
+
+    Deliberately carries no subject identifier. :class:`RedemptionResponse` —
+    the same view a coordinator already receives back from
+    :func:`decide_redemption` for the one id they were given out of band —
+    discloses none today, and this list is the wider surface: it returns many
+    students' tickets at once to anyone holding the unit's role, rather than
+    one ticket in response to an id the caller already had. Widening
+    disclosure here would be a product decision with its own justification to
+    write down, and this route is not where that decision is made. A
+    coordinator decides by redemption id, the same opaque handle
+    :func:`decide_redemption` has always taken.
+    """
+
+    redemption_id: uuid.UUID = Field(description="This ticket's id — what a decision names")
+    item_name: str = Field(description="The item's name as the student was shown it")
+    points_cost: int = Field(description="The cost snapshotted when the request was made")
+    state: RedemptionQueueStatusFilter = Field(description="Where this ticket sits right now")
+    requested_at: datetime = Field(description="When this ticket was opened")
+
+
+class RedemptionQueueResponse(BaseModel):
+    """A tenant's redemption queue at one state, oldest request first.
+
+    Not unit-scoped in its rows: ``redemption`` carries no owning unit (module
+    docstring, "No unit ownership claim"), so — exactly as
+    :func:`decide_redemption` already authorizes an id against the path unit
+    without that unit owning the row — this queue authorizes the *read*
+    against the path unit and then lists the whole tenant's tickets at the
+    requested state. ``unit_id`` below echoes what the read was authorized
+    against, not a claim that the listed tickets belong to it.
+    """
+
+    unit_id: uuid.UUID = Field(description="The unit this read was authorized against")
+    status: RedemptionQueueStatusFilter = Field(
+        description="The state these tickets were filtered to; echoes the request"
+    )
+    redemptions: list[RedemptionQueueItemResponse] = Field(
+        description="Tickets at this state, oldest request first"
+    )
+    truncated: bool = Field(
+        description="True when more tickets exist at this state than this response returns"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Request models
 # ---------------------------------------------------------------------------
@@ -508,6 +592,42 @@ def _authorize_redemption_decision(
     )
 
 
+def _authorize_redemption_queue(
+    session: Session,
+    principal: CurrentPrincipal,
+    unit_id: uuid.UUID,
+) -> uuid.UUID:
+    """Load the unit and authorize a coordinator's read of the redemption queue.
+
+    Its own function rather than a parameter on
+    :func:`_authorize_redemption_decision`, for the reason
+    ``review.py::_authorize_review_item_list`` gives for the same split: a
+    helper that takes the role set or the unit as an argument makes a single
+    call site the place every operation sharing it can be widened from at
+    once, and :data:`_REDEMPTION_DECISION_ROLES` is named directly here so
+    ``test_the_authorizer_reads_the_role_constant_the_matrix_names`` can check
+    this function against the live constant rather than against a call that
+    happens to pass the same value today.
+
+    Returns the authorized unit id — the value the queue read is scoped
+    against for authorization, even though (see :class:`RedemptionQueueResponse`)
+    the rows returned are not filtered by it.
+    """
+    unit = load_unit_or_404(session, tenant_id=principal.tenant_id, unit_id=unit_id)
+    assert_allowed(
+        principal.principal,
+        Resource(
+            resource_type="org_unit",
+            resource_id=str(unit_id),
+            tenant_id=str(principal.tenant_id),
+            owning_unit_path=OrgPath.parse(unit.path),
+        ),
+        at=utc_now(),
+        required_roles=_REDEMPTION_DECISION_ROLES,
+    )
+    return unit_id
+
+
 # ---------------------------------------------------------------------------
 # The balance, and what makes it a number
 # ---------------------------------------------------------------------------
@@ -615,6 +735,18 @@ def _redemption_view(redemption: Redemption) -> RedemptionResponse:
         item_name=redemption.item_name_snapshot,
         points_cost=redemption.points_cost_snapshot,
         state=redemption.state.value,
+    )
+
+
+def _queue_item_view(row: RedemptionQueueRow) -> RedemptionQueueItemResponse:
+    """Render one queue row. No ``item_id`` and no subject — see
+    :class:`RedemptionQueueItemResponse`."""
+    return RedemptionQueueItemResponse(
+        redemption_id=row.redemption_id,
+        item_name=row.item_name_snapshot,
+        points_cost=row.points_cost_snapshot,
+        state=row.state.value,
+        requested_at=row.requested_at,
     )
 
 
@@ -780,6 +912,76 @@ def read_own_redemptions(
     return RedemptionListResponse(
         unit_id=unit_id,
         redemptions=[_redemption_view(redemption) for redemption in redemptions],
+    )
+
+
+@router.get(
+    "/{unit_id}/redemptions/queue",
+    response_model=RedemptionQueueResponse,
+    summary="List redemptions a coordinator may decide, at one state",
+)
+def read_redemption_queue(
+    principal: CurrentPrincipal,
+    session: DbSession,
+    unit_id: Annotated[uuid.UUID, Path()],
+    status_filter: Annotated[
+        RedemptionQueueStatusFilter,
+        Query(
+            alias="status",
+            description="Which state to list. Defaults to the queue a coordinator works.",
+        ),
+    ] = "requested",
+) -> RedemptionQueueResponse:
+    """Return this tenant's redemptions at one state, oldest request first.
+
+    This is the discovery route the module docstring said did not exist: today
+    :func:`decide_redemption` acts on an id a coordinator has to be handed out
+    of band, and this route is how they find that id themselves. It is gated
+    on exactly :data:`_REDEMPTION_DECISION_ROLES` — the same two roles
+    ``decide_redemption`` already requires, no wider — via
+    :func:`_authorize_redemption_queue`, so nobody gains a read here they could
+    not already act on there.
+
+    Every row comes from :meth:`RewardsRepository.redemptions_at_state`, scoped
+    to the caller's own tenant and nothing narrower: see
+    :class:`RedemptionQueueResponse` for why ``redemption`` has no owning unit
+    to filter rows by. Each row discloses exactly what
+    :class:`RedemptionResponse` already discloses back to a coordinator who
+    decides one id — id, item name and cost snapshots, and state — and nothing
+    it does not: no subject, no student name, no email, no balance. The
+    student-only catalog and balance surfaces (:func:`read_reward_catalog`,
+    :func:`read_own_redemptions`) stay gated on :data:`_REWARDS_STUDENT_ROLES`
+    and this route does not touch either.
+
+    Reads at most :data:`REDEMPTION_QUEUE_MAX_ROWS` + 1 rows so ``truncated``
+    is answered by the same query that produced the page, the shape
+    ``review.py::list_unit_review_items`` uses for its own queue.
+
+    Quota is charged before the unit is loaded and before authorization runs
+    (ADR-0015), matching every other route in this module.
+
+    Raises:
+        ApiError: 403 when the caller holds no `_REDEMPTION_DECISION_ROLES`
+            membership covering this unit; 404 when the unit is not this
+            tenant's; 429 when the minute's quota is spent. A 422 comes from
+            Pydantic when `status` is not one of the five the column admits.
+    """
+    charge_quota(session, principal, REDEMPTION_QUEUE_LIST_RATE_LIMIT)
+
+    authorized_unit_id = _authorize_redemption_queue(session, principal, unit_id)
+
+    rows = _rewards.redemptions_at_state(
+        session,
+        tenant_id=principal.tenant_id,
+        state=RedemptionState(status_filter),
+        limit=REDEMPTION_QUEUE_MAX_ROWS + 1,
+    )
+
+    return RedemptionQueueResponse(
+        unit_id=authorized_unit_id,
+        status=status_filter,
+        redemptions=[_queue_item_view(row) for row in rows[:REDEMPTION_QUEUE_MAX_ROWS]],
+        truncated=len(rows) > REDEMPTION_QUEUE_MAX_ROWS,
     )
 
 
