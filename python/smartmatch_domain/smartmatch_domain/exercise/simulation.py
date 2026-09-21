@@ -145,7 +145,7 @@ adds are named here rather than invented as constants:
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Final
 
 # A pure move, not a change: these two helpers were defined privately in this
@@ -232,6 +232,16 @@ class SimulationProfile:
             is the only reader of this field in the whole system. An empty set
             is "nothing true recorded", which earns no lift and is not a
             mismatch (ADR-0011).
+
+            ``repr=False``, for the reason
+            :class:`~smartmatch_domain.exercise.layout.ParsedProfile` and
+            ``dataset_repository.SimulationProfileRow`` both give: a default
+            ``repr`` is what a log line, an assertion message and a debugger
+            transcript print, so a withheld value inside one leaves the server
+            through code nobody wrote. It carries the same cells
+            ``exercise_profile.hidden_true_interests`` holds, so it earns the
+            same treatment. The value is still there to be read deliberately —
+            this module reads it on every call.
         career_goal: The hidden true career goal, or ``None`` when the file has
             none. ``None`` contributes no fit and costs nothing.
         past_event_count: How many past events this profile attended.
@@ -242,7 +252,7 @@ class SimulationProfile:
 
     profile_no: int
     major: str
-    true_interests: frozenset[str] = frozenset()
+    true_interests: frozenset[str] = field(default=frozenset(), repr=False)
     career_goal: str | None = None
     past_event_count: int = 0
     non_responding: bool = False

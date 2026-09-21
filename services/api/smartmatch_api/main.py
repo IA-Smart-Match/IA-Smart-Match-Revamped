@@ -55,8 +55,10 @@ from smartmatch_api.routers import (
     engagement,
     events,
     exercise_instructor,
+    exercise_instructor_refresh,
     exercise_matching,
     exercise_public,
+    exercise_results,
     exercise_workspace,
     host_organizations,
     imports,
@@ -631,6 +633,25 @@ CAPABILITY_SCOPED_ROUTERS: Final[tuple[tuple[APIRouter, Capability], ...]] = (
     # accepted from a client on any of them, and a team can only ever act on
     # its own rows.
     (exercise_matching.router, Capability.CLASS_EXERCISE),
+    # CE-RESULTS-API: design spec §9-§13 — the results lock and the one-run
+    # rule, the three comparison panels, the asking choice and the one refresh.
+    #
+    # Same capability and the same no-principal declaration as the rows above,
+    # and the same addressing as `exercise_matching.router`: the prefix is
+    # `/v1/exercise/workspaces/current`, so no team number, dataset id or
+    # workspace id is accepted from a client on any of its routes.
+    #
+    # It is the first router that composes design spec §11's simulated-results
+    # rule, which is the one reader of the withheld column (ADR-0025 D6). What
+    # the rule returns is profile numbers; nothing it reads reaches a response.
+    (exercise_results.router, Capability.CLASS_EXERCISE),
+    # CE-RESULTS-API, instructor half: `POST /v1/exercise/instructor/refresh-all`
+    # replaces the refusing stub PR #184 shipped at that path. A third exercise
+    # router rather than a ninth section of `exercise_instructor.py`, which is
+    # already past the repository's 800-line ceiling — and it takes the same
+    # router-level `require_instructor_session` dependency, so the gate is
+    # structural here exactly as it is there.
+    (exercise_instructor_refresh.router, Capability.CLASS_EXERCISE),
 )
 
 

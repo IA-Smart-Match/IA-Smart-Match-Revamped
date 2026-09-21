@@ -363,6 +363,11 @@ def test_cba_authenticated_routes_are_absent_under_class_exercise() -> None:
             "/v1/exercise/workspaces/current/events/{event_key}/settings",
             "/v1/exercise/workspaces/current/events/{event_key}/settings/compare",
             "/v1/exercise/workspaces/current/events/{event_key}/settings/{name}",
+            # CE-RESULTS-API, team half (design spec §9-§13). Same addressing
+            # again: `current`, never a team number or a workspace id.
+            "/v1/exercise/workspaces/current/events/{event_key}/results",
+            "/v1/exercise/workspaces/current/asking-choice",
+            "/v1/exercise/workspaces/current/refresh",
         }
     )
 

@@ -111,6 +111,7 @@ from smartmatch_persistence.exercise.dataset_repository import (
     ExerciseDatasetRepository,
     ExerciseDatasetWriteError,
     ExerciseEventRow,
+    SimulationProfileRow,
 )
 from smartmatch_persistence.exercise.instructor_repository import (
     MAX_INVITE_LIMIT,
@@ -124,6 +125,17 @@ from smartmatch_persistence.exercise.instructor_rows import (
     InstructorWorkspaceRow,
     TeamWorkspaceHandle,
     WorkingDataset,
+)
+from smartmatch_persistence.exercise.results_repository import (
+    ALREADY_RUN_SENTENCE,
+    AlreadyRunError,
+    ExerciseResultsRepository,
+    ExerciseResultsWriteRefused,
+    RefreshCandidate,
+    RefreshCounts,
+    ResultPanel,
+    StoredResultRun,
+    TeamResultsState,
 )
 from smartmatch_persistence.exercise.settings_repository import (
     MAX_SAVED_SETTINGS_PER_EVENT,
@@ -150,6 +162,7 @@ from smartmatch_api.exercise_errors import ExerciseError
 from smartmatch_api.utils import utc_now
 
 __all__ = [
+    "ALREADY_RUN_SENTENCE",
     "EXERCISE_REQUEST_HEADER",
     "INSTRUCTOR_COOKIE_NAME",
     "MAX_INVITE_LIMIT",
@@ -157,6 +170,7 @@ __all__ = [
     "MIN_INVITE_LIMIT",
     "WORKSPACE_COOKIE_NAME",
     "ActiveDataset",
+    "AlreadyRunError",
     "ConfiguredPasscode",
     "CookiePolicy",
     "CurrentWorkspace",
@@ -167,6 +181,7 @@ __all__ = [
     "ExerciseDatasetSummary",
     "ExerciseDatasetWriteError",
     "ExerciseEventRow",
+    "ExerciseResultsWriteRefused",
     "ExerciseSession",
     "ExerciseSettingsWriteRefused",
     "ExerciseWorkspace",
@@ -179,9 +194,16 @@ __all__ = [
     "InstructorWorkspaceRow",
     "MaybeActiveDataset",
     "MaybeDataset",
+    "RefreshCandidate",
+    "RefreshCounts",
+    "ResultPanel",
+    "ResultsRepository",
     "SavedSetting",
     "SettingsRepository",
+    "SimulationProfileRow",
+    "StoredResultRun",
     "TeamProfileRow",
+    "TeamResultsState",
     "TeamViewRepository",
     "TeamWorkspaceHandle",
     "TooManySavedSettingsError",
@@ -196,6 +218,7 @@ __all__ = [
     "get_instructor_passcode",
     "get_instructor_repository",
     "get_maybe_active_dataset",
+    "get_results_repository",
     "get_settings_repository",
     "get_team_view_repository",
     "get_workspace_repository",
@@ -562,6 +585,26 @@ def get_settings_repository() -> ExerciseSettingsRepository:
 
 #: The annotation a handler writes to get :class:`ExerciseSettingsRepository`.
 SettingsRepository = Annotated[ExerciseSettingsRepository, Depends(get_settings_repository)]
+
+
+def get_results_repository() -> ExerciseResultsRepository:
+    """The one repository a team's routes reach design spec §9-§13 through.
+
+    Separate from :func:`get_settings_repository` and
+    :func:`get_team_view_repository` because it answers a different question and
+    because it is the only handle in the exercise that can write a result run, an
+    asking choice or an overlay row. A route that ranks a list has no business
+    holding it.
+
+    It is also the handle behind which the refresh's card copy happens — inside
+    ``apply_refresh``, through ``load_simulation_profiles``, and never in a value
+    a router holds (ADR-0025 D6).
+    """
+    return ExerciseResultsRepository()
+
+
+#: The annotation a handler writes to get :class:`ExerciseResultsRepository`.
+ResultsRepository = Annotated[ExerciseResultsRepository, Depends(get_results_repository)]
 
 
 def get_team_view_repository() -> ExerciseTeamViewRepository:

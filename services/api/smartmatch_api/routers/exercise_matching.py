@@ -124,12 +124,18 @@ _MAX_SETTING_NAME_CHARACTERS = 100
 _RESERVED_SETTING_NAME = "compare"
 
 
-def _event_or_refusal(events: Sequence[ExerciseEventRow], event_key: str) -> ExerciseEventRow:
+def event_or_refusal(events: Sequence[ExerciseEventRow], event_key: str) -> ExerciseEventRow:
     """The named event from this team's own data file, or one plain sentence.
 
     Looked up in the list already read for the topic lookup rather than by a
     second query, so an event key belonging to another data file cannot resolve:
     the only events in scope are this workspace's.
+
+    **Public, and imported by ``exercise_results``** rather than copied there
+    (CE-RESULTS-API). Every exercise route addressed by an event key must answer
+    an unknown one identically — review round 1's item 6 is the record of what
+    happens when one of them does not — and two copies of one sentence is the
+    shape that divergence takes.
     """
     for event in events:
         if event.event_key == event_key:
@@ -227,7 +233,7 @@ def _build_list(
     """
     if events is None:
         events = datasets.list_events(session, dataset_id=workspace.dataset_id)
-    event = _event_or_refusal(events, event_key)
+    event = event_or_refusal(events, event_key)
     summary = datasets.get_dataset_summary(session, dataset_id=workspace.dataset_id)
     if summary is None:  # pragma: no cover - the cookie resolved a workspace on it
         raise ExerciseError(
@@ -399,7 +405,7 @@ def read_ranked_list(
             rulebook refuses or for naming a setting and a weight at once.
     """
     events = datasets.list_events(session, dataset_id=workspace.dataset_id)
-    event = _event_or_refusal(events, event_key)
+    event = event_or_refusal(events, event_key)
     overrides, setting_name = _overrides_for(
         session,
         settings,
@@ -463,7 +469,7 @@ def download_ranked_list(
         ExerciseError: as the route above.
     """
     events = datasets.list_events(session, dataset_id=workspace.dataset_id)
-    event = _event_or_refusal(events, event_key)
+    event = event_or_refusal(events, event_key)
     overrides, setting_name = _overrides_for(
         session,
         settings,
@@ -538,7 +544,7 @@ def compare_settings(
             saved setting this team does not have.
     """
     events = datasets.list_events(session, dataset_id=workspace.dataset_id)
-    event = _event_or_refusal(events, event_key)
+    event = event_or_refusal(events, event_key)
     lists = [
         _build_list(
             session,
@@ -599,7 +605,7 @@ def read_settings(
             for an event that is not in this team's data file.
     """
     events = datasets.list_events(session, dataset_id=workspace.dataset_id)
-    event = _event_or_refusal(events, event_key)
+    event = event_or_refusal(events, event_key)
     stored = settings.list_settings(session, workspace_id=workspace.id, event_key=event.event_key)
     return SavedSettingsView(
         event_key=event.event_key,
@@ -643,7 +649,7 @@ def save_setting(
     usable_name = _setting_name_or_refusal(name)
     weights = validated(dict(payload.weights))
     events = datasets.list_events(session, dataset_id=workspace.dataset_id)
-    event = _event_or_refusal(events, event_key)
+    event = event_or_refusal(events, event_key)
     try:
         settings.save_setting(
             session,
@@ -701,7 +707,7 @@ def delete_setting(
     """
     usable_name = _setting_name_or_refusal(name)
     events = datasets.list_events(session, dataset_id=workspace.dataset_id)
-    event = _event_or_refusal(events, event_key)
+    event = event_or_refusal(events, event_key)
     try:
         removed = settings.delete_setting(
             session,
