@@ -47,7 +47,7 @@ projector under Ann's name.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from datetime import datetime
 from typing import Final
 
@@ -87,7 +87,6 @@ __all__ = [
     "simulation_event",
     "simulation_profiles",
     "stored_results_view",
-    "weights_or_defaults",
 ]
 
 #: How many rounds the case has. Two — Northline and Harbor — which design spec
@@ -462,13 +461,3 @@ def asking_state_view(choice: str | None, *, refreshed: bool) -> AskingStateView
         choices=[member.value for member in AskingChoice],
         refreshed=refreshed,
     )
-
-
-def weights_or_defaults(stored: Mapping[str, float] | None) -> Mapping[str, float] | None:
-    """The weighting a run's list is built from, or ``None`` for the defaults.
-
-    ``None`` rather than the placeholder defaults spelled out, because
-    ``exercise_ranked_list`` resolves its own defaults through the exercise
-    rulebook and a second copy here would be a second answer to OQ-CE-02.
-    """
-    return dict(stored) if stored is not None else None
