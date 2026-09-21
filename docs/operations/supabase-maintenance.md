@@ -115,7 +115,7 @@ before an actual incident needs it.
 ## Migration procedure
 
 1. Write the new revision in `db/migrations/versions/` **and** mirror the
-   change in `smartmatch_persistence/schema.py` in the same change — the
+   change in `python/smartmatch_persistence/smartmatch_persistence/schema.py` in the same change — the
    drift test (`tests/integration/test_schema_matches_migration.py`) fails
    the build if only one side moves.
 2. Take a fresh `pg_dump` (see [Backup schedule](#backup-schedule-and-retention))
@@ -162,7 +162,7 @@ before an actual incident needs it.
   usage/reports page) against the `SMARTMATCH_DB_POOL_SIZE` /
   `SMARTMATCH_DB_MAX_OVERFLOW` values in use (see
   [supabase-setup.md §6](supabase-setup.md#6-tune-the-connection-pool-down)).
-  `pool_pre_ping=True` (default in `smartmatch_persistence/engine.py`)
+  `pool_pre_ping=True` (default in `python/smartmatch_persistence/smartmatch_persistence/engine.py`)
   covers idle-connection drops but does **not** cover pool exhaustion —
   that surfaces as application-level `TimeoutError`s or SQLSTATE `53300`.
 - **Alerts** — verify what alerting the current Supabase plan tier offers
