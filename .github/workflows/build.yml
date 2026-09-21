@@ -397,10 +397,11 @@ jobs:
     # delivery event and no provider message id. Every address composed is
     # under RFC 2606's reserved `.invalid` TLD, which cannot resolve.
     #
-    # This job seeds the rewards catalog and engagement fixtures (worksheet
-    # values, fixture-bearer subjects) before `make e2e`, so steps 14-15 walk
-    # the request/decide path for real rather than only proving the empty-
-    # catalog refusal. One step still CANNOT run on this appliance and is
+    # This job runs the `dataset` profile and then seeds the rewards catalog
+    # and engagement fixtures (worksheet values, fixture-bearer subjects)
+    # before `make e2e`, so steps 14-15 walk the request/decide path for real
+    # rather than only proving the empty-catalog refusal. One step still
+    # CANNOT run on this appliance and is
     # skipped by name rather than faked — the portal pages fetch
     # /api/portals/*, which no service in this repository serves. `-ra` in the
     # `make e2e` target prints every skip in the summary, so a step that did
@@ -437,21 +438,38 @@ jobs:
         # rather than a sleep here. That race is exactly what PR #31 hit.
         run: docker compose up --build -d
 
+      - name: Generate the synthetic pilot dataset
+        # Required before the engagement seed below: `seed_pilot_engagement.py`
+        # credits the student's balance from *attendance against a hosted
+        # event with a resolved date*, and nothing in the `up -d` one-shots
+        # above creates one — `up` never runs the `dataset` service, which
+        # docker-compose.yml puts behind `profiles: ["dataset"]` on purpose
+        # (deploying, migrating and generating a demo dataset are three
+        # operations, not one; see that service's own header comment). This
+        # is the exact invocation docs/operations/pilot-dataset-rebuild.md and
+        # local-dev-walkthrough.md §6 document for the compose route. The
+        # service's own `depends_on` (api healthy, scheduler started,
+        # seed-review completed) is already satisfied by "Bring the stack up".
+        run: docker compose --profile dataset run --rm dataset
+
       - name: Seed the rewards catalog and engagement fixtures
         # Without this, steps 14-15 below still pass, but only by hitting the
         # empty-catalog branch and skipping the request/decide walk — see
         # docs/pilot-data/rewards-catalog-worksheet.md and Makefile's `e2e`
-        # comment. `--subjects fixture` targets the compose-pilot-* accounts
-        # this job's bearer tokens (compose-student, compose-admin, ...)
-        # actually resolve to, matching tests/e2e/conftest.py; `db` publishes
-        # 5432 on the runner (docker-compose.yml), which is what the tool's
-        # default SMARTMATCH_DATABASE_URL points at. PY=python because this
-        # job installed the pinned requirements into the runner's own
-        # interpreter, not into ./.venv, for the same reason the next step
-        # overrides PYTEST.
+        # comment. Run through the `dataset` service's own image rather than
+        # `make seed-pilot-engagement` on the runner: the tool needs a hosted
+        # event to credit attendance against (the step above), and
+        # docker-compose.yml's `dataset` service already mounts
+        # seed_pilot_engagement.py and documents exactly this invocation
+        # (`--no-deps` because this is a top-up against a tenant the generator
+        # already filled, not a second generator run). `--subjects fixture`
+        # targets the compose-pilot-* accounts this job's bearer tokens
+        # (compose-student, compose-admin, ...) actually resolve to, matching
+        # tests/e2e/conftest.py.
         run: |
-          make seed-pilot-engagement PY=python \
-            SEED_PILOT_ENGAGEMENT_ARGS="--subjects fixture --items-from-worksheet"
+          docker compose --profile dataset run --rm --no-deps \
+            --entrypoint python dataset \
+            /home/smartmatch/seed_pilot_engagement.py --subjects fixture --items-from-worksheet
 
       - name: Click through the synthetic pilot
         # `make e2e` owns the invocation, including the `-ra` that surfaces
