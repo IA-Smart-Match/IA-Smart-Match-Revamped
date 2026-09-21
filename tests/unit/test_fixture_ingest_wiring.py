@@ -218,37 +218,68 @@ class TestNoCompositionRootImportsIt:
 def _nested_route_paths(routes: Iterable[object]) -> set[str]:
     """Best-effort descent into nested routers, for the paths OpenAPI omits.
 
-    Purely additive, and deliberately so. Reaching the routes inside an
-    ``_IncludedRouter`` means touching ``original_router``, which is FastAPI's
-    private business and may be renamed without notice. So every step is a
-    ``getattr`` with a default: on a FastAPI that spells it differently this
-    returns fewer paths — in the limit, none — and :func:`_app_paths` still has
-    the whole OpenAPI document underneath it. A version bump can therefore cost
-    this walk some reach, but it cannot make it wrong, and it cannot make the
-    guard below vacuous the way reading ``app.routes`` did.
+    Returns paths **as served** — every enclosing prefix composed in. That is
+    the whole difficulty, and getting it wrong is worse than not walking at
+    all. ``app.include_router(router, prefix="/api/crawler")`` puts the
+    capability's name in the prefix and leaves the leaf reading ``/start``;
+    combine that with ``include_in_schema=False``, which keeps the route out of
+    the OpenAPI document, and a descent that yielded the bare leaf would match
+    no token and report a live crawl route as clean. So each level's
+    ``include_context.prefix`` is accumulated on the way down, and a leaf is
+    recorded as ``prefix + path``.
+
+    The de-duplication key is ``(id(route), prefix)``, not ``id(route)``. The
+    same router object included twice under two prefixes is two surfaces, and
+    keying on identity alone would report the first and silently drop the
+    second — which is precisely where a crawl route would be hidden from this
+    walk. Keying on identity-at-a-prefix keeps the cycle guard while letting a
+    genuine second mounting through.
+
+    **What this covers**: routes reached through ``include_router``, at any
+    depth, under any composition of prefixes; and sub-applications reached
+    through ``app.mount()``, whose mount path is itself treated as a prefix.
+    **What it does not cover**: anything whose path is not a static string —
+    a route added by a custom ``APIRoute`` subclass that computes its path at
+    request time, or an ASGI app mounted as a bare callable with no ``routes``
+    attribute, is opaque to any static walk, including this one.
+
+    Purely additive, and deliberately so. Reaching inside an ``_IncludedRouter``
+    means touching ``original_router`` and ``include_context``, which are
+    FastAPI's private business and may be renamed without notice. So every step
+    is a ``getattr`` with a default: on a FastAPI that spells them differently
+    this returns fewer paths — in the limit, none — and :func:`_app_paths` still
+    has the whole OpenAPI document underneath it. A version bump can therefore
+    cost this walk reach, but it cannot make it wrong, and it cannot make the
+    guard vacuous the way reading ``app.routes`` did.
     """
     found: set[str] = set()
-    seen: set[int] = set()
+    seen: set[tuple[int, str]] = set()
 
-    def visit(route: object) -> None:
-        if id(route) in seen:  # a router included twice, or any cycle
+    def visit(route: object, prefix: str) -> None:
+        key = (id(route), prefix)
+        if key in seen:  # a cycle; a second mounting has a different prefix
             return
-        seen.add(id(route))
+        seen.add(key)
 
         inner = getattr(route, "original_router", None) or getattr(route, "router", None)
         if inner is not None:
+            context = getattr(route, "include_context", None)
+            nested_prefix = prefix + (getattr(context, "prefix", "") or "")
             for nested in getattr(inner, "routes", ()) or ():
-                visit(nested)
+                visit(nested, nested_prefix)
             return
 
         path = getattr(route, "path", None)
         if isinstance(path, str) and path:
-            found.add(path)
+            found.add(prefix + path)
+            # A `Mount` carries both a path and the sub-app's routes, and those
+            # routes are relative to it — so its own path is the prefix for them.
+            prefix += path
         for nested in getattr(route, "routes", ()) or ():
-            visit(nested)
+            visit(nested, prefix)
 
     for route in routes:
-        visit(route)
+        visit(route, "")
     return found
 
 
@@ -269,10 +300,18 @@ def _app_paths(app: FastAPI) -> set[str]:
     reaches for the OpenAPI document for this same reason, in these same words.
 
     The document is what a client sees, so it is also the more meaningful
-    thing to assert on. Its one gap is ``include_in_schema=False``, which
-    :func:`_nested_route_paths` covers on a best-effort basis. On this app that
-    gap is exactly four routes — ``/docs``, ``/docs/oauth2-redirect``,
-    ``/openapi.json`` and ``/redoc`` — and none is crawl-shaped.
+    thing to assert on. Its one gap is ``include_in_schema=False``: such a
+    route is served and undocumented, which is the most useful shape a hidden
+    crawl surface could take. :func:`_nested_route_paths` closes that gap for
+    routes reached through ``include_router`` and ``app.mount()``, composing
+    every enclosing prefix, and leaves it open only for routes whose path is
+    not a static string — see that function for the exact boundary.
+
+    On this app the gap is exactly four routes — ``/docs``,
+    ``/docs/oauth2-redirect``, ``/openapi.json`` and ``/redoc`` — none of them
+    crawl-shaped, and the descent reaches all four. The union is 70 paths
+    against the document's 66, and every documented path also appears in the
+    descent, which is the cross-check that the prefix composition is right.
     """
     return set(app.openapi()["paths"]) | _nested_route_paths(app.routes)
 
@@ -317,8 +356,18 @@ class TestNoRuntimeSurface:
         """
         from smartmatch_api.main import app
 
+        documented = set(app.openapi()["paths"])
         paths = _app_paths(app)
 
+        # Two floors, not one. The union's floor alone could be satisfied
+        # entirely by the descent while the document half returned nothing, and
+        # vice versa — so each half is held to a size of its own. Both are
+        # loose on purpose: they catch a walk that went blind, not route churn.
+        assert len(documented) > 10, (
+            f"the OpenAPI document reported only {len(documented)} path(s): "
+            f"{sorted(documented)}. The app serves dozens; a set this small "
+            "means the document half of the walk went blind."
+        )
         assert len(paths) > 10, (
             f"the walk found only {len(paths)} path(s): {sorted(paths)}. A set "
             "this small does not mean the app is small — it serves dozens — it "
@@ -329,24 +378,29 @@ class TestNoRuntimeSurface:
             f"routes: {sorted(paths)}"
         )
 
-    def test_the_route_walk_sees_a_crawl_route_mounted_through_include_router(self):
-        """The guard above, proved able to fail.
 
-        The defect this file carried was not a wrong answer but a vacuous one,
-        and vacuity is invisible from a green test run: every assertion passed,
-        every time, over a six-item set that could not have contained the thing
-        being looked for. So the repair owes a demonstration. This mounts the
-        route the guard exists to catch — on a throwaway app, through
-        ``include_router``, the exact composition that hid it — and asserts the
-        same helper the real check uses flags it.
+class TestTheGuardCanFire:
+    """The guard above, proved able to fail. The opposite shape of the rest.
 
-        The fake router is a path string and a stub that is never called. It
-        imports no crawler module, reaches no provider, and is unreachable from
-        anything but this function's body. G3 keeps the crawl surface absent;
-        this test is here to keep proving that, and a decoy with no
-        implementation behind it is the only way to prove a guard can fire
-        without building the thing it guards against.
-        """
+    Every other class here asserts an absence against the real tree. These
+    assert a *presence* against throwaway apps built in-test, because a guard
+    that cannot fail is worth nothing and absence-checking cannot show the
+    difference. The defect this file carried was not a wrong answer but a
+    vacuous one: the old walk read ``app.routes``, returned six strings for a
+    66-path app, and passed every time over a set that could not have contained
+    what it was looking for. Vacuity is invisible from a green run, so the
+    repair owes a demonstration for each shape of mounting a crawl route could
+    hide behind.
+
+    Every decoy below is a path string and a stub that raises if called. None
+    imports a crawler module, reaches a provider, or is reachable from outside
+    its own function body. G3 keeps the crawl surface absent; these exist to
+    keep proving that, and a decoy with no implementation behind it is the only
+    way to show a guard fires without building the thing it guards against.
+    """
+
+    def test_it_sees_a_crawl_route_mounted_through_include_router(self):
+        """The plain case: a router included with no prefix."""
         from fastapi import APIRouter, FastAPI
 
         router = APIRouter()
@@ -362,11 +416,94 @@ class TestNoRuntimeSurface:
 
         assert "/api/crawler/start" in paths, (
             "the walk cannot see a route added by include_router, so the guard "
-            f"above is vacuous: {sorted(paths)}"
+            f"is vacuous: {sorted(paths)}"
         )
         assert sorted(
             path for path in paths if any(token in path.lower() for token in _CRAWL_TOKENS)
         ) == ["/api/crawler/start"]
+
+    def test_it_sees_a_crawl_token_that_lives_only_in_the_include_prefix(self):
+        """The leaf is innocent; the prefix is the whole offence.
+
+        ``include_in_schema=False`` keeps this out of the OpenAPI document, so
+        the descent is the only thing that can see it — and a descent that
+        reported the leaf ``/start`` rather than ``/api/crawler/start`` would
+        match no token and report the app clean with a live crawl route on it.
+        That is not hypothetical: it is what this helper did before review
+        round 1. The prefix is where the capability is named, which makes it
+        the half that must not be dropped.
+        """
+        from fastapi import APIRouter, FastAPI
+
+        router = APIRouter()
+
+        @router.post("/start", include_in_schema=False)
+        def _decoy() -> dict[str, str]:  # pragma: no cover - mounted, never called
+            raise AssertionError("decoy route: this test asserts on the path table only")
+
+        probe = FastAPI()
+        probe.include_router(router, prefix="/api/crawler")
+
+        assert set(probe.openapi()["paths"]) == set(), (
+            "precondition: include_in_schema=False must keep this out of the "
+            "document, or the test is not exercising the descent"
+        )
+
+        paths = _app_paths(probe)
+
+        assert "/api/crawler/start" in paths, (
+            "the descent dropped the include_router prefix, so a crawl route "
+            f"named only by its prefix is invisible: {sorted(paths)}"
+        )
+        assert any(token in path.lower() for path in paths for token in _CRAWL_TOKENS)
+
+    def test_it_composes_prefixes_through_two_levels_of_nesting(self):
+        """Routers include routers. Each level contributes its own prefix."""
+        from fastapi import APIRouter, FastAPI
+
+        leaf = APIRouter()
+
+        @leaf.get("/start", include_in_schema=False)
+        def _decoy() -> dict[str, str]:  # pragma: no cover - mounted, never called
+            raise AssertionError("decoy route: this test asserts on the path table only")
+
+        middle = APIRouter()
+        middle.include_router(leaf, prefix="/crawler")
+
+        probe = FastAPI()
+        probe.include_router(middle, prefix="/api")
+
+        paths = _app_paths(probe)
+
+        assert "/api/crawler/start" in paths, (
+            f"nested include prefixes were not composed: {sorted(paths)}"
+        )
+
+    def test_it_reports_one_router_included_under_two_prefixes_twice(self):
+        """The cycle guard must not swallow a legitimate second mounting.
+
+        The same router object under two prefixes is two surfaces, and the
+        second is exactly where a crawl route would hide from a walk that
+        de-duplicates on object identity alone. So identity is not the key —
+        identity *at an accumulated prefix* is.
+        """
+        from fastapi import APIRouter, FastAPI
+
+        router = APIRouter()
+
+        @router.get("/start", include_in_schema=False)
+        def _decoy() -> dict[str, str]:  # pragma: no cover - mounted, never called
+            raise AssertionError("decoy route: this test asserts on the path table only")
+
+        probe = FastAPI()
+        probe.include_router(router, prefix="/api/harmless")
+        probe.include_router(router, prefix="/api/crawler")
+
+        paths = _app_paths(probe)
+
+        assert {"/api/harmless/start", "/api/crawler/start"} <= paths, (
+            f"a router included twice yielded only one of its mountings: {sorted(paths)}"
+        )
 
 
 class TestNoPersistence:
