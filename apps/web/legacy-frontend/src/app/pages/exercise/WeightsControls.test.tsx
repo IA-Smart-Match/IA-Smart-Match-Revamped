@@ -165,6 +165,9 @@ describe("<WeightsControls />", () => {
       ["1,5", "comma-locale"],
       ["0.5abc", "trailing junk"],
       ["", "empty"],
+      ["5.", "trailing dot with nothing after it"],
+      ["1e3", "scientific notation"],
+      ["+1", "leading plus"],
     ])("rejects %s (%s) rather than silently coercing it", (typed) => {
       const onChange = vi.fn();
       render(<WeightsControls factorLabels={LABELS} weights={WEIGHTS} onChange={onChange} />);
@@ -205,6 +208,44 @@ describe("<WeightsControls />", () => {
 
       expect(onChange).toHaveBeenCalledWith({ ...WEIGHTS, same_major: 0.6 });
       expect(document.querySelector('[data-slot="exercise-weight-error"]')).toBeNull();
+    });
+
+    it("accepts a leading-dot decimal, the same value as its 0-prefixed spelling", () => {
+      // Round 3 finding: the shape `^-?\d+(\.\d+)?$` required a digit before
+      // the dot, so a team that typed ".5" instead of "0.5" — an ordinary way
+      // to write the number — was refused for a reason that has nothing to
+      // do with what G5 exists to catch.
+      const onChange = vi.fn();
+      render(<WeightsControls factorLabels={LABELS} weights={WEIGHTS} onChange={onChange} />);
+
+      const box = screen.getByLabelText("same major");
+      fireEvent.focus(box);
+      fireEvent.change(box, { target: { value: ".5" } });
+      fireEvent.blur(box);
+
+      expect(onChange).toHaveBeenCalledWith({ ...WEIGHTS, same_major: 0.5 });
+      expect(document.querySelector('[data-slot="exercise-weight-error"]')).toBeNull();
+    });
+
+    // Negative weights are deliberately NOT rejected here. Round 1 (this PR's
+    // own description, "Dropping `min={0}` with the number type") states why:
+    // the server is the one place `InvalidExerciseWeightError` wording lives
+    // (`exercise/registry.py`'s `_coerce_weight`, "weight must not be
+    // negative"), and a client-side copy of that sentence is a second copy to
+    // keep in sync, which ADR-0025 D6 and this codebase's own error-handling
+    // convention both argue against. `-1` still reaches `strictDecimal` as a
+    // valid shape and is sent, refused, and shown in the server's own words —
+    // consistent with every other exercise refusal on this screen.
+    it("still sends a negative number rather than guessing at the server's own refusal wording", () => {
+      const onChange = vi.fn();
+      render(<WeightsControls factorLabels={LABELS} weights={WEIGHTS} onChange={onChange} />);
+
+      const box = screen.getByLabelText("same major");
+      fireEvent.focus(box);
+      fireEvent.change(box, { target: { value: "-1" } });
+      fireEvent.blur(box);
+
+      expect(onChange).toHaveBeenCalledWith({ ...WEIGHTS, same_major: -1 });
     });
   });
 

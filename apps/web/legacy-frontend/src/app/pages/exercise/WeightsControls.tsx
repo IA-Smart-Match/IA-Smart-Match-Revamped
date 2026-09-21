@@ -66,9 +66,15 @@ function orderedKeys(factorLabels: Readonly<Record<string, string>>): string[] {
  * whole string against one plain decimal shape and returns `null` for
  * anything else, `""` included, so the caller can tell "nothing usable was
  * typed" from "the number is legitimately unchanged".
+ *
+ * The shape accepts a leading-dot decimal (`.5`, same value as `0.5`) but not
+ * a trailing-dot one (`5.` is not a number until a digit follows the dot,
+ * same reasoning `inputMode="decimal"` above rests on), not `1,5` (a
+ * comma-locale team's number, silently misread as `1` by `parseFloat`), not
+ * scientific notation, and not a leading `+`.
  */
 function strictDecimal(text: string): number | null {
-  if (!/^-?\d+(\.\d+)?$/.test(text)) {
+  if (!/^-?(\d+(\.\d+)?|\.\d+)$/.test(text)) {
     return null;
   }
   return Number(text);
