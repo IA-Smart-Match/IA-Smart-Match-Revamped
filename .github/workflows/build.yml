@@ -439,6 +439,7 @@ jobs:
         run: docker compose up --build -d
 
       - name: Generate the synthetic pilot dataset
+        # This step is why this job now takes ~15 min instead of ~2 min — expected, not flakiness.
         # Required before the engagement seed below: `seed_pilot_engagement.py`
         # credits the student's balance from *attendance against a hosted
         # event with a resolved date*, and nothing in the `up -d` one-shots
