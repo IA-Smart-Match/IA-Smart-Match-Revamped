@@ -238,7 +238,35 @@ narrowed to match 9a's shape rather than kept as blanket grants.
    grant it explicitly in that migration's own runbook entry rather than
    widening the role's standing privileges.
 
-## 10. SSL mode
+## 10. Seed and smoke — synthetic data only
+
+Once migrations are at head and parity is verified (step 8), seed the
+project with the same synthetic pilot dataset the local Docker appliance
+uses — **never real student or participant data**, per the scope statement
+at the top of this document:
+
+```bash
+make seed-pilot
+make seed-pilot-principals
+make seed-pilot-logins    # needs SMARTMATCH_PILOT_*_EMAIL/_PASSWORD pairs in .env
+make verify-pilot-dataset
+```
+
+Then smoke-test against the Supabase database:
+
+```bash
+scripts/compose_smoke.sh
+# or
+make test-integration
+```
+
+with `SMARTMATCH_DATABASE_URL` pointed at the Supabase project for whichever
+of these you run. `make seed-pilot`, `make seed-pilot-principals`,
+`make seed-pilot-logins`, `make verify-pilot-dataset`, and
+`make test-integration` are Makefile targets already in this repository, and
+`scripts/compose_smoke.sh` already exists — none of this is new tooling.
+
+## 11. SSL mode
 
 Supabase requires TLS on both the pooler and direct hosts; the connection is
 encrypted by default without any extra configuration. Do not pass
@@ -247,7 +275,7 @@ encrypted by default without any extra configuration. Do not pass
 Project Settings → Database, since Supabase's own generated string is the
 authoritative source for the exact parameters a given project expects).
 
-## 11. Lock down the Supabase surface
+## 12. Lock down the Supabase surface
 
 - Do not distribute the project's `anon` or `service_role` API keys to the
   app. The app never uses the Supabase client library or the PostgREST Data
