@@ -36,6 +36,7 @@ pytest.importorskip("sqlalchemy")
 
 import sqlalchemy as sa
 from migration_harness import alembic, connected, scratch_database
+from smartmatch_domain.exercise.asking import CopiedCardCareerGoal
 from smartmatch_persistence.exercise import schema
 from smartmatch_persistence.exercise.instructor_repository import ExerciseInstructorRepository
 from smartmatch_persistence.exercise.results_repository import (
@@ -77,6 +78,11 @@ _WITHHELD = {
     2: ["true-two", "true-three"],
     3: [],
 }
+
+#: The **public** ``career_goal`` each profile's base row carries. Profile 3 has
+#: none, which is the second half of the owner's ruling of 2026-09-21 (OQ-CE-13):
+#: a copied card carries the base goal, and ``NULL`` only where there is none.
+_BASE_GOALS: dict[int, str | None] = {1: "analytics", 2: "brand", 3: None}
 
 _TEAM = ResultPanel(
     invited_profile_nos=(1, 2, 3),
@@ -164,12 +170,25 @@ def _insert_profiles(session: Session, *, dataset_id: uuid.UUID) -> None:
                 "class_year": "one",
                 "past_event_keys": [],
                 "stated_interests": None,
-                "career_goal": None,
+                "career_goal": _BASE_GOALS[profile_no],
                 "hidden_true_interests": withheld,
             }
             for profile_no, withheld in sorted(_WITHHELD.items())
         ],
     )
+
+
+def _overlay_goals(session: Session, *, workspace_id: uuid.UUID) -> dict[int, str | None]:
+    """``{profile_no: card_career_goal}`` for one team's overlay rows."""
+    return {
+        row.profile_no: row.card_career_goal
+        for row in session.execute(
+            sa.select(
+                schema.exercise_profile_overlay.c.profile_no,
+                schema.exercise_profile_overlay.c.card_career_goal,
+            ).where(schema.exercise_profile_overlay.c.workspace_id == workspace_id)
+        ).all()
+    }
 
 
 def _classroom(session: Session, *, teams: int = 2) -> tuple[uuid.UUID, list[uuid.UUID]]:
@@ -537,6 +556,108 @@ def test_a_refresh_writes_the_overlay_and_may_not_run_twice(
     assert rows[2].card_interests == _WITHHELD[2], "the card is copied from the withheld column"
     assert rows[3].non_responding is True
     assert rows[1].card_interests is None, "no card was asked for, so none was given"
+
+
+def test_a_copied_card_carries_the_base_rows_career_goal(
+    exercise_sessions: sessionmaker[Session],
+) -> None:
+    """The owner's ruling of 2026-09-21, as rows (OQ-CE-13).
+
+    Profiles 1 and 2 have a base goal and get one on the copied card; profile 3
+    has none and its copied card carries ``NULL``. Nothing is passed in: the
+    default is ``asking.COPIED_CARD_CAREER_GOAL``, which is the point — a caller
+    never states the policy.
+    """
+    results = ExerciseResultsRepository()
+    with exercise_sessions() as session:
+        dataset_id, (workspace_id, _) = _classroom(session)
+        results.choose_asking(session, workspace_id=workspace_id, choice="required")
+        results.apply_refresh(
+            session,
+            dataset_id=dataset_id,
+            workspace_id=workspace_id,
+            added_topics=[],
+            topic_gainers=[],
+            card_profile_nos=[1, 2, 3],
+            non_responding_profile_nos=[],
+            now=_now(session),
+        )
+        session.commit()
+
+        goals = _overlay_goals(session, workspace_id=workspace_id)
+
+    assert goals == _BASE_GOALS
+    assert goals[3] is None, "NULL only where the base row has no goal"
+
+
+def test_the_copied_cards_goal_is_switchable_in_one_place(
+    exercise_sessions: sessionmaker[Session],
+) -> None:
+    """``CopiedCardCareerGoal.NONE`` is PR #190's shipped reading, still reachable.
+
+    The policy is **injected** rather than monkeypatched, because it is a
+    parameter: if Ann answers the other way, the change is
+    ``asking.COPIED_CARD_CAREER_GOAL`` and nothing else, and this test is what
+    says the other branch still works when it happens.
+    """
+    results = ExerciseResultsRepository()
+    with exercise_sessions() as session:
+        dataset_id, (workspace_id, _) = _classroom(session)
+        results.choose_asking(session, workspace_id=workspace_id, choice="required")
+        results.apply_refresh(
+            session,
+            dataset_id=dataset_id,
+            workspace_id=workspace_id,
+            added_topics=[],
+            topic_gainers=[],
+            card_profile_nos=[1, 2, 3],
+            non_responding_profile_nos=[],
+            now=_now(session),
+            career_goal_policy=CopiedCardCareerGoal.NONE,
+        )
+        session.commit()
+
+        goals = _overlay_goals(session, workspace_id=workspace_id)
+        cards = {
+            row.profile_no: row.card_interests
+            for row in session.execute(
+                sa.select(schema.exercise_profile_overlay).where(
+                    schema.exercise_profile_overlay.c.workspace_id == workspace_id
+                )
+            ).all()
+        }
+
+    assert goals == {1: None, 2: None, 3: None}
+    assert cards == {profile_no: _WITHHELD[profile_no] for profile_no in (1, 2, 3)}, (
+        "the switch moves the goal only; the card copy is unchanged"
+    )
+
+
+def test_a_profile_the_refresh_did_not_card_gets_no_goal(
+    exercise_sessions: sessionmaker[Session],
+) -> None:
+    """An already-carded or untouched profile is not handed a goal by the refresh."""
+    results = ExerciseResultsRepository()
+    with exercise_sessions() as session:
+        dataset_id, (workspace_id, _) = _classroom(session)
+        results.choose_asking(session, workspace_id=workspace_id, choice="required")
+        results.apply_refresh(
+            session,
+            dataset_id=dataset_id,
+            workspace_id=workspace_id,
+            added_topics=["analytics"],
+            topic_gainers=[1],
+            card_profile_nos=[2],
+            non_responding_profile_nos=[],
+            now=_now(session),
+        )
+        session.commit()
+
+        goals = _overlay_goals(session, workspace_id=workspace_id)
+
+    assert goals == {1: None, 2: "brand"}, (
+        "profile 1 gained topics only, so its overlay says nothing about a card"
+    )
 
 
 def test_a_refresh_before_the_choice_claims_nothing(
@@ -914,13 +1035,29 @@ def test_a_refresh_claims_the_row_after_the_key_and_before_the_overlay(
         for index, (statement, _) in enumerate(recorded)
         if "UPDATE EXERCISE_TEAM_WORKSPACE" in statement
     )
-    overlay_at = next(
-        index
+    overlays = [
+        (index, statement)
         for index, (statement, _) in enumerate(recorded)
         if "INSERT INTO EXERCISE_PROFILE_OVERLAY" in statement
-    )
+    ]
+    overlay_at = overlays[0][0]
 
     assert key_at < claim_at < overlay_at
+    # OQ-CE-13 added a **fourth** narrow upsert, for `card_career_goal`. It is
+    # one more write in the same place rather than a wider write: each statement
+    # still names exactly one overlay column, so the three groups design spec
+    # §13 names still cannot overwrite each other's columns. No key is added and
+    # no key moves — the whole of this track's effect on the lock order is that
+    # the row-locking stretch is one statement longer.
+    written = {
+        column
+        for _, statement in overlays
+        for column in ("ADDED_EVENT_TOPICS", "CARD_INTERESTS", "CARD_CAREER_GOAL", "NON_RESPONDING")
+        if f"EXCLUDED.{column}" in statement
+    }
+    assert written == {"ADDED_EVENT_TOPICS", "CARD_INTERESTS", "CARD_CAREER_GOAL", "NON_RESPONDING"}
+    for _, statement in overlays:
+        assert statement.count("EXCLUDED.") == 1, "a narrow upsert writes exactly one column"
 
 
 def test_a_reset_takes_all_three_keys_in_the_declared_order(

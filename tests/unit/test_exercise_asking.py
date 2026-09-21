@@ -7,10 +7,14 @@ import re
 from pathlib import Path
 
 import pytest
+from smartmatch_domain.exercise import asking
 from smartmatch_domain.exercise.asking import (
     CARD_COMPLETION_SHARE,
+    COPIED_CARD_CAREER_GOAL,
     REQUIRED_NON_RESPONDING_SHARE,
     AskingChoice,
+    CopiedCardCareerGoal,
+    copied_card_career_goal,
     select_share,
 )
 
@@ -70,6 +74,54 @@ def test_the_required_non_responding_share_is_anns_number():
 def test_the_completion_shares_cannot_be_retuned_at_runtime():
     with pytest.raises(TypeError):
         CARD_COMPLETION_SHARE[AskingChoice.REQUIRED] = 0.99  # type: ignore[index]
+
+
+# --- The copied card's career goal (OQ-CE-13) ------------------------------
+
+
+def test_the_shipped_policy_is_the_owners_ruling():
+    """2026-09-21: *copied cards carry the base ``career_goal``*."""
+    assert COPIED_CARD_CAREER_GOAL is CopiedCardCareerGoal.BASE_GOAL
+
+
+def test_the_policy_constant_carries_its_open_question_id():
+    """A placeholder without its row ID is a number nobody can trace."""
+    source = Path(asking.__file__).read_text(encoding="utf-8")
+    marker = source.index("COPIED_CARD_CAREER_GOAL: Final")
+    assert "PLACEHOLDER (OQ-CE-13)" in source[:marker]
+
+
+def test_the_policy_has_at_least_the_two_readings_that_were_argued():
+    assert {member.value for member in CopiedCardCareerGoal} >= {"base_goal", "none"}
+
+
+@pytest.mark.parametrize("base", ["analytics", "brand", ""])
+def test_under_base_goal_the_copied_card_carries_the_base_goal(base: str):
+    assert copied_card_career_goal(base, CopiedCardCareerGoal.BASE_GOAL) == base
+
+
+def test_under_base_goal_a_base_with_no_goal_carries_none():
+    """``NULL`` only when the base has none — the second half of the ruling."""
+    assert copied_card_career_goal(None, CopiedCardCareerGoal.BASE_GOAL) is None
+
+
+@pytest.mark.parametrize("base", ["analytics", None, ""])
+def test_under_none_the_copied_card_carries_nothing(base: str | None):
+    assert copied_card_career_goal(base, CopiedCardCareerGoal.NONE) is None
+
+
+@pytest.mark.parametrize("base", ["analytics", None])
+def test_the_default_is_the_module_constant(base: str | None):
+    assert copied_card_career_goal(base) == copied_card_career_goal(base, COPIED_CARD_CAREER_GOAL)
+
+
+def test_every_member_is_answered_rather_than_falling_through():
+    """A third member added without a branch must not silently mean ``NONE``."""
+    answers = {
+        member: copied_card_career_goal("analytics", member) for member in CopiedCardCareerGoal
+    }
+    assert answers[CopiedCardCareerGoal.BASE_GOAL] == "analytics"
+    assert answers[CopiedCardCareerGoal.NONE] is None
 
 
 # --- select_share ----------------------------------------------------------

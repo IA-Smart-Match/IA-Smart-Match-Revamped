@@ -23,7 +23,10 @@ exactly ``better_recommendations``, ``small_reward``, and ``required``.
 ## What is here and what is not
 
 :func:`select_share` is the pure, deterministic part of the refresh: given some
-profile numbers and a share, it says *which* of them. The refresh itself
+profile numbers and a share, it says *which* of them.
+:func:`copied_card_career_goal` is the other pure part: given the base row's
+career goal, it says what the copied card carries — **PLACEHOLDER (OQ-CE-13)**,
+switchable in one line. The refresh itself
 (design spec §13 — writing overlay rows, copying a card from the hidden true
 interests, recomputing markers) is not here and cannot be: it needs the overlay
 repository, and this package imports no persistence.
@@ -42,8 +45,11 @@ from typing import Final
 
 __all__ = [
     "CARD_COMPLETION_SHARE",
+    "COPIED_CARD_CAREER_GOAL",
     "REQUIRED_NON_RESPONDING_SHARE",
     "AskingChoice",
+    "CopiedCardCareerGoal",
+    "copied_card_career_goal",
     "select_share",
 ]
 
@@ -81,6 +87,78 @@ CARD_COMPLETION_SHARE: Final[Mapping[AskingChoice, float]] = MappingProxyType(
 #: up in round two. This is the cost the "required" choice carries, and the
 #: point of the exercise's third option.
 REQUIRED_NON_RESPONDING_SHARE: Final[float] = 0.15
+
+
+class CopiedCardCareerGoal(StrEnum):
+    """What career goal a card copied by design spec §13's refresh carries.
+
+    The refresh copies *interests* out of the withheld column onto a team's
+    overlay row. What the same card says about a career goal is a separate
+    question, because the base row's ``career_goal`` is **not** withheld and is
+    already visible to every team — so the copied card can either restate it or
+    say nothing and let the base row stand.
+
+    Both readings produce the same ranked list today (see
+    :func:`copied_card_career_goal`), which is exactly why the rule has to be
+    written down rather than inferred: it is invisible until something else
+    changes, and then it is load-bearing.
+
+    A third answer is one member here plus one branch in
+    :func:`copied_card_career_goal`. Nothing outside this module decides it, and
+    nothing reads it from an environment variable or a request.
+    """
+
+    #: The copied card carries the base row's career goal, and ``None`` when the
+    #: base row has none. The owner's ruling of 2026-09-21.
+    BASE_GOAL = "base_goal"
+    #: The copied card carries no career goal at all. What shipped in PR #190:
+    #: the overlay column is left ``NULL`` and the base row stands behind it.
+    NONE = "none"
+
+
+#: PLACEHOLDER (OQ-CE-13): which reading design spec §13's copied card takes.
+#:
+#: The owner ruled on 2026-09-21 that *"copied cards carry the base
+#: ``career_goal``; ``NULL`` only when the base has none"*, and the register row
+#: **OQ-CE-13 is OPEN** pending Ann — so this is a placeholder in the same sense
+#: the shares above are: a stated answer, held in one named place. Changing Ann's
+#: answer is changing this one line; every caller takes it as a default.
+COPIED_CARD_CAREER_GOAL: Final[CopiedCardCareerGoal] = CopiedCardCareerGoal.BASE_GOAL
+
+
+def copied_card_career_goal(
+    base_career_goal: str | None,
+    policy: CopiedCardCareerGoal = COPIED_CARD_CAREER_GOAL,
+) -> str | None:
+    """The career goal a copied card carries, under ``policy``.
+
+    Pure: it takes the base row's career goal and returns a value, and it is the
+    **one** place either reading is written. A caller that wants the shipped
+    reading passes no ``policy`` at all.
+
+    Under :attr:`CopiedCardCareerGoal.BASE_GOAL` the answer is the base row's own
+    goal — which is ``None`` when the base row has none, so "the base has no
+    goal" and "the card says nothing" stay the same fact rather than becoming
+    two. Under :attr:`CopiedCardCareerGoal.NONE` the answer is always ``None``.
+
+    Why both give the same ranked list today: a reader resolves a team's view as
+    overlay-over-base (``exercise_matching_models._profile_evidence``), so a
+    copied card with no goal of its own already reads the base row's. Writing the
+    goal makes that resolution explicit at the row rather than implicit in the
+    reader; it does not move a profile.
+
+    Args:
+        base_career_goal: The base row's ``career_goal``, or ``None``.
+        policy: Which reading to apply. Defaults to
+            :data:`COPIED_CARD_CAREER_GOAL`.
+
+    Returns:
+        The value to store in ``exercise_profile_overlay.card_career_goal``, or
+        ``None`` for "this card says nothing about a career goal".
+    """
+    if policy is CopiedCardCareerGoal.BASE_GOAL:
+        return base_career_goal
+    return None
 
 
 def _rank_key(seed: int, salt: str, profile_no: int) -> tuple[bytes, int]:

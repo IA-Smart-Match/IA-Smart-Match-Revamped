@@ -65,6 +65,10 @@ from smartmatch_api.routers import (
     exercise_results_refresh,
     exercise_results_run,
 )
+from smartmatch_api.routers.exercise_matching_models import (
+    event_evidence,
+    rankable_set,
+)
 from smartmatch_api.routers.exercise_results_models import (
     EXERCISE_ROUNDS,
     FIRST_ROUND,
@@ -78,8 +82,11 @@ from smartmatch_api.routers.exercise_results_refresh import (
 from smartmatch_domain.exercise import EXERCISE_WITHHELD_FIELDS
 from smartmatch_domain.exercise.asking import (
     CARD_COMPLETION_SHARE,
+    COPIED_CARD_CAREER_GOAL,
     REQUIRED_NON_RESPONDING_SHARE,
     AskingChoice,
+    CopiedCardCareerGoal,
+    copied_card_career_goal,
 )
 from smartmatch_domain.exercise.instructor_session import mint_instructor_session
 from smartmatch_domain.exercise.simulation import (
@@ -93,6 +100,7 @@ from smartmatch_domain.exercise.workspace_token import (
     hash_workspace_token,
 )
 from smartmatch_domain.product_scope import Capability, ProductScope
+from smartmatch_domain.student_factors import career_goal_fit
 from smartmatch_persistence.exercise.dataset_repository import (
     DatasetSummary,
     ExerciseEventRow,
@@ -499,20 +507,33 @@ class _FakeResultsRepository:
         card_profile_nos: Sequence[int],
         non_responding_profile_nos: Sequence[int],
         now: datetime,
+        career_goal_policy: CopiedCardCareerGoal = COPIED_CARD_CAREER_GOAL,
     ) -> RefreshCounts | None:
         assert dataset_id == _DATASET_ID
         if workspace_id not in self.choices or workspace_id in self.refreshed:
             return None
         self.refreshed[workspace_id] = now
-        cards = {
-            row.profile_no: row.hidden_true_interests
+        chosen = [
+            row
             for row in self.datasets.load_simulation_profiles(None, dataset_id=dataset_id)
             if row.profile_no in set(card_profile_nos)
+        ]
+        cards = {row.profile_no: row.hidden_true_interests for row in chosen}
+        #: OQ-CE-13, mirrored from ``results_repository.apply_refresh`` so the
+        #: fake and the real one cannot disagree about what a copied card says.
+        goals = {
+            row.profile_no: copied_card_career_goal(row.career_goal, career_goal_policy)
+            for row in chosen
         }
         for profile_no in sorted(set(topic_gainers)):
             self._patch(workspace_id, profile_no, overlay_added_event_topics=tuple(added_topics))
         for profile_no, interests in sorted(cards.items()):
-            self._patch(workspace_id, profile_no, overlay_card_interests=interests)
+            self._patch(
+                workspace_id,
+                profile_no,
+                overlay_card_interests=interests,
+                overlay_card_career_goal=goals[profile_no],
+            )
         for profile_no in sorted(set(non_responding_profile_nos)):
             self._patch(workspace_id, profile_no, non_responding=True)
         return RefreshCounts(
@@ -1192,6 +1213,65 @@ def test_a_card_exists_when_either_side_recorded_interests() -> None:
     assert 3 in without
     given = replace(_PROFILES[2], overlay_card_interests=())
     assert 3 not in invited_without_a_card((given,), invited)
+
+
+def test_a_refresh_writes_the_base_goal_onto_every_copied_card(
+    fakes: _Fakes, client: TestClient, confirmed: SimulationCoefficients
+) -> None:
+    """The ruling of 2026-09-21, through the route (OQ-CE-13).
+
+    Every overlay row this refresh gave a card to carries its **base row's**
+    ``career_goal``, and carries ``None`` exactly where the base row has none.
+    Asserted against ``_ROWS`` rather than against a written-out list, so a
+    fixture row that gains a goal cannot quietly stop being checked.
+    """
+    _prepare_refresh(fakes, client)
+    client.post(_REFRESH, json={}, headers=_HEADER)
+
+    given_a_card = {
+        profile_no: row
+        for (_, profile_no), row in fakes.team_view.overlays.items()
+        if row.overlay_card_interests is not None
+    }
+    assert given_a_card, "no card was copied, so the policy was never exercised"
+    for profile_no, row in given_a_card.items():
+        assert row.overlay_card_career_goal == _ROWS[profile_no - 1].career_goal
+
+
+def test_a_copied_card_already_reads_the_base_rows_career_goal() -> None:
+    """**The step-1 characterisation.** What a team sees *today*, before OQ-CE-13.
+
+    A profile whose base row carries a career goal and whose overlay now carries
+    a copied card, with ``card_career_goal`` left ``NULL`` as PR #190 shipped it:
+    ``_profile_evidence`` resolves the overlay **over** the base, so the goal it
+    finds is the base row's. The card exists — the overlay recorded interests —
+    so a :class:`ProfileCard` is built, and ``career_goal_fit`` can already earn
+    on it.
+
+    So writing the goal onto the copied row **changes no ranking**: it makes an
+    implicit resolution explicit at the row. If this test ever goes red, the two
+    readings have stopped agreeing and OQ-CE-13 has become a behaviour change.
+    """
+    base = _Row(4, "Devi Rao", career_goal="analytics").team_row()
+    copied = replace(base, overlay_card_interests=("brand",), overlay_card_career_goal=None)
+
+    rankable = rankable_set((copied,), _EVENTS)
+
+    assert len(rankable.profiles) == 1
+    card = rankable.profiles[0].evidence.card
+    assert card is not None, "the copied interests are a card"
+    assert card.career_goal == "analytics", "the base row's goal is read through the overlay"
+    fit = career_goal_fit(rankable.profiles[0].evidence, event_evidence(_ROUND_ONE))
+    assert fit.value == 1.0, "the factor already earns on a goal the copied row does not carry"
+
+
+def test_writing_the_base_goal_onto_the_copied_card_reads_the_same() -> None:
+    """The ruling's row and today's row resolve identically (OQ-CE-13)."""
+    base = _Row(4, "Devi Rao", career_goal="analytics").team_row()
+    today = replace(base, overlay_card_interests=("brand",), overlay_card_career_goal=None)
+    ruled = replace(today, overlay_card_career_goal="analytics")
+
+    assert rankable_set((today,), _EVENTS).profiles == rankable_set((ruled,), _EVENTS).profiles
 
 
 def test_the_two_draws_are_independent() -> None:

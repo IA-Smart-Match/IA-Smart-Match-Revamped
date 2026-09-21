@@ -254,6 +254,21 @@ markers recompute from base ⟕ overlay. Instructor `POST
 /v1/exercise/instructor/refresh-all` runs it for every workspace that has
 chosen and not yet refreshed.
 
+**As shipped (2026-09-21) — what the copied card says about a career goal.**
+PR #190 left `exercise_profile_overlay.card_career_goal` `NULL` on a copied
+card. The owner ruled: *copied cards carry the base `career_goal`; `NULL` only
+when the base has none.* That rule is now written down rather than inferred, as
+`CopiedCardCareerGoal` and `copied_card_career_goal` in
+`smartmatch_domain/exercise/asking.py`. **The switch is one line** —
+`COPIED_CARD_CAREER_GOAL`, marked `PLACEHOLDER (OQ-CE-13)`; every caller takes
+it as a default, and a third reading is one enum member plus one branch.
+
+The ruling **changes no ranked list today**. A reader resolves a team's view as
+overlay-over-base (`exercise_matching_models._profile_evidence`), so a copied
+card with no goal of its own already read the base row's, and `career_goal_fit`
+already earned on it. Writing the goal makes that resolution explicit at the
+row. **OQ-CE-13 stays OPEN** pending Ann, alongside OQ-CE-01.
+
 ## 14. Instructor page
 
 One passcode from the environment (`SMARTMATCH_EXERCISE_INSTRUCTOR_PASSCODE`).
