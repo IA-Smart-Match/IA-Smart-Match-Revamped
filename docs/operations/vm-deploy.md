@@ -665,7 +665,7 @@ or, to seed the whole worksheet catalog plus engagement fixtures (registrations,
 meetings, and the student's attendance-derived balance) in one call:
 
 ```bash
-make seed-pilot-engagement PY=python3 SEED_PILOT_ENGAGEMENT_ARGS='--subjects fixture --items-from-worksheet'
+make seed-pilot-engagement PY=python3 SEED_PILOT_ENGAGEMENT_ARGS='--subjects fixture'
 ```
 
 `PY=python3` because the VM's `make setup` target is what creates `.venv`; if
