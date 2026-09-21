@@ -1,0 +1,92 @@
+/**
+ * Loading one exercise resource, with the four states a screen must handle.
+ *
+ * Deliberately not React Query. `src/lib/queryClient.ts` keys every cache
+ * entry by principal first and clears the cache when identity changes; there
+ * is no identity in this product (ADR-0025 D1), so every exercise key would
+ * share one `undefined` principal and the isolation the CBA app relies on
+ * would be isolating nothing. A team's workspace is a server row addressed by
+ * a cookie and re-reading it is one request, so this hook holds no cache at
+ * all: mount, fetch, render, and re-fetch when the screen says to.
+ *
+ * The state is a discriminated union rather than three booleans, because the
+ * combinations that cannot happen — loaded *and* refused, loading *and* has
+ * data — are exactly the ones a screen renders wrongly when they do.
+ */
+import { useCallback, useEffect, useRef, useState } from "react";
+
+import { ExerciseRefusal, ExerciseUnreachable } from "../../../lib/exerciseApi";
+
+export type ExerciseResourceState<T> =
+  | { readonly status: "loading" }
+  | { readonly status: "ready"; readonly data: T }
+  /** The server refused, with a code to branch on and a sentence to show. */
+  | { readonly status: "refused"; readonly refusal: ExerciseRefusal }
+  /** The request never landed, or the answer was not the envelope. */
+  | { readonly status: "unreachable"; readonly message: string };
+
+/**
+ * Turn any thrown value into a state.
+ *
+ * Nothing reaches a screen but a refusal's own sentence or this module's one
+ * transport sentence — ADR-0025 D6's implementation note is emphatic that a
+ * raw server or exception string must not be rendered, and the place to stop
+ * that is where errors become state.
+ */
+export function stateFromError<T>(error: unknown): ExerciseResourceState<T> {
+  if (error instanceof ExerciseRefusal) {
+    return { status: "refused", refusal: error };
+  }
+  return { status: "unreachable", message: new ExerciseUnreachable().message };
+}
+
+/**
+ * Load a resource on mount and whenever `deps` change.
+ *
+ * `load` receives an `AbortSignal`: a participant who picks a second event
+ * before the first list arrives must not see the first one land on top of it,
+ * and an unmounted screen must not set state.
+ */
+export function useExerciseResource<T>(
+  load: (signal: AbortSignal) => Promise<T>,
+  deps: readonly unknown[],
+): { readonly state: ExerciseResourceState<T>; readonly reload: () => void } {
+  const [state, setState] = useState<ExerciseResourceState<T>>({ status: "loading" });
+  const [attempt, setAttempt] = useState(0);
+
+  // Kept in a ref so a caller may pass an inline closure without the effect
+  // re-running on every render; `deps` is what decides when to re-fetch.
+  const loadRef = useRef(load);
+  loadRef.current = load;
+
+  useEffect(() => {
+    const controller = new AbortController();
+    let live = true;
+    setState({ status: "loading" });
+    loadRef
+      .current(controller.signal)
+      .then((data) => {
+        if (live) {
+          setState({ status: "ready", data });
+        }
+      })
+      .catch((error: unknown) => {
+        if (!live || controller.signal.aborted) {
+          return;
+        }
+        setState(stateFromError<T>(error));
+      });
+    return () => {
+      live = false;
+      controller.abort();
+    };
+    // `deps` is the caller's declared dependency list; `attempt` forces a reload.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [...deps, attempt]);
+
+  const reload = useCallback(() => {
+    setAttempt((value) => value + 1);
+  }, []);
+
+  return { state, reload };
+}

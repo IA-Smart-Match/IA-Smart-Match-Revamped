@@ -33,6 +33,12 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     globals: false,
-    include: ["src/**/*.test.tsx"],
+    // `.test.ts` beside `.test.tsx` since CE-MOUNT: the exercise's network
+    // boundary (`src/lib/exerciseApi.ts`) is a JSX-free module whose rules —
+    // the literal `/v1/exercise` prefix, the `X-Exercise-Request` header, a
+    // refusal rendered as its own sentence — need a `fetch` and a `Response`,
+    // which the `node --test` suite in `tests/` does not provide. `tsconfig`
+    // already excludes both patterns from the build typecheck.
+    include: ["src/**/*.test.tsx", "src/**/*.test.ts"],
   },
 });
