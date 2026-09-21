@@ -64,24 +64,37 @@ Same shape as the two flips above, made in the commit that lands the capability,
 and narrower than the gate it opens. :data:`_D6_FORBIDDEN_SEGMENTS` is
 *untouched* — ``rewards`` and ``redemptions`` are still forbidden segments, so a
 fifth rewards path is refused by the segment rule — and
-:data:`D6_AUTHORIZED_REWARD_PATHS` is an exact, literal allowlist of the three
-paths those four operations occupy, admitted by name. ``balance``, ``balances``
+:data:`D6_AUTHORIZED_REWARD_PATHS` is an exact, literal allowlist of the four
+paths those five operations occupy, admitted by name. ``balance``, ``balances``
 and ``catalog`` remain forbidden with no exception at all: the balance is a field inside the catalog
 response, not a resource of its own, and there is no route whose path says
 otherwise.
 
+**A fifth path, added in a later commit (PR #200): ``GET
+/v1/units/{unit_id}/redemptions/queue``.** The coordinator discovery route for
+:func:`~smartmatch_api.routers.rewards.decide_redemption` — today a
+coordinator can decide a redemption only if handed its id out of band, and
+this route is how they find one. Admitted by name in
+:data:`D6_AUTHORIZED_REWARD_PATHS` exactly as the original four were, gated on
+the identical :data:`~smartmatch_api.routers.rewards._REDEMPTION_DECISION_ROLES`
+``decide_redemption`` already requires (no wider), and its rows further scoped
+to the redeeming student's own membership under the authorized unit (owner
+decision, 2026-09-21, PR #200 review) — a *browsing* surface is exactly the
+shape a gate like this one exists to keep narrow.
+
 What this flip does **not** open is a catalog *writer reachable through this
-router* or a coordinator's view of other students' redemptions.
+router*, a coordinator's view of other students' *balances*, or any widening of
+``decide_redemption`` itself — that route stays exactly as it was, deciding one
+id at a time, tenant-scoped, unchanged by the queue that now discovers it.
 ``smartmatch_persistence.rewards.RewardsRepository.create_item`` exists — the
 7 September 2026 authorization recorded beside D6 in
 ``docs/plans/open-questions/cba-phase-deferred.md`` — but its only caller in
 this repository is ``tools/seed_pilot_rewards.py``, an operator tool gated on
-``SMARTMATCH_EDITION=dev`` that no route calls. The four method/path pairs are
-pinned by :func:`test_the_rewards_router_exposes_two_reads_and_two_commands`,
-which still passes unchanged, and ``D6_AUTHORIZED_REWARD_PATHS`` cannot grow
-without a visible edit to a named list. The D6/D7 figures themselves are
-untouched: nothing here promotes the tentative earn rate, the bands, or
-calibration N.
+``SMARTMATCH_EDITION=dev`` that no route calls. The five method/path pairs are
+pinned by :func:`test_the_rewards_router_exposes_three_reads_and_two_commands`,
+and ``D6_AUTHORIZED_REWARD_PATHS`` cannot grow further without a visible edit to
+a named list. The D6/D7 figures themselves are untouched: nothing here promotes
+the tentative earn rate, the bands, or calibration N.
 
 ## The R2 engagement flip (card R2-ENGAGEMENT-API)
 
@@ -276,14 +289,16 @@ G1_AUTHORIZED_MATCH_RUN_PATHS = frozenset(
 )
 
 
-# D6 — the exact unit-scoped rewards paths card P-REWARDS-API authorizes, and
-# no others. `_D6_FORBIDDEN_SEGMENTS` still names `rewards` and `redemptions`,
-# so these four are admitted by name and a fifth is refused; `balance`,
-# `balances` and `catalog` are not admitted at all, by this list or any other.
+# D6 — the exact unit-scoped rewards paths card P-REWARDS-API authorizes, plus
+# the coordinator discovery route PR #200 added, and no others.
+# `_D6_FORBIDDEN_SEGMENTS` still names `rewards` and `redemptions`, so these
+# four are admitted by name and a fifth is refused; `balance`, `balances` and
+# `catalog` are not admitted at all, by this list or any other.
 D6_AUTHORIZED_REWARD_PATHS = frozenset(
     {
         "/v1/units/{unit_id}/rewards",
         "/v1/units/{unit_id}/redemptions",
+        "/v1/units/{unit_id}/redemptions/queue",
         "/v1/units/{unit_id}/redemptions/{redemption_id}/decision",
     }
 )
@@ -656,14 +671,16 @@ def test_the_rewards_router_declares_exactly_the_authorized_routes():
     )
 
 
-def test_the_rewards_router_exposes_two_reads_and_two_commands():
-    """Exactly what was authorized: read a catalog, ask, read your tickets, decide.
+def test_the_rewards_router_exposes_three_reads_and_two_commands():
+    """Exactly what was authorized: read a catalog, ask, read your tickets, discover, decide.
 
     Pinning the methods rather than the paths alone is what keeps a later card
     from hanging a catalog *writer* off ``/rewards`` — a ``POST`` there would
-    seed items the D6/D7 artifacts do not authorize — or a ``DELETE`` off
+    seed items the D6/D7 artifacts do not authorize — a ``DELETE`` off
     ``/redemptions``, which would contradict the state machine's terminal states
-    outright: a redemption is closed by moving it, never by removing it.
+    outright (a redemption is closed by moving it, never by removing it) — or a
+    write hiding behind ``/redemptions/queue``, which PR #200 authorized as a
+    read and nothing else.
     """
     observed = {
         (str(route.path), method)  # type: ignore[attr-defined]
@@ -676,6 +693,7 @@ def test_the_rewards_router_exposes_two_reads_and_two_commands():
         ("/v1/units/{unit_id}/rewards", "GET"),
         ("/v1/units/{unit_id}/redemptions", "POST"),
         ("/v1/units/{unit_id}/redemptions", "GET"),
+        ("/v1/units/{unit_id}/redemptions/queue", "GET"),
         ("/v1/units/{unit_id}/redemptions/{redemption_id}/decision", "POST"),
     }, f"D6: unexpected rewards methods: {sorted(observed)}"
 

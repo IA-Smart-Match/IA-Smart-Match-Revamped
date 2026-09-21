@@ -85,6 +85,8 @@ still deny or expire it. Fail-closed, and visible.
 from __future__ import annotations
 
 import uuid
+from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Final
 
 import sqlalchemy as sa
@@ -250,6 +252,31 @@ def redemption_debit_is_representable() -> bool:
         and "source_redemption_id" in ledger.c
         and "redemption" in schema.METADATA.tables
     )
+
+
+@dataclass(frozen=True, slots=True)
+class RedemptionQueueRow:
+    """One redemption as the coordinator queue reads it — never as the state
+    machine's value.
+
+    A separate type from :class:`smartmatch_domain.rewards.Redemption` rather
+    than that type with an added field, for the reason
+    :func:`_redemption_from` already states: the domain value deliberately
+    excludes ``requested_at`` so no transition is ever computed from a
+    timestamp. This row carries it because a queue that lists and orders by
+    request time needs it to display, and displaying it drives no transition.
+
+    Carries no ``subject_id`` and no ``tenant_id``: the router already knows
+    the tenant it queried, and the subject is exactly the field this queue
+    does not disclose — see ``RedemptionQueueItemResponse`` in
+    ``routers/rewards.py``.
+    """
+
+    redemption_id: uuid.UUID
+    item_name_snapshot: str
+    points_cost_snapshot: int
+    state: RedemptionState
+    requested_at: datetime
 
 
 class RewardsRepository:
@@ -845,6 +872,136 @@ class RewardsRepository:
             .order_by(table.c.requested_at.desc(), table.c.id)
         ).all()
         return tuple(_redemption_from(row) for row in rows)
+
+    def redemptions_at_state(
+        self,
+        session: Session,
+        *,
+        tenant_id: uuid.UUID,
+        state: RedemptionState,
+        unit_path: str,
+        subject_roles: frozenset[str],
+        at: datetime,
+        limit: int,
+    ) -> tuple[RedemptionQueueRow, ...]:
+        """Redemptions at one state whose *subject* falls under ``unit_path``, oldest first.
+
+        Owner decision, 2026-09-21 (PR #200 review): the queue's rows are
+        unit-scoped, not merely the read that lists them. Unlike
+        :meth:`transition_redemption` — which the owner deliberately left
+        untouched; deciding one id by hand stays tenant-scoped, acknowledged
+        and out of scope here — a *list* is a browsing surface, and browsing
+        every tenant redemption from a single department's authorization was
+        the gap flagged for this pass.
+
+        ``redemption`` itself carries no owning-unit column (module docstring,
+        "No unit ownership claim"), so unit membership is derived exactly the
+        way :func:`~smartmatch_api.units.units_in_subtree` derives it for org
+        units: an ``EXISTS`` against ``membership``, joined on the redeeming
+        student's ``subject_id``, filtered to memberships whose
+        ``granted_path`` is contained *by* ``unit_path`` — the ``<@`` operator,
+        label-wise and inclusive of the unit itself, the same containment rule
+        :meth:`smartmatch_authz.OrgPath.contains` applies in policy. Never a
+        Python string prefix check: ``'cpp.eng'`` is a text prefix of
+        ``'cpp.english'`` and not an ancestor of it, exactly the trap
+        ``units_in_subtree``'s docstring already warns against.
+
+        ``EXISTS`` rather than a plain join, so a student holding two or more
+        memberships under ``unit_path`` — one at the unit itself and a second
+        at a unit beneath it, say — still surfaces their redemption once. A
+        plain join would duplicate the row once per matching membership.
+
+        A membership counts only while it is active at ``at``: ``valid_from``
+        is ``NULL`` or at-or-before it, and ``valid_until`` is ``NULL`` or
+        strictly after it — the identical window
+        :meth:`smartmatch_authz.MembershipFact.is_active_at` checks for an
+        *authorizing* membership. An expired or not-yet-valid membership is
+        chosen to behave here exactly as it behaves at the door: neither
+        widens nor narrows who is visible relative to who could act. Deny-by
+        default: a student with no active membership under ``unit_path`` — the
+        redemption predates their only qualifying grant, say — is simply
+        absent, the same way an authorizer would refuse them. Nothing here
+        touches ``user_account`` suspension: that is a fact about the calling
+        principal that this row-scoping question has no stake in, exactly as
+        it has none for ``attendance_record`` or any other subject-scoped read
+        in this codebase.
+
+        Returns :class:`RedemptionQueueRow`, not
+        :class:`~smartmatch_domain.rewards.Redemption`: that domain type
+        deliberately omits ``requested_at`` (see :func:`_redemption_from`) so a
+        transition is never computed from a timestamp, and a queue that orders
+        and displays by that same timestamp is a read the state machine has no
+        stake in — it names no subject and drives no transition.
+
+        Oldest first — ``requested_at`` ascending, id breaking ties — so a
+        coordinator works the queue in the order requests arrived, the same
+        ordering ``ReviewRepository.list_for_unit`` uses for its own queue.
+        ``limit`` is passed by the caller as one more than the page size it
+        actually renders, so it can tell a full page from a complete one
+        without a second count query.
+
+        Args:
+            unit_path: The authorized unit's own ``ltree`` path, bound as a
+                parameter and cast to ``ltree`` by PostgreSQL — never
+                interpolated, the same discipline ``units_in_subtree`` states
+                at length for the identical bind.
+            subject_roles: The role set a qualifying membership's ``role`` must
+                fall within. Owner review, 2026-09-21: without this, a caller
+                who is ``coordinator`` under this unit and merely
+                ``student`` under a *different* one would surface their own
+                redemption here on the strength of the wrong-department grant.
+                The router passes ``_REWARDS_STUDENT_ROLES`` — the identical
+                set :func:`~smartmatch_api.routers.rewards.request_redemption_route`
+                gates opening a redemption on — so a membership counts here
+                only if it could have opened the ticket in the first place.
+                Passed in rather than imported from ``smartmatch_api``: this
+                package sits below the API in the import-boundary graph
+                (``pyproject.toml``'s ``importlinter`` contracts), so the
+                router owns the constant and hands it down.
+            at: The moment membership activity is measured at. The caller
+                passes its own ``utc_now()``, the same value every authorizer
+                in this module already uses for the caller's own membership.
+        """
+        table = schema.redemption
+        membership = schema.membership
+        subject_membership_under_unit = (
+            sa.select(sa.literal(1))
+            .where(
+                membership.c.tenant_id == table.c.tenant_id,
+                membership.c.user_id == table.c.subject_id,
+                membership.c.granted_path.op("<@")(sa.cast(sa.literal(unit_path), schema.LTree())),
+                membership.c.role.in_(subject_roles),
+                sa.or_(membership.c.valid_from.is_(None), membership.c.valid_from <= at),
+                sa.or_(membership.c.valid_until.is_(None), membership.c.valid_until > at),
+            )
+            .exists()
+        )
+        rows = session.execute(
+            sa.select(
+                table.c.id,
+                table.c.item_name_snapshot,
+                table.c.points_cost_snapshot,
+                table.c.state,
+                table.c.requested_at,
+            )
+            .where(
+                table.c.tenant_id == tenant_id,
+                table.c.state == state.value,
+                subject_membership_under_unit,
+            )
+            .order_by(table.c.requested_at.asc(), table.c.id)
+            .limit(limit)
+        ).all()
+        return tuple(
+            RedemptionQueueRow(
+                redemption_id=row.id,
+                item_name_snapshot=row.item_name_snapshot,
+                points_cost_snapshot=row.points_cost_snapshot,
+                state=RedemptionState(row.state),
+                requested_at=row.requested_at,
+            )
+            for row in rows
+        )
 
     def transition_redemption(
         self,

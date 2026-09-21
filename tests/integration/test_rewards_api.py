@@ -61,6 +61,12 @@ pytestmark = pytest.mark.integration
 #: principals below are granted at.
 SIBLING_UNIT_PATH = "iawest.rewards-sibling"
 
+#: The common ancestor of `JOB_OWNING_UNIT_PATH` ("iawest.jobs", what
+#: `ensure_owning_unit` names `unit_id`) and `SIBLING_UNIT_PATH`. A membership
+#: granted here is a parent-unit grant over both, so a caller holding it can
+#: query the queue at `root_unit_id` and see both departments' tickets.
+ROOT_UNIT_PATH = "iawest"
+
 #: D7's recorded tentative bands, used as fixture costs so no number in this file
 #: is one this file invented. ``docs/decisions/pilot-decisions.md`` §D7 records
 #: all three as tentative and this file promotes none of them.
@@ -82,11 +88,13 @@ class Fixture:
         tenant_id: uuid.UUID,
         unit_id: uuid.UUID,
         sibling_unit_id: uuid.UUID,
+        root_unit_id: uuid.UUID,
     ) -> None:
         self.client = client
         self.tenant_id = tenant_id
         self.unit_id = unit_id
         self.sibling_unit_id = sibling_unit_id
+        self.root_unit_id = root_unit_id
         self.tokens: dict[str, str] = {}
         self.users: dict[str, uuid.UUID] = {}
         self.items: dict[str, uuid.UUID] = {}
@@ -98,6 +106,18 @@ class Fixture:
 
     def post(self, suffix: str, who: str, body: dict[str, object]):
         return self.client.post(self._url(suffix), headers=self._headers(who), json=body)
+
+    def get_at(self, unit_id: uuid.UUID, suffix: str, who: str):
+        """Like :meth:`get`, against an arbitrary unit rather than ``self.unit_id`` —
+        for reading another department's or a parent's queue."""
+        return self.client.get(f"/v1/units/{unit_id}{suffix}", headers=self._headers(who))
+
+    def post_at(self, unit_id: uuid.UUID, suffix: str, who: str, body: dict[str, object]):
+        """Like :meth:`post`, against an arbitrary unit — for a sibling-department
+        student opening a redemption under their own unit's authorization scope."""
+        return self.client.post(
+            f"/v1/units/{unit_id}{suffix}", headers=self._headers(who), json=body
+        )
 
     def _url(self, suffix: str) -> str:
         return f"/v1/units/{self.unit_id}{suffix}"
@@ -120,13 +140,31 @@ def _insert_user(conn, tenant_id: uuid.UUID, label: str) -> tuple[uuid.UUID, str
     return user_id, subject
 
 
-def _grant(conn, tenant_id: uuid.UUID, user_id: uuid.UUID, path: str, role: str) -> None:
+def _grant(
+    conn,
+    tenant_id: uuid.UUID,
+    user_id: uuid.UUID,
+    path: str,
+    role: str,
+    *,
+    valid_until: str | None = None,
+) -> None:
+    """A membership row. ``valid_until`` is an ISO timestamp in the past for a
+    deliberately expired grant, or ``None`` (the default) for one with no
+    upper bound."""
     conn.execute(
         text(
-            "INSERT INTO membership (id, tenant_id, user_id, granted_path, role) "
-            "VALUES (:id, :tid, :uid, CAST(:path AS ltree), :role)"
+            "INSERT INTO membership (id, tenant_id, user_id, granted_path, role, valid_until) "
+            "VALUES (:id, :tid, :uid, CAST(:path AS ltree), :role, :valid_until)"
         ),
-        {"id": uuid.uuid4(), "tid": tenant_id, "uid": user_id, "path": path, "role": role},
+        {
+            "id": uuid.uuid4(),
+            "tid": tenant_id,
+            "uid": user_id,
+            "path": path,
+            "role": role,
+            "valid_until": valid_until,
+        },
     )
 
 
@@ -162,6 +200,43 @@ def _insert_item(
         },
     )
     return item_id
+
+
+def _insert_redemption(
+    conn,
+    tenant_id: uuid.UUID,
+    *,
+    subject_id: uuid.UUID,
+    item_id: uuid.UUID,
+    item_name: str,
+    cost: int,
+) -> uuid.UUID:
+    """One ``requested`` redemption, written directly rather than through the API.
+
+    For the absence tests below: a subject with no qualifying membership under
+    the queried unit cannot pass ``_authorize_student_rewards`` to open a
+    ticket through ``POST .../redemptions`` in the first place, so proving the
+    *queue* excludes such a ticket needs one to already exist. This is the
+    identical bypass ``_insert_item`` already uses for the catalog side.
+    """
+    redemption_id = uuid.uuid4()
+    conn.execute(
+        text(
+            "INSERT INTO redemption "
+            "(id, tenant_id, subject_id, item_id, item_name_snapshot, "
+            "points_cost_snapshot, state) "
+            "VALUES (:id, :tid, :subject, :item, :name, :cost, 'requested')"
+        ),
+        {
+            "id": redemption_id,
+            "tid": tenant_id,
+            "subject": subject_id,
+            "item": item_id,
+            "name": item_name,
+            "cost": cost,
+        },
+    )
+    return redemption_id
 
 
 def _record_attendance(session: Session, tenant_id: uuid.UUID, subject_id: uuid.UUID) -> uuid.UUID:
@@ -233,7 +308,21 @@ def rewards_api(engine_or_skip: Engine) -> Iterator[Fixture]:
             {"id": sibling_unit_id, "tid": tenant_id, "path": SIBLING_UNIT_PATH},
         )
 
-        fixture = Fixture(TestClient(app), tenant_id, unit_id, sibling_unit_id)
+        # A real ancestor row of both `unit_path` and `SIBLING_UNIT_PATH`
+        # ("iawest.jobs" and "iawest.rewards-sibling" respectively). The queue
+        # route authorizes a *read* against a real `org_unit` row named by
+        # `unit_id`, so a caller who should see across both departments needs
+        # somewhere to point the request at, not merely a wide-reaching grant.
+        root_unit_id = uuid.uuid4()
+        conn.execute(
+            text(
+                "INSERT INTO org_unit (id, tenant_id, path, unit_type, display_name) "
+                "VALUES (:id, :tid, CAST(:path AS ltree), 'region', 'Rewards Root')"
+            ),
+            {"id": root_unit_id, "tid": tenant_id, "path": ROOT_UNIT_PATH},
+        )
+
+        fixture = Fixture(TestClient(app), tenant_id, unit_id, sibling_unit_id, root_unit_id)
 
         for label, role, path in (
             ("student", "student", unit_path),
@@ -241,11 +330,56 @@ def rewards_api(engine_or_skip: Engine) -> Iterator[Fixture]:
             ("uncredited_student", "student", unit_path),
             ("coordinator", "coordinator", unit_path),
             ("sibling_student", "student", SIBLING_UNIT_PATH),
+            ("sibling_coordinator", "coordinator", SIBLING_UNIT_PATH),
+            ("root_admin", "admin", ROOT_UNIT_PATH),
+            ("multi_membership_student", "student", unit_path),
+            ("dual_role_user", "coordinator", unit_path),
+            ("no_membership_student", None, None),
+            ("expired_membership_student", None, None),
         ):
+            if role is None:
+                # No grant at all — inserted here so it shares this loop's user
+                # creation rather than a third helper, but deliberately skipped
+                # below; each is granted (or not) by the tests that use it.
+                user_id, subject = _insert_user(conn, tenant_id, label)
+                fixture.users[label] = user_id
+                fixture.tokens[label] = subject
+                continue
             user_id, subject = _insert_user(conn, tenant_id, label)
             _grant(conn, tenant_id, user_id, path, role)
             fixture.users[label] = user_id
             fixture.tokens[label] = subject
+
+        # A second, deeper membership for the same student — the shape that
+        # would duplicate a row through a plain join. Redundant with the grant
+        # the loop above already gave `multi_membership_student` at `unit_path`
+        # itself, and deliberately so.
+        _grant(
+            conn,
+            tenant_id,
+            fixture.users["multi_membership_student"],
+            f"{unit_path}.sub",
+            "student",
+        )
+
+        # `dual_role_user` also holds `student` at `SIBLING_UNIT_PATH`, on top
+        # of the `coordinator` grant at `unit_path` the loop above gave them —
+        # the role-filter fixture: a role that qualifies them for the queue
+        # under one unit and does not under the other.
+        _grant(conn, tenant_id, fixture.users["dual_role_user"], SIBLING_UNIT_PATH, "student")
+
+        # `expired_membership_student` holds one `student` grant at
+        # `unit_path`, already lapsed — the fixture for the expired-membership
+        # absence test. Reactivating it is each test's own job (this file does
+        # not add a second, active grant here, so the row starts absent).
+        _grant(
+            conn,
+            tenant_id,
+            fixture.users["expired_membership_student"],
+            unit_path,
+            "student",
+            valid_until="2000-01-01T00:00:00Z",
+        )
 
         owner_id, _ = _insert_user(conn, tenant_id, "budget-owner")
         fixture.items["cheap"] = _insert_item(
@@ -318,6 +452,37 @@ def rewards_api(engine_or_skip: Engine) -> Iterator[Fixture]:
         ):
             conn.execute(text(f"DELETE FROM {table} WHERE tenant_id = :tid"), {"tid": tenant_id})
         conn.execute(text("DELETE FROM tenant WHERE id = :tid"), {"tid": tenant_id})
+
+
+def _credit(
+    engine: Engine,
+    tenant_id: uuid.UUID,
+    subject_id: uuid.UUID,
+    *,
+    times: int = CREDITED_ATTENDANCES,
+) -> None:
+    """Credit ``subject_id`` ``times`` verified attendances, in this test's own session.
+
+    A per-test opt-in rather than a fixture-wide credit for everyone: the fixture
+    credits exactly ``student`` (``CREDITED_ATTENDANCES`` attendances), and
+    ``test_approval_then_fulfilment_takes_exactly_one_debit`` /
+    ``test_a_denial_is_terminal_and_debits_nothing`` assert the *total* ledger
+    row count against that one number. Crediting a second or third principal in
+    the shared fixture setup would silently inflate their count; this function
+    lets the row-scoping tests below give a specific principal spendable points
+    without touching what every other test in this file already counts on.
+    """
+    session_factory = sessionmaker(bind=engine, expire_on_commit=False, future=True)
+    session = session_factory()
+    repository = RewardsRepository()
+    try:
+        for _ in range(times):
+            attendance_id = _record_attendance(session, tenant_id, subject_id)
+            repository.credit_attendance(session, tenant_id=tenant_id, attendance_id=attendance_id)
+        session.commit()
+    finally:
+        session.rollback()
+        session.close()
 
 
 def _ledger_rows(engine: Engine, tenant_id: uuid.UUID) -> list:
@@ -695,6 +860,328 @@ def test_an_unknown_redemption_is_a_404(rewards_api: Fixture) -> None:
     )
     assert response.status_code == 404, response.text
     assert response.json()["error"]["code"] == "redemption_not_found"
+
+
+# ---------------------------------------------------------------------------
+# The coordinator's discovery route — GET .../redemptions/queue
+# ---------------------------------------------------------------------------
+
+
+def test_the_queue_is_empty_before_any_request_is_opened(rewards_api: Fixture) -> None:
+    response = rewards_api.get("/redemptions/queue", "coordinator")
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["redemptions"] == []
+    assert body["truncated"] is False
+    assert body["status"] == "requested"
+
+
+def test_the_queue_lists_a_pending_ticket_by_default(rewards_api: Fixture) -> None:
+    """``status`` defaults to ``requested`` — the queue a coordinator works."""
+    redemption_id = _open_ticket(rewards_api)
+
+    body = rewards_api.get("/redemptions/queue", "coordinator").json()
+    assert [row["redemption_id"] for row in body["redemptions"]] == [redemption_id]
+    row = body["redemptions"][0]
+    assert row["item_name"] == "Synthetic cheap reward"
+    assert row["points_cost"] == CHEAP_COST
+    assert row["state"] == "requested"
+    assert "requested_at" in row
+
+    # Opaque identity: nothing here names the student who opened it.
+    assert "subject_id" not in row
+    assert "student_id" not in row
+    assert "email" not in row
+    assert "name" not in row or row.get("name") == row.get("item_name")
+
+
+def test_a_decided_ticket_leaves_the_pending_queue_and_appears_at_its_own_status(
+    rewards_api: Fixture,
+) -> None:
+    redemption_id = _open_ticket(rewards_api)
+    rewards_api.post(
+        f"/redemptions/{redemption_id}/decision", "coordinator", {"decision": "approved"}
+    )
+
+    pending = rewards_api.get("/redemptions/queue", "coordinator").json()
+    assert redemption_id not in [row["redemption_id"] for row in pending["redemptions"]]
+
+    approved = rewards_api.get("/redemptions/queue?status=approved", "coordinator").json()
+    assert redemption_id in [row["redemption_id"] for row in approved["redemptions"]]
+    assert approved["status"] == "approved"
+
+
+def test_an_out_of_vocabulary_status_is_a_422(rewards_api: Fixture) -> None:
+    response = rewards_api.get("/redemptions/queue?status=bogus", "coordinator")
+    assert response.status_code == 422, response.text
+
+
+def test_a_student_is_refused_the_queue(rewards_api: Fixture) -> None:
+    """The queue is gated exactly like the decision it feeds: no wider."""
+    assert rewards_api.get("/redemptions/queue", "student").status_code == 403
+
+
+def test_a_sibling_coordinator_is_refused_the_queue(rewards_api: Fixture) -> None:
+    """A coordinator whose membership does not cover this unit gets 403 here too.
+
+    This is the *read* refusal — the path unit's authorization, exactly as
+    ``decide_redemption`` authorizes acting on a single id — and it is refused
+    before row scoping is ever reached: a sibling department's coordinator
+    does not cover the path unit's membership check at all.
+    """
+    response = rewards_api.client.get(
+        f"/v1/units/{rewards_api.unit_id}/redemptions/queue",
+        headers={"Authorization": f"Bearer {rewards_api.tokens['sibling_coordinator']}"},
+    )
+    assert response.status_code == 403, response.text
+
+
+def test_an_unknown_unit_for_the_queue_is_a_404(rewards_api: Fixture) -> None:
+    response = rewards_api.client.get(
+        f"/v1/units/{uuid.uuid4()}/redemptions/queue",
+        headers={"Authorization": f"Bearer {rewards_api.tokens['coordinator']}"},
+    )
+    assert response.status_code == 404, response.text
+    assert response.json()["error"]["code"] == "unit_not_found"
+
+
+def test_the_queue_is_oldest_first_and_bounded(
+    rewards_api: Fixture, engine_or_skip: Engine
+) -> None:
+    """Two tickets under one unit, still in request order.
+
+    Both against the ``cheap`` item and both by credited students — ``student``
+    (``_open_ticket``) and ``multi_membership_student`` (``_credit`` gives them
+    a spendable balance without touching the fixture-wide ledger count other
+    tests assert; also under ``unit_path``, so both tickets land in the same
+    coordinator's queue) — since an uncredited student's measured-zero balance
+    would refuse the second request with ``insufficient_balance`` before
+    ordering is ever reached. Not a test of the ``MAX_ROWS`` cap itself —
+    opening 201 tickets in an integration test would be its own liability —
+    just that ``truncated`` is ``False`` under the cap and the order is oldest
+    request first, matching ``ReviewRepository.list_for_unit``'s own queue.
+    """
+    _credit(engine_or_skip, rewards_api.tenant_id, rewards_api.users["multi_membership_student"])
+
+    first = _open_ticket(rewards_api)
+    second_response = rewards_api.post(
+        "/redemptions",
+        "multi_membership_student",
+        {"item_id": str(rewards_api.items["cheap"])},
+    )
+    assert second_response.status_code == 201, second_response.text
+    second = str(second_response.json()["redemption_id"])
+
+    body = rewards_api.get("/redemptions/queue", "coordinator").json()
+    ids = [row["redemption_id"] for row in body["redemptions"]]
+    assert ids.index(first) < ids.index(second)
+    assert body["truncated"] is False
+
+
+def test_each_coordinator_sees_only_their_own_units_student(
+    rewards_api: Fixture, engine_or_skip: Engine
+) -> None:
+    """Two units, a student in each: neither coordinator's queue crosses into the other's.
+
+    Owner decision, 2026-09-21 (PR #200 review): rows are scoped by the
+    redeeming student's own membership path, not merely the read. `student` is
+    granted at `unit_path` ("iawest.jobs") and `sibling_student` at
+    `SIBLING_UNIT_PATH` ("iawest.rewards-sibling") — two branches under the
+    same root but neither contains the other — so this is the row-level
+    analogue of `test_a_student_in_a_sibling_department_is_refused`.
+    """
+    _credit(engine_or_skip, rewards_api.tenant_id, rewards_api.users["sibling_student"])
+
+    own_ticket = _open_ticket(rewards_api)
+    sibling_response = rewards_api.post_at(
+        rewards_api.sibling_unit_id,
+        "/redemptions",
+        "sibling_student",
+        {"item_id": str(rewards_api.items["cheap"])},
+    )
+    assert sibling_response.status_code == 201, sibling_response.text
+    sibling_ticket = str(sibling_response.json()["redemption_id"])
+
+    own_queue = [
+        row["redemption_id"]
+        for row in rewards_api.get("/redemptions/queue", "coordinator").json()["redemptions"]
+    ]
+    assert own_queue == [own_ticket]
+
+    sibling_queue = [
+        row["redemption_id"]
+        for row in rewards_api.get_at(
+            rewards_api.sibling_unit_id, "/redemptions/queue", "sibling_coordinator"
+        ).json()["redemptions"]
+    ]
+    assert sibling_queue == [sibling_ticket]
+
+
+def test_a_parent_unit_admin_sees_both_departments_tickets(
+    rewards_api: Fixture, engine_or_skip: Engine
+) -> None:
+    """An admin granted at the common ancestor sees both departments' queues at once.
+
+    `root_admin` is granted `admin` at `ROOT_UNIT_PATH` ("iawest"), the
+    ancestor of both `unit_path` and `SIBLING_UNIT_PATH`. Querying the queue at
+    `root_unit_id` — a real `org_unit` row at that same ancestor path — returns
+    both tickets, the same descendant containment
+    `~smartmatch_api.units.units_in_subtree` already applies to org units.
+    """
+    _credit(engine_or_skip, rewards_api.tenant_id, rewards_api.users["sibling_student"])
+
+    own_ticket = _open_ticket(rewards_api)
+    sibling_response = rewards_api.post_at(
+        rewards_api.sibling_unit_id,
+        "/redemptions",
+        "sibling_student",
+        {"item_id": str(rewards_api.items["cheap"])},
+    )
+    assert sibling_response.status_code == 201, sibling_response.text
+    sibling_ticket = str(sibling_response.json()["redemption_id"])
+
+    root_queue = {
+        row["redemption_id"]
+        for row in rewards_api.get_at(
+            rewards_api.root_unit_id, "/redemptions/queue", "root_admin"
+        ).json()["redemptions"]
+    }
+    assert root_queue == {own_ticket, sibling_ticket}
+
+
+def test_a_multi_membership_student_appears_once(
+    rewards_api: Fixture, engine_or_skip: Engine
+) -> None:
+    """A student with two memberships under the unit is not double-counted.
+
+    `multi_membership_student` holds one membership at `unit_path` and a
+    second, deeper one at `unit_path + ".sub"` — both satisfy the queue's
+    `EXISTS` predicate, so a plain join would return this ticket twice.
+    """
+    _credit(engine_or_skip, rewards_api.tenant_id, rewards_api.users["multi_membership_student"])
+
+    response = rewards_api.post(
+        "/redemptions", "multi_membership_student", {"item_id": str(rewards_api.items["cheap"])}
+    )
+    assert response.status_code == 201, response.text
+    ticket_id = str(response.json()["redemption_id"])
+
+    ids = [
+        row["redemption_id"]
+        for row in rewards_api.get("/redemptions/queue", "coordinator").json()["redemptions"]
+    ]
+    assert ids.count(ticket_id) == 1
+
+
+def test_a_dual_role_subject_counts_only_under_their_qualifying_role(
+    rewards_api: Fixture, engine_or_skip: Engine
+) -> None:
+    """A membership that is the wrong role does not qualify a subject for the queue.
+
+    Owner review, 2026-09-21: `dual_role_user` is `coordinator` at `unit_path`
+    and `student` at `SIBLING_UNIT_PATH`. Their ticket must be absent from
+    `unit_id`'s queue — the only membership they hold there is the wrong role
+    — and present in `sibling_unit_id`'s, where their membership is `student`,
+    the same role `request_redemption_route` required to let them open it.
+    """
+    _credit(engine_or_skip, rewards_api.tenant_id, rewards_api.users["dual_role_user"])
+
+    response = rewards_api.post_at(
+        rewards_api.sibling_unit_id,
+        "/redemptions",
+        "dual_role_user",
+        {"item_id": str(rewards_api.items["cheap"])},
+    )
+    assert response.status_code == 201, response.text
+    ticket_id = str(response.json()["redemption_id"])
+
+    own_unit_ids = [
+        row["redemption_id"]
+        for row in rewards_api.get("/redemptions/queue", "coordinator").json()["redemptions"]
+    ]
+    assert ticket_id not in own_unit_ids
+
+    sibling_ids = [
+        row["redemption_id"]
+        for row in rewards_api.get_at(
+            rewards_api.sibling_unit_id, "/redemptions/queue", "sibling_coordinator"
+        ).json()["redemptions"]
+    ]
+    assert ticket_id in sibling_ids
+
+
+def test_a_subject_with_no_membership_under_the_unit_is_absent(
+    rewards_api: Fixture, engine_or_skip: Engine
+) -> None:
+    """A redemption whose subject holds no membership at all is simply absent.
+
+    `no_membership_student` has a `user_account` row and a ticket but no
+    `membership` row anywhere — the ``EXISTS`` predicate has nothing to find,
+    so the row is excluded the same way `_authorize_student_rewards` would
+    refuse them a token to open one honestly.
+    """
+    with engine_or_skip.begin() as conn:
+        ticket_id = _insert_redemption(
+            conn,
+            rewards_api.tenant_id,
+            subject_id=rewards_api.users["no_membership_student"],
+            item_id=rewards_api.items["cheap"],
+            item_name="Synthetic cheap reward",
+            cost=CHEAP_COST,
+        )
+
+    ids = [
+        row["redemption_id"]
+        for row in rewards_api.get("/redemptions/queue", "coordinator").json()["redemptions"]
+    ]
+    assert str(ticket_id) not in ids
+
+
+def test_a_subject_whose_only_membership_has_expired_is_absent_then_present_when_reactivated(
+    rewards_api: Fixture, engine_or_skip: Engine
+) -> None:
+    """A lapsed membership does not qualify a subject; an active one does.
+
+    `expired_membership_student`'s only grant carries `valid_until` in the
+    past — absent from the queue, the same as an unauthorized caller would be
+    refused. Granting a second, open-ended membership at the same path makes
+    the identical ticket appear, proving the window is evaluated live rather
+    than cached from request-time.
+    """
+    with engine_or_skip.begin() as conn:
+        ticket_id = _insert_redemption(
+            conn,
+            rewards_api.tenant_id,
+            subject_id=rewards_api.users["expired_membership_student"],
+            item_id=rewards_api.items["cheap"],
+            item_name="Synthetic cheap reward",
+            cost=CHEAP_COST,
+        )
+
+    before = [
+        row["redemption_id"]
+        for row in rewards_api.get("/redemptions/queue", "coordinator").json()["redemptions"]
+    ]
+    assert str(ticket_id) not in before
+
+    with engine_or_skip.begin() as conn:
+        unit_path = conn.execute(
+            text("SELECT CAST(path AS text) FROM org_unit WHERE id = :id"),
+            {"id": rewards_api.unit_id},
+        ).scalar_one()
+        _grant(
+            conn,
+            rewards_api.tenant_id,
+            rewards_api.users["expired_membership_student"],
+            unit_path,
+            "student",
+        )
+
+    after = [
+        row["redemption_id"]
+        for row in rewards_api.get("/redemptions/queue", "coordinator").json()["redemptions"]
+    ]
+    assert str(ticket_id) in after
 
 
 # ---------------------------------------------------------------------------
