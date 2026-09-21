@@ -59,6 +59,7 @@ from smartmatch_persistence.exercise.instructor_rows import (
     TeamWorkspaceHandle,
     WorkingDataset,
 )
+from smartmatch_persistence.exercise.results_repository import RESULT_RUN_LOCK_KEY
 from smartmatch_persistence.exercise.schema import (
     exercise_dataset,
     exercise_event,
@@ -490,39 +491,43 @@ class ExerciseInstructorRepository:
         worth saying that it does not excuse one: see
         :class:`ExerciseWriteRefused`.
 
-        **Takes the saved-settings key first** (review round 1). The delete of
-        ``exercise_saved_setting`` below races a team's save otherwise: the save
-        holds
+        **Takes the saved-settings key, then the results key, before any
+        delete** (review round 1; the second key added by CE-RESULTS-API). Each
+        delete below races a team's write otherwise: the writer holds the key
+        while it checks and inserts, this delete runs in between and under READ
+        COMMITTED does not see the uncommitted row, and the writer then commits —
+        so a team keeps a setting, a result run or an overlay row that a reset or
+        a re-point was meant to clear.
+
+        **The order, and the one place it is written down:**
         :data:`~smartmatch_persistence.exercise.settings_repository.SAVED_SETTING_LOCK_KEY`
-        while it counts and inserts, this delete runs in between and under READ
-        COMMITTED does not see the uncommitted row, and the save then commits —
-        so a team keeps a setting a reset or a re-point was meant to clear.
+        carries the per-path walk for all four repositories.
+        :meth:`repoint_workspaces` already holds the membership key when it calls
+        this, which is that order; an advisory lock is re-entrant within a
+        transaction, so a caller that already holds either key pays one round
+        trip.
 
-        The order is the family's, stated on that constant: membership key, then
-        saved-settings key, then row locks. :meth:`repoint_workspaces` already
-        holds the membership key when it calls this, which is exactly that order;
-        an advisory lock is re-entrant within a transaction, so a caller that
-        already holds this key pays one round trip.
-
-        **The acquire runs through the scrubber too**, rather than calling
-        ``settings_repository.lock_saved_settings`` directly. It is a statement,
-        and in a transaction PostgreSQL has already poisoned it is the *first*
-        statement — so an unwrapped acquire would be the one driver exception
-        that escapes this module, out of the method whose own test exists to
-        prove none does. ``test_a_failing_child_delete_is_scrubbed_like_every_other_write``
-        caught exactly that when the lock was added.
+        **Both acquires run through the scrubber**, rather than calling
+        ``lock_saved_settings`` / ``lock_result_runs`` directly. Each is a
+        statement, and in a transaction PostgreSQL has already poisoned the first
+        one is the *first* statement — so an unwrapped acquire would be the one
+        driver exception that escapes this module, out of the method whose own
+        test exists to prove none does.
+        ``test_a_failing_child_delete_is_scrubbed_like_every_other_write``
+        caught exactly that when the first lock was added.
 
         Args:
             dataset_id: Not used in any statement's ``WHERE``; carried so a
                 refusal can be logged against the data file it happened in.
             workspace_id: The one workspace whose rows are deleted.
         """
-        self._execute(
-            session,
-            sa.select(sa.func.pg_advisory_xact_lock(SAVED_SETTING_LOCK_KEY)),
-            dataset_id=dataset_id,
-            refusal="That team's work could not be cleared.",
-        )
+        for key in (SAVED_SETTING_LOCK_KEY, RESULT_RUN_LOCK_KEY):
+            self._execute(
+                session,
+                sa.select(sa.func.pg_advisory_xact_lock(key)),
+                dataset_id=dataset_id,
+                refusal="That team's work could not be cleared.",
+            )
         for child in (exercise_profile_overlay, exercise_saved_setting, exercise_result_run):
             self._execute(
                 session,
@@ -614,10 +619,12 @@ class ExerciseInstructorRepository:
           ``uq_exercise_team_workspace_dataset_team`` — failing the **whole**
           re-point, after some teams had already been reset.
 
-        Three locks, in the order
+        Four locks, in the order
         :data:`~smartmatch_persistence.exercise.settings_repository.SAVED_SETTING_LOCK_KEY`
-        documents for the whole family, and none of them redundant (review
-        finding F2 on PR #184; the third added in review round 2 of PR #188):
+        documents for the whole family — that docstring's per-path walk is the
+        single source and this method does not restate it — and none of them
+        redundant (review finding F2 on PR #184; the saved-settings acquire in
+        review round 2 of PR #188; the results acquire in CE-RESULTS-API):
 
         * :func:`~smartmatch_persistence.exercise.workspace_repository.lock_workspace_membership`
           is taken **first**, before any row is read. It is what closes the
@@ -632,27 +639,20 @@ class ExerciseInstructorRepository:
           statement will touch, which is what closes the first end and what
           stops a second re-point, or a reset, from interleaving with this one.
 
-        **And the saved-settings key, before either scan** (review round 2, F1).
-        This method reaches
-        :data:`~smartmatch_persistence.exercise.settings_repository.SAVED_SETTING_LOCK_KEY`
-        anyway, through :meth:`reset_workspace_children` in the loop below — but
-        taking it *there* put it after the row locks, which is the family's
-        order read backwards. A concurrent ``save_setting`` holds that key and
-        then needs a workspace row for ``exercise_saved_setting``'s composite
-        foreign key; this method held the rows and then wanted the key. Each
-        waits on what the other holds, and PostgreSQL breaks the cycle the only
-        way it can: by aborting one of them, mid-classroom.
-
-        Taking it here restores membership → saved settings → row locks, which
-        is what the constant's own comment has always said this path does. It
-        costs one extra round trip and nothing else: the key is a *transaction*
-        advisory lock, so :meth:`reset_workspace_children`'s own acquire is
-        re-entrant and still earns its place for every other caller. The acquire
-        runs through :meth:`_execute` for that method's reason — it is a
-        statement, and no statement in this module may let driver text out.
-
-        The ordering — advisory locks, then row locks, on every path that takes
-        both — is what keeps the family deadlock-free.
+        * **The saved-settings key and the results key, before either scan**
+          (review round 2, F1; the second added by CE-RESULTS-API). This method
+          reaches both anyway, through :meth:`reset_workspace_children` in the
+          loop below — but taking them *there* puts them after the row locks,
+          which is the family's order read backwards. A concurrent
+          ``save_setting`` or ``record_run`` holds its key and then needs a
+          workspace row for a composite foreign key; this method held the rows
+          and then wanted the key. Each waits on what the other holds, and
+          PostgreSQL breaks the cycle the only way it can: by aborting one of
+          them, mid-classroom. Taking them here costs two round trips and
+          nothing else, because a transaction advisory lock is re-entrant and
+          the loop's own acquires still earn their place for every other caller.
+          Both run through :meth:`_execute`, for that method's reason — they are
+          statements, and no statement in this module may let driver text out.
 
         Returns:
             How many workspaces moved and how many stale ones were discarded.
@@ -662,12 +662,13 @@ class ExerciseInstructorRepository:
                 driver's exception never escapes.
         """
         lock_workspace_membership(session)
-        self._execute(
-            session,
-            sa.select(sa.func.pg_advisory_xact_lock(SAVED_SETTING_LOCK_KEY)),
-            dataset_id=dataset_id,
-            refusal="The teams could not be moved to that data file.",
-        )
+        for key in (SAVED_SETTING_LOCK_KEY, RESULT_RUN_LOCK_KEY):
+            self._execute(
+                session,
+                sa.select(sa.func.pg_advisory_xact_lock(key)),
+                dataset_id=dataset_id,
+                refusal="The teams could not be moved to that data file.",
+            )
         target_team_numbers = {
             row.team_number
             for row in session.execute(

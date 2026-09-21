@@ -86,12 +86,6 @@ MAX_SAVED_SETTINGS_PER_EVENT: Final[int] = 3
 #: PostgreSQL's signed ``bigint``. It cannot silently collide with that key
 #: unless two different table names hash alike.
 #:
-#: **Coarse, and deliberately.** One key serialises saved-setting writes across
-#: every team rather than per workspace. Six teams saving a named weighting
-#: between two clicks is not contention, the work inside the lock is two short
-#: statements, and a per-workspace key would be a second thing to get right for
-#: no measured gain.
-#:
 #: The lock order for this family, walked path by path (review round 2)
 #: -------------------------------------------------------------------
 #: Round 1 stated the order in prose and round 2 found it was not true of
@@ -103,7 +97,16 @@ MAX_SAVED_SETTINGS_PER_EVENT: Final[int] = 3
 #:
 #: The order every path takes, and none takes any other::
 #:
-#:     WORKSPACE_MEMBERSHIP_LOCK_KEY -> SAVED_SETTING_LOCK_KEY -> row locks
+#:     WORKSPACE_MEMBERSHIP_LOCK_KEY -> SAVED_SETTING_LOCK_KEY
+#:         -> RESULT_RUN_LOCK_KEY -> row locks
+#:
+#: CE-RESULTS-API added the third key
+#: (:data:`~smartmatch_persistence.exercise.results_repository.RESULT_RUN_LOCK_KEY`,
+#: derived from ``sha256(b"exercise_result_run")`` rather than reusing this one)
+#: and three new writing paths. It is third because the only paths that take
+#: more than one key — ``repoint_workspaces``, ``reset_team`` and
+#: ``reset_workspace_children`` — already took the first two, and no results path
+#: takes either of the earlier keys at all.
 #:
 #: Each path below is *keys taken, in order* → *row locks, all taken after them*.
 #:
@@ -113,8 +116,11 @@ MAX_SAVED_SETTINGS_PER_EVENT: Final[int] = 3
 #:   FK FOR KEY SHARE on ``exercise_dataset``; UPDATE of that same workspace row
 #:   in ``repair_token_hash``.
 #: * ``entry_dataset_for`` — membership → none; every statement is a plain SELECT.
-#: * ``reset_team`` — saved settings → DELETE overlay, saved settings and result
-#:   runs; UPDATE the workspace row.
+#: * ``reset_team`` — saved settings, then result runs → DELETE overlay, saved
+#:   settings and result runs; UPDATE the workspace row. It takes the third key
+#:   for the same reason round 1's item 9 made it take the second: a run or a
+#:   refresh committing between this DELETE and this commit survives a reset that
+#:   was meant to clear it.
 #: * ``active_dataset``, ``find_by_token_hash`` — none → none.
 #:
 #: ``settings_repository``
@@ -128,31 +134,50 @@ MAX_SAVED_SETTINGS_PER_EVENT: Final[int] = 3
 #:
 #: * ``list_team_profiles`` — none → none.
 #:
+#: ``results_repository``
+#:
+#: * ``record_run`` — result runs → INSERT ``exercise_result_run``; FK FOR KEY
+#:   SHARE on ``exercise_team_workspace`` and on ``exercise_event``.
+#: * ``choose_asking`` — result runs → UPDATE ``exercise_team_workspace``.
+#: * ``apply_refresh`` — result runs → UPDATE ``exercise_team_workspace`` (the
+#:   ``refreshed_at`` claim, taken **before** any overlay write), then
+#:   INSERT/UPDATE ``exercise_profile_overlay``; FK FOR KEY SHARE on
+#:   ``exercise_team_workspace`` and on ``exercise_profile``.
+#: * ``results_unlocked``, ``team_state``, ``get_run``, ``get_run_for_round``,
+#:   ``workspaces_awaiting_refresh`` — none → none.
+#:
 #: ``instructor_repository``
 #:
-#: * ``repoint_workspaces`` — membership, then saved settings → two SELECT FOR
-#:   UPDATE on ``exercise_team_workspace``, then the children's DELETEs, then
-#:   DELETE or UPDATE of each workspace row. It is the only path that takes all
-#:   three. **The second key is taken directly, before either FOR UPDATE scan**,
-#:   which is round 2's F1: the earlier shape reached this key inside
-#:   ``reset_workspace_children``, *after* the row locks, which is this order
-#:   read backwards — a concurrent ``save_setting`` holds this key and then
-#:   needs a workspace row for ``exercise_saved_setting``'s composite foreign
-#:   key, and each waited on what the other held. The loop's own acquire still
-#:   runs, but a transaction advisory lock is re-entrant, so it costs one round
-#:   trip.
-#: * ``reset_workspace_children`` — saved settings → DELETE overlay, saved
-#:   settings, result runs.
-#: * ``reset_team`` — saved settings, delegated → as ``workspace_repository``'s.
+#: * ``repoint_workspaces`` — membership, then saved settings, then result runs
+#:   → two SELECT FOR UPDATE on ``exercise_team_workspace``, then the children's
+#:   DELETEs, then DELETE or UPDATE of each workspace row. It is the only path
+#:   that takes all three. **Every key is taken directly, before either FOR
+#:   UPDATE scan**, which is round 2's F1: the earlier shape reached the
+#:   saved-settings key inside ``reset_workspace_children``, *after* the row
+#:   locks, which is this order read backwards — a concurrent ``save_setting``
+#:   holds that key and then needs a workspace row for
+#:   ``exercise_saved_setting``'s composite foreign key, and each waited on what
+#:   the other held. The loop's own acquires still run, but a transaction
+#:   advisory lock is re-entrant, so each costs one round trip.
+#: * ``reset_workspace_children`` — saved settings, then result runs → DELETE
+#:   overlay, saved settings, result runs.
+#: * ``reset_team`` — saved settings, then result runs, delegated → as
+#:   ``workspace_repository``'s.
 #: * ``set_invite_limit`` — none → UPDATE ``exercise_dataset``, which is FOR NO
 #:   KEY UPDATE and does not conflict with the FK's FOR KEY SHARE.
 #: * ``unlock_results`` — none → INSERT ``exercise_result_unlock``; FK FOR KEY
-#:   SHARE on ``exercise_event``.
+#:   SHARE on ``exercise_event``. It takes no key: the row it writes is the
+#:   instructor's own lock state, which nothing on a team path deletes.
+#: * ``refresh_all`` (the instructor router, through ``results_repository``) —
+#:   result runs, once → whatever ``apply_refresh`` takes, per workspace. The key
+#:   is re-entrant, so holding it across the loop costs one acquire.
 #: * every ``list_*`` read — none → none.
 #:
 #: ``dataset_repository``
 #:
 #: * ``create_dataset`` — none → INSERT dataset, profiles, events.
+#: * ``load_simulation_profiles`` — none → none. Called from inside
+#:   ``results_repository.apply_refresh``, which already holds the third key.
 #: * every ``list_*`` read — none → none.
 #:
 #: **Why the order is the one it is.** ``save_setting`` forces it: it holds this
@@ -162,19 +187,30 @@ MAX_SAVED_SETTINGS_PER_EVENT: Final[int] = 3
 #: after ``deadlock_timeout`` — an instructor's re-point failing because a team
 #: pressed save. ``repoint_workspaces`` was exactly that path for one round,
 #: which is why the walk above exists rather than a sentence.
+#: ``record_run`` puts the results key in the same position for the same reason:
+#: it holds that key and then waits for a FOR KEY SHARE lock on the same
+#: workspace row.
 #:
-#: **Why no cycle is possible.** No path takes the membership key after this one,
-#: and no path takes a row lock before either key. A cycle needs two paths that
+#: **Why no cycle is possible.** No path takes an earlier key after a later one,
+#: and no path takes a row lock before any key. A cycle needs two paths that
 #: acquire in opposite orders, and there is no second order in the list. The
 #: integration file probes both directions rather than trusting this comment:
-#: ``test_a_save_never_takes_the_membership_key`` and
-#: ``test_a_repoint_waits_for_the_saved_settings_key_before_it_locks_a_row``.
+#: ``test_a_save_never_takes_the_membership_key``,
+#: ``test_a_repoint_takes_the_saved_settings_key_before_any_row_lock`` and —
+#: for the third key — ``test_a_results_write_takes_only_the_results_key`` and
+#: ``test_a_reset_takes_all_three_keys_in_the_declared_order``.
 #:
 #: **Coarse, and deliberately.** One key serialises saved-setting writes across
 #: every team rather than per workspace. Six teams saving a named weighting
 #: between two clicks is not contention, the work inside the key is two short
 #: statements, and a per-workspace key would be a second thing to get right for
 #: no measured gain.
+#:
+#: **This walk is the single source.** ``reset_team`` and ``repoint_workspaces``
+#: describe their own acquires in one sentence each and point back here rather
+#: than restating the order (review carry-over (c) from PR #188): three
+#: descriptions of one order are three things free to drift, and the drift is
+#: silent.
 SAVED_SETTING_LOCK_KEY: Final[int] = int.from_bytes(
     hashlib.sha256(b"exercise_saved_setting").digest()[:8], "big", signed=True
 )
