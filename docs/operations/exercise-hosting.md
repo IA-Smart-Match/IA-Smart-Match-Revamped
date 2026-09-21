@@ -35,7 +35,7 @@ away and why it is acceptable for this scope and not for the other one.
 
 | Gap | Why | Consequence |
 |---|---|---|
-| ~~No compose service runs this scope~~ **Closed.** | `docker-compose.yml`'s `api-exercise` service runs `SMARTMATCH_PRODUCT_SCOPE=class_exercise`, gated behind the `exercise` compose profile, bound to `127.0.0.1:8090`. `docker-compose.vm.yml` adds its restart policy and pins `SMARTMATCH_EXERCISE_COOKIE_SECURE=true`. `tests/unit/test_exercise_compose_service.py` pins its shape. | Steps 7-10 and 18 of [§9](#9-deploy-and-verify-checklist) are runnable by an operator; see that section for the exact commands. |
+| ~~No compose service runs this scope~~ **Closed.** | `docker-compose.exercise.yml` (a THIRD `-f` file, loaded only when named) defines an `api-exercise` service running `SMARTMATCH_PRODUCT_SCOPE=class_exercise`, gated behind the `exercise` compose profile, bound to `127.0.0.1:8090`, with its own restart policy and `SMARTMATCH_EXERCISE_COOKIE_SECURE=true` pinned in the same file. `docker-compose.yml` and `docker-compose.vm.yml` are untouched — an earlier version of this lived inside `docker-compose.yml` and broke `docker compose up` for the whole CBA stack (Compose evaluates required-secret interpolation for every service in a loaded file, profile or no profile). `tests/unit/test_exercise_compose_service.py` pins its shape. | Steps 7-10 and 18 of [§9](#9-deploy-and-verify-checklist) are runnable by an operator; see that section for the exact commands. |
 | **The Vite dev server rejects `exercise.plated.blog`** | `apps/web/legacy-frontend/vite.config.ts:53` is `allowedHosts: ["pilot.plated.blog"]` — one host, and it is the other one | `exercise.plated.blog` served through that dev server answers **"Blocked request"**, exactly as `pilot.plated.blog` did before commit `d5ffcb05` fixed it there. `"exercise.plated.blog"` must be added to that array. Code change, frontend track. |
 | **No proxy rate-limit config is in the repository** | The only front door is a dashboard-managed Cloudflare Tunnel (`vm-deploy.md:87-96`); there is no nginx/Caddy/Traefik config checked in | The per-client limit on the instructor login has to be built in the Cloudflare dashboard by hand, and cannot be reviewed in git. With no Access policy on this host, that rule is the **only** edge protection. See [§5](#5-rate-limiting-belongs-at-the-proxy-oq-ce-06). |
 
@@ -669,9 +669,10 @@ session (the passcode) and sends `X-Exercise-Request`. Step 0 needs neither.
 
 **Read [§0](#read-this-first-three-things-you-cannot-do-today) before you run
 this.** The compose gap that used to block steps 7-10 and 18 is **closed**:
-`docker-compose.yml`'s `api-exercise` service runs
+`docker-compose.exercise.yml`'s `api-exercise` service runs
 `SMARTMATCH_PRODUCT_SCOPE=class_exercise` behind the `exercise` compose
-profile. Steps 7-10 and 18 below give the exact commands. The other two gaps
+profile, loaded as a third `-f` file alongside `docker-compose.yml` and
+`docker-compose.vm.yml`. Steps 7-10 and 18 below give the exact commands. The other two gaps
 in [§0](#read-this-first-three-things-you-cannot-do-today) — the Vite
 `allowedHosts` entry and the dashboard-managed rate-limit rule — are
 unaffected by this and remain open; steps that depend on them are still
@@ -752,39 +753,47 @@ checklist for real:
    at least 12 characters **after stripping** whitespace
    (`instructor_session.py:112,163-164`).
 
-6. **Set `SMARTMATCH_EXERCISE_COOKIE_SECURE=true`** on the VM's exercise
-   process env, per [§4](#4-https-and-cookies). Pass: the workspace cookie
-   (`exercise_workspace`) carries `Secure` on a response from
-   `https://exercise.plated.blog`. **VERIFY ON VM** — cannot be checked before
-   the process exists.
+6. **`SMARTMATCH_EXERCISE_COOKIE_SECURE=true` is already pinned** for you —
+   `docker-compose.exercise.yml` hard-sets it on the `api-exercise` service,
+   per [§4](#4-https-and-cookies) and the owner decision, 2026-09-21. Nothing
+   to set by hand. Pass: the workspace cookie (`exercise_workspace`) carries
+   `Secure` on a response from `https://exercise.plated.blog`. **VERIFY ON
+   VM** — cannot be checked before the process exists.
 
 ### Compose up
 
-7. **Bring `api-exercise` up with both override files, the `exercise`
-   profile, and a rebuild** — the same `-f`/`-f`/`--build` shape `vm-deploy.md`
-   states for the CBA appliance and repeated in [§8](#8-known-limits) item 5
-   of this file. The required secrets ([§2](#2-environment-variables)) must
-   already be exported or in the VM's `.env` before this runs, or compose
-   refuses to start the container (`${VAR:?message}` interpolation — no
-   default exists for any of them):
+7. **Bring `api-exercise` up with all three files, the `exercise` profile,
+   and a rebuild.** `docker-compose.exercise.yml` holds the service itself
+   and is not loaded by any command that omits it — that is deliberate: an
+   earlier version of this service lived directly in `docker-compose.yml`
+   and broke the default `docker compose up` for the whole CBA stack, because
+   Compose evaluates its required secrets (`${VAR:?message}`) for every
+   service in a loaded file regardless of profile. Keeping it in its own file
+   is what makes `-f docker-compose.yml -f docker-compose.vm.yml up` — the
+   ordinary CBA command — unaffected. The required secrets
+   ([§2](#2-environment-variables)) must already be exported or in the VM's
+   `.env` before this runs, or compose refuses to start the container:
    ```bash
    docker compose -f docker-compose.yml -f docker-compose.vm.yml \
-     --profile exercise up -d --build api-exercise
-   docker compose ps
+     -f docker-compose.exercise.yml --profile exercise \
+     up -d --build api-exercise
+   docker compose -f docker-compose.yml -f docker-compose.vm.yml \
+     -f docker-compose.exercise.yml ps
    ```
    `migrate` does not need re-running here on its own — it already ran (or
    will run) as part of the normal CBA `up`, and `api-exercise` shares that
    same database and migration head ([§0](#read-this-first-three-things-you-cannot-do-today)
    step 2). Pass: `docker compose ps` shows `api-exercise` as `Up`. Omitting
-   `docker-compose.vm.yml` strips its restart policy; omitting `--build`
-   reuses a stale image; omitting `--profile exercise` means the service is
-   never even considered — none is a valid partial run.
+   `docker-compose.exercise.yml` means the service is never defined at all;
+   omitting `--build` reuses a stale image; omitting `--profile exercise`
+   means the service is defined but never started — none is a valid partial
+   run.
 
 8. **Size the exercise process's connection pool down explicitly** before
    first boot, per [§8](#8-known-limits) item 4 — do not let it take the
    default `20 + 10`. Set `SMARTMATCH_EXERCISE_DB_POOL_SIZE` and
    `SMARTMATCH_EXERCISE_DB_MAX_OVERFLOW` (`.env.example` documents both,
-   mapped by `docker-compose.yml` to this container's
+   mapped by `docker-compose.exercise.yml` to this container's
    `SMARTMATCH_DB_POOL_SIZE` / `SMARTMATCH_DB_MAX_OVERFLOW`) before the `up`
    in step 7. Pass: the values are set to something smaller than the
    existing `(20+10) + (20+10) = 60` CBA budget leaves room for against the
@@ -795,7 +804,7 @@ checklist for real:
 9. **Add the `exercise.plated.blog` public hostname** to the existing
    `smartmatch-classroom-pilot` tunnel, per [§4a](#4a-the-tunnel-and-why-there-is-no-access-policy),
    pointing it at `http://127.0.0.1:8090` — the loopback origin
-   `docker-compose.yml`'s `api-exercise` service publishes. No new tunnel, no
+   `docker-compose.exercise.yml`'s `api-exercise` service publishes. No new tunnel, no
    new `cloudflared service install`. Pass: Cloudflare Zero Trust → Networks →
    Tunnels → `smartmatch-classroom-pilot` lists a public hostname for
    `exercise.plated.blog` pointing at `127.0.0.1:8090`. **VERIFY ON VM** —
@@ -891,10 +900,11 @@ to be live. All are **VERIFY ON VM** until then.
     migration on shared infrastructure went wrong. There is no exercise-only
     rollback because there is no exercise-only backup — the database is
     shared. A compose-level rollback of the service itself is just
-    `docker compose --profile exercise stop api-exercise` (or
     `docker compose -f docker-compose.yml -f docker-compose.vm.yml
-    --profile exercise up -d --build api-exercise` again on the prior SHA) —
-    it is `--profile exercise` on top of, not a replacement for, the ordinary
+    -f docker-compose.exercise.yml --profile exercise stop api-exercise`
+    (or the full three-file `up -d --build api-exercise` from step 7 again
+    on the prior SHA) — it is `-f docker-compose.exercise.yml --profile
+    exercise` on top of, not a replacement for, the ordinary
     `deploy.sh` rollback path. **VERIFY ON VM**: `scripts/vm/deploy.sh` is
     not part of this track and was not changed here — confirm by hand
     whether its health gate already covers a profile-gated service before
@@ -986,7 +996,7 @@ check result, and the date/SHA — in the evidence table above.
   evidence table in [§9](#9-deploy-and-verify-checklist) before the "Deployed
   & reachable" row can move past "checklist ready, operator run pending."
 * **The compose change is in this repository but has not been run.** Steps
-  7-10 and 18 of §9 are now written against `docker-compose.yml`'s
+  7-10 and 18 of §9 are now written against `docker-compose.exercise.yml`'s
   `api-exercise` service and `tests/unit/test_exercise_compose_service.py`
   pins its shape, but no `docker compose --profile exercise up` has been run
   against it on the VM or anywhere else, and this document makes no claim
