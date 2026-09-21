@@ -74,7 +74,14 @@ export function ExerciseMatching(): React.JSX.Element {
     }),
     [eventKey, weighting],
   );
-  const { state, reload } = useExerciseResource(load, [eventKey, weighting]);
+  // A refused weighting must not take the screen down with it — the list a
+  // team was already looking at is still the true answer to the question it
+  // asked before the one that was refused. See `useExerciseResource`'s
+  // `keepDataOnRefusal` docstring for why the other exercise screens do not
+  // opt into this.
+  const { state, reload } = useExerciseResource(load, [eventKey, weighting], {
+    keepDataOnRefusal: true,
+  });
 
   /**
    * Run one action; show any refusal, and say whether it worked.
@@ -122,6 +129,9 @@ export function ExerciseMatching(): React.JSX.Element {
       {state.status !== "ready" ? null : (
         <div className="flex flex-col gap-8">
           {panelRefusal === null ? null : <ExerciseNotice message={panelRefusal} />}
+          {state.refusal === null ? null : (
+            <ExerciseNotice message={state.refusal.message} tone="problem" />
+          )}
 
           {/*
             Mounted continuously, including while a new list is being fetched.

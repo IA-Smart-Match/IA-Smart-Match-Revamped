@@ -266,6 +266,61 @@ describe("<ExerciseMatching />", () => {
     await waitFor(() => expect(listCalls().length).toBe(2));
   });
 
+  it("shows a refused list GET as a sentence and leaves the rest of the screen usable", async () => {
+    // G2. Fails on the merged code: without `keepDataOnRefusal`, a refused
+    // list GET dropped the whole hook to `status: "refused"`, which
+    // `ExerciseMatching` renders as `workspaceRequiredNotice` in place of
+    // everything else — the weight boxes, the previous list, the save panel.
+    // A team that typed a weight the server refuses should see one sentence
+    // *and* keep the list and controls it already had.
+    let listCallCount = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string, init: RequestInit) => {
+        calls.push({ url, init });
+        const path = url.split("?")[0];
+        if (path.endsWith("/list")) {
+          listCallCount += 1;
+          if (listCallCount > 1) {
+            return Promise.resolve(
+              new Response(
+                JSON.stringify({
+                  error: { code: "exercise_invalid_weights", message: "Weights must sum to 1." },
+                }),
+                { status: 400 },
+              ),
+            );
+          }
+          return Promise.resolve(new Response(JSON.stringify(LIST), { status: 200 }));
+        }
+        if (path.endsWith("/settings")) {
+          return Promise.resolve(new Response(JSON.stringify(SETTINGS), { status: 200 }));
+        }
+        return Promise.resolve(
+          new Response(JSON.stringify({ error: { code: "test_unstubbed", message: url } }), {
+            status: 404,
+          }),
+        );
+      }),
+    );
+    renderMatching();
+
+    const box = await screen.findByLabelText("same major");
+    expect(screen.getByText("Rosa Villalobos")).toBeDefined();
+
+    fireEvent.focus(box);
+    fireEvent.change(box, { target: { value: "0.9" } });
+    fireEvent.blur(box);
+
+    await waitFor(() => expect(screen.getByText("Weights must sum to 1.")).toBeDefined());
+
+    // The list from before the refused request, and the controls to fix the
+    // mistake, are still on screen next to the sentence.
+    expect(screen.getByText("Rosa Villalobos")).toBeDefined();
+    expect(screen.getByLabelText("same major")).toBeDefined();
+    expect(document.querySelector('[data-slot="exercise-csv-download"]')).not.toBeNull();
+  });
+
   it("keeps the name a team typed when the save is refused", async () => {
     // F5. Fails on the merged code: the screen's `guard` swallowed the refusal
     // and resolved, the panel read that as success and called `setName("")`,
