@@ -176,8 +176,11 @@ MAX_SAVED_SETTINGS_PER_EVENT: Final[int] = 3
 #: ``dataset_repository``
 #:
 #: * ``create_dataset`` — none → INSERT dataset, profiles, events.
-#: * ``load_simulation_profiles`` — none → none. Called from inside
-#:   ``results_repository.apply_refresh``, which already holds the third key.
+#: * ``load_simulation_profiles`` — none → none. Reached from
+#:   ``results_cards.copied_cards``, which ``results_repository.apply_refresh``
+#:   calls while already holding the third key; also called directly by
+#:   ``routers/exercise_results_run.py``, which takes no key at all. Being a
+#:   read, it adds nothing to any path's key order either way.
 #: * every other read — none → none.
 #:
 #: **Why the order is the one it is.** ``save_setting`` forces it: it holds this

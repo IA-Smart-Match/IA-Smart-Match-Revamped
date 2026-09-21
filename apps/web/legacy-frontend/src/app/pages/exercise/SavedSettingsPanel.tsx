@@ -21,16 +21,16 @@
  */
 import * as React from "react";
 
-import { isRefusal } from "../../../lib/exerciseApi";
 import type { SavedSettingsView, SavedSettingView } from "../../../lib/exerciseClient";
-import { ExerciseNotice } from "./ExerciseScreen";
 
 export interface SavedSettingsPanelProps {
   readonly saved: SavedSettingsView;
   /** The weights currently on screen, which "save" stores under a name. */
   readonly weights: Readonly<Record<string, number>>;
-  readonly onSave: (name: string) => Promise<void>;
-  readonly onDelete: (name: string) => Promise<void>;
+  /** Saves under a name; resolves `true` only when the server accepted it. */
+  readonly onSave: (name: string) => Promise<boolean>;
+  /** Deletes one; resolves `true` only when the server accepted it. */
+  readonly onDelete: (name: string) => Promise<boolean>;
   /** Load the list for a saved setting. */
   readonly onOpen: (name: string) => void;
   /** Show two of them side by side. */
@@ -50,24 +50,29 @@ export function SavedSettingsPanel({
 }: SavedSettingsPanelProps): React.JSX.Element {
   const [name, setName] = React.useState("");
   const [pending, setPending] = React.useState(false);
-  const [refusal, setRefusal] = React.useState<string | null>(null);
   const [a, setA] = React.useState("");
   const [b, setB] = React.useState("");
 
-  async function run(action: () => Promise<void>): Promise<void> {
+  /**
+   * Run one action, and say whether it worked.
+   *
+   * This panel deliberately keeps no refusal state of its own. Its callers
+   * already catch every refusal and show the sentence — so a second error slot
+   * here was never reachable, and the `catch` that fed it never ran. Worse,
+   * because the caller's guard resolved after swallowing, a *failed* save
+   * looked exactly like a successful one from in here: the name box was
+   * cleared and the team was left to work out that nothing had been saved.
+   *
+   * The caller now reports the outcome, and the only thing this panel does
+   * with it is decide whether to clear the box.
+   */
+  async function run(action: () => Promise<boolean>): Promise<boolean> {
     if (pending) {
-      return;
+      return false;
     }
     setPending(true);
-    setRefusal(null);
     try {
-      await action();
-    } catch (error) {
-      setRefusal(
-        isRefusal(error)
-          ? error.message
-          : "The exercise could not be reached. Check the connection and try again.",
-      );
+      return await action();
     } finally {
       setPending(false);
     }
@@ -93,8 +98,14 @@ export function SavedSettingsPanel({
             return;
           }
           void run(async () => {
-            await onSave(name.trim());
-            setName("");
+            const saved = await onSave(name.trim());
+            // Only on success. A refused fourth name, or a name the server
+            // will not take, leaves what the team typed where they can see
+            // it and fix it.
+            if (saved) {
+              setName("");
+            }
+            return saved;
           });
         }}
       >
@@ -121,8 +132,6 @@ export function SavedSettingsPanel({
           Saves the {Object.keys(weights).length} numbers now on screen.
         </span>
       </form>
-
-      {refusal === null ? null : <ExerciseNotice message={refusal} />}
 
       {settings.length === 0 ? (
         <p className="text-xl text-slate-700 dark:text-slate-200">

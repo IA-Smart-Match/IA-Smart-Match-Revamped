@@ -46,6 +46,24 @@ const BUTTON =
 export function ExerciseAskingForMore(): React.JSX.Element {
   const { state, reload } = useExerciseResource(readAskingChoice, []);
 
+  /**
+   * What the one refresh reported, held by the screen rather than the panel.
+   *
+   * A team may refresh once, ever. The counts came back from that single
+   * request and the server will not produce them again — `GET …/asking-choice`
+   * reports only *that* a team has refreshed, not what happened. So they
+   * cannot live in a component that a reload unmounts, which is exactly what
+   * used to happen: the refresh resolved, the counts rendered, the reload it
+   * triggered dropped the screen to `loading`, the panel unmounted, and the
+   * only record of the result was gone for good.
+   *
+   * `useExerciseResource` no longer unmounts a ready screen while it
+   * refetches, so this would survive either way now. It is lifted regardless:
+   * a once-only result should not depend on a rendering detail somewhere else
+   * to stay on the screen.
+   */
+  const [refreshed, setRefreshed] = React.useState<RefreshView | null>(null);
+
   return (
     <ExerciseScreen
       title="Asking for more"
@@ -65,7 +83,14 @@ export function ExerciseAskingForMore(): React.JSX.Element {
           </button>
         </ExerciseNotice>
       ) : null}
-      {state.status === "ready" ? <AskingPanels asking={state.data} onChanged={reload} /> : null}
+      {state.status === "ready" ? (
+        <AskingPanels
+          asking={state.data}
+          onChanged={reload}
+          refreshed={refreshed}
+          onRefreshed={setRefreshed}
+        />
+      ) : null}
     </ExerciseScreen>
   );
 }
@@ -73,14 +98,28 @@ export function ExerciseAskingForMore(): React.JSX.Element {
 function AskingPanels({
   asking,
   onChanged,
+  refreshed,
+  onRefreshed,
 }: {
   readonly asking: AskingStateView;
-  readonly onChanged: () => void;
+  readonly onChanged: () => Promise<void>;
+  /** The once-only refresh result, owned by the screen. */
+  readonly refreshed: RefreshView | null;
+  readonly onRefreshed: (view: RefreshView) => void;
 }): React.JSX.Element {
   const [pending, setPending] = React.useState(false);
   const [refusal, setRefusal] = React.useState<string | null>(null);
-  const [refreshed, setRefreshed] = React.useState<RefreshView | null>(null);
 
+  /**
+   * Run one action and stay disabled until the screen actually reflects it.
+   *
+   * `onChanged` (the hook's `reload`) resolves once the *refreshed* state has
+   * landed, not once the network call it started has. Clearing `pending`
+   * right after the mutation's own request settled — and before that reload
+   * resolved — left a window where `asking.choice` / `asking.refreshed` were
+   * still the old, unlocked values and the button was clickable again: a
+   * once-only action could be fired twice inside that window.
+   */
   async function run(action: () => Promise<void>): Promise<void> {
     if (pending) {
       return;
@@ -120,7 +159,7 @@ function AskingPanels({
                   onClick={() =>
                     void run(async () => {
                       await chooseAsking(choice);
-                      onChanged();
+                      await onChanged();
                     })
                   }
                   className={`${BUTTON} ${
@@ -161,8 +200,8 @@ function AskingPanels({
             disabled={pending || asking.choice === null || asking.refreshed}
             onClick={() =>
               void run(async () => {
-                setRefreshed(await refreshProfiles());
-                onChanged();
+                onRefreshed(await refreshProfiles());
+                await onChanged();
               })
             }
             className={BUTTON}

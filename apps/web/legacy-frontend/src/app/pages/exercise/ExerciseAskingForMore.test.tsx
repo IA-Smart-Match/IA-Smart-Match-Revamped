@@ -149,7 +149,16 @@ describe("<ExerciseAskingForMore />", () => {
     expect(screen.getByText(/pick a way of asking first/i)).toBeDefined();
   });
 
-  it("shows the counts a refresh produced, and no percentage", async () => {
+  it("keeps the once-only refresh counts on screen after the reload settles", async () => {
+    // F3. A team may refresh once, ever, and `GET …/asking-choice` reports only
+    // *that* it has — never what happened. So these three numbers exist in
+    // exactly one response and nothing can fetch them again.
+    //
+    // Fails on the merged code: the counts were held by `AskingPanels`, the
+    // refresh called `onChanged()`, the reload dropped the hook to `loading`,
+    // and the panel unmounted — taking them with it. Asserting *after* the
+    // reload's own request has landed is what catches it; the old test looked
+    // at a DOM that was about to be thrown away.
     stub({
       [`GET ${ASKING}`]: { body: { choice: "required", choices: ["required"], refreshed: false } },
       [`POST ${REFRESH}`]: {
@@ -158,12 +167,91 @@ describe("<ExerciseAskingForMore />", () => {
     });
     renderAsking();
     fireEvent.click(await screen.findByRole("button", { name: /ask them now/i }));
-    await waitFor(() =>
-      expect(document.querySelector('[data-slot="exercise-refresh-counts"]')?.textContent).toContain(
-        "14",
-      ),
-    );
+
+    // The POST, then the reload's GET, have both been issued.
+    await waitFor(() => expect(calls.filter((call) => call.url === REFRESH).length).toBe(1));
+    await waitFor(() => expect(calls.filter((call) => call.url === ASKING).length).toBe(2));
+    // Let the reload's answer settle before looking.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const counts = document.querySelector('[data-slot="exercise-refresh-counts"]');
+    expect(counts).not.toBeNull();
+    expect(counts?.textContent).toContain("14");
+    expect(counts?.textContent).toContain("3");
+    expect(counts?.textContent).toContain("22");
     expect(document.body.textContent).not.toContain("%");
+  });
+
+  it("keeps the once-only button disabled until the reload after it settles", async () => {
+    // G3. Fails on the merged code: `run` cleared `pending` in its `finally`
+    // as soon as the refresh's own POST resolved, without waiting for the
+    // reload it triggers. `asking.refreshed` is still `false` — the stale
+    // value from before the refresh — until that reload's GET lands, so
+    // there was a real window where the button read enabled and a second
+    // click could fire a second, illegal refresh. This test holds that GET
+    // open and looks at the button while it is still in flight.
+    let releaseSecondGet: (() => void) | null = null;
+    let getCount = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string, init: RequestInit) => {
+        calls.push({ url, init });
+        const method = init.method ?? "GET";
+        if (url === ASKING && method === "GET") {
+          getCount += 1;
+          if (getCount === 1) {
+            return Promise.resolve(
+              new Response(
+                JSON.stringify({ choice: "required", choices: ["required"], refreshed: false }),
+                { status: 200 },
+              ),
+            );
+          }
+          // The reload triggered by the refresh: held open on purpose.
+          return new Promise<Response>((resolve) => {
+            releaseSecondGet = () =>
+              resolve(
+                new Response(
+                  JSON.stringify({ choice: "required", choices: ["required"], refreshed: true }),
+                  { status: 200 },
+                ),
+              );
+          });
+        }
+        if (url === REFRESH && method === "POST") {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({ choice: "required", cards_completed: 1, non_responding: 0, topics_added: 0 }),
+              { status: 200 },
+            ),
+          );
+        }
+        return Promise.resolve(
+          new Response(JSON.stringify({ error: { code: "test_unstubbed", message: url } }), {
+            status: 404,
+          }),
+        );
+      }),
+    );
+
+    renderAsking();
+    const ask = (await screen.findByRole("button", {
+      name: /ask them now/i,
+    })) as HTMLButtonElement;
+    fireEvent.click(ask);
+
+    // The refresh POST has landed and the reload's GET is in flight, held
+    // open by `releaseSecondGet`.
+    await waitFor(() => expect(calls.some((call) => call.url === REFRESH)).toBe(true));
+    await waitFor(() => expect(getCount).toBe(2));
+
+    expect(ask.disabled).toBe(true);
+
+    releaseSecondGet?.();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /your team has already asked/i })).toBeDefined(),
+    );
+    expect(calls.filter((call) => call.url === REFRESH).length).toBe(1);
   });
 
   it("renders a refresh refused before a first round as a state, not an error", async () => {

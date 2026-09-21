@@ -41,7 +41,7 @@ import hashlib
 from collections.abc import Iterable, Mapping
 from enum import StrEnum
 from types import MappingProxyType
-from typing import Final
+from typing import Final, assert_never
 
 __all__ = [
     "CARD_COMPLETION_SHARE",
@@ -155,10 +155,23 @@ def copied_card_career_goal(
     Returns:
         The value to store in ``exercise_profile_overlay.card_career_goal``, or
         ``None`` for "this card says nothing about a career goal".
+
+    Raises:
+        AssertionError: If ``policy`` is not a member of
+            :class:`CopiedCardCareerGoal`. A third member added without a branch
+            here must be refused, not silently read as
+            :attr:`CopiedCardCareerGoal.NONE` — the wrong answer that looks like
+            a deliberate one. Raised via :func:`typing.assert_never`, so mypy
+            also flags an unhandled member statically, at the call site of
+            ``assert_never`` rather than only at runtime.
     """
-    if policy is CopiedCardCareerGoal.BASE_GOAL:
-        return base_career_goal
-    return None
+    match policy:
+        case CopiedCardCareerGoal.BASE_GOAL:
+            return base_career_goal
+        case CopiedCardCareerGoal.NONE:
+            return None
+        case _:
+            assert_never(policy)
 
 
 def _rank_key(seed: int, salt: str, profile_no: int) -> tuple[bytes, int]:
