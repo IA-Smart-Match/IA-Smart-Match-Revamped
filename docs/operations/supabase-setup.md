@@ -9,15 +9,30 @@ closes the "managed DB backups" pilot-readiness row by giving an operator a
 managed Postgres with real backups to point a staging deployment at — it does
 not authorize a production cutover.
 
-This is the executed version of the plan recorded in
+This is a **documentation-only** implementation of the plan recorded in
 [`docs/plans/2026-09-14-supabase-migration-ticket.md`](../plans/2026-09-14-supabase-migration-ticket.md);
-read that file for the full rationale. Ticket acceptance criteria this
-document satisfies:
+read that file for the full rationale. No Supabase project has been created
+and no command in this document has actually been run against one — nothing
+here should be read as "executed." The ticket lists six acceptance criteria;
+three are documentation and are met by this change, three require an
+operator to actually stand up a project and are unverified:
+
+**Met (documentation, this change):**
 
 > `docs/operations/supabase-setup.md` and `supabase-maintenance.md` committed.
 > `.env.example` documents the Supabase URL shape and pool settings.
 > No Supabase keys, Data API, or RLS in the app path;
 > `SMARTMATCH_DATABASE_URL` is the only integration point.
+
+**Unverified — pending an operator standing up a project and running these:**
+
+> `alembic upgrade head` runs clean on the Supabase project.
+> `test_schema_matches_migration.py` passes against Supabase.
+> `make test-integration` passes against Supabase.
+
+Until someone runs those three against a real project, treat every command
+in this document as reviewed-but-unexecuted, not as a verified working
+procedure.
 
 Supabase is used as **managed Postgres only** — no PostgREST Data API, no
 GoTrue auth, no Row Level Security. Authorization stays in
