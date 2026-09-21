@@ -294,6 +294,7 @@ Contract-Refs: v1.1 §N.N
 | [Local dev walkthrough](docs/operations/local-dev-walkthrough.md) | Bringing the CBA pilot appliance up by hand and clicking through it, command by command and why |
 | [Container operations](docs/operations/containers.md) | The images, the compose appliance, the launchers, and the health suite |
 | [Pilot VM and `deploy` branch](docs/operations/vm-deploy.md) | The synthetic GCE instance: how a commit actually reaches it today, the scripted deployment design that was never bootstrapped onto it, and the gates before production |
+| [Class exercise hosting](docs/operations/exercise-hosting.md) | Standing up `SMARTMATCH_PRODUCT_SCOPE=class_exercise` at `exercise.plated.blog`: env vars, DB role, cookies, rate limiting, the day-of-class runbook, and the deploy-and-verify checklist |
 | [Deploy runbook](docs/operations/deploy-runbook.md) | Migration policy, forward-only rollback, and the dispatcher alerts |
 | [Supabase setup](docs/operations/supabase-setup.md) | Standing up managed Postgres (Supabase) for staging/synthetic use — connection strings, roles, migrations; `ALLOW_CLOUD_DEPLOY` stays false |
 | [Supabase maintenance](docs/operations/supabase-maintenance.md) | Backups, restore drill, migration procedure, credential rotation, and incident steps for a Supabase-hosted database |

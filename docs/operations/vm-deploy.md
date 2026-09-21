@@ -22,8 +22,11 @@ own API process with `SMARTMATCH_PRODUCT_SCOPE=class_exercise` at
 `exercise.plated.blog` — a second public hostname on this same Cloudflare
 Tunnel, with **no Access policy** (owner decision, 2026-09-21) — carrying its
 own cookies, its own restricted database role and its own runbook: see
-[`exercise-hosting.md`](exercise-hosting.md). Nothing in this file changes for
-it, and the Access requirement stated below still applies to
+[`exercise-hosting.md`](exercise-hosting.md), whose
+[§9 deploy-and-verify checklist](exercise-hosting.md#9-deploy-and-verify-checklist)
+is the operator procedure for standing that scope up and confirming it is
+reachable — separate from the CBA promote/deploy procedure below. Nothing in
+this file changes for it, and the Access requirement stated below still applies to
 `pilot.plated.blog`.
 
 > **The gap this document used to describe is closed.** Earlier revisions
