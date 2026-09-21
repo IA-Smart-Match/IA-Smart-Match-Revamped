@@ -465,11 +465,19 @@ jobs:
         # already filled, not a second generator run). `--subjects fixture`
         # targets the compose-pilot-* accounts this job's bearer tokens
         # (compose-student, compose-admin, ...) actually resolve to, matching
-        # tests/e2e/conftest.py.
+        # tests/e2e/conftest.py. `--skip-redemptions` leaves the tool's fixed
+        # three-state redemption history unwritten: that history closes the
+        # cheapest catalog item as `fulfilled`, which broke
+        # test_14_the_rewards_catalog_is_a_students_to_read_and_nobody_elses's
+        # "a freshly seeded appliance hands back no tickets nobody requested"
+        # assertion — the catalog and the student's attendance-derived balance
+        # are unaffected; only the pre-opened/approved/fulfilled rows are
+        # skipped, leaving step 15 free to open and decide its own.
         run: |
           docker compose --profile dataset run --rm --no-deps \
             --entrypoint python dataset \
-            /home/smartmatch/seed_pilot_engagement.py --subjects fixture --items-from-worksheet
+            /home/smartmatch/seed_pilot_engagement.py --subjects fixture \
+            --items-from-worksheet --skip-redemptions
 
       - name: Click through the synthetic pilot
         # `make e2e` owns the invocation, including the `-ra` that surfaces
