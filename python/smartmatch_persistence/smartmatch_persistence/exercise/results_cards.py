@@ -17,9 +17,24 @@ ADR-0025 D6 — the withheld column
 reader of ``hidden_true_interests`` in this package: nothing here writes that
 column name into a ``SELECT``. The values it returns have exactly one caller —
 ``results_repository.apply_refresh`` — which writes them straight into
-``exercise_profile_overlay.card_interests`` and hands its own caller counts. They
-are not logged, not returned to a router, and not carried on any value that a
-response model is built from.
+``exercise_profile_overlay.card_interests``, and hands its own caller counts.
+They are not logged.
+
+**They do reach a response, by design.** Design spec §13 (§13 "Profile
+refresh"): "a share ... gets a card copied from ``hidden_true_interests``" —
+the withheld column is the *source* of a copied card's interests, not a value
+this module happens to also touch. Once written to
+``exercise_profile_overlay.card_interests``, the value crosses through exactly
+one further path: ``team_view_repository.list_team_profiles`` selects
+``overlay.c.card_interests`` onto ``TeamProfileRow.overlay_card_interests``
+(``team_view_repository.py:153,180``), and
+``exercise_matching_models._profile_evidence`` reads it, preferring it over
+``stated_interests`` when present, to build the ``ProfileCard`` a matching
+response is built from (``routers/exercise_matching_models.py:280-286``). That
+is the one transform design spec §13 names, and the withheld value stops being
+withheld exactly there, on the team's own copied card — not anywhere else.
+Every other module in this package is held to zero readers of the column by
+``tests/unit/test_exercise_persistence_tables.py``'s D6 walk.
 
 Nothing here commits, takes a lock, or opens a transaction: it is a read inside
 whatever transaction its caller already holds.

@@ -138,15 +138,17 @@ def test_a_policy_that_is_not_a_member_is_refused_rather_than_answered():
 
     A member added without a branch arrives here as a value ``match`` does not
     cover, and the wrong answer — silently carrying no goal — is the one that
-    looks like a deliberate reading.
+    looks like a deliberate reading. ``assert_never`` raises ``AssertionError``,
+    not ``ValueError`` — the point of using it over a hand-rolled raise is that
+    mypy also flags an unhandled member statically.
     """
-    with pytest.raises(ValueError, match="stated_interest"):
+    with pytest.raises(AssertionError, match="stated_interest"):
         copied_card_career_goal("analytics", cast(Any, "stated_interest"))
 
 
 def test_the_refusal_names_the_policy_and_nothing_else():
     """No base career goal in the message: it is a data-file value."""
-    with pytest.raises(ValueError) as refused:
+    with pytest.raises(AssertionError) as refused:
         copied_card_career_goal("a-private-goal", cast(Any, "stated_interest"))
 
     assert "a-private-goal" not in str(refused.value)
