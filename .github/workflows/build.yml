@@ -283,6 +283,70 @@ jobs:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
+      - name: Prove the exercise compose file parses
+        # docker-compose.exercise.yml (docs/operations/exercise-hosting.md §9)
+        # is never loaded by the `up` steps below — that is the whole point of
+        # its own -f file, see that file's own header comment for the CI
+        # breakage this design avoids. Nothing here checks that path, so this
+        # step is the only place the real `docker compose` parser ever reads
+        # that file. It starts no container — every subcommand is `config`,
+        # which only renders and validates YAML/interpolation.
+        #
+        # Values below are obviously-fake placeholders, deliberately short
+        # (14 characters) so `tools/scan_forbidden.py`'s hard-coded-credential
+        # rule — which flags a quoted literal of 16+ characters next to a key
+        # named secret/password/token — does not fire on them. Compose itself
+        # enforces no length floor on any of the three; the application's own
+        # floors (32 chars for the workspace secret, 12 for the passcode) are
+        # unrelated to what `docker compose config` can check.
+        run: |
+          set -euo pipefail
+
+          # (a) Positive: with every required var set, config must render.
+          SMARTMATCH_EXERCISE_WORKSPACE_SECRET=ci-placeholder \
+          SMARTMATCH_EXERCISE_INSTRUCTOR_PASSCODE=ci-placeholder \
+          SMARTMATCH_EXERCISE_DATABASE_URL=ci-placeholder \
+            docker compose -f docker-compose.yml -f docker-compose.vm.yml \
+              -f docker-compose.exercise.yml --profile exercise config -q
+
+          # (b) The rendered service is the one this track added: bound to
+          # 127.0.0.1:8090, running the exercise scope.
+          rendered=$(
+            SMARTMATCH_EXERCISE_WORKSPACE_SECRET=ci-placeholder \
+            SMARTMATCH_EXERCISE_INSTRUCTOR_PASSCODE=ci-placeholder \
+            SMARTMATCH_EXERCISE_DATABASE_URL=ci-placeholder \
+              docker compose -f docker-compose.yml -f docker-compose.vm.yml \
+                -f docker-compose.exercise.yml --profile exercise \
+                config --format json
+          )
+          echo "$rendered" | jq -e '
+            .services["api-exercise"].environment.SMARTMATCH_PRODUCT_SCOPE == "class_exercise"
+            and (.services["api-exercise"].ports[]
+                 | select((.published | tostring) == "8090" and .host_ip == "127.0.0.1"))
+          ' >/dev/null
+
+          # (c) Negative: with the three vars unset, compose must refuse to
+          # render — proving the ${VAR:?message} interpolation actually has
+          # no default, not just that this file's author intended one.
+          if docker compose -f docker-compose.yml -f docker-compose.vm.yml \
+               -f docker-compose.exercise.yml --profile exercise \
+               config -q 2>/dev/null; then
+            echo "docker-compose.exercise.yml must refuse to render without its required secrets" >&2
+            exit 1
+          fi
+
+          # (d) The default stack — no -f docker-compose.exercise.yml, no
+          # --profile exercise, none of the three vars set — never lists
+          # api-exercise. This is the property every other step in this job
+          # (and pilot-e2e) actually depends on.
+          services=$(docker compose -f docker-compose.yml -f docker-compose.vm.yml config --services)
+          if grep -qx "api-exercise" <<<"$services"; then
+            echo "api-exercise must not appear in the default stack's service list" >&2
+            exit 1
+          fi
+
+          echo "exercise compose file: parses with secrets, refuses without them, invisible to the default stack"
+
       - name: Bring the stack up through the launcher
         # `./smartmatch.sh install` is the command README.md and INSTALL.md now
         # tell a reader to run, so it is the command this job runs. It
