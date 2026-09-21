@@ -81,11 +81,17 @@ describe("<WeightsControls />", () => {
   });
 
   it("does not spend a request when the number did not change", () => {
+    // G4. This used to focus and blur the box without ever typing in it, so
+    // `draft` still held the server's own text and the assertion passed no
+    // matter what the "did it change" comparison did — deleting that check
+    // entirely would not have failed this test. Retyping the same number the
+    // box already shows is what actually exercises the comparison.
     const onChange = vi.fn();
     render(<WeightsControls factorLabels={LABELS} weights={WEIGHTS} onChange={onChange} />);
 
     const box = screen.getByLabelText("same major");
     fireEvent.focus(box);
+    fireEvent.change(box, { target: { value: String(WEIGHTS.same_major) } });
     fireEvent.blur(box);
 
     expect(onChange).not.toHaveBeenCalled();
