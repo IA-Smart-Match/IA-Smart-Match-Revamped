@@ -668,6 +668,16 @@ meetings, and the student's attendance-derived balance) in one call:
 make seed-pilot-engagement PY=python3 SEED_PILOT_ENGAGEMENT_ARGS='--subjects fixture'
 ```
 
+**Prerequisite for the second command: a dataset must already exist.** The
+balance credit comes from attendance against a hosted event with a resolved
+date; on a VM whose appliance was never populated, this refuses with "this
+unit hosts no event with a resolved date ... Run the dataset generator
+first." Run `docker compose --profile dataset run --rm dataset` (or the
+host-run `make generate-pilot-dataset` route — see
+`docs/operations/local-dev-walkthrough.md` §6) before the engagement command
+above. `make seed-pilot-rewards` alone (the first command) carries no such
+prerequisite — it only inserts the one named catalog row.
+
 `PY=python3` because the VM's `make setup` target is what creates `.venv`; if
 that has already been run, drop the override and let it use `.venv/bin/python`
 as usual. Both commands are idempotent — see
