@@ -33,8 +33,32 @@ const StudentSpeakerFeedback = lazy(() =>
   })),
 );
 
+// The class exercise's screens. Code-split like every other page, and grouped
+// here because they share one property nothing else in this router has: they
+// call `/v1/exercise/...` through `lib/exerciseApi.ts` and never `lib/api.ts`,
+// so none of them can reach a principal, a unit or a bearer token.
 const ProfileCardMockup = lazy(() =>
   import("./pages/exercise/ProfileCardMockup").then((m) => ({ default: m.ProfileCardMockup })),
+);
+const ExerciseEntry = lazy(() =>
+  import("./pages/exercise/ExerciseEntry").then((m) => ({ default: m.ExerciseEntry })),
+);
+const ExerciseEventPicker = lazy(() =>
+  import("./pages/exercise/ExerciseEventPicker").then((m) => ({ default: m.ExerciseEventPicker })),
+);
+const ExerciseMatching = lazy(() =>
+  import("./pages/exercise/ExerciseMatching").then((m) => ({ default: m.ExerciseMatching })),
+);
+const ExerciseAskingForMore = lazy(() =>
+  import("./pages/exercise/ExerciseAskingForMore").then((m) => ({
+    default: m.ExerciseAskingForMore,
+  })),
+);
+const ExerciseResults = lazy(() =>
+  import("./pages/exercise/ExerciseResults").then((m) => ({ default: m.ExerciseResults })),
+);
+const ExerciseInstructor = lazy(() =>
+  import("./pages/exercise/ExerciseInstructor").then((m) => ({ default: m.ExerciseInstructor })),
 );
 
 const CoordinatorHome = lazy(() =>
@@ -218,13 +242,61 @@ export const router = createBrowserRouter([
   { path: "/", Component: Home, errorElement: <NotFound /> },
   { path: "/login", Component: LoginPage, errorElement: <NotFound /> },
 
-  // The class exercise's "five quick questions" card, as a one-screen mock-up
-  // the instructor opens in front of the room (requirements row "Asking for
-  // more"). Public by construction, like the exercise itself: ADR-0025 D1
-  // gives that scope no login at all, so there is nothing here to sit behind.
-  // It reads no API and shows no real person's data. This static screen is the
-  // only exercise mount allowed in this router: a screen that calls the
-  // exercise API belongs behind the `CLASS_EXERCISE` scope once it exists.
+  // The class exercise (ADR-0025, accepted). Public by construction, like the
+  // exercise itself: D1 gives that scope no login at all, so there is nothing
+  // here to sit behind — no portal shell, no `SessionGate`, no auth context.
+  //
+  // An earlier note here said the static mock-up was the only exercise mount
+  // allowed, and that a screen calling the exercise API belonged behind the
+  // `CLASS_EXERCISE` scope "once it exists". It exists: `ProductScope`
+  // `CLASS_EXERCISE` and the eleven `/v1/exercise/...` routers landed in PRs
+  // #179-#190. The scope is a property of the *process*, not of this router —
+  // D1 registers the exercise routers only in that scope and the CBA routers
+  // only in the other — so these addresses are mounted the way every other
+  // address in this file is, as a claim about what exists rather than as a
+  // permission. In a CBA-scope deployment the API simply does not answer them,
+  // and each screen shows the refusal it gets.
+  //
+  // `Capability.CLASS_EXERCISE` remains `false` in this build's capability
+  // mirror (`tests/productScope.test.ts`), and that is still the right value:
+  // it says "this product is not that product". No navigation in the CBA
+  // shells links here, and none may.
+  {
+    path: "exercise",
+    element: withSuspense(<ExerciseEntry />),
+    errorElement: <NotFound />,
+  },
+  {
+    path: "exercise/events",
+    element: withSuspense(<ExerciseEventPicker />),
+    errorElement: <NotFound />,
+  },
+  {
+    path: "exercise/events/:eventKey",
+    element: withSuspense(<ExerciseMatching />),
+    errorElement: <NotFound />,
+  },
+  {
+    path: "exercise/events/:eventKey/results",
+    element: withSuspense(<ExerciseResults />),
+    errorElement: <NotFound />,
+  },
+  {
+    path: "exercise/asking",
+    element: withSuspense(<ExerciseAskingForMore />),
+    errorElement: <NotFound />,
+  },
+  // The passcode gates the API, not this address: the page renders the
+  // server's refusal rather than hiding behind a route guard, which is not
+  // authorization in any case.
+  {
+    path: "exercise/instructor",
+    element: withSuspense(<ExerciseInstructor />),
+    errorElement: <NotFound />,
+  },
+  // The "five quick questions" card, as a one-screen mock-up the instructor
+  // opens in front of the room (requirements row "Asking for more"). Reads no
+  // API and shows no real person's data.
   {
     path: "exercise/profile-card",
     element: withSuspense(<ProfileCardMockup />),
