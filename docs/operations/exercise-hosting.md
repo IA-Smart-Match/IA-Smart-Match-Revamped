@@ -37,7 +37,7 @@ away and why it is acceptable for this scope and not for the other one.
 |---|---|---|
 | **No compose service runs this scope** | `SMARTMATCH_PRODUCT_SCOPE` appears in **no** `.yml` file in this repository (verified by grep across `docker-compose.yml`, `docker-compose.vm.yml`, `docker-compose.demo.yml`) | There is no second `api` service to start. Standing the exercise up needs a compose change that is **not** in this repository yet. No YAML is invented here. |
 | **The Vite dev server rejects `exercise.plated.blog`** | `apps/web/legacy-frontend/vite.config.ts:53` is `allowedHosts: ["pilot.plated.blog"]` — one host, and it is the other one | `exercise.plated.blog` served through that dev server answers **"Blocked request"**, exactly as `pilot.plated.blog` did before commit `d5ffcb05` fixed it there. `"exercise.plated.blog"` must be added to that array. Code change, frontend track. |
-| **No proxy rate-limit config is in the repository** | The only front door is a dashboard-managed Cloudflare Tunnel (`vm-deploy.md:78-87`); there is no nginx/Caddy/Traefik config checked in | The per-client limit on the instructor login has to be built in the Cloudflare dashboard by hand, and cannot be reviewed in git. With no Access policy on this host, that rule is the **only** edge protection. See [§5](#5-rate-limiting-belongs-at-the-proxy-oq-ce-06). |
+| **No proxy rate-limit config is in the repository** | The only front door is a dashboard-managed Cloudflare Tunnel (`vm-deploy.md:87-96`); there is no nginx/Caddy/Traefik config checked in | The per-client limit on the instructor login has to be built in the Cloudflare dashboard by hand, and cannot be reviewed in git. With no Access policy on this host, that rule is the **only** edge protection. See [§5](#5-rate-limiting-belongs-at-the-proxy-oq-ce-06). |
 
 Everything below is still worth doing in order; step 1 tells you what the
 process must be, and the gaps tell you what you must build to get one.
@@ -185,8 +185,10 @@ GRANT SELECT, INSERT                 ON exercise_result_unlock   TO "<EXERCISE_D
 
 The two `UPDATE`s on `exercise_profile_overlay` and `exercise_saved_setting`
 are the ones a reader is most likely to drop, so they get their own paragraph.
-PostgreSQL checks **both** `INSERT` and `UPDATE` privilege when it plans an
-`INSERT ... ON CONFLICT DO UPDATE`, whether or not a row actually conflicts. A
+PostgreSQL checks **both** `INSERT` and `UPDATE` privilege before it executes
+an `INSERT ... ON CONFLICT DO UPDATE` statement, whether or not a row actually
+conflicts. The check runs at executor start-up, so a cached plan does not skip
+it either — there is no "it worked once" path through this. A
 role holding only `INSERT` does not fail "sometimes, under contention" — it
 fails **every time**, which takes out `POST
 /v1/exercise/workspaces/current/refresh` and `POST
@@ -213,8 +215,8 @@ per statement, so the grant above can be rebuilt rather than trusted.
 | `instructor_repository.py:436` `sa.update(exercise_dataset)` | `exercise_dataset` | UPDATE |
 | `instructor_repository.py:460-462` `pg_insert(...).on_conflict_do_nothing` | `exercise_result_unlock` | INSERT |
 | `instructor_repository.py:531-535` `sa.delete(child)`, three children | `exercise_profile_overlay`, `exercise_saved_setting`, `exercise_result_run` | DELETE |
-| `instructor_repository.py:676-678` `sa.select(...).with_for_update()` | `exercise_team_workspace` | SELECT **+ UPDATE** (a row lock needs `UPDATE` or `DELETE` beside `SELECT`) |
-| `instructor_repository.py:684-686` `sa.select(...).with_for_update()` | `exercise_team_workspace` | SELECT + UPDATE |
+| `instructor_repository.py:675-677` `sa.select(...).with_for_update()` | `exercise_team_workspace` | SELECT **+ UPDATE** (a row lock needs `UPDATE` beside `SELECT`) |
+| `instructor_repository.py:681-686` `sa.select(...).with_for_update()` | `exercise_team_workspace` | SELECT + UPDATE |
 | `instructor_repository.py:699-702` `sa.delete(exercise_team_workspace)` | `exercise_team_workspace` | DELETE |
 | `instructor_repository.py:709` `sa.update(exercise_team_workspace)` | `exercise_team_workspace` | UPDATE |
 | `results_repository.py:432` `sa.insert(exercise_result_run)` | `exercise_result_run` | INSERT |
@@ -248,7 +250,15 @@ no `IDENTITY` and no `CREATE SEQUENCE` in the revision.
 
 ### Prove the role cannot read a CBA table
 
-Two checks. Run them after every change to the grant, and before the class.
+Three checks. Run them after every change to the grant, and before the class.
+
+**Which role to connect as differs per check, and it matters.** Check 1 is a
+behavioural test and must run **as the new role**. Checks 2 and 3 are cleaner
+run **as the owner role**: `information_schema.tables` is itself filtered to
+what the *current* user can see, so running them as the restricted role hides
+precisely the rows the check exists to find. `has_table_privilege` takes the
+role as an argument, so the owner can ask the question on the new role's
+behalf and get the whole picture.
 
 **1. The spot check.** Connect **as the new role**. It must fail.
 
@@ -381,8 +391,9 @@ exists**, not a second tunnel. The tunnel is
 and `cloudflared` is already installed and running on the VM as a service. **No
 new token, no second `cloudflared service install`, no change on the VM.**
 
-The steps are the ones that guide's Part 2 step 4 already describes, applied a
-second time to the same tunnel:
+The steps are the ones that guide's Part 2 §1 step 4 already describes
+(`classroom-vm-cloudflare-tunnel.md:230-234`), applied a second time to the
+same tunnel:
 
 1. Cloudflare Zero Trust → **Networks** → **Tunnels** → open
    `smartmatch-classroom-pilot`.
@@ -396,11 +407,11 @@ second time to the same tunnel:
 
 **Which loopback port is a gap, not a decision this document can make.** The
 base compose file binds the CBA API to `127.0.0.1:8080` and `web` to
-`127.0.0.1:5173` (`vm-deploy.md:308-322`), and there is **no second API service
+`127.0.0.1:5173` (`vm-deploy.md:319-329`), and there is **no second API service
 in any compose file** to give a port to — the first gap at the top of this
 file. Point the hostname at whatever origin the compose change lands on. This
 mapping is dashboard-managed and lives in no file in this repository
-(`vm-deploy.md:78-87`), exactly as `pilot.plated.blog`'s does.
+(`vm-deploy.md:87-96`), exactly as `pilot.plated.blog`'s does.
 
 ### No Cloudflare Access policy on this host
 
@@ -455,7 +466,7 @@ placeholder** (`services/api/smartmatch_api/exercise_rate_limit.py:1`, whose
 first line is the word `PLACEHOLDER`). What it is:
 
 * 10 attempts per client address per 5-minute window
-  (`exercise_rate_limit.py:74`, `:85`);
+  (`exercise_rate_limit.py:75`, `:85`);
 * 60 attempts across all callers per window (`:82`);
 * at most 1,024 tracked addresses, oldest window evicted (`:89`).
 
@@ -478,7 +489,7 @@ client address.
 **With no Access policy on this host ([§4a](#4a-the-tunnel-and-why-there-is-no-access-policy)),
 this rule is the only edge protection `exercise.plated.blog` has.** It is not
 optional, and it is not in git: the front door is a dashboard-managed
-Cloudflare Tunnel (`vm-deploy.md:78-87`) and there is no nginx, Caddy or
+Cloudflare Tunnel (`vm-deploy.md:87-96`) and there is no nginx, Caddy or
 Traefik config in this repository to add a `limit_req` zone to. So the rule is
 specified here, concretely enough to be built and reviewed by hand:
 
@@ -487,7 +498,7 @@ specified here, concretely enough to be built and reviewed by hand:
 | Rule type | Cloudflare **Rate Limiting Rule** (WAF), on the zone serving `exercise.plated.blog` |
 | Match | `http.host eq "exercise.plated.blog" and http.request.method eq "POST" and http.request.uri.path eq "/v1/exercise/instructor/login"` |
 | Counting key | **client IP** — the app parses no `X-Forwarded-For`, so the proxy is the only hop that can do this |
-| Budget | **10 requests / 5 minutes** per IP — deliberately equal to `INSTRUCTOR_LOGIN_ATTEMPTS_PER_CLIENT` (`exercise_rate_limit.py:74`) and `INSTRUCTOR_LOGIN_WINDOW` (`:85`), so the two bounds cannot disagree |
+| Budget | **10 requests / 5 minutes** per IP — deliberately equal to `INSTRUCTOR_LOGIN_ATTEMPTS_PER_CLIENT` (`exercise_rate_limit.py:75`) and `INSTRUCTOR_LOGIN_WINDOW` (`:85`), so the two bounds cannot disagree |
 | Action | **Block**, 429, with a response indistinguishable from the app's own refusal — a different page tells an attacker exactly where the limit lives |
 | Scope check | The rule must match **only** that path. A rate limit on all of `exercise.plated.blog` would throttle thirty laptops loading the exercise at the same moment, which is the normal start of a class. |
 
@@ -534,7 +545,7 @@ a chat message is a number nobody can find in March.
 
 Two things already known to affect it, so they are not a surprise on the day:
 the frontend on this VM is a **Vite dev server with the checkout bind-mounted**,
-not a production bundle (`vm-deploy.md:341-366`), and a dev server's first load
+not a production bundle (`vm-deploy.md:350-375`), and a dev server's first load
 is not a built bundle's first load.
 
 ---
@@ -647,10 +658,10 @@ session (the passcode) and sends `X-Exercise-Request`. Step 0 needs neither.
    explicitly** — it serves six teams, not a campus — rather than letting it
    take the default.
 5. **`web` is a dev server, so restart is not rebuild.** `web` has no `build:`
-   stanza and bind-mounts the checkout (`vm-deploy.md:341-366`). A frontend
+   stanza and bind-mounts the checkout (`vm-deploy.md:350-375`). A frontend
    change is live on `git checkout`; a *backend* change is not, which is why
    compose on this VM needs **both** `-f docker-compose.yml -f
-   docker-compose.vm.yml` **and** `--build` (`vm-deploy.md:525-558`): omitting
+   docker-compose.vm.yml` **and** `--build` (`vm-deploy.md:534-567`): omitting
    the override strips the restart policies, and omitting `--build` reuses stale
    images.
 
