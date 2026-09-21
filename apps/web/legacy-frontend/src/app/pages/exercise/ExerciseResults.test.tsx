@@ -178,7 +178,9 @@ describe("<ExerciseResults />", () => {
       expect(document.querySelector('[data-slot="exercise-seats"]')?.textContent).toContain("50"),
     );
     expect(document.querySelector('[data-slot="exercise-round-one"]')).not.toBeNull();
-    expect(screen.getByText(/if you emailed everyone/i)).toBeDefined();
+    // Twice on purpose: the chart's axis label and the accessible table's row
+    // header, which is how a projector screen and a screen reader each get it.
+    expect(screen.getAllByText(/if you emailed everyone/i).length).toBe(2);
   });
 
   it("falls back to profile numbers when the list cannot name someone", async () => {

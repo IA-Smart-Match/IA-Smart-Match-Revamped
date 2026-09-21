@@ -78,9 +78,14 @@ export function InstructorDatasets(): React.JSX.Element {
 
       <UploadForm
         pending={pending}
-        onUpload={(csv, label, filename) =>
+        onUpload={(file, label) =>
           run(async () => {
-            setUploaded(await uploadDataset(csv, label, filename));
+            // The read happens inside the guard, so a file that cannot be read
+            // becomes a sentence on screen rather than an exception nobody
+            // sees. It used to be `file.text()` outside it, which threw where
+            // `Blob.prototype.text` is missing and killed the upload silently.
+            const csv = await readFileAsText(file);
+            setUploaded(await uploadDataset(csv, label, file.name));
             reload();
           })
         }
@@ -155,12 +160,32 @@ export function InstructorDatasets(): React.JSX.Element {
   );
 }
 
+/**
+ * The chosen file's bytes, as text.
+ *
+ * `FileReader` rather than `Blob.prototype.text()`: the latter is absent in
+ * some environments — jsdom among them — and when it is, calling it throws
+ * inside a submit handler, where the exception goes nowhere and the upload
+ * simply never happens. `FileReader` has been in every browser since long
+ * before any machine in this classroom, and its failure arrives as a rejection
+ * this screen can show as a sentence.
+ */
+function readFileAsText(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : "");
+    reader.onerror = () =>
+      reject(new Error("That file could not be read. Try choosing it again."));
+    reader.readAsText(file);
+  });
+}
+
 function UploadForm({
   pending,
   onUpload,
 }: {
   readonly pending: boolean;
-  readonly onUpload: (csv: string, label: string, filename: string | undefined) => Promise<void>;
+  readonly onUpload: (file: File, label: string) => Promise<void>;
 }): React.JSX.Element {
   const [label, setLabel] = React.useState("");
   const [file, setFile] = React.useState<File | null>(null);
@@ -173,9 +198,9 @@ function UploadForm({
         if (file === null || label.trim() === "") {
           return;
         }
-        // Read the bytes here: the route takes a raw `text/csv` body, not a
-        // multipart part, so there is no `FormData` in this path.
-        void file.text().then((csv) => onUpload(csv, label.trim(), file.name));
+        // The route takes a raw `text/csv` body, not a multipart part, so
+        // there is no `FormData` in this path. The caller reads the bytes.
+        void onUpload(file, label.trim());
       }}
     >
       <div className="flex flex-col gap-1">

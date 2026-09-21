@@ -165,9 +165,16 @@ describe("<ExerciseMatching />", () => {
   it("offers the download as a plain link to the literal CSV path", async () => {
     stub();
     renderMatching();
-    const link = await waitFor(() =>
-      document.querySelector<HTMLAnchorElement>('[data-slot="exercise-csv-download"]'),
-    );
+    // `waitFor` resolves on a callback that does not throw, and a
+    // `querySelector` that finds nothing returns `null` rather than throwing —
+    // so the wait has to be on an assertion, not on the lookup.
+    const link = await waitFor(() => {
+      const found = document.querySelector<HTMLAnchorElement>(
+        '[data-slot="exercise-csv-download"]',
+      );
+      expect(found).not.toBeNull();
+      return found;
+    });
     expect(link?.getAttribute("href")).toBe(
       "/v1/exercise/workspaces/current/events/northline/list.csv",
     );
