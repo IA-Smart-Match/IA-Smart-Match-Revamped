@@ -65,9 +65,9 @@ from smartmatch_api.exercise_dependencies import (
     TeamViewRepository,
 )
 from smartmatch_api.exercise_errors import ExerciseError
-from smartmatch_api.routers.exercise_matching import event_or_refusal
 from smartmatch_api.routers.exercise_matching_models import (
     event_evidence,
+    event_or_refusal,
     rankable_set,
 )
 from smartmatch_api.routers.exercise_matching_weights import validated

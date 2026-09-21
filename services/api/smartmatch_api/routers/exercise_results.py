@@ -90,7 +90,7 @@ from smartmatch_api.exercise_dependencies import (
     require_exercise_request_header,
 )
 from smartmatch_api.exercise_errors import ExerciseError
-from smartmatch_api.routers.exercise_matching import event_or_refusal
+from smartmatch_api.routers.exercise_matching_models import event_or_refusal
 from smartmatch_api.routers.exercise_results_models import (
     FIRST_ROUND,
     AskingChoiceRequest,

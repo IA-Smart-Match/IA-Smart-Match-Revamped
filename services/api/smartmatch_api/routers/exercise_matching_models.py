@@ -3,7 +3,15 @@
 Split out of ``exercise_matching.py`` so the router is routes: this module holds
 the response contract, the one place a repository row becomes a domain value,
 and the placeholder class-year ordering (OQ-CE-01). Nothing here imports
-FastAPI, and nothing here decides a status code.
+FastAPI and nothing here declares a route.
+
+It does hold **one** refusal, :func:`event_or_refusal`, moved here in review
+round 1 (F8) from the router: both exercise tracks resolve an event key and
+both must answer an unknown one with the same sentence, so the function belongs
+beside the other two that turn a stored row into something the domain reads. It
+raises :class:`~smartmatch_api.exercise_errors.ExerciseError`, which imports
+nothing but the standard library, and takes its status from
+:class:`http.HTTPStatus` — so "no web framework here" still holds.
 
 Design spec §8's download is ``exercise_matching_csv``, split off in review
 round 2 (F4) when this file passed the 800-line ceiling.
@@ -43,6 +51,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
+from http import HTTPStatus
 from types import MappingProxyType
 from typing import Final
 
@@ -64,6 +73,7 @@ from smartmatch_api.exercise_dependencies import (
     SavedSetting,
     TeamProfileRow,
 )
+from smartmatch_api.exercise_errors import ExerciseError
 
 __all__ = [
     "MAX_WEIGHT_KEYS",
@@ -84,6 +94,7 @@ __all__ = [
     "SavedSettingView",
     "SavedSettingsView",
     "event_evidence",
+    "event_or_refusal",
     "rankable_set",
     "ranked_list_view",
     "saved_setting_view",
@@ -189,6 +200,40 @@ class RankableSet:
 #: Closing OQ-CE-01 is replacing this one object with Ann's order. Nothing else
 #: in this track changes, and the sentences start appearing on their own.
 PLACEHOLDER_CLASS_YEAR_RANK: Final[Mapping[str, int]] = MappingProxyType({})
+
+
+def event_or_refusal(events: Sequence[ExerciseEventRow], event_key: str) -> ExerciseEventRow:
+    """The named event from this team's own data file, or one plain sentence.
+
+    Looked up in the list already read for the topic lookup rather than by a
+    second query, so an event key belonging to another data file cannot resolve:
+    the only events in scope are this workspace's.
+
+    **One copy, here, for both tracks** (review round 1, F8). Every exercise
+    route addressed by an event key must answer an unknown one identically —
+    PR #188's review item 6 is the record of what happens when one of them does
+    not — and two copies of one sentence is the shape that divergence takes.
+
+    It sat on ``exercise_matching`` and was imported from there by the results
+    track, which made a router import a router for one helper. It belongs
+    beside :func:`event_evidence` and :func:`rankable_set`, which are the other
+    two functions that turn a stored row into something the domain can read.
+    ``exercise_matching`` re-exports the same object, so nothing that imported
+    it from there moved.
+
+    The status comes from :class:`http.HTTPStatus` rather than from FastAPI's
+    ``status`` module, so this module still imports no web framework — which is
+    the property its docstring claims and the one that keeps it testable
+    without an app.
+    """
+    for event in events:
+        if event.event_key == event_key:
+            return event
+    raise ExerciseError(
+        status_code=HTTPStatus.NOT_FOUND,
+        code="exercise_event_unknown",
+        message="That event is not in your team's data file.",
+    )
 
 
 def event_evidence(event: ExerciseEventRow) -> EventEvidence:

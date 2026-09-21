@@ -92,6 +92,7 @@ from smartmatch_api.routers.exercise_matching_models import (
     SavedSettingsView,
     SaveSettingRequest,
     event_evidence,
+    event_or_refusal,
     rankable_set,
     ranked_list_view,
     saved_setting_view,
@@ -122,29 +123,6 @@ _MAX_SETTING_NAME_CHARACTERS = 100
 #: A name the settings routes will not store, because the compare route already
 #: answers on it. Refusing it is cheaper than a path that means two things.
 _RESERVED_SETTING_NAME = "compare"
-
-
-def event_or_refusal(events: Sequence[ExerciseEventRow], event_key: str) -> ExerciseEventRow:
-    """The named event from this team's own data file, or one plain sentence.
-
-    Looked up in the list already read for the topic lookup rather than by a
-    second query, so an event key belonging to another data file cannot resolve:
-    the only events in scope are this workspace's.
-
-    **Public, and imported by ``exercise_results``** rather than copied there
-    (CE-RESULTS-API). Every exercise route addressed by an event key must answer
-    an unknown one identically — review round 1's item 6 is the record of what
-    happens when one of them does not — and two copies of one sentence is the
-    shape that divergence takes.
-    """
-    for event in events:
-        if event.event_key == event_key:
-            return event
-    raise ExerciseError(
-        status_code=status.HTTP_404_NOT_FOUND,
-        code="exercise_event_unknown",
-        message="That event is not in your team's data file.",
-    )
 
 
 def _setting_name_or_refusal(name: str) -> str:
@@ -741,3 +719,12 @@ def delete_setting(
 #: Re-exported so a test can assert the four weight parameters are the
 #: rulebook's own keys rather than four names somebody typed.
 EXERCISE_WEIGHT_PARAMETER_KEYS = frozenset(EXERCISE_APPROVED_SCORING_KEYS)
+
+#: Re-exported so this module's own callers — and the six routes above — keep
+#: reading it from the router they already import (review round 1, F8).
+#:
+#: It **lives** in ``exercise_matching_models`` now, beside ``event_evidence``
+#: and ``rankable_set``, because that is where the results track reaches it from
+#: and a router importing a router for one helper is an edge that grows. The
+#: name here is the same object, so nothing that imported it moved.
+__all__ = ["EXERCISE_WEIGHT_PARAMETER_KEYS", "event_or_refusal", "router"]
