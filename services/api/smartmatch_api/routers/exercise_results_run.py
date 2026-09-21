@@ -163,7 +163,7 @@ def weights_or_refusal(
     return validated(dict(stored.weights)), name
 
 
-def invited_profile_nos(
+def _invited_profile_nos(
     session: ExerciseSession,
     *,
     datasets: DatasetRepository,
@@ -395,7 +395,7 @@ def invited_list(
     profiles = team_view.list_team_profiles(
         session, dataset_id=workspace.dataset_id, workspace_id=workspace.id
     )
-    invited = invited_profile_nos(
+    invited = _invited_profile_nos(
         session,
         datasets=datasets,
         profiles=profiles,

@@ -104,6 +104,17 @@ from smartmatch_api.routers.exercise_matching_weights import (
     weight_query,
 )
 
+#: What this module offers, declared where a reader looks for it rather than
+#: seven hundred lines down.
+#:
+#: ``event_or_refusal`` is **re-exported**: it lives in
+#: ``exercise_matching_models`` now, beside ``event_evidence`` and
+#: ``rankable_set``, because that is where the results track reaches it from and
+#: a router importing a router for one helper is an edge that grows (review
+#: round 1, F8). The name here is the same object, so this module's own callers
+#: and anything that imported it from here keep working.
+__all__ = ["EXERCISE_WEIGHT_PARAMETER_KEYS", "event_or_refusal", "router"]
+
 #: A bare assignment, not an annotated one, for ``exercise_public.router``'s
 #: reason: the route ledger in ``tests/authz/test_policy_matrix.py`` reads
 #: router prefixes out of the AST and matches ``name = APIRouter(...)``.
@@ -719,12 +730,3 @@ def delete_setting(
 #: Re-exported so a test can assert the four weight parameters are the
 #: rulebook's own keys rather than four names somebody typed.
 EXERCISE_WEIGHT_PARAMETER_KEYS = frozenset(EXERCISE_APPROVED_SCORING_KEYS)
-
-#: Re-exported so this module's own callers — and the six routes above — keep
-#: reading it from the router they already import (review round 1, F8).
-#:
-#: It **lives** in ``exercise_matching_models`` now, beside ``event_evidence``
-#: and ``rankable_set``, because that is where the results track reaches it from
-#: and a router importing a router for one helper is an edge that grows. The
-#: name here is the same object, so nothing that imported it moved.
-__all__ = ["EXERCISE_WEIGHT_PARAMETER_KEYS", "event_or_refusal", "router"]

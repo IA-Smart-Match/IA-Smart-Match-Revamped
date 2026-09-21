@@ -1548,12 +1548,14 @@ def test_the_served_exercise_contract_names_neither_either() -> None:
             )
 
     # **The addressing fields are walked over this track's own models only**,
-    # and that is a real exemption rather than a narrower net. The instructor
-    # page's `DatasetView` legitimately publishes `dataset_id` — it is the
-    # instructor's own screen, and she is the person who uploaded the file —
-    # so asserting the team routes' rule over it would be this file deciding
-    # another track's contract. The withheld columns are still checked over the
-    # **whole** document, by the `str(document)` walk above.
+    # and that is a real exemption rather than a narrower net. Two instructor
+    # models legitimately publish `dataset_id` — `DatasetView` and
+    # `TeamSummaryView`, both of them the instructor's own screen, and she is
+    # the person who uploaded the file and the person who can already see which
+    # file each team is in. Asserting the team routes' rule over them would be
+    # this file deciding another track's contract. The withheld columns are
+    # still checked over the **whole** document, by the `str(document)` walk
+    # above.
     for name in sorted(reachable & ours):
         offenders = sorted(set(schemas[name].get("properties", {})) & _FORBIDDEN_RESPONSE_FIELDS)
         assert offenders == [], f"{name} publishes {offenders}"
