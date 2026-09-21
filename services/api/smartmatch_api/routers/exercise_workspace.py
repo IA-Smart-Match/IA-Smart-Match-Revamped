@@ -258,6 +258,16 @@ def enter_team_workspace(
             message="Pick a team number from 1 to 6.",
         )
     dataset_id = repository.entry_dataset_for(session, team_number=payload.team_number)
+    # Defensive, and **unreachable today** (review round 2, F5). Since PR #188
+    # resolved the newest data file inside `entry_dataset_for`'s lock, `None`
+    # means only "no data file exists at all" — and the `dataset` dependency has
+    # already answered that with a 409 before this line runs. Nothing in the
+    # application deletes an `exercise_dataset` row, so there is no window in
+    # which the two can disagree. The branch is kept rather than removed because
+    # what it costs is one comparison and what it buys, if a delete ever lands,
+    # is the plain 409 sentence instead of a driver error from an insert handed
+    # `dataset_id=None`. An earlier version of this comment justified it with a
+    # delete that does not exist; that reason was false and is gone.
     workspace = repository.get_or_create_workspace(
         session,
         dataset_id=dataset_id if dataset_id is not None else dataset.id,

@@ -290,6 +290,14 @@ _PERMITTED_EXPORT_MODULES = frozenset(
         # permits, never the tenant-scoped rest of the package.
         "smartmatch_persistence.exercise.dataset_repository",
         "smartmatch_persistence.exercise.instructor_repository",
+        # CE-MATCHING-API, as two modules after review round 1: the saved
+        # settings, and the team's own view of the profiles (design spec §2's
+        # ``base row ⟕ overlay``). Two origins because they are two questions.
+        "smartmatch_persistence.exercise.settings_repository",
+        "smartmatch_persistence.exercise.team_view_repository",
+        # Review round 2 (F4): the instructor page's value types moved out of
+        # `instructor_repository` when it passed the line ceiling.
+        "smartmatch_persistence.exercise.instructor_rows",
         "typing",
         "builtins",
         # ``ExerciseSession`` wraps SQLAlchemy's ``Session``. Admitted

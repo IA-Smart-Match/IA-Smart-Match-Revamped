@@ -110,17 +110,31 @@ from smartmatch_persistence.exercise.dataset_repository import (
     ExerciseDatasetLabelError,
     ExerciseDatasetRepository,
     ExerciseDatasetWriteError,
+    ExerciseEventRow,
 )
 from smartmatch_persistence.exercise.instructor_repository import (
     MAX_INVITE_LIMIT,
     MIN_INVITE_LIMIT,
     ExerciseInstructorRepository,
     ExerciseWriteRefused,
+)
+from smartmatch_persistence.exercise.instructor_rows import (
     InstructorResultRun,
     InstructorSavedSetting,
     InstructorWorkspaceRow,
     TeamWorkspaceHandle,
     WorkingDataset,
+)
+from smartmatch_persistence.exercise.settings_repository import (
+    MAX_SAVED_SETTINGS_PER_EVENT,
+    ExerciseSettingsRepository,
+    ExerciseSettingsWriteRefused,
+    SavedSetting,
+    TooManySavedSettingsError,
+)
+from smartmatch_persistence.exercise.team_view_repository import (
+    ExerciseTeamViewRepository,
+    TeamProfileRow,
 )
 from smartmatch_persistence.exercise.workspace_repository import (
     ExerciseDatasetSummary,
@@ -139,6 +153,7 @@ __all__ = [
     "EXERCISE_REQUEST_HEADER",
     "INSTRUCTOR_COOKIE_NAME",
     "MAX_INVITE_LIMIT",
+    "MAX_SAVED_SETTINGS_PER_EVENT",
     "MIN_INVITE_LIMIT",
     "WORKSPACE_COOKIE_NAME",
     "ActiveDataset",
@@ -151,7 +166,9 @@ __all__ = [
     "ExerciseDatasetLabelError",
     "ExerciseDatasetSummary",
     "ExerciseDatasetWriteError",
+    "ExerciseEventRow",
     "ExerciseSession",
+    "ExerciseSettingsWriteRefused",
     "ExerciseWorkspace",
     "ExerciseWriteRefused",
     "InstructorCookiePolicy",
@@ -162,7 +179,12 @@ __all__ = [
     "InstructorWorkspaceRow",
     "MaybeActiveDataset",
     "MaybeDataset",
+    "SavedSetting",
+    "SettingsRepository",
+    "TeamProfileRow",
+    "TeamViewRepository",
     "TeamWorkspaceHandle",
+    "TooManySavedSettingsError",
     "WorkingDataset",
     "WorkspaceCookiePolicy",
     "WorkspaceRepository",
@@ -174,6 +196,8 @@ __all__ = [
     "get_instructor_passcode",
     "get_instructor_repository",
     "get_maybe_active_dataset",
+    "get_settings_repository",
+    "get_team_view_repository",
     "get_workspace_repository",
     "get_workspace_secret",
     "instructor_cookie_policy",
@@ -524,6 +548,36 @@ def get_instructor_repository() -> ExerciseInstructorRepository:
 
 #: The annotation a handler writes to get :class:`ExerciseInstructorRepository`.
 InstructorRepository = Annotated[ExerciseInstructorRepository, Depends(get_instructor_repository)]
+
+
+def get_settings_repository() -> ExerciseSettingsRepository:
+    """The one repository a team's routes reach their saved weightings through.
+
+    Separate from :func:`get_team_view_repository` although the two share a
+    module: they answer different questions, and a route that ranks a list has
+    no business holding a handle that can write a settings row.
+    """
+    return ExerciseSettingsRepository()
+
+
+#: The annotation a handler writes to get :class:`ExerciseSettingsRepository`.
+SettingsRepository = Annotated[ExerciseSettingsRepository, Depends(get_settings_repository)]
+
+
+def get_team_view_repository() -> ExerciseTeamViewRepository:
+    """The one repository a team's routes read *their own view* of profiles through.
+
+    Design spec §2's ``base row ⟕ overlay``. The read behind it projects through
+    ``exercise_profile_public_columns()``, so no route reached from here can
+    serve the withheld column (ADR-0025 D6); the simulation loader that does
+    read it is on ``ExerciseDatasetRepository`` and is not reachable from a
+    matching route.
+    """
+    return ExerciseTeamViewRepository()
+
+
+#: The annotation a handler writes to get :class:`ExerciseTeamViewRepository`.
+TeamViewRepository = Annotated[ExerciseTeamViewRepository, Depends(get_team_view_repository)]
 
 
 def workspace_token_for(*, secret: str, workspace: ExerciseWorkspace) -> str:

@@ -145,9 +145,13 @@ def test_the_exercise_scope_mounts_this_route_and_nothing_authenticated() -> Non
     moved behind the instructor passcode by the owner ruling of 2026-09-19)
     and CE-INSTRUCTOR the instructor page
     (``routers/exercise_instructor.py``, two routers so the passcode session
-    can gate one of them). They are listed here rather than the assertion being
-    loosened to a containment, because what this test is for is catching a
-    route that appears without anybody naming it.
+    can gate one of them). CE-MATCHING-API added the six matching routes
+    (``routers/exercise_matching.py``), every one of them under
+    ``/v1/exercise/workspaces/current`` because every one of them is addressed
+    by the workspace cookie rather than by an identifier a client supplies.
+    They are listed here rather than the assertion being loosened to a
+    containment, because what this test is for is catching a route that appears
+    without anybody naming it.
     """
     assert _paths_under(ProductScope.CLASS_EXERCISE) == frozenset(
         {
@@ -164,6 +168,12 @@ def test_the_exercise_scope_mounts_this_route_and_nothing_authenticated() -> Non
             "/v1/exercise/instructor/workspaces/{team_number}",
             "/v1/exercise/instructor/workspaces/{team_number}/reset",
             "/v1/exercise/instructor/refresh-all",
+            "/v1/exercise/workspaces/current/events",
+            "/v1/exercise/workspaces/current/events/{event_key}/list",
+            "/v1/exercise/workspaces/current/events/{event_key}/list.csv",
+            "/v1/exercise/workspaces/current/events/{event_key}/settings",
+            "/v1/exercise/workspaces/current/events/{event_key}/settings/compare",
+            "/v1/exercise/workspaces/current/events/{event_key}/settings/{name}",
         }
     )
 
