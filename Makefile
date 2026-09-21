@@ -114,7 +114,13 @@ e2e: ## Click through the synthetic pilot against a RUNNING compose appliance
 	# target installs the same pinned requirements into the runner's own
 	# interpreter rather than into ./.venv, and overrides PYTEST accordingly.
 	# Every other target keeps the literal venv path it already had.
-	$(PYTEST) tests/e2e -m e2e -ra
+	#
+	# -s: pyproject.toml's addopts carries none, so every step's diagnostic
+	# `print(...)` (the role resolved, the scores read, the redemption
+	# decided, ...) is captured and thrown away by default — useful nowhere,
+	# least of all in a CI log where it is the only record of what a passing
+	# step actually did.
+	$(PYTEST) tests/e2e -m e2e -ra -s
 
 .PHONY: scan
 scan: ## Scan for forbidden legacy behavior and retired CBA terminology
