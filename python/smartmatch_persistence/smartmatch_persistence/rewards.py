@@ -879,17 +879,51 @@ class RewardsRepository:
         *,
         tenant_id: uuid.UUID,
         state: RedemptionState,
+        unit_path: str,
+        at: datetime,
         limit: int,
     ) -> tuple[RedemptionQueueRow, ...]:
-        """This tenant's redemptions at one state, oldest request first, capped at ``limit``.
+        """Redemptions at one state whose *subject* falls under ``unit_path``, oldest first.
 
-        The coordinator queue's read. ``redemption`` carries no owning unit —
-        the module docstring says why: it is tenant-scoped, exactly as
-        :meth:`transition_redemption` already treats it, so this method scopes
-        by ``tenant_id`` alone and the router's authorization against the path
-        unit is the only unit-shaped gate this queue has, matching the gate
-        the router already applies when it acts on a single id in
-        ``decide_redemption``.
+        Owner decision, 2026-09-21 (PR #200 review): the queue's rows are
+        unit-scoped, not merely the read that lists them. Unlike
+        :meth:`transition_redemption` — which the owner deliberately left
+        untouched; deciding one id by hand stays tenant-scoped, acknowledged
+        and out of scope here — a *list* is a browsing surface, and browsing
+        every tenant redemption from a single department's authorization was
+        the gap flagged for this pass.
+
+        ``redemption`` itself carries no owning-unit column (module docstring,
+        "No unit ownership claim"), so unit membership is derived exactly the
+        way :func:`~smartmatch_api.units.units_in_subtree` derives it for org
+        units: an ``EXISTS`` against ``membership``, joined on the redeeming
+        student's ``subject_id``, filtered to memberships whose
+        ``granted_path`` is contained *by* ``unit_path`` — the ``<@`` operator,
+        label-wise and inclusive of the unit itself, the same containment rule
+        :meth:`smartmatch_authz.OrgPath.contains` applies in policy. Never a
+        Python string prefix check: ``'cpp.eng'`` is a text prefix of
+        ``'cpp.english'`` and not an ancestor of it, exactly the trap
+        ``units_in_subtree``'s docstring already warns against.
+
+        ``EXISTS`` rather than a plain join, so a student holding two or more
+        memberships under ``unit_path`` — one at the unit itself and a second
+        at a unit beneath it, say — still surfaces their redemption once. A
+        plain join would duplicate the row once per matching membership.
+
+        A membership counts only while it is active at ``at``: ``valid_from``
+        is ``NULL`` or at-or-before it, and ``valid_until`` is ``NULL`` or
+        strictly after it — the identical window
+        :meth:`smartmatch_authz.MembershipFact.is_active_at` checks for an
+        *authorizing* membership. An expired or not-yet-valid membership is
+        chosen to behave here exactly as it behaves at the door: neither
+        widens nor narrows who is visible relative to who could act. Deny-by
+        default: a student with no active membership under ``unit_path`` — the
+        redemption predates their only qualifying grant, say — is simply
+        absent, the same way an authorizer would refuse them. Nothing here
+        touches ``user_account`` suspension: that is a fact about the calling
+        principal that this row-scoping question has no stake in, exactly as
+        it has none for ``attendance_record`` or any other subject-scoped read
+        in this codebase.
 
         Returns :class:`RedemptionQueueRow`, not
         :class:`~smartmatch_domain.rewards.Redemption`: that domain type
@@ -904,8 +938,29 @@ class RewardsRepository:
         ``limit`` is passed by the caller as one more than the page size it
         actually renders, so it can tell a full page from a complete one
         without a second count query.
+
+        Args:
+            unit_path: The authorized unit's own ``ltree`` path, bound as a
+                parameter and cast to ``ltree`` by PostgreSQL — never
+                interpolated, the same discipline ``units_in_subtree`` states
+                at length for the identical bind.
+            at: The moment membership activity is measured at. The caller
+                passes its own ``utc_now()``, the same value every authorizer
+                in this module already uses for the caller's own membership.
         """
         table = schema.redemption
+        membership = schema.membership
+        subject_membership_under_unit = (
+            sa.select(sa.literal(1))
+            .where(
+                membership.c.tenant_id == table.c.tenant_id,
+                membership.c.user_id == table.c.subject_id,
+                membership.c.granted_path.op("<@")(sa.cast(sa.literal(unit_path), schema.LTree())),
+                sa.or_(membership.c.valid_from.is_(None), membership.c.valid_from <= at),
+                sa.or_(membership.c.valid_until.is_(None), membership.c.valid_until > at),
+            )
+            .exists()
+        )
         rows = session.execute(
             sa.select(
                 table.c.id,
@@ -914,7 +969,11 @@ class RewardsRepository:
                 table.c.state,
                 table.c.requested_at,
             )
-            .where(table.c.tenant_id == tenant_id, table.c.state == state.value)
+            .where(
+                table.c.tenant_id == tenant_id,
+                table.c.state == state.value,
+                subject_membership_under_unit,
+            )
             .order_by(table.c.requested_at.asc(), table.c.id)
             .limit(limit)
         ).all()

@@ -12,8 +12,8 @@ formulas that used to stand in for all three. This module is the HTTP half.
 * ``GET  /v1/units/{unit_id}/redemptions`` — the caller's own tickets. See
   :func:`read_own_redemptions`.
 * ``GET  /v1/units/{unit_id}/redemptions/queue`` — the coordinator's discovery
-  route: every redemption at one state, tenant-wide, with no subject
-  disclosed. See :func:`read_redemption_queue`.
+  route: every redemption at one state whose subject falls under the unit's
+  subtree, with no subject disclosed. See :func:`read_redemption_queue`.
 * ``POST /v1/units/{unit_id}/redemptions/{redemption_id}/decision`` — the
   coordinator hop through the state machine. See :func:`decide_redemption`.
 
@@ -101,10 +101,15 @@ a fulfilment is that repository call.
 ``principal.user_id`` in the query rather than filtered afterwards, so a
 coordinator calling *that* route still sees only their own tickets, if any.
 :func:`read_redemption_queue` is the separate route that gives a coordinator
-what :func:`decide_redemption` used to require out of band: it lists every
-redemption at one state, gated on :data:`_REDEMPTION_DECISION_ROLES` — the
-same two roles ``decide_redemption`` already requires, no wider. It still
-discloses no subject, no student name, and no email: D6 §5 still lists
+what :func:`decide_redemption` used to require out of band: it lists
+redemptions at one state whose subject falls under the authorized unit's
+subtree (owner decision, 2026-09-21, PR #200 review — see
+:meth:`~smartmatch_persistence.rewards.RewardsRepository.redemptions_at_state`),
+gated on :data:`_REDEMPTION_DECISION_ROLES` — the same two roles
+``decide_redemption`` already requires, no wider. ``decide_redemption`` itself
+is unchanged: deciding by id stays tenant-scoped, which the owner chose to
+leave alone in that same review rather than tighten in this pass. The queue
+still discloses no subject, no student name, and no email: D6 §5 still lists
 "Read/redemption roles" as a field no artifact has formally resolved, and
 widening disclosure past what ``decide_redemption``'s own response already
 carries — id, item snapshot, state — would be inventing a role or a field this
@@ -165,7 +170,7 @@ from sqlalchemy.orm import Session
 
 from smartmatch_api.dependencies import CurrentPrincipal, DbSession, charge_quota
 from smartmatch_api.errors import ApiError
-from smartmatch_api.units import load_unit_or_404
+from smartmatch_api.units import OrgUnitRow, load_unit_or_404
 from smartmatch_api.utils import utc_now
 
 router = APIRouter(prefix="/v1/units", tags=["rewards"])
@@ -452,15 +457,20 @@ class RedemptionQueueItemResponse(BaseModel):
 
 
 class RedemptionQueueResponse(BaseModel):
-    """A tenant's redemption queue at one state, oldest request first.
+    """One unit subtree's redemption queue at one state, oldest request first.
 
-    Not unit-scoped in its rows: ``redemption`` carries no owning unit (module
-    docstring, "No unit ownership claim"), so — exactly as
-    :func:`decide_redemption` already authorizes an id against the path unit
-    without that unit owning the row — this queue authorizes the *read*
-    against the path unit and then lists the whole tenant's tickets at the
-    requested state. ``unit_id`` below echoes what the read was authorized
-    against, not a claim that the listed tickets belong to it.
+    ``redemption`` itself carries no owning unit (module docstring, "No unit
+    ownership claim"), so unit scoping is not a column filter — it is derived
+    from *who redeemed*: :meth:`RewardsRepository.redemptions_at_state` keeps
+    only redemptions whose subject holds an active membership at or beneath
+    ``unit_id``'s own path (owner decision, 2026-09-21, PR #200 review). A
+    coordinator therefore sees their own department's tickets and not a
+    sibling's; an admin granted at a parent unit sees every descendant
+    department's, the same containment
+    :func:`~smartmatch_api.units.units_in_subtree` already applies to org
+    units. ``decide_redemption`` is unchanged and stays tenant-scoped by id —
+    this narrows only the read that discovers an id, not the command that
+    acts on one.
     """
 
     unit_id: uuid.UUID = Field(description="The unit this read was authorized against")
@@ -596,7 +606,7 @@ def _authorize_redemption_queue(
     session: Session,
     principal: CurrentPrincipal,
     unit_id: uuid.UUID,
-) -> uuid.UUID:
+) -> OrgUnitRow:
     """Load the unit and authorize a coordinator's read of the redemption queue.
 
     Its own function rather than a parameter on
@@ -609,9 +619,13 @@ def _authorize_redemption_queue(
     this function against the live constant rather than against a call that
     happens to pass the same value today.
 
-    Returns the authorized unit id — the value the queue read is scoped
-    against for authorization, even though (see :class:`RedemptionQueueResponse`)
-    the rows returned are not filtered by it.
+    Returns the loaded unit — its ``id`` is the value the read is authorized
+    against, and its ``path`` is what :meth:`RewardsRepository.redemptions_at_state`
+    now uses to scope the *rows* (owner decision, 2026-09-21, PR #200 review):
+    a coordinator's queue shows only students under this unit, and an admin
+    granted at a parent unit sees the whole descendant subtree, exactly the
+    containment :func:`~smartmatch_api.units.units_in_subtree` already applies
+    to org units.
     """
     unit = load_unit_or_404(session, tenant_id=principal.tenant_id, unit_id=unit_id)
     assert_allowed(
@@ -625,7 +639,7 @@ def _authorize_redemption_queue(
         at=utc_now(),
         required_roles=_REDEMPTION_DECISION_ROLES,
     )
-    return unit_id
+    return unit
 
 
 # ---------------------------------------------------------------------------
@@ -932,7 +946,7 @@ def read_redemption_queue(
         ),
     ] = "requested",
 ) -> RedemptionQueueResponse:
-    """Return this tenant's redemptions at one state, oldest request first.
+    """Return redemptions at one state whose subject falls under this unit, oldest request first.
 
     This is the discovery route the module docstring said did not exist: today
     :func:`decide_redemption` acts on an id a coordinator has to be handed out
@@ -942,16 +956,24 @@ def read_redemption_queue(
     :func:`_authorize_redemption_queue`, so nobody gains a read here they could
     not already act on there.
 
-    Every row comes from :meth:`RewardsRepository.redemptions_at_state`, scoped
-    to the caller's own tenant and nothing narrower: see
-    :class:`RedemptionQueueResponse` for why ``redemption`` has no owning unit
-    to filter rows by. Each row discloses exactly what
-    :class:`RedemptionResponse` already discloses back to a coordinator who
-    decides one id — id, item name and cost snapshots, and state — and nothing
-    it does not: no subject, no student name, no email, no balance. The
-    student-only catalog and balance surfaces (:func:`read_reward_catalog`,
-    :func:`read_own_redemptions`) stay gated on :data:`_REWARDS_STUDENT_ROLES`
-    and this route does not touch either.
+    **Rows are unit-scoped** (owner decision, 2026-09-21, PR #200 review): a
+    student's membership must fall at or beneath the authorized unit's path —
+    see :meth:`RewardsRepository.redemptions_at_state` for the containment
+    query — so a coordinator of one department never sees a sibling
+    department's tickets, and an admin granted at a parent unit sees every
+    descendant department's. ``decide_redemption`` itself is deliberately
+    **not** touched by this: deciding a redemption by id stays tenant-scoped,
+    exactly as it always has, because the owner chose to leave that surface
+    alone in this pass — this route narrows only the discovery step that feeds
+    it, not the command it feeds.
+
+    Each row discloses exactly what :class:`RedemptionResponse` already
+    discloses back to a coordinator who decides one id — id, item name and
+    cost snapshots, and state — and nothing it does not: no subject, no
+    student name, no email, no balance. The student-only catalog and balance
+    surfaces (:func:`read_reward_catalog`, :func:`read_own_redemptions`) stay
+    gated on :data:`_REWARDS_STUDENT_ROLES` and this route does not touch
+    either.
 
     Reads at most :data:`REDEMPTION_QUEUE_MAX_ROWS` + 1 rows so ``truncated``
     is answered by the same query that produced the page, the shape
@@ -968,17 +990,19 @@ def read_redemption_queue(
     """
     charge_quota(session, principal, REDEMPTION_QUEUE_LIST_RATE_LIMIT)
 
-    authorized_unit_id = _authorize_redemption_queue(session, principal, unit_id)
+    authorized_unit: OrgUnitRow = _authorize_redemption_queue(session, principal, unit_id)
 
     rows = _rewards.redemptions_at_state(
         session,
         tenant_id=principal.tenant_id,
         state=RedemptionState(status_filter),
+        unit_path=authorized_unit.path,
+        at=utc_now(),
         limit=REDEMPTION_QUEUE_MAX_ROWS + 1,
     )
 
     return RedemptionQueueResponse(
-        unit_id=authorized_unit_id,
+        unit_id=authorized_unit.id,
         status=status_filter,
         redemptions=[_queue_item_view(row) for row in rows[:REDEMPTION_QUEUE_MAX_ROWS]],
         truncated=len(rows) > REDEMPTION_QUEUE_MAX_ROWS,
