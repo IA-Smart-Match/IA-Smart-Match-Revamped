@@ -362,6 +362,7 @@ A stable address on the pilot VM path (`docker-compose.vm.yml`,
 `docs/operations/vm-deploy.md`) running with `SMARTMATCH_PRODUCT_SCOPE=
 class_exercise`. Budget: under 5 seconds to first interactive in Chrome on a
 classroom machine, measured on the deployed address, not locally.
+The operator procedure is `docs/operations/exercise-hosting.md`.
 
 ## 18. Acceptance
 

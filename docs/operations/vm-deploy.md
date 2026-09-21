@@ -15,6 +15,14 @@ this file.
 What the VM *is* for: a URL a stakeholder can open, that always reflects the
 `deploy` branch, without anyone installing Docker.
 
+**Hosting the class exercise is a different scope and a different document.**
+Everything here describes the CBA appliance
+(`SMARTMATCH_PRODUCT_SCOPE` unset, so `cba`). The class exercise runs as its
+own API process with `SMARTMATCH_PRODUCT_SCOPE=class_exercise` on its own
+subdomain, with its own cookies, its own database role and its own runbook:
+see [`exercise-hosting.md`](exercise-hosting.md). Nothing in this file changes
+for it.
+
 > **The gap this document used to describe is closed.** Earlier revisions
 > recorded that the machine serving the pilot did not have the layout described
 > below, and flagged an open "Option A vs Option B" decision between correcting
