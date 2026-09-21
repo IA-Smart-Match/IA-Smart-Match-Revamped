@@ -149,7 +149,16 @@ describe("<ExerciseAskingForMore />", () => {
     expect(screen.getByText(/pick a way of asking first/i)).toBeDefined();
   });
 
-  it("shows the counts a refresh produced, and no percentage", async () => {
+  it("keeps the once-only refresh counts on screen after the reload settles", async () => {
+    // F3. A team may refresh once, ever, and `GET …/asking-choice` reports only
+    // *that* it has — never what happened. So these three numbers exist in
+    // exactly one response and nothing can fetch them again.
+    //
+    // Fails on the merged code: the counts were held by `AskingPanels`, the
+    // refresh called `onChanged()`, the reload dropped the hook to `loading`,
+    // and the panel unmounted — taking them with it. Asserting *after* the
+    // reload's own request has landed is what catches it; the old test looked
+    // at a DOM that was about to be thrown away.
     stub({
       [`GET ${ASKING}`]: { body: { choice: "required", choices: ["required"], refreshed: false } },
       [`POST ${REFRESH}`]: {
@@ -158,11 +167,18 @@ describe("<ExerciseAskingForMore />", () => {
     });
     renderAsking();
     fireEvent.click(await screen.findByRole("button", { name: /ask them now/i }));
-    await waitFor(() =>
-      expect(document.querySelector('[data-slot="exercise-refresh-counts"]')?.textContent).toContain(
-        "14",
-      ),
-    );
+
+    // The POST, then the reload's GET, have both been issued.
+    await waitFor(() => expect(calls.filter((call) => call.url === REFRESH).length).toBe(1));
+    await waitFor(() => expect(calls.filter((call) => call.url === ASKING).length).toBe(2));
+    // Let the reload's answer settle before looking.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const counts = document.querySelector('[data-slot="exercise-refresh-counts"]');
+    expect(counts).not.toBeNull();
+    expect(counts?.textContent).toContain("14");
+    expect(counts?.textContent).toContain("3");
+    expect(counts?.textContent).toContain("22");
     expect(document.body.textContent).not.toContain("%");
   });
 
