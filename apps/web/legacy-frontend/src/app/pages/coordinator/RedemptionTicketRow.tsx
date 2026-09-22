@@ -101,7 +101,8 @@ function permittedMoves(
           label: "Mark fulfilled",
           name: (item) => `Mark ${item} fulfilled`,
         },
-        { decision: "denied", label: "Deny", name: (item) => `Deny ${item}` },
+        // No Deny: the domain allows approved -> fulfilled | expired only
+        // (smartmatch_domain.rewards.REDEMPTION_TRANSITIONS).
       ];
     default:
       return [];

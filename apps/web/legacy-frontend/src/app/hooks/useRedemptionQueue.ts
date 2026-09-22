@@ -19,6 +19,7 @@
  * show is `redemptions.length` of a **loaded** response — while the read is
  * pending there is no count, and the page renders none.
  */
+import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useState } from "react";
 
 import {
@@ -29,6 +30,9 @@ import {
   type RedemptionQueueItem,
   type RedemptionQueueStatus,
 } from "../../lib/api";
+import { usePrincipalKey } from "@/app/components/PrincipalQueryProvider";
+import { scopedQueryKey } from "@/lib/queryClient";
+
 import { useScopedQuery } from "./useScopedQuery";
 
 /** What the last decision left behind, as a sentence the page announces. */
@@ -136,6 +140,21 @@ export function useRedemptionQueue(unitId: string | null): RedemptionQueueState 
     await refetch();
   }, [refetch]);
 
+  // A decision moves a ticket between tabs, so every tab's cached read for
+  // this unit is now wrong, not only the one on screen. Invalidating the
+  // unit's prefix refetches the active tab and marks the rest stale.
+  const queryClient = useQueryClient();
+  const principalKey = usePrincipalKey();
+  const invalidateUnit = useCallback(async () => {
+    if (principalKey === null) {
+      await refetch();
+      return;
+    }
+    await queryClient.invalidateQueries({
+      queryKey: scopedQueryKey(principalKey, "redemption-queue", unitId),
+    });
+  }, [principalKey, queryClient, refetch, unitId]);
+
   const setStatus = useCallback((next: RedemptionQueueStatus) => {
     setStatusState(next);
     // An outcome belongs to the tab it happened on; carrying it across would
@@ -163,11 +182,11 @@ export function useRedemptionQueue(unitId: string | null): RedemptionQueueState 
       } finally {
         // Re-read either way: on success the row has left this status; on a
         // 409 it already had, and the screen must stop showing it.
-        await reload();
+        await invalidateUnit();
         setBusyId(null);
       }
     },
-    [reload, unitId],
+    [invalidateUnit, unitId],
   );
 
   return {

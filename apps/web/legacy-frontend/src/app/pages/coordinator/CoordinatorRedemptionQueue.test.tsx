@@ -99,9 +99,9 @@ function queue(
   return { body: { unit_id: UNIT, status, redemptions, truncated } };
 }
 
-function renderPage() {
+function renderPage(staleTime = 0) {
   const client = new QueryClient({
-    defaultOptions: { queries: { retry: false, networkMode: "always" } },
+    defaultOptions: { queries: { retry: false, networkMode: "always", staleTime } },
   });
   return render(
     <QueryClientProvider client={client}>
@@ -183,7 +183,9 @@ describe("<CoordinatorRedemptionQueue />", () => {
     fireEvent.click(screen.getByRole("button", { name: "Approved" }));
     await screen.findAllByText("Voucher");
     expect(screen.getAllByRole("button", { name: "Mark Voucher fulfilled" })).not.toHaveLength(0);
-    expect(screen.getAllByRole("button", { name: "Deny Voucher" })).not.toHaveLength(0);
+    // The state machine allows approved -> fulfilled | expired only; a Deny
+    // here could only ever answer 409.
+    expect(screen.queryByRole("button", { name: "Deny Voucher" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Approve Voucher" })).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Fulfilled" }));
@@ -219,6 +221,41 @@ describe("<CoordinatorRedemptionQueue />", () => {
     expect(post?.url).toBe(`/v1/units/${UNIT}/redemptions/r1/decision`);
     expect(JSON.parse(String(post?.init.body))).toEqual({ decision: "approved" });
     expect(screen.getByText("Gift Card approved.")).toBeDefined();
+  });
+
+  it("a decision re-reads every status tab, not only the one it was made on", async () => {
+    let decided = false;
+    stub({
+      [`GET ${QUEUE}?status=requested`]: () =>
+        decided ? queue("requested", []) : queue("requested", [ticket("r1", "Gift Card", "requested")]),
+      [`GET ${QUEUE}?status=approved`]: () =>
+        decided ? queue("approved", [ticket("r1", "Gift Card", "approved")]) : queue("approved", []),
+      [`POST /v1/units/${UNIT}/redemptions/r1/decision`]: () => {
+        decided = true;
+        return {
+          body: {
+            redemption_id: "r1",
+            item_id: "i1",
+            item_name: "Gift Card",
+            points_cost: 300,
+            state: "approved",
+          },
+        };
+      },
+    });
+    // The app's real staleTime: without invalidation the Approved tab's
+    // empty read would be served from cache as fresh.
+    renderPage(30_000);
+    await screen.findAllByText("Gift Card");
+    fireEvent.click(screen.getByRole("button", { name: "Approved" }));
+    await screen.findByText(/No approved tickets/);
+    fireEvent.click(screen.getByRole("button", { name: "Requested" }));
+    fireEvent.click((await screen.findAllByRole("button", { name: "Approve Gift Card" }))[0]);
+    await screen.findByText(/No tickets waiting/);
+
+    fireEvent.click(screen.getByRole("button", { name: "Approved" }));
+    expect(await screen.findAllByText("Gift Card")).not.toHaveLength(0);
+    expect(screen.queryByText(/No approved tickets/)).toBeNull();
   });
 
   it("Deny asks for an inline confirmation before posting", async () => {

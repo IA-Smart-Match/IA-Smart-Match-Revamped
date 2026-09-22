@@ -69,7 +69,7 @@ Actions by state (state machine `requested -> approved -> fulfilled | denied | e
 | State | Buttons | Accessible name |
 |---|---|---|
 | requested | Approve, Deny | "Approve {item}", "Deny {item}" |
-| approved | Mark fulfilled, Deny | "Mark {item} fulfilled", "Deny {item}" |
+| approved | Mark fulfilled | "Mark {item} fulfilled" (no Deny: the domain allows `approved -> fulfilled \| expired` only; corrected after the #205 review) |
 | fulfilled / denied / expired | none | sentence: "No further decision is possible." |
 
 Deny: first press swaps the two buttons for an inline confirm row
