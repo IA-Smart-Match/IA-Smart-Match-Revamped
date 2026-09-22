@@ -301,8 +301,9 @@ class RedemptionStep:
 #: request the balance does not cover, and a fulfilment debits it. So every
 #: redemption is *opened* first, while the full attendance-derived balance is
 #: still there, and only then are the approvals and the one fulfilment applied.
-#: Opening after the debit would refuse the 1000-point row against a balance that
-#: had just dropped to 900 — a correct refusal, and a pointlessly empty screen.
+#: Opening after the debit would test the 1000-point row against a balance that
+#: had already dropped by 300 — correct, but it makes the plan's success depend
+#: on :data:`STUDENT_ATTENDANCES` in a second place.
 REDEMPTION_PLAN: Final[tuple[RedemptionStep, ...]] = (
     RedemptionStep("Bronco Bookstore $10 Gift Card", RedemptionState.FULFILLED),
     RedemptionStep("CBA Career Closet Voucher", RedemptionState.APPROVED),
@@ -342,11 +343,14 @@ MEETINGS: Final[tuple[MeetingPlan, ...]] = (
     MeetingPlan("Spring career week programming sync", 32, 13, None),
 )
 
-#: How many attended events to credit the demo student with. Twelve events at
-#: 100 points is 1,200, which covers the 300, 600 and 1000 rows at request time
-#: and leaves 900 after the one fulfilment — enough to make the catalog's cheaper
-#: half affordable and its top row visibly not.
-STUDENT_ATTENDANCES: Final[int] = 12
+#: How many attended events to credit the demo student with. Nineteen events at
+#: 100 points is 1,900, which covers the 300, 600 and 1000 rows at request time
+#: and leaves 1,600 after the one fulfilment — exactly the 600 ``approved`` plus
+#: the 1000 ``requested`` the plan leaves open, so a coordinator can carry both
+#: to ``fulfilled`` on the queue page in either order. Twelve (the old value)
+#: left 900, and the Headshot's fulfilment was refused ``insufficient_balance``.
+#: ``tests/unit/test_seed_pilot_engagement_balance.py`` pins the invariant.
+STUDENT_ATTENDANCES: Final[int] = 19
 
 #: How many future events to put on the student's agenda, and how many of those
 #: to then cancel. The cancellation is not padding: OQ-CBA-018 settled that a
