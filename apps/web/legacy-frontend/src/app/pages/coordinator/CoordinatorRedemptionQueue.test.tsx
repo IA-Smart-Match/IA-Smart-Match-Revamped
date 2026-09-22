@@ -341,6 +341,41 @@ describe("<CoordinatorRedemptionQueue />", () => {
     expect(screen.getByRole("button", { name: "Try again" })).toBeDefined();
   });
 
+  it("a 5xx offers a retry; a 403 does not", async () => {
+    stub({
+      [`GET ${QUEUE}?status=requested`]: {
+        status: 503,
+        body: { error: { code: "internal_error", message: "upstream timeout" } },
+      },
+    });
+    renderPage();
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toMatch(/could not answer/);
+    expect(alert.textContent).not.toMatch(/upstream timeout/);
+    expect(screen.getByRole("button", { name: "Try again" })).toBeDefined();
+  });
+
+  it("names the persona, not the stored role key, and moves focus to the result", async () => {
+    let decided = false;
+    stub({
+      [`GET ${QUEUE}?status=requested`]: () =>
+        decided ? queue("requested", []) : queue("requested", [ticket("r1", "Gift Card", "requested")]),
+      [`POST /v1/units/${UNIT}/redemptions/r1/decision`]: () => {
+        decided = true;
+        return {
+          body: { redemption_id: "r1", item_id: "i1", item_name: "Gift Card", points_cost: 300, state: "approved" },
+        };
+      },
+    });
+    renderPage();
+    await screen.findAllByText("Gift Card");
+    expect(screen.getByText(/Signed in as/).textContent).toMatch(/Speaker Connector/);
+    expect(screen.getByText(/Signed in as/).textContent).not.toMatch(/· coordinator ·/);
+    fireEvent.click(screen.getAllByRole("button", { name: "Approve Gift Card" })[0]);
+    await screen.findByText("Gift Card approved.");
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("status")));
+  });
+
   it("renders the absolute and relative request time", async () => {
     stub({
       [`GET ${QUEUE}?status=requested`]: queue("requested", [ticket("r1", "Gift Card", "requested")]),

@@ -39,8 +39,11 @@ export type DecisionOutcome =
 
 /** One sentence per read failure, in the server's words wherever it gave any. */
 export type QueueLoadFailure =
+  /** A 4xx: the server's considered answer. Repeating the read cannot change it. */
   | { readonly kind: "refused"; readonly sentence: string }
   | { readonly kind: "rate_limited"; readonly sentence: string }
+  /** A 5xx: the server's fault, and the one refusal a retry may honestly undo. */
+  | { readonly kind: "server_error"; readonly sentence: string }
   | { readonly kind: "unreachable"; readonly sentence: string };
 
 export interface RedemptionQueueState {
@@ -70,6 +73,13 @@ function describeLoadFailure(cause: unknown): QueueLoadFailure {
       return {
         kind: "rate_limited",
         sentence: `${cause.message} The queue is unchanged; try again after that.`,
+      };
+    }
+    if (cause.status >= 500) {
+      return {
+        kind: "server_error",
+        sentence:
+          "The server could not answer for the redemption queue. Nothing was changed; try again.",
       };
     }
     return { kind: "refused", sentence: cause.message };

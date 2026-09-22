@@ -113,14 +113,21 @@ export function TicketActions({ item, busy, onDecide }: TicketActionsProps) {
   const [confirmingDeny, setConfirmingDeny] = useState(false);
   const confirmRef = useRef<HTMLButtonElement>(null);
   const denyRef = useRef<HTMLButtonElement>(null);
+  // Whether the confirm row was open on the previous render, so closing it
+  // (and only closing it) hands focus back to Deny after the buttons remount.
+  const wasConfirmingRef = useRef(false);
   const moves = permittedMoves(item.state);
 
   // Keep focus inside the row: opening the confirm moves it to Confirm deny,
-  // closing it returns to Deny, so a keyboard user never lands on the body.
+  // closing it with Keep returns to Deny, so a keyboard user never lands on
+  // the body. Runs after commit, when the refs point at mounted buttons.
   useEffect(() => {
     if (confirmingDeny) {
       confirmRef.current?.focus();
+    } else if (wasConfirmingRef.current) {
+      denyRef.current?.focus();
     }
+    wasConfirmingRef.current = confirmingDeny;
   }, [confirmingDeny]);
 
   if (moves.length === 0) {
@@ -136,7 +143,7 @@ export function TicketActions({ item, busy, onDecide }: TicketActionsProps) {
     return (
       <div className="flex flex-wrap items-center gap-2">
         <p className="text-xs text-foreground">
-          Deny this ticket? No points are taken; points leave a balance only at fulfilment.
+          Deny this ticket? No points are taken; points leave a balance only at fulfillment.
         </p>
         <button
           ref={confirmRef}
@@ -157,8 +164,6 @@ export function TicketActions({ item, busy, onDecide }: TicketActionsProps) {
           aria-label={`Keep ${item.item_name}`}
           onClick={() => {
             setConfirmingDeny(false);
-            // Focus returns after the buttons re-render.
-            queueMicrotask(() => denyRef.current?.focus());
           }}
           className={BUTTON_QUIET}
         >
@@ -198,7 +203,7 @@ export function TicketCard(props: TicketActionsProps) {
   const { item } = props;
   return (
     <li className="space-y-2 rounded-xl border border-border/70 p-4">
-      <h3 className="text-sm font-semibold text-foreground">{item.item_name}</h3>
+      <h3 className="break-words text-sm font-semibold text-foreground">{item.item_name}</h3>
       <p className="text-sm tabular-nums text-foreground">{item.points_cost} points</p>
       <RequestedAt iso={item.requested_at} />
       <TicketStateChip state={item.state} />
@@ -214,7 +219,7 @@ export function TicketTableRow(props: TicketActionsProps) {
   const { item } = props;
   return (
     <tr className="border-t border-border/70 align-top motion-safe:transition-colors hover:bg-muted/40">
-      <th scope="row" className="py-3 pr-4 text-left text-sm font-semibold text-foreground">
+      <th scope="row" className="break-words py-3 pr-4 text-left text-sm font-semibold text-foreground">
         {item.item_name}
       </th>
       <td className="py-3 pr-4 text-sm tabular-nums text-foreground">{item.points_cost} points</td>

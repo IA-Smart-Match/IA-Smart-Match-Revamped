@@ -31,9 +31,11 @@
  *
  * Design doc: `docs/design/coordinator-redemption-queue.md`.
  */
+import { useEffect, useRef } from "react";
 import { Info } from "lucide-react";
 
 import type { RedemptionQueueStatus } from "../../../lib/api";
+import { visibleRoleLabel } from "../../../lib/roleLabels";
 import { grantedPortal } from "../../components/PortalGate";
 import { usePortalAccess } from "../../hooks/usePortalAccess";
 import { useRedemptionQueue } from "../../hooks/useRedemptionQueue";
@@ -57,9 +59,9 @@ const EMPTY_COPY: Readonly<Record<RedemptionQueueStatus, string>> = {
   approved:
     "No approved tickets. Approve a requested ticket and it appears here until you mark it " +
     "fulfilled.",
-  fulfilled: "No fulfilled tickets.",
-  denied: "No denied tickets.",
-  expired: "No expired tickets.",
+  fulfilled: "No fulfilled tickets. Mark an approved ticket fulfilled and it is recorded here.",
+  denied: "No denied tickets. A ticket you deny is recorded here.",
+  expired: "No expired tickets. A ticket the system closed unanswered is recorded here.",
 };
 
 const TAB_SELECTED =
@@ -82,6 +84,18 @@ export function CoordinatorRedemptionQueue() {
 
   const queue = useRedemptionQueue(unitId);
 
+  // After a decision the row leaves this status on the re-read, and the
+  // button that had focus with it. Focus moves to the sentence that says what
+  // happened, so a keyboard user reads the result and continues from the
+  // top of the list rather than from `<body>`.
+  const statusRef = useRef<HTMLParagraphElement>(null);
+  const decidedSentence = queue.outcome?.kind === "decided" ? queue.outcome.sentence : null;
+  useEffect(() => {
+    if (decidedSentence !== null && queue.busyId === null) {
+      statusRef.current?.focus();
+    }
+  }, [decidedSentence, queue.busyId]);
+
   // `CoordinatorPortalLayout` renders `PortalGate` when no portal was granted,
   // so reaching here without a grant means the mapping is still resolving.
   if (grant === null) {
@@ -90,15 +104,16 @@ export function CoordinatorRedemptionQueue() {
 
   const rows = queue.redemptions;
   const busyItem = rows?.find((item) => item.redemption_id === queue.busyId) ?? null;
-  // Loading is a sentence, not a spinner alone (design doc §5, row 1).
+  // Loading is a sentence, not a spinner alone (design doc §5, row 1). What
+  // is happening now outranks what happened last.
   const statusSentence =
     busyItem !== null
       ? `Recording your decision on ${busyItem.item_name}…`
-      : queue.outcome?.kind === "decided"
-        ? queue.outcome.sentence
-        : queue.loading && unitId !== null
-          ? `Loading ${queue.status} tickets…`
-          : "";
+      : queue.loading && unitId !== null
+        ? `Loading ${queue.status} tickets…`
+        : (decidedSentence ?? "");
+  // The user-facing persona, never the stored role key (DESIGN.md, role names).
+  const roleLabel = visibleRoleLabel(grant.role) ?? "role not recognised";
 
   return (
     <div className="space-y-6">
@@ -109,7 +124,7 @@ export function CoordinatorRedemptionQueue() {
           fulfilled when the reward is handed over; deny a request that should not go through.
         </p>
         <p className="text-xs text-muted-foreground">
-          Signed in as {principal.email} · {grant.role} · {grant.org_unit_path}
+          Signed in as {principal.email} · {roleLabel} · {grant.org_unit_path}
         </p>
       </header>
 
@@ -146,7 +161,17 @@ export function CoordinatorRedemptionQueue() {
       </nav>
 
       {/* One polite region for progress and decision outcomes; refusals below use role="alert". */}
-      <p role="status" aria-live="polite" className={statusSentence === "" ? "sr-only" : NOTICE}>
+      <p
+        ref={statusRef}
+        tabIndex={-1}
+        role="status"
+        aria-live="polite"
+        className={
+          statusSentence === ""
+            ? "sr-only"
+            : `${NOTICE} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2`
+        }
+      >
         {statusSentence}
       </p>
 
@@ -159,7 +184,8 @@ export function CoordinatorRedemptionQueue() {
       {queue.loadFailure !== null ? (
         <div className={`${ALERT} space-y-3`} role="alert">
           <p>{queue.loadFailure.sentence}</p>
-          {queue.loadFailure.kind === "unreachable" ? (
+          {/* Retry only where a retry can change the answer: not a 4xx. */}
+          {queue.loadFailure.kind === "unreachable" || queue.loadFailure.kind === "server_error" ? (
             <button
               type="button"
               onClick={() => {
@@ -189,6 +215,7 @@ export function CoordinatorRedemptionQueue() {
         <p className={NOTICE}>{EMPTY_COPY[queue.status]}</p>
       ) : (
         <>
+          <h2 className="sr-only">Tickets</h2>
           {/* Cards below `md`; the table above. The hidden one is display:none, so
               assistive technology reads one presentation, not two. */}
           <ul className="space-y-3 md:hidden" aria-label="Tickets">
@@ -196,7 +223,7 @@ export function CoordinatorRedemptionQueue() {
               <TicketCard
                 key={item.redemption_id}
                 item={item}
-                busy={queue.busyId === item.redemption_id}
+                busy={queue.busyId !== null}
                 onDecide={queue.decide}
               />
             ))}
@@ -218,7 +245,7 @@ export function CoordinatorRedemptionQueue() {
                   <TicketTableRow
                     key={item.redemption_id}
                     item={item}
-                    busy={queue.busyId === item.redemption_id}
+                    busy={queue.busyId !== null}
                     onDecide={queue.decide}
                   />
                 ))}

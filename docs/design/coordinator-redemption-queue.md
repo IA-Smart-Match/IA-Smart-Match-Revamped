@@ -73,7 +73,7 @@ Actions by state (state machine `requested -> approved -> fulfilled | denied | e
 | fulfilled / denied / expired | none | sentence: "No further decision is possible." |
 
 Deny: first press swaps the two buttons for an inline confirm row
-("Deny this ticket? The student's points are not taken." — Confirm deny /
+("Deny this ticket? No points are taken; points leave a balance only at fulfillment." — Confirm deny /
 Keep). No modal. Approve and Mark fulfilled post at once.
 
 ## 4. Status filter
@@ -92,9 +92,9 @@ ever known, because only one status is fetched at a time.
 | 1 | Loading | query pending | "Loading {status} tickets…" (`role="status"`) | tabs |
 | 2 | Empty, requested | 200, 0 rows | "No tickets waiting. Students have not requested a reward, or every request has been decided. Tickets are anonymous by design." | tabs |
 | 3 | Empty, approved | | "No approved tickets. Approve a requested ticket and it appears here until you mark it fulfilled." | tabs |
-| 4 | Empty, fulfilled | | "No fulfilled tickets." | tabs |
-| 5 | Empty, denied | | "No denied tickets." | tabs |
-| 6 | Empty, expired | | "No expired tickets." | tabs |
+| 4 | Empty, fulfilled | | "No fulfilled tickets. Mark an approved ticket fulfilled and it is recorded here." | tabs |
+| 5 | Empty, denied | | "No denied tickets. A ticket you deny is recorded here." | tabs |
+| 6 | Empty, expired | | "No expired tickets. A ticket the system closed unanswered is recorded here." | tabs |
 | 7 | Refused | 403 | server message verbatim (`role="alert"`); tabs stay usable | tabs |
 | 8 | Rate-limited | 429 | server message verbatim ("Rate limit exceeded … Retry in N seconds.") + "The queue is unchanged; try again after that." | tabs |
 | 9 | Truncated | `truncated: true` | "Showing the oldest {n} tickets; more exist at this status. Decide these to see the rest." | rows |
@@ -111,7 +111,7 @@ Rule from the sibling: after any decision, success or failure, the list is
 ## 6. Accessibility checklist
 
 - [ ] One `h1`; sections use `h2`.
-- [ ] Rows in a `<ul>` (cards) below `md`, a real `<table>` with `<th scope="col">` at `md+`. Both render from the same data; only one is in the DOM at a time (Tailwind `hidden md:block` — verified the hidden variant is `display:none`, so nothing is read twice).
+- [ ] Rows in a `<ul>` (cards) below `md`, a real `<table>` with `<th scope="col">` at `md+`. Both render from the same data and both are in the DOM; the inactive one is `display:none` (Tailwind `hidden` / `md:hidden`), which removes it from the accessibility tree and the tab order, so nothing is read or focused twice.
 - [ ] Every action button's accessible name includes the item name.
 - [ ] One polite live region for decision outcomes; alerts use `role="alert"`.
 - [ ] Filter state exposed with `aria-current="page"` and `aria-label="Ticket status"`.
@@ -147,8 +147,8 @@ Bronco Bookstore $10 Gift Card    300      18 Sep 2026, 09:12     ◷ Requested 
                                            3 days ago
 CBA Career Closet Voucher         600      20 Sep 2026, 14:05     ◷ Requested [Approve] [Deny]
                                            1 day ago
-Professional Headshot Session    1000      21 Sep 2026, 08:40     ◷ Requested   Deny this ticket? The student's
-                                           2 hours ago                          points are not taken.
+Professional Headshot Session    1000      21 Sep 2026, 08:40     ◷ Requested   Deny this ticket? No points are
+                                           2 hours ago                          taken; points leave a balance only at fulfillment.
                                                                                 [Confirm deny] [Keep]
 ```
 
@@ -186,4 +186,35 @@ language; the intro copy says nothing about budgets or approval.
 
 ## 9. Impeccable pass
 
-_Filled in during the polish phase._
+Method: dual-agent critique (Assessment A design review; Assessment B
+`impeccable detect`, 0 findings, exit 0). No browser step: no app runs on the
+build machine, so the review was source-only.
+
+Verdict before fixes: 15/15 state-matrix rows PASS, 2 of 12 a11y items FAIL,
+Nielsen 30/40. Design-specificity: authored for this queue (state machine,
+empty sentences, chips), generic only at the edges (focus after a decision,
+5xx handling).
+
+| Sev | Finding | Change |
+|---|---|---|
+| P1 | `{grant.role}` printed the stored key "coordinator"; DESIGN.md forbids exposing role keys | `visibleRoleLabel()` from `src/lib/roleLabels.ts` → "Speaker Connector". (The sibling review queue has the same defect at `CoordinatorReviewQueue.tsx:278`; left for a follow-up, out of this PR's scope.) |
+| P1 | Focus dropped to `<body>` after every decision: the row unmounts on the re-read | Live region is `tabIndex={-1}`; the page focuses it once the re-read settles after a `decided` outcome. Test added. |
+| P1 | A 5xx was classed "refused": raw server sentence, no retry | New `server_error` kind with its own sentence and the Try again button; 4xx still gets no retry. Test added. |
+| P2 | Success sentence outranked a later "Loading…" | Order is now in-flight › loading › last outcome. Outcome still clears on tab change or next decision. |
+| P2 | Heading outline skipped h2 | `<h2 class="sr-only">Tickets</h2>` above the list/table. |
+| P2 | One shared `busyId` disabled only the busy row; two decisions could race | All action buttons disable while any decision is in flight (once-only, matches "decide these one at a time"). |
+| P3 | Keep→Deny focus relied on `queueMicrotask` | Replaced with a commit-time `useEffect` keyed on the closing transition. |
+| P3 | Long item name could overflow at 360px | `break-words` on the card `h3` and the table row header. |
+| P3 | Empty copy for fulfilled/denied/expired had no next action | One clause added to each. |
+| P3 | "fulfilment" vs "fulfilled" | "fulfillment". |
+
+Accepted, not changed: only the selected tab carries a count (five reads per
+render would spend the coordinator's own 120/min quota on numbers); the count
+is the returned length and can sit above the truncated notice (both are what
+the server said; neither claims to be the total); no pager (the cap is 200
+and the sibling's `PagedList` windows drawn rows only — a follow-up if the
+pilot shows queues that long).
+
+Design-doc corrections from the pass: §3 Deny copy now matches the code
+("No points are taken; points leave a balance only at fulfillment."), which
+avoids naming a student; §6 wording on the hidden card/table pair corrected.
