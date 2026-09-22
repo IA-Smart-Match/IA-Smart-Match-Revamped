@@ -2725,6 +2725,83 @@ export async function requestRedemption(unitId: string, itemId: string): Promise
   );
 }
 
+/**
+ * The five states `GET …/redemptions/queue` can be asked for — the whole
+ * `ck_redemption_state` vocabulary, not only the ones a decision may write.
+ */
+export type RedemptionQueueStatus = RedemptionState;
+
+/**
+ * One ticket as the coordinator queue discloses it: id, the item's name and
+ * cost snapshots, state, and when it was opened. **No student identifier**,
+ * by owner decision (2026-09-21, PR #200): this list returns many students'
+ * tickets to anyone holding the unit's role, and widening what it discloses
+ * is a product decision that is not made in a client.
+ */
+export interface RedemptionQueueItem {
+  redemption_id: string;
+  item_name: string;
+  points_cost: number;
+  state: RedemptionState;
+  requested_at: string;
+}
+
+export interface RedemptionQueueResponse {
+  unit_id: string;
+  /** Echoes the `status` that was asked for. */
+  status: RedemptionQueueStatus;
+  /** Oldest request first. */
+  redemptions: RedemptionQueueItem[];
+  /** True when more tickets exist at this state than were returned. Read it; never infer it from length. */
+  truncated: boolean;
+}
+
+/**
+ * `GET /v1/units/{unit_id}/redemptions/queue?status=…` — the tickets a
+ * coordinator may decide, at one state, oldest first.
+ *
+ * Rows are unit-scoped server-side (a student's membership must fall under
+ * the authorized unit), and the route is gated on the same `admin`/`coordinator`
+ * roles `decideRedemption` requires. A `403` is the server's refusal for this
+ * caller; a unit in another tenant is a `404`.
+ */
+export async function fetchRedemptionQueue(
+  unitId: string,
+  status: RedemptionQueueStatus = "requested",
+): Promise<RedemptionQueueResponse> {
+  return requestJson<RedemptionQueueResponse>(
+    `/v1/units/${encodeURIComponent(unitId)}/redemptions/queue?status=${encodeURIComponent(status)}`,
+    { method: "GET" },
+    { authenticated: true },
+  );
+}
+
+/**
+ * What a coordinator may write. `expired` is absent on purpose: an expiry has
+ * no author, and `requested` is where a ticket starts, not a move.
+ */
+export type RedemptionDecision = "approved" | "fulfilled" | "denied";
+
+/**
+ * `POST /v1/units/{unit_id}/redemptions/{redemption_id}/decision` — move one
+ * ticket through `requested -> approved -> fulfilled | denied`.
+ *
+ * A move the machine does not allow — including a second decision on a ticket
+ * someone else already decided — is a `409`, never a silent success. Callers
+ * surface it as the state disagreement it is and re-read the queue.
+ */
+export async function decideRedemption(
+  unitId: string,
+  redemptionId: string,
+  decision: RedemptionDecision,
+): Promise<Redemption> {
+  return requestJson<Redemption>(
+    `/v1/units/${encodeURIComponent(unitId)}/redemptions/${encodeURIComponent(redemptionId)}/decision`,
+    { method: "POST", body: JSON.stringify({ decision }) },
+    { authenticated: true },
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Outreach (R4, gate G4)
 //
