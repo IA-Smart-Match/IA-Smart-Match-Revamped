@@ -70,6 +70,12 @@ export function TicketStateChip({ state }: { state: RedemptionState }) {
 /** The absolute time and, beneath it, the relative one; both from the API timestamp. */
 export function RequestedAt({ iso }: { iso: string }) {
   const at = new Date(iso);
+  // A timestamp this browser cannot parse is a sentence, not a crash:
+  // `formatDistanceToNowStrict` throws on an invalid date, and nothing above
+  // this route would catch it.
+  if (Number.isNaN(at.getTime())) {
+    return <span className="block text-xs text-muted-foreground">Request time not readable</span>;
+  }
   return (
     <time dateTime={iso} className="block text-xs text-muted-foreground">
       <span className="block text-foreground">{at.toLocaleString()}</span>

@@ -317,6 +317,19 @@ describe("<CoordinatorRedemptionQueue />", () => {
     expect((await screen.findByText(/Showing the oldest 1 tickets?/)).textContent).toMatch(
       /Decide these to see the rest/,
     );
+    // The tab count is what arrived, marked as not the total.
+    expect(screen.getByRole("button", { name: "Requested (1+)" })).toBeDefined();
+  });
+
+  it("an unreadable timestamp is a sentence, not a crash", async () => {
+    stub({
+      [`GET ${QUEUE}?status=requested`]: queue("requested", [
+        { ...ticket("r1", "Gift Card", "requested"), requested_at: "not-a-date" },
+      ]),
+    });
+    renderPage();
+    await screen.findAllByText("Gift Card");
+    expect(screen.getAllByText("Request time not readable")).not.toHaveLength(0);
   });
 
   it("empty states are per status", async () => {

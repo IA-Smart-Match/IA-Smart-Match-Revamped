@@ -129,9 +129,12 @@ export function useRedemptionQueue(unitId: string | null): RedemptionQueueState 
   const truncated = listQuery.isSuccess ? listQuery.data.truncated : false;
   const loadFailure = listQuery.isError ? describeLoadFailure(listQuery.error) : null;
 
+  // Depend on `refetch`, which TanStack keeps stable, not on the result
+  // object, which is new every render and would re-render every row.
+  const refetch = listQuery.refetch;
   const reload = useCallback(async () => {
-    await listQuery.refetch();
-  }, [listQuery]);
+    await refetch();
+  }, [refetch]);
 
   const setStatus = useCallback((next: RedemptionQueueStatus) => {
     setStatusState(next);
@@ -142,10 +145,15 @@ export function useRedemptionQueue(unitId: string | null): RedemptionQueueState 
 
   const decide = useCallback(
     async (item: RedemptionQueueItem, decision: RedemptionDecision) => {
+      // Unreachable while `redemptions` is null (no unit means no rows to
+      // decide), but the guard is what keeps `/v1/units/null/...` impossible.
+      if (unitId === null) {
+        return;
+      }
       setBusyId(item.redemption_id);
       setOutcome(null);
       try {
-        await decideRedemption(unitId as string, item.redemption_id, decision);
+        await decideRedemption(unitId, item.redemption_id, decision);
         setOutcome({
           kind: "decided",
           sentence: `${item.item_name} ${PAST_TENSE[decision]}.`,

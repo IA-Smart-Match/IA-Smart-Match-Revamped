@@ -144,7 +144,10 @@ export function CoordinatorRedemptionQueue() {
           const selected = tab.value === queue.status;
           // The count is the loaded response's own length, on the selected tab
           // only, and never before it has loaded. Unknown is not zero.
-          const count = selected && rows !== null ? ` (${rows.length})` : "";
+          // `+` when the server said more exist: the length is what arrived,
+          // not the total, and a bare number would claim to be the total.
+          const count =
+            selected && rows !== null ? ` (${rows.length}${queue.truncated ? "+" : ""})` : "";
           return (
             <button
               key={tab.value}
