@@ -178,13 +178,13 @@ describe("<CoordinatorRedemptionQueue />", () => {
     await screen.findAllByText("Gift Card");
     expect(screen.getAllByRole("button", { name: "Approve Gift Card" })).not.toHaveLength(0);
     expect(screen.getAllByRole("button", { name: "Deny Gift Card" })).not.toHaveLength(0);
-    expect(screen.queryByRole("button", { name: /fulfilled/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Mark Gift Card fulfilled" })).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Approved" }));
     await screen.findAllByText("Voucher");
     expect(screen.getAllByRole("button", { name: "Mark Voucher fulfilled" })).not.toHaveLength(0);
     expect(screen.getAllByRole("button", { name: "Deny Voucher" })).not.toHaveLength(0);
-    expect(screen.queryByRole("button", { name: /^Approve/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Approve Voucher" })).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Fulfilled" }));
     await screen.findAllByText("Headshot");
@@ -237,13 +237,13 @@ describe("<CoordinatorRedemptionQueue />", () => {
     renderPage();
     fireEvent.click((await screen.findAllByRole("button", { name: "Deny Gift Card" }))[0]);
     expect(calls.some((c) => c.init.method === "POST")).toBe(false);
-    const confirm = screen.getAllByRole("button", { name: "Confirm deny Gift Card" })[0];
+    expect(screen.getAllByRole("button", { name: "Confirm deny Gift Card" })).not.toHaveLength(0);
     fireEvent.click(screen.getAllByRole("button", { name: "Keep Gift Card" })[0]);
     expect(screen.queryByRole("button", { name: "Confirm deny Gift Card" })).toBeNull();
     expect(calls.some((c) => c.init.method === "POST")).toBe(false);
 
     fireEvent.click((await screen.findAllByRole("button", { name: "Deny Gift Card" }))[0]);
-    fireEvent.click(screen.getAllByRole("button", { name: "Confirm deny Gift Card" })[0] ?? confirm);
+    fireEvent.click(screen.getAllByRole("button", { name: "Confirm deny Gift Card" })[0]);
     await waitFor(() => expect(calls.some((c) => c.init.method === "POST")).toBe(true));
     const post = calls.find((c) => c.init.method === "POST");
     expect(JSON.parse(String(post?.init.body))).toEqual({ decision: "denied" });
