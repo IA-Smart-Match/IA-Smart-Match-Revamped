@@ -33,6 +33,7 @@ import {
   fetchOutreachSends,
   fetchOwnHostOrganization,
   fetchOwnRedemptions,
+  fetchRedemptionQueue,
   fetchReviewItems,
   fetchRewardCatalog,
   fetchSpeakerContacts,
@@ -89,6 +90,13 @@ const COORDINATOR_PREFETCH: Readonly<Record<string, readonly PrefetchSpec[]>> = 
   ],
   "/coordinator-portal/review-queue": [
     spec("review-items", (u) => [u, "pending"], (u) => fetchReviewItems(u, "pending")),
+  ],
+  "/coordinator-portal/redemptions": [
+    spec(
+      "redemption-queue",
+      (u) => [u, "requested"],
+      (u) => fetchRedemptionQueue(u, "requested"),
+    ),
   ],
   "/coordinator-portal/events": [
     spec("unit-events", (u) => [u], (u) => fetchUnitEvents(u)),

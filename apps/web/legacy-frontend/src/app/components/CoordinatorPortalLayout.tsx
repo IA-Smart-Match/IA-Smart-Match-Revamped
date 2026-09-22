@@ -73,6 +73,7 @@ import {
   LayoutDashboard,
   Inbox,
   ClipboardCheck,
+  Gift,
   CalendarDays,
   Target,
   Send,
@@ -250,6 +251,10 @@ export function CoordinatorPortalLayout() {
               ? `More than ${count.value} items waiting for review`
               : `${count.value} items waiting for review`,
         },
+        // No count badge: the queue route is the only source of how many
+        // tickets wait, and reading it on every shell render would spend the
+        // coordinator's own quota on a badge. The page says the number.
+        { name: "Redemptions", href: "/coordinator-portal/redemptions", icon: Gift },
       ],
     },
     {

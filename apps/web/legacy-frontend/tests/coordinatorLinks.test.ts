@@ -45,6 +45,7 @@ test("the connector shell still registers the routes its pages link to", () => {
   for (const path of [
     "speaker-requests",
     "review-queue",
+    "redemptions",
     "events",
     "match-runs",
     "invitations",

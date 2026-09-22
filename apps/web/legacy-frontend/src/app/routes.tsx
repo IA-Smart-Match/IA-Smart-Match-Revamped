@@ -122,6 +122,11 @@ const CoordinatorReviewQueue = lazy(() =>
     default: m.CoordinatorReviewQueue,
   })),
 );
+const CoordinatorRedemptionQueue = lazy(() =>
+  import("./pages/coordinator/CoordinatorRedemptionQueue").then((m) => ({
+    default: m.CoordinatorRedemptionQueue,
+  })),
+);
 
 const VolunteerHome = lazy(() =>
   import("./pages/volunteer/VolunteerHome").then((m) => ({ default: m.VolunteerHome })),
@@ -346,6 +351,10 @@ export const router = createBrowserRouter([
       // the sidebar's Review queue count. `GET /v1/units/{unit_id}/review-items`
       // has existed since before anything linked to it.
       { path: "review-queue", element: withSuspense(<CoordinatorReviewQueue />) },
+      // The reward tickets students requested under this unit, and the
+      // decision on each. `GET /v1/units/{unit_id}/redemptions/queue` (PR #200)
+      // and the decision route are both `admin`+`coordinator` server-side.
+      { path: "redemptions", element: withSuspense(<CoordinatorRedemptionQueue />) },
       // One events page. The Connector's create/edit/publish controls and the
       // per-event feedback QR live here alongside the unit's listing, rather
       // than on a second page in a second shell — both surfaces were
