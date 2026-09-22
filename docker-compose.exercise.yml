@@ -1,0 +1,127 @@
+# Compose overlay for the class-exercise product scope
+# (SMARTMATCH_PRODUCT_SCOPE=class_exercise) — docs/operations/exercise-hosting.md.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.vm.yml \
+#     -f docker-compose.exercise.yml --profile exercise up -d --build api-exercise
+#
+# WHY A SEPARATE FILE, NOT A SERVICE IN docker-compose.yml BEHIND A PROFILE
+# ALONE. That was tried first and broke CI: Docker Compose interpolates
+# `${VAR:?message}` for every service declared in a loaded file at PARSE
+# time, before profiles are applied to decide what actually starts. A
+# required variable with no default therefore fails `docker compose config`
+# — and so `docker compose up`, `ps`, `logs`, `down` — for the WHOLE stack
+# the moment the file that declares it is loaded, whether or not that
+# service's profile is active. `compose-smoke` and `pilot-e2e` both run a
+# plain `docker compose up` against `docker-compose.yml` with no
+# `--profile exercise`, and both failed with
+# `error while interpolating services.api-exercise.environment.<VAR>:
+# required variable <VAR> is missing a value` the moment the service was
+# added there. Keeping the service in a file nobody names by default is what
+# actually keeps the default stack building: the interpolation for these
+# `${VAR:?...}` entries is only ever evaluated when an operator explicitly
+# passes `-f docker-compose.exercise.yml`.
+#
+# `--profile exercise` remains on the service definition below anyway, as a
+# second, independent gate: naming this file without also passing
+# `--profile exercise` still does not start `api-exercise` on a bare `up`.
+#
+# WHAT THIS FILE CHANGES. Exactly one thing: it adds the `api-exercise`
+# service. It does not touch `api`, `worker`, `web`, or any other service in
+# docker-compose.yml or docker-compose.vm.yml.
+#
+# `restart: unless-stopped` and `SMARTMATCH_EXERCISE_COOKIE_SECURE=true` live
+# here rather than in docker-compose.vm.yml, for the same interpolation
+# reason above one layer down: an override in docker-compose.vm.yml for a
+# service this file alone defines would leave docker-compose.vm.yml unable
+# to be combined with docker-compose.yml on its own (the ordinary CBA VM
+# deploy command, vm-deploy.md) without an api-exercise fragment that has no
+# `build`/`image` of its own. Folding both into this file keeps
+# docker-compose.vm.yml exactly as it was before this track and keeps this
+# file self-sufficient: naming it is what brings `api-exercise` in, on the VM
+# or locally, with no other file's cooperation required.
+#
+# This is written as though it always runs on the HTTPS VM
+# (SMARTMATCH_EXERCISE_COOKIE_SECURE hard-set true) because that is the one
+# place docs/operations/exercise-hosting.md asks it to run. A future local,
+# plain-http `--profile exercise` run would need to override that one
+# variable back to `false` on the command line — not a case this pilot needs.
+
+services:
+  # -------------------------------------------------------------------------
+  # Api-exercise — the class-exercise product scope, as a SEPARATE process
+  # beside `api`, not a flag on it. docs/operations/exercise-hosting.md §1
+  # explains why: SMARTMATCH_PRODUCT_SCOPE is read once at process start and
+  # decides the whole route table (services/api/smartmatch_api/config.py:36-40,
+  # main.py:318-654), so it cannot be a per-request switch.
+  #
+  # Every secret below uses REQUIRED interpolation (`${VAR:?message}`) rather
+  # than a default, so compose itself refuses to start THIS container with a
+  # missing secret — it cannot silently boot into an insecure or
+  # half-configured state. See the file header for why that check does not
+  # leak into the rest of the stack.
+  #
+  # The database URL is a SEPARATE host variable,
+  # SMARTMATCH_EXERCISE_DATABASE_URL, mapped to the container's
+  # SMARTMATCH_DATABASE_URL — never the CBA `api` service's variable — so an
+  # operator cannot hand this scope the CBA owner or CBA role's connection
+  # string by reusing a value that is already set. docs/operations/
+  # exercise-hosting.md §3 is the authority on what role that URL must name:
+  # a dedicated role with GRANT on exercise_* tables only, never the
+  # `smartmatch` owner role `api` uses.
+  #
+  # Loopback-only, its own port (8090 — none of 5432/8080/8081/5173 the base
+  # file already uses), matching the CBA services' own "reachable only from
+  # the VM itself" shape.
+  # -------------------------------------------------------------------------
+  api-exercise:
+    profiles:
+      - "exercise"
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    restart: unless-stopped
+    environment:
+      SMARTMATCH_PRODUCT_SCOPE: class_exercise
+      # Required, no default: config.py raises at import if this is absent
+      # (main.py:696-697) and refuses to boot rather than serve the exercise
+      # scope insecurely.
+      SMARTMATCH_EXERCISE_WORKSPACE_SECRET: ${SMARTMATCH_EXERCISE_WORKSPACE_SECRET:?SMARTMATCH_EXERCISE_WORKSPACE_SECRET is required to start api-exercise — see docs/operations/exercise-hosting.md#2-environment-variables}
+      # Required here even though the application itself treats it as
+      # optional (an unset passcode only shuts the instructor page, per
+      # exercise-hosting.md §2) — a compose-managed exercise deployment has no
+      # legitimate reason to come up without an instructor passcode already
+      # chosen, and requiring it here catches that operator mistake at
+      # `docker compose up` rather than at the first instructor login attempt.
+      SMARTMATCH_EXERCISE_INSTRUCTOR_PASSCODE: ${SMARTMATCH_EXERCISE_INSTRUCTOR_PASSCODE:?SMARTMATCH_EXERCISE_INSTRUCTOR_PASSCODE is required to start api-exercise — see docs/operations/exercise-hosting.md#2-environment-variables}
+      # Owner decision 2026-09-21: true on the HTTPS VM. Hard-set here rather
+      # than interpolated — see the file header for why this lives here and
+      # not as a docker-compose.vm.yml override.
+      SMARTMATCH_EXERCISE_COOKIE_SECURE: "true"
+      # A SEPARATE host variable from the `api` service's
+      # SMARTMATCH_DATABASE_URL in docker-compose.yml — see the service
+      # header comment. Required, no default: an unset database URL must
+      # stop this container from starting, not fall back to any other
+      # service's database.
+      SMARTMATCH_DATABASE_URL: ${SMARTMATCH_EXERCISE_DATABASE_URL:?SMARTMATCH_EXERCISE_DATABASE_URL is required to start api-exercise — see docs/operations/exercise-hosting.md#3-the-database-role}
+      # Same reasoning as the api service in docker-compose.yml: empty means
+      # hidden, which is the default and the only correct value on a shared
+      # host.
+      SMARTMATCH_DB_HIDE_PARAMETERS: ${SMARTMATCH_DB_HIDE_PARAMETERS:-}
+      # See docs/operations/exercise-hosting.md §8 item 4: this process must
+      # not take the CBA api/worker's default 20+10 pool, which would push a
+      # third process's budget past the database's max_connections. Left
+      # empty here (engine default) with the expectation that a VM deployment
+      # sizes it down explicitly via SMARTMATCH_EXERCISE_DB_POOL_SIZE /
+      # _MAX_OVERFLOW, passed through the same way as the CBA services'.
+      SMARTMATCH_DB_POOL_SIZE: ${SMARTMATCH_EXERCISE_DB_POOL_SIZE:-}
+      SMARTMATCH_DB_MAX_OVERFLOW: ${SMARTMATCH_EXERCISE_DB_MAX_OVERFLOW:-}
+      SMARTMATCH_DB_POOL_TIMEOUT: ${SMARTMATCH_EXERCISE_DB_POOL_TIMEOUT:-}
+      SMARTMATCH_RELEASE: ${SMARTMATCH_RELEASE:-vm-unknown}
+      PORT: "8080"
+    ports:
+      - "127.0.0.1:8090:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
