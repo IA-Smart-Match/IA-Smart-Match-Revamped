@@ -1,6 +1,6 @@
 # B26 T5 — Connector availability panel in `CoordinatorSpeakerContacts`
 
-**Next action:** once the T3 implementation is pushed, run `git fetch origin && git merge origin/feat/b26-t3` on `feat/b26-t5`. Then write `src/lib/speakerAvailabilityDraft.test.tsx` (§8 file A) and commit it red.
+**Next action:** once the T3 implementation is pushed, run `git fetch origin && git merge origin/feat/b26-t3` on `feat/b26-t5`. Then write all four §8 Vitest files (A–D) and commit them red in one commit (milestone 1).
 
 Parent: `docs/plans/2026-09-22-b26-self-service-availability-plan.md` §3.1 (domain limits), §4.1, §6 (T5 row and the accessibility paragraph), §7 row 12, §8 T5.
 Inputs: T3 plan (`origin/feat/b26-t3:docs/plans/b26-tracks/T3-plan.md`) and T1 as built (`origin/feat/b26-t1:python/smartmatch_domain/smartmatch_domain/speaker_availability.py`).
@@ -70,7 +70,7 @@ CoordinatorSpeakerContacts
    ├─ [Availability] disclosure button   aria-expanded, aria-controls="availability-panel-{pid}"
    └─ {open && <SpeakerAvailabilityPanel unitId professionalId contactName />}
       ├─ <section id="availability-panel-{pid}" aria-labelledby="availability-heading-{pid}" aria-busy={loading}>
-      │   <h3 id="availability-heading-{pid}">Availability</h3>
+      │   <h3 id="availability-heading-{pid}">Availability<span sr-only> for {contactName}</span></h3>
       ├─ read states: loading | denied | not found | error+Retry   (panel-owned)
       └─ <SpeakerAvailabilityForm
             idPrefix="availability-{pid}"  availability={data}  today={utcToday()}
@@ -142,16 +142,22 @@ Every state renders inside the panel `<section>`. "Speaker" and "Speaker Connect
 
 | # | State | Trigger | What renders |
 |---|---|---|---|
-| 1 | **Loading** | `query.isPending` | `aria-busy="true"` on the section, plus the text "Loading availability…". The form is not shown, and the status region is not used for loading. |
+| 1 | **Loading** | `query.isPending` (so `query.data === undefined`) | `aria-busy="true"` on the section, plus the text "Loading availability…". The form is not shown, and the status region is not used for loading. |
 | 2 | **Not stated** | `stated === false` | The state line reads "**Not stated.** This Speaker has not said when they can speak, so matching treats their availability as unknown." It never says "Available". The form is empty. The primary button reads **"Save: no dates blocked"** while the draft is empty, and "Save availability" once anything is entered. A hint beside it says: "Saving an empty form records that this Speaker told you they have no dates blocked. Only save if they did." |
 | 3 | **Stated, nothing blocked** | `stated`, no windows, pause `null` or expired | "**Stated: no dates blocked.**" Capacity reads "{n} hours per 90 days" or "Capacity not stated". A `null` capacity is never shown as 0. Then "Last changed {date, time} by the Speaker / by a Speaker Connector" (`updated_source`, `updated_at`). |
 | 4 | **Windows / paused** | `stated`, with windows or an active pause | "**Stated:** {k} blocked date range(s)." When `pause >= today`, it adds "Invitations paused until {date}." Each window fieldset shows "Added by the Speaker" or "Added by a Speaker Connector" when its `(starts_on, ends_on)` matches a stored window. New and edited windows show "Not saved yet". |
 | 5 | **Stale** | PATCH → `409 speaker_availability_stale` | See §4.3. The draft is kept, the panel re-reads, and it says "Someone changed this". |
 | 6 | **Save error** | any other PATCH failure | A message from §6 goes in the right `role="alert"` region. The draft is kept and focus rules follow §7. |
-| 7 | **Read error** | GET fails, not 403/404 | "Availability could not be loaded. {server message}", plus a **Retry** button (`refetch()`, which is safe for a GET). No form is shown. |
-| 8 | **Denied** | GET → 403 | "The server refused this request (403). {message} Reading a Speaker's availability is granted to Speaker Connectors in this unit; this account was not granted it here." There is no form and no claim that a record exists. A PATCH 403 shows the same words as a save error, and the draft is kept. |
-| 9 | **Not found** | GET or PATCH → `404 speaker_contact_not_found` | "This contact is no longer in your unit's roster, so its availability cannot be read or saved." The roster is re-read (§3). |
+| 7 | **Read error** | GET fails while `query.data === undefined`, for any reason except 403 and `speaker_contact_not_found`. That includes 404 `unit_not_found`, 401, 429, 5xx and network failures. | "Availability could not be loaded. {server message}", plus a **Retry** button (`refetch()`, which is safe for a GET). No form is shown. |
+| 8 | **Denied** | GET → 403 while `query.data === undefined` | "The server refused this request (403). {message} Reading a Speaker's availability is granted to Speaker Connectors in this unit; this account was not granted it here." There is no form and no claim that a record exists. A PATCH 403 shows the same words as a save error, and the draft is kept. |
+| 9 | **Not found** | GET → `404 speaker_contact_not_found` while `query.data === undefined` | "This contact is no longer in your unit's roster, so its availability cannot be read or saved." The roster is re-read (§3). A PATCH that gets this code shows the same words in the form-level alert, keeps the draft, and also re-reads the roster. |
 | 10 | **Saved** | PATCH 200 | The status region says "Availability saved {time from `updated_at`}." The form re-seeds from the response. Success is shown only after the 200. |
+
+**States 1, 7, 8 and 9 replace the form only while `query.data === undefined`.** In TanStack Query v5, a failed refetch keeps the last `data` and sets `isError`. So once a read has succeeded, a later refetch failure never unmounts the form and never loses typed input:
+
+- The error text goes in the form-level `role="alert"` region: the same message as the matching state, with Retry beside it.
+- In stale mode, that text goes inside the stale alert (§4.3 step 7).
+- The panel decides which view to show from `query.data === undefined`, not from `query.isError`.
 
 ### 4.1 Wording rules
 
@@ -166,7 +172,7 @@ The stored `invitations_paused_until` can be earlier than today. GET does not hi
 
 - The input keeps the stored value, so the form does not silently change.
 - The hint reads: "This pause ended on {date}. Saving clears it."
-- `validateDraft` exempts `pause === stored && stored < today`, which mirrors T3's drop rule. After the save, the response has `null` and the form re-seeds to empty.
+- `validateDraft` exempts `pause === stored && stored < today`, where `stored` is the latest `availability` prop, so after a 409 the fresh read's pause is used (§5). This mirrors T3's drop rule. After the save, the response has `null` and the form re-seeds to empty.
 - A **different** past date fails client validation with the `pause_invalid` message.
 
 ### 4.3 Stale path (409)
@@ -177,7 +183,7 @@ The stored `invitations_paused_until` can be earlier than today. GET does not hi
 4. Under the alert, a read-only "Saved now" summary is built from the fresh read: the state line, the pause, capacity, the windows, and "last changed … by …". The user can compare it with their draft.
 5. The primary button keeps its DOM position and focus, and its label changes to **"Save my changes over it"**. Clicking it sends the draft with `expected_version = fresh.version`, or `null` if the fresh read says `stated: false`.
 6. A secondary **"Discard my changes"** button re-seeds the draft from the fresh read and clears the stale state.
-7. If the re-read itself fails, the alert keeps the stale text and adds the read error. The draft is still kept, and "Save my changes over it" stays disabled until a read succeeds, with the reason shown.
+7. If the re-read itself fails, `query.data` still holds the pre-409 read, so the form stays mounted (§4 rule under the table). The alert keeps the stale text and adds the read error and a Retry button. Every typed value is kept. "Save my changes over it" stays disabled until a re-read succeeds. Its visible reason, "The saved version could not be re-read, so there is nothing to save over yet. Retry the read first.", is linked by `aria-describedby`.
 
    Rationale: without a fresh version there is nothing to send, and T3 C9 forbids guessing one.
 
@@ -185,7 +191,7 @@ The client never retries a stale PATCH automatically. Each overwrite is one expl
 
 ## 5. Client-side validation (courtesy; the server decides)
 
-`validateDraft(draft, today, stored)` returns the **first** failure, `{ code, field, index? }`, in T1's order (`validate_availability_statement`: capacity, pause, count, windows). It uses the same codes, so one message table (§6) serves both client and server errors. The server stays authoritative:
+`validateDraft(draft, today, stored)` takes `stored` as the **latest `availability` prop** the form received, which is the fresh read after a 409, not the read the draft was seeded from. It returns the **first** failure, `{ code, field, index? }`, in T1's order (`validate_availability_statement`: capacity, pause, count, windows). It uses the same codes, so one message table (§6) serves both client and server errors. The server stays authoritative:
 
 - a draft that passes locally is still sent, and any 422 is shown;
 - the client never blocks a value the server might accept, except where T1 is certain.
@@ -202,6 +208,7 @@ The limits are re-declared from T1 (`speaker_availability.py` as built): `MAX_WI
 
 - `addMonths` mirrors T1's `_add_months`: calendar months, with the day clamped to the month's end. For example, `addMonths("2026-08-31", 18)` is `"2028-02-29"`.
 - `spanDays` uses `Date.UTC` differences, so no zone is involved.
+- **jsdom never sets `validity.badInput`.** It is always `false` there. Rule 0 is covered by file A test 7 through the pure `readInput(value, badInput)` helper. A file B or C test that needs rule 0 stubs it first: `Object.defineProperty(input, "validity", { value: { badInput: true }, configurable: true })`, then fires `change` with `value: ""`. Otherwise B and C leave rule 0 to A7.
 - `today` is `utcToday()` (T3-C1). Near UTC midnight the client and server can disagree by one day, and the server's answer is the one shown.
 - Native constraints are set as information, not enforcement:
   - pause: `min={today}`, `max={addMonths(today, 12)}`;
@@ -243,7 +250,7 @@ After a server 422 with a field (`details.field`/`details.index`), focus moves t
 
 **Structure.**
 
-- The panel is a `<section aria-labelledby>` with an `<h3>`. The page outline is h1 "Speaker contacts" → h2 "This unit's contacts" → h3 "Availability".
+- The panel is a `<section aria-labelledby="availability-heading-{pid}">` whose heading is `<h3 id="availability-heading-{pid}">Availability<span className="sr-only"> for {contactName}</span></h3>`. Each open panel is therefore a region landmark with a unique name, such as "Availability for Dana Reyes", even when several rows are open. The page outline is h1 "Speaker contacts" → h2 "This unit's contacts" → h3 "Availability for …".
 - The form is `<form noValidate aria-labelledby="availability-heading-{pid}">`.
 
 **Inputs.** All inputs are native, and every one has a persistent `<label htmlFor>`.
@@ -359,11 +366,11 @@ After a server 422 with a field (`details.field`/`details.index`), focus moves t
    - `Save is disabled and reads Saving… while pending`.
    - `success announces in role=status and re-seeds from the response`.
    - `a second save sends the new version without a GET in between`.
-6. `409 stale keeps every typed value, re-reads with GET, and says Someone changed this` · `Save my changes over it sends the fresh version with the draft` · `Discard my changes re-seeds from the fresh read` · `no automatic retry after 409`.
+6. `409 stale keeps every typed value, re-reads with GET, and says Someone changed this` · `Save my changes over it sends the fresh version with the draft` · `Discard my changes re-seeds from the fresh read` · `no automatic retry after 409` · `stale re-read fails: every typed value kept, 'Save my changes over it' disabled with reason` (the GET after the 409 returns 500; the typed pause, capacity and windows are still in the inputs; the button is disabled and its `aria-describedby` resolves to the reason text).
 7. `422 window_invalid with details.index 1 attaches the error to window 2 and focuses its From input`.
 8. `each §6 code shows its message and keeps the draft` (`it.each` over every §6 row).
 9. `GET 403 renders the refusal and no form` · `PATCH 403 keeps the draft`.
-10. `GET 500 shows Retry, which re-reads` · `404 speaker_contact_not_found shows the roster message and invalidates the speaker-contacts prefix`.
+10. `GET 500 on first read shows Retry, which re-reads` · `GET 404 unit_not_found on first read shows the read-error state` · `a failed background refetch after a good read keeps the form mounted and shows the error in the form alert` · `404 speaker_contact_not_found shows the roster message and invalidates the speaker-contacts prefix`.
 11. **Principal-key isolation:**
     - `the query key is [principal, "speaker-availability", unit, professional]` (`client.getQueryCache().getAll()`);
     - `switching principal on one client fetches again and never shows the first principal's data`: the stub answers principal-1 and principal-2 with different capacities;
@@ -372,7 +379,7 @@ After a server 422 with a field (`details.field`/`details.index`), focus moves t
 
 **D. `src/app/pages/coordinator/CoordinatorSpeakerContacts.test.tsx`** (new)
 
-1. `each row has an Availability disclosure named with the contact, with aria-expanded and aria-controls`.
+1. `each row has an Availability disclosure named with the contact, with aria-expanded and aria-controls` · `two open panels are regions with distinct names` (`getAllByRole("region", { name: /^Availability for / })` has 2 distinct names).
 2. `no availability GET until a row is opened; one GET per opened row`.
 3. `the roster still pages` (it keeps the `PagedList` behaviour the Python scan pins).
 
@@ -402,7 +409,7 @@ PR title: `feat: Connector availability panel (B26 T5)`.
 - A roster-level "stated" column. It would need a list endpoint.
 - Clearing a statement back to "Not stated". T3 has no DELETE (OQ-1).
 
-## 11. Open questions (none blocks the build)
+## 11. Open questions — accepted by the orchestrator (2026-09-23) as recommended; OQ-1's DELETE route is a follow-up card
 
 | # | Question | Recommendation |
 |---|---|---|
