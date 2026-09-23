@@ -6,36 +6,53 @@ Parent: `docs/plans/2026-09-22-b26-self-service-availability-plan.md` §1 ("Noth
 booking"), §3 intro, §3.3, §5.2, §6, §7 row 9, §8 T8a, §10 row 5. Branch `feat/b26-t8a`.
 `down_revision = "0039_speaker_portal"`. If another revision lands first, use the current head plus one.
 
-## 0. Facts this plan rests on (checked 2026-09-22 against `origin/main` 1909278f)
+**Owner rulings (2026-09-23, final):**
+
+| # | Ruling |
+|---|---|
+| C1 | **Option C.** A cancelled booking drops out of **both** `list_confirmed_speakers` and the `pipeline_confirmed` metric (§3.5). |
+| C2 | Keep the not-attended CHECK. |
+| C3 | New page `/coordinator-portal/bookings`, registered the way `ce2701ff` registered the redemptions page. |
+| C4 | Keep the order CHECK. |
+| C5 | `cancelled_at` comes from the server clock. |
+| C6 | No undo in T8a. Recorded as follow-up card FU-1 (§7). |
+| C7 | The orchestrator sequences T6b-2 after T8a. |
+
+## 0. Facts this plan rests on (checked against `origin/main` 1909278f)
 
 1. A Speaker booking is a `pipeline_record` row. `subject_id` is the professional's `user_account`
-   (`0024_cba_classification_schema.py:90-100`, repointed in `0030…py:203`). The table is at `schema.py:677-773`.
-2. Two routes write `confirmed_at`: `POST …/pipeline-records/{id}/stages` (`routers/pipeline.py:378-467`), which
-   records a claim the Connector types, and `POST …/cba/events/{event_id}/speaker-handoff` (`routers/cba_handoff.py:348-452`),
-   which copies the Speaker's accepted invitation. Both go through `PipelineRepository.advance_stage`
-   (`smartmatch_persistence/pipeline.py:437`; the CBA path via `advance_cba_stage` `:961-994` and `_apply` `:1165`).
-3. **No Connector screen lists confirmed bookings.** The only UI that reads `GET …/cba/confirmed-speakers`
-   is the Event Host page `VolunteerConfirmedSpeaker.tsx:190` (the server allows only admin and coordinator). T8a therefore needs a new
-   Connector page (§4). Parent §6 does not list one: contradiction C3.
-4. Precedent for cancelling by changing state: `event_registration.status` `'registered'|'cancelled'` (`schema.py:2428-2468`,
-   `ck_event_registration_status`). Its route is `student_events.py:1088-1152`: the row is kept, a repeat returns 200, and nothing is deleted.
-5. Precedent for a composite account FK: `fk_event_filed_by_user` (`0033_event_filed_by.py`, upgrade and downgrade).
+   (`0024_cba_classification_schema.py:90-100`; `0030…py:203`). The table is at `schema.py:677-773`.
+2. Two routes write `confirmed_at`. Both go through `PipelineRepository.advance_stage` (`smartmatch_persistence/pipeline.py:437`).
+   - `POST …/pipeline-records/{id}/stages` (`routers/pipeline.py:378-467`), a claim the Connector types.
+   - `POST …/cba/events/{event_id}/speaker-handoff` (`routers/cba_handoff.py:348-452`), the Speaker's accepted invitation. It reaches `advance_stage` via `advance_cba_stage` `:961-994` and `_apply` `:1165`.
+3. No Connector screen lists confirmed bookings. The only UI reading `GET …/cba/confirmed-speakers` is the Event Host page
+   `VolunteerConfirmedSpeaker.tsx:190`, and the server allows only admin and coordinator on that route.
+4. Precedent for a cancellation that is a transition: `event_registration.status` (`schema.py:2428-2468`), with its route at `student_events.py:1088-1152`.
+   The row is kept, a repeat returns 200, and nothing is deleted.
+5. Precedent for a composite account FK: `fk_event_filed_by_user` (`0033_event_filed_by.py`).
+6. The ADR-0011 metric register is `METRIC_REGISTER` in `smartmatch_domain/metrics.py:142`. ADR-0011 rule 2 says the register "ships in the repository".
+   - `pipeline_confirmed` is at `:157-163`.
+   - Its owning query `_pipeline_funnel_rows_v1` (`routers/metrics.py:117-200`) reads the stage map `_PIPELINE_STAGE_COLUMNS` (`:108-114`).
 
 ## 1. Files
 
 | Path | Change |
 |---|---|
 | `db/migrations/versions/0040_speaker_booking_cancellation.py` | **New.** DDL §2. Hand-written (ADR-0004), one transaction (ADR-0009), writes no rows. |
-| `python/smartmatch_persistence/smartmatch_persistence/schema.py:677-773` | Mirror 2 columns, 1 FK and 4 CHECKs with the same names. |
-| `python/smartmatch_persistence/smartmatch_persistence/pipeline.py` | `PipelineRecordRow` (`:211`) and `_to_row` (`:695`) get `cancelled_at` and `cancelled_by_user_id`. New `PipelineRepository.cancel_booking` (§3.3). New errors `PipelineRecordCancelledError`, `BookingNotConfirmedError`, `BookingAlreadyAttendedError`. `advance_stage` (`:437`) refuses ATTENDED on a cancelled row (read check plus `cancelled_at IS NULL` in the UPDATE's WHERE). `ConfirmedSpeakerRow` (`:788`) and `list_confirmed_speakers` (`:996-1080`) select `cancelled_at`. |
-| `services/api/smartmatch_api/routers/pipeline.py` | New route §3. `PipelineRecordResponse` (`:200`) and `_record_view` (`:327`) get both fields. `advance_pipeline_stage` (`:383`) maps `PipelineRecordCancelledError` to 409. New `BOOKING_CANCEL_RATE_LIMIT`. Update the module docstring's route list. |
-| `services/api/smartmatch_api/routers/cba_handoff.py` | `ConfirmedSpeakerView` (`:167`) and `_speaker_view` (`:287`) get `cancelled_at`. `reconcile_speaker_handoff` (`:353`) maps `PipelineRecordCancelledError` to 409 `pipeline_record_cancelled`. |
+| `smartmatch_persistence/schema.py:677-773` | Mirror 2 columns, 1 FK and 4 CHECKs with the same names. |
+| `smartmatch_persistence/pipeline.py` | `PipelineRecordRow` (`:211`) and `_to_row` (`:695`) get `cancelled_at` and `cancelled_by_user_id`. New `cancel_booking` (§3.3). New errors `PipelineRecordCancelledError`, `BookingNotConfirmedError`, `BookingAlreadyAttendedError`. `advance_stage` (`:437`) refuses ATTENDED on a cancelled row (read check plus `cancelled_at IS NULL` in the UPDATE's WHERE). `list_confirmed_speakers` (`:996-1080`) adds `cancelled_at IS NULL` and its docstring is updated. `reconcile_invitation` (`:851`) refuses a cancelled journey before any write (§3.4). |
+| `services/api/smartmatch_api/routers/pipeline.py` | New route (§3.1). `PipelineRecordResponse` (`:200`) and `_record_view` (`:327`) get both fields. `advance_pipeline_stage` (`:383`) maps a cancelled row to 409. New `BOOKING_CANCEL_RATE_LIMIT`. Update the docstring's route list. |
+| `services/api/smartmatch_api/routers/cba_handoff.py` | `reconcile_speaker_handoff` (`:353`) maps a cancelled journey to 409 `pipeline_record_cancelled`. `_confirmed_speaker_or_unreachable` (`:312-345`) raises that 409, not a `RuntimeError`, when the record is cancelled (§3.4). Update the module docstring. `ConfirmedSpeakerView` is unchanged, because cancelled rows are no longer listed. |
+| `smartmatch_domain/metrics.py` | Register change (§3.5): the `pipeline_confirmed` `definition` and `drill_down` strings, plus a dated "Register changes" note in the module docstring. |
+| `services/api/smartmatch_api/routers/metrics.py:108-200` | New `_PIPELINE_STAGE_EXCLUSIONS = {"pipeline_confirmed": cancelled_at IS NULL}`, applied inside `_pipeline_funnel_rows_v1`. Every pipeline drill-down row gains `cancelled_at`. The adapter still fails closed on unmapped metrics. |
+| `smartmatch_domain/speaker_pipeline.py` | The docstring on nesting (`:17-27`) adds that Confirmed excludes cancelled rows. Nesting still holds because a row cannot be both attended and cancelled (§3.2). |
+| `tools/seed_pilot_student_feedback.py:457` | Add `cancelled_at IS NULL`, so the seed picks the same set as the list. |
 | `contracts/openapi/smartmatch.json` | Regenerate with `make openapi`. CI runs `--check` (`verify.yml:127`). |
-| `apps/web/legacy-frontend/src/lib/api.ts` | `ConfirmedSpeaker` (`:4113`) gets `cancelled_at: string \| null`. New `cancelBooking(unitId, recordId)` and `BookingCancellationResult`. |
-| `apps/web/legacy-frontend/src/app/pages/coordinator/CoordinatorBookings.tsx` (+ `.test.tsx`) | **New** page, §4. |
-| `routes.tsx:344-397`, `components/CoordinatorPortalLayout.tsx`, `navPrefetch.ts`, `tests/coordinatorLinks.test.ts` | Register `/coordinator-portal/bookings` with a nav entry and prefetch. Precedent: `ce2701ff`. |
-| `apps/web/legacy-frontend/src/app/pages/volunteer/VolunteerConfirmedSpeaker.tsx` | Show a cancelled row as "Booking cancelled" instead of "Agreed to speak" (option C1-A). |
-| `tests/authz/test_policy_matrix.py:1512-1535` | New `Operation` `pipeline.booking.cancel` (authorizer `_authorize_pipeline`, `_PIPELINE_ROLES`, unit-scoped). The matrix builds its route list from the source, so a missing row fails the test. `test_route_roles.py` stays as is: its ledger (`:72-79`) covers only job, import, review and me routes. |
+| `apps/web/legacy-frontend/src/lib/api.ts` | New `cancelBooking(unitId, recordId)` and `BookingCancellationResult`. `ConfirmedSpeaker` (`:4113`) is unchanged. |
+| `apps/web/legacy-frontend/src/lib/metrics.ts:215-221` | `PIPELINE_STAGE_FIELDS` checks `["cancelled_at", "cancelled"]` first, so a cancelled row in a Matched or Contacted drill-down does not read "confirmed". |
+| `pages/coordinator/CoordinatorBookings.tsx` + `.test.tsx` | **New** page (§4). |
+| `routes.tsx:344-397`, `components/CoordinatorPortalLayout.tsx`, `navPrefetch.ts`, `tests/coordinatorLinks.test.ts` | Register the route, nav entry ("Bookings") and prefetch. These are the four files `ce2701ff` touched. |
+| `tests/authz/test_policy_matrix.py:1512-1535` | New `Operation` `pipeline.booking.cancel` (`_authorize_pipeline`, `_PIPELINE_ROLES`, unit-scoped). `test_route_roles.py` is not touched: its ledger (`:72-79`) covers only job, import, review and me routes. |
 | `tests/integration/test_check_constraints.py` | Add 4 keys to `CHECK_CONSTRAINT_DEFINITIONS` (`:76`) and `BEHAVIOURAL_COVERAGE` (`:766`). |
 | Head pins and docs | Every `HEAD_REVISION` that T6b-1 moves to `0039_speaker_portal` moves to `0040_…`. Today those are `test_cba_contact_schema.py:150`, `test_cba_weight_settings_persistence.py:189`, `test_event_filed_by_migration.py:78` and `test_host_organization_migration.py:84`. Also `README.md:35` (count 40, head `0040`), `docs/operations/supabase-setup.md:162`, and `exercise-hosting.md` step 2. The owner has uncommitted edits in that last file: change only those lines. |
 
@@ -55,110 +72,140 @@ ALTER TABLE pipeline_record ADD CONSTRAINT ck_pipeline_record_cancellation_confi
 ALTER TABLE pipeline_record ADD CONSTRAINT ck_pipeline_record_cancellation_order
   CHECK (cancelled_at IS NULL OR cancelled_at >= confirmed_at);                 -- C4
 ALTER TABLE pipeline_record ADD CONSTRAINT ck_pipeline_record_cancellation_not_attended
-  CHECK (cancelled_at IS NULL OR attended_at IS NULL);                          -- §3.2, C2
+  CHECK (cancelled_at IS NULL OR attended_at IS NULL);                          -- C2
 ```
 
-- Every existing row has `cancelled_at IS NULL`, so all 4 CHECKs pass without rewriting data. The upgrade runs no UPDATE.
-- `ck_pipeline_record_stage_prefix` and `ck_pipeline_record_stage_order` are unchanged. A cancellation is not a stage.
-- No index. The load read (T8c) filters by subject, and T8c adds an index if it needs one.
-- **Downgrade**, in reverse order: drop the 4 CHECKs, then `fk_pipeline_record_cancelled_by_user`, then both columns.
-  It is a development tool that discards every cancellation, which is the same caveat as `0033`'s downgrade.
+- Every existing row has `cancelled_at IS NULL`, so the upgrade runs no UPDATE.
+- `ck_pipeline_record_stage_prefix` and `ck_pipeline_record_stage_order` are unchanged.
+- No index. T8c adds one if its load read needs it.
+- **Downgrade**, in reverse order: drop the 4 CHECKs, then the FK, then both columns. It is a development tool that discards every cancellation, the same caveat as `0033`.
 
-## 3. Route contract
+## 3. Behaviour
 
 ### 3.1 `POST /v1/units/{unit_id}/pipeline-records/{record_id}/cancellation`
 
-- **Where it lives:** `routers/pipeline.py`. It reuses `_authorize_pipeline` and `_load_record_or_404`, so
-  a change to who may call it applies to every pipeline route at once.
-- **Roles:** `{admin, coordinator}` (`_PIPELINE_ROLES`, `:128`), checked against the unit's own path.
+- **Where it lives:** `routers/pipeline.py`, reusing `_authorize_pipeline` and `_load_record_or_404`.
+- **Roles:** `{admin, coordinator}` (`_PIPELINE_ROLES`, `:128`), checked against the unit's path.
 - **Order:** `charge_quota` runs first (ADR-0015), then authorize, then load, then write.
-  - `BOOKING_CANCEL_RATE_LIMIT`: `operation="pipeline.booking_cancel"`, 30 per minute (the same as `STAGE_ADVANCE_RATE_LIMIT`).
-- **Body:** none, and no reason field. A free-text reason would collect health information, which `PROHIBITED_INPUTS` forbids (parent §2 non-goal 2).
-- **Values written:**
-  - `cancelled_at = utc_now()` (C5).
-  - `cancelled_by_user_id = principal.user_id`.
-  - `updated_at` is bumped.
-- **200 response:** `BookingCancellationResponse { transitioned: bool, already_cancelled: bool, record: PipelineRecordResponse }`.
-  This mirrors `StageAdvanceResponse` (`:227`).
+  - `BOOKING_CANCEL_RATE_LIMIT`: `pipeline.booking_cancel`, 30 per minute.
+- **Body:** none. A free-text reason is a non-goal (`PROHIBITED_INPUTS`, parent §2).
+- **Values written:** `cancelled_at = utc_now()` (C5), `cancelled_by_user_id = principal.user_id`, and `updated_at` is bumped.
+- **200 response:** `BookingCancellationResponse { transitioned, already_cancelled, record: PipelineRecordResponse }`, in the same shape as `StageAdvanceResponse` (`:227`).
 
-| Case | Status | `code` |
+| Case | Status | `code` / body |
 |---|---|---|
 | Confirmed, not attended, not cancelled | 200 | `transitioned: true` |
-| Already cancelled (repeat, or lost a race) | 200 | `transitioned: false, already_cancelled: true`; the first actor and timestamp are kept |
+| Already cancelled (a repeat, or a lost race) | 200 | `transitioned: false, already_cancelled: true`; the first actor and time are kept |
 | `confirmed_at IS NULL` | 409 | `pipeline_booking_not_confirmed` |
 | `attended_at` set | 409 | `pipeline_booking_already_attended` |
-| Record missing, in another unit, or in another tenant | 404 | `pipeline_record_not_found` (the existing code, `:302`) |
+| Missing, in another unit, or in another tenant | 404 | `pipeline_record_not_found` (the existing code, `:302`) |
 | Unit outside the caller's scope | 403 | the existing `assert_allowed` refusal |
 | Quota spent | 429 | the existing quota code |
 
-Both refusals are **409, not 422**: the request itself is valid, but the row is in a state that refuses it.
-The existing precedent is `pipeline_stage_prerequisite_unmet` (409). There is no `Idempotency-Key`, because the
-operation is already idempotent in the data (`pipeline.py` docstring on status codes).
+Both refusals are **409, not 422**: the request itself is valid, but the row's state refuses it.
+The existing precedent is `pipeline_stage_prerequisite_unmet`. There is no `Idempotency-Key`, because the operation is idempotent in the data.
 
-### 3.2 How attended and cancelled interact
+### 3.2 How attended and cancelled interact (C2)
 
-**Decision: the two states exclude each other.** An attended booking cannot be cancelled, and a cancelled booking cannot be marked attended.
+The two states exclude each other: an attended booking cannot be cancelled, and a cancelled booking cannot be marked attended.
 
-- **Why attended cannot be cancelled:** attendance is evidenced (`ck_pipeline_record_attendance_evidence`), because the talk happened.
-- **Why both at once breaks T8b:** parent §5.2 counts `completed` from `attended_at` alone and `confirmed` as "attended_at and
-  cancelled_at NULL". A row with both set would still add to `completed`, so a cancelled booking would not "drop out".
-- **Enforcement:** the database enforces the rule (`ck_…_not_attended`) and so does the repository.
-  - `cancel_booking` refuses with `BookingAlreadyAttendedError`.
-  - `advance_stage(ATTENDED)` refuses with `PipelineRecordCancelledError`.
-  - Both HTTP paths map that refusal to 409 `pipeline_record_cancelled`: `/stages` and `/speaker-handoff` with `attendance_id`.
+- Attendance is evidenced (`ck_pipeline_record_attendance_evidence`), because the talk happened.
+- Parent §5.2 counts `completed` from `attended_at` alone. If both could be set, a cancelled booking would not "drop out".
+- The database enforces the rule, and so does the repository:
+  - `cancel_booking` raises `BookingAlreadyAttendedError`.
+  - `advance_stage(ATTENDED)` raises `PipelineRecordCancelledError`, which becomes 409 `pipeline_record_cancelled` on `/stages`.
 
-### 3.3 Repository: `cancel_booking(session, *, tenant_id, record_id, actor_user_id, at) -> BookingCancellationOutcome`
+### 3.3 Repository `cancel_booking(session, *, tenant_id, record_id, actor_user_id, at) -> BookingCancellationOutcome`
 
-1. Read the row and classify it: missing (`exists=False`), already cancelled (a no-op), not confirmed, or attended.
-2. `UPDATE … SET cancelled_at=:at, cancelled_by_user_id=:actor, updated_at=now() WHERE tenant_id, id, cancelled_at IS NULL,
-   confirmed_at IS NOT NULL, attended_at IS NULL, confirmed_at <= :at RETURNING id`.
-   `transitioned` is set only from `RETURNING`, never from a re-read, as in `advance_stage`.
-3. If the UPDATE changes zero rows, re-read once to classify what happened. The method never commits.
+1. Read the row and classify it: missing (`exists=False`), already cancelled (no-op), not confirmed, or attended.
+2. `UPDATE … SET cancelled_at, cancelled_by_user_id, updated_at WHERE tenant_id, id, cancelled_at IS NULL, confirmed_at IS NOT NULL,
+   attended_at IS NULL, confirmed_at <= :at RETURNING id`. `transitioned` is set only from `RETURNING`.
+3. If zero rows change, re-read once to classify what happened. The method never commits.
 
-### 3.4 Audit
+### 3.4 Hand-off replay on a cancelled booking (C1 = C)
 
-The row is the audit record: who (`cancelled_by_user_id`) and when (`cancelled_at`). This matches Q5 = a (provenance only).
-The pipeline routers write no audit log today, and T8a does not add one. Parent §10 row 5 (D5 retention) governs pruning,
-so T8a deletes nothing.
+**Behaviour: 409 `pipeline_record_cancelled`, with nothing written.**
+
+- **Before any write:** `reconcile_invitation` finds the existing journey the way `_apply` does (`:1187`, via `_read_by_journey` `:677`). If `cancelled_at` is set, it raises
+  `PipelineRecordCancelledError` before any stage is written, with or without `attendance_id`.
+  - The Speaker's accepted invitation still exists, but the Connector's later cancellation outranks it. Re-running a hand-off must not
+    bring a cancelled Speaker back in front of the Host.
+- **The race after the write:** `_confirmed_speaker_or_unreachable` (`:312`) reads back through the Host list, which now excludes cancelled rows.
+  A cancellation that commits between the hand-off's write and that read-back would today reach the `RuntimeError` at `:337` and return a 500. Instead,
+  on a miss it re-reads the record with `PipelineRepository.get`:
+  - if the record is cancelled, it raises the same 409;
+  - otherwise it keeps the `RuntimeError`, because that case is still unreachable.
+- **Message:** "This booking was cancelled by a Speaker Connector. It cannot be handed to an Event Host again."
+- **Frontend:** `VolunteerConfirmedSpeaker.tsx` already renders the server's message word for word (`:103-117`), so it needs no change.
+
+### 3.5 ADR-0011 register change for `pipeline_confirmed` (C1 = C)
+
+- **Definition, old:** "Pipeline records that have reached the Confirmed stage or a later stage."
+- **Definition, new:** "Pipeline records that have reached the Confirmed stage or a later stage and whose booking has not been cancelled."
+- **`drill_down`, new:** "The Pipeline records at Confirmed or any later funnel stage, excluding cancelled bookings."
+- **Dated note in the register's module docstring:** "2026-09-23 — owner ruling (B26 T8a, C1 = C): `pipeline_confirmed` excludes `cancelled_at IS NOT NULL`. No other metric changes."
+- **Owning query:** keeps the name `pipeline_funnel_rows_v1`. Rule 3 needs one owning query, and it still has one. Renaming it would touch 7 files for no reader.
+- **Other stages unchanged:**
+  - Matched and Contacted still count cancelled bookings. They did reach those stages.
+  - Attended and Member Inquiry cannot hold a cancelled row (§3.2).
+- **Nesting still holds:** attended is a subset of confirmed-and-not-cancelled, which is a subset of contacted. The conversion rates in `speaker_pipeline.py` stay legitimate. "Confirmed to speak" now means net of cancellations.
+
+**Every reader of the metric or the list, and what changes**
+
+| Reader | Change |
+|---|---|
+| `routers/metrics.py` `_pipeline_funnel_rows_v1` (aggregate and drill-down) | Exclusion applied. Rows gain `cancelled_at`. |
+| `pipeline.py` `list_confirmed_speakers` → `confirmed_speakers_view` (`cba_handoff.py:461`) and `_confirmed_speaker_or_unreachable` (`:312`) | Exclusion applied; §3.4. |
+| `speaker_pipeline.py` conversions, via `/metrics?surface=cba` (`SpeakerPipelineSection`, `PipelineFunnelTiles.tsx`, `lib/speakerPipeline.ts`, `lib/metrics.ts`) | Consume the new number, so no code changes. `metrics.ts:215` gets the "cancelled" label for drill-down rows. |
+| `VolunteerConfirmedSpeaker.tsx:190` (Host) | A cancelled Speaker silently leaves the list, with no reason shown (the OQ-CBA-042 posture). No code change. |
+| `CoordinatorBookings.tsx` (new) | Lists the same set, so a cancelled row disappears after Cancel. |
+| `tools/seed_pilot_student_feedback.py:457` | Add `cancelled_at IS NULL`. |
+| `tests/e2e/test_pilot_clickthrough.py:2345`, `test_frontend_handoff_contract.py`, `test_frontend_host_portal_contract.py`, `test_frontend_student_feedback_contract.py`, and student pages (comments only) | No change. None of them cancels, and none pins the predicate. |
+| Metric tests: `test_metrics_register.py`, `test_speaker_pipeline.py`, `test_speaker_pipeline_api.py`, `test_pipeline_stage_writer_metrics.py`, `test_metrics_storage_binding.py:65`, `test_pipeline_funnel_end_to_end.py`, `test_pipeline_record_writers.py:74` | Existing assertions hold because none has a cancelled row. Cancelled cases are added (§5). |
 
 ## 4. Frontend — `CoordinatorBookings.tsx` at `/coordinator-portal/bookings`
 
-- **Read:** `fetchConfirmedSpeakers(unitId, eventId?)` through `useScopedQuery`, with the key
-  `[principalKey, "confirmed-speakers", unitId, eventId ?? "all"]`.
+- **Registration** (the `ce2701ff` pattern):
+  - `routes.tsx`: `{ path: "bookings", element: withSuspense(<CoordinatorBookings />) }`.
+  - `CoordinatorPortalLayout.tsx`: nav entry "Bookings".
+  - `navPrefetch.ts`: prefetch `fetchConfirmedSpeakers` under the same key.
+  - `tests/coordinatorLinks.test.ts`: add the link.
+- **Read:** `fetchConfirmedSpeakers(unitId, eventId?)` through `useScopedQuery`, with the key `[principalKey, "confirmed-speakers", unitId, eventId ?? "all"]`.
   - The unit comes from `grantedPortal`/`usePortalAccess`; nobody types an id.
-  - `?event_id=` filters the list. `CoordinatorEvents.tsx` gets one "Confirmed speakers" link per event.
-  - The page shows event titles from the unit's events query (it reuses that query's key). When a title is missing it shows "Event <first 8 characters of the id>".
-- **Row:** name (or "Name not on file" when null), company, event, "Agreed <date>", and a state:
-  "Booked", "Presented <date>", or "Cancelled <date>". The Cancel button appears only on Booked rows. That is a courtesy, not authorization.
-- **Button:** `Cancel booking`, with the accessible name `Cancel booking for {name} at {event}`.
-- **Confirm dialog** (`components/ui/alert-dialog.tsx`, Radix, `role="alertdialog"`):
+  - `?event_id=` filters the list. Event titles come from the unit's events query (its key is reused). A missing title shows as "Event <first 8 characters of the id>".
+- **Row:** name ("Name not on file" when null), company, event, "Agreed <date>", and a state of "Booked" or "Presented <date>".
+  - The **Cancel booking** button appears on Booked rows only. That is a courtesy, not authorization.
+  - The button's accessible name is `Cancel booking for {name} at {event}`.
+- **Confirm dialog** (`components/ui/alert-dialog.tsx`, Radix, `role="alertdialog"`, focus trapped):
   - Title: "Cancel this booking?"
-  - Body: "{name} will no longer count as booked for {event}, and their load drops at once. Your name and the time are recorded. This cannot be undone here."
-  - Buttons: **Keep booking** (focused first; Esc does the same) and **Cancel booking** (destructive).
-  - Focus returns to the trigger when the dialog closes.
+  - Body: "{name} will no longer count as booked for {event}, and their load drops at once. Your name and the time are recorded. This cannot be undone."
+  - Buttons: **Keep booking** (focused first; Esc does the same) and **Cancel booking** (destructive). Focus returns to the trigger on close, or to the list heading if the row is gone.
 - **Mutation:** `useMutation`, with no optimistic update.
-  - While the request is pending, the confirm button is disabled and reads "Cancelling…".
+  - While pending, the confirm button is disabled and reads "Cancelling…".
   - On success, invalidate only `["confirmed-speakers", unitId, …]`.
-  - The page has one `role="status"` region. It says "Booking cancelled." when `transitioned`, and "Already cancelled — nothing changed." when not.
-- **Errors:** branch on `ApiRequestError.code`. The message goes in `role="alert"` inside the dialog, and the dialog stays open.
+  - One `role="status"` region says "Booking cancelled." when `transitioned`, and "Already cancelled — nothing changed." when not.
+- **Errors:** branch on `ApiRequestError.code`. The message goes in `role="alert"` inside the dialog, linked by `aria-describedby`, and the dialog stays open.
   - `pipeline_booking_already_attended`: "This speaker already presented. An attended booking cannot be cancelled."
-  - `pipeline_booking_not_confirmed`, `pipeline_record_not_found`, 403, 429: show the server's message word for word.
-- **Page states:** loading, empty ("No confirmed speakers in this unit."), list, error, and denied (403 shown as a refusal, as in `VolunteerConfirmedSpeaker.tsx:108`). The page meets WCAG 2.2 AA.
+  - `pipeline_booking_not_confirmed`, `pipeline_record_not_found`, 429: show the server's message word for word.
+- **Page states:**
+  - **Loading:** a skeleton with `aria-busy`.
+  - **Empty:** "No confirmed speakers in this unit."
+  - **Error:** the server's message and a Retry button.
+  - **Denied (403):** the refusal, named as one, as `VolunteerConfirmedSpeaker.tsx:108` does.
+- **Accessibility:** WCAG 2.2 AA. A table with a `<caption>` at desktop width and a card list on mobile, in a logical tab order.
 
-## 5. Tests — written first, and each file is run on its own locally (CI runs `pytest tests/ -m "not e2e"` and `npm run test:components`)
+## 5. Tests — written first. Run each file on its own locally; CI runs `pytest tests/ -m "not e2e"` and `npm run test:components`.
 
 **Integration: `tests/integration/test_booking_cancellation_migration.py` (new, pattern `test_event_filed_by_migration.py`)**
 1. `test_the_upgrade_writes_no_row_and_leaves_every_journey_uncancelled`
 2. `test_cancellation_needs_both_actor_and_time` and `test_an_actor_without_a_time_is_refused`
 3. `test_an_unconfirmed_journey_cannot_be_cancelled` and `test_a_confirmed_journey_can_be_cancelled`
 4. `test_a_cancellation_cannot_precede_the_confirmation` and `test_a_cancellation_at_the_confirmation_instant_is_permitted`
-5. `test_an_attended_journey_cannot_be_cancelled` and `test_a_cancelled_journey_cannot_be_attended`
-6. `test_a_canceller_from_another_tenant_is_refused` and `test_the_cancelling_account_cannot_be_deleted`
-7. `test_downgrade_drops_both_columns_and_all_four_checks`
+5. `test_an_attended_journey_cannot_be_cancelled`, `test_a_cancelled_journey_cannot_be_attended`, `test_a_canceller_from_another_tenant_is_refused`, `test_the_cancelling_account_cannot_be_deleted`, and `test_downgrade_drops_both_columns_and_all_four_checks`
 
-**Integration: the `test_check_constraints.py` registry.** Add 4 definitions and 4 `BEHAVIOURAL_COVERAGE` pointers to the file above.
+**Integration: `test_check_constraints.py`.** Add 4 definitions and 4 `BEHAVIOURAL_COVERAGE` pointers to the file above.
 
-**Integration: `tests/integration/test_pipeline_record_writers.py`.** This file covers the repository.
+**Integration: `test_pipeline_record_writers.py`**
 - `test_cancel_booking_records_actor_and_time`
 - `test_cancel_booking_is_idempotent_and_keeps_the_first_actor`
 - `test_cancel_booking_refuses_unconfirmed` and `test_cancel_booking_refuses_attended`
@@ -166,11 +213,20 @@ so T8a deletes nothing.
 - `test_advance_stage_refuses_attended_on_a_cancelled_booking`
 - `test_two_concurrent_cancels_transition_once`
 
-**Integration: `tests/integration/test_cba_confirmed_handoff.py`**
-- `test_a_cancelled_booking_stays_in_the_host_list_with_cancelled_at` (C1-A)
-- The existing `:778` equality test gets a cancelled row added and must still pass.
-- `test_a_handoff_citing_attendance_on_a_cancelled_booking_is_refused`
-- `test_replaying_a_handoff_on_a_cancelled_booking_applies_nothing`
+**Integration: `test_cba_confirmed_handoff.py`**
+- `:778` `test_the_confirmed_aggregate_equals_its_drill_down_and_the_host_list` gains a 4th confirmed journey that is then cancelled.
+  - It asserts `value == 3 == len(drill_down.rows) == len(host_list.speakers)`, and that the cancelled id is in none of the three sets.
+- `test_replaying_a_handoff_on_a_cancelled_booking_is_409_and_writes_nothing`
+- `test_a_handoff_citing_attendance_on_a_cancelled_booking_is_409`
+- `test_a_cancellation_racing_the_readback_is_409_not_500` (the read-back hook is monkeypatched to cancel)
+
+**Integration: `test_pipeline_stage_writer_metrics.py`**
+- `test_a_cancelled_booking_leaves_confirmed_but_stays_in_contacted`
+- `test_the_funnel_still_nests_with_a_cancelled_booking`
+
+**Unit: `test_metrics_register.py`**
+- `test_pipeline_confirmed_definition_names_the_cancellation_exclusion`
+- `test_no_other_pipeline_metric_mentions_cancellation`
 
 **Contract: `tests/contract/test_booking_cancellation_api.py` (new, fixtures as in `test_pipeline_stages.py:129-228`)**
 1. `test_cancelling_a_confirmed_booking_returns_who_and_when`
@@ -182,45 +238,42 @@ so T8a deletes nothing.
 **Authz:** a `pipeline.booking.cancel` row in `test_policy_matrix.py`, which runs every principal shape.
 
 **Vitest: `CoordinatorBookings.test.tsx`**
-- States: loading, empty, list, error, denied.
-- The dialog opens with focus on "Keep booking". Esc sends nothing.
-- Confirming sends exactly one POST, and the button is disabled while it is pending.
-- Success sets the status message and re-reads the list. The already-cancelled message differs.
-- A 409 for an attended booking keeps the dialog open and shows the alert.
-- Cancelled and attended rows have no button.
-- Query keys are isolated per principal.
-- Also `VolunteerConfirmedSpeaker.test.tsx` (new): a cancelled row reads "Booking cancelled".
+1. `renders loading, then the list` and `renders the empty state`
+2. `renders the server's error with Retry` and `renders 403 as a refusal`
+3. `Cancel opens an alertdialog focused on Keep booking` and `Escape closes it and sends nothing`
+4. `confirm sends exactly one POST and disables while pending`, `success announces in role=status and re-reads the list`, and `already-cancelled response announces nothing changed`
+5. `409 attended keeps the dialog open with role=alert`, `presented rows have no Cancel button`, and `query keys are isolated per principal`
+
+**Node test:** `tests/coordinatorLinks.test.ts` (the link). CI does not run `npm test`; run it locally.
 
 ## 6. Commit milestones (one commit each, pushed)
 
 1. `test: 0040 cancellation migration and CHECK registry (red)`
 2. `feat: 0040_speaker_booking_cancellation migration, mirror, head pins`
-3. `feat: PipelineRepository.cancel_booking and attended guard` (repository tests green)
-4. `feat: POST …/cancellation route, handoff/stages 409s, OpenAPI, policy matrix` (contract and authz tests green)
-5. `feat: Connector bookings page with Cancel booking dialog` (Vitest green)
-6. `docs: README/ops head to 0040`
+3. `feat: PipelineRepository.cancel_booking, attended guard, handoff refusal`
+4. `feat: pipeline_confirmed excludes cancelled bookings (ADR-0011 register change)`
+5. `feat: POST …/cancellation route, 409s, OpenAPI, policy matrix`
+6. `feat: /coordinator-portal/bookings page with Cancel booking dialog`
+7. `docs: README/ops head to 0040`
 
-## 7. Out of scope
+## 7. Out of scope, and follow-up cards
 
-- Undoing a cancellation (C6).
-- Cancelling a whole event.
-- Emailing the Speaker or the Host.
-- A cancellation reason.
-- A Speaker cancelling their own booking (a `/v1/me/*` route).
-- Changing the funnel metric (C1).
-- The ELI load read (T8b/T8c).
-- `/v1/me/engagements` (T6b-2).
-- Retention and pruning (D5).
-- `docs/plans/frontend-broken-buttons.md`.
+- **FU-1 (C6): undo a cancellation.** Nothing in T8a can undo one, and a Speaker who was cancelled but presented anyway cannot be
+  marked attended. The follow-up card adds an audited "reinstate" transition. It must decide whether reinstating restores the metric count and the Host list.
+- Also out of scope:
+  - Cancelling a whole event.
+  - Emailing the Speaker or the Host.
+  - A cancellation reason.
+  - A Speaker cancelling their own booking.
+  - Showing cancelled bookings on the new page (a later filter).
+  - The ELI load read (T8b/T8c).
+  - `/v1/me/engagements` (T6b-2, which runs after T8a).
+  - Retention and pruning (D5).
+  - `docs/plans/frontend-broken-buttons.md`.
 
-## 8. Contradictions and options
+## 8. Open points (none block the build)
 
-| # | Contradiction | Options | Recommendation |
-|---|---|---|---|
-| C1 | **Must decide.** `list_confirmed_speakers` is by construction the same set as the `pipeline_confirmed` metric (`pipeline.py:1006-1013`, tested at `test_cba_confirmed_handoff.py:778`). The metric counts journeys that ever *reached* Confirmed, cancelled ones included. | **A:** keep the set, add `cancelled_at`, and label the row in the UI. **B:** drop cancelled rows from the list and break the equality. `_confirmed_speaker_or_unreachable` (`cba_handoff.py:312`) would then raise a 500 when a handoff is replayed. **C:** change the metric to exclude cancelled rows, which is an ADR-0011 register change. | **A** |
-| C2 | **Must decide.** Parent §3.3 lists 2 CHECKs. This plan adds a third that makes attended and cancelled exclusive. | **Keep:** needed for §5.2 to be consistent. **Drop:** rely on the repository guard alone. | Keep |
-| C3 | **Must decide.** Parent §6 names no Connector surface for Cancel, and none lists bookings today (§0.3). | **A:** a new page `/coordinator-portal/bookings`. **B:** a panel inside `CoordinatorEvents.tsx`, which is already 792 lines against an 800-line cap. | A |
-| C4 | Later. The order CHECK (`cancelled_at >= confirmed_at`) is an addition to the parent plan. A Connector-typed `confirmed_at` in the future (`/stages` sets no upper bound) makes Cancel return 409 until that time passes. | Keep it, or drop it. | Keep |
-| C5 | Later. `cancelled_at` comes from the server clock, not a caller-supplied `cancelled_at` (unlike `reached_at`). | Server clock, or a caller-supplied value with a bound. | Server clock. Load is read at run time, and the server clock rules out backdating. |
-| C6 | Later. Nothing can undo a cancellation, and a Speaker who was cancelled and presented anyway cannot be marked attended. | A future card adding un-cancel. | Log as a follow-up |
-| C7 | Later. Parent §8 gives T8a no dependency, but the task sets `down_revision = 0039`, so T8a merges after T6b-1. T6b-2's `/v1/me/engagements` "cancelled" (§4.3) needs T8a's columns, yet §8 does not list T8a under T6b-2. | Add T8a to T6b-2's dependencies, or let T6b-2 omit "cancelled" until T8a lands. | Add the dependency |
+| # | Point | Decision taken here |
+|---|---|---|
+| P1 | The owning query keeps its `_v1` name even though one metric's predicate changes. | The dated register note and the definition text carry the change. Rule 3 is met. |
+| P2 | The new page lists only live bookings, so a Connector cannot see past cancellations there. | `GET …/pipeline-records/{id}` shows them, and the Matched and Contacted drill-downs label them "cancelled". |
