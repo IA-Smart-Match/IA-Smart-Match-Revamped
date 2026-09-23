@@ -91,7 +91,7 @@ Dependency direction: `speaker_availability.py` → `eligibility.py`, and `eligi
 
 - `DateOnlyTime` → `(on_date, on_date)`. No end exists at this precision.
 - `ExactTime`, no `ends_at` → `(d, d)` with `d = resolved_date(t)` — start date in the event's own zone.
-- `ExactTime` with `ends_at` → `(resolved_date(t), (ends_at - timedelta(microseconds=1)).astimezone(ZoneInfo(time_zone)).date())`. The end is exclusive; no midnight special case. This is DST-safe, including zones that skip midnight (tests 20a-20c were checked against `zoneinfo`). `ExactTime` requires `ends_at > starts_at`, so `first <= last` always holds.
+- `ExactTime` with `ends_at` → `(resolved_date(t), (ends_at.astimezone(UTC) - timedelta(microseconds=1)).astimezone(ZoneInfo(time_zone)).date())`. The end is exclusive; no midnight special case. Subtract in UTC: on a `ZoneInfo` datetime Python does wall-clock arithmetic, which gives a different date across a DST transition at local midnight (Santiago, Havana). The span is therefore the same whether `ends_at` is supplied as UTC, a `ZoneInfo` datetime or a fixed offset (tests 20a-20c plus the zone-representation tests). `ExactTime` requires `ends_at > starts_at`, so `first <= last` always holds.
 - `UnresolvedTime` → `None`.
 
 **Limits** (constants, `Final`):

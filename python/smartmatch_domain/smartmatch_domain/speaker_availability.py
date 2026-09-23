@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import calendar
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from enum import StrEnum
 from typing import Final, TypeAlias
@@ -175,7 +175,9 @@ def event_local_span(event_time: EventTime) -> EventDateSpan | None:
             raise RuntimeError("resolved_date returned None for an ExactTime")
         if event_time.ends_at is None:
             return (first, first)
-        last_instant = event_time.ends_at - timedelta(microseconds=1)
+        # Subtract in UTC: on a ZoneInfo datetime Python does wall-clock
+        # arithmetic, which is wrong across a DST transition at local midnight.
+        last_instant = event_time.ends_at.astimezone(UTC) - timedelta(microseconds=1)
         last = last_instant.astimezone(ZoneInfo(event_time.time_zone)).date()
         return (first, last)
     return None
