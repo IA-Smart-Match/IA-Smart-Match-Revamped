@@ -15,11 +15,11 @@ Uses T1 (`availability_state_for_event`, `event_local_span`, `AvailabilityAssess
 |---|---|
 | `db/migrations/versions/0041_invitation_batch_speaker_request.py` | **New.** `revision = "0041_invitation_batch_speaker_request"`, `down_revision = "0040_speaker_booking_cancellation"`. Hand-written (ADR-0004), no transaction code (ADR-0009). §4.1. |
 | `python/smartmatch_persistence/smartmatch_persistence/schema.py` | `cba_invitation_batch` (`:2577-2625`) mirrors `speaker_request_id` and `fk_cba_invitation_batch_speaker_request`. |
-| `python/smartmatch_persistence/smartmatch_persistence/cba_invitations.py` | `BatchRow` (`:86`) + `speaker_request_id: uuid.UUID \| None`; `reserve_batch` (`:194`) + keyword `speaker_request_id: uuid.UUID \| None = None`; `_to_batch` (`:568`) carries it. |
-| Head pins | `README.md:35` (41 revisions, head `0041_invitation_batch_speaker_request`), `docs/operations/supabase-setup.md`, `docs/operations/exercise-hosting.md` ("confirm the migration head" step), and the `_HEAD_REVISION` / `HEAD_REVISION` constants in `tests/integration/test_cba_contact_schema.py`, `test_cba_weight_settings_persistence.py`, `test_event_filed_by_migration.py`, `test_exercise_schema_migration.py`, `test_host_organization_migration.py` (the set T2 moved). At implementation, `git grep 0040_speaker_booking_cancellation` finds the complete list. |
+| `python/smartmatch_persistence/smartmatch_persistence/cba_invitations.py` | `BatchRow` (`:86`) + `speaker_request_id: uuid.UUID \| None`; `reserve_batch` (`:194`) + keyword `speaker_request_id: uuid.UUID \| None = None`; `_to_batch` (`:568`) carries it. New `find_batch_by_key(session, *, tenant_id, owning_unit_id, idempotency_key) -> BatchRow \| None` (one select on `uq_cba_invitation_batch_key`'s columns) for §4.2's replay-first step. |
+| Head pins | `README.md:35` (41 revisions, head `0041_invitation_batch_speaker_request`), `docs/operations/supabase-setup.md`, `docs/operations/supabase-maintenance.md:98` ("expected head revision"), `docs/operations/exercise-hosting.md` ("confirm the migration head" step), and the `_HEAD_REVISION` / `HEAD_REVISION` constants in `tests/integration/test_cba_contact_schema.py`, `test_cba_weight_settings_persistence.py`, `test_event_filed_by_migration.py`, `test_exercise_schema_migration.py`, `test_host_organization_migration.py` (the set T2 moved). At implementation, `git grep 0040_speaker_booking_cancellation` finds the complete list. |
 | `python/smartmatch_domain/smartmatch_domain/availability_verdict.py` | **New, pure.** `StoredVerdict` (frozen: `subject_id`, `verdict: EligibilityOutcome`, `state`, `reason`, `as_of`, `paused_until`); `verdicts_for_pool(subject_ids, statements, event_span, as_of)` calls T1 `availability_state_for_event` per subject, then `apply_availability_filter` (`eligibility.py:110`) over the pool in pool order; `to_payload` / `from_payload` (strict, `explanation_from_payload` discipline, `explanation.py:653`); `changed_since(stored, current)`; `as_of_utc(now)` (C7); `event_time_from_columns(...)`; `filed_this_request(filed_by_user_id, account_user_id)`. |
 | `python/smartmatch_domain/smartmatch_domain/cba_invitations.py` | `SkipReason` (`:174-197`) gains `SPEAKER_UNAVAILABLE_ON_DATE = "speaker_unavailable_on_date"` and `SPEAKER_INVITATIONS_PAUSED = "speaker_invitations_paused"`, plus `skip_reason_for_availability(StoredVerdict) -> SkipReason \| None`. `classify_recipient` (`:283`) and `_SKIP_SEVERITY` (`:319`) unchanged: they rank channels, not people. `cba_invitation.skip_reason` has only the iff CHECK (`schema.py:2718`), so the new tokens need no migration. |
-| `services/api/smartmatch_api/availability_reads.py` | **New.** DB side: `load_request_event_time(session, tenant_id, unit_id, speaker_request_id) -> EventTime \| None` (scoped like `load_speaker_request`: tenant, `host_org_unit_id`, `origin = 'coordinator_entry'`); `request_for_run(session, tenant_id, unit_id, match_run_id) -> RunRequest \| None` (`None` = no such run in this unit; `RunRequest.speaker_request_id` is `None` when `event_need_id` is not a UUID naming a request in this unit); `current_verdicts(session, tenant_id, subject_ids, event_time, as_of)` = one `get_many` + `verdicts_for_pool`. |
+| `services/api/smartmatch_api/availability_reads.py` | **New.** DB side: `load_request_event_time(session, tenant_id, unit_id, speaker_request_id) -> EventTime \| None` (scoped like `load_speaker_request`: tenant, `host_org_unit_id`, `origin = 'coordinator_entry'`); `request_for_run(session, tenant_id, unit_id, match_run_id) -> RunRequest \| None` (`None` = no such run in this unit; `RunRequest.speaker_request_id` is `None` when `event_need_id` is not a UUID naming a request in this unit); `load_batch_request_event_time(session, tenant_id, unit_id, speaker_request_id) -> EventTime \| None` for dispatch (tenant + unit + id, **no** `origin` predicate, §4.4); `current_verdicts(session, tenant_id, subject_ids, event_time, as_of)` = one `get_many` + `verdicts_for_pool`. |
 | `services/api/smartmatch_api/match_run_evidence.py` | `SpeakerRequestEvidence` (`:169-202`) gains `filed_by_user_id` and `event_time`; `load_speaker_request` select (`:270-279`) adds `filed_by_user_id`, `time_precision`, `starts_at`, `ends_at`, `on_date`, `time_zone`. `EXCLUSION_FILED_THIS_REQUEST = "filed_this_request"`. `assemble_cba_pool` (`:353-419`): after the profile check (`:394-396`), before `match_ineligibility_reason` (`:403`), exclude when `filed_this_request(request.filed_by_user_id, row.account_user_id)`; `_profiles_by_professional_id` (`:440-457`) selects `account_user_id`. |
 | `services/api/smartmatch_api/routers/match_runs.py` | Create (`:795`): after `explain_candidates`, one `current_verdicts` call over every evaluated subject; payload (`:961-989`) gains `availability` and `excluded` (C3). Read (`:1148`): `_read_stored_availability(payload)`, one `current_verdicts` call, `AvailabilityView` on each `CandidateExplanationView` (`:443`); `MatchRunResponse` (`:496`) gains `availability_recorded`, `availability_unreadable_reason`, `excluded`. `ExcludedCandidateView.reason` description (`:325-337`) lists `filed_this_request`. |
 | `services/api/smartmatch_api/routers/cba_invitations.py` | `BatchCreateRequest` (`:198`) gains `speaker_request_id: uuid.UUID \| None`; `_resolve_speaker_request(...)` (§4.2) runs before `reserve_batch` (`:747`). `BatchResponse` (`:329`) and `BatchSummaryView` (`:356`, built `:985`) gain `speaker_request_id`. `_load_batch_or_404` (`:617`) returns the `BatchRow`. `_compose_one` (`:812`) checks availability **after** `choose_invitation_channel` (`:845`). Dispatch (`:1041`): one `current_verdicts` over all pending recipients; check after `classify_recipient` (`:1105`). |
@@ -27,8 +27,8 @@ Uses T1 (`availability_state_for_event`, `event_local_span`, `AvailabilityAssess
 | `contracts/openapi/smartmatch.json` | `make openapi` in every milestone that changes a request or response model. CI runs `export_openapi.py --check` (`verify.yml:127`). |
 | `tests/golden/matching/cba/G-CBA-13-availability-leaves-hash-and-pool-alone.json`, `cba_case.schema.json` | New fixture; schema gains optional `owner_decisions`, case `event_span` / `as_of`, candidate `availability` (C9). |
 | `apps/web/legacy-frontend/src/lib/api.ts` | `MatchCandidateExplanation` (`:2297`) + `availability?: MatchAvailability \| null`; `MatchRunRead` (`:2342`) + `availability_recorded`, `availability_unreadable_reason`, `excluded`. `SpeakerInvitationBatch` (`:3114`) and `SpeakerInvitationBatchSummary` (`:3130`) + `speaker_request_id: string \| null`; `createSpeakerInvitationBatch` (`:3201`) input + optional `speakerRequestId`, sent as `speaker_request_id`. |
-| `apps/web/legacy-frontend/src/app/pages/AIMatching.tsx` | `CandidateCard` (`:192`) renders the §7 wording. |
-| `.../coordinator/CoordinatorInvitations.tsx`, `CoordinatorOutreach.tsx`, `CoordinatorMatchRuns.tsx` | `RecipientRow` (`:188`) wording; both `describeSkip` copies (`Invitations:87`, `Outreach:160`) gain the 2 tokens; `MATCH_INELIGIBILITY_EXPLANATIONS` (`MatchRuns:115`) gains `filed_this_request`. The compose page already sends `matchRunId` on every submit (`CoordinatorInvitations.tsx:433-447`), so the server derives the request; no new input. |
+| `apps/web/legacy-frontend/src/app/pages/AIMatching.tsx` | **This is where the shortlist renders.** `/coordinator-portal/match-runs?run={id}` mounts `AIMatching` instead of `CoordinatorMatchRuns` (`routes.tsx:182`), and each shortlisted Speaker is a `CandidateCard` (`:192`, used `:381`, `:414`). `CandidateCard` renders the §7 availability wording; the page also lists the read's `excluded` (C3) with the same reason words. Parent §6 names `CoordinatorMatchRuns`, but that page is only the submission form and its `202` state. |
+| `.../coordinator/CoordinatorInvitations.tsx`, `CoordinatorOutreach.tsx`, `CoordinatorMatchRuns.tsx` | `RecipientRow` (`:188`) wording; both `describeSkip` copies (`Invitations:87`, `Outreach:160`) gain the 2 tokens; `MATCH_INELIGIBILITY_EXPLANATIONS` (`MatchRuns:115`, module-private today) gains `filed_this_request` and is exported, so `AIMatching` words the stored `excluded` list the same way as the `202` state. The compose page already sends `matchRunId` on every submit (`CoordinatorInvitations.tsx:433-447`), so the server derives the request; no new input. |
 
 Not touched: `factor_registry.py`, `match_run.py`, `weight_settings.py`, `explanation.py`, `services/worker/**`, the `match_run` table.
 
@@ -105,14 +105,15 @@ Mirror: `schema.py` adds the column and a named `ForeignKeyConstraint` next to t
 
 ### 4.2 `create_invitation_batch` resolves the request
 
-Before `reserve_batch`, same place as `_require_distinct_recipients`:
+After `_require_idempotency_key` and `_require_distinct_recipients`, in this order:
 
+0. **Replay first.** `find_batch_by_key(tenant, unit, key)`. A batch already holds the key → return `_batch_response(..., replayed=True)` and stop: no resolution, no refusal. A retry of a batch stored before `0041` (NULL request), or of one whose run has since become unreadable, must replay, not turn into a `404` / `422`. A concurrent first submission that both miss this lookup is still settled by `reserve_batch`'s `ON CONFLICT` read-back, whose `was_replayed` path stays.
 1. **Run given.** `request_for_run(session, tenant, unit, match_run_id)`. No run in this unit → `404 match_run_not_found` (the read route's code). This closes C10: a run from another unit in the tenant is refused, not stored.
 2. **Derive.** The run's request, when its `event_need_id` names a Speaker Request in this unit; else none (a pre-031 run).
 3. **Explicit id given.** `load_request_event_time(...)` in this unit with `origin = 'coordinator_entry'`; not found (other unit, other tenant, extracted event, no such id) → `404 speaker_request_not_found` (the match-run create code, `match_runs.py:743-747`). 404 not 403: no confirmation that an id names something elsewhere.
 4. **Both, and they differ** → `422 speaker_invitation_request_mismatch`. Both and equal, or explicit with a pre-031 run → the explicit id.
 5. **Neither resolves** → `422 speaker_invitation_request_required` (C12 = R1). Every new batch names a request; nothing is reserved.
-6. `reserve_batch(..., speaker_request_id=resolved)`. On a replay the stored batch's request is reported, never this body's (the existing replay rule).
+6. `reserve_batch(..., speaker_request_id=resolved)`. If it reports `was_replayed` (the race in step 0), the stored batch is returned; its request is reported, never this body's.
 
 ### 4.3 Compose (`_compose_one`)
 
@@ -123,10 +124,17 @@ Before `reserve_batch`, same place as `_require_distinct_recipients`:
 
 ### 4.4 Dispatch (`dispatch_invitation_batch`)
 
-1. The event comes from `batch.speaker_request_id` directly: no run hop. One `get_many` over pending recipients. `as_of` = UTC date of the dispatch.
+1. The event comes from `batch.speaker_request_id` directly: no run hop. `load_batch_request_event_time` reads it by tenant + unit + id, **without** the `origin` predicate compose used (see step 4). One `get_many` over pending recipients. `as_of` = UTC date of the dispatch.
 2. Per pending invitation: `classify_recipient` first (unchanged), then availability.
 3. `EXCLUDED` → `NotDispatchedView(reason="speaker_unavailable_on_date" | "speaker_invitations_paused")`; the invitation **stays pending**, so clearing the window and dispatching again sends it, as for a consent gap.
-4. Request row no longer readable in this unit → no check, same as NULL. The worker's delivery-time check is unchanged: consent only (parent §5.1 names compose and dispatch only).
+4. **"Request not readable in this unit" is unreachable**, by three facts checked in code:
+   - **It still exists.** `fk_cba_invitation_batch_speaker_request` is `ON DELETE RESTRICT`, and no code path deletes an `event` row (`git grep` finds no `delete(schema.event)` in `python/`, `services/`, `tools/`).
+   - **Its unit never moves.** `host_org_unit_id` is written only on insert. The 4 `UPDATE event` sites set `publication_status` (`events.py:569`), `quarantined_tag_count` (`events.py:593`), `host_organization_id` (`host_organizations.py:389`) and title / description / time (`routers/manual_events.py:439`). The upsert's `ON CONFLICT` `set_` leaves out `host_org_unit_id` as an identity column (`events.py:399-405`).
+   - **The batch's unit never moves.** Nothing updates `cba_invitation_batch`, and `_load_batch_or_404` has already required `batch.owning_unit_id == unit`.
+
+   `origin` is **not** stable. The upsert's `set_` rewrites it, so an extraction landing on the same identity key can turn a `coordinator_entry` row with NULL filer and NULL organization into `extraction`. `ck_event_filed_by_manual_origin` and `ck_event_host_organization_manual_origin` block that only when one of those is set. That is why the dispatch read drops the `origin` predicate: the dates are still the event's dates.
+
+   If the read returns `None` anyway, a broken invariant, dispatch **refuses the whole batch** with `409 speaker_invitation_request_unreadable`: nothing is submitted, and the error is logged with the batch id. It never skips the check. A NULL `speaker_request_id` (legacy batch, §4.3 step 4) is the only no-check path. The worker's delivery-time check is unchanged: consent only (parent §5.1 names compose and dispatch only).
 
 ## 5. Q8 — "filed this request" as a Stage A check
 
@@ -213,6 +221,7 @@ CI: `pytest tests/ -m "not e2e"` with Postgres (`verify.yml:107,117`); web `npm 
 14. `TestBatchRequest::test_a_hand_picked_batch_stores_its_named_request`
 15. `TestBatchRequest::test_refusals` (parametrized: run in another unit → 404 `match_run_not_found`; request in another unit, another tenant, or an extracted event → 404 `speaker_request_not_found`; request ≠ run's request → 422 `speaker_invitation_request_mismatch`; neither → 422 `speaker_invitation_request_required` (C12); nothing reserved in any case)
 16. `TestBatchRequest::test_list_and_read_return_the_speaker_request`
+16a. `TestBatchRequest::test_replay_of_a_stored_key_with_no_request_returns_the_stored_batch` (batch reserved through the repository with NULL request; re-POST the same key naming neither run nor request → `201`, `replayed: true`, the stored outcomes, no `422`)
 
 **Contract — `tests/contract/test_match_runs_api.py`** (`integration`; `_insert_speaker_request` `:155` gains `filed_by_user_id`)
 17. `test_availability_costs_one_query_on_create_and_two_on_read` (`before_cursor_execute` count)
@@ -232,9 +241,10 @@ CI: `pytest tests/ -m "not e2e"` with Postgres (`verify.yml:107,117`); web `npm 
 29. `TestDispatch::test_a_window_added_after_compose_refuses_dispatch_and_stays_pending`
 30. `TestDispatch::test_clearing_the_window_lets_a_second_dispatch_send`
 31. `TestDispatch::test_a_legacy_batch_with_no_request_is_not_checked` (row reserved through the repository with NULL)
+31a. `TestDispatch::test_dispatch_still_checks_after_the_request_origin_flips_to_extraction` (a pre-0033-shaped request, NULL filer, rewritten to `origin = 'extraction'` by `upsert_returning_outcome`; the window still refuses)
 
 **Web — vitest**
-32. `src/app/pages/AIMatching.test.tsx`: each §7 row; "not recorded"; "changed since"; no `%` in the text
+32. `src/app/pages/AIMatching.test.tsx`: `CandidateCard` renders each §7 row; "not recorded"; "changed since"; the stored `excluded` list words `filed_this_request`; no `%` in the text
 33. `src/app/pages/coordinator/CoordinatorInvitations.test.tsx`: `RecipientRow` wording; both skip tokens
 34. `src/app/pages/coordinator/CoordinatorOutreach.test.tsx`: `not_dispatched` renders both tokens
 35. `src/app/pages/coordinator/CoordinatorMatchRuns.test.tsx`: `filed_this_request` explanation
@@ -243,15 +253,15 @@ CI: `pytest tests/ -m "not e2e"` with Postgres (`verify.yml:107,117`); web `npm 
 
 ## 9. Commit milestones
 
-One commit per milestone; each ends green on its own tests, run one file at a time.
+One commit per milestone; each ends green on its own tests, run one file at a time. **Each milestone runs its new tests red before the implementation edit, and the red output (the pytest / vitest failure summary lines) goes in the commit body.** Milestone 2 is the red half of milestone 3, so its commit body carries that output.
 
 1. `feat: 0041 links invitation batches to their Speaker Request` — migration, mirror, `BatchRow` / `reserve_batch`, head pins, README, parent-plan sync (§1); tests M1–M9.
 2. `test: failing T4 domain and golden tests` — tests 1–12, fixture, schema.
 3. `feat: availability verdict domain and skip reasons` — `availability_verdict.py`, `SkipReason`; 1–12 green.
-4. `feat: batches resolve and report their Speaker Request` — `_resolve_speaker_request` (steps 1–4 and 6, C10), response fields, `make openapi`, `api.ts` batch types; tests 13, 14, 15 (except the "neither" row), 16.
+4. `feat: batches resolve and report their Speaker Request` — `_resolve_speaker_request` (steps 1–4 and 6, C10), response fields, `make openapi`, `api.ts` batch types; tests 13, 14, 15 (except the "neither" row), 16, 16a; `find_batch_by_key`.
 5. `feat: a new batch must name its Speaker Request` — §4.2 step 5 (C12 = R1), `create_batch` helper default; test 15 "neither" row.
 6. `feat: store availability verdicts on match runs and read changed-since` — `availability_reads.py`, `match_run_evidence.py` time fields, `match_runs.py`, `excluded` (C3), `make openapi`; tests 17–21, 23.
-7. `feat: re-check availability at compose and dispatch` — `cba_invitations.py` router; tests 24–31.
+7. `feat: re-check availability at compose and dispatch` — `cba_invitations.py` router; tests 24–31a; `load_batch_request_event_time`, `409 speaker_invitation_request_unreadable`.
 8. `feat: exclude the requester from their own request's pool` — Q8; test 22.
 9. `feat: availability wording on shortlist, compose and outreach pages` — `api.ts`, four pages; tests 32–35.
 
