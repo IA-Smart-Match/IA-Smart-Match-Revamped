@@ -58,6 +58,17 @@
  * A Connector label in this shell is not permission: `coordinator-portal` being
  * reachable says the server granted this account the portal, and every route
  * behind it is still authorized server-side, deny-by-default and tenant-scoped.
+ *
+ * ## Availability is the Speaker's statement, not ours
+ *
+ * Each row's "Availability" disclosure mounts `SpeakerAvailabilityPanel`, which
+ * reads that contact's stated availability only when opened and lets a
+ * Connector record what the Speaker told them (B26 T5). The panel renders the
+ * server's statement, never a guess: a Speaker who has said nothing reads
+ * "Not stated" — never "available" — and saving an empty form is labelled as
+ * recording "no dates blocked", because that is what it stores. Each window
+ * says whether the Speaker or a Connector added it; the roster itself carries
+ * no availability, so nothing here summarises it per row.
  */
 
 import { useCallback, useMemo, useState } from "react";
@@ -81,6 +92,7 @@ import { grantedPortal } from "../../components/PortalGate";
 import { usePortalAccess } from "../../hooks/usePortalAccess";
 import { useAuthenticatedPrincipal } from "../../hooks/useSession";
 import { useScopedQuery } from "../../hooks/useScopedQuery";
+import { SpeakerAvailabilityPanel } from "./SpeakerAvailabilityPanel";
 
 /** The display name a released taxonomy gives a stored code, or the code itself. */
 function displayName(options: readonly TaxonomyOption[], code: string | null): string | null {
@@ -135,16 +147,20 @@ function TaxonomySelect({
 /** One roster row, with its own correction form. */
 function ContactRow({
   contact,
+  unitId,
   onCorrect,
   correcting,
 }: {
   contact: SpeakerContact;
+  unitId: string;
   onCorrect: (professionalId: string, industry: string, role: string) => void;
   correcting: boolean;
 }) {
   const [industry, setIndustry] = useState(contact.primary_industry_code ?? "");
   const [role, setRole] = useState(contact.primary_role_code ?? "");
   const [open, setOpen] = useState(false);
+  const [availabilityOpen, setAvailabilityOpen] = useState(false);
+  const availabilityPanelId = `availability-panel-${contact.professional_id}`;
 
   const industryLabel = displayName(CBA_INDUSTRY_SECTORS, contact.primary_industry_code);
   const roleLabel = displayName(CBA_ROLE_CATEGORIES, contact.primary_role_code);
@@ -178,13 +194,27 @@ function ContactRow({
             {industryLabel ?? "No industry recorded"} · {roleLabel ?? "No role category recorded"}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => setOpen((previous) => !previous)}
-          className="min-h-11 rounded-lg border border-border/70 px-3 py-1.5 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-        >
-          {open ? "Cancel" : "Correct classification"}
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => setOpen((previous) => !previous)}
+            className="min-h-11 rounded-lg border border-border/70 px-3 py-1.5 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          >
+            {open ? "Cancel" : "Correct classification"}
+          </button>
+          {/* Opens on demand: one availability read per opened row, none on
+              page load. The sr-only suffix keeps rows apart for a screen
+              reader while the name still starts with the visible label. */}
+          <button
+            type="button"
+            aria-expanded={availabilityOpen}
+            aria-controls={availabilityPanelId}
+            onClick={() => setAvailabilityOpen((previous) => !previous)}
+            className="min-h-11 rounded-lg border border-border/70 px-3 py-1.5 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          >
+            Availability<span className="sr-only"> for {contact.full_name}</span>
+          </button>
+        </div>
       </div>
 
       {open ? (
@@ -224,6 +254,14 @@ function ContactRow({
             <p className="text-xs text-muted-foreground">Change a value to save a correction.</p>
           ) : null}
         </div>
+      ) : null}
+
+      {availabilityOpen ? (
+        <SpeakerAvailabilityPanel
+          unitId={unitId}
+          professionalId={contact.professional_id}
+          contactName={contact.full_name}
+        />
       ) : null}
     </li>
   );
@@ -547,6 +585,7 @@ export function CoordinatorSpeakerContacts() {
                         <ContactRow
                           key={contact.professional_id}
                           contact={contact}
+                          unitId={unitId}
                           correcting={correctingId === contact.professional_id}
                           onCorrect={handleCorrect}
                         />

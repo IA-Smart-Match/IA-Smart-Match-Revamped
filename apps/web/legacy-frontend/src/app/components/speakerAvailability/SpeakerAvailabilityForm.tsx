@@ -541,6 +541,7 @@ export function SpeakerAvailabilityForm({
                 <strong>Someone changed this</strong> availability since you opened it. Your
                 changes are still in the form and were not saved.
               </p>
+              {formError !== null ? <p className="text-foreground">{formError.message}</p> : null}
               {stale.phase === "failed" && readError !== null ? (
                 <p className="text-foreground">
                   {readError}{" "}
