@@ -167,7 +167,7 @@ Plus the 6 `test_check_constraints.py` entries pointing `BEHAVIOURAL_COVERAGE` a
 12. `test_get_many_never_returns_other_tenant_rows`.
 13. `test_concurrent_first_writes_one_wins_other_stale` (two sessions).
 14. `test_repository_never_commits` (rollback leaves no row).
-15. `test_read_is_one_committed_state_under_concurrent_write` — regression for the two-query race. Row at v1 with windows A; a `before_cursor_execute` hook on the reader's connection commits, from a second session, v2 with different pause, capacity and windows B **just before** the reader's statement runs. Assert the result is entirely v2: fields, `version == 2` and windows B, never v1 fields with B windows. Repeat for `get`.
+15. `test_read_is_one_committed_state_under_concurrent_write` — regression for the two-query race. Row at v1 with windows A. An `after_cursor_execute` hook on the reader's connection, firing once after the reader's **first** statement, commits v2 (different pause, capacity, windows B) from a second session. Assert the result is entirely v1: fields, `version == 1` and windows A. A two-query read fails here (v1 fields with B windows). Repeat for `get`.
 
 Run one file at a time: `$VENV/bin/python -m pytest tests/integration/test_speaker_availability_migration.py -q`.
 A local skip (no Postgres) is not proof; CI is.
