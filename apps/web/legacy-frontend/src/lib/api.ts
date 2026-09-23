@@ -2226,6 +2226,25 @@ export async function fetchMetricDrillDown(
   );
 }
 
+/**
+ * Follow a `drill_down_url` exactly as the server issued it.
+ *
+ * `MetricSummary.drill_down_url` carries the surface the figure was measured
+ * under (`?surface=cba` on the Speaker Pipeline), so a click lands on the same
+ * register view and owning query as the number clicked (ADR-0011 rule 4). The
+ * path is not composed here; it is only checked to be a metric drill-down on
+ * this API before it is fetched, so a malformed payload cannot aim an
+ * authenticated request anywhere else.
+ */
+export async function fetchMetricDrillDownAt(
+  drillDownUrl: string,
+): Promise<MetricDrillDownResponse> {
+  if (!/^\/v1\/units\/[^/?#]+\/metrics\/[^/?#]+\/drill-down(\?[^#]*)?$/.test(drillDownUrl)) {
+    throw new Error("The server issued a drill-down link this client does not recognise.");
+  }
+  return requestJson<MetricDrillDownResponse>(drillDownUrl, undefined, { authenticated: true });
+}
+
 // ---------------------------------------------------------------------------
 // Match runs (`contracts/openapi/smartmatch.json`, cards M8b/M9/M10)
 // ---------------------------------------------------------------------------

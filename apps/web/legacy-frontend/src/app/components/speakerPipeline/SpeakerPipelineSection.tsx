@@ -24,17 +24,35 @@
  * that opened onto one option — or worse, onto options that changed nothing —
  * would be a claim that the figures are filtered. The label and its
  * explanation both come from the server's `range`.
+ *
+ * ## Drill-down (B41, B42)
+ *
+ * Every measured count — a KPI card or a funnel band — opens the rows it was
+ * counted from. The link is the server's: each entry in the payload's
+ * `metrics` carries a `drill_down_url` (`…/metrics/{name}/drill-down?surface=cba`)
+ * served by the same owning query that produced the count, so the sheet's N
+ * and the clicked N are one query's answer (ADR-0011 rule 4). The sheet also
+ * refuses to render rows that do not reconcile, and a caller the server does
+ * not allow to read rows (drill-down is `admin`/`coordinator` only) sees the
+ * server's refusal in the sheet rather than an empty list.
  */
+import { useCallback, useMemo, useState } from "react";
 import { BarChart3, CalendarDays } from "lucide-react";
 
-import { ApiRequestError, fetchSpeakerPipeline } from "@/lib/api";
+import {
+  ApiRequestError,
+  fetchMetricDrillDownAt,
+  fetchSpeakerPipeline,
+  type MetricSummary,
+} from "@/lib/api";
+import { MetricDrilldownSheet } from "@/app/components/provenance/MetricDrilldownSheet";
 import { useScopedQuery } from "@/app/hooks/useScopedQuery";
 import { ConversionRatesCard } from "@/app/components/speakerPipeline/ConversionRatesCard";
 import { PipelineFunnelCard } from "@/app/components/speakerPipeline/PipelineFunnelCard";
 import { PipelineInsightsCard } from "@/app/components/speakerPipeline/PipelineInsightsCard";
 import { PipelineMetricGrid } from "@/app/components/speakerPipeline/PipelineMetricGrid";
 import { SpeakerPipelineSkeleton } from "@/app/components/speakerPipeline/SpeakerPipelineSkeleton";
-import { metricCardOrder } from "@/lib/speakerPipeline";
+import { metricCardOrder, type DrillDownOpener } from "@/lib/speakerPipeline";
 
 /** What the range control shows before the server has said what it covers. */
 const RANGE_PLACEHOLDER = "Range not yet read";
@@ -99,6 +117,34 @@ export function SpeakerPipelineSection({ unitId }: SpeakerPipelineSectionProps) 
     : null;
   const settled = !pipelineQuery.isPending;
 
+  // The one metric whose rows are open, carrying the server's own link.
+  const [openMetric, setOpenMetric] = useState<MetricSummary | null>(null);
+  const drillDownQuery = useScopedQuery({
+    resource: "metric-drill-down",
+    params: [unitId, openMetric?.drill_down_url ?? null],
+    queryFn: () => fetchMetricDrillDownAt((openMetric as MetricSummary).drill_down_url),
+    enabled: openMetric !== null,
+  });
+  const drillDownError =
+    openMetric !== null && drillDownQuery.isError
+      ? drillDownQuery.error instanceof ApiRequestError
+        ? drillDownQuery.error.message
+        : "These rows could not be read and the server gave no reason."
+      : null;
+
+  const summaries = payload?.metrics;
+  const summaryByName = useMemo(
+    () => new Map((summaries ?? []).map((summary) => [summary.name, summary])),
+    [summaries],
+  );
+  const openRows: DrillDownOpener = useCallback(
+    (metricName: string) => {
+      const summary = summaryByName.get(metricName);
+      return summary ? () => setOpenMetric(summary) : null;
+    },
+    [summaryByName],
+  );
+
   return (
     <section
       className="rounded-3xl border border-border bg-background p-6"
@@ -121,11 +167,15 @@ export function SpeakerPipelineSection({ unitId }: SpeakerPipelineSectionProps) 
         <SpeakerPipelineSkeleton settled={settled} />
       ) : (
         <div className="mt-6 space-y-4">
-          <PipelineMetricGrid entries={metricCardOrder(payload)} />
+          <PipelineMetricGrid entries={metricCardOrder(payload)} openRows={openRows} />
 
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
             <div className="lg:col-span-2">
-              <PipelineFunnelCard stages={payload.stages} conversions={payload.conversions} />
+              <PipelineFunnelCard
+                stages={payload.stages}
+                conversions={payload.conversions}
+                openRows={openRows}
+              />
             </div>
             <div className="space-y-4 lg:col-span-1">
               <ConversionRatesCard conversions={payload.conversions} />
@@ -134,6 +184,18 @@ export function SpeakerPipelineSection({ unitId }: SpeakerPipelineSectionProps) 
           </div>
         </div>
       )}
+
+      <MetricDrilldownSheet
+        open={openMetric !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setOpenMetric(null);
+          }
+        }}
+        loading={openMetric !== null && drillDownQuery.isPending}
+        drilldown={openMetric !== null && drillDownQuery.isSuccess ? drillDownQuery.data : null}
+        error={drillDownError}
+      />
     </section>
   );
 }

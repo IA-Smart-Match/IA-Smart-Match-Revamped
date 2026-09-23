@@ -204,6 +204,31 @@ export function accountableDemoMetric(
   };
 }
 
+/**
+ * A `pipeline_record` drill-down row's stage timestamps, furthest first.
+ *
+ * Pipeline rows carry no `status` column: a journey's state *is* which stage
+ * timestamps are set (`ck_pipeline_record_stage_prefix` keeps them a prefix).
+ * Naming the furthest one reads a field the row already has; it counts
+ * nothing.
+ */
+const PIPELINE_STAGE_FIELDS: ReadonlyArray<readonly [string, string]> = [
+  ["member_inquiry_at", "member inquiry"],
+  ["attended_at", "attended"],
+  ["confirmed_at", "confirmed"],
+  ["contacted_at", "contacted"],
+  ["matched_at", "matched"],
+];
+
+function furthestPipelineStage(row: Record<string, unknown>): string | null {
+  for (const [field, label] of PIPELINE_STAGE_FIELDS) {
+    if (row[field] !== null && row[field] !== undefined) {
+      return label;
+    }
+  }
+  return null;
+}
+
 /** Row fields safe to list in drill-down UI (ADR-0014 minimum disclosure). */
 export function drilldownRowPreview(row: Record<string, unknown>): {
   id: string;
@@ -213,7 +238,7 @@ export function drilldownRowPreview(row: Record<string, unknown>): {
   return {
     id: String(row.id ?? "—"),
     row_index: String(row.row_index ?? "—"),
-    status: String(row.status ?? "—"),
+    status: String(row.status ?? furthestPipelineStage(row) ?? "—"),
   };
 }
 

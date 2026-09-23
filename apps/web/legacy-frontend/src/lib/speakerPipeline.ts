@@ -226,3 +226,20 @@ export function stageAccessibleLabel(stage: SpeakerPipelineStage): string {
   }
   return `${stage.display_name}: ${stage.value}, ${stage.share_display} of the widest stage.`;
 }
+
+/**
+ * Opens the rows behind one figure, or `null` when that figure has none to
+ * open. Supplied by `SpeakerPipelineSection`, which alone holds the server's
+ * `drill_down_url` for each metric.
+ */
+export type DrillDownOpener = (metricName: string) => (() => void) | null;
+
+/**
+ * The accessible name of a figure's drill-down control (ADR-0011 rule 4:
+ * clicking N opens those N rows). It quotes the measured count; a figure
+ * with no measured count gets no control at all, so there is no label for
+ * one here.
+ */
+export function drillDownLabel(value: number, displayName: string): string {
+  return `Open the ${value} ${value === 1 ? "row" : "rows"} behind ${displayName}`;
+}
