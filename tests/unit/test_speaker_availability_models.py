@@ -221,10 +221,10 @@ def test_availability_error_maps_each_code(
 
 @pytest.mark.parametrize("code", list(AvailabilityErrorCode))
 def test_error_message_never_contains_the_value(code: AvailabilityErrorCode) -> None:
-    exc = AvailabilityStatementInvalid(code, "unavailable", 7)
+    exc = AvailabilityStatementInvalid(code, "unavailable", 13)
     error = availability_error(exc)
     assert str(exc) not in error.message
-    assert "7" not in error.message
+    assert "13" not in error.message
     assert code.value not in error.message
 
 
