@@ -379,6 +379,7 @@ Cards #15–#21 below: rate limiting, `unlock` scope, passcode delivery,
 | — | ADR-0015 amendment owner | Danny | — | BrooklynD23 | DECIDED |
 | — | `/u/` and `/i/` out of exercise scope | Danny | — | Gated out | DECIDED |
 | — | Build ingest to PLACEHOLDER columns | Danny | — | Yes | DECIDED |
+| — | B26 self-service availability (added 2026-09-22) | Danny | — | DECIDED 2026-09-22 (owner): option B — build self-service availability; plan at [`2026-09-22-b26-self-service-availability-plan.md`](2026-09-22-b26-self-service-availability-plan.md). D2's sub-question stays OPEN; six follow-up questions are in the plan | DECIDED |
 
 ---
 
