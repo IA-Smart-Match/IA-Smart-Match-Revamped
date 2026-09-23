@@ -49,7 +49,9 @@ FRONTEND_LABELS_PATH = (
 #: The stored ``membership.role`` strings this pilot writes
 #: (``tools/seed_pilot_logins.py``) and every authorizer gates on. Written as
 #: literals so a rename fails here rather than passing as a silent diff.
-STORED_ROLES = frozenset({"student", "coordinator", "volunteer", "admin"})
+#: ``speaker`` joined with B26 T6b-1: granted only by accepting a portal
+#: invitation, never by a seed.
+STORED_ROLES = frozenset({"student", "coordinator", "volunteer", "admin", "speaker"})
 
 
 def test_the_stored_role_vocabulary_is_unchanged() -> None:
@@ -93,7 +95,7 @@ def test_no_ia_west_or_chapter_wording_survives_in_a_visible_label() -> None:
 
 def test_an_unmapped_role_gets_no_persona_and_no_label() -> None:
     """Deny-by-default, applied to naming: nothing is invented for it."""
-    for unknown in ("", "   ", "speaker", "dean", "Student", "coordinator "):
+    for unknown in ("", "   ", "speakers", "dean", "Student", "coordinator ", "Speaker"):
         assert persona_for_role(unknown) is None
         assert visible_role_label(unknown) is None
         assert portal_display_name_for_role(unknown) is None
@@ -101,16 +103,19 @@ def test_an_unmapped_role_gets_no_persona_and_no_label() -> None:
             presentation_for_role(unknown)
 
 
-def test_the_speaker_persona_exists_and_no_stored_role_grants_it() -> None:
-    """Speakers are represented as contact records, not as login accounts.
+def test_the_speaker_role_presents_as_the_speaker_persona() -> None:
+    """B26 T6b-1 created the role the persona was waiting for (owner Q2 = B).
 
-    Customer §2 names Speaker as a persona, so the vocabulary carries it. No
-    ``membership.role`` maps to it, because inventing a role to satisfy a
-    label would be exactly the thing this track forbids — the persona is
-    named and left unmapped until an approved decision creates the role.
+    ``speaker`` is granted only by accepting a portal invitation. It is the
+    only stored role that presents as :attr:`Persona.SPEAKER`, and it opens
+    the Speaker Portal.
     """
-    assert Persona.SPEAKER in set(Persona)
-    assert all(persona_for_role(role) is not Persona.SPEAKER for role in KNOWN_ROLES)
+    assert persona_for_role("speaker") is Persona.SPEAKER
+    assert visible_role_label("speaker") == "Speaker"
+    assert portal_display_name_for_role("speaker") == "Speaker Portal"
+    assert [role for role in KNOWN_ROLES if persona_for_role(role) is Persona.SPEAKER] == [
+        "speaker"
+    ]
 
 
 def test_a_visible_label_is_never_a_role_an_authorizer_accepts() -> None:
