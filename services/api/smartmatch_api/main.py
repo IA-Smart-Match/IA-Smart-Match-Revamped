@@ -865,13 +865,17 @@ def invitation_response_page(token: str) -> HTMLResponse:
     The link an invitation actually carries, and a GET for the reason
     :func:`unsubscribe_page` is one: a link in an email is fetched by scanners,
     prefetchers and security proxies, so a GET that recorded an answer would
-    have Speakers accepting engagements they never read about. The answer is the
-    POST to ``/v1/speaker-invitations/respond``, which this page submits.
+    have Speakers accepting engagements they never read about. The answer is
+    ``POST /i/{token}`` (:func:`answer_invitation_by_form`): the page's own form,
+    posted back to this same URL. It cannot be ``POST
+    /v1/speaker-invitations/respond``, which takes JSON a no-JS form cannot send
+    and would need the token written into the page.
 
     The token is deliberately not echoed into the HTML — reflecting it invites
     both leakage and injection — and the page says nothing about whether the
     token is real, for the same anti-oracle reason the POST answers identically
-    to every token.
+    to every token. The bytes are the same for every token, and nothing here
+    reads the database.
     """
     return _token_page(
         "Speaker invitation",

@@ -7618,7 +7618,7 @@
     },
     "/i/{token}": {
       "get": {
-        "description": "Render the accept-or-decline page. **Never changes state.**\n\nThe link an invitation actually carries, and a GET for the reason\n:func:`unsubscribe_page` is one: a link in an email is fetched by scanners,\nprefetchers and security proxies, so a GET that recorded an answer would\nhave Speakers accepting engagements they never read about. The answer is the\nPOST to ``/v1/speaker-invitations/respond``, which this page submits.\n\nThe token is deliberately not echoed into the HTML \u2014 reflecting it invites\nboth leakage and injection \u2014 and the page says nothing about whether the\ntoken is real, for the same anti-oracle reason the POST answers identically\nto every token.",
+        "description": "Render the accept-or-decline page. **Never changes state.**\n\nThe link an invitation actually carries, and a GET for the reason\n:func:`unsubscribe_page` is one: a link in an email is fetched by scanners,\nprefetchers and security proxies, so a GET that recorded an answer would\nhave Speakers accepting engagements they never read about. The answer is\n``POST /i/{token}`` (:func:`answer_invitation_by_form`): the page's own form,\nposted back to this same URL. It cannot be ``POST\n/v1/speaker-invitations/respond``, which takes JSON a no-JS form cannot send\nand would need the token written into the page.\n\nThe token is deliberately not echoed into the HTML \u2014 reflecting it invites\nboth leakage and injection \u2014 and the page says nothing about whether the\ntoken is real, for the same anti-oracle reason the POST answers identically\nto every token. The bytes are the same for every token, and nothing here\nreads the database.",
         "operationId": "invitation_response_page_i__token__get",
         "parameters": [
           {
@@ -7723,6 +7723,130 @@
           }
         },
         "summary": "Speaker invitation response page",
+        "tags": [
+          "speaker-invitations"
+        ]
+      },
+      "post": {
+        "description": "Record the Speaker's answer from the ``GET /i/{token}`` page's form.\n\n**Unauthenticated by design**, for ``speaker_respond``'s reason, and it runs\nthe same code (``cba_invitations.answer_by_token``): the first answer\nstands, a different second answer writes nothing, and an undispatched\ninvitation cannot be answered.\n\nThe 200 page is byte-identical for every token and every outcome \u2014 recorded,\nrepeated, refused, invented, undispatched, too short or too long \u2014 so the\nroute is not an oracle for whether somebody was invited. There is no\nredirect: a redirect target would need the token or a second page, and a\nrefresh that re-POSTs is a no-op. A 400 or 413 is decided from the body\nalone, before the token is looked at.\n\nTwo residuals are documented rather than fixed (T6a plan \u00a75):\n\n* **Timing.** A token of plausible length costs a database lookup and, for a\n  real one, a write; a too-short or too-long one skips both. The bytes are\n  identical; the latency is not \u2014 the same exposure as the JSON route.\n* **Write failure.** A database error on a real token propagates to the\n  application's exception handler as a 500 envelope, which an invented token\n  cannot provoke. Errors are not swallowed to hide that.\n\nNo rate limit, for the reason given above ``speaker_respond``:\n``charge_quota`` keys by tenant and user, and this route has no principal.\nThe edge rate limit is an ops follow-up.",
+        "operationId": "answer_invitation_by_form_i__token__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "token",
+            "required": true,
+            "schema": {
+              "title": "Token",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "properties": {
+                  "response": {
+                    "enum": [
+                      "accept",
+                      "decline"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "response"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              },
+              "text/html": {}
+            },
+            "description": "Answer received. Identical for every token and every outcome."
+          },
+          "400": {
+            "content": {
+              "text/html": {}
+            },
+            "description": "No valid accept or decline"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "text/html": {}
+            },
+            "description": "Body over 1 KiB"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Accept or decline an invitation from its page's form",
         "tags": [
           "speaker-invitations"
         ]

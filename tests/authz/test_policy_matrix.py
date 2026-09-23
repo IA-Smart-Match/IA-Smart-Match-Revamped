@@ -425,8 +425,8 @@ UNAUTHENTICATED_ROUTES: dict[tuple[str, str], str] = {
         "whole of it. It never changes state — a GET that recorded an answer "
         "would have link scanners and mail-client prefetchers accepting "
         "engagements on Speakers' behalf — and it echoes nothing back, so it is "
-        "not an oracle for whether the token is real either. The answer is the "
-        "POST below."
+        "not an oracle for whether the token is real either. The answer is "
+        "`POST /i/{token}`, the page's own form posted back to the same URL."
     ),
     ("POST", "/i/{token}"): (
         "The answer the `GET /i/{token}` page's own form submits, to the page's "
