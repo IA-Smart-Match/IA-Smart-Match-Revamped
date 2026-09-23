@@ -327,6 +327,57 @@ describe("<SpeakerAvailabilityForm />", () => {
     expect(screen.getAllByRole("group", { name: /^Unavailable dates \d$/ })).toHaveLength(2);
   });
 
+  it("every input shows the same focus-visible ring as the buttons", () => {
+    renderForm({ availability: TWO_WINDOWS });
+    const inputs = Array.from(document.querySelectorAll("form input"));
+    expect(inputs.length).toBe(6);
+    for (const input of inputs) {
+      expect(input.className).toContain("focus-visible:ring-2");
+      expect(input.className).toContain("focus-visible:ring-ring");
+    }
+  });
+
+  it("every field is disabled while saving", () => {
+    renderForm({ availability: TWO_WINDOWS, saving: true });
+    const form = document.querySelector("form") as HTMLFormElement;
+    const controls = Array.from(form.querySelectorAll<HTMLInputElement | HTMLButtonElement>("input, button"));
+    expect(controls.length).toBeGreaterThan(0);
+    for (const control of controls) {
+      expect(control.matches(":disabled")).toBe(true);
+    }
+    expect(screen.getByRole("button", { name: "Saving…" })).toBeTruthy();
+  });
+
+  it("a read error is shown in stale mode even after the fresh read", () => {
+    const { props: p } = renderForm({
+      stale: { phase: "fresh" },
+      readError: "Availability could not be loaded. Server says internal_error.",
+    });
+    const alert = document.getElementById(`${P}-form-error`) as HTMLElement;
+    expect(alert.textContent).toMatch(/Someone changed this/);
+    expect(alert.textContent).toMatch(/Availability could not be loaded\. Server says internal_error\./);
+    fireEvent.click(within(alert).getByRole("button", { name: "Retry" }));
+    expect(p.onRetryRead).toHaveBeenCalledTimes(1);
+  });
+
+  it("the Saved now box names an active pause once", () => {
+    renderForm({
+      availability: stored({ invitations_paused_until: "2026-10-20" }),
+      stale: { phase: "fresh" },
+    });
+    const box = screen.getByText("Saved now").parentElement as HTMLElement;
+    expect(box.textContent?.match(/October 20, 2026/g)).toHaveLength(1);
+  });
+
+  it("the Saved now box names an expired pause on its own line", () => {
+    renderForm({
+      availability: stored({ invitations_paused_until: "2026-09-30" }),
+      stale: { phase: "fresh" },
+    });
+    const box = screen.getByText("Saved now").parentElement as HTMLElement;
+    expect(within(box).getByText("Pause ended on September 30, 2026.")).toBeTruthy();
+  });
+
   it("a reseed after a save replaces the draft and announces in the status region", () => {
     const { rerender, props: p } = renderForm({ availability: TWO_WINDOWS });
     fireEvent.change(screen.getByLabelText("Capacity (hours per 90 days)"), {

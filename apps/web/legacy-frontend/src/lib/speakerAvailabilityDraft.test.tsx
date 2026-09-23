@@ -188,6 +188,12 @@ describe("validateDraft", () => {
     ["0.1", true],
     ["720", true],
     ["", true],
+    // T1 quantizes: a value equal to itself at one decimal place is accepted.
+    [".5", true],
+    ["24.50", true],
+    ["0.3", true],
+    ["720.0", true],
+    ["abc", false],
   ])("capacity %s → ok=%s", (capacity, ok) => {
     const failure = validateDraft(draft({ capacity }), TODAY, s);
     if (ok) {

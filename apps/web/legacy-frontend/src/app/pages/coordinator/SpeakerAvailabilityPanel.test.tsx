@@ -419,6 +419,66 @@ describe("<SpeakerAvailabilityPanel /> stale (409)", () => {
     expect(screen.getByRole("status").textContent).toBe("Changes discarded.");
   });
 
+  it("Discard my changes is not offered while the saved version is being re-read", async () => {
+    const reread = deferred();
+    stub({
+      [GET]: [ok(availability()), () => reread.promise],
+      [PATCH]: [fail(409, "speaker_availability_stale")],
+    });
+    await typeAndHitStale();
+    const discard = screen.getByRole("button", { name: "Discard my changes" }) as HTMLButtonElement;
+    expect(discard.disabled).toBe(true);
+    fireEvent.click(discard);
+    expectTypedValuesKept();
+    await act(async () => reread.resolve(ok(fresh)));
+    await screen.findByText("Saved now");
+    expect(
+      (screen.getByRole("button", { name: "Discard my changes" }) as HTMLButtonElement).disabled,
+    ).toBe(false);
+  });
+
+  it("a stale state cleared during the re-read stays cleared when the re-read lands", async () => {
+    // The re-read is still in flight when the stale state is cleared (here by a
+    // principal switch, which resets the panel). Its late answer must not bring
+    // the stale view back.
+    const reread = deferred();
+    stub({
+      [GET]: [
+        ok(availability()),
+        () => reread.promise,
+        ok(availability({ declared_capacity_hours_per_90_days: 22 })),
+      ],
+      [PATCH]: [fail(409, "speaker_availability_stale")],
+    });
+    const client = makeClient();
+    const view = render(
+      <QueryClientProvider client={client}>
+        <SpeakerAvailabilityPanel unitId={UNIT} professionalId={PID} contactName="Dana Reyes" />
+      </QueryClientProvider>,
+    );
+    await screen.findByText(/Stated: no dates blocked\./);
+    fireEvent.change(capacityInput(), { target: { value: "12" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save availability" }));
+    await screen.findByText(/Someone changed this/);
+    await waitFor(() => expect(count(GET)).toBe(2));
+
+    principal.key = "principal-2";
+    view.rerender(
+      <QueryClientProvider client={client}>
+        <SpeakerAvailabilityPanel unitId={UNIT} professionalId={PID} contactName="Dana Reyes" />
+      </QueryClientProvider>,
+    );
+    await screen.findByText("22 hours per 90 days");
+    expect(screen.queryByText(/Someone changed this/)).toBeNull();
+
+    await act(async () => reread.resolve(ok(fresh)));
+    await new Promise((r) => setTimeout(r, 30));
+    expect(screen.queryByText(/Someone changed this/)).toBeNull();
+    expect(screen.queryByText(/Your changes are still in the form/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Save my changes over it" })).toBeNull();
+    expect(screen.queryByText("Saved now")).toBeNull();
+  });
+
   it("no automatic retry after 409", async () => {
     stub({
       [GET]: [ok(availability()), ok(fresh)],
