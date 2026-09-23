@@ -680,6 +680,7 @@ flowchart TB
 > [`docs/plans/2026-09-22-b26-self-service-availability-plan.md`](../../plans/2026-09-22-b26-self-service-availability-plan.md).
 > The diagram is kept as the 2026-09-04 snapshot. Since then the volunteer portal became the Event Host portal, and
 > the person whose availability matching reads is a Speaker contact, not the portal's user — see the plan's §1.
+> The owner then chose invitation-only Speaker accounts (plan track T6b), so `CORRECT` moves to a Speaker portal.
 
 ### 5.4 Engineer / operator
 
