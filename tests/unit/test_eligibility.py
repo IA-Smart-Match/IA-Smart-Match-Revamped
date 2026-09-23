@@ -6,6 +6,7 @@ import pytest
 from smartmatch_domain.eligibility import (
     AVAILABILITY_STAGE_B_WEIGHT,
     AvailabilityEvidence,
+    AvailabilityReason,
     AvailabilityState,
     EligibilityDecision,
     EligibilityOutcome,
@@ -136,3 +137,31 @@ def test_blank_subject_id_is_rejected():
 def test_blank_reason_is_rejected():
     with pytest.raises(ValueError):
         EligibilityDecision("SYNTH-PRO-0001", EligibilityOutcome.ELIGIBLE, reason="   ")
+
+
+def test_evidence_reason_defaults_to_none():
+    evidence = AvailabilityEvidence("SYNTH-PRO-0001", AvailabilityState.AVAILABLE)
+    assert evidence.reason is None
+
+
+@pytest.mark.parametrize(
+    ("state", "reason"),
+    [
+        (AvailabilityState.AVAILABLE, AvailabilityReason.PAUSED),
+        (AvailabilityState.BLACKED_OUT, AvailabilityReason.CLEAR),
+        (AvailabilityState.UNKNOWN, AvailabilityReason.WINDOW),
+        (AvailabilityState.AVAILABLE, AvailabilityReason.NOT_STATED),
+    ],
+)
+def test_evidence_rejects_mismatched_reason(state, reason):
+    with pytest.raises(ValueError):
+        AvailabilityEvidence("SYNTH-PRO-0001", state, reason)
+
+
+def test_positional_evidence_still_constructs():
+    evidence = AvailabilityEvidence(
+        "SYNTH-PRO-0001", AvailabilityState.BLACKED_OUT, AvailabilityReason.WINDOW
+    )
+    assert evidence.subject_id == "SYNTH-PRO-0001"
+    assert evidence.state is AvailabilityState.BLACKED_OUT
+    assert evidence.reason is AvailabilityReason.WINDOW
