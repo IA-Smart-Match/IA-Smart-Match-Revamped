@@ -12,7 +12,17 @@ Effort: **S** = wire to an existing contract or delete a stub (hours);
 **M** = new API resource + UI (days);
 **L** = blocked on a gate, ADR, or program-owner decision (weeks+).
 
-**Count: 42 controls.**
+**Count: 42 controls. Last surveyed 2026-09-22** against `main` at `012080f1`
+(PR #205 merged): **38 closed, 4 still open** (B09 partly, B26, B41, B42). No new
+dead control was found on any coordinator page — see *Coordinator re-survey*
+below for what was checked.
+
+Paths follow the original survey: `src/…` is relative to
+`apps/web/legacy-frontend/`; bare `student/…`, `coordinator/…`, `volunteer/…`
+paths sit under `src/app/pages/`; `pages/…` and `app/…` under `src/` or
+`src/app/` as written; bare `components/…` is the legacy `src/components/`. Line numbers are as of the survey date. A ✅
+row keeps its ID and says what the defect was, what replaced it, and the commit
+that closed it.
 
 ---
 
@@ -20,10 +30,10 @@ Effort: **S** = wire to an existing contract or delete a stub (hours);
 
 | ID | Location | Current behavior | Expected behavior | Backend needed | Fix approach | Effort |
 |---|---|---|---|---|---|---|
-| B01 | `src/app/pages/LoginPage.tsx:204–210` **Sign In** | `handleSubmit` → `mockLogin(email, role)` POST `{ email, role }` to the MM-A01 portal login route (`src/lib/api.ts:1354`). Against this repo that route is 404. | Authenticate with Identity Platform; role from membership, never from the body. | Live JWKS verifier (backlog A1b). No login resource in `smartmatch.json`. | Delete this client. New login uses OIDC redirect + generated client. Do not regenerate the archived method. | M (blocked on A1b) |
-| B02 | `LoginPage.tsx:119–129` **role cards** | Click sets `selectedRole` and a canned email (`alex.rivera@cal.edu`, `jordan.lee@cpp.edu`, `admin@iawest.org`, `shana.demarinis@testset.com`). | No caller-chosen role. | None — forbidden (Fix #7). | Remove the four cards and the role `<select>`. | S |
-| B03 | `LandingPage.tsx:75–76` **Start Matching** | `Link` to `/login?role=ia_admin`, pre-selecting admin. | CTA to real auth with no role in the query string. | A1b | Change the href; drop `roleFromUrl` in `LoginPage.tsx:47`. | S |
-| B04 | `Layout.tsx:154–164` admin footer | Not a button. Displays “IA Admin” / `admin@ia.org` with no session and no sign-out (unlike the three portal layouts). Included because it is an interactive identity surface people trust. | Show the verified principal; sign-out clears the real session. | A1b | Read principal from the generated auth context; add sign-out. | S |
+| B01 ✅ *closed — pilot sign-in is real* | `src/app/pages/LoginPage.tsx:192` form, `:238–245` **Sign in** | **Was:** `mockLogin(email, role)` POST `{ email, role }` to a 404 route. **Now:** `submitCredentials` → `postLogin` → `POST /v1/auth/login` (`src/lib/api.ts:1960–1975`) with email + password only; identity is then read from `GET /v1/me`. The server's `LoginRequest` rejects a `role` field with 422. | Authenticate with Identity Platform; role from membership, never from the body. | `/v1/auth/login` + `/v1/auth/logout` **in `smartmatch.json`** — pilot-scoped, per `docs/decisions/pilot-login-decision-2026-09-04.md`. A1b (JWKS / IdP) is still the long-term replacement. | **Closed by `131b6793`** (PR #35). Swap to OIDC when A1b lands; the form carries no role input to remove. | — |
+| B02 ✅ *closed — cards removed* | `LoginPage.tsx` **role cards** | **Removed.** No role cards, no role `<select>`, no canned demo emails; the file's header says why and `tests/unit/test_frontend_auth_contract.py` guards it. | No caller-chosen role. | None — forbidden (Fix #7). | **Closed by `169b95d1`** (Fix #7A). | — |
+| B03 ✅ *closed — no role in the CTA* | `LandingPage.tsx:77–82`, `:105–108`, `:239–241` | Every CTA is `Link to="/login"`; no `?role=` query. `roleFromUrl` is gone from `LoginPage.tsx`. | CTA to real auth with no role in the query string. | — | **Closed by `169b95d1`.** | — |
+| B04 ✅ *closed — shell retired, real principal + sign-out* | `app/components/CoordinatorPortalLayout.tsx:299–304` identity, `:416` **Sign out** | `Layout.tsx` (the admin shell with the hard-coded “IA Admin” / `admin@ia.org`) is **deleted**; admin and coordinator share `CoordinatorPortalLayout`, which shows `principalDisplayName(session.me)` from `GET /v1/me` and a Sign-out that revokes the session. | Show the verified principal; sign-out clears the real session. | `/v1/me`, `/v1/auth/logout` | **Closed by `e76fcd26`** (PR #156). | — |
 
 ---
 
@@ -31,102 +41,171 @@ Effort: **S** = wire to an existing contract or delete a stub (hours);
 
 | ID | Location | Current behavior | Expected behavior | Backend needed | Fix approach | Effort |
 |---|---|---|---|---|---|---|
-| B05 | `student/StudentHome.tsx:225–227` **nudge CTA** | `<button>{nudge.cta_label}</button>` — **no `onClick`**. Dead. | Perform the nudge’s action (open agenda, start check-in, open rewards) using `nudge.nudge_type` / `event_id`. | Student nudge + commands: **no counterpart** (engagement tables S6–S10). | Either bind to a command or do not render a button until the command exists. | M |
-| B06 | `StudentHome.tsx:256–261` **Register** | `Link` to `/student-portal/events`. Does not create a registration. | Registration command (idempotent), or the label must say “View events”. | **No counterpart, and now known why.** `CBA-STUDENT-EVENTS` established that there is no registration table and that `attendance_record` cannot be pressed into service as one: ADR-0013 makes it the only input to points, so a row written at sign-up would credit a student for an event they had not attended, with nothing able to tell the two rows apart afterwards. Recorded as **OQ-CBA-018** with the required column shape, and pinned by `tests/integration/test_event_registration.py`. | **Still open, and blocked on OQ-CBA-018 rather than on effort.** The Events page this links to now carries no Register control of its own and says “you are recorded at” rather than “registered”; relabel this link to match. Do not wire it to anything before the table exists. | M |
-| B07 ✅ *closed — button gone, endpoint shipped, link now rendered* | `student/StudentEvents.tsx` **Add to Calendar** | **Removed.** `handleAddToCalendar` and its 3 s “Calendar event added” toast went with the rest of the legacy page body; the page now renders `/v1/me` + `/v1/me/portals`, an honest `PortalDatasetUnavailable`, and a section saying what the .ics route does and why no link appears yet. | Download ICS from `smartmatch_domain.ics` for a *resolved* event; refuse `unresolved` (F-003). | **Shipped:** `GET /v1/units/{unit_id}/events/{event_id}/invite.ics` returns `text/calendar` bytes through `calendar_invite.build_invite_ics`; refuses with `409 event_time_unresolved` / `event_end_unknown` / `event_not_presentable`; `admin`+`coordinator` unit-wide, `student` only with an `attendance_record` (else `404`). The Calendar *API* stays gated at G5 — `docs/plans/open-questions/calendar-deferred.md`. | **Closed by `CBA-STUDENT-EVENTS`.** `GET /v1/units/{unit_id}/student/events` and `/student/agenda` gave the page the `event_id` it was missing. The link is **not** composed in the browser: each listed event carries a server-evaluated `calendar` object holding either the `download_path` or the reason there is none (`event_time_unresolved`, `event_end_unknown`, `event_not_on_your_agenda`), so a download control appears only where the download works and a refusal is read rather than discovered by clicking. `tests/contract/test_student_events_api.py` asserts the field and then calls the .ics route, requiring the two to agree. | — |
-| B08 | `StudentEvents.tsx:134–141` **QR / check-in** | `<a href="/api/qr/stats">` opens GET JSON stats in a new tab. | Phone-first check-in with a reusable token (v1.1 §1.9, MM-F02). | **No counterpart.** S6, S11, D8 (minimization copy). | New QR check-in flow; do not reuse `/qr/stats`. | L |
-| B09 ✅ *partly closed — grid is real, cells still inert* | `StudentEvents.tsx:97` month grid | `MockStudentCalendar` is not a button but is the only “calendar” control; cells are inert. Students cannot register from a day. | Time-ordered agenda of registered + open events (Fix #10). | Event read API: **shipped** (`/student/events`, `/student/agenda`). Registration read API: **none**, and OQ-CBA-018 says why. | **Mostly done.** `MockStudentCalendar` is gone; the page now leads with two time-ordered lists (Fix #10) and keeps a month grid *below* them, which is customer §15's explicit Events-page requirement — engagement-model.md §5's objection is to a grid as the **primary** surface, and ordering satisfies both. Every cell is drawn from a server response, so an empty grid means an empty month. Cells remain non-interactive on purpose: the action a day would offer is registration. Interactivity is **OQ-CBA-020**; ordering is pinned by `tests/unit/test_student_events_layout_contract.py`. | S |
-| B10 | `student/StudentConnect.tsx:330–344` **Connect** (peer) | `setRequested` local `Set`. Label becomes “Request sent!” with no network. Half of peers are pre-“Connected” via `stableHash % 2` (`:604–608`). | Opt-in LinkedIn URL the peer supplied, or a coordinator-mediated mentor request (ADR-0014). Research emails/phones never shown. | `disclosure_consent` (S10) **blocked on D8**. | Remove local Set. Do not ship chat. | L |
-| B11 | `StudentConnect.tsx:447–461` **Connect with speaker** | Same local `Set` (`speakerRequested`). | Same as B10; speakers are professionals — consent-gated, coordinator-mediated. | S10, contact consent (`consent.py`) — HTTP **none**. | Same as B10. | L |
-| B12 | `StudentConnect.tsx:346–358` / `:462–474` **Chat** | Opens a sheet of `makeMockThreadMessages`. | In-app chat is archived (MM-F04, Fix #11). | None — do not build. | Delete the sheet and buttons. | S |
-| B13 | `StudentConnect.tsx:572–578` **Send** | Clears `draftMessage`. Caption: “Demo-only: messages are not persisted.” | N/A — control should not exist. | None | Delete with B12. | S |
-| B14 | `student/StudentRewards.tsx:222–243` **Request redemption** | `setDemoRequested` local `Set`; button reads “Request sent (demo)”. Affordability uses `studentPoints.ts` (browser formula). | `redemption` command: requested → approved → fulfilled \| denied \| expired (ADR-0013, S9). | **No counterpart.** D6 budget owner, D7 calibration N. | Do not port the catalog or the button until S8–S9 and D6/D7. | L |
-| B15 | `StudentHome.tsx:128–138` **points chip** | Link to rewards; balance is `getStudentTotalPoints` (H12 in the master plan). | Navigate to a ledger-backed catalog. | S7 | Replace the formula; keep the link once 5.4–5.5 exist. | M |
-| B16 | `student/StudentHistory.tsx:95–97` **Total Attended** | Number is not clickable. Stakeholder: Past Events 5 s; Fix #12 shape. | Drill-down to the same attendance rows; performance budget S11. | Attendance read API: **none**. | Aggregate primitive from Phase 2 + S6. | M |
+| B05 ✅ *closed — button gone* | `student/StudentHome.tsx:206–218` | **Removed.** No nudge CTA is rendered. A `MissingCapability` panel names the absent `/api/portals/students/{id}/nudge` read and says no `/v1` route recommends or nudges. | Perform the nudge’s action using `nudge.nudge_type` / `event_id`. | Student nudge + commands: **no counterpart** (engagement tables S6–S10). | **Closed by `131b6793`** by taking the second option: no button until the command exists. Re-open as new work if a nudge command ships. | — |
+| B06 ✅ *closed — Register is a real command* | `student/StudentEvents.tsx:267–275` **Register / Cancel registration**; `StudentHome.tsx:105–110` **Browse all events** | The Home link is relabelled “Browse all events” (`c9435cea`). The Events page carries a **Register** button per event: `registerForEvent` → `POST /v1/units/{unit_id}/student/events/{event_id}/registration` (cancel is `DELETE`). Label comes from the server’s `registration` row on every read; a refused write shows the server’s message; repeat clicks are idempotent. | Registration command (idempotent), or the label must say “View events”. | **Shipped:** migration `0026` `event_registration` table (OQ-CBA-018 resolved), both verbs in `smartmatch.json`. | **Closed by `f788e61a`** (PR #61) + `c9435cea` (PR #156). | — |
+| B07 ✅ *closed — button gone, endpoint shipped, link now rendered* | `student/StudentEvents.tsx:277–279` **calendar download** | **Removed.** `handleAddToCalendar` and its 3 s “Calendar event added” toast went with the rest of the legacy page body. Each event now renders the server’s `calendar` object: a download link where `download_path` is set, else the reason (`event_time_unresolved`, `event_end_unknown`, `event_not_on_your_agenda`). | Download ICS from `smartmatch_domain.ics` for a *resolved* event; refuse `unresolved` (F-003). | **Shipped:** `GET /v1/units/{unit_id}/events/{event_id}/invite.ics` returns `text/calendar` bytes through `calendar_invite.build_invite_ics`; refuses with `409 event_time_unresolved` / `event_end_unknown` / `event_not_presentable`; `admin`+`coordinator` unit-wide, `student` only with an `attendance_record` or active registration (else `404`). The Calendar *API* stays gated at G5 — `docs/plans/open-questions/calendar-deferred.md`. | **Closed by `CBA-STUDENT-EVENTS`** (`34f5e9bc`). The link is **not** composed in the browser. `tests/contract/test_student_events_api.py` asserts the field and then calls the .ics route, requiring the two to agree. | — |
+| B08 ✅ *closed — dead link removed; check-in still absent* | `student/StudentEvents.tsx` **QR / check-in** | **Removed.** The `<a href="/api/qr/stats">` is gone; no QR or check-in control is rendered on any student page. | Phone-first check-in with a reusable token (v1.1 §1.9, MM-F02). | **No counterpart.** S6, S11, D8 (minimization copy). | **Link closed by `131b6793`.** The check-in *capability* is still new work (L); do not reuse `/qr/stats`. | L (new feature) |
+| B09 ✅ *partly closed — grid is real, cells still inert* | `StudentEvents.tsx:336–427` `MonthCalendar` | Prev/next month buttons (`:372–385`) work; day cells are non-interactive, and the caption under the grid says so. | Time-ordered agenda of registered + open events (Fix #10). | Event read API: **shipped** (`/student/events`, `/student/agenda`). Registration: **shipped** (B06). | **Mostly done.** Two time-ordered lists lead the page; the grid sits below them (customer §15). Registering is done from the lists, not a day cell. Whether a day should open or filter anything is **OQ-CBA-020**, still open; ordering is pinned by `tests/unit/test_student_events_layout_contract.py`. | S |
+| B10 ✅ *closed — button gone* | `student/StudentConnect.tsx:65–103` | **Removed.** No peer list, no Connect button, no local `Set`, no `stableHash` “Connected”. The page is a `MissingCapability` panel (“People to connect with”) plus links to the two real surfaces. | Opt-in LinkedIn URL the peer supplied, or a coordinator-mediated mentor request (ADR-0014). | `disclosure_consent` (S10) **blocked on D8**. No student-scoped roster route exists at any path. | **Closed by `131b6793`.** Building the feature is still L, blocked on D8. | L (new feature) |
+| B11 ✅ *closed — button gone* | `StudentConnect.tsx` | **Removed** with B10 (`speakerRequested` `Set` gone). | Same as B10. | S10, contact consent — HTTP **none**. | **Closed by `131b6793`.** | L (new feature) |
+| B12 ✅ *closed — deleted* | `StudentConnect.tsx` **Chat** | **Removed**, with `makeMockThreadMessages`. | In-app chat is archived (MM-F04, Fix #11). | None — do not build. | **Closed by `169bf4b3`** (PR #7). | — |
+| B13 ✅ *closed — deleted* | `StudentConnect.tsx` **Send** | **Removed** with B12. | N/A — control should not exist. | None | **Closed by `169bf4b3`.** | — |
+| B14 ✅ *closed — real redemption command* | `student/StudentRewards.tsx:179–184` **Request redemption** | `onRequest` → `useRewards.requestItem` (`app/hooks/useRewards.ts:184`) → `requestRedemption` → `POST /v1/units/{unit_id}/redemptions` (`src/lib/api.ts:2720`). Label is “Requesting…” in flight, “Not enough points” when the server’s `affordable` is false. Tickets list from `GET …/redemptions`. No local `Set`, no browser points formula. | `redemption` command: requested → approved → fulfilled \| denied \| expired (ADR-0013, S9). | **Shipped:** `GET`/`POST /v1/units/{unit_id}/redemptions`; coordinator side `GET …/redemptions/queue` (PR #200) and `POST …/redemptions/{redemption_id}/decision`, surfaced by `coordinator/CoordinatorRedemptionQueue.tsx` at `/coordinator-portal/redemptions` (PR #205). | **Closed by `a1dbb9bd`** (PR #32). | — |
+| B15 ✅ *closed — ledger-backed* | `StudentHome.tsx:163–168` `PointsPanel`, `:184–189` **See the catalogue** | Balance is `rewards.balance` from `GET /v1/units/{unit_id}/rewards`; “N of M funded rewards are within your balance” counts the server’s `affordable` flags. `getStudentTotalPoints` is gone. | Navigate to a ledger-backed catalog. | S7 — shipped with the rewards API. | **Closed by `c9435cea`** (PR #156) on top of `a1dbb9bd`. | — |
+| B16 ✅ *closed — tile gone, rows shown* | `student/StudentHistory.tsx:95–150` | **Removed.** No “Total Attended” number; the page lists the past rows themselves (`PagedList`, `:136`) from `GET …/student/agenda`, and deliberately avoids the word “attended” because the route unions attendance and registration. | Drill-down to the same attendance rows; performance budget S11. | `/student/agenda` — shipped. | **Closed by `131b6793`** (tile) + `c9435cea` (rows). | — |
 
 ---
 
 ## Coordinator portal
 
+Re-surveyed after the Track-D restyle and PR #205. The coordinator portal is now
+also the admin shell (`e76fcd26`, PR #156): `/dashboard`, `/opportunities`,
+`/events`, `/ai-matching`, `/pipeline`, `/calendar`, `/volunteers` and
+`/outreach` redirect into it (`app/legacyRedirects.ts`).
+
 | ID | Location | Current behavior | Expected behavior | Backend needed | Fix approach | Effort |
 |---|---|---|---|---|---|---|
-| B17 | `coordinator/CoordinatorOutreach.tsx:211–216` **Send** | `handleSend` (`:69–77`): `console.log("Message sent:")`, then “Message sent!” for 2 s, then close. No fetch. | Consent-gated outreach command; never send to scraped addresses (F-004, `consent.py`). | **No send resource.** R4, G4. | Remove fake success. Disable until R4. | L |
-| B18 | `CoordinatorOutreach.tsx:256–261` **create thread** | `handleNewThread` (`:79–87`): `console.log`, fake success, close. Thread list unchanged. | Create a durable thread/command for a named event. | **No counterpart.** | Same as B17. | L |
-| B19 | `CoordinatorOutreach.tsx:117–120` **Agentic outreach** | Opens `AgenticOutreachPanel`, which POSTs `/api/outreach/agentic-workflow/stream` (not in OpenAPI). | Jarvis is R5 and must not be a parallel send path (DESIGN.md §1.7). | **No counterpart.** R3/R5 agent work is explicitly not in Foundation. | Do not port the panel. | L (do not schedule) |
-| B20 | `src/components/AgenticOutreachPanel.tsx:324–328` **Approve & Send** | `setPhase("approved")`. Banner: “Outreach sent ✓ Pipeline updated — Speaker contacted successfully.” No second request. | Same confirmation UI as conventional send; nothing executes from the stream. | Send path **absent**. | Delete. Unconditional success is v1.1 §3.6 N2. | S to delete |
-| B21 | `AgenticOutreachPanel.tsx:330–335` **Reject** | `setPhase("rejected")`. Optional reason is never submitted. | Audited rejection of a draft command. | **No counterpart.** | Delete with B19. | S to delete |
-| B22 | `coordinator/CoordinatorMeetings.tsx:189–193` **Book** | `handleBook` (`:58–67`): `console.log`, fake success 2.5 s, dialog closes, meetings list unchanged. | Scheduling command storing UTC + IANA zone + precision (ADR-0010). ICS only until G5. | **No counterpart.** | Remove fake success. | L |
-| B23 | `CoordinatorMeetings.tsx:136` **Join / meeting link** | `href={mtg.meeting_link}` from portal GET. If the legacy payload invented join URLs, this is F-003-class fabrication. | Only render provider links that the server marked as observed. | Meeting read API: **none**. | Provenance on the link; refuse unlabeled URLs. | M |
-| B24 | `coordinator/CoordinatorEvents.tsx:138–145` **Request Match** | `Link` to `/ai-matching` (admin matcher, no guard). | Coordinator intake command for staffing. Matcher blocked on G1. | Match runs: **blocked G1**. Intake: **none**. | New intake command; do not deep-link the admin scoreboard. | L |
-| B25 | `coordinator/CoordinatorHome.tsx:133–161` **stat tiles** | Not clickable. Rendered *before* Quick Actions (`:164`). | Actions first; click-through is same-query drill-down; when n is small, list names (Fix #13). | Coordinator read models: **none**. | Layout + S1 primitive. | M |
+| B17 ✅ *closed — Send submits a durable command* | `coordinator/CoordinatorOutreach.tsx:663–677` **Send** | `outreach.sendDraft` (`app/hooks/useOutreach.ts:217`) → `submitOutreachSend` → `POST /v1/units/{unit_id}/outreach/drafts/{draft_id}/send`. Disabled unless the draft is `approved`; on `202` the page says “queued”, never “sent”; delivery status is read back from `…/outreach/sends`. | Consent-gated outreach command; never send to scraped addresses (F-004, `consent.py`). | **Shipped** (R4): drafts, send, sends. Consent re-checked at delivery. | **Closed by `9a82d5ab`** (PR #37). Fake success removed earlier in `131b6793`. | — |
+| B18 ✅ *closed — control gone* | `CoordinatorOutreach.tsx` **create thread** | **Removed.** No thread UI at all: `/v1` outreach stores drafts and sends, with no inbound leg (OQ-008), and the page says so rather than renaming sends “threads”. | Create a durable thread/command for a named event. | None — a thread is not a shape this API has. | **Closed by `131b6793`.** | — |
+| B19 ✅ *closed — button gone* | `CoordinatorOutreach.tsx` **Agentic outreach** | **Removed** from the page. `components/AgenticOutreachPanel.tsx` still exists but has **no importer** — dead file. | Jarvis is R5 and must not be a parallel send path (DESIGN.md §1.7). | **No counterpart.** | **Closed by `131b6793`.** Delete the orphan file. | S to delete file |
+| B20 ✅ *closed — deleted* | `components/AgenticOutreachPanel.tsx` **Approve & Send** | **Removed**; replaced with a non-interactive “Draft only. No send path exists” note. Panel is now unmounted anyway (B19). | Same confirmation UI as conventional send. | Send path now exists (B17), but not from the stream. | **Closed by `169bf4b3`** (PR #7). | — |
+| B21 ✅ *closed — deleted* | `AgenticOutreachPanel.tsx` **Reject** | **Removed** with B20. | Audited rejection of a draft command. | — | **Closed by `169bf4b3`.** | — |
+| B22 ✅ *closed — real meeting record* | `coordinator/CoordinatorMeetings.tsx:319` form, `:375–383` **Record meeting** | **Was:** `handleBook` + `console.log` + 2.5 s fake success. **Now:** `createMeeting` → `POST /v1/units/{unit_id}/meetings` (`src/lib/api.ts:5127`) with `scheduled_at` (offset ISO), `time_zone`, optional `location_or_link`; refuses to submit when the browser cannot name a zone; list is re-read after the write. The page says on screen that this is an internal record — no invitation, no calendar write. | Scheduling command storing UTC + IANA zone + precision (ADR-0010). ICS only until G5. | **Shipped:** migration `0034`, `routers/meetings.py`. No per-meeting .ics (G5). | **Closed by `131b6793`** (fake removed) + `e845513f` (PR #130). | — |
+| B23 ✅ *closed — no link rendered* | `CoordinatorMeetings.tsx:168–170` | **Removed** `href={mtg.meeting_link}`. `location_or_link` is shown as **plain text** exactly as a coordinator typed it; nothing renders it as a clickable join URL. | Only render provider links that the server marked as observed. | `GET /v1/units/{unit_id}/meetings` — shipped. | **Closed by `131b6793`.** | — |
+| B24 ✅ *closed — replaced by a real match run* | `coordinator/CoordinatorEvents.tsx:770–788`; successor `CoordinatorSpeakerRequests.tsx:310` **Start a match** → `CoordinatorMatchRuns.tsx:683–690` **Submit match run** | **Removed** the `Link` to `/ai-matching`. Events page has a “Staffing is not part of this listing” section linking to outreach. Matching starts from a filed Speaker Request: `POST /v1/units/{unit_id}/match-runs`; the run’s shortlist is `/coordinator-portal/match-runs?run={id}` (`AIMatching.tsx`, which now only links on to `invitations?run=` at `:457`). | Coordinator intake command for staffing. | **Shipped:** speaker requests, `POST …/match-runs`. | **Closed by `131b6793`** (link) + the match-runs track (router comment: “Card B24’s replacement”). | — |
+| B25 ✅ *closed — actions first, rows drill down* | `coordinator/CoordinatorHome.tsx:804–868` `ActionQueue`, rendered first at `:1113` | Home now leads with “What needs your attention”: each row’s number is the length of the list the linked page reads from the **same route** (speaker requests, review queue, invitation batches), and the match-runs row states why it has no number. Measured aggregates (Speaker Pipeline, attendance, feedback) follow. | Actions first; click-through is same-query drill-down; when n is small, list names (Fix #13). | Coordinator reads: shipped for the rows shown. | **Closed by `0280baa2`** (PR #156). The aggregate cards below are still not click-through — tracked under B41/B42. | — |
+
+### Coordinator re-survey (2026-09-22) — no new dead controls
+
+Every `<button>` in `app/pages/coordinator/*.tsx`, `RedemptionTicketRow.tsx`,
+`app/components/CoordinatorPortalLayout.tsx` and `app/components/speakerPipeline/*`
+has an `onClick`, is `type="submit"` on a form with a handler, or is a Radix
+`TooltipTrigger` (`PipelineMetricGrid.tsx:73`, opens the metric definition). No
+`console.log`, `setTimeout` success, `alert()` or `href="#"` remains. Every
+in-app link targets a mounted route. Pages checked:
+
+| Page | Route | Controls and what they call |
+|---|---|---|
+| `CoordinatorHome.tsx` | `/coordinator-portal` | Action-queue links only; counts from the linked pages’ own routes. |
+| `CoordinatorSpeakerRequests.tsx` | `…/speaker-requests` | Open / Back (`:132`, `:233`), **Start a match** (`:310`) → `match-runs?request=`. |
+| `CoordinatorReviewQueue.tsx` | `…/review-queue` | Accept / Reject (`:175`, `:183`) → review-item decision. |
+| `CoordinatorRedemptionQueue.tsx` + `RedemptionTicketRow.tsx` (PR #205) | `…/redemptions` | Status tabs (`:156`); per-ticket moves and two-step **Deny → Confirm deny / Keep** (`RedemptionTicketRow.tsx:159–195`) → `useRedemptionQueue.decide` → `POST …/redemptions/{redemption_id}/decision`. |
+| `CoordinatorEvents.tsx` | `…/events` | New / Edit / **Save draft** / **Publish event** / Refresh (`:478`, `:204`, `:720–745`) → `/v1` manual-event routes; feedback QR save + PNG/SVG download (`components/QRCodeCard.tsx:221–245`). |
+| `CoordinatorMatchRuns.tsx`, `AIMatching.tsx` | `…/match-runs[?run=]` | **Submit match run** (`:683`); shortlist → invitations link. |
+| `CoordinatorInvitations.tsx` | `…/invitations[?run=]` | Compose submit (`:639`) → `POST …/speaker-invitations/batches`; without `?run=` the page says “Open a shortlist first” and blocks submit. |
+| `CoordinatorMeetings.tsx` | `…/meetings` | B22. |
+| `CoordinatorSpeakerContacts.tsx` | `…/speaker-contacts` | Expand (`:183`), **Save correction** (`:216–221`), **Add contact** submit (`:486–492`). |
+| `CoordinatorSpeakerFeedback.tsx` | `…/speaker-feedback` | Read-only aggregate. |
+| `CoordinatorOutreach.tsx` | `…/outreach` | B17 Send; **Open** batch (`:334`), **Send invitations** (`:363`) → dispatch; **They accepted / They declined** (`:260–269`) → record response. |
+| `CoordinatorMatchingWeights.tsx` | `…/matching-weights` | **Save weights** (`:337–342`) → `PATCH …/matching-weights`; Retry (`:363`). |
 
 ---
 
 ## Volunteer / professional portal
 
+The volunteer portal is now the **Event Host** portal (Home, Request a speaker,
+My requests, Organization, Profile).
+
 | ID | Location | Current behavior | Expected behavior | Backend needed | Fix approach | Effort |
 |---|---|---|---|---|---|---|
-| B26 | `volunteer/VolunteerProfile.tsx` **(missing Save)** | Page is display-only: region, board role, recovery, fatigue %. No control to correct availability or workload. | Professionals must correct the data used about them (DESIGN.md §1.6). | ELI + profile write: **none** (eli.py proposed; D2). | Add editors only after the write API exists. | L |
-| B27 | `volunteer/VolunteerAssignments.tsx` **assignment cards** | No accept, decline, ICS, or “I need rest”. | Accept/decline command; ICS from `ics.py`; rest/availability feeds ELI. | **No counterpart.** R2. | New commands; do not invent a local stage toggle. | L |
-| B28 | `volunteer/VolunteerHome.tsx:166–179` **View assignments / profile** | Navigation works. Destination cannot fulfill §1.6 (B26). | Keep nav; pair with B26/B27. | Same as B26–B27 | — | S (nav) / L (destinations) |
+| B26 | `volunteer/VolunteerProfile.tsx` **(missing Save)** | Still no editor. The page now shows only the signed-in principal and a `PortalDatasetUnavailable` panel for `/api/portals/volunteers/{id}` — the fabricated region / board role / fatigue % display is gone (`131b6793`). The host’s *organization* is editable on `VolunteerOrganization.tsx`; the person’s own availability and workload are not. | Professionals must correct the data used about them (DESIGN.md §1.6). | ELI + profile write: **none** (eli.py proposed; D2). | **Still open.** Add editors only after the write API exists. | L |
+| B27 ✅ *closed — page retired* | `volunteer/VolunteerAssignments.tsx` | **Unrouted.** `/volunteer-portal/assignments` redirects to `/volunteer-portal` (`app/legacyRedirects.ts`); the file is an unmounted `PortalDatasetUnavailable` stub. Event Hosts file and track speaker requests instead of accepting assignments. | Accept/decline command; ICS from `ics.py`; rest/availability feeds ELI. | Speaker-side accept/decline now exists as `/v1/speaker-invitations/respond` and the coordinator-recorded response (B17 page). | **Closed by `e76fcd26`** (redirect). Delete the orphan file. | S to delete file |
+| B28 ✅ *closed — nav targets are real* | `volunteer/VolunteerHome.tsx:106`, `:217`, `:221`, `:249`, `:275` | Links go to Organization, Request a speaker and My requests — all `/v1`-backed pages. No link to Assignments remains. | Keep nav; pair with B26/B27. | — | **Closed by `98440ce3`** (PR #156). | — |
 
 ---
 
 ## IA admin portal
 
+**Every page in this section is unmounted.** `Dashboard.tsx`, `Opportunities.tsx`,
+`Pipeline.tsx`, `Outreach.tsx`, `Events.tsx`, `Calendar.tsx` and `Volunteers.tsx`
+have no importer; their addresses redirect into the coordinator portal
+(`e76fcd26`, PR #156). Only `AIMatching.tsx` is still mounted, as the
+`match-runs?run=` shortlist. Rows below are closed where the control is gone or
+unreachable; the files still holding legacy calls are listed under *Dead code
+left behind*.
+
 | ID | Location | Current behavior | Expected behavior | Backend needed | Fix approach | Effort |
 |---|---|---|---|---|---|---|
-| B29 | `pages/Dashboard.tsx:986–993` **Connect** | `handleConnect` (`:442–456`) calls `initiateWorkflow` → `POST /api/outreach/workflow`. Modal shows loading/error; success claims pipeline updated. | Consent-gated outreach command; job id + SSE, not a synchronous “workflow”. | `/api/outreach/workflow` **not in OpenAPI**. Jobs API exists for *other* commands. | Do not call the legacy path. After R4, use the command pattern (`202` + `events_url`). | L |
-| B30 | `pages/AIMatching.tsx:879–882` **Initiate outreach** | `openWorkflowModal` (`:504–523`) — same `initiateWorkflow`. | Same as B29. Matcher results themselves are mockable (H10). | G1 + match_run **and** R4 send. | Dark the button until both exist. | L |
-| B31 | `AIMatching.tsx:887` **Log feedback** | Opens `FeedbackForm` → `POST /api/feedback/submit` (`api.ts:999`). | Feedback command; empty set must not become 0% (S2). | Domain `feedback.py`; **no HTTP**. R2. | New resource; client must preserve `null` rates. | M |
-| B32 | `pages/Outreach.tsx:463–466` **Save Draft** | `<button>` **no `onClick`**. | Persist a draft (versioned, actor from token). | **No counterpart.** R4. | Remove until the command exists, or implement the command. | S to remove / L to implement |
-| B33 | `Outreach.tsx:412–418` **AI Enhance** | `handleAIEnhance` (`:146–150`) appends a hard-coded sentence to the body. | Visible typed intent, editable, with autonomy tier (R5). Labeled “model output”. | **No counterpart.** | Delete the fake enhance. | S |
-| B34 | `Outreach.tsx:455–461` **Generate / Refresh** | `generateEmail` → `POST /api/outreach/email`. On failure, error string; no unlabeled seed email if the fetch throws — but templates already fill the body. | Deterministic template labeled “AI unavailable” if no model (DESIGN.md §1.2). | **No counterpart.** | Template-only until R4; provenance “deterministic template”. | M |
-| B35 | `Outreach.tsx:467–473` **ICS** | `generateIcs` → `POST /api/outreach/ics` then `downloadTextFile`. Legacy generator fabricated dates (F-003). | Domain `ics.py` only; refuse unresolved. | Domain yes; HTTP no. | New command wrapping `ics.py`; golden tests already exist. | M |
-| B36 | `Outreach.tsx:445–452` **Referral QR** (`QRCodeCard` primary) | `generateQrAsset` → `POST /api/qr/generate`. | Attendance QR (MM-F02), not a “referral” side channel, unless a later contract says otherwise. | **No counterpart.** | Fold into B08’s check-in design; do not port “referral QR” without a contract. | L |
-| B37 | `Outreach.tsx:534–538` **Create Template** | Closes the dialog. Name `<input>` is uncontrolled; nothing is stored. | Save a named template or do not offer Create. | **No counterpart.** | Remove dialog or add a command. | S to remove |
-| B38 | `components/CrawlerFeed.tsx:214` **Start crawl** | `startCrawl` → `POST /api/crawler/start`. | R3 research scout, after crawler threat model. | **No counterpart.** Explicitly not Foundation. | Do not port. | L (do not schedule) |
-| B39 | `CrawlerFeed.tsx:203` / `:263` **Clear / load saved** | `DELETE` / `GET /api/crawler/results`. | Same as B38. | None | Do not port. | S to delete |
-| B40 | `pages/Opportunities.tsx:327` **Run matcher** | `navigate("/ai-matching", { state: { eventName } })`. Destination ranks via missing API then `MOCK_RANKED_MATCHES`. | No navigation to a fixture scoreboard. Matching after G1/M8. | Gate G1, M8, then a match_run read. | Disable until W5. | L |
-| B41 | `pages/Dashboard.tsx:554–581` **MetricCard** links | `href` to `/opportunities`, `/volunteers`, `/calendar`, `/pipeline` — different queries (Fix #12). | Clicking N opens the N rows from the owning query (ADR-0011). | Metric register + read APIs: **none** (S1, S12). | Replace `href` with the Phase 2 drill-down slot. | M |
-| B42 | `pages/Pipeline.tsx:308–329+` **funnel tiles** (Matched, Contacted, …) | Counts from client `stageCount`; **not clickable**. Two pages can disagree with Opportunities (Fix #5). | One owning query (S12); each tile drills down (S1). | **No counterpart.** | Do not port the five independent counters. | L |
+| B29 ✅ *closed — control gone* | `pages/Dashboard.tsx` **Connect** | **Removed** `handleConnect`; `initiateWorkflow` has no caller outside `src/lib/api.ts`. Page unmounted. | Consent-gated outreach command; job id + SSE. | Shipped as B17 on the coordinator outreach page. | **Closed by `db0eb09e`** (PR #7) + `e76fcd26`. | — |
+| B30 ✅ *closed — control gone* | `pages/AIMatching.tsx` **Initiate outreach** | **Removed** `openWorkflowModal`. The mounted page’s only control is the link to `invitations?run=` (`:457`), which composes through `POST …/speaker-invitations/batches`. | Same as B29. | G1 + match_run: shipped. Send: B17. | **Closed by `69611b2f`** (PR #7). | — |
+| B31 ✅ *closed — control gone* | `AIMatching.tsx` **Log feedback** | **Removed** the `FeedbackForm` trigger; `components/FeedbackForm.tsx` has no importer. | Feedback command; empty set must not become 0% (S2). | Domain `feedback.py`; **no HTTP**. R2. | **Closed by `69611b2f`.** A feedback command is still new work if wanted. | — |
+| B32 ✅ *closed — deleted* | `pages/Outreach.tsx` **Save Draft** | **Removed.** | Persist a draft. | Shipped as `/v1/units/{unit_id}/outreach/drafts`. | **Closed by `169bf4b3`** (PR #7). | — |
+| B33 ✅ *closed — deleted* | `Outreach.tsx` **AI Enhance** | **Removed.** | Labeled model output (R5). | — | **Closed by `169bf4b3`.** | — |
+| B34 ✅ *closed — unreachable* | `Outreach.tsx:155`, `:286`, `:425` **Generate / Refresh** | Handler still calls `generateEmail` → `POST /api/outreach/email`, but the page is **unmounted**; `/outreach` redirects to the coordinator outreach page. | Deterministic template labeled “AI unavailable” if no model. | — | **Closed by `e76fcd26`.** Delete the file. | S to delete file |
+| B35 ✅ *closed — unreachable* | `Outreach.tsx:192`, `:294`, `:433` **ICS** | Still calls `generateIcs` → `POST /api/outreach/ics`; page unmounted. The real .ics route is the event invite (B07). | Domain `ics.py` only; refuse unresolved. | Shipped for events (B07). | **Closed by `e76fcd26`.** Delete the file. | S to delete file |
+| B36 ✅ *closed — unreachable* | `Outreach.tsx:215` **Referral QR** (`QRCodeCard` referral variant) | Still calls `generateQrAsset` → `POST /api/qr/generate`; page unmounted. The only mounted QR is the per-event **feedback** QR on `CoordinatorEvents.tsx:751`, generated locally and saved through `/v1`. | Attendance QR (MM-F02). | — | **Closed by `e76fcd26`.** Attendance check-in is still B08’s open feature. | S to delete file |
+| B37 ✅ *closed — deleted* | `Outreach.tsx` **Create Template** | **Removed.** | Save a named template or do not offer Create. | — | **Closed by `169bf4b3`.** | — |
+| B38 ✅ *closed — surface retired* | `components/CrawlerFeed.tsx` **Start crawl** | **Removed.** The component is a static “Web-crawler surface retired” card (MM-A08, G3) and is rendered only by the unmounted `Outreach.tsx`. `startCrawl` survives only in `src/lib/api.ts`. | R3 research scout, after crawler threat model. | **No counterpart.** | **Closed by `b1204ed7`** (PR #7). | — |
+| B39 ✅ *closed — surface retired* | `CrawlerFeed.tsx` **Clear / load saved** | **Removed** with B38. | Same as B38. | None | **Closed by `b1204ed7`.** | — |
+| B40 ✅ *closed — control gone* | `pages/Opportunities.tsx` **Run matcher** | **Removed** the `navigate("/ai-matching")`; page unmounted and `/opportunities` redirects to speaker requests, where matching starts for real (B24). | Matching after G1/M8. | Shipped (B24). | **Closed by `df4e2181`** (PR #7) + `e76fcd26`. | — |
+| B41 | was `pages/Dashboard.tsx` **MetricCard** links; live successor `components/speakerPipeline/PipelineMetricGrid.tsx` on `CoordinatorHome.tsx:1120` | The Dashboard cards and their mismatched `href`s are unreachable (page unmounted). The live KPI row renders each metric from one server register — `GET /v1/units/{unit_id}/speaker-pipeline` — with measured / zero / unknown kept distinct, but **no card is clickable**: the only button opens the metric’s definition tooltip. | Clicking N opens the N rows from the owning query (ADR-0011). | Metric register: **shipped** (S12). Drill-down read: **none** (S1). | **Changed, still open for drill-down.** Add the S1 slot to `PipelineMetricGrid`; do not restore `MetricCard` `href`s. | M |
+| B42 | was `pages/Pipeline.tsx` **funnel tiles**; live successor `components/speakerPipeline/PipelineFunnelCard.tsx` | `Pipeline.tsx` and its client-side `stageCount` counters are unreachable. The live funnel is four server-measured bands from the same `speaker-pipeline` read (one owning query — Fix #5 met), but bands are **not clickable**. | One owning query (S12); each tile drills down (S1). | S12 shipped; S1 **none**. | **Changed, still open for drill-down.** Same slot as B41. | M |
+
+---
+
+## Dead code left behind
+
+Not controls a user can reach — listed so nobody re-mounts them by accident.
+Each still calls a legacy `/api/*` path that is not in `smartmatch.json`.
+
+| File | Still calls | Rows |
+|---|---|---|
+| `app/pages/Outreach.tsx` | `/api/outreach/email`, `/api/outreach/ics`, `/api/qr/generate` | B34–B36 |
+| `app/pages/Dashboard.tsx`, `DashboardSections.tsx` | links to `/calendar`, `/ai-matching` (now redirects) | B29, B41 |
+| `app/pages/Pipeline.tsx`, `Opportunities.tsx`, `Events.tsx`, `Calendar.tsx`, `Volunteers.tsx` | legacy admin reads | B40, B42 |
+| `components/AgenticOutreachPanel.tsx`, `components/FeedbackForm.tsx`, `components/OutreachWorkflowModal.tsx` | `/api/outreach/agentic-workflow/stream`, `/api/feedback/submit`, `/api/outreach/workflow` | B19–B21, B29–B31 |
+| `app/pages/volunteer/VolunteerAssignments.tsx` | none (stub) | B27 |
 
 ---
 
 ## Cross-cutting controls that look live
 
 These are not extra IDs; they are how several rows above fail in the same way.
+Status as of 2026-09-22.
 
-| Pattern | Where | What to do |
+| Pattern | Where | What to do | Status |
+|---|---|---|---|
+| `console.log` + `setTimeout` success | B17, B18, B22 | Ban in the new app. Success requires a 2xx of a command that committed. | **Gone from every mounted page** — no `console.log` or `setTimeout` success in `app/pages/coordinator/`. B17 reports “queued” on `202`, never “sent”. |
+| Local `Set` as “request sent” | B10, B11, B14 | Ban. Optimistic UI only after an accepted command id. | **Gone.** B10/B11 removed; B14 and B06 render the server’s row after each write. |
+| Vite proxy `/api` and `/v1` → API | `vite.config.ts:54–68` | Keep as a *dev* proxy to the revamped API, not as a promise that legacy paths exist. | Unchanged in intent; `/v1` is now proxied too. |
+| `DemoModeBadge` | `app/components/provenance/SyntheticDataMarker.tsx`; the unmounted `Dashboard.tsx`, `Pipeline.tsx`, `Volunteers.tsx` | Not a substitute for per-value provenance. Do not treat “we showed the badge” as Fix #8 closed. | Unchanged guidance. |
+| Fallback people `stu-001` / `coord-001` / `shana-demarinis` | Was every portal `getSession` | If session missing → login, never a default id. | **Gone.** Every portal page reads `GET /v1/me` via `useAuthenticatedPrincipal`, which throws rather than substitute a fixture principal (Fix #7). |
+
+---
+
+## Mapping to OpenAPI
+
+**This section is superseded.** At the first survey none of the 42 controls
+bound to a path in `contracts/openapi/smartmatch.json`. On 2026-09-22 every
+**mounted** control named in this doc that performs an action calls a path that
+is in the contract:
+
+| Row | Control | Path in `smartmatch.json` |
 |---|---|---|
-| `console.log` + `setTimeout` success | B17, B18, B22 | Ban in the new app. Success requires a 2xx of a command that committed. |
-| Local `Set` as “request sent” | B10, B11, B14 | Ban. Optimistic UI only after an accepted command id. |
-| Vite proxy `/api` → `:8000` | `vite.config.ts:20–25` | Keep as a *dev* proxy to the revamped API, not as a promise that legacy paths exist. |
-| `DemoModeBadge` | Many pages | Not a substitute for per-value provenance. Do not treat “we showed the badge” as Fix #8 closed. |
-| Fallback people `stu-001` / `coord-001` / `shana-demarinis` | Every portal `getSession` | If session missing → login, never a default id. That default makes every button above run as someone else. |
+| B01 | Sign in | `POST /v1/auth/login` |
+| B04 | Sign out | `POST /v1/auth/logout` |
+| B06 | Register / Cancel registration | `POST` / `DELETE /v1/units/{unit_id}/student/events/{event_id}/registration` |
+| B07 | Calendar download | `GET /v1/units/{unit_id}/events/{event_id}/invite.ics` |
+| B14 | Request redemption | `POST /v1/units/{unit_id}/redemptions` |
+| — | Coordinator ticket decision (PR #205) | `POST /v1/units/{unit_id}/redemptions/{redemption_id}/decision` |
+| B17 | Send | `POST /v1/units/{unit_id}/outreach/drafts/{draft_id}/send` |
+| B22 | Record meeting | `POST /v1/units/{unit_id}/meetings` |
+| B24 | Submit match run | `POST /v1/units/{unit_id}/match-runs` |
+
+The legacy `/api/*` calls that remain live only in the files listed under
+*Dead code left behind*, none of which is mounted.
 
 ---
 
-## Mapping to OpenAPI (what *can* be wired without new resources)
+## Suggested deletion set
 
-**None of the 42 controls** bind to a path in `contracts/openapi/smartmatch.json` today.
+The original S-effort set (B02, B12, B13, B20, B21, B32, B33, B37, B38, B39) is
+**done** — each control is gone. What is left to delete is files, not controls:
+the *Dead code left behind* table above, plus the legacy `/api/*` client
+functions in `src/lib/api.ts` that only those files call (`initiateWorkflow`,
+`generateEmail`, `generateIcs`, `generateQrAsset`, `startCrawl`,
+`submitFeedback`). Deleting them changes no reachable behaviour; grep
+`apps/web/legacy-frontend/tests/` and `tests/` for source-scanning guards first.
 
-The only interactives a later team can build *without* inventing routes are
-**new** screens, not rows in this table:
-
-- Submit import (`POST /v1/units/{unit_id}/imports`) — no legacy button.
-- Follow job (`GET /v1/jobs/{job_id}`, `GET …/events`) — no legacy button.
-- Redrive / abandon — no legacy button.
-- Unsubscribe (`GET /u/{token}`) — no legacy button.
-
-Until those exist as UI, every advertised action in the retrieved frontend is
-either a stub, a call to a deleted legacy route, or a navigation into another
-stub.
-
----
-
-## Suggested deletion set (effort S, do first when D-0 lifts)
-
-Safe to remove rather than “fix”: B02, B12, B13, B20, B21, B32 (if R4 is far),
-B33, B37, B38, B39. They teach the wrong success story. The rest wait on
-contracts listed in the master plan’s Phase 5–8.
+Still open and not deletable: B09 (OQ-CBA-020), B26 (profile write API, D2),
+B41/B42 (S1 drill-down).

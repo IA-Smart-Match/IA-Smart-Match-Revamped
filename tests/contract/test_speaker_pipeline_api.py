@@ -347,6 +347,32 @@ def test_this_route_and_the_metrics_collection_agree(pipeline_context) -> None:
     assert as_pipeline == as_collection
 
 
+def test_every_figure_drills_down_to_exactly_its_own_rows(pipeline_context) -> None:
+    """ADR-0011 rule 4 for the screen's click-through (B41 cards, B42 bands).
+
+    The client opens rows by following each metric's ``drill_down_url`` as
+    served here, so this follows the same links: every measured figure must
+    open a row set whose size is that figure, under the CBA surface the figure
+    was measured on.
+    """
+    client, _unit_id, token = pipeline_context
+    body = payload_of(pipeline_context)
+    assert body["metrics"], "the pipeline served no metrics to drill into"
+
+    for metric in body["metrics"]:
+        url = metric["drill_down_url"]
+        assert url.endswith("/drill-down?surface=cba"), url
+        response = get_as(client, url, token)
+        assert response.status_code == 200, response.text
+        drill = response.json()
+        assert drill["name"] == metric["name"]
+        assert drill["aggregate_value"] == metric["value"]
+        if metric["value"] is None:
+            assert drill["rows"] == []
+        else:
+            assert len(drill["rows"]) == metric["value"]
+
+
 def test_conversions_are_only_the_three_lifecycle_transitions(pipeline_context) -> None:
     body = payload_of(pipeline_context)
     assert [(c["from_metric"], c["to_metric"]) for c in body["conversions"]] == [

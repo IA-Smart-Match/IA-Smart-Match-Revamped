@@ -27,17 +27,37 @@
  * why a number is missing — that would make an absence as easy to overlook as
  * a zero, which is the confusion the whole register exists to prevent.
  *
+ * ## The count is the drill-down (B41)
+ *
+ * ADR-0011 rule 4: clicking N opens the N rows the number was counted from.
+ * When the section hands this grid an opener for a metric and the metric has
+ * a measured value, the value itself is a `<button type="button">` that opens
+ * those rows through the server's own `drill_down_url`. An unmeasured figure
+ * has no N to open, so it stays plain text beside its reason.
+ *
  * `PipelineFunnelTiles.tsx` is a different component for a different shell and
  * is untouched.
  */
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/app/components/ui/tooltip";
 import type { SpeakerPipelineCompanion, SpeakerPipelineStage } from "@/lib/api";
-import { isFunnelStage, tintFor, type StageTint } from "@/lib/speakerPipeline";
+import {
+  drillDownLabel,
+  isFunnelStage,
+  tintFor,
+  type DrillDownOpener,
+  type StageTint,
+} from "@/lib/speakerPipeline";
 import { iconFor } from "@/lib/speakerPipelineIcons";
 
 type MetricCardEntry = SpeakerPipelineStage | SpeakerPipelineCompanion;
 
-function MetricValue({ metric }: { metric: MetricCardEntry }) {
+function MetricValue({
+  metric,
+  onOpenRows,
+}: {
+  metric: MetricCardEntry;
+  onOpenRows: (() => void) | null;
+}) {
   if (metric.value === null) {
     return (
       <>
@@ -48,14 +68,35 @@ function MetricValue({ metric }: { metric: MetricCardEntry }) {
       </>
     );
   }
+  const figure = metric.value.toLocaleString("en-US");
+  if (onOpenRows === null) {
+    return (
+      <p className="mt-1 text-3xl font-semibold tracking-tight tabular-nums text-foreground">
+        {figure}
+      </p>
+    );
+  }
   return (
-    <p className="mt-1 text-3xl font-semibold tracking-tight tabular-nums text-foreground">
-      {metric.value.toLocaleString("en-US")}
+    <p className="mt-1">
+      <button
+        type="button"
+        onClick={onOpenRows}
+        aria-label={drillDownLabel(metric.value, metric.display_name)}
+        className="rounded text-3xl font-semibold tracking-tight tabular-nums text-foreground underline decoration-dotted decoration-2 underline-offset-4 hover:decoration-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+      >
+        {figure}
+      </button>
     </p>
   );
 }
 
-export function PipelineMetricCard({ metric }: { metric: MetricCardEntry }) {
+export function PipelineMetricCard({
+  metric,
+  openRows,
+}: {
+  metric: MetricCardEntry;
+  openRows?: DrillDownOpener;
+}) {
   const tint: StageTint = tintFor(metric.metric_name);
   const Icon = iconFor(metric.metric_name);
   // A companion measure is not a funnel stage, and the card says so in words
@@ -84,7 +125,10 @@ export function PipelineMetricCard({ metric }: { metric: MetricCardEntry }) {
         </Tooltip>
       </div>
 
-      <MetricValue metric={metric} />
+      <MetricValue
+        metric={metric}
+        onOpenRows={metric.value === null || !openRows ? null : openRows(metric.metric_name)}
+      />
 
       <p className="mt-2 text-xs leading-5 text-muted-foreground">{metric.description}</p>
       {isStage ? null : (
@@ -96,14 +140,20 @@ export function PipelineMetricCard({ metric }: { metric: MetricCardEntry }) {
   );
 }
 
-export function PipelineMetricGrid({ entries }: { entries: MetricCardEntry[] }) {
+export function PipelineMetricGrid({
+  entries,
+  openRows,
+}: {
+  entries: MetricCardEntry[];
+  openRows?: DrillDownOpener;
+}) {
   return (
     <ul
       className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6"
       aria-label="Speaker pipeline figures"
     >
       {entries.map((entry) => (
-        <PipelineMetricCard key={entry.metric_name} metric={entry} />
+        <PipelineMetricCard key={entry.metric_name} metric={entry} openRows={openRows} />
       ))}
     </ul>
   );

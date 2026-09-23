@@ -76,7 +76,11 @@ PIPELINE_LIB = FRONTEND_SRC / "lib" / "speakerPipeline.ts"
 
 def _surface_sources() -> list[Path]:
     """Every file that renders part of the Connector's statistics surface."""
-    components = sorted(PIPELINE_DIR.glob("*.tsx"))
+    # A component test's fixtures are not rendered on the surface, so a
+    # fixture's ``"100%"`` is not a percentage the page prints.
+    components = sorted(
+        path for path in PIPELINE_DIR.glob("*.tsx") if not path.name.endswith(".test.tsx")
+    )
     assert components, "the Speaker Pipeline section has no components to scan"
     return [STATS_PAGE, PIPELINE_LIB, *components]
 

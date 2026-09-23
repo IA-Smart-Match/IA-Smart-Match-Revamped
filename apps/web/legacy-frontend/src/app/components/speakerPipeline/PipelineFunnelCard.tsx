@@ -14,26 +14,40 @@
  * band also carries a screen-reader sentence saying the same thing, because a
  * trapezoid is unavailable to a screen reader.
  *
+ * A band with a measured count is a `<button type="button">` that opens the
+ * rows behind that count (B42, ADR-0011 rule 4) — the same opener, and so the
+ * same server-issued `drill_down_url`, as the stage's KPI card above. An
+ * unmeasured band has no N to open and stays a plain shape.
+ *
  * No transitions or animation: nothing here has motion that would add
  * information, so there is nothing for `prefers-reduced-motion` to suppress.
  *
  * `PipelineFunnelTiles.tsx` is an unrelated component for the admin shell and
  * is untouched by this surface.
  */
+import type * as React from "react";
 import { Filter } from "lucide-react";
 
 import type { SpeakerPipelineConversion, SpeakerPipelineStage } from "@/lib/api";
 import {
+  drillDownLabel,
   funnelWidthPercent,
   stageAccessibleLabel,
   tintFor,
   UNMEASURED_FUNNEL_WIDTH_PCT,
+  type DrillDownOpener,
 } from "@/lib/speakerPipeline";
 
 /** How far each side of a band slopes inward, in pixels. */
 const BAND_TAPER_PX = 26;
 
-function FunnelBand({ stage }: { stage: SpeakerPipelineStage }) {
+function FunnelBand({
+  stage,
+  onOpenRows,
+}: {
+  stage: SpeakerPipelineStage;
+  onOpenRows: (() => void) | null;
+}) {
   const tint = tintFor(stage.metric_name);
   const measuredWidth = funnelWidthPercent(stage.share_of_baseline_pct);
   const width = measuredWidth ?? UNMEASURED_FUNNEL_WIDTH_PCT;
@@ -43,7 +57,13 @@ function FunnelBand({ stage }: { stage: SpeakerPipelineStage }) {
 
   return (
     <div className="flex justify-center">
-      <div
+      <Band
+        onClick={onOpenRows ?? undefined}
+        label={
+          onOpenRows !== null && stage.value !== null
+            ? drillDownLabel(stage.value, stage.display_name)
+            : undefined
+        }
         className={
           unmeasured
             ? "flex min-h-[62px] flex-col items-center justify-center border-2 border-dashed border-border px-4 py-2"
@@ -76,8 +96,46 @@ function FunnelBand({ stage }: { stage: SpeakerPipelineStage }) {
             </span>
           </>
         )}
-      </div>
+      </Band>
     </div>
+  );
+}
+
+/**
+ * The band's own element: a real button when it opens rows, a plain `div`
+ * otherwise. Both take the same geometry, so a drillable band looks like its
+ * neighbours and differs only in being operable.
+ */
+function Band({
+  onClick,
+  label,
+  className,
+  style,
+  children,
+}: {
+  onClick: (() => void) | undefined;
+  label: string | undefined;
+  className: string;
+  style: React.CSSProperties;
+  children: React.ReactNode;
+}) {
+  if (onClick === undefined) {
+    return (
+      <div className={className} style={style}>
+        {children}
+      </div>
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={label}
+      className={`${className} cursor-pointer hover:brightness-95 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring`}
+      style={style}
+    >
+      {children}
+    </button>
   );
 }
 
@@ -108,9 +166,11 @@ function ConversionAnnotation({ conversion }: { conversion: SpeakerPipelineConve
 export interface PipelineFunnelCardProps {
   stages: SpeakerPipelineStage[];
   conversions: SpeakerPipelineConversion[];
+  /** Opens the rows behind a stage; absent, no band is operable. */
+  openRows?: DrillDownOpener;
 }
 
-export function PipelineFunnelCard({ stages, conversions }: PipelineFunnelCardProps) {
+export function PipelineFunnelCard({ stages, conversions, openRows }: PipelineFunnelCardProps) {
   const conversionsFrom = new Map(conversions.map((conversion) => [conversion.from_metric, conversion]));
 
   return (
@@ -154,7 +214,12 @@ export function PipelineFunnelCard({ stages, conversions }: PipelineFunnelCardPr
                     <p className="text-xs leading-5 text-muted-foreground">{stage.description}</p>
                   </div>
                   <div>
-                    <FunnelBand stage={stage} />
+                    <FunnelBand
+                      stage={stage}
+                      onOpenRows={
+                        stage.value === null || !openRows ? null : openRows(stage.metric_name)
+                      }
+                    />
                     {/*
                       The geometry above carries proportion visually. This is
                       the same fact in text, for a reader who gets no picture.
