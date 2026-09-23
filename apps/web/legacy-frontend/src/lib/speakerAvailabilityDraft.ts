@@ -39,7 +39,8 @@ export const WINDOW_HORIZON_MONTHS = 18;
 export const PAUSE_HORIZON_MONTHS = 12;
 export const CAPACITY_MAX = 720;
 
-const CAPACITY_PATTERN = /^\d{1,3}(\.\d)?$/;
+/** A plain decimal: digits, an optional point, optional digits (".5", "24.50"). */
+const CAPACITY_PATTERN = /^(\d+\.?\d*|\.\d+)$/;
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const DAY_MS = 86_400_000;
 
@@ -250,11 +251,19 @@ function unreadable(draft: AvailabilityDraft): DraftFailure | null {
   return null;
 }
 
+/**
+ * T1's rule: `0 < c <= 720` and `c == c.quantize(Decimal("0.1"))`. So ".5" and
+ * "24.50" pass (they equal themselves at one decimal place) and "24.05" does
+ * not. Tenths are compared with a tolerance so float noise (0.3 * 10) cannot
+ * refuse a value the server accepts.
+ */
 function capacityOk(value: string): boolean {
   if (value === "") return true;
   if (!CAPACITY_PATTERN.test(value)) return false;
   const hours = Number(value);
-  return hours > 0 && hours <= CAPACITY_MAX;
+  if (!Number.isFinite(hours) || hours <= 0 || hours > CAPACITY_MAX) return false;
+  const tenths = hours * 10;
+  return Math.abs(tenths - Math.round(tenths)) < 1e-9;
 }
 
 function windowFailure(

@@ -75,8 +75,9 @@ export interface SpeakerAvailabilityFormProps {
   onRetryRead: () => void;
 }
 
-const INPUT_CLASS =
-  "w-full rounded-lg border border-border/70 bg-background px-3 py-2 text-sm aria-[invalid=true]:border-destructive";
+const FOCUS_RING =
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2";
+const INPUT_CLASS = `w-full rounded-lg border border-border/70 bg-background px-3 py-2 text-sm disabled:opacity-50 aria-[invalid=true]:border-destructive ${FOCUS_RING}`;
 const BUTTON_CLASS =
   "min-h-11 rounded-lg border border-border/70 px-3 py-1.5 text-sm font-medium disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2";
 const PRIMARY_CLASS =
@@ -202,13 +203,16 @@ export function SpeakerAvailabilityForm({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only a new saved object re-seeds
   }, [reseedFrom]);
 
-  // A server field error moves focus to that field.
+  // A server field error moves focus to that field — once the save has
+  // settled, because a disabled (saving) input cannot take focus.
+  const focusedError = useRef<AvailabilityError | null>(null);
   useEffect(() => {
-    if (serverError === null) return;
+    if (serverError === null || saving || focusedError.current === serverError) return;
+    focusedError.current = serverError;
     const id = focusIdFor(serverError);
     if (id !== null) document.getElementById(id)?.focus();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- a new error, not a new draft
-  }, [serverError]);
+  }, [serverError, saving]);
 
   // Focus requested by the last action, once the DOM it names exists.
   useEffect(() => {
@@ -273,6 +277,7 @@ export function SpeakerAvailabilityForm({
   }
 
   function discard() {
+    if (stale !== null && stale.phase === "rereading") return;
     reseed(availability);
     if (stale !== null) onDiscardStale();
     setStatus("Changes discarded.");
@@ -306,187 +311,190 @@ export function SpeakerAvailabilityForm({
       <StatementSummary availability={availability} today={today} copy={copy} />
 
       <form noValidate aria-labelledby={headingId} onSubmit={submit} className="space-y-4">
-        <div className="space-y-1">
-          <label htmlFor={`${p}-pause`} className="text-sm font-medium text-foreground">
-            Pause invitations until
-          </label>
-          <div className="flex flex-wrap items-center gap-2">
+        {/* One switch for every control while a save is in flight: nothing can
+            be edited or discarded under a request that has not answered yet. */}
+        <fieldset disabled={saving} className="m-0 min-w-0 space-y-4 border-0 p-0">
+          <div className="space-y-1">
+            <label htmlFor={`${p}-pause`} className="text-sm font-medium text-foreground">
+              Pause invitations until
+            </label>
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                id={`${p}-pause`}
+                type="date"
+                value={draft.pause}
+                min={today}
+                max={addMonths(today, PAUSE_HORIZON_MONTHS)}
+                aria-invalid={errorOn("pause") ? true : undefined}
+                aria-describedby={describedBy(`${p}-pause-hint`, errorOn("pause") && `${p}-pause-error`)}
+                onChange={(event) => {
+                  const read = readInput(event.target.value, event.target.validity?.badInput ?? false);
+                  update({ pause: read.value, pauseBad: read.bad });
+                }}
+                className={`${INPUT_CLASS} sm:w-auto`}
+              />
+              <button
+                type="button"
+                onClick={() => update({ pause: "", pauseBad: false })}
+                className={BUTTON_CLASS}
+              >
+                Clear pause
+              </button>
+            </div>
+            <p id={`${p}-pause-hint`} className="text-xs text-muted-foreground">
+              {expiredPause
+                ? `This pause ended on ${formatCalendarDate(storedPause)}. Saving clears it.`
+                : `Optional. The last day no invitations go out. Latest ${formatCalendarDate(
+                    addMonths(today, PAUSE_HORIZON_MONTHS),
+                  )}.`}
+            </p>
+            {errorOn("pause") && active !== null ? (
+              <FieldError id={`${p}-pause-error`} message={active.message} />
+            ) : null}
+          </div>
+
+          <div className="space-y-1">
+            <label htmlFor={`${p}-capacity`} className="text-sm font-medium text-foreground">
+              Capacity (hours per 90 days)
+            </label>
             <input
-              id={`${p}-pause`}
-              type="date"
-              value={draft.pause}
-              min={today}
-              max={addMonths(today, PAUSE_HORIZON_MONTHS)}
-              aria-invalid={errorOn("pause") ? true : undefined}
-              aria-describedby={describedBy(`${p}-pause-hint`, errorOn("pause") && `${p}-pause-error`)}
+              id={`${p}-capacity`}
+              type="number"
+              inputMode="decimal"
+              min="0.1"
+              max="720"
+              step="0.1"
+              value={draft.capacity}
+              aria-invalid={errorOn("capacity") ? true : undefined}
+              aria-describedby={describedBy(
+                `${p}-capacity-hint`,
+                errorOn("capacity") && `${p}-capacity-error`,
+              )}
               onChange={(event) => {
                 const read = readInput(event.target.value, event.target.validity?.badInput ?? false);
-                update({ pause: read.value, pauseBad: read.bad });
+                update({ capacity: read.value, capacityBad: read.bad });
               }}
-              className={`${INPUT_CLASS} sm:w-auto`}
+              className={`${INPUT_CLASS} sm:max-w-48`}
             />
-            <button
-              type="button"
-              onClick={() => update({ pause: "", pauseBad: false })}
-              className={BUTTON_CLASS}
-            >
-              Clear pause
-            </button>
-          </div>
-          <p id={`${p}-pause-hint`} className="text-xs text-muted-foreground">
-            {expiredPause
-              ? `This pause ended on ${formatCalendarDate(storedPause)}. Saving clears it.`
-              : `Optional. The last day no invitations go out. Latest ${formatCalendarDate(
-                  addMonths(today, PAUSE_HORIZON_MONTHS),
-                )}.`}
-          </p>
-          {errorOn("pause") && active !== null ? (
-            <FieldError id={`${p}-pause-error`} message={active.message} />
-          ) : null}
-        </div>
-
-        <div className="space-y-1">
-          <label htmlFor={`${p}-capacity`} className="text-sm font-medium text-foreground">
-            Capacity (hours per 90 days)
-          </label>
-          <input
-            id={`${p}-capacity`}
-            type="number"
-            inputMode="decimal"
-            min="0.1"
-            max="720"
-            step="0.1"
-            value={draft.capacity}
-            aria-invalid={errorOn("capacity") ? true : undefined}
-            aria-describedby={describedBy(
-              `${p}-capacity-hint`,
-              errorOn("capacity") && `${p}-capacity-error`,
-            )}
-            onChange={(event) => {
-              const read = readInput(event.target.value, event.target.validity?.badInput ?? false);
-              update({ capacity: read.value, capacityBad: read.bad });
-            }}
-            className={`${INPUT_CLASS} sm:max-w-48`}
-          />
-          <p id={`${p}-capacity-hint`} className="text-xs text-muted-foreground">
-            Optional. Leave blank if not stated.
-          </p>
-          {errorOn("capacity") && active !== null ? (
-            <FieldError id={`${p}-capacity-error`} message={active.message} />
-          ) : null}
-        </div>
-
-        <fieldset className="space-y-3">
-          <legend className="text-sm font-medium text-foreground">{copy.windowsLegend}</legend>
-          <p id={`${p}-windows-hint`} className="text-xs text-muted-foreground">
-            Each range includes both dates. Past ranges are fine. The latest end date is{" "}
-            {formatCalendarDate(windowHorizon)}.
-          </p>
-          {draft.windows.length > 0 ? (
-            <ol className="space-y-3">
-              {draft.windows.map((w, index) => {
-                const n = index + 1;
-                const hasError = activeWindowKey === w.key && active !== null;
-                const errorId = `${p}-${w.key}-error`;
-                const errorPart = hasError ? (active.part ?? "from") : null;
-                const named =
-                  w.starts_on !== "" && w.ends_on !== ""
-                    ? `${formatCalendarDate(w.starts_on)} to ${formatCalendarDate(w.ends_on)}`
-                    : `${n} (no dates yet)`;
-                return (
-                  <li key={w.key}>
-                    <fieldset className="space-y-2 rounded-lg border border-border/70 p-3">
-                      <legend className="px-1 text-sm font-medium text-foreground">
-                        Unavailable dates {n}
-                      </legend>
-                      <div className="grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
-                        <div className="space-y-1">
-                          <label htmlFor={`${p}-${w.key}-from`} className="text-sm text-foreground">
-                            From
-                          </label>
-                          <input
-                            id={`${p}-${w.key}-from`}
-                            type="date"
-                            value={w.starts_on}
-                            aria-invalid={errorPart === "from" ? true : undefined}
-                            aria-describedby={describedBy(
-                              `${p}-windows-hint`,
-                              errorPart === "from" && errorId,
-                            )}
-                            onChange={(event) => {
-                              const read = readInput(
-                                event.target.value,
-                                event.target.validity?.badInput ?? false,
-                              );
-                              updateWindow(w.key, { starts_on: read.value, startsBad: read.bad });
-                            }}
-                            className={INPUT_CLASS}
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <label htmlFor={`${p}-${w.key}-to`} className="text-sm text-foreground">
-                            To, inclusive
-                          </label>
-                          <input
-                            id={`${p}-${w.key}-to`}
-                            type="date"
-                            value={w.ends_on}
-                            max={windowHorizon}
-                            aria-invalid={errorPart === "to" ? true : undefined}
-                            aria-describedby={describedBy(
-                              `${p}-windows-hint`,
-                              errorPart === "to" && errorId,
-                            )}
-                            onChange={(event) => {
-                              const read = readInput(
-                                event.target.value,
-                                event.target.validity?.badInput ?? false,
-                              );
-                              updateWindow(w.key, { ends_on: read.value, endsBad: read.bad });
-                            }}
-                            className={INPUT_CLASS}
-                          />
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => removeWindow(index)}
-                          className={BUTTON_CLASS}
-                        >
-                          Remove<span className="sr-only"> unavailable dates {named}</span>
-                        </button>
-                      </div>
-                      <p className="text-xs text-muted-foreground">{windowSource(w)}</p>
-                      {hasError ? <FieldError id={errorId} message={active.message} /> : null}
-                    </fieldset>
-                  </li>
-                );
-              })}
-            </ol>
-          ) : null}
-          <div className="space-y-1">
-            <button
-              id={`${p}-add`}
-              type="button"
-              disabled={windowsFull}
-              aria-describedby={describedBy(
-                windowsFull && `${p}-add-reason`,
-                errorOn("add") && `${p}-add-error`,
-              ) || undefined}
-              onClick={addWindow}
-              className={`${BUTTON_CLASS} inline-flex items-center gap-1.5`}
-            >
-              <Plus className="h-4 w-4" aria-hidden="true" />
-              Add unavailable dates
-            </button>
-            {windowsFull ? (
-              <p id={`${p}-add-reason`} className="text-xs text-muted-foreground">
-                {copy.addReason}
-              </p>
-            ) : null}
-            {errorOn("add") && active !== null ? (
-              <FieldError id={`${p}-add-error`} message={active.message} />
+            <p id={`${p}-capacity-hint`} className="text-xs text-muted-foreground">
+              Optional. Leave blank if not stated.
+            </p>
+            {errorOn("capacity") && active !== null ? (
+              <FieldError id={`${p}-capacity-error`} message={active.message} />
             ) : null}
           </div>
+
+          <fieldset className="space-y-3">
+            <legend className="text-sm font-medium text-foreground">{copy.windowsLegend}</legend>
+            <p id={`${p}-windows-hint`} className="text-xs text-muted-foreground">
+              Each range includes both dates. Past ranges are fine. The latest end date is{" "}
+              {formatCalendarDate(windowHorizon)}.
+            </p>
+            {draft.windows.length > 0 ? (
+              <ol className="space-y-3">
+                {draft.windows.map((w, index) => {
+                  const n = index + 1;
+                  const hasError = activeWindowKey === w.key && active !== null;
+                  const errorId = `${p}-${w.key}-error`;
+                  const errorPart = hasError ? (active.part ?? "from") : null;
+                  const named =
+                    w.starts_on !== "" && w.ends_on !== ""
+                      ? `${formatCalendarDate(w.starts_on)} to ${formatCalendarDate(w.ends_on)}`
+                      : `${n} (no dates yet)`;
+                  return (
+                    <li key={w.key}>
+                      <fieldset className="space-y-2 rounded-lg border border-border/70 p-3">
+                        <legend className="px-1 text-sm font-medium text-foreground">
+                          Unavailable dates {n}
+                        </legend>
+                        <div className="grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+                          <div className="space-y-1">
+                            <label htmlFor={`${p}-${w.key}-from`} className="text-sm text-foreground">
+                              From
+                            </label>
+                            <input
+                              id={`${p}-${w.key}-from`}
+                              type="date"
+                              value={w.starts_on}
+                              aria-invalid={errorPart === "from" ? true : undefined}
+                              aria-describedby={describedBy(
+                                `${p}-windows-hint`,
+                                errorPart === "from" && errorId,
+                              )}
+                              onChange={(event) => {
+                                const read = readInput(
+                                  event.target.value,
+                                  event.target.validity?.badInput ?? false,
+                                );
+                                updateWindow(w.key, { starts_on: read.value, startsBad: read.bad });
+                              }}
+                              className={INPUT_CLASS}
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label htmlFor={`${p}-${w.key}-to`} className="text-sm text-foreground">
+                              To, inclusive
+                            </label>
+                            <input
+                              id={`${p}-${w.key}-to`}
+                              type="date"
+                              value={w.ends_on}
+                              max={windowHorizon}
+                              aria-invalid={errorPart === "to" ? true : undefined}
+                              aria-describedby={describedBy(
+                                `${p}-windows-hint`,
+                                errorPart === "to" && errorId,
+                              )}
+                              onChange={(event) => {
+                                const read = readInput(
+                                  event.target.value,
+                                  event.target.validity?.badInput ?? false,
+                                );
+                                updateWindow(w.key, { ends_on: read.value, endsBad: read.bad });
+                              }}
+                              className={INPUT_CLASS}
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => removeWindow(index)}
+                            className={BUTTON_CLASS}
+                          >
+                            Remove<span className="sr-only"> unavailable dates {named}</span>
+                          </button>
+                        </div>
+                        <p className="text-xs text-muted-foreground">{windowSource(w)}</p>
+                        {hasError ? <FieldError id={errorId} message={active.message} /> : null}
+                      </fieldset>
+                    </li>
+                  );
+                })}
+              </ol>
+            ) : null}
+            <div className="space-y-1">
+              <button
+                id={`${p}-add`}
+                type="button"
+                disabled={windowsFull}
+                aria-describedby={describedBy(
+                  windowsFull && `${p}-add-reason`,
+                  errorOn("add") && `${p}-add-error`,
+                ) || undefined}
+                onClick={addWindow}
+                className={`${BUTTON_CLASS} inline-flex items-center gap-1.5`}
+              >
+                <Plus className="h-4 w-4" aria-hidden="true" />
+                Add unavailable dates
+              </button>
+              {windowsFull ? (
+                <p id={`${p}-add-reason`} className="text-xs text-muted-foreground">
+                  {copy.addReason}
+                </p>
+              ) : null}
+              {errorOn("add") && active !== null ? (
+                <FieldError id={`${p}-add-error`} message={active.message} />
+              ) : null}
+            </div>
         </fieldset>
 
         <div className="space-y-2">
@@ -505,7 +513,15 @@ export function SpeakerAvailabilityForm({
               {saveLabel}
             </button>
             {stale !== null ? (
-              <button type="button" onClick={discard} className={BUTTON_CLASS}>
+              // Not while the saved version is being re-read: there is nothing
+              // fresh to discard to yet.
+              <button
+                type="button"
+                onClick={discard}
+                disabled={stale.phase === "rereading"}
+                aria-describedby={stale.phase === "rereading" ? `${p}-stale-reason` : undefined}
+                className={BUTTON_CLASS}
+              >
                 Discard my changes
               </button>
             ) : !unchanged ? (
@@ -532,6 +548,7 @@ export function SpeakerAvailabilityForm({
             </p>
           ) : null}
         </div>
+        </fieldset>
 
         {/* Always mounted, so the Save button's reference always resolves. */}
         <div id={`${p}-form-error`} role="alert" className="space-y-2 text-sm">
@@ -542,7 +559,7 @@ export function SpeakerAvailabilityForm({
                 changes are still in the form and were not saved.
               </p>
               {formError !== null ? <p className="text-foreground">{formError.message}</p> : null}
-              {stale.phase === "failed" && readError !== null ? (
+              {readError !== null ? (
                 <p className="text-foreground">
                   {readError}{" "}
                   <button type="button" onClick={onRetryRead} className={BUTTON_CLASS}>
@@ -567,9 +584,10 @@ export function SpeakerAvailabilityForm({
           <div className="space-y-2 rounded-lg border border-border/70 bg-muted/40 p-3">
             <p className="text-sm font-semibold text-foreground">Saved now</p>
             <StatementSummary availability={availability} today={today} copy={copy} />
-            {storedPause !== null ? (
+            {/* An active pause is already in the summary line above. */}
+            {storedPause !== null && storedPause < today ? (
               <p className="text-sm text-muted-foreground">
-                Pause until {formatCalendarDate(storedPause)}
+                Pause ended on {formatCalendarDate(storedPause)}.
               </p>
             ) : null}
             {availability.unavailable.length > 0 ? (

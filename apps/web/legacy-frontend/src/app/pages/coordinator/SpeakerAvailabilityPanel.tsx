@@ -107,8 +107,10 @@ export function SpeakerAvailabilityPanel({
     const key = scopedQueryKey(principalKey, RESOURCE, unitId, professionalId);
     setStale({ phase: "rereading" });
     await queryClient.refetchQueries({ queryKey: key, exact: true });
-    const state = queryClient.getQueryState(key);
-    setStale({ phase: state?.status === "error" ? "failed" : "fresh" });
+    const phase = queryClient.getQueryState(key)?.status === "error" ? "failed" : "fresh";
+    // Only if still stale: a discard or a principal switch during the re-read
+    // cleared it, and a late answer must not bring the stale view back.
+    setStale((previous) => (previous === null ? null : { phase }));
   }, [principalKey, queryClient, unitId, professionalId]);
 
   const mutation = useMutation({
