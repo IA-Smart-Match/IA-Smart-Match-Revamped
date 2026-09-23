@@ -30,39 +30,45 @@ Where things live today:
 ```python
 # eligibility.py (in __all__); re-exported by speaker_availability.py
 class AvailabilityReason(StrEnum):
-    CLEAR = "clear"                        # AVAILABLE: row exists, nothing blocks
-    PAUSED = "paused"                      # BLACKED_OUT: invitations_paused_until >= as_of
-    WINDOW = "window"                      # BLACKED_OUT: a window overlaps an event date
-    NOT_STATED = "not_stated"              # UNKNOWN: no speaker_availability row
+    CLEAR = "clear"  # AVAILABLE: row exists, nothing blocks
+    PAUSED = "paused"  # BLACKED_OUT: invitations_paused_until >= as_of
+    WINDOW = "window"  # BLACKED_OUT: a window overlaps an event date
+    NOT_STATED = "not_stated"  # UNKNOWN: no speaker_availability row
     EVENT_UNRESOLVED = "event_unresolved"  # UNKNOWN: event has no local date
+
 
 # speaker_availability.py
 @dataclass(frozen=True, slots=True)
 class UnavailableWindow:
-    starts_on: date          # inclusive
-    ends_on: date            # inclusive
+    starts_on: date  # inclusive
+    ends_on: date  # inclusive
+
 
 @dataclass(frozen=True, slots=True)
-class AvailabilityStatement:            # one speaker_availability row + its windows
+class AvailabilityStatement:  # one speaker_availability row + its windows
     invitations_paused_until: date | None
-    declared_capacity_hours_per_90_days: Decimal | None   # numeric(5,1); None = not stated
+    declared_capacity_hours_per_90_days: Decimal | None  # numeric(5,1); None = not stated
     unavailable: tuple[UnavailableWindow, ...] = ()
     # __post_init__: capacity is None or an instance of Decimal; anything else
     # (int, float, bool) -> TypeError. Range/finite/decimals are validation (below).
+
 
 @dataclass(frozen=True, slots=True)
 class AvailabilityAssessment:
     state: AvailabilityState
     reason: AvailabilityReason
+
     def to_evidence(self, subject_id: str) -> AvailabilityEvidence: ...
 
-EventDateSpan: TypeAlias = tuple[date, date]   # (first, last) local dates, both inclusive
+
+EventDateSpan: TypeAlias = tuple[date, date]  # (first, last) local dates, both inclusive
+
 
 def event_local_span(event_time: EventTime) -> EventDateSpan | None: ...
 def availability_state_for_event(
-    statement: AvailabilityStatement | None,   # None = no row
-    event_span: EventDateSpan | None,          # None = unresolved
-    as_of: date,                               # run or compose date, chosen by the caller (T4)
+    statement: AvailabilityStatement | None,  # None = no row
+    event_span: EventDateSpan | None,  # None = unresolved
+    as_of: date,  # run or compose date, chosen by the caller (T4)
 ) -> AvailabilityAssessment: ...
 ```
 
