@@ -1,8 +1,9 @@
 # T6a — `/i/{token}` accept / decline controls (B26)
 
-**Next action:** write the failing tests in §3, commit, then build §2.
+**Next action:** dispatch the T6a builder: write the failing tests in §3, commit, then build §2.
 **Parent:** `docs/plans/2026-09-22-b26-self-service-availability-plan.md` §1, §6 row `/i/{token}`, §7 row 5, §8 row T6a.
 **Scope:** the page fix only. The token-link availability route is dropped (§8).
+**Revision 2, 2026-09-22:** coordinator rulings applied — C1 proxy `^/i/` in T6a; C2 hand-parse with a body cap; C3 new `POST /i/{token}`; C4 as proposed. Implementation not started.
 
 ## 1. Files to touch
 
@@ -16,7 +17,8 @@
 | `tests/contract/test_cba_invitations_api.py:742` | `TestSpeakerRespondsThemselves` (JSON route, live Postgres, skips without it) | Add `TestSpeakerRespondsByForm` (§3 rows 6-12) |
 | `tests/authz/test_policy_matrix.py:421, :431` | `UNAUTHENTICATED_ROUTES` has `GET /i/{token}` and the JSON POST | Add `("POST", "/i/{token}")` with its reason; reword the GET entry ("the answer is the POST below") |
 | `contracts/openapi/smartmatch.json:7619` | documents GET only | `make openapi`; CI runs `openapi-check` |
-| `apps/web/legacy-frontend/vite.config.ts:54-85` | proxies `/api`, `/v1` only | See §6 C1 — owner of the pilot routing decides |
+| `apps/web/legacy-frontend/vite.config.ts:54-85` | `server.proxy` and `preview.proxy` forward `/api`, `/v1` only | Add `"^/i/": { target: apiProxyTarget, changeOrigin: true, agent: proxyAgent }` to **both** blocks. Touch only the two proxy blocks: the owner has uncommitted `allowedHosts` edits in the parent checkout |
+| `apps/web/legacy-frontend/tests/tokenPageProxy.test.ts` (new) | — | `node --test` source check (the `tests/branding.test.ts` `readFileSync` pattern), §3 row 14 |
 
 `tests/unit/test_class_exercise_scope.py:400, :424-430` compares **paths**, so a POST on the same path keeps it green. Run it anyway.
 
@@ -33,8 +35,9 @@
 ### 2.2 `POST /i/{token}` — new, form-urlencoded
 
 - Body `application/x-www-form-urlencoded`, one field `response` = `accept` | `decline`.
-- **Parse by hand** (`urllib.parse.parse_qs` on `await request.body()`, bounded by `MaxBodySizeMiddleware`, `main.py:280`). `python-multipart` is not in `requirements/runtime.txt`, so FastAPI `Form()` would fail at startup (§6 C2).
-- Order: validate `response` first → 400 HTML "Choose Accept or Decline." for missing/other values or wrong content type. This depends only on the request body, never on the token, so it is not an oracle.
+- **Parse by hand** with `urllib.parse.parse_qs(body, keep_blank_values=True, max_num_fields=4)`. No new dependency: `python-multipart` is not in `requirements/runtime.txt`, and FastAPI `Form()` would fail at startup (§6 C2).
+- **Body cap:** `_TOKEN_FORM_MAX_BYTES = 1024`. Reject on `Content-Length` above the cap, and read `request.stream()` stopping past the cap (a chunked body has no length). Over the cap → 413 HTML, same bytes for every token. The global `MaxBodySizeMiddleware` (`main.py:280`, `MAX_INLINE_ROWS_BYTES`) is far too large for a one-field form.
+- Order: size cap, then validate `response` → 400 HTML "Choose Accept or Decline." for a missing, repeated or other value, undecodable bytes, or a content type other than `application/x-www-form-urlencoded`. This depends only on the request body, never on the token, so it is not an oracle.
 - Then: token length outside 16–256 → skip lookup; else `answer_by_token(...)` (same rules as the JSON route, `response_channel="speaker_link"`).
 - Response: 200, **identical bytes for every token and outcome** — recorded, same answer again, different answer refused, invented, not dispatched, short/long. Copy: "Thank you. We have your answer." No redirect (a redirect target would need the token or a second page); a refresh re-POST is a no-op.
 
@@ -66,15 +69,20 @@ The API sets no CSP or referrer header globally; only `/q/{public_token}` sets `
 | 10 | ″ | `test_form_post_without_a_valid_response_is_400_for_any_token` — same bytes for real vs invented token |
 | 11 | ″ | `test_form_post_sends_the_token_page_headers` |
 | 12 | ″ | `test_json_respond_route_is_unchanged` — existing `TestSpeakerRespondsThemselves` stays green (regression) |
+| 12b | ″ | `test_form_post_over_the_body_cap_is_413_for_any_token` — 1025-byte body, with and without `Content-Length`; real vs invented token same bytes, nothing written |
 | 13 | `test_policy_matrix.py` | ledger passes with the new `UNAUTHENTICATED_ROUTES` entry |
+| 14 | `apps/web/legacy-frontend/tests/tokenPageProxy.test.ts` | Read `vite.config.ts` text; extract the key sets of `server.proxy` and `preview.proxy`; apply Vite's rule (key starting `^` → `RegExp`, else `startsWith`). Assert in **both** blocks: `/i/abc…` matched; `/index.html`, `/images/x.png`, `/i`, `/inbox` **not** matched; `/api/health`, `/v1/x` still matched |
+
+Run 14 with `node --test tests/tokenPageProxy.test.ts` from `apps/web/legacy-frontend` (no `node_modules` needed).
 
 Rows 6-12 need live Postgres (fixture skips otherwise); CI proves them. Run one file at a time.
 
 ## 4. Commit milestones
 
-1. `test: T6a failing contract tests for /i/{token} controls` — rows 1-11 red; policy-matrix entry added (red until the route exists).
-2. `feat: /i/{token} accept/decline form and POST handler` — extract `answer_by_token`, add form, POST, headers; all rows green.
-3. `docs: T6a OpenAPI and docstrings` — `make openapi`, GET docstring, policy-matrix wording.
+1. `test: T6a failing contract tests for /i/{token} controls` — rows 1-12b and 14 red; policy-matrix entry added (red until the route exists).
+2. `feat: /i/{token} accept/decline form and POST handler` — extract `answer_by_token`, add form, POST, body cap, headers; rows 1-13 green.
+3. `feat: proxy /i/ token pages to the API in dev and preview` — `vite.config.ts` proxy blocks only; row 14 green.
+4. `docs: T6a OpenAPI and docstrings` — `make openapi`; fix the stale GET docstring (`main.py:821`) and the `GET /i/{token}` policy-matrix reason (`test_policy_matrix.py:421-430`) to name `POST /i/{token}`.
 
 ## 5. Out of scope
 
@@ -82,13 +90,15 @@ Rows 6-12 need live Postgres (fixture skips otherwise); CI proves them. Run one 
 - `/s/{token}` activation page (T6b-1), `/u/{token}` form and the unsubscribe POST.
 - Changing one's answer (OQ-CBA-044), invitation expiry, rate limiting, timing equalisation of the token lookup.
 - Showing invitation details on the page; e2e step 23 keeps using the JSON route.
+- Setting `SMARTMATCH_OUTREACH_PUBLIC_BASE_URL`: ops sets it on the VM once the pilot hostname is final (parent plan §10 gate 4). T6a does not set it.
+- Proxying `/u/{token}` (same gap, not this track).
 
-## 6. Contradictions between plan and code
+## 6. Contradictions between plan and code — all ruled 2026-09-22
 
 | # | Plan / prompt says | Code says | Options (recommended first) |
 |---|---|---|---|
-| C1 | `/i/{token}` is the Speaker's working link | Pilot tunnel → Vite 5173 (`docs/operations/classroom-vm-cloudflare-tunnel.md:52`), which proxies only `/api` and `/v1` (`vite.config.ts:54-85`); `SMARTMATCH_OUTREACH_PUBLIC_BASE_URL` is set nowhere, so links default to `http://localhost:8080/i/…` (`config.py:112`) | (a) T6a adds a `"^/i/"` regex proxy (dev + preview; a plain `"/i"` key would also catch `/index.html`, `/images`) and ops sets the base URL; (b) leave routing to a VM-ops follow-up and ship the page only |
-| C2 | "server-rendered HTML form" | `python-multipart` absent from `requirements/runtime.txt` and the venv | (a) hand-parse urlencoded body (§2.2); (b) add `python-multipart` to `runtime.in` and re-lock with hashes |
-| C3 | GET docstring (`main.py:821`) and policy-matrix reason (`:421-430`): the page submits to `POST /v1/speaker-invitations/respond` | That route takes JSON only; a no-JS form cannot send JSON, and a hidden token field would echo it | (a) new `POST /i/{token}` (§2.2); (b) JS `fetch` reading `location.pathname` — fails without JS and needs a script CSP |
-| C4 | Task asks "identical for unknown / expired / used" | `cba_invitation` response tokens have **no expiry**; states are unknown, answered-same, answered-different, not dispatched | Test those four plus bad length; add expiry only if the owner asks |
+| C1 | `/i/{token}` is the Speaker's working link | Pilot tunnel → Vite 5173 (`docs/operations/classroom-vm-cloudflare-tunnel.md:52`), which proxies only `/api` and `/v1` (`vite.config.ts:54-85`); `SMARTMATCH_OUTREACH_PUBLIC_BASE_URL` is set nowhere, so links default to `http://localhost:8080/i/…` (`config.py:112`) **Ruled (owner): (a).** T6a adds `"^/i/"` to `server.proxy` and `preview.proxy` (a plain `"/i"` key would catch `/index.html`); row 14 guards it. Base URL: ops, §10 gate 4 |
+| C2 | "server-rendered HTML form" | `python-multipart` absent from `requirements/runtime.txt` and the venv **Ruled: (a).** Hand-parse with `parse_qs`, 1 KiB cap (§2.2). No new dependency |
+| C3 | GET docstring (`main.py:821`) and policy-matrix reason (`:421-430`): the page submits to `POST /v1/speaker-invitations/respond` | That route takes JSON only; a no-JS form cannot send JSON, and a hidden token field would echo it **Ruled: (a).** New `POST /i/{token}`; stale docstring and policy-matrix reason fixed in milestone 4 |
+| C4 | Task asks "identical for unknown / expired / used" | `cba_invitation` response tokens have **no expiry**; states are unknown, answered-same, answered-different, not dispatched **Ruled: accepted.** Test those four plus bad length |
 | C5 | Parent plan §1 cites `main.py:799-836` | Route is `:799-834`; `:837+` is `APP_LEVEL_ROUTERS` commentary | Cosmetic; this plan cites `:799-834` |
