@@ -38,6 +38,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 # them under.
 sys.path.insert(0, str(REPO_ROOT / "tools"))
 
+import seed_pilot_engagement  # noqa: E402
 from seed_pilot_engagement import (  # noqa: E402
     REDEMPTION_PLAN,
     STUDENT_ATTENDANCES,
@@ -200,19 +201,29 @@ def _redemption_states(engine: Engine, tenant_id: uuid.UUID, subject: str) -> li
     return [(str(row[0]), int(row[1])) for row in rows]
 
 
+#: The attendance count the reported bug was found at. At this value the
+#: post-fulfilment balance (1200 - 300 = 900) no longer covers the 1000-point
+#: row the first run opened, which is the shape that made the second run's
+#: re-open crash. The tool's own count is now higher, so the test pins this one
+#: to keep exercising that path.
+_BUG_ATTENDANCES = 12
+
+
 def test_a_second_full_run_writes_nothing(
     engine: Engine,
     session_factory: sessionmaker[Session],
     tenant_id: uuid.UUID,
     seeded_tenant,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The Makefile claim, end to end — and the redemption leg is the reason."""
     ids = seeded_tenant
+    monkeypatch.setattr(seed_pilot_engagement, "STUDENT_ATTENDANCES", _BUG_ATTENDANCES)
 
     first = _run(session_factory, tenant_id, ids)
     assert first.redemptions_opened == len(REDEMPTION_PLAN)
-    assert first.attendances == STUDENT_ATTENDANCES
-    assert first.ledger_credits == STUDENT_ATTENDANCES
+    assert first.attendances == _BUG_ATTENDANCES
+    assert first.ledger_credits == _BUG_ATTENDANCES
 
     # The state the reported bug tripped on: the plan's fulfilled debit landed,
     # so the folded balance no longer covers the 1000-point item it already
