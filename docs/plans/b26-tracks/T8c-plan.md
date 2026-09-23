@@ -76,10 +76,10 @@ reviewer proves an index is needed, it is `0042` after T4's `0041` — flagged, 
 | 7 | `python/smartmatch_persistence/smartmatch_persistence/engagement_load.py` | **New.** `EngagementLoadRepository.engagements_for` (§4). Never commits. |
 | 8 | `services/api/smartmatch_api/match_run_evidence.py` | `EXCLUSION_LOAD_FULL = "load_full"` (+ `__all__`); `ExcludedCandidate.load: AssessedLoad \| None = None` (`:206`); `assemble_cba_pool(..., loads=None)` (`:353`) (§5). |
 | 9 | `services/api/smartmatch_api/availability_reads.py` (T4's) | `current_verdicts(..., statements=None)`: reuse a map already read; `None` keeps T4's own `get_many`. |
-| 10 | `services/api/smartmatch_api/routers/match_runs.py` | Create (`:795`): current registry, one `as_of`, load read, `loads` into the pool, `registry=` into ranking, payload `registry_version` and `excluded[].load` (§8). `_assert_scoring_permitted` (`:622`) takes a registry: create passes the current one; **read passes the run's own pin** (`registry_for_version(run.registry_version)`, or `CBA_REGISTRY` when the pin is unknown), never the current registry. `ExcludedCandidateView` (`:316`): `reason` description (`:327`) lists `load_full`; new optional `load` renders the stored `excluded[].load` block (§5). |
+| 10 | `services/api/smartmatch_api/routers/match_runs.py` | Create (`:795`): current registry, one `as_of`, load read, `loads` into the pool, `registry=` into ranking, payload `registry_version` and `excluded[].load` (§8). `_assert_scoring_permitted` (`:622`) takes a registry: create passes the current one; **read passes the run's own pin** (`registry_for_version(run.registry_version)`, or `CBA_REGISTRY` when the pin is unknown), never the current registry. `ExcludedCandidateView` (`:316`): `reason` description (`:327`) lists `load_full`; new optional `load: LoadBlockView \| None`, mapped from the stored `excluded[].load` block by `_to_view`, **without `unknown_hours_refs`** (§8 Read). |
 | 11 | `services/worker/smartmatch_worker/handlers.py` | `MatchRunCommand.registry_version` (`:930`); `_read_match_run_command` (`:1025`); gate, weights and `registry_hash` from the payload's registry (`:1184`, `:1198`, `:1225`, `:1254`) (§8). |
 | 12 | `services/api/smartmatch_api/routers/matching_weights.py:346` | `registry_version=current_cba_registry().version` (same value today). |
-| 13 | `contracts/openapi/smartmatch.json` | `make openapi` (`ExcludedCandidateView`: `reason` description and the optional `load` object). |
+| 13 | `contracts/openapi/smartmatch.json` | `make openapi` (`ExcludedCandidateView`: `reason` description and the optional `LoadBlockView`, which has no `unknown_hours_refs` field). |
 | 14 | `docs/architecture/decisions/ADR-0027-registry-3-engagement-load.md` + `README.md` index row | **New, status Proposed.** Records Q7 = A, the multiplier, `registry_hash` for 3.x (amends ADR-0016's "`registry_hash` is `weights_fingerprint`", line 336, for 3.x only), and the flip procedure (§13). |
 | 15 | `docs/architecture/registry-supersession-record.md` | Dated section "3.0.0 declared proposed (B26 T8c), not current". |
 | 16 | Parent plan | §5.2 items 3–4 re-worded to §3.4 (plural derived set, `CURRENT_CBA_REGISTRY`); §8 T8c "Depends on" → "T4 (stack), T8b; approval before current". |
@@ -455,6 +455,17 @@ falling back to `CBA_REGISTRY` when the pin names no registry (the explanations 
 reads of stored 1.1.1 / 2.0.0 runs (contract test C8). The read renders `excluded[].load` through
 `ExcludedCandidateView.load` (absent → `null`).
 
+**`LoadBlockView` keeps `unknown_hours_refs` off the wire** (orchestrator ruling, T8d gate, unit
+privacy). The load read is tenant-wide (OQ2), so the refs can be other units' `pipeline_record` ids.
+
+| Field | Stored payload (`excluded[].load`, explanation `load`) | `LoadBlockView` (run read / `202` response) |
+|---|---|---|
+| `band`, `reason`, `measurable`, `completed_hours`, `confirmed_hours`, `capacity_hours`, `utilization`, `as_of`, `eli_formula_version` | kept | kept (decimals as strings) |
+| `unknown_hours_refs` | **kept** (the run's evidence) | **no such field**; `_to_view` drops it; the response model declares no field that could carry it |
+
+Only `_to_view` builds a `LoadBlockView`; there is no pass-through of the stored dict. T8d, which renders
+explanation `load` blocks on the wire, reuses `LoadBlockView` and the same rule.
+
 **Worker** (`handlers.py`):
 
 | Payload | Registry | Model |
@@ -650,12 +661,13 @@ Run one file at a time: `PYTHONPATH=… $VENV/bin/pytest <file> -q`. DB tests us
 **Contract — `tests/contract/test_match_runs_api.py`**
 
 - C1 `test_create_scores_under_2_0_0_and_reads_no_engagements` (payload pin, no `load` keys, T4's query count).
-- C2 `test_under_evaluation_create_removes_full_and_stores_load_blocks` (Full in `excluded` with `load`; Moderate utility `0.873`; payload pin 3.0.0; worker row `registry_hash == registry_fingerprint(weights, bands)`; then `GET` the run and assert `excluded` renders the Full subject with reason `load_full` and its `load` object present).
+- C2 `test_under_evaluation_create_removes_full_and_stores_load_blocks` (Full in `excluded` with `load`; Moderate utility `0.873`; payload pin 3.0.0; worker row `registry_hash == registry_fingerprint(weights, bands)`; then `GET` the run and assert `excluded` renders the Full subject with reason `load_full` and its `load` object present **with no `unknown_hours_refs` key**, while the stored `job.payload` `excluded[].load` still carries `unknown_hours_refs` — use the G-CBA-15 lower-bound subject so the stored list is non-empty, `["<its pipeline_record id>"]`).
 - C3 `test_a_proposed_current_registry_fails_closed` (patch current only → 503 `registry_not_ready`, no job).
 - C4 `test_3_0_0_create_costs_one_more_query_than_2_0_0`.
 - C5 `test_cancelling_a_booking_lowers_the_band_on_the_next_run`.
 - C6 `test_a_stored_2_0_0_run_reads_unchanged_after_current_is_switched` (same `registry_hash`, explanations, no `load`).
 - C7 `test_the_availability_and_load_as_of_are_the_same_date`.
+- C9 `test_the_run_read_never_carries_unknown_hours_refs` (under the helper: a run whose stored payload has non-empty `unknown_hours_refs` in both an explanation and an `excluded` entry; walk the whole `GET` JSON and the `202` JSON recursively and assert no key named `unknown_hours_refs` appears anywhere).
 - C8 `test_a_flipped_unapproved_current_registry_does_not_block_stored_run_reads` (store a 2.0.0 run; patch current to the proposed 3.0.0 **without** the helper; `GET` → 200, same `registry_hash`, explanations readable; `POST` → 503).
 
 ## 12. Commit milestones (red → green)
@@ -671,7 +683,7 @@ Each milestone is two commits: tests red, then code green. Red for new modules i
 | 4 | `test: golden G-CBA-14..19 (red)` | `feat: golden runner evaluates registry 3.0.0 explicitly` (runner, schema, helper) | 29 |
 | 5 | `test: engagement load read (red)` | `feat: engagement load read from pipeline_record and event` (file 7) | L1–L9 |
 | 6 | `test: worker pins the registry from the payload (red)` | `feat: worker resolves the payload registry and fingerprints its band table` (file 11) | W1–W7 |
-| 7 | `test: create under the current registry and 3.0.0 evaluation (red)` | `feat: create reads load, removes Full before the solve, stores load blocks` (files 8–10, 12, 13) | C1–C8; T4's contract tests unedited and green |
+| 7 | `test: create under the current registry and 3.0.0 evaluation (red)` | `feat: create reads load, removes Full before the solve, stores load blocks` (files 8–10, 12, 13) | C1–C9; T4's contract tests unedited and green |
 | 8 | — | push; PR `feat: B26 T8c registry 3.0.0 (proposed)` against `main`, draft until T4 and T8b merge | — |
 
 ## 13. The flip (after approval; not T8c)
@@ -716,6 +728,7 @@ B without A answers `503 registry_not_ready` on create (C3). After B: new runs p
 | 5 | LOW | C2 reads the run back via `GET`; `excluded` renders `load` | §2 rows 10 and 13, §8 Read, test C2 |
 | 6 | LOW | Window bounds computed in Python, bound as two dates | §4 |
 | 7 | LOW | Test 10 asserts equality and equal-copies-hash-equal; G-CBA-19 digest pinned | §11 test 10, §10 G-CBA-19 step 3 |
+| 8 | Ruling | `unknown_hours_refs` stay in the stored payload, never on the API wire: `LoadBlockView` has no refs field; `_to_view` drops them | §2 rows 10 and 13, §8 Read, tests C2 and C9 |
 
 **Follow-up card (OQ5):** `B26-FU-REGISTRY-SPLIT` — after the flip lands, move the CBA lineage,
 `CURRENT_CBA_REGISTRY` and the 3.0.0 declaration out of `factor_registry.py` (1,120 lines + ~130) into
