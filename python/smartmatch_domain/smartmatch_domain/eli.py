@@ -27,13 +27,31 @@ ELI is computed **only** from operational workload facts. The prohibited-input
 list in :data:`~smartmatch_domain.factor_registry.PROHIBITED_INPUTS` is enforced
 by the registry schema and by ``tests/unit/test_eli.py``, not by convention.
 
-The index is applied twice, and both applications are separately visible in the
-match explanation (v1.1 §1.3):
+Formula 2.0.0 (B26, parent plan §5.2, decision D2) keeps workload pressure
+only. Travel is not an input and counts 0 (D3: there is no route provider),
+and the modifiers named above are deleted (R3): a manual blackout now lives in
+availability (parent §5.1), not in load.
 
-* **Stage A** — over the declared cap is a hard constraint. The pair is
-  ineligible without an authorized, expiring override.
-* **Stage B** — under the cap, load applies a progressive soft penalty that
-  reduces assignment utility.
+**Window.** Exactly 90 days, the period declared capacity is stated over (R2).
+``d`` is the event's first local date minus ``as_of`` (the caller passes the UTC
+date of run creation). Only confirmed, not-cancelled engagements count at all.
+
+* *completed* — attended, ``-45 <= d <= -1``, i.e. ``[as_of - 45, as_of)``.
+* *confirmed* — ``0 <= d <= 44``, i.e. ``[as_of, as_of + 44]``, **whether
+  attended or not** (R1): an engagement on ``as_of`` already marked attended is
+  upcoming, not completed.
+* Anything else counts in neither, including a past booking never marked
+  attended.
+
+**Bands.** ``utilization = (completed + confirmed) / declared capacity``, banded
+by :data:`Q7_LOAD_BAND_TABLE`: ``>= 0.50`` Moderate, ``>= 0.80`` Heavy,
+``> 1.00`` Full, else Light. The comparisons run on exact integer microseconds
+against ``Decimal`` capacity, never on float, so no rounding moves an edge.
+
+**Unknown.** The band is Unknown when capacity is not stated (there is no
+default capacity, Q6), or when a counted engagement has no hours or no resolved
+date (R4). Unknown hours are never 0 (ADR-0011). If the known hours alone
+already exceed capacity, the band is Full anyway: a certain lower bound.
 """
 
 from __future__ import annotations
