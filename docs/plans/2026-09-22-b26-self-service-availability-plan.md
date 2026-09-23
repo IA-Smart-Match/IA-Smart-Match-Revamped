@@ -1,419 +1,422 @@
 # B26 — self-service availability for professionals (2026-09-22)
 
-**Next action:** the owner answers **Q2** (who edits) in §9. Tracks T1–T5 and T7
-can start before that answer; T6 cannot.
+**Next action:** the owner answers the **one open question** in §9 (ELI band
+penalty values). Every track except T8c can start now.
 
 **Status:** planning only. No source file, route, or migration is written by this
-document.
-**Decision:** DECIDED 2026-09-22 (owner): option B — build self-service
-availability; plan at `docs/plans/2026-09-22-b26-self-service-availability-plan.md`.
-**Still open:** D2's sub-question (committed vs completed load), which is **Q1**
-below. The owner's decision does not answer it.
-**Migration:** `0038_speaker_availability`, on top of head `0037_exercise_tables`.
-If another revision lands first, take current head plus one and keep one head.
+document. **Revision 2, 2026-09-22:** the owner answered all six first-round
+questions the same day; this revision builds them in.
+
+**Decisions recorded (owner, 2026-09-22)**
+
+| # | Decision |
+|---|---|
+| B26 | DECIDED 2026-09-22 (owner): option B — build self-service availability; plan at `docs/plans/2026-09-22-b26-self-service-availability-plan.md`. |
+| Q2 | **B — Speakers get invitation-only accounts.** A Speaker Connector clicks "Invite to portal"; the Speaker gets a one-time email link, sets a password, and the account binds to the existing contact record and its `contact-professional:` subject. |
+| OQ-CBA-043 | **Yes.** A signed-in Speaker sees their own invitations, accepted engagements and upcoming events. |
+| OQ-CBA-035 | **Yes, self-service.** A signed-in Speaker opts their own channels in and out, recorded with `consent_source = 'self_service'`. The Speaker's choice wins over a Connector-recorded state. |
+| Q1 / D2 | **Centered 90-day utilization.** load = (hours completed in the last 45 days + hours **confirmed** in the next 45 days) ÷ declared capacity hours per 90 days. A cancelled booking drops out immediately. Bands: Light < 50% no penalty; Moderate 50–80% small penalty; Heavy 80–100% large penalty; Full > 100% filtered out at Stage A. No horizon or weight parameter. |
+| Q3 | (a) The Host Profile page shows the Host's own record and a link to Organization, and drops the dead panel. |
+| Q4 | (a) The availability verdict is stored at run time, with a note if availability changed since. Compose and dispatch re-check current state. |
+| Q5 | (a) Provenance only (who, when) plus the run-time snapshot. |
+| Q6 | Collect declared capacity **now**, in hours per rolling 90 days, in the T2 migration. Remove `eli.py`'s `40.0` default. |
+
+**Still open:** one owner question (§9) and five stakeholder dependencies (§10).
+**Migrations:** `0038_speaker_availability`, `0039_speaker_portal`,
+`0040_speaker_booking_cancellation`, on top of head `0037_exercise_tables`. If
+another revision lands first, take current head plus one and keep one head.
 **Out of bounds:** `docs/plans/frontend-broken-buttons.md`. PR #208 owns its B26 row.
 
 ---
 
 ## 1. The premise, checked against the code
 
-The decision says: professionals correct their own availability on
-`VolunteerProfile.tsx`, through a new `/v1/me/availability`, and the result feeds
-ELI and matching. Five facts in the code change how that can be built.
+The first-round premise was an editor on `VolunteerProfile.tsx` feeding ELI. Five
+facts decided the shape of the answer, and the owner's decisions resolve each.
 
-| # | Fact | Evidence | Consequence |
+| # | Fact | Evidence | Resolved by |
 |---|---|---|---|
-| 1 | The volunteer portal's user is an **Event Host**, and an Event Host is not a speaker. | `role_presentation.py:152-158` maps `volunteer` → "Event Host"; `docs/architecture/GLOSSARY.md` "Event Host … Does **not** mean: A speaker"; `VolunteerProfile.tsx:42` says "Your Event Host record." | An editor on `VolunteerProfile` would edit data about a person that matching never scores. |
-| 2 | The person matching scores is a **Speaker**, and a Speaker has no account. | `apps/web/DESIGN.md` "Speakers are contact records, not accounts: no stored role maps to a speaker"; `speaker_profile.professional_id` → a `user_account` whose subject is `contact-professional:<uuid>` (`smartmatch_domain/cba_contacts.py:176`), which no identity provider issues; `routers/cba_invitations.py` `speaker_respond` is unauthenticated "by design" for the same reason. | `/v1/me/*` has no Speaker to answer for today. A Speaker can reach the system only through a token link. |
-| 3 | **ELI has no caller.** | `grep compute_eli` → only `tests/unit/test_eli.py`. The registry has no ELI factor: its 7 `FactorSpec`s are 4 CBA factors, 2 retired G1 factors, and `availability` (`factor_registry.py:297-394`). `feedback.py:24` records that `engagement_load` "never existed here". | "Feeds ELI" is not a wiring job. ELI needs an engagement-hours source, D2's answer, a new registry version, and an approval. That is track T8, and it is gated. |
-| 4 | **The Stage A `availability` filter exists, is registered, and is unwired.** | `factor_registry.py:380-394` (`availability`, `ELIGIBILITY`, weight 0, `implemented=True`); `eligibility.apply_availability_filter` has no caller outside `tests/unit/test_eligibility.py`. | This is where self-service availability can feed matching **now**, with no weight change and no registry bump (§5). |
-| 5 | Nothing stores availability or workload for any principal. | `schema.py` has no such column or table; `user_account` is `id, tenant_id, external_subject, email, suspended, created_at, version`. | New tables are needed — §3. |
+| 1 | The volunteer portal's user is an **Event Host**, and an Event Host is not a speaker. | `role_presentation.py:152-158` maps `volunteer` → "Event Host"; `docs/architecture/GLOSSARY.md` "Event Host … Does **not** mean: A speaker"; `VolunteerProfile.tsx:42` says "Your Event Host record." | Q2 = B (Speaker portal) and Q3 = a (Host page close-out, T7). |
+| 2 | The person matching scores is a **Speaker**, and a Speaker has no account today. | `apps/web/DESIGN.md` "Speakers are contact records, not accounts"; `speaker_profile.professional_id` → a `user_account` with subject `contact-professional:<uuid>` (`smartmatch_domain/cba_contacts.py:176`) and a placeholder `.invalid` email; `speaker_respond` is unauthenticated "by design". | T6b: that same `user_account` gets a real email, a password credential and a `speaker` membership. No new identity row. |
+| 3 | **ELI has no caller.** | Only `tests/unit/test_eli.py` imports `compute_eli`. The registry's 7 `FactorSpec`s are 4 CBA factors, 2 retired G1 factors and `availability` (`factor_registry.py:297-394`). | T8: the owner's centered-utilization rule, a band table, and a new major registry version. |
+| 4 | **The Stage A `availability` filter is registered and unwired.** | `factor_registry.py:380-394` (`ELIGIBILITY`, weight 0, `implemented=True`); `apply_availability_filter` has no caller outside `tests/unit/test_eligibility.py`. | T4 wires it with no registry bump. |
+| 5 | Nothing stores availability, workload or capacity for anyone. | `schema.py`; `user_account` is `id, tenant_id, external_subject, email, suspended, created_at, version`. | T2 (`0038`). |
 
-Two more facts the plan relies on:
+Three more facts the plan relies on:
 
 - **The invitation token page has no controls.** `GET /i/{token}`
   (`services/api/smartmatch_api/main.py:799-836`) returns an `<h1>` and "Choose
-  below to accept or decline", then nothing — no form, no button, no script. The
-  token-link route for Speakers works only if a client can post to it. T6 variant
-  A has to fix this first.
-- **"DESIGN.md §1.6" no longer exists.** The citation points to the pre-CBA
-  `apps/web/DESIGN.md` (commit `e60fce33`, "1.6 Four audiences"), which said
-  professionals must "see and correct the availability and workload data used
-  about them". Commit `3a83cad1` replaced that file. The obligation survives in
-  architecture v1.1 §5.1 (cited at `eli.py:77` and `eli.py:266`). Current
-  `DESIGN.md` does not track status, so this plan does not edit it.
+  below to accept or decline", then nothing. Speakers without a portal account
+  still get these links, so T6a fixes the page.
+- **Nothing can cancel a Speaker booking.** `pipeline_record` has
+  `confirmed_at` and `attended_at` but no cancellation; `event` has no cancelled
+  state. The owner's "cancelled bookings drop out immediately" needs one — T8a.
+- **Event hours are known only for exact events with an end.** `event.ends_at`
+  exists only at `time_precision = 'exact'` (`ck_event_end_after_start`). A
+  `date_only` event has no duration, and ADR-0011 forbids counting it as 0 — §5.2.
 
-**How the plan resolves the conflict:** the data model is keyed on the entity
-matching measures, `speaker_profile (tenant_id, professional_id)`. The
-Connector-side write and the Stage A wiring (T1–T5) do not depend on who the
-self-service editor is, so they ship first. Who edits from where — a Speaker by
-token link, a Speaker account, or the Event Host — is **Q2**, and only T6 waits on
-it. `VolunteerProfile` gets a truthful close-out (T7) under every answer.
+"DESIGN.md §1.6" pointed to the pre-CBA `apps/web/DESIGN.md` (`e60fce33`), replaced
+in `3a83cad1`. The obligation lives on in architecture v1.1 §5.1 (`eli.py:77`,
+`eli.py:266`). T6b updates DESIGN.md's role table, which currently says no stored
+role maps to a speaker.
 
-## 2. Goal and non-goals
+## 2. Goal, scope and constraints
 
-**Goal.** A Speaker's own statement of when they cannot speak is stored against
-their `speaker_profile`, can be corrected by them and by their Speaker Connector,
-and removes them from invitation for events on those dates through the existing
-Stage A `availability` filter. Every run records which verdict it used.
+**Goal.** A Speaker signs in, sees the data used about them — availability,
+capacity, invitations, engagements, current load band, contact preferences — and
+corrects it. Availability removes them from invitation on those dates now (Stage A,
+T4). Load feeds scoring once T8 lands. Every run records what it used.
 
-**Who may write**
+**Who may do what**
 
-| Principal | Write | Read | Route family |
-|---|---|---|---|
-| Speaker Connector (`admin`, `coordinator`) in the profile's `owning_unit_id` | yes | yes | `/v1/units/{unit_id}/speaker-contacts/{professional_id}/availability` |
-| Speaker, Q2 = A (token link) | add only | **no** | `POST /v1/speaker-invitations/availability` |
-| Speaker, Q2 = B (Speaker account) | yes | own only | `GET` / `PATCH /v1/me/availability` |
-| Event Host (`volunteer`) | no | no | — (OQ-CBA-042's narrow reading: a Host does not learn a named person's availability) |
-| Student | no | no | — |
+| Principal | Availability + capacity | Own invitations / engagements | Own channel consent | Route family |
+|---|---|---|---|---|
+| Speaker (`speaker`, new) | read, write own | read; answer invitations | opt in / out | `/v1/me/*` |
+| Speaker Connector (`admin`, `coordinator`) in the profile's unit | read, write | existing Connector routes | record, but cannot override the Speaker (§4.4) | `/v1/units/{unit_id}/speaker-contacts/{professional_id}/…` |
+| Event Host (`volunteer`) | no | no | no | — (OQ-CBA-042's narrow reading) |
+| Student | no | no | no | — |
 
 **Non-goals**
 
-1. No ELI wiring until Q1 is answered and T8 is approved.
-2. No workload, hours, or capacity field until T8 (Q6). Nothing consumes one.
-3. No weekly recurrence and no times of day (§3.3).
-4. No free-text reason. A reason box collects health and family detail that
-   `PROHIBITED_INPUTS` (`health_inference`, `protected_characteristic`) forbids
-   any factor from reading.
-5. No change to contact consent. Pausing invitations is not a suppression, and
-   unsubscribing stays the only way to stop mail (`consent.py`, ADR-0014's split).
-6. No re-ranking. Program direction (G1, 2026-09-03) is "match first, then
-   availability"; this plan keeps it.
+1. No weekly recurrence and no times of day (§3.4).
+2. No free-text reason on availability. `PROHIBITED_INPUTS` forbids
+   `health_inference` and `protected_characteristic`, which a reason box collects.
+3. No self-registration. Accounts exist only by Connector invitation.
+4. No live identity provider. Speaker accounts ride the pilot password path
+   (`pilot_credential`, `pilot_session`); A1b stays deferred.
+5. No re-ranking by availability. Program direction (G1, 2026-09-03) stays "match
+   first, then availability". Load is different: the owner put Full at Stage A.
+6. No availability revision table (Q5 = a).
 
 **Privacy and consent constraints**
 
-- Dates only. No reason, no location, no calendar import.
-- Event Hosts never see availability, a window, or a verdict naming a Speaker.
-- The token route never reads back what is stored: a forwarded email must not
-  reveal a person's diary.
-- Each row records who wrote it (`speaker` or `connector`) and, for a
-  Connector, which account (ADR-0011 rule 1, the migration `0028` pattern).
-- Retention follows D5, which is still deferred. No retention job is added;
-  §10 lists the risk.
+- Availability is dates only; capacity is one number. Nothing else is asked.
+- Event Hosts never see availability, capacity, load, or a verdict naming a Speaker.
+- A Speaker sees only rows keyed to their own `professional_id`. No path or body
+  field names the subject (MM-A01); it is always `principal.user_id`.
+- Self-service consent writes `contact_channel_transition` with
+  `consent_source = 'self_service'` and the Speaker as `actor_user_id`. Consent and
+  availability stay separate: pausing invitations is not an opt-out.
+- Retention for windows and invitations follows D5, still deferred (§10).
 
-## 3. Data model — migration `0038_speaker_availability`
+## 3. Data model
 
-Follows ADR-0004 (hand-written Core table, hand-written migration, drift test),
-ADR-0009 (one transaction per migration), and the composite tenant key used
-throughout `schema.py`.
+ADR-0004 (hand-written Core tables and migrations, drift test), ADR-0009 (one
+transaction per migration), composite tenant keys throughout. Each migration
+updates README's revision count and head in the same PR.
 
-### 3.1 `speaker_availability` — one row per Speaker who has said anything
+### 3.1 `0038_speaker_availability` (T2)
+
+**`speaker_availability`** — one row per Speaker who has stated anything.
 
 | Column | Type | Null | Notes |
 |---|---|---|---|
-| `tenant_id` | uuid | no | |
-| `professional_id` | uuid | no | |
-| `invitations_paused_until` | date | yes | `NULL` = not paused. Compared with the run date, not the event date (§5.1). |
-| `version` | integer | no, default 1 | Optimistic concurrency; `expected_version` on PATCH, the `matching_weights.py` pattern. |
+| `tenant_id`, `professional_id` | uuid | no | PK `speaker_availability_pkey`; FK → `speaker_profile` **CASCADE** |
+| `invitations_paused_until` | date | yes | `NULL` = not paused. Compared with the run or compose date, not the event date. |
+| `declared_capacity_hours_per_90_days` | numeric(5,1) | yes | Q6. `NULL` = not stated — never a default. |
+| `version` | integer | no, default 1 | `expected_version` on PATCH, the `matching_weights.py` pattern |
 | `updated_source` | text | no | `'speaker'` or `'connector'` |
-| `updated_by_user_id` | uuid | yes | Required when source is `connector`; `NULL` for a token-link write (no account exists). |
-| `created_at`, `updated_at` | timestamptz | no, `now()` | |
+| `updated_by_user_id` | uuid | no | FK → `user_account` **RESTRICT**. With accounts, every writer has one. |
+| `created_at`, `updated_at` | timestamptz | no | |
 
-Constraints:
+CHECKs: `ck_speaker_availability_source`;
+`ck_speaker_availability_capacity`: `declared_capacity_hours_per_90_days IS NULL OR
+(declared_capacity_hours_per_90_days > 0 AND declared_capacity_hours_per_90_days <= 720)`.
+720 is 8 hours a day for 90 days; above it is a typo, not a capacity.
 
-- `speaker_availability_pkey` on `(tenant_id, professional_id)` — a natural key,
-  one row per Speaker, the `speaker_profile` shape.
-- FK `(tenant_id, professional_id)` → `speaker_profile (tenant_id, professional_id)`
-  **ON DELETE CASCADE**: availability is a statement belonging to the profile, as
-  `host_organization_member` belongs to its organization.
-- FK `(tenant_id, updated_by_user_id)` → `user_account (tenant_id, id)` **RESTRICT**,
-  named `fk_speaker_availability_updated_by` (the `0028` reason: deleting an
-  account must not erase who made a judgment).
-- `ck_speaker_availability_source`: `updated_source IN ('speaker','connector')`.
-- `ck_speaker_availability_actor`:
-  `updated_source <> 'connector' OR updated_by_user_id IS NOT NULL`.
-
-**Why a row with no windows matters.** It is what separates "said they are free"
-(`AVAILABLE`) from "said nothing" (`UNKNOWN`). Without it, every Speaker with no
-windows would read as available — the unknown-as-pass error
-`eligibility.py`'s docstring rules out.
-
-### 3.2 `speaker_availability_window` — dates a Speaker cannot speak
+**`speaker_availability_window`** — dates a Speaker cannot speak.
 
 | Column | Type | Null | Notes |
 |---|---|---|---|
-| `id` | uuid | no | PK `speaker_availability_window_pkey` |
-| `tenant_id`, `professional_id` | uuid | no | |
-| `starts_on`, `ends_on` | date | no | Inclusive both ends. |
-| `created_source` | text | no | `'speaker'` or `'connector'` |
-| `created_by_user_id` | uuid | yes | Same arm as above. |
+| `id` | uuid | no | PK |
+| `tenant_id`, `professional_id` | uuid | no | FK → `speaker_availability` **CASCADE** |
+| `starts_on`, `ends_on` | date | no | Inclusive |
+| `created_source`, `created_by_user_id` | text, uuid | no | As above |
 | `created_at` | timestamptz | no | |
 
-Constraints:
+CHECKs: `ends_on >= starts_on`; `ends_on - starts_on <= 366`; source vocabulary.
+`uq_speaker_availability_window_range` on `(tenant_id, professional_id, starts_on,
+ends_on)`. Index `(tenant_id, professional_id, ends_on)`.
 
-- FK `(tenant_id, professional_id)` → `speaker_availability` **CASCADE**.
-- FK `(tenant_id, created_by_user_id)` → `user_account` **RESTRICT**.
-- `ck_speaker_availability_window_order`: `ends_on >= starts_on`.
-- `ck_speaker_availability_window_span`: `ends_on - starts_on <= 366`.
-- `ck_speaker_availability_window_source` and `_actor`, as in §3.1.
-- `uq_speaker_availability_window_range` on
-  `(tenant_id, professional_id, starts_on, ends_on)`: the same window twice is one
-  statement, which makes a repeated token-link post idempotent.
-- `ix_speaker_availability_window_lookup` on `(tenant_id, professional_id, ends_on)`
-  for "windows still in force".
+Domain limits (a CHECK cannot read the clock): 20 windows per Speaker; `ends_on` at
+most 18 months ahead; pause at most 12 months ahead.
 
-Domain-level validation (a CHECK cannot read the clock): at most **20** windows per
-Speaker; `ends_on` no more than **18 months** ahead of today; a pause no more than
-**12 months** ahead. These limits live in `smartmatch_domain` constants, and
-`tests/integration` binds them to the API's 422s.
+**Why a row with nothing blocked matters:** it separates "said they are free"
+(`AVAILABLE`) from "said nothing" (`UNKNOWN`).
 
-**No `owning_unit_id`.** Availability is a fact about a person, not a unit's
-record, so it reaches a unit through `speaker_profile.owning_unit_id`. That is
-the W1 student-profile argument (`2026-09-13-w1-student-interest-profile-plan.md` §3).
+### 3.2 `0039_speaker_portal` (T6b-1)
 
-### 3.3 Coarse or structured — the choice and why
+**`speaker_portal_invitation`** — the one-time link.
 
-**Chosen: date windows plus a pause.** Rejected: weekly recurrence, times of
-day, and "max engagements per term".
+| Column | Type | Null | Notes |
+|---|---|---|---|
+| `id` | uuid | no | PK |
+| `tenant_id`, `professional_id` | uuid | no | FK → `speaker_profile` **RESTRICT** |
+| `contact_channel_id` | uuid | no | FK `(tenant_id, contact_channel_id)` → `contact_channel (tenant_id, id)`; the address the link went to and the account's future login email |
+| `token_hash` | bytea | no | SHA-256 of a 256-bit token; `octet_length = 32`; unique |
+| `issued_by_user_id` | uuid | no | FK → `user_account` **RESTRICT** (the Connector) |
+| `issued_at`, `expires_at` | timestamptz | no | 7-day expiry |
+| `accepted_at`, `revoked_at` | timestamptz | yes | At most one set (CHECK) |
 
-| Consumer | What it can read | What that rules in or out |
-|---|---|---|
-| `eligibility.apply_availability_filter` | One `AvailabilityState` per Speaker: `AVAILABLE` / `BLACKED_OUT` / `UNKNOWN` | Anything finer must reduce to one of three states per event. A date window reduces cleanly; a weekly pattern does not (see next row). |
-| `event` temporal model (ADR-0010) | `resolved_date`, `on_date`, `starts_at`/`ends_at` only at `exact`, nothing at `unresolved` | A `date_only` event has no time, so "Tuesdays after 5 pm" cannot be evaluated against it. Date windows can be evaluated against any resolved event. |
-| `eli.LoadInputs` | `declared_capacity_hours` and `LoadModifier.MANUAL_BLACKOUT` | Counts per term are not an ELI input. Capacity is an ELI input, but ELI has no caller (§1 fact 3), so it waits for T8 (Q6). |
+Partial unique index: one live invitation per Speaker
+(`WHERE accepted_at IS NULL AND revoked_at IS NULL`). Issuing a new one revokes the
+old one in the same transaction.
 
-The pause exists because "don't invite me until January" is the most common
-thing a busy professional says. Without it, a Speaker would have to guess a
-window covering every future event date.
+**`suppression_record`** gains `lifted_at` and `lifted_by_user_id` (both nullable,
+set together), and its `source` CHECK gains `'speaker_portal'`. This is what lets a
+Speaker's own opt-in undo their own opt-out (§4.4). Every send-eligibility read
+changes to `lifted_at IS NULL` in the same PR — the largest risk in T6b (§10).
 
-### 3.4 Migration hygiene
+No change to `contact_channel` or `contact_channel_transition`: both CHECKs already
+admit `self_service`, and `actor_user_id` is already `NOT NULL`.
 
-- `schema.py` mirrors both tables with every constraint name, and
-  `tests/integration/test_schema_matches_migration.py` covers them automatically.
-- Downgrade drops both tables. It is lossless only while no row exists, and the
-  docstring says so.
-- README's "37 Alembic revisions, head `0037_exercise_tables`" row moves to 38 and
-  `0038_speaker_availability` in the same PR.
-- ADR-0019's `ownership.py` is decided but not built (`ls
-  python/smartmatch_persistence/smartmatch_persistence` shows no such module). If
-  it exists when T2 starts, both tables register as owned by
-  `smartmatch_persistence.speaker_availability` with writer `api`.
+### 3.3 `0040_speaker_booking_cancellation` (T8a)
+
+`pipeline_record` gains `cancelled_at` (timestamptz, null) and
+`cancelled_by_user_id` (uuid, null, FK → `user_account` RESTRICT), set together.
+CHECK: `cancelled_at IS NULL OR confirmed_at IS NOT NULL` — only a confirmed booking
+can be cancelled. A cancellation is a transition, not a delete (the
+`event_registration.status` precedent). It sits outside
+`ck_pipeline_record_stage_order`, which stays unchanged.
+
+### 3.4 Why dates, not recurrence (unchanged from revision 1)
+
+`apply_availability_filter` reads one of three states per Speaker per event. A
+`date_only` event has no time of day, so a weekly pattern cannot be evaluated
+against it; a date window can be evaluated against any resolved event. Capacity is
+now an ELI input (Q6), in the unit the owner's rule uses: hours per 90 days.
 
 ## 4. API
 
-All errors use `{ "error": { "code", "message", "details"? } }` through `ApiError`.
-Every write charges quota first (ADR-0015), the order `cba_contacts.py` uses.
+Errors use `{ "error": { "code", "message", "details"? } }` through `ApiError`.
+Writes charge quota first (ADR-0015). Each new route gets a literal row in
+`tests/authz/test_route_roles.py`; `test_policy_matrix.py` derives it.
 
-### 4.1 Connector routes (T3)
+### 4.1 Connector availability (T3)
 
-`GET /v1/units/{unit_id}/speaker-contacts/{professional_id}/availability`
-`PATCH /v1/units/{unit_id}/speaker-contacts/{professional_id}/availability`
-
-- Roles: `{admin, coordinator}`, a new literal row each in
-  `tests/authz/test_route_roles.py`. Authorized against the loaded unit's path;
-  the profile must have `owning_unit_id = unit_id`, otherwise
-  `404 speaker_contact_not_found` (the existing code — no oracle across units).
-- PATCH replaces the whole statement, the way the contact PATCH does:
+`GET` / `PATCH /v1/units/{unit_id}/speaker-contacts/{professional_id}/availability`,
+roles `{admin, coordinator}`. The profile must sit in `unit_id`, otherwise
+`404 speaker_contact_not_found`.
 
 ```json
 {
   "expected_version": 3,
   "invitations_paused_until": "2027-01-10",
+  "declared_capacity_hours_per_90_days": 24.0,
   "unavailable": [{ "starts_on": "2026-11-02", "ends_on": "2026-11-06" }]
 }
 ```
 
-- Response, both routes:
-
-```json
-{
-  "professional_id": "…",
-  "stated": true,
-  "version": 4,
-  "invitations_paused_until": "2027-01-10",
-  "unavailable": [{ "starts_on": "2026-11-02", "ends_on": "2026-11-06", "source": "speaker" }],
-  "updated_source": "connector",
-  "updated_at": "2026-09-22T18:04:11Z"
-}
-```
-
-  `stated: false` with empty fields means no row exists. That is not "available",
-  and the UI says "Not stated".
-- Error codes:
+Response adds `professional_id`, `stated` (false = no row, shown as "Not stated",
+never "Available"), `version`, per-window `source`, `updated_source`,
+`updated_at`. After T8 it also carries `load` (§5.2).
 
 | Status | Code | When |
 |---|---|---|
-| 404 | `speaker_contact_not_found` | Unknown id, or a profile in another unit |
-| 409 | `speaker_availability_stale` | `expected_version` is not current |
-| 422 | `speaker_availability_window_invalid` | `ends_on < starts_on`, span > 366 days, or beyond the horizon |
-| 422 | `speaker_availability_too_many_windows` | More than 20 windows |
-| 422 | `speaker_availability_pause_invalid` | Pause in the past or more than 12 months ahead |
-| 403 / 429 | existing policy / quota codes | |
+| 404 | `speaker_contact_not_found` | Unknown, or in another unit |
+| 409 | `speaker_availability_stale` | `expected_version` not current |
+| 422 | `speaker_availability_window_invalid` | Order, span or horizon |
+| 422 | `speaker_availability_too_many_windows` | More than 20 |
+| 422 | `speaker_availability_pause_invalid` | Past, or more than 12 months ahead |
+| 422 | `speaker_availability_capacity_invalid` | ≤ 0 or > 720 |
 
-- Audit: the row's `updated_source` / `updated_by_user_id` / `updated_at`, and
-  each window's creator. Whether older versions are kept is **Q5**.
+### 4.2 Speaker accounts and invitation flow (T6b-1)
 
-### 4.2 Self-service, variant A — token link (T6a, if Q2 = A)
+1. **Invite.** `POST /v1/units/{unit_id}/speaker-contacts/{professional_id}/portal-invitations`,
+   roles `{admin, coordinator}`, body `{ "contact_channel_id": "…" }`. The channel
+   must belong to this Speaker and be send-eligible now (`is_send_eligible`). The
+   email goes through the existing `outreach.send` command with a new closed
+   template, `speaker_portal_invite` — no second send path. Returns `202`.
+   `DELETE …/portal-invitations/current` revokes.
+   Refusals: `409 speaker_portal_already_active`,
+   `422 speaker_portal_channel_not_eligible`.
+2. **Landing page.** `GET /s/{token}`: a server-rendered password form. Changes
+   nothing and never echoes the token (the `/i/{token}` rules).
+3. **Activate.** `POST /v1/speaker-portal/activate` `{ "token", "password" }`, unauthenticated.
+   In one transaction: set `user_account.email` to the channel's address; upsert
+   `pilot_credential`; insert `membership(role='speaker', granted_path=<profile unit path>)`;
+   mark the invitation accepted; issue a session. `ensure_account` uses
+   `ON CONFLICT DO NOTHING` (`professionals.py`), so a later contact edit does not
+   reset the email.
+   Refusals: `400 speaker_portal_invitation_invalid` (one code for unknown,
+   expired, used or revoked — no oracle); `409 speaker_portal_email_in_use` when
+   another account already signs in with that address (`load_by_email` refuses
+   ambiguity); `422 password_too_weak`.
+4. **Portal mapping.** `role_presentation.py` adds `speaker` → "Speaker";
+   `portals.py` `_PORTAL_FOR_ROLE["speaker"] = ("speaker", "/speaker-portal")`, and
+   `_ROLE_PRIORITY` and `_PORTAL_ORDER` gain it. DESIGN.md's role table and its
+   "no speaker account" sentences are updated.
+5. **Gate.** A new `Capability.SPEAKER_PORTAL` in `product_scope.py`, **off by
+   default**, mounts the invite and activate routes. It is turned on for real
+   Speakers only after the §10 stakeholder dependency clears.
 
-`POST /v1/speaker-invitations/availability`, unauthenticated by design, like
-`/v1/speaker-invitations/respond`:
+### 4.3 The Speaker's own routes (T6b-2)
 
-```json
-{ "token": "…", "unavailable": [{ "starts_on": "…", "ends_on": "…" }], "pause_until": null }
-```
+Role `{speaker}`. The subject is always `principal.user_id`, which **is**
+`speaker_profile.professional_id`. A caller with no profile gets
+`404 speaker_profile_not_linked`.
 
-- **Add only.** A window or pause is added; nothing is removed or read back. A
-  Speaker who made a mistake tells their Connector.
-- **Identical response for every token**: `200 {"recorded": true}`, the anti-oracle
-  posture of `speaker_respond`. A malformed body still gets a 422; a well-formed
-  body with an unknown token writes nothing.
-- The token resolves to one invitation, then to that invitation's Speaker. Writes
-  record `created_source = 'speaker'` with a `NULL` actor.
-- A cap of 10 added windows per invitation token bounds a leaked link.
-- Prerequisite: `/i/{token}` renders working accept/decline controls plus an
-  "I can't do these dates" section. Today it renders neither (§1).
+| Route | Returns |
+|---|---|
+| `GET` / `PATCH /v1/me/availability` | §4.1 body and response. `updated_source = 'speaker'`. |
+| `GET /v1/me/invitations` | Own `cba_invitation` rows: event title, date in the event's zone, status, response. Never another Speaker, never the batch. |
+| `POST /v1/me/invitations/{invitation_id}/response` | `{ "response": "accept" \| "decline" }`; same `record_response` rules as the token route; `404` for an invitation that is not theirs. |
+| `GET /v1/me/engagements?when=upcoming\|past` | Own `pipeline_record` rows with `confirmed_at` set: event, confirmed / attended / cancelled. |
 
-### 4.3 Self-service, variant B — Speaker account (T6b, if Q2 = B)
+### 4.4 Self-service channel consent (T6b-3)
 
-`GET /v1/me/availability` and `PATCH /v1/me/availability` — the owner's name,
-and the right one for this variant. PATCH matches the `matching_weights`
-precedent (`expected_version`, 409 on stale). Same body and response as §4.1.
+| Route | Effect |
+|---|---|
+| `GET /v1/me/contact-channels` | Own channels: address, state, whether sendable, who set it last (`speaker` / `connector`). |
+| `POST /v1/me/contact-channels/{channel_id}/opt-in` | Transition to `consented` then `active_candidate` with `consent_source = 'self_service'`, actor = Speaker; lifts a suppression whose source is `speaker_portal`, `unsubscribe_link` or `one_click`. |
+| `POST /v1/me/contact-channels/{channel_id}/opt-out` | Writes `suppression_record(source='speaker_portal')`. Immediate and prospective (ADR-0014 rule 2). |
 
-- Requires a new stored role (proposed: `speaker`), a mapping in `portals.py`
-  `_PORTAL_FOR_ROLE`, a credential path for contacts, and a link from the
-  account to exactly one `speaker_profile`. `404 speaker_profile_not_linked`
-  when the caller has none.
-- No path or body field names the subject (MM-A01). The subject is
-  `principal.user_id` resolved to its linked profile.
-- This is the backlog item "invitation-only speaker accounts" (Ann: "phase two …
-  I will bring it to Pia and Lisa") and OQ-CBA-043's identity. It is not
-  buildable on this owner's decision alone.
+**The Speaker's choice wins.**
 
-### 4.4 OpenAPI and client
-
-1. `make openapi` regenerates `contracts/openapi/smartmatch.json`, and
-   `make openapi-check` gates it.
-2. Typed adapters go in `apps/web/legacy-frontend/src/lib/api.ts` with contract
-   coverage, until the ADR-0020 generated client replaces them.
-3. A new `ErrorEnvelope` code list in each route's `responses=`.
+- A Connector transition to `consented` or `active_candidate` on a channel whose
+  latest Speaker action is an opt-out → `409 speaker_contact_channel_speaker_opted_out`.
+- A Connector transition away from `active_candidate` on a channel the Speaker
+  opted in → `409 speaker_contact_channel_speaker_opted_in`.
+- **Never overridden by either side:** `bounce` and `complaint` suppressions. A
+  Speaker opt-in cannot lift them, because they are facts about delivery, not choices.
 
 ## 5. How it feeds matching and ELI
 
-### 5.1 Now: the Stage A `availability` filter (T4)
+### 5.1 Availability → Stage A filter (T4, no registry bump)
 
-1. **Domain (T1).** `smartmatch_domain/speaker_availability.py` adds
-   `availability_state_for_event(statement, event_dates, as_of) -> AvailabilityEvidence`.
-   `eligibility.AvailabilityEvidence` gains an optional `reason`, so a verdict can
-   say "paused until 10 Jan" or "event date unresolved" instead of the fixed
-   string it returns today.
-2. **At run creation (API).** `create_match_run` already reads every candidate's
-   `speaker_profile`. It also reads their availability, computes one verdict per
-   pool candidate for the request's event, and stores them in the command payload
-   under a new `availability` key, beside `candidates` and `explanations`.
-3. **At read.** `read_match_run` annotates each shortlisted Speaker with the
-   stored verdict. A run with no `availability` key says "availability was not
-   recorded for this run". It is not shown as `UNDETERMINED`, because that would
-   claim an evaluation that never happened.
-4. **At batch compose and at dispatch.** `cba_invitations` reports a Speaker whose
-   **current** verdict is `EXCLUDED` as not invitable, with the reason, the way
-   `classify_recipient` reports a consent gap. Re-checked at dispatch: a pause
-   added after composing must stop the send.
+1. **T1 domain:** `availability_state_for_event(statement, event_dates, as_of)`;
+   `AvailabilityEvidence` gains an optional `reason`.
+2. **Run creation:** `create_match_run` reads each pool candidate's availability,
+   computes a verdict for the request's event, and stores it in the command payload
+   under `availability` (Q4 = a).
+3. **Read:** each shortlisted Speaker shows the stored verdict, plus "changed since
+   this run" when the current verdict differs. A run with no `availability` key
+   says "not recorded for this run".
+4. **Compose and dispatch** re-check the current verdict and report an `EXCLUDED`
+   Speaker as not invitable, the way `classify_recipient` reports a consent gap.
 
-Verdict rules:
-
-| Situation | State |
+| Situation | Verdict |
 |---|---|
 | No `speaker_availability` row | `UNKNOWN` → `UNDETERMINED` |
-| Event `time_precision = 'unresolved'` | `UNKNOWN` → `UNDETERMINED` ("event date unresolved") |
-| `invitations_paused_until >= as_of` (the run or compose date) | `BLACKED_OUT` → `EXCLUDED` |
-| Any window overlaps the event's local dates (`resolved_date` through the local date of `ends_at` when exact) | `BLACKED_OUT` → `EXCLUDED` |
+| Event `unresolved` | `UNKNOWN` → `UNDETERMINED` |
+| `invitations_paused_until >= as_of` | `BLACKED_OUT` → `EXCLUDED` |
+| A window overlaps the event's local dates | `BLACKED_OUT` → `EXCLUDED` |
 | Otherwise | `AVAILABLE` → `ELIGIBLE` |
 
-**Registry and reproducibility — no bump.**
+`availability` is already declared at weight 0, and the filter runs after the
+shortlist without reordering it. So `registry_hash`, `inputs_fingerprint` and
+`REGISTRY_VERSION` (`2.0.0-approved-oq-cba-004`) are unchanged. Golden case
+`G-CBA-13-availability-leaves-hash-and-pool-alone`.
 
-- `availability` is already declared, `implemented=True`, weight 0. Wiring it
-  changes no weight, so `weights_fingerprint` and `registry_hash` are unchanged
-  and `REGISTRY_VERSION` stays `2.0.0-approved-oq-cba-004`.
-- The filter runs after the shortlist and never reorders it, so
-  `inputs_fingerprint` (event, pool, utilities, size, seed, weights) is unchanged.
-  `_reconstruct_shortlist` still re-derives the same selection.
-- Runs pinned to `1.1.1-approved-g1-m6j` or `2.0.0-approved-oq-cba-004` before T4
-  read exactly as they do now, plus the "not recorded" line.
-- Whether the verdict is the one stored at run time or re-read live is **Q4**.
+### 5.2 Load → ELI 2.0.0 and registry 3.0.0 (T8)
 
-**Golden cases.** Add `tests/golden/matching/cba/G-CBA-13-availability-leaves-hash-and-pool-alone.json`:
-the same pool with and without availability rows gives identical `registry_hash`,
-`inputs_fingerprint`, and shortlist order, and differs only in the verdicts. No
-existing case changes. `G-CBA-10` (payload round trip) is untouched because
-explanations are not modified.
+**Formula (T8b, `eli.py`, `ELI_FORMULA_VERSION` 1.1.0 → 2.0.0).** Replaces the
+45-day half-life decay and the modifier points; both were parameters the owner's
+rule does not have. No stored snapshot references 1.1.0 (there is no
+`eli_snapshot` table and no caller), so replacing it strands nothing.
 
-### 5.2 Later: ELI (T8, gated)
+```text
+as_of      = the run date (UTC date of run creation)
+completed  = Σ event hours, pipeline_record.attended_at set, event local date in [as_of − 45, as_of)
+confirmed  = Σ event hours, confirmed_at set, attended_at and cancelled_at NULL,
+             event local date in [as_of, as_of + 45]
+utilization = (completed + confirmed) / declared_capacity_hours_per_90_days   -- unrounded
+```
 
-What ELI still needs, none of which this decision provides:
+- A cancelled booking (`cancelled_at` set, T8a) counts in neither sum from the
+  moment it is cancelled.
+- Event hours = `ends_at − starts_at` for an exact event with an end. Travel hours
+  stay 0, recorded as unavailable (D3: no route provider).
+- `LoadInputs.declared_capacity_hours` loses its `40.0` default and becomes
+  optional; `LoadModifier` stops adding points (manual blackout now lives in §5.1).
 
-| Need | Where it would come from | Blocker |
-|---|---|---|
-| Engagement records (`occurred_on`, `event_hours`, `travel_hours`) | `pipeline_record` rows whose `subject_id` is the Speaker (`routers/cba_handoff.py:445`): `attended_at` = completed, `confirmed_at` = committed | **Q1 / D2**: count committed or not |
-| `event_hours` | `event.ends_at - starts_at`, only when `time_precision = 'exact'` and `ends_at` is set | Unknown hours for other events cannot become 0 (ADR-0011); needs a rule |
-| `travel_hours` | Route matrix | D3: no provider, so `0.0`, recorded as unavailable (`eli.py` `EngagementRecord`) |
-| `declared_capacity_hours` | A new column in a later migration | **Q6**; also `LoadInputs` defaults it to `40.0` (`eli.py:160`) while its own docstring says the caller "must not substitute one" — T8 removes the default |
-| `MANUAL_BLACKOUT` modifier | From this plan's windows | None — ready once T8 starts |
-| Stage A cap override ("authorized, expiring") | Not built | Needs its own table and route |
-| Scoring change | A new `FactorSpec`, a major bump (`3.0.0-approved-<gate>`), because a penalty makes scores incomparable with 2.x (ADR-0016's reasoning) | Owner approval; new golden cases; `2.0.0` runs stay readable through `registry_for_version`, as `1.1.1` runs do now |
+**Bands.** Cut points are the owner's. Boundary ownership and penalty sizes are
+the §9 question.
+
+| Band | Utilization (proposed ownership) | Stage A | Stage B (proposed) |
+|---|---|---|---|
+| Light | `u < 0.50` | pass | × 1.00 |
+| Moderate | `0.50 ≤ u < 0.80` | pass | × 0.90 |
+| Heavy | `0.80 ≤ u ≤ 1.00` | pass | × 0.70 |
+| Full | `u > 1.00` | removed from the pool before the solve, reported in `excluded` | — |
+| Unknown | capacity not stated, or an in-window engagement has no known hours and the known hours alone do not exceed 100% | pass | × 1.00, labelled "load not measurable" |
+
+`u > 1.00` for Full matches `evaluate_cap`'s existing `utilization > 1.0`. If the
+known hours alone exceed capacity, the Speaker is Full even with unknown hours —
+that bound is certain, so ADR-0011 allows it.
+
+**Registry (T8c).**
+
+1. A new `FactorSpec` `engagement_load`, kind `PENALTY`, weight 0 in the weighted
+   sum. Its effect is a multiplier on the composite, so utilities stay in
+   `[0, 1]` as `PortfolioCandidate` requires, and the four CBA weights and
+   `normalize_weights` are unchanged.
+2. `FactorRegistry` gains a versioned `LoadBandTable` (cut points, ownership,
+   multipliers). For 3.x, `registry_hash` covers weights **and** the band table.
+   For 1.1.1 and 2.0.0 the hash function is unchanged.
+3. `REGISTRY_VERSION` → `3.0.0-approved-b26-eli` once approved. Major, because a
+   penalty makes scores incomparable with 2.x (ADR-0016's reasoning). Until
+   approval, the 3.0.0 registry is declared with status `proposed`, and runs keep
+   using 2.0.0.
+4. **Pinned runs stay reproducible.** `SUPERSEDED_REGISTRY_VERSION` becomes a set
+   holding `1.1.1-approved-g1-m6j` and `2.0.0-approved-oq-cba-004`.
+   `registry_for_version` resolves each; a stored run is read at its own pin, not
+   re-scored and not re-labelled. `SCORING_MODE_VERSION` stays `1.0.0`: both modes
+   admit the same factors as before, and ELI applies in both.
+5. The load is folded into `inputs_fingerprint` through the post-penalty
+   utilities, which it already covers. Each candidate's explanation gains a `load`
+   block (band, completed hours, confirmed hours, capacity, unrounded utilization).
+   `explanation_from_payload` accepts its absence for 1.x and 2.x payloads.
+6. **Golden cases:** `G-CBA-14` band boundaries (0.4999 / 0.5000 / 0.7999 /
+   0.8000 / 1.0000 / 1.0001); `G-CBA-15` Full removed before the solve;
+   `G-CBA-16` cancelled booking drops out; `G-CBA-17` unknown capacity scores
+   neutral and is labelled; `G-CBA-18` a 2.0.0 run stays readable and keeps its
+   hash; `G-CBA-19` same weights, 2.x vs 3.x → different `registry_hash`.
+7. v1.1 §1.3's "authorized, expiring override" of the hard cap is **not** built
+   here. Full is not overridable until a later card adds it (§11).
 
 ## 6. Frontend
 
-### 6.1 Connector panel (T5) — `CoordinatorSpeakerContacts.tsx`
+All reads use `useScopedQuery` with the principal first in the key; writes use
+`useMutation` with pending-disabled submit, no optimistic update, and invalidation
+of only the affected keys. Errors branch on `ApiRequestError.code`. WCAG 2.2 AA.
 
-- A read panel plus an "Edit availability" form on the contact detail.
-- Read through `useScopedQuery` with key `[principalKey, "speaker-availability", unitId, professionalId]`.
-- Write through `useMutation`, pending-disabled submit, and invalidation of that
-  one key only. No optimistic update.
-- Errors: branch on `ApiRequestError.code` — `speaker_availability_stale` shows
-  "Someone changed this. Reload to see their version." and keeps the user's input;
-  the 422 codes attach to the offending row.
-- States: loading; **Not stated** (`stated: false`, never "Available"); stated
-  with no windows ("No dates blocked"); windows listed; error; denied.
-- Accessibility (WCAG 2.2 AA, DESIGN.md): native `<input type="date">` with a
-  visible label per field; each window row is a `<fieldset>` with a `<legend>`
-  ("Unavailable from … to …"); "Remove" buttons have accessible names that include
-  the dates; save result announced in one `role="status"` region; errors in
-  `role="alert"` next to the field and linked with `aria-describedby`; keyboard
-  order field → field → remove → add → save.
+| Surface | Track | What it has |
+|---|---|---|
+| `CoordinatorSpeakerContacts` availability panel | T5 | Pause date, capacity, windows. States: loading; **Not stated**; stated, nothing blocked; windows; stale (`speaker_availability_stale` keeps input, says "Someone changed this"); error; denied. |
+| `CoordinatorSpeakerContacts` "Invite to portal" | T6b-1 | Pick an eligible email channel; shows Invited / Active / Expired; "Revoke". Hidden when `SPEAKER_PORTAL` is off. |
+| `CoordinatorMatchRuns` / `CoordinatorInvitations` | T4, T8d | "Available", "Unavailable on this date (Speaker's statement)", "Paused until …", "Availability not stated", "changed since this run"; after T8, a band word (Light / Moderate / Heavy / Full / Load not measurable), never a number (OQ-CBA-005). |
+| `/speaker-portal` shell | T6b-4 | Home (upcoming engagements, open invitations), Invitations (answer), Engagements (upcoming / past), Availability (same form as T5 plus the Speaker's own load band after T8), Contact preferences (opt in / out per channel). |
+| `/i/{token}` | T6a | Working accept / decline form for Speakers without an account. |
+| `VolunteerProfile.tsx` | T7 | Host's own record (email, role, unit), link to Organization; the dead `/api/portals/volunteers/{id}` panel is removed. |
 
-### 6.2 Match run and invitations (inside T4)
+Accessibility details for the forms: native `<input type="date">` and
+`<input type="number">` with visible labels; each window a `<fieldset>` with a
+`<legend>`; remove buttons named with their dates; one `role="status"` region for
+save results; errors in `role="alert"` linked with `aria-describedby`; logical
+keyboard order. Opt-in / opt-out are real buttons with the channel address in the
+accessible name, and an opt-out asks for confirmation.
 
-- `CoordinatorMatchRuns`: each shortlisted Speaker shows "Available", "Unavailable
-  on this date (Speaker's statement)", "Paused until 10 Jan", or "Availability not
-  stated". No numbers and no weights (OQ-CBA-005).
-- `CoordinatorInvitations`: excluded Speakers are listed as not invitable, with
-  the reason, the same shape as a consent gap.
+## 7. Tests — TDD order
 
-### 6.3 Speaker self-service (T6)
-
-- **A:** a static, server-rendered form on `/i/{token}` (no React bundle, no
-  token echoed into HTML). The token comes from `location` at submit. After
-  submit it shows the same "Recorded" message whatever happened.
-- **B:** a new Speaker shell and a Profile page with the §6.1 form, the same
-  hooks keyed on the principal.
-
-### 6.4 `VolunteerProfile.tsx` (T7)
-
-Under Q2 = A or B, availability is not an Event Host capability. The page drops
-the dead `PortalDatasetUnavailable` panel for `/api/portals/volunteers/{id}`,
-shows the Host's own record (signed-in email, role, unit), and links to
-`VolunteerOrganization`. The B26 row then closes as "not a Host capability; see
-this plan". Q3 asks the owner to confirm.
-
-## 7. Tests — TDD order per track
-
-Each track writes its failing tests first, then the code. Locally, run the
-targeted files one at a time (full runs wedge on `/mnt/c`); CI proves the suite.
+Each track writes failing tests first. Locally, run targeted files one at a time
+(full runs wedge on `/mnt/c`); CI proves the suite.
 
 | Order | Track | Test first | Level |
 |---|---|---|---|
-| 1 | T1 | `tests/unit/test_speaker_availability.py`: each row of the §5.1 verdict table; window overlap at both inclusive edges; multi-day exact events; unresolved event; horizon, span, and count limits; `PROHIBITED_INPUTS` has no field here | unit |
-| 2 | T1 | `tests/unit/test_eligibility.py`: optional `reason` passes through; default reasons unchanged | unit |
-| 3 | T2 | `tests/integration/test_speaker_availability_migration.py`: every CHECK rejects its bad row; cross-tenant FK refused; CASCADE from profile; duplicate window refused by `uq_…`; `connector` without actor refused. The drift test covers the mirror | integration |
-| 4 | T2 | `tests/integration/test_speaker_availability_repository.py`: stale version refused; replace is atomic | integration |
-| 5 | T3 | `tests/contract/test_speaker_availability_api.py`: 200/404/409/422/403/429 bodies; profile in another unit → 404; `stated:false` shape | contract |
-| 6 | T3 | `tests/authz/test_route_roles.py` rows; `test_policy_matrix.py` derives the new routes; volunteer and student denied | authz |
-| 7 | T4 | `tests/contract/test_match_runs_api.py`: verdicts stored and read; old run → "not recorded"; `G-CBA-13` | contract + golden |
-| 8 | T4 | `tests/contract/test_cba_invitations_api.py`: paused Speaker not invitable at compose; pause added after compose stops dispatch | contract |
-| 9 | T5 | Vitest: states, stale-version path keeps input, key isolation across principals (`queryClient.principal-isolation.test.ts` pattern) | frontend unit |
-| 10 | T6a | contract: identical response for real / unknown / used tokens; add-only; per-token cap; `/i/{token}` renders controls and never echoes the token | contract |
-| 11 | T7 | Vitest + `tests/unit/test_frontend_*_contract.py` source guard: no `/api/portals/volunteers` call remains | frontend unit |
-| 12 | T4–T6 | `tests/e2e/test_pilot_clickthrough.py`: Connector blocks a date → run shows "Unavailable" → batch refuses | e2e |
+| 1 | T1 | `test_speaker_availability.py`: every §5.1 row; inclusive edges; multi-day events; limits | unit |
+| 2 | T2 | `test_speaker_availability_migration.py`: every CHECK incl. capacity 0 / 720.1; cross-tenant FK; CASCADE | integration |
+| 3 | T3 | `test_speaker_availability_api.py`: all §4.1 codes; other-unit 404; `stated:false` | contract + authz |
+| 4 | T4 | `test_match_runs_api.py` verdict stored and "changed since"; `test_cba_invitations_api.py` compose/dispatch re-check; `G-CBA-13` | contract + golden |
+| 5 | T6a | `/i/{token}` renders controls, never echoes the token; POST identical for every token | contract |
+| 6 | T6b-1 | Invite needs an eligible channel; one live invitation; activation is atomic; invalid/expired/used/revoked all one code; email-in-use 409; capability off → routes unmounted | contract + integration |
+| 7 | T6b-2 | Each `/v1/me/*` route returns only own rows; another Speaker's invitation → 404; `volunteer` and `coordinator` denied | contract + authz |
+| 8 | T6b-3 | Opt-out suppresses immediately; opt-in lifts only own-source suppressions; bounce/complaint never lifted; both 409s; every send-eligibility read honours `lifted_at` | contract + integration |
+| 9 | T8a | Cancel only a confirmed booking; cancellation is a transition | integration + contract |
+| 10 | T8b | `test_eli.py` rewritten: centered window edges (day −45, −1, 0, +45, +46), cancellation, unknown hours, lower-bound Full, no default capacity | unit |
+| 11 | T8c | `test_factor_registry.py`: 3.0.0 proposed until approved; superseded set; hash coverage; `G-CBA-14`…`19` | unit + golden |
+| 12 | T5, T6b-4, T7 | Vitest: states, stale path keeps input, principal-key isolation; source guard that no `/api/portals/volunteers` call remains | frontend unit |
+| 13 | all | `tests/e2e/test_pilot_clickthrough.py`: Connector invites → Speaker activates → blocks a date → run shows "Unavailable" → batch refuses; Speaker opts out → invitation not sendable | e2e |
 
 ## 8. Tracks
 
@@ -421,100 +424,86 @@ Each track is its own PR against `main`.
 
 | Track | Scope | Estimate | Depends on |
 |---|---|---|---|
-| **T1** | Domain: `speaker_availability.py`, `reason` on `AvailabilityEvidence`, limits as constants | 0.5 day | — |
-| **T2** | Migration `0038_speaker_availability`, `schema.py` mirror, repository, README count | 1.5 days | T1 |
-| **T3** | Connector `GET`/`PATCH` routes, OpenAPI, `api.ts` adapter, authz ledger | 1.5 days | T2 |
-| **T4** | Stage A wiring: run payload, read annotation, compose and dispatch checks, `G-CBA-13` | 2.5 days | T2 (T3 for the e2e step) |
-| **T5** | Connector availability panel on `CoordinatorSpeakerContacts` | 1 day | T3 |
-| **T6a** | Speaker token-link add-only route plus working `/i/{token}` controls | 2 days | T2, Q2 = A |
-| **T6b** | Speaker accounts, role, portal, `/v1/me/availability`, Speaker profile page | 6–8 days | T2, T3, Q2 = B, backlog item approved by Ann / Pia / Lisa, OQ-CBA-043 |
-| **T7** | `VolunteerProfile` truthful close-out | 0.5 day | Q3 |
-| **T8** | ELI: capacity column (`0039_*`), engagement source, new registry version, cap override, golden cases | 4–6 days | Q1 (D2), Q6, T2, owner approval of the new registry |
+| **T1** | Domain: availability verdict, `reason` on `AvailabilityEvidence`, limits | 0.5 day | — |
+| **T2** | `0038_speaker_availability` incl. capacity, mirror, repository | 1.5 days | T1 |
+| **T3** | Connector availability `GET`/`PATCH`, OpenAPI, `api.ts` adapter | 1.5 days | T2 |
+| **T4** | Stage A wiring: run payload, "changed since", compose/dispatch re-check, `G-CBA-13` | 2.5 days | T2 |
+| **T5** | Connector availability panel | 1 day | T3 |
+| **T6a** | `/i/{token}` page fix only — working accept/decline controls. The token-link availability route is **dropped**: signed-in Speakers edit through `/v1/me/availability`. | 1 day | — |
+| **T6b-1** | Speaker accounts: `0039` (invitation table, suppression lift), `speaker` role and portal mapping, invite / revoke / activate routes, `speaker_portal_invite` template, `/s/{token}` page, `SPEAKER_PORTAL` capability, Connector "Invite to portal" button, DESIGN.md role table | 3.5 days | — |
+| **T6b-2** | `/v1/me/availability`, `/v1/me/invitations` (+ response), `/v1/me/engagements` | 2 days | T3, T6b-1 |
+| **T6b-3** | Self-service channel consent, Speaker-wins rule, `lifted_at` across every send-eligibility read | 2 days | T6b-1 |
+| **T6b-4** | `/speaker-portal` frontend: Home, Invitations, Engagements, Availability, Contact preferences | 3 days | T6b-2, T6b-3 |
+| **T7** | `VolunteerProfile` close-out (Q3 = a) | 0.5 day | — |
+| **T8a** | `0040_speaker_booking_cancellation`, Connector "Cancel booking" route and button | 1.5 days | — |
+| **T8b** | `eli.py` 2.0.0: centered utilization, bands, no default capacity | 1 day | T2 |
+| **T8c** | Registry 3.0.0: band table, hash coverage, superseded set, Full pre-solve, penalty in scoring, explanation `load` block, `G-CBA-14`…`19` | 3 days | T8a, T8b, **§9 answer** |
+| **T8d** | Load band on Connector run views and on the Speaker's Availability page | 1 day | T8c, T6b-4 |
 
-Without T6b and T8, the total is about **9.5 days**. T1 → T2 → T3 is the
-critical path; T4 and T5 run in parallel after it.
+**Total: 25.5 engineer-days.** Critical path: T6b-1 → T6b-2 → T6b-4 → T8d
+(9.5 days) and T1 → T2 → T8b → T8c → T8d (7 days, gated by §9). T1–T5, T6a, T7 and
+T8a can run in parallel from day one.
 
-## 9. Owner questions
+## 9. The one open owner question
 
-### Q1 (D2 sub-question — still OPEN). Do committed future engagements count toward a Speaker's load, or only completed ones?
+### Q7. What are the ELI band penalties, and which band owns each boundary?
 
-- **(a) Completed only.** `attended_at` rows count; `confirmed_at` for a future
-  event does not. This is what `eli.py` does today: it refuses future-dated records.
-- **(b) Completed plus committed, within a forward horizon.** Needs two new
-  parameters: the horizon in days and the weight of a future engagement.
-- **(c) Committed counts toward the Stage A hard cap only, never the Stage B penalty.**
+The cut points (50% / 80% / 100%) are yours. Still open: the size of the
+Moderate and Heavy penalties, which band owns an exact 50% or 80%, and what an
+unmeasurable load scores. All three go into registry `3.0.0` and its hash.
 
-**Recommendation: (a).** It adds no parameter, it is the behaviour already tested,
-and the self-service windows now cover forward unavailability directly — which is
-what counting commitments was meant to approximate. Revisit after a term of data.
-Only T8 waits on this.
+For scale: the CBA weights are Industry 0.30, Role 0.25, Topic 0.15, Proximity
+0.30, and proximity scores Near 1.00 / Mid 0.60 / Far 0.20. One proximity step
+(Near → Mid) costs a candidate 0.12 of composite. Losing the industry match costs 0.30.
 
-### Q2. Who is the professional who edits their availability?
+- **(A) Light × 1.00 · Moderate × 0.90 · Heavy × 0.70.** A moderately loaded
+  speaker loses about one proximity step; a heavily loaded one loses about an
+  industry match. Load reorders close calls but rarely beats a much better fit.
+- **(B) Light × 1.00 · Moderate × 0.95 · Heavy × 0.85.** Gentle. Heavy costs
+  about a Topic mismatch. Busy, well-fitted Speakers still rise to the top, so
+  load spreads less.
+- **(C) Light × 1.00 · Moderate × 0.80 · Heavy × 0.50.** Strong. Heavy halves
+  the score, which behaves almost like a second filter and can empty a small
+  shortlist.
 
-- **(A) The Speaker, through their invitation link, add-only; plus their
-  Connector.** No account, no new role. Uses the existing token posture. The
-  Speaker cannot see what is stored (the OQ-CBA-043 concern about a link that
-  reveals a person's history).
-- **(B) The Speaker, through a Speaker account and `/v1/me/availability`.** Fully
-  meets "see and correct". Needs the "invitation-only speaker accounts" backlog
-  item, which Ann called phase two, plus OQ-CBA-043 and OQ-CBA-035.
-- **(C) The Event Host, on `VolunteerProfile`.** Buildable today, but nothing
-  reads it: hosts are not scored, so it would collect data with no consumer
-  (D8's minimum-disclosure position).
+Common to all three (proposed, part of this answer):
 
-**Recommendation: (A) now, (B) when the speaker-accounts item is approved.** The
-§3 tables serve both unchanged. Do not build (C).
+- **Boundaries:** the lower bound owns the band — exactly 50% is Moderate,
+  exactly 80% is Heavy, exactly 100% is Heavy, and Full is strictly above 100%
+  (matching `evaluate_cap` today).
+- **Multiplicative, not subtracted:** keeps every utility inside `[0, 1]` and
+  scales the penalty with fit.
+- **Unknown load** (capacity not stated, or hours unknown and not provably over
+  capacity): no penalty, not filtered, labelled "load not measurable". The
+  alternative — excluding them — would drop every Speaker who has not yet stated
+  a capacity.
 
-### Q3. What does the Event Host's Profile page show, given availability is not a Host capability?
+**Recommendation: (A).** It is the smallest step that visibly spreads work
+(Moderate ≈ one proximity step, Heavy ≈ one industry match), and the band design
+already stops small hour changes from reshuffling a ranking.
 
-- **(a)** Drop the dead panel; show the Host's own record and a link to
-  Organization; close B26 as "not a Host capability".
-- **(b)** Leave the page as it is until Speaker accounts exist.
-- **(c)** Build a Host availability editor anyway (only if Q2 = C).
+## 10. Stakeholder dependencies still standing
 
-**Recommendation: (a).** The current panel names a legacy endpoint that will never
-exist in this repository.
+None of these is decided by the owner's answers.
 
-### Q4. Does a match run show the availability verdict from when it ran, or current availability?
+| # | Dependency | What waits on it | Evidence |
+|---|---|---|---|
+| 1 | **Ann, Pia and Lisa on Speaker accounts.** The backlog row records Ann on 2026-09-15: "cleaner than what we have… also phase two. Please log it in the backlog; I will bring it to Pia and Lisa." No answer from Pia or Lisa is recorded. | Turning `SPEAKER_PORTAL` on for real Speakers. The build (T6b) can proceed with the flag off. | `docs/plans/backlog.md` |
+| 2 | **A named privacy owner.** OQ-CBA-035 and OQ-CBA-043 name "the named privacy owner" as a co-owner. None is named (D5, D8). | Storing Speakers' real emails and passwords, and self-service consent, beyond the pilot. | `cba-phase-deferred.md`, `pilot-decisions.md` D5/D8 |
+| 3 | **IA West review of the D2 rule.** D1–D9 are "tentative, interim-owned, pending IA West review". | Treating T8's scores as ratified rather than tentative. | `pilot-decisions.md` |
+| 4 | **The pilot hostname.** Invite links use `outreach_public_base_url`; the stable address is still open (owner-open-decisions #2). | Sending any `speaker_portal_invite`. | `owner-open-decisions-2026-09-19.md` |
+| 5 | **Retention periods (D5).** | Pruning ended windows, expired invitations and cancelled bookings. | `pilot-decisions.md` D5 |
 
-- **(a) Stored at run time**, with a note when current availability now differs.
-- **(b) Read live** every time the run is opened.
-- **(c) Show both side by side.**
-
-**Recommendation: (a).** A run is an immutable snapshot (`match_run` in the
-glossary). A verdict that changes after the fact makes "why wasn't she invited?"
-unanswerable. Invitation compose and dispatch still check current state.
-
-### Q5. Keep a history of availability changes?
-
-- **(a) Provenance only** — who wrote the current row and when — plus the run-time
-  snapshot from Q4. This is OQ-CBA-008's "provenance, no history" pattern.
-- **(b) An append-only revision table**, like `match_weight_setting_revision`.
-- **(c) Nothing beyond `updated_at`.**
-
-**Recommendation: (a).** The run snapshot already answers disputes about a
-decision. A revision log keeps a person's diary longer with no reader and no
-retention rule (D5).
-
-### Q6. Collect declared capacity (hours) now, or only with ELI?
-
-- **(a) Only with T8**, in a later migration.
-- **(b) Now**, as hours per rolling 90 days (`eli.py`'s window).
-- **(c) Now**, as maximum engagements per term.
-
-**Recommendation: (a).** Nothing reads capacity until ELI is wired. Its unit
-depends on D2's window, which may change. And (c) is not an ELI input at all.
-
-## 10. Risks
+## 11. Risks
 
 | # | Risk | Mitigation |
 |---|---|---|
-| 1 | The owner expects an editor on `VolunteerProfile` and reads T7 as a reversal. | §1 states the evidence. Q2 and Q3 make it an explicit choice. |
-| 2 | A leaked invitation link lets a stranger block a Speaker's dates. | Add-only, capped at 10 windows per token, Connector can remove, no read-back. |
-| 3 | Speakers who never state availability stay `UNDETERMINED`, and Connectors read that as "available". | UI says "Availability not stated" and never "Available" for that state. |
-| 4 | Stored windows accumulate with no retention rule (D5 deferred). | Record as a D5 input. Windows that ended are ignored by every verdict. |
-| 5 | Migration number collides with a parallel PR. | Take head plus one at rebase; one head only. |
+| 1 | Adding `lifted_at` to `suppression_record` misses one send-eligibility read, and a lifted-then-resuppressed address gets mail. | T6b-3 greps every reader and adds a contract test per send path; delivery-time re-check stays. |
+| 2 | A person who is both an Event Host and a Speaker cannot activate with the same email (`load_by_email` refuses ambiguity). | `409 speaker_portal_email_in_use`, with a Connector-visible reason. Merging the two roles onto one account is a later decision. |
+| 3 | Full is not overridable, but v1.1 §1.3 expects an authorized, expiring override. | Labelled in the run as "Full (no override available)"; override is a follow-up card. |
+| 4 | Most events are `date_only`, so most loads are "not measurable". | Surfaced as that, not as zero. T8d shows Connectors which engagements lack an end time, so the gap is visible and fixable. |
+| 5 | A parallel PR takes `0038`–`0040`. | Take head plus one at rebase; one head only. |
 
 ---
 
-**Next action (under two minutes):** reply on the PR with "Q2: A" (or B or C).
+**Next action (under two minutes):** reply on PR #209 with "Q7: A" (or B or C).
