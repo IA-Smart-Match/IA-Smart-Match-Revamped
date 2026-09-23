@@ -1,7 +1,6 @@
 # B26 — self-service availability for professionals (2026-09-22)
 
-**Next action:** the owner answers **Q8** in §9 (may a Host be shortlisted for
-their own request). Every track can start now; only T4's pool rule waits on Q8.
+**Next action:** start T1, T6b-1, T6a, T7 and T8a in parallel. No owner question is open.
 
 **Status:** planning only. No source file, route, or migration is written by this
 document. **Revision 3, 2026-09-22:** the owner answered all six first-round
@@ -22,9 +21,10 @@ questions, then Q7 (band penalties) and the email-clash question, the same day.
 | Q6 | Collect declared capacity **now**, in hours per rolling 90 days, in the T2 migration. Remove `eli.py`'s `40.0` default. |
 | Q7 | **(A) Light × 1.00 · Moderate × 0.90 · Heavy × 0.70, multiplicative.** Exactly 50% is Moderate, exactly 80% is Heavy, exactly 100% is Heavy, Full is strictly above 100% (the rule `evaluate_cap` already uses). Registry `3.0.0` still needs its normal approval and IA West review. |
 | Unknown load | No penalty, not filtered, labelled "load not measurable". |
+| Q8 | **(a) Exclude the requester from their own request's pool**, reported in the run's `excluded` list as "filed this request". |
 | Email clash | **One login, two roles.** A person who is both an Event Host and a Speaker with the same email gets one account holding both roles, plus a portal switcher. No `409 speaker_portal_email_in_use` end state (§4.5, track T6b-5). |
 
-**Still open:** one new owner question, Q8 (§9), and five stakeholder dependencies (§10).
+**Still open:** no owner question. Five stakeholder dependencies remain (§10).
 **Migrations:** `0038_speaker_availability`, `0039_speaker_portal`,
 `0040_speaker_booking_cancellation`, on top of head `0037_exercise_tables`. If
 another revision lands first, take current head plus one and keep one head.
@@ -520,7 +520,7 @@ Each track is its own PR against `main`.
 | **T1** | Domain: availability verdict, `reason` on `AvailabilityEvidence`, limits | 0.5 day | — |
 | **T2** | `0038_speaker_availability` incl. capacity, mirror, repository | 1.5 days | T1 |
 | **T3** | Connector availability `GET`/`PATCH`, OpenAPI, `api.ts` adapter | 1.5 days | T2 |
-| **T4** | Stage A wiring: run payload, "changed since", compose/dispatch re-check, `G-CBA-13`; plus the self-request rule once Q8 is answered | 2.5 days | T2; Q8 for the self-request rule only |
+| **T4** | Stage A wiring: run payload, "changed since", compose/dispatch re-check, `G-CBA-13`; the self-request exclusion (Q8 = a) | 2.5 days | T2 |
 | **T5** | Connector availability panel | 1 day | T3 |
 | **T6a** | `/i/{token}` page fix only — working accept/decline controls. The token-link availability route is **dropped**: signed-in Speakers edit through `/v1/me/availability`. | 1 day | — |
 | **T6b-1** | Speaker accounts: `0039` (invitation table, suppression lift), `speaker` role and portal mapping, invite / revoke / activate routes, `speaker_portal_invite` template, `/s/{token}` page, `SPEAKER_PORTAL` capability, Connector "Invite to portal" button, DESIGN.md role table | 3.5 days | — |
@@ -555,24 +555,18 @@ penalty, not filtered, labelled "load not measurable". These values go into
 registry `3.0.0` and its hash. **Still required:** that registry's normal approval
 and IA West review (§10 row 3).
 
-### Q8 (new, open). May a person be shortlisted for a Speaker Request they filed themselves?
+### Q8 — decided 2026-09-22: (a)
 
-Once one login holds both roles (§4.5), an Event Host who is also a Speaker can
-file a request (`event.filed_by_user_id` = their login) and then appear in its
-match run, because the pool is every Speaker in the unit.
+A person is excluded from the pool of a Speaker Request they filed themselves,
+and the run reports them in its `excluded` list as "filed this request". Built in
+T4 as a Stage A check before the solve: `event.filed_by_user_id =
+speaker_profile.account_user_id`. It changes no weight and no registry version, so
+`2.0.0` stays current until `3.0.0` is approved. A genuine self-nomination is added
+by the Connector by hand.
 
-- **(a) Exclude them from that request's pool**, reported in the run's `excluded`
-  list as "filed this request". Simple and honest; a Host who wants to speak at
-  their own event does not need a match run to say so.
-- **(b) Keep them in the pool, flagged** "filed this request" on the shortlist.
-  Leaves the Connector to decide; the Host still sees nothing extra.
-- **(c) No rule.** They are scored like anyone else, with no flag.
-
-**Recommendation: (a).** A match run answers "who else could speak"; returning the
-requester is noise at best and self-selection at worst. The rule is a Stage A
-eligibility check keyed on `filed_by_user_id = speaker_profile.account_user_id`,
-so it changes no weight and no registry version. Trade-off: a genuine
-self-nomination has to be added by the Connector by hand.
+Tests (T4): the requester's own request excludes them with that reason; another
+Host's request does not; a Speaker with no bound login is never excluded by this
+rule.
 
 ## 10. Stakeholder dependencies still standing
 
@@ -599,4 +593,4 @@ None of these is decided by the owner's answers.
 
 ---
 
-**Next action (under two minutes):** reply on PR #209 with "Q8: a" (or b or c).
+**Next action (under two minutes):** open the T1 branch and write `tests/unit/test_speaker_availability.py` first.
