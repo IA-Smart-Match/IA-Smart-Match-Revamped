@@ -577,4 +577,18 @@ describe("<CoordinatorRedemptionQueue />", () => {
     expect(screen.getByRole("status").textContent).not.toMatch(/approved\./);
   });
 
+  it("a failed decision moves focus to its alert, not to <body>", async () => {
+    stub({
+      [`GET ${QUEUE}?status=requested`]: queue("requested", [ticket("r1", "Gift Card", "requested")]),
+      [`POST /v1/units/${UNIT}/redemptions/r1/decision`]: {
+        status: 409,
+        body: { error: { code: "invalid_redemption_transition", message: "cannot move denied -> approved" } },
+      },
+    });
+    renderPage();
+    fireEvent.click((await screen.findAllByRole("button", { name: "Approve Gift Card" }))[0]);
+    const alert = await screen.findByRole("alert");
+    await waitFor(() => expect(document.activeElement).toBe(alert));
+  });
+
 });

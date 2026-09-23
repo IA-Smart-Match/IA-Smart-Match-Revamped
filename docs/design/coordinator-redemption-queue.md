@@ -125,6 +125,7 @@ render state) and drops the sentence if they differ. The re-read still runs.
 - [ ] Focus visible (CPP Green ring, offset 2).
 - [ ] `min-h-11` touch targets, 8px gaps.
 - [ ] Deny confirm keeps focus inside the row (moves to Confirm deny; Keep returns to Deny).
+- [ ] After a decision, focus moves to its sentence once the re-read settles: the live region on success, the decision's `role="alert"` paragraph (`tabIndex={-1}`) on a 409/403/404, so it never falls to `<body>` when the row unmounts.
 - [ ] No horizontal scroll at 360px.
 - [ ] `motion-safe:transition-colors` only; no animation carries meaning.
 
