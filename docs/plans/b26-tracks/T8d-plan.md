@@ -3,7 +3,10 @@
 **Next action:** once T8c milestone 7 and T6b-4 milestone 8 are pushed, run milestone 0 (§10): merge
 `origin/feat/b26-t8c`, then `origin/feat/b26-t6b-4`, into `feat/b26-t8d`.
 
-**Revision 1, 2026-09-23.** First plan. Docs only: no source file, route or test is written by this document.
+**Revision 2, 2026-09-23.** Docs only: no source file, route or test is written by this document.
+
+**Plan gate: APPROVE (orchestrator, 2026-09-23).** OQ-1…OQ-3 accepted as recommended; OQ-4 and OQ-5 become
+follow-up cards. Findings MED 1–5 and the LOW batch applied (§14).
 
 Parent: `docs/plans/2026-09-22-b26-self-service-availability-plan.md` §2 (goal: the Speaker sees their
 current load band), §4.1 ("after T8 it also carries `load`"), §5.2, §6 (T4/T8d row: a band word, never a
@@ -72,9 +75,9 @@ If a built name differs from its plan, follow the built name and list the differ
 | 1 | `python/smartmatch_persistence/smartmatch_persistence/engagement_labels.py` | **New.** `EngagementLabel` (frozen) and `EngagementLabelRepository.labels_for` (§4.3). One statement; empty input issues none; never commits. T8c's `engagement_load.py` is not edited (the run hot path stays as T8c pinned it). |
 | 2 | `services/api/smartmatch_api/speaker_load.py` | **New.** `current_speaker_load(...)` and the pure builder `speaker_load_view(...)` (§4.2). |
 | 3 | `services/api/smartmatch_api/routers/speaker_availability_models.py` (T3's) | `EngagementWithoutEndTimeView`, `SpeakerLoadView` (§4.1); `SpeakerAvailabilityResponse.load: SpeakerLoadView` (required); `availability_response(professional_id, stored, *, load)`: `load` is a **required keyword**, so every call site must pass one. `__all__` gains both views. |
-| 4 | `services/api/smartmatch_api/routers/speaker_availability.py` (T3's) | `GET` and `PATCH` compute `load` with `viewer_unit_id=owning_unit_id` (§4.2). |
-| 5 | `services/api/smartmatch_api/routers/speaker_self.py` (T6b-2's) | `GET` and `PATCH /v1/me/availability` compute `load` with `viewer_unit_id=None`. No other handler changes. |
-| 6 | `services/api/smartmatch_api/routers/match_runs.py` | `CandidateExplanationView.load` (`:443`) and `_to_view` (`:652`) copy the stored block; `MatchRunResponse.load_recorded` (`:496`) from the run's own pin (§5). No new query. |
+| 4 | `services/api/smartmatch_api/routers/speaker_availability.py` (T3's) | `GET` gains `now = utc_now()`; `GET` and `PATCH` compute `load` with `viewer_unit_id=owning_unit_id`; `PATCH` computes it before `session.commit()` (§4.2). |
+| 5 | `services/api/smartmatch_api/routers/speaker_self.py` (T6b-2's) | `GET /v1/me/availability` gains `now = utc_now()`; `GET` and `PATCH` compute `load` with `viewer_unit_id=None`, `PATCH` before the commit (§4.2). No other handler changes. |
+| 6 | `services/api/smartmatch_api/routers/match_runs.py` | `CandidateLoadBlockView` (subclass of T8c's `LoadBlockView`, §5); `CandidateExplanationView.load` (`:443`) and `_to_view` (`:652`) copy the stored block without `unknown_hours_refs`; `MatchRunResponse.load_recorded` (`:496`) from the run's own pin. T8c's `ExcludedCandidateView` untouched. No new query. |
 | 7 | `contracts/openapi/smartmatch.json` | `make openapi VENV=$VENV` (the Connector availability response, `CandidateExplanationView`, `MatchRunResponse`). `/v1/me/*` stays out: `SPEAKER_PORTAL` is off (T6b-2 §5). |
 
 **Frontend**
@@ -97,7 +100,8 @@ If a built name differs from its plan, follow the built name and list the differ
 `tests/contract/test_speaker_availability_api.py` (T3's), `tests/contract/test_speaker_self_api.py` (T6b-2's),
 `tests/contract/test_match_runs_api.py`, `tests/unit/test_speaker_availability_models.py` (T3's),
 `tests/unit/test_speaker_availability_openapi_contract.py` (T3's), `tests/unit/test_frontend_load_band_contract.py` (new),
-`tests/unit/test_frontend_speaker_portal_contract.py` (T6b-4's item 5), and the Vitest files in §9.4.
+`tests/unit/test_frontend_speaker_portal_contract.py` (T6b-4's item 5), the shared fixture
+`src/test/speakerLoadFixture.ts` (new), and the Vitest files in §9.4.
 
 **Docs:** parent plan sync (§10 milestone 9).
 
@@ -127,7 +131,9 @@ If a built name differs from its plan, follow the built name and list the differ
 class EngagementWithoutEndTimeView(BaseModel):
     """One counted engagement whose hours are unknown (T8b R4), labelled for this caller."""
 
-    engagement_id: uuid.UUID  # the pipeline_record id (T8b's ref)
+    #: The pipeline_record id (T8b's ref). Null when shown == "other_unit": no other unit's
+    #: record id reaches a Connector (plan-gate MED 1).
+    engagement_id: uuid.UUID | None
     #: "event": title and date shown. "other_unit": Connector route, event hosted elsewhere.
     #: "event_missing": no event row (T8c OQ3).
     shown: Literal["event", "other_unit", "event_missing"]
@@ -209,18 +215,28 @@ there is no row. Never a default (Q6).
 |---|---|---|
 | no event row | `event_missing` | `event_missing` |
 | event hosted by `viewer_unit_id` | `event`; `editable_here = origin == "coordinator_entry"` | same |
-| event hosted by another unit | `event` (their own engagement; `/v1/me/engagements` already shows every unit's titles, T6b-2 §2.4); `editable_here = False` | `other_unit`; title, date and precision null; `editable_here = False` |
+| event hosted by another unit | `event` (their own engagement; `/v1/me/engagements` already shows every unit's titles, T6b-2 §2.4); `editable_here = False` | `other_unit`; `engagement_id`, title, date and precision null; `editable_here = False` |
 
-On the Speaker route `editable_here` is always `False`.
+On the Speaker route `editable_here` is always `False`. `engagement_id` is set for `event` and
+`event_missing` on both routes, and null for `other_unit`.
 
-**Query cost per request:** T3 / T6b-2's reads **+ 1** (engagements), **+ 2** when any engagement lacks an end
-time. Pinned by contract tests A9 and S4.
+**Query cost per request:** T3 / T6b-2's reads **+ 1** (engagements), **+ 1 more** when any engagement lacks
+an end time (labels): **2 at most**. Pinned by contract tests A9 and S4.
 
 **Where it is called.** T3 `GET` and `PATCH` (`speaker_availability.py:106`, `:153`) and T6b-2 `GET` and
-`PATCH /v1/me/availability`: after the stored row is read (GET) or written (PATCH, capacity from `result`),
-before the response is built. PATCH computes it **after** `session.commit()`; a read failure then answers
-500 with the write already committed, the same posture as any post-commit read. The route handlers pass
-`load=` to `availability_response`.
+`PATCH /v1/me/availability`. The route handlers pass `load=` to `availability_response`.
+
+| Handler | `now` | When `load` is computed |
+|---|---|---|
+| `GET` (both routes) | **New:** `now = utc_now()` at the top of the handler (T3's GET has none today, `speaker_availability.py:90-106`), passed to `current_speaker_load` | after the stored row is read |
+| `PATCH` (both routes) | the handler's existing `now = utc_now()` (`speaker_availability.py:138`; T6b-2 §3.3 step 3) | after `write_statement` returns `result` (`:140`), **before** `session.commit()` (`:152`), with capacity from `result.statement` |
+
+**Why before the commit (plan-gate MED 4).** If the load read fails after a commit, the client sees a 500 but
+the row is already written at `version + 1`; a retry with the old `expected_version` then gets a false
+`409 speaker_availability_stale`. Computed before the commit, a load-read failure rolls the whole request
+back, so a retry succeeds. The engagements and labels reads touch only `pipeline_record` and `event`, never
+the row just written, so reading them inside the write transaction changes nothing they return. Contract
+test A13 pins it.
 
 ### 4.3 `EngagementLabelRepository.labels_for`
 
@@ -245,7 +261,7 @@ LIMIT :limit
 `CandidateExplanationView` gains:
 
 ```python
-load: LoadBlockView | None = Field(
+load: CandidateLoadBlockView | None = Field(
     default=None,
     description=(
         "The engagement load recorded for this candidate at run time (registry 3.x only; "
@@ -254,11 +270,32 @@ load: LoadBlockView | None = Field(
 )
 ```
 
-- `LoadBlockView` is the model T8c built for `ExcludedCandidateView.load` (T8c §7 block), extended with
-  `multiplier` and `composite_before_load`. If T8c typed that field as a plain `dict`, T8d introduces
-  `LoadBlockView` with the T8c §7 keys (decimals as strings) and types both fields with it.
-- `_to_view` copies `explanation.load` field for field, decimals as `str`, no rounding (the `_to_view`
-  docstring rule, `match_runs.py:652-660`).
+```python
+class CandidateLoadBlockView(LoadBlockView):
+    """T8c's excluded-candidate load block plus the two Stage B fields a scored candidate has."""
+
+    multiplier: str  # the registry table's multiplier for this band, as a decimal string
+    composite_before_load: float | None  # unrounded; null iff heuristic_score is null
+```
+
+- **A subclass, so T8c's schema stays as it is (plan-gate MED 5).** `LoadBlockView` is the model T8c built
+  for `ExcludedCandidateView.load`; T8d does not edit it, and `ExcludedCandidateView.load` keeps its type.
+  The OpenAPI component for T8c's block is byte-identical before and after T8d (test R7).
+- **No `unknown_hours_refs` in the candidate block (plan-gate MED 2).** Those are `pipeline_record` ids from
+  every unit (T8c OQ2: the load read is tenant-wide), and the Connector run wire must carry none of another
+  unit's record ids. The run card never needs them: it points to the availability panel, which labels the
+  gaps per unit (§4.2). Resolution rule at implementation, because Pydantic cannot drop an inherited field:
+  - T8c's `LoadBlockView` has no `unknown_hours_refs` field → subclass exactly as above;
+  - it has one (T8c §7 says the excluded block is "the same shape" as the payload block, which lists the
+    refs) → `CandidateLoadBlockView` is a standalone model with `LoadBlockView`'s other fields plus the two
+    above, and `ExcludedCandidateView.load` is still left untouched. Either way MED 5's goal (T8c's schema
+    unchanged) and MED 2's (no refs on the candidate block) both hold. The PR body names which case applied.
+- T8c's excluded block keeps whatever T8c ships. If it carries `unknown_hours_refs`, that is the same
+  cross-unit exposure for Full Speakers: noted for the orchestrator in §12, not changed here.
+- If T8c typed `ExcludedCandidateView.load` as a plain `dict`, T8d introduces `CandidateLoadBlockView`
+  standalone with the T8c §7 keys minus `unknown_hours_refs`, and leaves the `dict` alone.
+- `_to_view` copies `explanation.load` field for field, except `unknown_hours_refs`; decimals as `str`, no
+  rounding (the `_to_view` docstring rule, `match_runs.py:652-660`).
 
 `MatchRunResponse` gains:
 
@@ -283,7 +320,7 @@ not None`; an unknown pin (T8c §8 read fallback) → `False`. No database read;
 export type LoadBand = "light" | "moderate" | "heavy" | "full" | "unknown";
 export type LoadReason = "measured" | "capacity_not_stated" | "hours_unknown" | "full_by_known_hours";
 export interface EngagementWithoutEndTime {
-  engagement_id: string;
+  engagement_id: string | null; // null for "other_unit"
   shown: "event" | "other_unit" | "event_missing";
   event_title: string | null;
   local_date: string | null; // YYYY-MM-DD
@@ -327,6 +364,12 @@ Rendering rules, all surfaces:
 - No new query key, no new mutation. The band refreshes through the existing
   `speaker-availability` / `my-availability` reads: T5's and T6b-4's `setQueryData(saved)` after a save
   (the PATCH response carries the recomputed `load`), and the two invalidations in §2 rows 17–18.
+- **Accepted staleness:** confirming a booking (the pipeline confirm action) raises the band but invalidates
+  no `speaker-availability` key. The panel re-reads on open once the 30 s `staleTime` has passed
+  (`queryClient.ts:106`), so a Connector may see the pre-confirmation band for up to 30 s. Accepted
+  (orchestrator, plan gate); not fixed here.
+- **List keys use the index** (`key={index}`), never `engagement_id`: it is null for `other_unit` items
+  (plan-gate MED 1). The list is never reordered client-side, so an index key is stable.
 
 ### 6.3 Component tree
 
@@ -342,7 +385,7 @@ SpeakerOwnAvailability                       h1#my-availability-heading "Your av
 
 SpeakerAvailabilityPanel (T5)                section → h3 "Availability for {name}"
 ├─ read states (T5)
-├─ LoadBandSummary audience=connector        div aria-labelledby → h4 "Workload"
+├─ LoadBandSummary audience=connector        div role="group" aria-labelledby → h4 "Workload"
 │  └─ … same, each li: title · <time> · precision phrase · link "Add the end time on the Events page" when editable_here
 └─ SpeakerAvailabilityForm (T5)
 
@@ -424,8 +467,9 @@ V-B6). Nothing on the availability surfaces contains "available" (T5 §4.1, T6b-
 2. **Headings.** Speaker page: `h1` "Your availability" → `h2` "Your workload" (sequential after T6b-4's
    outline). Connector panel: T5's `h3` → `h4` "Workload". Cards: no new heading; the band sits in a `dl`
    row (`dt` "Workload", `dd` word), so a screen reader reads "Workload, Moderate".
-3. **Landmarks.** `LoadBandSummary` is a `section` with `aria-labelledby` on the Speaker page (`{idPrefix}-load-heading`)
-   and a `div` with `aria-labelledby` inside T5's panel section (no nested region noise).
+3. **Landmarks.** `LoadBandSummary` is a `section` with `aria-labelledby` on the Speaker page (`{idPrefix}-load-heading`),
+   so it is a named region. Inside T5's panel section it is a `div role="group"` with `aria-labelledby`
+   (a plain `div` would make the label meaningless; `group` names it without adding a second region).
 4. **No new live region.** Pages keep T5 / T6b-4's one `role="status"`. The band is re-rendered text after a
    save; the save outcome is already announced (T5 §4, T6b-4 §8.2).
 5. **Lists.** Engagements without an end time are a `ul` directly after the sentence that introduces them.
@@ -451,7 +495,7 @@ credential-shaped literals in tests.
 - U2 `test_display_bands_are_q7_while_current_is_2_0_0_and_the_registry_s_after_a_flip` (monkeypatch `factor_registry.CURRENT_CBA_REGISTRY` to `CBA_REGISTRY_3`; no `registry_evaluation` needed: no gate is called)
 - U3 `test_used_in_matching_follows_the_current_registry` (false now; true when patched)
 - U4 `test_speaker_viewer_sees_every_title_and_nothing_is_editable`
-- U5 `test_connector_viewer_hides_other_units_titles_and_marks_only_own_coordinator_entry_events_editable` (own `coordinator_entry` → editable; own `extraction` → not; other unit → `other_unit`, all nulls)
+- U5 `test_connector_viewer_hides_other_units_titles_and_marks_only_own_coordinator_entry_events_editable` (own `coordinator_entry` → editable; own `extraction` → not; other unit → `other_unit` with `engagement_id`, title, date and precision all null; the Speaker viewer keeps `engagement_id` for every item)
 - U6 `test_missing_event_is_event_missing`; `test_labels_keep_repository_order_and_truncate_at_20` (21 labels → 20 + truncated)
 - U7 `test_the_load_schema_holds_no_number` (walk `SpeakerLoadView.model_json_schema()`: no `number` or `integer` type anywhere)
 - U8 `test_capacity_none_is_never_defaulted` (`capacity_not_stated`, refs still listed)
@@ -483,7 +527,7 @@ credential-shaped literals in tests.
 - A2 `test_capacity_and_exact_engagements_give_the_band_word` (attended 60 h at −10 against 100.0 → `moderate`)
 - A3 `test_a_date_only_engagement_is_hours_unknown_and_listed`
 - A4 `test_an_exact_event_without_end_is_listed_with_precision_exact`
-- A5 `test_another_units_engagement_counts_but_shows_no_title`
+- A5 `test_another_units_engagement_counts_but_shows_no_title_and_no_record_id` (`engagement_id` is null; the other unit's `pipeline_record` id appears nowhere in the response body)
 - A6 `test_own_coordinator_entry_event_is_editable_and_extracted_is_not`
 - A7 `test_a_cancelled_booking_is_not_counted` (T8a `cancel_booking`)
 - A8 `test_patch_response_recomputes_the_band_from_the_new_capacity`
@@ -491,6 +535,8 @@ credential-shaped literals in tests.
 - A10 `test_no_number_inside_load` (walk the JSON)
 - A11 `test_band_equals_assess_pool_loads_on_the_same_inputs`
 - A12 `test_used_in_matching_is_false_while_2_0_0_is_current_and_true_after_a_patched_flip` (patch `CURRENT_CBA_REGISTRY`; GET needs no gate)
+- A13 `test_a_load_read_failure_on_patch_rolls_back_so_the_retry_is_not_stale` (monkeypatch `current_speaker_load` to raise once: the PATCH answers 500, the stored `version` is unchanged, and the same body with the same `expected_version` then answers 200, not `409 speaker_availability_stale`)
+- A14 `test_get_measures_as_of_from_its_own_utc_now` (patch `utc_now` to 23:30 UTC on 5 Oct → `as_of` 5 Oct)
 
 **`tests/contract/test_speaker_self_api.py`** (T6b-2's, capability-on app)
 
@@ -504,16 +550,30 @@ credential-shaped literals in tests.
 
 - R1 `test_a_2_0_0_run_reads_load_recorded_false_and_every_load_null`
 - R2 `test_under_evaluation_a_3_0_0_run_reads_each_candidates_stored_band` (T8c `evaluate_registry_3`, modules `smartmatch_domain.scoring`, `smartmatch_domain.explanation`, `smartmatch_api.routers.match_runs`)
-- R3 `test_the_candidate_load_block_is_copied_without_rounding` (decimals as strings equal the payload's)
+- R3 `test_the_candidate_load_block_is_copied_without_rounding_and_without_refs` (decimals as strings equal the payload's; no `unknown_hours_refs` key, even when the stored block lists refs)
 - R4 `test_load_adds_no_query_to_the_run_read` (T4 test 17's count unchanged)
 - R5 `test_an_unknown_pin_reads_load_recorded_false`
 - R6 `test_excluded_load_full_keeps_its_load_block` (T8c C2's read, re-asserted after T8d's view change)
+- R7 `test_t8cs_excluded_load_schema_is_unchanged` (the OpenAPI component for `ExcludedCandidateView.load` equals the one captured on the merged T8c base at milestone 5, key for key; `CandidateLoadBlockView` is a separate component)
 
 ### 9.4 Vitest (`src/**/*.test.tsx`; `fireEvent` only, no user-event, no jest-dom)
 
 Harness: the `CoordinatorRedemptionQueue.test.tsx` pattern (T6b-4 §9.1): `vi.stubGlobal("fetch", …)` keyed
 `"METHOD path"`, a fresh `QueryClient` per test, mocked `usePrincipalKey`, `cleanup()` and
 `vi.unstubAllGlobals()` in `afterEach`, `vi.setSystemTime(new Date("2026-10-06T12:00:00Z"))`.
+
+**Shared fixture (plan-gate MED 3).** Milestone 7 adds `src/test/speakerLoadFixture.ts` (not a `.test.tsx`,
+so Vitest does not collect it): `speakerLoadFixture(overrides?: Partial<SpeakerLoad>): SpeakerLoad`,
+defaulting to `band "light"`, `reason "measured"`, `as_of "2026-10-06"`, `used_in_matching false`, no
+engagements, not truncated. In the same milestone, **every** `SpeakerAvailability` stub (GET and PATCH
+responses) in T5's file C (`SpeakerAvailabilityPanel.test.tsx`) and T6b-4's file G
+(`SpeakerOwnAvailability.test.tsx`) gains `load: speakerLoadFixture()`. Without it those stubs lack a
+required field, and the pages would render `LoadBandSummary` from `undefined`. Any other test that stubs
+an availability response (grep `declared_capacity_hours_per_90_days` under `src/`) gets the same line.
+
+**Digit-free fixtures.** Every event title in V-B and V-C fixtures contains no digit (for example
+"Corporate treasury guest lecture"), so the "no digit outside `<time>`" assertions test the load, not the
+title.
 
 **V-A `src/lib/loadBandCopy.test.tsx`** (pure)
 
@@ -529,16 +589,17 @@ Harness: the `CoordinatorRedemptionQueue.test.tsx` pattern (T6b-4 §9.1): `vi.st
 3. `used_in_matching true with full shows the no-override sentence (connector) and the not-put-forward sentence (speaker)`
 4. `hours_unknown lists each engagement with its title and a time element` · `truncated adds the more sentence`
 5. `other_unit and event_missing items have their sentences and no link`
-6. `extra numeric fields on the wire render no digit outside time elements` (stub adds `utilization: 0.61`, `completed_hours: "50"`)
-7. `connector: only editable_here items have a link, named with the title` (`getByRole("link", { name: "Add the end time for ACCT 4100 guest lecture on the Events page" })`)
+6. `extra numeric fields on the wire render no digit outside time elements` (stub adds `utilization: 0.61`, `completed_hours: "50"`; titles digit-free)
+10. `list items key by index, so two other_unit items with null ids both render`
+7. `connector: only editable_here items have a link, named with the title` (`getByRole("link", { name: "Add the end time for Corporate treasury guest lecture on the Events page" })`)
 8. `speaker: no link at all`
-9. `heading level follows the prop and the section is labelled by it`
+9. `heading level follows the prop; speaker: a section labelled by it; connector: a div with role=group labelled by it`
 
 **V-C `src/app/pages/speaker/SpeakerOwnAvailability.test.tsx`** (T6b-4's file G, edited)
 
 1. `the workload section sits between the read states and the form in DOM order`
 2. `no workload section while the read is pending or failed`
-3. G7 re-pointed: stub the full `SpeakerLoad` plus `utilization: 0.61` → "Moderate" shown, neither `0.61` nor `61`
+3. G7 re-pointed: stub `speakerLoadFixture({ band: "moderate" })` plus `utilization: 0.61`, digit-free titles → "Moderate" shown, no digit outside `<time>`
 4. `a save shows the band from the PATCH response` (setQueryData path; no extra GET)
 5. G2 still holds with every band: no `/\bavailable\b/i` in `main`
 
@@ -600,10 +661,10 @@ touched Python file and this plan before each push.
 | 1 | `test: current speaker load view and engagement labels (red)` | — |
 | 2 | `feat: current load band for a Speaker, computed at request time` (files 1–3) | U1–U8, L1–L6, T3 model tests |
 | 3 | `test: availability responses carry the load band (red)` (incl. the T3 exact-JSON edit, O1–O2) | — |
-| 4 | `feat: Connector and Speaker availability responses carry load` (files 4, 5, 7) | A1–A12, S1–S5, O1–O2 |
+| 4 | `feat: Connector and Speaker availability responses carry load` (files 4, 5, 7) | A1–A14, S1–S5, O1–O2 |
 | 5 | `test: match run read carries stored load (red)` | — |
-| 6 | `feat: match run read renders stored load and load_recorded` (files 6, 7) | R1–R6; T4's and T8c's contract tests unedited and green |
-| 7 | `test: load band on run views, compose, panel and Speaker page (red)` (V-A…V-H, F1–F4, the T6b-4 scan edit) | — |
+| 6 | `feat: match run read renders stored load and load_recorded` (files 6, 7) | R1–R7; T4's and T8c's contract tests unedited and green |
+| 7 | `test: load band on run views, compose, panel and Speaker page (red)` (V-A…V-H, F1–F4, the T6b-4 scan edit; `src/test/speakerLoadFixture.ts` and `load: speakerLoadFixture()` on every availability stub in T5 file C and T6b-4 file G, §9.4) | — |
 | 8 | `feat: load band on run views, compose, availability panel and Speaker page` (files 8–18) | V-A…V-H, F1–F4; `npx tsc --noEmit -p .` clean |
 | 9 | `docs: parent plan sync for T8d` — §4.1 names the `load` shape (§4.1 here); §6 T4/T8d row names `AIMatching` and the availability panel; §8 T8d row: estimate 2.5 days, "Depends on T8c, T6b-4 (and T5, T8a through them)"; §11 risk 4 mitigation names the panel list. Then push and open the PR `feat: load band on run views and availability pages (B26 T8d)`, draft. | — |
 
@@ -622,15 +683,22 @@ checked; ends with the Claude Code line; edited with `gh api -X PATCH …/pulls/
 | X6 | Parent §8 estimates T8d at 1 day. This scope (two response fields, one repository, four surfaces, two invalidations) is about 2.5. | Stated in the parent sync (milestone 9). |
 | X7 | T8a's cancel says "nothing else is invalidated"; T6b-4 test G7 stubs a partial `load`; T6b-4 scan pins `SLOT(T8d)`; T3 tests pin the unstated JSON exactly. | Each edited in the milestone that changes it (§9). |
 
-## 12. Open questions (each with a recommendation)
+## 12. Open questions — decided (orchestrator, plan gate 2026-09-23)
 
-| # | Question | Recommendation |
+OQ-1…OQ-3: accepted as recommended. OQ-4 and OQ-5: follow-up cards, not T8d.
+
+| # | Question | Recommendation (ruling) |
 |---|---|---|
 | OQ-1 | **(orchestrator flag)** Compute and show the current band while registry 3.0.0 is proposed? | **Yes.** Compute from T8b / T8c code with the Q7 table, label it "Matching does not use workload yet" via `used_in_matching`. It lets Speakers and Connectors fix capacity and end times before the flip, and the flip needs no frontend change. |
 | OQ-2 | Show a Speaker their band before IA West reviews the rule (parent §10 row 3)? | **Yes, with the not-used sentence.** Parent §2 lists "current load band" among the data a Speaker sees. Hiding it until `used_in_matching` is a one-line change in `LoadBandSummary` if the owner prefers. |
 | OQ-3 | Keep hours and utilization on the run-read wire (T8c's excluded block, T8d's candidate block)? | **Keep.** The run read is a Connector-only audit record that already carries weights and `inputs_hash`; screens stay band-only by type (F1). Availability routes, which Speakers read, carry no numbers. |
 | OQ-4 | Re-check Full at compose and dispatch, as T4 does for availability? | **Not in T8d.** Parent Q4 covers availability only, and Full is a run-time Stage A rule. Card it if the owner wants a Speaker who became Full after the run refused at compose. |
 | OQ-5 | Add "changed since this run" for the band, and a deep link from the gap list to one event? | **Neither in T8d.** A load band drifts daily as the window slides (noisy) and would add a query to T4's pinned read; the Events page has no `?event=` link today. Two follow-up cards: `B26-FU-LOAD-CHANGED-SINCE`, `B26-FU-EVENT-DEEP-LINK`. |
+
+**Noted for the orchestrator, not changed here:** if T8c's `ExcludedCandidateView.load` ships
+`unknown_hours_refs` (T8c §7: "the same shape" as the payload block), a Full Speaker's exclusion carries other
+units' `pipeline_record` ids on the Connector run wire, the exposure MED 2 removes from the candidate
+block. Recommend T8c's implementer drop the refs from that view too; the stored payload keeps them.
 
 ## 13. Out of scope
 
@@ -640,6 +708,21 @@ checked; ends with the Claude Code line; edited with `gh api -X PATCH …/pulls/
 - Showing any load number, ratio, hours or multiplier on any screen.
 - A batched roster-level band (T5 OQ-5).
 - Turning `SPEAKER_PORTAL` on.
+
+## 14. Plan-gate findings applied (2026-09-23)
+
+| # | Sev | Finding | Where |
+|---|---|---|---|
+| 1 | MED | Connector route: `engagement_id` null for `other_unit`; React list keys use the index | §4.1, §4.2 label table, §6.1, §6.2, tests U5, A5, V-B10 |
+| 2 | MED | No `unknown_hours_refs` in the candidate view's load block (no cross-unit record ids on the run wire) | §5, test R3; excluded-block note in §12 |
+| 3 | MED | Milestone 7 adds a shared `speakerLoadFixture()` to every availability stub in T5 file C and T6b-4 file G | §9.4, §10 row 7 |
+| 4 | MED | `PATCH` computes `load` before the commit, from `result`'s capacity (no false 409 on retry) | §4.2, §2 rows 4–5, test A13 |
+| 5 | MED | `CandidateLoadBlockView(LoadBlockView)` adds `multiplier` and `composite_before_load`; T8c's excluded schema unchanged | §5, §2 row 6, test R7 |
+| 6 | LOW | Connector summary is a `div role="group"` with `aria-labelledby` | §6.3, §8 item 3, test V-B9 |
+| 7 | LOW | Digit-free event titles in V-B and V-C fixtures | §9.4, tests V-B6, V-B7, V-C3 |
+| 8 | LOW | `now = utc_now()` added to both `GET` handlers | §4.2, §2 rows 4–5, test A14 |
+| 9 | LOW | Query cost wording: +1, +1 more with gaps, 2 at most | §4.2 |
+| 10 | LOW | Staleness after a booking is confirmed accepted (30 s `staleTime`) | §6.2 |
 
 ---
 
