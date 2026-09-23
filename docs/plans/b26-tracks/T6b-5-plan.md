@@ -2,7 +2,7 @@
 
 **Next action:** wait for the §0 start gate, then run milestone 0 (`git merge origin/feat/b26-t6b-2`).
 
-**Revision 1, 2026-09-23.** Planning only. No source file, route or migration is written by this document.
+**Revision 2, 2026-09-23.** Records the rulings on Q1–Q5 (§11): Q1 by the owner, Q2–Q5 by the orchestrator. No question is open. Planning only. No source file, route or migration is written by this document.
 
 Parent: `docs/plans/2026-09-22-b26-self-service-availability-plan.md` §4.5 (the design; followed), §4.2 item 3, §6 switcher row, §7 row 8b, §8, §11 risks 2 and 2b.
 Inputs: T6b-1 plan `origin/feat/b26-t6b-1` @ `3e9a7ef4` (rev 3 + round-2 gate fixes); T6b-2 plan `origin/feat/b26-t6b-2` @ `8805cdc3` (rev 2); T6b-3 plan `origin/feat/b26-t6b-3` (operation keys only). T6b-4 had not pushed a plan when this was written; §6.3 names the slots it must keep.
@@ -26,7 +26,9 @@ Line numbers are `main` @ `1909278f` unless a track is named. T6b-1/T6b-2 code i
 
 **Split rule.** If milestone 10 is green and T6b-4 has not pushed its shell, open PR A (backend, milestones 0–10) at once and carry milestones 11–13 on `feat/b26-t6b-5-switcher` as PR B. The `SPEAKER_PORTAL` turn-on rule (T6b-1 §0 item 4, C5) needs **both** merged.
 
-**Migration head.** No new migration if Q2 (§11) is folded into `0039`. Otherwise `0041_speaker_portal_unbind` (or current head + 1), and every head pin moves in the same commit.
+**Migration head.** T6b-5 writes **no migration** and moves no head pin. The unbind columns are folded into `0039_speaker_portal` by the T6b-1 implementer (Q2, ruled). `0041` belongs to T4.
+
+**Start gate addition:** `0039` on `origin/feat/b26-t6b-1` carries `speaker_portal_invitation.unbound_at` / `unbound_by_user_id` and their FK and CHECKs (§4.4). If it does not when milestone 7 starts, escalate to the orchestrator and stop; T6b-5 does not add a migration of its own.
 
 ## 1. Rules this plan implements (decided; restated so tests can cite them)
 
@@ -66,8 +68,7 @@ Line numbers are `main` @ `1909278f` unless a track is named. T6b-1/T6b-2 code i
 | `apps/web/legacy-frontend/src/lib/principal.ts` | `PortalKind` (`:83`) already gains `"speaker"` in T6b-1. No change. |
 | `apps/web/legacy-frontend/src/app/pages/coordinator/SpeakerPortalInvite.tsx` (T6b-1's) | Active state: "Remove portal access" (confirm), the shared-login and suspension sentence (R-L), and the two new 409 messages (§7). |
 | `apps/web/legacy-frontend/src/lib/api.ts` | `unbindSpeakerPortal(unitId, professionalId)`; `SpeakerPortalAccess.login_shared: boolean \| null`; the two error codes in the invite error union. |
-| `db/migrations/versions/0039_speaker_portal.py` (T6b-1's) **or** new `0041_speaker_portal_unbind.py` | `speaker_portal_invitation.unbound_at`, `unbound_by_user_id` + FK + 3 CHECKs (§4.4). Q2 decides where. |
-| `python/smartmatch_persistence/smartmatch_persistence/schema.py` | Mirror of the two columns. |
+| `db/migrations/versions/0039_speaker_portal.py` and its `schema.py` mirror (T6b-1's) | **Not edited here.** The T6b-1 implementer folds in `speaker_portal_invitation.unbound_at`, `unbound_by_user_id`, their FK and 2 CHECKs (§4.4; Q2, ruled). T6b-5 only writes to them. |
 | Tests | §8. |
 | Docs | `apps/web/DESIGN.md` (role table: one login may hold Host + Speaker; switcher), `docs/decisions/pilot-login-decision-2026-09-04.md` (amend: `login_accounts` is the one credential writer), `docs/operations/vm-deploy.md` (suspension suspends both roles; seed-logins on a merged address; unbind), `docs/architecture/GLOSSARY.md` "Speaker" (a login may also be an Event Host's). |
 
@@ -270,7 +271,7 @@ T6b-1's invite (§3.2 there), new step **5b** after the channel checks and befor
 | State | Answer |
 |---|---|
 | `OTHER_TENANT` | `409 speaker_portal_address_in_other_tenant` |
-| `AMBIGUOUS` | `409 speaker_portal_address_ambiguous` (Q3), message "This address matches more than one login. Fix that before inviting." (§4.5 item 4) |
+| `AMBIGUOUS` | `409 speaker_portal_address_ambiguous` (Q5), message "This address matches more than one login. Fix that before inviting." (§4.5 item 4) |
 | `ONE_IN_TENANT`, holder has an active staff or student role | `409 speaker_portal_address_is_staff_login` (Q1) |
 | otherwise | continue |
 
@@ -281,7 +282,7 @@ Roles `{admin, coordinator}` (`_authorize_speaker_portal`, T6b-1). Quota: T6b-1'
 1. `charge_quota`; authorize; `now = utc_now()` once.
 2. `lock_profile` `FOR UPDATE`. `account_user_id IS NULL` → `{"unbound": false}`.
 3. `lock_bound_profile_invitation`: the accepted invitation with `bound_account_user_id = account_user_id AND unbound_at IS NULL`, `FOR UPDATE`.
-4. `login = account_user_id`. If `login == professional_id` (a new-login binding): `lock_address(<contact account email>)`, `holders_for_address(lock=True, also_lock_user_id=login)`, `retire_login(login, now)`. The contact account goes back to credential-less, its sessions end, and a later re-invite runs new-login cleanly (Q-3 in §11).
+4. `login = account_user_id`. If `login == professional_id` (a new-login binding): `lock_address(<contact account email>)`, `holders_for_address(lock=True, also_lock_user_id=login)`, `retire_login(login, now)`. The contact account goes back to credential-less, its sessions end, and a later re-invite runs new-login cleanly (Q3, ruled).
 5. `UPDATE membership SET valid_until = :now WHERE tenant_id, user_id = login, role = 'speaker', valid_until IS NULL OR valid_until > :now`. Every active `speaker` row on that login: only activation grants `speaker`, and one login speaks for at most one profile. **No other role's row is touched** (R-I).
 6. `UPDATE speaker_profile SET account_user_id = NULL, account_bound_at = NULL`.
 7. `UPDATE speaker_portal_invitation SET unbound_at = :now, unbound_by_user_id = principal.user_id`.
@@ -289,7 +290,7 @@ Roles `{admin, coordinator}` (`_authorize_speaker_portal`, T6b-1). Quota: T6b-1'
 
 The next request by that login loses the Speaker portal: `PrincipalRepository` loads memberships per request (`principals.py:105-135`) and the policy treats `valid_until` as exclusive (`policy.py:188-192`). `/v1/me/*` Speaker routes answer `404 speaker_profile_not_linked` (T6b-2 §2.1). `GET …/portal-access` answers `none`, so the Connector can invite again.
 
-**DDL** (Q2 decides `0039` or `0041`): `unbound_at timestamptz NULL`, `unbound_by_user_id uuid NULL`; `fk_speaker_portal_invitation_unbound_by (tenant_id, unbound_by_user_id) → user_account (tenant_id, id) RESTRICT`; `ck_speaker_portal_invitation_unbound_pair`: `(unbound_at IS NULL) = (unbound_by_user_id IS NULL)`; `ck_speaker_portal_invitation_unbound_after_accept`: `unbound_at IS NULL OR (accepted_at IS NOT NULL AND unbound_at >= accepted_at)`. Two more keys for `test_check_constraints.py`.
+**DDL** (folded into `0039` by the T6b-1 implementer, Q2 ruled): `unbound_at timestamptz NULL`, `unbound_by_user_id uuid NULL`; `fk_speaker_portal_invitation_unbound_by (tenant_id, unbound_by_user_id) → user_account (tenant_id, id) RESTRICT`; `ck_speaker_portal_invitation_unbound_pair`: `(unbound_at IS NULL) = (unbound_by_user_id IS NULL)`; `ck_speaker_portal_invitation_unbound_after_accept`: `unbound_at IS NULL OR (accepted_at IS NOT NULL AND unbound_at >= accepted_at)`. Two more keys for `test_check_constraints.py` (T6b-1's work, in `0039`'s milestone).
 
 **`GET …/portal-access`** gains `login_shared: bool | null`: `true` when `status = active` and the binding is `existing_login`, `false` for `new_login`, `null` otherwise. A bool, never the login id (T6b-2's rule: the Connector view hides the login).
 
@@ -446,8 +447,8 @@ Local rule: one file at a time; DB tests on a private database `smartmatch_b26_t
 | 4 | `feat: seed-pilot-logins uses find_or_add_role; seeds ignore invitation-only roles` | green |
 | 5 | `test: existing-login activation, mode choice and locking (red)` | §8.1 items 1–5, `/s` page tests |
 | 6 | `feat: existing-login activation mode with credential row locks` | green |
-| 7 | `test: invite pre-check and portal-access unbind (red)` | §8.1 item 4 pre-check, `TestUnbind`, migration CHECK keys |
-| 8 | `feat: other-tenant invite pre-check and unbind` | Route, repository, DDL (or `0041`), `login_shared`, Connector UI rows (§7), `api.ts` |
+| 7 | `test: invite pre-check and portal-access unbind (red)` | §8.1 item 4 pre-check, `TestUnbind` (the `0039` CHECK keys are T6b-1's tests) |
+| 8 | `feat: other-tenant invite pre-check and unbind` | Route, repository (writes `0039`'s unbind columns), `login_shared`, Connector UI rows (§7), `api.ts` |
 | 9 | `test: two-membership authz shape and merged-login contract tests` | §8.1 items 6–9, §5. **Expected green on arrival**: they prove no policy change is needed. The commit body says so; any red here is a bug to fix in this milestone. |
 | 10 | `docs: T6b-5 backend notes in pilot-login decision and vm-deploy` | — |
 | 11 | `chore: merge origin/feat/b26-t6b-4` | — |
@@ -468,22 +469,15 @@ Before each push: `$VENV/bin/ruff format` and `ruff check` on touched Python and
 | C5 | T6b-1 §11 self-invite mitigation: "the Connector's own login address is credentialed, so activation refuses it". Existing-login mode would now accept it with the Connector's own password. | Q1: refuse holders with an active `admin`, `coordinator` or `student` membership. |
 | C6 | `test_seed_pilot_logins.py` monkeypatches `seed_pilot` and `PilotCredentialRepository` (`:62-89`). | Rewritten recorder (§8.2); the 8 behaviours it pins are kept. |
 
-## 11. Open questions (each with a recommendation)
+## 11. Rulings (2026-09-23) — no question open
 
-**Decide before milestone 5**
-
-| # | Question | Recommendation |
-|---|---|---|
-| Q1 | Which existing logins may existing-login mode bind? | **Event Host logins only.** Refuse a holder with any active `admin`, `coordinator` or `student` membership: generic `400` at activation, `409 speaker_portal_address_is_staff_login` at invite. The owner's rule names Host + Speaker; binding a Connector's own login would reopen T6b-1's self-invite risk with no second mailbox needed. |
-| Q2 | Where do `unbound_at` / `unbound_by_user_id` go? | **Fold into `0039`** if it is not on `main` yet (T6b-2 C2's precedent); otherwise `0041`. Without them, who removed a Speaker's access is unrecorded. |
-| Q3 | Should a new-login unbind also delete the contact account's credential and end its sessions? | **Yes.** It restores "the contact account cannot sign in on its own" (§4.5 item 2) and lets a re-invite take the new-login path. The rule as written (membership + `account_user_id`) leaves a role-less login that blocks re-invites. |
-
-**Decide before milestone 3 / 7**
-
-| # | Question | Recommendation |
-|---|---|---|
-| Q4 | The seed finds its address already held by a different login. | **Add the seed's roles to that login, never change its password, report on stderr.** Refusing would fail `seed-logins` and roll back every VM deploy (`deploy.sh:382-399`). |
-| Q5 | New codes `409 speaker_portal_activation_mode_mismatch` (with `details.expected`) and `409 speaker_portal_address_ambiguous`. | **Accept both.** The first is reached only by a live-token holder, after verification, and writes nothing; the second is parent §4.5 item 4's "Connector sees …" message. |
+| # | Question | Ruling | Where it lands |
+|---|---|---|---|
+| Q1 | Which existing logins may existing-login mode bind? | **Owner: Event Host logins only.** A holder with any active `admin`, `coordinator` or `student` membership is refused: generic `400 speaker_portal_invitation_invalid` at activation, `409 speaker_portal_address_is_staff_login` at invite. | §4.2 step 10, §4.3, §7, §10 C5 |
+| Q2 | Where do `unbound_at` / `unbound_by_user_id` go? | **Folded into `0039`** (sent to the T6b-1 implementer; `0039` is pushed, not on `main`). No `0041` from this track: `0041` is T4's. | §0 start gate, §2, §4.4 |
+| Q3 | Does a new-login unbind also delete the contact account's credential and end its sessions? | **Yes.** | §4.4 step 4 |
+| Q4 | The seed finds its address already held by a different login. | **Add the seed's roles to that login, never change its password, report on stderr.** | §3.4 |
+| Q5 | New codes `409 speaker_portal_activation_mode_mismatch` (with `details.expected`) and `409 speaker_portal_address_ambiguous`. | **Both accepted.** | §4.1, §4.3, §7 |
 
 ## 12. Risks
 
@@ -505,4 +499,4 @@ Before each push: `$VENV/bin/ruff format` and `ruff check` on touched Python and
 
 ---
 
-**Next action (under two minutes):** ask the orchestrator to rule on Q1 and Q2, the two that change activation and `0039`.
+**Next action (under two minutes):** check that `0039` on `origin/feat/b26-t6b-1` carries `unbound_at` and `unbound_by_user_id`.
