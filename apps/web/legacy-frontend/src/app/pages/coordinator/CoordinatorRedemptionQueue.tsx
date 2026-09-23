@@ -84,17 +84,21 @@ export function CoordinatorRedemptionQueue() {
 
   const queue = useRedemptionQueue(unitId);
 
-  // After a decision the row leaves this status on the re-read, and the
+  // After a decision the row can leave this status on the re-read, and the
   // button that had focus with it. Focus moves to the sentence that says what
-  // happened, so a keyboard user reads the result and continues from the
+  // happened — the live region on success, the alert on a conflict or
+  // refusal — so a keyboard user reads the result and continues from the
   // top of the list rather than from `<body>`.
   const statusRef = useRef<HTMLParagraphElement>(null);
-  const decidedSentence = queue.outcome?.kind === "decided" ? queue.outcome.sentence : null;
+  const alertRef = useRef<HTMLParagraphElement>(null);
+  const outcome = queue.outcome;
+  const decidedSentence = outcome?.kind === "decided" ? outcome.sentence : null;
   useEffect(() => {
-    if (decidedSentence !== null && queue.busyId === null) {
-      statusRef.current?.focus();
+    if (outcome === null || queue.busyId !== null) {
+      return;
     }
-  }, [decidedSentence, queue.busyId]);
+    (outcome.kind === "decided" ? statusRef : alertRef).current?.focus();
+  }, [outcome, queue.busyId]);
 
   // `CoordinatorPortalLayout` renders `PortalGate` when no portal was granted,
   // so reaching here without a grant means the mapping is still resolving.
@@ -179,7 +183,12 @@ export function CoordinatorRedemptionQueue() {
       </p>
 
       {queue.outcome !== null && queue.outcome.kind !== "decided" ? (
-        <p role="alert" className={ALERT}>
+        <p
+          ref={alertRef}
+          tabIndex={-1}
+          role="alert"
+          className={`${ALERT} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2`}
+        >
           {queue.outcome.sentence}
         </p>
       ) : null}

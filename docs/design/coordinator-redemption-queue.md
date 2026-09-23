@@ -69,7 +69,7 @@ Actions by state (state machine `requested -> approved -> fulfilled | denied | e
 | State | Buttons | Accessible name |
 |---|---|---|
 | requested | Approve, Deny | "Approve {item}", "Deny {item}" |
-| approved | Mark fulfilled, Deny | "Mark {item} fulfilled", "Deny {item}" |
+| approved | Mark fulfilled | "Mark {item} fulfilled" (no Deny: the domain allows `approved -> fulfilled \| expired` only; corrected after the #205 review) |
 | fulfilled / denied / expired | none | sentence: "No further decision is possible." |
 
 Deny: first press swaps the two buttons for an inline confirm row
@@ -98,8 +98,9 @@ ever known, because only one status is fetched at a time.
 | 7 | Refused | 403 | server message verbatim (`role="alert"`); tabs stay usable | tabs |
 | 8 | Rate-limited | 429 | server message verbatim ("Rate limit exceeded … Retry in N seconds.") + "The queue is unchanged; try again after that." | tabs |
 | 9 | Truncated | `truncated: true` | "Showing the oldest {n} tickets; more exist at this status. Decide these to see the rest." | rows |
-| 10 | Decision in flight | POST pending | row's buttons `disabled`, label unchanged; `role="status"` "Recording your decision on {item}…" | other rows |
-| 11 | Decision conflict | 409 | "Someone already decided this ticket, or it can no longer make that move: {server message}" then re-read | tabs, refreshed rows |
+| 10 | Decision in flight | POST pending | every action button `disabled`, label unchanged; `role="status"` "Recording your decision on {item}…". A second press that lands before the re-render is refused by the hook's in-flight ref, so one decision posts once | tabs |
+| 11 | Decision conflict | 409 `invalid_redemption_transition` (or any other 409 code) | "Someone already decided this ticket, or it can no longer make that move: {server message} The queue has been re-read." | tabs, refreshed rows |
+| 11a | Balance short at fulfil | 409 `insufficient_balance` | "The student's balance no longer covers {item}, so it was not marked fulfilled and nothing was debited. The queue has been re-read." | tabs, refreshed rows |
 | 12 | Decision refused | 403/404 on POST | server message; re-read | |
 | 13 | Decision ok | 200 | live region: "{item} approved." / "… marked fulfilled." / "… denied."; list re-read | |
 | 14 | Network error | fetch throws | "The redemption queue could not be loaded and the server gave no reason. Check your connection and try again." + Retry button | Retry |
@@ -107,6 +108,11 @@ ever known, because only one status is fetched at a time.
 
 Rule from the sibling: after any decision, success or failure, the list is
 **re-read**; nothing is spliced locally.
+
+An outcome belongs to the tab it was decided on. Changing tab clears it, and a
+decision still in flight when the tab changes is not announced when it lands:
+the hook compares the tab at call time with the tab now on screen (a ref, not
+render state) and drops the sentence if they differ. The re-read still runs.
 
 ## 6. Accessibility checklist
 
@@ -120,6 +126,7 @@ Rule from the sibling: after any decision, success or failure, the list is
 - [ ] Focus visible (CPP Green ring, offset 2).
 - [ ] `min-h-11` touch targets, 8px gaps.
 - [ ] Deny confirm keeps focus inside the row (moves to Confirm deny; Keep returns to Deny).
+- [ ] After a decision, focus moves to its sentence once the re-read settles: the live region on success, the decision's `role="alert"` paragraph (`tabIndex={-1}`) on a 409/403/404, so it never falls to `<body>` when the row unmounts.
 - [ ] No horizontal scroll at 360px.
 - [ ] `motion-safe:transition-colors` only; no animation carries meaning.
 
@@ -214,6 +221,13 @@ is the returned length and can sit above the truncated notice (both are what
 the server said; neither claims to be the total); no pager (the cap is 200
 and the sibling's `PagedList` windows drawn rows only — a follow-up if the
 pilot shows queues that long).
+
+### Follow-ups (untracked until now; not fixed here)
+
+| # | Where | What |
+|---|---|---|
+| F1 | `apps/web/legacy-frontend/src/app/pages/coordinator/CoordinatorReviewQueue.tsx:278` | Prints `{grant.role}`, the raw stored key "coordinator", in the "Signed in as" line. Use `visibleRoleLabel()` as this page does. |
+| F2 | `services/api/smartmatch_api/routers/rewards.py:253` (`REDEMPTION_QUEUE_MAX_ROWS = 200`) | No pager past 200 rows: the page shows the truncated notice and "Decide these to see the rest." Add a cursor if pilot queues reach the cap. |
 
 Design-doc corrections from the pass: §3 Deny copy now matches the code
 ("No points are taken; points leave a balance only at fulfillment."), which

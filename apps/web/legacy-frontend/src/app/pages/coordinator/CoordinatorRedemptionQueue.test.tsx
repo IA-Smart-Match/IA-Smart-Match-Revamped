@@ -9,7 +9,7 @@
  * than trusting what it drew.
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CoordinatorRedemptionQueue } from "./CoordinatorRedemptionQueue";
@@ -27,6 +27,12 @@ vi.mock("../../hooks/useSession", () => ({
   }),
 }));
 
+// Mutable so one test can take the unit away; `vi.hoisted` because the mock
+// factory is hoisted above every other statement in this file.
+const portal = vi.hoisted(() => ({
+  unitId: "11111111-1111-4111-8111-111111111111" as string | null,
+}));
+
 vi.mock("../../hooks/usePortalAccess", () => ({
   usePortalAccess: () => ({
     status: "ready",
@@ -38,7 +44,7 @@ vi.mock("../../hooks/usePortalAccess", () => ({
           home_path: "/coordinator-portal",
           role: "coordinator",
           roles: ["coordinator"],
-          default_unit_id: UNIT,
+          default_unit_id: portal.unitId,
           org_unit_path: "/cba/finance",
         },
       ],
@@ -99,9 +105,9 @@ function queue(
   return { body: { unit_id: UNIT, status, redemptions, truncated } };
 }
 
-function renderPage() {
+function renderPage(staleTime = 0) {
   const client = new QueryClient({
-    defaultOptions: { queries: { retry: false, networkMode: "always" } },
+    defaultOptions: { queries: { retry: false, networkMode: "always", staleTime } },
   });
   return render(
     <QueryClientProvider client={client}>
@@ -116,6 +122,7 @@ function queueCalls(): string[] {
 
 beforeEach(() => {
   calls = [];
+  portal.unitId = UNIT;
 });
 
 afterEach(() => {
@@ -183,7 +190,9 @@ describe("<CoordinatorRedemptionQueue />", () => {
     fireEvent.click(screen.getByRole("button", { name: "Approved" }));
     await screen.findAllByText("Voucher");
     expect(screen.getAllByRole("button", { name: "Mark Voucher fulfilled" })).not.toHaveLength(0);
-    expect(screen.getAllByRole("button", { name: "Deny Voucher" })).not.toHaveLength(0);
+    // The state machine allows approved -> fulfilled | expired only; a Deny
+    // here could only ever answer 409.
+    expect(screen.queryByRole("button", { name: "Deny Voucher" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Approve Voucher" })).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Fulfilled" }));
@@ -219,6 +228,41 @@ describe("<CoordinatorRedemptionQueue />", () => {
     expect(post?.url).toBe(`/v1/units/${UNIT}/redemptions/r1/decision`);
     expect(JSON.parse(String(post?.init.body))).toEqual({ decision: "approved" });
     expect(screen.getByText("Gift Card approved.")).toBeDefined();
+  });
+
+  it("a decision re-reads every status tab, not only the one it was made on", async () => {
+    let decided = false;
+    stub({
+      [`GET ${QUEUE}?status=requested`]: () =>
+        decided ? queue("requested", []) : queue("requested", [ticket("r1", "Gift Card", "requested")]),
+      [`GET ${QUEUE}?status=approved`]: () =>
+        decided ? queue("approved", [ticket("r1", "Gift Card", "approved")]) : queue("approved", []),
+      [`POST /v1/units/${UNIT}/redemptions/r1/decision`]: () => {
+        decided = true;
+        return {
+          body: {
+            redemption_id: "r1",
+            item_id: "i1",
+            item_name: "Gift Card",
+            points_cost: 300,
+            state: "approved",
+          },
+        };
+      },
+    });
+    // The app's real staleTime: without invalidation the Approved tab's
+    // empty read would be served from cache as fresh.
+    renderPage(30_000);
+    await screen.findAllByText("Gift Card");
+    fireEvent.click(screen.getByRole("button", { name: "Approved" }));
+    await screen.findByText(/No approved tickets/);
+    fireEvent.click(screen.getByRole("button", { name: "Requested" }));
+    fireEvent.click((await screen.findAllByRole("button", { name: "Approve Gift Card" }))[0]);
+    await screen.findByText(/No tickets waiting/);
+
+    fireEvent.click(screen.getByRole("button", { name: "Approved" }));
+    expect(await screen.findAllByText("Gift Card")).not.toHaveLength(0);
+    expect(screen.queryByText(/No approved tickets/)).toBeNull();
   });
 
   it("Deny asks for an inline confirmation before posting", async () => {
@@ -398,5 +442,177 @@ describe("<CoordinatorRedemptionQueue />", () => {
     const times = document.querySelectorAll("time[datetime='2026-09-18T09:12:00Z']");
     expect(times.length).toBeGreaterThan(0);
     expect(within(times[0] as HTMLElement).getByText(/ago/)).toBeDefined();
+  });
+
+  it("Mark fulfilled posts {decision: fulfilled} and announces it", async () => {
+    let decided = false;
+    stub({
+      [`GET ${QUEUE}?status=requested`]: queue("requested", []),
+      [`GET ${QUEUE}?status=approved`]: () =>
+        decided ? queue("approved", []) : queue("approved", [ticket("a1", "Voucher", "approved")]),
+      [`POST /v1/units/${UNIT}/redemptions/a1/decision`]: () => {
+        decided = true;
+        return {
+          body: { redemption_id: "a1", item_id: "i1", item_name: "Voucher", points_cost: 300, state: "fulfilled" },
+        };
+      },
+    });
+    renderPage();
+    await screen.findByText(/No tickets waiting/);
+    fireEvent.click(screen.getByRole("button", { name: "Approved" }));
+    fireEvent.click((await screen.findAllByRole("button", { name: "Mark Voucher fulfilled" }))[0]);
+    await screen.findByText(/No approved tickets/);
+    const post = calls.find((c) => c.init.method === "POST");
+    expect(post?.url).toBe(`/v1/units/${UNIT}/redemptions/a1/decision`);
+    expect(JSON.parse(String(post?.init.body))).toEqual({ decision: "fulfilled" });
+    expect(screen.getByText("Voucher marked fulfilled.")).toBeDefined();
+  });
+
+  it("with no unit on the grant it says so and reads nothing", async () => {
+    portal.unitId = null;
+    stub({});
+    renderPage();
+    expect(
+      screen.getByText(
+        "The server has not assigned this account a unit, so there is no redemption queue to show.",
+      ),
+    ).toBeDefined();
+    // No loading sentence either: nothing is being loaded.
+    expect(screen.getByRole("status").textContent).toBe("");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(calls).toHaveLength(0);
+  });
+
+  it.each([
+    [403, "forbidden", "This account may not decide tickets in this unit."],
+    [404, "redemption_not_found", "No such redemption."],
+  ])(
+    "a %i on the decision is the server's sentence and the queue is re-read",
+    async (status, code, message) => {
+      stub({
+        [`GET ${QUEUE}?status=requested`]: queue("requested", [ticket("r1", "Gift Card", "requested")]),
+        [`POST /v1/units/${UNIT}/redemptions/r1/decision`]: { status, body: { error: { code, message } } },
+      });
+      renderPage();
+      fireEvent.click((await screen.findAllByRole("button", { name: "Approve Gift Card" }))[0]);
+      const alert = await screen.findByRole("alert");
+      expect(alert.textContent).toBe(message);
+      expect(alert.textContent).not.toMatch(/Someone already decided/);
+      await waitFor(() => expect(queueCalls().length).toBeGreaterThanOrEqual(2));
+    },
+  );
+
+  it("Keep returns focus to the Deny button", async () => {
+    stub({
+      [`GET ${QUEUE}?status=requested`]: queue("requested", [ticket("r1", "Gift Card", "requested")]),
+    });
+    renderPage();
+    fireEvent.click((await screen.findAllByRole("button", { name: "Deny Gift Card" }))[0]);
+    await waitFor(() =>
+      expect(document.activeElement?.getAttribute("aria-label")).toBe("Confirm deny Gift Card"),
+    );
+    fireEvent.click(screen.getAllByRole("button", { name: "Keep Gift Card" })[0]);
+    await waitFor(() =>
+      expect(document.activeElement?.getAttribute("aria-label")).toBe("Deny Gift Card"),
+    );
+  });
+
+  it("two presses in one tick post one decision", async () => {
+    stub({
+      [`GET ${QUEUE}?status=requested`]: queue("requested", [ticket("r1", "Gift Card", "requested")]),
+      [`POST /v1/units/${UNIT}/redemptions/r1/decision`]: {
+        body: { redemption_id: "r1", item_id: "i1", item_name: "Gift Card", points_cost: 300, state: "approved" },
+      },
+    });
+    renderPage();
+    const [card, row] = await screen.findAllByRole("button", { name: "Approve Gift Card" });
+    // Both presses land before React re-renders, so neither button is
+    // `disabled` yet: only the hook's own guard can refuse the second.
+    act(() => {
+      card.click();
+      row.click();
+    });
+    await screen.findByText("Gift Card approved.");
+    expect(calls.filter((c) => c.init.method === "POST")).toHaveLength(1);
+  });
+
+  it("a decision that lands after a tab change is not announced on the new tab", async () => {
+    let releasePost: () => void = () => undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string, init: RequestInit) => {
+        calls.push({ url, init });
+        if (init.method === "POST") {
+          return new Promise<Response>((resolve) => {
+            releasePost = () =>
+              resolve(
+                new Response(
+                  JSON.stringify({
+                    redemption_id: "r1",
+                    item_id: "i1",
+                    item_name: "Gift Card",
+                    points_cost: 300,
+                    state: "approved",
+                  }),
+                  { status: 200 },
+                ),
+              );
+          });
+        }
+        const status = new URL(url, "http://x").searchParams.get("status") ?? "requested";
+        const rows = status === "requested" ? [ticket("r1", "Gift Card", "requested")] : [];
+        return Promise.resolve(new Response(JSON.stringify(queue(status, rows).body), { status: 200 }));
+      }),
+    );
+    renderPage();
+    fireEvent.click((await screen.findAllByRole("button", { name: "Approve Gift Card" }))[0]);
+    await waitFor(() => expect(calls.some((c) => c.init.method === "POST")).toBe(true));
+    fireEvent.click(screen.getByRole("button", { name: "Approved" }));
+    await screen.findByText(/No approved tickets/);
+    await act(async () => {
+      releasePost();
+    });
+    await waitFor(() => expect(queueCalls().length).toBeGreaterThanOrEqual(3));
+    expect(screen.queryByText("Gift Card approved.")).toBeNull();
+    expect(screen.getByRole("status").textContent).not.toMatch(/approved\./);
+  });
+
+  it("a failed decision moves focus to its alert, not to <body>", async () => {
+    stub({
+      [`GET ${QUEUE}?status=requested`]: queue("requested", [ticket("r1", "Gift Card", "requested")]),
+      [`POST /v1/units/${UNIT}/redemptions/r1/decision`]: {
+        status: 409,
+        body: { error: { code: "invalid_redemption_transition", message: "cannot move denied -> approved" } },
+      },
+    });
+    renderPage();
+    fireEvent.click((await screen.findAllByRole("button", { name: "Approve Gift Card" }))[0]);
+    const alert = await screen.findByRole("alert");
+    await waitFor(() => expect(document.activeElement).toBe(alert));
+  });
+
+  it("a 409 insufficient_balance on fulfil says the balance no longer covers it", async () => {
+    stub({
+      [`GET ${QUEUE}?status=requested`]: queue("requested", []),
+      [`GET ${QUEUE}?status=approved`]: queue("approved", [ticket("a1", "Voucher", "approved")]),
+      [`POST /v1/units/${UNIT}/redemptions/a1/decision`]: {
+        status: 409,
+        body: {
+          error: {
+            code: "insufficient_balance",
+            message:
+              "This redemption can no longer be fulfilled: the balance behind it no longer covers the cost it was requested at.",
+          },
+        },
+      },
+    });
+    renderPage();
+    await screen.findByText(/No tickets waiting/);
+    fireEvent.click(screen.getByRole("button", { name: "Approved" }));
+    fireEvent.click((await screen.findAllByRole("button", { name: "Mark Voucher fulfilled" }))[0]);
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).not.toMatch(/Someone already decided/);
+    expect(alert.textContent).toMatch(/balance no longer covers Voucher/);
+    expect(alert.textContent).toMatch(/nothing was debited/);
   });
 });

@@ -19,7 +19,8 @@
  * show is `redemptions.length` of a **loaded** response — while the read is
  * pending there is no count, and the page renders none.
  */
-import { useCallback, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useCallback, useRef, useState } from "react";
 
 import {
   ApiRequestError,
@@ -29,6 +30,9 @@ import {
   type RedemptionQueueItem,
   type RedemptionQueueStatus,
 } from "../../lib/api";
+import { usePrincipalKey } from "@/app/components/PrincipalQueryProvider";
+import { scopedQueryKey } from "@/lib/queryClient";
+
 import { useScopedQuery } from "./useScopedQuery";
 
 /** What the last decision left behind, as a sentence the page announces. */
@@ -93,6 +97,21 @@ function describeLoadFailure(cause: unknown): QueueLoadFailure {
 }
 
 function describeDecisionFailure(cause: unknown, item: RedemptionQueueItem): DecisionOutcome {
+  // A 409 is not always a race. `insufficient_balance` (fulfil only) means
+  // the student's balance fell below the ticket's cost since it was
+  // requested; nobody else decided anything, and saying so would mislead.
+  if (
+    cause instanceof ApiRequestError &&
+    cause.status === 409 &&
+    cause.code === "insufficient_balance"
+  ) {
+    return {
+      kind: "conflict",
+      sentence:
+        `The student's balance no longer covers ${item.item_name}, so it was not marked ` +
+        `fulfilled and nothing was debited. The queue has been re-read.`,
+    };
+  }
   if (cause instanceof ApiRequestError && cause.status === 409) {
     return {
       kind: "conflict",
@@ -114,6 +133,12 @@ export function useRedemptionQueue(unitId: string | null): RedemptionQueueState 
   const [status, setStatusState] = useState<RedemptionQueueStatus>("requested");
   const [busyId, setBusyId] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<DecisionOutcome | null>(null);
+  // Set synchronously on entry, so a second press that lands before React
+  // has re-rendered the buttons `disabled` is refused here, not posted.
+  const inFlightRef = useRef(false);
+  // The tab on screen right now, readable from inside an in-flight `decide`
+  // without waiting for a re-render.
+  const statusRef = useRef<RedemptionQueueStatus>("requested");
 
   const listQuery = useScopedQuery({
     resource: "redemption-queue",
@@ -136,7 +161,23 @@ export function useRedemptionQueue(unitId: string | null): RedemptionQueueState 
     await refetch();
   }, [refetch]);
 
+  // A decision moves a ticket between tabs, so every tab's cached read for
+  // this unit is now wrong, not only the one on screen. Invalidating the
+  // unit's prefix refetches the active tab and marks the rest stale.
+  const queryClient = useQueryClient();
+  const principalKey = usePrincipalKey();
+  const invalidateUnit = useCallback(async () => {
+    if (principalKey === null) {
+      await refetch();
+      return;
+    }
+    await queryClient.invalidateQueries({
+      queryKey: scopedQueryKey(principalKey, "redemption-queue", unitId),
+    });
+  }, [principalKey, queryClient, refetch, unitId]);
+
   const setStatus = useCallback((next: RedemptionQueueStatus) => {
+    statusRef.current = next;
     setStatusState(next);
     // An outcome belongs to the tab it happened on; carrying it across would
     // announce a decision beside rows it never touched.
@@ -147,27 +188,38 @@ export function useRedemptionQueue(unitId: string | null): RedemptionQueueState 
     async (item: RedemptionQueueItem, decision: RedemptionDecision) => {
       // Unreachable while `redemptions` is null (no unit means no rows to
       // decide), but the guard is what keeps `/v1/units/null/...` impossible.
-      if (unitId === null) {
+      if (unitId === null || inFlightRef.current) {
         return;
       }
+      inFlightRef.current = true;
+      // The tab the decision was made on. If the coordinator leaves it
+      // before the answer lands, the outcome belongs to a tab no longer on
+      // screen, and announcing it beside other rows would be wrong.
+      const decidedOn = statusRef.current;
+      const announce = (next: DecisionOutcome) => {
+        if (statusRef.current === decidedOn) {
+          setOutcome(next);
+        }
+      };
       setBusyId(item.redemption_id);
       setOutcome(null);
       try {
         await decideRedemption(unitId, item.redemption_id, decision);
-        setOutcome({
+        announce({
           kind: "decided",
           sentence: `${item.item_name} ${PAST_TENSE[decision]}.`,
         });
       } catch (cause) {
-        setOutcome(describeDecisionFailure(cause, item));
+        announce(describeDecisionFailure(cause, item));
       } finally {
         // Re-read either way: on success the row has left this status; on a
         // 409 it already had, and the screen must stop showing it.
-        await reload();
+        await invalidateUnit();
+        inFlightRef.current = false;
         setBusyId(null);
       }
     },
-    [reload, unitId],
+    [invalidateUnit, unitId],
   );
 
   return {
