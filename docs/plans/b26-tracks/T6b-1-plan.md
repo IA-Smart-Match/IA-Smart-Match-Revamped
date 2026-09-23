@@ -98,6 +98,14 @@ Parent: `docs/plans/2026-09-22-b26-self-service-availability-plan.md` §1, §2, 
 - `ck_suppression_record_lifted`: `(lifted_at IS NULL) = (lifted_by_user_id IS NULL) AND (lifted_at IS NULL OR lifted_at >= suppressed_at)`
 - drop and recreate `ck_suppression_record_source`: `source IN ('unsubscribe_link','one_click','coordinator','bounce','complaint','speaker_portal')`
 
+**`cba_invitation`** (ruling C2 = b, from T6b-2): `ck_cba_invitation_response_channel` admits `'speaker_portal'`, and `ck_cba_invitation_response_actor` becomes `(response_channel IN ('connector_recorded', 'speaker_portal')) = (response_recorded_by_user_id IS NOT NULL)`, so a portal answer names its actor and `speaker_link` still has none. No T6b-1 route writes it; T6b-2's `POST /v1/me/invitations/{id}/response` does.
+
+**Added for T6b-3** (its plan §1.2 and §4.2; no T6b-1 code writes either):
+
+- `suppression_record`: `ck_suppression_record_lift_source`: `lifted_at IS NULL OR source IN ('speaker_portal','unsubscribe_link','one_click')`.
+- New table `contact_channel_speaker_choice`, exactly the T6b-3 §4.2 DDL: composite tenant FKs (RESTRICT) to `contact_channel`, `speaker_profile` and `user_account`; `uq_contact_channel_speaker_choice_sequence (tenant_id, contact_channel_id, sequence)`; CHECKs `_choice`, `_sequence`, `_lift`, `_lift_source`; `decided_at` with no default; the `0023` append-only trigger `contact_channel_speaker_choice_is_append_only`. In `_TENANT_SCOPED_TABLES` before `contact_channel_transition`.
+- The downgrade guard also refuses while any choice row or any `speaker_portal` answer exists, then drops the choice table first and restores the two `cba_invitation` CHECKs.
+
 That is 9 new CHECK keys for `test_check_constraints.py` (7 on the invitation table, 1 on the profile, 1 lifted CHECK), plus the new text of the recreated `ck_suppression_record_source`.
 
 **Downgrade (R7).** Its first statement is a guard, following `0019_redemption_durability.py:414-440`: `SELECT count(*) FROM speaker_portal_invitation WHERE accepted_at IS NOT NULL`. If the count is above 0, raise `RuntimeError`. The message names the count and says a downgrade would orphan `speaker` memberships and passwords set through activation, which have no FK back to this table. Only then, in reverse order:
