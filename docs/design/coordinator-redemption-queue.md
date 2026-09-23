@@ -222,6 +222,13 @@ the server said; neither claims to be the total); no pager (the cap is 200
 and the sibling's `PagedList` windows drawn rows only — a follow-up if the
 pilot shows queues that long).
 
+### Follow-ups (untracked until now; not fixed here)
+
+| # | Where | What |
+|---|---|---|
+| F1 | `apps/web/legacy-frontend/src/app/pages/coordinator/CoordinatorReviewQueue.tsx:278` | Prints `{grant.role}`, the raw stored key "coordinator", in the "Signed in as" line. Use `visibleRoleLabel()` as this page does. |
+| F2 | `services/api/smartmatch_api/routers/rewards.py:253` (`REDEMPTION_QUEUE_MAX_ROWS = 200`) | No pager past 200 rows: the page shows the truncated notice and "Decide these to see the rest." Add a cursor if pilot queues reach the cap. |
+
 Design-doc corrections from the pass: §3 Deny copy now matches the code
 ("No points are taken; points leave a balance only at fulfillment."), which
 avoids naming a student; §6 wording on the hidden card/table pair corrected.
