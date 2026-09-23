@@ -276,20 +276,20 @@ Accepted invitations and active logins are unaffected, because once the account 
 
 ### 4.4 Where the token never appears (each point has a test in §8)
 
-`outreach_draft.body` and `subject`; `GET /v1/units/{unit_id}/outreach/drafts`; `job.payload`; `outreach_send`; the `202` invite response; `GET …/portal-access`; the `/s` HTML; application logs; the uvicorn access log.
+`outreach_draft.body` and `subject`; `GET /v1/units/{unit_id}/outreach/drafts`; `job.payload`; `outreach_send`; the `202` invite response; `GET …/portal-access`; the `/s` HTML; application logs; the uvicorn access log (redacted for `/s/`, `/i/`, `/u/` and `/q/`, §4.5).
 
 ### 4.5 Access log (R4) — redact, keep the log
 
 **Decision: redact, do not disable.** `token_pages.install_access_log_redaction()` adds one `TokenPathRedactingFilter` to `logging.getLogger("uvicorn.access")`. It is idempotent: it checks for an existing instance. `main.py` calls it at import.
 
-- The filter rewrites the record's path argument (`record.args[2]`, uvicorn's `'%s - "%s %s HTTP/%s" %d'`) with `^/(s|i|u)/[^/?#]+` → `/\1/<redacted>`. `/speaker-portal` and `/settings` are untouched.
+- The filter rewrites the record's path argument (`record.args[2]`, uvicorn's `'%s - "%s %s HTTP/%s" %d'`) with `^/(s|i|u|q)/[^/?#]+` → `/\1/<redacted>`. `/q/{public_token}` is the feedback-QR route (`routers/manual_events.py:580`). `/speaker-portal` and `/settings` are untouched.
 - It returns `True`, so the line is still logged with its method, status and client.
 
 Why not `--no-access-log`:
 
 1. The API is started from three places: `Dockerfile.api:148`, `Makefile:384` and `scripts/reset_pilot_dataset.sh:391`. Each would need the flag, and a fourth launcher added later would leak silently.
 2. The access log is the only per-request trace in `./smartmatch.sh logs` (`vm-deploy.md:1005-1024`). Losing it for every route to protect three is the wrong trade.
-3. The redaction also closes the same leak for the `/i/` and `/u/` tokens that ship today.
+3. The redaction also closes the same leak for the `/i/`, `/u/` and `/q/` tokens that ship today.
 
 Order is safe: uvicorn configures logging in `Config.__init__`, before it imports the app, so a filter added at app import survives, including under `--reload`.
 
@@ -326,6 +326,7 @@ Lock order is **profile → invitation → address advisory lock**, the same as 
    - `speaker_profile.account_user_id IS NOT NULL`
    - `contact_channel.channel_kind <> 'email'`
    - `contact_channel.contact_state NOT IN ('consented', 'active_candidate')` (**R11**, `ACTIVATABLE_CHANNEL_STATES`)
+   - a `pilot_credential` row exists for `(tenant_id, professional_id)`: the contact account itself is already credentialed (round-2 gate). Nothing is written; the credential, `user_account.email` and memberships stay as they were.
 7. `hmac.compare_digest(token, derive_token(secret, invitation.id))`, else `400` (**R1**: a rotated secret lands here).
 8. `SELECT pg_advisory_xact_lock(hashtextextended('speaker-portal-email:' || lower(btrim(:address)), 0))`. This serializes two new-login activations for one address, and it is the only lock new-login needs; row locks on existing credentials are T6b-5.
 9. `other_credentialed_account_exists(address, excluding_user_id=professional_id)`: `user_account JOIN pilot_credential WHERE lower(btrim(user_account.email)) = lower(btrim(:address)) AND user_account.id <> :excluding`, across all tenants. A hit → `400` (boundary 2). Also `400` if the contact account is suspended.
@@ -405,7 +406,7 @@ Run one file at a time locally. CI runs `pytest tests/ -m "not e2e"` with Postgr
 | `tests/authz/test_policy_negatives.py` | authz | The 4 rule-8 tests (§3.4) |
 | `tests/authz/test_policy_matrix.py`, `tests/authz/test_route_roles.py` | authz | The §3.4 shape, the 77-cell Speaker column, the `excluded_roles` source check and declaration table, `test_a_speaker_membership_reaches_no_operation`, the 3 operations, 3 `UNAUTHENTICATED_ROUTES` rows, and the route-roles rows. `test_every_route_is_either_authenticated_or_declared_public` covers the 3 public routes. |
 | `tests/contract/test_metrics.py` | contract (DB) | `test_speaker_only_principal_is_refused_aggregates` (`/metrics` and `/speaker-pipeline`, 403), `test_host_with_speaker_role_still_reads_aggregates` |
-| `tests/unit/test_token_pages.py` | unit | `test_read_form_refuses_declared_and_actual_oversize`, `test_read_form_refuses_wrong_media_type_bad_utf8_and_too_many_fields`, `test_read_form_never_raises` (param: disconnect), `test_token_page_is_byte_stable_and_carries_the_headers`, `test_access_log_filter_redacts_s_i_u_tokens` (param: `/s/x`, `/i/x?y`, `/u/x`), `test_access_log_filter_leaves_other_paths` (`/speaker-portal`, `/settings`, `/v1/units/…`), `test_install_is_idempotent_and_attached_after_importing_main` |
+| `tests/unit/test_token_pages.py` | unit | `test_read_form_refuses_declared_and_actual_oversize`, `test_read_form_refuses_wrong_media_type_bad_utf8_and_too_many_fields`, `test_read_form_never_raises` (param: disconnect), `test_token_page_is_byte_stable_and_carries_the_headers`, `test_access_log_filter_redacts_s_i_u_q_tokens` (param: `/s/x`, `/i/x?y`, `/u/x`, `/q/x`), `test_access_log_filter_leaves_other_paths` (`/speaker-portal`, `/settings`, `/v1/units/…`), `test_install_is_idempotent_and_attached_after_importing_main` |
 | `tests/unit/test_speaker_portal_secret.py` | unit | `test_check_speaker_portal_startup_refuses_on_without_secret` (param: unset, empty, whitespace, 31 chars; the message does not quote the value); `test_check_speaker_portal_startup_returns_secret_when_on`; `test_check_speaker_portal_startup_is_none_when_off`; the same three for `check_worker_speaker_portal_startup`; `test_worker_settings_default_to_the_api_product_scope` (`DEFAULT_PRODUCT_SCOPE`); `test_env_example_documents_the_secret`; `test_compose_passes_the_secret_to_api_and_worker` |
 | `tests/contract/test_outreach.py` | contract (DB) | `test_generic_compose_refuses_a_system_only_template` (400 `template_not_composable`, no draft row), `test_generic_send_refuses_a_system_only_draft` (409 `outreach_draft_system_only`, no job) |
 | `tests/unit/test_outreach_send_speaker_portal.py` | unit (worker, fakes, fixed `clock`) | `test_worker_renders_the_activation_link_at_send_only`; `test_draft_body_is_unchanged_after_send`; `test_every_gate_refusal_is_terminal_and_sends_nothing` (param over the 10 §6.2 codes: the provider's `sent` stays empty, the send is `BLOCKED`, and the failure is a `PolicyFailure`); `test_other_templates_are_untouched`; `test_sentinel_in_another_template_is_inert`; `test_worker_and_api_derive_the_same_token` (one import, one label) |
@@ -436,7 +437,7 @@ It covers activation:
 - `test_activate_new_login_binds_and_issues_session`
 - `test_activated_speaker_sees_speaker_membership_in_me`
 - `test_activation_stores_the_trimmed_address_and_login_works` (R5)
-- `test_activate_refuses_every_bad_token_identically`, parameterised over: unknown, malformed, expired, accepted, revoked, profile already bound, address held by another credentialed account, address held with different case and surrounding whitespace (R5), contact account suspended, channel `rejected`, channel `stale`, channel `discovered` (R11), and rotated secret (R1). Every case gives the same status and bytes.
+- `test_activate_refuses_every_bad_token_identically`, parameterised over: unknown, malformed, expired, accepted, revoked, profile already bound, address held by another credentialed account, address held with different case and surrounding whitespace (R5), contact account suspended, contact account already credentialed (credential, email and memberships unchanged), channel `rejected`, channel `stale`, channel `discovered` (R11), and rotated secret (R1). Every case gives the same status and bytes.
 - `test_rotating_the_secret_invalidates_a_live_invitation` (derive under secret A, rebuild the app stub with secret B, get `400`)
 - `test_weak_password_is_422_for_any_token` (param: 11 chars, 257 chars, blank)
 - `test_activate_refuses_address_held_by_a_credentialed_account` (nothing written: email, credential, membership and invitation unchanged)
@@ -493,6 +494,7 @@ Each milestone is one commit: its tests are written first and run red locally (t
 | Tokens in logs | Low / High | Access-log redaction (§4.5), `hide_parameters=True` (`vm-deploy.md:1005`), no application log of the token. | Cloudflare edge logs are outside the repo. |
 | Fixture provider delivers nothing (boundary 5) | Certain / Low | Documented in the UI (no delivery claim), `vm-deploy.md` and this plan. `FixtureEmailProvider.sent` holds the rendered link in worker memory only, never persisted or logged. | Live provider (OQ-002) and reviewed copy, outside this track. |
 | Downgrade after activations | Low / High | The R7 guard raises before any DDL. | — |
+| Seed tool writes a credential out of band | Low / Medium | The address advisory lock (§5 step 8) serializes activations only. It does not cover the seed tool's out-of-band credential writes, which take no such lock. Step 6 refuses an already-credentialed contact account. | Residual: a seed run racing an activation for the same address can still leave two credentialed accounts. T6b-5's `find_or_add_role` closes it. |
 
 ## 12. Out of scope
 
