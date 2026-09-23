@@ -20,7 +20,7 @@
  * pending there is no count, and the page renders none.
  */
 import { useQueryClient } from "@tanstack/react-query";
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 
 import {
   ApiRequestError,
@@ -118,6 +118,9 @@ export function useRedemptionQueue(unitId: string | null): RedemptionQueueState 
   const [status, setStatusState] = useState<RedemptionQueueStatus>("requested");
   const [busyId, setBusyId] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<DecisionOutcome | null>(null);
+  // Set synchronously on entry, so a second press that lands before React
+  // has re-rendered the buttons `disabled` is refused here, not posted.
+  const inFlightRef = useRef(false);
 
   const listQuery = useScopedQuery({
     resource: "redemption-queue",
@@ -166,9 +169,10 @@ export function useRedemptionQueue(unitId: string | null): RedemptionQueueState 
     async (item: RedemptionQueueItem, decision: RedemptionDecision) => {
       // Unreachable while `redemptions` is null (no unit means no rows to
       // decide), but the guard is what keeps `/v1/units/null/...` impossible.
-      if (unitId === null) {
+      if (unitId === null || inFlightRef.current) {
         return;
       }
+      inFlightRef.current = true;
       setBusyId(item.redemption_id);
       setOutcome(null);
       try {
@@ -183,6 +187,7 @@ export function useRedemptionQueue(unitId: string | null): RedemptionQueueState 
         // Re-read either way: on success the row has left this status; on a
         // 409 it already had, and the screen must stop showing it.
         await invalidateUnit();
+        inFlightRef.current = false;
         setBusyId(null);
       }
     },

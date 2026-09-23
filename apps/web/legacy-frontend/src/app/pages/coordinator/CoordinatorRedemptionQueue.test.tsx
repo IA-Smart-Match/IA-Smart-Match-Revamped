@@ -9,7 +9,7 @@
  * than trusting what it drew.
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CoordinatorRedemptionQueue } from "./CoordinatorRedemptionQueue";
@@ -516,4 +516,24 @@ describe("<CoordinatorRedemptionQueue />", () => {
       expect(document.activeElement?.getAttribute("aria-label")).toBe("Deny Gift Card"),
     );
   });
+
+  it("two presses in one tick post one decision", async () => {
+    stub({
+      [`GET ${QUEUE}?status=requested`]: queue("requested", [ticket("r1", "Gift Card", "requested")]),
+      [`POST /v1/units/${UNIT}/redemptions/r1/decision`]: {
+        body: { redemption_id: "r1", item_id: "i1", item_name: "Gift Card", points_cost: 300, state: "approved" },
+      },
+    });
+    renderPage();
+    const [card, row] = await screen.findAllByRole("button", { name: "Approve Gift Card" });
+    // Both presses land before React re-renders, so neither button is
+    // `disabled` yet: only the hook's own guard can refuse the second.
+    act(() => {
+      card.click();
+      row.click();
+    });
+    await screen.findByText("Gift Card approved.");
+    expect(calls.filter((c) => c.init.method === "POST")).toHaveLength(1);
+  });
+
 });
