@@ -180,6 +180,7 @@ def test_verdict_maps_through_apply_availability_filter():
         "SYNTH-PRO-0001": (_stmt(), SPAN),
         "SYNTH-PRO-0002": (_stmt(paused=AS_OF), SPAN),
         "SYNTH-PRO-0003": (None, SPAN),
+        "SYNTH-PRO-0004": (_stmt(windows=(_w(EVENT_DAY, EVENT_DAY),)), SPAN),
     }
     evidence = {
         sid: availability_state_for_event(stmt, span, AS_OF).to_evidence(sid)
@@ -190,7 +191,9 @@ def test_verdict_maps_through_apply_availability_filter():
         EligibilityOutcome.ELIGIBLE,
         EligibilityOutcome.EXCLUDED,
         EligibilityOutcome.UNDETERMINED,
+        EligibilityOutcome.EXCLUDED,
     ]
+    assert evidence["SYNTH-PRO-0004"].reason is AvailabilityReason.WINDOW
 
 
 def test_capacity_does_not_affect_verdict():
@@ -396,6 +399,25 @@ def test_duplicate_window_invalid_reports_later_index():
     assert err.index == 3
 
 
+@pytest.mark.parametrize(
+    "bad",
+    [
+        _w(date(2026, 12, 1), date(2026, 12, 1) + timedelta(days=367)),
+        _w(date(2026, 12, 5), date(2026, 12, 4)),
+    ],
+    ids=["span-367", "inverted"],
+)
+def test_invalid_window_after_two_valid_reports_its_index(bad):
+    windows = (
+        _w(date(2026, 10, 1), date(2026, 10, 3)),
+        _w(date(2026, 11, 1), date(2026, 11, 2)),
+        bad,
+    )
+    err = _invalid(_stmt(windows=windows))
+    assert err.code is AvailabilityErrorCode.WINDOW_INVALID
+    assert err.index == 2
+
+
 def test_past_window_valid():
     validate_availability_statement(_stmt(windows=(_w(date(2025, 1, 1), date(2025, 1, 5)),)), TODAY)
 
@@ -467,6 +489,28 @@ def test_capacity_non_decimal_raises_type_error(value):
             invitations_paused_until=None,
             declared_capacity_hours_per_90_days=value,
         )
+
+
+def test_unavailable_must_be_a_tuple():
+    with pytest.raises(TypeError):
+        AvailabilityStatement(
+            invitations_paused_until=None,
+            declared_capacity_hours_per_90_days=None,
+            unavailable=[_w(EVENT_DAY, EVENT_DAY)],  # type: ignore[arg-type]
+        )
+
+
+@pytest.mark.parametrize(
+    ("starts", "ends"),
+    [
+        (datetime(2026, 10, 15, 9, 0), EVENT_DAY),
+        (EVENT_DAY, datetime(2026, 10, 16, 9, 0)),
+    ],
+    ids=["start-datetime", "end-datetime"],
+)
+def test_window_rejects_datetime(starts, ends):
+    with pytest.raises(TypeError):
+        UnavailableWindow(starts_on=starts, ends_on=ends)
 
 
 def test_capacity_none_and_pause_none_valid():

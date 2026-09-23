@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import itertools
+
 import pytest
 from smartmatch_domain.eligibility import (
     AVAILABILITY_STAGE_B_WEIGHT,
@@ -144,15 +146,23 @@ def test_evidence_reason_defaults_to_none():
     assert evidence.reason is None
 
 
-@pytest.mark.parametrize(
-    ("state", "reason"),
-    [
-        (AvailabilityState.AVAILABLE, AvailabilityReason.PAUSED),
-        (AvailabilityState.BLACKED_OUT, AvailabilityReason.CLEAR),
-        (AvailabilityState.UNKNOWN, AvailabilityReason.WINDOW),
-        (AvailabilityState.AVAILABLE, AvailabilityReason.NOT_STATED),
-    ],
+_LEGAL_STATE_REASON_PAIRS = frozenset(
+    {
+        (AvailabilityState.AVAILABLE, AvailabilityReason.CLEAR),
+        (AvailabilityState.BLACKED_OUT, AvailabilityReason.PAUSED),
+        (AvailabilityState.BLACKED_OUT, AvailabilityReason.WINDOW),
+        (AvailabilityState.UNKNOWN, AvailabilityReason.NOT_STATED),
+        (AvailabilityState.UNKNOWN, AvailabilityReason.EVENT_UNRESOLVED),
+    }
 )
+_ILLEGAL_STATE_REASON_PAIRS = [
+    pair
+    for pair in itertools.product(AvailabilityState, AvailabilityReason)
+    if pair not in _LEGAL_STATE_REASON_PAIRS
+]
+
+
+@pytest.mark.parametrize(("state", "reason"), _ILLEGAL_STATE_REASON_PAIRS)
 def test_evidence_rejects_mismatched_reason(state, reason):
     with pytest.raises(ValueError):
         AvailabilityEvidence("SYNTH-PRO-0001", state, reason)
