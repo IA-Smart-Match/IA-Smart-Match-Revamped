@@ -190,6 +190,7 @@ reports success.
 | **policy_neutral** | Scoring / explanation | `FactorState.POLICY_NEUTRAL` — the value came from a **stated policy** rather than from measurement, and it always names the policy it applied | `UNKNOWN`. *"We could not evaluate one of these" outranks "one of these came from a policy"* as a caveat, so `unknown` wins when both are present | `domain/explanation.py:166,252,321`; `domain/cba_topic_explanation.py:106,141` |
 | **measured** | Scoring / explanation | `FactorState.MEASURED` — from evidence. The member values match `FactorState` and `TopicEvidenceState` exactly, so a state crosses every boundary as the same string | An estimate | `domain/explanation.py:165` |
 | **eligibility evidence** | Outreach | The record of *why* this recipient was writable-to **at composition time**, attached to the draft | Permission to send now. Consent is checked again at send | `domain/eligibility.py`; e2e `test_18`, `test_21` |
+| **availability statement** | Matching (B26) | A speaker's own availability: an optional invitation pause, an optional declared capacity (hours per 90 days), and up to 20 inclusive unavailable-date windows. `availability_state_for_event` turns it plus an event's local date span into a state and a reason (`clear`, `paused`, `window`, `not_stated`, `event_unresolved`) for the Stage A availability gate | A score or a ranking input. Capacity never changes the verdict, and a missing statement is `unknown`, not `available` | `domain/speaker_availability.py`; `domain/eligibility.py` (`AvailabilityReason`) |
 
 ---
 
