@@ -32,7 +32,7 @@ const PRINCIPAL_B: MeResponse = {
 function grantFor(unitId: string, path: string, unitName: string): PortalDescriptor {
   return {
     portal: "volunteer",
-    display_name: "Event Host",
+    display_name: "Host portal (test)",
     home_path: "/volunteer-portal",
     role: "volunteer",
     roles: ["volunteer"],
@@ -97,7 +97,8 @@ afterEach(() => {
 describe("VolunteerProfile", () => {
   it("renders the host's own record: email, role, org unit and units", () => {
     renderPage();
-    expect(screen.getByText("host.alpha@example.test")).toBeTruthy();
+    // The card shows the email twice: as the display name (`h1`) and under "Signed in as".
+    expect(screen.getAllByText("host.alpha@example.test")).toHaveLength(2);
     expect(screen.getByText("Role assigned by the server")).toBeTruthy();
     expect(screen.getByText("Org unit")).toBeTruthy();
     expect(screen.getByText("Signed in as")).toBeTruthy();
@@ -158,7 +159,7 @@ describe("VolunteerProfile", () => {
 
   it("re-renders for a new principal without showing the old one", () => {
     const { rerender } = renderPage();
-    expect(screen.getByText("host.alpha@example.test")).toBeTruthy();
+    expect(screen.getAllByText("host.alpha@example.test").length).toBeGreaterThan(0);
     expect(screen.getByText(/Alpha Test Club/)).toBeTruthy();
 
     state.principal = PRINCIPAL_B;
@@ -169,9 +170,9 @@ describe("VolunteerProfile", () => {
       </MemoryRouter>,
     );
 
-    expect(screen.getByText("host.beta@example.test")).toBeTruthy();
+    expect(screen.getAllByText("host.beta@example.test").length).toBeGreaterThan(0);
     expect(screen.getByText(/Beta Test Club/)).toBeTruthy();
-    expect(screen.queryByText("host.alpha@example.test")).toBeNull();
+    expect(screen.queryAllByText("host.alpha@example.test")).toHaveLength(0);
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 });

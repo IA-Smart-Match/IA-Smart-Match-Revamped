@@ -142,8 +142,8 @@ PORTAL_SHELLS = (
 #: because they still render who the caller is and which unit they hold.
 #:
 #: Membership is every page that lives inside a portal shell — a mounted one
-#: or, for the demoted ``VolunteerConfirmedSpeaker``/``VolunteerAssignments``
-#: and the retired-address ``AIMatching`` (now the match-runs route's ``?run=``
+#: or, for the demoted ``VolunteerConfirmedSpeaker`` (``VolunteerAssignments``
+#: was deleted in B26 T7) and the retired-address ``AIMatching`` (now the match-runs route's ``?run=``
 #: detail state), a file that still carries the seam and must keep carrying it
 #: if it is ever mounted again. See :data:`PAGES_WITH_NO_LEGACY_PORTAL_ID` for
 #: the pages that need no legacy portal id at all, and
@@ -167,7 +167,6 @@ PORTAL_PAGES = (
     "app/pages/coordinator/CoordinatorSpeakerFeedback.tsx",
     "app/pages/coordinator/CoordinatorSpeakerRequests.tsx",
     "app/pages/volunteer/VolunteerHome.tsx",
-    "app/pages/volunteer/VolunteerAssignments.tsx",
     "app/pages/volunteer/VolunteerConfirmedSpeaker.tsx",
     "app/pages/volunteer/VolunteerMyRequests.tsx",
     "app/pages/volunteer/VolunteerSpeakerRequest.tsx",
