@@ -25,7 +25,7 @@ def test_invite_template_is_in_the_closed_registry() -> None:
 
 def test_invite_template_is_system_only() -> None:
     assert frozenset({INVITE_TEMPLATE_ID}) == SYSTEM_ONLY_TEMPLATES
-    assert SYSTEM_ONLY_TEMPLATES <= set(TEMPLATES)
+    assert set(TEMPLATES) >= SYSTEM_ONLY_TEMPLATES
 
 
 def test_composed_body_carries_the_sentinel_exactly_once_and_not_in_subject() -> None:
