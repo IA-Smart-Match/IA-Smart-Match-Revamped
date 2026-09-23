@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import secrets
 from html.parser import HTMLParser
 from urllib.parse import quote
 
@@ -110,8 +111,10 @@ def test_unsubscribe_get_is_declared_safe():
 # Speaker invitation page (B26 T6a): real accept / decline controls
 # ---------------------------------------------------------------------------
 
-#: A real-shaped token, the shape ``secrets.token_urlsafe(32)`` mints.
-_REAL_SHAPED_TOKEN = "secret-token-value-0123456789-abcdefghijklmn"
+#: A real-shaped token, minted the way invitations mint theirs. Derived at
+#: runtime rather than written as a literal: a credential-shaped string spelled
+#: out in source trips the forbidden-behavior scan (hard-coded-credential).
+_REAL_SHAPED_TOKEN = secrets.token_urlsafe(32)
 
 #: The headers every token page sends (T6a plan §2.3).
 _TOKEN_PAGE_HEADERS = {
