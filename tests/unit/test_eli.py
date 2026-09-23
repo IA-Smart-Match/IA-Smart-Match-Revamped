@@ -7,9 +7,11 @@ capacity, no modifiers.
 
 from __future__ import annotations
 
+import decimal
 from dataclasses import fields
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
+from zoneinfo import ZoneInfo
 
 import pytest
 from smartmatch_domain import eli
@@ -611,3 +613,78 @@ def test_prohibited_inputs_cannot_reach_the_computation():
             setattr(inputs, prohibited, "x")
         with pytest.raises((AttributeError, TypeError)):
             setattr(engagement, prohibited, "x")
+
+
+# PR #214 review fixes -------------------------------------------------------
+
+
+def _la_exact(start: datetime, end: datetime) -> Engagement:
+    return Engagement.from_event_time(
+        "pr-dst",
+        ExactTime(starts_at=start, time_zone="America/Los_Angeles", ends_at=end),
+        confirmed=True,
+        attended=False,
+        cancelled=False,
+    )
+
+
+def test_duration_is_elapsed_time_across_fall_back():
+    # 2026-11-01 in Los Angeles: 01:00-02:00 happens twice, so 00:00-04:00 is 5 h.
+    la = ZoneInfo("America/Los_Angeles")
+    engagement = _la_exact(
+        datetime(2026, 11, 1, 0, 0, tzinfo=la), datetime(2026, 11, 1, 4, 0, tzinfo=la)
+    )
+    assert engagement.duration == timedelta(hours=5)
+
+
+def test_duration_is_elapsed_time_across_spring_forward():
+    # 2026-03-08 in Los Angeles: 02:00-03:00 does not exist, so 00:00-04:00 is 3 h.
+    la = ZoneInfo("America/Los_Angeles")
+    engagement = _la_exact(
+        datetime(2026, 3, 8, 0, 0, tzinfo=la), datetime(2026, 3, 8, 4, 0, tzinfo=la)
+    )
+    assert engagement.duration == timedelta(hours=3)
+
+
+def test_compute_eli_does_not_mutate_any_decimal_context():
+    # No shared module-level Context may carry state between calls: a shared
+    # one accumulates sticky flags and is not safe across threads.
+    def _module_contexts() -> list[decimal.Context]:
+        return [v for v in vars(eli).values() if isinstance(v, decimal.Context)]
+
+    with decimal.localcontext() as ctx:
+        ctx.clear_flags()
+        prec = ctx.prec
+        result = _run(_eng(1, 1), capacity="3.0")  # inexact 1/3 quotient
+        assert ctx.prec == prec
+        assert not any(ctx.flags.values())
+    assert result.utilization == Decimal(1) / Decimal(3)
+    assert [c for c in _module_contexts() if any(c.flags.values())] == []
+
+
+def test_compute_eli_ignores_caller_context_precision():
+    with decimal.localcontext() as ctx:
+        ctx.prec = 3
+        result = _run(_eng(1, 1), capacity="3.0")
+    assert result.utilization == Decimal(1) / Decimal(3)
+
+
+def test_inputs_reject_datetime_as_of():
+    with pytest.raises(TypeError):
+        LoadInputs(
+            as_of=datetime(2026, 8, 17, tzinfo=UTC),
+            engagements=(),
+            declared_capacity_hours=Decimal("10.0"),
+        )
+
+
+def test_engagement_rejects_datetime_event_date():
+    with pytest.raises(TypeError):
+        _raw(event_date=datetime(2026, 8, 17, tzinfo=UTC))
+
+
+@pytest.mark.parametrize("flag", ["confirmed", "attended", "cancelled"])
+@pytest.mark.parametrize("bad", [1, 0, "yes", None])
+def test_engagement_flags_must_be_bool(flag: str, bad: object):
+    with pytest.raises(TypeError):
+        _raw(**{flag: bad})
