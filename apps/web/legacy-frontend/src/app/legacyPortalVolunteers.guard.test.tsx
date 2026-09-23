@@ -4,8 +4,9 @@
  *
  * The legacy backend behind that path is not part of this repository. The one
  * allowed occurrence is the label on the Host Home assignments panel, matched
- * by file and exact trimmed line content. The needle is built from parts so
- * this file never contains the literal it hunts for.
+ * by file and exact trimmed line content. The needle is built from parts, and
+ * no comment or test title spells it out, so this file never contains the
+ * literal it hunts for (the walk also skips this file by path).
  */
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
@@ -64,7 +65,7 @@ function scan(files: ReadonlyArray<SourceFile>): {
 }
 
 describe("legacy volunteer-portal guard", () => {
-  it("no portals/volunteers string under src/ outside the allowlist", () => {
+  it("no legacy volunteer-portal string under src/ outside the allowlist", () => {
     const files = readSources();
     const walked = new Set(files.map((f) => f.file));
     expect(files.length).toBeGreaterThan(50);

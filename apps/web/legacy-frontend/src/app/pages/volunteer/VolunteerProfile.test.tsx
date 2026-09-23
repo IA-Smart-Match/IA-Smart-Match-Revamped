@@ -11,6 +11,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { MeResponse, PortalDescriptor } from "@/lib/api";
 
+import type { PortalAccessState } from "../../hooks/usePortalAccess";
+
 import { VolunteerProfile } from "./VolunteerProfile";
 
 const PRINCIPAL_A: MeResponse = {
@@ -57,7 +59,7 @@ const GRANT_B = grantFor("8e7d6c5b-4a39-4281-9f0e-1d2c3b4a5968", "/cba/beta-club
 // `vi.hoisted` because the mock factories are hoisted above everything else.
 const state = vi.hoisted(() => ({
   principal: null as unknown,
-  access: null as unknown,
+  access: { status: "loading" } as PortalAccessState,
 }));
 
 vi.mock("../../hooks/useSession", () => ({
@@ -68,8 +70,8 @@ vi.mock("../../hooks/usePortalAccess", () => ({
   usePortalAccess: () => state.access,
 }));
 
-function ready(grant: PortalDescriptor) {
-  return { status: "ready", mapping: { portals: [grant] } };
+function ready(grant: PortalDescriptor): PortalAccessState {
+  return { status: "ready", mapping: { portals: [grant], default_portal: "volunteer" } };
 }
 
 const fetchSpy = vi.fn(() => Promise.reject(new Error("VolunteerProfile must not fetch")));
@@ -141,7 +143,9 @@ describe("VolunteerProfile", () => {
     expect(document.activeElement).toBe(link);
     expect(link.className).toContain("focus-visible:ring-2");
     expect(link.className).toContain("focus-visible:ring-ring");
+    expect(link.className).toContain("focus-visible:ring-offset-2");
     expect(link.className).toContain("focus-visible:ring-offset-background");
+    expect(link.className).toContain("focus-visible:outline-none");
   });
 
   it("does not render the legacy volunteer-profile panel", () => {
@@ -152,6 +156,13 @@ describe("VolunteerProfile", () => {
 
   it("renders nothing and makes no request when the grant is not resolved", () => {
     state.access = { status: "loading" };
+    const { container } = renderPage();
+    expect(container.innerHTML).toBe("");
+    expect(fetchSpy).toHaveBeenCalledTimes(0);
+  });
+
+  it("renders nothing and makes no request when the server granted no volunteer portal", () => {
+    state.access = { status: "ready", mapping: { portals: [], default_portal: null } };
     const { container } = renderPage();
     expect(container.innerHTML).toBe("");
     expect(fetchSpy).toHaveBeenCalledTimes(0);
