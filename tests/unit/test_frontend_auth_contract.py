@@ -143,10 +143,11 @@ PORTAL_SHELLS = (
 #:
 #: Membership is every page that lives inside a portal shell — a mounted one
 #: or, for the demoted ``VolunteerConfirmedSpeaker`` (``VolunteerAssignments``
-#: was deleted in B26 T7) and the retired-address ``AIMatching`` (now the match-runs route's ``?run=``
-#: detail state), a file that still carries the seam and must keep carrying it
-#: if it is ever mounted again. See :data:`PAGES_WITH_NO_LEGACY_PORTAL_ID` for
-#: the pages that need no legacy portal id at all, and
+#: was deleted in B26 T7) and the retired-address ``AIMatching`` (now the
+#: match-runs route's ``?run=`` detail state), a file that still carries the
+#: seam and must keep carrying it if it is ever mounted again. See
+#: :data:`PAGES_WITH_NO_LEGACY_PORTAL_ID` for the pages that need no legacy
+#: portal id at all, and
 #: :func:`test_no_portal_page_reads_identity_locally` for the assertion that
 #: holds over every page either way.
 PORTAL_PAGES = (
