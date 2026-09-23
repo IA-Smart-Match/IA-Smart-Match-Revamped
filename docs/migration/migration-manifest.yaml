@@ -228,7 +228,8 @@ entries:
       and the claim of 20 was never right at any commit. 654e89f added four.
 
       2.0.0 note, 23 Sep 2026: tests/unit/test_eli.py rewritten for formula
-      2.0.0 — 72 cases. Measured with
+      2.0.0 — 90 cases (72 at the green commit, +18 for the PR #214 review
+      fixes). Measured with
       `pytest tests/unit/test_eli.py --collect-only -q`, not estimated.
     security_review: >-
       The closed input structure (LoadInputs) means a prohibited **field** —
