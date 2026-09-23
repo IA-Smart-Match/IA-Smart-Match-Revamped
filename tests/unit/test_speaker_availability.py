@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta, timezone
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
@@ -214,7 +214,7 @@ def test_date_only_event_yields_on_date():
 
 
 def test_exact_event_without_end_yields_local_start_date():
-    t = ExactTime(datetime(2026, 9, 15, 6, 30, tzinfo=timezone.utc), LA)
+    t = ExactTime(datetime(2026, 9, 15, 6, 30, tzinfo=UTC), LA)
     assert event_local_span(t) == (date(2026, 9, 14), date(2026, 9, 14))
 
 
@@ -242,7 +242,7 @@ def test_exact_event_ending_at_skipped_midnight_excludes_next_day():
     t = ExactTime(
         datetime(2026, 9, 5, 23, 0, tzinfo=timezone(timedelta(hours=-4))),
         "America/Santiago",
-        ends_at=datetime(2026, 9, 6, 4, 0, tzinfo=timezone.utc),
+        ends_at=datetime(2026, 9, 6, 4, 0, tzinfo=UTC),
     )
     assert event_local_span(t) == (date(2026, 9, 5), date(2026, 9, 5))
 
@@ -288,9 +288,9 @@ def test_multi_day_event_uses_event_zone_not_utc():
     tokyo = "Asia/Tokyo"
     # 2026-10-14T16:00Z is 2026-10-15 01:00 in Tokyo; ends 2026-10-16 10:00 Tokyo.
     t = ExactTime(
-        datetime(2026, 10, 14, 16, 0, tzinfo=timezone.utc),
+        datetime(2026, 10, 14, 16, 0, tzinfo=UTC),
         tokyo,
-        ends_at=datetime(2026, 10, 16, 1, 0, tzinfo=timezone.utc),
+        ends_at=datetime(2026, 10, 16, 1, 0, tzinfo=UTC),
     )
     assert event_local_span(t) == (date(2026, 10, 15), date(2026, 10, 16))
 
@@ -340,9 +340,7 @@ def test_single_day_window_valid():
 
 def test_window_span_366_valid():
     start = date(2026, 10, 1)
-    validate_availability_statement(
-        _stmt(windows=(_w(start, start + timedelta(days=366)),)), TODAY
-    )
+    validate_availability_statement(_stmt(windows=(_w(start, start + timedelta(days=366)),)), TODAY)
 
 
 def test_window_span_367_invalid():
@@ -399,9 +397,7 @@ def test_duplicate_window_invalid_reports_later_index():
 
 
 def test_past_window_valid():
-    validate_availability_statement(
-        _stmt(windows=(_w(date(2025, 1, 1), date(2025, 1, 5)),)), TODAY
-    )
+    validate_availability_statement(_stmt(windows=(_w(date(2025, 1, 1), date(2025, 1, 5)),)), TODAY)
 
 
 def test_pause_today_valid():
@@ -486,7 +482,7 @@ def test_first_failure_order_capacity_before_pause_before_windows():
     pause_and_windows = _stmt(paused=bad_pause, windows=bad_windows)
     assert _invalid(pause_and_windows).code is AvailabilityErrorCode.PAUSE_INVALID
     too_many_and_bad_window = _stmt(
-        windows=(_w(date(2026, 10, 5), date(2026, 10, 4)),) + _day_windows(20)
+        windows=(_w(date(2026, 10, 5), date(2026, 10, 4)), *_day_windows(20))
     )
     assert _invalid(too_many_and_bad_window).code is AvailabilityErrorCode.TOO_MANY_WINDOWS
 
@@ -494,9 +490,7 @@ def test_first_failure_order_capacity_before_pause_before_windows():
 def test_error_code_values_match_api_codes():
     assert AvailabilityErrorCode.CAPACITY_INVALID.value == "speaker_availability_capacity_invalid"
     assert AvailabilityErrorCode.PAUSE_INVALID.value == "speaker_availability_pause_invalid"
-    assert (
-        AvailabilityErrorCode.TOO_MANY_WINDOWS.value == "speaker_availability_too_many_windows"
-    )
+    assert AvailabilityErrorCode.TOO_MANY_WINDOWS.value == "speaker_availability_too_many_windows"
     assert AvailabilityErrorCode.WINDOW_INVALID.value == "speaker_availability_window_invalid"
     assert len(AvailabilityErrorCode) == 4
 
