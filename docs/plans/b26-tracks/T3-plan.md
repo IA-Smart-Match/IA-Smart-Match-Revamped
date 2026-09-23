@@ -74,6 +74,7 @@ Helpers (all pure, unit-tested without a DB):
 - `availability_error(exc: AvailabilityStatementInvalid) -> ApiError` — table below.
 - `stale_error() -> ApiError` — 409, fixed message, no `details`.
 - `availability_response(professional_id: uuid.UUID, stored: StoredSpeakerAvailability | None) -> SpeakerAvailabilityResponse`.
+- `write_statement(session, repository, *, tenant_id, professional_id, statement, today, source, actor_user_id, expected_version, now) -> StoredSpeakerAvailability` — **plan-gate addition 2.** Runs `validate_availability_statement(statement, today)` and only then `repository.upsert(...)`; maps `AvailabilityStatementInvalid` → `availability_error` and `StaleSpeakerAvailabilityError` → `stale_error`. The router calls **only** this for the write (§3 steps 7–8), so no caller can upsert an unvalidated statement. T6b-2's `/v1/me/availability` reuses it with `source=SPEAKER`.
 
 Not stated → `stated=false`, `version`/pause/capacity/`updated_source`/`updated_at` null, `unavailable=[]`. `updated_by_user_id` and window `created_by_user_id` are **not** returned (§4.1 does not list them). T8 later adds `load`, an additive field.
 
@@ -119,8 +120,9 @@ Handler order (ADR-0015 quota first; `cba_contact_channels.py:486-493` shape):
 6. `now = utc_now()`; `today = now.date()` — **the UTC date (C1)**. `statement = statement_from_request(body, stored, today)`:
    - capacity `Decimal(str(v))` or `None`; windows `tuple(UnavailableWindow(w.starts_on, w.ends_on) for w in body.unavailable)`, request order;
    - **expired-pause drop rule** (`T1-plan.md:125`): if `body.invitations_paused_until < today` **and** `stored` is not `None` **and** it equals `stored.statement.invitations_paused_until` → use `None`. Any other past date, or a past date with no row → kept, so the validator returns `pause_invalid`.
+7–8. `result = write_statement(session, _availability, …)` (§2, plan-gate addition 2): validates, then upserts. Inside it:
 7. `validate_availability_statement(statement, today)`; `except AvailabilityStatementInvalid as exc: raise availability_error(exc) from exc`.
-8. `result = _availability.upsert(session, tenant_id=principal.tenant_id, professional_id=professional_id, statement=statement, source=AvailabilitySource.CONNECTOR, actor_user_id=principal.user_id, expected_version=body.expected_version, now=now)`. `except StaleSpeakerAvailabilityError` (lost race after step 5; T2 re-checks under `SELECT … FOR UPDATE`) → `raise stale_error() from exc`.
+8. `result = repository.upsert(session, tenant_id=principal.tenant_id, professional_id=professional_id, statement=statement, source=AvailabilitySource.CONNECTOR, actor_user_id=principal.user_id, expected_version=body.expected_version, now=now)`. `except StaleSpeakerAvailabilityError` (lost race after step 5; T2 re-checks under `SELECT … FOR UPDATE`) → `raise stale_error() from exc`.
 9. `session.commit()` (`get_session` rolls back on exit, `dependencies.py:63-77`; precedent `matching_weights.py:447`); return `availability_response(professional_id, result)`.
 
 Semantics: `updated_source = 'connector'` on every accepted PATCH; new windows get `created_source = 'connector'`; unchanged `(starts_on, ends_on)` keep their original source (T2 `_replace_windows`). **Full replace:** an omitted window is deleted; `null` pause/capacity clears; `unavailable: []` keeps `stated: true` (said free). The version bumps on every accepted PATCH, even an identical one (T2 §3 step 6). Past windows are accepted. GET does not hide a past pause; T5 renders it as expired.
@@ -193,6 +195,13 @@ CI: python job `pytest tests/ -m "not e2e"` with Postgres (`verify.yml:51-53`, `
 9. `test_21_windows_too_many_20_ok` · `test_window_invalid_reports_request_index` (order, span 367, horizon, duplicate → later index)
 10. `test_unknown_professional_404` · `test_sibling_unit_profile_404_and_nothing_written` · `test_other_tenant_unit_404_unit_not_found` (GET and PATCH each)
 11. `test_volunteer_and_student_get_403` (HTTP smoke; the matrix owns the rectangle) · `test_invalid_body_is_invalid_request`
+
+**Plan-gate additions (approved, orchestrator):**
+- A1 contract `test_domain_invalid_writes_nothing`: seed version 1, PATCH capacity `0` → 422, GET still returns version 1 with the old data.
+- A2 unit `test_write_statement_never_upserts_when_the_validator_raises` (validator patched to raise; a fake repository records calls: none) · `test_write_statement_validates_then_upserts` · `test_write_statement_maps_stale_to_409`.
+- A3 contract `test_quota_is_charged_before_the_404` : `SPEAKER_CONTACT_WRITE_RATE_LIMIT` patched on the router module to 1 request; a 404 PATCH (unknown professional) then a valid PATCH → 429 `rate_limited`.
+- A4 contract `test_capacity_invalid` also parametrized with `NaN` and `Infinity` (raw JSON body) → `capacity_invalid`.
+- A5 contract `test_no_bearer_is_401`; unit `test_router_is_not_mounted_when_speaker_contacts_are_off` (`routers_for(Settings(product_scope="class_exercise"))` excludes the router; the generic `test_api_composition_reads_the_same_policy` covers it by construction once it is in `CAPABILITY_SCOPED_ROUTERS`).
 
 **Authz** — `test_policy_matrix.py` rows (§4) run through every existing shape test. `test_route_roles.py`: `test_speaker_contact_roles_matches_the_live_constant`; exact-set test gains both rows.
 
