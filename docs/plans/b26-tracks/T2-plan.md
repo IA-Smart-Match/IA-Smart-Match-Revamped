@@ -11,14 +11,14 @@ Depends on T1 (`origin/feat/b26-t1:docs/plans/b26-tracks/T1-plan.md` §2): `Avai
 | Path | Change |
 |---|---|
 | `db/migrations/versions/0038_speaker_availability.py` | **New.** `revision = "0038_speaker_availability"`, `down_revision = "0037_exercise_tables"` (`0037_exercise_tables.py:98`). Hand-written, no autogenerate (ADR-0004). No transaction code: `env.py` runs one transaction per revision (ADR-0009). |
-| `python/smartmatch_persistence/smartmatch_persistence/schema.py` | Mirror both tables after `speaker_profile` (`:2124`); add both to `__all__` (`:25-84`). Same constraint names as the migration. |
+| `python/smartmatch_persistence/smartmatch_persistence/schema.py` | Mirror both tables, inserted after `speaker_profile` ends (after `:2342`); add both to `__all__` (`:25-84`). Same constraint names as the migration. Mirror the index with `sa.Index("ix_speaker_availability_window_ends", "tenant_id", "professional_id", "ends_on")` inside the window table (precedent `sa.Index` at `:1331`, `:1393`). |
 | `python/smartmatch_persistence/smartmatch_persistence/speaker_availability.py` | **New.** Repository (§3). Pattern: `match_weight_settings.py:195-311` (`SELECT … FOR UPDATE`, version compare, insert-or-update, session per call, never commits). |
 | `tests/integration/test_speaker_availability_migration.py` | **New.** Shape, upgrade/downgrade, every CHECK, FKs, CASCADE (§4.1). |
 | `tests/integration/test_speaker_availability_repository.py` | **New.** Repository contract (§4.2). Precedent split: `test_cba_meeting_migration.py` + `test_cba_meetings_repository.py`. |
 | `tests/integration/test_check_constraints.py` | Add 6 keys to `CHECK_CONSTRAINT_DEFINITIONS` (`:76`) and `BEHAVIOURAL_COVERAGE` (`:766`) under a "migration 0038" block; `:2826`/`:2852` fail otherwise. |
-| `tests/integration/conftest.py` | `_TENANT_SCOPED_TABLES` (`:101`): add `speaker_availability_window`, `speaker_availability` above `speaker_profile` (`:111`). |
-| Head pins, 4 files | `HEAD_REVISION`/`_HEAD_REVISION = "0037_exercise_tables"` → `"0038_speaker_availability"`: `test_cba_contact_schema.py:150`, `test_cba_weight_settings_persistence.py:189`, `test_event_filed_by_migration.py:78`, `test_host_organization_migration.py:84` (+ their "chains to" comments). |
-| `README.md:35` | "37 Alembic revisions, head `0037_exercise_tables`" → 38 / `0038_speaker_availability`; recount `:36`'s "115 integration" (drift tests are parametrized per mirrored table). |
+| `tests/integration/conftest.py` | `_TENANT_SCOPED_TABLES` (`:101`): add `speaker_availability_window`, `speaker_availability` above `speaker_profile` (`:211`). |
+| Head pins, 5 files + 1 chain tuple | `HEAD_REVISION`/`_HEAD_REVISION = "0037_exercise_tables"` → `"0038_speaker_availability"`: `test_cba_contact_schema.py:150`, `test_cba_weight_settings_persistence.py:189`, `test_event_filed_by_migration.py:78`, `test_host_organization_migration.py:84` (+ their "chains to" comments). **Plus** `test_exercise_schema_migration.py:50`: add `HEAD_REVISION = "0038_speaker_availability"` beside `REVISION` and assert against it at `:128`, `:215`, `:233`, `:256`, `:335`; leave `:330` (`REVISION_BEFORE`) alone. **Chain tuple:** `test_cba_contact_schema.py:155` — add `"0037_exercise_tables"` as the first element of `_REVISIONS_BETWEEN_HEAD_AND_THIS_CARD`. |
+| `README.md:35` | "37 Alembic revisions, head `0037_exercise_tables`" → 38 / `0038_speaker_availability`; recount `:36`'s "115 integration" from `$VENV/bin/python -m pytest --collect-only -q tests/integration/test_schema_matches_migration.py | tail -1` after the mirror lands. |
 | `docs/operations/supabase-setup.md:162` | "must land at `0037_exercise_tables`" → `0038_speaker_availability`. (`supabase-maintenance.md:98` already says "or later" — leave.) |
 | `docs/operations/exercise-hosting.md:706-716` | Step 2 only (C6): heading "Confirm the migration head is `0038_speaker_availability`", both `grep` commands on `0038_speaker_availability`, pass/fail text ("past `0038`"), head citation → `0038_speaker_availability.py` `down_revision = "0037_exercise_tables"` line. The owner has uncommitted edits to this file in the parent checkout: touch no other line. |
 
@@ -65,12 +65,12 @@ Drift test needs no edit: `test_schema_matches_migration.py:51` parametrizes ove
 - `ck_speaker_availability_window_span`: `ends_on - starts_on <= 366` (date − date is integer days; matches T1 `WINDOW_MAX_SPAN_DAYS`).
 - `ck_speaker_availability_window_source`: `created_source IN ('speaker', 'connector')`.
 - `uq_speaker_availability_window_range UNIQUE (tenant_id, professional_id, starts_on, ends_on)` — a constraint, not a unique index, so `test_unique_constraints_match` sees it.
-- Index `ix_speaker_availability_window_ends (tenant_id, professional_id, ends_on)` — not mirrored (`schema.py` declares no indexes; drift test skips them).
+- Index `ix_speaker_availability_window_ends (tenant_id, professional_id, ends_on)` — mirrored with `sa.Index` in `schema.py`. The drift test does not compare indexes (its docstring at `test_schema_matches_migration.py:25` says `schema.py` declares none, which is stale: `schema.py:1331`, `:1393` do), so migration test 20 asserts it directly.
 
 **Upgrade order:** create `speaker_availability`, then `speaker_availability_window`, then the index. No data written.
 **Downgrade:** `op.drop_index("ix_speaker_availability_window_ends")`, `op.drop_table("speaker_availability_window")`, `op.drop_table("speaker_availability")`. Nothing else touched.
 
-`test_check_constraints.py` pins: paste the **actual** `pg_get_constraintdef` output after the first upgrade — do not hand-predict (PostgreSQL renders `IN` as `= ANY (ARRAY[…'::text])` and numeric literals as `(0)::numeric`).
+`test_check_constraints.py` pins (milestone 2): paste the **actual** `pg_get_constraintdef` output after the first upgrade — from CI's failing-test output if there is no local Postgres. Do not hand-predict (PostgreSQL renders `IN` as `= ANY (ARRAY[…'::text])` and numeric literals as `(0)::numeric`).
 
 ## 3. Repository — `smartmatch_persistence/speaker_availability.py`
 
@@ -115,6 +115,7 @@ class SpeakerAvailabilityRepository:
   4. Row exists: `UPDATE … SET version = version + 1, updated_source, updated_by_user_id, updated_at, pause, capacity`.
   5. **Window replace, keyed by `(starts_on, ends_on)`**: delete stored ranges absent from `statement.unavailable`; insert new ranges with `created_source = source`, `created_by_user_id = actor_user_id`; keep unchanged ranges and their original provenance.
   6. Version bumps on every accepted call, even an identical one (matches `match_weight_settings.py:257`).
+  7. **Return value:** re-run the single-query read (`get`) in the same transaction and return its result — no hand-assembled record.
 - **Does not validate.** Caller runs T1 `validate_availability_statement` first (limits, horizon, duplicates → 422). A duplicate range reaching the DB raises `IntegrityError` on `uq_speaker_availability_window_range` — a caller bug.
 - Unknown or other-tenant `professional_id` → FK `IntegrityError`. T3 checks the profile's unit first and returns 404.
 - Capacity crosses as `Decimal` (`sa.Numeric(5, 1)` default `asdecimal=True`).
@@ -165,17 +166,17 @@ Plus the 6 `test_check_constraints.py` entries pointing `BEHAVIOURAL_COVERAGE` a
 10b. `test_get_many_keeps_a_row_with_zero_windows` (LEFT JOIN, `unavailable == ()`).
 11. `test_get_many_empty_input_issues_no_query`.
 12. `test_get_many_never_returns_other_tenant_rows`.
-13. `test_concurrent_first_writes_one_wins_other_stale` (two sessions).
+13. `test_concurrent_first_writes_one_wins_other_stale` — test-15 hook pattern. B: `conn = session_b.connection()` first, then `event.listen(conn, "after_cursor_execute", hook)`. The hook fires once, after B's `SELECT … FOR UPDATE` (no row yet), sets `counter += 1`, and runs A's full first write (`upsert(expected_version=None)`) plus commit on a separate `engine.connect()`. B then continues its `upsert(expected_version=None)`. Assert: B raises `StaleSpeakerAvailabilityError`, not `IntegrityError`; `session_b.execute(select(1))` still succeeds (transaction usable); the stored row is A's at `version == 1`; `counter == 1`.
 14. `test_repository_never_commits` (rollback leaves no row).
-15. `test_read_is_one_committed_state_under_concurrent_write` — regression for the two-query race. Row at v1 with windows A. An `after_cursor_execute` hook on the reader's connection, firing once after the reader's **first** statement, commits v2 (different pause, capacity, windows B) from a second session. Assert the result is entirely v1: fields, `version == 1` and windows A. A two-query read fails here (v1 fields with B windows). Repeat for `get`.
+15. `test_read_is_one_committed_state_under_concurrent_write` — regression for the two-query race. Row at v1 with windows A. Attach: `conn = reader_session.connection()` first, then `event.listen(conn, "after_cursor_execute", hook)`. The hook fires once, after the reader's **first** statement, sets `counter += 1`, and commits v2 (different pause, capacity, windows B) on a separate `engine.connect()`. Assert: the result is entirely v1 — fields, `version == 1` and windows A (a two-query read returns v1 fields with B windows and fails); `counter == 1`; a fresh session then reads v2 with windows B. Repeat for `get` and `get_many`.
 
 Run one file at a time: `$VENV/bin/python -m pytest tests/integration/test_speaker_availability_migration.py -q`.
 A local skip (no Postgres) is not proof; CI is.
 
 ## 5. Commit milestones
 
-1. `test: failing T2 migration and repository tests` — both new test files + `test_check_constraints.py` entries.
-2. `feat(db): 0038 speaker_availability, window table and schema mirror` — migration, `schema.py`, `conftest.py`, 4 head pins.
+1. `test: failing T2 migration and repository tests` — both new test files.
+2. `feat(db): 0038 speaker_availability, window table and schema mirror` — migration, `schema.py` (tables + `sa.Index`), `conftest.py`, 5 head pins + the `_REVISIONS_BETWEEN_HEAD_AND_THIS_CARD` element (`test_cba_contact_schema.py:155`), the 6 `test_check_constraints.py` pins pasted from real `pg_get_constraintdef` output.
 3. `feat: speaker availability repository` — `speaker_availability.py`; repository file green.
 4. `docs: 0038 head in README, supabase-setup and exercise-hosting` — `README.md:35-36`, `supabase-setup.md:162`, `exercise-hosting.md:706-716` (those lines only).
 
@@ -192,7 +193,7 @@ A local skip (no Postgres) is not proof; CI is.
 | C7 | T1's `AvailabilityStatement` has no per-window source; §4.1 response needs it. `AvailabilitySource` has no home. | Wrapper `StoredSpeakerAvailability` + enum in persistence; or enum in domain. | Persistence; move if T1 adds one. **Align with T1.** |
 | C8 | §3.1 gives timestamps no default. | `server_default now()` (every table in `schema.py`) + repository passes `now`. | Both. |
 | C9 | `schema.py:22-24` says FKs are left unnamed in the mirror; `speaker_profile` names its 0028 FKs. | Name in both / migration only. | Both; drift ignores FK names. |
-| C10 | T6b-1 (`0039`) and T8a (`0040`) start day one; T8a does not depend on T2. | First to merge takes head + 1; others renumber `revision`, `down_revision`, 4 pins, docs. | Parent §11 row 5. |
+| C10 | T6b-1 (`0039`) and T8a (`0040`) start day one; T8a does not depend on T2. | First to merge takes head + 1; others renumber `revision`, `down_revision`, 5 head pins (incl. `test_exercise_schema_migration.py` `HEAD_REVISION`), the `_REVISIONS_BETWEEN_HEAD_AND_THIS_CARD` tuple, docs. | Parent §11 row 5. |
 
 ---
 
