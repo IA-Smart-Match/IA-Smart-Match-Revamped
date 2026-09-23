@@ -591,4 +591,28 @@ describe("<CoordinatorRedemptionQueue />", () => {
     await waitFor(() => expect(document.activeElement).toBe(alert));
   });
 
+  it("a 409 insufficient_balance on fulfil says the balance no longer covers it", async () => {
+    stub({
+      [`GET ${QUEUE}?status=requested`]: queue("requested", []),
+      [`GET ${QUEUE}?status=approved`]: queue("approved", [ticket("a1", "Voucher", "approved")]),
+      [`POST /v1/units/${UNIT}/redemptions/a1/decision`]: {
+        status: 409,
+        body: {
+          error: {
+            code: "insufficient_balance",
+            message:
+              "This redemption can no longer be fulfilled: the balance behind it no longer covers the cost it was requested at.",
+          },
+        },
+      },
+    });
+    renderPage();
+    await screen.findByText(/No tickets waiting/);
+    fireEvent.click(screen.getByRole("button", { name: "Approved" }));
+    fireEvent.click((await screen.findAllByRole("button", { name: "Mark Voucher fulfilled" }))[0]);
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).not.toMatch(/Someone already decided/);
+    expect(alert.textContent).toMatch(/balance no longer covers Voucher/);
+    expect(alert.textContent).toMatch(/nothing was debited/);
+  });
 });

@@ -97,6 +97,21 @@ function describeLoadFailure(cause: unknown): QueueLoadFailure {
 }
 
 function describeDecisionFailure(cause: unknown, item: RedemptionQueueItem): DecisionOutcome {
+  // A 409 is not always a race. `insufficient_balance` (fulfil only) means
+  // the student's balance fell below the ticket's cost since it was
+  // requested; nobody else decided anything, and saying so would mislead.
+  if (
+    cause instanceof ApiRequestError &&
+    cause.status === 409 &&
+    cause.code === "insufficient_balance"
+  ) {
+    return {
+      kind: "conflict",
+      sentence:
+        `The student's balance no longer covers ${item.item_name}, so it was not marked ` +
+        `fulfilled and nothing was debited. The queue has been re-read.`,
+    };
+  }
   if (cause instanceof ApiRequestError && cause.status === 409) {
     return {
       kind: "conflict",

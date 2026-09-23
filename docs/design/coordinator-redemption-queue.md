@@ -99,7 +99,8 @@ ever known, because only one status is fetched at a time.
 | 8 | Rate-limited | 429 | server message verbatim ("Rate limit exceeded … Retry in N seconds.") + "The queue is unchanged; try again after that." | tabs |
 | 9 | Truncated | `truncated: true` | "Showing the oldest {n} tickets; more exist at this status. Decide these to see the rest." | rows |
 | 10 | Decision in flight | POST pending | every action button `disabled`, label unchanged; `role="status"` "Recording your decision on {item}…". A second press that lands before the re-render is refused by the hook's in-flight ref, so one decision posts once | tabs |
-| 11 | Decision conflict | 409 | "Someone already decided this ticket, or it can no longer make that move: {server message}" then re-read | tabs, refreshed rows |
+| 11 | Decision conflict | 409 `invalid_redemption_transition` (or any other 409 code) | "Someone already decided this ticket, or it can no longer make that move: {server message} The queue has been re-read." | tabs, refreshed rows |
+| 11a | Balance short at fulfil | 409 `insufficient_balance` | "The student's balance no longer covers {item}, so it was not marked fulfilled and nothing was debited. The queue has been re-read." | tabs, refreshed rows |
 | 12 | Decision refused | 403/404 on POST | server message; re-read | |
 | 13 | Decision ok | 200 | live region: "{item} approved." / "… marked fulfilled." / "… denied."; list re-read | |
 | 14 | Network error | fetch throws | "The redemption queue could not be loaded and the server gave no reason. Check your connection and try again." + Retry button | Retry |
