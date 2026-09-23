@@ -75,7 +75,12 @@ REVISION = "0033_event_filed_by"
 #: head. It touches ``event`` not at all -- ADR-0025 D2 forbids the eight
 #: ``exercise_`` tables it creates any foreign key outside their own family --
 #: so the claim below still holds through it.
-HEAD_REVISION = "0037_exercise_tables"
+#: Moved again by B26 T2: ``0038_speaker_availability`` chains to
+#: ``0037_exercise_tables`` and is the head. It CREATEs
+#: ``speaker_availability`` and ``speaker_availability_window`` (both
+#: cascading from ``speaker_profile``), ALTERs nothing and writes no rows,
+#: so this file's claims still hold through it.
+HEAD_REVISION = "0038_speaker_availability"
 
 ON_DATE = "2026-10-14"
 ZONE = "America/Los_Angeles"
