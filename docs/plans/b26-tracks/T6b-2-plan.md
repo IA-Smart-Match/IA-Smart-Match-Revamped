@@ -1,6 +1,8 @@
 # B26 T6b-2 — the Speaker's own routes (`/v1/me/availability`, `/v1/me/invitations`, `/v1/me/engagements`)
 
-**Next action:** get an orchestrator ruling on C2 (portal answers' `response_channel`) **before T6b-1 milestone 1 lands `0039`**. Then wait for the §0 start gate.
+**Next action:** wait for the §0 start gate, then run milestone 0 (the two merges).
+
+**Revision 2, 2026-09-23.** Applies the plan gate (APPROVE with fixes, items 1–6) and the orchestrator rulings: C1 = T3 exports `write_statement`; C2 = (b), folded into `0039` by the T6b-1 implementer; C3 and C4 as recommended.
 
 Parent: `docs/plans/2026-09-22-b26-self-service-availability-plan.md` §2 (privacy, MM-A01), §4 intro, §4.1 (body and response reused), §4.3, §7 row 7, §8 T6b-2.
 Inputs: T3 plan `origin/feat/b26-t3` @ `f8c12bfb`; T6b-1 plan `origin/feat/b26-t6b-1` @ `edd9f464` (rev 3); T8a plan `origin/feat/b26-t8a` @ `09ca1455`; T6a code `origin/feat/b26-t6a` @ `6e1857fb`.
@@ -26,7 +28,8 @@ Line numbers are `main` @ `1909278f` unless a track is named.
 |---|---|---|
 | T6b-1 | `0039`, `speaker` in `role_presentation`, `Capability.SPEAKER_PORTAL`, `speaker_at_owning_unit` matrix shape, `SpeakerPortalRepository` | 1, 2, 3, 5 |
 | T8a | `0040` + mirror, `PipelineRecordRow.cancelled_at` | 2, 3 |
-| T3 | `speaker_availability_models.py` incl. the write helper (C1), T3's router | 2, 3 |
+| T6b-1 | `0039` widens `ck_cba_invitation_response_channel` to admit `speaker_portal` and changes `ck_cba_invitation_response_actor` to `(response_channel IN ('connector_recorded','speaker_portal')) = (response_recorded_by_user_id IS NOT NULL)` (C2 = b) | 1 |
+| T3 | `speaker_availability_models.py` incl. `write_statement` (C1), T3's router | 2, 3 |
 
 ## 1. Files
 
@@ -40,7 +43,9 @@ Line numbers are `main` @ `1909278f` unless a track is named.
 | `python/smartmatch_domain/smartmatch_domain/product_scope.py` | `Capability.SPEAKER_PORTAL` docstring gains: "also mounts the Speaker's own `/v1/me/*` routes (T6b-2)". |
 | `apps/web/legacy-frontend/src/lib/api.ts` | 5 adapters and their types (§6), placed after T3's `updateSpeakerAvailability`. |
 | `docs/product/cba-capability-policy.md` | T6b-1's `SPEAKER_PORTAL` row gains the 5 routes. |
-| Under C2 = (b) only | `cba_invitations.py:294` `channel` description and `api.ts:3091` JSDoc gain `speaker_portal`. |
+| `services/api/smartmatch_api/routers/cba_invitations.py` (Connector view, C2) | `SpeakerResponseView.channel` description (`:292-299`) gains `'speaker_portal'`: the Speaker answered while signed in. `recorded_by_user_id` description (`:301-303`) becomes: "The coordinator who entered it (`connector_recorded`), the Speaker's own login (`speaker_portal`), or null for a link answer (`speaker_link`)." `_outcome_view` (`:541-573`) passes the column straight through (`:572`), so no code change: `0039`'s actor CHECK decides when it is set. |
+| `apps/web/legacy-frontend/src/lib/api.ts` (Connector types, C2) | `SpeakerInvitationResponse.channel` JSDoc (`:3090-3095`) and `recorded_by_user_id` (`:3098`) say the same. |
+| `contracts/openapi/smartmatch.json` | Regenerated in milestone 7 (`make openapi VENV=$VENV`): only the two Connector descriptions change. No `/v1/me/*` path appears (§5). |
 | Tests | §7. |
 
 **Reused, not edited:** domain `record_response` (`smartmatch_domain/cba_invitations.py:357`), `InvitationRepository.record_response` (`smartmatch_persistence/cba_invitations.py:518`), `_speaker_response` (`routers/cba_invitations.py:525`), `charge_quota` (`dependencies.py:286`), `assert_allowed`, `ApiError` (`errors.py:49`), `utc_now` (`utils.py:10`), T3's `SpeakerAvailabilityUpdateRequest`, `SpeakerAvailabilityResponse`, `statement_from_request`, `availability_response`, `stale_error` and the write helper (C1).
@@ -110,6 +115,7 @@ Request `{"response": "accept" | "decline"}` (`SpeakerOwnResponseRequest`, `extr
 | 200 | — | First answer: `recorded: true`. Same answer again: `recorded: false`, nothing written, `recorded_at` unchanged. |
 | 404 | `speaker_invitation_not_found` | Unknown id, **another Speaker's**, another tenant's, or own but `pending`/`skipped`. One code, one message, identical bytes (the Connector route's code, `routers/cba_invitations.py:1196-1201`). |
 | 409 | `speaker_invitation_already_answered` | A different answer is already recorded. Row unchanged. Message from `InvitationResponseConflict` (OQ-CBA-044 stays closed). |
+| 409 | `speaker_invitation_response_conflict` | The write lost a race and the one re-read still shows `awaiting_response` (§3.4 step 5). Nothing written; the client re-reads. |
 | 422 | `invalid_request` | Missing, extra or unknown `response` |
 
 Plus §2.1. Accepting writes only `cba_invitation`: no pipeline stage, no consent change (the token route's rule, `routers/cba_invitations.py:1280-1289`). The hand-off route stays the only path from an acceptance to `pipeline_record`.
@@ -227,11 +233,11 @@ T6b-2 never calls `validate_availability_statement` or `SpeakerAvailabilityRepos
 1. Quota (write), authorize.
 2. `row = _invites.get_for_professional(session, tenant_id=…, professional_id=bound.professional_id, invitation_id=…)`; `None` → 404 `speaker_invitation_not_found`.
 3. `resulting, changed = record_response(SpeakerResponse(row.response_status), _speaker_response(body.response))`; `InvitationResponseConflict` → 409 `speaker_invitation_already_answered`.
-4. `changed` → `wrote = _invites.record_response(..., response_channel=_PORTAL_RESPONSE_CHANNEL, recorded_at=utc_now(), recorded_by_user_id=<C2>)`.
-5. **Lost race** (`wrote is False`, a token-link or Connector answer landed between steps 2 and 4): re-read once and rerun step 3 on the fresh row. Same answer → `recorded: false`; different → 409. The Connector route ignores this return value today (`routers/cba_invitations.py:1228-1238`); not fixed here.
+4. `changed` → `wrote = _invites.record_response(..., response_channel="speaker_portal", recorded_at=utc_now(), recorded_by_user_id=principal.user_id)`. The actor is the **login** (`principal.user_id`), not `professional_id`: in T6b-5's merged login they differ, and the row records who signed in.
+5. **Lost race** (`wrote is False`, a token-link or Connector answer landed between steps 2 and 4): re-read **once** and rerun step 3 on the fresh row. Same answer → `recorded: false`; different → 409 `speaker_invitation_already_answered`. **Still `awaiting_response` after that one re-read** (the guarded UPDATE matched nothing, yet nothing answered it: the row left `dispatched` or a broken invariant) → fail closed with `409 speaker_invitation_response_conflict`, nothing written, logged with the invitation id. No loop, no second write attempt. The Connector route ignores this return value today (`routers/cba_invitations.py:1228-1238`); not fixed here.
 6. Commit when written; re-read the item; return it with `recorded`.
 
-`_PORTAL_RESPONSE_CHANNEL` is `"speaker_portal"` with `recorded_by_user_id=principal.user_id` under C2 = (b), or `"speaker_link"` with `None` under (a). One constant, one keyword.
+Under C2 = (b) `0039` requires the actor for `speaker_portal`, so a write without it fails at the database, not silently.
 
 ### 3.5 Reads
 
@@ -283,7 +289,7 @@ T6b-2 never calls `validate_availability_statement` or `SpeakerAvailabilityRepos
 
 ## 5. OpenAPI
 
-`SPEAKER_PORTAL` is off in every scope (T6b-1 C2), so `make openapi` builds the app without these routes. **`contracts/openapi/smartmatch.json` does not change**; CI's `--check` (`verify.yml:127`) stays green.
+`SPEAKER_PORTAL` is off in every scope (T6b-1 C2), so `make openapi` builds the app without these routes: **no `/v1/me/*` path appears in `contracts/openapi/smartmatch.json`.** The file still changes once: the two Connector `SpeakerResponseView` descriptions (§1, C2) regenerate. Milestone 7 runs `make openapi VENV=$VENV` and commits the JSON; CI's `--check` (`verify.yml:127`) then stays green.
 
 - T6b-1's `test_openapi_document_has_no_speaker_portal_paths` and `test_routes_unmounted_when_off` gain the 4 T6b-2 paths.
 - The schema is proven on an app built with the capability on: `FastAPI()` + `EXCEPTION_HANDLERS` + `routers_for(<T6b-1's capability-on settings stub>)` → `.openapi()` (the `test_exercise_instructor_router.py:307-327` pattern). If T6b-1's stub is file-local, copy it: a `Settings` subclass whose `capability_enabled` returns `True` for `SPEAKER_PORTAL`.
@@ -383,11 +389,12 @@ Marked `integration`; app from §5's capability-on builder; real rows and `Fixtu
 
 **Response rules**
 
-15. `test_accept_records_the_portal_channel_and_actor` (C2 decides the asserted values)
+15. `test_accept_records_the_portal_channel_and_actor` (`response_channel == "speaker_portal"`, `response_recorded_by_user_id ==` the **login** id; with a merged login, the login and not `professional_id`)
 16. `test_repeating_the_same_answer_is_200_and_keeps_the_first_time`
 17. `test_a_different_second_answer_is_409_and_changes_nothing`
 18. `test_a_link_answer_then_a_different_portal_answer_is_409` (T6a `/i/{token}` first)
-19. `test_a_lost_race_is_classified_not_silent` (monkeypatch a concurrent write between read and update)
+19. `test_a_lost_race_is_classified_not_silent` (monkeypatch a concurrent write between read and update: same answer → 200 `recorded: false`, different → 409 `speaker_invitation_already_answered`)
+19b. `test_a_lost_race_that_leaves_the_row_awaiting_fails_closed` (monkeypatch `record_response` to return `False` without writing: 409 `speaker_invitation_response_conflict`, exactly one re-read, row unchanged)
 20. `test_accepting_writes_no_pipeline_stage_and_no_consent`
 21. `test_bad_response_body_is_422` (`"maybe"`, missing, extra key)
 
@@ -409,6 +416,13 @@ Marked `integration`; app from §5's capability-on builder; real rows and `Fixtu
 
 30. `test_routes_unmounted_when_capability_off` (default `Settings()`, all 5 → 404 route-not-found) · `test_routes_mounted_when_on`
 
+**Connector view of a portal answer** — added to `tests/contract/test_cba_invitations_api.py` (C2):
+
+31. `TestSpeakerPortalAnswer::test_the_connector_sees_the_portal_channel_and_the_speakers_login` (a bound Speaker answers through `/v1/me`; the batch read shows `channel: "speaker_portal"` and `recorded_by_user_id` = the Speaker's login id)
+32. `TestSpeakerPortalAnswer::test_a_link_answer_still_has_no_recorded_by` (`speaker_link` → `recorded_by_user_id: null`)
+
+Migration CHECK behaviour (`speaker_portal` without an actor refused; `speaker_link` with an actor refused) is T6b-1's `test_check_constraints.py` work, not repeated here.
+
 ### 7.4 Authz
 
 §4.1 and §4.2 rows run through every existing matrix test. New: `test_a_speaker_membership_reaches_only_its_own_operations`, `test_every_speaker_self_operation_names_only_the_speaker_role`, `test_speaker_self_roles_matches_the_live_constant`, `test_persona_values_that_are_stored_roles_are_exactly_student_and_speaker`.
@@ -427,7 +441,7 @@ Marked `integration`; app from §5's capability-on builder; real rows and `Fixtu
 
 1. `test_availability_goes_through_t3s_helper_only` (no `validate_availability_statement`, no `.upsert(`, no `AvailabilitySource.CONNECTOR`; the helper and `AvailabilitySource.SPEAKER` are referenced)
 2. `test_every_handler_calls_the_authorizer_before_any_repository`
-3. `test_no_handler_reads_principal_user_id_as_a_row_key` (repository calls pass `bound.professional_id`)
+3. `test_no_handler_reads_principal_user_id_as_a_row_key` (repository calls pass `bound.professional_id`). **Allowlist:** `principal.user_id` may appear only as the value of the keywords `actor_user_id=` (the availability write) and `recorded_by_user_id=` (the invitation answer), and as `account_user_id=` inside `_authorize_speaker_self`'s lookup. Anywhere else fails.
 4. `test_the_token_helper_is_not_used` (`answer_by_token` absent: it swallows conflicts)
 
 ### 7.6 Frontend
@@ -443,7 +457,7 @@ Marked `integration`; app from §5's capability-on builder; real rows and `Fixtu
 3. `test: T6b-2 Speaker routes, authz rows and OpenAPI (red)` — §7.3–7.5, matrix and ledger rows.
 4. `feat: /v1/me Speaker routes under SPEAKER_PORTAL` — router, `main.py`, matrix dispatch entry, persona fix, T6b-1 test replaced, capability docstring; §7.3–7.5 green (contract in CI).
 5. `test: speaker self-service api.ts adapters (red)` → 6. `feat: speaker self-service api.ts adapters` — §7.6 green.
-7. `docs: SPEAKER_PORTAL policy row lists the Speaker's own routes` (+ C2 (b) channel docs).
+7. `docs: portal answer channel in the Connector view; SPEAKER_PORTAL policy row` — the two `cba_invitations.py` descriptions, the `api.ts` JSDoc, the policy row, then `make openapi VENV=$VENV` and the regenerated `contracts/openapi/smartmatch.json` (description changes only). Contract tests 31–32 go red in milestone 3 and green here.
 
 Before each push: `$VENV/bin/ruff format` and `ruff check` on touched Python and this plan; `npx tsc --noEmit -p .` after milestone 6.
 
@@ -451,16 +465,16 @@ Before each push: `$VENV/bin/ruff format` and `ruff check` on touched Python and
 
 | # | Issue | Decision / recommendation |
 |---|---|---|
-| C1 | The dispatcher names a T3 helper `write_statement(session, …, statement, today, …)` that validates then upserts. T3's plan @ `f8c12bfb` has no such function: its steps 5–8 (stale pre-check, build, validate, upsert, `StaleSpeakerAvailabilityError` → 409) are inline in the route (T3 §3). | **Ask T3 to export it** in its milestone 2: `write_statement(session, *, tenant_id, professional_id, statement, today, source, actor_user_id, expected_version, now) -> StoredSpeakerAvailability`, raising T3's `ApiError`s, never committing. If T3 lands without it, T6b-2's milestone 0 adds `refactor: extract write_statement from the connector availability route` (no behaviour change; T3's contract file proves it). |
-| C2 | `ck_cba_invitation_response_channel` admits only `speaker_link` and `connector_recorded`; `ck_cba_invitation_response_actor` requires `recorded_by_user_id` **iff** `connector_recorded` (`schema.py:2739-2746`, `0029:143-153`). A portal answer has an account behind it, which `0029`'s rationale says a `speaker_link` never has. | **Recommend (b):** fold into T6b-1's `0039`, which is not yet written: channel gains `speaker_portal`; actor CHECK becomes `(response_channel IN ('connector_recorded','speaker_portal')) = (response_recorded_by_user_id IS NOT NULL)`. Answers are then attributable, and Connectors can tell a portal answer from a link click. **Fallback (a)** if `0039` has already landed: record `speaker_link` with no actor; no migration in T6b-2. Needs an orchestrator ruling before T6b-1 milestone 1. |
-| C3 | "Date in the event's zone": an invitation's only event data is the batch's typed `event_name` / `event_date` text (`schema.py:2596-2601`, `cba_handoff.py:54-60`). An event link arrives only with T4's `0041` (`batch.speaker_request_id`), and T6b-2 does not stack on T4. | Contract carries both now: `date_text` (what the email said) and nullable `local_date` + `time_zone` (from the event row). If T4 is on the base at milestone 2, join it; if not, ship `null` and add ledger follow-up "T6b-2 FU: fill `local_date` from `speaker_request_id`". The response shape does not change either way. |
-| C4 | Parent §4.3: unbound → `404 speaker_profile_not_linked`. §7 row 7: `volunteer` and `coordinator` "denied". The resource (the profile's unit) is only known after the lookup. | Lookup first. Unbound → 404 for **every** role; bound without an active covering `speaker` membership → 403 `no_grant`. The matrix covers the 403 half, the contract tests both. No oracle: the lookup reads only the caller's own id. |
+| C1 | The dispatcher names a T3 helper `write_statement(session, …, statement, today, …)` that validates then upserts. T3's plan @ `f8c12bfb` has no such function: its steps 5–8 (stale pre-check, build, validate, upsert, `StaleSpeakerAvailabilityError` → 409) are inline in the route (T3 §3). | **Ruled 2026-09-23: T3 exports it** (its implementer is adding it): `write_statement(session, *, tenant_id, professional_id, statement, today, source, actor_user_id, expected_version, now) -> StoredSpeakerAvailability`, raising T3's `ApiError`s, never committing. If T3 lands without it, **escalate to the orchestrator** and stop; T6b-2 does not extract it itself. |
+| C2 | `ck_cba_invitation_response_channel` admits only `speaker_link` and `connector_recorded`; `ck_cba_invitation_response_actor` requires `recorded_by_user_id` **iff** `connector_recorded` (`schema.py:2739-2746`, `0029:143-153`). A portal answer has an account behind it, which `0029`'s rationale says a `speaker_link` never has. | **Ruled 2026-09-23: (b).** The T6b-1 implementer folds it into `0039`: channel gains `speaker_portal`; actor CHECK becomes `(response_channel IN ('connector_recorded','speaker_portal')) = (response_recorded_by_user_id IS NOT NULL)`. T6b-2 writes `speaker_portal` with the login as actor (§3.4); Connectors see both (§1, tests 31–32). Start-gate row in §0. |
+| C3 | "Date in the event's zone": an invitation's only event data is the batch's typed `event_name` / `event_date` text (`schema.py:2596-2601`, `cba_handoff.py:54-60`). An event link arrives only with T4's `0041` (`batch.speaker_request_id`), and T6b-2 does not stack on T4. | **Ruled: as recommended.** Contract carries both now: `date_text` (what the email said) and nullable `local_date` + `time_zone` (from the event row). If T4 is on the base at milestone 2, join it; if not, ship `null` and add ledger follow-up "T6b-2 FU: fill `local_date` from `speaker_request_id`". The response shape does not change either way. |
+| C4 | Parent §4.3: unbound → `404 speaker_profile_not_linked`. §7 row 7: `volunteer` and `coordinator` "denied". The resource (the profile's unit) is only known after the lookup. | **Ruled: as recommended.** Lookup first. Unbound → 404 for **every** role; bound without an active covering `speaker` membership → 403 `no_grant`. The matrix covers the 403 half, the contract tests both. No oracle: the lookup reads only the caller's own id. |
 | C5 | `Persona.SPEAKER.value == "speaker"`, so any `{speaker}` ledger row fails `test_every_gated_role_set_holds_only_stored_role_strings` (`test_route_roles.py:243-248`). | Narrow to presentation-only personas (§4.2 item 4). |
 | C6 | T6b-1's planned `test_a_speaker_membership_reaches_no_operation` becomes false once these rows exist. | Replace it in milestone 4 (§4.1 item 4). |
 | C7 | A different second answer: the token route answers 200 silently (anti-oracle); the Connector route answers 409. | 409. The caller is the authenticated owner, so there is nothing to hide, and "your first answer is final" matches T6a's page text. |
 | C8 | `upcoming` / `past` need a "today" and a rule for unknown dates. | UTC today (T3 C1, T4, T8b) against the event's **local** date, the rule T8b's window uses. Unknown or missing date → `upcoming` (never silently "past"). Residual: an evening event west of UTC reads `past` after 00:00 UTC on its own day. |
 | C9 | Which invitations count as "own"? | `status = 'dispatched'` only. `pending` was never sent; `skipped` would disclose a Connector's internal reason (`unavailable_on_date`, `channel_suppressed`). |
-| C10 | The routes are unmounted by default, so the committed OpenAPI cannot show them. | Committed contract unchanged; schema proven on a capability-on app (§5). |
+| C10 | The routes are unmounted by default, so the committed OpenAPI cannot show them. | No `/v1/me/*` path in the committed contract; only the two Connector descriptions regenerate (milestone 7). Schema proven on a capability-on app (§5). |
 
 ## 10. Out of scope
 
@@ -472,4 +486,4 @@ Before each push: `$VENV/bin/ruff format` and `ruff check` on touched Python and
 
 ---
 
-**Next action (under two minutes):** post C2 to the orchestrator: "fold `speaker_portal` into `0039` (b), or record portal answers as `speaker_link` (a)?"
+**Next action (under two minutes):** check `origin/feat/b26-t6b-1` for a pushed `0039` that includes the `speaker_portal` CHECK change.
