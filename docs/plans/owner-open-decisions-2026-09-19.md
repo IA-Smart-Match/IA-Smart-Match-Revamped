@@ -379,6 +379,10 @@ Cards #15–#21 below: rate limiting, `unlock` scope, passcode delivery,
 | — | ADR-0015 amendment owner | Danny | — | BrooklynD23 | DECIDED |
 | — | `/u/` and `/i/` out of exercise scope | Danny | — | Gated out | DECIDED |
 | — | Build ingest to PLACEHOLDER columns | Danny | — | Yes | DECIDED |
+| — | B26 self-service availability (added 2026-09-22) | Danny | — | DECIDED 2026-09-22 (owner): option B — build self-service availability; plan at [`2026-09-22-b26-self-service-availability-plan.md`](2026-09-22-b26-self-service-availability-plan.md). Follow-ups answered the same day: Q2 = B (Speaker accounts, Connector-invited), Q1/D2 = centered 90-day utilization with bands, Q3–Q5 = (a), Q6 = collect capacity now; OQ-CBA-035 and OQ-CBA-043 = yes | DECIDED |
+| — | ELI band penalty sizes and boundary ownership (added 2026-09-22) | Danny | — | DECIDED 2026-09-22: (A) Light ×1.00, Moderate ×0.90, Heavy ×0.70, multiplicative; exactly 50% Moderate, exactly 80% and 100% Heavy, Full strictly above 100%; unknown load unpenalized and labelled. Registry `3.0.0` still needs its normal approval and IA West review | DECIDED |
+| — | Event Host + Speaker with one email (added 2026-09-22) | Danny | — | DECIDED 2026-09-22: one login, two roles, portal switcher — plan §4.5, track T6b-5 | DECIDED |
+| — | May a person be shortlisted for a Speaker Request they filed? (added 2026-09-22) | Danny | — | DECIDED 2026-09-22: (a) exclude the requester from their own request's pool, reported in `excluded` as "filed this request" — plan §9 Q8, track T4 | DECIDED |
 
 ---
 

@@ -234,7 +234,7 @@ non-working or lying interactives).
 | H24 | `LandingPage.tsx:75–76` | “Start Matching” → `/login?role=ia_admin`, pre-selecting a role. | Public CTA to real auth, no role in the query string. |
 | H25 | Templates in `Outreach.tsx` | Subject/body templates live in the component; “Create Template” does not save (see B22). | Versioned templates server-side, or omit until R4. |
 | H26 | `CoordinatorHome.tsx:132–162` vs `164–189` | Statistics (hosted events, threads, meetings) render *before* Quick Actions. | Action queue first; when n is small, name the people (DESIGN.md §1.11, Fix #13). |
-| H27 | `VolunteerProfile.tsx` entire page | Fatigue % and recovery are displayed; there is no editor for availability or workload inputs. | Professionals must see *and correct* the data used about them (DESIGN.md §1.6, R2 self-service). |
+| H27 | `VolunteerProfile.tsx` entire page | Fatigue % and recovery are displayed; there is no editor for availability or workload inputs. | Professionals must see *and correct* the data used about them (DESIGN.md §1.6, R2 self-service). **DECIDED 2026-09-22 (owner): option B — build self-service availability; plan at [`2026-09-22-b26-self-service-availability-plan.md`](2026-09-22-b26-self-service-availability-plan.md).** The person ELI and matching measure is a Speaker, not the Event Host this page serves. Owner, same day: Speakers get invitation-only accounts and edit from their own portal (Q2 = B); this Host page drops the dead panel and shows the Host's own record (Q3 = a). |
 | H28 | `FeedbackForm` + dashboard “Pain Score” / “Match Depth” / “Topic Relevance” via mock stats | Mock feedback invents 0-valued metrics. | Metric register (S1); unknown ≠ 0 (S2). No score until G1. |
 
 ### 2.2 Broken or lying interactives (B01–B40)
@@ -316,7 +316,7 @@ These can become endpoints later; they are not callable from a browser today.
 | Domain module | Capability | Frontend implication |
 |---|---|---|
 | `factor_registry.py` | Proposed 9-factor registry; `assert_registry_approved()` fails closed | **No match scores on any screen** until G1 (M1). H10/B31 stay dark. |
-| `eli.py` | Proposed ELI formula | Volunteer fatigue UI must wait on D2 + R2 self-service. |
+| `eli.py` | Proposed ELI formula | Volunteer fatigue UI must wait on D2 + R2 self-service. R2 self-service: DECIDED 2026-09-22 (owner): option B — build self-service availability; plan at [`2026-09-22-b26-self-service-availability-plan.md`](2026-09-22-b26-self-service-availability-plan.md). D2's sub-question DECIDED the same day: centered 90-day utilization, banded (plan track T8). `eli.py` has no caller outside its tests until T8. |
 | `feedback.py` | Aggregates; `acceptance_rate` is `None` when empty | Do not port `parseNumber(..., 0)`. S2 render primitive. |
 | `ics.py` | ICS only if timezone-aware and resolved; else `UnschedulableEventError` | B05/B21 must use this, labeled. No Calendar provider until G5. |
 | `consent.py` | Contact-confidence state machine; scraped ≠ send-eligible | B12/B14/B24 cannot send. Distinct from disclosure consent (ADR-0014). |
@@ -354,7 +354,7 @@ These can become endpoints later; they are not callable from a browser today.
 2. All portal CRUD (register, send, book, redeem, connect, check in).
 3. Points ledger, catalog listing, redemption.
 4. Disclosure-consent grant/revoke UI.
-5. Professional availability/workload correction.
+5. Professional availability/workload correction. DECIDED 2026-09-22 (owner): option B — build self-service availability; plan at [`2026-09-22-b26-self-service-availability-plan.md`](2026-09-22-b26-self-service-availability-plan.md).
 6. Funnel as a single owning query.
 7. Event temporal model on the wire (S3).
 8. Crawler / research scout (R3).
@@ -512,7 +512,7 @@ The only honest screens the API can support today.
 
 | Task | Detail | Depends | Acceptance |
 |---|---|---|---|
-| 6.1 | Professional profile **edit** of availability/workload used by ELI. | D2, ELI API | §1.6 satisfied. |
+| 6.1 | Professional profile **edit** of availability/workload used by ELI. DECIDED 2026-09-22 (owner): option B — build self-service availability; plan at [`2026-09-22-b26-self-service-availability-plan.md`](2026-09-22-b26-self-service-availability-plan.md). | Speaker accounts (plan T6b); D2 sub-question decided 2026-09-22; band penalties decided 2026-09-22; registry `3.0.0` approval pending | §1.6 satisfied. |
 | 6.2 | Assignments: accept/decline, ICS from `ics.py`. | 6.1, consent | No send from scraped evidence. |
 | 6.3 | Coordinator home: action queue first; named people. | 2.5 | Fix #13. |
 | 6.4 | Intake / staffing request — not a link to the admin matcher. | G1 for matches | B17 gone. |
