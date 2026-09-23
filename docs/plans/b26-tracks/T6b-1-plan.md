@@ -100,6 +100,8 @@ Parent: `docs/plans/2026-09-22-b26-self-service-availability-plan.md` §1, §2, 
 
 **`cba_invitation`** (ruling C2 = b, from T6b-2): `ck_cba_invitation_response_channel` admits `'speaker_portal'`, and `ck_cba_invitation_response_actor` becomes `(response_channel IN ('connector_recorded', 'speaker_portal')) = (response_recorded_by_user_id IS NOT NULL)`, so a portal answer names its actor and `speaker_link` still has none. No T6b-1 route writes it; T6b-2's `POST /v1/me/invitations/{id}/response` does.
 
+**Added for T6b-5** (its plan §4.4, ruling Q2; no T6b-1 code writes them): on `speaker_portal_invitation`, `unbound_at timestamptz NULL` and `unbound_by_user_id uuid NULL`; `fk_speaker_portal_invitation_unbound_by (tenant_id, unbound_by_user_id) → user_account (tenant_id, id) RESTRICT`; `ck_speaker_portal_invitation_unbound_pair`: `(unbound_at IS NULL) = (unbound_by_user_id IS NULL)`; `ck_speaker_portal_invitation_unbound_after_accept`: `unbound_at IS NULL OR (accepted_at IS NOT NULL AND unbound_at >= accepted_at)`. `uq_speaker_portal_invitation_live` and `uq_speaker_profile_account` are unchanged.
+
 **Added for T6b-3** (its plan §1.2 and §4.2; no T6b-1 code writes either):
 
 - `suppression_record`: `ck_suppression_record_lift_source`: `lifted_at IS NULL OR source IN ('speaker_portal','unsubscribe_link','one_click')`.

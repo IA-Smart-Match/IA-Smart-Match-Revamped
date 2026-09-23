@@ -814,6 +814,14 @@ CHECK_CONSTRAINT_DEFINITIONS = {
     ("speaker_profile", "ck_speaker_profile_account_bound"): (
         "CHECK (((account_user_id IS NULL) = (account_bound_at IS NULL)))"
     ),
+    # Added to 0039 for T6b-5.
+    ("speaker_portal_invitation", "ck_speaker_portal_invitation_unbound_pair"): (
+        "CHECK (((unbound_at IS NULL) = (unbound_by_user_id IS NULL)))"
+    ),
+    ("speaker_portal_invitation", "ck_speaker_portal_invitation_unbound_after_accept"): (
+        "CHECK (((unbound_at IS NULL) OR ((accepted_at IS NOT NULL) AND "
+        "(unbound_at >= accepted_at))))"
+    ),
     ("suppression_record", "ck_suppression_record_lifted"): (
         "CHECK ((((lifted_at IS NULL) = (lifted_by_user_id IS NULL)) AND "
         "((lifted_at IS NULL) OR (lifted_at >= suppressed_at))))"
@@ -1560,6 +1568,16 @@ BEHAVIOURAL_COVERAGE = {
         "test_speaker_portal_migration.py::"
         "test_new_login_must_bind_the_contact_account. Permitted half: "
         "::test_binding_mode_accepts_existing_login_on_another_account"
+    ),
+    ("speaker_portal_invitation", "ck_speaker_portal_invitation_unbound_pair"): (
+        "test_speaker_portal_migration.py::"
+        "test_unbound_pair_refuses_half_an_unbind. Permitted half: "
+        "::test_unbound_pair_accepts_a_complete_unbind"
+    ),
+    ("speaker_portal_invitation", "ck_speaker_portal_invitation_unbound_after_accept"): (
+        "test_speaker_portal_migration.py::"
+        "test_unbound_after_accept_refuses_an_early_unbind. Permitted half: "
+        "::test_unbound_pair_accepts_a_complete_unbind"
     ),
     ("speaker_profile", "ck_speaker_profile_account_bound"): (
         "test_speaker_portal_migration.py::"

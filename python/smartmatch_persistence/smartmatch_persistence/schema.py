@@ -2561,6 +2561,10 @@ speaker_portal_invitation = sa.Table(
     sa.Column("revoked_at", _TS, nullable=True),
     sa.Column("bound_account_user_id", _UUID, nullable=True),
     sa.Column("binding_mode", sa.Text, nullable=True),
+    # Added for T6b-5 (its plan §4.4, ruling Q2): a Connector ending an
+    # accepted binding. No T6b-1 code writes them.
+    sa.Column("unbound_at", _TS, nullable=True),
+    sa.Column("unbound_by_user_id", _UUID, nullable=True),
     sa.PrimaryKeyConstraint("id", name="speaker_portal_invitation_pkey"),
     sa.UniqueConstraint("token_hash", name="uq_speaker_portal_invitation_token_hash"),
     sa.ForeignKeyConstraint(
@@ -2586,6 +2590,12 @@ speaker_portal_invitation = sa.Table(
         ["user_account.tenant_id", "user_account.id"],
         ondelete="RESTRICT",
         name="fk_speaker_portal_invitation_bound_account",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "unbound_by_user_id"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="RESTRICT",
+        name="fk_speaker_portal_invitation_unbound_by",
     ),
     sa.CheckConstraint(
         "octet_length(token_hash) = 32", name="ck_speaker_portal_invitation_token_hash"
@@ -2615,6 +2625,14 @@ speaker_portal_invitation = sa.Table(
     sa.CheckConstraint(
         "binding_mode IS DISTINCT FROM 'new_login' OR bound_account_user_id = professional_id",
         name="ck_speaker_portal_invitation_new_login_self",
+    ),
+    sa.CheckConstraint(
+        "(unbound_at IS NULL) = (unbound_by_user_id IS NULL)",
+        name="ck_speaker_portal_invitation_unbound_pair",
+    ),
+    sa.CheckConstraint(
+        "unbound_at IS NULL OR (accepted_at IS NOT NULL AND unbound_at >= accepted_at)",
+        name="ck_speaker_portal_invitation_unbound_after_accept",
     ),
     sa.Index(
         "uq_speaker_portal_invitation_live",

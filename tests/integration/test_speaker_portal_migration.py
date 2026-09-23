@@ -956,3 +956,89 @@ def test_downgrade_refuses_while_speaker_made_rows_exist(engine: Engine, kind: s
             refused = alembic(url, REVISION_BEFORE, expect_success=False, command="downgrade")
             assert applied_revision(url) == REVISION
             assert "cannot downgrade 0039" in refused.stderr
+
+
+# ---------------------------------------------------------------------------
+# Unbind columns (added for T6b-5, its plan §4.4 / ruling Q2)
+# ---------------------------------------------------------------------------
+
+
+def _accepted_kwargs(pid: uuid.UUID) -> dict[str, object]:
+    return {
+        "accepted_at": _NOW + timedelta(hours=1),
+        "bound_account_user_id": pid,
+        "binding_mode": "new_login",
+    }
+
+
+@pytest.mark.parametrize("half", ["time-only", "actor-only"])
+def test_unbound_pair_refuses_half_an_unbind(engine, tenant_id, speaker, half):
+    pid, ch, iss = speaker
+    extra = (
+        {"unbound_at": _NOW + timedelta(hours=2)}
+        if half == "time-only"
+        else {"unbound_by_user_id": iss}
+    )
+    message = _refused(
+        engine,
+        lambda c: _invitation(c, tenant_id, pid, ch, iss, **_accepted_kwargs(pid), **extra),
+    )
+    assert "ck_speaker_portal_invitation_unbound_pair" in message
+
+
+def test_unbound_pair_accepts_a_complete_unbind(engine, tenant_id, speaker):
+    pid, ch, iss = speaker
+    _accepted(
+        engine,
+        lambda c: _invitation(
+            c,
+            tenant_id,
+            pid,
+            ch,
+            iss,
+            **_accepted_kwargs(pid),
+            unbound_at=_NOW + timedelta(hours=1),
+            unbound_by_user_id=iss,
+        ),
+    )
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {"revoked_at": _NOW + timedelta(hours=1)},
+        {"accepted": True, "unbound_at": _NOW + timedelta(minutes=30)},
+    ],
+    ids=["never-accepted", "before-acceptance"],
+)
+def test_unbound_after_accept_refuses_an_early_unbind(engine, tenant_id, speaker, extra):
+    pid, ch, iss = speaker
+    fields = dict(extra)
+    if fields.pop("accepted", False):
+        fields |= _accepted_kwargs(pid)
+    fields.setdefault("unbound_at", _NOW + timedelta(hours=2))
+    message = _refused(
+        engine,
+        lambda c: _invitation(c, tenant_id, pid, ch, iss, unbound_by_user_id=iss, **fields),
+    )
+    assert "ck_speaker_portal_invitation_unbound_after_accept" in message
+
+
+def test_unbound_by_from_other_tenant_is_refused(engine, tenant_id, speaker, other_tenant_id):
+    pid, ch, iss = speaker
+    with engine.begin() as conn:
+        intruder = _user(conn, other_tenant_id)
+    message = _refused(
+        engine,
+        lambda c: _invitation(
+            c,
+            tenant_id,
+            pid,
+            ch,
+            iss,
+            **_accepted_kwargs(pid),
+            unbound_at=_NOW + timedelta(hours=2),
+            unbound_by_user_id=intruder,
+        ),
+    )
+    assert "fk_speaker_portal_invitation_unbound_by" in message
