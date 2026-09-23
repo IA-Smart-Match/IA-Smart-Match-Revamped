@@ -1,12 +1,12 @@
 # B26 T6b-3 — Self-service channel consent, the Speaker-wins rule, and `lifted_at` in every send-eligibility read
 
-**Next action:** once `feat/b26-t6b-1` carries `0039` with §1.2 A and B, rebase `feat/b26-t6b-3` onto it and run milestone 1 (§10).
+**Next action:** once the §10 start gate passes (`0039` carries §1.2 A and B, and T6b-2's `routers/speaker_self.py` is pushed), run milestone 0: merge `origin/feat/b26-t6b-2` into `feat/b26-t6b-3`.
 
-**Revision 4, 2026-09-23.** §5.2 subject resolution now uses T6b-2's names, module and order (orchestrator ruling). Revision 3 applied the security plan gate (APPROVE, findings S1–S7): S1 §5.4 G2, S2 §6 and §7 race 10, S3 §10 gate, S4 §5.4 G3, S5 §5.4 and §6, S6 §5.1 W2, S7 §8 guard 1. Revision 2 recorded the owner rulings on OQ-1 to OQ-7 (§11). The §1.2 `0039` additions A and B went to the T6b-1 implementer, so milestone 0 is only a documented contingency. Revision 1 was the first plan. Docs only. No source file, route or migration is written by this document.
+**Revision 5, 2026-09-23.** T6b-3 stacks on T6b-2 and imports its authorizer; it writes no subject lookup of its own (orchestrator follow-up ruling, supersedes revision 4's "create it if first"). Revision 4 aligned §5.2 with T6b-2's order. Revision 3 applied the security plan gate (APPROVE, findings S1–S7): S1 §5.4 G2, S2 §6 and §7 race 10, S3 §10 gate, S4 §5.4 G3, S5 §5.4 and §6, S6 §5.1 W2, S7 §8 guard 1. Revision 2 recorded the owner rulings on OQ-1 to OQ-7 (§11). The §1.2 `0039` additions A and B went to the T6b-1 implementer, so the migration fallback is only a documented contingency (§10, contingency C). Revision 1 was the first plan. Docs only. No source file, route or migration is written by this document.
 
 Parent: `docs/plans/2026-09-22-b26-self-service-availability-plan.md` §2 (privacy and consent constraints), §3.2 (`suppression_record.lifted_at`, `lifted_by_user_id`, source `speaker_portal`), §4.4, §7 row 8, §8, §11 risk 1. ADR-0014 rule 2 (withdrawal is immediate and prospective). T6b-1 plan: `origin/feat/b26-t6b-1:docs/plans/b26-tracks/T6b-1-plan.md` (revision 3), boundary 3, §10 L2, Appendix A.
 
-**Base and merge order.** The implementation is built on this branch, `feat/b26-t6b-3`, stacked on T6b-1's branch `feat/b26-t6b-1` (owner ruling: no separate `-impl` branches), which stacks on T2 (`feat/b26-t2`, PR #212), which merges T1 (`feat/b26-t1`, PR #210). The PR body says **"merge #210, #212, then the T6b-1 PR first"**. T6b-3 needs nothing from T3, T4, T8a or T6b-2.
+**Base and merge order.** The implementation is built on this branch, `feat/b26-t6b-3` (owner ruling: no separate `-impl` branches), stacked on **T6b-2** (`feat/b26-t6b-2`), because T6b-3 imports T6b-2's authorizer (§5.2). T6b-2 carries T8a (`feat/b26-t8a`) → T6b-1 (`feat/b26-t6b-1`) → T2 (`feat/b26-t2`, PR #212) → T1 (`feat/b26-t1`, PR #210), and T3 as T6b-2's dependency. Milestone 0 merges `origin/feat/b26-t6b-2` into this branch. The PR body says **"Merge #210, #212, then T6b-1, T8a, T3, T6b-2 PRs first"**. T6b-3 needs nothing from T4.
 
 **Line numbers** are `main` @ `1909278f`. T6b-1 edits `routers/outreach.py` (`create_draft`, `send_draft`) and `worker/outreach.py` (the §6.2 gate), so re-grep those two files on the stacked base before editing.
 
@@ -45,11 +45,11 @@ Neither addition needs T6b-1 code. Both follow boundary 3's pattern: schema in `
 | # | Addition | Why it cannot wait |
 |---|---|---|
 | A | CHECK `ck_suppression_record_lift_source`: `lifted_at IS NULL OR source IN ('speaker_portal', 'unsubscribe_link', 'one_click')` | "Bounce and complaint are never lifted by either side" becomes structural, not a convention. A hand-written `UPDATE` or a future Connector lift route fails at the database. Coordinator suppressions are covered too (the owner's lift list excludes them). |
-| B | Table `contact_channel_speaker_choice` (DDL in §4.2) | The Speaker-wins 409s need "the Speaker's latest action on this channel". The data at hand cannot answer it (§4.1). A table added later would be a fifth B26 migration after `0041` and would stack T6b-3 on T8a and T4. |
+| B | Table `contact_channel_speaker_choice` (DDL in §4.2) | The Speaker-wins 409s need "the Speaker's latest action on this channel". The data at hand cannot answer it (§4.1). A table added later would be a fifth B26 migration after `0041` and would stack T6b-3 on T4 as well. |
 
 T6b-1 test impact: 5 more CHECK keys in `tests/integration/test_check_constraints.py` (A, plus B's `_choice`, `_sequence`, `_lift` and `_lift_source`); `"contact_channel_speaker_choice"` in `tests/integration/conftest.py` `_TENANT_SCOPED_TABLES` after `"contact_channel_transition"`; the downgrade drops B first. T6b-1's R7 downgrade guard already covers B: a choice row needs a bound Speaker, and binding needs an accepted invitation.
 
-**Contingency only.** A and B are being folded into `0039`. If `0039` nevertheless merges without them, milestone 0 (§10) adds them in `00NN_speaker_channel_choice` at current head plus one (parent header rule), and T6b-3 then stacks on whatever branch holds that head.
+**Contingency only.** A and B are being folded into `0039`. If `0039` nevertheless merges without them, contingency C (§10) adds them in `00NN_speaker_channel_choice` at current head plus one (parent header rule), and it goes on the T6b-2-based branch at that head.
 
 ## 2. Files
 
@@ -62,8 +62,8 @@ T6b-1 test impact: 5 more CHECK keys in `tests/integration/test_check_constraint
 | `python/smartmatch_persistence/smartmatch_persistence/contacts.py` | `_selectable()` (`:124-157`) uses `active_suppression_exists`. New `lock(session, *, tenant_id, contact_channel_id) -> bool`: `SELECT id FROM contact_channel WHERE tenant_id = :t AND id = :id FOR UPDATE`, its own statement with no join and no subquery (S5). Callers then re-read through the unchanged `get` (`:254`). New `list_for_speaker(tenant_id, professional_id, limit)`. Module docstring. |
 | `python/smartmatch_persistence/smartmatch_persistence/outreach.py` | `load_recipient` (`:217-282`) uses `active_suppression_exists`. `suppress` (`:683-728`) and `is_suppressed` (`:730-740`) delegate to `SuppressionRepository`. `SuppressionOutcome` gains `write`. Module docstring and the "first suppression stands" paragraph. |
 | `python/smartmatch_persistence/smartmatch_persistence/schema.py` | Comments only at `:1722` and on `suppression_record` (`:2076`). The DDL mirror is T6b-1's. |
-| `services/api/smartmatch_api/routers/speaker_self.py` (T6b-2's module) | **Shared with T6b-2.** `_SPEAKER_SELF_ROLES` and `_authorize_speaker_self(session, principal) -> BoundSpeakerProfile`, exactly as T6b-2 §3.1. T6b-3 imports them; it creates the module only if it lands before T6b-2 (§5.2). |
-| `python/smartmatch_persistence/smartmatch_persistence/speaker_portal.py` (T6b-1's module) | T6b-2's `BoundSpeakerProfile` and `SpeakerPortalRepository.find_bound_profile` (imported, or created with T6b-2's signature if T6b-3 lands first). T6b-3-only: `lock_bound_profile_share(...)` and `login_address(...)` (§5.2). |
+| `services/api/smartmatch_api/routers/speaker_self.py` (T6b-2's module) | **Not edited. Imported.** `_authorize_speaker_self`, `_SPEAKER_SELF_ROLES`, `SpeakerPortalRepository` (for `find_bound_profile`) and `BoundSpeakerProfile`, all from `smartmatch_api.routers.speaker_self` (§5.2). |
+| `python/smartmatch_persistence/smartmatch_persistence/speaker_portal.py` (T6b-1's module, where T6b-2 adds `find_bound_profile`) | T6b-3 adds two methods and no subject lookup: `lock_bound_profile_share(...)` and `login_address(...)` (§5.2). |
 | `services/api/smartmatch_api/speaker_channel_consent.py` | **New.** `opt_in(...)` and `opt_out(...)`: one transaction each, the §7 lock order. Routes stay thin. |
 | `services/api/smartmatch_api/routers/me_contact_channels.py` | **New.** `router = APIRouter(prefix="/v1/me/contact-channels", tags=["speaker-portal"])`, 3 routes. §5.3. |
 | `services/api/smartmatch_api/main.py` | One row in `CAPABILITY_SCOPED_ROUTERS` (`:338`) under `Capability.SPEAKER_PORTAL`. |
@@ -241,15 +241,25 @@ CREATE TABLE contact_channel_speaker_choice (
 
 A repo-wide search for `suppression_record`, `suppress`, `is_send_eligible`, `assert_send_eligible`, `assert_send_allowed`, `classify_recipient` and `load_recipient` over `python/`, `services/` and `tools/` found no other reader, no view, and no raw SQL. The source guard (§8) keeps it that way.
 
-### 5.2 Subject resolution — T6b-2's authorizer, unchanged
+### 5.2 Subject resolution — imported from T6b-2
 
-**Orchestrator ruling (2026-09-23):** T6b-3 resolves the subject with the same names, module and order as T6b-2 (`origin/feat/b26-t6b-2:docs/plans/b26-tracks/T6b-2-plan.md` §2.1, §3.1), so that T6b-4's merge has one authorizer, not two.
+**Orchestrator rulings (2026-09-23).** T6b-3 resolves the subject with T6b-2's authorizer and order (`origin/feat/b26-t6b-2:docs/plans/b26-tracks/T6b-2-plan.md` §2.1, §3.1). It **imports** it: there is no own lookup and no `speaker_subject.py`. That is why T6b-3 stacks on T6b-2.
 
-| Name | Module | Defined by |
+```text
+from smartmatch_api.routers.speaker_self import (
+    BoundSpeakerProfile,
+    SpeakerPortalRepository,   # for find_bound_profile, as T6b-2 imports it
+    _SPEAKER_SELF_ROLES,
+    _authorize_speaker_self,
+)
+```
+
+| Name | Defined by | What it is |
 |---|---|---|
-| `BoundSpeakerProfile` (frozen: `professional_id`, `owning_unit_id`, `owning_unit_path`) | `smartmatch_persistence/speaker_portal.py` (T6b-1's module) | T6b-2 §1 |
-| `SpeakerPortalRepository.find_bound_profile(session, *, tenant_id, account_user_id) -> BoundSpeakerProfile \| None` (`speaker_profile JOIN org_unit`, no lock) | same | T6b-2 §1 |
-| `_SPEAKER_SELF_ROLES: Final = frozenset({"speaker"})` and `_authorize_speaker_self(session, principal) -> BoundSpeakerProfile` | `services/api/smartmatch_api/routers/speaker_self.py` | T6b-2 §3.1 |
+| `BoundSpeakerProfile` | T6b-2 §1 | Frozen: `professional_id`, `owning_unit_id`, `owning_unit_path` |
+| `SpeakerPortalRepository.find_bound_profile(session, *, tenant_id, account_user_id)` | T6b-2 §1 | `speaker_profile JOIN org_unit`, at most one row (`uq_speaker_profile_account`), no lock |
+| `_SPEAKER_SELF_ROLES` | T6b-2 §1 | `frozenset({"speaker"})` |
+| `_authorize_speaker_self(session, principal) -> BoundSpeakerProfile` | T6b-2 §3.1 | The two steps below |
 
 **Order (T6b-2 §2.1), every route:**
 
@@ -259,12 +269,12 @@ A repo-wide search for `suppression_record`, `suppress`, `is_send_eligible`, `as
    2. `assert_allowed` against the profile's unit (`owning_unit_path`) with `required_roles=_SPEAKER_SELF_ROLES` → `403 forbidden` (`no_grant`, `principal_suspended`, `explicit_resource_deny`) when the profile is bound but no active `speaker` membership covers its unit.
 3. Route work, keyed by `bound.professional_id`, never by `principal.user_id` (they differ for a T6b-5 merged login).
 
-**Who creates the shared code.** If T6b-2 is on the base, T6b-3 imports all three names. If T6b-3 lands first, it creates `routers/speaker_self.py` holding only `_SPEAKER_SELF_ROLES` and `_authorize_speaker_self` (body verbatim from T6b-2 §3.1), and adds `BoundSpeakerProfile` and `find_bound_profile` with T6b-2's exact signature. T6b-2 then adds its routes to that module. `routers/me_contact_channels.py` calls `_authorize_speaker_self` by name (`test_the_route_calls_the_authorizer_the_matrix_names`).
+`routers/me_contact_channels.py` calls `_authorize_speaker_self` by name (`test_the_route_calls_the_authorizer_the_matrix_names`). Its matrix rows set `authorizer_module="smartmatch_api.routers.speaker_self"` (§9).
 
-**T6b-3-only helpers**, kept outside the shared authorizer so it stays identical:
+**T6b-3's two added methods** on T6b-1's `SpeakerPortalRepository` (`smartmatch_persistence/speaker_portal.py`). Neither finds the subject; both take `bound` from the shared authorizer:
 
-- `SpeakerPortalRepository.lock_bound_profile_share(session, *, tenant_id, professional_id, account_user_id) -> bool`: `SELECT 1 FROM speaker_profile WHERE tenant_id = :t AND professional_id = :p AND account_user_id = :u FOR SHARE`. Only the two write routes call it, right after `_authorize_speaker_self`. `False` means an unbind committed in between → `404 speaker_profile_not_linked` (§7 race 8).
-- `SpeakerPortalRepository.login_address(session, *, tenant_id, account_user_id) -> str`: the bound login's `user_account.email`, for the OQ-3 `address_is_login` test (§3.1). Only opt-in calls it.
+- `lock_bound_profile_share(session, *, tenant_id, professional_id, account_user_id) -> bool`: `SELECT 1 FROM speaker_profile WHERE tenant_id = :t AND professional_id = :p AND account_user_id = :u FOR SHARE`. Only the two write routes call it, right after `_authorize_speaker_self`. `False` means an unbind committed in between → `404 speaker_profile_not_linked` (§7 race 8). It is a lock and re-check. `find_bound_profile` stays lock-free, as T6b-2 wrote it.
+- `login_address(session, *, tenant_id, account_user_id) -> str`: the bound login's `user_account.email`, for the OQ-3 `address_is_login` test (§3.1). Only opt-in calls it.
 
 No path or body field names the subject (parent §2, MM-A01).
 
@@ -425,13 +435,21 @@ Run one file at a time (env rule 3). DB tests use the private database `smartmat
 
 Each milestone: tests first, run red locally (the red run is noted in the commit body), then code to green. Before each commit: `$VENV/bin/ruff format` + `ruff check` on touched files, and the milestone's test files one at a time. Every commit ends with the `Co-Authored-By` trailer.
 
-**Gate before milestone 1 (S3):** `git grep -n lift_source origin/feat/b26-t6b-1 -- db/migrations/versions/0039_speaker_portal.py` and `git grep -n contact_channel_speaker_choice origin/feat/b26-t6b-1 -- db/migrations/versions/0039_speaker_portal.py` must both hit. A and B were sent to the T6b-1 implementer and are **not pushed yet**. Until both hit, do not rebase and do not start milestone 1; report to the orchestrator.
+**Start gate (S3, plus the T6b-2 stack).** All three must hit on `origin/feat/b26-t6b-2` before milestone 0. None is pushed yet (2026-09-23): A and B were sent to the T6b-1 implementer, and T6b-2 is plan-only (`f30f85e9`).
 
-0. **Contingency, not planned work — only if `0039` merges without §1.2 A and B:** `feat: speaker channel choice table and lift-source check` (migration at head plus one, mirror, CHECK-key table, conftest, head pins).
+1. `git grep -n lift_source origin/feat/b26-t6b-2 -- db/migrations/versions/0039_speaker_portal.py`
+2. `git grep -n contact_channel_speaker_choice origin/feat/b26-t6b-2 -- db/migrations/versions/0039_speaker_portal.py`
+3. `git grep -n "def _authorize_speaker_self" origin/feat/b26-t6b-2 -- services/api/smartmatch_api/routers/speaker_self.py`
+
+Until all three hit, do not merge and do not start milestone 1; report to the orchestrator.
+
+0. `chore: merge feat/b26-t6b-2 into feat/b26-t6b-3`. `git merge origin/feat/b26-t6b-2`, which brings T8a, T6b-1, T2, T1 and T3. Resolve nothing by hand in T6b-2's files. Then run T6b-2's `tests/contract/test_speaker_self_api.py` once to prove the imported authorizer is green on this branch.
+
+**Contingency C, not planned work — only if `0039` merges without §1.2 A and B:** `feat: speaker channel choice table and lift-source check` (migration at head plus one, mirror, CHECK-key table, conftest, head pins).
 1. `feat: suppression and speaker channel consent rules in the domain`. §3, with `test_suppression_rules.py` and `test_speaker_channel_consent.py`.
 2. `feat: one suppression module and lifted_at in every eligibility read`. **The risk-1 commit, atomic:** `persistence/suppression.py`, R1–R3, W1, W2, the reader guard, the persistence tests and every §8 send-path test (red with seeded `LIFTED` rows, then green).
 3. `feat: speaker channel choice log and the Speaker-wins guard on connector transitions`. The choice repository, `contacts.lock`, G1–G3 (with the evidence guard), the OQ-4 fix (shipped-behaviour change, named in the commit body and PR body), the Connector view fields, `make openapi`, the `api.ts` type, and the lifecycle and outreach-contacts contract tests.
-4. `feat: /v1/me/contact-channels with self-service opt-in and opt-out`. `_authorize_speaker_self` imported from `routers/speaker_self.py` (or created per §5.2), `lock_bound_profile_share`, `login_address`, the service, the router, the capability row, rate limits, the authz ledgers, the Speaker contract tests and the race tests.
+4. `feat: /v1/me/contact-channels with self-service opt-in and opt-out`. `_authorize_speaker_self` and friends imported from `smartmatch_api.routers.speaker_self` (§5.2), `lock_bound_profile_share`, `login_address`, the service, the router, the capability row, rate limits, the authz ledgers, the Speaker contract tests and the race tests.
 5. `docs: T6b-3 notes on OQ-009, OQ-CBA-035 and the parent's lifted_at sentence`.
 
 ## 11. Owner rulings (2026-09-23)
@@ -457,7 +475,8 @@ All seven questions are ruled. None is open.
 | A Connector bypasses the Speaker through the generic route | Guard on G1 and G2; `apply_transition` call-site pin. | — |
 | Deadlock between Speaker, Connector and unsubscribe writers | One global lock order (§7); race tests assert no `DeadlockDetected`. | — |
 | In-flight send after an opt-out | ADR-0014 rule 2 (prospective); test that every later re-check refuses. | One message already past its re-check (§7 race 6). |
-| `0039` merges without §1.2 | Milestone 0 fallback. | T6b-3 then stacks on the head branch. |
+| `0039` merges without §1.2 | Contingency C (§10). | The migration lands at head plus one on the T6b-2-based branch. |
+| T6b-2 is late or changes `_authorize_speaker_self` | Start gate item 3; milestone 0 runs T6b-2's contract tests; the matrix names the imported authorizer, so a rename fails `test_policy_matrix.py`. | T6b-3 waits on T6b-2. |
 
 ## 13. Out of scope
 
@@ -467,4 +486,4 @@ All seven questions are ruled. None is open.
 4. T6b-5's unbind semantics beyond §7 race 8. Choices persist after an unbind by design (§4.2).
 5. Retention of choice rows (D5).
 
-**Next action (under two minutes):** run the two §10 gate greps against `origin/feat/b26-t6b-1`; both must hit before milestone 1.
+**Next action (under two minutes):** run the three §10 start-gate greps against `origin/feat/b26-t6b-2`; all must hit before milestone 0.
