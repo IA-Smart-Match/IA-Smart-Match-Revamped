@@ -2,7 +2,7 @@
 
 **Next action:** once `feat/b26-t6b-1` carries `0039` with §1.2 A and B, rebase `feat/b26-t6b-3` onto it and run milestone 1 (§10).
 
-**Revision 2, 2026-09-23.** Records the owner rulings on OQ-1 to OQ-7 (§11). The §1.2 `0039` additions A and B went to the T6b-1 implementer, so milestone 0 is only a documented contingency. Revision 1 was the first plan. Docs only. No source file, route or migration is written by this document.
+**Revision 3, 2026-09-23.** Applies the security plan gate (APPROVE, findings S1–S7): S1 §5.4 G2, S2 §6 and §7 race 10, S3 §10 gate, S4 §5.4 G3, S5 §5.4 and §6, S6 §5.1 W2, S7 §8 guard 1. Revision 2 recorded the owner rulings on OQ-1 to OQ-7 (§11). The §1.2 `0039` additions A and B went to the T6b-1 implementer, so milestone 0 is only a documented contingency. Revision 1 was the first plan. Docs only. No source file, route or migration is written by this document.
 
 Parent: `docs/plans/2026-09-22-b26-self-service-availability-plan.md` §2 (privacy and consent constraints), §3.2 (`suppression_record.lifted_at`, `lifted_by_user_id`, source `speaker_portal`), §4.4, §7 row 8, §8, §11 risk 1. ADR-0014 rule 2 (withdrawal is immediate and prospective). T6b-1 plan: `origin/feat/b26-t6b-1:docs/plans/b26-tracks/T6b-1-plan.md` (revision 3), boundary 3, §10 L2, Appendix A.
 
@@ -59,7 +59,7 @@ T6b-1 test impact: 5 more CHECK keys in `tests/integration/test_check_constraint
 | `python/smartmatch_domain/smartmatch_domain/speaker_channel_consent.py` | **New.** `SpeakerChoice` (`opt_in`, `opt_out`), `OPT_IN_START_STATES`, `opt_in_path(current)`, `connector_transition_conflict(latest, current, requested)`, `SELF_SERVICE_EVIDENCE`, `SELF_SERVICE_REASON`. Pure. §3.2. |
 | `python/smartmatch_persistence/smartmatch_persistence/suppression.py` | **New.** The only module that reads or writes `suppression_record` outside `schema.py` and migrations. `active_suppression_exists(channel)`; `SuppressionRepository.record`, `.lift`, `.lock_for_address`, `.is_active`. Never commits. §5.1. |
 | `python/smartmatch_persistence/smartmatch_persistence/speaker_channel_choice.py` | **New.** `SpeakerChoiceRepository.append`, `.latest_for_channel`, `.latest_for_channels`, `.last_transition_at_for_channels`. Never commits. §4.2. |
-| `python/smartmatch_persistence/smartmatch_persistence/contacts.py` | `_selectable()` (`:124-157`) uses `active_suppression_exists`. `get` (`:254`) gains `for_update: bool = False`. New `list_for_speaker(tenant_id, professional_id, limit)`. Module docstring. |
+| `python/smartmatch_persistence/smartmatch_persistence/contacts.py` | `_selectable()` (`:124-157`) uses `active_suppression_exists`. New `lock(session, *, tenant_id, contact_channel_id) -> bool`: `SELECT id FROM contact_channel WHERE tenant_id = :t AND id = :id FOR UPDATE`, its own statement with no join and no subquery (S5). Callers then re-read through the unchanged `get` (`:254`). New `list_for_speaker(tenant_id, professional_id, limit)`. Module docstring. |
 | `python/smartmatch_persistence/smartmatch_persistence/outreach.py` | `load_recipient` (`:217-282`) uses `active_suppression_exists`. `suppress` (`:683-728`) and `is_suppressed` (`:730-740`) delegate to `SuppressionRepository`. `SuppressionOutcome` gains `write`. Module docstring and the "first suppression stands" paragraph. |
 | `python/smartmatch_persistence/smartmatch_persistence/schema.py` | Comments only at `:1722` and on `suppression_record` (`:2076`). The DDL mirror is T6b-1's. |
 | `services/api/smartmatch_api/speaker_subject.py` | **New, shared with T6b-2.** `resolve_speaker_subject(session, principal, *, lock_share: bool) -> SpeakerSubject`. Whichever of T6b-2 and T6b-3 lands first creates it; the other imports it. §5.2. |
@@ -211,7 +211,7 @@ CREATE TABLE contact_channel_speaker_choice (
 | # | Writer | Where | Change |
 |---|---|---|---|
 | W1 | `OutreachRepository.suppress` | `outreach.py:683-728` | Delegates to `SuppressionRepository.record`: `INSERT … ON CONFLICT ON CONSTRAINT uq_suppression_record_address DO NOTHING RETURNING id`, then `SELECT … FOR UPDATE`, then `merge_suppression`, then one `UPDATE` or none. `was_already_suppressed` = an active row existed before the call, so `test_outreach_persistence.py:677-737` stays green unchanged. |
-| W2 | `SuppressionRepository.lift` | new | `UPDATE … SET lifted_at = :now, lifted_by_user_id = :actor WHERE tenant_id, address AND lifted_at IS NULL AND source IN (liftable)`. Asserts that 1 row changed. CHECK A backs it. |
+| W2 | `SuppressionRepository.lift` | new | `lift(session, *, tenant_id, address, allowed_sources, lifted_at, lifted_by_user_id)`: `UPDATE … SET lifted_at = :lifted_at, lifted_by_user_id = :actor WHERE tenant_id = :t AND address = :a AND lifted_at IS NULL AND source IN (:allowed_sources)`. `allowed_sources` is the set the verdict allowed for **this** address: `{speaker_portal}`, or `{speaker_portal, unsubscribe_link, one_click}` on the login address (S6). It is never the fixed liftable list. Asserts that exactly 1 row changed, otherwise it raises and the transaction rolls back. CHECK A backs the widest set. |
 
 **Consumers (unchanged code; each has a §8 contract test):**
 
@@ -276,32 +276,32 @@ Quota is charged first; `charge_quota` commits (`dependencies.py:286-312`, ADR-0
 
 | # | Surface | Where | Change |
 |---|---|---|---|
-| G1 | CBA channel transition | `cba_contact_channels.py:662` | `_load_channel_or_404` reads with `for_update=True`. Then `latest_for_channel`, then `connector_transition_conflict`, so a hit is a `409` with the §3.2 code. It runs **before** `_require_evidence` (`:711`) and `assert_transition` (`:718-736`), so the Speaker-specific code wins over the generic `speaker_contact_channel_transition_refused`. `occurred_at` is read after the lock. |
-| G2 | Generic contact transition | `outreach_contacts.py:727` | The same lock and guard, with the same two codes. Also pass `suppressed=row.suppressed` at `:788` (OQ-4 ruling). **Shipped-behaviour change:** today a Connector can move a suppressed contact to `consented` or `active_candidate` on this route (`201`); after milestone 3 that is `409 outreach_contact_transition_refused`, matching the CBA route. Moves to `stale` and `rejected` still succeed. The PR body lists this change. |
-| G3 | Coordinator suppress (`PATCH suppressed: true`) | `outreach_contacts.py:694` | Lock the channel. If the latest choice is `opt_in` → `409 speaker_contact_channel_speaker_opted_in` (OQ-2 ruling), nothing written. Otherwise W1 as today. |
+| G1 | CBA channel transition | `cba_contact_channels.py:662` | `_load_channel_or_404` first calls `contacts.lock(...)` in its own statement, then re-reads through `get()` (S5), so the suppression flag and state are read after the lock. Then `latest_for_channel`, then `connector_transition_conflict`, so a hit is a `409` with the §3.2 code. It runs **before** `_require_evidence` (`:711`) and `assert_transition` (`:718-736`), so the Speaker-specific code wins over the generic `speaker_contact_channel_transition_refused`. `occurred_at` is read after the lock. |
+| G2 | Generic contact transition | `outreach_contacts.py:727` | Today's order is `_load_or_404` (`:757`) → `can_transition` (`:766`, `409 outreach_contact_transition_illegal`) → `_require_approved_consent` (`:779`) → `assert_transition` without `suppressed=` (`:788`), whose `except` maps **every** `ConsentViolationError` to `403 outreach_consent_source_not_approved`. New order (S1): (1) `contacts.lock` then `_load_or_404` re-read; (2) the Speaker-wins guard, `409 speaker_contact_channel_speaker_opted_out` / `…_opted_in`; (3) **new** check `row.suppressed and is_escalation(body.to_state)` → **`409 outreach_contact_suppressed`** (new code), "That address is suppressed: somebody at it has told us to stop."; (4) `can_transition`; (5) `_require_approved_consent`; (6) `assert_transition(..., suppressed=row.suppressed)` as defence in depth, its existing `403` mapping unchanged because step 3 already answered every suppressed escalation. **Shipped-behaviour change (OQ-4):** today a Connector can move a suppressed contact to `consented` (from `relationship_recorded`) or `active_candidate` (from `consented`) on this route and gets `201`; after milestone 3 both are `409 outreach_contact_suppressed`, and the suppressed code wins over a missing-evidence `400`. Moves to `stale` and `rejected` still succeed. The commit body and PR body list this change. |
+| G3 | Contact PATCH: coordinator suppress **and** evidence correction | `outreach_contacts.py:621` (`update_evidence` `:685` → `contacts.py:338`; suppress `:694`) | After `_load_or_404` (`:651`) and the empty-request and un-suppress `400`s: `contacts.lock`, re-read, `latest_for_channel`. If the latest choice is `opt_in` and the request carries `suppressed: true` **or** `consent_evidence` → `409 speaker_contact_channel_speaker_opted_in` (OQ-2 ruling; orchestrator ruling S4 for evidence, because rewriting the evidence behind a Speaker's own consent is overriding it), nothing written. Otherwise both writes as today, W1 for the suppress. |
 | V | Connector channel views | `cba_contact_channels.py:319`, `outreach_contacts.py:319` | Additive `speaker_choice` and `speaker_choice_at`, so a Connector sees why a 409 happened. The list reads all latest choices in one query. |
 
 The guard sits in both transition routes because both move the same `contact_channel` rows. A guard on one route alone would leave the other as a way around it. A source test pins the set of `apply_transition(` call sites to G1, G2 and `speaker_channel_consent.opt_in`.
 
 ## 6. Transactions
 
-**`now` is read once, after the channel lock is held.** That keeps `decided_at` and `occurred_at` in lock order. This differs deliberately from T6b-1 R6's "top of request", which has no lock to wait on.
+**`now` is read once, after the channel lock and the suppression row lock are both held** (S2): `now = max(utc_now(), row.suppressed_at)` when a row exists, else `utc_now()`. That keeps `decided_at` and `occurred_at` in lock order, and keeps `lifted_at >= suppressed_at` (`ck_suppression_record_lifted`, T6b-1 §2) true even if an unsubscribe re-opened the row between the request's start and the lock (§7 race 10), or another API process's clock runs ahead. This differs deliberately from T6b-1 R6's "top of request", which has no lock to wait on.
 
 **Opt-in** (`speaker_channel_consent.opt_in`), one transaction:
 
 1. `charge_quota` (commits).
 2. `resolve_speaker_subject(lock_share=True)`: the profile row `FOR SHARE`.
-3. `contacts.get(channel_id, for_update=True)` (`FOR UPDATE OF contact_channel`). If it is missing, or `professional_id` is not the subject's → `404 speaker_contact_channel_not_found`.
-4. `now = utc_now()`.
-5. `suppressions.lock_for_address(address)` (`FOR UPDATE`, may be none), then `speaker_lift_verdict(address_is_login=…)`. `REFUSED("unverified_address")` → `409 speaker_contact_channel_address_unverified`; any other `REFUSED` → `409 …suppression_not_liftable`. Nothing is written. Suppression is checked before legality, the order `assert_transition` uses (`consent.py:217-219`).
+3. `contacts.lock(channel_id)` (its own `FOR UPDATE` statement, S5), then `contacts.get(channel_id)`. If it is missing, or `professional_id` is not the subject's → `404 speaker_contact_channel_not_found`.
+4. `suppressions.lock_for_address(address)` (`FOR UPDATE`, may be none).
+5. `now` as above (S2). Then `speaker_lift_verdict(address_is_login=…)`. `REFUSED("unverified_address")` → `409 speaker_contact_channel_address_unverified`; any other `REFUSED` → `409 …suppression_not_liftable`. Nothing is written. Suppression is checked before legality, the order `assert_transition` uses (`consent.py:217-219`).
 6. `opt_in_path(current)`. Not allowed → `409 …opt_in_unavailable`.
 7. Idempotent case → `200 changed: false`.
-8. `LIFT` → `suppressions.lift(lifted_at=now, lifted_by_user_id=principal.user_id)`.
+8. `LIFT` → `suppressions.lift(allowed_sources=<the verdict's set>, lifted_at=now, lifted_by_user_id=principal.user_id)`.
 9. For each move: `assert_transition(prev, next, consent_source=SELF_SERVICE, suppressed=<after the lift>)`, then `apply_transition(expected_state=prev, to_state=next, consent_source="self_service", consent_evidence=SELF_SERVICE_EVIDENCE, reason=SELF_SERVICE_REASON, actor_user_id=principal.user_id, occurred_at=now)`. `None` → `409 …transition_conflict`.
 10. `choices.append(choice="opt_in", sequence=max+1, decided_at=now, actor_user_id=principal.user_id, professional_id=channel.professional_id, lifted_source/lifted_suppressed_at when step 8 ran)`.
 11. `commit`. Read back through R1 and build the view.
 
-**Opt-out**, one transaction: steps 1–4, then:
+**Opt-out**, one transaction: steps 1–5 (without the verdict), then:
 
 1. `suppressions.record(source="speaker_portal", at=now)` (W1's merge).
 2. Idempotent case → `changed: false`. Otherwise `choices.append(choice="opt_out", …)`.
@@ -319,7 +319,7 @@ The guard sits in both transition routes because both move the same `contact_cha
 | T6b-1 invite | profile `FOR UPDATE` → invitation (reads the channel without a lock) |
 | T6b-1 activation | profile → invitation → address advisory lock |
 | G1, G2 Connector transition | channel `FOR UPDATE` (reads suppression and the choice log without a lock) |
-| G3 coordinator suppress | channel `FOR UPDATE` → suppression row (upsert) |
+| G3 contact PATCH | channel `FOR UPDATE` → suppression row (upsert, suppress only) |
 | Unsubscribe `POST` | suppression row only (upsert) |
 | Worker send, dispatch, compose | none (reads) |
 
@@ -336,6 +336,7 @@ No path takes a suppression row and then a channel, or a channel and then a prof
 | 7 | Opt-out ∥ T6b-1 invite of the same channel | Profile lock (`FOR SHARE` against `FOR UPDATE`). Invite first: its job is refused at the worker re-check. |
 | 8 | Opt-in ∥ T6b-5 unbind | The profile `FOR SHARE` blocks the unbind's update until the opt-in commits. After unbind: `404 speaker_profile_not_linked`. |
 | 9 | Two first suppressions for one address | `ON CONFLICT DO NOTHING`, then `FOR UPDATE` on the surviving row, then the merge. |
+| 10 | Opt-in whose request started before an unsubscribe re-opened the row (S2) | The unsubscribe commits a new `suppressed_at` while the opt-in waits on the channel or suppression lock. The opt-in reads `now` only after `lock_for_address`, and takes `max(utc_now(), suppressed_at)`, so the lift satisfies `ck_suppression_record_lifted` instead of failing with a `500`. The lift then applies to the re-opened `unsubscribe_link` row under the OQ-3 rule. |
 
 ## 8. A contract test per send path, and the reader guard
 
@@ -366,7 +367,7 @@ No path takes a suppression row and then a channel, or a channel and then a prof
 
 **Reader guard** — `tests/unit/test_suppression_single_reader.py` (AST over `python/`, `services/`, `tools/`; not tests or migrations):
 
-1. `test_only_the_suppression_module_touches_the_table`: `schema.suppression_record` attribute access, or a string literal holding `suppression_record` next to `SELECT`, `FROM`, `JOIN`, `INSERT`, `UPDATE` or `DELETE`, appears only in `persistence/suppression.py` and `persistence/schema.py`. A failure names the file and line.
+1. `test_only_the_suppression_module_touches_the_table`: `schema.suppression_record` attribute access, or a non-docstring string literal holding `suppression_record` together with an **upper-case** SQL keyword (`SELECT`, `FROM`, `JOIN`, `INSERT`, `UPDATE`, `DELETE`; case-sensitive match), appears only in `persistence/suppression.py` and `persistence/schema.py`. Docstrings (the first expression statement of a module, class or function) are skipped, and keywords match case-sensitively, so prose such as `cba_contact_channels.py:191` ("a join against ``suppression_record``") and `outreach.py:16` ("computed from ``suppression_record``") does not trip it (S7). A failure names the file and line.
 2. `test_lifted_at_is_written_only_by_the_suppression_module` (the §1.1 invariant).
 3. `test_every_eligibility_consumer_is_known`: every call of `load_recipient`, `ContactChannelRepository.get`, `list_for_unit`, `list_for_professional`, `list_for_speaker`, `is_suppressed` and `is_active` is in `KNOWN_ELIGIBILITY_CONSUMERS` (file, function). A new caller fails until it is listed **and** has a `SEND_PATHS` entry.
 4. `test_apply_transition_call_sites_are_guarded` (§5.4).
@@ -380,16 +381,16 @@ Run one file at a time (env rule 3). DB tests use the private database `smartmat
 | `tests/unit/test_suppression_rules.py` | unit | `test_source_vocabulary_matches_the_check` (schema CHECK text and CHECK A); `test_liftable_sources_are_a_rank_prefix_for_both_address_kinds`; `test_merge` (param: none / lifted / active × 6 incoming); `test_speaker_lift_verdict` (param: 6 sources × none / active / lifted × `address_is_login` true / false); `test_unsubscribe_sources_lift_only_on_the_login_address`; `test_single_row_merge_matches_the_per_source_model` (4,802 sequences); `test_speaker_opt_out_over_an_unsubscribe_elsewhere_does_not_hide_it` (regression for the rank order); `test_speaker_facing_reason_covers_every_source` |
 | `tests/unit/test_speaker_channel_consent.py` | unit | `test_opt_in_path` (param: 8 states); `test_every_opt_in_move_is_a_legal_edge` (against `STATE_TRANSITIONS`); `test_connector_conflict` (param: 3 latest × every legal move); `test_evidence_and_reason_carry_no_address_or_id` |
 | `tests/unit/test_suppression_single_reader.py` | unit | The 4 guards in §8 |
-| `tests/integration/test_suppression_persistence.py` | integration | `record` insert / no-op / escalate / re-open; `was_already_suppressed`; `lift` sets both columns; `test_a_raw_lift_of_bounce_complaint_or_coordinator_is_refused_by_the_check` (CHECK A); `test_active_suppression_exists_ignores_a_lifted_row`; `test_lift_in_one_tenant_leaves_another_suppressed` |
+| `tests/integration/test_suppression_persistence.py` | integration | `record` insert / no-op / escalate / re-open; `was_already_suppressed`; `lift` sets both columns; `test_lift_only_touches_the_allowed_sources` (S6: `allowed_sources={speaker_portal}` against an `unsubscribe_link` row changes 0 rows and raises); `test_lift_at_suppressed_at_satisfies_the_check` (S2 boundary); `test_a_raw_lift_of_bounce_complaint_or_coordinator_is_refused_by_the_check` (CHECK A); `test_active_suppression_exists_ignores_a_lifted_row`; `test_lift_in_one_tenant_leaves_another_suppressed` |
 | `tests/integration/test_outreach_persistence.py` | integration | `:677-737` unchanged and green. Add `test_load_recipient_reports_a_lifted_suppression_as_clear` and `test_a_reopened_suppression_is_reported_again`. |
 | `tests/integration/test_contact_lifecycle.py` | integration | `test_contact_row_suppressed_flag_honours_lifted_at` (get, both lists, `list_for_speaker`) |
 | `tests/integration/test_speaker_channel_choice.py` | integration | `test_sequence_is_dense_per_channel`, `test_duplicate_sequence_is_refused`, `test_update_is_refused_by_the_trigger`, `test_latest_and_batch_latest`, `test_professional_matches_the_channel` |
-| `tests/integration/test_speaker_channel_consent_races.py` | integration | Two sessions with barriers, the T6b-1 `test_speaker_portal_activation.py` pattern: races 1, 2, 3, 4, 7 and 9 of §7, each asserting the outcome column and no `DeadlockDetected` within a 10 s timeout |
+| `tests/integration/test_speaker_channel_consent_races.py` | integration | Two sessions with barriers, the T6b-1 `test_speaker_portal_activation.py` pattern: races 1, 2, 3, 4, 7, 9 and 10 of §7, each asserting the outcome column and no `DeadlockDetected` within a 10 s timeout |
 | `tests/integration/test_outreach_handler.py` | integration | `TestLiftedSuppression` (§8) |
 | `tests/contract/test_suppression_lift_send_paths.py` | contract (DB) | §8, C2–C10 |
 | `tests/contract/test_me_contact_channels_api.py` | contract (DB, capability-on stub) | See the list below. |
 | `tests/contract/test_contact_lifecycle_api.py` | contract (DB) | G1: `test_opted_out_channel_refuses_consented_and_active_candidate` (`409 …speaker_opted_out`, before the evidence `400`); `test_opted_in_channel_refuses_stale` (`409 …speaker_opted_in`); `test_after_opt_out_a_connector_may_mark_stale`; `test_no_choice_leaves_today_behaviour` (existing `:656-729` green); `test_view_carries_speaker_choice` |
-| `tests/contract/test_outreach_contacts.py` | contract (DB) | G2: the same 2 codes. G3: `test_coordinator_suppress_on_an_opted_in_channel_is_409`. OQ-4: `test_generic_transition_refuses_escalating_a_suppressed_contact` (param: to `consented`, to `active_candidate` → `409 outreach_contact_transition_refused`, no transition row) and `test_generic_transition_still_allows_stale_and_rejected_when_suppressed`. G3: `test_coordinator_suppress_on_an_opted_in_channel_writes_nothing`. `:443-467` stay green. |
+| `tests/contract/test_outreach_contacts.py` | contract (DB) | G2: the same 2 codes. G3: `test_coordinator_suppress_on_an_opted_in_channel_is_409`. OQ-4 (S1): `test_generic_transition_refuses_escalating_a_suppressed_contact` (param: `relationship_recorded`→`consented` with evidence, `consented`→`active_candidate` → `409 outreach_contact_suppressed`, no transition row, state unchanged); `test_suppressed_code_wins_over_missing_evidence` (to `consented` with no evidence → `409 outreach_contact_suppressed`, not `400`); `test_speaker_wins_code_wins_over_suppressed_code` (opted-out channel → `409 …speaker_opted_out`); `test_generic_transition_still_allows_stale_and_rejected_when_suppressed`; `test_unsuppressed_illegal_edge_is_still_409_illegal` (today's `outreach_contact_transition_illegal` unchanged). G3 (S4): `test_coordinator_suppress_on_an_opted_in_channel_writes_nothing`; `test_evidence_patch_on_an_opted_in_channel_is_409` (evidence unchanged); `test_evidence_patch_after_opt_out_or_with_no_choice_succeeds`. `:443-467` stay green. |
 | `tests/authz/test_route_roles.py` | authz | 3 literal rows with `_SPEAKER_SELF = frozenset({"speaker"})`; `test_speaker_self_roles_match_the_live_constant` |
 | `tests/authz/test_policy_matrix.py` | authz | 3 `Operation`s (`me.contact_channels.read`, `.opt_in`, `.opt_out`): `speaker_at_owning_unit` → permit, every other shape → `deny("no_grant")`. T6b-1's `test_a_speaker_membership_reaches_no_operation` becomes `…_reaches_only_speaker_self_operations` against `SPEAKER_SELF_OPERATIONS`, which T6b-2 extends. |
 | `tests/unit/test_speaker_portal_composition.py` (T6b-1's) | unit | The unmounted-path list gains the 3 paths; the OpenAPI document has none of them. |
@@ -406,10 +407,12 @@ Run one file at a time (env rule 3). DB tests use the private database `smartmat
 
 Each milestone: tests first, run red locally (the red run is noted in the commit body), then code to green. Before each commit: `$VENV/bin/ruff format` + `ruff check` on touched files, and the milestone's test files one at a time. Every commit ends with the `Co-Authored-By` trailer.
 
+**Gate before milestone 1 (S3):** `git grep -n lift_source origin/feat/b26-t6b-1 -- db/migrations/versions/0039_speaker_portal.py` and `git grep -n contact_channel_speaker_choice origin/feat/b26-t6b-1 -- db/migrations/versions/0039_speaker_portal.py` must both hit. A and B were sent to the T6b-1 implementer and are **not pushed yet**. Until both hit, do not rebase and do not start milestone 1; report to the orchestrator.
+
 0. **Contingency, not planned work — only if `0039` merges without §1.2 A and B:** `feat: speaker channel choice table and lift-source check` (migration at head plus one, mirror, CHECK-key table, conftest, head pins).
 1. `feat: suppression and speaker channel consent rules in the domain`. §3, with `test_suppression_rules.py` and `test_speaker_channel_consent.py`.
 2. `feat: one suppression module and lifted_at in every eligibility read`. **The risk-1 commit, atomic:** `persistence/suppression.py`, R1–R3, W1, W2, the reader guard, the persistence tests and every §8 send-path test (red with seeded `LIFTED` rows, then green).
-3. `feat: speaker channel choice log and the Speaker-wins guard on connector transitions`. The choice repository, `get(for_update=)`, G1–G3, the OQ-4 fix (shipped-behaviour change, named in the commit body and PR body), the Connector view fields, `make openapi`, the `api.ts` type, and the lifecycle and outreach-contacts contract tests.
+3. `feat: speaker channel choice log and the Speaker-wins guard on connector transitions`. The choice repository, `contacts.lock`, G1–G3 (with the evidence guard), the OQ-4 fix (shipped-behaviour change, named in the commit body and PR body), the Connector view fields, `make openapi`, the `api.ts` type, and the lifecycle and outreach-contacts contract tests.
 4. `feat: /v1/me/contact-channels with self-service opt-in and opt-out`. `speaker_subject.py`, the service, the router, the capability row, rate limits, the authz ledgers, the Speaker contract tests and the race tests.
 5. `docs: T6b-3 notes on OQ-009, OQ-CBA-035 and the parent's lifted_at sentence`.
 
@@ -420,9 +423,9 @@ All seven questions are ruled. None is open.
 | # | Question | Ruling | Where it lands |
 |---|---|---|---|
 | OQ-1 | Opt-in from `discovered`, `corroborated`, `reviewed`, `rejected` or `stale` (no edge to `consented`) | **Refuse** with `409 speaker_contact_channel_opt_in_unavailable`. No state-graph change. Known cost: opt-out → Connector marks `stale` → the Speaker's opt-in is refused; the UI says "ask your Speaker Connector". | §3.2, §7 race 2, `test_opt_in_unavailable` |
-| OQ-2 | Connector suppress on a Speaker-opted-in channel | **Refuse** with `409 speaker_contact_channel_speaker_opted_in`. | §5.4 G3, `test_coordinator_suppress_on_an_opted_in_channel_*` |
+| OQ-2 | Connector suppress on a Speaker-opted-in channel | **Refuse** with `409 speaker_contact_channel_speaker_opted_in`. Extended by the orchestrator (S4) to a Connector evidence correction on the same channel. | §5.4 G3, `test_coordinator_suppress_on_an_opted_in_channel_*` |
 | OQ-3 | Which addresses an opt-in may lift an `unsubscribe_link` or `one_click` suppression on | **Only the Speaker's login address** (proven by the invitation; the bound account's email). On any other channel an opt-in lifts only `speaker_portal` suppressions; an unsubscribe there → `409 speaker_contact_channel_address_unverified`, "ask your Speaker Connector". | §3.1, §5.2, §5.3, §6 step 5, the OQ-3 tests in §9 |
-| OQ-4 | `outreach_contacts.py:788` ignores suppression | **Fix in milestone 3** with a contract test. Shipped-behaviour change: escalating a suppressed contact on the generic route becomes `409 outreach_contact_transition_refused`. | §5.4 G2, §9, §10 milestone 3 |
+| OQ-4 | `outreach_contacts.py:788` ignores suppression | **Fix in milestone 3** with a contract test. Shipped-behaviour change: escalating a suppressed contact on the generic route becomes `409 outreach_contact_suppressed` (new code, S1), checked after the Speaker-wins guard and before `can_transition` and `_require_approved_consent`. | §5.4 G2, §9, §10 milestone 3 |
 | OQ-5 | One row per address loses some audit detail | **Accept.** No lift decision is lost (§3.1), and the choice log records every lift's source and time. The coordinator actor gap stays under OQ-009. | §3.1, §4.2 |
 | OQ-6 | Opt-in from `consented` rewrites `consent_source` to `self_service` with a new date | **Yes.** The old consent stays in the trail. | §3.2 |
 | OQ-7 | Channel scope for the Speaker | **Tenant-wide by `professional_id`**, across units. | §5.3 |
@@ -446,4 +449,4 @@ All seven questions are ruled. None is open.
 4. T6b-5's unbind semantics beyond §7 race 8. Choices persist after an unbind by design (§4.2).
 5. Retention of choice rows (D5).
 
-**Next action (under two minutes):** check `feat/b26-t6b-1` for `ck_suppression_record_lift_source` in `0039` (`git grep lift_source origin/feat/b26-t6b-1`).
+**Next action (under two minutes):** run the two §10 gate greps against `origin/feat/b26-t6b-1`; both must hit before milestone 1.
