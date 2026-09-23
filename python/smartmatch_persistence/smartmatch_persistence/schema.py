@@ -73,6 +73,8 @@ __all__ = [
     "resource_grant",
     "review_item",
     "reward_item",
+    "speaker_availability",
+    "speaker_availability_window",
     "speaker_profile",
     "speaker_request_classification",
     "spend_ceiling_bucket",
@@ -2338,6 +2340,97 @@ speaker_profile = sa.Table(
         sa.text("lower(btrim(full_name))"),
         unique=False,
     ),
+)
+
+
+speaker_availability = sa.Table(
+    "speaker_availability",
+    METADATA,
+    # Migration 0038 (B26). One row per speaker who has *said something*; no
+    # row is the answer "said nothing" (UNKNOWN), so nothing seeds one.
+    sa.Column("tenant_id", _UUID, nullable=False),
+    sa.Column("professional_id", _UUID, nullable=False),
+    sa.Column("invitations_paused_until", sa.Date, nullable=True),
+    # NULL is "not stated" and never defaulted.
+    sa.Column("declared_capacity_hours_per_90_days", sa.Numeric(5, 1), nullable=True),
+    # Optimistic-concurrency token; the repository always checks it because
+    # two writers (the speaker and a Speaker Connector) share the row.
+    sa.Column("version", sa.Integer, nullable=False, server_default=sa.text("1")),
+    sa.Column("updated_source", sa.Text, nullable=False),
+    sa.Column("updated_by_user_id", _UUID, nullable=False),
+    sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.Column("updated_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.PrimaryKeyConstraint("tenant_id", "professional_id", name="speaker_availability_pkey"),
+    # CASCADE: a statement is part of its speaker, not a thing that outlives them.
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "professional_id"],
+        ["speaker_profile.tenant_id", "speaker_profile.professional_id"],
+        ondelete="CASCADE",
+        name="fk_speaker_availability_profile",
+    ),
+    # RESTRICT: deleting an account must not erase the authorship of a statement.
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "updated_by_user_id"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="RESTRICT",
+        name="fk_speaker_availability_updated_by",
+    ),
+    sa.CheckConstraint(
+        "updated_source IN ('speaker', 'connector')",
+        name="ck_speaker_availability_source",
+    ),
+    sa.CheckConstraint(
+        "declared_capacity_hours_per_90_days IS NULL OR "
+        "(declared_capacity_hours_per_90_days > 0 "
+        "AND declared_capacity_hours_per_90_days <= 720)",
+        name="ck_speaker_availability_capacity",
+    ),
+    sa.CheckConstraint("version >= 1", name="ck_speaker_availability_version"),
+)
+
+
+speaker_availability_window = sa.Table(
+    "speaker_availability_window",
+    METADATA,
+    # Migration 0038 (B26). Inclusive date ranges a speaker cannot speak on.
+    # Each range keeps its own author: one kept across an edit keeps its
+    # original created_source and created_by_user_id.
+    sa.Column("id", _UUID, nullable=False),
+    sa.Column("tenant_id", _UUID, nullable=False),
+    sa.Column("professional_id", _UUID, nullable=False),
+    sa.Column("starts_on", sa.Date, nullable=False),
+    sa.Column("ends_on", sa.Date, nullable=False),
+    sa.Column("created_source", sa.Text, nullable=False),
+    sa.Column("created_by_user_id", _UUID, nullable=False),
+    sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.PrimaryKeyConstraint("id", name="speaker_availability_window_pkey"),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "professional_id"],
+        ["speaker_availability.tenant_id", "speaker_availability.professional_id"],
+        ondelete="CASCADE",
+        name="fk_speaker_availability_window_statement",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "created_by_user_id"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="RESTRICT",
+        name="fk_speaker_availability_window_created_by",
+    ),
+    sa.CheckConstraint("ends_on >= starts_on", name="ck_speaker_availability_window_order"),
+    # Matches smartmatch_domain.speaker_availability.WINDOW_MAX_SPAN_DAYS.
+    sa.CheckConstraint("ends_on - starts_on <= 366", name="ck_speaker_availability_window_span"),
+    sa.CheckConstraint(
+        "created_source IN ('speaker', 'connector')",
+        name="ck_speaker_availability_window_source",
+    ),
+    sa.UniqueConstraint(
+        "tenant_id",
+        "professional_id",
+        "starts_on",
+        "ends_on",
+        name="uq_speaker_availability_window_range",
+    ),
+    sa.Index("ix_speaker_availability_window_ends", "tenant_id", "professional_id", "ends_on"),
 )
 
 

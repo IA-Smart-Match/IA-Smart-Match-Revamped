@@ -208,6 +208,12 @@ _TENANT_SCOPED_TABLES = (
     # Migration 0024. Holds ON DELETE RESTRICT references to *both*
     # `user_account` and `org_unit`, so it goes above the pair — getting this
     # order wrong is the failure PR #26 had to fix for `match_run`/`job`.
+    #
+    # Migration 0038, above `speaker_profile`. Both cascade from it and are
+    # listed anyway so this tuple stays the full set of tenant-scoped tables;
+    # both also hold ON DELETE RESTRICT references to `user_account`.
+    "speaker_availability_window",
+    "speaker_availability",
     "speaker_profile",
     "user_account",
     "org_unit",
