@@ -181,6 +181,7 @@ def _register_principal(
     resource_grant_unit_id: uuid.UUID | None = None,
     membership_path: str = UNIT_PATH,
     resource_grant_effect: str = "allow",
+    extra_roles: tuple[str, ...] = (),
 ) -> str:
     """Create one more user in ``tenant_id`` and return a bearer token for it.
 
@@ -222,7 +223,7 @@ def _register_principal(
                 "email": f"{subject}@example.edu",
             },
         )
-        if role is not None:
+        for held in (() if role is None else (role,)) + extra_roles:
             conn.execute(
                 text(
                     "INSERT INTO membership (id, tenant_id, user_id, granted_path, role) "
@@ -233,7 +234,7 @@ def _register_principal(
                     "tid": tenant_id,
                     "uid": user_id,
                     "path": membership_path,
-                    "role": role,
+                    "role": held,
                 },
             )
         if resource_grant_unit_id is not None:
@@ -622,3 +623,37 @@ def test_measured_zero_metric_stays_zero_through_the_cache_layer(metric_context)
 
     assert matched["value"] == 0
     assert matched["unknown_reason"] is None
+
+
+# ---------------------------------------------------------------------------
+# Owner ruling R8 (2026-09-23): the `speaker` role reads no aggregate
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("suffix", ["metrics", "speaker-pipeline"])
+def test_speaker_only_principal_is_refused_aggregates(
+    metric_context, engine: Engine, suffix: str
+) -> None:
+    """A Speaker's own login is refused both aggregate reads, with its own reason."""
+    client, unit_id, _coordinator_token, tenant_id = metric_context
+    speaker_token = _register_principal(engine, client, tenant_id, role="speaker")
+
+    response = _get(client, f"/v1/units/{unit_id}/{suffix}", speaker_token)
+    assert response.status_code == 403
+    body = response.json()
+    assert body["error"]["code"] == "forbidden"
+    assert body["error"]["details"]["reason"] == "membership_role_excluded"
+
+
+@pytest.mark.parametrize("suffix", ["metrics", "speaker-pipeline"])
+def test_host_with_speaker_role_still_reads_aggregates(
+    metric_context, engine: Engine, suffix: str
+) -> None:
+    """An Event Host who is also a Speaker reads aggregates through the host role."""
+    client, unit_id, _coordinator_token, tenant_id = metric_context
+    token = _register_principal(
+        engine, client, tenant_id, role="speaker", extra_roles=("volunteer",)
+    )
+
+    response = _get(client, f"/v1/units/{unit_id}/{suffix}", token)
+    assert response.status_code == 200
