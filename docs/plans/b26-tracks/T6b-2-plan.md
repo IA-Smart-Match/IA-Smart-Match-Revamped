@@ -209,7 +209,7 @@ def _authorize_speaker_self(session: Session, principal: CurrentPrincipal) -> Bo
 - **Rows are keyed by `bound.professional_id`, never by `principal.user_id`.** In T6b-5's merged login they differ.
 - T6b-1 grants the `speaker` membership at the profile unit's path (T6b-1 §5 step 12), so the membership covers exactly this resource.
 - No `require_membership` (the role set is non-empty, S-007); no `tenant_wide_roles`; no `excluded_roles`.
-- T6b-3 reuses this authorizer for `/v1/me/contact-channels*` through the matrix's `authorizer_module` field.
+- **T6b-3 follows this contract** for `/v1/me/contact-channels*` (orchestrator, 2026-09-23): the same order (quota → bound profile by `account_user_id`, else `404 speaker_profile_not_linked` → `speaker` role on the profile's unit, else `403`) and the same names: `_authorize_speaker_self`, `_SPEAKER_SELF_ROLES`, `SpeakerPortalRepository.find_bound_profile`, `BoundSpeakerProfile`. It imports them and names `authorizer_module="smartmatch_api.routers.speaker_self"` in its matrix rows; it does not re-implement the lookup. Renaming any of them is a cross-track change.
 
 ### 3.2 Order, every handler
 
@@ -322,6 +322,7 @@ export interface MyEngagement {
 export interface MyEngagementList { when: EngagementWhen; as_of: string; engagements: MyEngagement[]; truncated: boolean }
 export type SpeakerSelfErrorCode =
   | "speaker_profile_not_linked" | "speaker_invitation_not_found" | "speaker_invitation_already_answered"
+  | "speaker_invitation_response_conflict"
   | Exclude<SpeakerAvailabilityErrorCode, "speaker_contact_not_found">;
 
 export async function fetchMyAvailability(): Promise<SpeakerAvailability>;
