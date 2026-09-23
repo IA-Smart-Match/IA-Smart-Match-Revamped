@@ -19,7 +19,8 @@ Depends on T1 (`origin/feat/b26-t1:docs/plans/b26-tracks/T1-plan.md` §2): `Avai
 | `tests/integration/conftest.py` | `_TENANT_SCOPED_TABLES` (`:101`): add `speaker_availability_window`, `speaker_availability` above `speaker_profile` (`:111`). |
 | Head pins, 4 files | `HEAD_REVISION`/`_HEAD_REVISION = "0037_exercise_tables"` → `"0038_speaker_availability"`: `test_cba_contact_schema.py:150`, `test_cba_weight_settings_persistence.py:189`, `test_event_filed_by_migration.py:78`, `test_host_organization_migration.py:84` (+ their "chains to" comments). |
 | `README.md:35` | "37 Alembic revisions, head `0037_exercise_tables`" → 38 / `0038_speaker_availability`; recount `:36`'s "115 integration" (drift tests are parametrized per mirrored table). |
-| `docs/operations/supabase-setup.md:162` | "must land at `0037_exercise_tables`" → `0038_speaker_availability`. (`supabase-maintenance.md:98` already says "or later" — leave.) See C6 for `exercise-hosting.md:706`. |
+| `docs/operations/supabase-setup.md:162` | "must land at `0037_exercise_tables`" → `0038_speaker_availability`. (`supabase-maintenance.md:98` already says "or later" — leave.) |
+| `docs/operations/exercise-hosting.md:706-716` | Step 2 only (C6): heading "Confirm the migration head is `0038_speaker_availability`", both `grep` commands on `0038_speaker_availability`, pass/fail text ("past `0038`"), head citation → `0038_speaker_availability.py` `down_revision = "0037_exercise_tables"` line. The owner has uncommitted edits to this file in the parent checkout: touch no other line. |
 
 Drift test needs no edit: `test_schema_matches_migration.py:51` parametrizes over `schema.METADATA.tables`;
 `:225` enumerates DB tables and fails any `tenant_id` table without a tenant-aligned composite FK.
@@ -103,7 +104,10 @@ class SpeakerAvailabilityRepository:
 ```
 
 - **`get`**: `None` = no row = "said nothing" (`UNKNOWN`). A row with no windows is a real answer (`AVAILABLE`).
-- **`get_many`** (T4's pool read): 2 queries total — rows `WHERE tenant_id = :t AND professional_id = ANY(:ids)`, then windows for the found ids ordered `professional_id, starts_on, ends_on`. Absent key = no row. Empty input → `{}` with no query. No N+1.
+- **One statement per read, `get` and `get_many` alike.** The engine runs READ COMMITTED (`engine.py:233-240` sets no isolation level), so two queries can straddle a writer's commit and return fields at version *n* with windows at *n+1*. Both reads are one query:
+  `SELECT a.*, w.starts_on, w.ends_on, w.created_source, w.created_by_user_id, w.created_at FROM speaker_availability a LEFT JOIN speaker_availability_window w ON w.tenant_id = a.tenant_id AND w.professional_id = a.professional_id WHERE a.tenant_id = :t AND a.professional_id = ANY(:ids) ORDER BY a.professional_id, w.starts_on, w.ends_on`.
+  `LEFT JOIN` keeps a row with zero windows (all `w.*` NULL → `unavailable = ()`). The join also carries `w.tenant_id = a.tenant_id`. Grouped in Python by `professional_id`. `get` = `get_many` with one id.
+- **`get_many`** (T4's pool read): absent key = no row. Empty input → `{}` with no query. No N+1.
 - **`upsert`**, one caller transaction, never commits:
   1. `SELECT … FOR UPDATE` the row.
   2. `expected_version is None` means "I believe there is no row" (C1). Mismatch either way → `StaleSpeakerAvailabilityError`.
@@ -140,7 +144,9 @@ CI runs them: `.github/workflows/verify.yml:52` (postgres:16 service), `:107` `a
 15. `test_window_for_other_tenant_statement_is_refused`; `test_window_without_statement_is_refused`.
 16. `test_deleting_speaker_profile_cascades_to_availability_and_windows`.
 17. `test_deleting_statement_cascades_to_windows`.
-18. `test_deleting_updating_user_account_is_restricted`.
+18. `test_deleting_updating_user_account_is_restricted` (the statement's `updated_by`).
+19. `test_deleting_window_creator_account_is_restricted` — the window's `created_by` is a **different** account from the statement's `updated_by`; deleting it is refused, so the window FK's RESTRICT is proven on its own.
+20. `test_window_ends_index_exists` — `inspector.get_indexes("speaker_availability_window")` holds `ix_speaker_availability_window_ends` on exactly `(tenant_id, professional_id, ends_on)`. The drift test does not compare indexes.
 
 Plus the 6 `test_check_constraints.py` entries pointing `BEHAVIOURAL_COVERAGE` at tests 4–11.
 
@@ -155,11 +161,13 @@ Plus the 6 `test_check_constraints.py` entries pointing `BEHAVIOURAL_COVERAGE` a
 7. `test_window_replace_keeps_unchanged_provenance_deletes_absent_inserts_new`.
 8. `test_empty_windows_clears_all_windows_but_keeps_row` (stated, nothing blocked).
 9. `test_capacity_round_trips_as_decimal`; `test_null_pause_and_capacity_round_trip`.
-10. `test_get_many_returns_only_present_ids_in_two_queries` (count via `before_cursor_execute`).
+10. `test_get_many_returns_only_present_ids_in_one_query` (count via `before_cursor_execute`; `get` also issues exactly 1).
+10b. `test_get_many_keeps_a_row_with_zero_windows` (LEFT JOIN, `unavailable == ()`).
 11. `test_get_many_empty_input_issues_no_query`.
 12. `test_get_many_never_returns_other_tenant_rows`.
 13. `test_concurrent_first_writes_one_wins_other_stale` (two sessions).
 14. `test_repository_never_commits` (rollback leaves no row).
+15. `test_read_is_one_committed_state_under_concurrent_write` — regression for the two-query race. Row at v1 with windows A; a `before_cursor_execute` hook on the reader's connection commits, from a second session, v2 with different pause, capacity and windows B **just before** the reader's statement runs. Assert the result is entirely v2: fields, `version == 2` and windows B, never v1 fields with B windows. Repeat for `get`.
 
 Run one file at a time: `$VENV/bin/python -m pytest tests/integration/test_speaker_availability_migration.py -q`.
 A local skip (no Postgres) is not proof; CI is.
@@ -169,7 +177,7 @@ A local skip (no Postgres) is not proof; CI is.
 1. `test: failing T2 migration and repository tests` — both new test files + `test_check_constraints.py` entries.
 2. `feat(db): 0038 speaker_availability, window table and schema mirror` — migration, `schema.py`, `conftest.py`, 4 head pins.
 3. `feat: speaker availability repository` — `speaker_availability.py`; repository file green.
-4. `docs: 0038 head in README and supabase-setup` — `README.md:35-36`, `supabase-setup.md:162`.
+4. `docs: 0038 head in README, supabase-setup and exercise-hosting` — `README.md:35-36`, `supabase-setup.md:162`, `exercise-hosting.md:706-716` (those lines only).
 
 ## 6. Contradictions and choices
 
@@ -180,7 +188,7 @@ A local skip (no Postgres) is not proof; CI is.
 | C3 | §3.1 names neither the window CHECKs, the window FK to `user_account`, nor the index. | Names in §2. | As §2. |
 | C4 | §3.1 "FK → `user_account`" reads as plain. | Composite only: plain fails `test_schema_matches_migration.py:225`. | Composite. |
 | C5 | `numeric(5,1)` rounds before the CHECK: `720.04` passes, `0.04` fails. | T1 C3 rejects > 1 decimal at the domain; DB test pins the rounding. | Both. |
-| C6 | §3 says "README revision count/head". Head is also pinned in 4 tests and `supabase-setup.md:162`. `exercise-hosting.md:706-712` asserts `0037` **is** head and fails after 0038; that file has uncommitted edits in the parent checkout. | (a) update it in T2; (b) leave to its owner. | **(b)**; dispatcher decides. Flagged. |
+| C6 | §3 says "README revision count/head". Head is also pinned in 4 tests and `supabase-setup.md:162`. `exercise-hosting.md:706-712` asserts `0037` **is** head and fails after 0038; that file has uncommitted edits in the parent checkout. | (a) update it in T2; (b) leave to its owner. | **(a) — ruled by the dispatcher (Codex review round 1).** Lines 706-716 only. |
 | C7 | T1's `AvailabilityStatement` has no per-window source; §4.1 response needs it. `AvailabilitySource` has no home. | Wrapper `StoredSpeakerAvailability` + enum in persistence; or enum in domain. | Persistence; move if T1 adds one. **Align with T1.** |
 | C8 | §3.1 gives timestamps no default. | `server_default now()` (every table in `schema.py`) + repository passes `now`. | Both. |
 | C9 | `schema.py:22-24` says FKs are left unnamed in the mirror; `speaker_profile` names its 0028 FKs. | Name in both / migration only. | Both; drift ignores FK names. |
