@@ -1,11 +1,11 @@
 # B26 — self-service availability for professionals (2026-09-22)
 
-**Next action:** the owner answers the **one open question** in §9 (ELI band
-penalty values). Every track except T8c can start now.
+**Next action:** the owner answers **Q8** in §9 (may a Host be shortlisted for
+their own request). Every track can start now; only T4's pool rule waits on Q8.
 
 **Status:** planning only. No source file, route, or migration is written by this
-document. **Revision 2, 2026-09-22:** the owner answered all six first-round
-questions the same day; this revision builds them in.
+document. **Revision 3, 2026-09-22:** the owner answered all six first-round
+questions, then Q7 (band penalties) and the email-clash question, the same day.
 
 **Decisions recorded (owner, 2026-09-22)**
 
@@ -20,8 +20,11 @@ questions the same day; this revision builds them in.
 | Q4 | (a) The availability verdict is stored at run time, with a note if availability changed since. Compose and dispatch re-check current state. |
 | Q5 | (a) Provenance only (who, when) plus the run-time snapshot. |
 | Q6 | Collect declared capacity **now**, in hours per rolling 90 days, in the T2 migration. Remove `eli.py`'s `40.0` default. |
+| Q7 | **(A) Light × 1.00 · Moderate × 0.90 · Heavy × 0.70, multiplicative.** Exactly 50% is Moderate, exactly 80% is Heavy, exactly 100% is Heavy, Full is strictly above 100% (the rule `evaluate_cap` already uses). Registry `3.0.0` still needs its normal approval and IA West review. |
+| Unknown load | No penalty, not filtered, labelled "load not measurable". |
+| Email clash | **One login, two roles.** A person who is both an Event Host and a Speaker with the same email gets one account holding both roles, plus a portal switcher. No `409 speaker_portal_email_in_use` end state (§4.5, track T6b-5). |
 
-**Still open:** one owner question (§9) and five stakeholder dependencies (§10).
+**Still open:** one new owner question, Q8 (§9), and five stakeholder dependencies (§10).
 **Migrations:** `0038_speaker_availability`, `0039_speaker_portal`,
 `0040_speaker_booking_cancellation`, on top of head `0037_exercise_tables`. If
 another revision lands first, take current head plus one and keep one head.
@@ -37,7 +40,7 @@ facts decided the shape of the answer, and the owner's decisions resolve each.
 | # | Fact | Evidence | Resolved by |
 |---|---|---|---|
 | 1 | The volunteer portal's user is an **Event Host**, and an Event Host is not a speaker. | `role_presentation.py:152-158` maps `volunteer` → "Event Host"; `docs/architecture/GLOSSARY.md` "Event Host … Does **not** mean: A speaker"; `VolunteerProfile.tsx:42` says "Your Event Host record." | Q2 = B (Speaker portal) and Q3 = a (Host page close-out, T7). |
-| 2 | The person matching scores is a **Speaker**, and a Speaker has no account today. | `apps/web/DESIGN.md` "Speakers are contact records, not accounts"; `speaker_profile.professional_id` → a `user_account` with subject `contact-professional:<uuid>` (`smartmatch_domain/cba_contacts.py:176`) and a placeholder `.invalid` email; `speaker_respond` is unauthenticated "by design". | T6b: that same `user_account` gets a real email, a password credential and a `speaker` membership. No new identity row. |
+| 2 | The person matching scores is a **Speaker**, and a Speaker has no account today. | `apps/web/DESIGN.md` "Speakers are contact records, not accounts"; `speaker_profile.professional_id` → a `user_account` with subject `contact-professional:<uuid>` (`smartmatch_domain/cba_contacts.py:176`) and a placeholder `.invalid` email; `speaker_respond` is unauthenticated "by design". | T6b: the contact's own `user_account` becomes the login (real email, password, `speaker` membership) — or, when the address already signs in as an Event Host, that existing account gains the `speaker` role (§4.5). No new identity row either way. |
 | 3 | **ELI has no caller.** | Only `tests/unit/test_eli.py` imports `compute_eli`. The registry's 7 `FactorSpec`s are 4 CBA factors, 2 retired G1 factors and `availability` (`factor_registry.py:297-394`). | T8: the owner's centered-utilization rule, a band table, and a new major registry version. |
 | 4 | **The Stage A `availability` filter is registered and unwired.** | `factor_registry.py:380-394` (`ELIGIBILITY`, weight 0, `implemented=True`); `apply_availability_filter` has no caller outside `tests/unit/test_eligibility.py`. | T4 wires it with no registry bump. |
 | 5 | Nothing stores availability, workload or capacity for anyone. | `schema.py`; `user_account` is `id, tenant_id, external_subject, email, suspended, created_at, version`. | T2 (`0038`). |
@@ -93,7 +96,8 @@ T4). Load feeds scoring once T8 lands. Every run records what it used.
 - Availability is dates only; capacity is one number. Nothing else is asked.
 - Event Hosts never see availability, capacity, load, or a verdict naming a Speaker.
 - A Speaker sees only rows keyed to their own `professional_id`. No path or body
-  field names the subject (MM-A01); it is always `principal.user_id`.
+  field names the subject (MM-A01); it is always the profile whose
+  `account_user_id = principal.user_id` (§3.2).
 - Self-service consent writes `contact_channel_transition` with
   `consent_source = 'self_service'` and the Speaker as `actor_user_id`. Consent and
   availability stay separate: pausing invitations is not an opt-out.
@@ -161,6 +165,19 @@ most 18 months ahead; pause at most 12 months ahead.
 Partial unique index: one live invitation per Speaker
 (`WHERE accepted_at IS NULL AND revoked_at IS NULL`). Issuing a new one revokes the
 old one in the same transaction.
+
+**`speaker_profile`** gains `account_user_id` (uuid, null) and `account_bound_at`
+(timestamptz, null), set together: the login that speaks for this profile. FK
+`(tenant_id, account_user_id)` → `user_account` **RESTRICT** — composite, so a
+profile can never bind to an account in another tenant. Partial unique index
+`uq_speaker_profile_account` on `(tenant_id, account_user_id) WHERE account_user_id
+IS NOT NULL`: one login speaks for at most one Speaker. `professional_id` never
+changes, so every row that already references it — invitations, pipeline records,
+feedback, stored match runs — is untouched.
+
+**`speaker_portal_invitation`** also records the binding for audit:
+`bound_account_user_id` (uuid, null) and `binding_mode` (`'new_login'` |
+`'existing_login'`, null), set together with `accepted_at` (CHECK).
 
 **`suppression_record`** gains `lifted_at` and `lifted_by_user_id` (both nullable,
 set together), and its `source` CHECK gains `'speaker_portal'`. This is what lets a
@@ -232,16 +249,26 @@ never "Available"), `version`, per-window `source`, `updated_source`,
    `422 speaker_portal_channel_not_eligible`.
 2. **Landing page.** `GET /s/{token}`: a server-rendered password form. Changes
    nothing and never echoes the token (the `/i/{token}` rules).
-3. **Activate.** `POST /v1/speaker-portal/activate` `{ "token", "password" }`, unauthenticated.
-   In one transaction: set `user_account.email` to the channel's address; upsert
-   `pilot_credential`; insert `membership(role='speaker', granted_path=<profile unit path>)`;
-   mark the invitation accepted; issue a session. `ensure_account` uses
-   `ON CONFLICT DO NOTHING` (`professionals.py`), so a later contact edit does not
-   reset the email.
+3. **Activate.** `POST /v1/speaker-portal/activate`, unauthenticated. Two modes,
+   chosen by the server, never by the client — §4.5 has the full design:
+   - **New login** (no credentialed account holds the address):
+     `{ "token", "new_password" }`. Set the contact account's `email` to the
+     channel address; upsert `pilot_credential`; bind
+     `account_user_id = professional_id`.
+   - **Existing login** (exactly one credentialed account in this tenant holds
+     the address): `{ "token", "existing_password" }`. Verify that password; bind
+     `account_user_id` to that account. No password is set or changed.
+
+   Both modes, in one transaction: insert `membership(role='speaker',
+   granted_path=<profile unit path>)` on the bound account; mark the invitation
+   accepted with `bound_account_user_id` and `binding_mode`; issue a session.
+   `ensure_account` uses `ON CONFLICT DO NOTHING` (`professionals.py`), so a later
+   contact edit does not reset the email.
    Refusals: `400 speaker_portal_invitation_invalid` (one code for unknown,
-   expired, used or revoked — no oracle); `409 speaker_portal_email_in_use` when
-   another account already signs in with that address (`load_by_email` refuses
-   ambiguity); `422 password_too_weak`.
+   expired, used or revoked — no oracle); `401 speaker_portal_credentials_invalid`
+   for a wrong existing password (counted by `LoginAttemptLimiter`, token not
+   consumed); `422 password_too_weak`. The landing page only asks for the
+   password the mode needs.
 4. **Portal mapping.** `role_presentation.py` adds `speaker` → "Speaker";
    `portals.py` `_PORTAL_FOR_ROLE["speaker"] = ("speaker", "/speaker-portal")`, and
    `_ROLE_PRIORITY` and `_PORTAL_ORDER` gain it. DESIGN.md's role table and its
@@ -252,9 +279,9 @@ never "Available"), `version`, per-window `source`, `updated_source`,
 
 ### 4.3 The Speaker's own routes (T6b-2)
 
-Role `{speaker}`. The subject is always `principal.user_id`, which **is**
-`speaker_profile.professional_id`. A caller with no profile gets
-`404 speaker_profile_not_linked`.
+Role `{speaker}`. The subject is the one `speaker_profile` whose
+`account_user_id = principal.user_id` — the same lookup for a new login and a
+merged one. A caller with no bound profile gets `404 speaker_profile_not_linked`.
 
 | Route | Returns |
 |---|---|
@@ -279,6 +306,71 @@ Role `{speaker}`. The subject is always `principal.user_id`, which **is**
   opted in → `409 speaker_contact_channel_speaker_opted_in`.
 - **Never overridden by either side:** `bounce` and `complaint` suppressions. A
   Speaker opt-in cannot lift them, because they are facts about delivery, not choices.
+
+### 4.5 One login, two roles (T6b-5)
+
+The owner's rule: one person, one email, one account, both roles.
+
+**Identity binding.**
+
+1. The Speaker's identity stays `speaker_profile.professional_id` (the
+   `contact-professional:<uuid>` account). It is never re-keyed: re-keying would
+   touch every referencing table and break stored runs' subject ids.
+2. The **login** is `speaker_profile.account_user_id`. For a new login it is the
+   contact account itself; for a merged one it is the Host's existing account. The
+   contact account then stays credential-less with its `.invalid` email, so it can
+   never sign in on its own.
+3. `load_by_email` does **not** change. It still returns `None` unless exactly one
+   credentialed account holds the address. The merge keeps that true: activation
+   never creates a second credential for an address that already has one. The
+   activation transaction locks the matching `pilot_credential` rows
+   (`SELECT … FOR UPDATE`) so two concurrent activations cannot both take the
+   new-login path.
+4. If the address is already **ambiguous** (two credentialed accounts — possible
+   only from legacy seed data), activation refuses with the generic `400` and the
+   Connector sees "address matches more than one login; fix before inviting".
+5. If the one credentialed account is in **another tenant**, there is nothing to
+   merge — tenancy is structural (composite keys, ADR-0004). The new-login path
+   would create an ambiguous address, so activation refuses with the generic
+   `400`, and the Connector invite route pre-checks and returns
+   `409 speaker_portal_address_in_other_tenant`. Single-tenant pilot: not expected.
+6. **Every future account-creation path** (seed tools, a later Host sign-up) must
+   call one shared `find_or_add_role(email, role, path)` instead of inserting a
+   second credentialed account. T6b-5 moves `tools/seed_pilot_logins.py` onto it.
+
+**Session and role checks.**
+
+- One `pilot_session`, one principal. `PrincipalRepository` loads every
+  membership on each request, so the new `speaker` role appears on the next
+  request without a new login.
+- Route authorization is unchanged: each route's `required_roles` is checked
+  against memberships covering the resource path. A `volunteer` membership opens
+  Host routes, a `speaker` membership opens `/v1/me/*` Speaker routes, and
+  neither widens the other. `test_policy_matrix.py` gains a two-membership
+  principal shape.
+- Suspending the account suspends both roles. That is correct (one person), and
+  the Connector UI says so before suspending.
+- Frontend cache keys already start with the principal key, so both portals share
+  one principal. Activation invalidates `/v1/me` and `/v1/me/portals`.
+
+**Portal switcher.**
+
+- `GET /v1/me/portals` already returns one descriptor per portal and merges
+  deterministically (`portals.py`). With both roles it returns `volunteer` and
+  `speaker`. `_PORTAL_ORDER` puts `volunteer` before `speaker`, so
+  `default_portal` stays the Host portal for an existing Host.
+- A "Switch portal" menu in both shells' header lists `portals[]`, shown only when
+  there are two or more. It is a link, not a role change: nothing is sent to the
+  server. The last choice is remembered in `localStorage` as a convenience only
+  (wrapped in try/catch; `default_portal` is the fallback).
+
+**Audit.** `speaker_portal_invitation` records who invited, when, which login was
+bound and by which mode; `speaker_profile.account_bound_at` records when. The
+membership row itself has no granter column, so the invitation row is the record
+of why the `speaker` role exists.
+
+**Unbinding.** Revoking portal access (Connector) sets `valid_until = now()` on the
+`speaker` membership and clears `account_user_id`. The Host role is untouched.
 
 ## 5. How it feeds matching and ELI
 
@@ -330,10 +422,9 @@ utilization = (completed + confirmed) / declared_capacity_hours_per_90_days   --
 - `LoadInputs.declared_capacity_hours` loses its `40.0` default and becomes
   optional; `LoadModifier` stops adding points (manual blackout now lives in §5.1).
 
-**Bands.** Cut points are the owner's. Boundary ownership and penalty sizes are
-the §9 question.
+**Bands — decided 2026-09-22 (owner, Q7 = A).**
 
-| Band | Utilization (proposed ownership) | Stage A | Stage B (proposed) |
+| Band | Utilization | Stage A | Stage B multiplier |
 |---|---|---|---|
 | Light | `u < 0.50` | pass | × 1.00 |
 | Moderate | `0.50 ≤ u < 0.80` | pass | × 0.90 |
@@ -387,6 +478,7 @@ of only the affected keys. Errors branch on `ApiRequestError.code`. WCAG 2.2 AA.
 | `CoordinatorSpeakerContacts` "Invite to portal" | T6b-1 | Pick an eligible email channel; shows Invited / Active / Expired; "Revoke". Hidden when `SPEAKER_PORTAL` is off. |
 | `CoordinatorMatchRuns` / `CoordinatorInvitations` | T4, T8d | "Available", "Unavailable on this date (Speaker's statement)", "Paused until …", "Availability not stated", "changed since this run"; after T8, a band word (Light / Moderate / Heavy / Full / Load not measurable), never a number (OQ-CBA-005). |
 | `/speaker-portal` shell | T6b-4 | Home (upcoming engagements, open invitations), Invitations (answer), Engagements (upcoming / past), Availability (same form as T5 plus the Speaker's own load band after T8), Contact preferences (opt in / out per channel). |
+| Portal switcher (both shells) | T6b-5 | "Switch portal" menu listing `/v1/me/portals`; hidden with one portal; keyboard-operable menu button with `aria-expanded`; current portal marked `aria-current`. |
 | `/i/{token}` | T6a | Working accept / decline form for Speakers without an account. |
 | `VolunteerProfile.tsx` | T7 | Host's own record (email, role, unit), link to Organization; the dead `/api/portals/volunteers/{id}` panel is removed. |
 
@@ -412,6 +504,7 @@ Each track writes failing tests first. Locally, run targeted files one at a time
 | 6 | T6b-1 | Invite needs an eligible channel; one live invitation; activation is atomic; invalid/expired/used/revoked all one code; email-in-use 409; capability off → routes unmounted | contract + integration |
 | 7 | T6b-2 | Each `/v1/me/*` route returns only own rows; another Speaker's invitation → 404; `volunteer` and `coordinator` denied | contract + authz |
 | 8 | T6b-3 | Opt-out suppresses immediately; opt-in lifts only own-source suppressions; bounce/complaint never lifted; both 409s; every send-eligibility read honours `lifted_at` | contract + integration |
+| 8b | T6b-5 | Existing-login activation: right password binds and adds `speaker` membership; wrong password → 401, token not consumed, attempt counted; new-login path refused when a credentialed account holds the address; ambiguous and other-tenant addresses refused; concurrent activations → one binding; `/v1/me/*` resolves via `account_user_id` in both modes; Host routes unchanged; policy matrix two-membership shape; `/v1/me/portals` lists both; switcher hidden with one portal | contract + integration + authz + Vitest |
 | 9 | T8a | Cancel only a confirmed booking; cancellation is a transition | integration + contract |
 | 10 | T8b | `test_eli.py` rewritten: centered window edges (day −45, −1, 0, +45, +46), cancellation, unknown hours, lower-bound Full, no default capacity | unit |
 | 11 | T8c | `test_factor_registry.py`: 3.0.0 proposed until approved; superseded set; hash coverage; `G-CBA-14`…`19` | unit + golden |
@@ -427,60 +520,59 @@ Each track is its own PR against `main`.
 | **T1** | Domain: availability verdict, `reason` on `AvailabilityEvidence`, limits | 0.5 day | — |
 | **T2** | `0038_speaker_availability` incl. capacity, mirror, repository | 1.5 days | T1 |
 | **T3** | Connector availability `GET`/`PATCH`, OpenAPI, `api.ts` adapter | 1.5 days | T2 |
-| **T4** | Stage A wiring: run payload, "changed since", compose/dispatch re-check, `G-CBA-13` | 2.5 days | T2 |
+| **T4** | Stage A wiring: run payload, "changed since", compose/dispatch re-check, `G-CBA-13`; plus the self-request rule once Q8 is answered | 2.5 days | T2; Q8 for the self-request rule only |
 | **T5** | Connector availability panel | 1 day | T3 |
 | **T6a** | `/i/{token}` page fix only — working accept/decline controls. The token-link availability route is **dropped**: signed-in Speakers edit through `/v1/me/availability`. | 1 day | — |
 | **T6b-1** | Speaker accounts: `0039` (invitation table, suppression lift), `speaker` role and portal mapping, invite / revoke / activate routes, `speaker_portal_invite` template, `/s/{token}` page, `SPEAKER_PORTAL` capability, Connector "Invite to portal" button, DESIGN.md role table | 3.5 days | — |
 | **T6b-2** | `/v1/me/availability`, `/v1/me/invitations` (+ response), `/v1/me/engagements` | 2 days | T3, T6b-1 |
 | **T6b-3** | Self-service channel consent, Speaker-wins rule, `lifted_at` across every send-eligibility read | 2 days | T6b-1 |
 | **T6b-4** | `/speaker-portal` frontend: Home, Invitations, Engagements, Availability, Contact preferences | 3 days | T6b-2, T6b-3 |
+| **T6b-5** | One login, two roles: existing-login activation mode, credential locking, `find_or_add_role` (seed tools moved onto it), other-tenant pre-check, revoke/unbind, two-membership authz tests, portal switcher | 2.5 days | T6b-1, T6b-2; switcher UI after T6b-4 |
 | **T7** | `VolunteerProfile` close-out (Q3 = a) | 0.5 day | — |
 | **T8a** | `0040_speaker_booking_cancellation`, Connector "Cancel booking" route and button | 1.5 days | — |
 | **T8b** | `eli.py` 2.0.0: centered utilization, bands, no default capacity | 1 day | T2 |
-| **T8c** | Registry 3.0.0: band table, hash coverage, superseded set, Full pre-solve, penalty in scoring, explanation `load` block, `G-CBA-14`…`19` | 3 days | T8a, T8b, **§9 answer** |
+| **T8c** | Registry 3.0.0: band table (Q7 = A), hash coverage, superseded set, Full pre-solve, penalty in scoring, explanation `load` block, `G-CBA-14`…`19` | 3 days | T8a, T8b; registry approval before it becomes current |
 | **T8d** | Load band on Connector run views and on the Speaker's Availability page | 1 day | T8c, T6b-4 |
 
-**Total: 25.5 engineer-days.** Critical path: T6b-1 → T6b-2 → T6b-4 → T8d
-(9.5 days) and T1 → T2 → T8b → T8c → T8d (7 days, gated by §9). T1–T5, T6a, T7 and
-T8a can run in parallel from day one.
+**Total: 28 engineer-days.** Critical paths:
 
-## 9. The one open owner question
+1. T6b-1 → T6b-2 → T6b-4 → T6b-5 (switcher) — **11 days**. T8d (1 day) hangs off
+   T6b-4 in parallel with T6b-5.
+2. T1 → T2 → T8b → T8c → T8d — 7 days of work, plus waiting for registry 3.0.0
+   approval before it becomes the current scoring.
 
-### Q7. What are the ELI band penalties, and which band owns each boundary?
+T1–T5, T6a, T7 and T8a can run in parallel from day one. T6b-5's backend half
+(activation mode, locking, `find_or_add_role`) can start as soon as T6b-2 lands.
 
-The cut points (50% / 80% / 100%) are yours. Still open: the size of the
-Moderate and Heavy penalties, which band owns an exact 50% or 80%, and what an
-unmeasurable load scores. All three go into registry `3.0.0` and its hash.
+## 9. Owner questions
 
-For scale: the CBA weights are Industry 0.30, Role 0.25, Topic 0.15, Proximity
-0.30, and proximity scores Near 1.00 / Mid 0.60 / Far 0.20. One proximity step
-(Near → Mid) costs a candidate 0.12 of composite. Losing the industry match costs 0.30.
+### Q7 — decided 2026-09-22: (A)
 
-- **(A) Light × 1.00 · Moderate × 0.90 · Heavy × 0.70.** A moderately loaded
-  speaker loses about one proximity step; a heavily loaded one loses about an
-  industry match. Load reorders close calls but rarely beats a much better fit.
-- **(B) Light × 1.00 · Moderate × 0.95 · Heavy × 0.85.** Gentle. Heavy costs
-  about a Topic mismatch. Busy, well-fitted Speakers still rise to the top, so
-  load spreads less.
-- **(C) Light × 1.00 · Moderate × 0.80 · Heavy × 0.50.** Strong. Heavy halves
-  the score, which behaves almost like a second filter and can empty a small
-  shortlist.
+Light × 1.00 · Moderate × 0.90 · Heavy × 0.70, multiplicative on the composite.
+Exactly 50% is Moderate, exactly 80% is Heavy, exactly 100% is Heavy, and Full is
+strictly above 100% (the rule `evaluate_cap` already uses). Unknown load: no
+penalty, not filtered, labelled "load not measurable". These values go into
+registry `3.0.0` and its hash. **Still required:** that registry's normal approval
+and IA West review (§10 row 3).
 
-Common to all three (proposed, part of this answer):
+### Q8 (new, open). May a person be shortlisted for a Speaker Request they filed themselves?
 
-- **Boundaries:** the lower bound owns the band — exactly 50% is Moderate,
-  exactly 80% is Heavy, exactly 100% is Heavy, and Full is strictly above 100%
-  (matching `evaluate_cap` today).
-- **Multiplicative, not subtracted:** keeps every utility inside `[0, 1]` and
-  scales the penalty with fit.
-- **Unknown load** (capacity not stated, or hours unknown and not provably over
-  capacity): no penalty, not filtered, labelled "load not measurable". The
-  alternative — excluding them — would drop every Speaker who has not yet stated
-  a capacity.
+Once one login holds both roles (§4.5), an Event Host who is also a Speaker can
+file a request (`event.filed_by_user_id` = their login) and then appear in its
+match run, because the pool is every Speaker in the unit.
 
-**Recommendation: (A).** It is the smallest step that visibly spreads work
-(Moderate ≈ one proximity step, Heavy ≈ one industry match), and the band design
-already stops small hour changes from reshuffling a ranking.
+- **(a) Exclude them from that request's pool**, reported in the run's `excluded`
+  list as "filed this request". Simple and honest; a Host who wants to speak at
+  their own event does not need a match run to say so.
+- **(b) Keep them in the pool, flagged** "filed this request" on the shortlist.
+  Leaves the Connector to decide; the Host still sees nothing extra.
+- **(c) No rule.** They are scored like anyone else, with no flag.
+
+**Recommendation: (a).** A match run answers "who else could speak"; returning the
+requester is noise at best and self-selection at worst. The rule is a Stage A
+eligibility check keyed on `filed_by_user_id = speaker_profile.account_user_id`,
+so it changes no weight and no registry version. Trade-off: a genuine
+self-nomination has to be added by the Connector by hand.
 
 ## 10. Stakeholder dependencies still standing
 
@@ -499,11 +591,12 @@ None of these is decided by the owner's answers.
 | # | Risk | Mitigation |
 |---|---|---|
 | 1 | Adding `lifted_at` to `suppression_record` misses one send-eligibility read, and a lifted-then-resuppressed address gets mail. | T6b-3 greps every reader and adds a contract test per send path; delivery-time re-check stays. |
-| 2 | A person who is both an Event Host and a Speaker cannot activate with the same email (`load_by_email` refuses ambiguity). | `409 speaker_portal_email_in_use`, with a Connector-visible reason. Merging the two roles onto one account is a later decision. |
+| 2 | The merge binds a Speaker profile to the wrong person's login. | Existing-login mode requires that login's password; the token proves control of the invited address; one live invitation per Speaker; `uq_speaker_profile_account`; binding recorded with mode and actor; Connector can unbind. |
+| 2b | A later account-creation path inserts a second credentialed account for a merged address, and `load_by_email` then locks that person out. | One shared `find_or_add_role`; a test that fails if any module outside it inserts `pilot_credential`. |
 | 3 | Full is not overridable, but v1.1 §1.3 expects an authorized, expiring override. | Labelled in the run as "Full (no override available)"; override is a follow-up card. |
 | 4 | Most events are `date_only`, so most loads are "not measurable". | Surfaced as that, not as zero. T8d shows Connectors which engagements lack an end time, so the gap is visible and fixable. |
 | 5 | A parallel PR takes `0038`–`0040`. | Take head plus one at rebase; one head only. |
 
 ---
 
-**Next action (under two minutes):** reply on PR #209 with "Q7: A" (or B or C).
+**Next action (under two minutes):** reply on PR #209 with "Q8: a" (or b or c).

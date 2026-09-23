@@ -512,7 +512,7 @@ The only honest screens the API can support today.
 
 | Task | Detail | Depends | Acceptance |
 |---|---|---|---|
-| 6.1 | Professional profile **edit** of availability/workload used by ELI. DECIDED 2026-09-22 (owner): option B — build self-service availability; plan at [`2026-09-22-b26-self-service-availability-plan.md`](2026-09-22-b26-self-service-availability-plan.md). | Speaker accounts (plan T6b); D2 sub-question decided 2026-09-22; band penalty values still open (plan §9) | §1.6 satisfied. |
+| 6.1 | Professional profile **edit** of availability/workload used by ELI. DECIDED 2026-09-22 (owner): option B — build self-service availability; plan at [`2026-09-22-b26-self-service-availability-plan.md`](2026-09-22-b26-self-service-availability-plan.md). | Speaker accounts (plan T6b); D2 sub-question decided 2026-09-22; band penalties decided 2026-09-22; registry `3.0.0` approval pending | §1.6 satisfied. |
 | 6.2 | Assignments: accept/decline, ICS from `ics.py`. | 6.1, consent | No send from scraped evidence. |
 | 6.3 | Coordinator home: action queue first; named people. | 2.5 | Fix #13. |
 | 6.4 | Intake / staffing request — not a link to the admin matcher. | G1 for matches | B17 gone. |
