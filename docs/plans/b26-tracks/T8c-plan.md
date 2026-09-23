@@ -8,6 +8,9 @@ Parent: `docs/plans/2026-09-22-b26-self-service-availability-plan.md` (as correc
 Consumes: T8b plan (`eli.py` 2.0.0), T8a plan (`0040`, `cancelled_at`), T2 as built (`0038`,
 `SpeakerAvailabilityRepository`), T4 plan (run payload, `excluded` stored, UTC `as_of`, Stage A placement).
 
+**Plan gate: APPROVE (orchestrator, 2026-09-23).** OQ1–OQ5 accepted as recommended; departures C1 and
+C2 accepted. Findings 1–7 applied (§15).
+
 ## 0. Guardrail
 
 Registry `3.0.0` ships **declared, with status `proposed`, and not current.**
@@ -73,10 +76,10 @@ reviewer proves an index is needed, it is `0042` after T4's `0041` — flagged, 
 | 7 | `python/smartmatch_persistence/smartmatch_persistence/engagement_load.py` | **New.** `EngagementLoadRepository.engagements_for` (§4). Never commits. |
 | 8 | `services/api/smartmatch_api/match_run_evidence.py` | `EXCLUSION_LOAD_FULL = "load_full"` (+ `__all__`); `ExcludedCandidate.load: AssessedLoad \| None = None` (`:206`); `assemble_cba_pool(..., loads=None)` (`:353`) (§5). |
 | 9 | `services/api/smartmatch_api/availability_reads.py` (T4's) | `current_verdicts(..., statements=None)`: reuse a map already read; `None` keeps T4's own `get_many`. |
-| 10 | `services/api/smartmatch_api/routers/match_runs.py` | Create (`:795`): current registry, one `as_of`, load read, `loads` into the pool, `registry=` into ranking, payload `registry_version` and `excluded[].load` (§8). `_assert_scoring_permitted` (`:622`) takes the registry. `ExcludedCandidateView.reason` description (`:327`) lists `load_full`. |
+| 10 | `services/api/smartmatch_api/routers/match_runs.py` | Create (`:795`): current registry, one `as_of`, load read, `loads` into the pool, `registry=` into ranking, payload `registry_version` and `excluded[].load` (§8). `_assert_scoring_permitted` (`:622`) takes a registry: create passes the current one; **read passes the run's own pin** (`registry_for_version(run.registry_version)`, or `CBA_REGISTRY` when the pin is unknown), never the current registry. `ExcludedCandidateView` (`:316`): `reason` description (`:327`) lists `load_full`; new optional `load` renders the stored `excluded[].load` block (§5). |
 | 11 | `services/worker/smartmatch_worker/handlers.py` | `MatchRunCommand.registry_version` (`:930`); `_read_match_run_command` (`:1025`); gate, weights and `registry_hash` from the payload's registry (`:1184`, `:1198`, `:1225`, `:1254`) (§8). |
 | 12 | `services/api/smartmatch_api/routers/matching_weights.py:346` | `registry_version=current_cba_registry().version` (same value today). |
-| 13 | `contracts/openapi/smartmatch.json` | `make openapi` (only the `ExcludedCandidateView.reason` description moves). |
+| 13 | `contracts/openapi/smartmatch.json` | `make openapi` (`ExcludedCandidateView`: `reason` description and the optional `load` object). |
 | 14 | `docs/architecture/decisions/ADR-0027-registry-3-engagement-load.md` + `README.md` index row | **New, status Proposed.** Records Q7 = A, the multiplier, `registry_hash` for 3.x (amends ADR-0016's "`registry_hash` is `weights_fingerprint`", line 336, for 3.x only), and the flip procedure (§13). |
 | 15 | `docs/architecture/registry-supersession-record.md` | Dated section "3.0.0 declared proposed (B26 T8c), not current". |
 | 16 | Parent plan | §5.2 items 3–4 re-worded to §3.4 (plural derived set, `CURRENT_CBA_REGISTRY`); §8 T8c "Depends on" → "T4 (stack), T8b; approval before current". |
@@ -321,9 +324,13 @@ WHERE r.tenant_id = :tenant_id
   AND r.cancelled_at IS NULL
   AND (e.id IS NULL
        OR e.resolved_date IS NULL
-       OR e.resolved_date BETWEEN :as_of - 45 AND :as_of + 44)
+       OR e.resolved_date BETWEEN :window_start AND :window_end)
 ORDER BY r.subject_id, r.id
 ```
+
+`window_start = as_of - timedelta(days=COMPLETED_WINDOW_DAYS)` and
+`window_end = as_of + timedelta(days=CONFIRMED_WINDOW_DAYS - 1)` are computed in Python from T8b's
+constants and bound as two `date` parameters. No date arithmetic in SQL, no `now()`.
 
 | Rule | Source |
 |---|---|
@@ -442,6 +449,12 @@ pinned registry, never guessed. The gate at `:670` stays `assert_registry_approv
 6. Payload gains `"registry_version": registry.version` (always written; the worker's pin). Explanations
    carry `load` under 3.x. `excluded[]` carries `load` for `load_full`.
 
+**Read** (`match_runs.py:1148`): `_assert_scoring_permitted(registry_for_version(run.registry_version))`,
+falling back to `CBA_REGISTRY` when the pin names no registry (the explanations then report unreadable,
+§7). It never reads `current_cba_registry()`: flipping current to a proposed 3.0.0 must not 503 the
+reads of stored 1.1.1 / 2.0.0 runs (contract test C8). The read renders `excluded[].load` through
+`ExcludedCandidateView.load` (absent → `null`).
+
 **Worker** (`handlers.py`):
 
 | Payload | Registry | Model |
@@ -449,6 +462,11 @@ pinned registry, never guessed. The gate at `:670` stays `assert_registry_approv
 | no `registry_version`, no `scoring_mode` | `CBA_REGISTRY` | `SUPERSEDED_G1_MODEL` (1.1.1) — as today |
 | no `registry_version`, a mode | `CBA_REGISTRY` | the 2.0.0 model — as today; **never** "current" |
 | `registry_version` given | `registry_for_version(v)`; unknown → problem → `invalid_command_payload` | `resolve_scoring_model(mode, registry=…)`; mode `None` under 3.0.0 → problem |
+
+**Pin check.** When the payload names a `registry_version`, the resolved `model.registry_version` must
+equal it, else a problem → `invalid_command_payload`. Example: pin `2.0.0-approved-oq-cba-004` with
+`scoring_mode` null resolves through `CBA_REGISTRY` to `SUPERSEDED_G1_MODEL` (pin 1.1.1); that is
+refused, never silently recorded as a 1.1.1 run (test W7).
 
 Then `assert_registry_approved(registry=…)`, `assert_scoring_ready(registry=…)` (proposed → `failed_policy`
 `registry_not_ready`), `weights = applied_weights(overrides, model=model, registry=registry)`,
@@ -460,10 +478,13 @@ Then `assert_registry_approved(registry=…)`, `assert_scoring_ready(registry=�
 1. **Pure functions, no gate:** `compute_eli` with `CBA_REGISTRY_3.load_bands.table`, `assess_pool_loads`,
    `canonical_load_bands`, `registry_fingerprint`, `normalize_weights(registry=CBA_REGISTRY_3)`.
 2. **Explicit selection, gate evaluated:** `tests/unit/registry_evaluation.py` (not collected) provides
-   `evaluate_registry_3(monkeypatch)`. It wraps the `assert_registry_approved` name in
-   `smartmatch_domain.scoring`, `smartmatch_domain.explanation`, `smartmatch_api.routers.match_runs`
-   and `smartmatch_worker.handlers` so that **only** `registry is CBA_REGISTRY_3` passes; every other call
-   goes to the real gate. Precedent: `test_scoring.py:64-65` patches the same names. Callers then pass
+   `evaluate_registry_3(monkeypatch, modules=(...))`. It wraps the `assert_registry_approved` name only
+   in the modules the caller names, and only if each is already in `sys.modules`; it never imports one.
+   Golden and domain unit tests name `smartmatch_domain.scoring` and `smartmatch_domain.explanation`
+   only, so they never import the API or the worker. Contract and worker tests add
+   `smartmatch_api.routers.match_runs` / `smartmatch_worker.handlers`, which they have already imported.
+   A named module missing from `sys.modules` raises `LookupError` (a silent no-op would hide an unpatched
+   gate). Only `registry is CBA_REGISTRY_3` passes; every other call goes to the real gate. Precedent: `test_scoring.py:64-65` patches the same names. Callers then pass
    `registry=CBA_REGISTRY_3` explicitly, or patch `factor_registry.CURRENT_CBA_REGISTRY` for API tests.
 3. **Refusal proven without the helper:** tests 5, C3, W3 run 3.0.0 with the real gate and expect refusal.
 4. **Containment:** test 7 source-scans `python/`, `services/`, `tools/` for `registry_evaluation` and
@@ -546,7 +567,8 @@ pins `registry_version` 2.0.0 and `expected.registry_hash` = the three §3.5 lit
 
 1. `dict(normalize_weights(model=CBA_3_PHYSICAL_MODEL, registry=CBA_REGISTRY_3)) == dict(normalize_weights(model=CBA_PHYSICAL_MODEL))`; same for virtual.
 2. `h2 = registry_fingerprint(w, load_bands=None)` = `sha256:f870192c…e4e5`; `h3 = registry_fingerprint(w, load_bands=CBA_REGISTRY_3.load_bands)`; `h3 != h2`.
-3. `h3 == "sha256:" + sha256(LITERAL).hexdigest()` where `LITERAL` is the hand-written byte string
+3. `h3 == "sha256:73d5b67c898424c58984db49fa9542163e31438c23bed9742ecaebc50d9075f2"` (pinned) and
+   `h3 == "sha256:" + sha256(LITERAL).hexdigest()` where `LITERAL` is the hand-written byte string
    `{"load_bands":{"eli_formula_version":"2.0.0","full_above":"1","heavy_from":"0.8","moderate_from":"0.5","multipliers":{"heavy":"0.7","light":"1","moderate":"0.9","unknown":"1"}},"weights":{"cba_semantic_topic":"0.15","industry_match":"0.3","proximity":"0.3","role_match":"0.25"}}`.
 4. Virtual 3.x hash `!=` virtual 2.x hash and `!=` physical 3.x hash.
 5. Heavy multiplier `0.70 → 0.71` moves `h3`; changing `ownership.review_status` does not; `Decimal("0.5")` vs `Decimal("0.50")` cut points hash equal.
@@ -568,7 +590,7 @@ Run one file at a time: `PYTHONPATH=… $VENV/bin/pytest <file> -q`. DB tests us
 7. `test_no_production_module_imports_the_evaluation_helper_or_reassigns_current` (source scan).
 8. `test_registry_fingerprint_without_bands_is_weights_fingerprint` (the three §3.5 literals).
 9. `test_registry_invariants` (parametrized: spec without bands; bands without spec; spec in a model; weight ≠ 0; ELI version mismatch → `ValueError`).
-10. `test_toy_exercise_and_cba_registries_are_unchanged_by_the_new_field` (equality, hash, `load_bands is None`).
+10. `test_toy_exercise_and_cba_registries_are_unchanged_by_the_new_field`: `load_bands is None`; each registry `==` a `dataclasses.replace` copy of itself and the two copies hash equal. No fixed `hash()` value is asserted (string hashing is salted per process).
 
 **Unit — `tests/unit/test_load_bands.py` (new)**
 
@@ -623,16 +645,18 @@ Run one file at a time: `PYTHONPATH=… $VENV/bin/pytest <file> -q`. DB tests us
 - W3 `test_a_3_0_0_pin_fails_policy_while_proposed` (`registry_not_ready`, no row).
 - W4 `test_an_unknown_pin_is_an_invalid_payload`; W5 `test_3_0_0_with_no_mode_is_an_invalid_payload`.
 - W6 `test_under_evaluation_3_0_0_fingerprints_the_band_table` (helper §9).
+- W7 `test_a_pin_its_mode_does_not_resolve_to_is_an_invalid_payload` (pin 2.0.0 + mode null → `invalid_command_payload`, no row; never a 1.1.1 run).
 
 **Contract — `tests/contract/test_match_runs_api.py`**
 
 - C1 `test_create_scores_under_2_0_0_and_reads_no_engagements` (payload pin, no `load` keys, T4's query count).
-- C2 `test_under_evaluation_create_removes_full_and_stores_load_blocks` (Full in `excluded` with `load`; Moderate utility `0.873`; payload pin 3.0.0; worker row `registry_hash == registry_fingerprint(weights, bands)`).
+- C2 `test_under_evaluation_create_removes_full_and_stores_load_blocks` (Full in `excluded` with `load`; Moderate utility `0.873`; payload pin 3.0.0; worker row `registry_hash == registry_fingerprint(weights, bands)`; then `GET` the run and assert `excluded` renders the Full subject with reason `load_full` and its `load` object present).
 - C3 `test_a_proposed_current_registry_fails_closed` (patch current only → 503 `registry_not_ready`, no job).
 - C4 `test_3_0_0_create_costs_one_more_query_than_2_0_0`.
 - C5 `test_cancelling_a_booking_lowers_the_band_on_the_next_run`.
 - C6 `test_a_stored_2_0_0_run_reads_unchanged_after_current_is_switched` (same `registry_hash`, explanations, no `load`).
 - C7 `test_the_availability_and_load_as_of_are_the_same_date`.
+- C8 `test_a_flipped_unapproved_current_registry_does_not_block_stored_run_reads` (store a 2.0.0 run; patch current to the proposed 3.0.0 **without** the helper; `GET` → 200, same `registry_hash`, explanations readable; `POST` → 503).
 
 ## 12. Commit milestones (red → green)
 
@@ -646,8 +670,8 @@ Each milestone is two commits: tests red, then code green. Red for new modules i
 | 3 | `test: load multiplier and explanation load block (red)` | `feat: load multiplier in CBA scoring and explanation load block` (files 4–6) | 18–28; `test_scoring.py`, `test_explanation.py`, G-CBA-01…13 green |
 | 4 | `test: golden G-CBA-14..19 (red)` | `feat: golden runner evaluates registry 3.0.0 explicitly` (runner, schema, helper) | 29 |
 | 5 | `test: engagement load read (red)` | `feat: engagement load read from pipeline_record and event` (file 7) | L1–L9 |
-| 6 | `test: worker pins the registry from the payload (red)` | `feat: worker resolves the payload registry and fingerprints its band table` (file 11) | W1–W6 |
-| 7 | `test: create under the current registry and 3.0.0 evaluation (red)` | `feat: create reads load, removes Full before the solve, stores load blocks` (files 8–10, 12, 13) | C1–C7; T4's contract tests unedited and green |
+| 6 | `test: worker pins the registry from the payload (red)` | `feat: worker resolves the payload registry and fingerprints its band table` (file 11) | W1–W7 |
+| 7 | `test: create under the current registry and 3.0.0 evaluation (red)` | `feat: create reads load, removes Full before the solve, stores load blocks` (files 8–10, 12, 13) | C1–C8; T4's contract tests unedited and green |
 | 8 | — | push; PR `feat: B26 T8c registry 3.0.0 (proposed)` against `main`, draft until T4 and T8b merge | — |
 
 ## 13. The flip (after approval; not T8c)
@@ -656,7 +680,7 @@ Each milestone is two commits: tests red, then code green. Red for new modules i
 |---|---|---|
 | A. Approve | `CBA_REGISTRY_3`: `status="approved"`, `approver=…`, `approved_on=…`; `ownership.review_status=REVIEWED` once IA West reviews (§10 row 3); ADR-0027 → Accepted | owner + IA West |
 | B. Make current | the one line in §0 | owner-approved PR |
-| C. Same PR as B | update tests that assert a **new** run carries `REGISTRY_VERSION` (`tests/contract/test_match_runs_api.py`, `tests/integration/test_match_run_command_path.py` create-path rows); G-CBA-01…19 need no edit (domain defaults stay 2.0.0) | implementer |
+| C. Same PR as B | update: `tests/unit/test_factor_registry.py` tests 3 (`current_cba_registry() is CBA_REGISTRY_3`) and 4 (superseded `{1.1.1, 2.0.0}`, proposed `{}`); tests that assert a **new** run carries `REGISTRY_VERSION` (`tests/contract/test_match_runs_api.py`, `tests/integration/test_match_run_command_path.py` create-path rows); C3 becomes a post-approval create test. G-CBA-01…19 need no edit (domain defaults stay 2.0.0) | implementer |
 
 B without A answers `503 registry_not_ready` on create (C3). After B: new runs pin 3.0.0; 1.1.1 and
 2.0.0 runs read at their own pins, unchanged; `SUPERSEDED_REGISTRY_VERSIONS` becomes the parent's set.
@@ -671,15 +695,31 @@ B without A answers `503 registry_not_ready` on create (C3). After B: new runs p
 | C2 | §5.2 item 3: `REGISTRY_VERSION` → 3.0.0 once approved | `REGISTRY_VERSION` stays 2.0.0's identity; `CURRENT_CBA_REGISTRY` is what moves | Retargeting it re-labels every stored 2.0.0 run (§3.4) |
 | C3 | §7 row 11 names only `test_factor_registry.py` | Adds scoring, explanation, read, worker and contract tests | The penalty, block and read are T8c's too (§8 T8c row) |
 
-**Open (none blocks milestones 1–4)**
+**Decided (orchestrator, 2026-09-23: all five as recommended)**
 
-| # | Question | Recommendation |
+| # | Question | Ruling |
 |---|---|---|
 | OQ1 | Version string while proposed: parent's `3.0.0-approved-b26-eli`, or `3.0.0-proposed-b26-eli` renamed at approval? | **Keep the parent's string.** The gate refuses it until `status` flips, so no stored run can carry it early; renaming at approval would move every 3.0.0 fixture. |
 | OQ2 | Load read scope: tenant-wide, or only the run's unit? | **Tenant-wide.** Load is the person's, not the unit's. Numbers stay in the stored payload; screens show a band word only (OQ-CBA-005, T8d). |
 | OQ3 | A confirmed journey whose `opportunity_event_id` names no event row. | **Unresolved → unknown hours** (R4's rule). Never dropped, never 0 (ADR-0011). Legacy-only: new journeys are checked (`UnknownOpportunityEventError`). |
 | OQ4 | Order of `load_full` among Stage A reasons. | **After `filed_this_request`, before classification checks.** Full decides the outcome whatever the record says; a Connector should not fix a classification for someone who cannot be invited. |
 | OQ5 | `factor_registry.py` is 1,120 lines; T8c adds ~130. | **Ship T8c as planned**; open a follow-up card to split the lineage and 3.0.0 declaration into their own module once the flip lands. |
+
+## 15. Plan-gate findings applied (2026-09-23)
+
+| # | Sev | Finding | Where |
+|---|---|---|---|
+| 1 | MED | Read route gates on the run's own pin, never the current registry | §2 row 10, §8 Read, test C8 |
+| 2 | MED | Worker refuses a pin its resolved model does not carry | §8 Pin check, test W7 |
+| 3 | LOW | Evaluation helper patches only named modules already in `sys.modules` | §9 item 2 |
+| 4 | LOW | Flip list names `test_factor_registry.py` tests 3 and 4 | §13 row C |
+| 5 | LOW | C2 reads the run back via `GET`; `excluded` renders `load` | §2 rows 10 and 13, §8 Read, test C2 |
+| 6 | LOW | Window bounds computed in Python, bound as two dates | §4 |
+| 7 | LOW | Test 10 asserts equality and equal-copies-hash-equal; G-CBA-19 digest pinned | §11 test 10, §10 G-CBA-19 step 3 |
+
+**Follow-up card (OQ5):** `B26-FU-REGISTRY-SPLIT` — after the flip lands, move the CBA lineage,
+`CURRENT_CBA_REGISTRY` and the 3.0.0 declaration out of `factor_registry.py` (1,120 lines + ~130) into
+their own module, behaviour-preserving, with `test_factor_registry*.py` green unedited. Not T8c.
 
 ---
 
