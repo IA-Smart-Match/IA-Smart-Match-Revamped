@@ -80,6 +80,11 @@ class UnavailableWindow:
     starts_on: date
     ends_on: date
 
+    def __post_init__(self) -> None:
+        for name, value in (("starts_on", self.starts_on), ("ends_on", self.ends_on)):
+            if isinstance(value, datetime) or not isinstance(value, date):
+                raise TypeError(f"{name}: must be a date, got {type(value).__name__}")
+
 
 @dataclass(frozen=True, slots=True)
 class AvailabilityStatement:
@@ -105,6 +110,8 @@ class AvailabilityStatement:
                 "declared_capacity_hours_per_90_days: must be a Decimal or None, "
                 f"got {type(capacity).__name__}"
             )
+        if not isinstance(self.unavailable, tuple):
+            raise TypeError(f"unavailable: must be a tuple, got {type(self.unavailable).__name__}")
 
 
 @dataclass(frozen=True, slots=True)
