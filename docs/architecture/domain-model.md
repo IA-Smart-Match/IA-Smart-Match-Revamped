@@ -15,7 +15,7 @@ behaviour-plus-mutable-state, and no framework anywhere.
 | `@dataclass(frozen=True)` value objects | **85** | Immutable values; equality by content |
 | `StrEnum` vocabularies | 40+ across 24 modules | Closed vocabularies, serialisable, comparable to their wire form |
 | Explicit state machines (`can_transition` / `assert_transition`) | **5** — `consent`, `jobs`, `outreach`, `rewards`, `spend` | Legal transitions declared as data, not scattered `if` statements |
-| Pure decision functions | throughout | e.g. `score_candidate`, `apply_availability_filter`, `fold_balance` |
+| Pure decision functions | throughout | e.g. `score_candidate`, `apply_availability_filter`, `availability_state_for_event`, `fold_balance` |
 
 **This is not an anemic domain model.** The audit specifically looked for the
 smell (data-only structures with all logic in a service layer) and did not find
