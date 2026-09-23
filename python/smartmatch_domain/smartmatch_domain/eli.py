@@ -58,7 +58,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Context, Decimal, Inexact, InvalidOperation, localcontext
 from enum import StrEnum
 from types import MappingProxyType
@@ -94,10 +94,12 @@ CONFIRMED_WINDOW_DAYS: Final[int] = 45
 _US_PER_HOUR: Final[int] = 3_600_000_000
 _ONE_MICROSECOND: Final[timedelta] = timedelta(microseconds=1)
 
-#: Context for the explanation-only quotients (hour totals, utilization). Fixed
-#: rather than the caller's thread context, so the same inputs always give the
-#: same stored numbers. No band decision reads these values.
-_QUOTIENT_CONTEXT: Final[Context] = Context(prec=28)
+#: Precision for the explanation-only quotients (hour totals, utilization).
+#: Fixed rather than the caller's thread context, so the same inputs always give
+#: the same stored numbers. Each call builds a fresh ``Context``: a shared
+#: module-level one would accumulate sticky flags and is not thread-safe. No
+#: band decision reads these values.
+_QUOTIENT_PRECISION: Final[int] = 28
 
 #: Precision for the band comparisons. They multiply short Decimals by integers,
 #: so they are always exact at this precision; ``Inexact`` is trapped so that any
@@ -133,6 +135,18 @@ class LoadReason(StrEnum):
 _MULTIPLIER_BANDS: Final[frozenset[LoadBand]] = frozenset(
     {LoadBand.LIGHT, LoadBand.MODERATE, LoadBand.HEAVY, LoadBand.UNKNOWN}
 )
+
+
+def _require_date(value: object, name: str) -> None:
+    # ``datetime`` subclasses ``date``; a datetime here would carry a clock time
+    # (and maybe a zone) that the date arithmetic silently drops.
+    if not isinstance(value, date) or isinstance(value, datetime):
+        raise TypeError(f"{name} must be a date (not a datetime), got {type(value).__name__}")
+
+
+def _require_bool(value: object, name: str) -> None:
+    if type(value) is not bool:
+        raise TypeError(f"{name} must be a bool, got {type(value).__name__}")
 
 
 def _require_finite_decimal(value: object, name: str) -> Decimal:
@@ -235,6 +249,11 @@ class Engagement:
     def __post_init__(self) -> None:
         if not isinstance(self.ref, str) or not self.ref.strip():
             raise ValueError("ref must be a non-blank string")
+        if self.event_date is not None:
+            _require_date(self.event_date, "event_date")
+        _require_bool(self.confirmed, "confirmed")
+        _require_bool(self.attended, "attended")
+        _require_bool(self.cancelled, "cancelled")
         if self.duration is not None:
             if not isinstance(self.duration, timedelta):
                 raise TypeError("duration must be a timedelta or None")
@@ -259,12 +278,15 @@ class Engagement:
 
         The date is ``resolved_date(event_time)``: the start's local date in the
         event's zone (the first date of a multi-day event), ``on_date`` for a
-        date-only event, ``None`` when unresolved. Hours are ``ends_at -
-        starts_at`` for an exact time with a stated end, otherwise unknown.
+        date-only event, ``None`` when unresolved. Hours are the elapsed time
+        from ``starts_at`` to ``ends_at`` for an exact time with a stated end,
+        otherwise unknown. Both ends are converted to UTC first: subtracting
+        two datetimes that share a ``ZoneInfo`` is wall-clock arithmetic in
+        Python and miscounts across a DST change.
         """
         duration: timedelta | None = None
         if isinstance(event_time, ExactTime) and event_time.ends_at is not None:
-            duration = event_time.ends_at - event_time.starts_at
+            duration = event_time.ends_at.astimezone(UTC) - event_time.starts_at.astimezone(UTC)
         return cls(
             ref=ref,
             event_date=resolved_date(event_time),
@@ -298,6 +320,7 @@ class LoadInputs:
     declared_capacity_hours: Decimal | None
 
     def __post_init__(self) -> None:
+        _require_date(self.as_of, "as_of")
         capacity = self.declared_capacity_hours
         if capacity is not None:
             _require_finite_decimal(capacity, "declared_capacity_hours")
@@ -354,7 +377,13 @@ def _micros(duration: timedelta) -> int:
 
 
 def _hours(us: int) -> Decimal:
-    return _QUOTIENT_CONTEXT.divide(Decimal(us), Decimal(_US_PER_HOUR))
+    with localcontext(Context(prec=_QUOTIENT_PRECISION)):
+        return Decimal(us) / _US_PER_HOUR
+
+
+def _utilization(known_us: int, capacity: Decimal) -> Decimal:
+    with localcontext(Context(prec=_QUOTIENT_PRECISION)):
+        return Decimal(known_us) / (capacity * _US_PER_HOUR)
 
 
 def _tally(inputs: LoadInputs) -> tuple[int, int, tuple[str, ...]]:
@@ -386,10 +415,7 @@ def _classify(
     known_us: int, capacity: Decimal, has_unknown: bool, table: LoadBandTable
 ) -> tuple[LoadBand, LoadReason]:
     """Apply parent §5.2 / plan §4 on exact integer-microsecond comparisons."""
-    with localcontext() as ctx:
-        ctx.prec = _EXACT_PRECISION
-        ctx.traps[Inexact] = True
-        ctx.traps[InvalidOperation] = True
+    with localcontext(Context(prec=_EXACT_PRECISION, traps=[Inexact, InvalidOperation])):
         load = Decimal(known_us)
         cap_us = capacity * _US_PER_HOUR
         if load > table.full_above * cap_us:
@@ -423,9 +449,7 @@ def compute_eli(inputs: LoadInputs, table: LoadBandTable = Q7_LOAD_BAND_TABLE) -
         band, reason, utilization = LoadBand.UNKNOWN, LoadReason.CAPACITY_NOT_STATED, None
     else:
         band, reason = _classify(known_us, capacity, bool(unknown_refs), table)
-        utilization = _QUOTIENT_CONTEXT.divide(
-            Decimal(known_us), _QUOTIENT_CONTEXT.multiply(capacity, Decimal(_US_PER_HOUR))
-        )
+        utilization = _utilization(known_us, capacity)
 
     return LoadAssessment(
         band=band,
