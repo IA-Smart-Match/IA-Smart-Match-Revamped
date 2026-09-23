@@ -82,6 +82,7 @@ from smartmatch_api.routers import (
     student_events,
     student_speaker_feedback,
 )
+from smartmatch_api.token_pages import install_access_log_redaction
 
 #: Most bytes any request body may occupy, enforced ahead of the FastAPI
 #: application entirely. Shares its value with
@@ -698,6 +699,10 @@ def routers_for(settings: Settings) -> tuple[APIRouter, ...]:
 # actually matters — the application either exists or it does not.
 if get_settings().capability_enabled(Capability.CLASS_EXERCISE):
     require_exercise_workspace_secret(get_settings())
+
+# B26 T6b-1 (R4): token-bearing paths (`/s`, `/i`, `/u`, `/q`) are redacted in
+# uvicorn's access log rather than the log being disabled. Idempotent.
+install_access_log_redaction()
 
 
 for _mounted_router in routers_for(get_settings()):

@@ -147,12 +147,23 @@ _PARENT_REVISION = "0024_cba_classification"
 #: head. It CREATEs eight ``exercise_`` tables (ADR-0025 D2), ALTERs nothing,
 #: and writes no rows, so this file's ``speaker_profile`` surface is untouched
 #: by it too.
-_HEAD_REVISION = "0037_exercise_tables"
+#: Moved again by B26 T2: ``0038_speaker_availability`` chains to
+#: ``0037_exercise_tables`` and is the head. It CREATEs
+#: ``speaker_availability`` and ``speaker_availability_window`` (both
+#: cascading from ``speaker_profile``), ALTERs nothing and writes no rows,
+#: so this file's claims still hold through it.
+#: Moved again by B26 T6b-1: ``0039_speaker_portal`` chains to
+#: ``0038_speaker_availability`` and is the head. It adds two nullable
+#: ``speaker_profile`` columns (``account_user_id``, ``account_bound_at``) and
+#: writes no rows, so this file's claims still hold through it.
+_HEAD_REVISION = "0039_speaker_portal"
 
 #: Every revision between :data:`_HEAD_REVISION` and :data:`_THIS_REVISION`, in
 #: descending order. Listed rather than derived, so extending the chain is a
 #: deliberate edit here — which is the whole point of the assertion.
 _REVISIONS_BETWEEN_HEAD_AND_THIS_CARD = (
+    "0038_speaker_availability",
+    "0037_exercise_tables",
     "0036_host_organization",
     "0035_manual_event_detail",
     "0034_cba_meeting",

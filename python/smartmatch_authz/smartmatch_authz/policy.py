@@ -8,7 +8,7 @@ Architecture v1.1 §2.1 combination semantics, implemented exactly as specified:
     filters apply after either path. Administrative suspension fails local
     authorization immediately, independent of IdP token revocation.
 
-Seven rules follow from that, in evaluation order:
+Eight rules follow from that, in evaluation order:
 
 1. **Suspension is checked first.** A suspended account is denied locally and
    immediately. Waiting for the identity provider to revoke a token is defense
@@ -81,6 +81,27 @@ Seven rules follow from that, in evaluation order:
      assumed — a blank role can only reach it if a caller puts a blank
      string in ``tenant_wide_roles``, and the guard makes that inert instead
      of catastrophic.
+8. **``excluded_roles`` names roles that never satisfy an operation**, even on
+   a covering, active membership (B26 T6b-1, owner ruling R8, 2026-09-23).
+   The parallel of rule 7 in the other direction, and as narrow:
+
+   * It **defaults to empty**; only the aggregate metrics reads pass one
+     (``{"speaker"}``). An operation with no ``required_roles`` is otherwise
+     satisfied by *any* non-blank role, so a role nothing should admit has to
+     be excluded by name. Enumerating the admitted roles instead would turn a
+     membership-only operation into a role-gated one and silently refuse
+     every future role.
+   * Path 1 and Path 1b skip an excluded membership. Path 2 is unchanged, so
+     under ``require_membership`` a bare grant still reports
+     ``resource_grant_lacks_membership``.
+   * The denial is **countable**: when nothing allowed and an active,
+     non-blank membership covering the resource was skipped only because its
+     role is excluded, the reason is ``membership_role_excluded`` rather than
+     ``no_grant``.
+   * Precedence is unchanged: suspension, tenant mismatch and explicit deny
+     are decided first.
+   * A role cannot be both excluded and admitted: overlap with
+     ``required_roles`` or ``tenant_wide_roles`` raises :class:`ValueError`.
 
 Deny-by-default throughout: :func:`evaluate` returns a denial for any case not
 positively allowed, including unknown roles and malformed paths.
@@ -269,6 +290,7 @@ def evaluate(
     required_roles: frozenset[str] = frozenset(),
     require_membership: bool = False,
     tenant_wide_roles: frozenset[str] = frozenset(),
+    excluded_roles: frozenset[str] = frozenset(),
 ) -> AccessDecision:
     """Evaluate whether ``principal`` may access ``resource``.
 
@@ -293,11 +315,23 @@ def evaluate(
             See module docstring rule 7. Applied after ordinary subtree
             containment and never ahead of suspension, tenant mismatch, or an
             explicit resource deny.
+        excluded_roles: Roles that never satisfy this operation. Empty by
+            default. See module docstring rule 8.
 
     Returns:
         An :class:`AccessDecision`. Deny-by-default: every path that does not
         positively allow returns a denial with a specific reason code.
+
+    Raises:
+        ValueError: if ``excluded_roles`` overlaps ``required_roles`` or
+            ``tenant_wide_roles``.
     """
+    if excluded_roles & (required_roles | tenant_wide_roles):
+        raise ValueError(
+            "a role cannot be both excluded and admitted: "
+            + ", ".join(sorted(excluded_roles & (required_roles | tenant_wide_roles)))
+        )
+
     if principal.suspended:
         return AccessDecision(allowed=False, reason="principal_suspended")
 
@@ -314,6 +348,7 @@ def evaluate(
             return AccessDecision(allowed=False, reason="explicit_resource_deny")
 
     # Path 1: inherited grant via an active membership covering the owning unit.
+    excluded_covering = False
     for membership in principal.memberships:
         if not membership.is_active_at(at):
             continue
@@ -323,6 +358,13 @@ def evaluate(
         # which is exactly the case where a blank-role row would otherwise be
         # read as "any active membership with a role".
         if not membership.role.strip():
+            continue
+        # Rule 8. Recorded only when exclusion is the *only* reason this
+        # membership fails: it covers the resource, and (excluded roles never
+        # overlap required ones) there is no role requirement it would miss.
+        if membership.role in excluded_roles:
+            if not required_roles and membership.granted_path.contains(resource.owning_unit_path):
+                excluded_covering = True
             continue
         if required_roles and membership.role not in required_roles:
             continue
@@ -358,6 +400,8 @@ def evaluate(
             # only way a blank role could match is a blank string placed in
             # `tenant_wide_roles` itself, and a blank role is not a role.
             if not membership.role.strip():
+                continue
+            if membership.role in excluded_roles:  # rule 8; disjoint by the check above
                 continue
             if membership.role in tenant_wide_roles:
                 return AccessDecision(
@@ -399,6 +443,8 @@ def evaluate(
                 return AccessDecision(allowed=False, reason="resource_grant_lacks_membership")
             return AccessDecision(allowed=True, reason="explicit_resource_allow")
 
+    if excluded_covering:
+        return AccessDecision(allowed=False, reason="membership_role_excluded")
     return AccessDecision(allowed=False, reason="no_grant")
 
 
@@ -410,6 +456,7 @@ def assert_allowed(
     required_roles: frozenset[str] = frozenset(),
     require_membership: bool = False,
     tenant_wide_roles: frozenset[str] = frozenset(),
+    excluded_roles: frozenset[str] = frozenset(),
 ) -> AccessDecision:
     """Evaluate policy and raise on denial.
 
@@ -420,6 +467,7 @@ def assert_allowed(
         required_roles: Roles that satisfy this operation. See :func:`evaluate`.
         require_membership: See :func:`evaluate` rule 5 (module docstring).
         tenant_wide_roles: See :func:`evaluate` rule 7 (module docstring).
+        excluded_roles: See :func:`evaluate` rule 8 (module docstring).
 
     Returns:
         The allowing decision, so callers can record which path granted access.
@@ -434,6 +482,7 @@ def assert_allowed(
         required_roles=required_roles,
         require_membership=require_membership,
         tenant_wide_roles=tenant_wide_roles,
+        excluded_roles=excluded_roles,
     )
     if not decision.allowed:
         raise AuthorizationError(decision)

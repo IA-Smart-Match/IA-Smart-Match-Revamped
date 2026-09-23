@@ -81,7 +81,14 @@ REVISION = "0036_host_organization"
 #: and creates the eight ``exercise_`` tables of ADR-0025 D2, which by that
 #: decision may not reference ``host_organization``, ``event`` or
 #: ``user_account`` at all — so every claim below still holds through it.
-HEAD_REVISION = "0037_exercise_tables"
+#: Moved again by B26 T2: ``0038_speaker_availability`` chains to
+#: ``0037_exercise_tables`` and is the head. It CREATEs
+#: ``speaker_availability`` and ``speaker_availability_window`` (both
+#: cascading from ``speaker_profile``), ALTERs nothing and writes no rows,
+#: so this file's claims still hold through it.
+#: Moved again by B26 T6b-1: ``0039_speaker_portal`` chains to
+#: ``0038_speaker_availability`` and is the head; it touches no host table.
+HEAD_REVISION = "0039_speaker_portal"
 
 ON_DATE = "2026-10-14"
 ZONE = "America/Los_Angeles"

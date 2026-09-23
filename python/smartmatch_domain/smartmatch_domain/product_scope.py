@@ -229,6 +229,20 @@ class Capability(StrEnum):
     #: ``tools/scan_forbidden.py``.
     CLASS_EXERCISE = "class_exercise"
 
+    #: Speaker accounts (B26 T6b-1): a Speaker Connector invites a contact to
+    #: set a password, and the contact activates a ``speaker`` login from a
+    #: one-time ``/s/{token}`` link. Mounts the invite, revoke, access and
+    #: activation routes and the Connector's "Invite to portal" button.
+    #:
+    #: **Off in every scope** (plan C2 = a). Turning it on is a reviewed edit to
+    #: the rows below, never an env var, seed or compose file. **Turn-on rule
+    #: (C5, owner-confirmed):** T6b-5 merged **and** parent plan §10 rows 1
+    #: (Ann/Pia/Lisa), 2 (named privacy owner) and 4 (pilot hostname) cleared.
+    #: It also requires :attr:`AUTHENTICATED_LOGIN`, :attr:`CONSENTED_OUTREACH`
+    #: and :attr:`SPEAKER_CONTACT_MANAGEMENT` in the same scope, asserted at
+    #: import (:data:`SPEAKER_PORTAL_REQUIRES`).
+    SPEAKER_PORTAL = "speaker_portal"
+
 
 def _classified(decisions: dict[Capability, bool]) -> Mapping[Capability, bool]:
     """Freeze one scope's column, refusing it if any capability is missing."""
@@ -265,6 +279,8 @@ _POLICY: Final[Mapping[ProductScope, Mapping[Capability, bool]]] = MappingProxyT
                 # process holds real students and real events; the exercise
                 # surface takes no principal. ADR-0025 D1.
                 Capability.CLASS_EXERCISE: False,
+                # Staged off until its C5 turn-on rule clears (see the enum).
+                Capability.SPEAKER_PORTAL: False,
             }
         ),
         ProductScope.IA_WEST_LEGACY: _classified(
@@ -293,6 +309,7 @@ _POLICY: Final[Mapping[ProductScope, Mapping[Capability, bool]]] = MappingProxyT
                 # product at all. "Wider" means a superset of the same product's
                 # capabilities, not a union of every product in the repository.
                 Capability.CLASS_EXERCISE: False,
+                Capability.SPEAKER_PORTAL: False,
             }
         ),
         # The class exercise (ADR-0025). One capability on; every capability
@@ -328,6 +345,7 @@ _POLICY: Final[Mapping[ProductScope, Mapping[Capability, bool]]] = MappingProxyT
                 Capability.CHAPTER_MEMBERSHIP_DUES: False,
                 Capability.MEMBER_INQUIRY_NARRATIVE: False,
                 Capability.CLASS_EXERCISE: True,
+                Capability.SPEAKER_PORTAL: False,
             }
         ),
     }
@@ -335,6 +353,25 @@ _POLICY: Final[Mapping[ProductScope, Mapping[Capability, bool]]] = MappingProxyT
 
 if set(_POLICY) != set(ProductScope):  # pragma: no cover - import-time assertion
     raise CapabilityScopeError("every product scope must appear in the capability policy")
+
+#: What :attr:`Capability.SPEAKER_PORTAL` cannot run without: a login to
+#: activate, outreach to send the invite, and the roster it invites from.
+SPEAKER_PORTAL_REQUIRES: Final[frozenset[Capability]] = frozenset(
+    {
+        Capability.AUTHENTICATED_LOGIN,
+        Capability.CONSENTED_OUTREACH,
+        Capability.SPEAKER_CONTACT_MANAGEMENT,
+    }
+)
+
+for _scope, _decisions in _POLICY.items():  # pragma: no cover - import-time assertion
+    if _decisions[Capability.SPEAKER_PORTAL] and not all(
+        _decisions[required] for required in SPEAKER_PORTAL_REQUIRES
+    ):
+        raise CapabilityScopeError(
+            f"{_scope}: speaker_portal requires "
+            + ", ".join(sorted(c.value for c in SPEAKER_PORTAL_REQUIRES))
+        )
 
 
 def _coerce_scope(scope: ProductScope | str) -> ProductScope:

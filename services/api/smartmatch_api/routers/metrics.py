@@ -401,6 +401,14 @@ _DRILL_DOWN_ROLES: Final[frozenset[str]] = frozenset({"admin", "coordinator"})
 #: permit §4 does not name, so drill-down keeps ordinary subtree containment.
 _TENANT_WIDE_AGGREGATE_ROLES: Final[frozenset[str]] = frozenset({"admin"})
 
+#: Roles that never read aggregates, even on a covering membership (owner
+#: ruling R8, 2026-09-23; policy rule 8). A ``speaker`` membership is a
+#: Speaker's own login (B26 T6b-1): "any active unit membership with a role"
+#: in §4 predates the role and is amended to exclude it. Excluded by name
+#: rather than by enumerating the admitted roles, so this stays a
+#: membership-only operation and a future role is not silently refused.
+_AGGREGATE_EXCLUDED_ROLES: Final[frozenset[str]] = frozenset({"speaker"})
+
 
 def _authorize_aggregate_read(
     session: Session,
@@ -426,6 +434,12 @@ def _authorize_aggregate_read(
     aggregates, including a sibling unit its own path does not cover.
     Suspension, tenant mismatch, and an explicit resource deny are all decided
     ahead of it and are unaffected.
+
+    One exception to "any role" (owner ruling R8, 2026-09-23): a ``speaker``
+    membership never satisfies it — :data:`_AGGREGATE_EXCLUDED_ROLES`, passed
+    as ``excluded_roles`` (policy rule 8). A speaker-only principal is refused
+    with ``membership_role_excluded``; a Host who is also a Speaker still
+    reads through the host role.
     """
     unit = load_unit_or_404(session, tenant_id=principal.tenant_id, unit_id=unit_id)
     assert_allowed(
@@ -439,6 +453,7 @@ def _authorize_aggregate_read(
         at=utc_now(),
         require_membership=True,
         tenant_wide_roles=_TENANT_WIDE_AGGREGATE_ROLES,
+        excluded_roles=_AGGREGATE_EXCLUDED_ROLES,
     )
 
 

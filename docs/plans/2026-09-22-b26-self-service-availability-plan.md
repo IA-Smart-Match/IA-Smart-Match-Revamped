@@ -232,10 +232,10 @@ never "Available"), `version`, per-window `source`, `updated_source`,
 |---|---|---|
 | 404 | `speaker_contact_not_found` | Unknown, or in another unit |
 | 409 | `speaker_availability_stale` | `expected_version` not current |
-| 422 | `speaker_availability_window_invalid` | Order, span or horizon |
+| 422 | `speaker_availability_window_invalid` | Order, span, horizon, or duplicate |
 | 422 | `speaker_availability_too_many_windows` | More than 20 |
 | 422 | `speaker_availability_pause_invalid` | Past, or more than 12 months ahead |
-| 422 | `speaker_availability_capacity_invalid` | ≤ 0 or > 720 |
+| 422 | `speaker_availability_capacity_invalid` | ≤ 0, > 720, not finite, or more than 1 decimal place |
 
 ### 4.2 Speaker accounts and invitation flow (T6b-1)
 

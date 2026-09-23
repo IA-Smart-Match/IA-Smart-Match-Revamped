@@ -86,6 +86,12 @@ DISABLED_UNDER_CBA = frozenset(
     }
 )
 
+#: In scope for CBA, built, and **staged off** in every scope until its turn-on
+#: rule clears (B26 T6b-1, C5: T6b-5 merged and parent §10 rows 1, 2 and 4).
+#: Not in :data:`DISABLED_UNDER_CBA`: that set is customer §20's out-of-scope
+#: list, which the legacy scope still enables; this one is off everywhere.
+STAGED_OFF_EVERYWHERE = frozenset({Capability.SPEAKER_PORTAL})
+
 
 # ---------------------------------------------------------------------------
 # The policy itself
@@ -137,6 +143,13 @@ def test_the_gate_is_scope_specific_not_a_blanket_disable() -> None:
     """
     for capability in sorted(DISABLED_UNDER_CBA):
         assert is_capability_enabled(ProductScope.IA_WEST_LEGACY, capability)
+
+
+def test_staged_off_capabilities_are_off_in_every_scope() -> None:
+    assert not STAGED_OFF_EVERYWHERE & DISABLED_UNDER_CBA
+    for scope in ProductScope:
+        for capability in sorted(STAGED_OFF_EVERYWHERE):
+            assert not is_capability_enabled(scope, capability), f"{capability} on in {scope}"
 
 
 def test_unknown_capability_is_refused_not_silently_disabled() -> None:
