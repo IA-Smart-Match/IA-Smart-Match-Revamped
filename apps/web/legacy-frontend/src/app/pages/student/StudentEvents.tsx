@@ -72,18 +72,22 @@
  * because the two links remain different facts: a student can be recorded at an
  * event they never registered for, and `on_my_agenda` is the union of both.
  *
- * ## B09 — the grid is real, and still inert
+ * ## B09 — a day opens its events (OQ-CBA-020, option A)
  *
  * The old month grid was `MockStudentCalendar`: fabricated cells, no data, no
  * behaviour. This one is drawn from the events above it and marks the days that
- * have one. Its cells remain non-interactive — OQ-CBA-020, which asked whether a
- * day should open or filter anything, is still open. Registration existing
- * changes what a cell *could* offer without deciding what it should, and adding
- * a click target because one is now technically possible is how a page acquires
- * behaviour nobody specified.
+ * have one. The owner decided OQ-CBA-020 on 2026-09-22, option A: a day with
+ * events is a button that opens a dialog listing that day's events, each with
+ * the same `EventCard` — and so the same Register / Cancel command — the lists
+ * use. It opens; it does not filter. The lists above keep every event, and the
+ * grid holds no selection they read.
+ *
+ * A day with no events is not a button. There is nothing for it to open, and a
+ * control whose only outcome is "nothing here" is the pattern B41 settled the
+ * other way: an unmeasured pipeline card has no button either.
  */
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { CalendarDays, CalendarX2, Download, Info, MapPin, Video } from "lucide-react";
 
 import {
@@ -95,6 +99,13 @@ import {
   type StudentEvent,
 } from "../../../lib/api";
 import { PagedList } from "../../components/PagedList";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "../../components/ui/dialog";
 import { grantedPortal } from "../../components/PortalGate";
 import { usePortalAccess } from "../../hooks/usePortalAccess";
 import { useAuthenticatedPrincipal } from "../../hooks/useSession";
@@ -173,10 +184,17 @@ function EventCard({
   event,
   unitId,
   onChanged,
+  onSettled,
 }: {
   event: StudentEvent;
   unitId: string;
   onChanged: () => Promise<void>;
+  /**
+   * Told which event a write finished for, after the re-read landed. The month
+   * grid's day panel uses it to say what the re-read shows; it is never told
+   * what the write "did", because the re-read is the only answer to that.
+   */
+  onSettled?: (eventId: string) => void;
 }) {
   const reason = event.calendar.unavailable_reason;
   const place = [event.location_city, event.location_postal_code].filter(Boolean).join(" ");
@@ -204,6 +222,7 @@ function EventCard({
       // locally first: if the write did not persist, the lists come back saying
       // so and the button is still where it was.
       await onChanged();
+      onSettled?.(event.id);
     } catch (cause) {
       setWriteError(
         cause instanceof ApiRequestError
@@ -331,10 +350,30 @@ function EventCard({
  * grid that loaded its own events could disagree with the lists, and a student
  * would have no way to tell which was right.
  *
- * The cells are not buttons. See the module docstring on B09.
+ * A day with events is a button that opens them (OQ-CBA-020, option A); a day
+ * without is not. See the module docstring on B09.
  */
-function MonthCalendar({ events }: { events: StudentEvent[] }) {
+function MonthCalendar({
+  events,
+  unitId,
+  onChanged,
+}: {
+  events: StudentEvent[];
+  unitId: string;
+  onChanged: () => Promise<void>;
+}) {
   const [focus, setFocus] = useState(() => new Date());
+  // Which day's panel is open, as its `YYYY-MM-DD` key. The panel's events are
+  // looked up from `byDay` on every render, so after a write's re-read the panel
+  // shows what came back, exactly as the lists do.
+  const [openDay, setOpenDay] = useState<string | null>(null);
+  // The event the last completed write was for. The announcement is worded from
+  // that event's server state after the re-read, never from the click.
+  const [settledId, setSettledId] = useState<string | null>(null);
+  const dayButtons = useRef(new Map<string, HTMLButtonElement>());
+  // The day that opened the panel, kept past close so focus can go back to it:
+  // `openDay` is already null by the time the dialog hands focus back.
+  const lastOpened = useRef<string | null>(null);
 
   const byDay = useMemo(() => {
     const map = new Map<string, StudentEvent[]>();
@@ -357,6 +396,34 @@ function MonthCalendar({ events }: { events: StudentEvent[] }) {
 
   const dayKey = (day: number) =>
     `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+
+  /** "18 September" — the grid's own month and year are in the heading above it. */
+  const dayName = (day: number) =>
+    new Date(year, month, day).toLocaleDateString("en-GB", { day: "numeric", month: "long" });
+
+  const openEvents = openDay === null ? [] : (byDay.get(openDay) ?? []);
+  const openTitle =
+    openDay === null
+      ? ""
+      : new Date(`${openDay}T12:00:00`).toLocaleDateString("en-GB", {
+          day: "numeric",
+          month: "long",
+          year: "numeric",
+        });
+  const settled = openEvents.find((event) => event.id === settledId) ?? null;
+  const outcome =
+    settled === null
+      ? ""
+      : settled.registration?.status === REGISTERED
+        ? `You have registered for ${settled.title}.`
+        : settled.registration === null
+          ? ""
+          : `You cancelled your registration for ${settled.title}.`;
+
+  const closePanel = () => {
+    setOpenDay(null);
+    setSettledId(null);
+  };
 
   return (
     <section
@@ -387,9 +454,8 @@ function MonthCalendar({ events }: { events: StudentEvent[] }) {
       </div>
 
       <p className="text-xs text-muted-foreground">
-        The same events as the lists above, laid out by date. Days are marked, not clickable:
-        whether a day should open or filter anything is still an open question, and registering is
-        done from the lists above.
+        The same events as the lists above, laid out by date. Select a day with events to see them
+        and register or cancel from there.
       </p>
 
       <div className="grid grid-cols-7 gap-1 text-center text-xs">
@@ -398,30 +464,110 @@ function MonthCalendar({ events }: { events: StudentEvent[] }) {
             {label}
           </div>
         ))}
-        {cells.map((day, index) =>
-          day === null ? (
-            <div key={`blank-${index}`} className="min-h-16 rounded-lg" />
-          ) : (
-            <div
-              key={dayKey(day)}
-              className="min-h-16 rounded-lg border border-border/50 p-1 text-left"
+        {cells.map((day, index) => {
+          if (day === null) {
+            return <div key={`blank-${index}`} className="min-h-16 rounded-lg" />;
+          }
+          const key = dayKey(day);
+          const dayEvents = byDay.get(key) ?? [];
+          if (dayEvents.length === 0) {
+            return (
+              <div key={key} className="min-h-16 rounded-lg border border-border/50 p-1 text-left">
+                <span className="text-xs text-muted-foreground">{day}</span>
+              </div>
+            );
+          }
+          return (
+            <button
+              key={key}
+              type="button"
+              ref={(node) => {
+                if (node === null) dayButtons.current.delete(key);
+                else dayButtons.current.set(key, node);
+              }}
+              aria-label={`Events on ${dayName(day)}, ${dayEvents.length} ${
+                dayEvents.length === 1 ? "event" : "events"
+              }`}
+              aria-haspopup="dialog"
+              onClick={() => {
+                lastOpened.current = key;
+                setSettledId(null);
+                setOpenDay(key);
+              }}
+              className="min-h-16 min-w-0 rounded-lg border border-border/70 p-1 text-left hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
             >
-              <span className="text-xs text-muted-foreground">{day}</span>
-              <ul className="mt-0.5 space-y-0.5">
-                {(byDay.get(dayKey(day)) ?? []).map((event) => (
-                  <li
+              <span className="block text-xs font-medium text-foreground">{day}</span>
+              <span className="mt-0.5 block space-y-0.5">
+                {dayEvents.map((event) => (
+                  <span
                     key={event.id}
-                    className="truncate rounded bg-muted px-1 py-0.5 text-[11px] text-foreground"
+                    className="block truncate rounded bg-muted px-1 py-0.5 text-[11px] text-foreground"
                     title={event.title}
                   >
                     {event.title}
-                  </li>
+                  </span>
                 ))}
-              </ul>
-            </div>
-          ),
-        )}
+              </span>
+            </button>
+          );
+        })}
       </div>
+
+      {/*
+        The day panel (OQ-CBA-020, option A). Radix gives it the dialog role,
+        a label from its title, a focus trap and Escape; closing hands focus
+        back to the day that opened it. Each event is the same `EventCard` the
+        lists render, so Register and Cancel are the one command, not a copy.
+      */}
+      <Dialog
+        open={openDay !== null}
+        onOpenChange={(open) => {
+          if (!open) closePanel();
+        }}
+      >
+        <DialogContent
+          className="max-h-[85vh] overflow-y-auto sm:max-w-xl"
+          onCloseAutoFocus={(closeEvent) => {
+            const opener = lastOpened.current;
+            const trigger = opener === null ? undefined : dayButtons.current.get(opener);
+            if (trigger !== undefined) {
+              closeEvent.preventDefault();
+              trigger.focus();
+            }
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle>Events on {openTitle}</DialogTitle>
+            <DialogDescription>
+              The same events as the lists above. Registering or cancelling here does the same thing
+              as it does there.
+            </DialogDescription>
+          </DialogHeader>
+          {/* One polite region for outcomes; a refused write is the card's own role="alert". */}
+          <p
+            role="status"
+            aria-live="polite"
+            className={outcome === "" ? "sr-only" : "text-sm text-foreground"}
+          >
+            {outcome}
+          </p>
+          {openEvents.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No events on this day.</p>
+          ) : (
+            <ul className="space-y-3">
+              {openEvents.map((event) => (
+                <EventCard
+                  key={event.id}
+                  event={event}
+                  unitId={unitId}
+                  onChanged={onChanged}
+                  onSettled={setSettledId}
+                />
+              ))}
+            </ul>
+          )}
+        </DialogContent>
+      </Dialog>
     </section>
   );
 }
@@ -616,7 +762,7 @@ export function StudentEvents() {
           </section>
 
           {/* 3. Month calendar — last on the page, by customer §15. */}
-          <MonthCalendar events={calendarEvents} />
+          <MonthCalendar events={calendarEvents} unitId={unitId} onChanged={load} />
         </>
       )}
     </div>

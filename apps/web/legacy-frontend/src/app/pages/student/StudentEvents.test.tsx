@@ -193,7 +193,9 @@ describe("<StudentEvents /> month calendar (B09, OQ-CBA-020 option A)", () => {
 
     const { dialog } = await openDay("Events on 18 September, 2 events");
     expect(dialog.getAttribute("aria-labelledby")).not.toBeNull();
-    expect(within(dialog).getByRole("heading", { name: "Events on 18 September 2026" })).toBeDefined();
+    expect(
+      within(dialog).getByRole("heading", { name: "Events on 18 September 2026" }),
+    ).toBeDefined();
     expect(within(dialog).getByRole("heading", { name: "Resume Clinic" })).toBeDefined();
     expect(within(dialog).getByRole("heading", { name: "Alumni Panel" })).toBeDefined();
     expect(within(dialog).queryByRole("heading", { name: "Networking Mixer" })).toBeNull();
@@ -212,12 +214,18 @@ describe("<StudentEvents /> month calendar (B09, OQ-CBA-020 option A)", () => {
     });
     renderPage();
 
-    const browse = await screen.findByRole("region", { name: "Browse events" });
-    fireEvent.click(within(cardIn(browse, "Resume Clinic")).getByRole("button", { name: "Register" }));
+    // Wait for the reads to land: the region exists before its cards do.
+    await screen.findByRole("button", { name: "Events on 18 September, 2 events" });
+    const browse = screen.getByRole("region", { name: "Browse events" });
+    fireEvent.click(
+      within(cardIn(browse, "Resume Clinic")).getByRole("button", { name: "Register" }),
+    );
     await waitFor(() => expect(writes()).toHaveLength(1));
 
     const { dialog } = await openDay("Events on 18 September, 2 events");
-    fireEvent.click(within(cardIn(dialog, "Resume Clinic")).getByRole("button", { name: "Register" }));
+    fireEvent.click(
+      within(cardIn(dialog, "Resume Clinic")).getByRole("button", { name: "Register" }),
+    );
     await waitFor(() => expect(writes()).toHaveLength(2));
 
     const [fromList, fromPanel] = writes();
@@ -234,7 +242,9 @@ describe("<StudentEvents /> month calendar (B09, OQ-CBA-020 option A)", () => {
     });
     renderPage();
 
-    const agenda = await screen.findByRole("region", { name: "Your agenda" });
+    // Wait for the reads to land: the region exists before its cards do.
+    await screen.findByRole("button", { name: "Events on 18 September, 2 events" });
+    const agenda = screen.getByRole("region", { name: "Your agenda" });
     fireEvent.click(
       within(cardIn(agenda, "Alumni Panel")).getByRole("button", { name: "Cancel registration" }),
     );
@@ -267,7 +277,9 @@ describe("<StudentEvents /> month calendar (B09, OQ-CBA-020 option A)", () => {
 
     const { dialog } = await openDay("Events on 18 September, 2 events");
     expect(within(dialog).getByRole("status").textContent).toBe("");
-    fireEvent.click(within(cardIn(dialog, "Resume Clinic")).getByRole("button", { name: "Register" }));
+    fireEvent.click(
+      within(cardIn(dialog, "Resume Clinic")).getByRole("button", { name: "Register" }),
+    );
 
     await waitFor(() =>
       expect(within(dialog).getByRole("status").textContent).toBe(
@@ -283,14 +295,18 @@ describe("<StudentEvents /> month calendar (B09, OQ-CBA-020 option A)", () => {
     stub({
       ...reads([CLINIC, PANEL]),
       [`POST ${registrationPath(CLINIC.id)}`]: {
-        body: { error: { code: "event_closed", message: "Registration for this event is closed." } },
+        body: {
+          error: { code: "event_closed", message: "Registration for this event is closed." },
+        },
         status: 409,
       },
     });
     renderPage();
 
     const { dialog } = await openDay("Events on 18 September, 2 events");
-    fireEvent.click(within(cardIn(dialog, "Resume Clinic")).getByRole("button", { name: "Register" }));
+    fireEvent.click(
+      within(cardIn(dialog, "Resume Clinic")).getByRole("button", { name: "Register" }),
+    );
 
     expect((await within(dialog).findByRole("alert")).textContent).toMatch(/closed/);
     expect(within(dialog).getByRole("status").textContent).toBe("");
