@@ -536,4 +536,45 @@ describe("<CoordinatorRedemptionQueue />", () => {
     expect(calls.filter((c) => c.init.method === "POST")).toHaveLength(1);
   });
 
+  it("a decision that lands after a tab change is not announced on the new tab", async () => {
+    let releasePost: () => void = () => undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string, init: RequestInit) => {
+        calls.push({ url, init });
+        if (init.method === "POST") {
+          return new Promise<Response>((resolve) => {
+            releasePost = () =>
+              resolve(
+                new Response(
+                  JSON.stringify({
+                    redemption_id: "r1",
+                    item_id: "i1",
+                    item_name: "Gift Card",
+                    points_cost: 300,
+                    state: "approved",
+                  }),
+                  { status: 200 },
+                ),
+              );
+          });
+        }
+        const status = new URL(url, "http://x").searchParams.get("status") ?? "requested";
+        const rows = status === "requested" ? [ticket("r1", "Gift Card", "requested")] : [];
+        return Promise.resolve(new Response(JSON.stringify(queue(status, rows).body), { status: 200 }));
+      }),
+    );
+    renderPage();
+    fireEvent.click((await screen.findAllByRole("button", { name: "Approve Gift Card" }))[0]);
+    await waitFor(() => expect(calls.some((c) => c.init.method === "POST")).toBe(true));
+    fireEvent.click(screen.getByRole("button", { name: "Approved" }));
+    await screen.findByText(/No approved tickets/);
+    await act(async () => {
+      releasePost();
+    });
+    await waitFor(() => expect(queueCalls().length).toBeGreaterThanOrEqual(3));
+    expect(screen.queryByText("Gift Card approved.")).toBeNull();
+    expect(screen.getByRole("status").textContent).not.toMatch(/approved\./);
+  });
+
 });

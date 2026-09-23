@@ -121,6 +121,9 @@ export function useRedemptionQueue(unitId: string | null): RedemptionQueueState 
   // Set synchronously on entry, so a second press that lands before React
   // has re-rendered the buttons `disabled` is refused here, not posted.
   const inFlightRef = useRef(false);
+  // The tab on screen right now, readable from inside an in-flight `decide`
+  // without waiting for a re-render.
+  const statusRef = useRef<RedemptionQueueStatus>("requested");
 
   const listQuery = useScopedQuery({
     resource: "redemption-queue",
@@ -159,6 +162,7 @@ export function useRedemptionQueue(unitId: string | null): RedemptionQueueState 
   }, [principalKey, queryClient, refetch, unitId]);
 
   const setStatus = useCallback((next: RedemptionQueueStatus) => {
+    statusRef.current = next;
     setStatusState(next);
     // An outcome belongs to the tab it happened on; carrying it across would
     // announce a decision beside rows it never touched.
@@ -173,16 +177,25 @@ export function useRedemptionQueue(unitId: string | null): RedemptionQueueState 
         return;
       }
       inFlightRef.current = true;
+      // The tab the decision was made on. If the coordinator leaves it
+      // before the answer lands, the outcome belongs to a tab no longer on
+      // screen, and announcing it beside other rows would be wrong.
+      const decidedOn = statusRef.current;
+      const announce = (next: DecisionOutcome) => {
+        if (statusRef.current === decidedOn) {
+          setOutcome(next);
+        }
+      };
       setBusyId(item.redemption_id);
       setOutcome(null);
       try {
         await decideRedemption(unitId, item.redemption_id, decision);
-        setOutcome({
+        announce({
           kind: "decided",
           sentence: `${item.item_name} ${PAST_TENSE[decision]}.`,
         });
       } catch (cause) {
-        setOutcome(describeDecisionFailure(cause, item));
+        announce(describeDecisionFailure(cause, item));
       } finally {
         // Re-read either way: on success the row has left this status; on a
         // 409 it already had, and the screen must stop showing it.

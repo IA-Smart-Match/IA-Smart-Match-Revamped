@@ -108,6 +108,11 @@ ever known, because only one status is fetched at a time.
 Rule from the sibling: after any decision, success or failure, the list is
 **re-read**; nothing is spliced locally.
 
+An outcome belongs to the tab it was decided on. Changing tab clears it, and a
+decision still in flight when the tab changes is not announced when it lands:
+the hook compares the tab at call time with the tab now on screen (a ref, not
+render state) and drops the sentence if they differ. The re-read still runs.
+
 ## 6. Accessibility checklist
 
 - [ ] One `h1`; sections use `h2`.
