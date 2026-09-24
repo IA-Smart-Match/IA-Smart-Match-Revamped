@@ -3116,11 +3116,17 @@ export interface SpeakerInvitationResponse {
   recorded_at: string | null;
   /**
    * `"speaker_link"` when the Speaker followed the link in their own
-   * invitation, `"connector_recorded"` when a coordinator entered what they
-   * were told. Worth rendering: the second is a weaker evidentiary claim, and a
+   * invitation, `"speaker_portal"` when they answered while signed in (B26
+   * T6b-2), `"connector_recorded"` when a coordinator entered what they were
+   * told. Worth rendering: the last is a weaker evidentiary claim, and a
    * screen that showed them alike would assert a directness nobody has.
    */
   channel: string | null;
+  /**
+   * The coordinator who entered it — set only for `"connector_recorded"`.
+   * Null for a Speaker's own answer, by link or signed in; a signed-in
+   * answer's login is recorded server-side but never shown here.
+   */
   recorded_by_user_id: string | null;
 }
 
@@ -4042,6 +4048,14 @@ export interface SpeakerContactChannel {
   consent_source: string | null;
   consent_recorded_at: string | null;
   consent_evidence: string | null;
+  /**
+   * The Speaker's own latest choice through the Speaker portal (B26 T6b-3), or
+   * null. After `"opt_out"` a Connector may not escalate this channel; after
+   * `"opt_in"` it may not move it away from `active_candidate`. Optional: an
+   * older server does not send it.
+   */
+  speaker_choice?: "opt_in" | "opt_out" | null;
+  speaker_choice_at?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -4242,6 +4256,148 @@ export async function revokeSpeakerPortalInvitation(
   return requestJson<{ revoked: boolean }>(
     `${speakerPortalBase(unitId, professionalId)}/portal-invitations/current`,
     { method: "DELETE" },
+    { authenticated: true },
+  );
+}
+
+// ---------------------------------------------------------------------------
+// The signed-in Speaker's own routes (B26 T6b-2). Mounted server-side only when
+// the `speaker_portal` capability is on. **No adapter takes a subject**: the
+// server finds the Speaker from the session (MM-A01), so there is no
+// professional, unit or user id to pass and none to get wrong.
+// ---------------------------------------------------------------------------
+
+export type MyInvitationStatus = "awaiting_response" | "accepted_invitation" | "declined_invitation";
+
+export interface MyInvitationEvent {
+  /** What the invitation said, verbatim. */
+  title: string;
+  /** The date as the invitation spelled it; never parsed. */
+  date_text: string;
+  /** The event's own date in its time zone, once an event is linked; else `null`. */
+  local_date: string | null;
+  time_zone: string | null;
+}
+
+/** Who recorded the answer: the Speaker (link or signed in) or a Speaker Connector. */
+export interface MyInvitationResponse {
+  recorded_at: string;
+  recorded_by: "speaker" | "speaker_connector";
+}
+
+export interface MyInvitation {
+  invitation_id: string;
+  event: MyInvitationEvent;
+  /** When the send was queued. Not proof of delivery. */
+  dispatched_at: string;
+  status: MyInvitationStatus;
+  /** `null` while awaiting an answer. */
+  response: MyInvitationResponse | null;
+  answerable: boolean;
+}
+
+export interface MyInvitationList {
+  invitations: MyInvitation[];
+  truncated: boolean;
+}
+
+export interface MyInvitationAnswerResult {
+  invitation: MyInvitation;
+  /** `false` when the same answer was already recorded; nothing was written. */
+  recorded: boolean;
+}
+
+export type EngagementWhen = "upcoming" | "past";
+export type MyEngagementState = "confirmed" | "attended" | "cancelled";
+
+export interface MyEngagementEvent {
+  title: string;
+  local_date: string | null;
+  time_zone: string | null;
+  time_precision: "exact" | "date_only" | "unresolved";
+  starts_at: string | null;
+  ends_at: string | null;
+}
+
+export interface MyEngagement {
+  engagement_id: string;
+  /** `null` when the event row is missing. */
+  event: MyEngagementEvent | null;
+  state: MyEngagementState;
+  confirmed_at: string;
+  attended_at: string | null;
+  cancelled_at: string | null;
+}
+
+export interface MyEngagementList {
+  when: EngagementWhen;
+  /** The UTC date the split was made against. */
+  as_of: string;
+  engagements: MyEngagement[];
+  truncated: boolean;
+}
+
+export type SpeakerSelfErrorCode =
+  | "speaker_profile_not_linked"
+  | "speaker_invitation_not_found"
+  | "speaker_invitation_already_answered"
+  | "speaker_invitation_response_conflict"
+  | Exclude<SpeakerAvailabilityErrorCode, "speaker_contact_not_found">;
+
+/** `GET /v1/me/availability`. Rejects with `404 speaker_profile_not_linked` or `403`. */
+export async function fetchMyAvailability(): Promise<SpeakerAvailability> {
+  return requestJson<SpeakerAvailability>(
+    "/v1/me/availability",
+    { method: "GET" },
+    { authenticated: true },
+  );
+}
+
+/**
+ * `PATCH /v1/me/availability`: full replace, T3's body and errors
+ * (`409 speaker_availability_stale`, `422 speaker_availability_*` with `details`).
+ */
+export async function updateMyAvailability(
+  payload: SpeakerAvailabilityUpdatePayload,
+): Promise<SpeakerAvailability> {
+  return requestJson<SpeakerAvailability>(
+    "/v1/me/availability",
+    { method: "PATCH", body: JSON.stringify(payload) },
+    { authenticated: true },
+  );
+}
+
+/** `GET /v1/me/invitations`: own sent invitations, newest first. */
+export async function fetchMyInvitations(): Promise<MyInvitationList> {
+  return requestJson<MyInvitationList>(
+    "/v1/me/invitations",
+    { method: "GET" },
+    { authenticated: true },
+  );
+}
+
+/**
+ * `POST /v1/me/invitations/{invitation_id}/response`. The first answer stands:
+ * the same one again resolves with `recorded: false`; a different one rejects
+ * with `409 speaker_invitation_already_answered`.
+ */
+export async function answerMyInvitation(
+  invitationId: string,
+  response: "accept" | "decline",
+): Promise<MyInvitationAnswerResult> {
+  return requestJson<MyInvitationAnswerResult>(
+    `/v1/me/invitations/${encodeURIComponent(invitationId)}/response`,
+    { method: "POST", body: JSON.stringify({ response }) },
+    { authenticated: true },
+  );
+}
+
+/** `GET /v1/me/engagements?when=…`: own confirmed bookings, cancelled included. */
+export async function fetchMyEngagements(when: EngagementWhen): Promise<MyEngagementList> {
+  const query = new URLSearchParams({ when });
+  return requestJson<MyEngagementList>(
+    `/v1/me/engagements?${query.toString()}`,
+    { method: "GET" },
     { authenticated: true },
   );
 }
@@ -5605,6 +5761,91 @@ export async function saveFeedbackQr(
       method: "PUT",
       body: JSON.stringify({ destination_url: destinationUrl }),
     },
+    { authenticated: true },
+  );
+}
+
+// ---------------------------------------------------------------------------
+// The Speaker's own contact channels (B26 T6b-4 over T6b-3's routes)
+//
+// `GET /v1/me/contact-channels` and `POST …/{channel_id}/opt-in` / `/opt-out`.
+// No adapter takes a subject: the Speaker is the bearer token's bound profile,
+// resolved server-side (MM-A01). Every field is the server's; a caller shows
+// `send_eligible`, `last_set_by` and `can_opt_*` as they arrive and never
+// re-derives them from `contact_state` or `suppressed`.
+// ---------------------------------------------------------------------------
+
+/** Why a channel is suppressed, in the Speaker's terms. */
+export type MyChannelSuppressionReason = "your_opt_out" | "unsubscribed" | "connector" | "delivery";
+
+export interface MyContactChannel {
+  contact_channel_id: string;
+  channel_kind: string;
+  address: string;
+  contact_state: string;
+  send_eligible: boolean;
+  suppressed: boolean;
+  suppression_reason: MyChannelSuppressionReason | null;
+  speaker_choice: "opt_in" | "opt_out" | null;
+  last_set_by: "speaker" | "connector";
+  can_opt_in: boolean;
+  can_opt_out: boolean;
+  updated_at: string;
+}
+
+/** Capped at 50 server-side; `truncated` says the server stopped sending. */
+export interface MyContactChannelList {
+  channels: MyContactChannel[];
+  truncated: boolean;
+}
+
+/** `changed: false` when nothing would change and nothing was written. */
+export interface MyContactChannelChange {
+  channel: MyContactChannel;
+  changed: boolean;
+}
+
+/**
+ * The codes the three routes return besides the shared 401 / 403 / 422 / 429.
+ * `speaker_contact_channel_speaker_opted_in` / `_opted_out` are Connector-side
+ * 409s (T6b-3 §5.4) that no `/v1/me` route returns, so they are not here.
+ */
+export type MyContactChannelErrorCode =
+  | "speaker_profile_not_linked"
+  | "speaker_contact_channel_not_found"
+  | "speaker_contact_channel_suppression_not_liftable"
+  | "speaker_contact_channel_address_unverified"
+  | "speaker_contact_channel_opt_in_unavailable"
+  | "speaker_contact_channel_transition_conflict";
+
+/** `GET /v1/me/contact-channels` — every channel on the caller's own record. */
+export async function fetchMyContactChannels(): Promise<MyContactChannelList> {
+  return requestJson<MyContactChannelList>(
+    `/v1/me/contact-channels`,
+    { method: "GET" },
+    { authenticated: true },
+  );
+}
+
+/**
+ * `POST /v1/me/contact-channels/{channel_id}/opt-in`, no body. Rejects with
+ * `ApiRequestError` whose `code` is a {@link MyContactChannelErrorCode}; a
+ * `suppression_not_liftable` carries `details.reason` (`connector` or
+ * `delivery`), an `opt_in_unavailable` carries `details.contact_state`.
+ */
+export async function optInMyContactChannel(channelId: string): Promise<MyContactChannelChange> {
+  return requestJson<MyContactChannelChange>(
+    `/v1/me/contact-channels/${encodeURIComponent(channelId)}/opt-in`,
+    { method: "POST" },
+    { authenticated: true },
+  );
+}
+
+/** `POST /v1/me/contact-channels/{channel_id}/opt-out`, no body. Immediate. */
+export async function optOutMyContactChannel(channelId: string): Promise<MyContactChannelChange> {
+  return requestJson<MyContactChannelChange>(
+    `/v1/me/contact-channels/${encodeURIComponent(channelId)}/opt-out`,
+    { method: "POST" },
     { authenticated: true },
   );
 }

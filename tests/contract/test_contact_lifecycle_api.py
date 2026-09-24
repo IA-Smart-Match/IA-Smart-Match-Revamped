@@ -288,6 +288,7 @@ def ctx(engine: Engine) -> Iterator[_Context]:
         # — so the trail goes before the channel, the channel before the
         # profile, and the profile before either of the rows it points at.
         for table in (
+            "contact_channel_speaker_choice",
             "contact_channel_transition",
             "contact_channel",
             "suppression_record",
@@ -744,3 +745,100 @@ class TestSuppressionWins:
 
         assert response.status_code == 409, response.text
         assert "suppressed" in response.json()["error"]["message"]
+
+
+# ---------------------------------------------------------------------------
+# B26 T6b-3 G1: the Speaker's latest choice beats a Connector's move
+# ---------------------------------------------------------------------------
+
+
+def _choose(ctx: _Context, channel_id: str, choice: str) -> None:
+    """Append a Speaker choice as the Speaker portal would (its route ships later)."""
+    with ctx.engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO contact_channel_speaker_choice (id, tenant_id, professional_id, "
+                "contact_channel_id, sequence, choice, decided_at, actor_user_id) "
+                "SELECT :i, c.tenant_id, c.professional_id, c.id, "
+                "coalesce((SELECT max(sequence) FROM contact_channel_speaker_choice s "
+                "WHERE s.tenant_id = c.tenant_id AND s.contact_channel_id = c.id), 0) + 1, "
+                ":ch, now(), (SELECT id FROM user_account u WHERE u.tenant_id = c.tenant_id "
+                "LIMIT 1) FROM contact_channel c WHERE c.id = :c"
+            ),
+            {"i": uuid.uuid4(), "c": channel_id, "ch": choice},
+        )
+
+
+class TestTheSpeakerWins:
+    """G1: after an opt-out no escalation; after an opt-in no move away from active."""
+
+    def _channel(self, ctx: _Context, final: str | None = None) -> tuple[str, str]:
+        professional_id = ctx.add_roster_contact()
+        channel_id = ctx.create_channel(professional_id).json()["channel"]["contact_channel_id"]
+        if final is not None:
+            ctx.walk_to(professional_id, channel_id, final)
+        return professional_id, channel_id
+
+    def test_opted_out_channel_refuses_consented_and_active_candidate(self, ctx: _Context) -> None:
+        professional_id, channel_id = self._channel(ctx, "relationship_recorded")
+        _choose(ctx, channel_id, "opt_out")
+
+        # No evidence either: the Speaker-specific code wins over the evidence 400.
+        response = ctx.transition(professional_id, channel_id, to_state="consented")
+        assert response.status_code == 409, response.text
+        assert response.json()["error"]["code"] == "speaker_contact_channel_speaker_opted_out"
+
+        with ctx.engine.begin() as conn:
+            conn.execute(
+                text("DELETE FROM contact_channel_speaker_choice WHERE contact_channel_id = :c"),
+                {"c": channel_id},
+            )
+        consented = ctx.transition(
+            professional_id,
+            channel_id,
+            to_state="consented",
+            consent_source="in_person",
+            consent_evidence=EVIDENCE,
+        )
+        assert consented.status_code == 201, consented.text
+        _choose(ctx, channel_id, "opt_out")
+        response = ctx.transition(professional_id, channel_id, to_state="active_candidate")
+        assert response.status_code == 409, response.text
+        assert response.json()["error"]["code"] == "speaker_contact_channel_speaker_opted_out"
+
+    def test_opted_in_channel_refuses_stale(self, ctx: _Context) -> None:
+        professional_id, channel_id = self._channel(ctx, "active_candidate")
+        _choose(ctx, channel_id, "opt_in")
+
+        response = ctx.transition(professional_id, channel_id, to_state="stale")
+
+        assert response.status_code == 409, response.text
+        assert response.json()["error"]["code"] == "speaker_contact_channel_speaker_opted_in"
+
+    def test_after_opt_out_a_connector_may_mark_stale(self, ctx: _Context) -> None:
+        professional_id, channel_id = self._channel(ctx, "active_candidate")
+        _choose(ctx, channel_id, "opt_in")
+        _choose(ctx, channel_id, "opt_out")
+
+        response = ctx.transition(professional_id, channel_id, to_state="stale")
+
+        assert response.status_code == 201, response.text
+
+    def test_no_choice_leaves_today_behaviour(self, ctx: _Context) -> None:
+        professional_id, channel_id = self._channel(ctx, "active_candidate")
+
+        response = ctx.transition(professional_id, channel_id, to_state="stale")
+
+        assert response.status_code == 201, response.text
+        assert response.json()["channel"]["speaker_choice"] is None
+
+    def test_view_carries_speaker_choice(self, ctx: _Context) -> None:
+        professional_id, channel_id = self._channel(ctx)
+        before = ctx.list_channels(professional_id).json()["channels"][0]["channel"]
+        assert before["speaker_choice"] is None and before["speaker_choice_at"] is None
+
+        _choose(ctx, channel_id, "opt_out")
+
+        after = ctx.list_channels(professional_id).json()["channels"][0]["channel"]
+        assert after["speaker_choice"] == "opt_out"
+        assert after["speaker_choice_at"] is not None

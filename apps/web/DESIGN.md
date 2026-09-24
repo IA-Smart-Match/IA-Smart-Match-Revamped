@@ -154,8 +154,8 @@ Use the horizontal CPP logo through `src/app/components/BrandLogo.tsx`. The bund
 
 Speaker Connector, Event Host, and Student signed-in experiences share the same
 visual language but expose navigation from server-authorized roles. A Speaker is
-a contact persona; the Speaker Portal is a one-screen placeholder until T6b-2 to
-T6b-4, and exists only while `speaker_portal` is on.
+a contact persona; the Speaker Portal is the fourth signed-in shell, and exists
+only while `speaker_portal` is on.
 
 - The left sidebar owns the product identity, current section navigation, profile summary, and sign-out action.
 - Place sign out directly beneath the profile area on desktop. Use the corresponding account area on mobile.
@@ -164,6 +164,10 @@ T6b-4, and exists only while `speaker_portal` is on.
 - Do not place decorative icons beside page headings. Icons are appropriate inside actions, statuses, empty states, or navigation when they improve recognition.
 - Put the action queue before summary statistics on Speaker Connector and Event Host home pages. For a small count, name the people or records rather than hiding them behind an average.
 - Mobile layouts use a compact header and a usable navigation drawer. Student tasks are phone-first; Speaker Connector and Event Host tables must remain useful at tablet and desktop widths and collapse deliberately on phones.
+- The Speaker Portal (`/speaker-portal`) has five pages: Home, Invitations, Engagements, Availability and Contact preferences. Its home puts invitations waiting for an answer before upcoming engagements, and has no answer buttons: the Invitations page is the one place an answer is given.
+- Speaker Portal answers are final, so Accept and Decline both confirm inline, never in a modal; opting out of an address confirms, opting in does not. While a request is pending, the pressed button keeps focus with `aria-disabled` and reads "Saving…"; the page's other action buttons are disabled until the list is re-read.
+- Each Speaker Portal page sets the tab title to "{page heading} · Speaker Portal", and a route change moves focus to the new page's heading. The drawer returns focus to its menu button when it closes.
+- The Speaker Portal shows the Speaker's own records only and never a number about their workload: the load band (T8d) is a word, and the portal switcher (T6b-5) sits above the profile block, so sign-out stays directly beneath it.
 
 ### Events and feedback QR codes
 
@@ -383,6 +387,12 @@ define one.
 - Speaker Connectors maintain private contact details in `speaker_contacts` and
   read/write them from `CoordinatorSpeakerContacts`. Event Hosts never see raw
   speaker email or phone; they see only fields the granting endpoint publishes.
+- Speaker Connectors read and correct a Speaker's stated availability from the
+  roster row (the "Availability" disclosure in `CoordinatorSpeakerContacts`,
+  `SpeakerAvailabilityPanel` + `SpeakerAvailabilityForm`). "Not stated" is never
+  shown as available; saving an empty form is labelled "no dates blocked"; a
+  stale (409) save keeps the draft and shows the saved version before any
+  overwrite.
 - A match run (`CoordinatorMatchRuns`, `/coordinator-portal/match-runs`) scores stored speaker contacts against a filed Speaker Request and produces a shortlist. Explain relevant topics and regional service in words; never display internal weights, scores, percentages, or confidence (OQ-CBA-005).
 - Submitting a shortlist opens `CoordinatorInvitations` (`/coordinator-portal/invitations`), which composes and sends an **approved, consented invitation batch** — real email/batch send controls, gated on `cold_unknown_contact_outreach` / `external_speaker_acquisition` for the legacy admin `/outreach` surface, and on `CONSENTED_OUTREACH` for the coordinator-portal compose path. A draft is sent only to a contact whose consent is already on record, re-checked at delivery.
 - Both roles use one shared speaker-event record, notes, and append-only history. Render only actions authorized for the signed-in role and current status.

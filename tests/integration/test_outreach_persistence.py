@@ -236,6 +236,62 @@ class TestLoadRecipient:
         assert facts is not None and facts.suppressed is False
 
 
+class TestLiftedSuppression:
+    """B26 T6b-3 R2: ``load_recipient`` honours ``lifted_at``."""
+
+    def _lift(self, session: Session, tenant_id: uuid.UUID, actor_id: uuid.UUID) -> None:
+        session.execute(
+            text(
+                "UPDATE suppression_record SET lifted_at = :at, lifted_by_user_id = :u "
+                "WHERE tenant_id = :t AND address = :a"
+            ),
+            {"at": _NOW + timedelta(hours=1), "u": actor_id, "t": tenant_id, "a": _ADDRESS},
+        )
+
+    def test_load_recipient_reports_a_lifted_suppression_as_clear(
+        self, session: Session, tenant_id: uuid.UUID, unit_id: uuid.UUID, actor_id: uuid.UUID
+    ):
+        contact_id = _contact(session, tenant_id=tenant_id, unit_id=unit_id)
+        _REPO.suppress(
+            session,
+            tenant_id=tenant_id,
+            address=_ADDRESS,
+            source="unsubscribe_link",
+            suppressed_at=_NOW,
+        )
+        self._lift(session, tenant_id, actor_id)
+
+        facts = _REPO.load_recipient(session, tenant_id=tenant_id, contact_channel_id=contact_id)
+        assert facts is not None
+        assert facts.suppressed is False
+        assert _REPO.is_suppressed(session, tenant_id=tenant_id, address=_ADDRESS) is False
+
+    def test_a_reopened_suppression_is_reported_again(
+        self, session: Session, tenant_id: uuid.UUID, unit_id: uuid.UUID, actor_id: uuid.UUID
+    ):
+        contact_id = _contact(session, tenant_id=tenant_id, unit_id=unit_id)
+        _REPO.suppress(
+            session,
+            tenant_id=tenant_id,
+            address=_ADDRESS,
+            source="unsubscribe_link",
+            suppressed_at=_NOW,
+        )
+        self._lift(session, tenant_id, actor_id)
+        again = _REPO.suppress(
+            session,
+            tenant_id=tenant_id,
+            address=_ADDRESS,
+            source="one_click",
+            suppressed_at=_NOW + timedelta(days=1),
+        )
+
+        assert again.was_already_suppressed is False
+        facts = _REPO.load_recipient(session, tenant_id=tenant_id, contact_channel_id=contact_id)
+        assert facts is not None and facts.suppressed is True
+        assert _REPO.is_suppressed(session, tenant_id=tenant_id, address=_ADDRESS) is True
+
+
 class TestContactConstraints:
     """The database refuses what the consent lifecycle forbids."""
 

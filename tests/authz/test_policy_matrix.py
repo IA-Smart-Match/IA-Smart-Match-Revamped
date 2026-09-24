@@ -1877,6 +1877,119 @@ OPERATIONS: tuple[Operation, ...] = (
         resource_type="org_unit",
         unit_scoped=True,
     ),
+    # The signed-in Speaker's own routes (B26 T6b-2), mounted only under
+    # ``SPEAKER_PORTAL``. ``{speaker}`` and nothing else: one persona, one
+    # resource (the bound profile's unit), so all five share one authorizer and
+    # one constant — the ``speaker_contact.*`` arrangement.
+    #
+    # What the matrix cannot see: the resource is the unit of the profile bound
+    # to ``principal.user_id``, found before the policy runs (an unbound login
+    # is ``404 speaker_profile_not_linked`` for every role), and every row the
+    # routes return is keyed by that profile's ``professional_id``. ``evaluate``
+    # has no self-scope, so "these rows are yours" is asserted over HTTP in
+    # ``tests/contract/test_speaker_self_api.py`` — the
+    # ``host_organization.read_own`` division of labour.
+    Operation(
+        key="speaker_self.availability.read",
+        method="GET",
+        path="/v1/me/availability",
+        module="smartmatch_api.routers.speaker_self",
+        authorizer="_authorize_speaker_self",
+        roles_constant="_SPEAKER_SELF_ROLES",
+        authorizer_module=None,
+        required_roles=frozenset({"speaker"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
+    Operation(
+        key="speaker_self.availability.update",
+        method="PATCH",
+        path="/v1/me/availability",
+        module="smartmatch_api.routers.speaker_self",
+        authorizer="_authorize_speaker_self",
+        roles_constant="_SPEAKER_SELF_ROLES",
+        authorizer_module=None,
+        required_roles=frozenset({"speaker"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
+    Operation(
+        key="speaker_self.invitation.list",
+        method="GET",
+        path="/v1/me/invitations",
+        module="smartmatch_api.routers.speaker_self",
+        authorizer="_authorize_speaker_self",
+        roles_constant="_SPEAKER_SELF_ROLES",
+        authorizer_module=None,
+        required_roles=frozenset({"speaker"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
+    Operation(
+        key="speaker_self.invitation.respond",
+        method="POST",
+        path="/v1/me/invitations/{invitation_id}/response",
+        module="smartmatch_api.routers.speaker_self",
+        authorizer="_authorize_speaker_self",
+        roles_constant="_SPEAKER_SELF_ROLES",
+        authorizer_module=None,
+        required_roles=frozenset({"speaker"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
+    Operation(
+        key="speaker_self.engagement.list",
+        method="GET",
+        path="/v1/me/engagements",
+        module="smartmatch_api.routers.speaker_self",
+        authorizer="_authorize_speaker_self",
+        roles_constant="_SPEAKER_SELF_ROLES",
+        authorizer_module=None,
+        required_roles=frozenset({"speaker"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
+    # B26 T6b-3: the Speaker's own channel consent. The route imports T6b-2's
+    # authorizer and constant (it writes no subject lookup of its own), so
+    # ``authorizer_module`` points at ``speaker_self``. Which channels are the
+    # Speaker's is a self-scope asserted over HTTP in
+    # ``tests/contract/test_me_contact_channels_api.py``.
+    Operation(
+        key="me.contact_channels.read",
+        method="GET",
+        path="/v1/me/contact-channels",
+        module="smartmatch_api.routers.me_contact_channels",
+        authorizer="_authorize_speaker_self",
+        roles_constant="_SPEAKER_SELF_ROLES",
+        authorizer_module="smartmatch_api.routers.speaker_self",
+        required_roles=frozenset({"speaker"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
+    Operation(
+        key="me.contact_channels.opt_in",
+        method="POST",
+        path="/v1/me/contact-channels/{contact_channel_id}/opt-in",
+        module="smartmatch_api.routers.me_contact_channels",
+        authorizer="_authorize_speaker_self",
+        roles_constant="_SPEAKER_SELF_ROLES",
+        authorizer_module="smartmatch_api.routers.speaker_self",
+        required_roles=frozenset({"speaker"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
+    Operation(
+        key="me.contact_channels.opt_out",
+        method="POST",
+        path="/v1/me/contact-channels/{contact_channel_id}/opt-out",
+        module="smartmatch_api.routers.me_contact_channels",
+        authorizer="_authorize_speaker_self",
+        roles_constant="_SPEAKER_SELF_ROLES",
+        authorizer_module="smartmatch_api.routers.speaker_self",
+        required_roles=frozenset({"speaker"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
     # The two student event reads (card ``CBA-STUDENT-EVENTS``, customer §15).
     # ``{student}`` and nothing else, which makes them the only rows in this file
     # whose role set contains ``student`` — everywhere else in this matrix
@@ -8946,6 +9059,69 @@ MATRIX: dict[str, dict[str, Cell]] = {
             why="`speaker` is outside this operation's role set, as `volunteer` is",
         ),
     },
+    "speaker_self.availability.read": {
+        "speaker_at_owning_unit": permit(
+            why=(
+                "the cell B26 T6b-2 exists for: a Speaker whose login is bound "
+                "to a profile in this unit holds `speaker` here (T6b-1 grants it "
+                "at the profile's unit on activation). The permit says only that "
+                "this principal may call the route; the route then returns the "
+                "bound profile's rows and no other (MM-A01)"
+            ),
+        ),
+        "admin_at_org_root": deny(
+            "no_grant",
+            why="a Connector reads a contact's availability through T3's route",
+        ),
+        "coordinator_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "the cell to read first. The membership is active at exactly "
+                "the owning unit, so the role is the only thing refusing it: a "
+                "Speaker Connector is not the Speaker"
+            ),
+        ),
+        "coordinator_at_sibling_unit": deny(
+            "no_grant", why="wrong role and wrong path; either alone would refuse it"
+        ),
+        "admin_at_sibling_unit": deny(
+            "no_grant", why="wrong role and wrong path; either alone would refuse it"
+        ),
+        "student_at_owning_unit": deny("no_grant"),
+        "volunteer_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "an Event Host is not a Speaker (OQ-CBA-042 narrow reading; "
+                "GLOSSARY): `volunteer` never widens into `speaker`"
+            ),
+        ),
+        "member_with_no_memberships": deny("no_grant"),
+        "resource_grant_only": deny(
+            "resource_grant_lacks_required_role",
+            why="S-007. A grant conveys reach, not authority. See the module docstring.",
+        ),
+        "admin_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="v1.1 §2.1: an explicit deny on the resource beats inheritance",
+        ),
+        "expired_coordinator_at_owning_unit": deny("no_grant"),
+        "suspended_admin": deny(
+            "principal_suspended",
+            why="suspension is checked first and does not wait for the IdP to revoke a token",
+        ),
+        "cross_tenant_coordinator": deny(
+            "tenant_mismatch",
+            why="tenant isolation is structural and precedes every grant question",
+        ),
+        "job_actor_without_role": deny(
+            "no_grant",
+            why="no job is queued here, so the actor half of the shape is inert",
+        ),
+        "job_actor_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="the actor half is inert; a deny on the unit beats inheritance",
+        ),
+    },
 }
 
 #: The Speaker Pipeline read is ``metrics.read``'s permit seen through a second
@@ -8970,13 +9146,24 @@ MATRIX["metrics.speaker_pipeline"] = MATRIX["metrics.read"]
 #: object for the reason given above: a cell where the two disagreed would claim
 #: one function decides two different things.
 MATRIX["pipeline.booking.cancel"] = MATRIX["pipeline.stage.advance"]
-
 #: The availability read and write are ``speaker_contact.read`` and
 #: ``speaker_contact.update`` seen through a second route (B26 T3): the same
 #: ``_authorize_speaker_contacts`` decides them, so they share the row objects
 #: for the reason given above — a disagreement must be unrepresentable.
 MATRIX["speaker_contact.availability.read"] = MATRIX["speaker_contact.read"]
 MATRIX["speaker_contact.availability.update"] = MATRIX["speaker_contact.update"]
+#: B26 T6b-2: the five ``speaker_self.*`` operations call the identical
+#: ``_authorize_speaker_self`` with the identical ``_SPEAKER_SELF_ROLES``, so
+#: they share one row object for the reason given above.
+MATRIX["speaker_self.availability.update"] = MATRIX["speaker_self.availability.read"]
+MATRIX["speaker_self.invitation.list"] = MATRIX["speaker_self.availability.read"]
+MATRIX["speaker_self.invitation.respond"] = MATRIX["speaker_self.availability.read"]
+MATRIX["speaker_self.engagement.list"] = MATRIX["speaker_self.availability.read"]
+#: B26 T6b-3: the three ``me.contact_channels.*`` operations call the same
+#: imported ``_authorize_speaker_self``, so they share the row object too.
+MATRIX["me.contact_channels.read"] = MATRIX["speaker_self.availability.read"]
+MATRIX["me.contact_channels.opt_in"] = MATRIX["speaker_self.availability.read"]
+MATRIX["me.contact_channels.opt_out"] = MATRIX["speaker_self.availability.read"]
 
 CELLS = [(operation.key, shape.name) for operation in OPERATIONS for shape in SHAPES]
 
@@ -9339,6 +9526,12 @@ def _authorize(operation: Operation, shape: Shape) -> None:
         "_authorize_host_organization_read_own",
         "_authorize_host_organization_write_own",
         "_authorize_host_organization_list",
+        # B26 T6b-2 (`routers/speaker_self.py`), on the same terms: the route
+        # finds the profile bound to the caller's login, then makes exactly
+        # this call against that profile's unit path. Which profile is found
+        # is a self-scope `evaluate` cannot express; it is asserted over HTTP
+        # in `tests/contract/test_speaker_self_api.py`.
+        "_authorize_speaker_self",
     ):
         assert_allowed(
             resolved.principal,
@@ -10114,20 +10307,51 @@ def test_every_excluded_role_operation_is_declared() -> None:
     )
 
 
-@pytest.mark.parametrize("operation", OPERATIONS, ids=lambda op: op.key)
-def test_a_speaker_membership_reaches_no_operation(operation: Operation) -> None:
-    """The ``speaker`` role grants nothing on its own, observed on the real authorizer.
+#: B26 T6b-2: the only operations a ``speaker`` membership reaches.
+SPEAKER_SELF_OPERATIONS: frozenset[str] = frozenset(
+    {
+        "speaker_self.availability.read",
+        "speaker_self.availability.update",
+        "speaker_self.invitation.list",
+        "speaker_self.invitation.respond",
+        "speaker_self.engagement.list",
+        # B26 T6b-3.
+        "me.contact_channels.read",
+        "me.contact_channels.opt_in",
+        "me.contact_channels.opt_out",
+    }
+)
 
-    B26 T6b-1: deny-by-default, and ``speaker`` never widens ``volunteer`` or
-    vice versa. The aggregate reads refuse it by name (R8); every other
-    operation refuses it because it is outside the role set.
+
+@pytest.mark.parametrize("operation", OPERATIONS, ids=lambda op: op.key)
+def test_a_speaker_membership_reaches_only_its_own_operations(operation: Operation) -> None:
+    """``speaker`` permits exactly :data:`SPEAKER_SELF_OPERATIONS`, on the real authorizer.
+
+    Replaces T6b-1's "reaches no operation", which T6b-2 makes false. Every
+    other operation still refuses it: the aggregate reads by name (R8), the
+    rest because it is outside the role set. ``speaker`` never widens
+    ``volunteer`` or vice versa.
     """
     observed = _observe(operation, SHAPES_BY_NAME["speaker_at_owning_unit"])
+    if operation.key in SPEAKER_SELF_OPERATIONS:
+        assert observed.permit, f"{operation.key} refuses the bound Speaker"
+        return
     assert not observed.permit, f"{operation.key} admits a speaker-only principal"
     expected = (
         "membership_role_excluded" if operation.key in EXCLUDED_ROLE_OPERATIONS else "no_grant"
     )
     assert observed.reason == expected, operation.key
+
+
+def test_every_speaker_self_operation_names_only_the_speaker_role() -> None:
+    """Both directions: the five keys exist, and each names ``{speaker}`` alone."""
+    by_key = {operation.key: operation for operation in OPERATIONS}
+    assert set(by_key) >= SPEAKER_SELF_OPERATIONS
+    speaker_gated = {op.key for op in OPERATIONS if "speaker" in op.required_roles}
+    assert speaker_gated == SPEAKER_SELF_OPERATIONS
+    for key in SPEAKER_SELF_OPERATIONS:
+        assert by_key[key].required_roles == frozenset({"speaker"}), key
+        assert by_key[key].authorizer == "_authorize_speaker_self", key
 
 
 def test_the_matrix_is_a_full_rectangle() -> None:

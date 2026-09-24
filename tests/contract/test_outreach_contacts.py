@@ -191,9 +191,11 @@ def ctx(engine: Engine) -> Iterator[_Context]:
     with engine.begin() as conn:
         # Child-first: every foreign key in 0021 and 0022 is RESTRICT.
         for table in (
+            "contact_channel_speaker_choice",
             "contact_channel_transition",
             "contact_channel",
             "suppression_record",
+            "speaker_profile",
             "membership",
             "user_account",
             "org_unit",
@@ -516,3 +518,302 @@ class TestListContacts:
         assert [row["contact_channel_id"] for row in body["contacts"]] == [mine]
         assert body["contacts"][0]["send_eligible"] is False
         assert body["limit"] > 0
+
+
+# ---------------------------------------------------------------------------
+# B26 T6b-3: the Speaker wins (G2, G3) and suppression wins on this route (OQ-4)
+# ---------------------------------------------------------------------------
+
+_EVIDENCE = "signed consent form, filed 2026-09-04"
+
+
+def _suppress(ctx: _Context, source: str = "unsubscribe_link") -> None:
+    with ctx.engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO suppression_record (id, tenant_id, address, suppressed_at, source) "
+                "VALUES (:id, :t, :a, now(), :s)"
+            ),
+            {"id": uuid.uuid4(), "t": ctx.tenant_id, "a": ADDRESS, "s": source},
+        )
+
+
+def _choose(ctx: _Context, contact_id: str, choice: str) -> None:
+    """Append a Speaker choice as the Speaker portal would (the route ships later)."""
+    with ctx.engine.begin() as conn:
+        row = conn.execute(
+            text("SELECT professional_id, owning_unit_id FROM contact_channel WHERE id = :c"),
+            {"c": contact_id},
+        ).one()
+        # A professional id is a user_account id (speaker_profile's key).
+        conn.execute(
+            text(
+                "INSERT INTO user_account (id, tenant_id, external_subject, email) "
+                "VALUES (:p, :t, :sub, :email) ON CONFLICT DO NOTHING"
+            ),
+            {
+                "p": row.professional_id,
+                "t": ctx.tenant_id,
+                "sub": f"sub-professional-{row.professional_id.hex}",
+                "email": f"{row.professional_id.hex[:8]}@example.edu",
+            },
+        )
+        conn.execute(
+            text(
+                "INSERT INTO speaker_profile (tenant_id, professional_id, owning_unit_id, "
+                "full_name) VALUES (:t, :p, :u, 'Sam Rivera') ON CONFLICT DO NOTHING"
+            ),
+            {"t": ctx.tenant_id, "p": row.professional_id, "u": row.owning_unit_id},
+        )
+        actor = conn.execute(
+            text(
+                "SELECT user_id FROM membership WHERE tenant_id = :t AND role = 'coordinator' "
+                "LIMIT 1"
+            ),
+            {"t": ctx.tenant_id},
+        ).scalar_one()
+        conn.execute(
+            text(
+                "INSERT INTO contact_channel_speaker_choice (id, tenant_id, professional_id, "
+                "contact_channel_id, sequence, choice, decided_at, actor_user_id) "
+                "SELECT :i, :t, :p, :c, coalesce(max(sequence), 0) + 1, :ch, now(), :u "
+                "FROM contact_channel_speaker_choice WHERE tenant_id = :t "
+                "AND contact_channel_id = :c"
+            ),
+            {
+                "i": uuid.uuid4(),
+                "t": ctx.tenant_id,
+                "p": row.professional_id,
+                "c": contact_id,
+                "ch": choice,
+                "u": actor,
+            },
+        )
+
+
+def _walk(ctx: _Context, contact_id: str, *states: str) -> None:
+    for to_state in states:
+        extra: dict[str, Any] = {}
+        if to_state == "consented":
+            extra = {"consent_source": "in_person", "consent_evidence": _EVIDENCE}
+        response = ctx.transition(contact_id, to_state=to_state, **extra)
+        assert response.status_code == 201, response.text
+
+
+_TO_RELATIONSHIP = ("corroborated", "reviewed", "relationship_recorded")
+
+
+def _trail_length(ctx: _Context, contact_id: str) -> int:
+    with ctx.engine.connect() as conn:
+        return int(
+            conn.execute(
+                text(
+                    "SELECT count(*) FROM contact_channel_transition WHERE contact_channel_id = :c"
+                ),
+                {"c": contact_id},
+            ).scalar_one()
+        )
+
+
+class TestTheSpeakerWinsOnTheGenericRoute:
+    """G2: the Speaker's latest choice beats a coordinator's move."""
+
+    def test_opted_out_contact_refuses_consented_and_active_candidate(self, ctx: _Context) -> None:
+        contact_id = ctx.register().json()["contact_channel_id"]
+        _walk(ctx, contact_id, *_TO_RELATIONSHIP)
+        _choose(ctx, contact_id, "opt_out")
+
+        response = ctx.transition(contact_id, to_state="consented")  # no evidence either
+
+        assert response.status_code == 409, response.text
+        assert response.json()["error"]["code"] == "speaker_contact_channel_speaker_opted_out"
+
+        other = ctx.register_consented(address="other-0001@synthetic.invalid").json()
+        _choose(ctx, other["contact_channel_id"], "opt_out")
+        response = ctx.transition(other["contact_channel_id"], to_state="active_candidate")
+        assert response.status_code == 409, response.text
+        assert response.json()["error"]["code"] == "speaker_contact_channel_speaker_opted_out"
+
+    def test_opted_in_contact_refuses_stale(self, ctx: _Context) -> None:
+        contact_id = ctx.register_consented().json()["contact_channel_id"]
+        _walk(ctx, contact_id, "active_candidate")
+        _choose(ctx, contact_id, "opt_in")
+
+        response = ctx.transition(contact_id, to_state="stale")
+
+        assert response.status_code == 409, response.text
+        assert response.json()["error"]["code"] == "speaker_contact_channel_speaker_opted_in"
+
+    def test_speaker_wins_code_wins_over_suppressed_code(self, ctx: _Context) -> None:
+        contact_id = ctx.register_consented().json()["contact_channel_id"]
+        _choose(ctx, contact_id, "opt_out")
+        _suppress(ctx, "speaker_portal")
+
+        response = ctx.transition(contact_id, to_state="active_candidate")
+
+        assert response.status_code == 409, response.text
+        assert response.json()["error"]["code"] == "speaker_contact_channel_speaker_opted_out"
+
+    def test_view_carries_speaker_choice(self, ctx: _Context) -> None:
+        contact_id = ctx.register().json()["contact_channel_id"]
+        before = ctx.read(contact_id).json()["contact"]
+        assert before["speaker_choice"] is None and before["speaker_choice_at"] is None
+
+        _choose(ctx, contact_id, "opt_out")
+
+        after = ctx.read(contact_id).json()["contact"]
+        assert after["speaker_choice"] == "opt_out"
+        assert after["speaker_choice_at"] is not None
+        listed = ctx.list_contacts().json()["contacts"]
+        assert [c["speaker_choice"] for c in listed] == ["opt_out"]
+
+
+class TestSuppressionWinsOnTheGenericRoute:
+    """OQ-4: this route used to ignore suppression. Shipped-behaviour change."""
+
+    def test_generic_transition_refuses_escalating_a_suppressed_contact(
+        self, ctx: _Context
+    ) -> None:
+        to_consented = ctx.register().json()["contact_channel_id"]
+        _walk(ctx, to_consented, *_TO_RELATIONSHIP)
+        to_active = ctx.register_consented(address="other-0002@synthetic.invalid").json()[
+            "contact_channel_id"
+        ]
+        with ctx.engine.begin() as conn:
+            conn.execute(
+                text(
+                    "INSERT INTO suppression_record (id, tenant_id, address, suppressed_at, "
+                    "source) VALUES (:i, :t, :a, now(), 'unsubscribe_link'), "
+                    "(:j, :t, 'other-0002@synthetic.invalid', now(), 'unsubscribe_link')"
+                ),
+                {"i": uuid.uuid4(), "j": uuid.uuid4(), "t": ctx.tenant_id, "a": ADDRESS},
+            )
+        cases = (
+            (
+                to_consented,
+                "relationship_recorded",
+                {
+                    "to_state": "consented",
+                    "consent_source": "in_person",
+                    "consent_evidence": _EVIDENCE,
+                },
+            ),
+            (to_active, "consented", {"to_state": "active_candidate"}),
+        )
+        for contact_id, state, body in cases:
+            trail = _trail_length(ctx, contact_id)
+            response = ctx.transition(contact_id, **body)
+            assert response.status_code == 409, response.text
+            assert response.json()["error"]["code"] == "outreach_contact_suppressed"
+            assert _trail_length(ctx, contact_id) == trail
+            assert ctx.read(contact_id).json()["contact"]["contact_state"] == state
+
+    def test_suppressed_code_wins_over_missing_evidence(self, ctx: _Context) -> None:
+        contact_id = ctx.register().json()["contact_channel_id"]
+        _walk(ctx, contact_id, *_TO_RELATIONSHIP)
+        _suppress(ctx)
+
+        response = ctx.transition(contact_id, to_state="consented")
+
+        assert response.status_code == 409, response.text
+        assert response.json()["error"]["code"] == "outreach_contact_suppressed"
+
+    def test_generic_transition_still_allows_stale_and_rejected_when_suppressed(
+        self, ctx: _Context
+    ) -> None:
+        active = ctx.register_consented().json()["contact_channel_id"]
+        _walk(ctx, active, "active_candidate")
+        reviewed = ctx.register(address="other-0003@synthetic.invalid").json()["contact_channel_id"]
+        _walk(ctx, reviewed, "corroborated", "reviewed")
+        _suppress(ctx)
+        with ctx.engine.begin() as conn:
+            conn.execute(
+                text(
+                    "INSERT INTO suppression_record (id, tenant_id, address, suppressed_at, "
+                    "source) VALUES (:i, :t, 'other-0003@synthetic.invalid', now(), 'bounce')"
+                ),
+                {"i": uuid.uuid4(), "t": ctx.tenant_id},
+            )
+
+        assert ctx.transition(active, to_state="stale").status_code == 201
+        assert ctx.transition(reviewed, to_state="rejected").status_code == 201
+
+    def test_unsuppressed_illegal_edge_is_still_409_illegal(self, ctx: _Context) -> None:
+        contact_id = ctx.register().json()["contact_channel_id"]
+
+        response = ctx.transition(contact_id, to_state="consented")
+
+        assert response.status_code == 409, response.text
+        assert response.json()["error"]["code"] == "outreach_contact_transition_illegal"
+
+    def test_a_lifted_suppression_no_longer_blocks(self, ctx: _Context) -> None:
+        contact_id = ctx.register_consented().json()["contact_channel_id"]
+        _suppress(ctx)
+        with ctx.engine.begin() as conn:
+            conn.execute(
+                text(
+                    "UPDATE suppression_record SET lifted_at = now(), lifted_by_user_id = "
+                    "(SELECT id FROM user_account WHERE tenant_id = :t LIMIT 1) "
+                    "WHERE tenant_id = :t"
+                ),
+                {"t": ctx.tenant_id},
+            )
+
+        assert ctx.transition(contact_id, to_state="active_candidate").status_code == 201
+
+
+class TestTheSpeakerWinsOnPatch:
+    """G3: a coordinator may not suppress or re-evidence a Speaker's own opt-in (OQ-2, S4)."""
+
+    def _opted_in(self, ctx: _Context) -> str:
+        contact_id: str = ctx.register_consented().json()["contact_channel_id"]
+        _walk(ctx, contact_id, "active_candidate")
+        _choose(ctx, contact_id, "opt_in")
+        return contact_id
+
+    def test_coordinator_suppress_on_an_opted_in_channel_is_409(self, ctx: _Context) -> None:
+        contact_id = self._opted_in(ctx)
+
+        response = ctx.patch(contact_id, suppressed=True)
+
+        assert response.status_code == 409, response.text
+        assert response.json()["error"]["code"] == "speaker_contact_channel_speaker_opted_in"
+
+    def test_coordinator_suppress_on_an_opted_in_channel_writes_nothing(
+        self, ctx: _Context
+    ) -> None:
+        contact_id = self._opted_in(ctx)
+
+        ctx.patch(contact_id, suppressed=True, consent_evidence="corrected")
+
+        with ctx.engine.connect() as conn:
+            rows = conn.execute(
+                text("SELECT count(*) FROM suppression_record WHERE tenant_id = :t"),
+                {"t": ctx.tenant_id},
+            ).scalar_one()
+        assert rows == 0
+        read = ctx.read(contact_id).json()["contact"]
+        assert read["suppressed"] is False
+        assert read["consent_evidence"] == _EVIDENCE
+
+    def test_evidence_patch_on_an_opted_in_channel_is_409(self, ctx: _Context) -> None:
+        contact_id = self._opted_in(ctx)
+
+        response = ctx.patch(contact_id, consent_evidence="a coordinator's correction")
+
+        assert response.status_code == 409, response.text
+        assert response.json()["error"]["code"] == "speaker_contact_channel_speaker_opted_in"
+        assert ctx.read(contact_id).json()["contact"]["consent_evidence"] == _EVIDENCE
+
+    def test_evidence_patch_after_opt_out_or_with_no_choice_succeeds(self, ctx: _Context) -> None:
+        plain = ctx.register_consented().json()["contact_channel_id"]
+        opted_out = ctx.register_consented(address="other-0004@synthetic.invalid").json()[
+            "contact_channel_id"
+        ]
+        _choose(ctx, opted_out, "opt_in")
+        _choose(ctx, opted_out, "opt_out")
+
+        for contact_id in (plain, opted_out):
+            response = ctx.patch(contact_id, consent_evidence="a coordinator's correction")
+            assert response.status_code == 200, response.text
+        assert ctx.patch(opted_out, suppressed=True).status_code == 200

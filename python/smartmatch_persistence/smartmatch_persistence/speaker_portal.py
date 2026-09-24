@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 from smartmatch_persistence import schema
 
 __all__ = [
+    "BoundSpeakerProfile",
     "CurrentInvitation",
     "InvitationForActivation",
     "InvitationForSend",
@@ -31,6 +32,11 @@ __all__ = [
 ]
 
 _INV = schema.speaker_portal_invitation
+
+#: What Python's ``str.strip()`` removes from an email address, for the SQL
+#: side of the comparison: ``btrim`` with no second argument trims spaces only,
+#: so a stored address ending in a tab or newline would otherwise not fold.
+_WHITESPACE = " \t\n\r\f\v"
 _PROFILE = schema.speaker_profile
 
 
@@ -42,6 +48,20 @@ class LockedProfile:
     full_name: str
     account_user_id: uuid.UUID | None
     account_bound_at: datetime | None
+
+
+@dataclass(frozen=True, slots=True)
+class BoundSpeakerProfile:
+    """The profile a signed-in Speaker's login is bound to (B26 T6b-2).
+
+    ``professional_id`` keys every row the Speaker reads or writes; it is never
+    the login id (after T6b-5's merged login the two differ).
+    ``owning_unit_path`` is what the ``speaker`` role is checked against.
+    """
+
+    professional_id: uuid.UUID
+    owning_unit_id: uuid.UUID
+    owning_unit_path: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -121,6 +141,83 @@ class SpeakerPortalRepository:
             statement = statement.with_for_update()
         row = session.execute(statement).one_or_none()
         return None if row is None else LockedProfile(**row._mapping)
+
+    def find_bound_profile(
+        self, session: Session, *, tenant_id: uuid.UUID, account_user_id: uuid.UUID
+    ) -> BoundSpeakerProfile | None:
+        """The profile bound to ``account_user_id`` in ``tenant_id``, or ``None``.
+
+        At most one row (``uq_speaker_profile_account``). Takes no lock: the
+        Speaker's own routes read, or write rows keyed by the profile.
+        """
+        unit = schema.org_unit
+        row = session.execute(
+            sa.select(
+                _PROFILE.c.professional_id,
+                _PROFILE.c.owning_unit_id,
+                sa.cast(unit.c.path, sa.Text).label("owning_unit_path"),
+            )
+            .select_from(
+                _PROFILE.join(
+                    unit,
+                    sa.and_(
+                        unit.c.tenant_id == _PROFILE.c.tenant_id,
+                        unit.c.id == _PROFILE.c.owning_unit_id,
+                    ),
+                )
+            )
+            .where(
+                _PROFILE.c.tenant_id == tenant_id,
+                _PROFILE.c.account_user_id == account_user_id,
+            )
+        ).one_or_none()
+        return None if row is None else BoundSpeakerProfile(**row._mapping)
+
+    def lock_bound_profile_share(
+        self,
+        session: Session,
+        *,
+        tenant_id: uuid.UUID,
+        professional_id: uuid.UUID,
+        account_user_id: uuid.UUID,
+    ) -> bool:
+        """``FOR SHARE`` on the profile, re-checking it is still bound to this login.
+
+        B26 T6b-3: the Speaker's opt-in and opt-out take it right after
+        :meth:`find_bound_profile` (which stays lock-free). ``False`` means an
+        unbind committed in between; the caller answers ``404``. Holding the
+        share lock makes a later unbind wait until the write commits, and a
+        T6b-1 invite's ``FOR UPDATE`` serializes with it.
+        """
+        return (
+            session.execute(
+                sa.select(sa.literal(1))
+                .select_from(_PROFILE)
+                .where(
+                    _PROFILE.c.tenant_id == tenant_id,
+                    _PROFILE.c.professional_id == professional_id,
+                    _PROFILE.c.account_user_id == account_user_id,
+                )
+                .with_for_update(read=True)
+            ).first()
+            is not None
+        )
+
+    def login_address(
+        self, session: Session, *, tenant_id: uuid.UUID, account_user_id: uuid.UUID
+    ) -> str | None:
+        """The signed-in login's ``user_account.email`` (B26 T6b-3, OQ-3).
+
+        The address the invitation proved: an unsubscribe there may be lifted by
+        the Speaker; at any other address it may not.
+        """
+        account = schema.user_account
+        found = session.execute(
+            sa.select(account.c.email).where(
+                account.c.tenant_id == tenant_id, account.c.id == account_user_id
+            )
+        ).scalar_one_or_none()
+        return None if found is None else str(found)
 
     # -- invitations -------------------------------------------------------
 
@@ -304,22 +401,28 @@ class SpeakerPortalRepository:
             is not None
         )
 
-    def lock_address(self, session: Session, *, address: str) -> None:
-        """Transaction-scoped advisory lock on the folded address (plan §5 step 8)."""
+    def lock_address(self, session: Session, *, folded_address: str) -> None:
+        """Transaction-scoped advisory lock on the address (plan §5 step 8).
+
+        ``folded_address`` is already ``address.strip().lower()``: the caller
+        normalises once and passes the same value here, to the duplicate check
+        and to the stored email.
+        """
         session.execute(
             sa.text(
                 "SELECT pg_advisory_xact_lock("
-                "hashtextextended('speaker-portal-email:' || lower(btrim(:address)), 0))"
+                "hashtextextended('speaker-portal-email:' || :address, 0))"
             ),
-            {"address": address},
+            {"address": folded_address},
         )
 
     def other_credentialed_account_exists(
-        self, session: Session, *, address: str, excluding_user_id: uuid.UUID
+        self, session: Session, *, folded_address: str, excluding_user_id: uuid.UUID
     ) -> bool:
-        """Any credentialed account but ``excluding_user_id`` holds ``address``, in any tenant.
+        """Any credentialed account but ``excluding_user_id`` holds the address, in any tenant.
 
-        Folded as ``lower(btrim(…))`` on both sides (R5).
+        ``folded_address`` is ``address.strip().lower()``; stored emails are
+        folded the same way in SQL, trimming all ASCII whitespace (R5).
         """
         account = schema.user_account
         credential = schema.pilot_credential
@@ -336,8 +439,7 @@ class SpeakerPortalRepository:
                     )
                 )
                 .where(
-                    sa.func.lower(sa.func.btrim(account.c.email))
-                    == sa.func.lower(sa.func.btrim(address)),
+                    sa.func.lower(sa.func.btrim(account.c.email, _WHITESPACE)) == folded_address,
                     account.c.id != excluding_user_id,
                 )
                 .limit(1)
@@ -346,14 +448,19 @@ class SpeakerPortalRepository:
         )
 
     def set_account_email(
-        self, session: Session, *, tenant_id: uuid.UUID, user_id: uuid.UUID, address: str
+        self,
+        session: Session,
+        *,
+        tenant_id: uuid.UUID,
+        user_id: uuid.UUID,
+        folded_address: str,
     ) -> None:
-        """Store the trimmed address, so ``load_by_email``'s folded match finds it."""
+        """Store the normalised address, so ``load_by_email``'s folded match finds it."""
         account = schema.user_account
         session.execute(
             sa.update(account)
             .where(account.c.tenant_id == tenant_id, account.c.id == user_id)
-            .values(email=address.strip(), version=account.c.version + 1)
+            .values(email=folded_address, version=account.c.version + 1)
         )
 
     def grant_speaker_membership(

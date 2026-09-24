@@ -535,6 +535,71 @@ class TestSuppressionIsComputed:
 
         assert _contacts.get(session, tenant_id=uuid.uuid4(), contact_channel_id=contact_id) is None
 
+    def test_contact_row_suppressed_flag_honours_lifted_at(
+        self,
+        session: Session,
+        tenant_id: uuid.UUID,
+        owning_unit_id: uuid.UUID,
+        actor_id: uuid.UUID,
+    ) -> None:
+        """B26 T6b-3 R1: a lifted suppression reads as clear on every contact read.
+
+        A lifted row must not drop the channel out of the result either (the
+        failure a ``lifted_at IS NULL`` in a ``LEFT JOIN``'s ``WHERE`` would
+        have), so every read still returns the channel.
+        """
+        contact_id = _register(
+            session,
+            tenant_id,
+            owning_unit_id,
+            actor_id,
+            state=ContactState.CONSENTED,
+            consent_source="in_person",
+        )
+        row = _contacts.get(session, tenant_id=tenant_id, contact_channel_id=contact_id)
+        assert row is not None
+
+        def flags() -> list[bool]:
+            got = _contacts.get(session, tenant_id=tenant_id, contact_channel_id=contact_id)
+            unit = _contacts.list_for_unit(
+                session, tenant_id=tenant_id, owning_unit_id=owning_unit_id
+            )
+            person = _contacts.list_for_professional(
+                session,
+                tenant_id=tenant_id,
+                owning_unit_id=owning_unit_id,
+                professional_id=row.professional_id,
+            )
+            speaker = _contacts.list_for_speaker(
+                session, tenant_id=tenant_id, professional_id=row.professional_id
+            )
+            assert got is not None
+            assert [c.id for c in unit] == [contact_id]
+            assert [c.id for c in person] == [contact_id]
+            assert [c.id for c in speaker] == [contact_id]
+            return [got.suppressed, unit[0].suppressed, person[0].suppressed, speaker[0].suppressed]
+
+        assert flags() == [False] * 4
+        _outreach.suppress(
+            session,
+            tenant_id=tenant_id,
+            address=ADDRESS,
+            source="unsubscribe_link",
+            suppressed_at=NOW,
+        )
+        session.commit()
+        assert flags() == [True] * 4
+
+        session.execute(
+            text(
+                "UPDATE suppression_record SET lifted_at = :at, lifted_by_user_id = :u "
+                "WHERE tenant_id = :t AND address = :a"
+            ),
+            {"at": NOW, "u": actor_id, "t": tenant_id, "a": ADDRESS},
+        )
+        session.commit()
+        assert flags() == [False] * 4
+
 
 def test_the_new_table_is_in_the_metadata_mirror() -> None:
     """A table in a migration and not in ``schema.py`` is a table nothing writes.

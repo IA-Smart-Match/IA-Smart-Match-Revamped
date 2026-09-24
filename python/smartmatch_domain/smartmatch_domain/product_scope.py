@@ -232,7 +232,8 @@ class Capability(StrEnum):
     #: Speaker accounts (B26 T6b-1): a Speaker Connector invites a contact to
     #: set a password, and the contact activates a ``speaker`` login from a
     #: one-time ``/s/{token}`` link. Mounts the invite, revoke, access and
-    #: activation routes and the Connector's "Invite to portal" button.
+    #: activation routes and the Connector's "Invite to portal" button. It
+    #: also mounts the Speaker's own ``/v1/me/*`` routes (T6b-2).
     #:
     #: **Off in every scope** (plan C2 = a). Turning it on is a reviewed edit to
     #: the rows below, never an env var, seed or compose file. **Turn-on rule
