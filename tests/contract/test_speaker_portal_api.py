@@ -25,6 +25,7 @@ from fastapi.testclient import TestClient
 from smartmatch_api.errors import EXCEPTION_HANDLERS
 from smartmatch_api.routers import auth as auth_router
 from smartmatch_api.routers import me as me_router
+from smartmatch_api.routers import portals as portals_router
 from smartmatch_api.routers import speaker_portal as portal_router
 from smartmatch_domain.pilot_credentials import (
     MINIMUM_ITERATIONS,
@@ -86,6 +87,7 @@ def build_app(session_factory: Any, verifier: FixtureTokenVerifier, secret: str)
         portal_router.public_router,
         portal_router.pages_router,
         me_router.router,
+        portals_router.router,
         auth_router.router,
     ):
         app.include_router(router)
@@ -297,6 +299,17 @@ class _Ctx:
 
     def access(self, professional_id):
         return self.client.get(f"{self.base(professional_id)}/portal-access", headers=self.headers)
+
+    def unbind(self, professional_id, *, unit_id=None):
+        return self.client.delete(
+            f"{self.base(professional_id, unit_id)}/portal-access", headers=self.headers
+        )
+
+    def channel_of(self, professional_id: uuid.UUID) -> uuid.UUID:
+        return self.scalar(
+            "SELECT id FROM contact_channel WHERE professional_id = :p ORDER BY created_at LIMIT 1",
+            p=professional_id,
+        )
 
     def activate(self, token: str, pw: str | None = None):
         return self.client.post(
@@ -1202,3 +1215,218 @@ class TestExistingLogin:
         assert ctx.activate_existing(token, pw).status_code == 200
         login = ctx.client.post("/v1/auth/login", json={"email": host_address, "password": pw})
         assert login.status_code == 200, login.text
+
+
+# ---------------------------------------------------------------------------
+# B26 T6b-5: invite pre-check (plan §4.3, R-F, Q1, Q5)
+# ---------------------------------------------------------------------------
+
+
+def _no_invitations(ctx: _Ctx) -> bool:
+    return (
+        ctx.scalar(
+            "SELECT count(*) FROM speaker_portal_invitation WHERE tenant_id = :t", t=ctx.tenant_id
+        )
+        == 0
+    )
+
+
+def test_invite_precheck_other_tenant_is_409(ctx: _Ctx, other_tenant: uuid.UUID) -> None:
+    professional_id, channel_id, address = ctx.contact()
+    ctx.other_credentialed_account(f" {address.lower()} ", tenant_id=other_tenant)
+
+    response = ctx.invite(professional_id, channel_id)
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "speaker_portal_address_in_other_tenant"
+    assert str(other_tenant) not in response.text
+    assert _no_invitations(ctx)
+
+
+def test_invite_precheck_ambiguous_is_409(ctx: _Ctx, other_tenant: uuid.UUID) -> None:
+    professional_id, channel_id, address = ctx.contact()
+    ctx.host_login(address.upper())
+    ctx.other_credentialed_account(address, tenant_id=other_tenant)
+
+    response = ctx.invite(professional_id, channel_id)
+
+    assert response.status_code == 409
+    error = response.json()["error"]
+    assert error["code"] == "speaker_portal_address_ambiguous"
+    assert error["message"] == "This address matches more than one login. Fix that before inviting."
+    assert _no_invitations(ctx)
+
+
+@pytest.mark.parametrize("role", ["coordinator", "admin", "student"])
+def test_invite_precheck_staff_login_is_409(ctx: _Ctx, role: str) -> None:
+    professional_id, channel_id, address = ctx.contact()
+    ctx.host_login(address.lower(), roles=(role,))
+
+    response = ctx.invite(professional_id, channel_id)
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "speaker_portal_address_is_staff_login"
+    assert _no_invitations(ctx)
+
+
+def test_invite_to_an_event_host_address_is_accepted(ctx: _Ctx) -> None:
+    professional_id, channel_id, address = ctx.contact()
+    ctx.host_login(address.lower())
+    assert ctx.invite(professional_id, channel_id).status_code == 202
+
+
+def test_invite_to_an_expired_staff_role_is_accepted(ctx: _Ctx) -> None:
+    """Only an *active* staff or student role refuses (Q1)."""
+    professional_id, channel_id, address = ctx.contact()
+    host_id, _, _ = ctx.host_login(address.lower(), roles=())
+    ctx.execute(
+        "INSERT INTO membership (id, tenant_id, user_id, granted_path, role, valid_until) "
+        "VALUES (:id, :t, :u, CAST(:p AS ltree), 'coordinator', now() - interval '1 day')",
+        id=uuid.uuid4(),
+        t=ctx.tenant_id,
+        u=host_id,
+        p=UNIT_PATH,
+    )
+    assert ctx.invite(professional_id, channel_id).status_code == 202
+
+
+# ---------------------------------------------------------------------------
+# B26 T6b-5: unbind — DELETE …/portal-access (plan §4.4, R-I, Q3)
+# ---------------------------------------------------------------------------
+
+
+def _bound_existing(ctx: _Ctx) -> tuple[uuid.UUID, uuid.UUID, uuid.UUID, str, str]:
+    """``(host_id, professional_id, invitation_id, host_address, pw)``, bound."""
+    host_id, host_address, pw = ctx.host_login()
+    professional_id, invitation_id, token, _ = ctx.invited(address=host_address)
+    assert ctx.activate_existing(token, pw).status_code == 200
+    return host_id, professional_id, invitation_id, host_address, pw
+
+
+class TestUnbind:
+    def test_unbind_expires_only_the_speaker_row_and_clears_the_binding(
+        self, ctx: _Ctx, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        host_id, professional_id, invitation_id, _, _ = _bound_existing(ctx)
+        host_before = ctx.snapshot(host_id)
+        monkeypatch.setattr(portal_router, "utc_now", lambda: FROZEN_NOW)
+
+        response = ctx.unbind(professional_id)
+
+        assert response.status_code == 200, response.text
+        assert response.json() == {"unbound": True}
+        assert [(r.valid_until) for r in _speaker_rows(ctx, host_id)] == [FROZEN_NOW]
+        assert ctx.snapshot(host_id) == host_before
+        profile = ctx.rows(
+            "SELECT account_user_id, account_bound_at FROM speaker_profile "
+            "WHERE professional_id = :p",
+            p=professional_id,
+        )[0]
+        assert tuple(profile) == (None, None)
+        invitation = ctx.rows(
+            "SELECT unbound_at, unbound_by_user_id, accepted_at IS NOT NULL AS accepted "
+            "FROM speaker_portal_invitation WHERE id = :i",
+            i=invitation_id,
+        )[0]
+        assert tuple(invitation) == (FROZEN_NOW, ctx.coordinator_id, True)
+
+    def test_next_request_loses_speaker_routes_and_portal(self, ctx: _Ctx) -> None:
+        host_id, host_address, pw = ctx.host_login()
+        professional_id, _, token, _ = ctx.invited(address=host_address)
+        bearer = ctx.activate_existing(token, pw).json()["access_token"]
+        auth = {"Authorization": f"Bearer {bearer}"}
+        before = ctx.client.get("/v1/me/portals", headers=auth).json()
+        assert [p["portal"] for p in before["portals"]] == ["volunteer", "speaker"]
+
+        assert ctx.unbind(professional_id).json() == {"unbound": True}
+
+        me = ctx.client.get("/v1/me", headers=auth)
+        assert me.status_code == 200
+        assert [m["role"] for m in me.json()["memberships"]] == ["volunteer"]
+        after = ctx.client.get("/v1/me/portals", headers=auth).json()
+        assert [p["portal"] for p in after["portals"]] == ["volunteer"]
+        assert after["default_portal"] == "volunteer"
+        assert ctx.access(professional_id).json() == {"status": "none"}
+        assert host_id
+
+    def test_new_login_unbind_retires_the_contact_login(self, ctx: _Ctx) -> None:
+        professional_id, _, token, address = ctx.invited()
+        pw = _new_pw()
+        bearer = ctx.activate(token, pw).json()["access_token"]
+        auth = {"Authorization": f"Bearer {bearer}"}
+        assert ctx.client.get("/v1/me", headers=auth).status_code == 200
+
+        assert ctx.unbind(professional_id).json() == {"unbound": True}
+
+        assert ctx.client.get("/v1/me", headers=auth).status_code == 401
+        assert (
+            ctx.scalar(
+                "SELECT count(*) FROM pilot_credential WHERE user_id = :p", p=professional_id
+            )
+            == 0
+        )
+        assert (
+            ctx.scalar(
+                "SELECT count(*) FROM pilot_session WHERE user_id = :p AND revoked_at IS NULL",
+                p=professional_id,
+            )
+            == 0
+        )
+        login = ctx.client.post("/v1/auth/login", json={"email": address, "password": pw})
+        assert login.status_code == 401
+
+    def test_reinvite_after_unbind_works_in_both_modes(self, ctx: _Ctx) -> None:
+        host_id, host_prof, _, _, pw = _bound_existing(ctx)
+        assert ctx.unbind(host_prof).json() == {"unbound": True}
+        again = ctx.invite(host_prof, ctx.channel_of(host_prof))
+        assert again.status_code == 202, again.text
+        token = ctx.token_for(again.json()["invitation_id"])
+        assert ctx.activate_existing(token, pw).status_code == 200
+        assert [r.valid_until for r in _speaker_rows(ctx, host_id)].count(None) == 1
+
+        new_prof, _, new_token, _ = ctx.invited()
+        assert ctx.activate(new_token).status_code == 200
+        assert ctx.unbind(new_prof).json() == {"unbound": True}
+        again = ctx.invite(new_prof, ctx.channel_of(new_prof))
+        assert again.status_code == 202, again.text
+        pw2 = _new_pw()
+        new_again = ctx.token_for(again.json()["invitation_id"])
+        assert ctx.activate(new_again, pw2).status_code == 200
+        assert (
+            ctx.scalar(
+                "SELECT account_user_id FROM speaker_profile WHERE professional_id = :p",
+                p=new_prof,
+            )
+            == new_prof
+        )
+
+    def test_unbind_is_idempotent(self, ctx: _Ctx) -> None:
+        _, professional_id, _, _, _ = _bound_existing(ctx)
+        assert ctx.unbind(professional_id).json() == {"unbound": True}
+        assert ctx.unbind(professional_id).json() == {"unbound": False}
+        never, _, _ = ctx.contact()
+        assert ctx.unbind(never).json() == {"unbound": False}
+
+    def test_unbind_other_unit_is_404(self, ctx: _Ctx) -> None:
+        other, _, _ = ctx.contact(unit_id=ctx.sibling_unit_id)
+        response = ctx.unbind(other, unit_id=ctx.sibling_unit_id)
+        assert response.status_code in {403, 404}
+        response = ctx.unbind(other)
+        assert response.status_code == 404
+        assert response.json()["error"]["code"] == "speaker_contact_not_found"
+
+    def test_portal_access_reports_login_shared(self, ctx: _Ctx) -> None:
+        _, shared_prof, _, _, _ = _bound_existing(ctx)
+        own_prof, _, own_token, _ = ctx.invited()
+        assert ctx.activate(own_token).status_code == 200
+        invited_prof, _, _, _ = ctx.invited()
+
+        shared = ctx.access(shared_prof).json()
+        own = ctx.access(own_prof).json()
+        invited = ctx.access(invited_prof).json()
+
+        assert shared["status"] == "active" and shared["login_shared"] is True
+        assert own["status"] == "active" and own["login_shared"] is False
+        assert invited["status"] == "invited" and "login_shared" not in invited
+        for body in (shared, own):
+            assert set(body) == {"status", "bound_at", "login_shared"}

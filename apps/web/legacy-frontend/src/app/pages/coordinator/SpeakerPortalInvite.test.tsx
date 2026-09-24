@@ -155,6 +155,21 @@ describe("SpeakerPortalInvite", () => {
       "Another invitation was just sent. Refresh and try again",
     ],
     [422, "speaker_portal_channel_not_eligible", "That address can no longer be emailed"],
+    [
+      409,
+      "speaker_portal_address_in_other_tenant",
+      "This address signs in to another SmartMatch organization. Choose a different address",
+    ],
+    [
+      409,
+      "speaker_portal_address_ambiguous",
+      "This address matches more than one login. Fix that before inviting",
+    ],
+    [
+      409,
+      "speaker_portal_address_is_staff_login",
+      "This address belongs to a staff or student login and cannot also be a Speaker login",
+    ],
   ])("maps %s %s to its message", async (status, code, message) => {
     stub({
       [`GET ${BASE}/portal-access`]: { body: { status: "none" } },
@@ -209,5 +224,91 @@ describe("SpeakerPortalInvite", () => {
     expect(await screen.findByText(/Portal active since/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Revoke" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Invite to portal" })).toBeNull();
+  });
+
+  it("active with a shared login names both roles and suspension", async () => {
+    stub({
+      [`GET ${BASE}/portal-access`]: {
+        body: { status: "active", bound_at: "2026-11-03T10:00:00Z", login_shared: true },
+      },
+    });
+    renderIt();
+    const status = await screen.findByText(/Portal active since/);
+    expect(status.textContent).toContain(
+      "This Speaker signs in with the login they also use as an Event Host",
+    );
+    expect(status.textContent).toContain("Suspending that login suspends both");
+    expect(screen.getByRole("button", { name: "Remove portal access" })).toBeTruthy();
+  });
+
+  it("active with its own login says suspension ends the portal access", async () => {
+    stub({
+      [`GET ${BASE}/portal-access`]: {
+        body: { status: "active", bound_at: "2026-11-03T10:00:00Z", login_shared: false },
+      },
+    });
+    renderIt();
+    const status = await screen.findByText(/Portal active since/);
+    expect(status.textContent).toContain(
+      "Suspending this login suspends the Speaker's portal access",
+    );
+    expect(status.textContent).not.toContain("Event Host");
+  });
+
+  it("remove portal access asks first and invalidates only the access key", async () => {
+    stub({
+      [`GET ${BASE}/portal-access`]: [
+        { body: { status: "active", bound_at: "2026-11-03T10:00:00Z", login_shared: true } },
+        { body: { status: "none" } },
+      ],
+      [`DELETE ${BASE}/portal-access`]: { body: { unbound: true } },
+    });
+    const confirm = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValue(true);
+    renderIt();
+    const invalidate = vi.spyOn(client, "invalidateQueries");
+
+    fireEvent.click(await screen.findByRole("button", { name: "Remove portal access" }));
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(String(confirm.mock.calls[0][0])).toContain("Their Event Host access, if any, stays");
+    expect(calls.some((call) => call.init.method === "DELETE")).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove portal access" }));
+    await waitFor(() => expect(invalidate).toHaveBeenCalled());
+    expect(invalidate.mock.calls).toEqual([
+      [{ queryKey: ["principal-1", "speaker-portal-access", UNIT, PERSON] }],
+    ]);
+    const deleted = calls.filter((call) => call.init.method === "DELETE");
+    expect(deleted.map((call) => call.url)).toEqual([`${BASE}/portal-access`]);
+    expect(await screen.findByRole("button", { name: "Invite to portal" })).toBeTruthy();
+  });
+
+  it("disables remove while the request is pending", async () => {
+    let release: (value: Response) => void = () => undefined;
+    stub({
+      [`GET ${BASE}/portal-access`]: {
+        body: { status: "active", bound_at: "2026-11-03T10:00:00Z", login_shared: false },
+      },
+    });
+    const pending = new Promise<Response>((resolve) => {
+      release = resolve;
+    });
+    const base = globalThis.fetch as unknown as (url: string, init: RequestInit) => unknown;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string, init: RequestInit) =>
+        init.method === "DELETE" ? pending : base(url, init),
+      ),
+    );
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    renderIt();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Remove portal access" }));
+    await waitFor(() =>
+      expect(
+        (screen.getByRole("button", { name: "Remove portal access" }) as HTMLButtonElement)
+          .disabled,
+      ).toBe(true),
+    );
+    release(new Response(JSON.stringify({ unbound: true }), { status: 200 }));
   });
 });
