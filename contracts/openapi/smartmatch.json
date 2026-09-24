@@ -3687,12 +3687,24 @@
             "type": "string"
           },
           "excluded": {
-            "description": "Named subjects that never entered the pool, with the reason stored at submission. Empty for a run stored before it was recorded.",
+            "description": "Named subjects that never entered the pool, with the reason stored at submission. Empty for a run stored before it was recorded, or when excluded_unreadable_reason is set.",
             "items": {
               "$ref": "#/components/schemas/ExcludedCandidateView"
             },
             "title": "Excluded",
             "type": "array"
+          },
+          "excluded_unreadable_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why the stored exclusions could not be read, when they could not. The list is then empty rather than silently shorter.",
+            "title": "Excluded Unreadable Reason"
           },
           "id": {
             "format": "uuid",

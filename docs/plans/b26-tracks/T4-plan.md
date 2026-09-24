@@ -99,6 +99,8 @@ A Speaker Request is an `event` row with `origin = 'coordinator_entry'` (`schema
 
 `downgrade()`: drop the FK, then the column. The backfilled values are derivable again on re-upgrade.
 
+**Known gap (review of PR #220, recorded, no code change):** the backfill requires `e.origin = 'coordinator_entry'`. A Speaker Request whose `origin` the event upsert had already flipped to `extraction` before `0041` ran (the §4.4 origin-flip case: NULL filer, NULL organization) is not linked, so its historical batches stay NULL and dispatch does not re-check them. New batches are unaffected: they store the id at creation, and dispatch reads it without the `origin` predicate. Dropping the predicate from the backfill would also link genuinely extracted events, which are not Speaker Requests.
+
 Deliberately **not** in the migration:
 
 - **No NOT NULL, no `CHECK ... NOT VALID`.** Legacy hand-picked batches and pre-031 runs have no request to name, and every persistence test that calls `reserve_batch` without one would break. The "new batches must carry it" rule is an API rule (§4.2, C12).

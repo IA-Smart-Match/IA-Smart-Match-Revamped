@@ -92,6 +92,14 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    """Drop the key, then the column. The backfilled values are derivable again."""
+    """Drop the key, then the column.
+
+    A development tool, not a production rollback path (v1.1 §4.2). Only the
+    backfilled values are derivable again on re-upgrade. The request id a
+    hand-picked batch (no ``match_run_id``) was created with, and any id a
+    Connector named explicitly, is **lost**: nothing else records it, and a
+    re-upgrade leaves those batches NULL, so compose-time checks survive but
+    dispatch stops re-checking them.
+    """
     op.drop_constraint(_FK, _TABLE, type_="foreignkey")
     op.drop_column(_TABLE, "speaker_request_id")
