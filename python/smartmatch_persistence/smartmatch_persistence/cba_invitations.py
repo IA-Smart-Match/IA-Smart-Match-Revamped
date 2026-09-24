@@ -53,7 +53,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Final
 
 import sqlalchemy as sa
@@ -71,6 +71,7 @@ __all__ = [
     "InvitationRepository",
     "InvitationRow",
     "InvitationWithDelivery",
+    "SpeakerInvitationRow",
 ]
 
 #: How many batches a Connector's listing returns when it does not say, and the
@@ -182,6 +183,31 @@ class InvitationWithDelivery:
 
     invitation: InvitationRow
     delivery: DeliveryFacts | None
+
+
+@dataclass(frozen=True, slots=True)
+class SpeakerInvitationRow:
+    """One invitation as the invited Speaker reads it (B26 T6b-2).
+
+    Only the fields that view renders, for :func:`_to_invitation`'s reason: a
+    field on the record a route renders is a field a route can render. No batch
+    id, match run, template, other recipient, skip reason, address, send job,
+    delivery fact, recording user, professional or unit.
+
+    ``event_local_date`` and ``event_time_zone`` come from the event row once a
+    batch names one (T4's ``speaker_request_id``); until then they are ``None``
+    and ``event_date`` is the text the invitation carried.
+    """
+
+    id: uuid.UUID
+    event_name: str
+    event_date: str
+    event_local_date: date | None
+    event_time_zone: str | None
+    dispatched_at: datetime
+    response_status: str
+    response_recorded_at: datetime | None
+    response_channel: str | None
 
 
 class InvitationRepository:
@@ -363,6 +389,54 @@ class InvitationRepository:
             )
         ).one_or_none()
         return None if row is None else _to_invitation(row)
+
+    # -----------------------------------------------------------------------
+    # The invited Speaker's own reads (B26 T6b-2)
+    # -----------------------------------------------------------------------
+
+    def list_for_professional(
+        self,
+        session: Session,
+        *,
+        tenant_id: uuid.UUID,
+        professional_id: uuid.UUID,
+        limit: int,
+    ) -> list[SpeakerInvitationRow]:
+        """The professional's own ``dispatched`` invitations, newest first.
+
+        ``pending`` was never sent, and ``skipped`` would disclose a Connector's
+        internal reason, so neither is listed.
+        """
+        rows = session.execute(
+            _speaker_invitation_select(tenant_id, professional_id)
+            .order_by(
+                schema.cba_invitation.c.dispatched_at.desc(),
+                schema.cba_invitation.c.id.desc(),
+            )
+            .limit(limit)
+        ).all()
+        return [_to_speaker_invitation(row) for row in rows]
+
+    def get_for_professional(
+        self,
+        session: Session,
+        *,
+        tenant_id: uuid.UUID,
+        professional_id: uuid.UUID,
+        invitation_id: uuid.UUID,
+    ) -> SpeakerInvitationRow | None:
+        """One own ``dispatched`` invitation, or ``None``.
+
+        ``None`` for an unknown id, another professional's, another tenant's,
+        and an own one that was never dispatched: the caller answers all four
+        identically.
+        """
+        row = session.execute(
+            _speaker_invitation_select(tenant_id, professional_id).where(
+                schema.cba_invitation.c.id == invitation_id
+            )
+        ).one_or_none()
+        return None if row is None else _to_speaker_invitation(row)
 
     def list_invitations(
         self, session: Session, *, tenant_id: uuid.UUID, batch_id: uuid.UUID
@@ -563,6 +637,44 @@ class InvitationRepository:
             .returning(schema.cba_invitation.c.id)
         ).one_or_none()
         return written is not None
+
+
+def _speaker_invitation_select(tenant_id: uuid.UUID, professional_id: uuid.UUID) -> sa.Select[Any]:
+    """Own dispatched invitations joined to their batch, in one tenant."""
+    invitation = schema.cba_invitation
+    batch = schema.cba_invitation_batch
+    return (
+        sa.select(
+            invitation.c.id,
+            batch.c.event_name,
+            batch.c.event_date,
+            # C3: null until T4 links a batch to an event (`speaker_request_id`).
+            sa.null().label("event_local_date"),
+            sa.null().label("event_time_zone"),
+            invitation.c.dispatched_at,
+            invitation.c.response_status,
+            invitation.c.response_recorded_at,
+            invitation.c.response_channel,
+        )
+        .select_from(
+            invitation.join(
+                batch,
+                sa.and_(
+                    batch.c.tenant_id == invitation.c.tenant_id,
+                    batch.c.id == invitation.c.batch_id,
+                ),
+            )
+        )
+        .where(
+            invitation.c.tenant_id == tenant_id,
+            invitation.c.professional_id == professional_id,
+            invitation.c.status == "dispatched",
+        )
+    )
+
+
+def _to_speaker_invitation(row: sa.Row[Any]) -> SpeakerInvitationRow:
+    return SpeakerInvitationRow(**row._mapping)
 
 
 def _to_batch(row: sa.Row[Any]) -> BatchRow:

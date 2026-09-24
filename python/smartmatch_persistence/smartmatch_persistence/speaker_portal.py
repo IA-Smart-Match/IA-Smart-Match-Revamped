@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 from smartmatch_persistence import schema
 
 __all__ = [
+    "BoundSpeakerProfile",
     "CurrentInvitation",
     "InvitationForActivation",
     "InvitationForSend",
@@ -42,6 +43,20 @@ class LockedProfile:
     full_name: str
     account_user_id: uuid.UUID | None
     account_bound_at: datetime | None
+
+
+@dataclass(frozen=True, slots=True)
+class BoundSpeakerProfile:
+    """The profile a signed-in Speaker's login is bound to (B26 T6b-2).
+
+    ``professional_id`` keys every row the Speaker reads or writes; it is never
+    the login id (after T6b-5's merged login the two differ).
+    ``owning_unit_path`` is what the ``speaker`` role is checked against.
+    """
+
+    professional_id: uuid.UUID
+    owning_unit_id: uuid.UUID
+    owning_unit_path: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -121,6 +136,37 @@ class SpeakerPortalRepository:
             statement = statement.with_for_update()
         row = session.execute(statement).one_or_none()
         return None if row is None else LockedProfile(**row._mapping)
+
+    def find_bound_profile(
+        self, session: Session, *, tenant_id: uuid.UUID, account_user_id: uuid.UUID
+    ) -> BoundSpeakerProfile | None:
+        """The profile bound to ``account_user_id`` in ``tenant_id``, or ``None``.
+
+        At most one row (``uq_speaker_profile_account``). Takes no lock: the
+        Speaker's own routes read, or write rows keyed by the profile.
+        """
+        unit = schema.org_unit
+        row = session.execute(
+            sa.select(
+                _PROFILE.c.professional_id,
+                _PROFILE.c.owning_unit_id,
+                sa.cast(unit.c.path, sa.Text).label("owning_unit_path"),
+            )
+            .select_from(
+                _PROFILE.join(
+                    unit,
+                    sa.and_(
+                        unit.c.tenant_id == _PROFILE.c.tenant_id,
+                        unit.c.id == _PROFILE.c.owning_unit_id,
+                    ),
+                )
+            )
+            .where(
+                _PROFILE.c.tenant_id == tenant_id,
+                _PROFILE.c.account_user_id == account_user_id,
+            )
+        ).one_or_none()
+        return None if row is None else BoundSpeakerProfile(**row._mapping)
 
     # -- invitations -------------------------------------------------------
 

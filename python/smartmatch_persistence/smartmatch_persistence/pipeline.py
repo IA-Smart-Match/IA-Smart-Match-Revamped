@@ -68,7 +68,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from types import MappingProxyType
 from typing import Any, Final
 
@@ -108,6 +108,7 @@ __all__ = [
     "PipelineRepository",
     "PipelineStageOrderError",
     "PipelineStageOutcome",
+    "SpeakerEngagementRow",
     "UnknownAttendanceEvidenceError",
     "UnknownOpportunityEventError",
 ]
@@ -327,6 +328,27 @@ class BookingCancellationOutcome:
     record: PipelineRecordRow | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class SpeakerEngagementRow:
+    """One confirmed journey as the Speaker reads it (B26 T6b-2).
+
+    ``event_title`` is ``None`` when no ``event`` row matches
+    ``opportunity_event_id`` (no FK). Never carries the canceller, the unit,
+    provenance, earlier stage times or anything naming another person.
+    """
+
+    id: uuid.UUID
+    confirmed_at: datetime
+    attended_at: datetime | None
+    cancelled_at: datetime | None
+    event_title: str | None
+    event_local_date: date | None
+    event_time_zone: str | None
+    event_time_precision: str | None
+    event_starts_at: datetime | None
+    event_ends_at: datetime | None
+
+
 class PipelineRepository:
     """Writes ``pipeline_record`` rows — the S12 funnel's evidence.
 
@@ -349,6 +371,75 @@ class PipelineRepository:
         establishes the shape of, for jobs.
         """
         return self._read_by_id(session, tenant_id=tenant_id, record_id=record_id)
+
+    def list_engagements_for_speaker(
+        self,
+        session: Session,
+        *,
+        tenant_id: uuid.UUID,
+        professional_id: uuid.UUID,
+        today: date,
+        when: str,
+        limit: int,
+    ) -> tuple[SpeakerEngagementRow, ...]:
+        """The Speaker's own confirmed journeys, cancelled included.
+
+        Not ``list_confirmed_speakers``: that drops cancelled rows (T8a C1), and
+        the Speaker must see a cancellation. ``when`` is ``upcoming`` or
+        ``past``, split on the event's local ``resolved_date`` against
+        ``today``; an unknown or missing date is always ``upcoming``, never
+        silently past.
+        """
+        record = schema.pipeline_record
+        event = schema.event
+        where = [
+            record.c.tenant_id == tenant_id,
+            record.c.subject_id == professional_id,
+            record.c.confirmed_at.is_not(None),
+        ]
+        if when == "past":
+            where.append(event.c.resolved_date < today)
+            order = (
+                event.c.resolved_date.desc(),
+                event.c.starts_at.desc().nulls_last(),
+                record.c.id,
+            )
+        elif when == "upcoming":
+            where.append(sa.or_(event.c.resolved_date.is_(None), event.c.resolved_date >= today))
+            order = (
+                event.c.resolved_date.asc().nulls_last(),
+                event.c.starts_at.asc().nulls_last(),
+                record.c.id,
+            )
+        else:
+            raise ValueError(f"unknown engagement bucket {when!r}")
+        rows = session.execute(
+            sa.select(
+                record.c.id,
+                record.c.confirmed_at,
+                record.c.attended_at,
+                record.c.cancelled_at,
+                event.c.title.label("event_title"),
+                event.c.resolved_date.label("event_local_date"),
+                event.c.time_zone.label("event_time_zone"),
+                event.c.time_precision.label("event_time_precision"),
+                event.c.starts_at.label("event_starts_at"),
+                event.c.ends_at.label("event_ends_at"),
+            )
+            .select_from(
+                record.outerjoin(
+                    event,
+                    sa.and_(
+                        event.c.tenant_id == record.c.tenant_id,
+                        event.c.id == record.c.opportunity_event_id,
+                    ),
+                )
+            )
+            .where(*where)
+            .order_by(*order)
+            .limit(limit)
+        ).all()
+        return tuple(SpeakerEngagementRow(**row._mapping) for row in rows)
 
     def record_matched(
         self,
