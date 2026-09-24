@@ -4183,7 +4183,8 @@ export interface SpeakerPortalAccess {
 /**
  * The refusals `inviteSpeakerToPortal` can answer with (`error.code`). The
  * last three are B26 T6b-5's pre-check: the address signs in elsewhere, to
- * more than one login, or as a staff or student login.
+ * more than one login, or to a login existing-login mode cannot bind (R-C:
+ * anything but an active Event Host — one code, whatever the login holds).
  */
 export type SpeakerPortalInviteErrorCode =
   | "speaker_portal_already_active"
@@ -4192,7 +4193,7 @@ export type SpeakerPortalInviteErrorCode =
   | "speaker_contact_not_found"
   | "speaker_portal_address_in_other_tenant"
   | "speaker_portal_address_ambiguous"
-  | "speaker_portal_address_is_staff_login";
+  | "speaker_portal_address_not_host_login";
 
 /** `202`: the invitation is recorded and its email queued — nothing sent yet. */
 export interface SpeakerPortalInvitation {

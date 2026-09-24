@@ -41,8 +41,8 @@ const ERROR_MESSAGES: Record<string, string> = {
     "This address signs in to another SmartMatch organization. Choose a different address",
   speaker_portal_address_ambiguous:
     "This address matches more than one login. Fix that before inviting",
-  speaker_portal_address_is_staff_login:
-    "This address belongs to a staff or student login and cannot also be a Speaker login",
+  speaker_portal_address_not_host_login:
+    "This address already signs in to SmartMatch and cannot also be a Speaker login. Choose a different address",
 };
 
 /**
