@@ -567,7 +567,7 @@ def test_activation_stores_the_trimmed_address_and_login_works(ctx: _Ctx) -> Non
     pw = _new_pw()
     assert ctx.activate(token, pw).status_code == 200
     stored = ctx.scalar("SELECT email FROM user_account WHERE id = :p", p=professional_id)
-    assert stored == address.strip()
+    assert stored == address.strip().lower()
     login = ctx.client.post(
         "/v1/auth/login", json={"email": address.strip().lower(), "password": pw}
     )

@@ -31,6 +31,11 @@ __all__ = [
 ]
 
 _INV = schema.speaker_portal_invitation
+
+#: What Python's ``str.strip()`` removes from an email address, for the SQL
+#: side of the comparison: ``btrim`` with no second argument trims spaces only,
+#: so a stored address ending in a tab or newline would otherwise not fold.
+_WHITESPACE = " \t\n\r\f\v"
 _PROFILE = schema.speaker_profile
 
 
@@ -304,22 +309,28 @@ class SpeakerPortalRepository:
             is not None
         )
 
-    def lock_address(self, session: Session, *, address: str) -> None:
-        """Transaction-scoped advisory lock on the folded address (plan §5 step 8)."""
+    def lock_address(self, session: Session, *, folded_address: str) -> None:
+        """Transaction-scoped advisory lock on the address (plan §5 step 8).
+
+        ``folded_address`` is already ``address.strip().lower()``: the caller
+        normalises once and passes the same value here, to the duplicate check
+        and to the stored email.
+        """
         session.execute(
             sa.text(
                 "SELECT pg_advisory_xact_lock("
-                "hashtextextended('speaker-portal-email:' || lower(btrim(:address)), 0))"
+                "hashtextextended('speaker-portal-email:' || :address, 0))"
             ),
-            {"address": address},
+            {"address": folded_address},
         )
 
     def other_credentialed_account_exists(
-        self, session: Session, *, address: str, excluding_user_id: uuid.UUID
+        self, session: Session, *, folded_address: str, excluding_user_id: uuid.UUID
     ) -> bool:
-        """Any credentialed account but ``excluding_user_id`` holds ``address``, in any tenant.
+        """Any credentialed account but ``excluding_user_id`` holds the address, in any tenant.
 
-        Folded as ``lower(btrim(…))`` on both sides (R5).
+        ``folded_address`` is ``address.strip().lower()``; stored emails are
+        folded the same way in SQL, trimming all ASCII whitespace (R5).
         """
         account = schema.user_account
         credential = schema.pilot_credential
@@ -336,8 +347,7 @@ class SpeakerPortalRepository:
                     )
                 )
                 .where(
-                    sa.func.lower(sa.func.btrim(account.c.email))
-                    == sa.func.lower(sa.func.btrim(address)),
+                    sa.func.lower(sa.func.btrim(account.c.email, _WHITESPACE)) == folded_address,
                     account.c.id != excluding_user_id,
                 )
                 .limit(1)
@@ -346,14 +356,19 @@ class SpeakerPortalRepository:
         )
 
     def set_account_email(
-        self, session: Session, *, tenant_id: uuid.UUID, user_id: uuid.UUID, address: str
+        self,
+        session: Session,
+        *,
+        tenant_id: uuid.UUID,
+        user_id: uuid.UUID,
+        folded_address: str,
     ) -> None:
-        """Store the trimmed address, so ``load_by_email``'s folded match finds it."""
+        """Store the normalised address, so ``load_by_email``'s folded match finds it."""
         account = schema.user_account
         session.execute(
             sa.update(account)
             .where(account.c.tenant_id == tenant_id, account.c.id == user_id)
-            .values(email=address.strip(), version=account.c.version + 1)
+            .values(email=folded_address, version=account.c.version + 1)
         )
 
     def grant_speaker_membership(
