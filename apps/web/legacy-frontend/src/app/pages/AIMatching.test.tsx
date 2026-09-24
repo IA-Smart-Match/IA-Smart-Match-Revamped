@@ -126,6 +126,22 @@ describe("ExcludedCandidates", () => {
     expect(document.body.textContent).not.toContain("%");
   });
 
+  it("shows the Speaker's name, falling back to the id", () => {
+    render(
+      <ExcludedCandidates
+        excluded={[
+          { subject_id: "host-1", reason: "filed_this_request" },
+          { subject_id: "unnamed-2", reason: "speaker_profile_not_found" },
+        ]}
+        names={new Map([["host-1", "Dana Okafor"]])}
+      />,
+    );
+    const text = document.body.textContent ?? "";
+    expect(text).toContain("Dana Okafor");
+    expect(text).not.toContain("host-1");
+    expect(text).toContain("unnamed-2");
+  });
+
   it("renders nothing for an empty list", () => {
     const { container } = render(<ExcludedCandidates excluded={[]} />);
     expect(container.textContent).toBe("");

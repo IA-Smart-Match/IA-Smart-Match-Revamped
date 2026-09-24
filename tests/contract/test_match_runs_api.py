@@ -1347,6 +1347,7 @@ def test_a_run_without_availability_reads_not_recorded(match_context, engine) ->
     assert run["availability_recorded"] is False
     assert run["availability_unreadable_reason"] is None
     assert run["excluded"] == []
+    assert run["excluded_unreadable_reason"] is None
     assert all(entry["availability"] is None for entry in _candidates(run).values())
     assert run["shortlist_available"] is True
 
@@ -1516,3 +1517,20 @@ def test_the_read_lists_the_excluded_requester(match_context, engine) -> None:
     alpha = str(match_context.speakers["alpha"])
     assert {"subject_id": alpha, "reason": "filed_this_request"} in run["excluded"]
     assert alpha not in _candidates(run)
+
+
+def test_a_malformed_excluded_block_is_reported_not_dropped(match_context, engine) -> None:
+    """C3's stored list is read strictly: one bad entry is reported, never skipped."""
+    accepted, _ = _submit_and_execute(match_context, engine)
+    job_id = uuid.UUID(accepted["job_id"])
+    _rewrite_payload(
+        engine,
+        job_id,
+        "jsonb_set(payload, '{excluded}', (payload->'excluded') || '[{\"subject_id\": 7}]'::jsonb)",
+    )
+
+    run = _read_run(match_context, engine, job_id)
+
+    assert run["excluded"] == []
+    assert "subject_id" in run["excluded_unreadable_reason"]
+    assert run["shortlist_available"] is True
