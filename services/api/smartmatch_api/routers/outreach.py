@@ -189,7 +189,7 @@ class DraftRequest(BaseModel):
     contact_channel_id: uuid.UUID = Field(description="The stored contact to address.")
     template_id: str = Field(
         description="A key of the closed outreach template registry.",
-        examples=sorted(TEMPLATES),
+        examples=sorted(set(TEMPLATES) - SYSTEM_ONLY_TEMPLATES),
     )
     values: dict[str, str] = Field(
         description="Exactly the template's declared placeholders — no more, no fewer."
