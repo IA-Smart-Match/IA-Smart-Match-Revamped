@@ -3089,11 +3089,17 @@ export interface SpeakerInvitationResponse {
   recorded_at: string | null;
   /**
    * `"speaker_link"` when the Speaker followed the link in their own
-   * invitation, `"connector_recorded"` when a coordinator entered what they
-   * were told. Worth rendering: the second is a weaker evidentiary claim, and a
+   * invitation, `"speaker_portal"` when they answered while signed in (B26
+   * T6b-2), `"connector_recorded"` when a coordinator entered what they were
+   * told. Worth rendering: the last is a weaker evidentiary claim, and a
    * screen that showed them alike would assert a directness nobody has.
    */
   channel: string | null;
+  /**
+   * The coordinator who entered it — set only for `"connector_recorded"`.
+   * Null for a Speaker's own answer, by link or signed in; a signed-in
+   * answer's login is recorded server-side but never shown here.
+   */
   recorded_by_user_id: string | null;
 }
 
@@ -4155,6 +4161,238 @@ export async function unbindSpeakerPortal(
   return requestJson<{ unbound: boolean }>(
     `${speakerPortalBase(unitId, professionalId)}/portal-access`,
     { method: "DELETE" },
+    { authenticated: true },
+  );
+}
+
+// Speaker availability (B26 T3)
+//
+// A roster contact's stated availability, read and replaced by a Connector.
+// The types are generic so the speaker's own `/v1/me/availability` (T6b-2)
+// reuses them. "Not stated" is `stated: false` with every value `null` — a
+// screen says "Not stated", never "Available".
+
+export type SpeakerAvailabilitySource = "speaker" | "connector";
+
+/** One inclusive date range, `YYYY-MM-DD`. */
+export interface SpeakerAvailabilityWindow {
+  starts_on: string;
+  ends_on: string;
+}
+
+export interface SpeakerAvailabilityWindowView extends SpeakerAvailabilityWindow {
+  source: SpeakerAvailabilitySource;
+}
+
+export interface SpeakerAvailability {
+  professional_id: string;
+  stated: boolean;
+  /** `null` exactly when `stated` is false. */
+  version: number | null;
+  /** The stored value, even if already past. */
+  invitations_paused_until: string | null;
+  declared_capacity_hours_per_90_days: number | null;
+  unavailable: SpeakerAvailabilityWindowView[];
+  updated_source: SpeakerAvailabilitySource | null;
+  updated_at: string | null;
+}
+
+/** Full replace: every key is sent; `null` clears; an omitted window is deleted. */
+export interface SpeakerAvailabilityUpdatePayload {
+  /** Required: echo `version` from the read (`null` when it was not stated). */
+  expected_version: number | null;
+  invitations_paused_until: string | null;
+  declared_capacity_hours_per_90_days: number | null;
+  unavailable: SpeakerAvailabilityWindow[];
+}
+
+export type SpeakerAvailabilityErrorCode =
+  | "speaker_availability_stale"
+  | "speaker_availability_window_invalid"
+  | "speaker_availability_too_many_windows"
+  | "speaker_availability_pause_invalid"
+  | "speaker_availability_capacity_invalid"
+  | "speaker_contact_not_found";
+
+/**
+ * `GET /v1/units/{unit_id}/speaker-contacts/{professional_id}/availability`
+ *
+ * Rejects with `ApiRequestError`: `404 speaker_contact_not_found` when the
+ * person is not on this unit's roster, `404 unit_not_found`, or `403`.
+ */
+export async function fetchSpeakerAvailability(
+  unitId: string,
+  professionalId: string,
+): Promise<SpeakerAvailability> {
+  return requestJson<SpeakerAvailability>(
+    `/v1/units/${encodeURIComponent(unitId)}/speaker-contacts/` +
+      `${encodeURIComponent(professionalId)}/availability`,
+    { method: "GET" },
+    { authenticated: true },
+  );
+}
+
+/**
+ * `PATCH /v1/units/{unit_id}/speaker-contacts/{professional_id}/availability`
+ *
+ * Sends `payload` unchanged and resolves to the stored statement. Rejects with
+ * `ApiRequestError` whose `code` is a {@link SpeakerAvailabilityErrorCode}:
+ * `409 speaker_availability_stale` (re-read with GET; no `details`), or `422`
+ * with `details.field` — plus `details.index` (the request's window index) for
+ * `window_invalid` and `details.limit` for `too_many_windows`. A malformed body
+ * is `422 invalid_request`.
+ */
+export async function updateSpeakerAvailability(
+  unitId: string,
+  professionalId: string,
+  payload: SpeakerAvailabilityUpdatePayload,
+): Promise<SpeakerAvailability> {
+  return requestJson<SpeakerAvailability>(
+    `/v1/units/${encodeURIComponent(unitId)}/speaker-contacts/` +
+      `${encodeURIComponent(professionalId)}/availability`,
+    { method: "PATCH", body: JSON.stringify(payload) },
+    { authenticated: true },
+  );
+}
+
+// ---------------------------------------------------------------------------
+// The signed-in Speaker's own routes (B26 T6b-2). Mounted server-side only when
+// the `speaker_portal` capability is on. **No adapter takes a subject**: the
+// server finds the Speaker from the session (MM-A01), so there is no
+// professional, unit or user id to pass and none to get wrong.
+// ---------------------------------------------------------------------------
+
+export type MyInvitationStatus = "awaiting_response" | "accepted_invitation" | "declined_invitation";
+
+export interface MyInvitationEvent {
+  /** What the invitation said, verbatim. */
+  title: string;
+  /** The date as the invitation spelled it; never parsed. */
+  date_text: string;
+  /** The event's own date in its time zone, once an event is linked; else `null`. */
+  local_date: string | null;
+  time_zone: string | null;
+}
+
+/** Who recorded the answer: the Speaker (link or signed in) or a Speaker Connector. */
+export interface MyInvitationResponse {
+  recorded_at: string;
+  recorded_by: "speaker" | "speaker_connector";
+}
+
+export interface MyInvitation {
+  invitation_id: string;
+  event: MyInvitationEvent;
+  /** When the send was queued. Not proof of delivery. */
+  dispatched_at: string;
+  status: MyInvitationStatus;
+  /** `null` while awaiting an answer. */
+  response: MyInvitationResponse | null;
+  answerable: boolean;
+}
+
+export interface MyInvitationList {
+  invitations: MyInvitation[];
+  truncated: boolean;
+}
+
+export interface MyInvitationAnswerResult {
+  invitation: MyInvitation;
+  /** `false` when the same answer was already recorded; nothing was written. */
+  recorded: boolean;
+}
+
+export type EngagementWhen = "upcoming" | "past";
+export type MyEngagementState = "confirmed" | "attended" | "cancelled";
+
+export interface MyEngagementEvent {
+  title: string;
+  local_date: string | null;
+  time_zone: string | null;
+  time_precision: "exact" | "date_only" | "unresolved";
+  starts_at: string | null;
+  ends_at: string | null;
+}
+
+export interface MyEngagement {
+  engagement_id: string;
+  /** `null` when the event row is missing. */
+  event: MyEngagementEvent | null;
+  state: MyEngagementState;
+  confirmed_at: string;
+  attended_at: string | null;
+  cancelled_at: string | null;
+}
+
+export interface MyEngagementList {
+  when: EngagementWhen;
+  /** The UTC date the split was made against. */
+  as_of: string;
+  engagements: MyEngagement[];
+  truncated: boolean;
+}
+
+export type SpeakerSelfErrorCode =
+  | "speaker_profile_not_linked"
+  | "speaker_invitation_not_found"
+  | "speaker_invitation_already_answered"
+  | "speaker_invitation_response_conflict"
+  | Exclude<SpeakerAvailabilityErrorCode, "speaker_contact_not_found">;
+
+/** `GET /v1/me/availability`. Rejects with `404 speaker_profile_not_linked` or `403`. */
+export async function fetchMyAvailability(): Promise<SpeakerAvailability> {
+  return requestJson<SpeakerAvailability>(
+    "/v1/me/availability",
+    { method: "GET" },
+    { authenticated: true },
+  );
+}
+
+/**
+ * `PATCH /v1/me/availability`: full replace, T3's body and errors
+ * (`409 speaker_availability_stale`, `422 speaker_availability_*` with `details`).
+ */
+export async function updateMyAvailability(
+  payload: SpeakerAvailabilityUpdatePayload,
+): Promise<SpeakerAvailability> {
+  return requestJson<SpeakerAvailability>(
+    "/v1/me/availability",
+    { method: "PATCH", body: JSON.stringify(payload) },
+    { authenticated: true },
+  );
+}
+
+/** `GET /v1/me/invitations`: own sent invitations, newest first. */
+export async function fetchMyInvitations(): Promise<MyInvitationList> {
+  return requestJson<MyInvitationList>(
+    "/v1/me/invitations",
+    { method: "GET" },
+    { authenticated: true },
+  );
+}
+
+/**
+ * `POST /v1/me/invitations/{invitation_id}/response`. The first answer stands:
+ * the same one again resolves with `recorded: false`; a different one rejects
+ * with `409 speaker_invitation_already_answered`.
+ */
+export async function answerMyInvitation(
+  invitationId: string,
+  response: "accept" | "decline",
+): Promise<MyInvitationAnswerResult> {
+  return requestJson<MyInvitationAnswerResult>(
+    `/v1/me/invitations/${encodeURIComponent(invitationId)}/response`,
+    { method: "POST", body: JSON.stringify({ response }) },
+    { authenticated: true },
+  );
+}
+
+/** `GET /v1/me/engagements?when=…`: own confirmed bookings, cancelled included. */
+export async function fetchMyEngagements(when: EngagementWhen): Promise<MyEngagementList> {
+  const query = new URLSearchParams({ when });
+  return requestJson<MyEngagementList>(
+    `/v1/me/engagements?${query.toString()}`,
+    { method: "GET" },
     { authenticated: true },
   );
 }

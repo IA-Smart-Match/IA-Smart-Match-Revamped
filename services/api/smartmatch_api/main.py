@@ -82,9 +82,11 @@ from smartmatch_api.routers import (
     redrive,
     review,
     rewards,
+    speaker_availability,
     speaker_pipeline,
     speaker_portal,
     speaker_requests,
+    speaker_self,
     student_events,
     student_speaker_feedback,
 )
@@ -449,6 +451,11 @@ CAPABILITY_SCOPED_ROUTERS: Final[tuple[tuple[APIRouter, Capability], ...]] = (
     # inside-the-system growth customer §20 permits. No network call, no scrape,
     # no external lookup.
     (cba_contacts.router, Capability.SPEAKER_CONTACT_MANAGEMENT),
+    # A roster contact's stated availability (B26 T3): read and corrected by the
+    # Connector from the same roster, so the same flag. Roster data that sends
+    # nothing, so not `CONSENTED_OUTREACH` -- the argument
+    # `student_speaker_feedback.connector_router` makes below.
+    (speaker_availability.router, Capability.SPEAKER_CONTACT_MANAGEMENT),
     (match_runs.router, Capability.MATCH_RUNS),
     # The weights a match run is scored under (customer §5, §13's "manage
     # matching weights"). `MATCH_RUNS` rather than a capability of its own, and
@@ -670,6 +677,9 @@ CAPABILITY_SCOPED_ROUTERS: Final[tuple[tuple[APIRouter, Capability], ...]] = (
     (speaker_portal.router, Capability.SPEAKER_PORTAL),
     (speaker_portal.public_router, Capability.SPEAKER_PORTAL),
     (speaker_portal.pages_router, Capability.SPEAKER_PORTAL),
+    # B26 T6b-2: the Speaker's own reads and writes under `/v1/me`
+    # ({speaker}), off with the rest of the portal.
+    (speaker_self.router, Capability.SPEAKER_PORTAL),
 )
 
 

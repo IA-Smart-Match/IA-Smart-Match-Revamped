@@ -71,6 +71,11 @@ _PORTAL_PATHS = frozenset(
         "/v1/units/{unit_id}/speaker-contacts/{professional_id}/portal-access",
         "/v1/speaker-portal/activate",
         "/s/{token}",
+        # B26 T6b-2: the Speaker's own routes, under the same capability.
+        "/v1/me/availability",
+        "/v1/me/invitations",
+        "/v1/me/invitations/{invitation_id}/response",
+        "/v1/me/engagements",
     }
 )
 
