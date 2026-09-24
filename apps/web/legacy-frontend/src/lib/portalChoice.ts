@@ -21,7 +21,7 @@
  */
 
 /** The storage key. */
-export const PORTAL_CHOICE_KEY = "smartmatch.portalChoice";
+export const PORTAL_CHOICE_KEY = "smartmatch.portal.lastChoice";
 
 /** The remembered portal id if the server granted it, else `null`. */
 export function readRememberedPortal(granted: readonly string[]): string | null {

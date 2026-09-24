@@ -9,7 +9,7 @@
  * - **Disclosure navigation, not `role="menu"`.** The items are page links; a
  *   menu role would promise arrow-key roving focus they do not need. The
  *   native button toggles with Enter or Space, Tab moves through the links,
- *   Escape closes and returns focus to the button, and focus leaving the
+ *   Escape closes and returns focus to the button, and Tab out of the
  *   switcher or a pointer-down outside it closes it.
  * - **The server's words.** Each link is the grant's own `display_name` and
  *   points at its own `home_path`, in the server's order. `aria-current="true"`
@@ -73,6 +73,11 @@ export function PortalSwitcher({
 
   function onBlur(event: FocusEvent<HTMLDivElement>): void {
     const next = event.relatedTarget;
+    // Focus moving to nothing is a mouse click in WebKit, which does not focus
+    // a clicked link: closing here would hide the link before its click lands.
+    // A click outside is the pointer-down listener's to handle; Tab always
+    // names where focus went.
+    if (next === null) return;
     if (next instanceof Node && event.currentTarget.contains(next)) return;
     setOpen(false);
   }
