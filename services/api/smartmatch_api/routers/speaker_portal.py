@@ -64,12 +64,12 @@ from smartmatch_api.dependencies import CurrentPrincipal, DbSession, charge_quot
 from smartmatch_api.errors import ApiError
 from smartmatch_api.routers.auth import LoginResponse
 from smartmatch_api.speaker_portal_activation import (
-    EXISTING_LOGIN_REFUSED_ROLES,
     ActivationCredentialsInvalid,
     ActivationMode,
     ActivationModeMismatch,
     ActivationRefused,
     activate,
+    existing_login_may_bind,
     page_mode,
 )
 from smartmatch_api.token_pages import FormRead, FormReadOutcome, read_urlencoded_form, token_page
@@ -237,7 +237,9 @@ def _precheck_address(
     """Invite step 5b (T6b-5 §4.3): refuse an address activation would refuse.
 
     Advisory only — reads, locks nothing; activation decides under its locks.
-    Names no other tenant, account or role.
+    Names no other tenant, account or role: every holder that fails R-C
+    (:func:`existing_login_may_bind`) — staff, student, no active role,
+    expired roles only, ``speaker`` only — gets one code and one message.
     """
     holders = login_accounts.holders_for_address(
         session, tenant_id=tenant_id, address=address, lock=False
@@ -257,16 +259,15 @@ def _precheck_address(
             code="speaker_portal_address_ambiguous",
             message="This address matches more than one login. Fix that before inviting.",
         )
-    if holders.holder is not None and (
+    if holders.holder is not None and not existing_login_may_bind(
         _portal.active_roles(session, tenant_id=tenant_id, user_id=holders.holder.user_id, now=now)
-        & EXISTING_LOGIN_REFUSED_ROLES
     ):
         raise ApiError(
             status_code=status.HTTP_409_CONFLICT,
-            code="speaker_portal_address_is_staff_login",
+            code="speaker_portal_address_not_host_login",
             message=(
-                "This address belongs to a staff or student login and cannot also be a "
-                "Speaker login."
+                "This address already signs in to SmartMatch and cannot also be a "
+                "Speaker login. Choose a different address."
             ),
         )
 

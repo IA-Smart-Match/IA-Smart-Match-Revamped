@@ -13,7 +13,8 @@ checks the new password's policy first (steps 1–3); this module is the rest.
     ``speaker`` role.
 ``existing_login``
     Exactly one credentialed account in this tenant holds the address — an
-    Event Host's login (Q1: never a staff or student login). The Speaker proves
+    Event Host's login (R-C: an active ``volunteer`` role and no active staff
+    or student role; :func:`existing_login_may_bind`). The Speaker proves
     it with that login's password; the login gains ``speaker``. No email, no
     credential and no account is written. The contact account keeps its
     ``.invalid`` email and no credential (R-B).
@@ -71,6 +72,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 __all__ = [
+    "EXISTING_LOGIN_ALLOWED_ROLES",
     "EXISTING_LOGIN_REFUSED_ROLES",
     "ActivationCredentialsInvalid",
     "ActivationMode",
@@ -79,6 +81,7 @@ __all__ = [
     "ActivationResult",
     "IssuedSession",
     "activate",
+    "existing_login_may_bind",
     "page_mode",
 ]
 
@@ -87,15 +90,31 @@ _ACTIVATABLE_STATES: Final[frozenset[str]] = frozenset(
     state.value for state in ACTIVATABLE_CHANNEL_STATES
 )
 
-#: Q1 (owner ruling): existing-login mode binds Event Host logins only. A holder
-#: with any of these roles active is refused — at activation with the generic
-#: 400, at invite with ``409 speaker_portal_address_is_staff_login``. This also
-#: keeps T6b-1 §11's self-invite mitigation: a Connector's own address is a
-#: staff login, so inviting it never binds the Connector as a Speaker.
+#: R-C (owner ruling 2026-09-24, replacing Q1's deny-list): existing-login mode
+#: binds Event Host logins only, as an **allow-list**. A holder needs one of
+#: these roles active …
+EXISTING_LOGIN_ALLOWED_ROLES: Final[frozenset[str]] = frozenset({"volunteer"})
+
+#: … and none of these. This also keeps T6b-1 §11's self-invite mitigation: a
+#: Connector's own address is a staff login, so inviting it never binds the
+#: Connector as a Speaker.
 EXISTING_LOGIN_REFUSED_ROLES: Final[frozenset[str]] = frozenset({"admin", "coordinator", "student"})
 
 #: The one role activation grants (never a seed: INVITATION_ONLY_ROLES).
 _SPEAKER_ROLE: Final[str] = "speaker"
+
+
+def existing_login_may_bind(held: frozenset[str]) -> bool:
+    """R-C, the one rule: may a login holding ``held`` (its *active* roles) gain ``speaker``?
+
+    ``True`` only for an active ``volunteer`` with no active staff or student
+    role. A login with no active role, only expired roles, or only ``speaker``
+    is refused: ``speaker`` and ``volunteer`` never widen each other, so an
+    active ``speaker`` neither qualifies a login nor disqualifies one. Refused
+    at activation with the generic 400, at invite with ``409
+    speaker_portal_address_not_host_login`` — one body for every reason.
+    """
+    return bool(held & EXISTING_LOGIN_ALLOWED_ROLES) and not held & EXISTING_LOGIN_REFUSED_ROLES
 
 
 class ActivationMode(StrEnum):
@@ -313,8 +332,8 @@ def _choose_mode(
     held = _portal.active_roles(
         session, tenant_id=invitation.tenant_id, user_id=holder.user_id, now=now
     )
-    if held & EXISTING_LOGIN_REFUSED_ROLES:
-        # Q1: Event Host logins only.
+    if not existing_login_may_bind(held):
+        # R-C: Event Host logins only (an allow-list).
         raise ActivationRefused
     return ActivationMode.EXISTING_LOGIN, holder
 
