@@ -80,7 +80,7 @@ export function principalRoleLabel(me: MeResponse): string {
   return labels.length > 0 ? labels.join(", ") : "No active role";
 }
 
-export type PortalKind = "student" | "coordinator" | "volunteer" | "admin";
+export type PortalKind = "student" | "coordinator" | "volunteer" | "admin" | "speaker";
 
 /**
  * The portal the server granted this account, or `null` when it granted none.

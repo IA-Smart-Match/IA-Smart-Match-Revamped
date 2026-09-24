@@ -55,6 +55,8 @@ const GATED: readonly Capability[] = [
   // `false` here says "this product is not that product", which is why no
   // navigation in this app may ever ask for it and expect a yes.
   "class_exercise",
+  // B26 T6b-1: staged off in every scope until its turn-on rule clears.
+  "speaker_portal",
 ];
 
 test("every capability carries an explicit decision", () => {
