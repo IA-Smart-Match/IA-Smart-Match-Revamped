@@ -1949,6 +1949,47 @@ OPERATIONS: tuple[Operation, ...] = (
         resource_type="org_unit",
         unit_scoped=True,
     ),
+    # B26 T6b-3: the Speaker's own channel consent. The route imports T6b-2's
+    # authorizer and constant (it writes no subject lookup of its own), so
+    # ``authorizer_module`` points at ``speaker_self``. Which channels are the
+    # Speaker's is a self-scope asserted over HTTP in
+    # ``tests/contract/test_me_contact_channels_api.py``.
+    Operation(
+        key="me.contact_channels.read",
+        method="GET",
+        path="/v1/me/contact-channels",
+        module="smartmatch_api.routers.me_contact_channels",
+        authorizer="_authorize_speaker_self",
+        roles_constant="_SPEAKER_SELF_ROLES",
+        authorizer_module="smartmatch_api.routers.speaker_self",
+        required_roles=frozenset({"speaker"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
+    Operation(
+        key="me.contact_channels.opt_in",
+        method="POST",
+        path="/v1/me/contact-channels/{contact_channel_id}/opt-in",
+        module="smartmatch_api.routers.me_contact_channels",
+        authorizer="_authorize_speaker_self",
+        roles_constant="_SPEAKER_SELF_ROLES",
+        authorizer_module="smartmatch_api.routers.speaker_self",
+        required_roles=frozenset({"speaker"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
+    Operation(
+        key="me.contact_channels.opt_out",
+        method="POST",
+        path="/v1/me/contact-channels/{contact_channel_id}/opt-out",
+        module="smartmatch_api.routers.me_contact_channels",
+        authorizer="_authorize_speaker_self",
+        roles_constant="_SPEAKER_SELF_ROLES",
+        authorizer_module="smartmatch_api.routers.speaker_self",
+        required_roles=frozenset({"speaker"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
     # The two student event reads (card ``CBA-STUDENT-EVENTS``, customer §15).
     # ``{student}`` and nothing else, which makes them the only rows in this file
     # whose role set contains ``student`` — everywhere else in this matrix
@@ -9118,6 +9159,11 @@ MATRIX["speaker_self.availability.update"] = MATRIX["speaker_self.availability.r
 MATRIX["speaker_self.invitation.list"] = MATRIX["speaker_self.availability.read"]
 MATRIX["speaker_self.invitation.respond"] = MATRIX["speaker_self.availability.read"]
 MATRIX["speaker_self.engagement.list"] = MATRIX["speaker_self.availability.read"]
+#: B26 T6b-3: the three ``me.contact_channels.*`` operations call the same
+#: imported ``_authorize_speaker_self``, so they share the row object too.
+MATRIX["me.contact_channels.read"] = MATRIX["speaker_self.availability.read"]
+MATRIX["me.contact_channels.opt_in"] = MATRIX["speaker_self.availability.read"]
+MATRIX["me.contact_channels.opt_out"] = MATRIX["speaker_self.availability.read"]
 
 CELLS = [(operation.key, shape.name) for operation in OPERATIONS for shape in SHAPES]
 
@@ -10269,6 +10315,10 @@ SPEAKER_SELF_OPERATIONS: frozenset[str] = frozenset(
         "speaker_self.invitation.list",
         "speaker_self.invitation.respond",
         "speaker_self.engagement.list",
+        # B26 T6b-3.
+        "me.contact_channels.read",
+        "me.contact_channels.opt_in",
+        "me.contact_channels.opt_out",
     }
 )
 

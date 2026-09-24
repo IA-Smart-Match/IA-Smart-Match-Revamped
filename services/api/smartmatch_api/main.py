@@ -73,6 +73,7 @@ from smartmatch_api.routers import (
     match_runs,
     matching_weights,
     me,
+    me_contact_channels,
     meetings,
     metrics,
     outreach,
@@ -680,6 +681,8 @@ CAPABILITY_SCOPED_ROUTERS: Final[tuple[tuple[APIRouter, Capability], ...]] = (
     # B26 T6b-2: the Speaker's own reads and writes under `/v1/me`
     # ({speaker}), off with the rest of the portal.
     (speaker_self.router, Capability.SPEAKER_PORTAL),
+    # B26 T6b-3: the Speaker's own channel opt-in / opt-out ({speaker}).
+    (me_contact_channels.router, Capability.SPEAKER_PORTAL),
 )
 
 

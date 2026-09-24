@@ -10,10 +10,12 @@ job whose success the state machine refused.
 ## The one method worth reading first
 
 :meth:`OutreachRepository.load_recipient` is where suppression is applied, and it
-is a ``LEFT JOIN`` rather than a column read. Migration ``0021`` explains why
+is a correlated ``EXISTS`` rather than a column read
+(:func:`smartmatch_persistence.suppression.active_suppression_exists`, which
+ignores a lifted row). Migration ``0021`` explains why
 there is no ``suppressed`` flag on ``contact_channel``; this is the other half of
 that decision. Every caller that asks "may we write to this person" gets the
-answer computed from ``suppression_record`` at the moment they ask, so there is
+answer computed from the suppression list at the moment they ask, so there is
 no cached value to go stale between the unsubscribe and the send.
 
 The join is on **address**, not on contact id, because a suppression is a
@@ -57,10 +59,12 @@ from datetime import datetime
 from typing import Any, Final
 
 import sqlalchemy as sa
+from smartmatch_domain.suppression import SuppressionSource, SuppressionWrite
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import Session
 
 from smartmatch_persistence import schema
+from smartmatch_persistence.suppression import SuppressionRepository, active_suppression_exists
 
 __all__ = [
     "DEFAULT_DRAFT_PAGE_SIZE",
@@ -110,8 +114,8 @@ class RecipientFacts:
             to :class:`~smartmatch_domain.consent.ContactState` by the caller,
             which is the layer that owns that vocabulary.
         consent_source: As text, or ``None`` when no consent is recorded.
-        suppressed: Whether a ``suppression_record`` covers this address, right
-            now. Computed by a join on every read — never cached.
+        suppressed: Whether an active (unlifted) suppression covers this
+            address, right now. Computed on every read — never cached.
     """
 
     contact_channel_id: uuid.UUID
@@ -205,6 +209,11 @@ class SuppressionOutcome:
 
     address: str
     was_already_suppressed: bool
+    #: The rank merge the address's one row went through (B26 T6b-3).
+    write: SuppressionWrite
+
+
+_suppressions: Final[SuppressionRepository] = SuppressionRepository()
 
 
 class OutreachRepository:
@@ -227,16 +236,15 @@ class OutreachRepository:
         afterwards, so a caller cannot read another tenant's contact by id —
         the rule ``JobRepository.get`` states and every repository here keeps.
 
-        The suppression is a ``LEFT JOIN`` on address evaluated at read time.
-        See the module docstring for why it is on address and why it is not a
-        column.
+        The suppression is an ``EXISTS`` on address evaluated at read time,
+        ignoring a lifted row. See the module docstring for why it is on address
+        and why it is not a column.
 
         Returns:
             The facts, or ``None`` when no such contact exists in this tenant.
             ``None`` means "no such contact" and never "not allowed" — the
             second is a decision this module does not make.
         """
-        suppression = schema.suppression_record
         channel = schema.contact_channel
 
         row = session.execute(
@@ -247,18 +255,8 @@ class OutreachRepository:
                 channel.c.address,
                 channel.c.contact_state,
                 channel.c.consent_source,
-                (suppression.c.id.isnot(None)).label("suppressed"),
-            )
-            .select_from(
-                channel.outerjoin(
-                    suppression,
-                    sa.and_(
-                        suppression.c.tenant_id == channel.c.tenant_id,
-                        suppression.c.address == channel.c.address,
-                    ),
-                )
-            )
-            .where(
+                active_suppression_exists(channel).label("suppressed"),
+            ).where(
                 channel.c.tenant_id == tenant_id,
                 channel.c.id == contact_channel_id,
             )
@@ -693,51 +691,32 @@ class OutreachRepository:
     ) -> SuppressionOutcome:
         """Record that an address must not be written to again.
 
-        ``ON CONFLICT ON CONSTRAINT uq_suppression_record_address DO NOTHING``:
-        a repeated unsubscribe is the same instruction, not a second one, and
-        turning it into an integrity error would surface a database constraint
-        to somebody who did nothing wrong.
-
-        The **first** suppression is the one that stands. A second call does not
-        move ``suppressed_at`` forward, because "when did they ask us to stop" is
-        the question that matters and the answer is the first time they asked.
+        Delegates to :meth:`SuppressionRepository.record`, which merges by rank
+        into the address's one row (B26 T6b-3): a repeated unsubscribe is the
+        same instruction, not a second one, and an equal or lower source changes
+        nothing — "when did they ask us to stop" is answered by the first time
+        they asked. A higher-ranked source (a bounce over an unsubscribe)
+        replaces the source and keeps that date. A suppression after a lift
+        re-opens the row.
         """
-        session.execute(
-            postgresql.insert(schema.suppression_record)
-            .values(
-                id=record_id or uuid.uuid4(),
-                tenant_id=tenant_id,
-                address=address,
-                source=source,
-                suppressed_at=suppressed_at,
-                origin_send_id=origin_send_id,
-            )
-            .on_conflict_do_nothing(constraint="uq_suppression_record_address")
+        outcome = _suppressions.record(
+            session,
+            tenant_id=tenant_id,
+            address=address,
+            source=SuppressionSource(source),
+            at=suppressed_at,
+            origin_send_id=origin_send_id,
+            record_id=record_id,
         )
-
-        existing = session.execute(
-            sa.select(schema.suppression_record.c.suppressed_at).where(
-                schema.suppression_record.c.tenant_id == tenant_id,
-                schema.suppression_record.c.address == address,
-            )
-        ).one()
-
         return SuppressionOutcome(
             address=address,
-            was_already_suppressed=existing.suppressed_at != suppressed_at,
+            was_already_suppressed=outcome.was_already_suppressed,
+            write=outcome.write,
         )
 
     def is_suppressed(self, session: Session, *, tenant_id: uuid.UUID, address: str) -> bool:
-        """Whether a suppression currently covers this address in this tenant."""
-        return (
-            session.execute(
-                sa.select(sa.literal(1)).where(
-                    schema.suppression_record.c.tenant_id == tenant_id,
-                    schema.suppression_record.c.address == address,
-                )
-            ).first()
-            is not None
-        )
+        """Whether an active (unlifted) suppression covers this address in this tenant."""
+        return _suppressions.is_active(session, tenant_id=tenant_id, address=address)
 
 
 def _to_draft(row: sa.Row[Any]) -> DraftRow:

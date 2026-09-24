@@ -1764,8 +1764,9 @@ pilot_login_attempt = sa.Table(
 # The one thing worth restating, because its absence is easy to read as an
 # oversight: there is **no `suppressed` column** on `contact_channel`.
 # Suppression lives only in `suppression_record`, so the two can never disagree
-# — see `OutreachRepository.load_recipient`, which computes eligibility by
-# joining rather than by reading a cached flag.
+# — see `OutreachRepository.load_recipient`, which computes eligibility with a
+# live `EXISTS` (an active, unlifted row; `smartmatch_persistence.suppression`)
+# rather than by reading a cached flag.
 # ---------------------------------------------------------------------------
 
 
@@ -2194,8 +2195,9 @@ suppression_record = sa.Table(
     # that message undeletable.
     sa.Column("origin_send_id", _UUID, nullable=True),
     sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
-    # Migration 0039 (B26 T6b-1). Schema only: no code sets these yet, so every
-    # send-eligibility read is unchanged. T6b-3 owns the readers.
+    # Migration 0039 (B26 T6b-1). A row is active while `lifted_at IS NULL`.
+    # Only `smartmatch_persistence.suppression` reads this table or writes these
+    # two columns (B26 T6b-3; `tests/unit/test_suppression_single_reader.py`).
     sa.Column("lifted_at", _TS, nullable=True),
     sa.Column("lifted_by_user_id", _UUID, nullable=True),
     sa.PrimaryKeyConstraint("id", name="suppression_record_pkey"),

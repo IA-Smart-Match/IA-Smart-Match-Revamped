@@ -103,7 +103,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import timedelta
-from typing import Annotated, Final
+from typing import Annotated, Final, Literal
 
 from fastapi import APIRouter, Path, Query, status
 from pydantic import BaseModel, Field
@@ -115,6 +115,10 @@ from smartmatch_domain.consent import (
     assert_transition,
     is_send_eligible,
 )
+from smartmatch_domain.speaker_channel_consent import (
+    SPEAKER_WINS_MESSAGES,
+    connector_transition_conflict,
+)
 from smartmatch_persistence.cba_contacts import SpeakerContactRepository
 from smartmatch_persistence.contacts import (
     DEFAULT_CONTACT_PAGE_SIZE,
@@ -124,6 +128,10 @@ from smartmatch_persistence.contacts import (
 )
 from smartmatch_persistence.outreach import OutreachRepository
 from smartmatch_persistence.rate_limit import RateLimit
+from smartmatch_persistence.speaker_channel_choice import (
+    SpeakerChoiceRepository,
+    SpeakerChoiceRow,
+)
 from sqlalchemy.orm import Session
 
 from smartmatch_api.dependencies import CurrentPrincipal, DbSession, charge_quota
@@ -147,6 +155,10 @@ _contacts: Final[ContactChannelRepository] = ContactChannelRepository()
 #: its own matching rule would be a second answer to "has this person told us to
 #: stop", and the two would be free to disagree in the direction that sends.
 _outreach: Final[OutreachRepository] = OutreachRepository()
+
+#: The Speaker's own opt-in / opt-out log (B26 T6b-3). Read to refuse a move
+#: that would undo the Speaker's latest choice, and to show it on the view.
+_choices: Final[SpeakerChoiceRepository] = SpeakerChoiceRepository()
 
 #: Tighter than the roster's own write limit, and for a different reason: this
 #: is the operation that grows the set of people the platform can write to, so
@@ -211,6 +223,17 @@ class ChannelResponse(BaseModel):
             "Whether a send may address this channel: 'active_candidate', an "
             "approved consent source, and no suppression. All three, always."
         )
+    )
+    speaker_choice: Literal["opt_in", "opt_out"] | None = Field(
+        default=None,
+        description=(
+            "The Speaker's own latest choice in the Speaker portal, or null. After "
+            "'opt_out' a Connector may not escalate this channel; after 'opt_in' it "
+            "may not move it away from 'active_candidate'."
+        ),
+    )
+    speaker_choice_at: str | None = Field(
+        default=None, description="When the Speaker made that choice."
     )
     created_at: str
     updated_at: str
@@ -316,7 +339,7 @@ class ChannelTransitionRequest(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-def _view(row: ContactChannelRow) -> ChannelResponse:
+def _view(row: ContactChannelRow, choice: SpeakerChoiceRow | None = None) -> ChannelResponse:
     """Render one stored channel, computing the two derived facts honestly."""
     return ChannelResponse(
         contact_channel_id=row.id,
@@ -340,6 +363,8 @@ def _view(row: ContactChannelRow) -> ChannelResponse:
             ),
             suppressed=row.suppressed,
         ),
+        speaker_choice=None if choice is None else choice.choice.value,
+        speaker_choice_at=None if choice is None else choice.decided_at.isoformat(),
         created_at=row.created_at.isoformat(),
         updated_at=row.updated_at.isoformat(),
     )
@@ -389,7 +414,12 @@ def _load_channel_or_404(
     this route becoming a way to move *any* channel in a unit the caller may
     reach by naming a roster contact they may reach — the person in the path has
     to be the person the channel belongs to.
+
+    Locks the channel ``FOR UPDATE`` first, in its own statement (B26 T6b-3,
+    S5), so the state, the suppression flag and the Speaker's choice this
+    request acts on are read after the lock and cannot change under it.
     """
+    _contacts.lock(session, tenant_id=principal.tenant_id, contact_channel_id=contact_channel_id)
     row = _contacts.get(
         session, tenant_id=principal.tenant_id, contact_channel_id=contact_channel_id
     )
@@ -500,11 +530,14 @@ def list_speaker_contact_channels(
         limit=limit,
         offset=offset,
     )
+    choices = _choices.latest_for_channels(
+        session, tenant_id=principal.tenant_id, contact_channel_ids=[row.id for row in rows]
+    )
     return ChannelListResponse(
         professional_id=professional_id,
         channels=[
             ChannelWithHistoryResponse(
-                channel=_view(row),
+                channel=_view(row, choices.get(row.id)),
                 transitions=_history(session, principal, row.id),
             )
             for row in rows
@@ -707,6 +740,21 @@ def transition_speaker_contact_channel(
 
     current = ContactState(row.contact_state)
 
+    # The Speaker wins (B26 T6b-3 G1), asked before the evidence and legality
+    # checks so the Speaker-specific code is what a Connector reads.
+    latest = _choices.latest_for_channel(
+        session, tenant_id=principal.tenant_id, contact_channel_id=contact_channel_id
+    )
+    conflict = connector_transition_conflict(
+        None if latest is None else latest.choice, current, body.to_state
+    )
+    if conflict is not None:
+        raise ApiError(
+            status_code=status.HTTP_409_CONFLICT,
+            code=conflict,
+            message=SPEAKER_WINS_MESSAGES[conflict],
+        )
+
     if body.to_state is ContactState.CONSENTED:
         _require_evidence(body.consent_evidence)
 
@@ -772,6 +820,6 @@ def transition_speaker_contact_channel(
     session.commit()
 
     return ChannelWithHistoryResponse(
-        channel=_view(updated),
+        channel=_view(updated, latest),
         transitions=_history(session, principal, contact_channel_id),
     )

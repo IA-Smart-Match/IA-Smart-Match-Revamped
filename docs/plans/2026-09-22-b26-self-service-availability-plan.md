@@ -182,7 +182,10 @@ feedback, stored match runs — is untouched.
 **`suppression_record`** gains `lifted_at` and `lifted_by_user_id` (both nullable,
 set together), and its `source` CHECK gains `'speaker_portal'`. This is what lets a
 Speaker's own opt-in undo their own opt-out (§4.4). Every send-eligibility read
-changes to `lifted_at IS NULL` in the same PR — the largest risk in T6b (§10).
+changes to `lifted_at IS NULL` in T6b-3, the PR that adds the first writer of
+`lifted_at` (`SuppressionRepository.lift`) — the largest risk in T6b (§10). Until
+that PR no row can be lifted, so "a row exists" and "an active row exists" are the
+same predicate.
 
 No change to `contact_channel` or `contact_channel_transition`: both CHECKs already
 admit `self_service`, and `actor_user_id` is already `NOT NULL`.

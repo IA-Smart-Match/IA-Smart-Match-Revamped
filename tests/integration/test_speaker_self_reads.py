@@ -517,3 +517,47 @@ def test_rows_are_keyed_by_professional_not_login(
     assert [row.id for row in invitations] == [mine]
     journeys = _engagements(session_factory, tenant_id, bound.professional_id, "upcoming")
     assert [row.id for row in journeys] == [my_journey]
+
+
+# ---------------------------------------------------------------------------
+# The portal's guarded answer write (review LOW 2: defence in depth)
+# ---------------------------------------------------------------------------
+
+
+def test_portal_answer_write_is_scoped_to_the_professional(
+    db: Any, tenant_id: uuid.UUID, session_factory: sessionmaker[Session]
+) -> None:
+    """A mismatched ``professional_id`` updates 0 rows; the owner's updates 1."""
+    actor = db.run(_user, tenant_id)
+    me = db.run(_profile, tenant_id)
+    other = db.run(_profile, tenant_id)
+    batch = db.run(_batch, tenant_id, actor)
+    invitation_id = db.run(_invitation, tenant_id, batch, me, actor)
+
+    def answer(professional_id: uuid.UUID) -> bool:
+        with session_factory() as session:
+            wrote = INVITES.record_response(
+                session,
+                tenant_id=tenant_id,
+                invitation_id=invitation_id,
+                response_status="accepted_invitation",
+                response_channel="speaker_portal",
+                recorded_at=T0,
+                recorded_by_user_id=me,
+                professional_id=professional_id,
+            )
+            session.commit()
+            return wrote
+
+    def stored_status() -> str:
+        return db.run(
+            lambda conn: conn.execute(
+                text("SELECT response_status FROM cba_invitation WHERE id = :i"),
+                {"i": invitation_id},
+            ).scalar_one()
+        )
+
+    assert answer(other) is False
+    assert stored_status() == "awaiting_response"
+    assert answer(me) is True
+    assert stored_status() == "accepted_invitation"

@@ -48,6 +48,68 @@ _FROM = "noreply@example.invalid"
 _BASE = "http://localhost:8080"
 
 
+# ---------------------------------------------------------------------------
+# The four suppression states (copied verbatim from
+# tests/contract/test_suppression_lift_send_paths.py; no shared helper package)
+# ---------------------------------------------------------------------------
+
+SUPPRESSION_STATES = ("NONE", "ACTIVE", "LIFTED", "REOPENED")
+#: Whether a channel whose address is in each state may be written to.
+SEND_ELIGIBLE = {"NONE": True, "ACTIVE": False, "LIFTED": True, "REOPENED": False}
+
+_SUPPRESSED_AT = datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
+_LIFTED_AT = datetime(2026, 9, 2, 12, 0, tzinfo=UTC)
+_REOPENED_AT = datetime(2026, 9, 3, 12, 0, tzinfo=UTC)
+
+
+def _seed_suppression_state(
+    session: Session,
+    state: str,
+    *,
+    tenant_id: uuid.UUID,
+    address: str,
+    lifter_user_id: uuid.UUID,
+) -> None:
+    """Put ``address`` into one of the four suppression states. Caller commits.
+
+    ``NONE`` writes nothing. ``ACTIVE`` writes one ``unsubscribe_link`` row.
+    ``LIFTED`` lifts that row by direct SQL, as the Speaker would through
+    ``SuppressionRepository.lift``: ``lifted_at`` after ``suppressed_at`` and
+    ``lifted_by_user_id`` a real account in the tenant. ``REOPENED`` then
+    re-suppresses through the shipped writer, ``OutreachRepository.suppress``
+    (W1), with a later ``suppressed_at``.
+    """
+    if state not in SUPPRESSION_STATES:
+        raise ValueError(f"unknown suppression state {state!r}")
+    if state == "NONE":
+        return
+    session.execute(
+        text(
+            "INSERT INTO suppression_record (id, tenant_id, address, suppressed_at, source) "
+            "VALUES (:i, :t, :a, :at, 'unsubscribe_link')"
+        ),
+        {"i": uuid.uuid4(), "t": tenant_id, "a": address, "at": _SUPPRESSED_AT},
+    )
+    if state == "ACTIVE":
+        return
+    session.execute(
+        text(
+            "UPDATE suppression_record SET lifted_at = :l, lifted_by_user_id = :u "
+            "WHERE tenant_id = :t AND address = :a"
+        ),
+        {"l": _LIFTED_AT, "u": lifter_user_id, "t": tenant_id, "a": address},
+    )
+    if state == "LIFTED":
+        return
+    OutreachRepository().suppress(
+        session,
+        tenant_id=tenant_id,
+        address=address,
+        source="unsubscribe_link",
+        suppressed_at=_REOPENED_AT,
+    )
+
+
 class _RecordingProvider:
     """An adapter that raises. Used to exercise the ProviderFailure branch."""
 
@@ -815,3 +877,73 @@ class TestDeliveryIsNotASpeakerResponse:
         # says what it is protecting rather than only that something is disjoint.
         assert "accepted" in DELIVERY_VOCABULARY
         assert "accepted" not in SPEAKER_RESPONSE_VALUES
+
+
+# ---------------------------------------------------------------------------
+# B26 T6b-3 §8, C1: the delivery-time gate reads only a live suppression
+# ---------------------------------------------------------------------------
+
+
+class TestLiftedSuppression:
+    """``assert_send_allowed`` against the four suppression states."""
+
+    @pytest.mark.parametrize("state", SUPPRESSION_STATES)
+    def test_delivery_recheck_honours_lifted_at(
+        self,
+        session: Session,
+        session_factory: sessionmaker[Session],
+        rows: _Fixtures,
+        tenant_id: uuid.UUID,
+        state: str,
+    ):
+        rows.build()
+        with session_factory() as seeding:
+            _seed_suppression_state(
+                seeding,
+                state,
+                tenant_id=tenant_id,
+                address=_ADDRESS,
+                lifter_user_id=rows.actor_id,
+            )
+            seeding.commit()
+        provider = FixtureEmailProvider()
+        handler = _handler(session_factory, provider)
+
+        if SEND_ELIGIBLE[state]:
+            result = handler(rows.context(session))
+            assert result.state is JobState.SUCCEEDED
+            assert len(provider.sent) == 1
+            return
+
+        with pytest.raises(PolicyFailure, match="suppressed"):
+            handler(rows.context(session))
+        assert provider.sent == [], "a suppressed recipient was written to"
+        stored = _REPO.get_send_for_job(session, tenant_id=tenant_id, job_id=rows.job_id)
+        assert stored is not None
+        assert stored.disposition == "blocked"
+        assert stored.failure_reason is not None and "suppressed" in stored.failure_reason
+
+    def test_opt_out_committed_before_the_recheck_blocks_the_send(
+        self,
+        session: Session,
+        session_factory: sessionmaker[Session],
+        rows: _Fixtures,
+        tenant_id: uuid.UUID,
+    ):
+        """The job is queued, the Speaker opts out, then the handler runs."""
+        rows.build()
+        with session_factory() as opting_out:
+            _REPO.suppress(
+                opting_out,
+                tenant_id=tenant_id,
+                address=_ADDRESS,
+                source="speaker_portal",
+                suppressed_at=_NOW,
+            )
+            opting_out.commit()
+        provider = FixtureEmailProvider()
+
+        with pytest.raises(PolicyFailure, match="suppressed"):
+            _handler(session_factory, provider)(rows.context(session))
+
+        assert provider.sent == [], "an opted-out recipient was written to"
