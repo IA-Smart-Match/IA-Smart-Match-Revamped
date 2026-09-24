@@ -192,6 +192,14 @@ _PLANTED_HITS = {
     ),
 }
 _PLANTED_SHELL = "psql <<'SQL'\ninsert   into PILOT_CREDENTIAL (id) values (1);\nSQL\n"
+#: #224 security review MEDIUM 3: schema-qualified, quoted and TRUNCATE shapes.
+_PLANTED_SQL_TEXT = {
+    "schema_qualified": ("INSERT INTO public.pilot_credential (id) VALUES (1)", "insert"),
+    "quoted": ('UPDATE "pilot_credential" SET salt = NULL', "update"),
+    "quoted_qualified": ('DELETE FROM "public"."pilot_credential"', "delete"),
+    "truncate": ("TRUNCATE pilot_credential", "delete"),
+    "truncate_table": ("truncate table public.pilot_credential cascade", "delete"),
+}
 _PLANTED_CLEAN = {
     "select": "sa.select(schema.pilot_credential.c.id)\n",
     "other_table": "sa.insert(schema.pilot_session).values(id=1)\n",
@@ -209,6 +217,13 @@ def test_the_guard_catches_shell_and_update_delete_shapes() -> None:
     assert python_hits("sa.delete(pilot_credential)\n", "delete") == [1]
     assert python_hits('q = "DELETE FROM pilot_credential WHERE x"\n', "delete") == [1]
     assert python_hits('q = "UPDATE pilot_credential SET x = 1"\n', "update") == [1]
+
+
+@pytest.mark.parametrize("name", sorted(_PLANTED_SQL_TEXT))
+def test_the_guard_catches_qualified_quoted_and_truncate_sql(name: str) -> None:
+    sql, verb = _PLANTED_SQL_TEXT[name]
+    assert text_hits(sql, verb) == [1], name
+    assert python_hits(f"q = {sql!r}\n", verb) == [1], name
 
 
 @pytest.mark.parametrize("name", sorted(_PLANTED_CLEAN))
@@ -229,3 +244,64 @@ def test_only_login_accounts_takes_an_address_lock() -> None:
         'session.execute(sa.text("SELECT pg_advisory_xact_lock(hashtext(:email))"))\n'
     ) == [1]
     assert address_lock_hits("session.execute(sa.func.pg_advisory_xact_lock(KEY))\n") == []
+
+
+#: Every file under the scanned trees (any suffix) that names the table, and
+#: why it may. #224 security review MEDIUM 3: the AST and SQL detectors cannot
+#: see every shape (``f"UPDATE {table} …"`` with the name in data, as in
+#: migration 0030), so a new file naming the table must be reviewed and listed.
+_MENTION_ALLOW_LIST: dict[str, str] = {
+    str(_WRITER): "the one writer",
+    "python/smartmatch_persistence/smartmatch_persistence/schema.py": "the table definition",
+    "python/smartmatch_persistence/smartmatch_persistence/pilot_auth.py": "reads only",
+    "python/smartmatch_persistence/smartmatch_persistence/speaker_portal.py": "docstring",
+    "python/smartmatch_domain/smartmatch_domain/pilot_credentials.py": "docstring",
+    "services/api/smartmatch_api/speaker_portal_activation.py": "docstring",
+    "tools/seed_pilot_logins.py": "docstrings; writes through login_accounts",
+    "scripts/reset_pilot_dataset.sh": "SELECT count(*) after a rebuild",
+    "scripts/vm/deploy.sh": "comment",
+    "db/migrations/versions/0020_pilot_login_credentials.py": "creates the table",
+    "db/migrations/versions/0030_cba_opaque_speaker_identity.py": (
+        "applied, immutable migration: re-keys user_id in an f-string UPDATE"
+    ),
+}
+_MENTION = re.compile(rf"\b{_TABLE}\b")
+_EXTRA_SCANNED = ("Makefile", "smartmatch.ps1", "infra")
+
+
+def _every_text_file() -> Iterator[Path]:
+    roots = [_ROOT / top for top in (*_SCANNED, *_EXTRA_SCANNED)]
+    for root in roots:
+        candidates = [root] if root.is_file() else sorted(root.rglob("*")) if root.is_dir() else []
+        for path in candidates:
+            if (
+                path.is_file()
+                and "node_modules" not in path.parts
+                and "__pycache__" not in path.parts
+            ):
+                yield path
+
+
+def test_every_pilot_credential_mention_is_allow_listed() -> None:
+    offenders = []
+    for path in _every_text_file():
+        try:
+            source = path.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError):
+            continue
+        relative = str(path.relative_to(_ROOT))
+        if _MENTION.search(source) and relative not in _MENTION_ALLOW_LIST:
+            offenders.append(relative)
+    assert offenders == [], (
+        f"{offenders} name pilot_credential: write only through login_accounts, then "
+        "add the file to _MENTION_ALLOW_LIST with the reason"
+    )
+
+
+def test_the_mention_allow_list_has_no_stale_entries() -> None:
+    stale = [
+        relative
+        for relative in _MENTION_ALLOW_LIST
+        if not _MENTION.search((_ROOT / relative).read_text(encoding="utf-8"))
+    ]
+    assert stale == []

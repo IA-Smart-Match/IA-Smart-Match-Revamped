@@ -213,3 +213,45 @@ def test_two_runs_are_idempotent(engine: Engine, tenant_id: uuid.UUID, entries) 
     assert len(after_first) == 6  # two connector logins x two roles + student + volunteer
     assert {row.creds for row in after_first} == {1}
     assert all("password rotated" in o.reason for o in second)
+
+
+def test_rerun_with_a_mixed_case_address_is_idempotent(
+    engine: Engine, tenant_id: uuid.UUID, entries
+) -> None:
+    """#224 security review HIGH 1: the new login's email is stored normalised
+    (``strip().lower()``), so the seed's own re-run must compare folded."""
+    address = f"Volunteer-{uuid.uuid4().hex[:10]}@Seed.Invalid"
+    environ = _environ(entries, volunteer=address)
+
+    _seed(engine, tenant_id, environ)
+    second = _seed(engine, tenant_id, environ)
+
+    [outcome] = [o for o in second if o.role == "volunteer"]
+    assert "password rotated" in outcome.reason
+    host = _account_id(engine, entries["volunteer"].subject)
+    assert _rows(engine, "SELECT email FROM user_account WHERE id = :u", u=host) == [
+        (address.lower(),)
+    ]
+    assert _rows(engine, "SELECT count(*) FROM pilot_credential WHERE user_id = :u", u=host) == [
+        (1,)
+    ]
+
+
+def test_a_login_seeded_before_normalisation_reseeds_cleanly(
+    engine: Engine, tenant_id: uuid.UUID, entries
+) -> None:
+    """A VM row seeded before #224 keeps its mixed-case spelling; the next deploy passes."""
+    address = f"Coordinator-{uuid.uuid4().hex[:10]}@Seed.Invalid"
+    environ = _environ(entries, volunteer=address)
+    _seed(engine, tenant_id, environ)
+    host = _account_id(engine, entries["volunteer"].subject)
+    with engine.begin() as conn:
+        conn.execute(
+            text("UPDATE user_account SET email = :e WHERE id = :u"), {"e": address, "u": host}
+        )
+
+    second = _seed(engine, tenant_id, environ)
+
+    [outcome] = [o for o in second if o.role == "volunteer"]
+    assert "password rotated" in outcome.reason
+    assert _rows(engine, "SELECT email FROM user_account WHERE id = :u", u=host) == [(address,)]
