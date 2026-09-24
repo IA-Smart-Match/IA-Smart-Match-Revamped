@@ -1,20 +1,20 @@
 /**
- * Profile — volunteer portal.
+ * Profile — Event Host portal.
  *
- * This page used to load your volunteer profile from the legacy `/api/portals/*` backend.
- * That backend is not part of this repository, so there is no request here
- * that could succeed and no data to render. Rather than a red failure banner
- * blaming an outage for a capability that was never present, each section
- * says plainly what it would have shown and where that would have come from
- * (`PortalDatasetUnavailable`).
+ * The Host's own record, and nothing more. Everything on this page comes from
+ * two `/v1` routes the portal layout has already resolved: `GET /v1/me` for who
+ * the caller is, and `GET /v1/me/portals` for the portal the server granted
+ * them and the role and units behind it. The page issues no request of its
+ * own; it reads the gated session and portal-access contexts and renders the
+ * shared identity card. Neither value is derived in the browser, and no
+ * identifier on this page is chosen by it.
  *
- * What *is* real on this page comes from two `/v1` routes and nothing else:
- * `GET /v1/me` for who the caller is, and `GET /v1/me/portals` for the portal
- * the server granted them and the role and unit behind it. Neither is derived
- * in the browser, and no identifier on this page is chosen by it.
+ * The organization is described on its own page, so this one only links to it.
  */
 
-import { PortalDatasetUnavailable } from "../../components/PortalContent";
+import { Link } from "react-router";
+
+import { PortalIdentityCard } from "../../components/PortalContent";
 import { grantedPortal } from "../../components/PortalGate";
 import { usePortalAccess } from "../../hooks/usePortalAccess";
 import { useAuthenticatedPrincipal } from "../../hooks/useSession";
@@ -38,19 +38,32 @@ export function VolunteerProfile() {
   return (
     <div className="space-y-6">
       <header className="space-y-1">
-        <h1 className="text-2xl font-semibold text-foreground">Profile</h1>
-        <p className="text-sm text-muted-foreground">Your Event Host record.</p>
-        <p className="text-xs text-muted-foreground">
-          Signed in as {principal.email} · {grant.role} · {grant.org_unit_path}
+        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+          Profile
         </p>
+        <p className="text-sm text-muted-foreground">Your Event Host record.</p>
       </header>
 
-      <div className="space-y-4">
-        <PortalDatasetUnavailable
-          dataset="Your volunteer profile"
-          endpoints={["/api/portals/volunteers/{id}"]}
-        />
-      </div>
+      {/* The card's `h1` (the display name) is the page's only `h1`. */}
+      <PortalIdentityCard me={principal} grant={grant} />
+
+      <section
+        aria-labelledby="host-profile-organization"
+        className="rounded-2xl border border-border/70 bg-card p-6 shadow-sm"
+      >
+        <h2 id="host-profile-organization" className="text-lg font-semibold text-foreground">
+          Your organization
+        </h2>
+        <p className="mt-1 text-sm leading-6 text-muted-foreground">
+          Your organization is described on its own page.
+        </p>
+        <Link
+          to="/volunteer-portal/organization"
+          className="mt-4 inline-flex items-center rounded-lg border border-border bg-card px-4 py-2 text-sm font-semibold text-foreground shadow-sm transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+        >
+          Go to Organization
+        </Link>
+      </section>
     </div>
   );
 }
