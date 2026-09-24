@@ -30,6 +30,7 @@ import {
   updateMyAvailability,
   type EngagementWhen,
   type MyContactChannelChange,
+  type MyContactChannelList,
   type MyInvitationAnswerResult,
   type SpeakerAvailability,
   type SpeakerAvailabilityUpdatePayload,
@@ -135,6 +136,21 @@ export function useMyContactChannels() {
     resource: SPEAKER_SELF_RESOURCE.contactChannels,
     queryFn: fetchMyContactChannels,
   });
+}
+
+/**
+ * The channel list as the cache holds it right now, for a failure handler that
+ * must see the re-read it just waited for (a render closure would be stale).
+ */
+export function useLatestMyContactChannels(): () => MyContactChannelList | undefined {
+  const queryClient = useQueryClient();
+  const principalKey = usePrincipalKey();
+  return () =>
+    principalKey === null
+      ? undefined
+      : queryClient.getQueryData<MyContactChannelList>(
+          scopedQueryKey(principalKey, SPEAKER_SELF_RESOURCE.contactChannels),
+        );
 }
 
 export type ChannelChoice = "opt_in" | "opt_out";

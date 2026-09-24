@@ -40,6 +40,9 @@ const SIDEBAR_ID = "speaker-portal-sidebar";
 const FOCUS_RING =
   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar";
 
+/** Tailwind's `lg` breakpoint: at and above it the sidebar is always shown. */
+const LG_MEDIA_QUERY = "(min-width: 1024px)";
+
 const navigation = [
   { name: "Home", href: "/speaker-portal", icon: LayoutDashboard, exact: true },
   { name: "Invitations", href: "/speaker-portal/invitations", icon: Mail },
@@ -56,13 +59,13 @@ const navigation = [
  */
 function useFocusHeadingOnRouteChange(main: RefObject<HTMLElement | null>): void {
   const { pathname } = useLocation();
-  const firstRender = useRef(true);
+  // The pathname last acted on, not a first-render flag: StrictMode runs mount
+  // effects twice in development, and a flag would focus on the second run.
+  const previousPathname = useRef(pathname);
 
   useEffect(() => {
-    if (firstRender.current) {
-      firstRender.current = false;
-      return undefined;
-    }
+    if (previousPathname.current === pathname) return undefined;
+    previousPathname.current = pathname;
     const container = main.current;
     if (container === null) return undefined;
     const focusHeading = (): boolean => {
@@ -87,6 +90,7 @@ export function SpeakerPortalLayout() {
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const mainRef = useRef<HTMLElement>(null);
+  const pageRef = useRef<HTMLDivElement>(null);
   // Whether closing the menu should hand focus back to the menu button. A
   // nav link closes it too, and then the route change focuses the new h1.
   const returnFocusRef = useRef(false);
@@ -98,6 +102,29 @@ export function SpeakerPortalLayout() {
   const principalKey = usePrincipalKey();
 
   useFocusHeadingOnRouteChange(mainRef);
+
+  // While the drawer is open (below `lg` only: the menu button is hidden at
+  // `lg`), the page behind it is `inert`, so Tab cannot reach the menu button
+  // or content the drawer covers (2.4.11). React 18 has no `inert` prop.
+  useEffect(() => {
+    const page = pageRef.current;
+    if (page === null) return undefined;
+    if (!sidebarOpen) {
+      page.removeAttribute("inert");
+      return undefined;
+    }
+    page.setAttribute("inert", "");
+    const wide =
+      typeof window.matchMedia === "function" ? window.matchMedia(LG_MEDIA_QUERY) : null;
+    const onWide = (event: MediaQueryListEvent) => {
+      if (event.matches) closeMenu(false);
+    };
+    wide?.addEventListener("change", onWide);
+    return () => {
+      wide?.removeEventListener("change", onWide);
+      page.removeAttribute("inert");
+    };
+  }, [sidebarOpen]);
 
   useEffect(() => {
     if (sidebarOpen) {
@@ -186,7 +213,9 @@ export function SpeakerPortalLayout() {
                   <li key={item.href}>
                     <Link
                       to={item.href}
-                      onClick={() => closeMenu(false)}
+                      // The current page's link changes no pathname, so no
+                      // h1 takes focus: hand it back to the menu button.
+                      onClick={() => closeMenu(location.pathname === item.href)}
                       onMouseEnter={() =>
                         prefetchPortalRoute(queryClient, principalKey, unitId, item.href)
                       }
@@ -237,7 +266,7 @@ export function SpeakerPortalLayout() {
         </div>
       </aside>
 
-      <div className="lg:pl-64">
+      <div ref={pageRef} className="lg:pl-64">
         <header className="sticky top-0 z-30 border-b border-sidebar-border bg-sidebar px-4 py-3 lg:hidden">
           <div className="flex items-center justify-between">
             <button

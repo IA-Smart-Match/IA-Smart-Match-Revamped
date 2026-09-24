@@ -161,10 +161,7 @@ export function SpeakerOwnAvailability() {
   }
 
   return (
-    <div
-      className="mx-auto max-w-3xl space-y-6"
-      aria-busy={query.data === undefined && !query.isError ? true : undefined}
-    >
+    <div className="mx-auto max-w-3xl space-y-6">
       <h1
         id={HEADING_ID}
         tabIndex={-1}
@@ -173,7 +170,8 @@ export function SpeakerOwnAvailability() {
         {HEADING}
       </h1>
       {/* SLOT(T8d): the Speaker's own load band — a band word only, never a number (OQ-CBA-005) */}
-      {body}
+      {/* aria-busy sits on the content, not on the h1 that route-change focus lands on. */}
+      <div aria-busy={query.data === undefined && !query.isError ? true : undefined}>{body}</div>
     </div>
   );
 }
