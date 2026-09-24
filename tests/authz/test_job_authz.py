@@ -407,6 +407,10 @@ def test_the_denial_vocabulary_is_exactly_the_five_documented_reasons():
             "explicit_resource_deny",
             "resource_grant_lacks_required_role",
             "resource_grant_lacks_membership",
+            # Policy rule 8 (B26 T6b-1, owner ruling R8): a covering membership
+            # skipped only because its role is excluded. No job route passes
+            # `excluded_roles`, so it is unreachable from here.
+            "membership_role_excluded",
             "no_grant",
         }
     )
@@ -457,6 +461,16 @@ def test_a_new_denial_reason_must_choose_a_side():
     # require_membership — but the classification is decided here regardless,
     # exactly as this test's docstring requires for every reason the policy
     # can emit.
+    #
+    # membership_role_excluded (policy rule 8, B26 T6b-1) joins this side for
+    # the same reason: it says which role the caller's membership carries, the
+    # `no_grant` population with a more precise name, not something about the
+    # caller or the request. No job route passes `excluded_roles`.
     assert vocabulary - job_authz._STRUCTURAL_DENIALS == frozenset(
-        {"resource_grant_lacks_required_role", "resource_grant_lacks_membership", "no_grant"}
+        {
+            "resource_grant_lacks_required_role",
+            "resource_grant_lacks_membership",
+            "membership_role_excluded",
+            "no_grant",
+        }
     ), "a denial reason became overridable by the actor exception without anyone deciding it"
