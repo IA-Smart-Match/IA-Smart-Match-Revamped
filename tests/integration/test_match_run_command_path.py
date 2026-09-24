@@ -634,3 +634,20 @@ def test_a_pin_its_mode_does_not_resolve_to_is_an_invalid_payload(
         _payload(registry_version=REGISTRY_VERSION),
         "invalid_command_payload",
     )
+
+
+# W8 (review LOW): a pin outside the CBA lineage is refused, even one this
+# process has bound (the class exercise's rulebook).
+def test_a_pin_outside_the_cba_lineage_is_an_invalid_payload(session_factory, tenant_id, engine):
+    from smartmatch_domain.exercise.registry import (
+        EXERCISE_REGISTRY_VERSION,
+        EXERCISE_SCORING_MODE,
+    )
+
+    _refused(
+        session_factory,
+        tenant_id,
+        engine,
+        _payload(scoring_mode=EXERCISE_SCORING_MODE, registry_version=EXERCISE_REGISTRY_VERSION),
+        "invalid_command_payload",
+    )

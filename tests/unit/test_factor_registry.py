@@ -635,7 +635,7 @@ def test_the_3_0_0_pin_is_never_unregistered():
 # 7
 def test_no_production_module_imports_the_evaluation_helper_or_reassigns_current():
     root = Path(__file__).resolve().parents[2]
-    assignment = re.compile(r"^\s*CURRENT_CBA_REGISTRY\b[^=\n]*=(?!=)", re.MULTILINE)
+    assignment = re.compile(r"(?:^\s*|\.)CURRENT_CBA_REGISTRY\s*(?::[^=\n]*)?=(?!=)", re.MULTILINE)
     offenders: list[str] = []
     for top in ("python", "services", "tools"):
         for path in sorted((root / top).rglob("*.py")):
@@ -651,6 +651,12 @@ def test_no_production_module_imports_the_evaluation_helper_or_reassigns_current
                 and "CURRENT_CBA_REGISTRY" in text
             ):
                 offenders.append(f"{relative}: patches CURRENT_CBA_REGISTRY")
+            if path.name != "factor_registry.py":
+                offenders.extend(
+                    f"{relative}: names {name}"
+                    for name in ("CBA_REGISTRY_3", "REGISTRY_3_VERSION")
+                    if re.search(rf"\b{name}\b", text)
+                )
     assert not offenders, offenders
     source = (
         root / "python" / "smartmatch_domain" / "smartmatch_domain" / "factor_registry.py"
