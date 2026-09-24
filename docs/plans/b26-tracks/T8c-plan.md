@@ -460,7 +460,8 @@ privacy). The load read is tenant-wide (OQ2), so the refs can be other units' `p
 
 | Field | Stored payload (`excluded[].load`, explanation `load`) | `LoadBlockView` (run read / `202` response) |
 |---|---|---|
-| `band`, `reason`, `measurable`, `completed_hours`, `confirmed_hours`, `capacity_hours`, `utilization`, `as_of`, `eli_formula_version` | kept | kept (decimals as strings) |
+| `band`, `reason`, `measurable`, `as_of`, `eli_formula_version` | kept | kept |
+| `completed_hours`, `confirmed_hours`, `capacity_hours`, `utilization` | **kept** (audit) | **no such field** — load numbers do not go on the API wire (owner ruling R-A, 2026-09-24); tests C10 and `test_load_block_openapi_contract.py` |
 | `unknown_hours_refs` | **kept** (the run's evidence) | **no such field**; `_to_view` drops it; the response model declares no field that could carry it |
 
 Only `_to_view` builds a `LoadBlockView`; there is no pass-through of the stored dict. T8d, which renders
@@ -729,6 +730,7 @@ B without A answers `503 registry_not_ready` on create (C3). After B: new runs p
 | 6 | LOW | Window bounds computed in Python, bound as two dates | §4 |
 | 7 | LOW | Test 10 asserts equality and equal-copies-hash-equal; G-CBA-19 digest pinned | §11 test 10, §10 G-CBA-19 step 3 |
 | 8 | Ruling | `unknown_hours_refs` stay in the stored payload, never on the API wire: `LoadBlockView` has no refs field; `_to_view` drops them | §2 rows 10 and 13, §8 Read, tests C2 and C9 |
+| 9 | Ruling R-A | Load numbers (hours, capacity, utilization) stay in the stored payload, never on the API wire: `LoadBlockView` is band, reason, measurable, `as_of`, ELI version | §8 Read, test C10, `test_load_block_openapi_contract.py` |
 
 **Follow-up card (OQ5):** `B26-FU-REGISTRY-SPLIT` — after the flip lands, move the CBA lineage,
 `CURRENT_CBA_REGISTRY` and the 3.0.0 declaration out of `factor_registry.py` (1,120 lines + ~130) into

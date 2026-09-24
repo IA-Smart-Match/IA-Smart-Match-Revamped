@@ -3714,7 +3714,7 @@
         "type": "object"
       },
       "LoadBlockView": {
-        "description": "The engagement load that removed a Speaker at Stage A (B26 T8c, ``load_full``).\n\nBuilt field by field from the stored block, never passed through: the\nstored block also lists which bookings lacked hours, by record id, and this\nview has **no field** for that list. The load read is tenant-wide (OQ2), so\nthose ids can name another unit's bookings; they stay in the stored payload\nand never reach the wire (orchestrator ruling, T8d gate). Decimals are\nstrings, so nothing rounds on the way.",
+        "description": "The engagement load that removed a Speaker at Stage A (B26 T8c, ``load_full``).\n\nThe band and why \u2014 never the numbers behind it. Built field by field from\nthe stored block, never passed through, and this view has **no field** for\ntwo things the stored block keeps:\n\n* the hours, the declared capacity and the utilization the band was\n  computed from (``completed_hours``, ``confirmed_hours``,\n  ``capacity_hours``, ``utilization``). Load numbers do not go on the API\n  wire; they stay in the stored run payload for audit (owner ruling R-A,\n  2026-09-24);\n* which bookings lacked hours, by record id. The load read is tenant-wide\n  (OQ2), so those ids can name another unit's bookings (orchestrator\n  ruling, T8d gate).",
         "properties": {
           "as_of": {
             "description": "The run's UTC date (ISO).",
@@ -3726,30 +3726,12 @@
             "title": "Band",
             "type": "string"
           },
-          "capacity_hours": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Capacity Hours"
-          },
-          "completed_hours": {
-            "title": "Completed Hours",
-            "type": "string"
-          },
-          "confirmed_hours": {
-            "title": "Confirmed Hours",
-            "type": "string"
-          },
           "eli_formula_version": {
             "title": "Eli Formula Version",
             "type": "string"
           },
           "measurable": {
+            "description": "True exactly when reason is measured.",
             "title": "Measurable",
             "type": "boolean"
           },
@@ -3757,26 +3739,12 @@
             "description": "measured, capacity_not_stated, hours_unknown, or full_by_known_hours.",
             "title": "Reason",
             "type": "string"
-          },
-          "utilization": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Unrounded; a lower bound when not measurable; null without capacity.",
-            "title": "Utilization"
           }
         },
         "required": [
           "band",
           "reason",
           "measurable",
-          "completed_hours",
-          "confirmed_hours",
           "as_of",
           "eli_formula_version"
         ],

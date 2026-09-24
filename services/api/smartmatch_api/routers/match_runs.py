@@ -346,26 +346,25 @@ class MatchRunRequest(BaseModel):
 class LoadBlockView(BaseModel):
     """The engagement load that removed a Speaker at Stage A (B26 T8c, ``load_full``).
 
-    Built field by field from the stored block, never passed through: the
-    stored block also lists which bookings lacked hours, by record id, and this
-    view has **no field** for that list. The load read is tenant-wide (OQ2), so
-    those ids can name another unit's bookings; they stay in the stored payload
-    and never reach the wire (orchestrator ruling, T8d gate). Decimals are
-    strings, so nothing rounds on the way.
+    The band and why — never the numbers behind it. Built field by field from
+    the stored block, never passed through, and this view has **no field** for
+    two things the stored block keeps:
+
+    * the hours, the declared capacity and the utilization the band was
+      computed from (``completed_hours``, ``confirmed_hours``,
+      ``capacity_hours``, ``utilization``). Load numbers do not go on the API
+      wire; they stay in the stored run payload for audit (owner ruling R-A,
+      2026-09-24);
+    * which bookings lacked hours, by record id. The load read is tenant-wide
+      (OQ2), so those ids can name another unit's bookings (orchestrator
+      ruling, T8d gate).
     """
 
     band: str = Field(description="light, moderate, heavy, full, or unknown.")
     reason: str = Field(
         description="measured, capacity_not_stated, hours_unknown, or full_by_known_hours."
     )
-    measurable: bool
-    completed_hours: str
-    confirmed_hours: str
-    capacity_hours: str | None = None
-    utilization: str | None = Field(
-        default=None,
-        description="Unrounded; a lower bound when not measurable; null without capacity.",
-    )
+    measurable: bool = Field(description="True exactly when reason is measured.")
     as_of: str = Field(description="The run's UTC date (ISO).")
     eli_formula_version: str
 
@@ -1001,17 +1000,19 @@ def _load_block_view(raw: object) -> LoadBlockView | None:
     """A stored load block as the wire view, or ``None`` when absent or unreadable.
 
     The only builder of :class:`LoadBlockView`. Each field is copied by name, so
-    ``unknown_hours_refs`` (and anything else in the stored block) never reaches
+    the hours, capacity and utilization (owner ruling R-A) and
+    ``unknown_hours_refs`` — anything else in the stored block — never reach
     the response. A malformed block reads as no block: it removed nobody on
-    this read, and it is not repaired into one.
+    this read, and it is not repaired into one. Only the fields the view shows
+    are checked; the numbers are the stored payload's audit record, not this
+    read's.
     """
     if not isinstance(raw, Mapping):
         return None
-    texts = ("band", "reason", "completed_hours", "confirmed_hours", "as_of")
-    nullable = ("capacity_hours", "utilization")
-    if not all(isinstance(raw.get(name), str) for name in (*texts, "eli_formula_version")):
-        return None
-    if not all(raw.get(name) is None or isinstance(raw.get(name), str) for name in nullable):
+    if not all(
+        isinstance(raw.get(name), str)
+        for name in ("band", "reason", "as_of", "eli_formula_version")
+    ):
         return None
     if type(raw.get("measurable")) is not bool:
         return None
@@ -1019,10 +1020,6 @@ def _load_block_view(raw: object) -> LoadBlockView | None:
         band=raw["band"],
         reason=raw["reason"],
         measurable=raw["measurable"],
-        completed_hours=raw["completed_hours"],
-        confirmed_hours=raw["confirmed_hours"],
-        capacity_hours=raw.get("capacity_hours"),
-        utilization=raw.get("utilization"),
         as_of=raw["as_of"],
         eli_formula_version=raw["eli_formula_version"],
     )

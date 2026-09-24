@@ -1930,6 +1930,49 @@ def test_a_flipped_unapproved_current_registry_does_not_block_stored_run_reads(
 
 
 # ---------------------------------------------------------------------------
+# Owner ruling R-A (2026-09-24): load numbers never reach the API wire
+# ---------------------------------------------------------------------------
+#
+# The wire's load block names the band and why; the hours, the declared
+# capacity and the utilization it was computed from stay in the stored run
+# payload only, for audit.
+
+LOAD_NUMBER_KEYS = frozenset(
+    {"completed_hours", "confirmed_hours", "capacity_hours", "utilization"}
+)
+WIRE_LOAD_BLOCK_KEYS = frozenset({"band", "reason", "measurable", "as_of", "eli_formula_version"})
+
+
+# C10
+def test_no_load_number_reaches_the_wire_and_the_stored_payload_keeps_them(
+    load_context, engine, monkeypatch
+) -> None:
+    _seed_loads(load_context)
+    _make_3_0_0_current(monkeypatch, evaluate=True)
+    accepted, run = _submit_and_execute(load_context, engine, _load_submission(load_context))
+    payload = _stored_payload(engine, uuid.UUID(accepted["job_id"]))
+    beta, gamma = (str(load_context.speakers[n]) for n in ("beta", "gamma"))
+
+    # Stored: every load_full exclusion keeps its hours, capacity and utilization.
+    stored = {e["subject_id"]: e["load"] for e in payload["excluded"] if "load" in e}
+    assert set(stored) == {beta, gamma}
+    for block in stored.values():
+        assert set(block) >= LOAD_NUMBER_KEYS
+    assert stored[beta]["capacity_hours"] == "10.0"
+
+    # On the wire: band and reason only, in the 202 and on the read.
+    for wire in (accepted["excluded_candidates"], run["excluded"]):
+        loads = {e["subject_id"]: e["load"] for e in wire if "load" in e}
+        assert set(loads) == {beta, gamma}
+        for block in loads.values():
+            assert set(block) == WIRE_LOAD_BLOCK_KEYS
+        assert loads[gamma]["band"] == "full"
+        assert loads[gamma]["reason"] == "full_by_known_hours"
+    assert LOAD_NUMBER_KEYS.isdisjoint(_keys_anywhere(accepted))
+    assert LOAD_NUMBER_KEYS.isdisjoint(_keys_anywhere(run))
+
+
+# ---------------------------------------------------------------------------
 # B26 T8d: the run read renders each candidate's stored load (R1–R7)
 # ---------------------------------------------------------------------------
 #
@@ -1977,13 +2020,6 @@ _T8C_LOAD_BLOCK_REQUIRED = [
 
 def _all_candidates(run: dict[str, Any]) -> list[dict[str, Any]]:
     return run["shortlist"] + run["considered"] + run["unscorable"]
-
-
-#: Owner ruling R-A (2026-09-24): load numbers never reach the API wire. They
-#: stay in the stored run payload, for audit; the wire carries the band and why.
-_RA_LOAD_NUMBERS = frozenset(
-    {"completed_hours", "confirmed_hours", "capacity_hours", "utilization"}
-)
 
 
 # R1
@@ -2034,10 +2070,10 @@ def test_the_candidate_load_block_is_copied_without_rounding_and_without_refs(
         expected = {
             key: value
             for key, value in stored[subject_id]["load"].items()
-            if key != "unknown_hours_refs" and key not in _RA_LOAD_NUMBERS
+            if key != "unknown_hours_refs" and key not in LOAD_NUMBER_KEYS
         }
         assert candidate["load"] == expected, subject_id
-        assert set(stored[subject_id]["load"]) >= _RA_LOAD_NUMBERS, subject_id
+        assert set(stored[subject_id]["load"]) >= LOAD_NUMBER_KEYS, subject_id
     assert "unknown_hours_refs" not in _keys_anywhere(_all_candidates(run))
     assert refs["zeta_ref"] not in json.dumps(run)
 
@@ -2157,7 +2193,7 @@ def test_t8cs_excluded_load_schema_is_unchanged() -> None:
 
 
 # R8 (owner ruling R-A)
-def test_no_load_number_reaches_the_wire_and_the_stored_payload_keeps_them(
+def test_no_candidate_load_number_reaches_the_wire_and_the_stored_payload_keeps_them(
     load_context, engine, monkeypatch
 ) -> None:
     """Band and reason on the wire; hours, capacity and utilization stored only.
@@ -2175,19 +2211,19 @@ def test_no_load_number_reaches_the_wire_and_the_stored_payload_keeps_them(
     assert blocks and all(block is not None for block in blocks)
     for block in blocks:
         assert {"band", "reason", "multiplier", "composite_before_load"} <= set(block), block
-        assert _RA_LOAD_NUMBERS.isdisjoint(block), block
+        assert LOAD_NUMBER_KEYS.isdisjoint(block), block
     assert any(entry.get("load") for entry in run["excluded"])
-    assert _RA_LOAD_NUMBERS.isdisjoint(_keys_anywhere(run))
+    assert LOAD_NUMBER_KEYS.isdisjoint(_keys_anywhere(run))
     assert any(entry.get("load") for entry in accepted["excluded_candidates"])
-    assert _RA_LOAD_NUMBERS.isdisjoint(_keys_anywhere(accepted))
+    assert LOAD_NUMBER_KEYS.isdisjoint(_keys_anywhere(accepted))
 
     payload = _stored_payload(engine, uuid.UUID(accepted["job_id"]))
     assert payload["explanations"]
     for entry in payload["explanations"]:
-        assert set(entry["load"]) >= _RA_LOAD_NUMBERS, entry["subject_id"]
+        assert set(entry["load"]) >= LOAD_NUMBER_KEYS, entry["subject_id"]
         assert "unknown_hours_refs" in entry["load"], entry["subject_id"]
     full = [entry for entry in payload["excluded"] if entry["reason"] == "load_full"]
     assert full
     for entry in full:
-        assert set(entry["load"]) >= _RA_LOAD_NUMBERS, entry["subject_id"]
+        assert set(entry["load"]) >= LOAD_NUMBER_KEYS, entry["subject_id"]
         assert "unknown_hours_refs" in entry["load"], entry["subject_id"]
