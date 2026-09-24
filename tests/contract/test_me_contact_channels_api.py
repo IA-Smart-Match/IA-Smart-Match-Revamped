@@ -583,6 +583,7 @@ def test_login_address_match_ignores_case_and_surrounding_space(ctx: _Ctx) -> No
     response = ctx.opt_in(speaker.headers, channel)
 
     assert response.status_code == 200, response.text
+    assert ctx.suppression(address).lifted_at is not None
 
 
 def test_view_can_opt_in_is_false_for_an_unverified_unsubscribe(ctx: _Ctx) -> None:
@@ -745,7 +746,18 @@ def test_quota_is_charged_before_the_404(ctx: _Ctx) -> None:
     assert _quota(ctx, "me.contact_channels.write") == 1
 
 
-def test_write_rate_limit_is_429_after_10(ctx: _Ctx) -> None:
+def test_write_rate_limit_is_429_after_10(ctx: _Ctx, monkeypatch: pytest.MonkeyPatch) -> None:
+    from smartmatch_api.routers import me_contact_channels
+    from smartmatch_persistence.rate_limit import RateLimit
+
+    shipped = me_contact_channels.ME_CONTACT_CHANNELS_WRITE_RATE_LIMIT
+    assert (shipped.max_requests, shipped.window) == (10, timedelta(minutes=1))
+    # A one-day window, so 11 requests cannot straddle a minute boundary.
+    monkeypatch.setattr(
+        me_contact_channels,
+        "ME_CONTACT_CHANNELS_WRITE_RATE_LIMIT",
+        RateLimit(operation=shipped.operation, max_requests=10, window=timedelta(days=1)),
+    )
     speaker = ctx.speaker()
     channel = ctx.channel(speaker.professional_id)
     codes = [ctx.opt_out(speaker.headers, channel).status_code for _ in range(11)]
@@ -769,3 +781,53 @@ def test_capability_off_mounts_nothing(engine: Engine) -> None:
         assert off.choices(channel) == []
     finally:
         off.drop()
+
+
+# ---------------------------------------------------------------------------
+# 6. View fields
+# ---------------------------------------------------------------------------
+
+
+def test_last_set_by_is_connector_after_a_later_connector_move(ctx: _Ctx) -> None:
+    speaker = ctx.speaker()
+    channel = ctx.channel(speaker.professional_id)
+    ctx.opt_out(speaker.headers, channel)
+    assert _by_id(ctx.list(speaker))[str(channel)]["last_set_by"] == "speaker"
+
+    coordinator, _, _ = ctx.account()
+    ctx.execute(
+        "INSERT INTO contact_channel_transition (id, tenant_id, contact_channel_id, "
+        "from_state, to_state, consent_source, actor_user_id, occurred_at) "
+        "VALUES (:i, :t, :c, 'active_candidate', 'stale', 'in_person', :u, "
+        "now() + interval '1 minute')",
+        i=uuid.uuid4(),
+        t=ctx.tenant_id,
+        c=channel,
+        u=coordinator,
+    )
+
+    assert _by_id(ctx.list(speaker))[str(channel)]["last_set_by"] == "connector"
+
+
+def test_list_is_capped_at_50_and_says_so(ctx: _Ctx) -> None:
+    speaker = ctx.speaker()
+    for _ in range(51):
+        ctx.channel(speaker.professional_id)
+
+    body = ctx.list(speaker).json()
+
+    assert body["truncated"] is True
+    assert len(body["channels"]) == 50
+
+
+def test_can_opt_in_on_a_fresh_consented_channel(ctx: _Ctx) -> None:
+    speaker = ctx.speaker()
+    channel = ctx.channel(speaker.professional_id, state="consented")
+
+    view = _by_id(ctx.list(speaker))[str(channel)]
+
+    assert (view["can_opt_in"], view["can_opt_out"], view["last_set_by"]) == (
+        True,
+        True,
+        "connector",
+    )

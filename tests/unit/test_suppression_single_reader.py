@@ -15,7 +15,6 @@ Every read of ``suppression_record`` goes through
 from __future__ import annotations
 
 import ast
-import re
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -28,64 +27,60 @@ SUPPRESSION_MODULE = "python/smartmatch_persistence/smartmatch_persistence/suppr
 SCHEMA_MODULE = "python/smartmatch_persistence/smartmatch_persistence/schema.py"
 ALLOWED_TABLE_MODULES = frozenset({SUPPRESSION_MODULE, SCHEMA_MODULE})
 
-_SQL_KEYWORDS = re.compile(r"\b(SELECT|FROM|JOIN|INSERT|UPDATE|DELETE)\b")
-_SQL_WRITE_KEYWORDS = re.compile(r"\b(INSERT|UPDATE|SET)\b")
 
 #: Methods whose result carries a suppression flag or is one.
 _UNIQUE_ELIGIBILITY_METHODS = frozenset({"load_recipient", "is_suppressed", "list_for_speaker"})
 _CONTACT_REPOSITORY_METHODS = frozenset({"get", "list_for_unit", "list_for_professional"})
-_SUPPRESSION_REPOSITORY_METHODS = frozenset({"is_active"})
-
-#: (file, enclosing function) for every eligibility read. A new caller fails
-#: ``test_every_eligibility_consumer_is_known`` until it is listed here **and**
-#: has a ``SEND_PATHS`` entry in the send-path contract test.
-KNOWN_ELIGIBILITY_CONSUMERS: frozenset[tuple[str, str]] = frozenset(
-    {
-        # R3 delegates to SuppressionRepository.is_active.
-        (
-            "python/smartmatch_persistence/smartmatch_persistence/outreach.py",
-            "OutreachRepository.is_suppressed",
-        ),
-        # R1 read-back after a transition.
-        (
-            "python/smartmatch_persistence/smartmatch_persistence/contacts.py",
-            "ContactChannelRepository.apply_transition",
-        ),
-        # C6 list, C7 register refusal and read-back, C8 transition load.
-        (
-            "services/api/smartmatch_api/routers/cba_contact_channels.py",
-            "list_speaker_contact_channels",
-        ),
-        (
-            "services/api/smartmatch_api/routers/cba_contact_channels.py",
-            "register_speaker_contact_channel",
-        ),
-        ("services/api/smartmatch_api/routers/cba_contact_channels.py", "_load_channel_or_404"),
-        # C4 batch creation, C5 dispatch.
-        ("services/api/smartmatch_api/routers/cba_invitations.py", "_compose_one"),
-        ("services/api/smartmatch_api/routers/cba_invitations.py", "dispatch_invitation_batch"),
-        # C2 compose, C3 send; `_address_for` reads the address only.
-        ("services/api/smartmatch_api/routers/outreach.py", "create_draft"),
-        ("services/api/smartmatch_api/routers/outreach.py", "_address_for"),
-        ("services/api/smartmatch_api/routers/outreach.py", "send_draft"),
-        # C9 list, read (`_load_or_404`), register and update read-backs.
-        ("services/api/smartmatch_api/routers/outreach_contacts.py", "list_contacts"),
-        ("services/api/smartmatch_api/routers/outreach_contacts.py", "_load_or_404"),
-        ("services/api/smartmatch_api/routers/outreach_contacts.py", "register_contact"),
-        ("services/api/smartmatch_api/routers/outreach_contacts.py", "update_contact"),
-        # C11 the Speaker's own view and opt-in / opt-out (B26 T6b-3).
-        ("services/api/smartmatch_api/speaker_channel_consent.py", "list_channels"),
-        ("services/api/smartmatch_api/speaker_channel_consent.py", "read_channel"),
-        ("services/api/smartmatch_api/speaker_channel_consent.py", "_locked_channel"),
-        # C10 T6b-1 portal invite eligibility.
-        ("services/api/smartmatch_api/routers/speaker_portal.py", "invite_to_portal"),
-        # C1 the worker's delivery-time re-check.
-        (
-            "services/worker/smartmatch_worker/outreach.py",
-            "build_outreach_send_handler.handle_outreach_send",
-        ),
-    }
+#: ``lock_for_address`` and ``states_for_addresses`` return lifted rows too; a
+#: caller must read ``.active``, so every caller is tracked.
+_SUPPRESSION_REPOSITORY_METHODS = frozenset(
+    {"is_active", "lock_for_address", "states_for_addresses"}
 )
+
+#: (file, enclosing function) -> the ``SEND_PATHS`` id whose lifted_at contract
+#: test covers it. A new caller fails ``test_every_eligibility_consumer_is_known``
+#: until it is listed here **and** its id has a ``SEND_PATHS`` entry in
+#: ``tests/contract/test_suppression_lift_send_paths.py``
+#: (``test_every_known_consumer_has_a_send_path``).
+_OUTREACH = "services/api/smartmatch_api/routers/outreach.py"
+_CBA_CHANNELS = "services/api/smartmatch_api/routers/cba_contact_channels.py"
+_CONTACTS = "services/api/smartmatch_api/routers/outreach_contacts.py"
+_SELF = "services/api/smartmatch_api/speaker_channel_consent.py"
+KNOWN_ELIGIBILITY_CONSUMERS: dict[tuple[str, str], str] = {
+    # R3 delegates to SuppressionRepository.is_active; its callers are C7.
+    (
+        "python/smartmatch_persistence/smartmatch_persistence/outreach.py",
+        "OutreachRepository.is_suppressed",
+    ): "C7",
+    # R1 read-back after a transition (C8 and the generic route, C9).
+    (
+        "python/smartmatch_persistence/smartmatch_persistence/contacts.py",
+        "ContactChannelRepository.apply_transition",
+    ): "C8",
+    (_CBA_CHANNELS, "list_speaker_contact_channels"): "C6",
+    (_CBA_CHANNELS, "register_speaker_contact_channel"): "C7",
+    (_CBA_CHANNELS, "_load_channel_or_404"): "C8",
+    ("services/api/smartmatch_api/routers/cba_invitations.py", "_compose_one"): "C4",
+    ("services/api/smartmatch_api/routers/cba_invitations.py", "dispatch_invitation_batch"): "C5",
+    (_OUTREACH, "create_draft"): "C2",
+    # Reads the address only (plan §5.1 "not a send-eligibility read").
+    (_OUTREACH, "_address_for"): "C3",
+    (_OUTREACH, "send_draft"): "C3",
+    (_CONTACTS, "list_contacts"): "C9",
+    (_CONTACTS, "_load_or_404"): "C9",
+    (_CONTACTS, "register_contact"): "C9",
+    (_CONTACTS, "update_contact"): "C9",
+    (_SELF, "_facts"): "C11",
+    (_SELF, "list_channels"): "C11",
+    (_SELF, "read_channel"): "C11",
+    (_SELF, "_locked_channel"): "C11",
+    ("services/api/smartmatch_api/routers/speaker_portal.py", "invite_to_portal"): "C10",
+    (
+        "services/worker/smartmatch_worker/outreach.py",
+        "build_outreach_send_handler.handle_outreach_send",
+    ): "C1",
+}
+SEND_PATHS_FILE = ROOT / "tests" / "contract" / "test_suppression_lift_send_paths.py"
 
 
 def _source_files() -> Iterator[tuple[str, ast.Module]]:
@@ -131,37 +126,100 @@ def _string_literals(tree: ast.Module) -> Iterator[ast.Constant]:
 # ---------------------------------------------------------------------------
 
 
+_TABLE = "suppression_record"
+_LIFT_COLUMNS = frozenset({"lifted_at", "lifted_by_user_id"})
+
+
+def _table_offenders(rel: str, tree: ast.Module) -> list[str]:
+    """Every way a module can name the table, outside a docstring.
+
+    Attribute (``schema.suppression_record``), bare name or import
+    (``from ...schema import suppression_record``), and any string literal that
+    contains the name (raw SQL in any case, f-string parts, ``sa.table("...")``,
+    ``METADATA.tables["..."]``). Comments are not in the AST.
+    """
+    found: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute) and node.attr == _TABLE:
+            found.append(f"{rel}:{node.lineno} .{_TABLE}")
+        elif isinstance(node, ast.Name) and node.id == _TABLE:
+            found.append(f"{rel}:{node.lineno} name {_TABLE}")
+        elif isinstance(node, ast.alias) and _TABLE in (node.name, node.asname):
+            found.append(f"{rel}:{getattr(node, 'lineno', 0)} import {_TABLE}")
+    for const in _string_literals(tree):
+        if _TABLE in str(const.value).lower():
+            found.append(f"{rel}:{const.lineno} string naming {_TABLE}")
+    return found
+
+
+def _lift_writer_offenders(rel: str, tree: ast.Module) -> list[str]:
+    """Every way a module can name a lift column, outside a docstring.
+
+    ``.c.lifted_at``, a ``lifted_at=`` keyword to ``.values(...)``, and any
+    string literal containing a lift column (dict keys, ``c["lifted_at"]``, raw
+    SQL in any case).
+    """
+    found: list[str] = []
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Attribute)
+            and node.attr in _LIFT_COLUMNS
+            and isinstance(node.value, ast.Attribute)
+            and node.value.attr == "c"
+        ):
+            found.append(f"{rel}:{node.lineno} .c.{node.attr}")
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "values"
+        ):
+            found.extend(
+                f"{rel}:{node.lineno} .values({kw.arg}=...)"
+                for kw in node.keywords
+                if kw.arg in _LIFT_COLUMNS
+            )
+    for const in _string_literals(tree):
+        text = str(const.value).lower()
+        if any(column in text for column in _LIFT_COLUMNS):
+            found.append(f"{rel}:{const.lineno} string naming a lift column")
+    return found
+
+
 def test_only_the_suppression_module_touches_the_table() -> None:
-    offenders: list[str] = []
-    for rel, tree in _source_files():
-        if rel in ALLOWED_TABLE_MODULES:
-            continue
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Attribute) and node.attr == "suppression_record":
-                offenders.append(f"{rel}:{node.lineno} schema.suppression_record")
-        for const in _string_literals(tree):
-            text = str(const.value)
-            if "suppression_record" in text and _SQL_KEYWORDS.search(text):
-                offenders.append(f"{rel}:{const.lineno} SQL naming suppression_record")
+    offenders = [
+        hit
+        for rel, tree in _source_files()
+        if rel not in ALLOWED_TABLE_MODULES
+        for hit in _table_offenders(rel, tree)
+    ]
     assert not offenders, (
         "Read suppression_record only through smartmatch_persistence.suppression "
         "(active_suppression_exists / SuppressionRepository):\n" + "\n".join(offenders)
     )
 
 
+_TABLE_PROBES = (
+    'Q = "SELECT 1 FROM suppression_record WHERE address = :a"',
+    'Q = "select 1 from suppression_record where address = :a"',
+    'Q = f"SELECT 1 FROM {x}suppression_record"',
+    "from smartmatch_persistence.schema import suppression_record",
+    "from smartmatch_persistence.schema import suppression_record as s",
+    'T = METADATA.tables["suppression_record"]',
+    'T = sa.table("suppression_record", sa.column("address"))',
+    "T = schema.suppression_record",
+)
+
+
 def test_the_guard_catches_a_raw_reader() -> None:
-    """The heuristic itself: SQL in a literal trips it, prose in a docstring does not."""
-    tree = ast.parse(
+    """Every probe trips guard 1; prose in a docstring does not."""
+    for probe in _TABLE_PROBES:
+        assert _table_offenders("probe.py", ast.parse(probe)), probe
+    prose = ast.parse(
         '"""a join against ``suppression_record``"""\n'
-        'Q = "SELECT 1 FROM suppression_record WHERE address = :a"\n'
-        'P = "computed from suppression_record at read time"\n'
+        "def f() -> None:\n"
+        '    """computed from suppression_record at read time"""\n'
     )
-    hits = [
-        c.lineno
-        for c in _string_literals(tree)
-        if "suppression_record" in str(c.value) and _SQL_KEYWORDS.search(str(c.value))
-    ]
-    assert hits == [2]
+    assert _table_offenders("probe.py", prose) == []
 
 
 # ---------------------------------------------------------------------------
@@ -170,33 +228,30 @@ def test_the_guard_catches_a_raw_reader() -> None:
 
 
 def test_lifted_at_is_written_only_by_the_suppression_module() -> None:
-    offenders: list[str] = []
-    for rel, tree in _source_files():
-        if rel in ALLOWED_TABLE_MODULES:
-            continue
-        for node in ast.walk(tree):
-            if (
-                isinstance(node, ast.Attribute)
-                and node.attr in {"lifted_at", "lifted_by_user_id"}
-                and isinstance(node.value, ast.Attribute)
-                and node.value.attr == "c"
-            ):
-                offenders.append(f"{rel}:{node.lineno} .c.{node.attr}")
-            if (
-                isinstance(node, ast.Call)
-                and isinstance(node.func, ast.Attribute)
-                and node.func.attr == "values"
-            ):
-                for kw in node.keywords:
-                    if kw.arg in {"lifted_at", "lifted_by_user_id"}:
-                        offenders.append(f"{rel}:{node.lineno} .values({kw.arg}=...)")
-        for const in _string_literals(tree):
-            text = str(const.value)
-            if "lifted_at" in text and _SQL_WRITE_KEYWORDS.search(text):
-                offenders.append(f"{rel}:{const.lineno} SQL writing lifted_at")
+    offenders = [
+        hit
+        for rel, tree in _source_files()
+        if rel not in ALLOWED_TABLE_MODULES
+        for hit in _lift_writer_offenders(rel, tree)
+    ]
     assert not offenders, "lifted_at is written only by SuppressionRepository:\n" + "\n".join(
         offenders
     )
+
+
+_LIFT_PROBES = (
+    "q = sa.update(t).values(lifted_at=now)",
+    'q = sa.update(t).values({"lifted_at": now})',
+    'q = sa.update(t).values({t.c["lifted_by_user_id"]: u})',
+    "w = t.c.lifted_at.is_(None)",
+    'Q = "update x set lifted_at = now()"',
+    'Q = "UPDATE x SET lifted_by_user_id = :u"',
+)
+
+
+def test_the_guard_catches_a_raw_lift_writer() -> None:
+    for probe in _LIFT_PROBES:
+        assert _lift_writer_offenders("probe.py", ast.parse(probe)), probe
 
 
 # ---------------------------------------------------------------------------
@@ -297,8 +352,8 @@ def test_every_eligibility_consumer_is_known() -> None:
         for c in calls
         if not (c.file == SUPPRESSION_MODULE and c.function.startswith("SuppressionRepository."))
     }
-    unknown = sorted(found - KNOWN_ELIGIBILITY_CONSUMERS)
-    stale = sorted(KNOWN_ELIGIBILITY_CONSUMERS - found)
+    unknown = sorted(found - set(KNOWN_ELIGIBILITY_CONSUMERS))
+    stale = sorted(set(KNOWN_ELIGIBILITY_CONSUMERS) - found)
     assert not unknown, (
         "New eligibility read(s). List each in KNOWN_ELIGIBILITY_CONSUMERS and give it a "
         "lifted_at contract test in SEND_PATHS:\n"
@@ -309,6 +364,31 @@ def test_every_eligibility_consumer_is_known() -> None:
         )
     )
     assert not stale, f"KNOWN_ELIGIBILITY_CONSUMERS lists callers that no longer read: {stale}"
+
+
+def _send_path_ids() -> set[str]:
+    tree = ast.parse(SEND_PATHS_FILE.read_text(encoding="utf-8"))
+    for node in tree.body:
+        target = node.target if isinstance(node, ast.AnnAssign) else None
+        if isinstance(node, ast.Assign) and len(node.targets) == 1:
+            target = node.targets[0]
+        if (
+            isinstance(target, ast.Name)
+            and target.id == "SEND_PATHS"
+            and isinstance(node.value, ast.Dict)  # type: ignore[union-attr]
+        ):
+            return {
+                k.value
+                for k in node.value.keys  # type: ignore[union-attr]
+                if isinstance(k, ast.Constant) and isinstance(k.value, str)
+            }
+    raise AssertionError("SEND_PATHS not found")
+
+
+def test_every_known_consumer_has_a_send_path() -> None:
+    ids = _send_path_ids()
+    missing = {site: cid for site, cid in KNOWN_ELIGIBILITY_CONSUMERS.items() if cid not in ids}
+    assert not missing, f"consumers whose SEND_PATHS id has no lifted_at test: {missing}"
 
 
 # ---------------------------------------------------------------------------
@@ -327,11 +407,16 @@ GUARDED_APPLY_TRANSITION_SITES: dict[tuple[str, str], str] = {
         "services/api/smartmatch_api/routers/outreach_contacts.py",
         "transition_contact",
     ): "connector_transition_conflict",
+    # The Speaker's own walk: it *is* the Speaker's choice, so what it must do
+    # is re-ask the domain; the channel lock is pinned by the test below.
     (
         "services/api/smartmatch_api/speaker_channel_consent.py",
-        "opt_in",
-    ): "opt_in_path",
+        "_walk_to_active",
+    ): "assert_transition",
 }
+_SPEAKER_SITES = frozenset(
+    {("services/api/smartmatch_api/speaker_channel_consent.py", "_walk_to_active")}
+)
 
 
 def _functions(tree: ast.Module) -> Iterator[tuple[str, ast.FunctionDef | ast.AsyncFunctionDef]]:
@@ -392,4 +477,26 @@ def test_apply_transition_call_sites_are_guarded() -> None:
     )
     for site, required in GUARDED_APPLY_TRANSITION_SITES.items():
         assert required in sites[site], f"{site} moves a channel without {required}()"
-        assert "lock" in sites[site], f"{site} moves a channel without locking it first"
+        if site not in _SPEAKER_SITES:
+            assert "lock" in sites[site], f"{site} moves a channel without locking it first"
+
+
+def test_the_speaker_walk_runs_only_under_the_channel_lock() -> None:
+    """``_walk_to_active`` is called only by ``opt_in``, after ``_locked_channel``."""
+    rel = "services/api/smartmatch_api/speaker_channel_consent.py"
+    tree = ast.parse((ROOT / rel).read_text(encoding="utf-8"))
+    callers = {name for name, fn in _functions(tree) if "_walk_to_active" in _called_names(fn)} - {
+        "_walk_to_active"
+    }
+    assert callers == {"opt_in"}
+    opt_in = dict(_functions(tree))["opt_in"]
+    order = [
+        sub.func.id
+        for sub in ast.walk(opt_in)
+        if isinstance(sub, ast.Call)
+        and isinstance(sub.func, ast.Name)
+        and sub.func.id in {"_locked_channel", "_walk_to_active"}
+    ]
+    assert order == ["_locked_channel", "_walk_to_active"]
+    locked = dict(_functions(tree))["_locked_channel"]
+    assert "lock" in _called_names(locked)
