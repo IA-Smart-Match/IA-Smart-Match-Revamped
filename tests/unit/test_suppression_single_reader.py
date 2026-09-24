@@ -19,6 +19,7 @@ import re
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
 SCANNED = ("python", "services", "tools")
@@ -304,3 +305,83 @@ def test_every_eligibility_consumer_is_known() -> None:
         )
     )
     assert not stale, f"KNOWN_ELIGIBILITY_CONSUMERS lists callers that no longer read: {stale}"
+
+
+# ---------------------------------------------------------------------------
+# 4. Every lifecycle move checks the Speaker's choice
+# ---------------------------------------------------------------------------
+
+#: Every ``apply_transition`` call site, and the Speaker-wins check it must make.
+#: A Connector route: ``connector_transition_conflict``. The Speaker's own
+#: opt-in: it *is* the Speaker's choice, and appends to the log.
+GUARDED_APPLY_TRANSITION_SITES: dict[tuple[str, str], str] = {
+    (
+        "services/api/smartmatch_api/routers/cba_contact_channels.py",
+        "transition_speaker_contact_channel",
+    ): "connector_transition_conflict",
+    (
+        "services/api/smartmatch_api/routers/outreach_contacts.py",
+        "transition_contact",
+    ): "connector_transition_conflict",
+}
+
+
+def _functions(tree: ast.Module) -> Iterator[tuple[str, ast.FunctionDef | ast.AsyncFunctionDef]]:
+    def walk(node: ast.AST, scope: tuple[str, ...]) -> Iterator[tuple[str, Any]]:
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, ast.ClassDef):
+                yield from walk(child, (*scope, child.name))
+            elif isinstance(child, ast.FunctionDef | ast.AsyncFunctionDef):
+                name = (*scope, child.name)
+                yield ".".join(name), child
+                yield from walk(child, name)
+
+    yield from walk(tree, ())
+
+
+def _called_names(node: ast.AST) -> set[str]:
+    names: set[str] = set()
+    for sub in ast.walk(node):
+        if isinstance(sub, ast.Call):
+            if isinstance(sub.func, ast.Attribute):
+                names.add(sub.func.attr)
+            elif isinstance(sub.func, ast.Name):
+                names.add(sub.func.id)
+    return names
+
+
+def test_apply_transition_call_sites_are_guarded() -> None:
+    sites: dict[tuple[str, str], set[str]] = {}
+    for rel, tree in _source_files():
+        # One level through this module's own helpers (e.g. a loader that locks).
+        local = {
+            node.name: _called_names(node)
+            for node in tree.body
+            if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+        }
+        for qualname, fn in _functions(tree):
+            direct = {
+                sub
+                for sub in ast.walk(fn)
+                if isinstance(sub, ast.Call)
+                and isinstance(sub.func, ast.Attribute)
+                and sub.func.attr == "apply_transition"
+            }
+            nested = {
+                sub
+                for inner in ast.walk(fn)
+                if inner is not fn and isinstance(inner, ast.FunctionDef | ast.AsyncFunctionDef)
+                for sub in ast.walk(inner)
+            }
+            if direct - nested and not qualname.startswith("ContactChannelRepository."):
+                called = _called_names(fn)
+                for name in list(called):
+                    called |= local.get(name, set())
+                sites[(rel, qualname)] = called
+    assert set(sites) == set(GUARDED_APPLY_TRANSITION_SITES), (
+        "apply_transition call sites changed; each must check the Speaker's choice: "
+        f"{sorted(set(sites) ^ set(GUARDED_APPLY_TRANSITION_SITES))}"
+    )
+    for site, required in GUARDED_APPLY_TRANSITION_SITES.items():
+        assert required in sites[site], f"{site} moves a channel without {required}()"
+        assert "lock" in sites[site], f"{site} moves a channel without locking it first"
