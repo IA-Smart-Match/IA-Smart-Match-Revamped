@@ -1079,6 +1079,49 @@ def _contact_state(ctx: _Ctx, professional_id: uuid.UUID) -> tuple:
     )
 
 
+#: R-C: existing-login mode binds a login only when it holds an active
+#: ``volunteer`` role and no active ``admin``/``coordinator``/``student`` one.
+#: Each refused holder, as ``(active roles, expired roles)``.
+_REFUSED_ROLE_CASES: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
+    "coordinator": (("coordinator",), ()),
+    "admin": (("admin",), ()),
+    "student": (("student",), ()),
+    "volunteer_and_coordinator": (("volunteer", "coordinator"), ()),
+    "volunteer_and_student": (("volunteer", "student"), ()),
+    "no_role": ((), ()),
+    "expired_staff_only": ((), ("coordinator",)),
+    "expired_volunteer_only": ((), ("volunteer",)),
+    "speaker_only": (("speaker",), ()),
+}
+
+#: R-C: the holders existing-login mode binds. ``speaker`` alongside
+#: ``volunteer`` neither helps nor hurts; an expired staff role is not held.
+_ACCEPTED_ROLE_CASES: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
+    "volunteer": (("volunteer",), ()),
+    "volunteer_and_speaker": (("volunteer", "speaker"), ()),
+    "volunteer_and_expired_coordinator": (("volunteer",), ("coordinator",)),
+}
+
+
+def _holder(
+    ctx: _Ctx, address: str, case: str, *, tenant_id: uuid.UUID | None = None
+) -> tuple[uuid.UUID, str]:
+    """A login at ``address`` shaped by one role case above: ``(user_id, pw)``."""
+    active, expired = (_REFUSED_ROLE_CASES | _ACCEPTED_ROLE_CASES)[case]
+    host_id, _, pw = ctx.host_login(address, roles=active, tenant_id=tenant_id)
+    for role in expired:
+        ctx.execute(
+            "INSERT INTO membership (id, tenant_id, user_id, granted_path, role, valid_until) "
+            "VALUES (:id, :t, :u, CAST(:p AS ltree), :r, now() - interval '1 day')",
+            id=uuid.uuid4(),
+            t=tenant_id or ctx.tenant_id,
+            u=host_id,
+            p=UNIT_PATH,
+            r=role,
+        )
+    return host_id, pw
+
+
 class TestExistingLogin:
     def test_right_password_binds_the_host_login_and_adds_speaker(self, ctx: _Ctx) -> None:
         host_id, host_address, pw = ctx.host_login()
@@ -1227,9 +1270,7 @@ class TestExistingLogin:
         [
             "ambiguous",
             "other_tenant",
-            "coordinator",
-            "admin",
-            "student",
+            *_REFUSED_ROLE_CASES,
             "bound_elsewhere",
             "merged_contact_credentialed",
             "suspended_holder",
@@ -1238,17 +1279,16 @@ class TestExistingLogin:
     def test_refused_holders_are_the_generic_400(
         self, ctx: _Ctx, other_tenant: uuid.UUID, case: str
     ) -> None:
-        """R-E, R-F, Q1, one-login-one-Speaker, R-B: byte-identical to an unknown token."""
-        roles = (case,) if case in {"coordinator", "admin", "student"} else ("volunteer",)
+        """R-E, R-F, R-C, one-login-one-Speaker, R-B: byte-identical to an unknown token."""
         host_address = f"Host-{uuid.uuid4().hex[:8]}@Synthetic.invalid"
         # Invite first: the invite pre-check would refuse these addresses (§4.3),
         # and it is advisory — a holder that appears afterwards meets activation.
         professional_id, invitation_id, token, _ = ctx.invited(address=host_address)
-        host_id, _, pw = ctx.host_login(
-            host_address.lower(),
-            roles=roles,
-            tenant_id=other_tenant if case == "other_tenant" else None,
-        )
+        tenant = other_tenant if case == "other_tenant" else None
+        if case in _REFUSED_ROLE_CASES:
+            host_id, pw = _holder(ctx, host_address.lower(), case)
+        else:
+            host_id, _, pw = ctx.host_login(host_address.lower(), tenant_id=tenant)
         if case == "ambiguous":
             ctx.other_credentialed_account(host_address.lower(), tenant_id=other_tenant)
         elif case == "bound_elsewhere":
@@ -1292,6 +1332,40 @@ class TestExistingLogin:
         login = ctx.client.post("/v1/auth/login", json={"email": host_address, "password": pw})
         assert login.status_code == 200, login.text
 
+    @pytest.mark.parametrize("case", list(_ACCEPTED_ROLE_CASES))
+    def test_an_active_volunteer_login_binds(self, ctx: _Ctx, case: str) -> None:
+        """R-C allow-list: an active ``volunteer`` and no active staff or student role."""
+        host_address = f"Host-{uuid.uuid4().hex[:8]}@Synthetic.invalid"
+        host_id, pw = _holder(ctx, host_address, case)
+        professional_id, _, token, _ = ctx.invited(address=host_address)
+
+        assert 'name="existing_password"' in ctx.client.get(f"/s/{token}").text
+        response = ctx.activate_existing(token, pw)
+
+        assert response.status_code == 200, response.text
+        assert (
+            ctx.scalar(
+                "SELECT account_user_id FROM speaker_profile WHERE professional_id = :p",
+                p=professional_id,
+            )
+            == host_id
+        )
+        assert len(_speaker_rows(ctx, host_id)) == 1
+
+    @pytest.mark.parametrize("case", list(_REFUSED_ROLE_CASES))
+    def test_a_refused_holder_gets_the_generic_page(self, ctx: _Ctx, case: str) -> None:
+        """``GET /s/{token}`` for an R-C refusal is T6b-1's bytes, and asks for no password."""
+        host_address = f"Host-{uuid.uuid4().hex[:8]}@Synthetic.invalid"
+        _, _, token, _ = ctx.invited(address=host_address)
+        _holder(ctx, host_address.lower(), case)
+        reference = ctx.client.get(f"/s/{derive_token(ctx.secret, uuid.uuid4())}")
+
+        page = ctx.client.get(f"/s/{token}")
+
+        assert page.status_code == 200
+        assert page.content == reference.content
+        assert "existing_password" not in page.text
+
 
 # ---------------------------------------------------------------------------
 # B26 T6b-5: invite pre-check (plan §4.3, R-F, Q1, Q5)
@@ -1333,26 +1407,77 @@ def test_invite_precheck_ambiguous_is_409(ctx: _Ctx, other_tenant: uuid.UUID) ->
     assert _no_invitations(ctx)
 
 
-@pytest.mark.parametrize("role", ["coordinator", "admin", "student"])
-def test_invite_precheck_staff_login_is_409(ctx: _Ctx, role: str) -> None:
+#: R-C: every holder the pre-check refuses gets this one body, whatever it holds.
+_NOT_HOST_LOGIN_CODE = "speaker_portal_address_not_host_login"
+_NOT_HOST_LOGIN_MESSAGE = (
+    "This address already signs in to SmartMatch and cannot also be a Speaker login. "
+    "Choose a different address."
+)
+
+
+@pytest.mark.parametrize(
+    ("held", "binds"),
+    [
+        (frozenset({"volunteer"}), True),
+        (frozenset({"volunteer", "speaker"}), True),
+        (frozenset(), False),
+        (frozenset({"speaker"}), False),
+        (frozenset({"volunteer", "coordinator"}), False),
+        (frozenset({"volunteer", "admin"}), False),
+        (frozenset({"volunteer", "student"}), False),
+        (frozenset({"coordinator"}), False),
+    ],
+    ids=[
+        "volunteer",
+        "volunteer_and_speaker",
+        "no_role",
+        "speaker_only",
+        "volunteer_and_coordinator",
+        "volunteer_and_admin",
+        "volunteer_and_student",
+        "coordinator",
+    ],
+)
+def test_existing_login_may_bind_is_an_allow_list(held: frozenset[str], binds: bool) -> None:
+    """R-C in one place: the pre-check and activation both call this."""
+    from smartmatch_api.speaker_portal_activation import (
+        EXISTING_LOGIN_ALLOWED_ROLES,
+        existing_login_may_bind,
+    )
+
+    assert set(EXISTING_LOGIN_ALLOWED_ROLES) == {"volunteer"}
+    assert existing_login_may_bind(held) is binds
+
+
+@pytest.mark.parametrize("case", list(_REFUSED_ROLE_CASES))
+def test_invite_precheck_refuses_every_holder_but_an_event_host(ctx: _Ctx, case: str) -> None:
     professional_id, channel_id, address = ctx.contact()
-    ctx.host_login(address.lower(), roles=(role,))
+    host_id, _ = _holder(ctx, address.lower(), case)
 
     response = ctx.invite(professional_id, channel_id)
 
     assert response.status_code == 409
-    assert response.json()["error"]["code"] == "speaker_portal_address_is_staff_login"
+    error = response.json()["error"]
+    assert (error["code"], error["message"]) == (_NOT_HOST_LOGIN_CODE, _NOT_HOST_LOGIN_MESSAGE)
+    assert str(host_id) not in response.text
     assert _no_invitations(ctx)
 
 
-def test_invite_to_an_event_host_address_is_accepted(ctx: _Ctx) -> None:
-    professional_id, channel_id, address = ctx.contact()
-    ctx.host_login(address.lower())
-    assert ctx.invite(professional_id, channel_id).status_code == 202
+def test_invite_precheck_refusals_are_byte_identical(ctx: _Ctx) -> None:
+    """No enumeration: staff, student, no-role, expired-only and speaker-only read alike."""
+    bodies = set()
+    for case in _REFUSED_ROLE_CASES:
+        professional_id, channel_id, address = ctx.contact()
+        _holder(ctx, address.lower(), case)
+        response = ctx.invite(professional_id, channel_id)
+        assert response.status_code == 409, case
+        bodies.add(response.content)
+    assert len(bodies) == 1
+    assert _no_invitations(ctx)
 
 
-def test_invite_to_an_expired_staff_role_is_accepted(ctx: _Ctx) -> None:
-    """Only an *active* staff or student role refuses (Q1)."""
+def test_invite_to_an_expired_staff_role_only_is_409(ctx: _Ctx) -> None:
+    """R-C: an expired coordinator role and no active volunteer is not an Event Host."""
     professional_id, channel_id, address = ctx.contact()
     host_id, _, _ = ctx.host_login(address.lower(), roles=())
     ctx.execute(
@@ -1363,6 +1488,18 @@ def test_invite_to_an_expired_staff_role_is_accepted(ctx: _Ctx) -> None:
         u=host_id,
         p=UNIT_PATH,
     )
+
+    response = ctx.invite(professional_id, channel_id)
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == _NOT_HOST_LOGIN_CODE
+    assert _no_invitations(ctx)
+
+
+@pytest.mark.parametrize("case", list(_ACCEPTED_ROLE_CASES))
+def test_invite_to_an_event_host_address_is_accepted(ctx: _Ctx, case: str) -> None:
+    professional_id, channel_id, address = ctx.contact()
+    _holder(ctx, address.lower(), case)
     assert ctx.invite(professional_id, channel_id).status_code == 202
 
 

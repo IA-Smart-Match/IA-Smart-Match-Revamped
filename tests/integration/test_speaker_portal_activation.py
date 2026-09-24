@@ -279,8 +279,14 @@ def test_invite_and_activation_take_the_profile_lock_first(
 # ---------------------------------------------------------------------------
 
 
-def _host(engine: Engine, tenant_id: uuid.UUID, address: str) -> tuple[uuid.UUID, str]:
-    """An Event Host login at ``address``: ``(user_id, password)``."""
+def _host(
+    engine: Engine,
+    tenant_id: uuid.UUID,
+    address: str,
+    *,
+    roles: tuple[str, ...] = ("volunteer",),
+) -> tuple[uuid.UUID, str]:
+    """A login at ``address`` holding ``roles`` (an Event Host by default): ``(user_id, pw)``."""
     user_id, pw = uuid.uuid4(), _new_pw()
     stored = derive_password_hash(pw, salt=new_salt(), iterations=MINIMUM_ITERATIONS)
     with engine.begin() as conn:
@@ -313,14 +319,52 @@ def _host(engine: Engine, tenant_id: uuid.UUID, address: str) -> tuple[uuid.UUID
                 "h": stored.digest,
             },
         )
-        conn.execute(
-            text(
-                "INSERT INTO membership (id, tenant_id, user_id, granted_path, role) "
-                "VALUES (:id, :t, :u, CAST('iawest.jobs' AS ltree), 'volunteer')"
-            ),
-            {"id": uuid.uuid4(), "t": tenant_id, "u": user_id},
-        )
+        for role in roles:
+            conn.execute(
+                text(
+                    "INSERT INTO membership (id, tenant_id, user_id, granted_path, role) "
+                    "VALUES (:id, :t, :u, CAST('iawest.jobs' AS ltree), :r)"
+                ),
+                {"id": uuid.uuid4(), "t": tenant_id, "u": user_id, "r": role},
+            )
     return user_id, pw
+
+
+@pytest.mark.parametrize(
+    ("roles", "mode"),
+    [
+        (("volunteer",), activation.ActivationMode.EXISTING_LOGIN),
+        (("volunteer", "speaker"), activation.ActivationMode.EXISTING_LOGIN),
+        ((), None),
+        (("speaker",), None),
+        (("volunteer", "coordinator"), None),
+    ],
+    ids=["volunteer", "volunteer_and_speaker", "no_role", "speaker_only", "volunteer_and_staff"],
+)
+def test_only_an_active_volunteer_login_is_bound(
+    engine: Engine, session_factory, tenant_id, roles: tuple[str, ...], mode
+) -> None:
+    """R-C: ``page_mode`` and ``activate`` share the allow-list; a refusal writes nothing."""
+    address = f"host-{uuid.uuid4().hex[:8]}@example.invalid"
+    host_id, pw = _host(engine, tenant_id, address, roles=roles)
+    professional_id, token = _speaker(engine, tenant_id, address=address)
+    before = _state(engine, professional_id)
+
+    with session_factory() as session:
+        assert activation.page_mode(session, token=token, secret=_SECRET, now=_NOW) is mode
+        if mode is None:
+            with pytest.raises(ActivationRefused):
+                _activate(session, token, pw)
+            session.rollback()
+        else:
+            _activate(session, token, pw)
+            session.commit()
+
+    after = _state(engine, professional_id)
+    if mode is None:
+        assert after == before
+    else:
+        assert after[3] == host_id and after[4] == 1
 
 
 def test_two_invitations_to_one_host_address_bind_once(
