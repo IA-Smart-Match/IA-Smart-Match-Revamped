@@ -14,7 +14,7 @@ from __future__ import annotations
 import dataclasses
 import sys
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -173,6 +173,7 @@ def test_seed_at_an_activated_speakers_address_creates_no_second_credential(
             account = PilotCredentialRepository().load_by_email(session, email=address)
     assert account is not None and account.user_id == contact
     assert account.password.digest == stored.digest  # the seed's password was not applied
+    assert account.password.salt == stored.salt
     assert sorted(
         r.role for r in _rows(engine, "SELECT role FROM membership WHERE user_id = :u", u=contact)
     ) == ["speaker", "volunteer"]
@@ -255,3 +256,231 @@ def test_a_login_seeded_before_normalisation_reseeds_cleanly(
     [outcome] = [o for o in second if o.role == "volunteer"]
     assert "password rotated" in outcome.reason
     assert _rows(engine, "SELECT email FROM user_account WHERE id = :u", u=host) == [(address,)]
+
+
+# ---------------------------------------------------------------------------
+# Owner ruling R-B (2026-09-24): the seed merges into a login it did not create
+# only as the volunteer entry, and only when that login's *active* roles are a
+# subset of {speaker, volunteer}. Anything else is a SeedConflictError, and the
+# transaction writes nothing.
+# ---------------------------------------------------------------------------
+
+_ALL_ROLES = ("speaker", "volunteer", "coordinator", "admin", "student")
+
+
+def _pilot_unit(engine: Engine, tenant_id: uuid.UUID) -> None:
+    """The unit the seed itself would create, with the seed's own attributes."""
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO org_unit (id, tenant_id, path, unit_type, display_name) "
+                "VALUES (:id, :t, CAST(:p AS ltree), 'program', 'Synthetic Pilot Unit') "
+                "ON CONFLICT DO NOTHING"
+            ),
+            {"id": uuid.uuid4(), "t": tenant_id, "p": _UNIT_PATH},
+        )
+
+
+def _foreign_login(
+    engine: Engine,
+    tenant_id: uuid.UUID,
+    address: str,
+    *,
+    active: tuple[str, ...],
+    expired: tuple[str, ...] = (),
+) -> uuid.UUID:
+    """A credentialed login at ``address`` that the seed did not create.
+
+    Every role goes through ``find_or_add_role`` (the one credential writer);
+    ``expired`` roles then get a past ``valid_until``. With no role at all the
+    login is credentialed with a ``volunteer`` row that is then expired.
+    """
+    _pilot_unit(engine, tenant_id)
+    _speaker_unit(engine, tenant_id)
+    contact = uuid.uuid4()
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO user_account (id, tenant_id, external_subject, email) "
+                "VALUES (:id, :t, :s, 'contact@placeholder.invalid')"
+            ),
+            {"id": contact, "t": tenant_id, "s": unique_subject(f"foreign-{contact.hex}")},
+        )
+    stored = derive_password_hash(_pw(), salt=new_salt(), iterations=MINIMUM_ITERATIONS)
+    to_expire = expired if (active or expired) else ("volunteer",)
+    create: NewLogin | None = NewLogin(user_id=contact, password=stored)
+    now = datetime.now(UTC)
+    with engine.begin() as conn:
+        for role in (*active, *to_expire):
+            login_accounts.find_or_add_role(
+                conn,
+                tenant_id=tenant_id,
+                email=address,
+                role=role,
+                path=_SPEAKER_PATH if role == "speaker" else _UNIT_PATH,
+                now=now,
+                create=create,
+            )
+            create = None
+        for role in to_expire:
+            conn.execute(
+                text(
+                    "UPDATE membership SET valid_until = :past "
+                    "WHERE tenant_id = :t AND user_id = :u AND role = :r"
+                ),
+                {"past": now - timedelta(hours=1), "t": tenant_id, "u": contact, "r": role},
+            )
+    return contact
+
+
+def _login_state(engine: Engine, user_id: uuid.UUID) -> tuple[list, list]:
+    """Every membership row and the credential row of one login."""
+    memberships = _rows(
+        engine,
+        "SELECT id, role, granted_path::text, valid_from, valid_until FROM membership "
+        "WHERE user_id = :u ORDER BY id",
+        u=user_id,
+    )
+    credential = _rows(
+        engine,
+        "SELECT id, algorithm, iterations, salt, password_hash, updated_at "
+        "FROM pilot_credential WHERE user_id = :u",
+        u=user_id,
+    )
+    return memberships, credential
+
+
+def _active_role_names(engine: Engine, user_id: uuid.UUID) -> list[str]:
+    return sorted(
+        r.role
+        for r in _rows(
+            engine,
+            "SELECT role FROM membership WHERE user_id = :u "
+            "AND (valid_until IS NULL OR valid_until > now())",
+            u=user_id,
+        )
+    )
+
+
+def _assert_merged(engine, entries, outcomes, holder: uuid.UUID, credential_before) -> None:
+    [outcome] = [o for o in outcomes if o.role == "volunteer"]
+    assert outcome.created and outcome.foreign_login
+    assert _login_state(engine, holder)[1] == credential_before  # password untouched
+    assert (
+        _rows(
+            engine,
+            "SELECT id FROM user_account WHERE external_subject = :s",
+            s=entries["volunteer"].subject,
+        )
+        == []
+    )
+
+
+def _assert_refused(
+    engine: Engine,
+    tenant_id: uuid.UUID,
+    entry: seed_pilot_logins.RoleCredential,
+    environ: dict[str, str],
+    holder: uuid.UUID,
+) -> None:
+    before = _login_state(engine, holder)
+
+    with pytest.raises(seed_pilot_logins.SeedConflictError) as raised:
+        _seed(engine, tenant_id, environ)
+
+    assert _login_state(engine, holder) == before  # nothing written, rolled back
+    assert (
+        _rows(engine, "SELECT id FROM user_account WHERE external_subject = :s", s=entry.subject)
+        == []
+    )
+    message = str(raised.value)
+    assert message.startswith(f"{entry.role}:") and entry.email_var in message
+    assert "@" not in message and str(holder) not in message and str(tenant_id) not in message
+    for other in set(_ALL_ROLES) - {entry.role}:
+        assert other not in message, f"the refusal names the role {other!r}"
+
+
+def test_volunteer_entry_merges_into_a_login_holding_only_speaker(
+    engine: Engine, tenant_id: uuid.UUID, entries
+) -> None:
+    address = f"speaker-{uuid.uuid4().hex[:10]}@seed.invalid"
+    holder = _foreign_login(engine, tenant_id, address, active=("speaker",))
+    credential = _login_state(engine, holder)[1]
+
+    outcomes = _seed(engine, tenant_id, _environ(entries, volunteer=address))
+
+    _assert_merged(engine, entries, outcomes, holder, credential)
+    assert _active_role_names(engine, holder) == ["speaker", "volunteer"]
+
+
+def test_volunteer_entry_merges_into_a_volunteer_login_idempotently(
+    engine: Engine, tenant_id: uuid.UUID, entries
+) -> None:
+    address = f"vol-{uuid.uuid4().hex[:10]}@seed.invalid"
+    holder = _foreign_login(engine, tenant_id, address, active=("volunteer",))
+    before = _login_state(engine, holder)
+    environ = _environ(entries, volunteer=address)
+
+    first = _seed(engine, tenant_id, environ)
+    second = _seed(engine, tenant_id, environ)
+
+    for outcomes in (first, second):
+        _assert_merged(engine, entries, outcomes, holder, before[1])
+    assert _login_state(engine, holder) == before  # no duplicate membership
+    assert _active_role_names(engine, holder) == ["volunteer"]
+
+
+def test_volunteer_entry_merges_into_a_login_with_no_active_role(
+    engine: Engine, tenant_id: uuid.UUID, entries
+) -> None:
+    # R-B read literally: {} is a subset of {speaker, volunteer}, so the merge is allowed.
+    address = f"none-{uuid.uuid4().hex[:10]}@seed.invalid"
+    holder = _foreign_login(engine, tenant_id, address, active=())
+    assert _active_role_names(engine, holder) == []
+    credential = _login_state(engine, holder)[1]
+
+    outcomes = _seed(engine, tenant_id, _environ(entries, volunteer=address))
+
+    _assert_merged(engine, entries, outcomes, holder, credential)
+    assert _active_role_names(engine, holder) == ["volunteer"]
+
+
+@pytest.mark.parametrize("role", ["coordinator", "admin", "student"])
+@pytest.mark.parametrize(
+    "active", [(), ("speaker",), ("volunteer",)], ids=lambda roles: "+".join(roles) or "none"
+)
+def test_a_non_volunteer_entry_never_merges_into_a_foreign_login(
+    engine: Engine, tenant_id: uuid.UUID, entries, role: str, active: tuple[str, ...]
+) -> None:
+    address = f"{role}-{uuid.uuid4().hex[:10]}@seed.invalid"
+    holder = _foreign_login(engine, tenant_id, address, active=active)
+
+    _assert_refused(engine, tenant_id, entries[role], _environ(entries, **{role: address}), holder)
+
+
+@pytest.mark.parametrize("staff", ["coordinator", "admin", "student"])
+def test_volunteer_entry_refuses_a_login_holding_an_active_staff_role(
+    engine: Engine, tenant_id: uuid.UUID, entries, staff: str
+) -> None:
+    address = f"staff-{uuid.uuid4().hex[:10]}@seed.invalid"
+    holder = _foreign_login(engine, tenant_id, address, active=("speaker", staff))
+
+    _assert_refused(
+        engine, tenant_id, entries["volunteer"], _environ(entries, volunteer=address), holder
+    )
+
+
+def test_an_expired_staff_role_does_not_block_the_volunteer_merge(
+    engine: Engine, tenant_id: uuid.UUID, entries
+) -> None:
+    address = f"expired-{uuid.uuid4().hex[:10]}@seed.invalid"
+    holder = _foreign_login(
+        engine, tenant_id, address, active=("volunteer",), expired=("coordinator",)
+    )
+    before = _login_state(engine, holder)
+
+    outcomes = _seed(engine, tenant_id, _environ(entries, volunteer=address))
+
+    _assert_merged(engine, entries, outcomes, holder, before[1])
+    assert _login_state(engine, holder) == before  # volunteer already active: nothing added
+    assert _active_role_names(engine, holder) == ["volunteer"]

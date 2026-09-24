@@ -78,6 +78,8 @@ class _Recorder:
         self.connections: set[int] = set()
         self.accounts: dict[str, uuid.UUID] = {}
         self.holders: dict[str, AddressHolders] = {}
+        #: A holder's *active* roles, by user id (R-B). Absent means none.
+        self.active: dict[uuid.UUID, frozenset[str]] = {}
         self.tenant_id = uuid.uuid4()
 
     def _saw(self, connection: object, *event: object) -> None:
@@ -105,6 +107,12 @@ class _Recorder:
     def holders_for_address(self, connection: object, *, address: str, lock: bool, **_: object):
         self._saw(connection, "holders", address, lock)
         return self.holders.get(address, AddressHolders(AddressState.NONE, None))
+
+    def active_roles(
+        self, connection: object, *, tenant_id: uuid.UUID, user_id: uuid.UUID, **_: object
+    ) -> frozenset[str]:
+        self._saw(connection, "active_roles", user_id)
+        return self.active.get(user_id, frozenset())
 
     def find_or_add_role(
         self,
@@ -142,6 +150,7 @@ def recorder(monkeypatch: pytest.MonkeyPatch) -> _Recorder:
     monkeypatch.setattr(accounts, "lock_address", rec.lock_address)
     monkeypatch.setattr(accounts, "holders_for_address", rec.holders_for_address)
     monkeypatch.setattr(accounts, "find_or_add_role", rec.find_or_add_role)
+    monkeypatch.setattr(accounts, "active_roles", rec.active_roles, raising=False)
     monkeypatch.setattr(accounts, "rotate_own_password", rec.rotate)
     return rec
 
@@ -362,13 +371,15 @@ def test_the_seeds_own_login_gets_its_roles_and_a_rotated_password(recorder: _Re
     assert "password rotated" in outcome.reason
 
 
-def test_a_foreign_login_gets_the_roles_and_keeps_its_password(
+def test_a_foreign_speaker_login_gains_volunteer_and_keeps_its_password(
     recorder: _Recorder, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Q4: the address already signs in as a login the seed did not create."""
+    """Q4 under R-B: a volunteer entry onto an activated Speaker's login merges."""
     entry = _entry("volunteer")
     email = f"{entry.role}@test.invalid"
     recorder.holders[email] = _holder("activated-speaker-login")
+    holder_id = recorder.holders[email].holder.user_id  # type: ignore[union-attr]
+    recorder.active[holder_id] = frozenset({"speaker"})
 
     outcomes = seed_pilot_logins.seed_role_logins(
         _CONNECTION,  # type: ignore[arg-type]
@@ -447,3 +458,163 @@ class _FakeEngine:
 
     def dispose(self) -> None:
         return None
+
+
+# ---------------------------------------------------------------------------
+# Owner ruling R-B (2026-09-24): the seed merges into a foreign login only as
+# the volunteer login, and only when that login holds nothing beyond speaker
+# and volunteer. Anything else is a SeedConflictError.
+# ---------------------------------------------------------------------------
+
+#: Every role a message could name; a refusal names the entry's own role only.
+_ALL_ROLES = ("speaker", "volunteer", "coordinator", "admin", "student")
+
+#: Every non-volunteer role the seed config supports. ``speaker`` is not one:
+#: no entry asks for it, and ``verify_membership_set`` refuses it
+#: (``INVITATION_ONLY_ROLES``).
+_NON_VOLUNTEER_ENTRY_ROLES = sorted(
+    {e.role for e in seed_pilot_logins.ROLE_CREDENTIALS} - {"volunteer"}
+)
+
+
+def _foreign_holder(recorder: _Recorder, email: str, active: frozenset[str]) -> uuid.UUID:
+    recorder.holders[email] = _holder("activated-speaker-login")
+    user_id = recorder.holders[email].holder.user_id  # type: ignore[union-attr]
+    recorder.active[user_id] = active
+    return user_id
+
+
+def _assert_generic_refusal(
+    error: seed_pilot_logins.SeedConflictError,
+    entry: seed_pilot_logins.RoleCredential,
+    recorder: _Recorder,
+    holder_id: uuid.UUID,
+) -> None:
+    message = str(error)
+    assert message.startswith(f"{entry.role}:") and entry.email_var in message
+    assert "@" not in message
+    for leaked in (str(holder_id), str(recorder.tenant_id), "activated-speaker-login"):
+        assert leaked not in message
+    for other in set(_ALL_ROLES) - {entry.role}:
+        assert other not in message, f"the refusal names the role {other!r}"
+
+
+def test_no_seed_entry_asks_for_speaker_and_the_volunteer_entry_is_volunteer_only() -> None:
+    """The configuration facts R-B's rule is read against."""
+    assert all("speaker" not in e.roles for e in seed_pilot_logins.ROLE_CREDENTIALS)
+    assert _entry("volunteer").roles == ("volunteer",)
+    assert _NON_VOLUNTEER_ENTRY_ROLES == ["admin", "coordinator", "student"]
+
+
+@pytest.mark.parametrize(
+    "active",
+    [frozenset({"speaker"}), frozenset({"volunteer"}), frozenset({"speaker", "volunteer"})],
+    ids=lambda roles: "+".join(sorted(roles)),
+)
+def test_volunteer_entry_merges_into_a_speaker_or_volunteer_login(
+    recorder: _Recorder, active: frozenset[str]
+) -> None:
+    entry = _entry("volunteer")
+    email = f"{entry.role}@test.invalid"
+    holder_id = _foreign_holder(recorder, email, active)
+
+    outcomes = seed_pilot_logins.seed_role_logins(
+        _CONNECTION,  # type: ignore[arg-type]
+        environ=_environ_for("volunteer"),
+        **_SEED_KWARGS,
+    )
+
+    [outcome] = [o for o in outcomes if o.role == "volunteer"]
+    assert outcome.created and outcome.foreign_login
+    assert recorder.of("role") == [("role", email, "volunteer", None)]
+    assert recorder.of("rotate") == [] and recorder.of("account") == []
+    # Lock order: address lock, credential rows, then the read, then writes.
+    kinds = [event[0] for event in recorder.events]
+    assert kinds[kinds.index("lock") :] == ["lock", "holders", "active_roles", "role"]
+    assert recorder.of("active_roles") == [("active_roles", holder_id)]
+
+
+def test_volunteer_entry_merges_into_a_login_with_no_active_role(recorder: _Recorder) -> None:
+    # R-B read literally: {} is a subset of {speaker, volunteer}, so the merge is allowed.
+    entry = _entry("volunteer")
+    email = f"{entry.role}@test.invalid"
+    _foreign_holder(recorder, email, frozenset())
+
+    outcomes = seed_pilot_logins.seed_role_logins(
+        _CONNECTION,  # type: ignore[arg-type]
+        environ=_environ_for("volunteer"),
+        **_SEED_KWARGS,
+    )
+
+    [outcome] = [o for o in outcomes if o.role == "volunteer"]
+    assert outcome.created and outcome.foreign_login
+    assert recorder.of("role") == [("role", email, "volunteer", None)]
+
+
+@pytest.mark.parametrize("role", _NON_VOLUNTEER_ENTRY_ROLES)
+@pytest.mark.parametrize(
+    "active",
+    [frozenset(), frozenset({"speaker"}), frozenset({"volunteer"})],
+    ids=lambda roles: "+".join(sorted(roles)) or "none",
+)
+def test_a_non_volunteer_entry_never_merges_into_a_foreign_login(
+    recorder: _Recorder, role: str, active: frozenset[str]
+) -> None:
+    entry = _entry(role)
+    email = f"{entry.role}@test.invalid"
+    holder_id = _foreign_holder(recorder, email, active)
+
+    with pytest.raises(seed_pilot_logins.SeedConflictError) as raised:
+        seed_pilot_logins.seed_role_logins(
+            _CONNECTION,  # type: ignore[arg-type]
+            environ=_environ_for(role),
+            **_SEED_KWARGS,
+        )
+
+    _assert_generic_refusal(raised.value, entry, recorder, holder_id)
+    assert recorder.of("role") == [] and recorder.of("rotate") == []
+    assert recorder.of("account") == [] and recorder.of("verify") == []
+
+
+@pytest.mark.parametrize("staff", ["coordinator", "admin", "student"])
+def test_volunteer_entry_refuses_a_login_holding_any_other_active_role(
+    recorder: _Recorder, staff: str
+) -> None:
+    entry = _entry("volunteer")
+    email = f"{entry.role}@test.invalid"
+    holder_id = _foreign_holder(recorder, email, frozenset({"volunteer", staff}))
+
+    with pytest.raises(seed_pilot_logins.SeedConflictError) as raised:
+        seed_pilot_logins.seed_role_logins(
+            _CONNECTION,  # type: ignore[arg-type]
+            environ=_environ_for("volunteer"),
+            **_SEED_KWARGS,
+        )
+
+    _assert_generic_refusal(raised.value, entry, recorder, holder_id)
+    assert recorder.of("role") == [] and recorder.of("rotate") == []
+
+
+def test_a_volunteer_entry_with_a_further_role_does_not_merge(
+    recorder: _Recorder, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Every role of the entry must be ``volunteer``, not only the primary one."""
+    widened = seed_pilot_logins.RoleCredential(
+        role="volunteer",
+        additional_roles=("coordinator",),
+        subject="pilot-login-volunteer",
+        email_var="SMARTMATCH_PILOT_VOLUNTEER_EMAIL",
+        password_var="SMARTMATCH_PILOT_VOLUNTEER_PASSWORD",
+    )
+    monkeypatch.setattr(seed_pilot_logins, "ROLE_CREDENTIALS", (widened,))
+    email = "volunteer@test.invalid"
+    _foreign_holder(recorder, email, frozenset({"speaker"}))
+
+    with pytest.raises(seed_pilot_logins.SeedConflictError):
+        seed_pilot_logins.seed_role_logins(
+            _CONNECTION,  # type: ignore[arg-type]
+            environ={widened.email_var: email, widened.password_var: _USABLE_SECRET},
+            **_SEED_KWARGS,
+        )
+
+    assert recorder.of("role") == [] and recorder.of("rotate") == []
