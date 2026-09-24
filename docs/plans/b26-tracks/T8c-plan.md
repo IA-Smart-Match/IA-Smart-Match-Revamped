@@ -285,7 +285,7 @@ milestone 1 on the stacked base and must be equal (T4 touches no weight):
 | Model | `registry_hash` |
 |---|---|
 | 2.0.0 `cba-physical-1` | `sha256:f870192c2b1d9977aaf4be3368f51f67accbbbba9955e4346a4445b0be4be4e5` |
-| 2.0.0 `cba-virtual-1` | `sha256:0b27df1f198b501da27f3a58d0128625f1351a1ba77fa4189807c31865c85ce4` |
+| 2.0.0 `cba-virtual-1` | Python 3.11 (production, CI): `sha256:62524878457dee467d747e3b9040a61cf6915e7a5398a08a8d9af4e83792b74c`; Python 3.12: `sha256:0b27df1f198b501da27f3a58d0128625f1351a1ba77fa4189807c31865c85ce4` (3.12's `sum()` is compensated; corrected after PR #221 CI) |
 | 1.1.1 G1 | `sha256:9da5f1b1ccb6b0627759c77a472fb47d8b77ce634c21fffe9bf53a5b04e79de1` |
 
 ### 3.6 Gates

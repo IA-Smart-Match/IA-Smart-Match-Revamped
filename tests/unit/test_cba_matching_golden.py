@@ -36,6 +36,7 @@ import dataclasses
 import hashlib
 import json
 import re
+import sys
 from collections.abc import Mapping
 from datetime import date, timedelta
 from decimal import Decimal
@@ -943,8 +944,14 @@ def test_g_cba_18_a_two_point_oh_run_stays_readable_and_keeps_its_hash(registry_
         ("g1", SUPERSEDED_G1_MODEL),
     ):
         weights = normalize_weights(model=model)
-        assert registry_fingerprint(weights, load_bands=None) == pinned[key]
-        assert weights_fingerprint(weights) == pinned[key]
+        # cba-virtual-1's digest depends on the interpreter's float sum()
+        # (3.11 left to right, 3.12 compensated): "@py312" is the 3.12 value,
+        # the plain key is production's (3.11). See test_factor_registry 8b.
+        expected = (
+            pinned.get(f"{key}@py312", pinned[key]) if sys.version_info >= (3, 12) else pinned[key]
+        )
+        assert registry_fingerprint(weights, load_bands=None) == expected
+        assert weights_fingerprint(weights) == expected
 
     # 2. A 2.0.0 payload carries no load key and reads back with none.
     explanation = explain_candidate(_rank(case)[0])

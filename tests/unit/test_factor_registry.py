@@ -9,6 +9,7 @@ from __future__ import annotations
 import dataclasses
 import math
 import re
+import sys
 from pathlib import Path
 
 import pytest
@@ -515,8 +516,22 @@ def test_no_weight_literal_is_typed_outside_this_registry():
 PINNED_2_0_0_PHYSICAL_HASH = (
     "sha256:f870192c2b1d9977aaf4be3368f51f67accbbbba9955e4346a4445b0be4be4e5"
 )
-PINNED_2_0_0_VIRTUAL_HASH = (
+#: cba-virtual-1 divides 0.3 / 0.25 / 0.15 by their float ``sum()``. Python 3.11
+#: adds left to right (0.7000000000000001); 3.12's ``sum()`` is compensated
+#: (0.7). The last digit of every weight, and so the digest, depends on the
+#: interpreter. Production (Dockerfile.api / Dockerfile.worker,
+#: ``python:3.11-slim-bookworm``) and CI run 3.11: that digest is what stored
+#: virtual runs carry. ``pyproject.toml`` also allows 3.12 (local dev).
+PINNED_2_0_0_VIRTUAL_HASH_PY311 = (
+    "sha256:62524878457dee467d747e3b9040a61cf6915e7a5398a08a8d9af4e83792b74c"
+)
+PINNED_2_0_0_VIRTUAL_HASH_PY312 = (
     "sha256:0b27df1f198b501da27f3a58d0128625f1351a1ba77fa4189807c31865c85ce4"
+)
+PINNED_2_0_0_VIRTUAL_HASH = (
+    PINNED_2_0_0_VIRTUAL_HASH_PY311
+    if sys.version_info < (3, 12)
+    else PINNED_2_0_0_VIRTUAL_HASH_PY312
 )
 PINNED_1_1_1_G1_HASH = "sha256:9da5f1b1ccb6b0627759c77a472fb47d8b77ce634c21fffe9bf53a5b04e79de1"
 
@@ -681,6 +696,32 @@ def test_registry_fingerprint_without_bands_is_weights_fingerprint():
         assert registry_fingerprint(weights, load_bands=None) == pinned
         assert weights_fingerprint(weights) == pinned
     assert CBA_REGISTRY.load_bands is None
+
+
+# 8b
+def test_both_virtual_literals_are_the_two_float_sums_of_the_same_weights():
+    """Each literal is checked on every interpreter, not only the one running.
+
+    Left-to-right addition is 3.11's ``sum()``; ``math.fsum`` is what 3.12's
+    compensated ``sum()`` returns for these three values.
+    """
+    raw = {
+        key: CBA_REGISTRY.spec_by_key[key].proposed_weight
+        for key in normalize_weights(model=CBA_VIRTUAL_MODEL)
+    }
+    left_to_right = 0.0
+    for value in raw.values():
+        left_to_right += value
+    compensated = math.fsum(raw.values())
+    assert left_to_right != compensated
+    assert (
+        weights_fingerprint({key: value / left_to_right for key, value in raw.items()})
+        == PINNED_2_0_0_VIRTUAL_HASH_PY311
+    )
+    assert (
+        weights_fingerprint({key: value / compensated for key, value in raw.items()})
+        == PINNED_2_0_0_VIRTUAL_HASH_PY312
+    )
 
 
 # 9

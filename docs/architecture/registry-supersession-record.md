@@ -171,8 +171,16 @@ still the only superseded pin.
 **Hashes that must not move.** `registry_hash` of a 1.1.1 or 2.0.0 run is still
 `weights_fingerprint(weights)`. With default weights: 2.0.0 `cba-physical-1`
 `sha256:f870192c2b1d9977aaf4be3368f51f67accbbbba9955e4346a4445b0be4be4e5`,
-`cba-virtual-1` `sha256:0b27df1f198b501da27f3a58d0128625f1351a1ba77fa4189807c31865c85ce4`,
+`cba-virtual-1` `sha256:62524878457dee467d747e3b9040a61cf6915e7a5398a08a8d9af4e83792b74c`,
 1.1.1 `sha256:9da5f1b1ccb6b0627759c77a472fb47d8b77ce634c21fffe9bf53a5b04e79de1`.
+The `cba-virtual-1` digest depends on the interpreter: its weights divide
+0.3 / 0.25 / 0.15 by their float `sum()`, which Python 3.11 adds left to right
+(0.7000000000000001) and 3.12 compensates (0.7). The value above is Python 3.11's,
+which the production images (`python:3.11-slim-bookworm`) and CI run; under 3.12
+the same weights give
+`sha256:0b27df1f198b501da27f3a58d0128625f1351a1ba77fa4189807c31865c85ce4`.
+Moving production to 3.12 would therefore move every new virtual run's hash with
+unchanged weights; that is a follow-up decision, not something T8c changes.
 A 3.x hash also covers the canonical band table, so the same weights give a
 different hash (G-CBA-19).
 
