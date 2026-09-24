@@ -192,6 +192,13 @@ INVITATION_RESPONSE_RATE_LIMIT: Final[RateLimit] = RateLimit(
     operation="speaker_invitation.response", max_requests=60, window=timedelta(minutes=1)
 )
 
+#: The bounds a response token must fall inside before it is looked up. Shared
+#: by the JSON route (through :class:`SpeakerRespondRequest`) and the
+#: ``POST /i/{token}`` form route, which checks them itself because the token
+#: arrives in its path rather than in a validated body.
+RESPONSE_TOKEN_MIN_LENGTH: Final[int] = 16
+RESPONSE_TOKEN_MAX_LENGTH: Final[int] = 256
+
 # **No rate limit on `POST /v1/speaker-invitations/respond`,** and the absence is
 # the same deliberate one `routers/outreach.py` documents for `/v1/unsubscribe`:
 # `charge_quota` keys its counter by tenant and user id against a table with a
@@ -477,7 +484,7 @@ class RecordResponseResponse(BaseModel):
 class SpeakerRespondRequest(BaseModel):
     """The Speaker's own answer, from the link in their invitation."""
 
-    token: str = Field(min_length=16, max_length=256)
+    token: str = Field(min_length=RESPONSE_TOKEN_MIN_LENGTH, max_length=RESPONSE_TOKEN_MAX_LENGTH)
     response: Literal["accept", "decline"]
 
 
@@ -1548,27 +1555,45 @@ def speaker_respond(session: DbSession, body: SpeakerRespondRequest) -> SpeakerR
     event. A Speaker who wants no more mail at all uses the unsubscribe link,
     which is in the same message.
     """
-    row = _invites.resolve_response_token(session, token_hash=_token_hash(body.token))
-
-    if row is not None:
-        try:
-            resulting, changed = record_response(
-                SpeakerResponse(row.response_status), _speaker_response(body.response)
-            )
-        except InvitationResponseConflict:
-            # Refused, silently, and reported as success — see the docstring. The
-            # stored answer is untouched.
-            return SpeakerRespondResponse(recorded=True)
-
-        if changed:
-            _invites.record_response(
-                session,
-                tenant_id=row.tenant_id,
-                invitation_id=row.id,
-                response_status=resulting.value,
-                response_channel="speaker_link",
-                recorded_at=utc_now(),
-            )
-            session.commit()
-
+    answer_by_token(session, body.token, body.response)
     return SpeakerRespondResponse(recorded=True)
+
+
+def answer_by_token(session: Session, token: str, verb: Literal["accept", "decline"]) -> None:
+    """Record a Speaker's answer for whatever invitation ``token`` names, if any.
+
+    The one place the Speaker's own answer is written, shared by
+    :func:`speaker_respond` (JSON) and ``POST /i/{token}`` (the invitation
+    page's form), so the two routes cannot drift apart. Returns nothing on
+    purpose: every outcome — recorded, the same answer again, a different answer
+    refused, a token that matches nothing, an undispatched invitation — must look
+    identical to the caller, and a return value would be one more thing a route
+    could leak.
+
+    The caller checks the token's length first; this helper hashes and looks up
+    whatever it is given. A database error is not swallowed: it propagates to
+    the application's exception handler.
+    """
+    row = _invites.resolve_response_token(session, token_hash=_token_hash(token))
+    if row is None:
+        return
+
+    try:
+        resulting, changed = record_response(
+            SpeakerResponse(row.response_status), _speaker_response(verb)
+        )
+    except InvitationResponseConflict:
+        # Refused, silently, and reported as success — see speaker_respond's
+        # docstring. The stored answer is untouched.
+        return
+
+    if changed:
+        _invites.record_response(
+            session,
+            tenant_id=row.tenant_id,
+            invitation_id=row.id,
+            response_status=resulting.value,
+            response_channel="speaker_link",
+            recorded_at=utc_now(),
+        )
+        session.commit()

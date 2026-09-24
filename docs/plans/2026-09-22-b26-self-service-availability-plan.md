@@ -532,7 +532,7 @@ of only the affected keys. Errors branch on `ApiRequestError.code`. WCAG 2.2 AA.
 | `/speaker-portal` shell | T6b-4 | Home (upcoming engagements, open invitations), Invitations (answer), Engagements (upcoming / past), Availability (same form as T5 plus the Speaker's own load band after T8), Contact preferences (opt in / out per channel). |
 | Portal switcher (both shells) | T6b-5 | "Switch portal" menu listing `/v1/me/portals`; hidden with one portal; keyboard-operable menu button with `aria-expanded`; current portal marked `aria-current`. |
 | `/i/{token}` | T6a | Working accept / decline form for Speakers without an account. |
-| `VolunteerProfile.tsx` | T7 | Host's own record (email, role, unit), link to Organization; the dead `/api/portals/volunteers/{id}` panel is removed. |
+| `VolunteerProfile.tsx` | T7 (**done**) | Host's own record (email, role, unit), link to Organization; the dead `/api/portals/volunteers/{id}` panel is removed. Done in B26 T7. |
 
 Accessibility details for the forms: native `<input type="date">` and
 `<input type="number">` with visible labels; each window a `<fieldset>` with a

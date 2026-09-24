@@ -1847,71 +1847,6 @@ export async function fetchCoordinatorEvents(coordinatorId: string): Promise<{ d
 }
 
 // ---------------------------------------------------------------------------
-// Volunteer portal types
-// ---------------------------------------------------------------------------
-
-export interface VolunteerProfile {
-  volunteer_id: string;
-  name: string;
-  title: string;
-  company: string;
-  board_role: string;
-  metro_region: string;
-  expertise_tags: string;
-  initials: string;
-  recovery_status: string;
-  recovery_label: string;
-  volunteer_fatigue: number;
-  source?: string;
-}
-
-export type AssignmentStage = "Matched" | "Contacted" | "Confirmed" | "Attended";
-
-/**
- * One volunteer assignment as the client is allowed to see it.
- *
- * `match_score` is intentionally absent: it is a G1-gated factor-registry
- * output and is stripped by {@link stripG1ScoreFields} inside
- * {@link fetchVolunteerAssignments}, so it never reaches component state.
- * The request itself stays because the rest of the row (event, date, region,
- * stage, recovery) is what the assignments list is actually built from.
- */
-export interface VolunteerAssignment {
-  assignment_id: string;
-  event_id: string;
-  event_name: string;
-  event_date: string;
-  region: string;
-  stage: AssignmentStage;
-  volunteer_fatigue: number;
-  recovery_status: string;
-  recovery_label: string;
-  coverage_status: string;
-}
-
-export async function fetchVolunteerProfile(
-  volunteerId: string,
-): Promise<VolunteerProfile & { source: string }> {
-  const subjectPath = portalSubjectPath(volunteerId, "volunteer");
-  return requestJson<VolunteerProfile & { source: string }>(
-    `${API_BASE}/portals/volunteers/${subjectPath}`,
-  );
-}
-
-export async function fetchVolunteerAssignments(
-  volunteerId: string,
-): Promise<{ data: VolunteerAssignment[]; total: number; source: string }> {
-  const subjectPath = portalSubjectPath(volunteerId, "volunteer");
-  const payload = await requestJson<{
-    data: VolunteerAssignment[];
-    total: number;
-    source: string;
-  }>(`${API_BASE}/portals/volunteers/${subjectPath}/assignments`);
-  // G1 fail-closed: the score is discarded here, not merely left unrendered.
-  return { ...payload, data: (payload.data ?? []).map(stripG1ScoreFields) };
-}
-
-// ---------------------------------------------------------------------------
 // Identity + accountable metrics (`contracts/openapi/smartmatch.json`)
 // ---------------------------------------------------------------------------
 
@@ -4152,6 +4087,78 @@ export async function fetchSpeakerContactChannels(
   );
 }
 
+// ---------------------------------------------------------------------------
+// Speaker portal accounts (B26 T6b-1). Mounted server-side only when the
+// `speaker_portal` capability is on; the UI that calls these is gated on the
+// same capability. The activation token never passes through the browser here.
+// ---------------------------------------------------------------------------
+
+/** What a Speaker Connector sees for one contact's portal access. */
+export type SpeakerPortalAccessStatus = "none" | "invited" | "expired" | "active";
+
+export interface SpeakerPortalAccess {
+  status: SpeakerPortalAccessStatus;
+  /** The channel the live link went to (`invited`/`expired` only). */
+  contact_channel_id?: string;
+  issued_at?: string;
+  expires_at?: string;
+  /** When the Speaker activated (`active` only). */
+  bound_at?: string;
+}
+
+/** `202`: the invitation is recorded and its email queued — nothing sent yet. */
+export interface SpeakerPortalInvitation {
+  invitation_id: string;
+  status: "invited";
+  expires_at: string;
+  job_id: string;
+  events_url: string;
+}
+
+function speakerPortalBase(unitId: string, professionalId: string): string {
+  return (
+    `/v1/units/${encodeURIComponent(unitId)}/speaker-contacts/` +
+    `${encodeURIComponent(professionalId)}`
+  );
+}
+
+/** `GET …/speaker-contacts/{professional_id}/portal-access` */
+export async function fetchSpeakerPortalAccess(
+  unitId: string,
+  professionalId: string,
+): Promise<SpeakerPortalAccess> {
+  return requestJson<SpeakerPortalAccess>(
+    `${speakerPortalBase(unitId, professionalId)}/portal-access`,
+    { method: "GET" },
+    { authenticated: true },
+  );
+}
+
+/** `POST …/portal-invitations` with the chosen email channel. */
+export async function inviteSpeakerToPortal(
+  unitId: string,
+  professionalId: string,
+  contactChannelId: string,
+): Promise<SpeakerPortalInvitation> {
+  return requestJson<SpeakerPortalInvitation>(
+    `${speakerPortalBase(unitId, professionalId)}/portal-invitations`,
+    { method: "POST", body: JSON.stringify({ contact_channel_id: contactChannelId }) },
+    { authenticated: true },
+  );
+}
+
+/** `DELETE …/portal-invitations/current`. `revoked: false` when nothing was live. */
+export async function revokeSpeakerPortalInvitation(
+  unitId: string,
+  professionalId: string,
+): Promise<{ revoked: boolean }> {
+  return requestJson<{ revoked: boolean }>(
+    `${speakerPortalBase(unitId, professionalId)}/portal-invitations/current`,
+    { method: "DELETE" },
+    { authenticated: true },
+  );
+}
+
 // Speaker availability (B26 T3)
 //
 // A roster contact's stated availability, read and replaced by a Connector.
@@ -4240,78 +4247,6 @@ export async function updateSpeakerAvailability(
     `/v1/units/${encodeURIComponent(unitId)}/speaker-contacts/` +
       `${encodeURIComponent(professionalId)}/availability`,
     { method: "PATCH", body: JSON.stringify(payload) },
-    { authenticated: true },
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Speaker portal accounts (B26 T6b-1). Mounted server-side only when the
-// `speaker_portal` capability is on; the UI that calls these is gated on the
-// same capability. The activation token never passes through the browser here.
-// ---------------------------------------------------------------------------
-
-/** What a Speaker Connector sees for one contact's portal access. */
-export type SpeakerPortalAccessStatus = "none" | "invited" | "expired" | "active";
-
-export interface SpeakerPortalAccess {
-  status: SpeakerPortalAccessStatus;
-  /** The channel the live link went to (`invited`/`expired` only). */
-  contact_channel_id?: string;
-  issued_at?: string;
-  expires_at?: string;
-  /** When the Speaker activated (`active` only). */
-  bound_at?: string;
-}
-
-/** `202`: the invitation is recorded and its email queued — nothing sent yet. */
-export interface SpeakerPortalInvitation {
-  invitation_id: string;
-  status: "invited";
-  expires_at: string;
-  job_id: string;
-  events_url: string;
-}
-
-function speakerPortalBase(unitId: string, professionalId: string): string {
-  return (
-    `/v1/units/${encodeURIComponent(unitId)}/speaker-contacts/` +
-    `${encodeURIComponent(professionalId)}`
-  );
-}
-
-/** `GET …/speaker-contacts/{professional_id}/portal-access` */
-export async function fetchSpeakerPortalAccess(
-  unitId: string,
-  professionalId: string,
-): Promise<SpeakerPortalAccess> {
-  return requestJson<SpeakerPortalAccess>(
-    `${speakerPortalBase(unitId, professionalId)}/portal-access`,
-    { method: "GET" },
-    { authenticated: true },
-  );
-}
-
-/** `POST …/portal-invitations` with the chosen email channel. */
-export async function inviteSpeakerToPortal(
-  unitId: string,
-  professionalId: string,
-  contactChannelId: string,
-): Promise<SpeakerPortalInvitation> {
-  return requestJson<SpeakerPortalInvitation>(
-    `${speakerPortalBase(unitId, professionalId)}/portal-invitations`,
-    { method: "POST", body: JSON.stringify({ contact_channel_id: contactChannelId }) },
-    { authenticated: true },
-  );
-}
-
-/** `DELETE …/portal-invitations/current`. `revoked: false` when nothing was live. */
-export async function revokeSpeakerPortalInvitation(
-  unitId: string,
-  professionalId: string,
-): Promise<{ revoked: boolean }> {
-  return requestJson<{ revoked: boolean }>(
-    `${speakerPortalBase(unitId, professionalId)}/portal-invitations/current`,
-    { method: "DELETE" },
     { authenticated: true },
   );
 }

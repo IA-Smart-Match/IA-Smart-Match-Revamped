@@ -52,15 +52,18 @@ from smartmatch_domain.speaker_channel_consent import (
     OPT_IN_START_STATES,
     SELF_SERVICE_EVIDENCE,
     SELF_SERVICE_REASON,
+    OptInPath,
     SpeakerChoice,
     opt_in_path,
 )
 from smartmatch_domain.suppression import (
     LiftOutcome,
+    LiftVerdict,
     MergeAction,
     SpeakerFacingReason,
     SuppressionSource,
     SuppressionState,
+    address_is_login,
     merge_suppression,
     speaker_facing_reason,
     speaker_lift_verdict,
@@ -181,17 +184,13 @@ class _ChannelFacts:
     last_transition_at: datetime | None
 
 
-def _same_address(a: str, b: str | None) -> bool:
-    return b is not None and a.strip().lower() == b.strip().lower()
-
-
 def _view(facts: _ChannelFacts, *, login_address: str | None) -> MyContactChannel:
     row = facts.row
     state = ContactState(row.contact_state)
     source = ConsentSource(row.consent_source) if row.consent_source is not None else None
     latest = None if facts.choice is None else facts.choice.choice
     verdict = speaker_lift_verdict(
-        facts.suppression, address_is_login=_same_address(row.address, login_address)
+        facts.suppression, address_is_login=address_is_login(row.address, login_address)
     )
     path = opt_in_path(state)
     nothing_to_do = path == () and not row.suppressed and latest is SpeakerChoice.OPT_IN
@@ -355,37 +354,11 @@ def opt_in(
 
     # Suppression before legality, the order `assert_transition` uses.
     verdict = speaker_lift_verdict(
-        locked.suppression, address_is_login=_same_address(row.address, login)
+        locked.suppression, address_is_login=address_is_login(row.address, login)
     )
-    if verdict.outcome is LiftOutcome.REFUSED:
-        if verdict.reason == "unverified_address":
-            raise ApiError(
-                status_code=status.HTTP_409_CONFLICT,
-                code="speaker_contact_channel_address_unverified",
-                message=(
-                    "This address was unsubscribed and is not the one you sign in with. "
-                    "Ask your Speaker Connector."
-                ),
-            )
-        reason = verdict.reason or "delivery"
-        raise ApiError(
-            status_code=status.HTTP_409_CONFLICT,
-            code="speaker_contact_channel_suppression_not_liftable",
-            message=_NOT_LIFTABLE_MESSAGES[reason],
-            details={"reason": reason},
-        )
+    _refuse_unless_liftable(verdict)
 
-    current = ContactState(row.contact_state)
-    path = opt_in_path(current)
-    if path is None:
-        raise ApiError(
-            status_code=status.HTTP_409_CONFLICT,
-            code="speaker_contact_channel_opt_in_unavailable",
-            message=(
-                "This address is not ready for you to opt in yet. Ask your Speaker Connector."
-            ),
-            details={"contact_state": current.value},
-        )
+    path = _opt_in_path_or_409(ContactState(row.contact_state))
 
     latest = _choices.latest_for_channel(
         session, tenant_id=tenant_id, contact_channel_id=contact_channel_id
@@ -398,8 +371,9 @@ def opt_in(
     ):
         return False
 
-    lifted = locked.suppression if verdict.outcome is LiftOutcome.LIFT else None
-    if lifted is not None:
+    lifted = None
+    if verdict.outcome is LiftOutcome.LIFT:
+        lifted = locked.suppression
         _suppressions.lift(
             session,
             tenant_id=tenant_id,
@@ -409,13 +383,88 @@ def opt_in(
             lifted_by_user_id=actor_user_id,
         )
 
+    _walk_to_active(
+        session,
+        tenant_id=tenant_id,
+        contact_channel_id=contact_channel_id,
+        path=path,
+        # The state after the lift: defence in depth for `assert_transition`.
+        suppressed=(
+            locked.suppression is not None and locked.suppression.active and lifted is None
+        ),
+        actor_user_id=actor_user_id,
+        now=now,
+    )
+
+    _choices.append(
+        session,
+        tenant_id=tenant_id,
+        contact_channel_id=contact_channel_id,
+        choice=SpeakerChoice.OPT_IN,
+        decided_at=now,
+        actor_user_id=actor_user_id,
+        lifted_source=None if lifted is None else lifted.source.value,
+        lifted_suppressed_at=None if lifted is None else lifted.suppressed_at,
+    )
+    return True
+
+
+def _opt_in_path_or_409(current: ContactState) -> OptInPath:
+    """The opt-in moves from ``current``; no edge to ``consented`` is a 409 (OQ-1)."""
+    path = opt_in_path(current)
+    if path is None:
+        raise ApiError(
+            status_code=status.HTTP_409_CONFLICT,
+            code="speaker_contact_channel_opt_in_unavailable",
+            message=(
+                "This address is not ready for you to opt in yet. Ask your Speaker Connector."
+            ),
+            details={"contact_state": current.value},
+        )
+    return path
+
+
+def _refuse_unless_liftable(verdict: LiftVerdict) -> None:
+    """Map a ``REFUSED`` lift verdict to its 409; nothing is written."""
+    if verdict.outcome is not LiftOutcome.REFUSED:
+        return
+    if verdict.reason == "unverified_address":
+        raise ApiError(
+            status_code=status.HTTP_409_CONFLICT,
+            code="speaker_contact_channel_address_unverified",
+            message=(
+                "This address was unsubscribed and is not the one you sign in with. "
+                "Ask your Speaker Connector."
+            ),
+        )
+    if verdict.reason not in _NOT_LIFTABLE_MESSAGES:  # pragma: no cover - closed Literal
+        raise AssertionError(f"unmapped lift refusal {verdict.reason!r}")
+    raise ApiError(
+        status_code=status.HTTP_409_CONFLICT,
+        code="speaker_contact_channel_suppression_not_liftable",
+        message=_NOT_LIFTABLE_MESSAGES[verdict.reason],
+        details={"reason": verdict.reason},
+    )
+
+
+def _walk_to_active(
+    session: Session,
+    *,
+    tenant_id: uuid.UUID,
+    contact_channel_id: uuid.UUID,
+    path: OptInPath,
+    suppressed: bool,
+    actor_user_id: uuid.UUID,
+    now: datetime,
+) -> None:
+    """Each opt-in move, re-asked through ``assert_transition``, with ``self_service``."""
     for previous, following in path:
         try:
             assert_transition(
                 previous,
                 following,
                 consent_source=ConsentSource.SELF_SERVICE,
-                suppressed=False,
+                suppressed=suppressed,
             )
         except ConsentViolationError as exc:  # pragma: no cover - the path is legal
             raise _transition_conflict() from exc
@@ -433,18 +482,6 @@ def opt_in(
         )
         if moved is None:  # pragma: no cover - unreachable under the channel lock
             raise _transition_conflict()
-
-    _choices.append(
-        session,
-        tenant_id=tenant_id,
-        contact_channel_id=contact_channel_id,
-        choice=SpeakerChoice.OPT_IN,
-        decided_at=now,
-        actor_user_id=actor_user_id,
-        lifted_source=None if lifted is None else lifted.source.value,
-        lifted_suppressed_at=None if lifted is None else lifted.suppressed_at,
-    )
-    return True
 
 
 def _transition_conflict() -> ApiError:
