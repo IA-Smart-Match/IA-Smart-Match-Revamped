@@ -468,6 +468,8 @@ Before each push: `$VENV/bin/ruff format` and `ruff check` on touched Python and
 | C4 | T6b-1 §4.6 writes `membership.valid_from = now`. | `NULL` for every `find_or_add_role` insert (§3.2). `created_at` keeps the grant time; unbind and seed reconciliation both need it. |
 | C5 | T6b-1 §11 self-invite mitigation: "the Connector's own login address is credentialed, so activation refuses it". Existing-login mode would now accept it with the Connector's own password. | Q1: refuse holders with an active `admin`, `coordinator` or `student` membership. |
 | C6 | `test_seed_pilot_logins.py` monkeypatches `seed_pilot` and `PilotCredentialRepository` (`:62-89`). | Rewritten recorder (§8.2); the 8 behaviours it pins are kept. |
+| C7 | §6.3 put the sidebar switcher between the identity block and Sign out. T6b-4's `apps/web/DESIGN.md` ("Signed-in shells") puts it **above** the profile block, so Sign out stays directly beneath the profile. | **DESIGN.md wins** (implementation, milestone 13): above the profile block in both shells. |
+| C8 | T6b-1's review LOW 1 (`d5a39b48`, after this plan) stores the activation address as `strip().lower()` and folds stored emails over all ASCII whitespace; §3.2 said "stored trimmed". | **T6b-1 wins**, ported into `login_accounts.normalise_address` (lock key, holder match, stored email). A held address with a trailing tab is now the `409` mode mismatch, not a second login. |
 
 ## 11. Rulings (2026-09-23) — no question open
 
