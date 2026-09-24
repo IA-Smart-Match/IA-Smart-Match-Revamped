@@ -726,3 +726,51 @@ class TestSendChecksConsentAtSubmission:
                 text("SELECT count(*) FROM job WHERE tenant_id = :t"), {"t": ctx.tenant_id}
             ).scalar_one()
         assert queued == 0
+
+
+class TestSystemOnlyTemplates:
+    """B26 T6b-1 (R3): the Speaker portal invite is composed and sent only by its flow."""
+
+    def test_generic_compose_refuses_a_system_only_template(self, ctx: _Context):
+        before = _count(ctx, "outreach_draft")
+
+        response = ctx.compose(
+            template_id="cba.speaker_portal_invite.v1",
+            values={
+                "professional_name": "Dana",
+                "unit_name": "Unit",
+                "expires_on": "soon",
+                "activation_url": "https://attacker.example/s/x",
+            },
+        )
+
+        assert response.status_code == 400
+        assert response.json()["error"]["code"] == "template_not_composable"
+        assert _count(ctx, "outreach_draft") == before
+
+    def test_generic_send_refuses_a_system_only_draft(self, ctx: _Context):
+        draft_id = ctx.compose().json()["draft_id"]
+        with ctx.engine.begin() as conn:
+            conn.execute(
+                text(
+                    "UPDATE outreach_draft SET template_id = 'cba.speaker_portal_invite.v1' "
+                    "WHERE id = :d"
+                ),
+                {"d": draft_id},
+            )
+        jobs_before = _count(ctx, "job")
+
+        response = ctx.send(draft_id)
+
+        assert response.status_code == 409
+        assert response.json()["error"]["code"] == "outreach_draft_system_only"
+        assert _count(ctx, "job") == jobs_before
+
+
+def _count(ctx: _Context, table: str) -> int:
+    with ctx.engine.connect() as conn:
+        return int(
+            conn.execute(
+                text(f"SELECT count(*) FROM {table} WHERE tenant_id = :t"), {"t": ctx.tenant_id}
+            ).scalar_one()
+        )

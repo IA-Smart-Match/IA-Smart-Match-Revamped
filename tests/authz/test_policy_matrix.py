@@ -418,6 +418,25 @@ UNAUTHENTICATED_ROUTES: dict[tuple[str, str], str] = {
         "event — an inactive or unknown token gets an identical 404 rather "
         "than disclosing which."
     ),
+    ("GET", "/s/{token}"): (
+        "B26 T6b-1. The Speaker portal activation page an invitation links to. "
+        "Reached from an email by a contact who has no login yet, so the token in "
+        "the path is the whole of it. It never changes state, never echoes the "
+        "token, and returns identical bytes for every token, so it is no oracle."
+    ),
+    ("POST", "/s/{token}"): (
+        "B26 T6b-1. The no-JS form half of activation: sets the contact's first "
+        "password and grants the `speaker` role. Public because the person has no "
+        "credential until it succeeds. The 256-bit token, verified against the "
+        "server secret, is the whole authorization; every refusal is one "
+        "identical 400 page; it issues no session (C4)."
+    ),
+    ("POST", "/v1/speaker-portal/activate"): (
+        "B26 T6b-1. The JSON half of activation, for the SPA. Same token, same "
+        "one generic 400 for every refusal, rate-limited on its own "
+        "pre-authentication bucket. Issues a session on success, which is the "
+        "first credential this person holds."
+    ),
     ("GET", "/i/{token}"): (
         "The accept-or-decline page an invitation links to, and the exact "
         "counterpart of ``GET /u/{token}``: reached from an email by somebody "
@@ -2052,6 +2071,42 @@ OPERATIONS: tuple[Operation, ...] = (
         module="smartmatch_api.routers.cba_contacts",
         authorizer="_authorize_speaker_contacts",
         roles_constant="_SPEAKER_CONTACT_ROLES",
+        authorizer_module=None,
+        required_roles=frozenset({"admin", "coordinator"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
+    Operation(
+        key="speaker_portal.invite",
+        method="POST",
+        path="/v1/units/{unit_id}/speaker-contacts/{professional_id}/portal-invitations",
+        module="smartmatch_api.routers.speaker_portal",
+        authorizer="_authorize_speaker_portal",
+        roles_constant="_SPEAKER_PORTAL_ROLES",
+        authorizer_module=None,
+        required_roles=frozenset({"admin", "coordinator"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
+    Operation(
+        key="speaker_portal.revoke",
+        method="DELETE",
+        path="/v1/units/{unit_id}/speaker-contacts/{professional_id}/portal-invitations/current",
+        module="smartmatch_api.routers.speaker_portal",
+        authorizer="_authorize_speaker_portal",
+        roles_constant="_SPEAKER_PORTAL_ROLES",
+        authorizer_module=None,
+        required_roles=frozenset({"admin", "coordinator"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
+    Operation(
+        key="speaker_portal.read",
+        method="GET",
+        path="/v1/units/{unit_id}/speaker-contacts/{professional_id}/portal-access",
+        module="smartmatch_api.routers.speaker_portal",
+        authorizer="_authorize_speaker_portal",
+        roles_constant="_SPEAKER_PORTAL_ROLES",
         authorizer_module=None,
         required_roles=frozenset({"admin", "coordinator"}),
         resource_type="org_unit",
@@ -6718,6 +6773,168 @@ MATRIX: dict[str, dict[str, Cell]] = {
             why="`speaker` is outside this operation's role set, as `volunteer` is",
         ),
     },
+    "speaker_portal.invite": {
+        "admin_at_org_root": permit(
+            why="an admin grant at the root covers every unit beneath it",
+        ),
+        "coordinator_at_owning_unit": permit(
+            why="B26 T6b-1: the Speaker Connector persona, as the speaker-contact rows",
+        ),
+        "coordinator_at_sibling_unit": deny(
+            "no_grant",
+            why="B26 T6b-1: the Speaker Connector persona, as the speaker-contact rows",
+        ),
+        "admin_at_sibling_unit": deny(
+            "no_grant",
+            why="B26 T6b-1: the Speaker Connector persona, as the speaker-contact rows",
+        ),
+        "student_at_owning_unit": deny(
+            "no_grant",
+            why="B26 T6b-1: the Speaker Connector persona, as the speaker-contact rows",
+        ),
+        "volunteer_at_owning_unit": deny(
+            "no_grant",
+            why="B26 T6b-1: the Speaker Connector persona, as the speaker-contact rows",
+        ),
+        "member_with_no_memberships": deny("no_grant"),
+        "resource_grant_only": deny(
+            "resource_grant_lacks_required_role",
+            why="S-007. A grant conveys reach, not authority. See the module docstring.",
+        ),
+        "admin_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="v1.1 §2.1: an explicit deny on the resource beats inheritance",
+        ),
+        "expired_coordinator_at_owning_unit": deny("no_grant"),
+        "suspended_admin": deny(
+            "principal_suspended",
+            why="suspension is checked first and does not wait for the IdP to revoke a token",
+        ),
+        "cross_tenant_coordinator": deny(
+            "tenant_mismatch",
+            why="tenant isolation is structural and precedes every grant question",
+        ),
+        "job_actor_without_role": deny(
+            "no_grant",
+            why="a read queues nothing, so the actor half of the shape is inert",
+        ),
+        "job_actor_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="the actor half is inert; a deny on the unit beats inheritance",
+        ),
+        "speaker_at_owning_unit": deny(
+            "no_grant",
+            why="`speaker` is outside this operation's role set, as `volunteer` is",
+        ),
+    },
+    "speaker_portal.revoke": {
+        "admin_at_org_root": permit(
+            why="an admin grant at the root covers every unit beneath it",
+        ),
+        "coordinator_at_owning_unit": permit(
+            why="B26 T6b-1: the Speaker Connector persona, as the speaker-contact rows",
+        ),
+        "coordinator_at_sibling_unit": deny(
+            "no_grant",
+            why="B26 T6b-1: the Speaker Connector persona, as the speaker-contact rows",
+        ),
+        "admin_at_sibling_unit": deny(
+            "no_grant",
+            why="B26 T6b-1: the Speaker Connector persona, as the speaker-contact rows",
+        ),
+        "student_at_owning_unit": deny(
+            "no_grant",
+            why="B26 T6b-1: the Speaker Connector persona, as the speaker-contact rows",
+        ),
+        "volunteer_at_owning_unit": deny(
+            "no_grant",
+            why="B26 T6b-1: the Speaker Connector persona, as the speaker-contact rows",
+        ),
+        "member_with_no_memberships": deny("no_grant"),
+        "resource_grant_only": deny(
+            "resource_grant_lacks_required_role",
+            why="S-007. A grant conveys reach, not authority. See the module docstring.",
+        ),
+        "admin_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="v1.1 §2.1: an explicit deny on the resource beats inheritance",
+        ),
+        "expired_coordinator_at_owning_unit": deny("no_grant"),
+        "suspended_admin": deny(
+            "principal_suspended",
+            why="suspension is checked first and does not wait for the IdP to revoke a token",
+        ),
+        "cross_tenant_coordinator": deny(
+            "tenant_mismatch",
+            why="tenant isolation is structural and precedes every grant question",
+        ),
+        "job_actor_without_role": deny(
+            "no_grant",
+            why="a read queues nothing, so the actor half of the shape is inert",
+        ),
+        "job_actor_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="the actor half is inert; a deny on the unit beats inheritance",
+        ),
+        "speaker_at_owning_unit": deny(
+            "no_grant",
+            why="`speaker` is outside this operation's role set, as `volunteer` is",
+        ),
+    },
+    "speaker_portal.read": {
+        "admin_at_org_root": permit(
+            why="an admin grant at the root covers every unit beneath it",
+        ),
+        "coordinator_at_owning_unit": permit(
+            why="B26 T6b-1: the Speaker Connector persona, as the speaker-contact rows",
+        ),
+        "coordinator_at_sibling_unit": deny(
+            "no_grant",
+            why="B26 T6b-1: the Speaker Connector persona, as the speaker-contact rows",
+        ),
+        "admin_at_sibling_unit": deny(
+            "no_grant",
+            why="B26 T6b-1: the Speaker Connector persona, as the speaker-contact rows",
+        ),
+        "student_at_owning_unit": deny(
+            "no_grant",
+            why="B26 T6b-1: the Speaker Connector persona, as the speaker-contact rows",
+        ),
+        "volunteer_at_owning_unit": deny(
+            "no_grant",
+            why="B26 T6b-1: the Speaker Connector persona, as the speaker-contact rows",
+        ),
+        "member_with_no_memberships": deny("no_grant"),
+        "resource_grant_only": deny(
+            "resource_grant_lacks_required_role",
+            why="S-007. A grant conveys reach, not authority. See the module docstring.",
+        ),
+        "admin_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="v1.1 §2.1: an explicit deny on the resource beats inheritance",
+        ),
+        "expired_coordinator_at_owning_unit": deny("no_grant"),
+        "suspended_admin": deny(
+            "principal_suspended",
+            why="suspension is checked first and does not wait for the IdP to revoke a token",
+        ),
+        "cross_tenant_coordinator": deny(
+            "tenant_mismatch",
+            why="tenant isolation is structural and precedes every grant question",
+        ),
+        "job_actor_without_role": deny(
+            "no_grant",
+            why="a read queues nothing, so the actor half of the shape is inert",
+        ),
+        "job_actor_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="the actor half is inert; a deny on the unit beats inheritance",
+        ),
+        "speaker_at_owning_unit": deny(
+            "no_grant",
+            why="`speaker` is outside this operation's role set, as `volunteer` is",
+        ),
+    },
     "speaker_contact.update": {
         "admin_at_org_root": permit(
             why="an admin grant at the root covers every unit beneath it",
@@ -8891,6 +9108,10 @@ def _authorize(operation: Operation, shape: Shape) -> None:
         # five contact-management operations are customer §13's single Speaker
         # Connector persona, so there is one decision and it is made here.
         "_authorize_speaker_contacts",
+        # B26 T6b-1 (`routers/speaker_portal.py`), on the same terms: load the
+        # unit, then make exactly this call with `_SPEAKER_PORTAL_ROLES`. One
+        # name for invite, revoke and the access read.
+        "_authorize_speaker_portal",
         # The fourteenth (`routers/student_events.py`), on the same terms: load
         # the unit, then make exactly this call against that row's path with
         # `_STUDENT_EVENT_ROLES`. One name for two operations, the

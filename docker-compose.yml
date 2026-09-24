@@ -432,6 +432,10 @@ services:
       dockerfile: Dockerfile.api
     environment:
       SMARTMATCH_DATABASE_URL: postgresql+psycopg://smartmatch:smartmatch@db:5432/smartmatch
+      # B26 T6b-1: the Speaker portal activation-token secret. Passed through
+      # only; it does not turn SPEAKER_PORTAL on (that is a reviewed policy
+      # edit). Empty counts as missing. api and worker must hold the same value.
+      SMARTMATCH_SPEAKER_PORTAL_TOKEN_SECRET: ${SMARTMATCH_SPEAKER_PORTAL_TOKEN_SECRET:-}
       # Connection-pool sizing (smartmatch_persistence/engine.py). Passed
       # through empty by default, which the engine reads as "unset" and answers
       # with its own defaults (20 + 10) — the numbers this appliance is sized
@@ -515,6 +519,10 @@ services:
       dockerfile: Dockerfile.worker
     environment:
       SMARTMATCH_DATABASE_URL: postgresql+psycopg://smartmatch:smartmatch@db:5432/smartmatch
+      # B26 T6b-1: the Speaker portal activation-token secret. Passed through
+      # only; it does not turn SPEAKER_PORTAL on (that is a reviewed policy
+      # edit). Empty counts as missing. api and worker must hold the same value.
+      SMARTMATCH_SPEAKER_PORTAL_TOKEN_SECRET: ${SMARTMATCH_SPEAKER_PORTAL_TOKEN_SECRET:-}
       # See the api service above: empty means the engine's own defaults, and
       # the worker's share of `db`'s max_connections is counted there.
       SMARTMATCH_DB_POOL_SIZE: ${SMARTMATCH_DB_POOL_SIZE:-}

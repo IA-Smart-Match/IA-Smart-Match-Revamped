@@ -92,7 +92,7 @@ def test_a_derived_token_is_well_formed() -> None:
 
 
 def test_invitation_ttl_is_seven_days() -> None:
-    assert INVITATION_TTL == timedelta(days=7)
+    assert timedelta(days=7) == INVITATION_TTL
 
 
 @pytest.mark.parametrize(

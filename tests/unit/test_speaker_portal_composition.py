@@ -52,10 +52,57 @@ def test_capability_requires_login_outreach_and_contacts() -> None:
 
     from smartmatch_domain import product_scope
 
-    assert product_scope.SPEAKER_PORTAL_REQUIRES == frozenset(
-        {
-            Capability.AUTHENTICATED_LOGIN,
-            Capability.CONSENTED_OUTREACH,
-            Capability.SPEAKER_CONTACT_MANAGEMENT,
-        }
+    assert (
+        frozenset(
+            {
+                Capability.AUTHENTICATED_LOGIN,
+                Capability.CONSENTED_OUTREACH,
+                Capability.SPEAKER_CONTACT_MANAGEMENT,
+            }
+        )
+        == product_scope.SPEAKER_PORTAL_REQUIRES
     )
+
+
+_PORTAL_PATHS = frozenset(
+    {
+        "/v1/units/{unit_id}/speaker-contacts/{professional_id}/portal-invitations",
+        "/v1/units/{unit_id}/speaker-contacts/{professional_id}/portal-invitations/current",
+        "/v1/units/{unit_id}/speaker-contacts/{professional_id}/portal-access",
+        "/v1/speaker-portal/activate",
+        "/s/{token}",
+    }
+)
+
+
+def _paths(routers) -> set[str]:
+    return {route.path for router in routers for route in router.routes if hasattr(route, "path")}
+
+
+def test_routes_unmounted_when_off() -> None:
+    from smartmatch_api.config import Settings
+    from smartmatch_api.main import app, routers_for
+
+    assert not _paths(routers_for(Settings())) & _PORTAL_PATHS
+    mounted = {route.path for route in app.routes if hasattr(route, "path")}
+    assert not mounted & _PORTAL_PATHS
+
+
+def test_openapi_document_has_no_speaker_portal_paths() -> None:
+    import json
+
+    document = json.loads(
+        (REPO_ROOT / "contracts" / "openapi" / "smartmatch.json").read_text(encoding="utf-8")
+    )
+    assert not set(document["paths"]) & _PORTAL_PATHS
+
+
+def test_routes_mount_when_on() -> None:
+    from smartmatch_api.config import Settings
+    from smartmatch_api.main import routers_for
+
+    class _On(Settings):
+        def capability_enabled(self, capability: Capability) -> bool:  # type: ignore[override]
+            return capability is Capability.SPEAKER_PORTAL or super().capability_enabled(capability)
+
+    assert _paths(routers_for(_On())) >= _PORTAL_PATHS
