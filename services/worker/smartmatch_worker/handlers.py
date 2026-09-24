@@ -76,6 +76,7 @@ from dataclasses import dataclass, field
 from typing import Any, ClassVar, Final
 
 from smartmatch_domain.factor_registry import (
+    CBA_LINEAGE_VERSIONS,
     CBA_REGISTRY,
     SUPERSEDED_G1_MODEL,
     FactorRegistry,
@@ -1132,6 +1133,8 @@ def _read_registry_pin(
     Absent (or null) is a payload written before the pin existed: ``(None,
     None)``, and the caller resolves through ``CBA_REGISTRY`` as it always did.
     A pin naming no registry this build declares is refused, never read as CBA.
+    So is a pin outside the CBA lineage (the class exercise's registry is
+    declared, but a ``match-run.create`` never scores under it).
     """
     if raw is None:
         return None, None
@@ -1139,6 +1142,12 @@ def _read_registry_pin(
         problems.append(f"registry_version must be a non-blank string or absent, got {raw!r}")
         return None, None
     version = raw.strip()
+    if version not in CBA_LINEAGE_VERSIONS:
+        problems.append(
+            f"registry_version {version!r} is not a CBA registry "
+            f"(expected one of {sorted(CBA_LINEAGE_VERSIONS)})"
+        )
+        return None, None
     try:
         return version, registry_for_version(version)
     except UnknownRegistryVersionError as exc:

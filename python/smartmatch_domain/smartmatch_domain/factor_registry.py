@@ -139,6 +139,7 @@ __all__ = [
     "APPROVED_SCORING_KEYS_3",
     "CBA_3_PHYSICAL_MODEL",
     "CBA_3_VIRTUAL_MODEL",
+    "CBA_LINEAGE_VERSIONS",
     "CBA_PHYSICAL_MODEL",
     "CBA_REGISTRY",
     "CBA_REGISTRY_3",
@@ -879,6 +880,11 @@ _CBA_LINEAGE: Final[tuple[tuple[str, FactorRegistry], ...]] = (
 #: claims one of these versions without being equal to its registry is refused
 #: by both gates (an "approved" copy cannot borrow the 3.0.0 pin).
 _DECLARED_BY_VERSION: Final[Mapping[str, FactorRegistry]] = MappingProxyType(dict(_CBA_LINEAGE))
+
+#: Every pin a CBA match run may carry, whatever is current. A reader of a CBA
+#: run's pin (the worker) refuses anything else — notably the class exercise's
+#: registry, which ``registry_for_version`` also resolves.
+CBA_LINEAGE_VERSIONS: Final[frozenset[str]] = frozenset(_DECLARED_BY_VERSION)
 
 #: The registry a **new** run scores under. Only the match-run create route
 #: reads it, through :func:`current_cba_registry`. Making 3.0.0 current is this

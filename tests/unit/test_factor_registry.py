@@ -698,6 +698,16 @@ def test_registry_fingerprint_without_bands_is_weights_fingerprint():
     assert CBA_REGISTRY.load_bands is None
 
 
+def test_the_cba_lineage_versions_are_the_three_cba_pins():
+    from smartmatch_domain.factor_registry import CBA_LINEAGE_VERSIONS, REGISTRY_3_VERSION
+
+    assert {
+        SUPERSEDED_REGISTRY_VERSION,
+        REGISTRY_VERSION,
+        REGISTRY_3_VERSION,
+    } == CBA_LINEAGE_VERSIONS
+
+
 # 8b
 def test_both_virtual_literals_are_the_two_float_sums_of_the_same_weights():
     """Each literal is checked on every interpreter, not only the one running.
