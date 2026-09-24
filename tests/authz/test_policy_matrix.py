@@ -1548,6 +1548,20 @@ OPERATIONS: tuple[Operation, ...] = (
         resource_type="org_unit",
         unit_scoped=True,
     ),
+    # B26 T8a: cancelling a booking. The same authorizer and role constant as
+    # the advance, unit-scoped against the path's unit.
+    Operation(
+        key="pipeline.booking.cancel",
+        method="POST",
+        path="/v1/units/{unit_id}/pipeline-records/{record_id}/cancellation",
+        module="smartmatch_api.routers.pipeline",
+        authorizer="_authorize_pipeline",
+        roles_constant="_PIPELINE_ROLES",
+        authorizer_module=None,
+        required_roles=frozenset({"admin", "coordinator"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
     # The three student rewards operations share one authorizer,
     # ``_authorize_student_rewards`` in ``routers/rewards.py``, for the reason
     # the two event reads and the two match-run operations share theirs: all
@@ -8705,6 +8719,12 @@ MATRIX: dict[str, dict[str, Cell]] = {
 #: authorizer for each shape, so this alias asserts nothing by itself. It says
 #: which outcomes are expected, and the runner still has to produce them.
 MATRIX["metrics.speaker_pipeline"] = MATRIX["metrics.read"]
+
+#: B26 T8a: ``pipeline.booking.cancel`` calls the identical ``_authorize_pipeline``
+#: with the identical ``_PIPELINE_ROLES`` as the advance, so it shares the row
+#: object for the reason given above: a cell where the two disagreed would claim
+#: one function decides two different things.
+MATRIX["pipeline.booking.cancel"] = MATRIX["pipeline.stage.advance"]
 
 CELLS = [(operation.key, shape.name) for operation in OPERATIONS for shape in SHAPES]
 

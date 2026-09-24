@@ -916,3 +916,34 @@ def test_a_cancellation_racing_the_readback_is_409_not_500(
 
     assert response.status_code == 409, response.text
     assert response.json()["error"]["code"] == "pipeline_record_cancelled"
+
+
+def test_the_confirmed_aggregate_equals_the_host_list_after_a_route_cancel(
+    engine: Engine, context: _Context
+) -> None:
+    """The ``:778`` assertion, with the fourth journey cancelled through the route."""
+    confirmed_ids = []
+    for index in range(3):
+        handoff = _accepted_invitation(engine, context, name=f"Speaker {index}")
+        assert _post_handoff(context, handoff).status_code == 200
+        confirmed_ids.append(handoff.professional_id)
+    cancelled = _accepted_invitation(engine, context, name="Cancelled Speaker")
+    record_id = _post_handoff(context, cancelled).json()["speaker"]["record_id"]
+
+    response = context.client.post(
+        f"/v1/units/{context.unit_id}/pipeline-records/{record_id}/cancellation",
+        headers={"Authorization": f"Bearer {context.token}"},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["transitioned"] is True
+
+    aggregate = _get(context, f"/v1/units/{context.unit_id}/metrics?surface=cba").json()
+    confirmed = next(m for m in aggregate["metrics"] if m["name"] == "pipeline_confirmed")
+    drill_down = _get(
+        context, f"/v1/units/{context.unit_id}/metrics/pipeline_confirmed/drill-down?surface=cba"
+    ).json()
+    host_list = _get(context, f"/v1/units/{context.unit_id}/cba/confirmed-speakers").json()
+
+    assert confirmed["value"] == 3 == len(drill_down["rows"]) == len(host_list["speakers"])
+    assert record_id not in {row["id"] for row in drill_down["rows"]}
+    assert record_id not in {s["record_id"] for s in host_list["speakers"]}
