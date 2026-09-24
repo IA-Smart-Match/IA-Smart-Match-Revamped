@@ -275,6 +275,51 @@ class _Context:
                 ).scalar_one()
             )
 
+    def state_availability(
+        self,
+        professional_id: uuid.UUID,
+        *,
+        paused_until: date | None = None,
+        windows: tuple[tuple[date, date], ...] = (),
+    ) -> None:
+        """Store (or replace) a Speaker's availability statement (B26 T4)."""
+        with self.engine.begin() as conn:
+            conn.execute(
+                text(
+                    "DELETE FROM speaker_availability WHERE tenant_id = :t AND professional_id = :p"
+                ),
+                {"t": self.tenant_id, "p": professional_id},
+            )
+            conn.execute(
+                text(
+                    "INSERT INTO speaker_availability (tenant_id, professional_id, "
+                    "invitations_paused_until, updated_source, updated_by_user_id) "
+                    "VALUES (:t, :p, :paused, 'connector', :u)"
+                ),
+                {
+                    "t": self.tenant_id,
+                    "p": professional_id,
+                    "paused": paused_until,
+                    "u": self.user_id,
+                },
+            )
+            for starts_on, ends_on in windows:
+                conn.execute(
+                    text(
+                        "INSERT INTO speaker_availability_window (id, tenant_id, "
+                        "professional_id, starts_on, ends_on, created_source, "
+                        "created_by_user_id) VALUES (:id, :t, :p, :s, :e, 'connector', :u)"
+                    ),
+                    {
+                        "id": uuid.uuid4(),
+                        "t": self.tenant_id,
+                        "p": professional_id,
+                        "s": starts_on,
+                        "e": ends_on,
+                        "u": self.user_id,
+                    },
+                )
+
     def address_of(self, professional_id: uuid.UUID) -> str:
         return f"speaker-{professional_id.hex[:8]}@synthetic.invalid"
 
@@ -796,6 +841,161 @@ class TestBatchRequest:
         assert body["speaker_request_id"] is None
         assert body["invitations"] == []
         assert ctx.count_batches() == 1
+
+
+# ---------------------------------------------------------------------------
+# Availability at compose and dispatch (B26 T4)
+# ---------------------------------------------------------------------------
+
+#: A pause still in force on any date these tests run.
+PAUSED_UNTIL = date(2027, 1, 10)
+#: A window over :data:`REQUEST_DATE`.
+ON_THE_DAY = ((REQUEST_DATE, REQUEST_DATE),)
+
+
+class TestComposeAvailability:
+    """Compose checks each Speaker's statement against the batch's request (§4.3)."""
+
+    def test_a_blacked_out_speaker_is_skipped_as_unavailable_on_date(self, ctx: _Context):
+        """24."""
+        professional_id = ctx.roster_contact(name="Sam Rivera")
+        ctx.state_availability(professional_id, windows=ON_THE_DAY)
+
+        body = ctx.create_batch([professional_id]).json()
+
+        outcome = body["invitations"][0]
+        assert outcome["status"] == "skipped"
+        assert outcome["skip_reason"] == "speaker_unavailable_on_date"
+        assert outcome["recipient_address"] is None
+        stored = ctx.stored(outcome["invitation_id"])
+        assert (stored.status, stored.skip_reason) == ("skipped", "speaker_unavailable_on_date")
+
+    def test_a_paused_speaker_is_skipped_as_invitations_paused(self, ctx: _Context):
+        """25."""
+        professional_id = ctx.roster_contact(name="Sam Rivera")
+        ctx.state_availability(professional_id, paused_until=PAUSED_UNTIL)
+
+        body = ctx.create_batch([professional_id]).json()
+
+        assert body["invitations"][0]["skip_reason"] == "speaker_invitations_paused"
+        assert body["invited_count"] == 0
+
+    def test_an_unstated_speaker_is_invited(self, ctx: _Context):
+        """26: not stated is not a reason to write to nobody."""
+        unstated = ctx.roster_contact(name="Sam Rivera")
+        clear = ctx.roster_contact(name="Ada Chen")
+        ctx.state_availability(clear, windows=((date(2026, 12, 1), date(2026, 12, 2)),))
+
+        body = ctx.create_batch([unstated, clear]).json()
+
+        assert body["invited_count"] == 2
+        assert all(entry["status"] == "pending" for entry in body["invitations"])
+
+    def test_a_hand_picked_batch_is_checked_against_its_request(self, ctx: _Context):
+        """27: no run — the named request's own date decides."""
+        professional_id = ctx.roster_contact(name="Sam Rivera")
+        later = date(2026, 11, 20)
+        request_id = ctx.speaker_request(on_date=later)
+        ctx.state_availability(professional_id, windows=((later, later),))
+
+        body = ctx.create_batch([professional_id], speaker_request_id=str(request_id)).json()
+
+        assert body["match_run_id"] is None
+        assert body["invitations"][0]["skip_reason"] == "speaker_unavailable_on_date"
+
+    def test_suppression_outranks_unavailability(self, ctx: _Context):
+        """28: consent first — a Speaker who said stop is reported as such."""
+        professional_id = ctx.roster_contact(name="Sam Rivera")
+        ctx.suppress(ctx.address_of(professional_id))
+        ctx.state_availability(professional_id, windows=ON_THE_DAY)
+
+        body = ctx.create_batch([professional_id]).json()
+
+        assert body["invitations"][0]["skip_reason"] == "channel_suppressed"
+
+
+class TestDispatchAvailability:
+    """Dispatch re-checks availability read now; a refusal stays pending (§4.4)."""
+
+    def _one_pending(self, ctx: _Context) -> tuple[str, str, uuid.UUID]:
+        professional_id = ctx.roster_contact(name="Sam Rivera")
+        batch = ctx.create_batch([professional_id]).json()
+        assert batch["invitations"][0]["status"] == "pending"
+        return batch["batch_id"], batch["invitations"][0]["invitation_id"], professional_id
+
+    def test_a_window_added_after_compose_refuses_dispatch_and_stays_pending(self, ctx: _Context):
+        """29."""
+        batch_id, invitation_id, professional_id = self._one_pending(ctx)
+        ctx.state_availability(professional_id, windows=ON_THE_DAY)
+
+        response = ctx.dispatch(batch_id)
+
+        assert response.status_code == 202, response.text
+        body = response.json()
+        assert body["dispatched"] == []
+        assert body["not_dispatched"] == [
+            {"invitation_id": invitation_id, "reason": "speaker_unavailable_on_date"}
+        ]
+        assert ctx.stored(invitation_id).status == "pending"
+
+    def test_a_pause_added_after_compose_refuses_dispatch(self, ctx: _Context):
+        batch_id, invitation_id, professional_id = self._one_pending(ctx)
+        ctx.state_availability(professional_id, paused_until=PAUSED_UNTIL)
+
+        body = ctx.dispatch(batch_id).json()
+
+        assert body["not_dispatched"] == [
+            {"invitation_id": invitation_id, "reason": "speaker_invitations_paused"}
+        ]
+
+    def test_clearing_the_window_lets_a_second_dispatch_send(self, ctx: _Context):
+        """30."""
+        batch_id, invitation_id, professional_id = self._one_pending(ctx)
+        ctx.state_availability(professional_id, windows=ON_THE_DAY)
+        assert ctx.dispatch(batch_id).json()["dispatched"] == []
+
+        ctx.state_availability(professional_id)
+        body = ctx.dispatch(batch_id).json()
+
+        assert [entry["invitation_id"] for entry in body["dispatched"]] == [invitation_id]
+        assert ctx.stored(invitation_id).status == "dispatched"
+
+    def test_a_legacy_batch_with_no_request_is_not_checked(self, ctx: _Context):
+        """31: a pre-``0041`` batch the backfill could not link has no date to check."""
+        batch_id, invitation_id, professional_id = self._one_pending(ctx)
+        with ctx.engine.begin() as conn:
+            conn.execute(
+                text("UPDATE cba_invitation_batch SET speaker_request_id = NULL WHERE id = :b"),
+                {"b": batch_id},
+            )
+        ctx.state_availability(professional_id, windows=ON_THE_DAY)
+
+        body = ctx.dispatch(batch_id).json()
+
+        assert [entry["invitation_id"] for entry in body["dispatched"]] == [invitation_id]
+
+    def test_dispatch_still_checks_after_the_request_origin_flips_to_extraction(
+        self, ctx: _Context
+    ):
+        """31a: an unfiled request rewritten to ``extraction`` keeps its date."""
+        batch_id, invitation_id, professional_id = self._one_pending(ctx)
+        request_id = ctx.default_request(ctx.unit_id)
+        with ctx.engine.begin() as conn:
+            conn.execute(
+                text(
+                    "UPDATE event SET origin = 'extraction', "
+                    "source_url = 'https://events.example.invalid/flip', "
+                    "fetched_at = now(), extractor_version = 'fixture-1' WHERE id = :e"
+                ),
+                {"e": request_id},
+            )
+        ctx.state_availability(professional_id, windows=ON_THE_DAY)
+
+        body = ctx.dispatch(batch_id).json()
+
+        assert body["not_dispatched"] == [
+            {"invitation_id": invitation_id, "reason": "speaker_unavailable_on_date"}
+        ]
 
 
 # ---------------------------------------------------------------------------

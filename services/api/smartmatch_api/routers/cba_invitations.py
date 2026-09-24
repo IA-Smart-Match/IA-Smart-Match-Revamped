@@ -83,6 +83,7 @@ every other route in this package does it.
 from __future__ import annotations
 
 import hashlib
+import logging
 import secrets
 import uuid
 from datetime import timedelta
@@ -91,6 +92,7 @@ from typing import Annotated, Final, Literal
 from fastapi import APIRouter, Header, Path, Query, status
 from pydantic import BaseModel, Field
 from smartmatch_authz import OrgPath, Resource, assert_allowed
+from smartmatch_domain.availability_verdict import StoredVerdict, as_of_utc
 from smartmatch_domain.cba_invitations import (
     INVITATION_TEMPLATE_ID,
     MAX_BATCH_RECIPIENTS,
@@ -101,6 +103,7 @@ from smartmatch_domain.cba_invitations import (
     choose_invitation_channel,
     classify_recipient,
     record_response,
+    skip_reason_for_availability,
 )
 from smartmatch_domain.consent import ConsentSource, ConsentViolationError, ContactState
 from smartmatch_domain.outreach import (
@@ -116,6 +119,7 @@ from smartmatch_persistence.cba_invitations import (
     MAX_BATCH_PAGE_SIZE,
     BatchRow,
     InvitationRepository,
+    InvitationRow,
     InvitationWithDelivery,
 )
 from smartmatch_persistence.contacts import ContactChannelRepository
@@ -123,7 +127,12 @@ from smartmatch_persistence.outreach import OutreachRepository
 from smartmatch_persistence.rate_limit import RateLimit
 from sqlalchemy.orm import Session
 
-from smartmatch_api.availability_reads import load_request_event_time, request_for_run
+from smartmatch_api.availability_reads import (
+    current_verdicts,
+    load_batch_request_event_time,
+    load_request_event_time,
+    request_for_run,
+)
 from smartmatch_api.commands import submit_command
 from smartmatch_api.config import get_settings
 from smartmatch_api.dependencies import CurrentPrincipal, DbSession, charge_quota
@@ -132,6 +141,8 @@ from smartmatch_api.units import OrgUnitRow, load_unit_or_404
 from smartmatch_api.utils import utc_now
 
 router = APIRouter(prefix="/v1/units", tags=["speaker-invitations"])
+
+_log = logging.getLogger(__name__)
 
 #: The Speaker's own answer is not unit-scoped and not authenticated, so it gets
 #: its own router rather than a path exception on the one above —
@@ -410,8 +421,10 @@ class NotDispatchedView(BaseModel):
         description=(
             "A consent fact read *now*, not at batch creation: a channel can be "
             "suppressed, de-activated, or removed between composing a batch and "
-            "sending it. The invitation stays pending and can be dispatched later "
-            "if the reason is resolved."
+            "sending it. Or, after consent, the Speaker's availability read now "
+            "against the batch's Speaker Request: speaker_unavailable_on_date or "
+            "speaker_invitations_paused. The invitation stays pending and can be "
+            "dispatched later if the reason is resolved."
         )
     )
 
@@ -801,6 +814,16 @@ def create_invitation_batch(
         # changed since.
         return _batch_response(session, principal, batch_id=reservation.batch.id, replayed=True)
 
+    # B26 T4 §4.3: the request's date read once, one `get_many` for everybody
+    # named. The verdict is applied per recipient *after* the channel check.
+    availability = _batch_verdicts(
+        session,
+        principal,
+        unit_id=unit.id,
+        speaker_request_id=speaker_request_id,
+        professional_ids=body.professional_ids,
+    )
+
     for professional_id in body.professional_ids:
         _compose_one(
             session,
@@ -809,6 +832,7 @@ def create_invitation_batch(
             batch_id=reservation.batch.id,
             professional_id=professional_id,
             body=body,
+            availability=availability.get(str(professional_id)),
         )
 
     # The one commit. Without it `get_session`'s unconditional rollback discards
@@ -899,6 +923,37 @@ def _resolve_speaker_request(
     return body.speaker_request_id
 
 
+def _batch_verdicts(
+    session: Session,
+    principal: CurrentPrincipal,
+    *,
+    unit_id: uuid.UUID,
+    speaker_request_id: uuid.UUID,
+    professional_ids: list[uuid.UUID],
+) -> dict[str, StoredVerdict]:
+    """Today's availability verdict per named recipient, against the batch's request."""
+    event_time = load_request_event_time(
+        session,
+        tenant_id=principal.tenant_id,
+        unit_id=unit_id,
+        speaker_request_id=speaker_request_id,
+    )
+    if event_time is None:  # pragma: no cover - resolved in this transaction
+        raise ApiError(
+            status_code=status.HTTP_404_NOT_FOUND,
+            code="speaker_request_not_found",
+            message="No such Speaker Request in this unit.",
+        )
+    verdicts = current_verdicts(
+        session,
+        tenant_id=principal.tenant_id,
+        subject_ids=[str(pid) for pid in professional_ids],
+        event_time=event_time,
+        as_of=as_of_utc(utc_now()),
+    )
+    return {verdict.subject_id: verdict for verdict in verdicts}
+
+
 def _skip(
     session: Session,
     principal: CurrentPrincipal,
@@ -934,8 +989,13 @@ def _compose_one(
     batch_id: uuid.UUID,
     professional_id: uuid.UUID,
     body: BatchCreateRequest,
+    availability: StoredVerdict | None = None,
 ) -> None:
-    """Resolve one recipient and either compose their invitation or skip them."""
+    """Resolve one recipient and either compose their invitation or skip them.
+
+    Order: roster, channel, then availability (B26 T4). Consent first, so a
+    Speaker who said stop is reported as such, not as unavailable.
+    """
     contact = _roster.get(
         session,
         tenant_id=principal.tenant_id,
@@ -971,6 +1031,18 @@ def _compose_one(
             batch_id=batch_id,
             professional_id=professional_id,
             reason=reason or SkipReason.NO_CONTACT_CHANNEL,
+        )
+        return
+
+    unavailable = None if availability is None else skip_reason_for_availability(availability)
+    if unavailable is not None:
+        _skip(
+            session,
+            principal,
+            unit_id=unit.id,
+            batch_id=batch_id,
+            professional_id=professional_id,
+            reason=unavailable,
         )
         return
 
@@ -1183,8 +1255,13 @@ def dispatch_invitation_batch(
     key derived from the invitation id so ``submit_command`` replays rather than
     queues a second send.
 
+    **Availability is rechecked too** (B26 T4), after consent, against the
+    batch's own Speaker Request and each Speaker's statement read now.
+
     Raises:
-        ApiError: 404 when no such batch exists in this unit.
+        ApiError: 404 when no such batch exists in this unit; 409
+            ``speaker_invitation_request_unreadable`` when the batch's request
+            cannot be read (a broken invariant; nothing is submitted).
     """
     charge = charge_quota(session, principal, INVITATION_DISPATCH_RATE_LIMIT)
 
@@ -1195,9 +1272,10 @@ def dispatch_invitation_batch(
     dispatched: list[DispatchedView] = []
     not_dispatched: list[NotDispatchedView] = []
 
-    for invitation in _invites.list_pending(
-        session, tenant_id=principal.tenant_id, batch_id=resolved
-    ):
+    pending = list(_invites.list_pending(session, tenant_id=principal.tenant_id, batch_id=resolved))
+    availability = _dispatch_verdicts(session, principal, batch=batch, pending=pending)
+
+    for invitation in pending:
         if invitation.contact_channel_id is None or invitation.outreach_draft_id is None:
             # Structurally impossible: `ck_cba_invitation_addressed` requires both
             # on any row that is not skipped, and skipped rows are not pending.
@@ -1222,6 +1300,11 @@ def dispatch_invitation_batch(
             continue
 
         reason = classify_recipient(facts)
+        verdict = availability.get(str(invitation.professional_id))
+        if reason is None and verdict is not None:
+            # After consent (B26 T4 §4.4): availability read now, against the
+            # batch's own request. The invitation stays pending either way.
+            reason = skip_reason_for_availability(verdict)
         if reason is not None:
             not_dispatched.append(
                 NotDispatchedView(invitation_id=invitation.id, reason=reason.value)
@@ -1269,6 +1352,53 @@ def dispatch_invitation_batch(
         )
 
     return DispatchResponse(batch_id=resolved, dispatched=dispatched, not_dispatched=not_dispatched)
+
+
+def _dispatch_verdicts(
+    session: Session,
+    principal: CurrentPrincipal,
+    *,
+    batch: BatchRow,
+    pending: list[InvitationRow],
+) -> dict[str, StoredVerdict]:
+    """Today's availability for every pending recipient: one ``get_many`` (§4.4).
+
+    A batch with no request (stored before ``0041`` and never linked) is the
+    only no-check path. A request that can no longer be read in the batch's
+    unit is a broken invariant (``ON DELETE RESTRICT``, and neither unit ever
+    moves): the whole dispatch is refused with ``409``, never sent unchecked.
+    """
+    if batch.speaker_request_id is None or not pending:
+        return {}
+    event_time = load_batch_request_event_time(
+        session,
+        tenant_id=principal.tenant_id,
+        unit_id=batch.owning_unit_id,
+        speaker_request_id=batch.speaker_request_id,
+    )
+    if event_time is None:
+        _log.error(
+            "speaker invitation batch %s names Speaker Request %s, which is not "
+            "readable in its unit; dispatch refused",
+            batch.id,
+            batch.speaker_request_id,
+        )
+        raise ApiError(
+            status_code=status.HTTP_409_CONFLICT,
+            code="speaker_invitation_request_unreadable",
+            message=(
+                "This batch's Speaker Request can no longer be read, so availability "
+                "cannot be checked. Nothing was submitted."
+            ),
+        )
+    verdicts = current_verdicts(
+        session,
+        tenant_id=principal.tenant_id,
+        subject_ids=[str(invitation.professional_id) for invitation in pending],
+        event_time=event_time,
+        as_of=as_of_utc(utc_now()),
+    )
+    return {verdict.subject_id: verdict for verdict in verdicts}
 
 
 # ---------------------------------------------------------------------------
