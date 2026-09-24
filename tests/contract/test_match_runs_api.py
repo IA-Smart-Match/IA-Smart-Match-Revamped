@@ -1539,6 +1539,25 @@ def test_a_malformed_excluded_block_is_reported_not_dropped(match_context, engin
     assert run["shortlist_available"] is True
 
 
+def test_a_malformed_load_block_on_an_exclusion_is_reported_not_dropped(
+    match_context, engine
+) -> None:
+    """B26 T8c: a present ``load`` that does not render is unreadable, never "no block"."""
+    accepted, _ = _submit_and_execute(match_context, engine)
+    job_id = uuid.UUID(accepted["job_id"])
+    bad = '[{"subject_id": "x", "reason": "load_full", "load": {"band": 7}}]'
+    _rewrite_payload(
+        engine,
+        job_id,
+        f"jsonb_set(payload, '{{excluded}}', (payload->'excluded') || '{bad}'::jsonb)",
+    )
+
+    run = _read_run(match_context, engine, job_id)
+
+    assert run["excluded"] == []
+    assert ".load" in run["excluded_unreadable_reason"]
+
+
 # ---------------------------------------------------------------------------
 # B26 T8c: registry 3.0.0 (proposed, NOT current) on the create and read routes
 # ---------------------------------------------------------------------------
