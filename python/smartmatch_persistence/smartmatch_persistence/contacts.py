@@ -59,6 +59,7 @@ from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import Session
 
 from smartmatch_persistence import schema
+from smartmatch_persistence.suppression import active_suppression_exists
 
 __all__ = [
     "DEFAULT_CONTACT_PAGE_SIZE",
@@ -80,10 +81,10 @@ MAX_CONTACT_PAGE_SIZE: Final[int] = 200
 class ContactChannelRow:
     """One contact channel as a coordinator surface reads it.
 
-    :attr:`suppressed` is computed by a join against ``suppression_record`` on
-    every read rather than stored, for the reason migration ``0021`` gives for
-    there being no such column: two places to look would be two places to
-    disagree, and the disagreement always resolves toward sending.
+    :attr:`suppressed` is computed on every read (an active, unlifted
+    suppression for the address exists) rather than stored, for the reason
+    migration ``0021`` gives for there being no such column: two places to
+    look would be two places to disagree, and the disagreement always resolves toward sending.
     """
 
     id: uuid.UUID
@@ -124,13 +125,13 @@ class TransitionRow:
 def _selectable() -> sa.Select[Any]:
     """The contact columns plus a live suppression check.
 
-    A ``LEFT JOIN`` on ``(tenant_id, address)``, matching
-    ``OutreachRepository.load_recipient`` exactly — on address rather than on
-    contact id, because a suppression is a statement about a person and not
-    about a row.
+    ``suppressed`` is :func:`~smartmatch_persistence.suppression.active_suppression_exists`,
+    the same predicate ``OutreachRepository.load_recipient`` uses: a correlated
+    ``EXISTS`` on ``(tenant_id, address)`` that ignores a lifted row (B26 T6b-3).
+    On address rather than contact id, because a suppression is a statement
+    about a person and not about a row.
     """
     channel = schema.contact_channel
-    suppression = schema.suppression_record
     return sa.select(
         channel.c.id,
         channel.c.tenant_id,
@@ -144,16 +145,8 @@ def _selectable() -> sa.Select[Any]:
         channel.c.consent_evidence,
         channel.c.created_at,
         channel.c.updated_at,
-        (suppression.c.id.isnot(None)).label("suppressed"),
-    ).select_from(
-        channel.outerjoin(
-            suppression,
-            sa.and_(
-                suppression.c.tenant_id == channel.c.tenant_id,
-                suppression.c.address == channel.c.address,
-            ),
-        )
-    )
+        active_suppression_exists(channel).label("suppressed"),
+    ).select_from(channel)
 
 
 def _to_contact(row: sa.Row[Any]) -> ContactChannelRow:
@@ -332,6 +325,32 @@ class ContactChannelRepository:
             .order_by(schema.contact_channel.c.address, schema.contact_channel.c.id)
             .limit(bounded)
             .offset(max(0, offset))
+        ).all()
+        return [_to_contact(row) for row in rows]
+
+    def list_for_speaker(
+        self,
+        session: Session,
+        *,
+        tenant_id: uuid.UUID,
+        professional_id: uuid.UUID,
+        limit: int = DEFAULT_CONTACT_PAGE_SIZE,
+    ) -> list[ContactChannelRow]:
+        """Every channel one person holds in the tenant, across units (B26 T6b-3, OQ-7).
+
+        For the signed-in Speaker's own view only: the caller has already
+        resolved ``professional_id`` from the Speaker's bound profile, never
+        from the request. Ordered as :meth:`list_for_unit`; clamped the same way.
+        """
+        bounded = max(1, min(limit, MAX_CONTACT_PAGE_SIZE))
+        rows = session.execute(
+            _selectable()
+            .where(
+                schema.contact_channel.c.tenant_id == tenant_id,
+                schema.contact_channel.c.professional_id == professional_id,
+            )
+            .order_by(schema.contact_channel.c.address, schema.contact_channel.c.id)
+            .limit(bounded)
         ).all()
         return [_to_contact(row) for row in rows]
 

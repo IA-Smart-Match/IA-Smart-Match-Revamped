@@ -40,6 +40,11 @@ _SUPPRESSION_REPOSITORY_METHODS = frozenset({"is_active"})
 #: has a ``SEND_PATHS`` entry in the send-path contract test.
 KNOWN_ELIGIBILITY_CONSUMERS: frozenset[tuple[str, str]] = frozenset(
     {
+        # R3 delegates to SuppressionRepository.is_active.
+        (
+            "python/smartmatch_persistence/smartmatch_persistence/outreach.py",
+            "OutreachRepository.is_suppressed",
+        ),
         # R1 read-back after a transition.
         (
             "python/smartmatch_persistence/smartmatch_persistence/contacts.py",
@@ -165,9 +170,13 @@ def test_lifted_at_is_written_only_by_the_suppression_module() -> None:
         if rel in ALLOWED_TABLE_MODULES:
             continue
         for node in ast.walk(tree):
-            if isinstance(node, ast.Attribute) and node.attr in {"lifted_at", "lifted_by_user_id"}:
-                if isinstance(node.value, ast.Attribute) and node.value.attr == "c":
-                    offenders.append(f"{rel}:{node.lineno} .c.{node.attr}")
+            if (
+                isinstance(node, ast.Attribute)
+                and node.attr in {"lifted_at", "lifted_by_user_id"}
+                and isinstance(node.value, ast.Attribute)
+                and node.value.attr == "c"
+            ):
+                offenders.append(f"{rel}:{node.lineno} .c.{node.attr}")
             if (
                 isinstance(node, ast.Call)
                 and isinstance(node.func, ast.Attribute)
@@ -222,38 +231,56 @@ def _bound_names(tree: ast.Module, classes: frozenset[str]) -> set[str]:
     return names
 
 
+@dataclass(frozen=True)
+class _Bindings:
+    file: str
+    contact_names: frozenset[str]
+    suppression_names: frozenset[str]
+
+
+def _is_eligibility_call(call: ast.Call, bindings: _Bindings, klass: str | None) -> bool:
+    if not isinstance(call.func, ast.Attribute):
+        return False
+    method = call.func.attr
+    receiver = call.func.value
+    name = receiver.id if isinstance(receiver, ast.Name) else None
+    if method in _UNIQUE_ELIGIBILITY_METHODS:
+        return True
+    if method in _CONTACT_REPOSITORY_METHODS:
+        return (
+            name in bindings.contact_names
+            or (name == "self" and klass == "ContactChannelRepository")
+            or (method == "get" and any(kw.arg == "contact_channel_id" for kw in call.keywords))
+        )
+    if method in _SUPPRESSION_REPOSITORY_METHODS:
+        return name in bindings.suppression_names
+    return False
+
+
+def _visit(
+    node: ast.AST, bindings: _Bindings, scope: tuple[str, ...], klass: str | None
+) -> Iterator[_Call]:
+    for child in ast.iter_child_nodes(node):
+        if isinstance(child, ast.ClassDef):
+            yield from _visit(child, bindings, (*scope, child.name), child.name)
+            continue
+        if isinstance(child, ast.FunctionDef | ast.AsyncFunctionDef):
+            yield from _visit(child, bindings, (*scope, child.name), klass)
+            continue
+        if isinstance(child, ast.Call) and _is_eligibility_call(child, bindings, klass):
+            assert isinstance(child.func, ast.Attribute)
+            yield _Call(bindings.file, ".".join(scope) or "<module>", child.func.attr, child.lineno)
+        yield from _visit(child, bindings, scope, klass)
+
+
 def _eligibility_calls() -> Iterator[_Call]:
     for rel, tree in _source_files():
-        contact_names = _bound_names(tree, frozenset({"ContactChannelRepository"}))
-        suppression_names = _bound_names(tree, frozenset({"SuppressionRepository"}))
-
-        def visit(node: ast.AST, scope: tuple[str, ...], klass: str | None) -> Iterator[_Call]:
-            for child in ast.iter_child_nodes(node):
-                if isinstance(child, ast.ClassDef):
-                    yield from visit(child, (*scope, child.name), child.name)
-                    continue
-                if isinstance(child, ast.FunctionDef | ast.AsyncFunctionDef):
-                    yield from visit(child, (*scope, child.name), klass)
-                    continue
-                if isinstance(child, ast.Call) and isinstance(child.func, ast.Attribute):
-                    method = child.func.attr
-                    receiver = child.func.value
-                    name = receiver.id if isinstance(receiver, ast.Name) else None
-                    hit = method in _UNIQUE_ELIGIBILITY_METHODS
-                    if method in _CONTACT_REPOSITORY_METHODS:
-                        hit = hit or name in contact_names
-                        hit = hit or (name == "self" and klass == "ContactChannelRepository")
-                        hit = hit or (
-                            method == "get"
-                            and any(kw.arg == "contact_channel_id" for kw in child.keywords)
-                        )
-                    if method in _SUPPRESSION_REPOSITORY_METHODS:
-                        hit = hit or name in suppression_names
-                    if hit:
-                        yield _Call(rel, ".".join(scope) or "<module>", method, child.lineno)
-                yield from visit(child, scope, klass)
-
-        yield from visit(tree, (), None)
+        bindings = _Bindings(
+            file=rel,
+            contact_names=frozenset(_bound_names(tree, frozenset({"ContactChannelRepository"}))),
+            suppression_names=frozenset(_bound_names(tree, frozenset({"SuppressionRepository"}))),
+        )
+        yield from _visit(tree, bindings, (), None)
 
 
 def test_every_eligibility_consumer_is_known() -> None:
