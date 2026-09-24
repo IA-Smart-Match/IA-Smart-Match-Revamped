@@ -2294,6 +2294,24 @@ export interface MatchFactorExplanation {
 }
 
 /** One candidate's heuristic score and every factor behind it. */
+/**
+ * The Stage A availability verdict a run stored for one candidate (B26 T4).
+ *
+ * It annotates; it never removed, reordered or re-scored anybody. Worded by
+ * state only — there is no number here but the dates.
+ */
+export interface MatchAvailability {
+  verdict: "eligible" | "excluded" | "undetermined";
+  state: "available" | "blacked_out" | "unknown";
+  reason: "clear" | "paused" | "window" | "not_stated" | "event_unresolved";
+  /** The UTC date (`YYYY-MM-DD`) the verdict was taken on. */
+  as_of: string;
+  /** Set exactly when `reason` is `paused`. */
+  paused_until: string | null;
+  /** Null when it could not be checked — "not checked", never "unchanged". */
+  changed_since_run: boolean | null;
+}
+
 export interface MatchCandidateExplanation {
   subject_id: string;
   /** In [0, 1]. Never a percentage, and null when `state` is "unknown". */
@@ -2328,6 +2346,8 @@ export interface MatchCandidateExplanation {
   /** The mode vocabulary's version. Set exactly when `scoring_mode` is. */
   scoring_mode_version?: string | null;
   factors: MatchFactorExplanation[];
+  /** The stored availability verdict; null when the run recorded none. */
+  availability?: MatchAvailability | null;
 }
 
 /**
@@ -2367,6 +2387,11 @@ export interface MatchRunRead {
   considered: MatchCandidateExplanation[];
   /** Candidates excluded because a factor had no evidence. Never scored at 0. */
   unscorable: MatchCandidateExplanation[];
+  /** False for a run stored before availability was recorded, or an unreadable block. */
+  availability_recorded?: boolean;
+  availability_unreadable_reason?: string | null;
+  /** Named subjects that never entered the pool, as stored at submission. */
+  excluded?: ExcludedMatchCandidate[];
 }
 
 /** `GET /v1/units/{unit_id}/match-runs/{match_run_id}`. */
