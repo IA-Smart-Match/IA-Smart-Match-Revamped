@@ -256,6 +256,8 @@ function ContactRow({
           ) : null}
         </div>
       ) : null}
+      {/* B26 T6b-1. Renders nothing unless `speaker_portal` is on. */}
+      <SpeakerPortalInvite unitId={unitId} professionalId={contact.professional_id} />
 
       {availabilityOpen ? (
         <SpeakerAvailabilityPanel
@@ -264,8 +266,6 @@ function ContactRow({
           contactName={contact.full_name}
         />
       ) : null}
-      {/* B26 T6b-1. Renders nothing unless `speaker_portal` is on. */}
-      <SpeakerPortalInvite unitId={unitId} professionalId={contact.professional_id} />
     </li>
   );
 }

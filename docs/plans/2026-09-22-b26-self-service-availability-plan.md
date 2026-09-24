@@ -26,7 +26,9 @@ questions, then Q7 (band penalties) and the email-clash question, the same day.
 
 **Still open:** no owner question. Five stakeholder dependencies remain (§10).
 **Migrations:** `0038_speaker_availability`, `0039_speaker_portal`,
-`0040_speaker_booking_cancellation`, on top of head `0037_exercise_tables`. If
+`0040_booking_cancellation` (file `0040_speaker_booking_cancellation.py`),
+`0041_batch_speaker_request` (file `0041_invitation_batch_speaker_request.py`),
+on top of head `0037_exercise_tables`. If
 another revision lands first, take current head plus one and keep one head.
 **Out of bounds:** `docs/plans/frontend-broken-buttons.md`. PR #208 owns its B26 row.
 
@@ -205,6 +207,21 @@ can be cancelled. A cancellation is a transition, not a delete (the
 `date_only` event has no time of day, so a weekly pattern cannot be evaluated
 against it; a date window can be evaluated against any resolved event. Capacity is
 now an ELI input (Q6), in the unit the owner's rule uses: hours per 90 days.
+
+### 3.5 `0041_batch_speaker_request` (T4)
+
+File `0041_invitation_batch_speaker_request.py`; the id is shorter because
+`alembic_version` is `varchar(32)`. `cba_invitation_batch` gains
+`speaker_request_id` (uuid, null, no default) and
+`fk_cba_invitation_batch_speaker_request`: composite `(tenant_id,
+speaker_request_id)` → `event (tenant_id, id)`, `ON DELETE RESTRICT`. The
+upgrade backfills it in one statement from the batch's run when the run's
+`event_need_id` names (by text, never `::uuid`) a `coordinator_entry` event, and
+both the run and the event belong to the batch's own unit; anything else stays
+NULL. No NOT NULL: legacy batches have no request to name. The API rule is
+C12 = R1: every **new** batch names a request, derived from its run or given
+directly, else `422 speaker_invitation_request_required`. Track plan
+`docs/plans/b26-tracks/T4-plan.md` §4.1.
 
 ## 4. API
 
@@ -413,17 +430,19 @@ rule does not have. No stored snapshot references 1.1.0 (there is no
 ```text
 as_of      = the run date (UTC date of run creation)
 completed  = Σ event hours, pipeline_record.attended_at set, event local date in [as_of − 45, as_of)
-confirmed  = Σ event hours, confirmed_at set, attended_at and cancelled_at NULL,
-             event local date in [as_of, as_of + 45]
+confirmed  = Σ event hours, confirmed_at set, cancelled_at NULL (attended or not),
+             event local date in [as_of, as_of + 44]
 utilization = (completed + confirmed) / declared_capacity_hours_per_90_days   -- unrounded
 ```
 
+- The window is 90 days: `[as_of − 45, as_of)` + `[as_of, as_of + 44]`. An event on
+  `as_of` that is already attended counts as confirmed (owner, 2026-09-23).
 - A cancelled booking (`cancelled_at` set, T8a) counts in neither sum from the
   moment it is cancelled.
 - Event hours = `ends_at − starts_at` for an exact event with an end. Travel hours
   stay 0, recorded as unavailable (D3: no route provider).
 - `LoadInputs.declared_capacity_hours` loses its `40.0` default and becomes
-  optional; `LoadModifier` stops adding points (manual blackout now lives in §5.1).
+  optional; `LoadModifier` is deleted (manual blackout now lives in §5.1).
 
 **Bands — decided 2026-09-22 (owner, Q7 = A).**
 
@@ -483,7 +502,7 @@ of only the affected keys. Errors branch on `ApiRequestError.code`. WCAG 2.2 AA.
 | `/speaker-portal` shell | T6b-4 | Home (upcoming engagements, open invitations), Invitations (answer), Engagements (upcoming / past), Availability (same form as T5 plus the Speaker's own load band after T8), Contact preferences (opt in / out per channel). |
 | Portal switcher (both shells) | T6b-5 | "Switch portal" menu listing `/v1/me/portals`; hidden with one portal; keyboard-operable menu button with `aria-expanded`; current portal marked `aria-current`. |
 | `/i/{token}` | T6a | Working accept / decline form for Speakers without an account. |
-| `VolunteerProfile.tsx` | T7 | Host's own record (email, role, unit), link to Organization; the dead `/api/portals/volunteers/{id}` panel is removed. |
+| `VolunteerProfile.tsx` | T7 (**done**) | Host's own record (email, role, unit), link to Organization; the dead `/api/portals/volunteers/{id}` panel is removed. Done in B26 T7. |
 
 Accessibility details for the forms: native `<input type="date">` and
 `<input type="number">` with visible labels; each window a `<fieldset>` with a
@@ -509,7 +528,7 @@ Each track writes failing tests first. Locally, run targeted files one at a time
 | 8 | T6b-3 | Opt-out suppresses immediately; opt-in lifts only own-source suppressions; bounce/complaint never lifted; both 409s; every send-eligibility read honours `lifted_at` | contract + integration |
 | 8b | T6b-5 | Existing-login activation: right password binds and adds `speaker` membership; wrong password → 401, token not consumed, attempt counted; new-login path refused when a credentialed account holds the address; ambiguous and other-tenant addresses refused; concurrent activations → one binding; `/v1/me/*` resolves via `account_user_id` in both modes; Host routes unchanged; policy matrix two-membership shape; `/v1/me/portals` lists both; switcher hidden with one portal | contract + integration + authz + Vitest |
 | 9 | T8a | Cancel only a confirmed booking; cancellation is a transition | integration + contract |
-| 10 | T8b | `test_eli.py` rewritten: centered window edges (day −45, −1, 0, +45, +46), cancellation, unknown hours, lower-bound Full, no default capacity | unit |
+| 10 | T8b | `test_eli.py` rewritten: centered window edges (day −46, −45, −1, 0, +44, +45), cancellation, unknown hours, lower-bound Full, no default capacity | unit |
 | 11 | T8c | `test_factor_registry.py`: 3.0.0 proposed until approved; superseded set; hash coverage; `G-CBA-14`…`19` | unit + golden |
 | 12 | T5, T6b-4, T7 | Vitest: states, stale path keeps input, principal-key isolation; source guard that no `/api/portals/volunteers` call remains | frontend unit |
 | 13 | all | `tests/e2e/test_pilot_clickthrough.py`: Connector invites → Speaker activates → blocks a date → run shows "Unavailable" → batch refuses; Speaker opts out → invitation not sendable | e2e |
@@ -523,7 +542,7 @@ Each track is its own PR against `main`.
 | **T1** | Domain: availability verdict, `reason` on `AvailabilityEvidence`, limits | 0.5 day | — |
 | **T2** | `0038_speaker_availability` incl. capacity, mirror, repository | 1.5 days | T1 |
 | **T3** | Connector availability `GET`/`PATCH`, OpenAPI, `api.ts` adapter | 1.5 days | T2 |
-| **T4** | Stage A wiring: run payload, "changed since", compose/dispatch re-check, `G-CBA-13`; the self-request exclusion (Q8 = a) | 2.5 days | T2 |
+| **T4** | Stage A wiring: run payload, "changed since", compose/dispatch re-check, `G-CBA-13`; the self-request exclusion (Q8 = a); `0041_batch_speaker_request` (a batch names its Speaker Request) | 2.5 days | T2, T6b-1 (0039), T8a (0040) |
 | **T5** | Connector availability panel | 1 day | T3 |
 | **T6a** | `/i/{token}` page fix only — working accept/decline controls. The token-link availability route is **dropped**: signed-in Speakers edit through `/v1/me/availability`. | 1 day | — |
 | **T6b-1** | Speaker accounts: `0039` (invitation table, suppression lift), `speaker` role and portal mapping, invite / revoke / activate routes, `speaker_portal_invite` template, `/s/{token}` page, `SPEAKER_PORTAL` capability, Connector "Invite to portal" button, DESIGN.md role table | 3.5 days | — |
@@ -533,7 +552,7 @@ Each track is its own PR against `main`.
 | **T6b-5** | One login, two roles: existing-login activation mode, credential locking, `find_or_add_role` (seed tools moved onto it), other-tenant pre-check, revoke/unbind, two-membership authz tests, portal switcher | 2.5 days | T6b-1, T6b-2; switcher UI after T6b-4 |
 | **T7** | `VolunteerProfile` close-out (Q3 = a) | 0.5 day | — |
 | **T8a** | `0040_speaker_booking_cancellation`, Connector "Cancel booking" route and button | 1.5 days | — |
-| **T8b** | `eli.py` 2.0.0: centered utilization, bands, no default capacity | 1 day | T2 |
+| **T8b** | `eli.py` 2.0.0: centered utilization, bands, no default capacity | 1 day | — (pure domain; branches from `main`) |
 | **T8c** | Registry 3.0.0: band table (Q7 = A), hash coverage, superseded set, Full pre-solve, penalty in scoring, explanation `load` block, `G-CBA-14`…`19` | 3 days | T8a, T8b; registry approval before it becomes current |
 | **T8d** | Load band on Connector run views and on the Speaker's Availability page | 1 day | T8c, T6b-4 |
 
@@ -541,10 +560,10 @@ Each track is its own PR against `main`.
 
 1. T6b-1 → T6b-2 → T6b-4 → T6b-5 (switcher) — **11 days**. T8d (1 day) hangs off
    T6b-4 in parallel with T6b-5.
-2. T1 → T2 → T8b → T8c → T8d — 7 days of work, plus waiting for registry 3.0.0
-   approval before it becomes the current scoring.
+2. T1 → T2 → T8c → T8d — 6 days of work, with T8b (1 day) in parallel from day
+   one, plus waiting for registry 3.0.0 approval before it becomes the current scoring.
 
-T1–T5, T6a, T7 and T8a can run in parallel from day one. T6b-5's backend half
+T1–T5, T6a, T7, T8a and T8b can run in parallel from day one. T6b-5's backend half
 (activation mode, locking, `find_or_add_role`) can start as soon as T6b-2 lands.
 
 ## 9. Owner questions

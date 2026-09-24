@@ -33,7 +33,7 @@ import ast
 import os
 import uuid
 from collections.abc import Iterator
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -173,6 +173,8 @@ _CLEANUP = (
     "speaker_portal_invitation",
     "cba_invitation",
     "cba_invitation_batch",
+    # The Speaker Request a batch names (B26 T4), after the batch that cites it.
+    "event",
     "job_event",
     "outbox_record",
     "redrive_record",
@@ -325,10 +327,34 @@ class _Context:
 
     # -- CBA invitations (C4, C5) -------------------------------------------
 
+    def speaker_request(self) -> uuid.UUID:
+        """A Connector-entered Speaker Request in this unit (B26 T4 requires one)."""
+        request_id = uuid.uuid4()
+        title = f"Spring Showcase {request_id.hex[:8]}"
+        with self.engine.begin() as conn:
+            conn.execute(
+                text(
+                    "INSERT INTO event (id, tenant_id, host_org_unit_id, title, "
+                    "normalized_title, on_date, time_zone, time_precision, resolved_date, "
+                    "origin) VALUES (:id, :t, :u, :title, :norm, :d, 'America/Los_Angeles', "
+                    "'date_only', :d, 'coordinator_entry')"
+                ),
+                {
+                    "id": request_id,
+                    "t": self.tenant_id,
+                    "u": self.unit_id,
+                    "title": title,
+                    "norm": title.lower(),
+                    "d": date(2027, 6, 12),
+                },
+            )
+        return request_id
+
     def create_batch(self):
         return self.client.post(
             f"/v1/units/{self.unit_id}/speaker-invitations/batches",
             json={
+                "speaker_request_id": str(self.speaker_request()),
                 "professional_ids": [str(self.professional_id)],
                 "event_name": "Spring Showcase",
                 "event_date": "Friday, 12 June",

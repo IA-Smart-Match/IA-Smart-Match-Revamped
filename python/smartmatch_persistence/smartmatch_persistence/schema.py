@@ -2946,6 +2946,10 @@ cba_invitation_batch = sa.Table(
     sa.Column("event_date", sa.Text, nullable=False),
     sa.Column("created_by_user_id", _UUID, nullable=False),
     sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
+    # Migration 0041 (B26 T4): the Speaker Request (a `coordinator_entry` event)
+    # this batch invites for, so compose and dispatch can re-check availability
+    # against its date. Nullable for history; the API requires it on a new batch.
+    sa.Column("speaker_request_id", _UUID, nullable=True),
     sa.PrimaryKeyConstraint("id", name="cba_invitation_batch_pkey"),
     sa.UniqueConstraint("tenant_id", "id", name="uq_cba_invitation_batch_tenant_id"),
     sa.UniqueConstraint(
@@ -2959,6 +2963,12 @@ cba_invitation_batch = sa.Table(
     sa.ForeignKeyConstraint(
         ["tenant_id", "match_run_id"],
         ["match_run.tenant_id", "match_run.id"],
+        ondelete="RESTRICT",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "speaker_request_id"],
+        ["event.tenant_id", "event.id"],
+        name="fk_cba_invitation_batch_speaker_request",
         ondelete="RESTRICT",
     ),
     sa.ForeignKeyConstraint(
