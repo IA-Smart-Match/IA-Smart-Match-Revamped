@@ -4139,7 +4139,9 @@ export interface ConfirmedSpeakerList {
  * `GET /v1/units/{unit_id}/cba/confirmed-speakers` — who agreed to come.
  *
  * Speakers whose `confirmed_at` is set, ordered by it, so a Host reads them in
- * the order they said yes. Optionally narrowed to one event.
+ * the order they said yes. Optionally narrowed to one event. Cancelled bookings
+ * are not listed (B26 T8a): a Speaker Connector's cancellation removes the
+ * speaker from this list and from the `pipeline_confirmed` count together.
  *
  * An empty `speakers` array means exactly one thing: nobody is confirmed. It is
  * not a report about invitations and a caller must not explain it as one —
@@ -4214,6 +4216,56 @@ export interface SpeakerHandoffResult {
  * funnel; `403` when the server does not grant this account the operation.
  * Render the server's own message — it says which of those happened.
  */
+/** One `pipeline_record` as `GET/POST …/pipeline-records/{id}…` returns it. */
+export interface PipelineRecordView {
+  id: string;
+  owning_unit_id: string;
+  subject_id: string;
+  opportunity_event_id: string;
+  matched_provenance: string;
+  current_stage: string;
+  matched_at: string;
+  contacted_at: string | null;
+  confirmed_at: string | null;
+  attended_at: string | null;
+  member_inquiry_at: string | null;
+  attendance_id: string | null;
+  /** When the booking was cancelled (server clock), or `null`. Not a stage. */
+  cancelled_at: string | null;
+  cancelled_by_user_id: string | null;
+}
+
+/** What `POST …/cancellation` did, and the row it left behind. */
+export interface BookingCancellationResult {
+  /** True only when this request's own write cancelled the booking. */
+  transitioned: boolean;
+  /** True when the booking was already cancelled; the first actor and time are kept. */
+  already_cancelled: boolean;
+  record: PipelineRecordView;
+}
+
+/**
+ * `POST /v1/units/{unit_id}/pipeline-records/{record_id}/cancellation` — cancel
+ * one confirmed Speaker booking (B26 T8a).
+ *
+ * No body: the server records its own clock and the caller. A repeat is a 200
+ * with `already_cancelled: true`. Refusals are {@link ApiRequestError}s with
+ * `pipeline_booking_not_confirmed`, `pipeline_booking_already_attended` or
+ * `pipeline_booking_confirmed_in_future` (409), `pipeline_record_not_found`
+ * (404), or the quota code (429).
+ */
+export async function cancelBooking(
+  unitId: string,
+  recordId: string,
+): Promise<BookingCancellationResult> {
+  return requestJson<BookingCancellationResult>(
+    `/v1/units/${encodeURIComponent(unitId)}/pipeline-records/` +
+      `${encodeURIComponent(recordId)}/cancellation`,
+    { method: "POST" },
+    { authenticated: true },
+  );
+}
+
 export async function reconcileSpeakerHandoff(
   unitId: string,
   eventId: string,
