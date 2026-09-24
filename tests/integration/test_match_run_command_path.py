@@ -636,6 +636,33 @@ def test_a_pin_its_mode_does_not_resolve_to_is_an_invalid_payload(
     )
 
 
+# W7b (PR #221 review MEDIUM): the check compares the resolved model with the
+# payload's pin, not with the registry's own version. Pin 1.1.1 resolves
+# through CBA_REGISTRY (version 2.0.0); with a mode it would record a 2.0.0 run.
+def test_a_1_1_1_pin_with_a_mode_is_an_invalid_payload(session_factory, tenant_id, engine):
+    _refused(
+        session_factory,
+        tenant_id,
+        engine,
+        _payload(scoring_mode="cba-physical-1", registry_version=SUPERSEDED_REGISTRY_VERSION),
+        "invalid_command_payload",
+    )
+
+
+# W7c: pin 1.1.1 with no mode is the G1 model the pin names, so it runs as 1.1.1.
+def test_a_1_1_1_pin_without_a_mode_records_a_1_1_1_run(session_factory, tenant_id, engine):
+    job_id = _accept(
+        session_factory, tenant_id, _payload(registry_version=SUPERSEDED_REGISTRY_VERSION)
+    )
+    assert _run(session_factory, tenant_id, job_id).state is JobState.SUCCEEDED
+    row = _row(engine, job_id)
+    assert row.registry_version == SUPERSEDED_REGISTRY_VERSION
+    assert row.registry_hash == weights_fingerprint(normalize_weights(model=SUPERSEDED_G1_MODEL))
+    assert row.registry_hash == (
+        "sha256:9da5f1b1ccb6b0627759c77a472fb47d8b77ce634c21fffe9bf53a5b04e79de1"
+    )
+
+
 # W8 (review LOW): a pin outside the CBA lineage is refused, even one this
 # process has bound (the class exercise's rulebook).
 def test_a_pin_outside_the_cba_lineage_is_an_invalid_payload(session_factory, tenant_id, engine):
