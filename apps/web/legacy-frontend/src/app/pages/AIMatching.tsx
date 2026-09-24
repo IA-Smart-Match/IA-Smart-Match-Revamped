@@ -79,6 +79,7 @@ import { useAuthenticatedPrincipal } from "@/app/hooks/useSession";
 import { useScopedQuery } from "@/app/hooks/useScopedQuery";
 import {
   fetchMatchRun,
+  fetchSpeakerContacts,
   hasSmartmatchAuth,
   type ExcludedMatchCandidate,
   type MatchAvailability,
@@ -224,8 +225,27 @@ export function describeAvailability(view: MatchAvailability | null | undefined)
   return view.changed_since_run === true ? `${text} — changed since this run` : text;
 }
 
-/** The named subjects the run never evaluated, worded like the submission screen does. */
-export function ExcludedCandidates({ excluded }: { excluded: readonly ExcludedMatchCandidate[] }) {
+/**
+ * The named subjects the run never evaluated, worded like the submission screen does.
+ * Each is shown by the name the unit's roster holds, and by id only when it holds none.
+ */
+export function ExcludedCandidates({
+  excluded,
+  names = new Map(),
+  unreadableReason = null,
+}: {
+  excluded: readonly ExcludedMatchCandidate[];
+  names?: ReadonlyMap<string, string>;
+  unreadableReason?: string | null;
+}) {
+  if (unreadableReason) {
+    return (
+      <section className="rounded-2xl border border-border bg-muted p-6">
+        <h2 className="text-base font-semibold text-foreground">Left out of this run</h2>
+        <p className="mt-2 text-sm text-muted-foreground">{unreadableReason}</p>
+      </section>
+    );
+  }
   if (excluded.length === 0) {
     return null;
   }
@@ -235,7 +255,9 @@ export function ExcludedCandidates({ excluded }: { excluded: readonly ExcludedMa
       <ul className="mt-3 list-none space-y-2 text-sm">
         {excluded.map((entry) => (
           <li key={entry.subject_id}>
-            <span className="font-medium text-foreground">{entry.subject_id}</span>
+            <span className="font-medium text-foreground">
+              {names.get(entry.subject_id) ?? entry.subject_id}
+            </span>
             <span className="text-muted-foreground">
               {" — "}
               {MATCH_INELIGIBILITY_EXPLANATIONS[entry.reason] ?? entry.reason}
@@ -365,6 +387,21 @@ export function AIMatching() {
     enabled: unitId !== null && runId !== null && authenticated,
   });
   const run: MatchRunRead | null = runQuery.data ?? null;
+  // The roster, read only to put names on the stored exclusions. Same cache
+  // entry the Connector pages use; a failed read falls back to the ids.
+  const hasExcluded = (run?.excluded ?? []).length > 0;
+  const rosterQuery = useScopedQuery({
+    resource: "speaker-contacts",
+    params: [unitId],
+    queryFn: () => fetchSpeakerContacts(unitId as string),
+    enabled: unitId !== null && authenticated && hasExcluded,
+  });
+  const rosterNames = new Map(
+    (rosterQuery.data?.contacts ?? []).map((contact) => [
+      contact.professional_id,
+      contact.full_name,
+    ]),
+  );
   const loading = runQuery.isPending && unitId !== null && runId !== null && authenticated;
   const error = runQuery.isError
     ? runQuery.error instanceof Error
@@ -483,7 +520,11 @@ export function AIMatching() {
           </section>
         ) : null}
 
-        <ExcludedCandidates excluded={run.excluded ?? []} />
+        <ExcludedCandidates
+          excluded={run.excluded ?? []}
+          names={rosterNames}
+          unreadableReason={run.excluded_unreadable_reason ?? null}
+        />
 
         {run.considered.length > 0 ? (
           <section>

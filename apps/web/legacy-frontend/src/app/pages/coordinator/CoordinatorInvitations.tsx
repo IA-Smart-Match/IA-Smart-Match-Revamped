@@ -110,6 +110,21 @@ export function describeSkip(reason: string): string {
   }
 }
 
+/**
+ * A compose refusal in Connector words where the server's code has a fix a
+ * Connector can act on; otherwise the server's own message, verbatim.
+ */
+export function describeComposeRefusal(cause: unknown): string {
+  if (!(cause instanceof ApiRequestError)) {
+    return "The batch could not be composed and the server gave no reason. Nothing was written.";
+  }
+  if (cause.code === "speaker_invitation_request_required") {
+    // B26 T4 (C12 = R1): the run predates Speaker Requests being linked to runs.
+    return "This run was made before Speaker Requests were linked. Start a new match run from the Speaker Request.";
+  }
+  return cause.message;
+}
+
 /** One shortlisted person, with the two server reads behind their row. */
 interface Recipient {
   subjectId: string;
@@ -467,11 +482,7 @@ export function CoordinatorInvitations() {
       setComposed(null);
       // The server's own refusal — a repeated id, an over-large list, a rate
       // limit. Not a message this page made up, and no selection is cleared.
-      setSubmitError(
-        cause instanceof ApiRequestError
-          ? cause.message
-          : "The batch could not be composed and the server gave no reason. Nothing was written.",
-      );
+      setSubmitError(describeComposeRefusal(cause));
     } finally {
       setSubmitting(false);
     }
