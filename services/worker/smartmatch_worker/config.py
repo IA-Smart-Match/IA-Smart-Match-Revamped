@@ -89,6 +89,12 @@ from urllib.parse import urlsplit
 
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from smartmatch_domain.product_scope import (
+    DEFAULT_PRODUCT_SCOPE,
+    Capability,
+    ProductScope,
+    is_capability_enabled,
+)
 from smartmatch_persistence.jobs import DEFAULT_JOB_LEASE
 from smartmatch_persistence.spend import SpendCeilings
 
@@ -433,6 +439,18 @@ class WorkerSettings(BaseSettings):
         description="HMAC key for unsubscribe tokens; required for live sends",
     )
 
+    #: The product scope, read exactly as the API reads it
+    #: (``SMARTMATCH_PRODUCT_SCOPE``). The worker needs it for one decision
+    #: today: whether ``SPEAKER_PORTAL`` is on (B26 T6b-1, R10).
+    product_scope: ProductScope = DEFAULT_PRODUCT_SCOPE
+
+    #: The Speaker portal token secret; must equal the API's. Read only when
+    #: ``SPEAKER_PORTAL`` is on (:func:`check_worker_speaker_portal_startup`).
+    speaker_portal_token_secret: SecretStr | None = Field(
+        default=None,
+        description="HMAC key for Speaker portal activation links; required when on",
+    )
+
     #: Live email credential. **Absent everywhere in this repository.** Its
     #: presence is what makes ``build_email_provider`` attempt a live client,
     #: which today is still a named refusal — the live adapter is OQ-002.
@@ -555,3 +573,31 @@ class WorkerSettings(BaseSettings):
 def get_settings() -> WorkerSettings:
     """Return the process-wide worker settings, validated once at first use."""
     return WorkerSettings()
+
+
+#: The shortest Speaker portal token secret the worker will boot with. Equal to
+#: ``smartmatch_api.config.MINIMUM_SPEAKER_PORTAL_SECRET_LENGTH``.
+MINIMUM_SPEAKER_PORTAL_SECRET_LENGTH: Final[int] = 32
+
+
+def check_worker_speaker_portal_startup(settings: WorkerSettings) -> str | None:
+    """The token secret when ``SPEAKER_PORTAL`` is on in this worker's scope, else ``None``.
+
+    The API's contract (``check_speaker_portal_startup``), for the worker.
+
+    Raises:
+        ValueError: when on and the secret is missing, blank or shorter than
+            :data:`MINIMUM_SPEAKER_PORTAL_SECRET_LENGTH`. The message quotes no
+            part of the value.
+    """
+    if not is_capability_enabled(settings.product_scope, Capability.SPEAKER_PORTAL):
+        return None
+    stored = settings.speaker_portal_token_secret
+    secret = stored.get_secret_value() if stored is not None else None
+    if secret is None or not secret.strip() or len(secret) < MINIMUM_SPEAKER_PORTAL_SECRET_LENGTH:
+        raise ValueError(
+            "SMARTMATCH_SPEAKER_PORTAL_TOKEN_SECRET is required, at least "
+            f"{MINIMUM_SPEAKER_PORTAL_SECRET_LENGTH} characters, when the speaker_portal "
+            "capability is on; the worker must hold the same value as the api."
+        )
+    return secret

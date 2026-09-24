@@ -68,7 +68,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from types import MappingProxyType
 from typing import Any, Final
 
@@ -92,6 +92,10 @@ __all__ = [
     "MATCH_PROVENANCE_MATCH_ENGINE",
     "MATCH_PROVENANCE_SYNTHETIC_COORDINATOR",
     "MATCH_PROVENANCE_VALUES",
+    "BookingAlreadyAttendedError",
+    "BookingCancellationOutcome",
+    "BookingConfirmedInFutureError",
+    "BookingNotConfirmedError",
     "CbaAttendanceMismatchError",
     "CbaHandoffOutcome",
     "CbaHandoffRepository",
@@ -99,10 +103,12 @@ __all__ = [
     "CbaInvitationNotFoundError",
     "ConfirmedSpeakerRow",
     "ConflictingOwningUnitError",
+    "PipelineRecordCancelledError",
     "PipelineRecordRow",
     "PipelineRepository",
     "PipelineStageOrderError",
     "PipelineStageOutcome",
+    "SpeakerEngagementRow",
     "UnknownAttendanceEvidenceError",
     "UnknownOpportunityEventError",
 ]
@@ -207,6 +213,38 @@ class ConflictingOwningUnitError(ValueError):
     """
 
 
+class PipelineRecordCancelledError(ValueError):
+    """The booking was cancelled, so the write that assumes it is live is refused.
+
+    Raised by :meth:`PipelineRepository.advance_stage` for the Attended stage
+    (``ck_pipeline_record_cancellation_not_attended``, owner ruling C2) and by
+    :meth:`CbaHandoffRepository.reconcile_invitation` before any write (C1 = C):
+    a Connector's cancellation outranks the Speaker's earlier acceptance, so a
+    hand-off replay must not bring a cancelled Speaker back to the Host.
+    """
+
+
+class BookingNotConfirmedError(ValueError):
+    """The journey never reached Confirmed, so there is no booking to cancel.
+
+    ``ck_pipeline_record_cancellation_confirmed`` refuses this at the database;
+    this is the same refusal before any statement is issued.
+    """
+
+
+class BookingAlreadyAttendedError(ValueError):
+    """The Speaker already presented; an attended booking cannot be cancelled (C2)."""
+
+
+class BookingConfirmedInFutureError(ValueError):
+    """``confirmed_at`` is later than the cancellation time (C4).
+
+    A Connector-typed confirmation may name a future moment, and
+    ``ck_pipeline_record_cancellation_order`` refuses a cancellation that
+    precedes it. Raised before any statement so the route can say so plainly.
+    """
+
+
 @dataclass(frozen=True, slots=True)
 class PipelineRecordRow:
     """One ``pipeline_record`` row, as it stands after a write."""
@@ -223,6 +261,10 @@ class PipelineRecordRow:
     attended_at: datetime | None
     member_inquiry_at: datetime | None
     attended_attendance_id: uuid.UUID | None
+    #: Migration 0040 (B26 T8a). Set together or not at all. A cancellation is
+    #: not a stage: :meth:`reached` still reports every stage the row reached.
+    cancelled_at: datetime | None = None
+    cancelled_by_user_id: uuid.UUID | None = None
 
     def reached(self) -> frozenset[PipelineStage]:
         """Every stage this row has reached, derived from which timestamps are set.
@@ -270,6 +312,43 @@ class PipelineStageOutcome:
     record: PipelineRecordRow | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class BookingCancellationOutcome:
+    """What :meth:`PipelineRepository.cancel_booking` did.
+
+    The same split as :class:`PipelineStageOutcome`: :attr:`transitioned` is
+    this call's own ``UPDATE ... RETURNING`` and nothing else, and
+    :attr:`already_cancelled` says the booking is cancelled now, whoever did it
+    — a repeat, or a concurrent cancel that won the race.
+    """
+
+    exists: bool
+    transitioned: bool
+    already_cancelled: bool = False
+    record: PipelineRecordRow | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class SpeakerEngagementRow:
+    """One confirmed journey as the Speaker reads it (B26 T6b-2).
+
+    ``event_title`` is ``None`` when no ``event`` row matches
+    ``opportunity_event_id`` (no FK). Never carries the canceller, the unit,
+    provenance, earlier stage times or anything naming another person.
+    """
+
+    id: uuid.UUID
+    confirmed_at: datetime
+    attended_at: datetime | None
+    cancelled_at: datetime | None
+    event_title: str | None
+    event_local_date: date | None
+    event_time_zone: str | None
+    event_time_precision: str | None
+    event_starts_at: datetime | None
+    event_ends_at: datetime | None
+
+
 class PipelineRepository:
     """Writes ``pipeline_record`` rows — the S12 funnel's evidence.
 
@@ -292,6 +371,75 @@ class PipelineRepository:
         establishes the shape of, for jobs.
         """
         return self._read_by_id(session, tenant_id=tenant_id, record_id=record_id)
+
+    def list_engagements_for_speaker(
+        self,
+        session: Session,
+        *,
+        tenant_id: uuid.UUID,
+        professional_id: uuid.UUID,
+        today: date,
+        when: str,
+        limit: int,
+    ) -> tuple[SpeakerEngagementRow, ...]:
+        """The Speaker's own confirmed journeys, cancelled included.
+
+        Not ``list_confirmed_speakers``: that drops cancelled rows (T8a C1), and
+        the Speaker must see a cancellation. ``when`` is ``upcoming`` or
+        ``past``, split on the event's local ``resolved_date`` against
+        ``today``; an unknown or missing date is always ``upcoming``, never
+        silently past.
+        """
+        record = schema.pipeline_record
+        event = schema.event
+        where = [
+            record.c.tenant_id == tenant_id,
+            record.c.subject_id == professional_id,
+            record.c.confirmed_at.is_not(None),
+        ]
+        if when == "past":
+            where.append(event.c.resolved_date < today)
+            order = (
+                event.c.resolved_date.desc(),
+                event.c.starts_at.desc().nulls_last(),
+                record.c.id,
+            )
+        elif when == "upcoming":
+            where.append(sa.or_(event.c.resolved_date.is_(None), event.c.resolved_date >= today))
+            order = (
+                event.c.resolved_date.asc().nulls_last(),
+                event.c.starts_at.asc().nulls_last(),
+                record.c.id,
+            )
+        else:
+            raise ValueError(f"unknown engagement bucket {when!r}")
+        rows = session.execute(
+            sa.select(
+                record.c.id,
+                record.c.confirmed_at,
+                record.c.attended_at,
+                record.c.cancelled_at,
+                event.c.title.label("event_title"),
+                event.c.resolved_date.label("event_local_date"),
+                event.c.time_zone.label("event_time_zone"),
+                event.c.time_precision.label("event_time_precision"),
+                event.c.starts_at.label("event_starts_at"),
+                event.c.ends_at.label("event_ends_at"),
+            )
+            .select_from(
+                record.outerjoin(
+                    event,
+                    sa.and_(
+                        event.c.tenant_id == record.c.tenant_id,
+                        event.c.id == record.c.opportunity_event_id,
+                    ),
+                )
+            )
+            .where(*where)
+            .order_by(*order)
+            .limit(limit)
+        ).all()
+        return tuple(SpeakerEngagementRow(**row._mapping) for row in rows)
 
     def record_matched(
         self,
@@ -553,6 +701,12 @@ class PipelineRepository:
         if row is None:
             return PipelineStageOutcome(exists=False, transitioned=False)
 
+        if stage == PipelineStage.ATTENDED and row.cancelled_at is not None:
+            raise PipelineRecordCancelledError(
+                f"pipeline_record {record_id} was cancelled at {row.cancelled_at!r}; a cancelled "
+                "booking cannot be marked attended (ck_pipeline_record_cancellation_not_attended)"
+            )
+
         reached = row.reached()
         if stage in reached:
             # Already reached as of this call's own read — not this call's
@@ -612,6 +766,15 @@ class PipelineRepository:
                 # statement actually touches, not just the one this method
                 # happened to read earlier.
                 prerequisite_column <= reached_at,
+                # B26 T8a: a cancel that commits after the read above must not
+                # be overwritten by an attended claim (C2). Harmless for the
+                # other stages: only a confirmed row can be cancelled, and a
+                # confirmed row has already reached Contacted and Confirmed.
+                *(
+                    (schema.pipeline_record.c.cancelled_at.is_(None),)
+                    if stage == PipelineStage.ATTENDED
+                    else ()
+                ),
             )
             .values(**update_values)
             .returning(schema.pipeline_record.c.id)
@@ -654,11 +817,91 @@ class PipelineRepository:
             # (they protect org_unit/user_account/attendance_record from
             # deletion while a pipeline_record cites them, not the reverse).
             return PipelineStageOutcome(exists=False, transitioned=False)
+        if stage == PipelineStage.ATTENDED and row.cancelled_at is not None:
+            # An attended claim that raced a cancel. Without this the route
+            # would turn transitioned=False, already_reached=False into a
+            # silent 200 (T8a plan §3.2).
+            raise PipelineRecordCancelledError(
+                f"pipeline_record {record_id} was cancelled at {row.cancelled_at!r} while this "
+                "attended claim was being written"
+            )
         return PipelineStageOutcome(
             exists=True,
             transitioned=False,
             already_reached=stage in row.reached(),
             record=row,
+        )
+
+    def cancel_booking(
+        self,
+        session: Session,
+        *,
+        tenant_id: uuid.UUID,
+        record_id: uuid.UUID,
+        actor_user_id: uuid.UUID,
+        at: datetime,
+    ) -> BookingCancellationOutcome:
+        """Cancel one confirmed booking: a transition on the row, never a delete.
+
+        Pre-checks run on the row as read, in this order: missing, already
+        cancelled (a no-op), not confirmed, attended, confirmed later than
+        ``at``. The ``UPDATE`` repeats every one of them in its ``WHERE``, so
+        :attr:`BookingCancellationOutcome.transitioned` comes only from its
+        ``RETURNING``. When it matches nothing, the row is re-read once and
+        classified through the same five checks in the same order. Commits
+        nothing.
+
+        Args:
+            actor_user_id: the principal who cancelled; stored with the time.
+            at: the server clock (owner ruling C5). Must be timezone-aware.
+
+        Raises:
+            ValueError: ``at`` is naive.
+            BookingNotConfirmedError: the journey never reached Confirmed.
+            BookingAlreadyAttendedError: the Speaker already presented.
+            BookingConfirmedInFutureError: ``confirmed_at`` is later than ``at``.
+        """
+        if at.tzinfo is None:
+            raise ValueError("at must be timezone-aware")
+
+        row = self._read_by_id(session, tenant_id=tenant_id, record_id=record_id)
+        early = _classify_cancellation(row, at=at)
+        if early is not None:
+            return early
+
+        record = schema.pipeline_record
+        transitioned_id = session.execute(
+            sa.update(record)
+            .where(
+                record.c.tenant_id == tenant_id,
+                record.c.id == record_id,
+                record.c.cancelled_at.is_(None),
+                record.c.confirmed_at.is_not(None),
+                record.c.attended_at.is_(None),
+                record.c.confirmed_at <= at,
+            )
+            .values(
+                cancelled_at=at, cancelled_by_user_id=actor_user_id, updated_at=datetime.now(UTC)
+            )
+            .returning(record.c.id)
+        ).one_or_none()
+
+        if transitioned_id is not None:
+            if row is None:  # pragma: no cover - _classify_cancellation returned for None
+                raise RuntimeError("cancel_booking transitioned a row it never read — unreachable")
+            return BookingCancellationOutcome(
+                exists=True,
+                transitioned=True,
+                record=replace(row, cancelled_at=at, cancelled_by_user_id=actor_user_id),
+            )
+
+        # Zero rows: a concurrent write changed the row after the read above.
+        row = self._read_by_id(session, tenant_id=tenant_id, record_id=record_id)
+        late = _classify_cancellation(row, at=at)
+        if late is not None:
+            return late
+        raise RuntimeError(
+            "cancel_booking matched no row but every precondition holds — unreachable"
         )
 
     # -- internals -------------------------------------------------------
@@ -706,7 +949,39 @@ def _to_row(row: sa.Row[Any]) -> PipelineRecordRow:
         attended_at=row.attended_at,
         member_inquiry_at=row.member_inquiry_at,
         attended_attendance_id=row.attended_attendance_id,
+        cancelled_at=row.cancelled_at,
+        cancelled_by_user_id=row.cancelled_by_user_id,
     )
+
+
+def _classify_cancellation(
+    row: PipelineRecordRow | None, *, at: datetime
+) -> BookingCancellationOutcome | None:
+    """The five pre-checks of :meth:`PipelineRepository.cancel_booking`, in order.
+
+    Returns an outcome for "missing" and "already cancelled", raises for the
+    three refusals, and returns ``None`` when the row may be cancelled.
+    """
+    if row is None:
+        return BookingCancellationOutcome(exists=False, transitioned=False)
+    if row.cancelled_at is not None:
+        return BookingCancellationOutcome(
+            exists=True, transitioned=False, already_cancelled=True, record=row
+        )
+    if row.confirmed_at is None:
+        raise BookingNotConfirmedError(
+            f"pipeline_record {row.id} has not reached Confirmed; there is no booking to cancel"
+        )
+    if row.attended_at is not None:
+        raise BookingAlreadyAttendedError(
+            f"pipeline_record {row.id} is attended; an attended booking cannot be cancelled"
+        )
+    if row.confirmed_at > at:
+        raise BookingConfirmedInFutureError(
+            f"pipeline_record {row.id} is confirmed at {row.confirmed_at!r}, later than the "
+            f"cancellation time {at!r} (ck_pipeline_record_cancellation_order)"
+        )
+    return None
 
 
 # ===========================================================================
@@ -911,6 +1186,8 @@ class CbaHandoffRepository:
                 attendance record in this tenant.
             CbaAttendanceMismatchError: it names one belonging to another
                 subject or another event.
+            PipelineRecordCancelledError: the journey exists and its booking
+                was cancelled. Nothing is written (B26 T8a, C1 = C).
         """
         invitation = self._invitations.get_invitation(
             session, tenant_id=tenant_id, invitation_id=invitation_id
@@ -933,6 +1210,21 @@ class CbaHandoffRepository:
                 f"cba_invitation {invitation_id} does not evidence a confirmed speaker "
                 f"(status={invitation.status!r}, response_status={invitation.response_status!r}); "
                 "an accepted invitation is what supplies the Confirmed stage"
+            )
+
+        # B26 T8a (C1 = C): a Connector's cancellation outranks the Speaker's
+        # earlier acceptance. Refused before any write, with or without
+        # attendance, so a replay cannot bring a cancelled Speaker back.
+        existing = self._pipeline._read_by_journey(
+            session,
+            tenant_id=tenant_id,
+            subject_id=invitation.professional_id,
+            opportunity_event_id=opportunity_event_id,
+        )
+        if existing is not None and existing.cancelled_at is not None:
+            raise PipelineRecordCancelledError(
+                f"pipeline_record {existing.id} was cancelled at {existing.cancelled_at!r}; "
+                "it cannot be handed to an Event Host again"
             )
 
         if attendance_id is not None:
@@ -1004,8 +1296,10 @@ class CbaHandoffRepository:
         """The confirmed speakers this unit can hand an Event Host.
 
         The ``WHERE`` clause is deliberately the *same predicate* the
-        ``pipeline_confirmed`` metric uses -- ``confirmed_at IS NOT NULL``,
-        scoped by ``tenant_id`` and ``owning_unit_id`` and nothing else -- so
+        ``pipeline_confirmed`` metric uses -- ``confirmed_at IS NOT NULL AND
+        cancelled_at IS NULL`` (confirmed and not cancelled, since migration
+        ``0040`` and owner ruling C1 = C), scoped by ``tenant_id`` and
+        ``owning_unit_id`` and nothing else -- so
         with no ``opportunity_event_id`` filter this list and that aggregate are
         the same set by construction rather than by coincidence. That is ADR-0011
         rule 3 held at the query, and
@@ -1030,6 +1324,9 @@ class CbaHandoffRepository:
             record.c.tenant_id == tenant_id,
             record.c.owning_unit_id == owning_unit_id,
             record.c.confirmed_at.is_not(None),
+            # B26 T8a (C1 = C): a cancelled booking is not handed to a Host,
+            # and pipeline_confirmed does not count it either.
+            record.c.cancelled_at.is_(None),
         ]
         if opportunity_event_id is not None:
             where.append(record.c.opportunity_event_id == opportunity_event_id)

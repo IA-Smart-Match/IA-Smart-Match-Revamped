@@ -25,8 +25,9 @@ Requires a live database, and is skipped when none is reachable.
 
 from __future__ import annotations
 
+import threading
 import uuid
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
@@ -42,7 +43,11 @@ from smartmatch_domain.pipeline import InvalidPipelineStageTransitionError, Pipe
 from smartmatch_persistence.engine import create_session_factory
 from smartmatch_persistence.pipeline import (
     MATCH_PROVENANCE_SYNTHETIC_COORDINATOR,
+    BookingAlreadyAttendedError,
+    BookingConfirmedInFutureError,
+    BookingNotConfirmedError,
     ConflictingOwningUnitError,
+    PipelineRecordCancelledError,
     PipelineRepository,
     PipelineStageOrderError,
     UnknownAttendanceEvidenceError,
@@ -919,3 +924,407 @@ def test_metrics_aggregate_and_drill_down_each_return_n_rows_for_n_pipeline_reco
         assert drill_down["aggregate_value"] == expected_counts[stage], metric_name
         assert len(drill_down["rows"]) == expected_counts[stage], metric_name
         assert {row["id"] for row in drill_down["rows"]} == written_ids[stage], metric_name
+
+
+# ---------------------------------------------------------------------------
+# cancel_booking (B26 T8a, migration 0040)
+# ---------------------------------------------------------------------------
+
+
+def _booking(
+    engine: Engine,
+    repo: PipelineRepository,
+    session_factory: sessionmaker[Session],
+    tenant_id: uuid.UUID,
+    *,
+    reached_index: int = 2,
+) -> tuple[uuid.UUID, uuid.UUID, datetime]:
+    """One journey written by the repository up to ``FUNNEL_ORDER[reached_index]``.
+
+    Returns ``(record_id, subject_id, base)``; Confirmed is ``base + 2h``.
+    """
+    with engine.begin() as conn:
+        unit_id = ensure_owning_unit(conn, tenant_id)
+        subject_id = _make_user(conn, tenant_id)
+    base = datetime.now(UTC) - timedelta(days=1)
+    with session_factory() as session:
+        record = repo.record_matched(
+            session,
+            tenant_id=tenant_id,
+            owning_unit_id=unit_id,
+            subject_id=subject_id,
+            opportunity_event_id=uuid.uuid4(),
+            matched_at=base,
+            matched_provenance=MATCH_PROVENANCE_SYNTHETIC_COORDINATOR,
+        )
+        session.commit()
+        _advance_to(
+            session,
+            engine,
+            repo,
+            tenant_id=tenant_id,
+            record_id=record.id,
+            subject_id=subject_id,
+            reached_index=reached_index,
+            base=base,
+        )
+    return record.id, subject_id, base
+
+
+def _canceller(engine: Engine, tenant_id: uuid.UUID) -> uuid.UUID:
+    with engine.begin() as conn:
+        return _make_user(conn, tenant_id)
+
+
+def _stored_cancellation(engine: Engine, record_id: uuid.UUID) -> tuple[datetime | None, object]:
+    with engine.connect() as conn:
+        row = conn.execute(
+            text("SELECT cancelled_at, cancelled_by_user_id FROM pipeline_record WHERE id = :id"),
+            {"id": record_id},
+        ).one()
+    return row.cancelled_at, row.cancelled_by_user_id
+
+
+def test_cancel_booking_records_actor_and_time(
+    engine: Engine,
+    tenant_id: uuid.UUID,
+    repo: PipelineRepository,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    record_id, _subject, _base = _booking(engine, repo, db_session_factory, tenant_id)
+    actor = _canceller(engine, tenant_id)
+    at = datetime.now(UTC)
+
+    with db_session_factory() as session:
+        outcome = repo.cancel_booking(
+            session, tenant_id=tenant_id, record_id=record_id, actor_user_id=actor, at=at
+        )
+        session.commit()
+
+    assert outcome.exists is True
+    assert outcome.transitioned is True
+    assert outcome.already_cancelled is False
+    assert outcome.record is not None
+    assert outcome.record.cancelled_at == at
+    assert outcome.record.cancelled_by_user_id == actor
+    assert _stored_cancellation(engine, record_id) == (at, actor)
+
+
+def test_cancel_booking_is_idempotent_and_keeps_the_first_actor(
+    engine: Engine,
+    tenant_id: uuid.UUID,
+    repo: PipelineRepository,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    record_id, _subject, _base = _booking(engine, repo, db_session_factory, tenant_id)
+    first_actor = _canceller(engine, tenant_id)
+    second_actor = _canceller(engine, tenant_id)
+    first_at = datetime.now(UTC)
+
+    with db_session_factory() as session:
+        repo.cancel_booking(
+            session,
+            tenant_id=tenant_id,
+            record_id=record_id,
+            actor_user_id=first_actor,
+            at=first_at,
+        )
+        session.commit()
+        again = repo.cancel_booking(
+            session,
+            tenant_id=tenant_id,
+            record_id=record_id,
+            actor_user_id=second_actor,
+            at=first_at + timedelta(minutes=5),
+        )
+        session.commit()
+
+    assert again.exists is True
+    assert again.transitioned is False
+    assert again.already_cancelled is True
+    assert _stored_cancellation(engine, record_id) == (first_at, first_actor)
+
+
+@pytest.mark.parametrize(
+    ("reached_index", "error"),
+    [(1, BookingNotConfirmedError), (3, BookingAlreadyAttendedError)],
+    ids=["unconfirmed", "attended"],
+)
+def test_cancel_booking_refuses_unconfirmed_and_attended(
+    engine: Engine,
+    tenant_id: uuid.UUID,
+    repo: PipelineRepository,
+    db_session_factory: sessionmaker[Session],
+    reached_index: int,
+    error: type[Exception],
+) -> None:
+    """``test_cancel_booking_refuses_unconfirmed`` and ``..._refuses_attended``."""
+    record_id, _subject, _base = _booking(
+        engine, repo, db_session_factory, tenant_id, reached_index=reached_index
+    )
+    actor = _canceller(engine, tenant_id)
+
+    with db_session_factory() as session, pytest.raises(error):
+        repo.cancel_booking(
+            session,
+            tenant_id=tenant_id,
+            record_id=record_id,
+            actor_user_id=actor,
+            at=datetime.now(UTC),
+        )
+
+    assert _stored_cancellation(engine, record_id) == (None, None)
+
+
+def test_cancel_booking_refuses_a_future_confirmation(
+    engine: Engine,
+    tenant_id: uuid.UUID,
+    repo: PipelineRepository,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    """A Connector-typed confirmation later than the server clock (C4)."""
+    record_id, _subject, base = _booking(engine, repo, db_session_factory, tenant_id)
+    actor = _canceller(engine, tenant_id)
+
+    with db_session_factory() as session, pytest.raises(BookingConfirmedInFutureError):
+        repo.cancel_booking(
+            session,
+            tenant_id=tenant_id,
+            record_id=record_id,
+            actor_user_id=actor,
+            at=base + timedelta(hours=1),
+        )
+
+    assert _stored_cancellation(engine, record_id) == (None, None)
+
+
+def test_cancel_booking_reports_a_missing_record(
+    engine: Engine,
+    tenant_id: uuid.UUID,
+    repo: PipelineRepository,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    actor = _canceller(engine, tenant_id)
+    with db_session_factory() as session:
+        outcome = repo.cancel_booking(
+            session,
+            tenant_id=tenant_id,
+            record_id=uuid.uuid4(),
+            actor_user_id=actor,
+            at=datetime.now(UTC),
+        )
+    assert outcome.exists is False
+    assert outcome.transitioned is False
+    assert outcome.record is None
+
+
+def _inject_after_first_read(
+    monkeypatch: pytest.MonkeyPatch, repo: PipelineRepository, mutate: Callable[[], None]
+) -> None:
+    """Run ``mutate`` (committed, on another connection) right after the first row read.
+
+    The repository's own read then holds a stale row, so its guarded ``UPDATE``
+    matches nothing and the zero-row re-read is what classifies the outcome.
+    """
+    original = repo._read_by_id
+    fired: list[bool] = []
+
+    def patched(session: Session, *, tenant_id: uuid.UUID, record_id: uuid.UUID):
+        row = original(session, tenant_id=tenant_id, record_id=record_id)
+        if not fired:
+            fired.append(True)
+            mutate()
+        return row
+
+    monkeypatch.setattr(repo, "_read_by_id", patched)
+
+
+@pytest.mark.parametrize("case", ["missing", "cancelled", "not_confirmed", "attended", "future"])
+def test_cancel_booking_zero_row_reread_classifies_every_case(
+    engine: Engine,
+    tenant_id: uuid.UUID,
+    db_session_factory: sessionmaker[Session],
+    monkeypatch: pytest.MonkeyPatch,
+    case: str,
+) -> None:
+    repo = PipelineRepository()
+    record_id, subject_id, _base = _booking(engine, repo, db_session_factory, tenant_id)
+    actor = _canceller(engine, tenant_id)
+    rival = _canceller(engine, tenant_id)
+    at = datetime.now(UTC)
+
+    def mutate() -> None:
+        with engine.begin() as conn:
+            params = {"id": record_id, "tid": tenant_id}
+            if case == "missing":
+                conn.execute(text("DELETE FROM pipeline_record WHERE id = :id"), params)
+            elif case == "cancelled":
+                conn.execute(
+                    text(
+                        "UPDATE pipeline_record SET cancelled_at = confirmed_at, "
+                        "cancelled_by_user_id = :rival WHERE id = :id"
+                    ),
+                    {**params, "rival": rival},
+                )
+            elif case == "not_confirmed":
+                conn.execute(
+                    text("UPDATE pipeline_record SET confirmed_at = NULL WHERE id = :id"), params
+                )
+            elif case == "attended":
+                evidence = _insert_attendance(conn, tenant_id, subject_id)
+                conn.execute(
+                    text(
+                        "UPDATE pipeline_record SET attended_at = confirmed_at, "
+                        "attended_attendance_id = :ev WHERE id = :id"
+                    ),
+                    {**params, "ev": evidence},
+                )
+            else:
+                conn.execute(
+                    text("UPDATE pipeline_record SET confirmed_at = :later WHERE id = :id"),
+                    {**params, "later": at + timedelta(days=1)},
+                )
+
+    _inject_after_first_read(monkeypatch, repo, mutate)
+    expected_error = {
+        "not_confirmed": BookingNotConfirmedError,
+        "attended": BookingAlreadyAttendedError,
+        "future": BookingConfirmedInFutureError,
+    }.get(case)
+
+    with db_session_factory() as session:
+        if expected_error is not None:
+            with pytest.raises(expected_error):
+                repo.cancel_booking(
+                    session, tenant_id=tenant_id, record_id=record_id, actor_user_id=actor, at=at
+                )
+            return
+        outcome = repo.cancel_booking(
+            session, tenant_id=tenant_id, record_id=record_id, actor_user_id=actor, at=at
+        )
+        session.commit()
+
+    assert outcome.transitioned is False
+    if case == "missing":
+        assert outcome.exists is False
+    else:
+        assert outcome.exists is True
+        assert outcome.already_cancelled is True
+        assert _stored_cancellation(engine, record_id)[1] == rival
+
+
+def test_advance_stage_refuses_attended_on_a_cancelled_booking(
+    engine: Engine,
+    tenant_id: uuid.UUID,
+    repo: PipelineRepository,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    record_id, subject_id, _base = _booking(engine, repo, db_session_factory, tenant_id)
+    actor = _canceller(engine, tenant_id)
+    with db_session_factory() as session:
+        repo.cancel_booking(
+            session,
+            tenant_id=tenant_id,
+            record_id=record_id,
+            actor_user_id=actor,
+            at=datetime.now(UTC),
+        )
+        session.commit()
+    with engine.begin() as conn:
+        evidence = _insert_attendance(conn, tenant_id, subject_id)
+
+    with db_session_factory() as session, pytest.raises(PipelineRecordCancelledError):
+        repo.advance_stage(
+            session,
+            tenant_id=tenant_id,
+            record_id=record_id,
+            stage=PipelineStage.ATTENDED,
+            reached_at=datetime.now(UTC),
+            attended_attendance_id=evidence,
+        )
+
+
+def test_attended_racing_a_cancel_raises_cancelled_not_a_silent_200(
+    engine: Engine,
+    tenant_id: uuid.UUID,
+    db_session_factory: sessionmaker[Session],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The cancel commits between ``advance_stage``'s read and its UPDATE."""
+    repo = PipelineRepository()
+    record_id, subject_id, _base = _booking(engine, repo, db_session_factory, tenant_id)
+    actor = _canceller(engine, tenant_id)
+    with engine.begin() as conn:
+        evidence = _insert_attendance(conn, tenant_id, subject_id)
+
+    def mutate() -> None:
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    "UPDATE pipeline_record SET cancelled_at = confirmed_at, "
+                    "cancelled_by_user_id = :actor WHERE id = :id"
+                ),
+                {"actor": actor, "id": record_id},
+            )
+
+    _inject_after_first_read(monkeypatch, repo, mutate)
+    with db_session_factory() as session, pytest.raises(PipelineRecordCancelledError):
+        repo.advance_stage(
+            session,
+            tenant_id=tenant_id,
+            record_id=record_id,
+            stage=PipelineStage.ATTENDED,
+            reached_at=datetime.now(UTC),
+            attended_attendance_id=evidence,
+        )
+
+
+def test_two_concurrent_cancels_transition_once(
+    engine: Engine,
+    tenant_id: uuid.UUID,
+    repo: PipelineRepository,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    """A holds the row lock; B reads the uncancelled row, blocks, then loses cleanly."""
+    record_id, _subject, _base = _booking(engine, repo, db_session_factory, tenant_id)
+    first_actor = _canceller(engine, tenant_id)
+    second_actor = _canceller(engine, tenant_id)
+    at = datetime.now(UTC)
+    results: dict[str, object] = {}
+
+    session_a = db_session_factory()
+    try:
+        outcome_a = repo.cancel_booking(
+            session_a, tenant_id=tenant_id, record_id=record_id, actor_user_id=first_actor, at=at
+        )
+
+        def second() -> None:
+            with db_session_factory() as session_b:
+                try:
+                    results["b"] = repo.cancel_booking(
+                        session_b,
+                        tenant_id=tenant_id,
+                        record_id=record_id,
+                        actor_user_id=second_actor,
+                        at=at,
+                    )
+                    session_b.commit()
+                except Exception as exc:  # surfaced by the assertion below
+                    results["b"] = exc
+
+        worker = threading.Thread(target=second)
+        worker.start()
+        worker.join(timeout=1.0)
+        assert worker.is_alive(), "B must block on A's row lock, not pass it"
+        session_a.commit()
+        worker.join(timeout=30.0)
+        assert not worker.is_alive()
+    finally:
+        session_a.close()
+
+    outcome_b = results["b"]
+    assert not isinstance(outcome_b, Exception), outcome_b
+    assert outcome_a.transitioned is True
+    assert outcome_b.transitioned is False  # type: ignore[union-attr]
+    assert outcome_b.already_cancelled is True  # type: ignore[union-attr]
+    assert _stored_cancellation(engine, record_id) == (at, first_actor)

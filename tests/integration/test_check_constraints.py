@@ -192,7 +192,7 @@ CHECK_CONSTRAINT_DEFINITIONS = {
     ),
     ("suppression_record", "ck_suppression_record_source"): (
         "CHECK ((source = ANY (ARRAY['unsubscribe_link'::text, 'one_click'::text, "
-        "'coordinator'::text, 'bounce'::text, 'complaint'::text])))"
+        "'coordinator'::text, 'bounce'::text, 'complaint'::text, 'speaker_portal'::text])))"
     ),
     ("attendance_record", "ck_attendance_record_method"): (
         "CHECK ((method = ANY (ARRAY['qr_scan'::text, 'coordinator_entry'::text, 'import'::text])))"
@@ -214,6 +214,19 @@ CHECK_CONSTRAINT_DEFINITIONS = {
     ("point_ledger_entry", "ck_point_ledger_entry_amount_nonzero"): "CHECK ((amount <> 0))",
     ("pipeline_record", "ck_pipeline_record_attendance_evidence"): (
         "CHECK (((attended_at IS NULL) = (attended_attendance_id IS NULL)))"
+    ),
+    # --- Booking cancellation (migration 0040, B26 T8a) -------------------
+    ("pipeline_record", "ck_pipeline_record_cancellation_actor"): (
+        "CHECK (((cancelled_at IS NULL) = (cancelled_by_user_id IS NULL)))"
+    ),
+    ("pipeline_record", "ck_pipeline_record_cancellation_confirmed"): (
+        "CHECK (((cancelled_at IS NULL) OR (confirmed_at IS NOT NULL)))"
+    ),
+    ("pipeline_record", "ck_pipeline_record_cancellation_order"): (
+        "CHECK (((cancelled_at IS NULL) OR (cancelled_at >= confirmed_at)))"
+    ),
+    ("pipeline_record", "ck_pipeline_record_cancellation_not_attended"): (
+        "CHECK (((cancelled_at IS NULL) OR (attended_at IS NULL)))"
     ),
     ("pipeline_record", "ck_pipeline_record_matched_provenance"): (
         "CHECK ((matched_provenance = ANY (ARRAY['synthetic / coordinator-accepted'::text, "
@@ -603,13 +616,15 @@ CHECK_CONSTRAINT_DEFINITIONS = {
         "CHECK (((response_status = 'awaiting_response'::text) = "
         "((response_recorded_at IS NULL) AND (response_channel IS NULL))))"
     ),
+    # Both widened by 0039 (ruling C2 = b, from T6b-2): `speaker_portal` is
+    # admitted and, like `connector_recorded`, names its actor.
     ("cba_invitation", "ck_cba_invitation_response_channel"): (
         "CHECK (((response_channel IS NULL) OR (response_channel = ANY "
-        "(ARRAY['speaker_link'::text, 'connector_recorded'::text]))))"
+        "(ARRAY['speaker_link'::text, 'connector_recorded'::text, 'speaker_portal'::text]))))"
     ),
     ("cba_invitation", "ck_cba_invitation_response_actor"): (
-        "CHECK (((response_channel = 'connector_recorded'::text) = "
-        "(response_recorded_by_user_id IS NOT NULL)))"
+        "CHECK (((response_channel = ANY (ARRAY['connector_recorded'::text, "
+        "'speaker_portal'::text])) = (response_recorded_by_user_id IS NOT NULL)))"
     ),
     ("cba_invitation", "ck_cba_invitation_skipped_unanswered"): (
         "CHECK (((status <> 'skipped'::text) OR ((response_status = 'awaiting_response'::text) "
@@ -757,6 +772,92 @@ CHECK_CONSTRAINT_DEFINITIONS = {
     ("exercise_team_workspace", "ck_exercise_team_workspace_token_hash_shape"): (
         "CHECK ((length(btrim(workspace_token_hash)) > 0))"
     ),
+    # --- Speaker self-service availability (migration 0038) ---------------
+    #
+    # Pasted from pg_get_constraintdef after the first upgrade (PostgreSQL
+    # 16), not predicted: `IN` renders as `= ANY (ARRAY[...])` and the capacity
+    # bounds as `(0)::numeric`. Exercised in test_speaker_availability_migration.py.
+    ("speaker_availability", "ck_speaker_availability_capacity"): (
+        "CHECK (((declared_capacity_hours_per_90_days IS NULL) OR "
+        "((declared_capacity_hours_per_90_days > (0)::numeric) AND "
+        "(declared_capacity_hours_per_90_days <= (720)::numeric))))"
+    ),
+    ("speaker_availability", "ck_speaker_availability_source"): (
+        "CHECK ((updated_source = ANY (ARRAY['speaker'::text, 'connector'::text])))"
+    ),
+    ("speaker_availability", "ck_speaker_availability_version"): "CHECK ((version >= 1))",
+    ("speaker_availability_window", "ck_speaker_availability_window_order"): (
+        "CHECK ((ends_on >= starts_on))"
+    ),
+    ("speaker_availability_window", "ck_speaker_availability_window_source"): (
+        "CHECK ((created_source = ANY (ARRAY['speaker'::text, 'connector'::text])))"
+    ),
+    ("speaker_availability_window", "ck_speaker_availability_window_span"): (
+        "CHECK (((ends_on - starts_on) <= 366))"
+    ),
+    # --- Speaker accounts (migration 0039) ---------------------------------
+    #
+    # Pasted from pg_get_constraintdef after the first upgrade (PostgreSQL 16).
+    # Exercised in test_speaker_portal_migration.py.
+    ("speaker_portal_invitation", "ck_speaker_portal_invitation_token_hash"): (
+        "CHECK ((octet_length(token_hash) = 32))"
+    ),
+    ("speaker_portal_invitation", "ck_speaker_portal_invitation_window"): (
+        "CHECK (((expires_at > issued_at) AND (expires_at <= (issued_at + '7 days'::interval))))"
+    ),
+    ("speaker_portal_invitation", "ck_speaker_portal_invitation_one_outcome"): (
+        "CHECK (((accepted_at IS NULL) OR (revoked_at IS NULL)))"
+    ),
+    ("speaker_portal_invitation", "ck_speaker_portal_invitation_outcome_after_issue"): (
+        "CHECK ((((accepted_at IS NULL) OR (accepted_at >= issued_at)) AND "
+        "((revoked_at IS NULL) OR (revoked_at >= issued_at))))"
+    ),
+    ("speaker_portal_invitation", "ck_speaker_portal_invitation_binding"): (
+        "CHECK ((((accepted_at IS NULL) = (bound_account_user_id IS NULL)) AND "
+        "((accepted_at IS NULL) = (binding_mode IS NULL))))"
+    ),
+    ("speaker_portal_invitation", "ck_speaker_portal_invitation_binding_mode"): (
+        "CHECK (((binding_mode IS NULL) OR "
+        "(binding_mode = ANY (ARRAY['new_login'::text, 'existing_login'::text]))))"
+    ),
+    ("speaker_portal_invitation", "ck_speaker_portal_invitation_new_login_self"): (
+        "CHECK (((binding_mode IS DISTINCT FROM 'new_login'::text) OR "
+        "(bound_account_user_id = professional_id)))"
+    ),
+    ("speaker_profile", "ck_speaker_profile_account_bound"): (
+        "CHECK (((account_user_id IS NULL) = (account_bound_at IS NULL)))"
+    ),
+    # Added to 0039 for T6b-5.
+    ("speaker_portal_invitation", "ck_speaker_portal_invitation_unbound_pair"): (
+        "CHECK (((unbound_at IS NULL) = (unbound_by_user_id IS NULL)))"
+    ),
+    ("speaker_portal_invitation", "ck_speaker_portal_invitation_unbound_after_accept"): (
+        "CHECK (((unbound_at IS NULL) OR ((accepted_at IS NOT NULL) AND "
+        "(unbound_at >= accepted_at))))"
+    ),
+    ("suppression_record", "ck_suppression_record_lifted"): (
+        "CHECK ((((lifted_at IS NULL) = (lifted_by_user_id IS NULL)) AND "
+        "((lifted_at IS NULL) OR (lifted_at >= suppressed_at))))"
+    ),
+    # Added to 0039 for T6b-3.
+    ("suppression_record", "ck_suppression_record_lift_source"): (
+        "CHECK (((lifted_at IS NULL) OR (source = ANY (ARRAY['speaker_portal'::text, "
+        "'unsubscribe_link'::text, 'one_click'::text]))))"
+    ),
+    ("contact_channel_speaker_choice", "ck_contact_channel_speaker_choice_choice"): (
+        "CHECK ((choice = ANY (ARRAY['opt_in'::text, 'opt_out'::text])))"
+    ),
+    ("contact_channel_speaker_choice", "ck_contact_channel_speaker_choice_sequence"): (
+        "CHECK ((sequence >= 1))"
+    ),
+    ("contact_channel_speaker_choice", "ck_contact_channel_speaker_choice_lift"): (
+        "CHECK ((((lifted_source IS NULL) = (lifted_suppressed_at IS NULL)) AND "
+        "((choice = 'opt_in'::text) OR (lifted_source IS NULL))))"
+    ),
+    ("contact_channel_speaker_choice", "ck_contact_channel_speaker_choice_lift_source"): (
+        "CHECK (((lifted_source IS NULL) OR (lifted_source = ANY (ARRAY["
+        "'speaker_portal'::text, 'unsubscribe_link'::text, 'one_click'::text]))))"
+    ),
 }
 
 #: Where each constraint's forbidden and permitted writes are attempted. Six are
@@ -877,6 +978,26 @@ BEHAVIOURAL_COVERAGE = {
     ),
     ("pipeline_record", "ck_pipeline_record_matched_provenance"): (
         "test_pipeline_provenance_migration.py"
+    ),
+    # --- Booking cancellation (migration 0040, B26 T8a) -------------------
+    ("pipeline_record", "ck_pipeline_record_cancellation_actor"): (
+        "test_booking_cancellation_migration.py::test_cancellation_needs_both_actor_and_time "
+        "and ::test_an_actor_without_a_time_is_refused. Permitted half: "
+        "::test_a_confirmed_journey_can_be_cancelled"
+    ),
+    ("pipeline_record", "ck_pipeline_record_cancellation_confirmed"): (
+        "test_booking_cancellation_migration.py::test_an_unconfirmed_journey_cannot_be_cancelled. "
+        "Permitted half: ::test_a_confirmed_journey_can_be_cancelled"
+    ),
+    ("pipeline_record", "ck_pipeline_record_cancellation_order"): (
+        "test_booking_cancellation_migration.py::"
+        "test_a_cancellation_cannot_precede_the_confirmation. Permitted half: "
+        "::test_a_cancellation_at_the_confirmation_instant_is_permitted"
+    ),
+    ("pipeline_record", "ck_pipeline_record_cancellation_not_attended"): (
+        "test_booking_cancellation_migration.py::test_an_attended_journey_cannot_be_cancelled "
+        "and ::test_a_cancelled_journey_cannot_be_attended. Permitted half: "
+        "::test_a_confirmed_journey_can_be_cancelled"
     ),
     ("reward_item", "ck_reward_item_points_cost_positive"): "test_engagement_schema_constraints.py",
     ("reward_item", "ck_reward_item_fulfilment_cost_non_negative"): (
@@ -1157,14 +1278,21 @@ BEHAVIOURAL_COVERAGE = {
         "0029 added. The forbidden half is unreachable through the repository, whose two "
         "call sites pass literals; the permitted half is TestResponses, which stores "
         "'speaker_link', and the contract suite's TestConnectorRecordedResponse, which "
-        "stores 'connector_recorded' over HTTP"
+        "stores 'connector_recorded' over HTTP. 0039 widened it: "
+        "test_speaker_portal_migration.py::test_response_channel_refuses_an_unknown_channel "
+        "and ::test_portal_answer_with_its_actor_is_accepted"
     ),
     ("cba_invitation", "ck_cba_invitation_response_actor"): (
         "0029 added, test_cba_invitation_batch.py"
         "::TestResponses::test_a_connector_recorded_answer_must_name_the_coordinator, "
         "which records a connector answer with no coordinator. The permitted half is "
         "::test_a_speakers_own_answer_names_no_coordinator — a Speaker's own click has no "
-        "account behind it and the row says so rather than naming a bystander"
+        "account behind it and the row says so rather than naming a bystander. 0039 "
+        "widened it: test_speaker_portal_migration.py"
+        "::test_portal_answer_without_an_actor_is_refused and "
+        "::test_link_answer_with_an_actor_is_still_refused; permitted halves "
+        "::test_portal_answer_with_its_actor_is_accepted and "
+        "::test_link_answer_without_an_actor_is_still_accepted"
     ),
     ("cba_invitation", "ck_cba_invitation_skipped_unanswered"): (
         "0029 added, test_cba_invitation_batch.py"
@@ -1414,6 +1542,106 @@ BEHAVIOURAL_COVERAGE = {
         "0037 added, ::test_exercise_result_run_rejects_negative_empty_seats. Permitted "
         "half: ::test_exercise_result_run_accepts_both_rounds, which records zero empty "
         "seats — the full-event case"
+    ),
+    # --- Speaker self-service availability (migration 0038) ---------------
+    ("speaker_availability", "ck_speaker_availability_capacity"): (
+        "test_speaker_availability_migration.py::test_capacity_rejects_zero, "
+        "::test_capacity_rejects_negative, ::test_capacity_rejects_720_1 and "
+        "::test_capacity_rounds_before_check. Permitted half: "
+        "::test_capacity_accepts_null_0_1_and_720"
+    ),
+    ("speaker_availability", "ck_speaker_availability_source"): (
+        "test_speaker_availability_migration.py::test_updated_source_rejects_unknown. "
+        "Permitted half: ::test_updated_source_accepts_speaker_and_connector"
+    ),
+    ("speaker_availability", "ck_speaker_availability_version"): (
+        "test_speaker_availability_migration.py::test_version_rejects_zero. Permitted "
+        "half: ::test_version_defaults_to_one"
+    ),
+    ("speaker_availability_window", "ck_speaker_availability_window_order"): (
+        "test_speaker_availability_migration.py::test_window_rejects_end_before_start. "
+        "Permitted half: ::test_window_accepts_single_day"
+    ),
+    ("speaker_availability_window", "ck_speaker_availability_window_source"): (
+        "test_speaker_availability_migration.py::test_window_source_rejects_unknown. "
+        "Permitted half: ::test_window_source_accepts_both"
+    ),
+    ("speaker_availability_window", "ck_speaker_availability_window_span"): (
+        "test_speaker_availability_migration.py::test_window_rejects_span_367. Permitted "
+        "half: ::test_window_accepts_span_366"
+    ),
+    # --- Speaker accounts (migration 0039) ---------------------------------
+    ("speaker_portal_invitation", "ck_speaker_portal_invitation_token_hash"): (
+        "test_speaker_portal_migration.py::test_token_hash_must_be_32_bytes (both halves)"
+    ),
+    ("speaker_portal_invitation", "ck_speaker_portal_invitation_window"): (
+        "test_speaker_portal_migration.py::test_window_refuses_a_bad_expiry. Permitted half: "
+        "::test_window_accepts_exactly_seven_days"
+    ),
+    ("speaker_portal_invitation", "ck_speaker_portal_invitation_one_outcome"): (
+        "test_speaker_portal_migration.py::"
+        "test_one_outcome_refuses_accepted_and_revoked. Permitted half: "
+        "::test_one_outcome_accepts_revoked_alone"
+    ),
+    ("speaker_portal_invitation", "ck_speaker_portal_invitation_outcome_after_issue"): (
+        "test_speaker_portal_migration.py::"
+        "test_outcome_after_issue_refuses_an_earlier_outcome. Permitted half: "
+        "::test_outcome_after_issue_accepts_an_outcome_at_issue"
+    ),
+    ("speaker_portal_invitation", "ck_speaker_portal_invitation_binding"): (
+        "test_speaker_portal_migration.py::test_binding_refuses_a_partial_binding. Permitted half: "
+        "::test_outcome_after_issue_accepts_an_outcome_at_issue"
+    ),
+    ("speaker_portal_invitation", "ck_speaker_portal_invitation_binding_mode"): (
+        "test_speaker_portal_migration.py::"
+        "test_binding_mode_refuses_an_unknown_mode. Permitted half: "
+        "::test_binding_mode_accepts_existing_login_on_another_account"
+    ),
+    ("speaker_portal_invitation", "ck_speaker_portal_invitation_new_login_self"): (
+        "test_speaker_portal_migration.py::"
+        "test_new_login_must_bind_the_contact_account. Permitted half: "
+        "::test_binding_mode_accepts_existing_login_on_another_account"
+    ),
+    ("speaker_portal_invitation", "ck_speaker_portal_invitation_unbound_pair"): (
+        "test_speaker_portal_migration.py::"
+        "test_unbound_pair_refuses_half_an_unbind. Permitted half: "
+        "::test_unbound_pair_accepts_a_complete_unbind"
+    ),
+    ("speaker_portal_invitation", "ck_speaker_portal_invitation_unbound_after_accept"): (
+        "test_speaker_portal_migration.py::"
+        "test_unbound_after_accept_refuses_an_early_unbind. Permitted half: "
+        "::test_unbound_pair_accepts_a_complete_unbind"
+    ),
+    ("speaker_profile", "ck_speaker_profile_account_bound"): (
+        "test_speaker_portal_migration.py::"
+        "test_profile_account_bound_refuses_half_a_binding. Permitted half: "
+        "::test_profile_account_bound_accepts_a_full_binding"
+    ),
+    ("suppression_record", "ck_suppression_record_lifted"): (
+        "test_speaker_portal_migration.py::test_lifted_refuses_a_bad_lift. Permitted half: "
+        "::test_lifted_accepts_a_complete_lift"
+    ),
+    ("suppression_record", "ck_suppression_record_lift_source"): (
+        "test_speaker_portal_migration.py::"
+        "test_lift_source_refuses_lifting_a_non_speaker_suppression. Permitted "
+        "half: ::test_lift_source_accepts_lifting_a_speaker_or_link_suppression"
+    ),
+    ("contact_channel_speaker_choice", "ck_contact_channel_speaker_choice_choice"): (
+        "test_speaker_portal_migration.py::test_choice_refuses_an_unknown_choice. Permitted half: "
+        "::test_choice_accepts_opt_in_and_opt_out"
+    ),
+    ("contact_channel_speaker_choice", "ck_contact_channel_speaker_choice_sequence"): (
+        "test_speaker_portal_migration.py::test_choice_sequence_refuses_zero. Permitted half: "
+        "::test_choice_sequence_is_unique_per_channel"
+    ),
+    ("contact_channel_speaker_choice", "ck_contact_channel_speaker_choice_lift"): (
+        "test_speaker_portal_migration.py::test_choice_lift_refuses_a_bad_lift. Permitted half: "
+        "::test_choice_lift_accepts_an_opt_in_lifting_a_speaker_suppression"
+    ),
+    ("contact_channel_speaker_choice", "ck_contact_channel_speaker_choice_lift_source"): (
+        "test_speaker_portal_migration.py::"
+        "test_choice_lift_source_refuses_a_non_speaker_source. Permitted half: "
+        "::test_choice_lift_accepts_an_opt_in_lifting_a_speaker_suppression"
     ),
 }
 

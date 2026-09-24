@@ -43,10 +43,12 @@ import inspect
 
 import pytest
 from smartmatch_api import job_authz
+from smartmatch_api.routers import cba_contacts as cba_contacts_router
 from smartmatch_api.routers import imports as imports_router
 from smartmatch_api.routers import me as me_router
 from smartmatch_api.routers import portals as portals_router
 from smartmatch_api.routers import review as review_router
+from smartmatch_api.routers import speaker_portal as speaker_portal_router
 from smartmatch_domain import role_presentation
 
 #: The three role sets every gated route in this ledger currently reads from,
@@ -61,6 +63,13 @@ from smartmatch_domain import role_presentation
 _JOB_OVERSIGHT = frozenset({"admin", "coordinator"})
 _IMPORT = frozenset({"admin", "coordinator"})
 _REVIEW = frozenset({"admin", "coordinator"})
+#: B26 T6b-1: invite, revoke and the access read. The Speaker Connector only.
+_SPEAKER_PORTAL = frozenset({"admin", "coordinator"})
+#: ``cba_contacts._SPEAKER_CONTACT_ROLES``, which the B26 T3 availability routes
+#: authorize against. Its own literal object, for the ``is`` comparison below.
+_SPEAKER_CONTACT = frozenset({"admin", "coordinator"})
+
+_SPEAKER_AVAILABILITY_PATH = "/v1/units/{unit_id}/speaker-contacts/{professional_id}/availability"
 
 #: method, path -> the role set that route requires, or ``None`` when the
 #: route requires only authentication and nothing further. Every route this
@@ -77,6 +86,19 @@ ROUTE_ROLE_LEDGER: dict[tuple[str, str], frozenset[str] | None] = {
     ("POST", "/v1/review-items/{review_item_id}/decision"): _REVIEW,
     ("GET", "/v1/me"): None,
     ("GET", "/v1/me/portals"): None,
+    (
+        "POST",
+        "/v1/units/{unit_id}/speaker-contacts/{professional_id}/portal-invitations",
+    ): _SPEAKER_PORTAL,
+    (
+        "DELETE",
+        "/v1/units/{unit_id}/speaker-contacts/{professional_id}/portal-invitations/current",
+    ): _SPEAKER_PORTAL,
+    ("GET", "/v1/units/{unit_id}/speaker-contacts/{professional_id}/portal-access"): (
+        _SPEAKER_PORTAL
+    ),
+    ("GET", _SPEAKER_AVAILABILITY_PATH): _SPEAKER_CONTACT,
+    ("PATCH", _SPEAKER_AVAILABILITY_PATH): _SPEAKER_CONTACT,
 }
 
 #: The auth-only routes, and where each one's handler lives.
@@ -122,6 +144,16 @@ def test_review_roles_matches_the_live_constant() -> None:
         f"this ledger still expects {sorted(_REVIEW)} for POST "
         f"/v1/review-items/{{review_item_id}}/decision. Update ROUTE_ROLE_LEDGER "
         f"and _REVIEW deliberately if the change is intended."
+    )
+
+
+def test_speaker_contact_roles_matches_the_live_constant() -> None:
+    """A widened or narrowed ``_SPEAKER_CONTACT_ROLES`` must fail here (B26 T3)."""
+    assert cba_contacts_router._SPEAKER_CONTACT_ROLES == _SPEAKER_CONTACT, (
+        f"cba_contacts.py's _SPEAKER_CONTACT_ROLES is now "
+        f"{sorted(cba_contacts_router._SPEAKER_CONTACT_ROLES)}; this ledger still expects "
+        f"{sorted(_SPEAKER_CONTACT)} for GET/PATCH {_SPEAKER_AVAILABILITY_PATH}. Update "
+        f"ROUTE_ROLE_LEDGER and _SPEAKER_CONTACT deliberately if the change is intended."
     )
 
 
@@ -209,7 +241,21 @@ def test_the_ledger_covers_exactly_the_routes_this_track_owns() -> None:
         ("POST", "/v1/review-items/{review_item_id}/decision"),
         ("GET", "/v1/me"),
         ("GET", "/v1/me/portals"),
+        ("POST", "/v1/units/{unit_id}/speaker-contacts/{professional_id}/portal-invitations"),
+        (
+            "DELETE",
+            "/v1/units/{unit_id}/speaker-contacts/{professional_id}/portal-invitations/current",
+        ),
+        ("GET", "/v1/units/{unit_id}/speaker-contacts/{professional_id}/portal-access"),
+        ("GET", _SPEAKER_AVAILABILITY_PATH),
+        ("PATCH", _SPEAKER_AVAILABILITY_PATH),
     }
+
+
+def test_speaker_portal_roles_matches_the_live_constant() -> None:
+    """A widened ``_SPEAKER_PORTAL_ROLES`` must fail here. ``speaker`` is never in it."""
+    assert speaker_portal_router._SPEAKER_PORTAL_ROLES == _SPEAKER_PORTAL
+    assert "speaker" not in speaker_portal_router._SPEAKER_PORTAL_ROLES
 
 
 # ---------------------------------------------------------------------------

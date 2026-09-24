@@ -42,7 +42,12 @@ from smartmatch_providers import build_token_verifier
 from starlette.datastructures import Headers
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from smartmatch_api.config import Settings, get_settings, require_exercise_workspace_secret
+from smartmatch_api.config import (
+    Settings,
+    check_speaker_portal_startup,
+    get_settings,
+    require_exercise_workspace_secret,
+)
 from smartmatch_api.errors import EXCEPTION_HANDLERS, ErrorEnvelope, error_response
 from smartmatch_api.routers import (
     attendance,
@@ -77,11 +82,14 @@ from smartmatch_api.routers import (
     redrive,
     review,
     rewards,
+    speaker_availability,
     speaker_pipeline,
+    speaker_portal,
     speaker_requests,
     student_events,
     student_speaker_feedback,
 )
+from smartmatch_api.token_pages import install_access_log_redaction
 
 #: Most bytes any request body may occupy, enforced ahead of the FastAPI
 #: application entirely. Shares its value with
@@ -442,6 +450,11 @@ CAPABILITY_SCOPED_ROUTERS: Final[tuple[tuple[APIRouter, Capability], ...]] = (
     # inside-the-system growth customer §20 permits. No network call, no scrape,
     # no external lookup.
     (cba_contacts.router, Capability.SPEAKER_CONTACT_MANAGEMENT),
+    # A roster contact's stated availability (B26 T3): read and corrected by the
+    # Connector from the same roster, so the same flag. Roster data that sends
+    # nothing, so not `CONSENTED_OUTREACH` -- the argument
+    # `student_speaker_feedback.connector_router` makes below.
+    (speaker_availability.router, Capability.SPEAKER_CONTACT_MANAGEMENT),
     (match_runs.router, Capability.MATCH_RUNS),
     # The weights a match run is scored under (customer §5, §13's "manage
     # matching weights"). `MATCH_RUNS` rather than a capability of its own, and
@@ -655,6 +668,14 @@ CAPABILITY_SCOPED_ROUTERS: Final[tuple[tuple[APIRouter, Capability], ...]] = (
     # router-level `require_instructor_session` dependency, so the gate is
     # structural here exactly as it is there.
     (exercise_instructor_refresh.router, Capability.CLASS_EXERCISE),
+    # B26 T6b-1: Speaker accounts. `SPEAKER_PORTAL` is off in every scope until
+    # its turn-on rule clears, so none of these three mounts today. `router` is
+    # the Connector's invite/revoke/access ({admin, coordinator}); the other two
+    # take no principal — the activation token is their whole authorization,
+    # and each is declared in `UNAUTHENTICATED_ROUTES`.
+    (speaker_portal.router, Capability.SPEAKER_PORTAL),
+    (speaker_portal.public_router, Capability.SPEAKER_PORTAL),
+    (speaker_portal.pages_router, Capability.SPEAKER_PORTAL),
 )
 
 
@@ -698,6 +719,14 @@ def routers_for(settings: Settings) -> tuple[APIRouter, ...]:
 # actually matters — the application either exists or it does not.
 if get_settings().capability_enabled(Capability.CLASS_EXERCISE):
     require_exercise_workspace_secret(get_settings())
+
+# B26 T6b-1 (§4.2, R10): refuse to boot with the capability on and no usable
+# token secret; with it off the secret is never read and this is `None`.
+app.state.speaker_portal_token_secret = check_speaker_portal_startup(get_settings())
+
+# B26 T6b-1 (R4): token-bearing paths (`/s`, `/i`, `/u`, `/q`) are redacted in
+# uvicorn's access log rather than the log being disabled. Idempotent.
+install_access_log_redaction()
 
 
 for _mounted_router in routers_for(get_settings()):

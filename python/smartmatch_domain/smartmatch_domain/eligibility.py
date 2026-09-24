@@ -34,6 +34,7 @@ from typing import Final
 __all__ = [
     "AVAILABILITY_STAGE_B_WEIGHT",
     "AvailabilityEvidence",
+    "AvailabilityReason",
     "AvailabilityState",
     "EligibilityDecision",
     "EligibilityOutcome",
@@ -53,6 +54,33 @@ class AvailabilityState(StrEnum):
     AVAILABLE = "available"
     BLACKED_OUT = "blacked_out"
     UNKNOWN = "unknown"
+
+
+class AvailabilityReason(StrEnum):
+    """Why an :class:`AvailabilityState` was reached (B26 T1).
+
+    Each reason belongs to exactly one state; see
+    :data:`_REASONS_BY_STATE`. :mod:`smartmatch_domain.speaker_availability`
+    re-exports this type and is the only producer of it.
+    """
+
+    CLEAR = "clear"
+    PAUSED = "paused"
+    WINDOW = "window"
+    NOT_STATED = "not_stated"
+    EVENT_UNRESOLVED = "event_unresolved"
+
+
+#: The reasons each state may carry. ``reason=None`` is also always legal.
+_REASONS_BY_STATE: Final[Mapping[AvailabilityState, frozenset[AvailabilityReason]]] = {
+    AvailabilityState.AVAILABLE: frozenset({AvailabilityReason.CLEAR}),
+    AvailabilityState.BLACKED_OUT: frozenset(
+        {AvailabilityReason.PAUSED, AvailabilityReason.WINDOW}
+    ),
+    AvailabilityState.UNKNOWN: frozenset(
+        {AvailabilityReason.NOT_STATED, AvailabilityReason.EVENT_UNRESOLVED}
+    ),
+}
 
 
 class EligibilityOutcome(StrEnum):
@@ -75,14 +103,22 @@ class AvailabilityEvidence:
         subject_id: Stable identifier for the professional this evidence
             describes. Non-empty.
         state: The recorded availability state.
+        reason: Why ``state`` was reached, or ``None`` when the caller does
+            not say. When set, it must be one of the reasons that belong to
+            ``state``.
     """
 
     subject_id: str
     state: AvailabilityState
+    reason: AvailabilityReason | None = None
 
     def __post_init__(self) -> None:
         if not self.subject_id.strip():
             raise ValueError("subject_id: must not be empty or blank")
+        if self.reason is not None and self.reason not in _REASONS_BY_STATE[self.state]:
+            raise ValueError(
+                f"reason: {self.reason.value!r} does not belong to state {self.state.value!r}"
+            )
 
 
 @dataclass(frozen=True, slots=True)
