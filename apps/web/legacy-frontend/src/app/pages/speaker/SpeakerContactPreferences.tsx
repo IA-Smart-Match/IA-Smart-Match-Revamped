@@ -19,7 +19,6 @@
  */
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
-import { AlertCircle } from "lucide-react";
 
 import type { MyContactChannel, MyContactChannelChange } from "@/lib/api";
 import { usePrincipalKey } from "@/app/components/PrincipalQueryProvider";
@@ -30,7 +29,7 @@ import {
 } from "@/app/hooks/useSpeakerSelf";
 
 import { ContactChannelRow, channelHeadingId } from "./ContactChannelRow";
-import { SpeakerSelfNotice } from "./SpeakerSelfNotice";
+import { SpeakerReadError, SpeakerSelfNotice, SpeakerStaleReadAlert } from "./SpeakerSelfNotice";
 import { selfNoticeKind, speakerPortalError } from "./speakerPortalErrors";
 import { channelStatusSentence } from "./speakerPortalFormat";
 import { useSpeakerPageTitle } from "./useSpeakerPageTitle";
@@ -129,19 +128,11 @@ export function SpeakerContactPreferences() {
         kind !== null ? (
           <SpeakerSelfNotice kind={kind} />
         ) : (
-          <div role="alert" className="space-y-3 rounded-xl border border-border/70 bg-card p-4">
-            <p className="flex items-start gap-1.5 text-sm text-destructive">
-              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-              <span>{speakerPortalError("read-addresses", channels.error).message}</span>
-            </p>
-            <button
-              type="button"
-              onClick={() => void channels.refetch()}
-              className="inline-flex min-h-11 items-center rounded-lg border border-border/70 px-4 py-2 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-            >
-              Retry<span className="sr-only"> loading your addresses</span>
-            </button>
-          </div>
+          <SpeakerReadError
+            message={speakerPortalError("read-addresses", channels.error).message}
+            subject="your addresses"
+            onRetry={() => void channels.refetch()}
+          />
         );
     } else {
       content = <p className="text-sm text-muted-foreground">Loading your addresses…</p>;
@@ -156,10 +147,9 @@ export function SpeakerContactPreferences() {
     content = (
       <div className="space-y-3">
         {channels.isError ? (
-          <p role="alert" className="flex items-start gap-1.5 text-sm text-destructive">
-            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-            <span>{speakerPortalError("read-addresses", channels.error).message}</span>
-          </p>
+          <SpeakerStaleReadAlert
+            message={speakerPortalError("read-addresses", channels.error).message}
+          />
         ) : null}
         <ul className="space-y-3">
           {channels.data.channels.map((channel) => {
@@ -214,12 +204,7 @@ export function SpeakerContactPreferences() {
         {status}
       </p>
 
-      {orphanError !== null ? (
-        <p role="alert" className="flex items-start gap-1.5 text-sm text-destructive">
-          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-          <span>{orphanError}</span>
-        </p>
-      ) : null}
+      {orphanError !== null ? <SpeakerStaleReadAlert message={orphanError} /> : null}
 
       <section
         aria-labelledby="your-addresses-heading"

@@ -29,7 +29,10 @@ import {
   fetchHostOrganizations,
   fetchMatchingWeights,
   fetchMeetings,
+  fetchMyAvailability,
   fetchMyContactChannels,
+  fetchMyEngagements,
+  fetchMyInvitations,
   fetchMySpeakerRequests,
   fetchOutreachDrafts,
   fetchOutreachSends,
@@ -171,6 +174,19 @@ const VOLUNTEER_PREFETCH: Readonly<Record<string, readonly PrefetchSpec[]>> = {
  * from `SPEAKER_SELF_RESOURCE` so a prefetched slot is the page's own slot.
  */
 const SPEAKER_PREFETCH: Readonly<Record<string, readonly PrefetchSpec[]>> = {
+  "/speaker-portal": [
+    spec(SPEAKER_SELF_RESOURCE.invitations, () => [], () => fetchMyInvitations()),
+    spec(SPEAKER_SELF_RESOURCE.engagements, () => ["upcoming"], () => fetchMyEngagements("upcoming")),
+  ],
+  "/speaker-portal/invitations": [
+    spec(SPEAKER_SELF_RESOURCE.invitations, () => [], () => fetchMyInvitations()),
+  ],
+  "/speaker-portal/engagements": [
+    spec(SPEAKER_SELF_RESOURCE.engagements, () => ["upcoming"], () => fetchMyEngagements("upcoming")),
+  ],
+  "/speaker-portal/availability": [
+    spec(SPEAKER_SELF_RESOURCE.availability, () => [], () => fetchMyAvailability()),
+  ],
   "/speaker-portal/contact-preferences": [
     spec(SPEAKER_SELF_RESOURCE.contactChannels, () => [], () => fetchMyContactChannels()),
   ],

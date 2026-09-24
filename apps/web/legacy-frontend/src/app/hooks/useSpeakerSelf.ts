@@ -20,10 +20,16 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import {
+  answerMyInvitation,
+  fetchMyAvailability,
   fetchMyContactChannels,
+  fetchMyEngagements,
+  fetchMyInvitations,
   optInMyContactChannel,
   optOutMyContactChannel,
+  type EngagementWhen,
   type MyContactChannelChange,
+  type MyInvitationAnswerResult,
 } from "@/lib/api";
 import { scopedQueryKey } from "@/lib/queryClient";
 import { usePrincipalKey } from "@/app/components/PrincipalQueryProvider";
@@ -38,6 +44,64 @@ export const SPEAKER_SELF_RESOURCE = {
   availability: "my-availability",
   contactChannels: "my-contact-channels",
 } as const;
+
+/** `GET /v1/me/invitations`. Home and Invitations share this one entry. */
+export function useMyInvitations() {
+  return useScopedQuery({
+    resource: SPEAKER_SELF_RESOURCE.invitations,
+    queryFn: fetchMyInvitations,
+  });
+}
+
+/** `GET /v1/me/engagements?when=…`, one entry per period. */
+export function useMyEngagements(when: EngagementWhen) {
+  return useScopedQuery({
+    resource: SPEAKER_SELF_RESOURCE.engagements,
+    params: [when],
+    queryFn: () => fetchMyEngagements(when),
+  });
+}
+
+/** `GET /v1/me/availability`. */
+export function useMyAvailability() {
+  return useScopedQuery({
+    resource: SPEAKER_SELF_RESOURCE.availability,
+    queryFn: fetchMyAvailability,
+  });
+}
+
+/** The page's own list, invalidated exactly; `undefined` while no principal. */
+function useExactReread(resource: string): () => Promise<void> | undefined {
+  const queryClient = useQueryClient();
+  const principalKey = usePrincipalKey();
+  return () =>
+    principalKey === null
+      ? undefined
+      : queryClient.invalidateQueries({
+          queryKey: scopedQueryKey(principalKey, resource),
+          exact: true,
+        });
+}
+
+export interface AnswerVariables {
+  readonly invitationId: string;
+  readonly response: "accept" | "decline";
+}
+
+/**
+ * Answer one invitation. Success and the three "list is stale" codes
+ * invalidate exactly `[principal, "my-invitations"]`. An accept writes no
+ * pipeline row (T6b-2 §2.3), so engagements are not touched.
+ */
+export function useAnswerMyInvitation() {
+  const rereadInvitations = useExactReread(SPEAKER_SELF_RESOURCE.invitations);
+  return useMutation<MyInvitationAnswerResult, unknown, AnswerVariables>({
+    mutationFn: ({ invitationId, response }) => answerMyInvitation(invitationId, response),
+    onSuccess: () => rereadInvitations(),
+    onError: (cause) =>
+      speakerPortalError("answer", cause).refetch ? rereadInvitations() : undefined,
+  });
+}
 
 /** `GET /v1/me/contact-channels`. */
 export function useMyContactChannels() {
@@ -59,17 +123,7 @@ export interface ChannelChoiceVariables {
  * invalidate exactly `[principal, "my-contact-channels"]`; nothing else.
  */
 export function useMyChannelChoice() {
-  const queryClient = useQueryClient();
-  const principalKey = usePrincipalKey();
-
-  function rereadChannels(): Promise<void> | undefined {
-    if (principalKey === null) return undefined;
-    return queryClient.invalidateQueries({
-      queryKey: scopedQueryKey(principalKey, SPEAKER_SELF_RESOURCE.contactChannels),
-      exact: true,
-    });
-  }
-
+  const rereadChannels = useExactReread(SPEAKER_SELF_RESOURCE.contactChannels);
   return useMutation<MyContactChannelChange, unknown, ChannelChoiceVariables>({
     mutationFn: ({ channelId, choice }) =>
       choice === "opt_in" ? optInMyContactChannel(channelId) : optOutMyContactChannel(channelId),

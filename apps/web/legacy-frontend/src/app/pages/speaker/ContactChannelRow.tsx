@@ -20,7 +20,7 @@ import { AlertCircle, BellOff, CheckCircle2, CircleDashed } from "lucide-react";
 import type { MyContactChannel } from "@/lib/api";
 import type { ChannelChoice } from "@/app/hooks/useSpeakerSelf";
 
-import { channelStatusSentence, lastSetByLabel } from "./speakerPortalFormat";
+import { channelStatusSentence, domId, lastSetByLabel } from "./speakerPortalFormat";
 
 const FOCUS_RING =
   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2";
@@ -29,7 +29,7 @@ const BUTTON_PRIMARY = `inline-flex min-h-11 items-center rounded-lg bg-primary 
 const BUTTON_DESTRUCTIVE = `inline-flex min-h-11 items-center rounded-lg bg-destructive px-4 py-2 text-sm font-semibold text-white disabled:opacity-50 aria-disabled:opacity-70 ${FOCUS_RING}`;
 
 export function channelHeadingId(channelId: string): string {
-  return `channel-${channelId}-heading`;
+  return `${domId("channel", channelId)}-heading`;
 }
 
 export interface ContactChannelRowProps {
@@ -117,7 +117,7 @@ export function ContactChannelRow({
 }: ContactChannelRowProps) {
   const { address, contact_channel_id: id } = channel;
   const headingId = channelHeadingId(id);
-  const errorId = `channel-${id}-error`;
+  const errorId = `${domId("channel", id)}-error`;
   const describedBy = error !== null ? errorId : undefined;
 
   const confirmRef = useRef<HTMLButtonElement>(null);

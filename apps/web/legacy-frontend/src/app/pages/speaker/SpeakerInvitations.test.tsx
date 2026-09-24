@@ -165,6 +165,15 @@ function posts(): typeof calls {
 
 const MIXER_URL = `${LIST}/inv%2F1%20a/response`;
 
+/**
+ * An accessible-name matcher. jsdom's name computation puts a space between a
+ * text node and the sr-only span that follows it ("Go back , keep…"), which a
+ * browser does not do for an inline span; collapse it before comparing.
+ */
+function named(expected: string): (name: string) => boolean {
+  return (name) => name.replace(/\s+,/g, ",") === expected;
+}
+
 beforeEach(() => {
   calls = [];
   principal.key = "principal-1";
@@ -232,7 +241,7 @@ describe("<SpeakerInvitations />", () => {
       screen.getByRole("button", { name: "Confirm accept invitation to Spring Mixer" }),
     );
     fireEvent.click(
-      screen.getByRole("button", { name: "Go back, keep invitation to Spring Mixer unanswered" }),
+      screen.getByRole("button", { name: named("Go back, keep invitation to Spring Mixer unanswered") }),
     );
     expect(document.activeElement).toBe(
       screen.getByRole("button", { name: "Accept invitation to Spring Mixer" }),
@@ -253,7 +262,7 @@ describe("<SpeakerInvitations />", () => {
       screen.getByRole("button", { name: "Confirm decline invitation to Spring Mixer" }),
     );
     fireEvent.click(
-      screen.getByRole("button", { name: "Go back, keep invitation to Spring Mixer unanswered" }),
+      screen.getByRole("button", { name: named("Go back, keep invitation to Spring Mixer unanswered") }),
     );
     expect(document.activeElement).toBe(
       screen.getByRole("button", { name: "Decline invitation to Spring Mixer" }),
@@ -309,7 +318,9 @@ describe("<SpeakerInvitations />", () => {
       "Accept invitation to ACCT 4100 guest lecture",
       "Decline invitation to ACCT 4100 guest lecture",
     ]) {
-      expect(screen.getByRole("button", { name }).hasAttribute("disabled")).toBe(true);
+      expect(screen.getByRole("button", { name: named(name) }).hasAttribute("disabled")).toBe(
+        true,
+      );
     }
 
     fireEvent.click(confirm);
@@ -554,7 +565,7 @@ describe("<SpeakerInvitations />", () => {
           screen.getByRole("button", { name: `${opener} invitation to Spring Mixer` }),
         );
       }
-      const button = screen.getByRole("button", { name });
+      const button = screen.getByRole("button", { name: named(name) });
       expect(button.hasAttribute("aria-label")).toBe(false);
       const visibleText = Array.from(button.childNodes)
         .filter((node) => !(node instanceof HTMLElement && node.classList.contains("sr-only")))

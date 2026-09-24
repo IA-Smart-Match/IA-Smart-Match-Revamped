@@ -40,3 +40,45 @@ export function SpeakerSelfNotice({ kind }: { kind: SelfNoticeKind }) {
     </div>
   );
 }
+
+/**
+ * A read that failed for a reason a retry may fix (429, 5xx, network): the
+ * page's fixed sentence and a Retry button, in one `role="alert"`. Retry is a
+ * GET, so repeating it is safe.
+ */
+export function SpeakerReadError({
+  message,
+  subject,
+  onRetry,
+}: {
+  message: string;
+  /** Completes the button's name: "Retry loading {subject}". */
+  subject: string;
+  onRetry: () => void;
+}) {
+  return (
+    <div role="alert" className="space-y-3 rounded-xl border border-border/70 bg-card p-4">
+      <p className="flex items-start gap-1.5 text-sm text-destructive">
+        <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+        <span>{message}</span>
+      </p>
+      <button
+        type="button"
+        onClick={onRetry}
+        className="inline-flex min-h-11 items-center rounded-lg border border-border/70 px-4 py-2 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+      >
+        Retry<span className="sr-only"> loading {subject}</span>
+      </button>
+    </div>
+  );
+}
+
+/** A background re-read failed while the last good rows stay on screen. */
+export function SpeakerStaleReadAlert({ message }: { message: string }) {
+  return (
+    <p role="alert" className="flex items-start gap-1.5 text-sm text-destructive">
+      <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+      <span>{message}</span>
+    </p>
+  );
+}
