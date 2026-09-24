@@ -277,6 +277,9 @@ def test_the_ledger_covers_exactly_the_routes_this_track_owns() -> None:
         ("GET", "/v1/me/invitations"),
         ("POST", "/v1/me/invitations/{invitation_id}/response"),
         ("GET", "/v1/me/engagements"),
+        ("GET", "/v1/me/contact-channels"),
+        ("POST", "/v1/me/contact-channels/{contact_channel_id}/opt-in"),
+        ("POST", "/v1/me/contact-channels/{contact_channel_id}/opt-out"),
     }
 
 
