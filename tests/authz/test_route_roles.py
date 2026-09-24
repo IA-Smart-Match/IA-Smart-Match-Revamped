@@ -49,6 +49,7 @@ from smartmatch_api.routers import me as me_router
 from smartmatch_api.routers import portals as portals_router
 from smartmatch_api.routers import review as review_router
 from smartmatch_api.routers import speaker_portal as speaker_portal_router
+from smartmatch_api.routers import speaker_self as speaker_self_router
 from smartmatch_domain import role_presentation
 
 #: The three role sets every gated route in this ledger currently reads from,
@@ -70,6 +71,9 @@ _SPEAKER_PORTAL = frozenset({"admin", "coordinator"})
 _SPEAKER_CONTACT = frozenset({"admin", "coordinator"})
 
 _SPEAKER_AVAILABILITY_PATH = "/v1/units/{unit_id}/speaker-contacts/{professional_id}/availability"
+#: ``speaker_self._SPEAKER_SELF_ROLES`` (B26 T6b-2): the signed-in Speaker's
+#: own routes. Its own literal object, for the ``is`` comparison below.
+_SPEAKER_SELF = frozenset({"speaker"})
 
 #: method, path -> the role set that route requires, or ``None`` when the
 #: route requires only authentication and nothing further. Every route this
@@ -99,6 +103,11 @@ ROUTE_ROLE_LEDGER: dict[tuple[str, str], frozenset[str] | None] = {
     ),
     ("GET", _SPEAKER_AVAILABILITY_PATH): _SPEAKER_CONTACT,
     ("PATCH", _SPEAKER_AVAILABILITY_PATH): _SPEAKER_CONTACT,
+    ("GET", "/v1/me/availability"): _SPEAKER_SELF,
+    ("PATCH", "/v1/me/availability"): _SPEAKER_SELF,
+    ("GET", "/v1/me/invitations"): _SPEAKER_SELF,
+    ("POST", "/v1/me/invitations/{invitation_id}/response"): _SPEAKER_SELF,
+    ("GET", "/v1/me/engagements"): _SPEAKER_SELF,
 }
 
 #: The auth-only routes, and where each one's handler lives.
@@ -154,6 +163,16 @@ def test_speaker_contact_roles_matches_the_live_constant() -> None:
         f"{sorted(cba_contacts_router._SPEAKER_CONTACT_ROLES)}; this ledger still expects "
         f"{sorted(_SPEAKER_CONTACT)} for GET/PATCH {_SPEAKER_AVAILABILITY_PATH}. Update "
         f"ROUTE_ROLE_LEDGER and _SPEAKER_CONTACT deliberately if the change is intended."
+    )
+
+
+def test_speaker_self_roles_matches_the_live_constant() -> None:
+    """A widened ``_SPEAKER_SELF_ROLES`` must fail here (B26 T6b-2)."""
+    assert speaker_self_router._SPEAKER_SELF_ROLES == _SPEAKER_SELF, (
+        f"speaker_self.py's _SPEAKER_SELF_ROLES is now "
+        f"{sorted(speaker_self_router._SPEAKER_SELF_ROLES)}; this ledger still expects "
+        f"{sorted(_SPEAKER_SELF)} for the five /v1/me Speaker routes. Update "
+        f"ROUTE_ROLE_LEDGER and _SPEAKER_SELF deliberately if the change is intended."
     )
 
 
@@ -249,6 +268,11 @@ def test_the_ledger_covers_exactly_the_routes_this_track_owns() -> None:
         ("GET", "/v1/units/{unit_id}/speaker-contacts/{professional_id}/portal-access"),
         ("GET", _SPEAKER_AVAILABILITY_PATH),
         ("PATCH", _SPEAKER_AVAILABILITY_PATH),
+        ("GET", "/v1/me/availability"),
+        ("PATCH", "/v1/me/availability"),
+        ("GET", "/v1/me/invitations"),
+        ("POST", "/v1/me/invitations/{invitation_id}/response"),
+        ("GET", "/v1/me/engagements"),
     }
 
 
@@ -291,7 +315,17 @@ def test_every_gated_role_set_holds_only_stored_role_strings() -> None:
             f"stored membership.role string"
         )
         assert not (set(roles) & visible), f"{key} gates on a visible label"
-        assert not (set(roles) & personas), f"{key} gates on a persona"
+        # A persona value that *is* a stored role is that role (``student``,
+        # and since B26 T6b-1 ``speaker``); the check targets presentation-only
+        # values such as ``event_host`` and ``speaker_connector``.
+        assert not (set(roles) & (personas - stored_roles)), f"{key} gates on a persona"
+
+
+def test_persona_values_that_are_stored_roles_are_exactly_student_and_speaker() -> None:
+    """A third persona/role collision fails loudly instead of widening the check above."""
+    stored_roles = set(role_presentation.KNOWN_ROLES)
+    personas = {persona.value for persona in role_presentation.Persona}
+    assert personas & stored_roles == {"student", "speaker"}
 
 
 def test_the_presentation_map_covers_the_roles_the_ledger_gates_on() -> None:
