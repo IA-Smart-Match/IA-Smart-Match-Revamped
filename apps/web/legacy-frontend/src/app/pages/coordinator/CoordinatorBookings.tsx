@@ -142,12 +142,17 @@ export function CoordinatorBookings() {
     mutationFn: (recordId: string) => cancelBooking(unitId as string, recordId),
     onSuccess: async (result) => {
       if (principalKey !== null && unitId !== null) {
-        // The prefix covers "all" and every event filter; the metric moved too.
+        // The prefix covers "all" and every event filter; the metric moved too,
+        // and so did the Speaker's load band (B26 T8d): every availability read
+        // for this unit carries it.
         await Promise.all([
           queryClient.invalidateQueries({
             queryKey: scopedQueryKey(principalKey, "confirmed-speakers", unitId),
           }),
           queryClient.invalidateQueries({ queryKey: metricsQueryKey(principalKey, unitId) }),
+          queryClient.invalidateQueries({
+            queryKey: scopedQueryKey(principalKey, "speaker-availability", unitId),
+          }),
         ]);
       }
       setAnnouncement(

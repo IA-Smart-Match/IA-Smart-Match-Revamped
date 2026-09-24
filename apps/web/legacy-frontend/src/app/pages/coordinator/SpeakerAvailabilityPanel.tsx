@@ -10,6 +10,9 @@
  * upkeep after a save, the stale (409) re-read, and the read-side states:
  * loading, refused (403), not on the roster (404), and failed-with-Retry. The
  * form itself is `components/speakerAvailability/SpeakerAvailabilityForm.tsx`.
+ * Once the read has answered, the Speaker's current load band
+ * (`components/load/LoadBandSummary.tsx`, B26 T8d) sits between the read
+ * states and the form: a band word only, never a number (OQ-CBA-005).
  *
  * ## After a save
  *
@@ -47,6 +50,7 @@ import {
   type AvailabilityError,
 } from "@/lib/speakerAvailabilityDraft";
 import { usePrincipalKey } from "@/app/components/PrincipalQueryProvider";
+import { LoadBandSummary } from "@/app/components/load/LoadBandSummary";
 import {
   SpeakerAvailabilityForm,
   type StaleState,
@@ -162,22 +166,30 @@ export function SpeakerAvailabilityPanel({
   let body: ReactNode;
   if (data !== undefined) {
     body = (
-      <SpeakerAvailabilityForm
-        idPrefix={idPrefix}
-        headingId={headingId}
-        availability={data}
-        reseedFrom={lastSaved}
-        today={today}
-        copy={COPY.connector}
-        saving={mutation.isPending}
-        canSave={principalKey !== null}
-        stale={stale}
-        readError={query.isError ? readErrorMessage(query.error) : null}
-        serverError={serverError}
-        onSave={save}
-        onDiscardStale={() => setStale(null)}
-        onRetryRead={retryRead}
-      />
+      <>
+        <LoadBandSummary
+          load={data.load}
+          audience="connector"
+          headingLevel={4}
+          idPrefix={idPrefix}
+        />
+        <SpeakerAvailabilityForm
+          idPrefix={idPrefix}
+          headingId={headingId}
+          availability={data}
+          reseedFrom={lastSaved}
+          today={today}
+          copy={COPY.connector}
+          saving={mutation.isPending}
+          canSave={principalKey !== null}
+          stale={stale}
+          readError={query.isError ? readErrorMessage(query.error) : null}
+          serverError={serverError}
+          onSave={save}
+          onDiscardStale={() => setStale(null)}
+          onRetryRead={retryRead}
+        />
+      </>
     );
   } else if (query.isError) {
     const status = query.error instanceof ApiRequestError ? query.error.status : null;

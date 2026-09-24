@@ -12,4 +12,10 @@ describe("MATCH_INELIGIBILITY_EXPLANATIONS", () => {
       "Filed this request, so left out of its matching. To invite them anyway, add them to a batch by hand.",
     );
   });
+
+  it("the 202 excluded list words load_full with the Full label (B26 T8d V-G)", () => {
+    expect(MATCH_INELIGIBILITY_EXPLANATIONS.load_full).toBe(
+      "Full (no override available). Their confirmed and recent engagements exceed the hours they can give, so this run left them out.",
+    );
+  });
 });

@@ -10,6 +10,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { SpeakerContact } from "@/lib/api";
+import { speakerLoadFixture } from "@/test/speakerLoadFixture";
 
 import { CoordinatorSpeakerContacts } from "./CoordinatorSpeakerContacts";
 
@@ -96,6 +97,7 @@ function stubRoster(contacts: SpeakerContact[]): void {
             unavailable: [],
             updated_source: null,
             updated_at: null,
+            load: speakerLoadFixture(),
           }),
           { status: 200 },
         );

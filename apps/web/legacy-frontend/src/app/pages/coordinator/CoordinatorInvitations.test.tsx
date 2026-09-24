@@ -6,7 +6,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { ApiRequestError } from "../../../lib/api";
+import { ApiRequestError, type MatchLoad } from "../../../lib/api";
 import { RecipientRow, describeComposeRefusal, describeSkip } from "./CoordinatorInvitations";
 
 afterEach(cleanup);
@@ -69,5 +69,44 @@ describe("RecipientRow", () => {
     );
     expect(screen.getByText(/Unavailable on this date \(Speaker's statement\)/)).toBeTruthy();
     expect((screen.getByRole("checkbox") as HTMLInputElement).disabled).toBe(false);
+  });
+});
+
+describe("RecipientRow load (B26 T8d V-F)", () => {
+  function row(loadRecorded: boolean, load: MatchLoad | null) {
+    render(
+      <ul>
+        <RecipientRow
+          recipient={{
+            subjectId: "speaker-a",
+            contact: null,
+            channels: [],
+            channelsError: null,
+            availability: null,
+            load,
+          }}
+          verdict={{ selectable: true, explanation: "Active.", address: "a@synthetic.invalid" }}
+          selected={false}
+          onToggle={() => undefined}
+          loadRecorded={loadRecorded}
+        />
+      </ul>,
+    );
+    return screen.getByRole("listitem").textContent ?? "";
+  }
+
+  it("RecipientRow shows Workload when matched for a 3.x run", () => {
+    expect(row(true, { band: "moderate", reason: "measured" })).toContain(
+      "Workload when matched: Moderate",
+    );
+  });
+
+  it("says not recorded when a 3.x run carries no load for the row", () => {
+    expect(row(true, null)).toContain("Workload not recorded for this Speaker");
+  });
+
+  it("nothing for a 2.0.0 run", () => {
+    const text = row(false, null);
+    expect(text).not.toContain("Workload");
   });
 });
