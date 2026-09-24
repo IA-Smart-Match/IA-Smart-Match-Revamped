@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from itertools import pairwise
 
 import pytest
 from smartmatch_domain.consent import STATE_TRANSITIONS, ContactState, can_transition
@@ -43,7 +44,7 @@ def test_opt_in_path(current: ContactState, expected: object) -> None:
 
 def test_opt_in_path_covers_every_state() -> None:
     assert len(ContactState) == 8
-    assert OPT_IN_START_STATES == {_S.RELATIONSHIP_RECORDED, _S.CONSENTED, _S.ACTIVE_CANDIDATE}
+    assert {_S.RELATIONSHIP_RECORDED, _S.CONSENTED, _S.ACTIVE_CANDIDATE} == OPT_IN_START_STATES
 
 
 @pytest.mark.parametrize("current", list(ContactState))
@@ -56,7 +57,7 @@ def test_every_opt_in_move_is_a_legal_edge(current: ContactState) -> None:
     if path:
         assert path[0][0] is current
         assert path[-1][1] is _S.ACTIVE_CANDIDATE
-        for (_, a), (b, _) in zip(path, path[1:], strict=False):
+        for (_, a), (b, _) in pairwise(path):
             assert a is b
 
 

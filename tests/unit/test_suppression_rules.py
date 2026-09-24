@@ -70,12 +70,12 @@ def test_source_vocabulary_matches_the_check() -> None:
         _check_sql("ck_suppression_record_lift_source")
     )
     assert set(SOURCE_RANK) == set(SuppressionSource)
-    assert NEVER_LIFTED == frozenset(SuppressionSource) - LIFTABLE_BY_SPEAKER
-    assert NEVER_LIFTED == {
+    assert frozenset(SuppressionSource) - LIFTABLE_BY_SPEAKER == NEVER_LIFTED
+    assert {
         SuppressionSource.BOUNCE,
         SuppressionSource.COMPLAINT,
         SuppressionSource.COORDINATOR,
-    }
+    } == NEVER_LIFTED
 
 
 @pytest.mark.parametrize("address_is_login", [True, False])
