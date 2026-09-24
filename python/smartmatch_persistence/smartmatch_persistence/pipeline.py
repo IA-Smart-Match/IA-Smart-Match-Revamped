@@ -1205,8 +1205,10 @@ class CbaHandoffRepository:
         """The confirmed speakers this unit can hand an Event Host.
 
         The ``WHERE`` clause is deliberately the *same predicate* the
-        ``pipeline_confirmed`` metric uses -- ``confirmed_at IS NOT NULL``,
-        scoped by ``tenant_id`` and ``owning_unit_id`` and nothing else -- so
+        ``pipeline_confirmed`` metric uses -- ``confirmed_at IS NOT NULL AND
+        cancelled_at IS NULL`` (confirmed and not cancelled, since migration
+        ``0040`` and owner ruling C1 = C), scoped by ``tenant_id`` and
+        ``owning_unit_id`` and nothing else -- so
         with no ``opportunity_event_id`` filter this list and that aggregate are
         the same set by construction rather than by coincidence. That is ADR-0011
         rule 3 held at the query, and
@@ -1231,6 +1233,9 @@ class CbaHandoffRepository:
             record.c.tenant_id == tenant_id,
             record.c.owning_unit_id == owning_unit_id,
             record.c.confirmed_at.is_not(None),
+            # B26 T8a (C1 = C): a cancelled booking is not handed to a Host,
+            # and pipeline_confirmed does not count it either.
+            record.c.cancelled_at.is_(None),
         ]
         if opportunity_event_id is not None:
             where.append(record.c.opportunity_event_id == opportunity_event_id)

@@ -9,6 +9,10 @@ Track CBA-HANDOFF-PIPELINE. Two operations:
   this unit can hand an Event Host, optionally for one event. See
   :func:`confirmed_speakers_view`.
 
+B26 T8a (owner ruling C1 = C): a booking a Speaker Connector cancelled
+(``pipeline_record.cancelled_at``, migration ``0040``) leaves the list, and a
+hand-off replay on it is a ``409 pipeline_record_cancelled`` that writes nothing.
+
 ## Why this is not the stage route with a different name
 
 ``routers/pipeline.py`` already advances a journey to Confirmed, and it is
@@ -86,6 +90,7 @@ from smartmatch_persistence.pipeline import (
     ConfirmedSpeakerRow,
     ConflictingOwningUnitError,
     PipelineRecordCancelledError,
+    PipelineRepository,
     PipelineStageOrderError,
     UnknownAttendanceEvidenceError,
     UnknownOpportunityEventError,
@@ -101,6 +106,7 @@ from smartmatch_api.utils import utc_now
 router = APIRouter(prefix="/v1/units", tags=["cba-handoff"])
 
 _repo: Final[CbaHandoffRepository] = CbaHandoffRepository()
+_pipeline_repo: Final[PipelineRepository] = PipelineRepository()
 
 #: ``admin`` and ``coordinator``, matching ``pipeline.py::_PIPELINE_ROLES`` and
 #: ``outreach.py::_OUTREACH_ROLES``. The same set for the write and the read: a
@@ -330,6 +336,7 @@ def _confirmed_speaker_or_unreachable(
     owning_unit_id: uuid.UUID,
     event_id: uuid.UUID,
     professional_id: uuid.UUID,
+    record_id: uuid.UUID | None = None,
 ) -> ConfirmedSpeakerRow:
     """Read back the row the write just produced, through the Host's own query.
 
@@ -348,6 +355,13 @@ def _confirmed_speaker_or_unreachable(
     for speaker in matches:
         if speaker.professional_id == professional_id:
             return speaker
+    # B26 T8a: the Host list excludes cancelled bookings, so a cancellation that
+    # committed between the write and this read is a miss. That is a 409, not a
+    # 500; any other miss is still unreachable.
+    if record_id is not None:
+        record = _pipeline_repo.get(session, tenant_id=principal.tenant_id, record_id=record_id)
+        if record is not None and record.cancelled_at is not None:
+            raise _cancelled_error()
     raise RuntimeError(  # pragma: no cover - the write above just confirmed them
         f"pipeline_record for speaker {professional_id} at event {event_id} is confirmed "
         "but absent from the confirmed-speaker query that publishes it"
@@ -460,6 +474,7 @@ def reconcile_speaker_handoff(
         owning_unit_id=owning_unit_id,
         event_id=event_id,
         professional_id=outcome.record.subject_id,
+        record_id=outcome.record.id,
     )
     # The commit `get_session` will not do for us: it rolls back unconditionally,
     # so without this the route returns a cheerful 200 and stores nothing.
@@ -481,13 +496,14 @@ def confirmed_speakers_view(
     unit_id: Annotated[uuid.UUID, Path()],
     event_id: Annotated[uuid.UUID | None, Query()] = None,
 ) -> ConfirmedSpeakerListResponse:
-    """The speakers whose ``confirmed_at`` is set, in this unit.
+    """The speakers whose ``confirmed_at`` is set and who were not cancelled, in this unit.
 
     With no ``event_id`` this is the *same set* the ``pipeline_confirmed``
     aggregate counts -- the same predicate against the same table, scoped by the
-    same tenant and unit. It is not a second count of that metric: it reports no
-    total, only which speakers and who they are, which the aggregate cannot say
-    and the register does not publish.
+    same tenant and unit. Both exclude cancelled bookings (B26 T8a, C1 = C).
+    It is not a second count of that metric: it reports no total, only which
+    speakers and who they are, which the aggregate cannot say and the register
+    does not publish.
 
     Ordered by ``confirmed_at`` then ``id``, so the Host reads them in the order
     they said yes.
