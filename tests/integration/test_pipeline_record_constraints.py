@@ -210,16 +210,18 @@ def funnel_counts(conn, tenant_id: uuid.UUID, unit_id: uuid.UUID) -> dict[str, i
     Written here rather than in the router because card **O3** owns the
     binding: this is the shape ``pipeline_funnel_rows_v1`` reads, expressed
     once so the tests below assert against the same predicate the API will use
-    — "reached stage X" is ``<stage>_at IS NOT NULL``, and nothing else. A
-    router that computes it differently and a test that computes it here would
-    be two owning queries for one number, which is the defect ADR-0011 rule 4
-    names.
+    — "reached stage X" is ``<stage>_at IS NOT NULL``, with one exception: since
+    migration ``0040`` (B26 T8a, owner ruling C1 = C) ``confirmed`` also needs
+    ``cancelled_at IS NULL``, so a cancelled booking leaves Confirmed and stays
+    in Matched and Contacted. A router that computes it differently and a test
+    that computes it here would be two owning queries for one number, which is
+    the defect ADR-0011 rule 4 names.
     """
     row = conn.execute(
         text(
             "SELECT "
             + ", ".join(
-                f"count(*) FILTER (WHERE {stage} IS NOT NULL) AS {stage[:-3]}" for stage in STAGES
+                f"count(*) FILTER (WHERE {_reached(stage)}) AS {stage[:-3]}" for stage in STAGES
             )
             + " FROM pipeline_record WHERE tenant_id = :tid AND owning_unit_id = :unit"
         ),
@@ -228,14 +230,25 @@ def funnel_counts(conn, tenant_id: uuid.UUID, unit_id: uuid.UUID) -> dict[str, i
     return {stage[:-3]: getattr(row, stage[:-3]) for stage in STAGES}
 
 
+def _reached(stage: str) -> str:
+    """The "reached stage X" predicate; ``confirmed`` excludes cancelled bookings (0040)."""
+    if stage == "confirmed_at":
+        return "confirmed_at IS NOT NULL AND cancelled_at IS NULL"
+    return f"{stage} IS NOT NULL"
+
+
 def funnel_rows(conn, tenant_id: uuid.UUID, unit_id: uuid.UUID, stage: str) -> list[uuid.UUID]:
-    """The constituent rows behind one of those aggregates — the drill-down."""
+    """The constituent rows behind one of those aggregates — the drill-down.
+
+    The same predicate as :func:`funnel_counts`, cancelled bookings excluded
+    from ``confirmed`` only.
+    """
     return [
         row.id
         for row in conn.execute(
             text(
                 f"SELECT id FROM pipeline_record WHERE tenant_id = :tid "
-                f"AND owning_unit_id = :unit AND {stage} IS NOT NULL ORDER BY matched_at, id"
+                f"AND owning_unit_id = :unit AND {_reached(stage)} ORDER BY matched_at, id"
             ),
             {"tid": tenant_id, "unit": unit_id},
         )
@@ -645,3 +658,31 @@ def test_the_opportunity_is_recorded_even_though_no_event_table_constrains_it(
                 "provenance": "synthetic / coordinator-accepted",
             },
         )
+
+
+def test_a_cancelled_journey_leaves_confirmed_but_not_contacted(engine: Engine, tenant_id) -> None:
+    """B26 T8a (C1 = C): a cancelled booking drops out of Confirmed only.
+
+    It did reach Matched and Contacted, so it still counts there; and the
+    drill-down still lists exactly what each aggregate counts.
+    """
+    with engine.begin() as conn:
+        unit = ensure_owning_unit(conn, tenant_id)
+        live = _insert_pipeline_record(conn, tenant_id, reached="confirmed_at")
+        cancelled = _insert_pipeline_record(conn, tenant_id, reached="confirmed_at")
+        conn.execute(
+            text(
+                "UPDATE pipeline_record SET cancelled_at = confirmed_at, "
+                "cancelled_by_user_id = subject_id WHERE id = :id"
+            ),
+            {"id": cancelled},
+        )
+
+        counts = funnel_counts(conn, tenant_id, unit)
+        confirmed = funnel_rows(conn, tenant_id, unit, "confirmed_at")
+        contacted = funnel_rows(conn, tenant_id, unit, "contacted_at")
+
+    assert counts["matched"] == counts["contacted"] == 2
+    assert counts["confirmed"] == 1
+    assert confirmed == [live]
+    assert set(contacted) == {live, cancelled}
