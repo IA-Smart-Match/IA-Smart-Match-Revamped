@@ -757,6 +757,29 @@ CHECK_CONSTRAINT_DEFINITIONS = {
     ("exercise_team_workspace", "ck_exercise_team_workspace_token_hash_shape"): (
         "CHECK ((length(btrim(workspace_token_hash)) > 0))"
     ),
+    # --- Speaker self-service availability (migration 0038) ---------------
+    #
+    # Pasted from pg_get_constraintdef after the first upgrade (PostgreSQL
+    # 16), not predicted: `IN` renders as `= ANY (ARRAY[...])` and the capacity
+    # bounds as `(0)::numeric`. Exercised in test_speaker_availability_migration.py.
+    ("speaker_availability", "ck_speaker_availability_capacity"): (
+        "CHECK (((declared_capacity_hours_per_90_days IS NULL) OR "
+        "((declared_capacity_hours_per_90_days > (0)::numeric) AND "
+        "(declared_capacity_hours_per_90_days <= (720)::numeric))))"
+    ),
+    ("speaker_availability", "ck_speaker_availability_source"): (
+        "CHECK ((updated_source = ANY (ARRAY['speaker'::text, 'connector'::text])))"
+    ),
+    ("speaker_availability", "ck_speaker_availability_version"): "CHECK ((version >= 1))",
+    ("speaker_availability_window", "ck_speaker_availability_window_order"): (
+        "CHECK ((ends_on >= starts_on))"
+    ),
+    ("speaker_availability_window", "ck_speaker_availability_window_source"): (
+        "CHECK ((created_source = ANY (ARRAY['speaker'::text, 'connector'::text])))"
+    ),
+    ("speaker_availability_window", "ck_speaker_availability_window_span"): (
+        "CHECK (((ends_on - starts_on) <= 366))"
+    ),
 }
 
 #: Where each constraint's forbidden and permitted writes are attempted. Six are
@@ -1414,6 +1437,33 @@ BEHAVIOURAL_COVERAGE = {
         "0037 added, ::test_exercise_result_run_rejects_negative_empty_seats. Permitted "
         "half: ::test_exercise_result_run_accepts_both_rounds, which records zero empty "
         "seats — the full-event case"
+    ),
+    # --- Speaker self-service availability (migration 0038) ---------------
+    ("speaker_availability", "ck_speaker_availability_capacity"): (
+        "test_speaker_availability_migration.py::test_capacity_rejects_zero, "
+        "::test_capacity_rejects_negative, ::test_capacity_rejects_720_1 and "
+        "::test_capacity_rounds_before_check. Permitted half: "
+        "::test_capacity_accepts_null_0_1_and_720"
+    ),
+    ("speaker_availability", "ck_speaker_availability_source"): (
+        "test_speaker_availability_migration.py::test_updated_source_rejects_unknown. "
+        "Permitted half: ::test_updated_source_accepts_speaker_and_connector"
+    ),
+    ("speaker_availability", "ck_speaker_availability_version"): (
+        "test_speaker_availability_migration.py::test_version_rejects_zero. Permitted "
+        "half: ::test_version_defaults_to_one"
+    ),
+    ("speaker_availability_window", "ck_speaker_availability_window_order"): (
+        "test_speaker_availability_migration.py::test_window_rejects_end_before_start. "
+        "Permitted half: ::test_window_accepts_single_day"
+    ),
+    ("speaker_availability_window", "ck_speaker_availability_window_source"): (
+        "test_speaker_availability_migration.py::test_window_source_rejects_unknown. "
+        "Permitted half: ::test_window_source_accepts_both"
+    ),
+    ("speaker_availability_window", "ck_speaker_availability_window_span"): (
+        "test_speaker_availability_migration.py::test_window_rejects_span_367. Permitted "
+        "half: ::test_window_accepts_span_366"
     ),
 }
 

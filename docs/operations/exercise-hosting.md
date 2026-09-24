@@ -703,16 +703,16 @@ checklist for real:
    diverged; resolve before promoting, per
    [`vm-deploy.md`](vm-deploy.md#promoting-a-commit-to-the-vm).
 
-2. **Confirm the migration head is `0037_exercise_tables`.**
+2. **Confirm the migration head is `0038_speaker_availability`.**
    ```bash
-   grep -L 'down_revision = "0037_exercise_tables"' /dev/null; \
-   grep -rl 'down_revision = "0037_exercise_tables"' db/migrations/versions/*.py
+   grep -L 'down_revision = "0038_speaker_availability"' /dev/null; \
+   grep -rl 'down_revision = "0038_speaker_availability"' db/migrations/versions/*.py
    ```
    Pass: the second command prints **nothing** — no later revision points back
-   at `0037_exercise_tables`, so it is the head
-   (`db/migrations/versions/0037_exercise_tables.py:99` sets its own
-   `down_revision = "0036_host_organization"`). Fail: a revision is printed —
-   the head has moved past `0037`; re-derive this step against the new file
+   at `0038_speaker_availability`, so it is the head
+   (`db/migrations/versions/0038_speaker_availability.py:44` sets its own
+   `down_revision = "0037_exercise_tables"`). Fail: a revision is printed —
+   the head has moved past `0038`; re-derive this step against the new file
    before continuing, since the tables the grant in [§3](#3-the-database-role)
    depends on may have changed shape.
 

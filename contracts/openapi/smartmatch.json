@@ -177,6 +177,58 @@
         "title": "AttendanceSummaryResponse",
         "type": "object"
       },
+      "AvailabilityWindowInput": {
+        "additionalProperties": false,
+        "description": "One inclusive date range the speaker cannot speak on.",
+        "properties": {
+          "ends_on": {
+            "format": "date",
+            "title": "Ends On",
+            "type": "string"
+          },
+          "starts_on": {
+            "format": "date",
+            "title": "Starts On",
+            "type": "string"
+          }
+        },
+        "required": [
+          "starts_on",
+          "ends_on"
+        ],
+        "title": "AvailabilityWindowInput",
+        "type": "object"
+      },
+      "AvailabilityWindowView": {
+        "description": "A stored window and which surface first wrote it.",
+        "properties": {
+          "ends_on": {
+            "format": "date",
+            "title": "Ends On",
+            "type": "string"
+          },
+          "source": {
+            "enum": [
+              "speaker",
+              "connector"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
+          "starts_on": {
+            "format": "date",
+            "title": "Starts On",
+            "type": "string"
+          }
+        },
+        "required": [
+          "starts_on",
+          "ends_on",
+          "source"
+        ],
+        "title": "AvailabilityWindowView",
+        "type": "object"
+      },
       "BatchCreateRequest": {
         "description": "Compose invitations for a reviewed shortlist.\n\nNote what cannot be supplied: **a template**, **a body**, **a recipient\naddress**, and **a response link**. The template is\n:data:`~smartmatch_domain.cba_invitations.INVITATION_TEMPLATE_ID`, because\nwhich words an institution uses is a copy decision recorded in the closed\nregistry rather than one a caller makes per batch. The address is resolved\nfrom the recipient's own stored channels. The response link is composed\nserver-side from the configured origin and a freshly minted token \u2014 a caller\nsupplying one would be putting an arbitrary link into an institutional email\nover an already-consented address, which is a phishing primitive rather than\na parameter.\n\nWhat a caller does supply is who to invite and what the event is.",
         "properties": {
@@ -5554,6 +5606,158 @@
           "concluded_at"
         ],
         "title": "SendSummaryView",
+        "type": "object"
+      },
+      "SpeakerAvailabilityResponse": {
+        "description": "A speaker's stated availability; ``stated: false`` means no row (\"Not stated\").",
+        "properties": {
+          "declared_capacity_hours_per_90_days": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Declared Capacity Hours Per 90 Days"
+          },
+          "invitations_paused_until": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Invitations Paused Until"
+          },
+          "professional_id": {
+            "format": "uuid",
+            "title": "Professional Id",
+            "type": "string"
+          },
+          "stated": {
+            "title": "Stated",
+            "type": "boolean"
+          },
+          "unavailable": {
+            "items": {
+              "$ref": "#/components/schemas/AvailabilityWindowView"
+            },
+            "title": "Unavailable",
+            "type": "array"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "updated_source": {
+            "anyOf": [
+              {
+                "enum": [
+                  "speaker",
+                  "connector"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated Source"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          }
+        },
+        "required": [
+          "professional_id",
+          "stated",
+          "version",
+          "invitations_paused_until",
+          "declared_capacity_hours_per_90_days",
+          "unavailable",
+          "updated_source",
+          "updated_at"
+        ],
+        "title": "SpeakerAvailabilityResponse",
+        "type": "object"
+      },
+      "SpeakerAvailabilityUpdateRequest": {
+        "additionalProperties": false,
+        "description": "Full replace. Every key is required; ``null`` clears. No subject field (MM-A01).",
+        "properties": {
+          "declared_capacity_hours_per_90_days": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Declared Capacity Hours Per 90 Days"
+          },
+          "expected_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Version"
+          },
+          "invitations_paused_until": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Invitations Paused Until"
+          },
+          "unavailable": {
+            "items": {
+              "$ref": "#/components/schemas/AvailabilityWindowInput"
+            },
+            "title": "Unavailable",
+            "type": "array"
+          }
+        },
+        "required": [
+          "expected_version",
+          "invitations_paused_until",
+          "declared_capacity_hours_per_90_days",
+          "unavailable"
+        ],
+        "title": "SpeakerAvailabilityUpdateRequest",
         "type": "object"
       },
       "SpeakerContactClassificationSource": {
@@ -15977,6 +16181,294 @@
           }
         },
         "summary": "Edit one speaker contact",
+        "tags": [
+          "speaker-contacts"
+        ]
+      }
+    },
+    "/v1/units/{unit_id}/speaker-contacts/{professional_id}/availability": {
+      "get": {
+        "description": "The statement, or ``stated: false`` when the speaker has said nothing.\n\nRaises:\n    ApiError: 404 ``unit_not_found`` / ``speaker_contact_not_found``; 403.",
+        "operationId": "get_speaker_contact_availability_v1_units__unit_id__speaker_contacts__professional_id__availability_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "professional_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Professional Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpeakerAvailabilityResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Read a roster contact's stated availability",
+        "tags": [
+          "speaker-contacts"
+        ]
+      },
+      "patch": {
+        "description": "Full replace: omitted windows are deleted, ``null`` clears pause and capacity.\n\n``expected_version`` is always checked; ``null`` means \"I read no row\".\n\nRaises:\n    ApiError: 404 ``unit_not_found`` / ``speaker_contact_not_found``; 403;\n        409 ``speaker_availability_stale``; 422 with a\n        ``speaker_availability_*`` code.",
+        "operationId": "update_speaker_contact_availability_v1_units__unit_id__speaker_contacts__professional_id__availability_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "professional_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Professional Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SpeakerAvailabilityUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpeakerAvailabilityResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Replace a roster contact's stated availability",
         "tags": [
           "speaker-contacts"
         ]
