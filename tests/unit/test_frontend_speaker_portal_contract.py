@@ -147,3 +147,31 @@ def test_the_t6b5_and_t8d_slots_are_marked() -> None:
 
     availability = OWN_AVAILABILITY.read_text(encoding="utf-8")
     assert availability.count("SLOT(T8d)") == 1, "the availability page marks the load band slot"
+
+
+def test_speaker_portal_reuses_the_t5_form() -> None:
+    """One availability form, T5's: the Speaker page wires it, never rebuilds it."""
+    source = OWN_AVAILABILITY.read_text(encoding="utf-8")
+    assert "components/speakerAvailability/SpeakerAvailabilityForm" in source
+    assert "<SpeakerAvailabilityForm" in _code_only(source)
+    for path in _speaker_sources():
+        assert 'type="date"' not in _code_only(path.read_text(encoding="utf-8")), (
+            f"{path.name} renders its own date input; the Speaker's dates are T5's form"
+        )
+
+
+def test_no_optimistic_update_in_the_speaker_portal() -> None:
+    """Writes re-read the owning list; the one cache write is the saved row."""
+    writes: list[tuple[str, str]] = []
+    for path in _speaker_sources():
+        code = _code_only(path.read_text(encoding="utf-8"))
+        assert "onMutate" not in code, f"{path.name} updates the cache before the server answers"
+        writes.extend((path.name, line) for line in code.splitlines() if "setQueryData" in line)
+    assert len(writes) == 1, f"expected one setQueryData, found {writes}"
+    name, _ = writes[0]
+    assert name == "useSpeakerSelf.ts"
+    hooks = _code_only(HOOKS.read_text(encoding="utf-8"))
+    call = hooks[hooks.index("setQueryData") :].split(";", 1)[0]
+    assert "SPEAKER_SELF_RESOURCE.availability" in call, (
+        "the one cache write is the saved availability row"
+    )
