@@ -76,6 +76,10 @@ _PORTAL_PATHS = frozenset(
         "/v1/me/invitations",
         "/v1/me/invitations/{invitation_id}/response",
         "/v1/me/engagements",
+        # B26 T6b-3.
+        "/v1/me/contact-channels",
+        "/v1/me/contact-channels/{contact_channel_id}/opt-in",
+        "/v1/me/contact-channels/{contact_channel_id}/opt-out",
     }
 )
 

@@ -98,6 +98,7 @@ SEND_PATHS: dict[str, str] = {
         "::test_connector_views_report_the_live_suppression"
     ),
     "C10": "tests/contract/test_suppression_lift_send_paths.py::test_portal_invite_eligibility",
+    "C11": "tests/contract/test_me_contact_channels_api.py::test_view_reports_the_live_suppression",
 }
 
 
@@ -630,7 +631,7 @@ def _defines(tree: ast.Module, names: list[str]) -> bool:
 
 
 def test_every_send_path_has_a_lifted_at_test() -> None:
-    assert set(SEND_PATHS) == {f"C{n}" for n in range(1, 11)}
+    assert set(SEND_PATHS) == {f"C{n}" for n in range(1, 12)}
 
     missing = []
     for path_id, target in sorted(SEND_PATHS.items()):

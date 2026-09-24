@@ -73,6 +73,10 @@ KNOWN_ELIGIBILITY_CONSUMERS: frozenset[tuple[str, str]] = frozenset(
         ("services/api/smartmatch_api/routers/outreach_contacts.py", "_load_or_404"),
         ("services/api/smartmatch_api/routers/outreach_contacts.py", "register_contact"),
         ("services/api/smartmatch_api/routers/outreach_contacts.py", "update_contact"),
+        # C11 the Speaker's own view and opt-in / opt-out (B26 T6b-3).
+        ("services/api/smartmatch_api/speaker_channel_consent.py", "list_channels"),
+        ("services/api/smartmatch_api/speaker_channel_consent.py", "read_channel"),
+        ("services/api/smartmatch_api/speaker_channel_consent.py", "_locked_channel"),
         # C10 T6b-1 portal invite eligibility.
         ("services/api/smartmatch_api/routers/speaker_portal.py", "invite_to_portal"),
         # C1 the worker's delivery-time re-check.
@@ -323,6 +327,10 @@ GUARDED_APPLY_TRANSITION_SITES: dict[tuple[str, str], str] = {
         "services/api/smartmatch_api/routers/outreach_contacts.py",
         "transition_contact",
     ): "connector_transition_conflict",
+    (
+        "services/api/smartmatch_api/speaker_channel_consent.py",
+        "opt_in",
+    ): "opt_in_path",
 }
 
 

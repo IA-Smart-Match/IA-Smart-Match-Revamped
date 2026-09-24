@@ -108,6 +108,10 @@ ROUTE_ROLE_LEDGER: dict[tuple[str, str], frozenset[str] | None] = {
     ("GET", "/v1/me/invitations"): _SPEAKER_SELF,
     ("POST", "/v1/me/invitations/{invitation_id}/response"): _SPEAKER_SELF,
     ("GET", "/v1/me/engagements"): _SPEAKER_SELF,
+    # B26 T6b-3: the Speaker's own channel consent, the same constant.
+    ("GET", "/v1/me/contact-channels"): _SPEAKER_SELF,
+    ("POST", "/v1/me/contact-channels/{contact_channel_id}/opt-in"): _SPEAKER_SELF,
+    ("POST", "/v1/me/contact-channels/{contact_channel_id}/opt-out"): _SPEAKER_SELF,
 }
 
 #: The auth-only routes, and where each one's handler lives.
