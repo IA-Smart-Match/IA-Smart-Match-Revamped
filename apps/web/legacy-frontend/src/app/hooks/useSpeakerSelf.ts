@@ -27,9 +27,12 @@ import {
   fetchMyInvitations,
   optInMyContactChannel,
   optOutMyContactChannel,
+  updateMyAvailability,
   type EngagementWhen,
   type MyContactChannelChange,
   type MyInvitationAnswerResult,
+  type SpeakerAvailability,
+  type SpeakerAvailabilityUpdatePayload,
 } from "@/lib/api";
 import { scopedQueryKey } from "@/lib/queryClient";
 import { usePrincipalKey } from "@/app/components/PrincipalQueryProvider";
@@ -67,6 +70,29 @@ export function useMyAvailability() {
   return useScopedQuery({
     resource: SPEAKER_SELF_RESOURCE.availability,
     queryFn: fetchMyAvailability,
+  });
+}
+
+/**
+ * Save the Speaker's own statement. The PATCH answers with the committed row,
+ * so it is written into the availability key — server data, not a guess — and
+ * a second save carries the new `version` (T5 §3). Nothing else is touched:
+ * T5's `match-run` and `invitation-compose` keys are the Connector's, under
+ * another principal. A stale (409) re-read is the page's, so it can keep the
+ * draft and say what happened.
+ */
+export function useUpdateMyAvailability() {
+  const queryClient = useQueryClient();
+  const principalKey = usePrincipalKey();
+  return useMutation<SpeakerAvailability, unknown, SpeakerAvailabilityUpdatePayload>({
+    mutationFn: (payload) => updateMyAvailability(payload),
+    onSuccess: (saved) => {
+      if (principalKey === null) return;
+      queryClient.setQueryData(
+        scopedQueryKey(principalKey, SPEAKER_SELF_RESOURCE.availability),
+        saved,
+      );
+    },
   });
 }
 
