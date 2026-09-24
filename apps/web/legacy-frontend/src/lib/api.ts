@@ -4141,6 +4141,78 @@ export async function updateSpeakerAvailability(
   );
 }
 
+// ---------------------------------------------------------------------------
+// Speaker portal accounts (B26 T6b-1). Mounted server-side only when the
+// `speaker_portal` capability is on; the UI that calls these is gated on the
+// same capability. The activation token never passes through the browser here.
+// ---------------------------------------------------------------------------
+
+/** What a Speaker Connector sees for one contact's portal access. */
+export type SpeakerPortalAccessStatus = "none" | "invited" | "expired" | "active";
+
+export interface SpeakerPortalAccess {
+  status: SpeakerPortalAccessStatus;
+  /** The channel the live link went to (`invited`/`expired` only). */
+  contact_channel_id?: string;
+  issued_at?: string;
+  expires_at?: string;
+  /** When the Speaker activated (`active` only). */
+  bound_at?: string;
+}
+
+/** `202`: the invitation is recorded and its email queued — nothing sent yet. */
+export interface SpeakerPortalInvitation {
+  invitation_id: string;
+  status: "invited";
+  expires_at: string;
+  job_id: string;
+  events_url: string;
+}
+
+function speakerPortalBase(unitId: string, professionalId: string): string {
+  return (
+    `/v1/units/${encodeURIComponent(unitId)}/speaker-contacts/` +
+    `${encodeURIComponent(professionalId)}`
+  );
+}
+
+/** `GET …/speaker-contacts/{professional_id}/portal-access` */
+export async function fetchSpeakerPortalAccess(
+  unitId: string,
+  professionalId: string,
+): Promise<SpeakerPortalAccess> {
+  return requestJson<SpeakerPortalAccess>(
+    `${speakerPortalBase(unitId, professionalId)}/portal-access`,
+    { method: "GET" },
+    { authenticated: true },
+  );
+}
+
+/** `POST …/portal-invitations` with the chosen email channel. */
+export async function inviteSpeakerToPortal(
+  unitId: string,
+  professionalId: string,
+  contactChannelId: string,
+): Promise<SpeakerPortalInvitation> {
+  return requestJson<SpeakerPortalInvitation>(
+    `${speakerPortalBase(unitId, professionalId)}/portal-invitations`,
+    { method: "POST", body: JSON.stringify({ contact_channel_id: contactChannelId }) },
+    { authenticated: true },
+  );
+}
+
+/** `DELETE …/portal-invitations/current`. `revoked: false` when nothing was live. */
+export async function revokeSpeakerPortalInvitation(
+  unitId: string,
+  professionalId: string,
+): Promise<{ revoked: boolean }> {
+  return requestJson<{ revoked: boolean }>(
+    `${speakerPortalBase(unitId, professionalId)}/portal-invitations/current`,
+    { method: "DELETE" },
+    { authenticated: true },
+  );
+}
+
 // CBA speaker handoff (CBA-HANDOFF-PIPELINE, customer §6 step 9)
 //
 // The far end of the arrow `submitSpeakerRequest` starts: an Event Host asked
@@ -4229,7 +4301,9 @@ export interface ConfirmedSpeakerList {
  * `GET /v1/units/{unit_id}/cba/confirmed-speakers` — who agreed to come.
  *
  * Speakers whose `confirmed_at` is set, ordered by it, so a Host reads them in
- * the order they said yes. Optionally narrowed to one event.
+ * the order they said yes. Optionally narrowed to one event. Cancelled bookings
+ * are not listed (B26 T8a): a Speaker Connector's cancellation removes the
+ * speaker from this list and from the `pipeline_confirmed` count together.
  *
  * An empty `speakers` array means exactly one thing: nobody is confirmed. It is
  * not a report about invitations and a caller must not explain it as one —
@@ -4288,6 +4362,56 @@ export interface SpeakerHandoffResult {
   speaker: ConfirmedSpeaker;
 }
 
+/** One `pipeline_record` as `GET/POST …/pipeline-records/{id}…` returns it. */
+export interface PipelineRecordView {
+  id: string;
+  owning_unit_id: string;
+  subject_id: string;
+  opportunity_event_id: string;
+  matched_provenance: string;
+  current_stage: string;
+  matched_at: string;
+  contacted_at: string | null;
+  confirmed_at: string | null;
+  attended_at: string | null;
+  member_inquiry_at: string | null;
+  attendance_id: string | null;
+  /** When the booking was cancelled (server clock), or `null`. Not a stage. */
+  cancelled_at: string | null;
+  cancelled_by_user_id: string | null;
+}
+
+/** What `POST …/cancellation` did, and the row it left behind. */
+export interface BookingCancellationResult {
+  /** True only when this request's own write cancelled the booking. */
+  transitioned: boolean;
+  /** True when the booking was already cancelled; the first actor and time are kept. */
+  already_cancelled: boolean;
+  record: PipelineRecordView;
+}
+
+/**
+ * `POST /v1/units/{unit_id}/pipeline-records/{record_id}/cancellation` — cancel
+ * one confirmed Speaker booking (B26 T8a).
+ *
+ * No body: the server records its own clock and the caller. A repeat is a 200
+ * with `already_cancelled: true`. Refusals are {@link ApiRequestError}s with
+ * `pipeline_booking_not_confirmed`, `pipeline_booking_already_attended` or
+ * `pipeline_booking_confirmed_in_future` (409), `pipeline_record_not_found`
+ * (404), or the quota code (429).
+ */
+export async function cancelBooking(
+  unitId: string,
+  recordId: string,
+): Promise<BookingCancellationResult> {
+  return requestJson<BookingCancellationResult>(
+    `/v1/units/${encodeURIComponent(unitId)}/pipeline-records/` +
+      `${encodeURIComponent(recordId)}/cancellation`,
+    { method: "POST" },
+    { authenticated: true },
+  );
+}
+
 /**
  * `POST /v1/units/{unit_id}/cba/events/{event_id}/speaker-handoff` — bring one
  * speaker's journey up to whatever the stored evidence already supports.
@@ -4300,9 +4424,10 @@ export interface SpeakerHandoffResult {
  * Rejects with {@link ApiRequestError}: `404` when the invitation is not in this
  * unit or the event not in this tenant; `409` when the invitation records no
  * acceptance (`cba_invitation_not_accepted`), when the cited attendance is not
- * this journey's, or when the stored timestamps cannot be ordered into the
- * funnel; `403` when the server does not grant this account the operation.
- * Render the server's own message — it says which of those happened.
+ * this journey's, when the stored timestamps cannot be ordered into the
+ * funnel, or when the booking was cancelled (`pipeline_record_cancelled`,
+ * nothing is written); `403` when the server does not grant this account the
+ * operation. Render the server's own message — it says which of those happened.
  */
 export async function reconcileSpeakerHandoff(
   unitId: string,

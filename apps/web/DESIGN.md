@@ -44,11 +44,16 @@ Keep the established backend authorization keys for compatibility, but never exp
 | `coordinator` | Speaker Connector |
 | `volunteer` | Event Host |
 | `student` | Student |
+| `speaker` | Speaker |
 
 `admin` and `coordinator` are one persona — the Speaker Connector — and open
-the same shell (the Connector Dashboard at `/coordinator-portal`). Speakers
-are contact records, not accounts: no stored role maps to a speaker, so no
-row above names one.
+the same shell (the Connector Dashboard at `/coordinator-portal`). A Speaker is
+a contact record first. Since B26 T6b-1 a Speaker may also hold a login through
+the `speaker` role, which only accepting a Speaker portal invitation grants
+(never a seed). The role opens the Speaker Portal (`/speaker-portal`), which is
+routed only while the `speaker_portal` capability is on — and it is off in
+every scope today. The role grants nothing else: every Connector, Event Host
+and Student surface refuses it, and it never reads aggregate metrics.
 
 Use the user-facing terms in headings, navigation, help text, profile fallbacks, statuses, and accessibility labels. Internal route names, API fields, database columns, and authorization checks retain their existing identifiers.
 
@@ -149,7 +154,8 @@ Use the horizontal CPP logo through `src/app/components/BrandLogo.tsx`. The bund
 
 Speaker Connector, Event Host, and Student signed-in experiences share the same
 visual language but expose navigation from server-authorized roles. A Speaker is
-a non-account contact persona, not a stored role and not a signed-in shell.
+a contact persona; the Speaker Portal is a one-screen placeholder until T6b-2 to
+T6b-4, and exists only while `speaker_portal` is on.
 
 - The left sidebar owns the product identity, current section navigation, profile summary, and sign-out action.
 - Place sign out directly beneath the profile area on desktop. Use the corresponding account area on mobile.
@@ -368,10 +374,12 @@ use cases are also being carried forward for a possible future agentic
 service offering; no such service exists yet, and this document does not
 define one.
 
-- Keep authorization keys `admin`, `coordinator`, `volunteer`, and `student`.
-  Display `admin` and `coordinator` as Speaker Connector, `volunteer` as Event
-  Host, and `student` as Student. There is no stored Speaker role or Speaker
-  account; a Speaker is a contact record.
+- Keep authorization keys `admin`, `coordinator`, `volunteer`, `student` and
+  `speaker`. Display `admin` and `coordinator` as Speaker Connector, `volunteer`
+  as Event Host, `student` as Student, and `speaker` as Speaker. A Speaker is a
+  contact record; the `speaker` login exists only after the Speaker accepts a
+  portal invitation ("Invite to portal" on the Connector's roster, shown only
+  while `speaker_portal` is on). Say "Invited", never "Sent", for an invitation.
 - Speaker Connectors maintain private contact details in `speaker_contacts` and
   read/write them from `CoordinatorSpeakerContacts`. Event Hosts never see raw
   speaker email or phone; they see only fields the granting endpoint publishes.

@@ -52,7 +52,12 @@ REVISION = "0037_exercise_tables"
 #: The current head. ``0038_speaker_availability`` (B26 T2) chains to
 #: :data:`REVISION` and creates two ``speaker_availability`` tables; it
 #: touches no ``exercise_`` table, so every claim below holds through it.
-HEAD_REVISION = "0038_speaker_availability"
+#: Moved again by B26 T6b-1: ``0039_speaker_portal`` chains to
+#: ``0038_speaker_availability``; it touches no ``exercise_`` table either.
+#: Moved again by B26 T8a: ``0040_booking_cancellation`` chains to
+#: ``0039_speaker_portal`` and is the head. It adds two nullable
+#: ``pipeline_record`` columns and writes no rows; it touches no ``exercise_`` table.
+HEAD_REVISION = "0040_booking_cancellation"
 
 #: Design spec §2's eight tables.
 EXERCISE_TABLES = (

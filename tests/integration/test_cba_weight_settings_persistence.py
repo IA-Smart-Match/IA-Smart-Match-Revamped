@@ -191,7 +191,12 @@ _PREVIOUS_REVISION = "0026_event_registration"
 #: ``speaker_availability`` and ``speaker_availability_window`` (both
 #: cascading from ``speaker_profile``), ALTERs nothing and writes no rows,
 #: so this file's claims still hold through it.
-_HEAD_REVISION = "0038_speaker_availability"
+#: Moved again by B26 T6b-1: ``0039_speaker_portal`` chains to
+#: ``0038_speaker_availability`` and is the head; it touches no weight table.
+#: Moved again by B26 T8a: ``0040_booking_cancellation`` chains to
+#: ``0039_speaker_portal`` and is the head. It adds two nullable
+#: ``pipeline_record`` columns and writes no rows; it touches no weight table.
+_HEAD_REVISION = "0040_booking_cancellation"
 
 NEED = "need-weight-settings-1"
 

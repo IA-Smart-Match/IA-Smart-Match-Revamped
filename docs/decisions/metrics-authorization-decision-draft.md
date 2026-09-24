@@ -69,6 +69,8 @@ Scope rules:
 - **School coordinator:** subtree of their school unit
 - **`admin`:** unrestricted within tenant for aggregates; drill-down per row above
 
+**Amendment, 23 September 2026 (owner ruling R8, B26 T6b-1).** The `speaker` role (a Speaker's own login, granted only by accepting a portal invitation) is the one exception to "any active unit membership with a role": a `speaker` membership never reads aggregates. A speaker-only principal is refused `metrics.read` and `metrics.speaker_pipeline` with reason `membership_role_excluded`. A principal who also holds another role (for example an Event Host who is a Speaker) still reads through that role. Mechanism: policy rule 8, `excluded_roles={"speaker"}` on `_authorize_aggregate_read` (`routers/metrics.py` `_AGGREGATE_EXCLUDED_ROLES`). The operation stays membership-only; no admitted-role list is enumerated.
+
 ## 5. Expected code deltas (authorized)
 
 | File | Change |

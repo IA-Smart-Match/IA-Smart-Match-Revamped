@@ -44,6 +44,7 @@ __all__ = [
     "cba_meeting",
     "concurrency_lease",
     "contact_channel",
+    "contact_channel_speaker_choice",
     "contact_channel_transition",
     "delivery_event",
     "discovery_review_item",
@@ -75,6 +76,7 @@ __all__ = [
     "reward_item",
     "speaker_availability",
     "speaker_availability_window",
+    "speaker_portal_invitation",
     "speaker_profile",
     "speaker_request_classification",
     "spend_ceiling_bucket",
@@ -714,6 +716,11 @@ pipeline_record = sa.Table(
     # This row is updated when a stage is reached, unlike point_ledger_entry —
     # carrying updated_at says mutation is expected here.
     sa.Column("updated_at", _TS, nullable=False, server_default=sa.text("now()")),
+    # Migration 0040 (B26 T8a): a booking's cancellation, as a transition on
+    # the row rather than a delete. Both nullable, no default, set together;
+    # the time is the server clock and the actor the principal who cancelled.
+    sa.Column("cancelled_at", _TS, nullable=True),
+    sa.Column("cancelled_by_user_id", _UUID, nullable=True),
     sa.PrimaryKeyConstraint("id", name="pipeline_record_pkey"),
     # A second row for the same student and opportunity is a second count in
     # every stage it has reached — inflating the aggregate and the drill-down
@@ -771,6 +778,41 @@ pipeline_record = sa.Table(
     sa.CheckConstraint(
         "matched_provenance IN ('synthetic / coordinator-accepted', 'match-engine')",
         name="ck_pipeline_record_matched_provenance",
+    ),
+    # Migration 0040 (B26 T8a). Composite, like every account reference here;
+    # RESTRICT, so an account that cancelled a booking cannot vanish.
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "cancelled_by_user_id"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="RESTRICT",
+        name="fk_pipeline_record_cancelled_by_user",
+    ),
+    # Time and actor are one fact.
+    sa.CheckConstraint(
+        "(cancelled_at IS NULL) = (cancelled_by_user_id IS NULL)",
+        name="ck_pipeline_record_cancellation_actor",
+    ),
+    # Only a confirmed journey is a booking.
+    sa.CheckConstraint(
+        "cancelled_at IS NULL OR confirmed_at IS NOT NULL",
+        name="ck_pipeline_record_cancellation_confirmed",
+    ),
+    # A cancellation never precedes the confirmation it cancels (ruling C4).
+    sa.CheckConstraint(
+        "cancelled_at IS NULL OR cancelled_at >= confirmed_at",
+        name="ck_pipeline_record_cancellation_order",
+    ),
+    # Attended and cancelled exclude each other (ruling C2).
+    sa.CheckConstraint(
+        "cancelled_at IS NULL OR attended_at IS NULL",
+        name="ck_pipeline_record_cancellation_not_attended",
+    ),
+    # Supports the RESTRICT check on account delete; carries no live booking.
+    sa.Index(
+        "ix_pipeline_record_cancelled_by",
+        "tenant_id",
+        "cancelled_by_user_id",
+        postgresql_where=sa.text("cancelled_by_user_id IS NOT NULL"),
     ),
 )
 
@@ -1868,6 +1910,67 @@ contact_channel_transition = sa.Table(
     ),
 )
 
+
+contact_channel_speaker_choice = sa.Table(
+    "contact_channel_speaker_choice",
+    METADATA,
+    # Migration 0039, added for T6b-3 (its plan §4.2). An append-only log of a
+    # Speaker's opt-in / opt-out on one channel, ordered by `sequence` (the
+    # writer computes max + 1 under the channel's row lock). A BEFORE UPDATE
+    # trigger refuses every UPDATE, the 0023 pattern. `decided_at` has no
+    # default (R6). No T6b-1 code writes it.
+    sa.Column("id", _UUID, nullable=False),
+    sa.Column("tenant_id", _UUID, nullable=False),
+    sa.Column("professional_id", _UUID, nullable=False),
+    sa.Column("contact_channel_id", _UUID, nullable=False),
+    sa.Column("sequence", sa.Integer, nullable=False),
+    sa.Column("choice", sa.Text, nullable=False),
+    sa.Column("decided_at", _TS, nullable=False),
+    sa.Column("actor_user_id", _UUID, nullable=False),
+    sa.Column("lifted_source", sa.Text, nullable=True),
+    sa.Column("lifted_suppressed_at", _TS, nullable=True),
+    sa.PrimaryKeyConstraint("id", name="contact_channel_speaker_choice_pkey"),
+    sa.UniqueConstraint(
+        "tenant_id",
+        "contact_channel_id",
+        "sequence",
+        name="uq_contact_channel_speaker_choice_sequence",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "contact_channel_id"],
+        ["contact_channel.tenant_id", "contact_channel.id"],
+        ondelete="RESTRICT",
+        name="fk_contact_channel_speaker_choice_channel",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "professional_id"],
+        ["speaker_profile.tenant_id", "speaker_profile.professional_id"],
+        ondelete="RESTRICT",
+        name="fk_contact_channel_speaker_choice_profile",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "actor_user_id"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="RESTRICT",
+        name="fk_contact_channel_speaker_choice_actor",
+    ),
+    sa.CheckConstraint(
+        "choice IN ('opt_in', 'opt_out')", name="ck_contact_channel_speaker_choice_choice"
+    ),
+    sa.CheckConstraint("sequence >= 1", name="ck_contact_channel_speaker_choice_sequence"),
+    sa.CheckConstraint(
+        "(lifted_source IS NULL) = (lifted_suppressed_at IS NULL) "
+        "AND (choice = 'opt_in' OR lifted_source IS NULL)",
+        name="ck_contact_channel_speaker_choice_lift",
+    ),
+    sa.CheckConstraint(
+        "lifted_source IS NULL "
+        "OR lifted_source IN ('speaker_portal', 'unsubscribe_link', 'one_click')",
+        name="ck_contact_channel_speaker_choice_lift_source",
+    ),
+)
+
+
 outreach_draft = sa.Table(
     "outreach_draft",
     METADATA,
@@ -2091,17 +2194,40 @@ suppression_record = sa.Table(
     # that message undeletable.
     sa.Column("origin_send_id", _UUID, nullable=True),
     sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
+    # Migration 0039 (B26 T6b-1). Schema only: no code sets these yet, so every
+    # send-eligibility read is unchanged. T6b-3 owns the readers.
+    sa.Column("lifted_at", _TS, nullable=True),
+    sa.Column("lifted_by_user_id", _UUID, nullable=True),
     sa.PrimaryKeyConstraint("id", name="suppression_record_pkey"),
     # A repeated unsubscribe is the same instruction, not a second one. The
     # repository relies on this to make it idempotent rather than an error the
     # recipient would see.
     sa.UniqueConstraint("tenant_id", "address", name="uq_suppression_record_address"),
     sa.ForeignKeyConstraint(["tenant_id"], ["tenant.id"], ondelete="RESTRICT"),
+    # Widened by migration 0039 to admit `speaker_portal`.
     sa.CheckConstraint(
-        "source IN ('unsubscribe_link', 'one_click', 'coordinator', 'bounce', 'complaint')",
+        "source IN ('unsubscribe_link', 'one_click', 'coordinator', 'bounce', 'complaint', "
+        "'speaker_portal')",
         name="ck_suppression_record_source",
     ),
     sa.CheckConstraint("length(btrim(address)) > 0", name="ck_suppression_record_address_present"),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "lifted_by_user_id"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="RESTRICT",
+        name="fk_suppression_record_lifted_by",
+    ),
+    sa.CheckConstraint(
+        "(lifted_at IS NULL) = (lifted_by_user_id IS NULL) "
+        "AND (lifted_at IS NULL OR lifted_at >= suppressed_at)",
+        name="ck_suppression_record_lifted",
+    ),
+    # Migration 0039, added for T6b-3: bounce, complaint and coordinator
+    # suppressions are never lifted, by either side.
+    sa.CheckConstraint(
+        "lifted_at IS NULL OR source IN ('speaker_portal', 'unsubscribe_link', 'one_click')",
+        name="ck_suppression_record_lift_source",
+    ),
 )
 
 
@@ -2208,6 +2334,10 @@ speaker_profile = sa.Table(
     sa.Column("role_classification_source", sa.Text, nullable=True),
     sa.Column("role_classified_by_user_id", _UUID, nullable=True),
     sa.Column("role_classified_at", _TS, nullable=True),
+    # Migration 0039 (B26 T6b-1). The login a Speaker activated through a
+    # portal invitation; set together or not at all, one profile per login.
+    sa.Column("account_user_id", _UUID, nullable=True),
+    sa.Column("account_bound_at", _TS, nullable=True),
     sa.PrimaryKeyConstraint("tenant_id", "professional_id", name="speaker_profile_pkey"),
     # RESTRICT: a classification that outlived its subject would be an
     # assertion about nobody, and one that vanished with them would delete a
@@ -2340,6 +2470,24 @@ speaker_profile = sa.Table(
         sa.text("lower(btrim(full_name))"),
         unique=False,
     ),
+    # Migration 0039.
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "account_user_id"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="RESTRICT",
+        name="fk_speaker_profile_account",
+    ),
+    sa.CheckConstraint(
+        "(account_user_id IS NULL) = (account_bound_at IS NULL)",
+        name="ck_speaker_profile_account_bound",
+    ),
+    sa.Index(
+        "uq_speaker_profile_account",
+        "tenant_id",
+        "account_user_id",
+        unique=True,
+        postgresql_where=sa.text("account_user_id IS NOT NULL"),
+    ),
 )
 
 
@@ -2431,6 +2579,108 @@ speaker_availability_window = sa.Table(
         name="uq_speaker_availability_window_range",
     ),
     sa.Index("ix_speaker_availability_window_ends", "tenant_id", "professional_id", "ends_on"),
+)
+
+
+speaker_portal_invitation = sa.Table(
+    "speaker_portal_invitation",
+    METADATA,
+    # Migration 0039 (B26 T6b-1). One row per invitation a Speaker Connector
+    # sends. `token_hash` is SHA-256 of the activation token; the token itself
+    # is derived from the id under a server secret and stored nowhere.
+    # `issued_at` has no default on purpose (R6): one request clock, no DB clock.
+    sa.Column("id", _UUID, nullable=False),
+    sa.Column("tenant_id", _UUID, nullable=False),
+    sa.Column("professional_id", _UUID, nullable=False),
+    sa.Column("contact_channel_id", _UUID, nullable=False),
+    sa.Column("issued_by_user_id", _UUID, nullable=False),
+    sa.Column("token_hash", sa.LargeBinary, nullable=False),
+    sa.Column("issued_at", _TS, nullable=False),
+    sa.Column("expires_at", _TS, nullable=False),
+    sa.Column("accepted_at", _TS, nullable=True),
+    sa.Column("revoked_at", _TS, nullable=True),
+    sa.Column("bound_account_user_id", _UUID, nullable=True),
+    sa.Column("binding_mode", sa.Text, nullable=True),
+    # Added for T6b-5 (its plan §4.4, ruling Q2): a Connector ending an
+    # accepted binding. No T6b-1 code writes them.
+    sa.Column("unbound_at", _TS, nullable=True),
+    sa.Column("unbound_by_user_id", _UUID, nullable=True),
+    sa.PrimaryKeyConstraint("id", name="speaker_portal_invitation_pkey"),
+    sa.UniqueConstraint("token_hash", name="uq_speaker_portal_invitation_token_hash"),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "professional_id"],
+        ["speaker_profile.tenant_id", "speaker_profile.professional_id"],
+        ondelete="RESTRICT",
+        name="fk_speaker_portal_invitation_profile",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "contact_channel_id"],
+        ["contact_channel.tenant_id", "contact_channel.id"],
+        ondelete="RESTRICT",
+        name="fk_speaker_portal_invitation_channel",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "issued_by_user_id"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="RESTRICT",
+        name="fk_speaker_portal_invitation_issued_by",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "bound_account_user_id"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="RESTRICT",
+        name="fk_speaker_portal_invitation_bound_account",
+    ),
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "unbound_by_user_id"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="RESTRICT",
+        name="fk_speaker_portal_invitation_unbound_by",
+    ),
+    sa.CheckConstraint(
+        "octet_length(token_hash) = 32", name="ck_speaker_portal_invitation_token_hash"
+    ),
+    sa.CheckConstraint(
+        "expires_at > issued_at AND expires_at <= issued_at + interval '7 days'",
+        name="ck_speaker_portal_invitation_window",
+    ),
+    sa.CheckConstraint(
+        "accepted_at IS NULL OR revoked_at IS NULL",
+        name="ck_speaker_portal_invitation_one_outcome",
+    ),
+    sa.CheckConstraint(
+        "(accepted_at IS NULL OR accepted_at >= issued_at) "
+        "AND (revoked_at IS NULL OR revoked_at >= issued_at)",
+        name="ck_speaker_portal_invitation_outcome_after_issue",
+    ),
+    sa.CheckConstraint(
+        "(accepted_at IS NULL) = (bound_account_user_id IS NULL) "
+        "AND (accepted_at IS NULL) = (binding_mode IS NULL)",
+        name="ck_speaker_portal_invitation_binding",
+    ),
+    sa.CheckConstraint(
+        "binding_mode IS NULL OR binding_mode IN ('new_login', 'existing_login')",
+        name="ck_speaker_portal_invitation_binding_mode",
+    ),
+    sa.CheckConstraint(
+        "binding_mode IS DISTINCT FROM 'new_login' OR bound_account_user_id = professional_id",
+        name="ck_speaker_portal_invitation_new_login_self",
+    ),
+    sa.CheckConstraint(
+        "(unbound_at IS NULL) = (unbound_by_user_id IS NULL)",
+        name="ck_speaker_portal_invitation_unbound_pair",
+    ),
+    sa.CheckConstraint(
+        "unbound_at IS NULL OR (accepted_at IS NOT NULL AND unbound_at >= accepted_at)",
+        name="ck_speaker_portal_invitation_unbound_after_accept",
+    ),
+    sa.Index(
+        "uq_speaker_portal_invitation_live",
+        "tenant_id",
+        "professional_id",
+        unique=True,
+        postgresql_where=sa.text("accepted_at IS NULL AND revoked_at IS NULL"),
+    ),
 )
 
 
@@ -2829,12 +3079,17 @@ cba_invitation = sa.Table(
         "(response_recorded_at IS NULL AND response_channel IS NULL)",
         name="ck_cba_invitation_response_dated",
     ),
+    # Widened by migration 0039 (ruling C2 = b, from T6b-2): `speaker_portal`
+    # is an answer a signed-in Speaker gave from the portal. Like
+    # `connector_recorded` it names its actor; `speaker_link` still has none.
     sa.CheckConstraint(
-        "response_channel IS NULL OR response_channel IN ('speaker_link', 'connector_recorded')",
+        "response_channel IS NULL OR response_channel IN "
+        "('speaker_link', 'connector_recorded', 'speaker_portal')",
         name="ck_cba_invitation_response_channel",
     ),
     sa.CheckConstraint(
-        "(response_channel = 'connector_recorded') = (response_recorded_by_user_id IS NOT NULL)",
+        "(response_channel IN ('connector_recorded', 'speaker_portal')) = "
+        "(response_recorded_by_user_id IS NOT NULL)",
         name="ck_cba_invitation_response_actor",
     ),
     sa.CheckConstraint(

@@ -80,7 +80,12 @@ REVISION = "0033_event_filed_by"
 #: ``speaker_availability`` and ``speaker_availability_window`` (both
 #: cascading from ``speaker_profile``), ALTERs nothing and writes no rows,
 #: so this file's claims still hold through it.
-HEAD_REVISION = "0038_speaker_availability"
+#: Moved again by B26 T6b-1: ``0039_speaker_portal`` chains to
+#: ``0038_speaker_availability`` and is the head; it touches no event column.
+#: Moved again by B26 T8a: ``0040_booking_cancellation`` chains to
+#: ``0039_speaker_portal`` and is the head. It adds two nullable
+#: ``pipeline_record`` columns and writes no rows; it touches no event column.
+HEAD_REVISION = "0040_booking_cancellation"
 
 ON_DATE = "2026-10-14"
 ZONE = "America/Los_Angeles"

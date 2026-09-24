@@ -39,8 +39,15 @@ pytestmark = pytest.mark.integration
 #: Read off the ``revision =`` line of ``0037_exercise_tables.py``.
 REVISION_BEFORE = "0037_exercise_tables"
 
-#: The revision under test, and the head it makes.
+#: The revision under test.
 REVISION = "0038_speaker_availability"
+
+#: The head. ``0039_speaker_portal`` (B26 T6b-1) chains to :data:`REVISION`;
+#: it adds nullable ``speaker_profile`` columns and touches neither table here.
+#: Moved again by B26 T8a: ``0040_booking_cancellation`` chains to
+#: ``0039_speaker_portal`` and is the head. It adds two nullable
+#: ``pipeline_record`` columns and writes no rows; it touches neither table here.
+HEAD_REVISION = "0040_booking_cancellation"
 
 _NEW_TABLES = ("speaker_availability", "speaker_availability_window")
 
@@ -231,7 +238,7 @@ def test_upgrade_from_0037_creates_both_tables_and_writes_no_row(engine: Engine)
                     ),
                     {"tid": tenant_id, "pid": professional_id},
                 ).scalar_one()
-        assert applied_revision(url) == REVISION
+        assert applied_revision(url) == HEAD_REVISION
 
     assert set(_NEW_TABLES) <= tables
     assert counts == (0, 0)
@@ -281,7 +288,7 @@ def test_upgrade_is_repeatable_after_a_downgrade(engine: Engine):
             alembic(url, "head", expect_success=True)
             with scratch.connect() as conn:
                 tables = _tables(conn)
-        assert applied_revision(url) == REVISION
+        assert applied_revision(url) == HEAD_REVISION
 
     assert set(_NEW_TABLES) <= tables
 
