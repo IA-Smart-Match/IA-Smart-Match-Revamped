@@ -1093,6 +1093,10 @@ _REFUSED_ROLE_CASES: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     "expired_staff_only": ((), ("coordinator",)),
     "expired_volunteer_only": ((), ("volunteer",)),
     "speaker_only": (("speaker",), ()),
+    # Owner ruling 2026-09-24 (#224 LOW row 10): a true allow-list, so a role
+    # this code does not know (a future one) refuses like a staff role does.
+    "volunteer_and_unknown_role": (("volunteer", "sponsor"), ()),
+    "volunteer_speaker_and_unknown_role": (("volunteer", "speaker", "sponsor"), ()),
 }
 
 #: Q1: the holders existing-login mode binds. ``speaker`` alongside
@@ -1427,6 +1431,9 @@ _NOT_HOST_LOGIN_MESSAGE = (
         (frozenset({"volunteer", "admin"}), False),
         (frozenset({"volunteer", "student"}), False),
         (frozenset({"coordinator"}), False),
+        (frozenset({"volunteer", "sponsor"}), False),
+        (frozenset({"volunteer", "speaker", "sponsor"}), False),
+        (frozenset({"sponsor"}), False),
     ],
     ids=[
         "volunteer",
@@ -1437,6 +1444,9 @@ _NOT_HOST_LOGIN_MESSAGE = (
         "volunteer_and_admin",
         "volunteer_and_student",
         "coordinator",
+        "volunteer_and_unknown_role",
+        "volunteer_speaker_and_unknown_role",
+        "unknown_role_only",
     ],
 )
 def test_existing_login_may_bind_is_an_allow_list(held: frozenset[str], binds: bool) -> None:
