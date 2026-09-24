@@ -129,7 +129,8 @@ def _score2(evidence: CbaCandidateEvidence):
 
 @pytest.fixture
 def registry_3(monkeypatch):
-    evaluate_registry_3(monkeypatch)
+    # Scoring only: this file never imports the explanation module.
+    evaluate_registry_3(monkeypatch, modules=("smartmatch_domain.scoring",))
 
 
 def test_the_loads_are_the_bands_they_claim():

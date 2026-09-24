@@ -377,7 +377,7 @@ def test_3_x_load_block_round_trips_exactly(registry_3):
         "capacity_hours": "100.0",
         "utilization": "0.5",
         "unknown_hours_refs": [],
-        "multiplier": "0.90",
+        "multiplier": "0.9",
         "composite_before_load": 0.97,
         "as_of": "2026-10-06",
         "eli_formula_version": "2.0.0",

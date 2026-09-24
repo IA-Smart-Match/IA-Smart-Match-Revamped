@@ -63,16 +63,21 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from datetime import date, datetime
+from decimal import Decimal, InvalidOperation
 from enum import StrEnum
-from typing import Any, Final
+from typing import Any, Final, TypeVar
 
+from smartmatch_domain.eli import LoadBand, LoadReason
 from smartmatch_domain.factor_registry import (
     FactorRegistry,
     FactorSpec,
+    UnknownRegistryVersionError,
     assert_registry_approved,
     registry_for_version,
 )
 from smartmatch_domain.factors import FactorScore, FactorState, ZeroClassification
+from smartmatch_domain.load_bands import canonical_decimal
 from smartmatch_domain.scoring import StageBScore
 
 __all__ = [
@@ -83,6 +88,7 @@ __all__ = [
     "VIRTUAL_EVENT_CAPTION",
     "CandidateExplanation",
     "FactorExplanation",
+    "LoadExplanation",
     "ScoreState",
     "explain_candidate",
     "explain_candidates",
@@ -284,6 +290,63 @@ class FactorExplanation:
 
 
 @dataclass(frozen=True, slots=True)
+class LoadExplanation:
+    """The engagement load behind a 3.x score (ADR-0027, B26 T8c plan §7).
+
+    Present on an explanation exactly when the score's registry carries a load
+    band table; absent for 1.x and 2.x. A Full pair is removed at Stage A and
+    never explained, so ``band`` is never ``FULL`` here.
+
+    Attributes:
+        band: The Q7 band.
+        reason: Why the band is what it is.
+        measurable: ``reason`` is ``MEASURED``.
+        completed_hours: Known completed hours in the window.
+        confirmed_hours: Known confirmed hours in the window.
+        capacity_hours: Declared capacity, or ``None`` when not stated.
+        utilization: Unrounded; a lower bound when not measurable; ``None``
+            without capacity.
+        unknown_hours_refs: Refs of counted engagements without hours. Stored;
+            never sent on the API wire.
+        multiplier: The registry's multiplier for ``band``.
+        composite_before_load: The unrounded composite before the multiplier;
+            ``None`` exactly when the heuristic score is unknown.
+        as_of: The run's UTC date.
+        eli_formula_version: The ELI formula that produced the band.
+    """
+
+    band: LoadBand
+    reason: LoadReason
+    measurable: bool
+    completed_hours: Decimal
+    confirmed_hours: Decimal
+    capacity_hours: Decimal | None
+    utilization: Decimal | None
+    unknown_hours_refs: tuple[str, ...]
+    multiplier: Decimal
+    composite_before_load: float | None
+    as_of: date
+    eli_formula_version: str
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.band, LoadBand) or not isinstance(self.reason, LoadReason):
+            raise TypeError("load: band and reason must be LoadBand and LoadReason")
+        if self.band is LoadBand.FULL:
+            raise ValueError(
+                "load.band: full is removed at Stage A and is never scored or explained"
+            )
+        if self.measurable != (self.reason is LoadReason.MEASURED):
+            raise ValueError(
+                f"load.measurable: {self.measurable!r} disagrees with reason "
+                f"{self.reason.value!r}; measurable means the reason is 'measured'"
+            )
+        if not isinstance(self.as_of, date) or isinstance(self.as_of, datetime):
+            raise TypeError("load.as_of must be a date")
+        if not self.eli_formula_version.strip():
+            raise ValueError("load.eli_formula_version must not be blank")
+
+
+@dataclass(frozen=True, slots=True)
 class CandidateExplanation:
     """One candidate's heuristic score and the factors behind it.
 
@@ -324,6 +387,8 @@ class CandidateExplanation:
             when the question had not yet been asked.
         scoring_mode_version: The mode vocabulary's version, set exactly when
             :attr:`scoring_mode` is.
+        load: The engagement load behind a 3.x score (:class:`LoadExplanation`);
+            ``None`` for 1.x and 2.x, whose payloads never carry one.
     """
 
     subject_id: str
@@ -337,6 +402,7 @@ class CandidateExplanation:
     policy_neutral_factor_keys: tuple[str, ...] = ()
     scoring_mode: str | None = None
     scoring_mode_version: str | None = None
+    load: LoadExplanation | None = None
 
     def __post_init__(self) -> None:
         """Check the things a consumer would otherwise have to trust.
@@ -390,6 +456,25 @@ class CandidateExplanation:
             raise ValueError(
                 f"{self.subject_id}: score_label must be {SCORE_PROVENANCE_LABEL!r}, "
                 f"got {self.score_label!r}"
+            )
+        if self.load is not None:
+            self._check_load(self.load)
+
+    def _check_load(self, load: LoadExplanation) -> None:
+        """The score must be the pre-load composite times the multiplier, rounded once."""
+        if (load.composite_before_load is None) != (self.heuristic_score is None):
+            raise ValueError(
+                f"{self.subject_id}: load.composite_before_load "
+                f"{load.composite_before_load!r} and heuristic_score "
+                f"{self.heuristic_score!r} must be known or unknown together"
+            )
+        if load.composite_before_load is not None and self.heuristic_score != round(
+            load.composite_before_load * float(load.multiplier), 6
+        ):
+            raise ValueError(
+                f"{self.subject_id}: heuristic_score {self.heuristic_score!r} is not "
+                f"round(composite_before_load {load.composite_before_load!r} x multiplier "
+                f"{load.multiplier}, 6)"
             )
 
     @property
@@ -485,6 +570,7 @@ def explain_candidate(score: StageBScore) -> CandidateExplanation:
     registry = _registry_for_score(score.registry_version)
     assert_registry_approved(registry=registry)
     spec_by_key = registry.spec_by_key
+    load = _explain_load(score, registry)
 
     # Unknown dominates (ADR-0016 Proposal 7). Taken from the score's own key
     # lists rather than re-derived from its value, so the composite's state and
@@ -506,6 +592,7 @@ def explain_candidate(score: StageBScore) -> CandidateExplanation:
         policy_neutral_factor_keys=tuple(score.policy_neutral_factor_keys),
         scoring_mode=score.scoring_mode,
         scoring_mode_version=score.scoring_mode_version,
+        load=load,
         factors=tuple(
             # ``applied_weights`` and ``factor_scores`` are guaranteed to cover
             # the same keys — ``score_candidate`` refuses to return a score
@@ -518,6 +605,45 @@ def explain_candidate(score: StageBScore) -> CandidateExplanation:
             )
             for factor in score.factor_scores
         ),
+    )
+
+
+def _explain_load(score: StageBScore, registry: FactorRegistry) -> LoadExplanation | None:
+    """Build the load block the score's registry demands, or refuse.
+
+    Raises:
+        ValueError: a 3.x score without a load, a 1.x/2.x score with one, or a
+            Full load (removed at Stage A, never explained).
+    """
+    bands = registry.load_bands
+    if bands is None:
+        if score.load is not None:
+            raise ValueError(
+                f"{score.subject_id}: registry {registry.version!r} has no load band table, "
+                "but the score carries a load"
+            )
+        return None
+    if score.load is None:
+        raise ValueError(
+            f"{score.subject_id}: registry {registry.version!r} applies a load band table, "
+            "but the score carries no load"
+        )
+    assessment = score.load.assessment
+    if assessment.band is LoadBand.FULL:
+        raise ValueError(f"{score.subject_id}: a full load is removed at Stage A, never explained")
+    return LoadExplanation(
+        band=assessment.band,
+        reason=assessment.reason,
+        measurable=assessment.measurable,
+        completed_hours=assessment.completed_hours,
+        confirmed_hours=assessment.confirmed_hours,
+        capacity_hours=assessment.capacity_hours,
+        utilization=assessment.utilization,
+        unknown_hours_refs=assessment.unknown_hours_refs,
+        multiplier=bands.table.multipliers[assessment.band],
+        composite_before_load=score.composite_before_load,
+        as_of=score.load.as_of,
+        eli_formula_version=assessment.formula_version,
     )
 
 
@@ -539,7 +665,42 @@ def explanation_to_payload(explanation: CandidateExplanation) -> dict[str, Any]:
     values. A serializer that omitted nulls to keep the payload lean would make
     "unknown" and "this release did not record it" the same absence on the way
     back in, and :func:`explanation_from_payload` would then have to guess.
+
+    The one key that is sometimes absent is ``load``: written for a 3.x
+    explanation, never for 1.x or 2.x, so a 2.x payload's bytes are unchanged.
+    Its presence is decided by the pinned registry, never guessed on read.
     """
+    payload = _core_payload(explanation)
+    if explanation.load is not None:
+        payload["load"] = _load_payload(explanation.load)
+    return payload
+
+
+def _decimal_text(value: Decimal | None) -> str | None:
+    return None if value is None else str(value)
+
+
+def _load_payload(load: LoadExplanation) -> dict[str, Any]:
+    """Decimals as strings, so nothing rounds on the way to JSON."""
+    return {
+        "band": load.band.value,
+        "reason": load.reason.value,
+        "measurable": load.measurable,
+        "completed_hours": str(load.completed_hours),
+        "confirmed_hours": str(load.confirmed_hours),
+        "capacity_hours": _decimal_text(load.capacity_hours),
+        "utilization": _decimal_text(load.utilization),
+        "unknown_hours_refs": list(load.unknown_hours_refs),
+        # A registry constant, rendered canonically ("0.9", "1"), like the band
+        # table a 3.x registry_hash covers.
+        "multiplier": canonical_decimal(load.multiplier),
+        "composite_before_load": load.composite_before_load,
+        "as_of": load.as_of.isoformat(),
+        "eli_formula_version": load.eli_formula_version,
+    }
+
+
+def _core_payload(explanation: CandidateExplanation) -> dict[str, Any]:
     return {
         "subject_id": explanation.subject_id,
         "heuristic_score": explanation.heuristic_score,
@@ -681,6 +842,8 @@ def explanation_from_payload(payload: object) -> CandidateExplanation:
         raise ValueError(f"state: unrecognised state {state_value!r}")
 
     raw_unknown = _read_key_list(payload.get("unknown_factor_keys"), "unknown_factor_keys")
+    registry_version = str(_read_text(payload.get("registry_version"), "registry_version"))
+    load = _load_for_registry(payload, registry_version)
 
     # Absent is read as "no policy-neutral factors", which is the correct
     # reading of a pre-ADR-0016 payload: the state did not exist when it was
@@ -700,7 +863,7 @@ def explanation_from_payload(payload: object) -> CandidateExplanation:
         heuristic_score=_read_number(payload.get("heuristic_score"), "heuristic_score"),
         state=ScoreState(state_value),
         score_label=str(_read_text(payload.get("score_label"), "score_label")),
-        registry_version=str(_read_text(payload.get("registry_version"), "registry_version")),
+        registry_version=registry_version,
         formula_version=str(_read_text(payload.get("formula_version"), "formula_version")),
         # A payload lacking these is a pre-ADR-0016 run, read as such rather
         # than as ``cba-physical-1`` (ADR-0016 Proposal 7). Defaulting it to the
@@ -714,5 +877,106 @@ def explanation_from_payload(payload: object) -> CandidateExplanation:
         policy_neutral_factor_keys=policy_neutral_keys,
         factors=tuple(
             _factor_from_payload(entry, index) for index, entry in enumerate(raw_factors)
+        ),
+        load=load,
+    )
+
+
+def _load_for_registry(payload: Mapping[str, Any], registry_version: str) -> LoadExplanation | None:
+    """Read the ``load`` block the pinned registry demands: absent, or strict.
+
+    Raises:
+        ValueError: the pin names no registry; a ``load`` key (even ``null``) on
+            a payload whose registry has no band table; a missing or ``null``
+            ``load`` on one whose registry has one; or any unreadable field.
+    """
+    try:
+        registry = registry_for_version(registry_version)
+    except UnknownRegistryVersionError as error:
+        raise ValueError(f"registry_version: {error}") from error
+    bands = registry.load_bands
+    if bands is None:
+        if "load" in payload:
+            raise ValueError(
+                f"load: registry {registry_version!r} has no load band table, so its "
+                "payloads carry no load key"
+            )
+        return None
+    raw = payload.get("load")
+    if not isinstance(raw, Mapping):
+        raise ValueError(
+            f"load: registry {registry_version!r} applies a load band table, so its "
+            "payloads must carry a load object"
+        )
+    load = _load_from_payload(raw)
+    if load.multiplier != bands.table.multipliers[load.band]:
+        raise ValueError(
+            f"load.multiplier: {load.multiplier} is not registry {registry_version!r}'s "
+            f"multiplier for {load.band.value!r}"
+        )
+    return load
+
+
+_E = TypeVar("_E", bound=StrEnum)
+
+
+def _read_decimal(raw: object, field: str, *, allow_none: bool = False) -> Decimal | None:
+    """A decimal is a JSON **string**; a JSON number is refused (it may have rounded)."""
+    if raw is None and allow_none:
+        return None
+    if not isinstance(raw, str):
+        raise ValueError(f"{field}: must be a decimal string, got {type(raw).__name__}")
+    try:
+        value = Decimal(raw)
+    except InvalidOperation as error:
+        raise ValueError(f"{field}: {raw!r} is not a decimal") from error
+    if not value.is_finite():
+        raise ValueError(f"{field}: must be finite, got {raw!r}")
+    return value
+
+
+def _read_enum(enum: type[_E], raw: object, field: str) -> _E:
+    text = str(_read_text(raw, field))
+    try:
+        return enum(text)
+    except ValueError as error:
+        raise ValueError(f"{field}: unrecognised value {text!r}") from error
+
+
+def _load_from_payload(raw: Mapping[str, Any]) -> LoadExplanation:
+    """Strict: report, never repair."""
+    measurable = raw.get("measurable")
+    if type(measurable) is not bool:
+        raise ValueError("load.measurable: must be a boolean")
+    refs = raw.get("unknown_hours_refs")
+    if not isinstance(refs, list) or not all(isinstance(ref, str) for ref in refs):
+        raise ValueError("load.unknown_hours_refs: must be a list of strings")
+    as_of_text = _read_text(raw.get("as_of"), "load.as_of")
+    try:
+        as_of = date.fromisoformat(str(as_of_text))
+    except ValueError as error:
+        raise ValueError(f"load.as_of: {as_of_text!r} is not an ISO date") from error
+    completed = _read_decimal(raw.get("completed_hours"), "load.completed_hours")
+    confirmed = _read_decimal(raw.get("confirmed_hours"), "load.confirmed_hours")
+    multiplier = _read_decimal(raw.get("multiplier"), "load.multiplier")
+    assert completed is not None and confirmed is not None and multiplier is not None
+    return LoadExplanation(
+        band=_read_enum(LoadBand, raw.get("band"), "load.band"),
+        reason=_read_enum(LoadReason, raw.get("reason"), "load.reason"),
+        measurable=measurable,
+        completed_hours=completed,
+        confirmed_hours=confirmed,
+        capacity_hours=_read_decimal(
+            raw.get("capacity_hours"), "load.capacity_hours", allow_none=True
+        ),
+        utilization=_read_decimal(raw.get("utilization"), "load.utilization", allow_none=True),
+        unknown_hours_refs=tuple(refs),
+        multiplier=multiplier,
+        composite_before_load=_read_number(
+            raw.get("composite_before_load"), "load.composite_before_load"
+        ),
+        as_of=as_of,
+        eli_formula_version=str(
+            _read_text(raw.get("eli_formula_version"), "load.eli_formula_version")
         ),
     )
