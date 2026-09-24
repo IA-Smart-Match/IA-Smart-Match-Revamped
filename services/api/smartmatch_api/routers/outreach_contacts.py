@@ -81,7 +81,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import timedelta
-from typing import Annotated, Final
+from typing import Annotated, Final, Literal
 
 from fastapi import APIRouter, Path, Query, status
 from pydantic import BaseModel, Field
@@ -92,7 +92,14 @@ from smartmatch_domain.consent import (
     ContactState,
     assert_transition,
     can_transition,
+    is_escalation,
     is_send_eligible,
+)
+from smartmatch_domain.speaker_channel_consent import (
+    SPEAKER_OPTED_IN,
+    SPEAKER_WINS_MESSAGES,
+    SpeakerChoice,
+    connector_transition_conflict,
 )
 from smartmatch_persistence.contacts import (
     DEFAULT_CONTACT_PAGE_SIZE,
@@ -102,6 +109,10 @@ from smartmatch_persistence.contacts import (
 )
 from smartmatch_persistence.outreach import OutreachRepository
 from smartmatch_persistence.rate_limit import RateLimit
+from smartmatch_persistence.speaker_channel_choice import (
+    SpeakerChoiceRepository,
+    SpeakerChoiceRow,
+)
 from sqlalchemy.orm import Session
 
 from smartmatch_api.dependencies import CurrentPrincipal, DbSession, charge_quota
@@ -118,6 +129,10 @@ _contacts: Final[ContactChannelRepository] = ContactChannelRepository()
 #: writer with its own idempotency rule would be a second answer to "has this
 #: person told us to stop".
 _outreach: Final[OutreachRepository] = OutreachRepository()
+
+#: The Speaker's own opt-in / opt-out log (B26 T6b-3): the Speaker wins on
+#: this route as on the CBA one, so neither is a way around the other.
+_choices: Final[SpeakerChoiceRepository] = SpeakerChoiceRepository()
 
 #: Tighter than the draft limit and for a different reason. Registering contacts
 #: is the operation that grows the set of people this platform can write to, so
@@ -168,6 +183,18 @@ class ContactResponse(BaseModel):
             "an approved consent source, and no suppression. Computed at read time "
             "and rechecked by the worker at delivery time."
         )
+    )
+    speaker_choice: Literal["opt_in", "opt_out"] | None = Field(
+        default=None,
+        description=(
+            "The Speaker's own latest choice in the Speaker portal, or null. After "
+            "'opt_out' a coordinator may not escalate this contact; after 'opt_in' "
+            "it may not suppress it, change its evidence or move it away from "
+            "'active_candidate'."
+        ),
+    )
+    speaker_choice_at: str | None = Field(
+        default=None, description="When the Speaker made that choice."
     )
     created_at: str
     updated_at: str
@@ -316,7 +343,7 @@ class TransitionRequest(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-def _view(row: ContactChannelRow) -> ContactResponse:
+def _view(row: ContactChannelRow, choice: SpeakerChoiceRow | None = None) -> ContactResponse:
     """Render one stored contact, computing the two derived facts honestly."""
     return ContactResponse(
         contact_channel_id=row.id,
@@ -337,8 +364,40 @@ def _view(row: ContactChannelRow) -> ContactResponse:
             ),
             suppressed=row.suppressed,
         ),
+        speaker_choice=None if choice is None else choice.choice.value,
+        speaker_choice_at=None if choice is None else choice.decided_at.isoformat(),
         created_at=row.created_at.isoformat(),
         updated_at=row.updated_at.isoformat(),
+    )
+
+
+def _latest_choice(
+    session: Session, principal: CurrentPrincipal, contact_channel_id: uuid.UUID
+) -> SpeakerChoiceRow | None:
+    return _choices.latest_for_channel(
+        session, tenant_id=principal.tenant_id, contact_channel_id=contact_channel_id
+    )
+
+
+def _lock_and_reload(
+    session: Session,
+    principal: CurrentPrincipal,
+    *,
+    owning_unit_id: uuid.UUID,
+    contact_channel_id: uuid.UUID,
+) -> ContactChannelRow:
+    """Lock the contact ``FOR UPDATE`` (its own statement, S5), then read it again.
+
+    Everything a write decides on — state, suppression, the Speaker's latest
+    choice — is read after the lock, so a Speaker's opt-in or opt-out and this
+    write serialize on the row (B26 T6b-3 §7).
+    """
+    _contacts.lock(session, tenant_id=principal.tenant_id, contact_channel_id=contact_channel_id)
+    return _load_or_404(
+        session,
+        principal,
+        owning_unit_id=owning_unit_id,
+        contact_channel_id=contact_channel_id,
     )
 
 
@@ -465,7 +524,12 @@ def list_contacts(
         limit=limit,
         offset=offset,
     )
-    return ContactListResponse(contacts=[_view(row) for row in rows], limit=limit, offset=offset)
+    choices = _choices.latest_for_channels(
+        session, tenant_id=principal.tenant_id, contact_channel_ids=[row.id for row in rows]
+    )
+    return ContactListResponse(
+        contacts=[_view(row, choices.get(row.id)) for row in rows], limit=limit, offset=offset
+    )
 
 
 @router.get(
@@ -500,7 +564,7 @@ def read_contact(
     )
 
     return ContactWithHistoryResponse(
-        contact=_view(row),
+        contact=_view(row, _latest_choice(session, principal, contact_channel_id)),
         transitions=_history(session, principal, contact_channel_id),
     )
 
@@ -679,6 +743,26 @@ def update_contact(
             ),
         )
 
+    # The Speaker wins (B26 T6b-3 G3, OQ-2 and S4): a coordinator may not
+    # suppress, or rewrite the evidence behind, a Speaker's own opt-in.
+    row = _lock_and_reload(
+        session,
+        principal,
+        owning_unit_id=owning_unit_id,
+        contact_channel_id=contact_channel_id,
+    )
+    latest = _latest_choice(session, principal, contact_channel_id)
+    if (
+        latest is not None
+        and latest.choice is SpeakerChoice.OPT_IN
+        and (body.suppressed or body.consent_evidence is not None)
+    ):
+        raise ApiError(
+            status_code=status.HTTP_409_CONFLICT,
+            code=SPEAKER_OPTED_IN,
+            message=SPEAKER_WINS_MESSAGES[SPEAKER_OPTED_IN],
+        )
+
     now = utc_now()
 
     if body.consent_evidence is not None:
@@ -710,7 +794,7 @@ def update_contact(
             code="contact_channel_not_readable",
             message="The contact was updated but could not be read back.",
         )
-    return _view(updated)
+    return _view(updated, latest)
 
 
 # ---------------------------------------------------------------------------
@@ -761,7 +845,37 @@ def transition_contact(
         contact_channel_id=contact_channel_id,
     )
 
+    row = _lock_and_reload(
+        session,
+        principal,
+        owning_unit_id=owning_unit_id,
+        contact_channel_id=contact_channel_id,
+    )
     current = ContactState(row.contact_state)
+
+    # The Speaker wins (B26 T6b-3 G2): the same rule as the CBA route, so
+    # neither route is a way around the other.
+    latest = _latest_choice(session, principal, contact_channel_id)
+    conflict = connector_transition_conflict(
+        None if latest is None else latest.choice, current, body.to_state
+    )
+    if conflict is not None:
+        raise ApiError(
+            status_code=status.HTTP_409_CONFLICT,
+            code=conflict,
+            message=SPEAKER_WINS_MESSAGES[conflict],
+        )
+
+    # Suppression wins here too (OQ-4). Until B26 T6b-3 this route asked
+    # `assert_transition` without the suppression, so a suppressed contact
+    # could be moved to 'consented' or 'active_candidate'. Checked before the
+    # edge and the evidence, the order `assert_transition` uses.
+    if row.suppressed and is_escalation(body.to_state):
+        raise ApiError(
+            status_code=status.HTTP_409_CONFLICT,
+            code="outreach_contact_suppressed",
+            message="That address is suppressed: somebody at it has told us to stop.",
+        )
 
     if not can_transition(current, body.to_state):
         raise ApiError(
@@ -785,7 +899,12 @@ def transition_contact(
         # have already run and not redundant with them: a rule added to
         # `assert_transition` later applies here without this module being edited
         # to learn about it.
-        assert_transition(current, body.to_state, consent_source=body.consent_source)
+        assert_transition(
+            current,
+            body.to_state,
+            consent_source=body.consent_source,
+            suppressed=row.suppressed,
+        )
     except ConsentViolationError as exc:
         raise ApiError(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -826,6 +945,6 @@ def transition_contact(
     session.commit()
 
     return ContactWithHistoryResponse(
-        contact=_view(updated),
+        contact=_view(updated, latest),
         transitions=_history(session, principal, contact_channel_id),
     )

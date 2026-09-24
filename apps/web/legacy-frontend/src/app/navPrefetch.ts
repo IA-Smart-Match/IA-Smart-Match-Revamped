@@ -29,6 +29,10 @@ import {
   fetchHostOrganizations,
   fetchMatchingWeights,
   fetchMeetings,
+  fetchMyAvailability,
+  fetchMyContactChannels,
+  fetchMyEngagements,
+  fetchMyInvitations,
   fetchMySpeakerRequests,
   fetchOutreachDrafts,
   fetchOutreachSends,
@@ -46,6 +50,7 @@ import {
   type HostOwnOrganization,
 } from "@/lib/api";
 import { scopedQueryKey } from "@/lib/queryClient";
+import { SPEAKER_SELF_RESOURCE } from "@/app/hooks/useSpeakerSelf";
 
 /** Meetings page's own page-size constant (`PAGE_LIMIT` there). */
 const MEETINGS_PAGE_LIMIT = 50;
@@ -163,10 +168,35 @@ const VOLUNTEER_PREFETCH: Readonly<Record<string, readonly PrefetchSpec[]>> = {
   ],
 };
 
+/**
+ * B26 T6b-4. The Speaker's reads take no unit — the subject is the bearer
+ * token's bound profile — so every spec ignores `unitId`, and the keys come
+ * from `SPEAKER_SELF_RESOURCE` so a prefetched slot is the page's own slot.
+ */
+const SPEAKER_PREFETCH: Readonly<Record<string, readonly PrefetchSpec[]>> = {
+  "/speaker-portal": [
+    spec(SPEAKER_SELF_RESOURCE.invitations, () => [], () => fetchMyInvitations()),
+    spec(SPEAKER_SELF_RESOURCE.engagements, () => ["upcoming"], () => fetchMyEngagements("upcoming")),
+  ],
+  "/speaker-portal/invitations": [
+    spec(SPEAKER_SELF_RESOURCE.invitations, () => [], () => fetchMyInvitations()),
+  ],
+  "/speaker-portal/engagements": [
+    spec(SPEAKER_SELF_RESOURCE.engagements, () => ["upcoming"], () => fetchMyEngagements("upcoming")),
+  ],
+  "/speaker-portal/availability": [
+    spec(SPEAKER_SELF_RESOURCE.availability, () => [], () => fetchMyAvailability()),
+  ],
+  "/speaker-portal/contact-preferences": [
+    spec(SPEAKER_SELF_RESOURCE.contactChannels, () => [], () => fetchMyContactChannels()),
+  ],
+};
+
 const PORTAL_PREFETCH: Readonly<Record<string, readonly PrefetchSpec[]>> = {
   ...COORDINATOR_PREFETCH,
   ...STUDENT_PREFETCH,
   ...VOLUNTEER_PREFETCH,
+  ...SPEAKER_PREFETCH,
 };
 
 /**

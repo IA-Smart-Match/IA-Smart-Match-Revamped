@@ -4015,6 +4015,14 @@ export interface SpeakerContactChannel {
   consent_source: string | null;
   consent_recorded_at: string | null;
   consent_evidence: string | null;
+  /**
+   * The Speaker's own latest choice through the Speaker portal (B26 T6b-3), or
+   * null. After `"opt_out"` a Connector may not escalate this channel; after
+   * `"opt_in"` it may not move it away from `active_candidate`. Optional: an
+   * older server does not send it.
+   */
+  speaker_choice?: "opt_in" | "opt_out" | null;
+  speaker_choice_at?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -4053,6 +4061,96 @@ export async function fetchSpeakerContactChannels(
     `/v1/units/${encodeURIComponent(unitId)}/speaker-contacts/` +
       `${encodeURIComponent(professionalId)}/channels`,
     { method: "GET" },
+    { authenticated: true },
+  );
+}
+
+// Speaker availability (B26 T3)
+//
+// A roster contact's stated availability, read and replaced by a Connector.
+// The types are generic so the speaker's own `/v1/me/availability` (T6b-2)
+// reuses them. "Not stated" is `stated: false` with every value `null` — a
+// screen says "Not stated", never "Available".
+
+export type SpeakerAvailabilitySource = "speaker" | "connector";
+
+/** One inclusive date range, `YYYY-MM-DD`. */
+export interface SpeakerAvailabilityWindow {
+  starts_on: string;
+  ends_on: string;
+}
+
+export interface SpeakerAvailabilityWindowView extends SpeakerAvailabilityWindow {
+  source: SpeakerAvailabilitySource;
+}
+
+export interface SpeakerAvailability {
+  professional_id: string;
+  stated: boolean;
+  /** `null` exactly when `stated` is false. */
+  version: number | null;
+  /** The stored value, even if already past. */
+  invitations_paused_until: string | null;
+  declared_capacity_hours_per_90_days: number | null;
+  unavailable: SpeakerAvailabilityWindowView[];
+  updated_source: SpeakerAvailabilitySource | null;
+  updated_at: string | null;
+}
+
+/** Full replace: every key is sent; `null` clears; an omitted window is deleted. */
+export interface SpeakerAvailabilityUpdatePayload {
+  /** Required: echo `version` from the read (`null` when it was not stated). */
+  expected_version: number | null;
+  invitations_paused_until: string | null;
+  declared_capacity_hours_per_90_days: number | null;
+  unavailable: SpeakerAvailabilityWindow[];
+}
+
+export type SpeakerAvailabilityErrorCode =
+  | "speaker_availability_stale"
+  | "speaker_availability_window_invalid"
+  | "speaker_availability_too_many_windows"
+  | "speaker_availability_pause_invalid"
+  | "speaker_availability_capacity_invalid"
+  | "speaker_contact_not_found";
+
+/**
+ * `GET /v1/units/{unit_id}/speaker-contacts/{professional_id}/availability`
+ *
+ * Rejects with `ApiRequestError`: `404 speaker_contact_not_found` when the
+ * person is not on this unit's roster, `404 unit_not_found`, or `403`.
+ */
+export async function fetchSpeakerAvailability(
+  unitId: string,
+  professionalId: string,
+): Promise<SpeakerAvailability> {
+  return requestJson<SpeakerAvailability>(
+    `/v1/units/${encodeURIComponent(unitId)}/speaker-contacts/` +
+      `${encodeURIComponent(professionalId)}/availability`,
+    { method: "GET" },
+    { authenticated: true },
+  );
+}
+
+/**
+ * `PATCH /v1/units/{unit_id}/speaker-contacts/{professional_id}/availability`
+ *
+ * Sends `payload` unchanged and resolves to the stored statement. Rejects with
+ * `ApiRequestError` whose `code` is a {@link SpeakerAvailabilityErrorCode}:
+ * `409 speaker_availability_stale` (re-read with GET; no `details`), or `422`
+ * with `details.field` — plus `details.index` (the request's window index) for
+ * `window_invalid` and `details.limit` for `too_many_windows`. A malformed body
+ * is `422 invalid_request`.
+ */
+export async function updateSpeakerAvailability(
+  unitId: string,
+  professionalId: string,
+  payload: SpeakerAvailabilityUpdatePayload,
+): Promise<SpeakerAvailability> {
+  return requestJson<SpeakerAvailability>(
+    `/v1/units/${encodeURIComponent(unitId)}/speaker-contacts/` +
+      `${encodeURIComponent(professionalId)}/availability`,
+    { method: "PATCH", body: JSON.stringify(payload) },
     { authenticated: true },
   );
 }
@@ -4161,96 +4259,6 @@ export async function unbindSpeakerPortal(
   return requestJson<{ unbound: boolean }>(
     `${speakerPortalBase(unitId, professionalId)}/portal-access`,
     { method: "DELETE" },
-    { authenticated: true },
-  );
-}
-
-// Speaker availability (B26 T3)
-//
-// A roster contact's stated availability, read and replaced by a Connector.
-// The types are generic so the speaker's own `/v1/me/availability` (T6b-2)
-// reuses them. "Not stated" is `stated: false` with every value `null` — a
-// screen says "Not stated", never "Available".
-
-export type SpeakerAvailabilitySource = "speaker" | "connector";
-
-/** One inclusive date range, `YYYY-MM-DD`. */
-export interface SpeakerAvailabilityWindow {
-  starts_on: string;
-  ends_on: string;
-}
-
-export interface SpeakerAvailabilityWindowView extends SpeakerAvailabilityWindow {
-  source: SpeakerAvailabilitySource;
-}
-
-export interface SpeakerAvailability {
-  professional_id: string;
-  stated: boolean;
-  /** `null` exactly when `stated` is false. */
-  version: number | null;
-  /** The stored value, even if already past. */
-  invitations_paused_until: string | null;
-  declared_capacity_hours_per_90_days: number | null;
-  unavailable: SpeakerAvailabilityWindowView[];
-  updated_source: SpeakerAvailabilitySource | null;
-  updated_at: string | null;
-}
-
-/** Full replace: every key is sent; `null` clears; an omitted window is deleted. */
-export interface SpeakerAvailabilityUpdatePayload {
-  /** Required: echo `version` from the read (`null` when it was not stated). */
-  expected_version: number | null;
-  invitations_paused_until: string | null;
-  declared_capacity_hours_per_90_days: number | null;
-  unavailable: SpeakerAvailabilityWindow[];
-}
-
-export type SpeakerAvailabilityErrorCode =
-  | "speaker_availability_stale"
-  | "speaker_availability_window_invalid"
-  | "speaker_availability_too_many_windows"
-  | "speaker_availability_pause_invalid"
-  | "speaker_availability_capacity_invalid"
-  | "speaker_contact_not_found";
-
-/**
- * `GET /v1/units/{unit_id}/speaker-contacts/{professional_id}/availability`
- *
- * Rejects with `ApiRequestError`: `404 speaker_contact_not_found` when the
- * person is not on this unit's roster, `404 unit_not_found`, or `403`.
- */
-export async function fetchSpeakerAvailability(
-  unitId: string,
-  professionalId: string,
-): Promise<SpeakerAvailability> {
-  return requestJson<SpeakerAvailability>(
-    `/v1/units/${encodeURIComponent(unitId)}/speaker-contacts/` +
-      `${encodeURIComponent(professionalId)}/availability`,
-    { method: "GET" },
-    { authenticated: true },
-  );
-}
-
-/**
- * `PATCH /v1/units/{unit_id}/speaker-contacts/{professional_id}/availability`
- *
- * Sends `payload` unchanged and resolves to the stored statement. Rejects with
- * `ApiRequestError` whose `code` is a {@link SpeakerAvailabilityErrorCode}:
- * `409 speaker_availability_stale` (re-read with GET; no `details`), or `422`
- * with `details.field` — plus `details.index` (the request's window index) for
- * `window_invalid` and `details.limit` for `too_many_windows`. A malformed body
- * is `422 invalid_request`.
- */
-export async function updateSpeakerAvailability(
-  unitId: string,
-  professionalId: string,
-  payload: SpeakerAvailabilityUpdatePayload,
-): Promise<SpeakerAvailability> {
-  return requestJson<SpeakerAvailability>(
-    `/v1/units/${encodeURIComponent(unitId)}/speaker-contacts/` +
-      `${encodeURIComponent(professionalId)}/availability`,
-    { method: "PATCH", body: JSON.stringify(payload) },
     { authenticated: true },
   );
 }
@@ -5756,6 +5764,91 @@ export async function saveFeedbackQr(
       method: "PUT",
       body: JSON.stringify({ destination_url: destinationUrl }),
     },
+    { authenticated: true },
+  );
+}
+
+// ---------------------------------------------------------------------------
+// The Speaker's own contact channels (B26 T6b-4 over T6b-3's routes)
+//
+// `GET /v1/me/contact-channels` and `POST …/{channel_id}/opt-in` / `/opt-out`.
+// No adapter takes a subject: the Speaker is the bearer token's bound profile,
+// resolved server-side (MM-A01). Every field is the server's; a caller shows
+// `send_eligible`, `last_set_by` and `can_opt_*` as they arrive and never
+// re-derives them from `contact_state` or `suppressed`.
+// ---------------------------------------------------------------------------
+
+/** Why a channel is suppressed, in the Speaker's terms. */
+export type MyChannelSuppressionReason = "your_opt_out" | "unsubscribed" | "connector" | "delivery";
+
+export interface MyContactChannel {
+  contact_channel_id: string;
+  channel_kind: string;
+  address: string;
+  contact_state: string;
+  send_eligible: boolean;
+  suppressed: boolean;
+  suppression_reason: MyChannelSuppressionReason | null;
+  speaker_choice: "opt_in" | "opt_out" | null;
+  last_set_by: "speaker" | "connector";
+  can_opt_in: boolean;
+  can_opt_out: boolean;
+  updated_at: string;
+}
+
+/** Capped at 50 server-side; `truncated` says the server stopped sending. */
+export interface MyContactChannelList {
+  channels: MyContactChannel[];
+  truncated: boolean;
+}
+
+/** `changed: false` when nothing would change and nothing was written. */
+export interface MyContactChannelChange {
+  channel: MyContactChannel;
+  changed: boolean;
+}
+
+/**
+ * The codes the three routes return besides the shared 401 / 403 / 422 / 429.
+ * `speaker_contact_channel_speaker_opted_in` / `_opted_out` are Connector-side
+ * 409s (T6b-3 §5.4) that no `/v1/me` route returns, so they are not here.
+ */
+export type MyContactChannelErrorCode =
+  | "speaker_profile_not_linked"
+  | "speaker_contact_channel_not_found"
+  | "speaker_contact_channel_suppression_not_liftable"
+  | "speaker_contact_channel_address_unverified"
+  | "speaker_contact_channel_opt_in_unavailable"
+  | "speaker_contact_channel_transition_conflict";
+
+/** `GET /v1/me/contact-channels` — every channel on the caller's own record. */
+export async function fetchMyContactChannels(): Promise<MyContactChannelList> {
+  return requestJson<MyContactChannelList>(
+    `/v1/me/contact-channels`,
+    { method: "GET" },
+    { authenticated: true },
+  );
+}
+
+/**
+ * `POST /v1/me/contact-channels/{channel_id}/opt-in`, no body. Rejects with
+ * `ApiRequestError` whose `code` is a {@link MyContactChannelErrorCode}; a
+ * `suppression_not_liftable` carries `details.reason` (`connector` or
+ * `delivery`), an `opt_in_unavailable` carries `details.contact_state`.
+ */
+export async function optInMyContactChannel(channelId: string): Promise<MyContactChannelChange> {
+  return requestJson<MyContactChannelChange>(
+    `/v1/me/contact-channels/${encodeURIComponent(channelId)}/opt-in`,
+    { method: "POST" },
+    { authenticated: true },
+  );
+}
+
+/** `POST /v1/me/contact-channels/{channel_id}/opt-out`, no body. Immediate. */
+export async function optOutMyContactChannel(channelId: string): Promise<MyContactChannelChange> {
+  return requestJson<MyContactChannelChange>(
+    `/v1/me/contact-channels/${encodeURIComponent(channelId)}/opt-out`,
+    { method: "POST" },
     { authenticated: true },
   );
 }

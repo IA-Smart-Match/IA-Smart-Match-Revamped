@@ -64,6 +64,10 @@ PAGED_SURFACES: dict[str, tuple[str, ...]] = {
     "coordinator/CoordinatorReviewQueue.tsx": ("items",),
     "volunteer/VolunteerMyRequests.tsx": ("requests",),
     "volunteer/VolunteerConfirmedSpeaker.tsx": ("speakers",),
+    # B26 T6b-4: the Speaker's answered invitations (the open ones are the
+    # action list and stay whole) and their engagements.
+    "speaker/SpeakerInvitations.tsx": ("answered",),
+    "speaker/SpeakerEngagements.tsx": ("engagements",),
 }
 
 

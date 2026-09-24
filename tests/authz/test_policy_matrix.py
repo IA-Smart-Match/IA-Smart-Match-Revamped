@@ -1949,6 +1949,47 @@ OPERATIONS: tuple[Operation, ...] = (
         resource_type="org_unit",
         unit_scoped=True,
     ),
+    # B26 T6b-3: the Speaker's own channel consent. The route imports T6b-2's
+    # authorizer and constant (it writes no subject lookup of its own), so
+    # ``authorizer_module`` points at ``speaker_self``. Which channels are the
+    # Speaker's is a self-scope asserted over HTTP in
+    # ``tests/contract/test_me_contact_channels_api.py``.
+    Operation(
+        key="me.contact_channels.read",
+        method="GET",
+        path="/v1/me/contact-channels",
+        module="smartmatch_api.routers.me_contact_channels",
+        authorizer="_authorize_speaker_self",
+        roles_constant="_SPEAKER_SELF_ROLES",
+        authorizer_module="smartmatch_api.routers.speaker_self",
+        required_roles=frozenset({"speaker"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
+    Operation(
+        key="me.contact_channels.opt_in",
+        method="POST",
+        path="/v1/me/contact-channels/{contact_channel_id}/opt-in",
+        module="smartmatch_api.routers.me_contact_channels",
+        authorizer="_authorize_speaker_self",
+        roles_constant="_SPEAKER_SELF_ROLES",
+        authorizer_module="smartmatch_api.routers.speaker_self",
+        required_roles=frozenset({"speaker"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
+    Operation(
+        key="me.contact_channels.opt_out",
+        method="POST",
+        path="/v1/me/contact-channels/{contact_channel_id}/opt-out",
+        module="smartmatch_api.routers.me_contact_channels",
+        authorizer="_authorize_speaker_self",
+        roles_constant="_SPEAKER_SELF_ROLES",
+        authorizer_module="smartmatch_api.routers.speaker_self",
+        required_roles=frozenset({"speaker"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
     # The two student event reads (card ``CBA-STUDENT-EVENTS``, customer §15).
     # ``{student}`` and nothing else, which makes them the only rows in this file
     # whose role set contains ``student`` — everywhere else in this matrix
@@ -9159,14 +9200,19 @@ MATRIX["speaker_self.availability.update"] = MATRIX["speaker_self.availability.r
 MATRIX["speaker_self.invitation.list"] = MATRIX["speaker_self.availability.read"]
 MATRIX["speaker_self.invitation.respond"] = MATRIX["speaker_self.availability.read"]
 MATRIX["speaker_self.engagement.list"] = MATRIX["speaker_self.availability.read"]
+#: B26 T6b-3: the three ``me.contact_channels.*`` operations call the same
+#: imported ``_authorize_speaker_self``, so they share the row object too.
+MATRIX["me.contact_channels.read"] = MATRIX["speaker_self.availability.read"]
+MATRIX["me.contact_channels.opt_in"] = MATRIX["speaker_self.availability.read"]
+MATRIX["me.contact_channels.opt_out"] = MATRIX["speaker_self.availability.read"]
 #: B26 T6b-5: unbind calls the identical ``_authorize_speaker_portal`` with the
 #: identical ``_SPEAKER_PORTAL_ROLES`` as the revoke, so it shares the row
 #: object (both new columns included) for the reason given above.
 MATRIX["speaker_portal.unbind"] = MATRIX["speaker_portal.revoke"]
 
 #: The two-membership shape's permits, literally (T6b-5 §5 item 3): the six
-#: Event Host operations plus the five ``speaker_self.*`` ones. T6b-3's three
-#: ``me.contact_channels.*`` operations join when that track is on the base.
+#: Event Host operations, the five ``speaker_self.*`` ones, and T6b-3's three
+#: ``me.contact_channels.*`` ones (merged in through T6b-4) — 14.
 HOST_AND_SPEAKER_PERMITS: frozenset[str] = frozenset(
     {
         "metrics.read",
@@ -9180,6 +9226,9 @@ HOST_AND_SPEAKER_PERMITS: frozenset[str] = frozenset(
         "speaker_self.invitation.list",
         "speaker_self.invitation.respond",
         "speaker_self.engagement.list",
+        "me.contact_channels.read",
+        "me.contact_channels.opt_in",
+        "me.contact_channels.opt_out",
     }
 )
 
@@ -10333,6 +10382,10 @@ SPEAKER_SELF_OPERATIONS: frozenset[str] = frozenset(
         "speaker_self.invitation.list",
         "speaker_self.invitation.respond",
         "speaker_self.engagement.list",
+        # B26 T6b-3.
+        "me.contact_channels.read",
+        "me.contact_channels.opt_in",
+        "me.contact_channels.opt_out",
     }
 )
 

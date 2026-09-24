@@ -134,6 +134,14 @@ export interface PagedListProps<TItem> {
   /** The page size to start at. Defaults to ten. */
   initialPageSize?: PageSizeOption;
   /**
+   * Optional (B26 T6b-4). When it becomes a number, the list turns to the page
+   * holding the row at that index in `items`, so the caller can focus a row
+   * that just moved into this list. The caller sets it back to `null` once it
+   * has focused the row, so the same index can be revealed again. Absent or
+   * `null`, nothing about paging changes.
+   */
+  revealIndex?: number | null;
+  /**
    * Renders the visible slice.
    *
    * The caller supplies its own list element and row components; this receives
@@ -300,10 +308,27 @@ export function PagedList<TItem>({
   label,
   idPrefix,
   initialPageSize = DEFAULT_PAGE_SIZE,
+  revealIndex = null,
   children,
 }: PagedListProps<TItem>) {
   const [pageSize, setPageSize] = useState<PageSizeOption>(initialPageSize);
   const [requestedPage, setRequestedPage] = useState(1);
+  // The reveal last acted on, so one request turns the page once and the
+  // reader can page away from it afterwards. Adjusted during render — React's
+  // "store information from previous renders" pattern — rather than in an
+  // effect, for the same reason the page is clamped on the way out below: an
+  // effect would draw one frame of the old page first.
+  const [revealed, setRevealed] = useState<{ index: number; size: number } | null>(null);
+  if (revealIndex === null) {
+    if (revealed !== null) setRevealed(null);
+  } else if (
+    revealed === null ||
+    revealed.index !== revealIndex ||
+    revealed.size !== pageSize
+  ) {
+    setRevealed({ index: revealIndex, size: pageSize });
+    setRequestedPage(Math.floor(revealIndex / pageSize) + 1);
+  }
 
   // The page is clamped on the way out rather than corrected by an effect. The
   // array can shrink underneath this component — a refetch, a filter above it —
