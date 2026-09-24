@@ -7,7 +7,10 @@ branch on registry version in every assertion, and the first thing such a branch
 loses is the fact that the two are not comparable.
 
 ``tests/golden/matching/cba/`` holds twelve fixtures, one per row of ADR-0016's
-own "Golden cases implied by these proposals" table. Each names the proposals it
+own "Golden cases implied by these proposals" table, plus B26's: G-CBA-14…19
+assert registry 3.0.0 (proposed, never current) under named owner decisions
+(Q1/D2, Q7 = A, unknown load) and run with its approval gate evaluated by
+``tests/unit/registry_evaluation.py``. Each names the proposals it
 asserts, so a case can never be added for a behaviour nobody approved — the
 failure mode §26 of the customer requirements calls out in terms: "Do not
 silently invent permanent behavior for these items."
@@ -114,7 +117,11 @@ _CASE_ID_PATTERN = re.compile(r"^G-CBA-[0-9]{2}$")
 #: Every case id ADR-0016's golden-case table requires a fixture for. Listed
 #: here rather than derived from the directory, so *deleting* a fixture fails
 #: this suite instead of quietly shrinking it.
-REQUIRED_CASE_IDS = frozenset(f"G-CBA-{n:02d}" for n in range(1, 13))
+#:
+#: G-CBA-14…19 are B26 T8c's (registry 3.0.0, owner decisions Q1/D2, Q7 = A and
+#: unknown load). G-CBA-13 is B26 T4's and joins when T4 merges; the set then
+#: becomes ``range(1, 20)``.
+REQUIRED_CASE_IDS = frozenset(f"G-CBA-{n:02d}" for n in (*range(1, 13), *range(14, 20)))
 
 
 def _case_paths() -> list[Path]:
@@ -130,8 +137,12 @@ def _cases() -> list[dict[str, Any]]:
 
 
 def _scored_cases() -> list[dict[str, Any]]:
-    """The cases the CBA composition can actually run (i.e. not the 1.x one)."""
-    return [case for case in _cases() if case["scoring_mode"] is not None]
+    """The 2.x cases the CBA composition can actually run (not the 1.x one, not 3.x)."""
+    return [
+        case
+        for case in _cases()
+        if case["scoring_mode"] is not None and case["registry_version"] != REGISTRY_3_VERSION
+    ]
 
 
 def _load_cases() -> list[dict[str, Any]]:
@@ -321,8 +332,12 @@ def test_every_case_declares_the_decision_it_asserts(case):
     assert _CASE_ID_PATTERN.match(case["id"])
     assert case["title"].strip()
     assert case["asserts"].strip()
-    assert case["adr_proposals"], f"{case['id']} names no ADR-0016 proposal"
-    assert all(1 <= n <= 10 for n in case["adr_proposals"])
+    # ADR-0016 proposals, or (B26) named owner decisions; at least one of them.
+    proposals = case.get("adr_proposals", [])
+    decisions = case.get("owner_decisions", [])
+    assert proposals or decisions, f"{case['id']} names no approved decision"
+    assert all(1 <= n <= 10 for n in proposals)
+    assert all(isinstance(d, str) and d.strip() for d in decisions)
 
 
 @pytest.mark.parametrize("case", _cases(), ids=_ids(_cases()))
@@ -331,7 +346,10 @@ def test_every_case_pins_the_registry_it_was_approved_under(case):
     if case["scoring_mode"] is None:
         assert case["registry_version"] == SUPERSEDED_REGISTRY_VERSION
     else:
-        assert case["registry_version"] == REGISTRY_VERSION
+        assert case["registry_version"] in {REGISTRY_VERSION, REGISTRY_3_VERSION}
+    if case["registry_version"] == REGISTRY_3_VERSION:
+        # 3.0.0 is proposed: a case may assert it only under a named owner decision.
+        assert case.get("owner_decisions"), f"{case['id']} pins 3.0.0 with no owner decision"
 
 
 @pytest.mark.parametrize("case", _scored_cases(), ids=_ids(_scored_cases()))

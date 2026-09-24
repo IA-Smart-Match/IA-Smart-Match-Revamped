@@ -5,7 +5,8 @@
   "description": "Structure schema for the CBA four-factor golden set. A separate contract from approved_case.schema.json because the CBA cases assert a different registry (2.0.0-approved-oq-cba-004), a three-state evidence discriminator the G1 cases had no vocabulary for, and a scoring mode that did not exist when the G1 set was ratified. Every case names the ADR-0016 proposals it asserts, so a case can never be added for a behaviour nobody approved.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["id", "title", "asserts", "adr_proposals", "registry_version", "scoring_mode", "request", "candidates", "expected"],
+  "required": ["id", "title", "asserts", "registry_version", "scoring_mode", "request", "candidates", "expected"],
+  "anyOf": [{ "required": ["adr_proposals"] }, { "required": ["owner_decisions"] }],
   "properties": {
     "id": {
       "type": "string",
@@ -25,6 +26,17 @@
       "type": "array",
       "minItems": 1,
       "items": { "type": "integer", "minimum": 1, "maximum": 10 }
+    },
+    "owner_decisions": {
+      "description": "Owner decisions this case asserts, for cases outside ADR-0016's table (B26: Q1/D2, Q7 = A, unknown load). A case names adr_proposals, owner_decisions, or both.",
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "as_of": {
+      "description": "The run's UTC date the load window is measured from (B26 T8c). Required by the runner for a registry with a load band table.",
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
     },
     "registry_version": {
       "type": "string",
@@ -81,6 +93,31 @@
             "description": "The already-resolved distance from the CPP campus. Never resolved by the domain (OQ-CBA-024); a case that omits it is asserting an unresolved address, not a far one.",
             "type": ["number", "null"],
             "minimum": 0.0
+          },
+          "load": {
+            "description": "The speaker's declared capacity and bookings (B26 T8c). Hours are decimal strings converted to exact microseconds; null hours are unknown, never 0.",
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["capacity_hours", "engagements"],
+            "properties": {
+              "capacity_hours": { "type": ["string", "null"], "pattern": "^[0-9]+(\\.[0-9]+)?$" },
+              "engagements": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["ref", "offset_days", "hours", "confirmed", "attended", "cancelled"],
+                  "properties": {
+                    "ref": { "type": "string", "minLength": 1 },
+                    "offset_days": { "type": ["integer", "null"] },
+                    "hours": { "type": ["string", "null"], "pattern": "^[0-9]+(\\.[0-9]+)?$" },
+                    "confirmed": { "type": "boolean" },
+                    "attended": { "type": "boolean" },
+                    "cancelled": { "type": "boolean" }
+                  }
+                }
+              }
+            }
           }
         }
       }
@@ -104,6 +141,24 @@
           "type": "array",
           "items": { "type": "string" }
         },
+        "excluded": {
+          "description": "Subjects removed at Stage A, in pool order (B26 T8c: load_full).",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["subject_id", "reason"],
+            "properties": {
+              "subject_id": { "type": "string" },
+              "reason": { "type": "string", "enum": ["load_full"] }
+            }
+          }
+        },
+        "registry_hash": {
+          "description": "Pinned registry_hash literals with default weights, keyed by scoring mode (or g1).",
+          "type": "object",
+          "additionalProperties": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+        },
         "candidates": {
           "type": "object",
           "additionalProperties": {
@@ -116,6 +171,12 @@
               "unknown_factor_keys": { "type": "array", "items": { "type": "string" } },
               "policy_neutral_factor_keys": { "type": "array", "items": { "type": "string" } },
               "ui_caption": { "type": ["string", "null"] },
+              "load_band": { "type": "string", "enum": ["light", "moderate", "heavy", "full", "unknown"] },
+              "load_reason": { "type": "string", "enum": ["measured", "capacity_not_stated", "hours_unknown", "full_by_known_hours"] },
+              "load_measurable": { "type": "boolean" },
+              "load_multiplier": { "description": "The registry's multiplier for the band, as a canonical decimal string.", "type": "string" },
+              "utilization": { "description": "Compared as a Decimal value; null without capacity.", "type": ["string", "null"] },
+              "unknown_hours_refs": { "type": "array", "items": { "type": "string" } },
               "factors": {
                 "type": "object",
                 "additionalProperties": {
