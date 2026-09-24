@@ -425,8 +425,22 @@ UNAUTHENTICATED_ROUTES: dict[tuple[str, str], str] = {
         "whole of it. It never changes state — a GET that recorded an answer "
         "would have link scanners and mail-client prefetchers accepting "
         "engagements on Speakers' behalf — and it echoes nothing back, so it is "
-        "not an oracle for whether the token is real either. The answer is the "
-        "POST below."
+        "not an oracle for whether the token is real either. The answer is "
+        "`POST /i/{token}`, the page's own form posted back to the same URL."
+    ),
+    ("POST", "/i/{token}"): (
+        "The answer the `GET /i/{token}` page's own form submits, to the page's "
+        "own URL, so the token travels in the path the Speaker already holds "
+        "and is never written into the HTML. Public for exactly the reason "
+        "`POST /v1/speaker-invitations/respond` is — a Speaker is a contact, "
+        "not an account — and it runs the same shared code with the same rules: "
+        "the first answer stands, a different second answer writes nothing, an "
+        "undispatched invitation cannot be answered, and every token and every "
+        "outcome gets byte-identical HTML. The body is one urlencoded field, "
+        "parsed by hand under a 1 KiB cap. ADR-0015 quota-first does not apply: "
+        "`charge_quota` keys by tenant+user and this route has no principal "
+        "(`cba_invitations.py:182-190`). Unauthenticated routes are declared in "
+        "`UNAUTHENTICATED_ROUTES`, not `test_route_roles.py`."
     ),
     ("POST", "/v1/speaker-invitations/respond"): (
         "The Speaker's own accept or decline, reached from the link in their "

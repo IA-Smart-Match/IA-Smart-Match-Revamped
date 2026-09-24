@@ -66,6 +66,14 @@ export default defineConfig({
         changeOrigin: true,
         agent: proxyAgent,
       },
+      // The Speaker invitation page and its form POST (`/i/{token}`), which the
+      // API renders. A regex key: a plain "/i" key is a prefix match and would
+      // also forward `/index.html` and `/images/…`. src/viteProxy.test.tsx.
+      "^/i/": {
+        target: apiProxyTarget,
+        changeOrigin: true,
+        agent: proxyAgent,
+      },
     },
   },
   preview: {
@@ -78,6 +86,11 @@ export default defineConfig({
         agent: proxyAgent,
       },
       "/v1": {
+        target: apiProxyTarget,
+        changeOrigin: true,
+        agent: proxyAgent,
+      },
+      "^/i/": {
         target: apiProxyTarget,
         changeOrigin: true,
         agent: proxyAgent,
