@@ -2323,7 +2323,7 @@ export type LoadReason = "measured" | "capacity_not_stated" | "hours_unknown" | 
 
 /** One counted engagement whose hours are unknown, labelled for the caller (B26 T8d §4.1). */
 export interface EngagementWithoutEndTime {
-  /** The engagement's record id; null for "other_unit": no other unit's id reaches a Connector. */
+  /** The record id; on the Connector route null unless their unit owns the record (always for "other_unit"). */
   engagement_id: string | null;
   shown: "event" | "other_unit" | "event_missing";
   /** Set exactly when `shown` is "event". */
