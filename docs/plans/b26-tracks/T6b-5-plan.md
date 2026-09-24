@@ -242,8 +242,8 @@ Request `ActivateRequest` (`extra="forbid"`): `token` (str 16–128), `new_passw
 | `NONE` | otherwise | **new login** |
 | `ONE_IN_TENANT` | holder ≠ contact account **and** `contact_credentialed` | `400` (R-B: a merged contact account must stay credential-less) |
 | `ONE_IN_TENANT` | holder bound to another profile (`login_bound_elsewhere`) | `400` (`uq_speaker_profile_account`: one login, one Speaker) |
-| `ONE_IN_TENANT` | holder fails Q1 (amended 2026-09-24): no active `volunteer` membership, or an active `admin`, `coordinator` or `student` one (`existing_login_may_bind`) | `400` (Q1) |
-| `ONE_IN_TENANT` | otherwise (an active `volunteer`, no active staff or student role) | **existing login** |
+| `ONE_IN_TENANT` | holder fails Q1 (amended 2026-09-24): its active roles, `speaker` aside, are not exactly `{volunteer}` (`existing_login_may_bind`) | `400` (Q1) |
+| `ONE_IN_TENANT` | otherwise (active roles `{volunteer}` or `{volunteer, speaker}`) | **existing login** |
 | `OTHER_TENANT`, `AMBIGUOUS` | — | `400` (R-E, R-F) |
 
 11. Mode ≠ supplied field → `409 speaker_portal_activation_mode_mismatch`. Roll back; the token stays live.
@@ -272,7 +272,7 @@ T6b-1's invite (§3.2 there), new step **5b** after the channel checks and befor
 |---|---|
 | `OTHER_TENANT` | `409 speaker_portal_address_in_other_tenant` |
 | `AMBIGUOUS` | `409 speaker_portal_address_ambiguous` (Q5), message "This address matches more than one login. Fix that before inviting." (§4.5 item 4) |
-| `ONE_IN_TENANT`, holder fails Q1 (staff, student, no active role, expired roles only, `speaker` only) | `409 speaker_portal_address_not_host_login` (Q1), message "This address already signs in to SmartMatch and cannot also be a Speaker login. Choose a different address." One code and one body for every reason: no enumeration, no role named |
+| `ONE_IN_TENANT`, holder fails Q1 (staff, student, no active role, expired roles only, `speaker` only, `volunteer` plus any other role) | `409 speaker_portal_address_not_host_login` (Q1), message "This address already signs in to SmartMatch and cannot also be a Speaker login. Choose a different address." One code and one body for every reason: no enumeration, no role named |
 | otherwise | continue |
 
 ### 4.4 Unbind — `DELETE /v1/units/{unit_id}/speaker-contacts/{professional_id}/portal-access`
@@ -468,7 +468,7 @@ Before each push: `$VENV/bin/ruff format` and `ruff check` on touched Python and
 | C2 | T6b-1 §5 step 6 refuses any credentialed contact account. Existing login needs a finer rule. | Kept for new login; for existing login, refused unless the contact account is the holder itself (§4.2 step 10). |
 | C3 | T6b-1 §5 step 8's advisory lock key `'speaker-portal-email:'`. | Renamed `'login-address:'` inside `lock_address`; one function, all callers in one commit. |
 | C4 | T6b-1 §4.6 writes `membership.valid_from = now`. | `NULL` for every `find_or_add_role` insert (§3.2). `created_at` keeps the grant time; unbind and seed reconciliation both need it. |
-| C5 | T6b-1 §11 self-invite mitigation: "the Connector's own login address is credentialed, so activation refuses it". Existing-login mode would now accept it with the Connector's own password. | Q1 (amended 2026-09-24): bind only an active `volunteer` with no active `admin`, `coordinator` or `student` membership. |
+| C5 | T6b-1 §11 self-invite mitigation: "the Connector's own login address is credentialed, so activation refuses it". Existing-login mode would now accept it with the Connector's own password. | Q1 (amended 2026-09-24): bind only a login whose active roles, `speaker` aside, are exactly `{volunteer}`. |
 | C6 | `test_seed_pilot_logins.py` monkeypatches `seed_pilot` and `PilotCredentialRepository` (`:62-89`). | Rewritten recorder (§8.2); the 8 behaviours it pins are kept. |
 | C7 | §6.3 put the sidebar switcher between the identity block and Sign out. T6b-4's `apps/web/DESIGN.md` ("Signed-in shells") puts it **above** the profile block, so Sign out stays directly beneath the profile. | **DESIGN.md wins** (implementation, milestone 13): above the profile block in both shells. |
 | C8 | T6b-1's review LOW 1 (`d5a39b48`, after this plan) stores the activation address as `strip().lower()` and folds stored emails over all ASCII whitespace; §3.2 said "stored trimmed". | **T6b-1 wins**, ported into `login_accounts.normalise_address` (lock key, holder match, stored email). A held address with a trailing tab is now the `409` mode mismatch, not a second login. |
@@ -477,7 +477,7 @@ Before each push: `$VENV/bin/ruff format` and `ruff check` on touched Python and
 
 | # | Question | Ruling | Where it lands |
 |---|---|---|---|
-| Q1 | Which existing logins may existing-login mode bind? | **Owner: Event Host logins only.** **Amended by the owner 2026-09-24 (PR #224 review ruling "R-C", not §1's R-C): an allow-list of `{volunteer}`.** A holder needs an active `volunteer` membership and no active `admin`, `coordinator` or `student` one. A login with no active role, only expired roles, or only `speaker` is refused; `speaker` and `volunteer` never widen each other, so an active `speaker` beside `volunteer` neither helps nor hurts. Refused: generic `400 speaker_portal_invitation_invalid` at activation, `409 speaker_portal_address_not_host_login` at invite (one generic body for every reason). One rule, `existing_login_may_bind`, serves both. | §4.2 step 10, §4.3, §7, §10 C5 |
+| Q1 | Which existing logins may existing-login mode bind? | **Owner: Event Host logins only.** **Amended by the owner 2026-09-24 (PR #224 review ruling "R-C", not §1's R-C): an allow-list of `{volunteer}`.** A holder needs an active `volunteer` membership and no active `admin`, `coordinator` or `student` one. **Tightened the same day (#224 LOW row 10): a true allow-list, `held - {speaker} == {volunteer}`**, so `volunteer` plus any other role, including one the code does not know yet, is refused too. A login with no active role, only expired roles, or only `speaker` is refused; `speaker` and `volunteer` never widen each other, so an active `speaker` beside `volunteer` neither helps nor hurts. Refused: generic `400 speaker_portal_invitation_invalid` at activation, `409 speaker_portal_address_not_host_login` at invite (one generic body for every reason). One rule, `existing_login_may_bind`, serves both. | §4.2 step 10, §4.3, §7, §10 C5 |
 | Q2 | Where do `unbound_at` / `unbound_by_user_id` go? | **Folded into `0039`** (sent to the T6b-1 implementer; `0039` is pushed, not on `main`). No `0041` from this track: `0041` is T4's. | §0 start gate, §2, §4.4 |
 | Q3 | Does a new-login unbind also delete the contact account's credential and end its sessions? | **Yes.** | §4.4 step 4 |
 | Q4 | The seed finds its address already held by a different login. | **Add the seed's roles to that login, never change its password, report on stderr.** Narrowed 2026-09-24 by owner ruling R-B (PR #224 review ruling, not §1's R-B): only the `volunteer` entry merges, and only onto a login whose active roles are ⊆ {`speaker`, `volunteer`} (a login with no active role qualifies: {} ⊆ {`speaker`, `volunteer`}). Any other entry or holder raises `SeedConflictError`. | §3.4 |
