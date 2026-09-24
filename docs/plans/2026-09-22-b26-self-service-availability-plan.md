@@ -410,17 +410,19 @@ rule does not have. No stored snapshot references 1.1.0 (there is no
 ```text
 as_of      = the run date (UTC date of run creation)
 completed  = Σ event hours, pipeline_record.attended_at set, event local date in [as_of − 45, as_of)
-confirmed  = Σ event hours, confirmed_at set, attended_at and cancelled_at NULL,
-             event local date in [as_of, as_of + 45]
+confirmed  = Σ event hours, confirmed_at set, cancelled_at NULL (attended or not),
+             event local date in [as_of, as_of + 44]
 utilization = (completed + confirmed) / declared_capacity_hours_per_90_days   -- unrounded
 ```
 
+- The window is 90 days: `[as_of − 45, as_of)` + `[as_of, as_of + 44]`. An event on
+  `as_of` that is already attended counts as confirmed (owner, 2026-09-23).
 - A cancelled booking (`cancelled_at` set, T8a) counts in neither sum from the
   moment it is cancelled.
 - Event hours = `ends_at − starts_at` for an exact event with an end. Travel hours
   stay 0, recorded as unavailable (D3: no route provider).
 - `LoadInputs.declared_capacity_hours` loses its `40.0` default and becomes
-  optional; `LoadModifier` stops adding points (manual blackout now lives in §5.1).
+  optional; `LoadModifier` is deleted (manual blackout now lives in §5.1).
 
 **Bands — decided 2026-09-22 (owner, Q7 = A).**
 
@@ -506,7 +508,7 @@ Each track writes failing tests first. Locally, run targeted files one at a time
 | 8 | T6b-3 | Opt-out suppresses immediately; opt-in lifts only own-source suppressions; bounce/complaint never lifted; both 409s; every send-eligibility read honours `lifted_at` | contract + integration |
 | 8b | T6b-5 | Existing-login activation: right password binds and adds `speaker` membership; wrong password → 401, token not consumed, attempt counted; new-login path refused when a credentialed account holds the address; ambiguous and other-tenant addresses refused; concurrent activations → one binding; `/v1/me/*` resolves via `account_user_id` in both modes; Host routes unchanged; policy matrix two-membership shape; `/v1/me/portals` lists both; switcher hidden with one portal | contract + integration + authz + Vitest |
 | 9 | T8a | Cancel only a confirmed booking; cancellation is a transition | integration + contract |
-| 10 | T8b | `test_eli.py` rewritten: centered window edges (day −45, −1, 0, +45, +46), cancellation, unknown hours, lower-bound Full, no default capacity | unit |
+| 10 | T8b | `test_eli.py` rewritten: centered window edges (day −46, −45, −1, 0, +44, +45), cancellation, unknown hours, lower-bound Full, no default capacity | unit |
 | 11 | T8c | `test_factor_registry.py`: 3.0.0 proposed until approved; superseded set; hash coverage; `G-CBA-14`…`19` | unit + golden |
 | 12 | T5, T6b-4, T7 | Vitest: states, stale path keeps input, principal-key isolation; source guard that no `/api/portals/volunteers` call remains | frontend unit |
 | 13 | all | `tests/e2e/test_pilot_clickthrough.py`: Connector invites → Speaker activates → blocks a date → run shows "Unavailable" → batch refuses; Speaker opts out → invitation not sendable | e2e |
@@ -530,7 +532,7 @@ Each track is its own PR against `main`.
 | **T6b-5** | One login, two roles: existing-login activation mode, credential locking, `find_or_add_role` (seed tools moved onto it), other-tenant pre-check, revoke/unbind, two-membership authz tests, portal switcher | 2.5 days | T6b-1, T6b-2; switcher UI after T6b-4 |
 | **T7** | `VolunteerProfile` close-out (Q3 = a) | 0.5 day | — |
 | **T8a** | `0040_speaker_booking_cancellation`, Connector "Cancel booking" route and button | 1.5 days | — |
-| **T8b** | `eli.py` 2.0.0: centered utilization, bands, no default capacity | 1 day | T2 |
+| **T8b** | `eli.py` 2.0.0: centered utilization, bands, no default capacity | 1 day | — (pure domain; branches from `main`) |
 | **T8c** | Registry 3.0.0: band table (Q7 = A), hash coverage, superseded set, Full pre-solve, penalty in scoring, explanation `load` block, `G-CBA-14`…`19` | 3 days | T8a, T8b; registry approval before it becomes current |
 | **T8d** | Load band on Connector run views and on the Speaker's Availability page | 1 day | T8c, T6b-4 |
 
@@ -538,10 +540,10 @@ Each track is its own PR against `main`.
 
 1. T6b-1 → T6b-2 → T6b-4 → T6b-5 (switcher) — **11 days**. T8d (1 day) hangs off
    T6b-4 in parallel with T6b-5.
-2. T1 → T2 → T8b → T8c → T8d — 7 days of work, plus waiting for registry 3.0.0
-   approval before it becomes the current scoring.
+2. T1 → T2 → T8c → T8d — 6 days of work, with T8b (1 day) in parallel from day
+   one, plus waiting for registry 3.0.0 approval before it becomes the current scoring.
 
-T1–T5, T6a, T7 and T8a can run in parallel from day one. T6b-5's backend half
+T1–T5, T6a, T7, T8a and T8b can run in parallel from day one. T6b-5's backend half
 (activation mode, locking, `find_or_add_role`) can start as soon as T6b-2 lands.
 
 ## 9. Owner questions
