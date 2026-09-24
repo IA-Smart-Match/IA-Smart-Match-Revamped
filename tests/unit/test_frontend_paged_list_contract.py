@@ -52,6 +52,8 @@ PAGED_SURFACES: dict[str, tuple[str, ...]] = {
     "coordinator/CoordinatorSpeakerContacts.tsx": ("contacts",),
     "coordinator/CoordinatorSpeakerFeedback.tsx": ("rows",),
     "coordinator/CoordinatorInvitations.tsx": ("recipients",),
+    # B26 T8a: the unit's confirmed Speaker bookings.
+    "coordinator/CoordinatorBookings.tsx": ("bookings",),
     # The three coordinator pages authored in parallel worktrees before this
     # component existed. Each left a `TODO(integrator)` asking to be wired up
     # once it landed, and each rendered a plain unpaged list until it was — so
