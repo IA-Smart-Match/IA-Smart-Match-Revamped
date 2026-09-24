@@ -25,6 +25,7 @@ from smartmatch_api.config import Settings
 from smartmatch_api.routers.portals import INVITATION_ONLY_ROLES
 from smartmatch_persistence import schema
 from smartmatch_persistence.engine import create_db_engine
+from smartmatch_persistence.login_accounts import normalise_address
 from sqlalchemy.engine import Connection
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -134,7 +135,9 @@ def _existing_or_insert_account(
             f"external subject {subject!r} already belongs to a different tenant; "
             "subjects are global"
         )
-    if row.email != email or row.suspended:
+    # Folded both sides: login_accounts stores a new login's email normalised
+    # (strip().lower()), while a row seeded earlier keeps the env's spelling.
+    if normalise_address(row.email) != normalise_address(email) or row.suspended:
         raise SeedConflictError(
             f"external subject {subject!r} exists with different account attributes"
         )

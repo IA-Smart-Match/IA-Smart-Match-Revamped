@@ -27,10 +27,14 @@ _SCANNED = ("python", "services", "tools", "scripts", "db")
 _TABLE = "pilot_credential"
 _WRITER = Path("python/smartmatch_persistence/smartmatch_persistence/login_accounts.py")
 
+#: The table as SQL spells it: optionally schema-qualified, optionally quoted.
+_SQL_TABLE = rf'(?:"?\w+"?\.)?"?{_TABLE}"?(?![\w])'
 _SQL_BY_VERB: dict[str, re.Pattern[str]] = {
-    "insert": re.compile(rf"(?i)\binsert\s+into\s+{_TABLE}\b"),
-    "update": re.compile(rf"(?i)\bupdate\s+{_TABLE}\b"),
-    "delete": re.compile(rf"(?i)\bdelete\s+from\s+{_TABLE}\b"),
+    "insert": re.compile(rf"(?i)\b(?:insert\s+into|merge\s+into|copy)\s+{_SQL_TABLE}"),
+    "update": re.compile(rf"(?i)\bupdate\s+(?:only\s+)?{_SQL_TABLE}"),
+    "delete": re.compile(
+        rf"(?i)\b(?:delete\s+from\s+(?:only\s+)?|truncate\s+(?:table\s+)?(?:only\s+)?){_SQL_TABLE}"
+    ),
 }
 _ADDRESS_LOCK = "pg_advisory_xact_lock"
 _ADDRESS_WORDS = re.compile(r"(?i)email|address")
