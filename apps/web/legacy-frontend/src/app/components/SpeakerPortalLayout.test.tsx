@@ -209,6 +209,12 @@ describe("<SpeakerPortalLayout />", () => {
     expect(prefetch.mock.calls.map(([options]) => options.queryKey)).toEqual([
       ["principal-1", "my-contact-channels"],
     ]);
+    prefetch.mockClear();
+    fireEvent.mouseEnter(within(nav()).getByRole("link", { name: "Home" }));
+    expect(prefetch.mock.calls.map(([options]) => options.queryKey)).toEqual([
+      ["principal-1", "my-invitations"],
+      ["principal-1", "my-engagements", "upcoming"],
+    ]);
   });
 
   it("nothing is prefetched while the principal key is null", () => {

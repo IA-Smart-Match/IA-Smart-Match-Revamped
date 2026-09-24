@@ -26,6 +26,19 @@ afterEach(() => {
 describe("SPEAKER_PREFETCH", () => {
   it.each([
     [
+      "/speaker-portal",
+      [
+        ["principal-1", SPEAKER_SELF_RESOURCE.invitations],
+        ["principal-1", SPEAKER_SELF_RESOURCE.engagements, "upcoming"],
+      ],
+    ],
+    ["/speaker-portal/invitations", [["principal-1", SPEAKER_SELF_RESOURCE.invitations]]],
+    [
+      "/speaker-portal/engagements",
+      [["principal-1", SPEAKER_SELF_RESOURCE.engagements, "upcoming"]],
+    ],
+    ["/speaker-portal/availability", [["principal-1", SPEAKER_SELF_RESOURCE.availability]]],
+    [
       "/speaker-portal/contact-preferences",
       [["principal-1", SPEAKER_SELF_RESOURCE.contactChannels]],
     ],
@@ -43,6 +56,14 @@ describe("SPEAKER_PREFETCH", () => {
   });
 
   it("nothing is prefetched while the principal key is null", () => {
-    expect(keysFor("/speaker-portal/contact-preferences", null)).toEqual([]);
+    for (const href of [
+      "/speaker-portal",
+      "/speaker-portal/invitations",
+      "/speaker-portal/engagements",
+      "/speaker-portal/availability",
+      "/speaker-portal/contact-preferences",
+    ]) {
+      expect(keysFor(href, null)).toEqual([]);
+    }
   });
 });
