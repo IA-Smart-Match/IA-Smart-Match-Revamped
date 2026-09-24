@@ -250,6 +250,18 @@ question. It is a refusal rather than a silent no-op deliberately: accepting the
 field and doing nothing would be a fake success on the one field where a fake
 success reaches a person who asked us to stop.
 
+**Partly answered by B26 T6b-3 (owner rulings, 2026-09-23).** The **Speaker's
+own** lift is built, behind `SPEAKER_PORTAL`: a signed-in Speaker's opt-in lifts
+their own `speaker_portal` opt-out on any of their channels, and an
+`unsubscribe_link` / `one_click` suppression only on the address they sign in
+with (the one their invitation proved). Bounce, complaint and coordinator
+suppressions are never lifted by anyone (`ck_suppression_record_lift_source`).
+`lifted_at` / `lifted_by_user_id` record who lifted it, and every
+send-eligibility read now honours `lifted_at IS NULL`
+(`smartmatch_persistence.suppression`). **Still open:** a Connector un-suppress
+(`suppressed: false` stays the `400` above) and the coordinator-actor column
+below.
+
 **Carried with it: the actor behind a coordinator suppression.**
 `suppression_record` carries `source` (which can be `coordinator`) and
 `suppressed_at`, but no actor column — so "a coordinator suppressed this" is

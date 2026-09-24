@@ -3983,6 +3983,14 @@ export interface SpeakerContactChannel {
   consent_source: string | null;
   consent_recorded_at: string | null;
   consent_evidence: string | null;
+  /**
+   * The Speaker's own latest choice through the Speaker portal (B26 T6b-3), or
+   * null. After `"opt_out"` a Connector may not escalate this channel; after
+   * `"opt_in"` it may not move it away from `active_candidate`. Optional: an
+   * older server does not send it.
+   */
+  speaker_choice?: "opt_in" | "opt_out" | null;
+  speaker_choice_at?: string | null;
   created_at: string;
   updated_at: string;
 }

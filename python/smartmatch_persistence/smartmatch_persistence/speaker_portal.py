@@ -173,6 +173,52 @@ class SpeakerPortalRepository:
         ).one_or_none()
         return None if row is None else BoundSpeakerProfile(**row._mapping)
 
+    def lock_bound_profile_share(
+        self,
+        session: Session,
+        *,
+        tenant_id: uuid.UUID,
+        professional_id: uuid.UUID,
+        account_user_id: uuid.UUID,
+    ) -> bool:
+        """``FOR SHARE`` on the profile, re-checking it is still bound to this login.
+
+        B26 T6b-3: the Speaker's opt-in and opt-out take it right after
+        :meth:`find_bound_profile` (which stays lock-free). ``False`` means an
+        unbind committed in between; the caller answers ``404``. Holding the
+        share lock makes a later unbind wait until the write commits, and a
+        T6b-1 invite's ``FOR UPDATE`` serializes with it.
+        """
+        return (
+            session.execute(
+                sa.select(sa.literal(1))
+                .select_from(_PROFILE)
+                .where(
+                    _PROFILE.c.tenant_id == tenant_id,
+                    _PROFILE.c.professional_id == professional_id,
+                    _PROFILE.c.account_user_id == account_user_id,
+                )
+                .with_for_update(read=True)
+            ).first()
+            is not None
+        )
+
+    def login_address(
+        self, session: Session, *, tenant_id: uuid.UUID, account_user_id: uuid.UUID
+    ) -> str | None:
+        """The signed-in login's ``user_account.email`` (B26 T6b-3, OQ-3).
+
+        The address the invitation proved: an unsubscribe there may be lifted by
+        the Speaker; at any other address it may not.
+        """
+        account = schema.user_account
+        found = session.execute(
+            sa.select(account.c.email).where(
+                account.c.tenant_id == tenant_id, account.c.id == account_user_id
+            )
+        ).scalar_one_or_none()
+        return None if found is None else str(found)
+
     # -- invitations -------------------------------------------------------
 
     def revoke_live(

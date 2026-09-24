@@ -778,6 +778,34 @@
             "title": "Send Eligible",
             "type": "boolean"
           },
+          "speaker_choice": {
+            "anyOf": [
+              {
+                "enum": [
+                  "opt_in",
+                  "opt_out"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The Speaker's own latest choice in the Speaker portal, or null. After 'opt_out' a Connector may not escalate this channel; after 'opt_in' it may not move it away from 'active_candidate'.",
+            "title": "Speaker Choice"
+          },
+          "speaker_choice_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When the Speaker made that choice.",
+            "title": "Speaker Choice At"
+          },
           "suppressed": {
             "description": "Whether this address is under a suppression record. Outranks everything.",
             "title": "Suppressed",
@@ -1357,6 +1385,34 @@
             "description": "Whether this contact could be written to right now: active_candidate, an approved consent source, and no suppression. Computed at read time and rechecked by the worker at delivery time.",
             "title": "Send Eligible",
             "type": "boolean"
+          },
+          "speaker_choice": {
+            "anyOf": [
+              {
+                "enum": [
+                  "opt_in",
+                  "opt_out"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The Speaker's own latest choice in the Speaker portal, or null. After 'opt_out' a coordinator may not escalate this contact; after 'opt_in' it may not suppress it, change its evidence or move it away from 'active_candidate'.",
+            "title": "Speaker Choice"
+          },
+          "speaker_choice_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When the Speaker made that choice.",
+            "title": "Speaker Choice At"
           },
           "suppressed": {
             "title": "Suppressed",
