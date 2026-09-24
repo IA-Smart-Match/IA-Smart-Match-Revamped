@@ -1847,71 +1847,6 @@ export async function fetchCoordinatorEvents(coordinatorId: string): Promise<{ d
 }
 
 // ---------------------------------------------------------------------------
-// Volunteer portal types
-// ---------------------------------------------------------------------------
-
-export interface VolunteerProfile {
-  volunteer_id: string;
-  name: string;
-  title: string;
-  company: string;
-  board_role: string;
-  metro_region: string;
-  expertise_tags: string;
-  initials: string;
-  recovery_status: string;
-  recovery_label: string;
-  volunteer_fatigue: number;
-  source?: string;
-}
-
-export type AssignmentStage = "Matched" | "Contacted" | "Confirmed" | "Attended";
-
-/**
- * One volunteer assignment as the client is allowed to see it.
- *
- * `match_score` is intentionally absent: it is a G1-gated factor-registry
- * output and is stripped by {@link stripG1ScoreFields} inside
- * {@link fetchVolunteerAssignments}, so it never reaches component state.
- * The request itself stays because the rest of the row (event, date, region,
- * stage, recovery) is what the assignments list is actually built from.
- */
-export interface VolunteerAssignment {
-  assignment_id: string;
-  event_id: string;
-  event_name: string;
-  event_date: string;
-  region: string;
-  stage: AssignmentStage;
-  volunteer_fatigue: number;
-  recovery_status: string;
-  recovery_label: string;
-  coverage_status: string;
-}
-
-export async function fetchVolunteerProfile(
-  volunteerId: string,
-): Promise<VolunteerProfile & { source: string }> {
-  const subjectPath = portalSubjectPath(volunteerId, "volunteer");
-  return requestJson<VolunteerProfile & { source: string }>(
-    `${API_BASE}/portals/volunteers/${subjectPath}`,
-  );
-}
-
-export async function fetchVolunteerAssignments(
-  volunteerId: string,
-): Promise<{ data: VolunteerAssignment[]; total: number; source: string }> {
-  const subjectPath = portalSubjectPath(volunteerId, "volunteer");
-  const payload = await requestJson<{
-    data: VolunteerAssignment[];
-    total: number;
-    source: string;
-  }>(`${API_BASE}/portals/volunteers/${subjectPath}/assignments`);
-  // G1 fail-closed: the score is discarded here, not merely left unrendered.
-  return { ...payload, data: (payload.data ?? []).map(stripG1ScoreFields) };
-}
-
-// ---------------------------------------------------------------------------
 // Identity + accountable metrics (`contracts/openapi/smartmatch.json`)
 // ---------------------------------------------------------------------------
 
@@ -4047,6 +3982,96 @@ export async function fetchSpeakerContactChannels(
     `/v1/units/${encodeURIComponent(unitId)}/speaker-contacts/` +
       `${encodeURIComponent(professionalId)}/channels`,
     { method: "GET" },
+    { authenticated: true },
+  );
+}
+
+// Speaker availability (B26 T3)
+//
+// A roster contact's stated availability, read and replaced by a Connector.
+// The types are generic so the speaker's own `/v1/me/availability` (T6b-2)
+// reuses them. "Not stated" is `stated: false` with every value `null` — a
+// screen says "Not stated", never "Available".
+
+export type SpeakerAvailabilitySource = "speaker" | "connector";
+
+/** One inclusive date range, `YYYY-MM-DD`. */
+export interface SpeakerAvailabilityWindow {
+  starts_on: string;
+  ends_on: string;
+}
+
+export interface SpeakerAvailabilityWindowView extends SpeakerAvailabilityWindow {
+  source: SpeakerAvailabilitySource;
+}
+
+export interface SpeakerAvailability {
+  professional_id: string;
+  stated: boolean;
+  /** `null` exactly when `stated` is false. */
+  version: number | null;
+  /** The stored value, even if already past. */
+  invitations_paused_until: string | null;
+  declared_capacity_hours_per_90_days: number | null;
+  unavailable: SpeakerAvailabilityWindowView[];
+  updated_source: SpeakerAvailabilitySource | null;
+  updated_at: string | null;
+}
+
+/** Full replace: every key is sent; `null` clears; an omitted window is deleted. */
+export interface SpeakerAvailabilityUpdatePayload {
+  /** Required: echo `version` from the read (`null` when it was not stated). */
+  expected_version: number | null;
+  invitations_paused_until: string | null;
+  declared_capacity_hours_per_90_days: number | null;
+  unavailable: SpeakerAvailabilityWindow[];
+}
+
+export type SpeakerAvailabilityErrorCode =
+  | "speaker_availability_stale"
+  | "speaker_availability_window_invalid"
+  | "speaker_availability_too_many_windows"
+  | "speaker_availability_pause_invalid"
+  | "speaker_availability_capacity_invalid"
+  | "speaker_contact_not_found";
+
+/**
+ * `GET /v1/units/{unit_id}/speaker-contacts/{professional_id}/availability`
+ *
+ * Rejects with `ApiRequestError`: `404 speaker_contact_not_found` when the
+ * person is not on this unit's roster, `404 unit_not_found`, or `403`.
+ */
+export async function fetchSpeakerAvailability(
+  unitId: string,
+  professionalId: string,
+): Promise<SpeakerAvailability> {
+  return requestJson<SpeakerAvailability>(
+    `/v1/units/${encodeURIComponent(unitId)}/speaker-contacts/` +
+      `${encodeURIComponent(professionalId)}/availability`,
+    { method: "GET" },
+    { authenticated: true },
+  );
+}
+
+/**
+ * `PATCH /v1/units/{unit_id}/speaker-contacts/{professional_id}/availability`
+ *
+ * Sends `payload` unchanged and resolves to the stored statement. Rejects with
+ * `ApiRequestError` whose `code` is a {@link SpeakerAvailabilityErrorCode}:
+ * `409 speaker_availability_stale` (re-read with GET; no `details`), or `422`
+ * with `details.field` — plus `details.index` (the request's window index) for
+ * `window_invalid` and `details.limit` for `too_many_windows`. A malformed body
+ * is `422 invalid_request`.
+ */
+export async function updateSpeakerAvailability(
+  unitId: string,
+  professionalId: string,
+  payload: SpeakerAvailabilityUpdatePayload,
+): Promise<SpeakerAvailability> {
+  return requestJson<SpeakerAvailability>(
+    `/v1/units/${encodeURIComponent(unitId)}/speaker-contacts/` +
+      `${encodeURIComponent(professionalId)}/availability`,
+    { method: "PATCH", body: JSON.stringify(payload) },
     { authenticated: true },
   );
 }
