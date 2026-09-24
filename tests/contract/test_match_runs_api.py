@@ -2054,20 +2054,47 @@ def test_load_adds_no_query_to_the_run_read(load_context, engine, monkeypatch) -
 
 # R5
 def test_an_unknown_pin_reads_load_recorded_false(load_context, engine, monkeypatch) -> None:
+    """A stored run whose pin this build does not declare: never guessed from its data.
+
+    ``match_run`` rows are immutable (migration 0018), so the unknown-pin run is
+    a second row, written as an older or foreign release would have, carrying
+    the 3.0.0 run's own payload with its stored load blocks.
+    """
     _seed_loads(load_context)
     _make_3_0_0_current(monkeypatch, evaluate=True)
     accepted, run = _submit_and_execute(load_context, engine, _load_submission(load_context))
     assert run["load_recorded"] is True
+    source_job = uuid.UUID(accepted["job_id"])
+    job_id = uuid.uuid4()
+    run_id = uuid.uuid4()
     with engine.begin() as conn:
         conn.execute(
-            text("UPDATE match_run SET registry_version = :v WHERE job_id = :job"),
-            {"v": "9.9.9-not-declared", "job": uuid.UUID(accepted["job_id"])},
+            text(
+                "INSERT INTO job (id, tenant_id, owning_unit_id, command_type, status, payload) "
+                "SELECT :id, tenant_id, owning_unit_id, command_type, 'succeeded', payload "
+                "FROM job WHERE id = :source"
+            ),
+            {"id": job_id, "source": source_job},
+        )
+        conn.execute(
+            text(
+                "INSERT INTO match_run (id, tenant_id, owning_unit_id, job_id, event_need_id, "
+                "inputs_hash, portfolio_size, random_seed, registry_version, registry_hash, "
+                "weights, optimizer_model_version, solver_name, solver_version, "
+                "route_estimate_source, route_estimate_version, portfolio_status) "
+                "SELECT :id, tenant_id, owning_unit_id, :job, event_need_id, inputs_hash, "
+                "portfolio_size, random_seed, :pin, registry_hash, weights, "
+                "optimizer_model_version, solver_name, solver_version, route_estimate_source, "
+                "route_estimate_version, portfolio_status FROM match_run WHERE job_id = :source"
+            ),
+            {"id": run_id, "job": job_id, "pin": "9.9.9-not-declared", "source": source_job},
         )
 
-    reread = _read_run(load_context, engine, uuid.UUID(accepted["job_id"]))
+    read = _get(load_context, f"/v1/units/{load_context.unit_id}/match-runs/{run_id}")
 
-    assert reread["registry_version"] == "9.9.9-not-declared"
-    assert reread["load_recorded"] is False
+    assert read.status_code == 200, read.text
+    assert read.json()["registry_version"] == "9.9.9-not-declared"
+    assert read.json()["load_recorded"] is False
 
 
 # R6

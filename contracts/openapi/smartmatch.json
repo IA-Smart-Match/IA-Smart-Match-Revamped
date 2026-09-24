@@ -606,6 +606,17 @@
             "description": "The composite in [0.0, 1.0], or null when any factor's evidence was absent. Not a percentage and never rendered as one.",
             "title": "Heuristic Score"
           },
+          "load": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CandidateLoadBlockView"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The engagement load recorded for this candidate at run time (registry 3.x only; omitted on 1.x and 2.x runs, see load_recorded). Screens show the band word only (OQ-CBA-005)."
+          },
           "policy_neutral_factor_keys": {
             "description": "The factors whose value came from a stated customer policy rather than a measurement, in registry order. These participate in the composite; they are listed so a consumer can say which parts of a score were policy without comparing floats to a constant.",
             "items": {
@@ -676,6 +687,95 @@
           "factors"
         ],
         "title": "CandidateExplanationView",
+        "type": "object"
+      },
+      "CandidateLoadBlockView": {
+        "description": "The engagement load a 3.x score was multiplied by (B26 T8d).\n\nT8c's :class:`LoadBlockView` plus the two Stage B fields a scored candidate\nhas. A subclass, so T8c's excluded-candidate schema stays exactly as it is.\nLike its parent it has **no field** for the stored ``unknown_hours_refs``:\nthose name bookings in every unit, and no other unit's record id reaches\nthe Connector run wire. Screens show the band word only (OQ-CBA-005).",
+        "properties": {
+          "as_of": {
+            "description": "The run's UTC date (ISO).",
+            "title": "As Of",
+            "type": "string"
+          },
+          "band": {
+            "description": "light, moderate, heavy, full, or unknown.",
+            "title": "Band",
+            "type": "string"
+          },
+          "capacity_hours": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capacity Hours"
+          },
+          "completed_hours": {
+            "title": "Completed Hours",
+            "type": "string"
+          },
+          "composite_before_load": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The unrounded composite before the multiplier; null iff heuristic_score is.",
+            "title": "Composite Before Load"
+          },
+          "confirmed_hours": {
+            "title": "Confirmed Hours",
+            "type": "string"
+          },
+          "eli_formula_version": {
+            "title": "Eli Formula Version",
+            "type": "string"
+          },
+          "measurable": {
+            "title": "Measurable",
+            "type": "boolean"
+          },
+          "multiplier": {
+            "description": "The registry's multiplier for this band, as a canonical decimal string.",
+            "title": "Multiplier",
+            "type": "string"
+          },
+          "reason": {
+            "description": "measured, capacity_not_stated, hours_unknown, or full_by_known_hours.",
+            "title": "Reason",
+            "type": "string"
+          },
+          "utilization": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Unrounded; a lower bound when not measurable; null without capacity.",
+            "title": "Utilization"
+          }
+        },
+        "required": [
+          "band",
+          "reason",
+          "measurable",
+          "completed_hours",
+          "confirmed_hours",
+          "as_of",
+          "eli_formula_version",
+          "multiplier",
+          "composite_before_load"
+        ],
+        "title": "CandidateLoadBlockView",
         "type": "object"
       },
       "ChannelListResponse": {
@@ -3941,6 +4041,12 @@
             "format": "uuid",
             "title": "Job Id",
             "type": "string"
+          },
+          "load_recorded": {
+            "default": false,
+            "description": "True when this run's registry pin applies engagement load (3.x), so every candidate carries a load block (B26 T8d). False for 1.x and 2.x runs and for an unknown pin.",
+            "title": "Load Recorded",
+            "type": "boolean"
           },
           "optimizer_model_version": {
             "title": "Optimizer Model Version",

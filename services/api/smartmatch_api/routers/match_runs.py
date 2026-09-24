@@ -185,6 +185,7 @@ from smartmatch_domain.explanation import (
     MIN_SHORTLIST_SIZE,
     SCORE_PROVENANCE_LABEL,
     CandidateExplanation,
+    LoadExplanation,
     ScoreState,
     explain_candidates,
     explanation_from_payload,
@@ -206,6 +207,7 @@ from smartmatch_domain.load_bands import (
     AssessedLoad,
     assess_pool_loads,
     assessed_load_payload,
+    canonical_decimal,
 )
 from smartmatch_domain.match_run import MATCH_RUN_COMMAND_TYPE, inputs_fingerprint
 from smartmatch_domain.optimizer import (
@@ -407,6 +409,24 @@ class ExcludedCandidateView(BaseModel):
     )
 
 
+class CandidateLoadBlockView(LoadBlockView):
+    """The engagement load a 3.x score was multiplied by (B26 T8d).
+
+    T8c's :class:`LoadBlockView` plus the two Stage B fields a scored candidate
+    has. A subclass, so T8c's excluded-candidate schema stays exactly as it is.
+    Like its parent it has **no field** for the stored ``unknown_hours_refs``:
+    those name bookings in every unit, and no other unit's record id reaches
+    the Connector run wire. Screens show the band word only (OQ-CBA-005).
+    """
+
+    multiplier: str = Field(
+        description="The registry's multiplier for this band, as a canonical decimal string."
+    )
+    composite_before_load: float | None = Field(
+        description="The unrounded composite before the multiplier; null iff heuristic_score is."
+    )
+
+
 class MatchRunAcceptedResponse(BaseModel):
     """Acknowledgement for an accepted match-run command.
 
@@ -589,6 +609,17 @@ class CandidateExplanationView(BaseModel):
             "recorded none (see availability_recorded)."
         ),
     )
+    load: CandidateLoadBlockView | None = Field(
+        default=None,
+        description=(
+            "The engagement load recorded for this candidate at run time (registry "
+            "3.x only; omitted on 1.x and 2.x runs, see load_recorded). Screens show "
+            "the band word only (OQ-CBA-005)."
+        ),
+        # Omitted rather than null, so a 1.x / 2.x candidate keeps the exact
+        # shape it had before B26 T8d.
+        exclude_if=lambda value: value is None,
+    )
 
 
 class MatchRunResponse(BaseModel):
@@ -668,6 +699,14 @@ class MatchRunResponse(BaseModel):
     availability_unreadable_reason: str | None = Field(
         default=None,
         description="Why the stored availability block could not be read, when it could not.",
+    )
+    load_recorded: bool = Field(
+        default=False,
+        description=(
+            "True when this run's registry pin applies engagement load (3.x), so "
+            "every candidate carries a load block (B26 T8d). False for 1.x and 2.x "
+            "runs and for an unknown pin."
+        ),
     )
     excluded: list[ExcludedCandidateView] = Field(
         default_factory=list,
@@ -832,7 +871,44 @@ def _to_view(
             for factor in explanation.factors
         ],
         availability=availability,
+        load=_candidate_load_view(explanation.load),
     )
+
+
+def _candidate_load_view(load: LoadExplanation | None) -> CandidateLoadBlockView | None:
+    """A stored 3.x load block onto the wire, field for field (B26 T8d).
+
+    Decimals as strings, unrounded; ``multiplier`` canonical, exactly as the
+    payload stores it. ``unknown_hours_refs`` is not copied: the view has no
+    field for it (plan-gate MED 2).
+    """
+    if load is None:
+        return None
+    return CandidateLoadBlockView(
+        band=load.band.value,
+        reason=load.reason.value,
+        measurable=load.measurable,
+        completed_hours=str(load.completed_hours),
+        confirmed_hours=str(load.confirmed_hours),
+        capacity_hours=None if load.capacity_hours is None else str(load.capacity_hours),
+        utilization=None if load.utilization is None else str(load.utilization),
+        as_of=load.as_of.isoformat(),
+        eli_formula_version=load.eli_formula_version,
+        multiplier=canonical_decimal(load.multiplier),
+        composite_before_load=load.composite_before_load,
+    )
+
+
+def _load_recorded(registry_version: str) -> bool:
+    """Whether the run's **own** pin applies engagement load; ``False`` for an unknown pin.
+
+    From the pin, never guessed from the data, and never from the current
+    registry: no database read (B26 T8d).
+    """
+    try:
+        return registry_for_version(registry_version).load_bands is not None
+    except UnknownRegistryVersionError:
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -1649,6 +1725,7 @@ def read_match_run(
         unscorable=[view(item) for item in unscorable],
         availability_recorded=stored_availability is not None,
         availability_unreadable_reason=availability_unreadable,
+        load_recorded=_load_recorded(run.registry_version),
         excluded=excluded,
         excluded_unreadable_reason=excluded_unreadable,
     )
