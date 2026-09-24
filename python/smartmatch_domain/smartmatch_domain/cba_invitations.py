@@ -59,11 +59,13 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Final, Protocol, TypeVar
 
+from smartmatch_domain.availability_verdict import StoredVerdict
 from smartmatch_domain.consent import (
     ConsentSource,
     ContactState,
     is_send_eligible,
 )
+from smartmatch_domain.eligibility import AvailabilityReason, EligibilityOutcome
 from smartmatch_domain.outreach import DeliveryEventType, SendDisposition
 
 __all__ = [
@@ -81,6 +83,7 @@ __all__ = [
     "choose_invitation_channel",
     "classify_recipient",
     "record_response",
+    "skip_reason_for_availability",
 ]
 
 
@@ -195,6 +198,11 @@ class SkipReason(StrEnum):
     #: The channel is active but the consent behind it came from a source that
     #: can never authorize a send — scraped, purchased, inferred.
     CONSENT_SOURCE_NOT_APPROVED = "consent_source_not_approved"
+    #: B26 T4. The Speaker stated a window covering the event's local date.
+    #: Checked after consent: a Speaker who said stop is reported as such.
+    SPEAKER_UNAVAILABLE_ON_DATE = "speaker_unavailable_on_date"
+    #: B26 T4. The Speaker paused invitations until a date not yet past.
+    SPEAKER_INVITATIONS_PAUSED = "speaker_invitations_paused"
 
     # **There is deliberately no `duplicate_in_request` value, and no
     # `already_invited`.** Both look like skips and neither is one.
@@ -407,3 +415,17 @@ def record_response(
         f"{requested.value!r}. An Event Host may already have acted on the first "
         "answer; whether a Speaker may change their mind is OQ-CBA-044."
     )
+
+
+def skip_reason_for_availability(verdict: StoredVerdict) -> SkipReason | None:
+    """The compose / dispatch skip an availability verdict produces, if any (B26 T4).
+
+    Only an ``excluded`` verdict skips: ``window`` → unavailable on the date,
+    ``paused`` → invitations paused. ``undetermined`` and ``eligible`` compose as
+    before — an unstated availability is not a reason to write to nobody.
+    """
+    if verdict.verdict is not EligibilityOutcome.EXCLUDED:
+        return None
+    if verdict.reason is AvailabilityReason.PAUSED:
+        return SkipReason.SPEAKER_INVITATIONS_PAUSED
+    return SkipReason.SPEAKER_UNAVAILABLE_ON_DATE

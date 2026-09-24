@@ -838,7 +838,8 @@ def transition_contact(
     charge_quota(session, principal, CONTACT_WRITE_RATE_LIMIT)
 
     owning_unit_id = _authorize_outreach(session, principal, unit_id)
-    row = _load_or_404(
+    # A 404 before any lock is taken; the row is re-read under the lock below.
+    _load_or_404(
         session,
         principal,
         owning_unit_id=owning_unit_id,

@@ -85,7 +85,11 @@ REVISION = "0033_event_filed_by"
 #: Moved again by B26 T8a: ``0040_booking_cancellation`` chains to
 #: ``0039_speaker_portal`` and is the head. It adds two nullable
 #: ``pipeline_record`` columns and writes no rows; it touches no event column.
-HEAD_REVISION = "0040_booking_cancellation"
+#: Moved again by B26 T4: ``0041_batch_speaker_request`` chains to
+#: ``0040_booking_cancellation`` and is the head. It adds one nullable
+#: ``cba_invitation_batch`` column and backfills only that column, so this
+#: file's claims still hold through it.
+HEAD_REVISION = "0041_batch_speaker_request"
 
 ON_DATE = "2026-10-14"
 ZONE = "America/Los_Angeles"

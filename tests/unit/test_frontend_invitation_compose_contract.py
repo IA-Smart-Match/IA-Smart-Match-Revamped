@@ -104,6 +104,7 @@ def test_create_batch_sends_exactly_the_contract_body() -> None:
         "event_date",
         "coordinator_name",
         "match_run_id",
+        "speaker_request_id",
     ):
         assert field in source, f"createSpeakerInvitationBatch drops {field!r}"
     # The create documents `Idempotency-Key` as required and unique per unit.

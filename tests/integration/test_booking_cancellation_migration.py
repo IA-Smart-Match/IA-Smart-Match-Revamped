@@ -43,9 +43,10 @@ pytestmark = pytest.mark.integration
 #: Read off the ``revision =`` line of ``0039_speaker_portal.py``.
 REVISION_BEFORE = "0039_speaker_portal"
 
-#: The revision under test, and the head it makes. Read off the ``revision =``
-#: line of ``0040_speaker_booking_cancellation.py``: the file name is 33
-#: characters and ``alembic_version`` is ``varchar(32)``, so the id is shorter.
+#: The revision under test. Read off the ``revision =`` line of
+#: ``0040_speaker_booking_cancellation.py``: the file name is 33 characters and
+#: ``alembic_version`` is ``varchar(32)``, so the id is shorter. Upgrades target
+#: it rather than ``head``: B26 T4's ``0041_batch_speaker_request`` chains to it.
 REVISION = "0040_booking_cancellation"
 
 _CHECKS = (
@@ -219,7 +220,7 @@ def test_the_upgrade_writes_no_row_and_leaves_every_journey_uncancelled(engine: 
                     text("SELECT id, updated_at FROM pipeline_record ORDER BY id")
                 ).all()
 
-            alembic(url, "head", expect_success=True)
+            alembic(url, REVISION, expect_success=True)
             assert applied_revision(url) == REVISION
 
             with scratch.connect() as conn:
@@ -393,7 +394,7 @@ def test_the_cancelling_account_cannot_be_deleted(engine: Engine, tenant_id, coo
 
 def test_downgrade_drops_both_columns_and_all_four_checks(engine: Engine):
     with scratch_database(engine) as url:
-        alembic(url, "head", expect_success=True)
+        alembic(url, REVISION, expect_success=True)
         with connected(url) as scratch:
             with scratch.connect() as conn:
                 assert {"cancelled_at", "cancelled_by_user_id"} <= _columns(conn)
@@ -412,5 +413,5 @@ def test_downgrade_drops_both_columns_and_all_four_checks(engine: Engine):
                 ).scalar_one()
             assert index == 0
 
-            alembic(url, "head", expect_success=True)
+            alembic(url, REVISION, expect_success=True)
             assert applied_revision(url) == REVISION

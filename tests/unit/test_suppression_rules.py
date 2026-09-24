@@ -25,6 +25,7 @@ from smartmatch_domain.suppression import (
     SuppressionSource,
     SuppressionState,
     SuppressionWrite,
+    address_is_login,
     liftable_sources,
     merge_suppression,
     speaker_facing_reason,
@@ -288,3 +289,26 @@ def test_single_row_merge_matches_the_per_source_model(address_is_login: bool) -
                 == model.verdict(address_is_login=address_is_login)[0]
             ), sequence
     assert cases == 7**4
+
+
+# ---------------------------------------------------------------------------
+# address_is_login (OQ-3): which address the invitation proved
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("address", "login", "expected"),
+    [
+        ("dana@synthetic.invalid", "dana@synthetic.invalid", True),
+        ("  Dana@Synthetic.Invalid ", "dana@synthetic.invalid", True),
+        ("other@synthetic.invalid", "dana@synthetic.invalid", False),
+        ("dana@synthetic.invalid", None, False),
+        # U+212A KELVIN SIGN lowers to "k" in Python; it is a different mailbox.
+        ("\u212aim@synthetic.invalid", "kim@synthetic.invalid", False),
+        ("kim@synthetic.invalid", "\u212aim@synthetic.invalid", False),
+    ],
+)
+def test_address_is_login_is_an_ascii_case_fold(
+    address: str, login: str | None, expected: bool
+) -> None:
+    assert address_is_login(address, login) is expected

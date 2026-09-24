@@ -1,0 +1,157 @@
+{
+  "id": "G-CBA-13",
+  "title": "Stage A availability annotates the shortlist and moves neither hash nor order",
+  "asserts": "A pool of four, one per availability verdict (unavailable window, paused, not stated, clear). The ranking, every heuristic score, weights_fingerprint and inputs_fingerprint are identical with and without the verdicts; apply_availability_filter returns one decision per subject in ranked order; each subject's verdict is the hand-written one below. The highest-scored Speaker is the unavailable one, so an exclusion that reordered or dropped anybody would show here.",
+  "owner_decisions": [
+    "B26 parent plan §5.1: availability is a Stage A eligibility filter, weight 0, never a Stage B input",
+    "B26 T4 C3: the verdict annotates; it removes no one from candidates",
+    "B26 T4 C7: as_of is the UTC date; window overlap uses the event's local dates"
+  ],
+  "registry_version": "2.0.0-approved-oq-cba-004",
+  "scoring_mode": "cba-physical-1",
+  "event_span": {
+    "first": "2026-10-05",
+    "last": "2026-10-05"
+  },
+  "as_of": "2026-10-01",
+  "request": {
+    "description": "A panel on financial planning for small businesses.",
+    "sectors": [
+      "52"
+    ],
+    "roles": [
+      "finance"
+    ]
+  },
+  "candidates": [
+    {
+      "subject_id": "SYNTH-CBA-13-A-WINDOW",
+      "sector": "52",
+      "role": "finance",
+      "profile_present": true,
+      "topic_text": "small business financial planning workshops",
+      "topic_score": 0.9,
+      "topic_rationale": "Their recorded workshops address the request's financial planning focus.",
+      "city": "Pomona",
+      "postal_code": "91768",
+      "distance_miles": 10.0,
+      "availability": {
+        "invitations_paused_until": null,
+        "unavailable": [
+          {
+            "starts_on": "2026-10-04",
+            "ends_on": "2026-10-06"
+          }
+        ]
+      }
+    },
+    {
+      "subject_id": "SYNTH-CBA-13-B-PAUSED",
+      "sector": "52",
+      "role": "finance",
+      "profile_present": true,
+      "topic_text": "cash flow planning for owner-operators",
+      "topic_score": 0.8,
+      "topic_rationale": "Their recorded cash flow work addresses the request's planning focus.",
+      "city": "Pomona",
+      "postal_code": "91768",
+      "distance_miles": 10.0,
+      "availability": {
+        "invitations_paused_until": "2027-01-10",
+        "unavailable": []
+      }
+    },
+    {
+      "subject_id": "SYNTH-CBA-13-C-NOT-STATED",
+      "sector": "52",
+      "role": "finance",
+      "profile_present": true,
+      "topic_text": "retirement plans for small employers",
+      "topic_score": 0.6,
+      "topic_rationale": "Their recorded retirement-plan work touches the request's planning focus.",
+      "city": "Pomona",
+      "postal_code": "91768",
+      "distance_miles": 10.0,
+      "availability": null
+    },
+    {
+      "subject_id": "SYNTH-CBA-13-D-CLEAR",
+      "sector": "52",
+      "role": "finance",
+      "profile_present": true,
+      "topic_text": "corporate treasury operations",
+      "topic_score": 0.4,
+      "topic_rationale": "Their recorded treasury work is adjacent to the request's focus.",
+      "city": "Pomona",
+      "postal_code": "91768",
+      "distance_miles": 10.0,
+      "availability": {
+        "invitations_paused_until": null,
+        "unavailable": [
+          {
+            "starts_on": "2026-11-01",
+            "ends_on": "2026-11-02"
+          }
+        ]
+      }
+    }
+  ],
+  "expected": {
+    "weights_fingerprint": "sha256:f870192c2b1d9977aaf4be3368f51f67accbbbba9955e4346a4445b0be4be4e5",
+    "inputs_fingerprint": "sha256:d770ca49d66934f1436a3ac2d37f15e72da233decc0f7f3d2ef2f80c8c230203",
+    "applied_weights": {
+      "industry_match": 0.3,
+      "role_match": 0.25,
+      "cba_semantic_topic": 0.15,
+      "proximity": 0.3
+    },
+    "ranking": [
+      "SYNTH-CBA-13-A-WINDOW",
+      "SYNTH-CBA-13-B-PAUSED",
+      "SYNTH-CBA-13-C-NOT-STATED",
+      "SYNTH-CBA-13-D-CLEAR"
+    ],
+    "candidates": {
+      "SYNTH-CBA-13-A-WINDOW": {
+        "composite_state": "measured",
+        "heuristic_score": 0.985,
+        "availability": {
+          "verdict": "excluded",
+          "state": "blacked_out",
+          "reason": "window",
+          "paused_until": null
+        }
+      },
+      "SYNTH-CBA-13-B-PAUSED": {
+        "composite_state": "measured",
+        "heuristic_score": 0.97,
+        "availability": {
+          "verdict": "excluded",
+          "state": "blacked_out",
+          "reason": "paused",
+          "paused_until": "2027-01-10"
+        }
+      },
+      "SYNTH-CBA-13-C-NOT-STATED": {
+        "composite_state": "measured",
+        "heuristic_score": 0.94,
+        "availability": {
+          "verdict": "undetermined",
+          "state": "unknown",
+          "reason": "not_stated",
+          "paused_until": null
+        }
+      },
+      "SYNTH-CBA-13-D-CLEAR": {
+        "composite_state": "measured",
+        "heuristic_score": 0.91,
+        "availability": {
+          "verdict": "eligible",
+          "state": "available",
+          "reason": "clear",
+          "paused_until": null
+        }
+      }
+    }
+  }
+}

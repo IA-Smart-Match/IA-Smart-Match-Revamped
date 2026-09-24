@@ -96,6 +96,7 @@ from dataclasses import dataclass
 from typing import Any, Final
 
 import sqlalchemy as sa
+from smartmatch_domain.availability_verdict import event_time_from_columns, filed_this_request
 from smartmatch_domain.cba_classification import match_ineligibility_reason
 from smartmatch_domain.cba_role_categories import (
     CBA_ROLE_TAXONOMY_VERSION,
@@ -104,6 +105,7 @@ from smartmatch_domain.cba_role_categories import (
     UnknownCbaRoleCategory,
     role_category_for_code,
 )
+from smartmatch_domain.events import EventTime
 from smartmatch_domain.factors.cba_semantic_topic import SpeakerTopicEvidence
 from smartmatch_domain.factors.industry_match import IndustryMatchInputs
 from smartmatch_domain.factors.proximity import (
@@ -155,6 +157,11 @@ EXCLUSION_INDUSTRY_TAXONOMY_SUPERSEDED: Final[str] = "industry_taxonomy_version_
 #: Same, for ``role_match``.
 EXCLUSION_ROLE_TAXONOMY_SUPERSEDED: Final[str] = "role_taxonomy_version_superseded"
 
+#: B26 Q8: the Speaker's bound login (``speaker_profile.account_user_id``) filed
+#: this Speaker Request, so they are left out of its matching. A pool rule only:
+#: a Connector may still add them to a batch by hand.
+EXCLUSION_FILED_THIS_REQUEST: Final[str] = "filed_this_request"
+
 #: A stored code the released NAICS table does not name.
 #: ``ck_speaker_profile_industry_code`` forbids such a row, so reaching this
 #: means the vocabulary moved under a stored value; it is reported rather than
@@ -182,6 +189,10 @@ class SpeakerRequestEvidence:
         is_virtual: §12's switch. The only input to :attr:`scoring_mode`.
         requested_sectors: §7's targets, already resolved.
         requested_roles: §8's targets, already resolved.
+        event_time: The request's time, rebuilt from its columns. B26 T4 checks
+            each Speaker's stated availability against its local dates.
+        filed_by_user_id: Who filed the request (``0033``), or ``None`` when
+            unrecorded. Q8 leaves out the Speaker whose bound login filed it.
     """
 
     event_id: uuid.UUID
@@ -189,6 +200,8 @@ class SpeakerRequestEvidence:
     is_virtual: bool
     requested_sectors: tuple[SectorResolution, ...]
     requested_roles: tuple[RoleCategoryResolution, ...]
+    event_time: EventTime
+    filed_by_user_id: uuid.UUID | None = None
 
     @property
     def scoring_mode(self) -> str:
@@ -271,6 +284,12 @@ def load_speaker_request(
             schema.event.c.id,
             schema.event.c.description,
             schema.event.c.is_virtual,
+            schema.event.c.filed_by_user_id,
+            schema.event.c.time_precision,
+            schema.event.c.starts_at,
+            schema.event.c.ends_at,
+            schema.event.c.on_date,
+            schema.event.c.time_zone,
         ).where(
             schema.event.c.tenant_id == tenant_id,
             schema.event.c.host_org_unit_id == host_org_unit_id,
@@ -306,6 +325,14 @@ def load_speaker_request(
         is_virtual=bool(row.is_virtual),
         requested_sectors=_resolved_sectors(targets),
         requested_roles=_resolved_roles(targets),
+        event_time=event_time_from_columns(
+            time_precision=row.time_precision,
+            starts_at=row.starts_at,
+            ends_at=row.ends_at,
+            on_date=row.on_date,
+            time_zone=row.time_zone,
+        ),
+        filed_by_user_id=row.filed_by_user_id,
     )
 
 
@@ -395,6 +422,13 @@ def assemble_cba_pool(
             excluded.append(ExcludedCandidate(subject, EXCLUSION_PROFILE_NOT_FOUND))
             continue
 
+        # Q8 (B26 T4), before any scoring: the requester never reaches
+        # `rank_cba_candidates`, so leaving them out fingerprints exactly like
+        # not naming them. Both ids must be known — NULL never equals NULL.
+        if filed_this_request(request.filed_by_user_id, row.account_user_id):
+            excluded.append(ExcludedCandidate(subject, EXCLUSION_FILED_THIS_REQUEST))
+            continue
+
         # Track 16's gate, called and not re-derived. It is evaluated **before**
         # any evidence is assembled, so an unreviewed record's classification
         # never reaches a factor at all — there is no path by which it could be
@@ -440,6 +474,7 @@ def _profiles_by_professional_id(
     rows = session.execute(
         sa.select(
             schema.speaker_profile.c.professional_id,
+            schema.speaker_profile.c.account_user_id,
             schema.speaker_profile.c.primary_industry_code,
             schema.speaker_profile.c.industry_taxonomy_version,
             schema.speaker_profile.c.industry_classification_source,
