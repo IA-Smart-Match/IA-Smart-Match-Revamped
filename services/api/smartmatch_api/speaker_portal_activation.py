@@ -13,8 +13,8 @@ checks the new password's policy first (steps 1–3); this module is the rest.
     ``speaker`` role.
 ``existing_login``
     Exactly one credentialed account in this tenant holds the address — an
-    Event Host's login (Q1: an active ``volunteer`` role and no active staff
-    or student role; :func:`existing_login_may_bind`). The Speaker proves
+    Event Host's login (Q1: its active roles, ``speaker`` aside, are exactly
+    ``{volunteer}``; :func:`existing_login_may_bind`). The Speaker proves
     it with that login's password; the login gains ``speaker``. No email, no
     credential and no account is written. The contact account keeps its
     ``.invalid`` email and no credential (R-B).

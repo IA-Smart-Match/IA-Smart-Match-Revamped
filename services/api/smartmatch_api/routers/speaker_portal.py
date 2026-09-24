@@ -239,7 +239,8 @@ def _precheck_address(
     Advisory only — reads, locks nothing; activation decides under its locks.
     Names no other tenant, account or role: every holder that fails Q1
     (:func:`existing_login_may_bind`) — staff, student, no active role,
-    expired roles only, ``speaker`` only — gets one code and one message.
+    expired roles only, ``speaker`` only, ``volunteer`` plus any other role —
+    gets one code and one message.
     """
     holders = login_accounts.holders_for_address(
         session, tenant_id=tenant_id, address=address, lock=False

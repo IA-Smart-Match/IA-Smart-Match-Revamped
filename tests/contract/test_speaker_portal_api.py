@@ -1080,8 +1080,8 @@ def _contact_state(ctx: _Ctx, professional_id: uuid.UUID) -> tuple:
     )
 
 
-#: Q1: existing-login mode binds a login only when it holds an active
-#: ``volunteer`` role and no active ``admin``/``coordinator``/``student`` one.
+#: Q1: existing-login mode binds a login only when its active roles,
+#: ``speaker`` aside, are exactly ``{volunteer}`` (a true allow-list).
 #: Each refused holder, as ``(active roles, expired roles)``.
 _REFUSED_ROLE_CASES: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     "coordinator": (("coordinator",), ()),
@@ -1339,7 +1339,7 @@ class TestExistingLogin:
 
     @pytest.mark.parametrize("case", list(_ACCEPTED_ROLE_CASES))
     def test_an_active_volunteer_login_binds(self, ctx: _Ctx, case: str) -> None:
-        """Q1 allow-list: an active ``volunteer`` and no active staff or student role."""
+        """Q1 allow-list: active roles, ``speaker`` aside, exactly ``{volunteer}``."""
         host_address = f"Host-{uuid.uuid4().hex[:8]}@Synthetic.invalid"
         host_id, pw = _holder(ctx, host_address, case)
         professional_id, _, token, _ = ctx.invited(address=host_address)

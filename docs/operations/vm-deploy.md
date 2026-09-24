@@ -1104,7 +1104,10 @@ roles, and `/v1/me/portals` lists the Event Host Portal first.
   pilot volunteer can no longer sign in. The Connector's screen also reports
   it as not shared. To recover, run `seed-logins` again: the address is free
   and the seed creates a fresh volunteer login with the configured password.
-  Until the follow-up lands, give the volunteer an address no Speaker uses.
+  If an earlier run seeded the volunteer at another address, the re-run stops
+  with a conflict instead ("exists with different account attributes"); fix
+  that first. Until the follow-up lands, give the volunteer an address no
+  Speaker uses.
 - **Credentials are written by one module.** Create, rotate and remove
   pilot credentials only through `tools/seed_pilot_logins.py` (or activation
   and unbind); never with SQL on `pilot_credential`. A second credential at an
