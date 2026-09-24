@@ -1,0 +1,149 @@
+"""Source contract for the Speaker Portal pages (B26 T6b-4 §9.3).
+
+The Speaker Portal is the one shell whose every request names no subject: the
+server resolves the Speaker from the bearer token (``/v1/me/*``). These scans
+hold that, and the boundaries around it, at the level a source scan can reach:
+
+- the file set exists, so a renamed file fails by name instead of letting the
+  scans below pass over nothing;
+- no Speaker page calls a Connector route (``/v1/units/…``) or a Connector
+  adapter, so no page can come to name a unit or a professional;
+- the three contact-channel adapters take no subject;
+- the two slots a later track fills (the portal switcher, T6b-5, and the load
+  band, T8d) are marked where that track will look, and nothing is built early.
+"""
+
+from __future__ import annotations
+
+import re
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+FRONTEND_SRC = REPO_ROOT / "apps" / "web" / "legacy-frontend" / "src"
+
+API_LIB = FRONTEND_SRC / "lib" / "api.ts"
+LAYOUT = FRONTEND_SRC / "app" / "components" / "SpeakerPortalLayout.tsx"
+HOOKS = FRONTEND_SRC / "app" / "hooks" / "useSpeakerSelf.ts"
+SPEAKER_PAGES = FRONTEND_SRC / "app" / "pages" / "speaker"
+OWN_AVAILABILITY = SPEAKER_PAGES / "SpeakerOwnAvailability.tsx"
+
+#: Exactly the files under ``app/pages/speaker/`` (tests aside).
+SPEAKER_PAGE_FILES = frozenset(
+    {
+        "SpeakerHome.tsx",
+        "SpeakerInvitations.tsx",
+        "SpeakerEngagements.tsx",
+        "SpeakerOwnAvailability.tsx",
+        "SpeakerContactPreferences.tsx",
+        "InvitationRow.tsx",
+        "EngagementRow.tsx",
+        "ContactChannelRow.tsx",
+        "SpeakerSelfNotice.tsx",
+        "speakerPortalErrors.ts",
+        "speakerPortalFormat.ts",
+        "useSpeakerPageTitle.ts",
+    }
+)
+
+#: The Connector adapters a Speaker page must never reach for.
+CONNECTOR_ADAPTERS = (
+    "fetchSpeakerAvailability(",
+    "updateSpeakerAvailability(",
+    "fetchSpeakerContactChannels(",
+    "fetchSpeakerInvitationBatches(",
+)
+
+#: The three adapters T6b-4 writes, and the path each one calls.
+CONTACT_CHANNEL_ADAPTERS = {
+    "fetchMyContactChannels": "`/v1/me/contact-channels`",
+    "optInMyContactChannel": "/opt-in`",
+    "optOutMyContactChannel": "/opt-out`",
+}
+
+SUBJECT_PARAMETERS = ("professionalId", "unitId", "userId")
+
+
+def _code_only(source: str) -> str:
+    """Strip JSDoc blocks and line comments before scanning.
+
+    The ``test_frontend_invitation_compose_contract.py`` helper, for the same
+    reason: these files explain the rules they obey, and a raw scan would fail
+    on a file's own account of why it passes.
+    """
+    without_blocks = re.sub(r"/\*.*?\*/", "", source, flags=re.DOTALL)
+    return "\n".join(
+        line for line in without_blocks.splitlines() if not line.lstrip().startswith("//")
+    )
+
+
+def _speaker_sources() -> list[Path]:
+    pages = sorted(
+        path
+        for path in SPEAKER_PAGES.iterdir()
+        if path.is_file() and path.suffix in {".ts", ".tsx"} and ".test." not in path.name
+    )
+    return [*pages, HOOKS]
+
+
+def _signature(source: str, name: str) -> str:
+    match = re.search(rf"export async function {name}\((.*?)\)", source, flags=re.DOTALL)
+    assert match is not None, f"lib/api.ts has no `export async function {name}(`"
+    return match.group(1)
+
+
+def _function_body(source: str, name: str) -> str:
+    start = source.index(f"export async function {name}(")
+    end = source.find("\nexport ", start + 1)
+    return source[start : end if end != -1 else len(source)]
+
+
+def test_the_speaker_portal_file_set_exists() -> None:
+    """Asserted first, so a missing or renamed file fails here by name."""
+    assert LAYOUT.is_file(), "app/components/SpeakerPortalLayout.tsx is missing"
+    assert HOOKS.is_file(), "app/hooks/useSpeakerSelf.ts is missing"
+    present = frozenset(
+        path.name
+        for path in SPEAKER_PAGES.iterdir()
+        if path.is_file() and ".test." not in path.name
+    )
+    assert present == SPEAKER_PAGE_FILES, (
+        f"app/pages/speaker/ holds {sorted(present)}; expected exactly {sorted(SPEAKER_PAGE_FILES)}"
+    )
+
+
+def test_speaker_pages_call_only_me_routes() -> None:
+    for path in _speaker_sources():
+        code = _code_only(path.read_text(encoding="utf-8"))
+        assert "/v1/units/" not in code, f"{path.name} names a Connector route"
+        for adapter in CONNECTOR_ADAPTERS:
+            assert adapter not in code, f"{path.name} calls the Connector adapter {adapter}"
+
+
+def test_contact_channel_adapters_take_no_subject() -> None:
+    source = _code_only(API_LIB.read_text(encoding="utf-8"))
+    for name, path in CONTACT_CHANNEL_ADAPTERS.items():
+        signature = _signature(source, name)
+        for parameter in SUBJECT_PARAMETERS:
+            assert parameter not in signature, f"{name} takes a subject ({parameter})"
+        body = _function_body(source, name)
+        assert path in body, f"{name} does not call {path}"
+        assert "/v1/units/" not in body, f"{name} calls a Connector route"
+    assert _signature(source, "fetchMyContactChannels").strip() == ""
+
+
+def test_the_t6b5_and_t8d_slots_are_marked() -> None:
+    """Raw source: the slots are comments, which ``_code_only`` would strip."""
+    layout = LAYOUT.read_text(encoding="utf-8")
+    assert layout.count("SLOT(T6b-5)") == 2, "the layout marks the switcher slot twice"
+    identity = layout.index("principalDisplayName(")
+    sign_out = layout.index("Sign out", identity)
+    sidebar_slot = layout.index("SLOT(T6b-5)")
+    assert sidebar_slot < identity, "the sidebar switcher slot sits above the identity block"
+    assert "SLOT(T6b-5)" not in layout[identity:sign_out], (
+        "nothing may sit between the profile and Sign out (DESIGN.md: sign-out directly "
+        "beneath the profile area)"
+    )
+    assert "SLOT(T6b-5): portal switcher (mobile)" in layout
+
+    availability = OWN_AVAILABILITY.read_text(encoding="utf-8")
+    assert availability.count("SLOT(T8d)") == 1, "the availability page marks the load band slot"
