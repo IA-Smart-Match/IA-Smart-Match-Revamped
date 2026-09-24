@@ -383,6 +383,12 @@ define one.
 - Speaker Connectors maintain private contact details in `speaker_contacts` and
   read/write them from `CoordinatorSpeakerContacts`. Event Hosts never see raw
   speaker email or phone; they see only fields the granting endpoint publishes.
+- Speaker Connectors read and correct a Speaker's stated availability from the
+  roster row (the "Availability" disclosure in `CoordinatorSpeakerContacts`,
+  `SpeakerAvailabilityPanel` + `SpeakerAvailabilityForm`). "Not stated" is never
+  shown as available; saving an empty form is labelled "no dates blocked"; a
+  stale (409) save keeps the draft and shows the saved version before any
+  overwrite.
 - A match run (`CoordinatorMatchRuns`, `/coordinator-portal/match-runs`) scores stored speaker contacts against a filed Speaker Request and produces a shortlist. Explain relevant topics and regional service in words; never display internal weights, scores, percentages, or confidence (OQ-CBA-005).
 - Submitting a shortlist opens `CoordinatorInvitations` (`/coordinator-portal/invitations`), which composes and sends an **approved, consented invitation batch** — real email/batch send controls, gated on `cold_unknown_contact_outreach` / `external_speaker_acquisition` for the legacy admin `/outreach` surface, and on `CONSENTED_OUTREACH` for the coordinator-portal compose path. A draft is sent only to a contact whose consent is already on record, re-checked at delivery.
 - Both roles use one shared speaker-event record, notes, and append-only history. Render only actions authorized for the signed-in role and current status.

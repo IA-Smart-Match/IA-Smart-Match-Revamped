@@ -64,11 +64,11 @@ from smartmatch_domain import role_presentation
 _JOB_OVERSIGHT = frozenset({"admin", "coordinator"})
 _IMPORT = frozenset({"admin", "coordinator"})
 _REVIEW = frozenset({"admin", "coordinator"})
-#: B26 T6b-1: invite, revoke and the access read. The Speaker Connector only.
-_SPEAKER_PORTAL = frozenset({"admin", "coordinator"})
 #: ``cba_contacts._SPEAKER_CONTACT_ROLES``, which the B26 T3 availability routes
 #: authorize against. Its own literal object, for the ``is`` comparison below.
 _SPEAKER_CONTACT = frozenset({"admin", "coordinator"})
+#: B26 T6b-1: invite, revoke and the access read. The Speaker Connector only.
+_SPEAKER_PORTAL = frozenset({"admin", "coordinator"})
 
 _SPEAKER_AVAILABILITY_PATH = "/v1/units/{unit_id}/speaker-contacts/{professional_id}/availability"
 #: ``speaker_self._SPEAKER_SELF_ROLES`` (B26 T6b-2): the signed-in Speaker's
@@ -90,6 +90,8 @@ ROUTE_ROLE_LEDGER: dict[tuple[str, str], frozenset[str] | None] = {
     ("POST", "/v1/review-items/{review_item_id}/decision"): _REVIEW,
     ("GET", "/v1/me"): None,
     ("GET", "/v1/me/portals"): None,
+    ("GET", _SPEAKER_AVAILABILITY_PATH): _SPEAKER_CONTACT,
+    ("PATCH", _SPEAKER_AVAILABILITY_PATH): _SPEAKER_CONTACT,
     (
         "POST",
         "/v1/units/{unit_id}/speaker-contacts/{professional_id}/portal-invitations",
@@ -101,8 +103,6 @@ ROUTE_ROLE_LEDGER: dict[tuple[str, str], frozenset[str] | None] = {
     ("GET", "/v1/units/{unit_id}/speaker-contacts/{professional_id}/portal-access"): (
         _SPEAKER_PORTAL
     ),
-    ("GET", _SPEAKER_AVAILABILITY_PATH): _SPEAKER_CONTACT,
-    ("PATCH", _SPEAKER_AVAILABILITY_PATH): _SPEAKER_CONTACT,
     ("GET", "/v1/me/availability"): _SPEAKER_SELF,
     ("PATCH", "/v1/me/availability"): _SPEAKER_SELF,
     ("GET", "/v1/me/invitations"): _SPEAKER_SELF,
@@ -260,14 +260,14 @@ def test_the_ledger_covers_exactly_the_routes_this_track_owns() -> None:
         ("POST", "/v1/review-items/{review_item_id}/decision"),
         ("GET", "/v1/me"),
         ("GET", "/v1/me/portals"),
+        ("GET", _SPEAKER_AVAILABILITY_PATH),
+        ("PATCH", _SPEAKER_AVAILABILITY_PATH),
         ("POST", "/v1/units/{unit_id}/speaker-contacts/{professional_id}/portal-invitations"),
         (
             "DELETE",
             "/v1/units/{unit_id}/speaker-contacts/{professional_id}/portal-invitations/current",
         ),
         ("GET", "/v1/units/{unit_id}/speaker-contacts/{professional_id}/portal-access"),
-        ("GET", _SPEAKER_AVAILABILITY_PATH),
-        ("PATCH", _SPEAKER_AVAILABILITY_PATH),
         ("GET", "/v1/me/availability"),
         ("PATCH", "/v1/me/availability"),
         ("GET", "/v1/me/invitations"),
