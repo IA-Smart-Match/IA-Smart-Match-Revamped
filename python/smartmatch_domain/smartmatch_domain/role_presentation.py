@@ -117,8 +117,9 @@ class Persona(StrEnum):
     SPEAKER_CONNECTOR = "speaker_connector"
 
     #: Alumni, employers, and industry guests who receive invitations and view
-    #: upcoming engagements. Represented as contact records, not accounts —
-    #: no stored role maps here, on purpose.
+    #: upcoming engagements. A contact record first; since B26 T6b-1 a Speaker
+    #: may also hold a login, through the ``speaker`` role, which only
+    #: accepting a portal invitation grants (owner Q2 = B).
     SPEAKER = "speaker"
 
 
@@ -183,6 +184,15 @@ _PRESENTATION: Final[Mapping[str, RolePresentation]] = MappingProxyType(
             persona=Persona.SPEAKER_CONNECTOR,
             role_label="Speaker Connector (administrator)",
             portal_display_name="Connector Dashboard",
+        ),
+        # B26 T6b-1. Granted only by accepting a Speaker portal invitation,
+        # never by a seed (``routers/portals.py`` INVITATION_ONLY_ROLES). The
+        # role grants nothing on its own: every authorizer refuses it, and the
+        # aggregate metrics reads exclude it by name (R8).
+        "speaker": RolePresentation(
+            persona=Persona.SPEAKER,
+            role_label="Speaker",
+            portal_display_name="Speaker Portal",
         ),
     }
 )

@@ -46,8 +46,18 @@ pytestmark = pytest.mark.integration
 #: ``revision = "0024_cba_classification"``.
 REVISION_BEFORE = "0036_host_organization"
 
-#: The revision under test, and the head at the time of writing.
+#: The revision under test.
 REVISION = "0037_exercise_tables"
+
+#: The current head. ``0038_speaker_availability`` (B26 T2) chains to
+#: :data:`REVISION` and creates two ``speaker_availability`` tables; it
+#: touches no ``exercise_`` table, so every claim below holds through it.
+#: Moved again by B26 T6b-1: ``0039_speaker_portal`` chains to
+#: ``0038_speaker_availability``; it touches no ``exercise_`` table either.
+#: Moved again by B26 T8a: ``0040_booking_cancellation`` chains to
+#: ``0039_speaker_portal`` and is the head. It adds two nullable
+#: ``pipeline_record`` columns and writes no rows; it touches no ``exercise_`` table.
+HEAD_REVISION = "0040_booking_cancellation"
 
 #: Design spec §2's eight tables.
 EXERCISE_TABLES = (
@@ -125,7 +135,7 @@ def test_the_upgrade_creates_all_eight_tables(engine: Engine):
             }
 
         assert present == set(EXERCISE_TABLES)
-        assert applied_revision(url) == REVISION
+        assert applied_revision(url) == HEAD_REVISION
 
 
 def test_no_exercise_table_carries_a_tenancy_column(engine: Engine):
@@ -212,7 +222,7 @@ def test_a_second_results_run_for_the_same_team_and_event_is_refused(engine: Eng
                     },
                 )
 
-        assert applied_revision(url) == REVISION
+        assert applied_revision(url) == HEAD_REVISION
 
     assert "uq_exercise_result_run_workspace_event" in str(raised.value)
 
@@ -230,7 +240,7 @@ def test_a_seventh_team_is_refused(engine: Engine):
             with pytest.raises(DBAPIError) as raised, scratch.begin() as conn:
                 _insert_workspace(conn, dataset_id, 7)
 
-        assert applied_revision(url) == REVISION
+        assert applied_revision(url) == HEAD_REVISION
 
     assert "ck_exercise_team_workspace_team_number" in str(raised.value)
 
@@ -253,7 +263,7 @@ def test_two_workspaces_for_one_team_are_refused(engine: Engine):
             with pytest.raises(DBAPIError) as raised, scratch.begin() as conn:
                 _insert_workspace(conn, dataset_id, 3)
 
-        assert applied_revision(url) == REVISION
+        assert applied_revision(url) == HEAD_REVISION
 
     assert "uq_exercise_team_workspace_dataset_team" in str(raised.value)
 
@@ -332,4 +342,4 @@ def test_the_downgrade_removes_every_exercise_table(engine: Engine):
         # And the schema it lands on still upgrades, which is the claim a
         # downgrade is actually used for.
         alembic(url, "head", expect_success=True)
-        assert applied_revision(url) == REVISION
+        assert applied_revision(url) == HEAD_REVISION

@@ -1023,6 +1023,55 @@ NOT NULL refusal, and the database log has the statement. If that is not
 enough, reproduce it on your own machine against a scratch database with the
 variable set to `false` there.
 
+### Speaker portal token secret (B26 T6b-1)
+
+`SMARTMATCH_SPEAKER_PORTAL_TOKEN_SECRET` signs Speaker portal activation links.
+It matters only while the `speaker_portal` capability is on, and that is off in
+every scope today; turning it on is a reviewed code change, not this variable.
+
+- **Where it is set.** In the VM's `.env`, read by both the `api` and the
+  `worker` (`docker-compose.yml` passes it to both; empty counts as missing).
+  The two must hold the **same** value, at least 32 characters. Generate one
+  with `python -c "import secrets; print(secrets.token_urlsafe(48))"`.
+- **Fail fast.** With the capability on, either process refuses to boot when the
+  secret is missing, blank or shorter than 32 characters. With it off the
+  secret is never read.
+- **A mismatch is refused, not mailed.** A worker whose secret differs from the
+  api's refuses each invite send with `speaker_portal_token_mismatch` rather
+  than emailing a dead link. Read the job failure, set both, restart both.
+- **Rotation kills every live link.** The token is derived, never stored:
+  1. Set the new value on api and worker together.
+  2. Restart both.
+  3. Run `UPDATE speaker_portal_invitation SET revoked_at = now() WHERE
+     accepted_at IS NULL AND revoked_at IS NULL;` so Connectors see "Invite
+     again" instead of a stale "Invited".
+  4. Re-invite anyone still waiting. Activated Speakers are unaffected: they
+     sign in with their password.
+- **Access log.** The api redacts `/s/`, `/i/`, `/u/` and `/q/` path tokens in
+  uvicorn's access log to `<redacted>` and keeps the line. Cloudflare's edge
+  logs see full URLs and are outside this repository; Vite does not log proxied
+  paths by default.
+- **One shared activation rate bucket.** Activation (JSON and form) is limited
+  to 10 attempts per 5 minutes per client address, on its own counter. Behind
+  the Cloudflare Tunnel → Vite → api chain every request carries the Vite hop's
+  address, so in practice all Speakers share one bucket: one caller can stall
+  activations for 5 minutes. It is not a guessing risk (the token is 256 bits).
+  A per-client limit belongs at the edge (follow-up card).
+- **No email reaches a Speaker yet.** The worker runs the fixture provider,
+  which records a send in memory and delivers nothing, and the invite template
+  is unreviewed (`synthetic`) copy that live mode refuses. The Connector UI says
+  "Invited", never "Sent".
+- **Connector self-invite detection.** Invitations whose issuer also recorded the
+  channel's consent:
+
+  ```sql
+  SELECT i.id, i.issued_by_user_id, i.issued_at
+  FROM speaker_portal_invitation i
+  JOIN contact_channel_transition t
+    ON t.tenant_id = i.tenant_id AND t.contact_channel_id = i.contact_channel_id
+  WHERE t.actor_user_id = i.issued_by_user_id AND t.consent_source IS NOT NULL;
+  ```
+
 ### When a deployment fails
 
 The job output is the deployment log, redacted. Read it top-down: the script
