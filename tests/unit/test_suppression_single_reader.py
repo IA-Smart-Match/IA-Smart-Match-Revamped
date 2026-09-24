@@ -30,14 +30,23 @@ SCHEMA_MODULE = "python/smartmatch_persistence/smartmatch_persistence/schema.py"
 ALLOWED_TABLE_MODULES = frozenset({SUPPRESSION_MODULE, SCHEMA_MODULE})
 
 
-#: Methods whose result carries a suppression flag or is one.
-_UNIQUE_ELIGIBILITY_METHODS = frozenset({"load_recipient", "is_suppressed", "list_for_speaker"})
-_CONTACT_REPOSITORY_METHODS = frozenset({"get", "list_for_unit", "list_for_professional"})
-#: ``lock_for_address`` and ``states_for_addresses`` return lifted rows too; a
-#: caller must read ``.active``, so every caller is tracked.
-_SUPPRESSION_REPOSITORY_METHODS = frozenset(
-    {"is_active", "lock_for_address", "states_for_addresses"}
+#: Methods whose result carries a suppression flag or is one. The names are
+#: unique in the scanned tree, so any receiver counts. ``lock_for_address`` and
+#: ``states_for_addresses`` return lifted rows too; a caller must read
+#: ``.active``, so every caller is tracked.
+_UNIQUE_ELIGIBILITY_METHODS = frozenset(
+    {
+        "load_recipient",
+        "is_suppressed",
+        "list_for_speaker",
+        "lock_for_address",
+        "states_for_addresses",
+    }
 )
+_CONTACT_REPOSITORY_METHODS = frozenset({"get", "list_for_unit", "list_for_professional"})
+#: ``is_active`` is not unique (``event_registration.is_active``): tracked only
+#: on a receiver bound to ``SuppressionRepository``.
+_SUPPRESSION_REPOSITORY_METHODS = frozenset({"is_active"})
 
 #: (file, enclosing function) -> the ``SEND_PATHS`` id whose lifted_at contract
 #: test covers it. A new caller fails ``test_every_eligibility_consumer_is_known``
@@ -130,13 +139,22 @@ def _string_literals(tree: ast.Module) -> Iterator[ast.Constant]:
 
 _TABLE = "suppression_record"
 _LIFT_COLUMNS = frozenset({"lifted_at", "lifted_by_user_id"})
+_SUPPRESSION_IMPORT = "smartmatch_persistence.suppression"
+
+
+def _imports_a_private_suppression_name(node: ast.ImportFrom) -> bool:
+    """``from smartmatch_persistence.suppression import _TABLE`` (or ``from .suppression``)."""
+    module = node.module or ""
+    names_the_module = module == _SUPPRESSION_IMPORT or (node.level > 0 and module == "suppression")
+    return names_the_module and any(alias.name.startswith("_") for alias in node.names)
 
 
 def _table_offenders(rel: str, tree: ast.Module) -> list[str]:
     """Every way a module can name the table, outside a docstring.
 
     Attribute (``schema.suppression_record``), bare name or import
-    (``from ...schema import suppression_record``), and any string literal that
+    (``from ...schema import suppression_record``), a private name imported from
+    the suppression module (its ``_TABLE`` alias), and any string literal that
     contains the name (raw SQL in any case, f-string parts, ``sa.table("...")``,
     ``METADATA.tables["..."]``). Comments are not in the AST.
     """
@@ -148,6 +166,8 @@ def _table_offenders(rel: str, tree: ast.Module) -> list[str]:
             found.append(f"{rel}:{node.lineno} name {_TABLE}")
         elif isinstance(node, ast.alias) and _TABLE in (node.name, node.asname):
             found.append(f"{rel}:{getattr(node, 'lineno', 0)} import {_TABLE}")
+        elif isinstance(node, ast.ImportFrom) and _imports_a_private_suppression_name(node):
+            found.append(f"{rel}:{node.lineno} private import from {_SUPPRESSION_IMPORT}")
     for const in _string_literals(tree):
         if _TABLE in str(const.value).lower():
             found.append(f"{rel}:{const.lineno} string naming {_TABLE}")
@@ -157,9 +177,10 @@ def _table_offenders(rel: str, tree: ast.Module) -> list[str]:
 def _lift_writer_offenders(rel: str, tree: ast.Module) -> list[str]:
     """Every way a module can name a lift column, outside a docstring.
 
-    ``.c.lifted_at``, a ``lifted_at=`` keyword to ``.values(...)``, and any
-    string literal containing a lift column (dict keys, ``c["lifted_at"]``, raw
-    SQL in any case).
+    ``.c.lifted_at`` / ``.columns.lifted_at``, a lift-column keyword to any call
+    but ``.lift(...)`` (``.values(lifted_at=...)``, ``dict(lifted_at=...)``
+    spread later), and any string literal containing a lift column (dict keys,
+    ``c["lifted_at"]``, raw SQL in any case).
     """
     found: list[str] = []
     for node in ast.walk(tree):
@@ -167,16 +188,14 @@ def _lift_writer_offenders(rel: str, tree: ast.Module) -> list[str]:
             isinstance(node, ast.Attribute)
             and node.attr in _LIFT_COLUMNS
             and isinstance(node.value, ast.Attribute)
-            and node.value.attr == "c"
+            and node.value.attr in {"c", "columns"}
         ):
-            found.append(f"{rel}:{node.lineno} .c.{node.attr}")
-        if (
-            isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Attribute)
-            and node.func.attr == "values"
+            found.append(f"{rel}:{node.lineno} .{node.value.attr}.{node.attr}")
+        if isinstance(node, ast.Call) and not (
+            isinstance(node.func, ast.Attribute) and node.func.attr == "lift"
         ):
             found.extend(
-                f"{rel}:{node.lineno} .values({kw.arg}=...)"
+                f"{rel}:{node.lineno} call with {kw.arg}=..."
                 for kw in node.keywords
                 if kw.arg in _LIFT_COLUMNS
             )
