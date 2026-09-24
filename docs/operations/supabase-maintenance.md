@@ -95,7 +95,7 @@ Postgres** — never restore over the live staging project as a drill.
    ```
 
    **Pass:** the drift test passes, `SELECT count(*) FROM alembic_version;`
-   returns exactly one row at the expected head revision (`0037_exercise_tables`
+   returns exactly one row at the expected head revision (`0040_booking_cancellation`
    or later, whatever `db/migrations/versions/` currently ends at), and spot
    row counts on a handful of core tables (e.g. `org_unit`, `membership`)
    are non-zero and plausible against what the source held.
