@@ -78,6 +78,7 @@ from typing import Any, Final
 from smartmatch_domain.consent import ConsentSource, ConsentViolationError, ContactState
 from smartmatch_domain.jobs import JobState
 from smartmatch_domain.outreach import (
+    SYSTEM_ONLY_TEMPLATES,
     ContentStatus,
     DeliveryEventType,
     DraftRecipient,
@@ -86,8 +87,15 @@ from smartmatch_domain.outreach import (
     assert_send_allowed,
 )
 from smartmatch_domain.pipeline import PipelineStage
-from smartmatch_persistence.outreach import OutreachRepository
+from smartmatch_domain.speaker_portal import (
+    ACTIVATION_URL_SENTINEL,
+    INVITE_TEMPLATE_ID,
+    derive_token,
+    token_hash,
+)
+from smartmatch_persistence.outreach import DraftRow, OutreachRepository
 from smartmatch_persistence.pipeline import PipelineRepository
+from smartmatch_persistence.speaker_portal import SpeakerPortalRepository
 from smartmatch_providers.base import EmailProvider, SendRequest
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -134,11 +142,19 @@ class OutreachSendCommand:
     so each re-drive fails identically.
     """
 
-    __slots__ = ("draft_id", "pipeline_record_id")
+    __slots__ = ("draft_id", "pipeline_record_id", "speaker_portal_invitation_id")
 
-    def __init__(self, *, draft_id: uuid.UUID, pipeline_record_id: uuid.UUID | None) -> None:
+    def __init__(
+        self,
+        *,
+        draft_id: uuid.UUID,
+        pipeline_record_id: uuid.UUID | None,
+        speaker_portal_invitation_id: uuid.UUID | None = None,
+    ) -> None:
         self.draft_id = draft_id
         self.pipeline_record_id = pipeline_record_id
+        #: B26 T6b-1: the invitation a Speaker portal invite draft is paired with.
+        self.speaker_portal_invitation_id = speaker_portal_invitation_id
 
     @classmethod
     def read(cls, payload: Mapping[str, Any]) -> OutreachSendCommand:
@@ -156,6 +172,12 @@ class OutreachSendCommand:
         pipeline_record_id = _read_uuid(
             payload.get("pipeline_record_id"), "pipeline_record_id", problems, required=False
         )
+        speaker_portal_invitation_id = _read_uuid(
+            payload.get("speaker_portal_invitation_id"),
+            "speaker_portal_invitation_id",
+            problems,
+            required=False,
+        )
 
         if problems or draft_id is None:
             raise PolicyFailure(
@@ -163,7 +185,11 @@ class OutreachSendCommand:
                 + "; ".join(problems or ["no usable fields were found"]),
                 reason="invalid_command_payload",
             )
-        return cls(draft_id=draft_id, pipeline_record_id=pipeline_record_id)
+        return cls(
+            draft_id=draft_id,
+            pipeline_record_id=pipeline_record_id,
+            speaker_portal_invitation_id=speaker_portal_invitation_id,
+        )
 
 
 def _read_uuid(raw: object, field: str, problems: list[str], *, required: bool) -> uuid.UUID | None:
@@ -217,6 +243,9 @@ def build_outreach_send_handler(
     live_mode: bool,
     repository: OutreachRepository | None = None,
     pipeline: PipelineRepository | None = None,
+    portal: SpeakerPortalRepository | None = None,
+    speaker_portal_token_secret: str | None = None,
+    speaker_portal_enabled: bool = False,
     clock: Callable[[], datetime] = _utcnow,
 ) -> CommandHandler:
     """Build the handler that sends one approved draft.
@@ -246,6 +275,12 @@ def build_outreach_send_handler(
             content-review gate in ``assert_send_allowed`` and the secret rule.
         repository: Injectable for tests; a default instance otherwise.
         pipeline: Injectable for tests; a default instance otherwise.
+        portal: Injectable for tests; a default instance otherwise.
+        speaker_portal_token_secret: The Speaker portal token secret, from
+            ``check_worker_speaker_portal_startup``; ``None`` when off.
+        speaker_portal_enabled: Whether ``SPEAKER_PORTAL`` is on in this
+            worker's own product scope. A portal invite sent while it is off is
+            refused (plan §6.2 gate 1).
         clock: Returns "now". Injected for deterministic tests.
 
     Raises:
@@ -266,7 +301,75 @@ def build_outreach_send_handler(
     secret = unsubscribe_secret or SYNTHETIC_UNSUBSCRIBE_SECRET
     repo = repository or OutreachRepository()
     pipeline_repo = pipeline or PipelineRepository()
+    portal_repo = portal or SpeakerPortalRepository()
     base = public_base_url.rstrip("/")
+
+    def portal_body(
+        own: Session,
+        context: CommandContext,
+        command: OutreachSendCommand,
+        draft: DraftRow,
+        send_id: uuid.UUID,
+        now: datetime,
+    ) -> str:
+        """The body to send: the draft's own, or the invite with its link rendered.
+
+        B26 T6b-1 plan §6.2. Triggered by *pairing*: a system-only template, or
+        an invitation id in the payload. Every refusal is recorded as BLOCKED,
+        is terminal, and sends nothing. The stored draft body is never changed.
+        """
+        if draft.template_id not in SYSTEM_ONLY_TEMPLATES and (
+            command.speaker_portal_invitation_id is None
+        ):
+            return draft.body
+
+        def refuse(reason: str) -> PolicyFailure:
+            _record_refusal(
+                repo,
+                own,
+                tenant_id=context.job.tenant_id,
+                send_id=send_id,
+                event_type=DeliveryEventType.BLOCKED,
+                disposition=SendDisposition.BLOCKED,
+                reason=reason,
+                now=now,
+            )
+            return PolicyFailure(
+                f"the Speaker portal invite was refused at delivery time: {reason}",
+                reason=reason,
+            )
+
+        if not speaker_portal_enabled:
+            raise refuse("speaker_portal_disabled")
+        if not speaker_portal_token_secret:
+            raise refuse("speaker_portal_secret_missing")
+        invitation_id = command.speaker_portal_invitation_id
+        if draft.template_id != INVITE_TEMPLATE_ID or invitation_id is None:
+            raise refuse("speaker_portal_invitation_pairing")
+        invitation = portal_repo.get_for_send(
+            own, tenant_id=context.job.tenant_id, invitation_id=invitation_id
+        )
+        if invitation is None:
+            raise refuse("speaker_portal_invitation_not_found")
+        if not invitation.owning_unit_id == draft.owning_unit_id == context.job.owning_unit_id:
+            raise refuse("speaker_portal_invitation_unit_mismatch")
+        if invitation.accepted_at is not None or invitation.revoked_at is not None:
+            raise refuse("speaker_portal_invitation_not_live")
+        if invitation.expires_at <= now:
+            raise refuse("speaker_portal_invitation_expired")
+        if invitation.contact_channel_id != draft.contact_channel_id:
+            raise refuse("speaker_portal_channel_mismatch")
+        if (
+            draft.body.count(ACTIVATION_URL_SENTINEL) != 1
+            or ACTIVATION_URL_SENTINEL in draft.subject
+        ):
+            raise refuse("speaker_portal_sentinel_invalid")
+        token = derive_token(speaker_portal_token_secret, invitation.id)
+        # R1: a worker whose secret differs from the API's refuses rather than
+        # mailing a dead link.
+        if not hmac.compare_digest(token_hash(token), invitation.token_hash):
+            raise refuse("speaker_portal_token_mismatch")
+        return draft.body.replace(ACTIVATION_URL_SENTINEL, f"{base}/s/{token}")
 
     def handle_outreach_send(context: CommandContext) -> HandlerResult:
         """Send one approved draft, or record precisely why it was not sent."""
@@ -370,10 +473,12 @@ def build_outreach_send_handler(
                     reason="outreach_send_blocked",
                 ) from exc
 
+            body_text = portal_body(own, context, command, draft, reservation.send_id, now)
+
             request = SendRequest(
                 to_address=facts.address,
                 subject=draft.subject,
-                body_text=draft.body,
+                body_text=body_text,
                 # The approval *is* the draft: an approved draft's text cannot
                 # change (there is no APPROVED -> DRAFT edge), so the draft id
                 # identifies exactly the thing that was signed off on.
