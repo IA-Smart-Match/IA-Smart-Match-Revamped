@@ -157,7 +157,7 @@ function QueuedSendPanel({ queued }: { queued: QueuedSend }) {
  * Every case names an action, because that is what a skip is for: a batch that
  * said "3 skipped" would be answering a question nobody asked.
  */
-function describeSkip(reason: string): string {
+export function describeSkip(reason: string): string {
   switch (reason) {
     case "not_on_roster":
       return "Not on this unit's speaker list. Add them first, then invite.";
@@ -169,6 +169,11 @@ function describeSkip(reason: string): string {
       return "Their address has not been activated. Someone has to do that deliberately.";
     case "consent_source_not_approved":
       return "The consent behind this address cannot authorize a send.";
+    // B26 T4: availability, checked after consent at compose and at dispatch.
+    case "speaker_unavailable_on_date":
+      return "The Speaker said they cannot speak on this date.";
+    case "speaker_invitations_paused":
+      return "The Speaker has paused invitations.";
     default:
       // Reported verbatim rather than mapped to anything reassuring: a reason
       // this build does not recognise is not thereby a small problem.

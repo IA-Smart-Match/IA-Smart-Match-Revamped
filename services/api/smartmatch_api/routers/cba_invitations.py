@@ -83,6 +83,7 @@ every other route in this package does it.
 from __future__ import annotations
 
 import hashlib
+import logging
 import secrets
 import uuid
 from datetime import timedelta
@@ -91,6 +92,7 @@ from typing import Annotated, Final, Literal
 from fastapi import APIRouter, Header, Path, Query, status
 from pydantic import BaseModel, Field
 from smartmatch_authz import OrgPath, Resource, assert_allowed
+from smartmatch_domain.availability_verdict import StoredVerdict, as_of_utc
 from smartmatch_domain.cba_invitations import (
     INVITATION_TEMPLATE_ID,
     MAX_BATCH_RECIPIENTS,
@@ -101,6 +103,7 @@ from smartmatch_domain.cba_invitations import (
     choose_invitation_channel,
     classify_recipient,
     record_response,
+    skip_reason_for_availability,
 )
 from smartmatch_domain.consent import ConsentSource, ConsentViolationError, ContactState
 from smartmatch_domain.outreach import (
@@ -114,7 +117,9 @@ from smartmatch_persistence.cba_contacts import SpeakerContactRepository
 from smartmatch_persistence.cba_invitations import (
     DEFAULT_BATCH_PAGE_SIZE,
     MAX_BATCH_PAGE_SIZE,
+    BatchRow,
     InvitationRepository,
+    InvitationRow,
     InvitationWithDelivery,
 )
 from smartmatch_persistence.contacts import ContactChannelRepository
@@ -122,6 +127,12 @@ from smartmatch_persistence.outreach import OutreachRepository
 from smartmatch_persistence.rate_limit import RateLimit
 from sqlalchemy.orm import Session
 
+from smartmatch_api.availability_reads import (
+    current_verdicts,
+    load_batch_request_event_time,
+    load_request_event_time,
+    request_for_run,
+)
 from smartmatch_api.commands import submit_command
 from smartmatch_api.config import get_settings
 from smartmatch_api.dependencies import CurrentPrincipal, DbSession, charge_quota
@@ -130,6 +141,8 @@ from smartmatch_api.units import OrgUnitRow, load_unit_or_404
 from smartmatch_api.utils import utc_now
 
 router = APIRouter(prefix="/v1/units", tags=["speaker-invitations"])
+
+_log = logging.getLogger(__name__)
 
 #: The Speaker's own answer is not unit-scoped and not authenticated, so it gets
 #: its own router rather than a path exception on the one above —
@@ -228,6 +241,16 @@ class BatchCreateRequest(BaseModel):
             "The match run whose shortlist this batch came from, when it came "
             "from one. Optional because a Connector may pick people by hand, and "
             "requiring a run id would make the honest case unrepresentable."
+        ),
+    )
+    speaker_request_id: uuid.UUID | None = Field(
+        default=None,
+        description=(
+            "The Speaker Request (a filed coordinator_entry event in this unit) "
+            "this batch invites for. Derived from match_run_id when that run "
+            "names one; required otherwise (422 "
+            "speaker_invitation_request_required). Compose and dispatch check each "
+            "Speaker's stated availability against its date."
         ),
     )
     event_name: str = Field(min_length=1, max_length=200)
@@ -336,6 +359,12 @@ class BatchResponse(BaseModel):
 
     batch_id: uuid.UUID
     match_run_id: uuid.UUID | None
+    speaker_request_id: uuid.UUID | None = Field(
+        description=(
+            "The Speaker Request this batch invites for. null only on a batch "
+            "stored before it was recorded."
+        )
+    )
     template_id: str
     event_name: str
     event_date: str
@@ -363,6 +392,7 @@ class BatchSummaryView(BaseModel):
 
     batch_id: uuid.UUID
     match_run_id: uuid.UUID | None
+    speaker_request_id: uuid.UUID | None
     template_id: str
     event_name: str
     event_date: str
@@ -396,8 +426,10 @@ class NotDispatchedView(BaseModel):
         description=(
             "A consent fact read *now*, not at batch creation: a channel can be "
             "suppressed, de-activated, or removed between composing a batch and "
-            "sending it. The invitation stays pending and can be dispatched later "
-            "if the reason is resolved."
+            "sending it. Or, after consent, the Speaker's availability read now "
+            "against the batch's Speaker Request: speaker_unavailable_on_date or "
+            "speaker_invitations_paused. The invitation stays pending and can be "
+            "dispatched later if the reason is resolved."
         )
     )
 
@@ -615,6 +647,7 @@ def _batch_response(
     return BatchResponse(
         batch_id=batch.id,
         match_run_id=batch.match_run_id,
+        speaker_request_id=batch.speaker_request_id,
         template_id=batch.template_id,
         event_name=batch.event_name,
         event_date=batch.event_date,
@@ -628,8 +661,8 @@ def _batch_response(
 
 def _load_batch_or_404(
     session: Session, principal: CurrentPrincipal, *, unit_id: uuid.UUID, batch_id: uuid.UUID
-) -> uuid.UUID:
-    """The batch id, proven to belong to this unit, or a 404 that says nothing more."""
+) -> BatchRow:
+    """The batch, proven to belong to this unit, or a 404 that says nothing more."""
     batch = _invites.get_batch(session, tenant_id=principal.tenant_id, batch_id=batch_id)
     if batch is None or batch.owning_unit_id != unit_id:
         # A 404 rather than a 403: the batch may exist under a unit this request
@@ -640,7 +673,7 @@ def _load_batch_or_404(
             code="speaker_invitation_batch_not_found",
             message="No such invitation batch in this unit.",
         )
-    return batch.id
+    return batch
 
 
 def _require_idempotency_key(idempotency_key: str | None) -> str:
@@ -748,13 +781,29 @@ def create_invitation_batch(
         ApiError: 404 when the unit does not exist in this tenant; 400 when the
             idempotency key is missing, or when the same person is named twice
             (see :func:`_require_distinct_recipients` — a repeat has no second
-            outcome to report, and dropping it would shorten the answer).
+            outcome to report, and dropping it would shorten the answer); 404
+            ``match_run_not_found`` / ``speaker_request_not_found`` and 422
+            ``speaker_invitation_request_mismatch`` /
+            ``speaker_invitation_request_required`` from
+            :func:`_resolve_speaker_request` (B26 T4). A replayed key answers
+            before any of those are asked.
     """
     charge_quota(session, principal, INVITATION_BATCH_RATE_LIMIT)
 
     unit = _authorize_speaker_invitations(session, principal, unit_id)
     key = _require_idempotency_key(idempotency_key)
     _require_distinct_recipients(body.professional_ids)
+
+    # Replay first (B26 T4 §4.2 step 0): a retry of a stored batch reports the
+    # first submission, even one stored before `0041` or whose run can no longer
+    # be resolved. Resolving first would turn such a retry into a 404 or 422.
+    existing = _invites.find_batch_by_key(
+        session, tenant_id=principal.tenant_id, owning_unit_id=unit.id, idempotency_key=key
+    )
+    if existing is not None:
+        return _batch_response(session, principal, batch_id=existing.id, replayed=True)
+
+    speaker_request_id = _resolve_speaker_request(session, principal, unit_id=unit.id, body=body)
 
     reservation = _invites.reserve_batch(
         session,
@@ -766,6 +815,7 @@ def create_invitation_batch(
         event_date=body.event_date,
         created_by_user_id=principal.user_id,
         match_run_id=body.match_run_id,
+        speaker_request_id=speaker_request_id,
     )
 
     if reservation.was_replayed:
@@ -776,6 +826,16 @@ def create_invitation_batch(
         # changed since.
         return _batch_response(session, principal, batch_id=reservation.batch.id, replayed=True)
 
+    # B26 T4 §4.3: the request's date read once, one `get_many` for everybody
+    # named. The verdict is applied per recipient *after* the channel check.
+    availability = _batch_verdicts(
+        session,
+        principal,
+        unit_id=unit.id,
+        speaker_request_id=speaker_request_id,
+        professional_ids=body.professional_ids,
+    )
+
     for professional_id in body.professional_ids:
         _compose_one(
             session,
@@ -784,6 +844,7 @@ def create_invitation_batch(
             batch_id=reservation.batch.id,
             professional_id=professional_id,
             body=body,
+            availability=availability.get(str(professional_id)),
         )
 
     # The one commit. Without it `get_session`'s unconditional rollback discards
@@ -792,6 +853,117 @@ def create_invitation_batch(
     session.commit()
 
     return _batch_response(session, principal, batch_id=reservation.batch.id, replayed=False)
+
+
+def _resolve_speaker_request(
+    session: Session,
+    principal: CurrentPrincipal,
+    *,
+    unit_id: uuid.UUID,
+    body: BatchCreateRequest,
+) -> uuid.UUID:
+    """The Speaker Request this batch invites for (B26 T4 §4.2 steps 1-5).
+
+    1. A named run must be in this unit, else ``404 match_run_not_found`` — a
+       run from another unit in the tenant is refused, not stored (C10).
+    2. The run's request is derived when its need names a Speaker Request in
+       this unit; a pre-OQ-CBA-031 run derives none.
+    3. A named request must be a Speaker Request in this unit, else
+       ``404 speaker_request_not_found`` (404, not 403: no confirmation that
+       the id names something elsewhere).
+    4. Both, and they differ: ``422 speaker_invitation_request_mismatch``.
+    5. Neither resolves: ``422 speaker_invitation_request_required`` (C12 = R1).
+       Every new batch names the request it invites for, so compose and
+       dispatch always have a date to check availability against. The column
+       stays nullable only for batches stored before ``0041``.
+
+    Returns:
+        The request id.
+    """
+    derived: uuid.UUID | None = None
+    if body.match_run_id is not None:
+        run = request_for_run(
+            session,
+            tenant_id=principal.tenant_id,
+            unit_id=unit_id,
+            match_run_id=body.match_run_id,
+        )
+        if run is None:
+            raise ApiError(
+                status_code=status.HTTP_404_NOT_FOUND,
+                code="match_run_not_found",
+                message="No such match run in this unit.",
+            )
+        derived = run.speaker_request_id
+
+    if body.speaker_request_id is None:
+        if derived is None:
+            raise ApiError(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                code="speaker_invitation_request_required",
+                message=(
+                    "Name the Speaker Request this batch invites for: pass "
+                    "speaker_request_id, or a match_run_id whose run was made for "
+                    "a Speaker Request in this unit. Availability is checked "
+                    "against its date. Nothing was composed."
+                ),
+            )
+        return derived
+
+    event_time = load_request_event_time(
+        session,
+        tenant_id=principal.tenant_id,
+        unit_id=unit_id,
+        speaker_request_id=body.speaker_request_id,
+    )
+    if event_time is None:
+        raise ApiError(
+            status_code=status.HTTP_404_NOT_FOUND,
+            code="speaker_request_not_found",
+            message="No such Speaker Request in this unit.",
+        )
+    if derived is not None and derived != body.speaker_request_id:
+        raise ApiError(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            code="speaker_invitation_request_mismatch",
+            message=(
+                "speaker_request_id names a different Speaker Request from the one "
+                "match_run_id was run for. Name one, or name the run's own. "
+                "Nothing was composed."
+            ),
+        )
+    return body.speaker_request_id
+
+
+def _batch_verdicts(
+    session: Session,
+    principal: CurrentPrincipal,
+    *,
+    unit_id: uuid.UUID,
+    speaker_request_id: uuid.UUID,
+    professional_ids: list[uuid.UUID],
+) -> dict[str, StoredVerdict]:
+    """Today's availability verdict per named recipient, against the batch's request."""
+    event_time = load_request_event_time(
+        session,
+        tenant_id=principal.tenant_id,
+        unit_id=unit_id,
+        speaker_request_id=speaker_request_id,
+    )
+    if event_time is None:  # pragma: no cover - resolved in this transaction
+        raise ApiError(
+            status_code=status.HTTP_404_NOT_FOUND,
+            code="speaker_request_not_found",
+            message="No such Speaker Request in this unit.",
+        )
+    verdicts = current_verdicts(
+        session,
+        tenant_id=principal.tenant_id,
+        subject_ids=[str(pid) for pid in professional_ids],
+        event_time=event_time,
+        as_of=as_of_utc(utc_now()),
+    )
+    return {verdict.subject_id: verdict for verdict in verdicts}
 
 
 def _skip(
@@ -829,8 +1001,13 @@ def _compose_one(
     batch_id: uuid.UUID,
     professional_id: uuid.UUID,
     body: BatchCreateRequest,
+    availability: StoredVerdict | None = None,
 ) -> None:
-    """Resolve one recipient and either compose their invitation or skip them."""
+    """Resolve one recipient and either compose their invitation or skip them.
+
+    Order: roster, channel, then availability (B26 T4). Consent first, so a
+    Speaker who said stop is reported as such, not as unavailable.
+    """
     contact = _roster.get(
         session,
         tenant_id=principal.tenant_id,
@@ -866,6 +1043,18 @@ def _compose_one(
             batch_id=batch_id,
             professional_id=professional_id,
             reason=reason or SkipReason.NO_CONTACT_CHANNEL,
+        )
+        return
+
+    unavailable = None if availability is None else skip_reason_for_availability(availability)
+    if unavailable is not None:
+        _skip(
+            session,
+            principal,
+            unit_id=unit.id,
+            batch_id=batch_id,
+            professional_id=professional_id,
+            reason=unavailable,
         )
         return
 
@@ -997,6 +1186,7 @@ def list_invitation_batches(
             BatchSummaryView(
                 batch_id=batch.id,
                 match_run_id=batch.match_run_id,
+                speaker_request_id=batch.speaker_request_id,
                 template_id=batch.template_id,
                 event_name=batch.event_name,
                 event_date=batch.event_date,
@@ -1036,7 +1226,7 @@ def read_invitation_batch(
     unit = _authorize_speaker_invitations(session, principal, unit_id)
     resolved = _load_batch_or_404(session, principal, unit_id=unit.id, batch_id=batch_id)
 
-    return _batch_response(session, principal, batch_id=resolved, replayed=False)
+    return _batch_response(session, principal, batch_id=resolved.id, replayed=False)
 
 
 # ---------------------------------------------------------------------------
@@ -1077,20 +1267,27 @@ def dispatch_invitation_batch(
     key derived from the invitation id so ``submit_command`` replays rather than
     queues a second send.
 
+    **Availability is rechecked too** (B26 T4), after consent, against the
+    batch's own Speaker Request and each Speaker's statement read now.
+
     Raises:
-        ApiError: 404 when no such batch exists in this unit.
+        ApiError: 404 when no such batch exists in this unit; 409
+            ``speaker_invitation_request_unreadable`` when the batch's request
+            cannot be read (a broken invariant; nothing is submitted).
     """
     charge = charge_quota(session, principal, INVITATION_DISPATCH_RATE_LIMIT)
 
     unit = _authorize_speaker_invitations(session, principal, unit_id)
-    resolved = _load_batch_or_404(session, principal, unit_id=unit.id, batch_id=batch_id)
+    batch = _load_batch_or_404(session, principal, unit_id=unit.id, batch_id=batch_id)
+    resolved = batch.id
 
     dispatched: list[DispatchedView] = []
     not_dispatched: list[NotDispatchedView] = []
 
-    for invitation in _invites.list_pending(
-        session, tenant_id=principal.tenant_id, batch_id=resolved
-    ):
+    pending = list(_invites.list_pending(session, tenant_id=principal.tenant_id, batch_id=resolved))
+    availability = _dispatch_verdicts(session, principal, batch=batch, pending=pending)
+
+    for invitation in pending:
         if invitation.contact_channel_id is None or invitation.outreach_draft_id is None:
             # Structurally impossible: `ck_cba_invitation_addressed` requires both
             # on any row that is not skipped, and skipped rows are not pending.
@@ -1115,6 +1312,11 @@ def dispatch_invitation_batch(
             continue
 
         reason = classify_recipient(facts)
+        verdict = availability.get(str(invitation.professional_id))
+        if reason is None and verdict is not None:
+            # After consent (B26 T4 §4.4): availability read now, against the
+            # batch's own request. The invitation stays pending either way.
+            reason = skip_reason_for_availability(verdict)
         if reason is not None:
             not_dispatched.append(
                 NotDispatchedView(invitation_id=invitation.id, reason=reason.value)
@@ -1162,6 +1364,53 @@ def dispatch_invitation_batch(
         )
 
     return DispatchResponse(batch_id=resolved, dispatched=dispatched, not_dispatched=not_dispatched)
+
+
+def _dispatch_verdicts(
+    session: Session,
+    principal: CurrentPrincipal,
+    *,
+    batch: BatchRow,
+    pending: list[InvitationRow],
+) -> dict[str, StoredVerdict]:
+    """Today's availability for every pending recipient: one ``get_many`` (§4.4).
+
+    A batch with no request (stored before ``0041`` and never linked) is the
+    only no-check path. A request that can no longer be read in the batch's
+    unit is a broken invariant (``ON DELETE RESTRICT``, and neither unit ever
+    moves): the whole dispatch is refused with ``409``, never sent unchecked.
+    """
+    if batch.speaker_request_id is None or not pending:
+        return {}
+    event_time = load_batch_request_event_time(
+        session,
+        tenant_id=principal.tenant_id,
+        unit_id=batch.owning_unit_id,
+        speaker_request_id=batch.speaker_request_id,
+    )
+    if event_time is None:
+        _log.error(
+            "speaker invitation batch %s names Speaker Request %s, which is not "
+            "readable in its unit; dispatch refused",
+            batch.id,
+            batch.speaker_request_id,
+        )
+        raise ApiError(
+            status_code=status.HTTP_409_CONFLICT,
+            code="speaker_invitation_request_unreadable",
+            message=(
+                "This batch's Speaker Request can no longer be read, so availability "
+                "cannot be checked. Nothing was submitted."
+            ),
+        )
+    verdicts = current_verdicts(
+        session,
+        tenant_id=principal.tenant_id,
+        subject_ids=[str(invitation.professional_id) for invitation in pending],
+        event_time=event_time,
+        as_of=as_of_utc(utc_now()),
+    )
+    return {verdict.subject_id: verdict for verdict in verdicts}
 
 
 # ---------------------------------------------------------------------------

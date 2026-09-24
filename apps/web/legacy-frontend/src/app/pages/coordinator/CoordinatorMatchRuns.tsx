@@ -112,7 +112,7 @@ const JOB_POLL_INTERVAL_MS = 2000;
  * the wrong cause the first time a new reason appeared, and a Connector acting
  * on it would fix the wrong thing.
  */
-const MATCH_INELIGIBILITY_EXPLANATIONS: Readonly<Record<string, string>> = {
+export const MATCH_INELIGIBILITY_EXPLANATIONS: Readonly<Record<string, string>> = {
   speaker_profile_not_found: "No speaker profile is on file for this contact yet.",
   industry_classification_awaiting_review:
     "An industry was proposed for this contact and nobody has reviewed it yet (§19).",
@@ -130,6 +130,9 @@ const MATCH_INELIGIBILITY_EXPLANATIONS: Readonly<Record<string, string>> = {
     "The role category was classified under a superseded taxonomy version and needs re-checking.",
   industry_code_unrecognised: "The recorded industry code is not in the released taxonomy.",
   role_code_unrecognised: "The recorded role code is not in the released taxonomy.",
+  // B26 Q8: the Speaker's own login filed the request. A pool rule only.
+  filed_this_request:
+    "Filed this request, so left out of its matching. To invite them anyway, add them to a batch by hand.",
 };
 
 /** The server's reason, in words when we have them and verbatim when we do not. */

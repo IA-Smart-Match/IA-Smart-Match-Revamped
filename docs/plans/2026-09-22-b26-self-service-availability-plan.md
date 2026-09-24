@@ -26,7 +26,9 @@ questions, then Q7 (band penalties) and the email-clash question, the same day.
 
 **Still open:** no owner question. Five stakeholder dependencies remain (§10).
 **Migrations:** `0038_speaker_availability`, `0039_speaker_portal`,
-`0040_speaker_booking_cancellation`, on top of head `0037_exercise_tables`. If
+`0040_booking_cancellation` (file `0040_speaker_booking_cancellation.py`),
+`0041_batch_speaker_request` (file `0041_invitation_batch_speaker_request.py`),
+on top of head `0037_exercise_tables`. If
 another revision lands first, take current head plus one and keep one head.
 **Out of bounds:** `docs/plans/frontend-broken-buttons.md`. PR #208 owns its B26 row.
 
@@ -202,6 +204,21 @@ can be cancelled. A cancellation is a transition, not a delete (the
 `date_only` event has no time of day, so a weekly pattern cannot be evaluated
 against it; a date window can be evaluated against any resolved event. Capacity is
 now an ELI input (Q6), in the unit the owner's rule uses: hours per 90 days.
+
+### 3.5 `0041_batch_speaker_request` (T4)
+
+File `0041_invitation_batch_speaker_request.py`; the id is shorter because
+`alembic_version` is `varchar(32)`. `cba_invitation_batch` gains
+`speaker_request_id` (uuid, null, no default) and
+`fk_cba_invitation_batch_speaker_request`: composite `(tenant_id,
+speaker_request_id)` → `event (tenant_id, id)`, `ON DELETE RESTRICT`. The
+upgrade backfills it in one statement from the batch's run when the run's
+`event_need_id` names (by text, never `::uuid`) a `coordinator_entry` event, and
+both the run and the event belong to the batch's own unit; anything else stays
+NULL. No NOT NULL: legacy batches have no request to name. The API rule is
+C12 = R1: every **new** batch names a request, derived from its run or given
+directly, else `422 speaker_invitation_request_required`. Track plan
+`docs/plans/b26-tracks/T4-plan.md` §4.1.
 
 ## 4. API
 
@@ -520,7 +537,7 @@ Each track is its own PR against `main`.
 | **T1** | Domain: availability verdict, `reason` on `AvailabilityEvidence`, limits | 0.5 day | — |
 | **T2** | `0038_speaker_availability` incl. capacity, mirror, repository | 1.5 days | T1 |
 | **T3** | Connector availability `GET`/`PATCH`, OpenAPI, `api.ts` adapter | 1.5 days | T2 |
-| **T4** | Stage A wiring: run payload, "changed since", compose/dispatch re-check, `G-CBA-13`; the self-request exclusion (Q8 = a) | 2.5 days | T2 |
+| **T4** | Stage A wiring: run payload, "changed since", compose/dispatch re-check, `G-CBA-13`; the self-request exclusion (Q8 = a); `0041_batch_speaker_request` (a batch names its Speaker Request) | 2.5 days | T2, T6b-1 (0039), T8a (0040) |
 | **T5** | Connector availability panel | 1 day | T3 |
 | **T6a** | `/i/{token}` page fix only — working accept/decline controls. The token-link availability route is **dropped**: signed-in Speakers edit through `/v1/me/availability`. | 1 day | — |
 | **T6b-1** | Speaker accounts: `0039` (invitation table, suppression lift), `speaker` role and portal mapping, invite / revoke / activate routes, `speaker_portal_invite` template, `/s/{token}` page, `SPEAKER_PORTAL` capability, Connector "Invite to portal" button, DESIGN.md role table | 3.5 days | — |
