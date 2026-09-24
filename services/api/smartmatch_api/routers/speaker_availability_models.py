@@ -119,8 +119,9 @@ class EngagementWithoutEndTimeView(BaseModel):
 
     engagement_id: uuid.UUID | None = Field(
         description=(
-            "The engagement's record id. Null when shown is other_unit: no other "
-            "unit's record id reaches a Speaker Connector."
+            "The engagement's record id. On the Connector route it is null unless "
+            "the Connector's unit owns the record (always null for other_unit): no "
+            "other unit's record id reaches a Speaker Connector."
         )
     )
     shown: Literal["event", "other_unit", "event_missing"] = Field(

@@ -701,7 +701,6 @@ class MatchRunResponse(BaseModel):
         description="Why the stored availability block could not be read, when it could not.",
     )
     load_recorded: bool = Field(
-        default=False,
         description=(
             "True when this run's registry pin applies engagement load (3.x), so "
             "every candidate carries a load block (B26 T8d). False for 1.x and 2.x "

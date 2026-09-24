@@ -51,8 +51,9 @@ function GapItem({ item, audience }: { item: EngagementWithoutEndTime; audience:
             to={EVENTS_PAGE_PATH}
             className="font-medium text-primary underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           >
-            {EVENTS_LINK_TEXT.before}
-            <span className="sr-only"> for {copy.title}</span> {EVENTS_LINK_TEXT.after}
+            {EVENTS_LINK_TEXT.before} {EVENTS_LINK_TEXT.after}
+            {/* WCAG 2.5.3: the name starts with the whole visible text. */}
+            <span className="sr-only"> for {copy.title}</span>
           </Link>
         </span>
       ) : null}

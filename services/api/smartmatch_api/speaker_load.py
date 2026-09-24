@@ -165,10 +165,20 @@ def speaker_load_view(
 
 
 def _item(label: EngagementLabel, viewer_unit_id: uuid.UUID | None) -> EngagementWithoutEndTimeView:
-    """One label as this viewer may see it (plan §4.2 label table)."""
+    """One label as this viewer may see it (plan §4.2 label table).
+
+    The record id reaches a Connector only when their unit owns the record
+    (review H1 on #225): an event-less booking, or a booking another unit made
+    at this unit's event, is still listed, but without another unit's id.
+    """
+    record_id = (
+        label.record_id
+        if viewer_unit_id is None or label.record_unit_id == viewer_unit_id
+        else None
+    )
     if label.event_id is None:
         return EngagementWithoutEndTimeView(
-            engagement_id=label.record_id,
+            engagement_id=record_id,
             shown="event_missing",
             event_title=None,
             local_date=None,
@@ -187,7 +197,7 @@ def _item(label: EngagementLabel, viewer_unit_id: uuid.UUID | None) -> Engagemen
             editable_here=False,
         )
     return EngagementWithoutEndTimeView(
-        engagement_id=label.record_id,
+        engagement_id=record_id,
         shown="event",
         event_title=label.title,
         local_date=label.resolved_date,

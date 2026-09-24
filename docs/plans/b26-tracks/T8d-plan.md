@@ -218,7 +218,9 @@ there is no row. Never a default (Q6).
 | event hosted by another unit | `event` (their own engagement; `/v1/me/engagements` already shows every unit's titles, T6b-2 §2.4); `editable_here = False` | `other_unit`; `engagement_id`, title, date and precision null; `editable_here = False` |
 
 On the Speaker route `editable_here` is always `False`. `engagement_id` is set for `event` and
-`event_missing` on both routes, and null for `other_unit`.
+`event_missing` on the Speaker route. On the Connector route it is set only when the viewer's unit
+owns the `pipeline_record` (review H1 on #225: an event-less booking or another unit's booking at
+this unit's event carries no id), and it is always null for `other_unit`.
 
 **Query cost per request:** T3 / T6b-2's reads **+ 1** (engagements), **+ 1 more** when any engagement lacks
 an end time (labels): **2 at most**. Pinned by contract tests A9 and S4.
@@ -434,7 +436,7 @@ V-B6). Nothing on the availability surfaces contains "available" (T5 §4.1, T6b-
 | item `event`, `exact` | "{title}" · `<time>` · "start time only" |
 | item `event`, `date_only` | "{title}" · `<time>` · "date only, no times" |
 | item `event`, `unresolved` | "{title}" · "date not set" |
-| item link (`editable_here`) | visible "Add the end time on the Events page"; accessible name "Add the end time for {title} on the Events page"; `to="/coordinator-portal/events"` |
+| item link (`editable_here`) | visible "Add the end time on the Events page"; accessible name "Add the end time on the Events page for {title}" (review M1 on #225: the name starts with the whole visible text); `to="/coordinator-portal/events"` |
 | item `event`, not editable here | "Recorded from an imported listing, so it cannot be edited here." when this unit hosts it; otherwise nothing extra |
 | item `other_unit` | "An engagement another unit recorded. That unit's Speaker Connector can add the end time." |
 | item `event_missing` | "An engagement whose event record is missing." |
@@ -591,7 +593,7 @@ title.
 5. `other_unit and event_missing items have their sentences and no link`
 6. `extra numeric fields on the wire render no digit outside time elements` (stub adds `utilization: 0.61`, `completed_hours: "50"`; titles digit-free)
 10. `list items key by index, so two other_unit items with null ids both render`
-7. `connector: only editable_here items have a link, named with the title` (`getByRole("link", { name: "Add the end time for Corporate treasury guest lecture on the Events page" })`)
+7. `connector: only editable_here items have a link, named with the title` (`getByRole("link", { name: "Add the end time on the Events page for Corporate treasury guest lecture" })`)
 8. `speaker: no link at all`
 9. `heading level follows the prop; speaker: a section labelled by it; connector: a div with role=group labelled by it`
 

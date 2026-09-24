@@ -262,11 +262,13 @@ export const EVENTS_LINK_TEXT = {
   after: "on the Events page",
 } as const;
 
-/** The Events link's accessible name: its visible text with the title added (WCAG 2.5.3). */
+/**
+ * The Events link's accessible name: the whole visible text first, then the
+ * title (WCAG 2.5.3 — a speech-input user saying the visible text matches it).
+ */
 export function eventsLinkName(title: string | null): string {
-  return title
-    ? `${EVENTS_LINK_TEXT.before} for ${title} ${EVENTS_LINK_TEXT.after}`
-    : `${EVENTS_LINK_TEXT.before} ${EVENTS_LINK_TEXT.after}`;
+  const visible = `${EVENTS_LINK_TEXT.before} ${EVENTS_LINK_TEXT.after}`;
+  return title ? `${visible} for ${title}` : visible;
 }
 
 /** Where a Connector adds an end time. The Events page has no per-event link yet (OQ-5). */

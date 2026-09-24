@@ -48,6 +48,8 @@ class EngagementLabel:
 
     Attributes:
         record_id: The ``pipeline_record`` id (T8b's ``ref``).
+        record_unit_id: The unit that owns the record. A Connector sees the
+            record id only when this is their unit.
         event_id: The event's id, or ``None`` when the row is missing.
         title: The event's title.
         resolved_date: The event's first local date; ``None`` when unresolved.
@@ -57,6 +59,7 @@ class EngagementLabel:
     """
 
     record_id: uuid.UUID
+    record_unit_id: uuid.UUID
     event_id: uuid.UUID | None
     title: str | None
     resolved_date: date | None
@@ -99,6 +102,7 @@ class EngagementLabelRepository:
         return tuple(
             EngagementLabel(
                 record_id=row.record_id,
+                record_unit_id=row.record_unit_id,
                 event_id=row.event_id,
                 title=row.title,
                 resolved_date=row.resolved_date,
@@ -120,6 +124,7 @@ def _statement(tenant_id: uuid.UUID, ids: list[uuid.UUID], limit: int) -> sa.Sel
     return (
         sa.select(
             record.c.id.label("record_id"),
+            record.c.owning_unit_id.label("record_unit_id"),
             ev.c.id.label("event_id"),
             ev.c.title,
             ev.c.resolved_date,
