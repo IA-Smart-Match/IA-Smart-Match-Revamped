@@ -63,11 +63,13 @@ import {
   fetchSpeakerContactChannels,
   fetchSpeakerContacts,
   type MatchAvailability,
+  type MatchLoad,
   type MatchRunRead,
   type SpeakerContact,
   type SpeakerContactChannel,
   type SpeakerInvitationBatch,
 } from "../../../lib/api";
+import { composeLoadText } from "../../../lib/loadBandCopy";
 import { scopedQueryKey } from "../../../lib/queryClient";
 import { describeAvailability } from "../AIMatching";
 import { PagedList } from "../../components/PagedList";
@@ -135,6 +137,8 @@ interface Recipient {
   channelsError: string | null;
   /** The run's stored availability verdict (B26 T4). Worded here, decided by the server. */
   availability?: MatchAvailability | null;
+  /** The load band the run stored for this candidate (B26 T8d); a word, never a number. */
+  load?: MatchLoad | null;
 }
 
 /** Whether this person may be picked, and the sentence that says why not. */
@@ -214,11 +218,14 @@ export function RecipientRow({
   verdict,
   selected,
   onToggle,
+  loadRecorded = false,
 }: {
   recipient: Recipient;
   verdict: ConsentVerdict;
   selected: boolean;
   onToggle: (subjectId: string) => void;
+  /** The run's `load_recorded`: only a 3.x run has a band to show. */
+  loadRecorded?: boolean;
 }) {
   return (
     <li className="rounded-xl border border-border/70 p-4">
@@ -261,6 +268,12 @@ export function RecipientRow({
           <span className="block text-sm text-muted-foreground">
             {describeAvailability(recipient.availability)}
           </span>
+          {/* B26 T8d: the band stored when the run matched them, as a word. */}
+          {loadRecorded ? (
+            <span className="block text-sm text-muted-foreground">
+              {composeLoadText(recipient.load)}
+            </span>
+          ) : null}
         </span>
       </label>
     </li>
@@ -385,12 +398,14 @@ export function CoordinatorInvitations() {
               channels: channels.channels.map((entry) => entry.channel),
               channelsError: null,
               availability: candidate.availability ?? null,
+              load: candidate.load ?? null,
             };
           } catch (cause) {
             return {
               subjectId: candidate.subject_id,
               contact,
               availability: candidate.availability ?? null,
+              load: candidate.load ?? null,
               channels: null,
               channelsError:
                 cause instanceof ApiRequestError
@@ -596,6 +611,7 @@ export function CoordinatorInvitations() {
                                 verdict={verdict}
                                 selected={selected.includes(recipient.subjectId)}
                                 onToggle={toggleRecipient}
+                                loadRecorded={run?.load_recorded === true}
                               />
                             );
                           })}

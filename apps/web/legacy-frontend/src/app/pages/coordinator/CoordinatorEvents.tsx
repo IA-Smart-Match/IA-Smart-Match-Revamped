@@ -115,7 +115,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { Link } from "react-router";
 import { CalendarDays, List, Plus, Save } from "lucide-react";
 
@@ -279,6 +279,28 @@ function eventErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "The event could not be saved.";
 }
 
+/**
+ * What a saved event makes stale. Always the unit's event list; on an **edit**,
+ * also every Speaker availability read for the unit, because an end time added
+ * to an engagement's event changes that Speaker's load band (B26 T8d). A new
+ * draft has no engagement yet, so it leaves the band alone.
+ */
+export async function invalidateAfterEventSave(
+  queryClient: QueryClient,
+  {
+    principalKey,
+    unitId,
+    edited,
+  }: { principalKey: string | null; unitId: string | null; edited: boolean },
+): Promise<void> {
+  await queryClient.invalidateQueries({ queryKey: [principalKey, "unit-events", unitId] });
+  if (edited) {
+    await queryClient.invalidateQueries({
+      queryKey: [principalKey, "speaker-availability", unitId],
+    });
+  }
+}
+
 export function CoordinatorEvents() {
   // `GET /v1/me` — the only source of who this is. It throws rather than
   // substituting a fixture principal, which is the Fix #7 guard.
@@ -361,10 +383,11 @@ export function CoordinatorEvents() {
           ),
     // Only after the server said so. Nothing here is optimistic.
     onSuccess: async (event) => {
+      const edited = selected !== null;
       setSelected(event);
       rememberRecent(event);
-      setNotice(selected ? "Event updated." : "Draft saved.");
-      await invalidateList();
+      setNotice(edited ? "Event updated." : "Draft saved.");
+      await invalidateAfterEventSave(queryClient, { principalKey, unitId, edited });
     },
   });
 

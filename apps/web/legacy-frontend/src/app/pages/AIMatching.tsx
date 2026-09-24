@@ -73,6 +73,7 @@ import { Link, useSearchParams } from "react-router";
 import { AlertCircle, Info } from "lucide-react";
 
 import { AccountableValue } from "@/app/components/provenance";
+import { RunLoadLine } from "@/app/components/load/RunLoadLine";
 import { grantedPortal } from "@/app/components/PortalGate";
 import { usePortalAccess } from "@/app/hooks/usePortalAccess";
 import { useAuthenticatedPrincipal } from "@/app/hooks/useSession";
@@ -87,6 +88,12 @@ import {
   type MatchFactorExplanation,
   type MatchRunRead,
 } from "@/lib/api";
+import {
+  RUN_LOAD_NOT_PART,
+  RUN_LOAD_RECORDED,
+  WORKLOAD_TERM,
+  excludedLoadFullText,
+} from "@/lib/loadBandCopy";
 import { MATCHING_UNAVAILABLE_REASON, unavailableMatchingMetric } from "@/lib/metrics";
 import { MATCH_INELIGIBILITY_EXPLANATIONS } from "./coordinator/CoordinatorMatchRuns";
 
@@ -260,7 +267,10 @@ export function ExcludedCandidates({
             </span>
             <span className="text-muted-foreground">
               {" — "}
-              {MATCH_INELIGIBILITY_EXPLANATIONS[entry.reason] ?? entry.reason}
+              {/* B26 T8d: Full words its stored reason; never a number. */}
+              {entry.reason === "load_full"
+                ? excludedLoadFullText(entry.load)
+                : (MATCH_INELIGIBILITY_EXPLANATIONS[entry.reason] ?? entry.reason)}
             </span>
           </li>
         ))}
@@ -269,13 +279,18 @@ export function ExcludedCandidates({
   );
 }
 
-/** One candidate card: the score, its label and registry version, its factors. */
+/**
+ * One candidate card: the score, its label and registry version, its factors,
+ * and — when the run recorded load (B26 T8d) — the stored band as a word.
+ */
 export function CandidateCard({
   candidate,
   registryVersion,
+  loadRecorded = false,
 }: {
   candidate: MatchCandidateExplanation;
   registryVersion: string;
+  loadRecorded?: boolean;
 }) {
   const unknownReason =
     candidate.unknown_factor_keys.length > 0
@@ -315,6 +330,11 @@ export function CandidateCard({
       <p className="mt-1 text-sm text-foreground/80">
         {describeAvailability(candidate.availability)}
       </p>
+      {loadRecorded ? (
+        <dl className="mt-1 text-sm">
+          <RunLoadLine load={candidate.load} />
+        </dl>
+      ) : null}
       <ul className="mt-3 list-none">
         {candidate.factors.map((factor) => (
           <FactorRow key={factor.factor_key} factor={factor} />
@@ -353,6 +373,136 @@ function MatchingUnavailable({ reason }: { reason: string }) {
           </p>
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * One persisted run, read: the header, the shortlist, the unscorable and
+ * considered candidates, and the stored exclusions. Pure rendering of the run
+ * read; the page owns the request and its states.
+ */
+export function MatchRunView({
+  run,
+  rosterNames = new Map(),
+}: {
+  run: MatchRunRead;
+  rosterNames?: ReadonlyMap<string, string>;
+}) {
+  return (
+    <div className="space-y-6">
+      <div className="rounded-2xl border border-border bg-card p-6 shadow-sm">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-primary/70">
+          Match run
+        </p>
+        <h2 className="mt-1 text-xl font-semibold text-foreground">{run.event_need_id}</h2>
+        <dl className="mt-4 grid grid-cols-1 gap-x-8 gap-y-2 text-sm sm:grid-cols-2">
+          <div className="flex justify-between gap-4">
+            <dt className="text-muted-foreground">Factor registry</dt>
+            <dd className="text-foreground">{run.registry_version}</dd>
+          </div>
+          <div className="flex justify-between gap-4">
+            <dt className="text-muted-foreground">Score label</dt>
+            <dd className="text-foreground">{run.score_label}</dd>
+          </div>
+          <div className="flex justify-between gap-4">
+            <dt className="text-muted-foreground">Solver</dt>
+            <dd className="text-foreground">
+              {run.solver_name} {run.solver_version}
+            </dd>
+          </div>
+          <div className="flex justify-between gap-4">
+            <dt className="text-muted-foreground">Travel estimate</dt>
+            <dd className="text-foreground">
+              {run.route_estimate_source} {run.route_estimate_version}
+            </dd>
+          </div>
+          <div className="flex justify-between gap-4">
+            <dt className="text-muted-foreground">Solver verdict</dt>
+            <dd className="text-foreground">{run.portfolio_status}</dd>
+          </div>
+          <div className="flex justify-between gap-4">
+            <dt className="text-muted-foreground">Recorded</dt>
+            <dd className="text-foreground">{new Date(run.created_at).toLocaleString()}</dd>
+          </div>
+          <div className="flex justify-between gap-4">
+            <dt className="text-muted-foreground">{WORKLOAD_TERM}</dt>
+            <dd className="text-foreground">
+              {run.load_recorded ? RUN_LOAD_RECORDED : RUN_LOAD_NOT_PART}
+            </dd>
+          </div>
+        </dl>
+      </div>
+
+      {run.shortlist_available ? (
+        <ul className="list-none space-y-4">
+          {run.shortlist.map((candidate) => (
+            <CandidateCard
+              key={candidate.subject_id}
+              candidate={candidate}
+              registryVersion={run.registry_version}
+              loadRecorded={run.load_recorded}
+            />
+          ))}
+        </ul>
+      ) : (
+        <MatchingUnavailable
+          reason={
+            run.shortlist_unavailable_reason ??
+            "The shortlist could not be reconstructed from this run's recorded inputs, so none is shown."
+          }
+        />
+      )}
+
+      {run.unscorable.length > 0 ? (
+        <section className="rounded-2xl border border-border bg-muted p-6">
+          <div className="flex items-start gap-3">
+            <Info className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
+            <div>
+              <h2 className="text-base font-semibold text-foreground">
+                Not scored — evidence missing
+              </h2>
+              <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                These candidates were considered and could not be scored, because at least one
+                factor had no evidence on file. They are listed rather than dropped, and they are
+                not scored as zero: an absence is not a low score.
+              </p>
+            </div>
+          </div>
+          <ul className="mt-4 list-none space-y-4">
+            {run.unscorable.map((candidate) => (
+              <CandidateCard
+                key={candidate.subject_id}
+                candidate={candidate}
+                registryVersion={run.registry_version}
+                loadRecorded={run.load_recorded}
+              />
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
+      <ExcludedCandidates
+        excluded={run.excluded ?? []}
+        names={rosterNames}
+        unreadableReason={run.excluded_unreadable_reason ?? null}
+      />
+
+      {run.considered.length > 0 ? (
+        <section>
+          <h2 className="text-base font-semibold text-foreground">Considered, not shortlisted</h2>
+          <ul className="mt-3 list-none space-y-4">
+            {run.considered.map((candidate) => (
+              <CandidateCard
+                key={candidate.subject_id}
+                candidate={candidate}
+                registryVersion={run.registry_version}
+                loadRecorded={run.load_recorded}
+              />
+            ))}
+          </ul>
+        </section>
+      ) : null}
     </div>
   );
 }
@@ -435,113 +585,7 @@ export function AIMatching() {
   } else if (!run) {
     body = <MatchingUnavailable reason={MATCHING_UNAVAILABLE_REASON} />;
   } else {
-    body = (
-      <div className="space-y-6">
-        <div className="rounded-2xl border border-border bg-card p-6 shadow-sm">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-primary/70">
-            Match run
-          </p>
-          <h2 className="mt-1 text-xl font-semibold text-foreground">{run.event_need_id}</h2>
-          <dl className="mt-4 grid grid-cols-1 gap-x-8 gap-y-2 text-sm sm:grid-cols-2">
-            <div className="flex justify-between gap-4">
-              <dt className="text-muted-foreground">Factor registry</dt>
-              <dd className="text-foreground">{run.registry_version}</dd>
-            </div>
-            <div className="flex justify-between gap-4">
-              <dt className="text-muted-foreground">Score label</dt>
-              <dd className="text-foreground">{run.score_label}</dd>
-            </div>
-            <div className="flex justify-between gap-4">
-              <dt className="text-muted-foreground">Solver</dt>
-              <dd className="text-foreground">
-                {run.solver_name} {run.solver_version}
-              </dd>
-            </div>
-            <div className="flex justify-between gap-4">
-              <dt className="text-muted-foreground">Travel estimate</dt>
-              <dd className="text-foreground">
-                {run.route_estimate_source} {run.route_estimate_version}
-              </dd>
-            </div>
-            <div className="flex justify-between gap-4">
-              <dt className="text-muted-foreground">Solver verdict</dt>
-              <dd className="text-foreground">{run.portfolio_status}</dd>
-            </div>
-            <div className="flex justify-between gap-4">
-              <dt className="text-muted-foreground">Recorded</dt>
-              <dd className="text-foreground">{new Date(run.created_at).toLocaleString()}</dd>
-            </div>
-          </dl>
-        </div>
-
-        {run.shortlist_available ? (
-          <ul className="list-none space-y-4">
-            {run.shortlist.map((candidate) => (
-              <CandidateCard
-                key={candidate.subject_id}
-                candidate={candidate}
-                registryVersion={run.registry_version}
-              />
-            ))}
-          </ul>
-        ) : (
-          <MatchingUnavailable
-            reason={
-              run.shortlist_unavailable_reason ??
-              "The shortlist could not be reconstructed from this run's recorded inputs, so none is shown."
-            }
-          />
-        )}
-
-        {run.unscorable.length > 0 ? (
-          <section className="rounded-2xl border border-border bg-muted p-6">
-            <div className="flex items-start gap-3">
-              <Info className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
-              <div>
-                <h2 className="text-base font-semibold text-foreground">
-                  Not scored — evidence missing
-                </h2>
-                <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                  These candidates were considered and could not be scored, because at least one
-                  factor had no evidence on file. They are listed rather than dropped, and they are
-                  not scored as zero: an absence is not a low score.
-                </p>
-              </div>
-            </div>
-            <ul className="mt-4 list-none space-y-4">
-              {run.unscorable.map((candidate) => (
-                <CandidateCard
-                  key={candidate.subject_id}
-                  candidate={candidate}
-                  registryVersion={run.registry_version}
-                />
-              ))}
-            </ul>
-          </section>
-        ) : null}
-
-        <ExcludedCandidates
-          excluded={run.excluded ?? []}
-          names={rosterNames}
-          unreadableReason={run.excluded_unreadable_reason ?? null}
-        />
-
-        {run.considered.length > 0 ? (
-          <section>
-            <h2 className="text-base font-semibold text-foreground">Considered, not shortlisted</h2>
-            <ul className="mt-3 list-none space-y-4">
-              {run.considered.map((candidate) => (
-                <CandidateCard
-                  key={candidate.subject_id}
-                  candidate={candidate}
-                  registryVersion={run.registry_version}
-                />
-              ))}
-            </ul>
-          </section>
-        ) : null}
-      </div>
-    );
+    body = <MatchRunView run={run} rosterNames={rosterNames} />;
   }
 
   return (

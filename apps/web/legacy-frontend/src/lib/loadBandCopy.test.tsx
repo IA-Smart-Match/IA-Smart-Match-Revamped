@@ -5,13 +5,7 @@
  */
 import { describe, expect, it } from "vitest";
 
-import type {
-  EngagementWithoutEndTime,
-  LoadBand,
-  LoadReason,
-  MatchLoad,
-  SpeakerLoad,
-} from "./api";
+import type { EngagementWithoutEndTime, LoadBand, LoadReason, MatchLoad, SpeakerLoad } from "./api";
 import {
   FULL_RUN_LABEL,
   LOAD_FULL_EXPLANATION,
@@ -142,24 +136,30 @@ describe("loadBandCopy", () => {
     BANDS.flatMap((band) =>
       AUDIENCES.map((audience) => [band, audience] as [LoadBand, LoadAudience]),
     ),
-  )("every band and reason has a word and a sentence for each audience (%s, %s)", (band, audience) => {
-    expect(loadBandWord(band).length).toBeGreaterThan(0);
-    expect(runLoadWord(band).length).toBeGreaterThan(0);
-    for (const used of [true, false]) {
-      const lines = currentLoadLines(speakerLoadFixture({ band, used_in_matching: used }), audience);
-      expect(lines.word).toBe(loadBandWord(band));
-      expect(lines.matching.length).toBeGreaterThan(0);
-      expect(lines.intro.length).toBeGreaterThan(0);
-    }
-    for (const reason of REASONS) {
-      const lines = currentLoadLines(
-        speakerLoadFixture({ band, reason, engagements_without_end_time: [item()] }),
-        audience,
-      );
-      if (reason === "capacity_not_stated") expect(lines.capacity).not.toBeNull();
-      expect(lines.listIntro).not.toBeNull();
-    }
-  });
+  )(
+    "every band and reason has a word and a sentence for each audience (%s, %s)",
+    (band, audience) => {
+      expect(loadBandWord(band).length).toBeGreaterThan(0);
+      expect(runLoadWord(band).length).toBeGreaterThan(0);
+      for (const used of [true, false]) {
+        const lines = currentLoadLines(
+          speakerLoadFixture({ band, used_in_matching: used }),
+          audience,
+        );
+        expect(lines.word).toBe(loadBandWord(band));
+        expect(lines.matching.length).toBeGreaterThan(0);
+        expect(lines.intro.length).toBeGreaterThan(0);
+      }
+      for (const reason of REASONS) {
+        const lines = currentLoadLines(
+          speakerLoadFixture({ band, reason, engagements_without_end_time: [item()] }),
+          audience,
+        );
+        if (reason === "capacity_not_stated") expect(lines.capacity).not.toBeNull();
+        expect(lines.listIntro).not.toBeNull();
+      }
+    },
+  );
 
   it("words each band", () => {
     expect(BANDS.map(loadBandWord)).toEqual([
@@ -217,7 +217,11 @@ describe("loadBandCopy", () => {
   });
 
   it("no string contains a digit or a percent sign", () => {
-    const all = [...runStrings(), ...availabilityStrings("speaker"), ...availabilityStrings("connector")];
+    const all = [
+      ...runStrings(),
+      ...availabilityStrings("speaker"),
+      ...availabilityStrings("connector"),
+    ];
     expect(all.length).toBeGreaterThan(50);
     for (const text of all) {
       expect(text).not.toMatch(/[0-9%]/);
@@ -244,7 +248,10 @@ describe("loadBandCopy", () => {
   });
 
   it("a load with no gaps has no list intro", () => {
-    const load: SpeakerLoad = speakerLoadFixture({ band: "unknown", reason: "capacity_not_stated" });
+    const load: SpeakerLoad = speakerLoadFixture({
+      band: "unknown",
+      reason: "capacity_not_stated",
+    });
     const lines = currentLoadLines(load, "speaker");
     expect(lines.listIntro).toBeNull();
     expect(lines.capacity).toBe(

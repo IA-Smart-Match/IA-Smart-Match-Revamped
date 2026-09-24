@@ -87,6 +87,7 @@ import {
   type SpeakerContact,
   type SpeakerRequest,
 } from "../../../lib/api";
+import { LOAD_FULL_EXPLANATION } from "../../../lib/loadBandCopy";
 import { PagedList } from "../../components/PagedList";
 import { grantedPortal } from "../../components/PortalGate";
 import { usePortalAccess } from "../../hooks/usePortalAccess";
@@ -133,6 +134,8 @@ export const MATCH_INELIGIBILITY_EXPLANATIONS: Readonly<Record<string, string>> 
   // B26 Q8: the Speaker's own login filed the request. A pool rule only.
   filed_this_request:
     "Filed this request, so left out of its matching. To invite them anyway, add them to a batch by hand.",
+  // B26 T8c/T8d: a Stage A rule on 3.x runs. Worded once, in loadBandCopy.
+  load_full: LOAD_FULL_EXPLANATION,
 };
 
 /** The server's reason, in words when we have them and verbatim when we do not. */
