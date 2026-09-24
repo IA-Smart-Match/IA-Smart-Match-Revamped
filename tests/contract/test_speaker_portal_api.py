@@ -26,6 +26,7 @@ from smartmatch_api.errors import EXCEPTION_HANDLERS
 from smartmatch_api.routers import auth as auth_router
 from smartmatch_api.routers import me as me_router
 from smartmatch_api.routers import speaker_portal as portal_router
+from smartmatch_domain.pilot_credentials import derive_password_hash, new_salt
 from smartmatch_domain.speaker_portal import ACTIVATION_URL_SENTINEL, derive_token
 from smartmatch_persistence.engine import create_session_factory
 from smartmatch_providers import FixtureTokenVerifier
@@ -154,7 +155,7 @@ class _Ctx:
                     "INSERT INTO contact_channel (id, tenant_id, owning_unit_id, professional_id, "
                     "channel_kind, address, contact_state, consent_source, consent_recorded_at) "
                     "VALUES (:id, :t, :u, :p, 'email', :a, :s, :src, "
-                    " CASE WHEN :src IS NULL THEN NULL ELSE now() END)"
+                    " CASE WHEN CAST(:src AS text) IS NULL THEN NULL ELSE now() END)"
                 ),
                 {
                     "id": channel_id,
@@ -196,14 +197,17 @@ class _Ctx:
         return user_id
 
     def credential_for(self, user_id: uuid.UUID, *, tenant_id: uuid.UUID | None = None) -> None:
+        stored = derive_password_hash(_new_pw(), salt=new_salt())
         self.execute(
             "INSERT INTO pilot_credential (id, tenant_id, user_id, algorithm, iterations, "
-            "salt, password_hash) VALUES (:id, :t, :u, 'pbkdf2_sha256', 600000, :salt, :h)",
+            "salt, password_hash) VALUES (:id, :t, :u, :alg, :it, :salt, :h)",
             id=uuid.uuid4(),
             t=tenant_id or self.tenant_id,
             u=user_id,
-            salt=os.urandom(16),
-            h=os.urandom(32),
+            alg=stored.algorithm,
+            it=stored.iterations,
+            salt=stored.salt,
+            h=stored.digest,
         )
 
     # -- requests ----------------------------------------------------------
@@ -575,7 +579,7 @@ def _refusal_setup(ctx: _Ctx, case: str, other_tenant: uuid.UUID) -> tuple[str, 
     if case == "unknown":
         return derive_token(ctx.secret, uuid.uuid4()), uuid.uuid4()
     if case == "malformed":
-        return "short-" + uuid.uuid4().hex[:4], uuid.uuid4()
+        return "not-a-token-" + uuid.uuid4().hex[:10], uuid.uuid4()
     state = {"rejected": "rejected", "stale": "stale", "discovered": "discovered"}.get(case)
     professional_id, invitation_id, token, address = ctx.invited()
     if case == "expired":
