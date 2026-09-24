@@ -42,6 +42,8 @@ import json
 import os
 import uuid
 from collections.abc import Iterator
+from contextlib import contextmanager
+from datetime import date
 from typing import Any
 
 import pytest
@@ -72,7 +74,7 @@ from smartmatch_providers.tasks import FixtureTaskQueue
 from smartmatch_worker.dispatcher import OutboxDispatcher
 from smartmatch_worker.execution import TaskExecutor
 from smartmatch_worker.handlers import default_registry
-from sqlalchemy import Engine, create_engine, text
+from sqlalchemy import Engine, create_engine, event, text
 
 pytestmark = pytest.mark.integration
 
@@ -138,6 +140,8 @@ class MatchFixture:
         virtual_request_id: uuid.UUID,
         physical_request_id: uuid.UUID,
         speakers: dict[str, uuid.UUID],
+        user_id: uuid.UUID | None = None,
+        engine: Engine | None = None,
     ) -> None:
         self.client = client
         self.tenant_id = tenant_id
@@ -146,6 +150,55 @@ class MatchFixture:
         self.virtual_request_id = virtual_request_id
         self.physical_request_id = physical_request_id
         self.speakers = speakers
+        self.user_id = user_id
+        self.engine = engine
+
+    def state_availability(
+        self,
+        name: str,
+        *,
+        paused_until: date | None = None,
+        windows: tuple[tuple[date, date], ...] = (),
+    ) -> None:
+        """Store (or replace) one speaker's availability statement (B26 T4)."""
+        assert self.engine is not None and self.user_id is not None
+        professional_id = self.speakers[name]
+        with self.engine.begin() as conn:
+            conn.execute(
+                text(
+                    "DELETE FROM speaker_availability WHERE tenant_id = :t AND professional_id = :p"
+                ),
+                {"t": self.tenant_id, "p": professional_id},
+            )
+            conn.execute(
+                text(
+                    "INSERT INTO speaker_availability (tenant_id, professional_id, "
+                    "invitations_paused_until, updated_source, updated_by_user_id) "
+                    "VALUES (:t, :p, :paused, 'connector', :u)"
+                ),
+                {
+                    "t": self.tenant_id,
+                    "p": professional_id,
+                    "paused": paused_until,
+                    "u": self.user_id,
+                },
+            )
+            for starts_on, ends_on in windows:
+                conn.execute(
+                    text(
+                        "INSERT INTO speaker_availability_window (id, tenant_id, professional_id, "
+                        "starts_on, ends_on, created_source, created_by_user_id) "
+                        "VALUES (:id, :t, :p, :s, :e, 'connector', :u)"
+                    ),
+                    {
+                        "id": uuid.uuid4(),
+                        "t": self.tenant_id,
+                        "p": professional_id,
+                        "s": starts_on,
+                        "e": ends_on,
+                        "u": self.user_id,
+                    },
+                )
 
     def subject(self, *names: str) -> list[str]:
         """The ids for these speakers, as the request body spells them."""
@@ -427,6 +480,8 @@ def match_context(engine: Engine) -> Iterator[MatchFixture]:
         virtual_request_id=virtual_request_id,
         physical_request_id=physical_request_id,
         speakers=speakers,
+        user_id=user_id,
+        engine=engine,
     )
 
     with engine.begin() as conn:
@@ -443,6 +498,8 @@ def match_context(engine: Engine) -> Iterator[MatchFixture]:
             "job",
             "speaker_request_classification",
             "event",
+            "speaker_availability_window",
+            "speaker_availability",
             "speaker_profile",
             "membership",
             "resource_grant",
@@ -1131,3 +1188,180 @@ def test_no_percentage_appears_anywhere_in_the_response(match_context, engine) -
             assert 0.0 <= entry["heuristic_score"] <= 1.0
         for factor in entry["factors"]:
             assert factor["value"] is None or 0.0 <= factor["value"] <= 1.0
+
+
+# ---------------------------------------------------------------------------
+# B26 T4 — stored availability verdicts and "changed since this run"
+# ---------------------------------------------------------------------------
+
+#: The Speaker Requests' local date (``_insert_speaker_request``).
+REQUEST_DAY = date(2027, 3, 4)
+#: A pause that is still in force on any run date these tests produce.
+PAUSED_UNTIL = date(2027, 6, 1)
+
+
+@contextmanager
+def _statements() -> Iterator[list[str]]:
+    """Every SQL statement any engine executes inside the block."""
+    seen: list[str] = []
+
+    def record(conn, cursor, statement, parameters, context, executemany):
+        seen.append(statement)
+
+    event.listen(Engine, "before_cursor_execute", record)
+    try:
+        yield seen
+    finally:
+        event.remove(Engine, "before_cursor_execute", record)
+
+
+def _candidates(run: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    return {
+        entry["subject_id"]: entry
+        for entry in run["shortlist"] + run["considered"] + run["unscorable"]
+    }
+
+
+def _rewrite_payload(engine: Engine, job_id: uuid.UUID, expression: str) -> None:
+    """Rewrite the stored command payload, as an older release (or an incident) left it."""
+    with engine.begin() as conn:
+        conn.execute(
+            text(f"UPDATE job SET payload = {expression} WHERE id = :job"), {"job": job_id}
+        )
+
+
+def _read_run(fixture: MatchFixture, engine: Engine, job_id: uuid.UUID) -> dict[str, Any]:
+    run_id = _run_row(engine, job_id).id
+    read = _get(fixture, f"/v1/units/{fixture.unit_id}/match-runs/{run_id}")
+    assert read.status_code == 200, read.text
+    return read.json()
+
+
+def test_availability_costs_one_query_on_create_and_two_on_read(match_context, engine) -> None:
+    """17: one ``get_many`` on create; the event row plus one ``get_many`` on read."""
+    with _statements() as created:
+        accepted = _post(match_context, _submission(match_context))
+    assert accepted.status_code == 202, accepted.text
+    job_id = uuid.UUID(accepted.json()["job_id"])
+    assert _execute_pending(engine, match_context.tenant_id, job_id).status == "executed"
+    run_id = _run_row(engine, job_id).id
+
+    with _statements() as read:
+        response = _get(match_context, f"/v1/units/{match_context.unit_id}/match-runs/{run_id}")
+    assert response.status_code == 200, response.text
+
+    def availability(statements: list[str]) -> int:
+        return sum("speaker_availability" in sql for sql in statements)
+
+    def event_reads(statements: list[str]) -> int:
+        return sum("FROM event" in sql for sql in statements)
+
+    assert availability(created) == 1
+    assert availability(read) == 1
+    assert event_reads(read) == 1
+
+
+def test_the_payload_records_a_verdict_for_every_evaluated_candidate(match_context, engine) -> None:
+    """18: scorable and unscorable alike; the never-evaluated get none."""
+    match_context.state_availability("alpha", windows=((REQUEST_DAY, REQUEST_DAY),))
+    match_context.state_availability("beta", paused_until=PAUSED_UNTIL)
+    match_context.state_availability("gamma")
+
+    accepted, _ = _submit_and_execute(match_context, engine)
+    payload = _stored_payload(engine, uuid.UUID(accepted["job_id"]))
+
+    evaluated = [entry["subject_id"] for entry in payload["explanations"]]
+    stored = payload["availability"]
+    assert [entry["subject_id"] for entry in stored] == evaluated
+    by_subject = {entry["subject_id"]: entry for entry in stored}
+    speakers = {name: str(pid) for name, pid in match_context.speakers.items()}
+
+    assert by_subject[speakers["alpha"]]["verdict"] == "excluded"
+    assert by_subject[speakers["alpha"]]["reason"] == "window"
+    assert by_subject[speakers["beta"]]["reason"] == "paused"
+    assert by_subject[speakers["beta"]]["paused_until"] == PAUSED_UNTIL.isoformat()
+    assert by_subject[speakers["gamma"]]["verdict"] == "eligible"
+    assert by_subject[speakers["delta"]]["reason"] == "not_stated"
+    # epsilon never entered the pool: no verdict, but a stored exclusion (C3).
+    assert speakers["epsilon"] not in by_subject
+    assert {
+        "subject_id": speakers["epsilon"],
+        "reason": "industry_classification_awaiting_review",
+    } in (payload["excluded"])
+
+
+def test_a_run_without_availability_reads_not_recorded(match_context, engine) -> None:
+    """19: a run stored before T4 is "not recorded", never "available"."""
+    accepted, _ = _submit_and_execute(match_context, engine)
+    job_id = uuid.UUID(accepted["job_id"])
+    _rewrite_payload(engine, job_id, "payload - 'availability' - 'excluded'")
+
+    run = _read_run(match_context, engine, job_id)
+
+    assert run["availability_recorded"] is False
+    assert run["availability_unreadable_reason"] is None
+    assert run["excluded"] == []
+    assert all(entry["availability"] is None for entry in _candidates(run).values())
+    assert run["shortlist_available"] is True
+
+
+def test_a_window_added_after_the_run_reads_changed_since(match_context, engine) -> None:
+    """20: stored "available", now inside a window -> changed since this run."""
+    match_context.state_availability("alpha")
+    accepted, before = _submit_and_execute(match_context, engine)
+    alpha = str(match_context.speakers["alpha"])
+    assert _candidates(before)[alpha]["availability"]["changed_since_run"] is False
+
+    match_context.state_availability("alpha", windows=((REQUEST_DAY, REQUEST_DAY),))
+    run = _read_run(match_context, engine, uuid.UUID(accepted["job_id"]))
+
+    view = _candidates(run)[alpha]["availability"]
+    assert run["availability_recorded"] is True
+    assert view["verdict"] == "eligible"
+    assert view["reason"] == "clear"
+    assert view["changed_since_run"] is True
+    others = [entry for subject, entry in _candidates(run).items() if subject != alpha]
+    assert all(entry["availability"]["changed_since_run"] is False for entry in others)
+
+
+def test_availability_moves_neither_inputs_hash_nor_registry_hash(match_context, engine) -> None:
+    """21a: G-CBA-13 over HTTP — a blacked-out Speaker changes no digest."""
+    _, clear = _submit_and_execute(match_context, engine)
+    match_context.state_availability("alpha", windows=((REQUEST_DAY, REQUEST_DAY),))
+    match_context.state_availability("beta", paused_until=PAUSED_UNTIL)
+    _, blocked = _submit_and_execute(match_context, engine)
+
+    assert blocked["inputs_hash"] == clear["inputs_hash"]
+    assert blocked["registry_hash"] == clear["registry_hash"]
+    assert blocked["registry_version"] == clear["registry_version"] == REGISTRY_VERSION
+
+
+def test_an_excluded_speaker_stays_on_the_shortlist_in_place(match_context, engine) -> None:
+    """21b: the verdict annotates; it removes and reorders no one."""
+    _, clear = _submit_and_execute(match_context, engine)
+    match_context.state_availability("alpha", windows=((REQUEST_DAY, REQUEST_DAY),))
+    _, blocked = _submit_and_execute(match_context, engine)
+
+    for group in ("shortlist", "considered", "unscorable"):
+        assert [e["subject_id"] for e in blocked[group]] == [e["subject_id"] for e in clear[group]]
+    alpha = _candidates(blocked)[str(match_context.speakers["alpha"])]
+    assert alpha["availability"]["verdict"] == "excluded"
+    assert alpha["availability"]["reason"] == "window"
+
+
+def test_a_malformed_availability_block_is_reported_not_repaired(match_context, engine) -> None:
+    """23: strict reader — the run still reads, availability says why it cannot."""
+    accepted, _ = _submit_and_execute(match_context, engine)
+    job_id = uuid.UUID(accepted["job_id"])
+    _rewrite_payload(
+        engine,
+        job_id,
+        "jsonb_set(payload, '{availability,0,verdict}', '\"maybe\"'::jsonb)",
+    )
+
+    run = _read_run(match_context, engine, job_id)
+
+    assert run["availability_recorded"] is False
+    assert "verdict" in run["availability_unreadable_reason"]
+    assert all(entry["availability"] is None for entry in _candidates(run).values())
+    assert run["shortlist_available"] is True

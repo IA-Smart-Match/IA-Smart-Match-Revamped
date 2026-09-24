@@ -96,6 +96,7 @@ from dataclasses import dataclass
 from typing import Any, Final
 
 import sqlalchemy as sa
+from smartmatch_domain.availability_verdict import event_time_from_columns
 from smartmatch_domain.cba_classification import match_ineligibility_reason
 from smartmatch_domain.cba_role_categories import (
     CBA_ROLE_TAXONOMY_VERSION,
@@ -104,6 +105,7 @@ from smartmatch_domain.cba_role_categories import (
     UnknownCbaRoleCategory,
     role_category_for_code,
 )
+from smartmatch_domain.events import EventTime
 from smartmatch_domain.factors.cba_semantic_topic import SpeakerTopicEvidence
 from smartmatch_domain.factors.industry_match import IndustryMatchInputs
 from smartmatch_domain.factors.proximity import (
@@ -182,6 +184,10 @@ class SpeakerRequestEvidence:
         is_virtual: §12's switch. The only input to :attr:`scoring_mode`.
         requested_sectors: §7's targets, already resolved.
         requested_roles: §8's targets, already resolved.
+        event_time: The request's time, rebuilt from its columns. B26 T4 checks
+            each Speaker's stated availability against its local dates.
+        filed_by_user_id: Who filed the request (``0033``), or ``None`` when
+            unrecorded. Q8 leaves out the Speaker whose bound login filed it.
     """
 
     event_id: uuid.UUID
@@ -189,6 +195,8 @@ class SpeakerRequestEvidence:
     is_virtual: bool
     requested_sectors: tuple[SectorResolution, ...]
     requested_roles: tuple[RoleCategoryResolution, ...]
+    event_time: EventTime
+    filed_by_user_id: uuid.UUID | None = None
 
     @property
     def scoring_mode(self) -> str:
@@ -271,6 +279,12 @@ def load_speaker_request(
             schema.event.c.id,
             schema.event.c.description,
             schema.event.c.is_virtual,
+            schema.event.c.filed_by_user_id,
+            schema.event.c.time_precision,
+            schema.event.c.starts_at,
+            schema.event.c.ends_at,
+            schema.event.c.on_date,
+            schema.event.c.time_zone,
         ).where(
             schema.event.c.tenant_id == tenant_id,
             schema.event.c.host_org_unit_id == host_org_unit_id,
@@ -306,6 +320,14 @@ def load_speaker_request(
         is_virtual=bool(row.is_virtual),
         requested_sectors=_resolved_sectors(targets),
         requested_roles=_resolved_roles(targets),
+        event_time=event_time_from_columns(
+            time_precision=row.time_precision,
+            starts_at=row.starts_at,
+            ends_at=row.ends_at,
+            on_date=row.on_date,
+            time_zone=row.time_zone,
+        ),
+        filed_by_user_id=row.filed_by_user_id,
     )
 
 
