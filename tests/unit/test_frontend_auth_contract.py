@@ -121,13 +121,15 @@ ARCHIVED_SESSION_KEY = "iaw_session"
 #: The per-portal identities the archived reads fell back to.
 FALLBACK_IDENTITY_LITERALS = ("stu-001", "coord-001", "shana-demarinis")
 
-#: The three shells that exist. ``Layout.tsx`` — the second Speaker Connector
+#: The four shells that exist. ``Layout.tsx`` — the second Speaker Connector
 #: shell — is deleted: ``admin`` and ``coordinator`` are one persona, and both
-#: stored roles land on ``CoordinatorPortalLayout`` now.
+#: stored roles land on ``CoordinatorPortalLayout`` now. The Speaker Portal
+#: (B26 T6b-4) is the fourth, mounted only while ``speaker_portal`` is on.
 PORTAL_SHELLS = (
     "app/components/StudentLayout.tsx",
     "app/components/CoordinatorPortalLayout.tsx",
     "app/components/VolunteerPortalLayout.tsx",
+    "app/components/SpeakerPortalLayout.tsx",
 )
 
 #: The pages that live inside a portal shell and therefore need the mapping
@@ -195,7 +197,18 @@ PORTAL_PAGES = (
 #: :func:`test_no_page_touches_session_storage_directly` and
 #: :func:`test_no_portal_page_reads_identity_locally` — runs over both tuples,
 #: or over every source file, and none of them is relaxed here.
-PAGES_WITH_NO_LEGACY_PORTAL_ID = ("app/pages/student/StudentRewards.tsx",)
+#:
+#: The five Speaker Portal pages (B26 T6b-4) are members from birth: every
+#: request they make is ``/v1/me/*``, and the Speaker is the bearer token's
+#: bound profile, resolved server-side.
+PAGES_WITH_NO_LEGACY_PORTAL_ID = (
+    "app/pages/student/StudentRewards.tsx",
+    "app/pages/speaker/SpeakerHome.tsx",
+    "app/pages/speaker/SpeakerInvitations.tsx",
+    "app/pages/speaker/SpeakerEngagements.tsx",
+    "app/pages/speaker/SpeakerOwnAvailability.tsx",
+    "app/pages/speaker/SpeakerContactPreferences.tsx",
+)
 
 #: `sessionStorage` is legitimate for exactly one thing: holding the bearer
 #: token `/v1` requests are sent with. One module touches it, for that key and
@@ -348,13 +361,14 @@ def test_no_portal_page_derives_a_portal_from_a_role_it_read() -> None:
     ``services/api/smartmatch_api/routers/portals.py`` and reaches the frontend
     only as data.
     """
-    for relative in PORTAL_PAGES + PORTAL_SHELLS:
+    for relative in PORTAL_PAGES + PORTAL_SHELLS + PAGES_WITH_NO_LEGACY_PORTAL_ID:
         source = (WEB_SRC / relative).read_text(encoding="utf-8")
         for derivation in (
             'role === "coordinator"',
             'role === "student"',
             'role === "volunteer"',
             'role === "admin"',
+            'role === "speaker"',
             'includes("coordinator")',
             'includes("student")',
         ):
@@ -562,11 +576,7 @@ def test_the_portal_shells_show_the_server_s_own_portal_name() -> None:
     granted, so a shell that hardcoded its own title would be a second naming
     authority — and the one that goes stale the day the map changes.
     """
-    for relative in (
-        "app/components/StudentLayout.tsx",
-        "app/components/CoordinatorPortalLayout.tsx",
-        "app/components/VolunteerPortalLayout.tsx",
-    ):
+    for relative in PORTAL_SHELLS:
         source = (WEB_SRC / relative).read_text(encoding="utf-8")
         assert "{grant.display_name}" in source, (
             f"{relative} does not render the granted portal's server-provided name"

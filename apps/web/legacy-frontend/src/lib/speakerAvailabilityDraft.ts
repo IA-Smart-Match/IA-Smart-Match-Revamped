@@ -515,9 +515,14 @@ export interface AvailabilityCopy {
   sourceLabel: Record<"speaker" | "connector", string>;
   changedBy: Record<"speaker" | "connector", string>;
   addReason: string;
+  /** The pause field's hint; `latest` is the formatted last allowed date. */
+  pauseHint: (latest: string) => string;
+  capacityHint: string;
+  /** The stale (409) lead sentence: `strong` is bold, `rest` follows it. */
+  staleLead: { strong: string; rest: string };
 }
 
-export const COPY: { connector: AvailabilityCopy } = {
+export const COPY: { connector: AvailabilityCopy; speaker: AvailabilityCopy } = {
   connector: {
     notStated:
       "This Speaker has not said when they can speak, so matching treats their availability as unknown.",
@@ -527,5 +532,29 @@ export const COPY: { connector: AvailabilityCopy } = {
     sourceLabel: { speaker: "Added by the Speaker", connector: "Added by a Speaker Connector" },
     changedBy: { speaker: "by the Speaker", connector: "by a Speaker Connector" },
     addReason: `${MAX_WINDOWS} is the most a Speaker can have. Remove one to add another.`,
+    pauseHint: (latest) => `Optional. The last day no invitations go out. Latest ${latest}.`,
+    capacityHint: "Optional. Leave blank if not stated.",
+    staleLead: {
+      strong: "Someone changed this",
+      rest: " availability since you opened it. Your changes are still in the form and were not saved.",
+    },
+  },
+  // B26 T6b-4: the Speaker's own page, in the Speaker's own terms (§5.4).
+  speaker: {
+    notStated:
+      "You have not said when you can speak, so Speaker Connectors see your availability as unknown.",
+    emptySaveHint: "Saving an empty form tells Speaker Connectors you have no dates blocked.",
+    windowsLegend: "Dates you cannot speak",
+    sourceLabel: { speaker: "Added by you", connector: "Added by a Speaker Connector" },
+    changedBy: { speaker: "by you", connector: "by a Speaker Connector" },
+    addReason: `${MAX_WINDOWS} is the most you can have. Remove one to add another.`,
+    pauseHint: (latest) =>
+      `Optional. No new invitations are sent through this date. Latest ${latest}.`,
+    capacityHint:
+      "Optional. How many hours of speaking you can give in any 90 days. If you leave it blank, your workload cannot be measured.",
+    staleLead: {
+      strong: "This changed",
+      rest: " since you opened it — a Speaker Connector may have updated it. Your changes are still in the form and were not saved.",
+    },
   },
 };

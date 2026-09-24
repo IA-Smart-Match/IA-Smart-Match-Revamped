@@ -1,11 +1,12 @@
 /**
  * `/speaker-portal` is routed only when `speaker_portal` is on (B26 T6b-1, L6):
- * no page may exist for a role nothing can grant. The on-state is mocked.
+ * no page may exist for a role nothing can grant. The on-state is mocked. On,
+ * it is the Speaker Portal shell with its five pages (B26 T6b-4 §2.1).
  */
-import { cleanup, render, screen } from "@testing-library/react";
-import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { SpeakerPortalLayout } from "./components/SpeakerPortalLayout";
+import { NotFound } from "./components/NotFound";
 import { speakerPortalRoutes } from "./speakerPortalRoutes";
 
 const scope = vi.hoisted(() => ({ on: false }));
@@ -15,7 +16,6 @@ vi.mock("../lib/productScope", () => ({
 }));
 
 afterEach(() => {
-  cleanup();
   scope.on = false;
 });
 
@@ -25,12 +25,24 @@ describe("speakerPortalRoutes", () => {
     expect(speakerPortalRoutes()).toEqual([]);
   });
 
-  it("speaker-portal renders the placeholder when on", async () => {
+  it("capability on: speaker-portal has the layout and the 5 child paths", () => {
     scope.on = true;
     const routes = speakerPortalRoutes();
-    expect(routes.map((route) => route.path)).toEqual(["speaker-portal"]);
-    const router = createMemoryRouter(routes, { initialEntries: ["/speaker-portal"] });
-    render(<RouterProvider router={router} />);
-    expect(await screen.findByRole("heading", { name: "Speaker Portal" })).toBeTruthy();
+    expect(routes).toHaveLength(1);
+    const [portal] = routes;
+    expect(portal.path).toBe("speaker-portal");
+    expect(portal.Component).toBe(SpeakerPortalLayout);
+    expect((portal.errorElement as { type?: unknown } | undefined)?.type).toBe(NotFound);
+    const children = portal.children ?? [];
+    expect(children.map((child) => (child.index ? "(index)" : child.path))).toEqual([
+      "(index)",
+      "invitations",
+      "engagements",
+      "availability",
+      "contact-preferences",
+    ]);
+    for (const child of children) {
+      expect(child.element).toBeTruthy();
+    }
   });
 });

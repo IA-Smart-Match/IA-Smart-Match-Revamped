@@ -344,9 +344,7 @@ export function SpeakerAvailabilityForm({
             <p id={`${p}-pause-hint`} className="text-xs text-muted-foreground">
               {expiredPause
                 ? `This pause ended on ${formatCalendarDate(storedPause)}. Saving clears it.`
-                : `Optional. The last day no invitations go out. Latest ${formatCalendarDate(
-                    addMonths(today, PAUSE_HORIZON_MONTHS),
-                  )}.`}
+                : copy.pauseHint(formatCalendarDate(addMonths(today, PAUSE_HORIZON_MONTHS)))}
             </p>
             {errorOn("pause") && active !== null ? (
               <FieldError id={`${p}-pause-error`} message={active.message} />
@@ -377,7 +375,7 @@ export function SpeakerAvailabilityForm({
               className={`${INPUT_CLASS} sm:max-w-48`}
             />
             <p id={`${p}-capacity-hint`} className="text-xs text-muted-foreground">
-              Optional. Leave blank if not stated.
+              {copy.capacityHint}
             </p>
             {errorOn("capacity") && active !== null ? (
               <FieldError id={`${p}-capacity-error`} message={active.message} />
@@ -555,8 +553,8 @@ export function SpeakerAvailabilityForm({
           {stale !== null ? (
             <>
               <p className="text-foreground">
-                <strong>Someone changed this</strong> availability since you opened it. Your
-                changes are still in the form and were not saved.
+                <strong>{copy.staleLead.strong}</strong>
+                {copy.staleLead.rest}
               </p>
               {formError !== null ? <p className="text-foreground">{formError.message}</p> : null}
               {readError !== null ? (
