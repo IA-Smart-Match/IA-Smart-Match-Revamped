@@ -96,6 +96,9 @@ class BatchRow:
     event_date: str
     created_by_user_id: uuid.UUID
     created_at: datetime
+    #: The Speaker Request this batch invites for (``0041``). ``None`` only on a
+    #: batch stored before ``0041`` that the backfill could not link.
+    speaker_request_id: uuid.UUID | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -204,6 +207,7 @@ class InvitationRepository:
         created_by_user_id: uuid.UUID,
         match_run_id: uuid.UUID | None = None,
         batch_id: uuid.UUID | None = None,
+        speaker_request_id: uuid.UUID | None = None,
     ) -> BatchReservation:
         """Claim this unit's idempotency key for one batch, and say who got it.
 
@@ -237,6 +241,7 @@ class InvitationRepository:
                 event_name=event_name,
                 event_date=event_date,
                 created_by_user_id=created_by_user_id,
+                speaker_request_id=speaker_request_id,
             )
             .on_conflict_do_nothing(constraint="uq_cba_invitation_batch_key")
         )
@@ -250,6 +255,31 @@ class InvitationRepository:
         ).one()
 
         return BatchReservation(batch=_to_batch(row), was_replayed=row.id != proposed_id)
+
+    def find_batch_by_key(
+        self,
+        session: Session,
+        *,
+        tenant_id: uuid.UUID,
+        owning_unit_id: uuid.UUID,
+        idempotency_key: str,
+    ) -> BatchRow | None:
+        """The batch already holding this unit's idempotency key, or ``None``.
+
+        One select on ``uq_cba_invitation_batch_key``'s columns. The route calls
+        it before resolving the Speaker Request (B26 T4 §4.2 step 0), so a retry
+        of a stored batch replays even when its request could no longer be
+        resolved today. :meth:`reserve_batch`'s ``ON CONFLICT`` read-back still
+        settles two first submissions racing past this lookup.
+        """
+        row = session.execute(
+            sa.select(schema.cba_invitation_batch).where(
+                schema.cba_invitation_batch.c.tenant_id == tenant_id,
+                schema.cba_invitation_batch.c.owning_unit_id == owning_unit_id,
+                schema.cba_invitation_batch.c.idempotency_key == idempotency_key,
+            )
+        ).one_or_none()
+        return None if row is None else _to_batch(row)
 
     def get_batch(
         self, session: Session, *, tenant_id: uuid.UUID, batch_id: uuid.UUID
@@ -578,6 +608,7 @@ def _to_batch(row: sa.Row[Any]) -> BatchRow:
         event_date=row.event_date,
         created_by_user_id=row.created_by_user_id,
         created_at=row.created_at,
+        speaker_request_id=row.speaker_request_id,
     )
 
 

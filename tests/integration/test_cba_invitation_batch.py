@@ -41,7 +41,7 @@ from sqlalchemy import Engine, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
-from tests.integration.conftest import ensure_owning_unit, unique_subject
+from tests.integration.conftest import ensure_event, ensure_owning_unit, unique_subject
 
 pytestmark = pytest.mark.integration
 
@@ -349,6 +349,60 @@ class TestBatchIdempotency:
         session.commit()
 
         assert elsewhere.was_replayed is False
+
+    def test_reserve_batch_stores_and_reads_back_the_speaker_request(
+        self, session: Session, rows: _Rows, engine: Engine, tenant_id: uuid.UUID
+    ):
+        """B26 T4 (``0041``): the batch names its Speaker Request; a replay keeps the first."""
+        with engine.begin() as conn:
+            request_id = ensure_event(conn, tenant_id, "t4-batch-request")
+            other_request = ensure_event(conn, tenant_id, "t4-batch-request-other")
+
+        def reserve(speaker_request_id: uuid.UUID):
+            reservation = _REPO.reserve_batch(
+                session,
+                tenant_id=rows.tenant_id,
+                owning_unit_id=rows.unit_id,
+                idempotency_key="batch-with-request",
+                template_id="cba.speaker_invitation.v1",
+                event_name="Spring Showcase",
+                event_date=_EVENT_DATE,
+                created_by_user_id=rows.actor_id,
+                speaker_request_id=speaker_request_id,
+            )
+            session.commit()
+            return reservation
+
+        first = reserve(request_id)
+        assert first.was_replayed is False
+        assert first.batch.speaker_request_id == request_id
+
+        read = _REPO.get_batch(session, tenant_id=rows.tenant_id, batch_id=first.batch.id)
+        assert read is not None
+        assert read.speaker_request_id == request_id
+
+        replay = reserve(other_request)
+        assert replay.was_replayed is True
+        assert replay.batch.speaker_request_id == request_id
+
+        found = _REPO.find_batch_by_key(
+            session,
+            tenant_id=rows.tenant_id,
+            owning_unit_id=rows.unit_id,
+            idempotency_key="batch-with-request",
+        )
+        assert found is not None
+        assert found.id == first.batch.id
+        assert found.speaker_request_id == request_id
+        assert (
+            _REPO.find_batch_by_key(
+                session,
+                tenant_id=rows.tenant_id,
+                owning_unit_id=rows.unit_id,
+                idempotency_key="never-used",
+            )
+            is None
+        )
 
     def test_one_person_cannot_hold_two_invitations_in_one_batch(
         self, session: Session, rows: _Rows
