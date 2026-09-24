@@ -87,6 +87,7 @@ class _Context:
         self.user_id = user_id
         #: Tenants a test created beside this one, swept in teardown.
         self.other_tenants: list[uuid.UUID] = []
+        self._default_requests: dict[uuid.UUID, uuid.UUID] = {}
 
     @property
     def _headers(self) -> dict[str, str]:
@@ -148,6 +149,12 @@ class _Context:
                     },
                 )
         return professional_id
+
+    def default_request(self, unit_id: uuid.UUID) -> uuid.UUID:
+        """One Speaker Request per unit, filed on first use."""
+        if unit_id not in self._default_requests:
+            self._default_requests[unit_id] = self.speaker_request(unit_id=unit_id)
+        return self._default_requests[unit_id]
 
     def speaker_request(
         self,
@@ -334,6 +341,10 @@ class _Context:
             "event_date": EVENT_DATE,
             "coordinator_name": "Dana Okafor",
         }
+        # C12 = R1 (B26 T4): every new batch names a Speaker Request. A test
+        # that is not about which one gets this unit's default request.
+        if "speaker_request_id" not in overrides and "match_run_id" not in overrides:
+            body["speaker_request_id"] = str(self.default_request(unit_id or self.unit_id))
         body.update(overrides)
         headers = dict(self._headers)
         if key is not None:
@@ -700,6 +711,8 @@ class TestBatchRequest:
             "extracted_event",
             "no_such_request",
             "request_differs_from_the_runs",
+            "neither",
+            "pre_031_run_and_no_request",
         ],
     )
     def test_refusals(self, ctx: _Context, case: str):
@@ -723,10 +736,18 @@ class TestBatchRequest:
         elif case == "no_such_request":
             body = {"speaker_request_id": str(uuid.uuid4())}
             expected = (404, "speaker_request_not_found")
-        else:
+        elif case == "request_differs_from_the_runs":
             run_id = ctx.match_run_for(str(own_request))
             body = {"match_run_id": str(run_id), "speaker_request_id": str(ctx.speaker_request())}
             expected = (422, "speaker_invitation_request_mismatch")
+        elif case == "neither":
+            # C12 = R1: a new batch must name a request, directly or by its run.
+            body = {"speaker_request_id": None, "match_run_id": None}
+            expected = (422, "speaker_invitation_request_required")
+        else:
+            run_id = ctx.match_run_for("need-career-panel")
+            body = {"match_run_id": str(run_id)}
+            expected = (422, "speaker_invitation_request_required")
 
         response = ctx.create_batch([professional_id], **body)
 

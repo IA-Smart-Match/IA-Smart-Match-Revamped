@@ -237,7 +237,8 @@ class BatchCreateRequest(BaseModel):
         description=(
             "The Speaker Request (a filed coordinator_entry event in this unit) "
             "this batch invites for. Derived from match_run_id when that run "
-            "names one; required otherwise. Compose and dispatch check each "
+            "names one; required otherwise (422 "
+            "speaker_invitation_request_required). Compose and dispatch check each "
             "Speaker's stated availability against its date."
         ),
     )
@@ -757,7 +758,8 @@ def create_invitation_batch(
             (see :func:`_require_distinct_recipients` — a repeat has no second
             outcome to report, and dropping it would shorten the answer); 404
             ``match_run_not_found`` / ``speaker_request_not_found`` and 422
-            ``speaker_invitation_request_mismatch`` from
+            ``speaker_invitation_request_mismatch`` /
+            ``speaker_invitation_request_required`` from
             :func:`_resolve_speaker_request` (B26 T4). A replayed key answers
             before any of those are asked.
     """
@@ -823,7 +825,7 @@ def _resolve_speaker_request(
     *,
     unit_id: uuid.UUID,
     body: BatchCreateRequest,
-) -> uuid.UUID | None:
+) -> uuid.UUID:
     """The Speaker Request this batch invites for (B26 T4 §4.2 steps 1-5).
 
     1. A named run must be in this unit, else ``404 match_run_not_found`` — a
@@ -834,9 +836,13 @@ def _resolve_speaker_request(
        ``404 speaker_request_not_found`` (404, not 403: no confirmation that
        the id names something elsewhere).
     4. Both, and they differ: ``422 speaker_invitation_request_mismatch``.
+    5. Neither resolves: ``422 speaker_invitation_request_required`` (C12 = R1).
+       Every new batch names the request it invites for, so compose and
+       dispatch always have a date to check availability against. The column
+       stays nullable only for batches stored before ``0041``.
 
     Returns:
-        The request id, or ``None`` when neither resolves.
+        The request id.
     """
     derived: uuid.UUID | None = None
     if body.match_run_id is not None:
@@ -855,6 +861,17 @@ def _resolve_speaker_request(
         derived = run.speaker_request_id
 
     if body.speaker_request_id is None:
+        if derived is None:
+            raise ApiError(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                code="speaker_invitation_request_required",
+                message=(
+                    "Name the Speaker Request this batch invites for: pass "
+                    "speaker_request_id, or a match_run_id whose run was made for "
+                    "a Speaker Request in this unit. Availability is checked "
+                    "against its date. Nothing was composed."
+                ),
+            )
         return derived
 
     event_time = load_request_event_time(
