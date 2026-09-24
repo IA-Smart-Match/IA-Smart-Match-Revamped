@@ -49,6 +49,7 @@ __all__ = [
     "SuppressionSource",
     "SuppressionState",
     "SuppressionWrite",
+    "address_is_login",
     "liftable_sources",
     "merge_suppression",
     "speaker_facing_reason",
@@ -172,6 +173,19 @@ def merge_suppression(
     return SuppressionWrite(
         MergeAction.NOOP, existing.source, existing.suppressed_at, existing.origin_send_id
     )
+
+
+def address_is_login(address: str, login_email: str | None) -> bool:
+    """Whether ``address`` is the Speaker's login address: trimmed, ASCII case fold.
+
+    ASCII only: Python's Unicode ``lower()`` maps look-alikes (U+212A KELVIN
+    SIGN to ``k``), which would let a different mailbox count as the one the
+    invitation proved.
+    """
+    if login_email is None:
+        return False
+    a, b = address.strip(), login_email.strip()
+    return a.isascii() and b.isascii() and a.lower() == b.lower()
 
 
 def liftable_sources(*, address_is_login: bool) -> frozenset[SuppressionSource]:
