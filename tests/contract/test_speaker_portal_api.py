@@ -567,7 +567,7 @@ def test_activation_stores_the_trimmed_address_and_login_works(ctx: _Ctx) -> Non
     pw = _new_pw()
     assert ctx.activate(token, pw).status_code == 200
     stored = ctx.scalar("SELECT email FROM user_account WHERE id = :p", p=professional_id)
-    assert stored == address.strip()
+    assert stored == address.strip().lower()
     login = ctx.client.post(
         "/v1/auth/login", json={"email": address.strip().lower(), "password": pw}
     )
@@ -787,14 +787,79 @@ def test_s_form_refuses_mismatched_confirmation(ctx: _Ctx) -> None:
     )
 
 
-def test_s_form_refuses_an_invalid_token_with_one_page(ctx: _Ctx) -> None:
+@pytest.mark.parametrize("case", _REFUSALS)
+def test_s_form_refuses_every_bad_token_with_one_page(
+    ctx: _Ctx, other_tenant: uuid.UUID, case: str
+) -> None:
+    """The form route's refusals, over the same cases as the JSON route: one page."""
     pw = _new_pw()
-    first = _form(ctx, "x" * 43, {"new_password": pw, "confirm_password": pw})
-    second = _form(
-        ctx, derive_token(ctx.secret, uuid.uuid4()), {"new_password": pw, "confirm_password": pw}
+    fields = {"new_password": pw, "confirm_password": pw}
+    reference = _form(ctx, derive_token(ctx.secret, uuid.uuid4()), fields)
+    token, professional_id = _refusal_setup(ctx, case, other_tenant)
+    before = _account_state(ctx, professional_id)
+
+    response = _form(ctx, token, fields)
+
+    assert response.status_code == 400
+    assert response.content == reference.content
+    assert _account_state(ctx, professional_id) == before
+
+
+def _account_state(ctx: _Ctx, professional_id: uuid.UUID) -> tuple:
+    return tuple(
+        ctx.rows(
+            "SELECT (SELECT email FROM user_account WHERE id = :p) AS email, "
+            "(SELECT count(*) FROM pilot_credential WHERE user_id = :p) AS creds, "
+            "(SELECT count(*) FROM membership WHERE user_id = :p) AS roles",
+            p=professional_id,
+        )[0]
     )
-    assert first.status_code == second.status_code == 400
-    assert first.content == second.content
+
+
+@pytest.mark.parametrize("trailing", ["\t", "\n"], ids=["tab", "newline"])
+def test_activation_normalises_a_trailing_tab_or_newline(ctx: _Ctx, trailing: str) -> None:
+    """One normalised address for the lock, the duplicate check and the stored email."""
+    base = f"Dana-{uuid.uuid4().hex[:8]}@Example.invalid"
+    professional_id, _, token, _ = ctx.invited(address=base + trailing)
+    pw = _new_pw()
+
+    assert ctx.activate(token, pw).status_code == 200
+    stored = ctx.scalar("SELECT email FROM user_account WHERE id = :p", p=professional_id)
+    assert stored == base.lower()
+    login = ctx.client.post("/v1/auth/login", json={"email": base, "password": pw})
+    assert login.status_code == 200, login.text
+
+
+@pytest.mark.parametrize("trailing", ["\t", "\n"], ids=["tab", "newline"])
+def test_a_trailing_tab_or_newline_does_not_escape_the_duplicate_check(
+    ctx: _Ctx, trailing: str
+) -> None:
+    base = f"Held-{uuid.uuid4().hex[:8]}@Example.invalid"
+    _, _, token, _ = ctx.invited(address=base + trailing)
+    ctx.other_credentialed_account(base)
+    assert ctx.activate(token).status_code == 400
+
+
+@pytest.mark.parametrize("route", ["json", "form"])
+def test_each_activation_reads_the_clock_once(
+    ctx: _Ctx, monkeypatch: pytest.MonkeyPatch, route: str
+) -> None:
+    """R6: the rate-limit charge and the activation share one ``now``."""
+    _, _, token, _ = ctx.invited()
+    readings: list[datetime] = []
+
+    def clock() -> datetime:
+        readings.append(datetime.now(UTC))
+        return readings[-1]
+
+    monkeypatch.setattr(portal_router, "utc_now", clock)
+    pw = _new_pw()
+    if route == "json":
+        response = ctx.activate(token, pw)
+    else:
+        response = _form(ctx, token, {"new_password": pw, "confirm_password": pw})
+    assert response.status_code == 200, response.text
+    assert len(readings) == 1
 
 
 def test_s_form_body_over_2048_bytes_is_413(ctx: _Ctx) -> None:

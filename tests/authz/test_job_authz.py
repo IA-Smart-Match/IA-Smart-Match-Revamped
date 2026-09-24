@@ -378,8 +378,8 @@ def _denial_reasons_evaluate_can_emit() -> frozenset[str]:
     return frozenset(reasons)
 
 
-def test_the_denial_vocabulary_is_exactly_the_five_documented_reasons():
-    """The six stable reason codes, pinned as a *set* rather than one at a time.
+def test_the_denial_vocabulary_is_exactly_the_documented_reasons():
+    """The seven stable reason codes, pinned as a *set* rather than one at a time.
 
     Each is already asserted individually by a test above (or, for the newest
     one, by the metrics authorization matrix), which catches one being

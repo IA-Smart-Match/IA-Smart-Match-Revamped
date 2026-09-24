@@ -12,8 +12,6 @@ import {
   fetchStudentProfile,
   fetchStudentRecommendations,
   fetchStudentRegistrations,
-  fetchVolunteerAssignments,
-  fetchVolunteerProfile,
 } from "../src/lib/api.ts";
 import { portalGrant } from "../src/lib/principal.ts";
 
@@ -46,8 +44,6 @@ const portalRequests: PortalRequest[] = [
   fetchCoordinatorThreads,
   fetchCoordinatorMeetings,
   fetchCoordinatorEvents,
-  fetchVolunteerProfile,
-  fetchVolunteerAssignments,
 ];
 
 test("an unresolved portal subject is rejected before any legacy request", async () => {

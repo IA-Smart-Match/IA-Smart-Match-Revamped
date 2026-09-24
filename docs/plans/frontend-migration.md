@@ -70,7 +70,7 @@ reachable without a session. Role is a client suggestion stored in
 | `/coordinator-portal/outreach` | `coordinator/CoordinatorOutreach.tsx` | event coordinator | `CoordinatorPortalLayout` |
 | `/coordinator-portal/meetings` | `coordinator/CoordinatorMeetings.tsx` | event coordinator | `CoordinatorPortalLayout` |
 | `/volunteer-portal` | `volunteer/VolunteerHome.tsx` | professional / speaker | `VolunteerPortalLayout` |
-| `/volunteer-portal/assignments` | `volunteer/VolunteerAssignments.tsx` | professional / speaker | `VolunteerPortalLayout` |
+| `/volunteer-portal/assignments` | ~~`volunteer/VolunteerAssignments.tsx`~~ deleted in B26 T7; the address redirects to `/volunteer-portal` | professional / speaker | `VolunteerPortalLayout` |
 | `/volunteer-portal/profile` | `volunteer/VolunteerProfile.tsx` | professional / speaker | `VolunteerPortalLayout` |
 | `/dashboard` | `Dashboard.tsx` | IA admin | `Layout` |
 | `/opportunities` | `Opportunities.tsx` | IA admin | `Layout` |
