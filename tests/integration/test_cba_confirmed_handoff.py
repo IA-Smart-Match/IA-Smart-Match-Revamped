@@ -808,3 +808,69 @@ def test_the_confirmed_aggregate_equals_its_drill_down_and_the_host_list(
     assert {speaker["professional_id"] for speaker in host_list["speakers"]} == {
         str(pid) for pid in confirmed_ids
     }
+
+
+# ---------------------------------------------------------------------------
+# B26 T8a: a cancelled booking is not handed to an Event Host again (C1 = C)
+# ---------------------------------------------------------------------------
+
+
+def _cancel_directly(engine: Engine, ctx: _Context, professional_id: uuid.UUID) -> uuid.UUID:
+    """Cancel a journey with a direct UPDATE, so the test does not depend on the route."""
+    with engine.begin() as conn:
+        return conn.execute(
+            text(
+                "UPDATE pipeline_record SET cancelled_at = confirmed_at, "
+                "cancelled_by_user_id = :actor, updated_at = now() "
+                "WHERE tenant_id = :tid AND subject_id = :sid RETURNING id"
+            ),
+            {"actor": ctx.actor_id, "tid": ctx.tenant_id, "sid": professional_id},
+        ).scalar_one()
+
+
+def _journey_snapshot(engine: Engine, tenant_id: uuid.UUID, subject_id: uuid.UUID) -> Any:
+    with engine.begin() as conn:
+        return conn.execute(
+            text(
+                "SELECT matched_at, contacted_at, confirmed_at, attended_at, "
+                "attended_attendance_id, cancelled_at, cancelled_by_user_id, updated_at "
+                "FROM pipeline_record WHERE tenant_id = :tid AND subject_id = :sid"
+            ),
+            {"tid": tenant_id, "sid": subject_id},
+        ).one()
+
+
+def test_replaying_a_handoff_on_a_cancelled_booking_is_409_and_writes_nothing(
+    engine: Engine, context: _Context
+) -> None:
+    handoff = _accepted_invitation(engine, context)
+    assert _post_handoff(context, handoff).status_code == 200
+    _cancel_directly(engine, context, handoff.professional_id)
+    before = _journey_snapshot(engine, context.tenant_id, handoff.professional_id)
+
+    response = _post_handoff(context, handoff)
+
+    assert response.status_code == 409, response.text
+    assert response.json()["error"]["code"] == "pipeline_record_cancelled"
+    assert _journey_snapshot(engine, context.tenant_id, handoff.professional_id) == before
+
+
+def test_a_handoff_citing_attendance_on_a_cancelled_booking_is_409(
+    engine: Engine, context: _Context
+) -> None:
+    handoff = _accepted_invitation(engine, context)
+    assert _post_handoff(context, handoff).status_code == 200
+    _cancel_directly(engine, context, handoff.professional_id)
+    with engine.begin() as conn:
+        attendance_id = _insert_attendance(
+            conn, context.tenant_id, context.unit_id, handoff.professional_id, context.event_id
+        )
+    before = _journey_snapshot(engine, context.tenant_id, handoff.professional_id)
+
+    response = _post_handoff(context, handoff, attendance_id=str(attendance_id))
+
+    assert response.status_code == 409, response.text
+    assert response.json()["error"]["code"] == "pipeline_record_cancelled"
+    after = _journey_snapshot(engine, context.tenant_id, handoff.professional_id)
+    assert after == before
+    assert after.attended_at is None
