@@ -127,7 +127,7 @@ entries:
     legacy_symbol: "volunteer_fatigue, volunteer_recovery_details, _recurrence_pressure"
     legacy_license: unlicensed-first-party
     target_path: python/smartmatch_domain/smartmatch_domain/eli.py
-    target_symbol: "compute_eli, evaluate_cap, load_penalty, LoadInputs, EliSnapshot"
+    target_symbol: "compute_eli, LoadInputs, Engagement, LoadAssessment, LoadBandTable, Q7_LOAD_BAND_TABLE"
     disposition: REPLACE
     contract_refs: ["v1.1 §1.3", "v1.1 §2.2", "v1.1 §5.1"]
     behavior_retained: >-
@@ -149,6 +149,12 @@ entries:
       pipeline stage_order column and not a function of time at all, so
       time-based decay is something the port introduced — see
       behavior_introduced.
+
+      2.0.0 note, 23 Sep 2026 (B26 T8b): formula 2.0.0 keeps workload pressure
+      only. Travel is not an input and counts 0 (D3, no route provider). The
+      modifiers named above are deleted (owner ruling R3; manual blackout moved
+      to availability, parent plan §5.1). The output is a Q7 load band
+      (LoadAssessment.band), not a score.
     behavior_rejected: >-
       The health framing and its coordinator-facing labels ("Rest Recommended",
       "Needs Rest"), which implied an assessment SmartMatch has no evidence to
@@ -182,11 +188,27 @@ entries:
       in snapshot.modifiers so the explanation still shows it. Modifiers are
       normalized to a frozenset once and that one value feeds both the score and
       the snapshot (F-8).
+
+      (4) 2.0.0 note, 23 Sep 2026 (B26 T8b): formula 2.0.0 (decision D2).
+      Centered 90-day window: attended engagements dated in
+      [as_of - 45, as_of) are completed; confirmed, not-cancelled engagements
+      dated in [as_of, as_of + 44] are upcoming whether attended or not (owner
+      ruling R1; R2 fixes the 90 days). Utilization = (completed + confirmed) /
+      declared capacity, banded by Q7_LOAD_BAND_TABLE (>= 0.50 Moderate,
+      >= 0.80 Heavy, > 1.00 Full) on exact integer-microsecond Decimal
+      comparisons. Unknown when capacity is not stated, or when a counted
+      engagement has no hours or no resolved date (R4); lower-bound Full when
+      known hours alone exceed capacity. declared_capacity_hours is
+      Decimal | None with no default (Q6; the 40.0 default is gone). This
+      supersedes (1) (no decay), (2) (future engagements now count; its open
+      D2 question is answered by Q1/D2) and the modifier half of (3) (modifiers
+      deleted, R3). EngagementRecord, EliSnapshot, CapDecision, evaluate_cap
+      and load_penalty are removed.
     dependencies_removed: ["pandas", "src.config constants", "geographic_proximity"]
     data_provenance: >-
       Operational workload facts only. The prohibited-input list
       (factor_registry.PROHIBITED_INPUTS) is enforced by the closed LoadInputs /
-      EngagementRecord field sets and asserted by
+      Engagement field sets and asserted by
       tests/unit/test_eli.py::test_prohibited_inputs_cannot_reach_the_computation.
       Corrected 26 Aug 2026: this field previously read "prohibited-input list
       enforced by schema", which overstated — at review time nothing in
@@ -194,12 +216,21 @@ entries:
       schema validates LoadInputs. What enforces it is the dataclass field set,
       plus slots=True and frozen=True leaving no route to attach a prohibited
       name after construction. That is now the claim, and it is now tested.
+
+      2.0.0 note, 23 Sep 2026: EngagementRecord is replaced by Engagement; the
+      closed-field-set claim still holds over LoadInputs | Engagement, and the
+      same test enforces it.
     characterization_tests: n/a — REPLACE, not a port; legacy outputs are not a target
     target_tests: >-
       tests/unit/test_eli.py — 22 cases. Measured 26 Aug 2026 with
       `pytest tests/unit/test_eli.py --collect-only -q`, not recalled. This
       field previously claimed 20 (finding F-5); there were 18 at review time
       and the claim of 20 was never right at any commit. 654e89f added four.
+
+      2.0.0 note, 23 Sep 2026: tests/unit/test_eli.py rewritten for formula
+      2.0.0 — 90 cases (72 at the green commit, +18 for the PR #214 review
+      fixes). Measured with
+      `pytest tests/unit/test_eli.py --collect-only -q`, not estimated.
     security_review: >-
       The closed input structure (LoadInputs) means a prohibited **field** —
       one named in factor_registry.PROHIBITED_INPUTS — cannot reach the
@@ -219,6 +250,11 @@ entries:
       about the registry, not about ELI's inputs. Type closure at untyped
       boundaries is still only mypy --strict, which does not run on
       deserialized input; no such boundary exists for this module yet.
+
+      2.0.0 note, 23 Sep 2026: the structure is still a closed field set over
+      LoadInputs | Engagement. 2.0.0 also checks some types at runtime:
+      declared_capacity_hours must be a finite Decimal > 0 or None, and
+      Engagement.duration a positive timedelta or None.
     migration_owner: engineering
     reviewer: A4 (independent review agent)
     status: ported_unverified
@@ -252,6 +288,13 @@ entries:
       days inclusive against a constant named _ROLLING_WINDOW_DAYS = 90; and
       declared_capacity_hours=1e-9 passes validation and yields
       utilization = 1000000000.0.
+
+      2.0.0 note, 23 Sep 2026: open decision 2 is answered by Q1/D2 and Q7 —
+      no decay, no modifiers, a centered window and the Q7 band table. The
+      window is now exactly 90 days (R2), which closes the 91-day
+      observation. The tiny-capacity observation still holds inside eli.py
+      (Decimal("1E-9") is finite and > 0); the DB CHECK (parent plan §3.1)
+      and T1 bound it before it reaches ELI.
 
   - id: MM-004
     legacy_path: "Category 3 - IA West Smart Match CRM/src/data_loader.py"
