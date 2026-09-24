@@ -176,6 +176,54 @@ describe("<PortalSwitcher />", () => {
     expect(toggle().getAttribute("aria-expanded")).toBe("false");
   });
 
+  it("Tab from the button into the list keeps it open (real focus move)", () => {
+    renderSwitcher();
+    toggle().focus();
+    fireEvent.click(toggle());
+    const link = screen.getByRole("link", { name: "Event Host Portal" });
+    act(() => link.focus());
+    expect(toggle().getAttribute("aria-expanded")).toBe("true");
+    expect(document.activeElement).toBe(link);
+  });
+
+  it("focus moving to nothing (WebKit mouse click) keeps it open; a pointer-down outside then closes it", () => {
+    renderSwitcher();
+    toggle().focus();
+    fireEvent.click(toggle());
+    act(() => toggle().blur());
+    expect(toggle().getAttribute("aria-expanded")).toBe("true");
+    fireEvent.pointerDown(screen.getByText("Speaker home"));
+    expect(toggle().getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("Escape while open does not reach a document keydown listener (the shell's drawer)", () => {
+    const documentKeydown = vi.fn();
+    document.addEventListener("keydown", documentKeydown);
+    try {
+      renderSwitcher();
+      fireEvent.click(toggle());
+      const link = screen.getByRole("link", { name: "Event Host Portal" });
+      act(() => link.focus());
+      fireEvent.keyDown(link, { key: "Escape" });
+      expect(documentKeydown).not.toHaveBeenCalled();
+      expect(document.activeElement).toBe(toggle());
+    } finally {
+      document.removeEventListener("keydown", documentKeydown);
+    }
+  });
+
+  it("Escape while closed still propagates", () => {
+    const documentKeydown = vi.fn();
+    document.addEventListener("keydown", documentKeydown);
+    try {
+      renderSwitcher();
+      fireEvent.keyDown(toggle(), { key: "Escape" });
+      expect(documentKeydown).toHaveBeenCalledTimes(1);
+    } finally {
+      document.removeEventListener("keydown", documentKeydown);
+    }
+  });
+
   it("a pointer-down outside closes it", () => {
     renderSwitcher();
     fireEvent.click(toggle());

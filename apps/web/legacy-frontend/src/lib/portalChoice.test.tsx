@@ -26,6 +26,10 @@ describe("portalChoice", () => {
     expect(readRememberedPortal(["volunteer", "speaker"])).toBe("speaker");
   });
 
+  it("uses the plan's storage key", () => {
+    expect(PORTAL_CHOICE_KEY).toBe("smartmatch.portal.lastChoice");
+  });
+
   it("an ungranted or unknown value reads as null", () => {
     rememberPortal("speaker");
     expect(readRememberedPortal(["volunteer"])).toBeNull();
