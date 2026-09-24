@@ -73,7 +73,6 @@ from sqlalchemy.orm import Session
 
 __all__ = [
     "EXISTING_LOGIN_ALLOWED_ROLES",
-    "EXISTING_LOGIN_REFUSED_ROLES",
     "ActivationCredentialsInvalid",
     "ActivationMode",
     "ActivationModeMismatch",
@@ -90,31 +89,34 @@ _ACTIVATABLE_STATES: Final[frozenset[str]] = frozenset(
     state.value for state in ACTIVATABLE_CHANNEL_STATES
 )
 
-#: Q1 (owner ruling, amended 2026-09-24 from a deny-list): existing-login mode
-#: binds Event Host logins only, as an **allow-list**. A holder needs one of
-#: these roles active …
-EXISTING_LOGIN_ALLOWED_ROLES: Final[frozenset[str]] = frozenset({"volunteer"})
-
-#: … and none of these. This also keeps T6b-1 §11's self-invite mitigation: a
+#: Q1 (owner ruling, amended 2026-09-24 from a deny-list; tightened
+#: 2026-09-24 on #224 LOW row 10): existing-login mode binds Event Host logins
+#: only, as a **true allow-list**. Apart from ``speaker``, a holder's active
+#: roles must be exactly these — any other role, including one this code does
+#: not know yet, refuses. This also keeps T6b-1 §11's self-invite mitigation: a
 #: Connector's own address is a staff login, so inviting it never binds the
 #: Connector as a Speaker.
-EXISTING_LOGIN_REFUSED_ROLES: Final[frozenset[str]] = frozenset({"admin", "coordinator", "student"})
+EXISTING_LOGIN_ALLOWED_ROLES: Final[frozenset[str]] = frozenset({"volunteer"})
 
 #: The one role activation grants (never a seed: INVITATION_ONLY_ROLES).
 _SPEAKER_ROLE: Final[str] = "speaker"
+
+#: ``speaker`` neither qualifies nor disqualifies a login (``speaker`` and
+#: ``volunteer`` never widen each other), so the rule ignores it.
+_ROLE_THE_RULE_IGNORES: Final[frozenset[str]] = frozenset({_SPEAKER_ROLE})
 
 
 def existing_login_may_bind(held: frozenset[str]) -> bool:
     """Q1, the one rule: may a login holding ``held`` (its *active* roles) gain ``speaker``?
 
-    ``True`` only for an active ``volunteer`` with no active staff or student
-    role. A login with no active role, only expired roles, or only ``speaker``
-    is refused: ``speaker`` and ``volunteer`` never widen each other, so an
-    active ``speaker`` neither qualifies a login nor disqualifies one. Refused
-    at activation with the generic 400, at invite with ``409
+    ``True`` only when ``volunteer`` is held and, ``speaker`` aside, nothing
+    else is: ``held - {"speaker"} == {"volunteer"}``. A login with no active
+    role, only expired roles, only ``speaker``, or ``volunteer`` plus any other
+    role (staff, student, or one this code does not know) is refused: at
+    activation with the generic 400, at invite with ``409
     speaker_portal_address_not_host_login`` — one body for every reason.
     """
-    return bool(held & EXISTING_LOGIN_ALLOWED_ROLES) and not held & EXISTING_LOGIN_REFUSED_ROLES
+    return held - _ROLE_THE_RULE_IGNORES == EXISTING_LOGIN_ALLOWED_ROLES
 
 
 class ActivationMode(StrEnum):
