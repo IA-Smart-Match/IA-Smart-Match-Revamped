@@ -1072,6 +1072,54 @@ every scope today; turning it on is a reviewed code change, not this variable.
   WHERE t.actor_user_id = i.issued_by_user_id AND t.consent_source IS NOT NULL;
   ```
 
+### One login, two roles (B26 T6b-5)
+
+An Event Host who is invited as a Speaker at the address they already sign in
+with activates with **that login's password**; the one login then holds both
+roles, and `/v1/me/portals` lists the Event Host Portal first.
+
+- **Suspension suspends both.** `user_account.suspended` is per login. Setting
+  it on a Host who is also a Speaker ends their Event Host access and their
+  Speaker access together. The Connector's portal-access line says so; there is
+  no suspend route or UI, so an operator doing it by SQL must say so too.
+- **`seed-logins` on a merged address.** The seed ignores `speaker` rows
+  (active or ended) when it checks a login's memberships, so a Host who became a
+  Speaker does not fail the deploy's `seed-logins` gate. If a configured
+  `SMARTMATCH_PILOT_*_EMAIL` already signs in as a login the seed did not
+  create (a Speaker who activated there first), the seed merges into it only
+  for `SMARTMATCH_PILOT_VOLUNTEER_EMAIL`, and only while that login's active
+  roles are `speaker`, `volunteer` or none (owner ruling R-B). It then adds
+  `volunteer`, **does not change the password**, and prints on stderr that the
+  `_PASSWORD` variable was not applied. That login keeps its own subject, so
+  `seed_pilot_engagement`'s `pilot-login-*` lookups skip it. The coordinator,
+  admin or student address at such a login, or the volunteer address at a
+  login holding any other active role, stops the seed with a conflict that
+  names the role and the variable; so does an address held in another
+  organization, or by two logins. Fix the address in `.env` and redeploy.
+- **Removing portal access can end a merged volunteer's sign-in (known gap,
+  follow-up).** If the volunteer address is a Speaker's *own* new login (the
+  Speaker activated with a new password first, then `seed-logins` merged
+  `volunteer` into it), a Connector's "Remove portal access" treats it as a
+  Speaker-only login: it deletes the credential and ends the sessions, so the
+  pilot volunteer can no longer sign in. The Connector's screen also reports
+  it as not shared. To recover, run `seed-logins` again: the address is free
+  and the seed creates a fresh volunteer login with the configured password.
+  If an earlier run seeded the volunteer at another address, the re-run stops
+  with a conflict instead ("exists with different account attributes"); fix
+  that first. Until the follow-up lands, give the volunteer an address no
+  Speaker uses.
+- **Credentials are written by one module.** Create, rotate and remove
+  pilot credentials only through `tools/seed_pilot_logins.py` (or activation
+  and unbind); never with SQL on `pilot_credential`. A second credential at an
+  address locks both logins out of `/v1/auth/login`.
+- **Removing portal access.** `DELETE
+  /v1/units/{unit}/speaker-contacts/{professional}/portal-access` (Connector
+  roles) ends the `speaker` role at once — the next request loses the Speaker
+  Portal — and leaves every other role alone. For a Speaker-only login it also
+  deletes the credential and revokes its sessions; a re-invite then starts over.
+  Audit: `SELECT id, professional_id, unbound_at, unbound_by_user_id FROM
+  speaker_portal_invitation WHERE unbound_at IS NOT NULL;`
+
 ### When a deployment fails
 
 The job output is the deployment log, redacted. Read it top-down: the script

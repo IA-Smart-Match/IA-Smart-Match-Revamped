@@ -590,3 +590,42 @@ def test_a_second_non_excluded_membership_still_permits() -> None:
     )
     assert decision.allowed
     assert decision.reason == "inherited_unit_grant"
+
+
+# ---------------------------------------------------------------------------
+# B26 T6b-5: one login, two roles
+# ---------------------------------------------------------------------------
+
+
+def _host_and_speaker(**speaker_window: object) -> tuple[Membership, ...]:
+    return (
+        _member("iawest.cpp", role="volunteer"),
+        _member("iawest.cpp", role="speaker", **speaker_window),
+    )
+
+
+@pytest.mark.parametrize(
+    "required", [frozenset({"volunteer"}), frozenset({"speaker"})], ids=["host", "speaker"]
+)
+def test_a_suspended_two_membership_principal_is_denied_everywhere(required) -> None:
+    """R-L: suspension is per login, so it ends the Host role and the Speaker role alike."""
+    principal = Principal(
+        user_id="merged", tenant_id=TENANT, memberships=_host_and_speaker(), suspended=True
+    )
+    decision = evaluate(principal, _resource(), at=NOW, required_roles=required)
+
+    assert not decision.allowed
+    assert decision.reason == "principal_suspended"
+
+
+def test_an_expired_speaker_row_leaves_the_host_row_working() -> None:
+    """The unbind shape: ``speaker`` ended at ``now`` (exclusive), ``volunteer`` untouched."""
+    principal = Principal(
+        user_id="unbound", tenant_id=TENANT, memberships=_host_and_speaker(valid_until=NOW)
+    )
+
+    speaker = evaluate(principal, _resource(), at=NOW, required_roles=frozenset({"speaker"}))
+    host = evaluate(principal, _resource(), at=NOW, required_roles=frozenset({"volunteer"}))
+
+    assert not speaker.allowed and speaker.reason == "no_grant"
+    assert host.allowed

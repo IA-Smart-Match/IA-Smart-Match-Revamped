@@ -22,8 +22,10 @@ from collections.abc import Sequence
 
 import sqlalchemy as sa
 from smartmatch_api.config import Settings
+from smartmatch_api.routers.portals import INVITATION_ONLY_ROLES
 from smartmatch_persistence import schema
 from smartmatch_persistence.engine import create_db_engine
+from smartmatch_persistence.login_accounts import normalise_address
 from sqlalchemy.engine import Connection
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -133,11 +135,83 @@ def _existing_or_insert_account(
             f"external subject {subject!r} already belongs to a different tenant; "
             "subjects are global"
         )
-    if row.email != email or row.suspended:
+    # Folded both sides: login_accounts stores a new login's email normalised
+    # (strip().lower()), while a row seeded earlier keeps the env's spelling.
+    if normalise_address(row.email) != normalise_address(email) or row.suspended:
         raise SeedConflictError(
             f"external subject {subject!r} exists with different account attributes"
         )
     return uuid.UUID(str(row.id))
+
+
+def verify_membership_set(
+    connection: Connection,
+    *,
+    tenant_id: uuid.UUID,
+    account_id: uuid.UUID,
+    path: str,
+    roles: Sequence[str],
+) -> frozenset[str]:
+    """Check that this account holds nothing but ``roles`` over ``path``. Writes nothing.
+
+    The check half of :func:`_ensure_membership_set`, which
+    ``seed_pilot_logins`` calls before it adds roles through
+    ``login_accounts.find_or_add_role`` (B26 T6b-5 plan §3.4).
+
+    Rows whose role is in ``INVITATION_ONLY_ROLES`` (``speaker``) are ignored,
+    active or expired: activation grants them and unbind expires them, never a
+    seed. Without that, an Event Host login that accepted a Speaker invitation
+    would fail the next ``seed-logins`` run, which gates every VM deploy
+    (``scripts/vm/deploy.sh``). A seed that *asks* for such a role is refused.
+
+    Returns:
+        The requested roles the account already holds.
+
+    Raises:
+        SeedConflictError: on any other row this seed did not ask for, or a
+            request for an invitation-only role.
+    """
+    requested = sorted(set(roles))
+    if not requested:  # pragma: no cover - no caller asks for an empty set
+        raise SeedConflictError("a membership set must name at least one role")
+    invitation_only = sorted(set(requested) & INVITATION_ONLY_ROLES)
+    if invitation_only:
+        raise SeedConflictError(
+            f"{invitation_only} is granted by accepting an invitation, never by a seed"
+        )
+
+    rows = [
+        row
+        for row in connection.execute(
+            sa.select(
+                schema.membership.c.granted_path,
+                schema.membership.c.role,
+                schema.membership.c.valid_from,
+                schema.membership.c.valid_until,
+            ).where(
+                schema.membership.c.tenant_id == tenant_id,
+                schema.membership.c.user_id == account_id,
+            )
+        ).all()
+        if row.role not in INVITATION_ONLY_ROLES
+    ]
+
+    unexpected = [
+        row
+        for row in rows
+        if row.role not in requested
+        or str(row.granted_path) != path
+        or row.valid_from is not None
+        or row.valid_until is not None
+    ]
+    if unexpected:
+        raise SeedConflictError(
+            "external subject already has a different membership "
+            f"({sorted((str(row.granted_path), row.role) for row in unexpected)}); "
+            f"this seed asks for {requested} over {path!r} and refuses to change "
+            "server-assigned roles"
+        )
+    return frozenset(row.role for row in rows)
 
 
 def _ensure_membership_set(
@@ -167,47 +241,18 @@ def _ensure_membership_set(
       different path, or any validity window this seed did not write, is a
       :class:`SeedConflictError`. Those are grants somebody else decided, and
       an operator tool that quietly rewrote them would be the one thing a
-      server-assigned role must never be: editable from outside.
+      server-assigned role must never be: editable from outside. Invitation-only
+      roles are the exception (see :func:`verify_membership_set`).
     * Nothing is ever deleted. Reconciling *downwards* would mean this tool
       could remove access, and no seed needs that power to do its job.
 
     Raises:
         SeedConflictError: on any existing row this seed did not ask for.
     """
-    requested = sorted(set(roles))
-    if not requested:  # pragma: no cover - no caller asks for an empty set
-        raise SeedConflictError("a membership set must name at least one role")
-
-    rows = connection.execute(
-        sa.select(
-            schema.membership.c.granted_path,
-            schema.membership.c.role,
-            schema.membership.c.valid_from,
-            schema.membership.c.valid_until,
-        ).where(
-            schema.membership.c.tenant_id == tenant_id,
-            schema.membership.c.user_id == account_id,
-        )
-    ).all()
-
-    unexpected = [
-        row
-        for row in rows
-        if row.role not in requested
-        or str(row.granted_path) != path
-        or row.valid_from is not None
-        or row.valid_until is not None
-    ]
-    if unexpected:
-        raise SeedConflictError(
-            "external subject already has a different membership "
-            f"({sorted((str(row.granted_path), row.role) for row in unexpected)}); "
-            f"this seed asks for {requested} over {path!r} and refuses to change "
-            "server-assigned roles"
-        )
-
-    held = {row.role for row in rows}
-    for role in requested:
+    held = verify_membership_set(
+        connection, tenant_id=tenant_id, account_id=account_id, path=path, roles=roles
+    )
+    for role in sorted(set(roles)):
         if role in held:
             continue
         connection.execute(

@@ -78,6 +78,32 @@ still decides every operation deny-by-default. Concretely:
   server secret, and activation refuses any account that already holds a
   credential. Mounted only while `SPEAKER_PORTAL` is on (off in every scope).
 
+  **Amended again 2026-09-24 (B26 T6b-5, owner Q1).** Activation has a second
+  mode. When an Event Host's login already holds the invited address, the
+  Speaker proves it with *that login's existing password* and the login gains
+  `speaker`; no password is set or changed, and no account is created. Only
+  Event Host logins qualify, as an allow-list (Q1, amended by the owner the
+  same day, then tightened to a true allow-list): apart from `speaker`, the
+  login's active roles must be exactly `volunteer`. Any other login — a staff
+  or student login, `volunteer` plus any other role (even one not yet known),
+  or a login with no active role or only `speaker` — is refused (the generic 400 at
+  activation, `409
+  speaker_portal_address_not_host_login` at invite). A Speaker Connector may
+  also remove portal access (`DELETE …/portal-access`), which ends the
+  `speaker` role and, for a Speaker-only login, deletes its credential and ends
+  its sessions.
+
+* **One writer of `pilot_credential` (B26 T6b-5).** Every credential insert,
+  rotation and removal goes through `smartmatch_persistence.login_accounts`
+  (`find_or_add_role`, `rotate_own_password`, `retire_login`), under a
+  transaction-scoped advisory lock on the folded address and `FOR UPDATE` on
+  the address's credential rows. The seed tool, activation and unbind all use
+  it; `PilotCredentialRepository` only reads. `tests/unit/test_login_account_writers.py`
+  fails if any other module in `python/`, `services/`, `tools/`, `scripts/` or
+  `db/` writes the table. The reason: `load_by_email` refuses an address that
+  two credentialed accounts hold, so a second credential at an address would
+  lock both logins out.
+
 This preserves what PR #10 and PR #32 established, and a login that let the
 browser assert a role would have undone both.
 

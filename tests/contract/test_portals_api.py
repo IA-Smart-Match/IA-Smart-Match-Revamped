@@ -558,3 +558,20 @@ def test_host_default_portal_stays_volunteer_with_speaker_role(
     )
     assert [entry["portal"] for entry in body["portals"]] == ["volunteer", "speaker"]
     assert body["default_portal"] == "volunteer"
+
+
+def test_a_merged_login_lists_volunteer_then_speaker_and_defaults_to_volunteer(
+    client: TestClient, engine: Engine, tenant_id: uuid.UUID
+) -> None:
+    """B26 T6b-5 R-J, the other insertion order: an existing-login activation adds
+    ``speaker`` *after* the Host's ``volunteer`` row, and the Host still lands in
+    the Event Host Portal."""
+    body = _portals_for_roles(
+        client,
+        engine,
+        tenant_id,
+        name="sub-merged-login",
+        grants=[("volunteer", UNIT_PATH), ("speaker", UNIT_PATH)],
+    )
+    assert [entry["portal"] for entry in body["portals"]] == ["volunteer", "speaker"]
+    assert body["default_portal"] == "volunteer"
