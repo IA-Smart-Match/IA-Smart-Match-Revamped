@@ -1548,7 +1548,6 @@
             "description": "A key of the closed outreach template registry.",
             "examples": [
               "cba.speaker_invitation.v1",
-              "cba.speaker_portal_invite.v1",
               "pilot.event_invitation.v1",
               "pilot.schedule_change.v1",
               "pilot.visit_confirmation.v1"
