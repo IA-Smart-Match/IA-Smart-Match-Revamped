@@ -200,6 +200,50 @@ class MatchFixture:
                     },
                 )
 
+    def new_login(self) -> uuid.UUID:
+        """A ``user_account`` in this tenant: a Host, or a Speaker's bound login."""
+        assert self.engine is not None
+        user_id = uuid.uuid4()
+        with self.engine.begin() as conn:
+            conn.execute(
+                text(
+                    "INSERT INTO user_account (id, tenant_id, external_subject, email) "
+                    "VALUES (:id, :t, :s, :e)"
+                ),
+                {
+                    "id": user_id,
+                    "t": self.tenant_id,
+                    "s": f"login-{user_id.hex}",
+                    "e": f"login-{user_id.hex[:8]}@example.invalid",
+                },
+            )
+        return user_id
+
+    def bind_login(self, name: str, user_id: uuid.UUID) -> None:
+        """Bind a login to a Speaker's profile (``0039``), as T6b-5's merge would."""
+        assert self.engine is not None
+        with self.engine.begin() as conn:
+            conn.execute(
+                text(
+                    "UPDATE speaker_profile SET account_user_id = :u, account_bound_at = now() "
+                    "WHERE tenant_id = :t AND professional_id = :p"
+                ),
+                {"u": user_id, "t": self.tenant_id, "p": self.speakers[name]},
+            )
+
+    def file_request(self, filed_by_user_id: uuid.UUID | None) -> uuid.UUID:
+        """A virtual Speaker Request filed by ``filed_by_user_id`` (``None``: unrecorded)."""
+        assert self.engine is not None
+        with self.engine.begin() as conn:
+            return _insert_speaker_request(
+                conn,
+                tenant_id=self.tenant_id,
+                unit_id=self.unit_id,
+                is_virtual=True,
+                title=f"Filed finance panel {uuid.uuid4().hex[:8]}",
+                filed_by_user_id=filed_by_user_id,
+            )
+
     def subject(self, *names: str) -> list[str]:
         """The ids for these speakers, as the request body spells them."""
         return [str(self.speakers[name]) for name in names]
@@ -212,6 +256,7 @@ def _insert_speaker_request(
     unit_id: uuid.UUID,
     is_virtual: bool,
     title: str,
+    filed_by_user_id: uuid.UUID | None = None,
 ) -> uuid.UUID:
     """File one Speaker Request straight into ``event`` and its targets.
 
@@ -228,9 +273,9 @@ def _insert_speaker_request(
         text(
             "INSERT INTO event (id, tenant_id, host_org_unit_id, title, normalized_title, "
             "description, time_precision, on_date, time_zone, resolved_date, origin, "
-            "is_virtual) VALUES (:id, :tid, :unit, :title, :norm, :desc, 'date_only', "
-            "DATE '2027-03-04', 'America/Los_Angeles', DATE '2027-03-04', "
-            "'coordinator_entry', :virtual)"
+            "is_virtual, filed_by_user_id) VALUES (:id, :tid, :unit, :title, :norm, :desc, "
+            "'date_only', DATE '2027-03-04', 'America/Los_Angeles', DATE '2027-03-04', "
+            "'coordinator_entry', :virtual, :filed)"
         ),
         {
             "id": event_id,
@@ -240,6 +285,7 @@ def _insert_speaker_request(
             "norm": title.lower(),
             "desc": REQUEST_DESCRIPTION,
             "virtual": is_virtual,
+            "filed": filed_by_user_id,
         },
     )
     for kind, code, version in (
@@ -1365,3 +1411,108 @@ def test_a_malformed_availability_block_is_reported_not_repaired(match_context, 
     assert "verdict" in run["availability_unreadable_reason"]
     assert all(entry["availability"] is None for entry in _candidates(run).values())
     assert run["shortlist_available"] is True
+
+
+# ---------------------------------------------------------------------------
+# B26 T4 Q8 — the requester is left out of their own request's pool
+# ---------------------------------------------------------------------------
+
+
+def _excluded(accepted: dict[str, Any]) -> dict[str, str]:
+    return {entry["subject_id"]: entry["reason"] for entry in accepted["excluded_candidates"]}
+
+
+def test_the_requester_is_excluded_as_filed_this_request(match_context, engine) -> None:
+    """22a."""
+    host = match_context.new_login()
+    match_context.bind_login("alpha", host)
+    request_id = match_context.file_request(host)
+
+    accepted, _ = _submit_and_execute(
+        match_context, engine, _submission(match_context, speaker_request_id=str(request_id))
+    )
+
+    alpha = str(match_context.speakers["alpha"])
+    assert _excluded(accepted)[alpha] == "filed_this_request"
+    payload = _stored_payload(engine, uuid.UUID(accepted["job_id"]))
+    assert alpha not in {entry["subject_id"] for entry in payload["explanations"]}
+    assert alpha not in {entry["subject_id"] for entry in payload["candidates"]}
+
+
+def test_another_hosts_request_excludes_nobody(match_context, engine) -> None:
+    """22b."""
+    match_context.bind_login("alpha", match_context.new_login())
+    request_id = match_context.file_request(match_context.new_login())
+
+    accepted, _ = _submit_and_execute(
+        match_context, engine, _submission(match_context, speaker_request_id=str(request_id))
+    )
+
+    assert "filed_this_request" not in _excluded(accepted).values()
+
+
+def test_a_speaker_with_no_bound_login_is_never_excluded(match_context, engine) -> None:
+    """22c."""
+    request_id = match_context.file_request(match_context.new_login())
+
+    accepted, _ = _submit_and_execute(
+        match_context, engine, _submission(match_context, speaker_request_id=str(request_id))
+    )
+
+    assert "filed_this_request" not in _excluded(accepted).values()
+
+
+def test_a_request_with_no_recorded_filer_excludes_nobody(match_context, engine) -> None:
+    """22d: NULL never equals NULL, and an unknown filer is nobody."""
+    match_context.bind_login("alpha", match_context.new_login())
+    request_id = match_context.file_request(None)
+
+    accepted, _ = _submit_and_execute(
+        match_context, engine, _submission(match_context, speaker_request_id=str(request_id))
+    )
+
+    assert "filed_this_request" not in _excluded(accepted).values()
+
+
+def test_excluding_the_requester_fingerprints_like_not_naming_them(match_context, engine) -> None:
+    """22e: Q8 changes ``candidates`` only as naming fewer people would."""
+    host = match_context.new_login()
+    match_context.bind_login("alpha", host)
+    request_id = match_context.file_request(host)
+
+    _, with_requester = _submit_and_execute(
+        match_context,
+        engine,
+        _submission(
+            match_context,
+            speaker_request_id=str(request_id),
+            candidate_subject_ids=match_context.subject("alpha", "beta", "gamma", "delta"),
+        ),
+    )
+    _, without = _submit_and_execute(
+        match_context,
+        engine,
+        _submission(
+            match_context,
+            speaker_request_id=str(request_id),
+            candidate_subject_ids=match_context.subject("beta", "gamma", "delta"),
+        ),
+    )
+
+    assert with_requester["inputs_hash"] == without["inputs_hash"]
+    assert with_requester["registry_hash"] == without["registry_hash"]
+
+
+def test_the_read_lists_the_excluded_requester(match_context, engine) -> None:
+    """22f (C3): the stored exclusion is on the read, not only on the 202."""
+    host = match_context.new_login()
+    match_context.bind_login("alpha", host)
+    request_id = match_context.file_request(host)
+
+    _, run = _submit_and_execute(
+        match_context, engine, _submission(match_context, speaker_request_id=str(request_id))
+    )
+
+    alpha = str(match_context.speakers["alpha"])
+    assert {"subject_id": alpha, "reason": "filed_this_request"} in run["excluded"]
+    assert alpha not in _candidates(run)

@@ -96,7 +96,7 @@ from dataclasses import dataclass
 from typing import Any, Final
 
 import sqlalchemy as sa
-from smartmatch_domain.availability_verdict import event_time_from_columns
+from smartmatch_domain.availability_verdict import event_time_from_columns, filed_this_request
 from smartmatch_domain.cba_classification import match_ineligibility_reason
 from smartmatch_domain.cba_role_categories import (
     CBA_ROLE_TAXONOMY_VERSION,
@@ -156,6 +156,11 @@ EXCLUSION_INDUSTRY_TAXONOMY_SUPERSEDED: Final[str] = "industry_taxonomy_version_
 
 #: Same, for ``role_match``.
 EXCLUSION_ROLE_TAXONOMY_SUPERSEDED: Final[str] = "role_taxonomy_version_superseded"
+
+#: B26 Q8: the Speaker's bound login (``speaker_profile.account_user_id``) filed
+#: this Speaker Request, so they are left out of its matching. A pool rule only:
+#: a Connector may still add them to a batch by hand.
+EXCLUSION_FILED_THIS_REQUEST: Final[str] = "filed_this_request"
 
 #: A stored code the released NAICS table does not name.
 #: ``ck_speaker_profile_industry_code`` forbids such a row, so reaching this
@@ -417,6 +422,13 @@ def assemble_cba_pool(
             excluded.append(ExcludedCandidate(subject, EXCLUSION_PROFILE_NOT_FOUND))
             continue
 
+        # Q8 (B26 T4), before any scoring: the requester never reaches
+        # `rank_cba_candidates`, so leaving them out fingerprints exactly like
+        # not naming them. Both ids must be known — NULL never equals NULL.
+        if filed_this_request(request.filed_by_user_id, row.account_user_id):
+            excluded.append(ExcludedCandidate(subject, EXCLUSION_FILED_THIS_REQUEST))
+            continue
+
         # Track 16's gate, called and not re-derived. It is evaluated **before**
         # any evidence is assembled, so an unreviewed record's classification
         # never reaches a factor at all — there is no path by which it could be
@@ -462,6 +474,7 @@ def _profiles_by_professional_id(
     rows = session.execute(
         sa.select(
             schema.speaker_profile.c.professional_id,
+            schema.speaker_profile.c.account_user_id,
             schema.speaker_profile.c.primary_industry_code,
             schema.speaker_profile.c.industry_taxonomy_version,
             schema.speaker_profile.c.industry_classification_source,
