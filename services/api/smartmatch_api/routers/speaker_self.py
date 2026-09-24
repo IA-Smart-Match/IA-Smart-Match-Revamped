@@ -458,6 +458,7 @@ def answer_my_invitation(
         response_channel="speaker_portal",
         recorded_at=utc_now(),
         recorded_by_user_id=principal.user_id,
+        professional_id=bound.professional_id,
     )
     if not wrote:
         # Lost a race: a link or Connector answer landed between the read and
