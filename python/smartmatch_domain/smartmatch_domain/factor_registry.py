@@ -10,6 +10,13 @@ Status: **APPROVED** — registry ``2.0.0-approved-oq-cba-004``, accepted
 of 2026-09-03 (registry ``1.1.1-approved-g1-m6j``) is **superseded, not
 deleted** — see "What supersession means here", below.
 
+Registry ``3.0.0-approved-b26-eli`` (B26 T8c, ADR-0027) is **declared with
+status ``proposed`` and is not current.** It adds the ``engagement_load``
+penalty and the Q7 band table. :data:`CURRENT_CBA_REGISTRY` is still
+:data:`CBA_REGISTRY`, so every new run scores under 2.0.0; the approval gate
+refuses 3.0.0 until an approval is recorded here. See "Current, superseded,
+proposed", below.
+
 Legacy evidence (Nebiux-Team-IA-West-SmartMatch@bdce024, verified):
 
     src/config.py:97       FACTOR_REGISTRY declares 9 factors, weights sum 1.00
@@ -83,8 +90,22 @@ its factors, its approval state, and its closed mode vocabulary.
 than restating them, and every free function below takes a keyword-only
 ``registry`` defaulting to it. Nothing about the CBA registry's contents,
 weights, gate, or scores changes; what changes is that a second rulebook can
-later be a second value instead of a second copy of the mechanism. No second
-registry is declared in this package.
+later be a second value instead of a second copy of the mechanism.
+
+## Current, superseded, proposed (B26 T8c, ADR-0027)
+
+The CBA lineage is ``1.1.1`` → ``2.0.0`` → ``3.0.0``. :data:`CURRENT_CBA_REGISTRY`
+names the rulebook a **new** run scores under, and only the match-run create
+route reads it (through :func:`current_cba_registry`). Every other default in
+this module stays :data:`CBA_REGISTRY`, and a stored run is always read at its
+own pin through :func:`registry_for_version`.
+
+:func:`superseded_registry_versions` and :func:`proposed_registry_versions` are
+derived from the current registry, so moving the current registry is one line
+and nothing else has to be kept in step. :data:`REGISTRY_VERSION` keeps naming
+the 2.0.0 rulebook (it is ``CBA_REGISTRY.version``); retargeting it would
+re-label every stored 2.0.0 run. :data:`SUPERSEDED_REGISTRY_VERSION` keeps
+naming the G1 pin.
 """
 
 from __future__ import annotations
@@ -96,6 +117,7 @@ from enum import StrEnum
 from types import MappingProxyType
 from typing import Final
 
+from smartmatch_domain.eli import ELI_FORMULA_VERSION
 from smartmatch_domain.factors.cba_semantic_topic import CBA_SEMANTIC_TOPIC_FACTOR_KEY
 from smartmatch_domain.factors.industry_match import INDUSTRY_MATCH_FACTOR_KEY
 from smartmatch_domain.factors.proximity import (
@@ -106,14 +128,27 @@ from smartmatch_domain.factors.proximity import (
     UnknownScoringModeError,
 )
 from smartmatch_domain.factors.role_match import ROLE_MATCH_FACTOR_KEY
+from smartmatch_domain.load_bands import (
+    ENGAGEMENT_LOAD_FACTOR_KEY,
+    Q7_REGISTERED_LOAD_BANDS,
+    RegisteredLoadBands,
+)
 
 __all__ = [
     "APPROVED_SCORING_KEYS",
+    "APPROVED_SCORING_KEYS_3",
+    "CBA_3_PHYSICAL_MODEL",
+    "CBA_3_VIRTUAL_MODEL",
     "CBA_PHYSICAL_MODEL",
     "CBA_REGISTRY",
+    "CBA_REGISTRY_3",
     "CBA_VIRTUAL_MODEL",
+    "CURRENT_CBA_REGISTRY",
+    "ENGAGEMENT_LOAD_SPEC",
     "PROHIBITED_INPUTS",
     "PROPOSED_FACTORS",
+    "PROPOSED_FACTORS_3",
+    "REGISTRY_3_VERSION",
     "REGISTRY_APPROVED_ON",
     "REGISTRY_APPROVER",
     "REGISTRY_STATUS",
@@ -122,6 +157,7 @@ __all__ = [
     "SCORING_MODE_VERSION",
     "SUPERSEDED_G1_MODEL",
     "SUPERSEDED_REGISTRY_VERSION",
+    "SUPERSEDED_REGISTRY_VERSIONS",
     "SUPERSEDED_SCORING_KEYS",
     "FactorKind",
     "FactorRegistry",
@@ -133,14 +169,17 @@ __all__ = [
     "active_weights",
     "assert_registry_approved",
     "assert_scoring_ready",
+    "current_cba_registry",
     "display_weights",
     "factor_keys",
     "implemented_scoring_keys",
     "normalize_weights",
+    "proposed_registry_versions",
     "proposed_weights",
     "register_registry",
     "registry_for_version",
     "resolve_scoring_model",
+    "superseded_registry_versions",
 ]
 
 #: ADR-0016 (accepted 2026-09-05) takes the registry from
@@ -151,6 +190,12 @@ __all__ = [
 #: this string alone. The version names the gate that approved it, as
 #: ``1.1.1-approved-g1-m6j`` named G1 and this one names the open question
 #: ADR-0016 closed.
+#:
+#: This constant names the **2.0.0 rulebook**, not "whatever is current". It is
+#: ``CBA_REGISTRY.version`` and the retired G1 pair's ``retired_in_version``, and
+#: it stays 2.0.0 when 3.0.0 becomes current: what moves then is
+#: :data:`CURRENT_CBA_REGISTRY` (ADR-0027). Retargeting this string would
+#: re-label every stored 2.0.0 run.
 REGISTRY_VERSION: Final[str] = "2.0.0-approved-oq-cba-004"
 
 #: The pin every pre-ADR-0016 run carries. Kept as a named constant rather than
@@ -447,9 +492,11 @@ class ScoringModel:
         scoring_mode_version: :data:`SCORING_MODE_VERSION` when a mode is set,
             ``None`` otherwise.
         scoring_keys: The factor keys this model scores, in registry order.
-        is_current: Whether this model is the one :data:`REGISTRY_VERSION`
-            declares. ``False`` means the model is retained for reproducing
-            stored runs and must not be selected for a new one.
+        is_current: Whether this model is selectable in its own rulebook.
+            ``False`` means the model is retained for reproducing stored runs
+            and must not be selected for a new one. It says nothing about which
+            rulebook is current: that is :data:`CURRENT_CBA_REGISTRY`. Its only
+            reader is :func:`assert_scoring_ready`'s sum-to-one check.
         mode_vocabulary: The closed mode vocabulary this model belongs to. The
             three CBA models below state
             :data:`~smartmatch_domain.factors.proximity.CBA_SCORING_MODES`
@@ -588,6 +635,12 @@ class FactorRegistry:
             A default is precisely how a second rulebook would have inherited
             the CBA vocabulary and become able to name ``cba-physical-1`` as one
             of its own modes.
+        load_bands: The engagement-load band table this rulebook applies, or
+            ``None`` for a rulebook with no load penalty (1.x, 2.x, the exercise
+            and every toy registry). Compared and hashed. Set exactly when the
+            ``engagement_load`` penalty is declared (ADR-0027), and it decides
+            what ``registry_hash`` covers (:func:`smartmatch_domain.match_run.
+            registry_fingerprint`).
     """
 
     version: str
@@ -599,6 +652,7 @@ class FactorRegistry:
     # Compared, but not hashed: see the class docstring.
     scoring_modes: Mapping[str, ScoringModel] = field(hash=False)
     mode_vocabulary: frozenset[str]
+    load_bands: RegisteredLoadBands | None = None
     # Derived tables, built once at construction. Scoring reads them per factor
     # per candidate, so rebuilding them per access would put a dict comprehension
     # over the whole registry inside the scoring loop. Excluded from equality and
@@ -647,6 +701,7 @@ class FactorRegistry:
                 raise ValueError(
                     f"scoring_modes[{mode!r}] scores undeclared keys {sorted(unknown)}"
                 )
+        self._check_load_bands()
         object.__setattr__(self, "scoring_modes", MappingProxyType(dict(self.scoring_modes)))
         object.__setattr__(
             self, "_spec_by_key", MappingProxyType({spec.key: spec for spec in self.factors})
@@ -654,6 +709,50 @@ class FactorRegistry:
         object.__setattr__(
             self, "_kind_by_key", MappingProxyType({spec.key: spec.kind for spec in self.factors})
         )
+
+    def _check_load_bands(self) -> None:
+        """Fail closed unless the load penalty and its band table agree (ADR-0027).
+
+        1. The table is present exactly when ``engagement_load`` is declared.
+        2. That spec is an implemented, unretired PENALTY with weight 0, in no
+           model's ``scoring_keys``: its effect is a multiplier on the composite,
+           so ``normalize_weights`` and the deflation guard never see it.
+        3. The table was declared against the ELI formula this build computes.
+        """
+        spec = next((s for s in self.factors if s.key == ENGAGEMENT_LOAD_FACTOR_KEY), None)
+        if (self.load_bands is None) != (spec is None):
+            raise ValueError(
+                f"load_bands and the {ENGAGEMENT_LOAD_FACTOR_KEY!r} factor must be declared "
+                "together: a band table nothing applies, or a load penalty with no table, "
+                "is a rule nobody can reproduce"
+            )
+        if spec is None or self.load_bands is None:
+            return
+        if (
+            spec.kind is not FactorKind.PENALTY
+            or spec.proposed_weight != 0.0
+            or not spec.implemented
+            or spec.is_retired
+        ):
+            raise ValueError(
+                f"{ENGAGEMENT_LOAD_FACTOR_KEY}: must be an implemented, unretired PENALTY "
+                "with weight 0.0; the load is a multiplier on the composite, not a weight"
+            )
+        in_models = sorted(
+            mode
+            for mode, model in self.scoring_modes.items()
+            if ENGAGEMENT_LOAD_FACTOR_KEY in model.scoring_keys
+        )
+        if in_models:
+            raise ValueError(
+                f"{ENGAGEMENT_LOAD_FACTOR_KEY}: scored by {in_models}; it must be in no "
+                "model's scoring_keys, or it would re-normalize the approved weights"
+            )
+        if self.load_bands.eli_formula_version != ELI_FORMULA_VERSION:
+            raise ValueError(
+                f"load_bands was declared against ELI {self.load_bands.eli_formula_version!r}, "
+                f"but this build computes ELI {ELI_FORMULA_VERSION!r}"
+            )
 
     @property
     def spec_by_key(self) -> Mapping[str, FactorSpec]:
@@ -680,15 +779,154 @@ CBA_REGISTRY: Final[FactorRegistry] = FactorRegistry(
     mode_vocabulary=CBA_SCORING_MODES,
 )
 
+# ---------------------------------------------------------------------------
+# Registry 3.0.0 (B26 T8c, ADR-0027): declared ``proposed``, NOT current
+# ---------------------------------------------------------------------------
+
+#: Parent plan §5.2 item 3 (OQ1: the parent's string is kept while proposed).
+#: Major, because a load penalty makes a score incomparable with a 2.x one.
+REGISTRY_3_VERSION: Final[str] = "3.0.0-approved-b26-eli"
+
+#: The load penalty. Weight 0 in the weighted sum and in no model: its effect
+#: is a multiplier on the composite, applied in ``scoring._compose_cba``.
+ENGAGEMENT_LOAD_SPEC: Final[FactorSpec] = FactorSpec(
+    key=ENGAGEMENT_LOAD_FACTOR_KEY,
+    display_label="Engagement load",
+    kind=FactorKind.PENALTY,
+    proposed_weight=0.0,
+    implemented=True,
+    rationale=(
+        "B26 Q1/D2 + Q7 = A: multiplier on the composite (Light 1.00, Moderate "
+        "0.90, Heavy 0.70); Full removed at Stage A; weight 0 in the weighted sum "
+        "so utilities stay in [0, 1]."
+    ),
+)
+
+#: The **same objects** as 2.0.0's four weighted factors, then the penalty, then
+#: the same availability filter. The retired G1 pair stays in
+#: :data:`CBA_REGISTRY` only: 1.1.1 runs resolve there.
+PROPOSED_FACTORS_3: Final[tuple[FactorSpec, ...]] = (
+    *PROPOSED_FACTORS[0:4],
+    ENGAGEMENT_LOAD_SPEC,
+    PROPOSED_FACTORS[6],
+)
+
+#: Includes the penalty: :func:`implemented_scoring_keys` counts every
+#: implemented non-eligibility spec, and :func:`assert_scoring_ready` demands
+#: equality. The penalty is never a configurable weight.
+APPROVED_SCORING_KEYS_3: Final[frozenset[str]] = APPROVED_SCORING_KEYS | {
+    ENGAGEMENT_LOAD_FACTOR_KEY
+}
+
+#: 3.0.0's physical model: the same four keys as :data:`CBA_PHYSICAL_MODEL`.
+CBA_3_PHYSICAL_MODEL: Final[ScoringModel] = ScoringModel(
+    registry_version=REGISTRY_3_VERSION,
+    scoring_mode=CBA_PHYSICAL_SCORING_MODE,
+    scoring_mode_version=SCORING_MODE_VERSION,
+    scoring_keys=CBA_PHYSICAL_MODEL.scoring_keys,
+    is_current=True,
+    mode_vocabulary=CBA_SCORING_MODES,
+)
+
+#: 3.0.0's virtual model: the same three keys as :data:`CBA_VIRTUAL_MODEL`.
+CBA_3_VIRTUAL_MODEL: Final[ScoringModel] = ScoringModel(
+    registry_version=REGISTRY_3_VERSION,
+    scoring_mode=CBA_VIRTUAL_SCORING_MODE,
+    scoring_mode_version=SCORING_MODE_VERSION,
+    scoring_keys=CBA_VIRTUAL_MODEL.scoring_keys,
+    is_current=True,
+    mode_vocabulary=CBA_SCORING_MODES,
+)
+
+#: Registry 3.0.0. ``proposed``, with no approver: :func:`assert_registry_approved`
+#: refuses it until an approval is recorded here (ADR-0027, "The flip").
+CBA_REGISTRY_3: Final[FactorRegistry] = FactorRegistry(
+    version=REGISTRY_3_VERSION,
+    status="proposed",
+    approver=None,
+    approved_on=None,
+    factors=PROPOSED_FACTORS_3,
+    approved_scoring_keys=APPROVED_SCORING_KEYS_3,
+    scoring_modes={
+        CBA_PHYSICAL_SCORING_MODE: CBA_3_PHYSICAL_MODEL,
+        CBA_VIRTUAL_SCORING_MODE: CBA_3_VIRTUAL_MODEL,
+    },
+    mode_vocabulary=CBA_SCORING_MODES,
+    load_bands=Q7_REGISTERED_LOAD_BANDS,
+)
+
 #: Which rulebook a stored score's ``registry_version`` names. The superseded
 #: G1 pin maps to :data:`CBA_REGISTRY` because its two factors are still
 #: declared there (OQ-CBA-025: coexist) — a ``1.x`` score has always been
 #: labelled and explained from this module's one spec table, and that is
-#: preserved exactly.
+#: preserved exactly. 3.0.0 resolves to :data:`CBA_REGISTRY_3` whether or not
+#: it is current: resolving a pin is not approving it.
 _REGISTRIES_BY_VERSION: dict[str, FactorRegistry] = {
     CBA_REGISTRY.version: CBA_REGISTRY,
     SUPERSEDED_REGISTRY_VERSION: CBA_REGISTRY,
+    CBA_REGISTRY_3.version: CBA_REGISTRY_3,
 }
+
+#: The CBA lineage, oldest first. The derived superseded and proposed sets are
+#: positions in this tuple relative to the current registry.
+_CBA_LINEAGE: Final[tuple[tuple[str, FactorRegistry], ...]] = (
+    (SUPERSEDED_REGISTRY_VERSION, CBA_REGISTRY),  # 1.1.1
+    (REGISTRY_VERSION, CBA_REGISTRY),  # 2.0.0
+    (REGISTRY_3_VERSION, CBA_REGISTRY_3),  # 3.0.0
+)
+
+#: Every lineage pin and the one registry allowed to wear it. A registry that
+#: claims one of these versions without being equal to its registry is refused
+#: by both gates (an "approved" copy cannot borrow the 3.0.0 pin).
+_DECLARED_BY_VERSION: Final[Mapping[str, FactorRegistry]] = MappingProxyType(dict(_CBA_LINEAGE))
+
+#: The registry a **new** run scores under. Only the match-run create route
+#: reads it, through :func:`current_cba_registry`. Making 3.0.0 current is this
+#: one line, after approval (ADR-0027, "The flip"); flipped without approval,
+#: the create route fails closed with ``503 registry_not_ready``.
+CURRENT_CBA_REGISTRY: Final[FactorRegistry] = CBA_REGISTRY
+
+
+def current_cba_registry() -> FactorRegistry:
+    """Return the registry a new run scores under, read per call."""
+    return CURRENT_CBA_REGISTRY
+
+
+def _lineage_position(current: FactorRegistry | None) -> int:
+    registry = current_cba_registry() if current is None else current
+    for position, (version, declared) in enumerate(_CBA_LINEAGE):
+        if version == registry.version and declared == registry:
+            return position
+    raise ValueError(
+        f"registry {registry.version!r} is not a registry of the CBA lineage "
+        f"{[version for version, _ in _CBA_LINEAGE]}"
+    )
+
+
+def superseded_registry_versions(current: FactorRegistry | None = None) -> frozenset[str]:
+    """Lineage versions strictly older than ``current`` (default: the current registry).
+
+    Raises:
+        ValueError: when ``current`` is not a registry of the CBA lineage.
+    """
+    position = _lineage_position(current)
+    return frozenset(version for version, _ in _CBA_LINEAGE[:position])
+
+
+def proposed_registry_versions(current: FactorRegistry | None = None) -> frozenset[str]:
+    """Lineage versions strictly newer than ``current`` (default: the current registry).
+
+    Raises:
+        ValueError: when ``current`` is not a registry of the CBA lineage.
+    """
+    position = _lineage_position(current)
+    return frozenset(version for version, _ in _CBA_LINEAGE[position + 1 :])
+
+
+#: Every pin a stored CBA run may carry that is older than the current
+#: registry. ``{1.1.1}`` while 2.0.0 is current; ``{1.1.1, 2.0.0}`` once 3.0.0
+#: is. :data:`SUPERSEDED_REGISTRY_VERSION` (singular) stays the G1 pin's string.
+SUPERSEDED_REGISTRY_VERSIONS: Final[frozenset[str]] = superseded_registry_versions()
 
 #: The two pins that mean "the CBA rulebook". Every score this package has ever
 #: produced carries one of them, and nothing may unbind them.
@@ -734,7 +972,7 @@ def _unregister_for_tests(version: str) -> None:
         ValueError: when asked to unbind one of the CBA pins.
         KeyError: when nothing is bound to ``version``.
     """
-    if version in _CBA_REGISTRY_VERSIONS:
+    if version in _CBA_REGISTRY_VERSIONS or version in _DECLARED_BY_VERSION:
         raise ValueError(f"registry version {version!r} is a CBA pin and is never unbound")
     with _REGISTRY_LOCK:
         del _REGISTRIES_BY_VERSION[version]
@@ -835,6 +1073,15 @@ def _reads_as_the_cba_registry(registry: FactorRegistry) -> bool:
         RegistryNotApprovedError: when ``registry`` claims a CBA pin but is not
             the CBA registry.
     """
+    declared = _DECLARED_BY_VERSION.get(registry.version)
+    if declared is not None and declared is not CBA_REGISTRY and registry != declared:
+        raise RegistryNotApprovedError(
+            f"A registry claims registry version {registry.version!r}, which names a "
+            "rulebook of the CBA lineage, but its contents are not that rulebook's. A "
+            "stored score is resolved by that version, so a copy wearing it (an "
+            "'approved' copy of a proposed rulebook, say) would borrow a pin it does "
+            "not own. Declare a version of its own."
+        )
     if registry.version not in _CBA_REGISTRY_VERSIONS:
         return False
     if registry != CBA_REGISTRY:
@@ -900,14 +1147,16 @@ class UnknownRegistryVersionError(RegistryNotReadyError):
     explanation calls that would raise this — so today an unknown pin would
     surface as an unhandled error rather than a 503 or a policy refusal.
 
-    Nothing can currently reach that state. This build declares exactly two
-    registry versions, :data:`REGISTRY_VERSION` and
-    :data:`SUPERSEDED_REGISTRY_VERSION`, both bound to :data:`CBA_REGISTRY`;
-    every score this package writes carries one of them, and no persisted or
-    in-process path produces any other. Surfacing loudly is the intended
-    behaviour until a second registry ships. The track that introduces one has
-    to widen those handlers to cover the scoring and explanation calls before
-    an unknown pin becomes reachable.
+    This build declares three CBA registry versions:
+    :data:`SUPERSEDED_REGISTRY_VERSION` and :data:`REGISTRY_VERSION`, both bound
+    to :data:`CBA_REGISTRY`, and :data:`REGISTRY_3_VERSION`, bound to
+    :data:`CBA_REGISTRY_3` (proposed, not current). A run's
+    ``registry_version`` now travels on the match-run command payload (B26
+    T8c), so the readers of that pin are the ones that must not surface this
+    error raw: the worker resolves the pin before it scores and turns an unknown
+    one into an ``invalid_command_payload`` policy failure, and
+    :func:`smartmatch_domain.explanation.explanation_from_payload` re-raises it
+    as ``ValueError`` so the read route reports the explanation unreadable.
     """
 
 
