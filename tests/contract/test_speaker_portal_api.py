@@ -1004,10 +1004,16 @@ def test_activation_normalises_a_trailing_tab_or_newline(ctx: _Ctx, trailing: st
 def test_a_trailing_tab_or_newline_does_not_escape_the_duplicate_check(
     ctx: _Ctx, trailing: str
 ) -> None:
+    """T6b-1 LOW 1 under T6b-5: the held address is still seen, so a new
+    password is the mode mismatch (existing-login mode), never a second login."""
     base = f"Held-{uuid.uuid4().hex[:8]}@Example.invalid"
-    _, _, token, _ = ctx.invited(address=base + trailing)
+    professional_id, _, token, _ = ctx.invited(address=base + trailing)
     ctx.other_credentialed_account(base)
-    assert ctx.activate(token).status_code == 400
+    before = _account_state(ctx, professional_id)
+    response = ctx.activate(token)
+    assert response.status_code == 409, response.text
+    assert response.json()["error"]["details"] == {"expected": "existing_password"}
+    assert _account_state(ctx, professional_id) == before
 
 
 @pytest.mark.parametrize("route", ["json", "form"])

@@ -413,9 +413,10 @@ def test_create_for_a_suspended_or_foreign_account_raises(
     )
 
 
-def test_addresses_match_case_and_whitespace_insensitively_and_are_stored_trimmed(
+def test_addresses_match_case_and_whitespace_insensitively_and_are_stored_normalised(
     engine: Engine, session_factory: sessionmaker[Session], tenant_id
 ) -> None:
+    """Stored as ``strip().lower()`` — T6b-1's review LOW 1, one normalised address."""
     address = _address("Mixed.Case")
     contact = _account(engine, tenant_id, "c@placeholder.invalid")
     with session_factory() as session:
@@ -427,12 +428,50 @@ def test_addresses_match_case_and_whitespace_insensitively_and_are_stored_trimme
             create=NewLogin(user_id=contact, password=_stored()),
         )
         session.commit()
-    assert _snapshot(engine, contact)[0][0] == address
+    assert _snapshot(engine, contact)[0][0] == address.lower()
 
     with session_factory() as session:
         again = _grant(session, tenant_id, f" {address.upper()} ", "volunteer")
         session.commit()
     assert again.user_id == contact and again.login_created is False
+
+
+@pytest.mark.parametrize("trailing", ["\t", "\n"], ids=["tab", "newline"])
+def test_a_stored_trailing_tab_or_newline_still_holds_the_address(
+    engine: Engine, session_factory: sessionmaker[Session], tenant_id, trailing: str
+) -> None:
+    """SQL folds stored emails over all ASCII whitespace, as Python's ``strip()`` does."""
+    address = _address("Held")
+    host = _login(engine, tenant_id, address + trailing)
+    with session_factory() as session:
+        holders = login_accounts.holders_for_address(
+            session, tenant_id=tenant_id, address=f" {address.upper()} ", lock=False
+        )
+    assert holders.state is AddressState.ONE_IN_TENANT
+    assert holders.holder is not None and holders.holder.user_id == host
+
+
+def test_the_address_lock_folds_a_trailing_tab(session_factory: sessionmaker[Session]) -> None:
+    """One lock key per address: a tab-suffixed spelling waits on the plain one."""
+    address = _address("tablock")
+    order: list[str] = []
+
+    def second() -> None:
+        with session_factory() as session:
+            login_accounts.lock_address(session, address=f"{address.upper()}\t")
+            order.append("second")
+            session.rollback()
+
+    with session_factory() as first:
+        login_accounts.lock_address(first, address=address)
+        thread = threading.Thread(target=second)
+        thread.start()
+        thread.join(_BLOCK_SECONDS)
+        assert thread.is_alive(), "the tab-suffixed spelling should wait on the same lock"
+        order.append("first")
+        first.commit()
+    thread.join(10)
+    assert order == ["first", "second"]
 
 
 def test_inserted_memberships_have_null_valid_from_and_created_at_now(
