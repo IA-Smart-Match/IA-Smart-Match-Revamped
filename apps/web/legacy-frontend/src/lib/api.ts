@@ -2394,7 +2394,7 @@ export interface MatchCandidateExplanation {
   factors: MatchFactorExplanation[];
   /** The stored availability verdict; null when the run recorded none. */
   availability?: MatchAvailability | null;
-  /** The load recorded at run time (3.x runs only); null on 1.x and 2.x runs. */
+  /** The load recorded at run time (3.x runs only); absent on 1.x and 2.x runs. */
   load?: MatchLoad | null;
 }
 
