@@ -121,7 +121,8 @@ def _event(
 
 def _user(engine: Engine, tenant: uuid.UUID) -> uuid.UUID:
     with engine.begin() as conn:
-        return _make_user(conn, tenant)
+        user_id: uuid.UUID = _make_user(conn, tenant)
+    return user_id
 
 
 def _journey(
@@ -208,7 +209,10 @@ def _refs(engagements: tuple[Engagement, ...]) -> set[str]:
 
 
 def test_a_cancelled_booking_is_never_returned(
-    engine: Engine, session_factory: sessionmaker[Session], tenant_id, reader
+    engine: Engine,
+    session_factory: sessionmaker[Session],
+    tenant_id: uuid.UUID,
+    reader: EngagementLoadRepository,
 ) -> None:
     """L1: cancelled through T8a's ``cancel_booking``; the kept booking still reads."""
     subject = _user(engine, tenant_id)
@@ -241,7 +245,10 @@ def test_a_cancelled_booking_is_never_returned(
 
 
 def test_unconfirmed_journeys_are_not_returned(
-    engine: Engine, session_factory: sessionmaker[Session], tenant_id, reader
+    engine: Engine,
+    session_factory: sessionmaker[Session],
+    tenant_id: uuid.UUID,
+    reader: EngagementLoadRepository,
 ) -> None:
     """L2: Matched and Contacted journeys are not bookings; the subject has no key."""
     subject = _user(engine, tenant_id)
@@ -261,7 +268,10 @@ def test_unconfirmed_journeys_are_not_returned(
 
 
 def test_prefilter_matches_the_domain_window(
-    engine: Engine, session_factory: sessionmaker[Session], tenant_id, reader
+    engine: Engine,
+    session_factory: sessionmaker[Session],
+    tenant_id: uuid.UUID,
+    reader: EngagementLoadRepository,
 ) -> None:
     """L3: events at -46, -45, -1, 0, +44, +45; the read returns -45 ... +44 only.
 
@@ -306,7 +316,10 @@ def test_prefilter_matches_the_domain_window(
 
 
 def test_event_time_maps_to_duration(
-    engine: Engine, session_factory: sessionmaker[Session], tenant_id, reader
+    engine: Engine,
+    session_factory: sessionmaker[Session],
+    tenant_id: uuid.UUID,
+    reader: EngagementLoadRepository,
 ) -> None:
     """L4: exact with an end → exact ``timedelta``; exact without end and date_only → None."""
     subject = _user(engine, tenant_id)
@@ -341,7 +354,10 @@ def test_event_time_maps_to_duration(
 
 
 def test_a_journey_naming_no_event_is_unresolved(
-    engine: Engine, session_factory: sessionmaker[Session], tenant_id, reader
+    engine: Engine,
+    session_factory: sessionmaker[Session],
+    tenant_id: uuid.UUID,
+    reader: EngagementLoadRepository,
 ) -> None:
     """L5 (OQ3): no event row → unresolved time → unknown hours, never dropped."""
     subject = _user(engine, tenant_id)
@@ -359,7 +375,10 @@ def test_a_journey_naming_no_event_is_unresolved(
 
 
 def test_unresolved_events_are_always_returned(
-    engine: Engine, session_factory: sessionmaker[Session], tenant_id, reader
+    engine: Engine,
+    session_factory: sessionmaker[Session],
+    tenant_id: uuid.UUID,
+    reader: EngagementLoadRepository,
 ) -> None:
     """L6: an unresolved event has no ``resolved_date``; the prefilter lets it through."""
     subject = _user(engine, tenant_id)
@@ -377,7 +396,11 @@ def test_unresolved_events_are_always_returned(
 
 
 def test_another_tenants_rows_are_invisible(
-    engine: Engine, session_factory: sessionmaker[Session], tenant_id, other_tenant_id, reader
+    engine: Engine,
+    session_factory: sessionmaker[Session],
+    tenant_id: uuid.UUID,
+    other_tenant_id: uuid.UUID,
+    reader: EngagementLoadRepository,
 ) -> None:
     """L7: asking in one tenant for another tenant's subject returns nothing."""
     foreign_subject = _user(engine, other_tenant_id)
@@ -394,7 +417,10 @@ def test_another_tenants_rows_are_invisible(
 
 
 def test_another_units_booking_counts(
-    engine: Engine, session_factory: sessionmaker[Session], tenant_id, reader
+    engine: Engine,
+    session_factory: sessionmaker[Session],
+    tenant_id: uuid.UUID,
+    reader: EngagementLoadRepository,
 ) -> None:
     """L8 (OQ2): load is the person's, tenant-wide — every unit's booking counts."""
     subject = _user(engine, tenant_id)
@@ -420,7 +446,10 @@ def test_another_units_booking_counts(
 
 
 def test_one_query_for_two_hundred_subjects(
-    engine: Engine, session_factory: sessionmaker[Session], tenant_id, reader
+    engine: Engine,
+    session_factory: sessionmaker[Session],
+    tenant_id: uuid.UUID,
+    reader: EngagementLoadRepository,
 ) -> None:
     """L9: 200 ids cost one statement; an empty list costs none."""
     subject = _user(engine, tenant_id)
