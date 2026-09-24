@@ -54,6 +54,7 @@ __all__ = [
     "NewLogin",
     "NoLoginForAddress",
     "RoleGrant",
+    "active_roles",
     "find_or_add_role",
     "holders_for_address",
     "lock_address",
@@ -245,6 +246,28 @@ def holders_for_address(
         ),
     )
     return AddressHolders(AddressState.ONE_IN_TENANT, holder, also_locked)
+
+
+def active_roles(
+    session: Executor, *, tenant_id: uuid.UUID, user_id: uuid.UUID, now: datetime
+) -> frozenset[str]:
+    """The roles ``user_id`` holds at ``now`` in ``tenant_id``, at any path. Reads only.
+
+    "Active" as ``SpeakerPortalRepository.active_roles`` decides it: ``valid_from``
+    null or reached, ``valid_until`` null or later than ``now`` (exclusive). The
+    seed reads it under the address and credential-row locks (R-B).
+    """
+    rows = session.execute(
+        sa.select(_MEMBERSHIP.c.role)
+        .where(
+            _MEMBERSHIP.c.tenant_id == tenant_id,
+            _MEMBERSHIP.c.user_id == user_id,
+            sa.or_(_MEMBERSHIP.c.valid_from.is_(None), _MEMBERSHIP.c.valid_from <= now),
+            sa.or_(_MEMBERSHIP.c.valid_until.is_(None), _MEMBERSHIP.c.valid_until > now),
+        )
+        .distinct()
+    ).all()
+    return frozenset(row.role for row in rows)
 
 
 def find_or_add_role(

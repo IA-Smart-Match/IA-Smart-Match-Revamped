@@ -1086,11 +1086,16 @@ roles, and `/v1/me/portals` lists the Event Host Portal first.
   (active or ended) when it checks a login's memberships, so a Host who became a
   Speaker does not fail the deploy's `seed-logins` gate. If a configured
   `SMARTMATCH_PILOT_*_EMAIL` already signs in as a login the seed did not
-  create (a Speaker who activated there first), the seed adds its roles to that
-  login, **does not change its password**, and prints on stderr that the
+  create (a Speaker who activated there first), the seed merges into it only
+  for `SMARTMATCH_PILOT_VOLUNTEER_EMAIL`, and only while that login's active
+  roles are `speaker`, `volunteer` or none (owner ruling R-B). It then adds
+  `volunteer`, **does not change the password**, and prints on stderr that the
   `_PASSWORD` variable was not applied. That login keeps its own subject, so
-  `seed_pilot_engagement`'s `pilot-login-*` lookups skip it. An address held in
-  another organization, or by two logins, stops the seed with a conflict.
+  `seed_pilot_engagement`'s `pilot-login-*` lookups skip it. The coordinator,
+  admin or student address at such a login, or the volunteer address at a
+  login holding any other active role, stops the seed with a conflict that
+  names the role and the variable; so does an address held in another
+  organization, or by two logins. Fix the address in `.env` and redeploy.
 - **Credentials are written by one module.** Create, rotate and remove
   pilot credentials only through `tools/seed_pilot_logins.py` (or activation
   and unbind); never with SQL on `pilot_credential`. A second credential at an

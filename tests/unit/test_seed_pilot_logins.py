@@ -150,7 +150,7 @@ def recorder(monkeypatch: pytest.MonkeyPatch) -> _Recorder:
     monkeypatch.setattr(accounts, "lock_address", rec.lock_address)
     monkeypatch.setattr(accounts, "holders_for_address", rec.holders_for_address)
     monkeypatch.setattr(accounts, "find_or_add_role", rec.find_or_add_role)
-    monkeypatch.setattr(accounts, "active_roles", rec.active_roles, raising=False)
+    monkeypatch.setattr(accounts, "active_roles", rec.active_roles)
     monkeypatch.setattr(accounts, "rotate_own_password", rec.rotate)
     return rec
 

@@ -68,8 +68,12 @@ writer (B26 T6b-5), under the address lock and the credential row locks:
   until it expires — revoking those is a separate operator action this pilot
   does not automate, and the decision record names it.
 * A login the seed did not create (a Speaker who activated at that address):
-  the roles are added to it, its password is **never** changed, and stderr
-  says the password variable was not applied.
+  merged **only** as the volunteer entry, and only while that login's active
+  roles are a subset of ``{speaker, volunteer}`` (owner ruling R-B). Then the
+  volunteer role is added, its password is **never** changed, and stderr says
+  the password variable was not applied. Any other entry, or a login holding
+  any other active role, is a conflict: the seed never grants staff access to
+  a login it did not create, nor adds ``volunteer`` to one that holds it.
 * An address held in another organization, or by two logins: a conflict.
 
 ``speaker`` rows (``INVITATION_ONLY_ROLES``) are activation's, active or
@@ -191,8 +195,8 @@ class RoleOutcome:
     created: bool
     reason: str
     #: The address already signed in as a login this seed did not create; the
-    #: roles were added to it and the configured password was not applied.
-    #: Reported on stderr (B26 T6b-5 Q4).
+    #: volunteer role was added to it and the configured password was not
+    #: applied. Reported on stderr (B26 T6b-5 Q4, narrowed by R-B).
     foreign_login: bool = False
 
 
@@ -239,6 +243,28 @@ def _conflict(entry: RoleCredential) -> SeedConflictError:
     )
 
 
+#: The only entry role R-B lets the seed add to a login it did not create.
+_MERGEABLE_ENTRY_ROLE = "volunteer"
+
+#: The only active roles such a login may hold for that merge (R-B). ``speaker``
+#: and ``volunteer`` never widen each other: the merge adds ``volunteer`` only.
+_MERGEABLE_HOLDER_ROLES: frozenset[str] = frozenset({"speaker", "volunteer"})
+
+
+def _foreign_conflict(entry: RoleCredential) -> SeedConflictError:
+    """Names the role and the variable; never the other login, its roles, or any id."""
+    return SeedConflictError(
+        f"{entry.role}: the address in {entry.email_var} already signs in as a login "
+        "this seed did not create, and this seed will not add this role to it. Use "
+        "another address, or change that login's access first."
+    )
+
+
+def _may_merge(entry: RoleCredential, holder_active: frozenset[str]) -> bool:
+    """R-B: the volunteer entry only, onto a login holding nothing but speaker/volunteer."""
+    return set(entry.roles) == {_MERGEABLE_ENTRY_ROLE} and holder_active <= _MERGEABLE_HOLDER_ROLES
+
+
 def _roles_text(entry: RoleCredential) -> str:
     return ", ".join(repr(role) for role in entry.roles)
 
@@ -257,7 +283,8 @@ def _seed_one(
 
     Lock order: the seed's advisory lock (held by the caller) → the address
     lock → the address's ``pilot_credential`` rows, then writes — the order
-    activation and unbind use (plan §4.5).
+    activation and unbind use (plan §4.5). A foreign holder's active roles are
+    read after the row locks and before any write (R-B).
     """
     login_accounts.lock_address(connection, address=email)
     holders = login_accounts.holders_for_address(
@@ -279,9 +306,17 @@ def _seed_one(
 
     holder = holders.holder
     if holder is not None and holder.external_subject != entry.subject:
-        # Q4: the address already signs in as a login this seed did not create
-        # (an activated Speaker, say). Its roles are added; its password is
-        # never changed, and no second account is created for the subject.
+        # Q4, narrowed by owner ruling R-B: the address already signs in as a
+        # login this seed did not create (an activated Speaker, say). Only the
+        # volunteer entry merges, and only while that login's active roles are
+        # a subset of {speaker, volunteer} — read here, under the address lock
+        # and the credential row locks, before any write. Its password is never
+        # changed, and no second account is created for the subject.
+        holder_active = login_accounts.active_roles(
+            connection, tenant_id=tenant_id, user_id=holder.user_id, now=now
+        )
+        if not _may_merge(entry, holder_active):
+            raise _foreign_conflict(entry)
         for role in entry.roles:
             grant(role)
         return RoleOutcome(
@@ -347,8 +382,10 @@ def seed_role_logins(
     one credential writer: ``login_accounts`` (B26 T6b-5 R-G). A free address
     gets the seed's account and its first credential; the seed's own login
     gets its roles and a rotated password; a login the seed did not create
-    gets the roles and keeps its password (Q4); an address held in another
-    tenant, or by two logins, is a :class:`SeedConflictError`.
+    gets the volunteer role and keeps its password, but only from the volunteer
+    entry and only while it holds no active role beyond speaker and volunteer
+    (Q4, R-B); anything else there, or an address held in another tenant or by
+    two logins, is a :class:`SeedConflictError`.
 
     Raises:
         SeedCredentialError: on a half-configured or unusably short entry.
