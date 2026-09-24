@@ -32,9 +32,13 @@ from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from smartmatch_api.main import app
+from smartmatch_api.config import Settings
+from smartmatch_api.errors import EXCEPTION_HANDLERS
+from smartmatch_api.main import app, routers_for
 from smartmatch_domain.cba_invitations import DELIVERY_VOCABULARY, SPEAKER_RESPONSE_VALUES
+from smartmatch_domain.product_scope import Capability
 from smartmatch_persistence.cba_invitations import InvitationRepository
 from smartmatch_persistence.engine import create_session_factory
 from smartmatch_providers import FixtureTokenVerifier
@@ -1491,3 +1495,113 @@ class TestSpeakerRespondsByForm:
         assert invented.status_code == 413
         assert invented.content == real.content
         assert ctx.stored(invitation_id).response_status == "awaiting_response"
+
+
+# ---------------------------------------------------------------------------
+# B26 T6b-2 (C2): a Speaker's signed-in answer, as the Connector sees it
+# ---------------------------------------------------------------------------
+
+
+class _PortalOn(Settings):
+    """Default settings with ``SPEAKER_PORTAL`` on, so ``/v1/me/*`` is mounted."""
+
+    def capability_enabled(self, capability: Capability) -> bool:  # type: ignore[override]
+        return capability is Capability.SPEAKER_PORTAL or super().capability_enabled(capability)
+
+
+class TestSpeakerPortalAnswer:
+    """The Connector sees the ``speaker_portal`` channel, never the Speaker's login."""
+
+    def _portal_client(self, ctx: _Context) -> TestClient:
+        portal = FastAPI()
+        for exception_type, handler in EXCEPTION_HANDLERS.items():
+            portal.add_exception_handler(exception_type, handler)
+        for router in routers_for(_PortalOn()):
+            portal.include_router(router)
+        portal.state.session_factory = ctx.client.app.state.session_factory
+        portal.state.token_verifier = ctx.client.app.state.token_verifier
+        return TestClient(portal)
+
+    def _signed_in_speaker(self, ctx: _Context) -> tuple[uuid.UUID, uuid.UUID, dict[str, str]]:
+        """``(professional_id, login_id, headers)``: a roster contact bound to a separate login."""
+        professional_id = ctx.roster_contact(name="Sam Rivera")
+        login_id = uuid.uuid4()
+        subject = f"sub-login-{login_id.hex}"
+        with ctx.engine.begin() as conn:
+            conn.execute(
+                text(
+                    "INSERT INTO user_account (id, tenant_id, external_subject, email) "
+                    "VALUES (:id, :t, :s, :e)"
+                ),
+                {"id": login_id, "t": ctx.tenant_id, "s": subject, "e": f"{subject}@x.invalid"},
+            )
+            conn.execute(
+                text(
+                    "UPDATE speaker_profile SET account_user_id = :l, account_bound_at = now() "
+                    "WHERE tenant_id = :t AND professional_id = :p"
+                ),
+                {"l": login_id, "t": ctx.tenant_id, "p": professional_id},
+            )
+            conn.execute(
+                text(
+                    "INSERT INTO membership (id, tenant_id, user_id, granted_path, role) "
+                    "VALUES (:id, :t, :u, CAST(:p AS ltree), 'speaker')"
+                ),
+                {"id": uuid.uuid4(), "t": ctx.tenant_id, "u": login_id, "p": UNIT_PATH},
+            )
+        bearer = f"tok-login-{uuid.uuid4().hex}"
+        ctx.client.app.state.token_verifier.register(bearer, subject)
+        return professional_id, login_id, {"Authorization": f"Bearer {bearer}"}
+
+    def _dispatched(self, ctx: _Context, professional_id: uuid.UUID) -> tuple[str, str]:
+        batch = ctx.create_batch([professional_id]).json()
+        ctx.dispatch(batch["batch_id"])
+        return batch["batch_id"], str(batch["invitations"][0]["invitation_id"])
+
+    def _recorded_by(self, ctx: _Context, invitation_id: str) -> Any:
+        with ctx.engine.begin() as conn:
+            return conn.execute(
+                text("SELECT response_recorded_by_user_id FROM cba_invitation WHERE id = :i"),
+                {"i": invitation_id},
+            ).scalar_one()
+
+    def test_a_portal_answer_hides_the_speakers_login_from_the_connector(self, ctx: _Context):
+        professional_id, login_id, headers = self._signed_in_speaker(ctx)
+        batch_id, invitation_id = self._dispatched(ctx, professional_id)
+
+        answered = self._portal_client(ctx).post(
+            f"/v1/me/invitations/{invitation_id}/response",
+            json={"response": "accept"},
+            headers=headers,
+        )
+        assert answered.status_code == 200, answered.text
+
+        read = ctx.read_batch(batch_id)
+        response = read.json()["invitations"][0]["speaker_response"]
+        assert response["channel"] == "speaker_portal"
+        assert response["recorded_by_user_id"] is None
+        assert self._recorded_by(ctx, invitation_id) == login_id
+        assert str(login_id) not in read.text
+
+    def test_a_link_answer_still_has_no_recorded_by(self, ctx: _Context):
+        professional_id = ctx.roster_contact(name="Sam Rivera")
+        batch_id, invitation_id = self._dispatched(ctx, professional_id)
+        token = secrets.token_urlsafe(32)
+        ctx.set_response_token(invitation_id, token)
+        assert ctx.respond(token, "accept").status_code == 200
+
+        response = ctx.read_batch(batch_id).json()["invitations"][0]["speaker_response"]
+
+        assert response["channel"] == "speaker_link"
+        assert response["recorded_by_user_id"] is None
+
+    def test_a_connector_recorded_answer_still_shows_the_connector(self, ctx: _Context):
+        professional_id = ctx.roster_contact(name="Sam Rivera")
+        batch_id, invitation_id = self._dispatched(ctx, professional_id)
+        assert ctx.record(invitation_id, "decline").status_code == 200
+
+        response = ctx.read_batch(batch_id).json()["invitations"][0]["speaker_response"]
+
+        assert response["channel"] == "connector_recorded"
+        assert response["recorded_by_user_id"] == str(self._recorded_by(ctx, invitation_id))
+        assert response["recorded_by_user_id"] is not None

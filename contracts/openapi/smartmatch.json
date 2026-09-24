@@ -7081,7 +7081,7 @@
                 "type": "null"
               }
             ],
-            "description": "'speaker_link' when the Speaker followed the link in their own invitation, 'connector_recorded' when a coordinator entered what they were told. Reported because the second is a weaker evidentiary claim than the first, and a screen that showed them alike would assert a directness nobody has.",
+            "description": "'speaker_link' when the Speaker followed the link in their own invitation, 'speaker_portal' when the Speaker answered while signed in, 'connector_recorded' when a coordinator entered what they were told. Reported because the last is a weaker evidentiary claim than the first two, and a screen that showed them alike would assert a directness nobody has.",
             "title": "Channel"
           },
           "recorded_at": {
@@ -7105,7 +7105,7 @@
                 "type": "null"
               }
             ],
-            "description": "The coordinator who entered it, or null for a Speaker's own answer.",
+            "description": "The coordinator who entered it. Null for a Speaker's own answer, by link ('speaker_link') or signed in ('speaker_portal'); a signed-in answer's login is recorded but not shown here.",
             "title": "Recorded By User Id"
           },
           "response": {

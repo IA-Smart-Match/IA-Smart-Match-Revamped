@@ -90,6 +90,7 @@ from smartmatch_api.routers import (
     speaker_pipeline,
     speaker_portal,
     speaker_requests,
+    speaker_self,
     student_events,
     student_speaker_feedback,
 )
@@ -680,6 +681,9 @@ CAPABILITY_SCOPED_ROUTERS: Final[tuple[tuple[APIRouter, Capability], ...]] = (
     (speaker_portal.router, Capability.SPEAKER_PORTAL),
     (speaker_portal.public_router, Capability.SPEAKER_PORTAL),
     (speaker_portal.pages_router, Capability.SPEAKER_PORTAL),
+    # B26 T6b-2: the Speaker's own reads and writes under `/v1/me`
+    # ({speaker}), off with the rest of the portal.
+    (speaker_self.router, Capability.SPEAKER_PORTAL),
 )
 
 

@@ -322,14 +322,19 @@ class SpeakerResponseView(BaseModel):
     channel: str | None = Field(
         description=(
             "'speaker_link' when the Speaker followed the link in their own "
-            "invitation, 'connector_recorded' when a coordinator entered what "
-            "they were told. Reported because the second is a weaker evidentiary "
-            "claim than the first, and a screen that showed them alike would "
-            "assert a directness nobody has."
+            "invitation, 'speaker_portal' when the Speaker answered while signed "
+            "in, 'connector_recorded' when a coordinator entered what they were "
+            "told. Reported because the last is a weaker evidentiary claim than "
+            "the first two, and a screen that showed them alike would assert a "
+            "directness nobody has."
         )
     )
     recorded_by_user_id: uuid.UUID | None = Field(
-        description="The coordinator who entered it, or null for a Speaker's own answer."
+        description=(
+            "The coordinator who entered it. Null for a Speaker's own answer, by "
+            "link ('speaker_link') or signed in ('speaker_portal'); a signed-in "
+            "answer's login is recorded but not shown here."
+        )
     )
 
 
@@ -609,7 +614,14 @@ def _outcome_view(entry: InvitationWithDelivery) -> InvitationOutcomeView:
                 else None
             ),
             channel=row.response_channel,
-            recorded_by_user_id=row.response_recorded_by_user_id,
+            # B26 T6b-2 (C2): the database also records the login behind a
+            # `speaker_portal` answer, which after T6b-5 may be a merged Event
+            # Host account. A Connector sees only a coordinator's own entry.
+            recorded_by_user_id=(
+                row.response_recorded_by_user_id
+                if row.response_channel == "connector_recorded"
+                else None
+            ),
         ),
     )
 
