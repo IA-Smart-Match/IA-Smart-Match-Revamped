@@ -599,8 +599,14 @@ class InvitationRepository:
         response_channel: str,
         recorded_at: datetime,
         recorded_by_user_id: uuid.UUID | None = None,
+        professional_id: uuid.UUID | None = None,
     ) -> bool:
         """Write what the Speaker said. Returns whether this call recorded it.
+
+        ``professional_id``, when given, is added to the guard (B26 T6b-2,
+        defence in depth): the Speaker's own route passes its bound profile, so
+        the write can only ever reach that Speaker's invitation, whatever the
+        caller read before it.
 
         Guarded by ``response_status = 'awaiting_response'``, so the first answer
         stands and a second one changes nothing. Whether a Speaker *may* change
@@ -619,14 +625,17 @@ class InvitationRepository:
             not exist. All three are outcomes a caller describes rather than
             errors it raises.
         """
+        guard = [
+            schema.cba_invitation.c.tenant_id == tenant_id,
+            schema.cba_invitation.c.id == invitation_id,
+            schema.cba_invitation.c.status == "dispatched",
+            schema.cba_invitation.c.response_status == "awaiting_response",
+        ]
+        if professional_id is not None:
+            guard.append(schema.cba_invitation.c.professional_id == professional_id)
         written = session.execute(
             sa.update(schema.cba_invitation)
-            .where(
-                schema.cba_invitation.c.tenant_id == tenant_id,
-                schema.cba_invitation.c.id == invitation_id,
-                schema.cba_invitation.c.status == "dispatched",
-                schema.cba_invitation.c.response_status == "awaiting_response",
-            )
+            .where(*guard)
             .values(
                 response_status=response_status,
                 response_channel=response_channel,
