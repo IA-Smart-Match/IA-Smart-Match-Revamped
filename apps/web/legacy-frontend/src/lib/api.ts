@@ -2392,6 +2392,8 @@ export interface MatchRunRead {
   availability_unreadable_reason?: string | null;
   /** Named subjects that never entered the pool, as stored at submission. */
   excluded?: ExcludedMatchCandidate[];
+  /** Why the stored exclusions could not be read; `excluded` is then empty, not shorter. */
+  excluded_unreadable_reason?: string | null;
 }
 
 /** `GET /v1/units/{unit_id}/match-runs/{match_run_id}`. */

@@ -673,7 +673,15 @@ class MatchRunResponse(BaseModel):
         default_factory=list,
         description=(
             "Named subjects that never entered the pool, with the reason stored "
-            "at submission. Empty for a run stored before it was recorded."
+            "at submission. Empty for a run stored before it was recorded, "
+            "or when excluded_unreadable_reason is set."
+        ),
+    )
+    excluded_unreadable_reason: str | None = Field(
+        default=None,
+        description=(
+            "Why the stored exclusions could not be read, when they could not. "
+            "The list is then empty rather than silently shorter."
         ),
     )
 
@@ -1430,22 +1438,45 @@ def _registry_of_run(registry_version: str) -> FactorRegistry:
         return CBA_REGISTRY
 
 
-def _read_stored_excluded(payload: dict[str, Any] | None) -> list[ExcludedCandidateView]:
-    """The stored pool exclusions (C3), or ``[]`` for a run that stored none."""
-    raw = None if payload is None else payload.get("excluded")
+def _read_stored_excluded(
+    payload: dict[str, Any] | None,
+) -> tuple[list[ExcludedCandidateView], str | None]:
+    """The stored pool exclusions (C3), or ``([], reason)``. Reported, never repaired.
+
+    No ``excluded`` key is a run stored before B26 T4: ``([], None)``. One
+    unreadable entry makes the whole list unreadable rather than silently
+    shorter — a dropped entry would hide somebody the run never evaluated. A
+    ``load`` block (B26 T8c, ``load_full``) that is present but does not render
+    is unreadable too, never shown as "no block".
+    """
+    if payload is None or "excluded" not in payload:
+        return [], None
+    raw = payload["excluded"]
     if not isinstance(raw, list):
-        return []
-    return [
-        ExcludedCandidateView(
-            subject_id=entry["subject_id"],
-            reason=entry["reason"],
-            load=_load_block_view(entry.get("load")),
+        return [], "the stored exclusions are not readable: excluded: must be a list"
+    views: list[ExcludedCandidateView] = []
+    for index, entry in enumerate(raw):
+        if not isinstance(entry, dict):
+            return [], f"the stored exclusions are not readable: excluded[{index}]: not an object"
+        for field in ("subject_id", "reason"):
+            value = entry.get(field)
+            if not isinstance(value, str) or not value.strip():
+                return [], (
+                    f"the stored exclusions are not readable: excluded[{index}].{field}: "
+                    "missing or not a string"
+                )
+        load = None
+        if entry.get("load") is not None:
+            load = _load_block_view(entry["load"])
+            if load is None:
+                return (
+                    [],
+                    f"the stored exclusions are not readable: excluded[{index}].load: malformed",
+                )
+        views.append(
+            ExcludedCandidateView(subject_id=entry["subject_id"], reason=entry["reason"], load=load)
         )
-        for entry in raw
-        if isinstance(entry, dict)
-        and isinstance(entry.get("subject_id"), str)
-        and isinstance(entry.get("reason"), str)
-    ]
+    return views, None
 
 
 def _availability_views(
@@ -1587,6 +1618,8 @@ def read_match_run(
             stored=stored_availability,
         )
 
+    excluded, excluded_unreadable = _read_stored_excluded(payload)
+
     def view(item: CandidateExplanation) -> CandidateExplanationView:
         return _to_view(item, views.get(item.subject_id))
 
@@ -1616,5 +1649,6 @@ def read_match_run(
         unscorable=[view(item) for item in unscorable],
         availability_recorded=stored_availability is not None,
         availability_unreadable_reason=availability_unreadable,
-        excluded=_read_stored_excluded(payload),
+        excluded=excluded,
+        excluded_unreadable_reason=excluded_unreadable,
     )

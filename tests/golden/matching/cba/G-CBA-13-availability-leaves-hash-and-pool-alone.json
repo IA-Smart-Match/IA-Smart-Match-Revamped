@@ -97,6 +97,8 @@
     }
   ],
   "expected": {
+    "weights_fingerprint": "sha256:f870192c2b1d9977aaf4be3368f51f67accbbbba9955e4346a4445b0be4be4e5",
+    "inputs_fingerprint": "sha256:d770ca49d66934f1436a3ac2d37f15e72da233decc0f7f3d2ef2f80c8c230203",
     "applied_weights": {
       "industry_match": 0.3,
       "role_match": 0.25,

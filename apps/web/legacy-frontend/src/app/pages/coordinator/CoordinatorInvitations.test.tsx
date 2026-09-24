@@ -6,7 +6,8 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { RecipientRow, describeSkip } from "./CoordinatorInvitations";
+import { ApiRequestError } from "../../../lib/api";
+import { RecipientRow, describeComposeRefusal, describeSkip } from "./CoordinatorInvitations";
 
 afterEach(cleanup);
 
@@ -16,6 +17,24 @@ describe("describeSkip", () => {
       "The Speaker said they cannot speak on this date.",
     );
     expect(describeSkip("speaker_invitations_paused")).toBe("The Speaker has paused invitations.");
+  });
+});
+
+describe("describeComposeRefusal", () => {
+  it("words a run with no linked Speaker Request for a Connector", () => {
+    const refusal = new ApiRequestError(
+      "Name the Speaker Request this batch invites for.",
+      422,
+      "speaker_invitation_request_required",
+    );
+    expect(describeComposeRefusal(refusal)).toBe(
+      "This run was made before Speaker Requests were linked. Start a new match run from the Speaker Request.",
+    );
+  });
+
+  it("passes any other server refusal through verbatim", () => {
+    const refusal = new ApiRequestError("Too many requests.", 429, "rate_limited");
+    expect(describeComposeRefusal(refusal)).toBe("Too many requests.");
   });
 });
 

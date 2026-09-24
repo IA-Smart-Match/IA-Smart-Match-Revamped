@@ -633,6 +633,12 @@ def test_g_cba_13_availability_leaves_hash_and_pool_alone():
     }
     verdicts = verdicts_for_pool(tuple(ranking), statements, span, as_of)
 
+    # The digests themselves, pinned as hand-recorded literals from the 2.0.0
+    # registry, not only compared run-to-run: a change that moved both runs
+    # alike would pass a comparison and fail here.
+    assert digests[0] == case["expected"]["weights_fingerprint"]
+    assert digests[1] == case["expected"]["inputs_fingerprint"]
+
     after = _rank(case)
     assert [score.subject_id for score in after] == ranking == case["expected"]["ranking"]
     assert [score.value for score in after] == utilities
