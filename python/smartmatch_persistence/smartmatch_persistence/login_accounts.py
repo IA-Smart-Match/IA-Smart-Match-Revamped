@@ -22,7 +22,10 @@ stops a concurrent *update or delete* of an existing holder's credential between
 a caller's password check and its write.
 
 Rules every function keeps: **never commits**; every timestamp is a parameter;
-addresses match as ``lower(btrim(…))`` on both sides and are stored trimmed.
+addresses are normalised once in Python (``strip().lower()``, :func:`normalise_address`)
+and that value is what the lock, the match and the stored email all see; stored
+emails are folded in SQL as ``lower(btrim(…))`` over all ASCII whitespace
+(T6b-1 review LOW 1).
 Takes a ``Session`` or a ``Connection`` (the seed tool holds a ``Connection``).
 """
 
@@ -54,6 +57,7 @@ __all__ = [
     "find_or_add_role",
     "holders_for_address",
     "lock_address",
+    "normalise_address",
     "retire_login",
     "rotate_own_password",
 ]
@@ -64,10 +68,16 @@ _MEMBERSHIP = schema.membership
 _SESSION = schema.pilot_session
 
 #: Prefix of the advisory-lock key. Distinct from every other advisory key in
-#: the codebase (those are integer constants), and shared by every caller.
+#: the codebase (those are integer constants), and shared by every caller. The
+#: bound value is already :func:`normalise_address`'s.
 _ADDRESS_LOCK_SQL = sa.text(
-    "SELECT pg_advisory_xact_lock(hashtextextended('login-address:' || lower(btrim(:address)), 0))"
+    "SELECT pg_advisory_xact_lock(hashtextextended('login-address:' || :address, 0))"
 )
+
+#: What Python's ``str.strip()`` removes from an address, for the SQL side:
+#: ``btrim`` with no second argument trims spaces only, so a stored address
+#: ending in a tab or newline would otherwise not fold.
+_WHITESPACE = " \t\n\r\f\v"
 
 Executor = Session | Connection
 
@@ -141,17 +151,22 @@ class AccountAlreadyCredentialed(LoginAccountError):
     """A caller asked to create a login where one exists, or for an unusable account."""
 
 
+def normalise_address(address: str) -> str:
+    """The one spelling of an address: ``address.strip().lower()``."""
+    return address.strip().lower()
+
+
 def _folded(column: sa.ColumnElement[str]) -> sa.ColumnElement[str]:
-    return sa.func.lower(sa.func.btrim(column))
+    return sa.func.lower(sa.func.btrim(column, _WHITESPACE))
 
 
 def lock_address(session: Executor, *, address: str) -> None:
-    """Transaction-scoped advisory lock on the folded address.
+    """Transaction-scoped advisory lock on the normalised address.
 
     Re-entrant within one transaction (PostgreSQL stacks advisory locks), so a
     caller that already holds it may call :func:`find_or_add_role`.
     """
-    session.execute(_ADDRESS_LOCK_SQL, {"address": address})
+    session.execute(_ADDRESS_LOCK_SQL, {"address": normalise_address(address)})
 
 
 def holders_for_address(
@@ -169,7 +184,7 @@ def holders_for_address(
     ``FOR UPDATE`` in one statement, ordered by id, so every caller locks in the
     same order.
     """
-    holds_address = _folded(_ACCOUNT.c.email) == _folded(sa.literal(address, sa.Text))
+    holds_address = _folded(_ACCOUNT.c.email) == sa.literal(normalise_address(address), sa.Text)
     condition: sa.ColumnElement[bool] = holds_address
     if also_lock_user_id is not None:
         condition = sa.or_(
@@ -297,7 +312,7 @@ def _credential_new_login(
     create: NewLogin,
     now: datetime,
 ) -> str:
-    """Store the trimmed address on ``create``'s account and insert its first credential."""
+    """Store the normalised address on ``create``'s account and insert its first credential."""
     account = session.execute(
         sa.select(
             _ACCOUNT.c.external_subject,
@@ -317,7 +332,7 @@ def _credential_new_login(
     session.execute(
         sa.update(_ACCOUNT)
         .where(_ACCOUNT.c.tenant_id == tenant_id, _ACCOUNT.c.id == create.user_id)
-        .values(email=email.strip(), version=_ACCOUNT.c.version + 1)
+        .values(email=normalise_address(email), version=_ACCOUNT.c.version + 1)
     )
     # A plain insert: a conflict on uq_pilot_credential_account here is a bug.
     session.execute(
