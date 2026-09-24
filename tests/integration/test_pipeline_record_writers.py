@@ -1008,6 +1008,11 @@ def test_cancel_booking_records_actor_and_time(
     assert outcome.record.cancelled_at == at
     assert outcome.record.cancelled_by_user_id == actor
     assert _stored_cancellation(engine, record_id) == (at, actor)
+    with engine.connect() as conn:
+        updated_at = conn.execute(
+            text("SELECT updated_at FROM pipeline_record WHERE id = :id"), {"id": record_id}
+        ).scalar_one()
+    assert updated_at == at, "updated_at must come from the same clock as cancelled_at"
 
 
 def test_cancel_booking_is_idempotent_and_keeps_the_first_actor(
