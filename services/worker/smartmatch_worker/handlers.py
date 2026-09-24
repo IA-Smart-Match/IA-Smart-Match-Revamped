@@ -1098,8 +1098,8 @@ def _read_match_run_command(payload: Mapping[str, Any]) -> MatchRunCommand:
             else:
                 scoring_mode = raw_mode.strip()
 
-    if registry is not None and not problems:
-        _check_pin_resolves(registry, scoring_mode, problems)
+    if registry is not None and registry_version is not None and not problems:
+        _check_pin_resolves(registry_version, registry, scoring_mode, problems)
 
     subject_ids = [candidate.subject_id for candidate in pool]
     if len(set(subject_ids)) != len(subject_ids):
@@ -1156,22 +1156,25 @@ def _read_registry_pin(
 
 
 def _check_pin_resolves(
-    registry: FactorRegistry, scoring_mode: str | None, problems: list[str]
+    pin: str, registry: FactorRegistry, scoring_mode: str | None, problems: list[str]
 ) -> None:
-    """The pinned registry must resolve the mode to a model carrying that same pin.
+    """The pinned registry must resolve the mode to a model carrying the payload's pin.
 
-    Pin ``2.0.0`` with no mode resolves through ``CBA_REGISTRY`` to the 1.1.1
-    model: refused, never silently recorded as a 1.1.1 run. Under 3.0.0, which
-    has no pre-mode model, no mode is refused too.
+    Compared with ``pin``, never ``registry.version``: pins 1.1.1 and 2.0.0 both
+    resolve to ``CBA_REGISTRY`` (version 2.0.0). Pin ``2.0.0`` with no mode
+    resolves to the 1.1.1 model, and pin ``1.1.1`` with a mode to a 2.0.0
+    model: both refused, never recorded under a rulebook the payload did not
+    name. Pin ``1.1.1`` with no mode is the G1 model and runs. Under 3.0.0,
+    which has no pre-mode model, no mode is refused too.
     """
     try:
         model = resolve_scoring_model(scoring_mode, registry=registry)
     except UnknownScoringModeError as exc:
-        problems.append(f"scoring_mode under registry_version {registry.version!r}: {exc}")
+        problems.append(f"scoring_mode under registry_version {pin!r}: {exc}")
         return
-    if model.registry_version != registry.version:
+    if model.registry_version != pin:
         problems.append(
-            f"registry_version {registry.version!r} with scoring_mode {scoring_mode!r} "
+            f"registry_version {pin!r} with scoring_mode {scoring_mode!r} "
             f"resolves to a model pinned to {model.registry_version!r}; the run would be "
             "recorded under a rulebook the payload did not name"
         )
