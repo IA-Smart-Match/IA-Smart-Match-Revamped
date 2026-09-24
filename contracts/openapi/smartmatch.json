@@ -2751,8 +2751,19 @@
       "ExcludedCandidateView": {
         "description": "One named subject that never entered the pool, and why.\n\nDistinct from ``unscorable_candidates`` and deliberately so. An unscorable\ncandidate *was* evaluated and some factor had no evidence; an excluded one\nwas never evaluated at all \u2014 no profile row, or a classification \u00a719 says a\nperson must review first. Collapsing the two would tell a Speaker Connector\nthat somebody scored poorly when in fact nobody has looked at their record.",
         "properties": {
+          "load": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LoadBlockView"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The load that removed a load_full Speaker. Omitted for every other reason and for runs stored without one."
+          },
           "reason": {
-            "description": "A stable token: speaker_profile_not_found, industry_classification_awaiting_review, role_classification_awaiting_review, industry_classification_missing, role_classification_missing, industry_classification_provenance_unknown, role_classification_provenance_unknown, industry_taxonomy_version_superseded, role_taxonomy_version_superseded, industry_code_unrecognised, role_code_unrecognised, or filed_this_request (the Speaker's own login filed this Speaker Request, B26 Q8).",
+            "description": "A stable token: speaker_profile_not_found, industry_classification_awaiting_review, role_classification_awaiting_review, industry_classification_missing, role_classification_missing, industry_classification_provenance_unknown, role_classification_provenance_unknown, industry_taxonomy_version_superseded, role_taxonomy_version_superseded, industry_code_unrecognised, role_code_unrecognised, filed_this_request (the Speaker's own login filed this Speaker Request, B26 Q8), or load_full (the Speaker's engagement load is Full under a registry with a load band table, B26 T8c).",
             "title": "Reason",
             "type": "string"
           },
@@ -3459,6 +3470,76 @@
           "updated_at"
         ],
         "title": "JobStatusResponse",
+        "type": "object"
+      },
+      "LoadBlockView": {
+        "description": "The engagement load that removed a Speaker at Stage A (B26 T8c, ``load_full``).\n\nBuilt field by field from the stored block, never passed through: the\nstored block also lists which bookings lacked hours, by record id, and this\nview has **no field** for that list. The load read is tenant-wide (OQ2), so\nthose ids can name another unit's bookings; they stay in the stored payload\nand never reach the wire (orchestrator ruling, T8d gate). Decimals are\nstrings, so nothing rounds on the way.",
+        "properties": {
+          "as_of": {
+            "description": "The run's UTC date (ISO).",
+            "title": "As Of",
+            "type": "string"
+          },
+          "band": {
+            "description": "light, moderate, heavy, full, or unknown.",
+            "title": "Band",
+            "type": "string"
+          },
+          "capacity_hours": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capacity Hours"
+          },
+          "completed_hours": {
+            "title": "Completed Hours",
+            "type": "string"
+          },
+          "confirmed_hours": {
+            "title": "Confirmed Hours",
+            "type": "string"
+          },
+          "eli_formula_version": {
+            "title": "Eli Formula Version",
+            "type": "string"
+          },
+          "measurable": {
+            "title": "Measurable",
+            "type": "boolean"
+          },
+          "reason": {
+            "description": "measured, capacity_not_stated, hours_unknown, or full_by_known_hours.",
+            "title": "Reason",
+            "type": "string"
+          },
+          "utilization": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Unrounded; a lower bound when not measurable; null without capacity.",
+            "title": "Utilization"
+          }
+        },
+        "required": [
+          "band",
+          "reason",
+          "measurable",
+          "completed_hours",
+          "confirmed_hours",
+          "as_of",
+          "eli_formula_version"
+        ],
+        "title": "LoadBlockView",
         "type": "object"
       },
       "LoginRequest": {

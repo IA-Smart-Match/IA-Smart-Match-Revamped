@@ -90,6 +90,7 @@ exactly as trustworthy as a correct one.
 
 from __future__ import annotations
 
+import dataclasses
 import uuid
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
@@ -114,6 +115,7 @@ from smartmatch_domain.factors.proximity import (
     SpeakerLocation,
 )
 from smartmatch_domain.factors.role_match import RoleMatchInputs
+from smartmatch_domain.load_bands import AssessedLoad, stage_a_load_excluded
 from smartmatch_domain.naics_sectors import (
     NAICS_TAXONOMY_VERSION,
     ClassifiedSector,
@@ -132,6 +134,7 @@ from smartmatch_api.zip_proximity import resolve_distance_from_campus
 __all__ = [
     "EXCLUSION_INDUSTRY_CODE_UNRECOGNISED",
     "EXCLUSION_INDUSTRY_TAXONOMY_SUPERSEDED",
+    "EXCLUSION_LOAD_FULL",
     "EXCLUSION_PROFILE_NOT_FOUND",
     "EXCLUSION_ROLE_CODE_UNRECOGNISED",
     "EXCLUSION_ROLE_TAXONOMY_SUPERSEDED",
@@ -161,6 +164,12 @@ EXCLUSION_ROLE_TAXONOMY_SUPERSEDED: Final[str] = "role_taxonomy_version_supersed
 #: this Speaker Request, so they are left out of its matching. A pool rule only:
 #: a Connector may still add them to a batch by hand.
 EXCLUSION_FILED_THIS_REQUEST: Final[str] = "filed_this_request"
+
+#: B26 T8c, registry 3.x only: the Speaker's engagement load is Full (known
+#: hours above declared capacity), so the pair is removed before the solve and
+#: never scored. Reported with the load block that removed them. No override
+#: exists (parent plan §5.2 item 7).
+EXCLUSION_LOAD_FULL: Final[str] = "load_full"
 
 #: A stored code the released NAICS table does not name.
 #: ``ck_speaker_profile_industry_code`` forbids such a row, so reaching this
@@ -230,6 +239,9 @@ class ExcludedCandidate:
 
     subject_id: str
     reason: str
+    #: The load that removed a ``load_full`` subject (B26 T8c); ``None`` for
+    #: every other reason.
+    load: AssessedLoad | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -384,6 +396,7 @@ def assemble_cba_pool(
     owning_unit_id: uuid.UUID,
     subject_ids: Sequence[uuid.UUID],
     request: SpeakerRequestEvidence,
+    loads: Mapping[uuid.UUID, AssessedLoad] | None = None,
 ) -> AssembledPool:
     """Build every named candidate's evidence from ``speaker_profile``.
 
@@ -404,6 +417,13 @@ def assemble_cba_pool(
         subject_ids: The professionals to consider, in the caller's order. May
             contain duplicates; the caller refuses those before calling.
         request: The run-level evidence every candidate is scored against.
+        loads: Each named subject's assessed engagement load, under a registry
+            with a load band table (B26 T8c); ``None`` otherwise, and then the
+            pool is exactly what it was before T8c. When given, a Full subject
+            is excluded as ``load_full`` after the Q8 check and before the
+            classification checks (OQ4), and every kept subject's evidence
+            carries its load. A subject missing from ``loads`` is a defect
+            (``KeyError``), never a default band.
 
     Returns:
         An :class:`AssembledPool`.
@@ -429,6 +449,14 @@ def assemble_cba_pool(
             excluded.append(ExcludedCandidate(subject, EXCLUSION_FILED_THIS_REQUEST))
             continue
 
+        # B26 T8c (OQ4): Full decides the outcome whatever the record says, so
+        # it is checked before any classification — a Connector should not fix
+        # a classification for someone who cannot be invited.
+        load = None if loads is None else loads[subject_id]
+        if stage_a_load_excluded(load):
+            excluded.append(ExcludedCandidate(subject, EXCLUSION_LOAD_FULL, load=load))
+            continue
+
         # Track 16's gate, called and not re-derived. It is evaluated **before**
         # any evidence is assembled, so an unreviewed record's classification
         # never reaches a factor at all — there is no path by which it could be
@@ -448,7 +476,7 @@ def assemble_cba_pool(
         if isinstance(candidate, ExcludedCandidate):
             excluded.append(candidate)
             continue
-        evidence.append(candidate)
+        evidence.append(candidate if load is None else dataclasses.replace(candidate, load=load))
 
     return AssembledPool(evidence=tuple(evidence), excluded=tuple(excluded))
 
