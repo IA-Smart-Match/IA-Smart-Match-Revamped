@@ -5,6 +5,7 @@
  * a route change (never on the shell's first render).
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { StrictMode } from "react";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -72,7 +73,7 @@ function Page({ heading }: { heading: string }) {
 
 let client: QueryClient;
 
-function renderShell(path = "/speaker-portal") {
+function renderShell(path = "/speaker-portal", { strict = false } = {}) {
   client = new QueryClient({
     defaultOptions: { queries: { retry: false, networkMode: "always", staleTime: 0 } },
   });
@@ -93,11 +94,12 @@ function renderShell(path = "/speaker-portal") {
     ],
     { initialEntries: [path] },
   );
-  render(
+  const tree = (
     <QueryClientProvider client={client}>
       <RouterProvider router={router} />
-    </QueryClientProvider>,
+    </QueryClientProvider>
   );
+  render(strict ? <StrictMode>{tree}</StrictMode> : tree);
   return router;
 }
 
@@ -245,6 +247,37 @@ describe("<SpeakerPortalLayout />", () => {
     });
     const heading = await screen.findByRole("heading", { level: 1, name: "Invitations" });
     expect(document.activeElement).toBe(heading);
+  });
+
+  it("the first render moves no focus under StrictMode either (effects run twice in dev)", () => {
+    renderShell("/speaker-portal", { strict: true });
+    expect(screen.getByRole("heading", { level: 1, name: "Home" })).toBeTruthy();
+    expect(document.activeElement).toBe(document.body);
+  });
+
+  it("while the menu is open, the page behind it is inert; closing clears it", () => {
+    renderShell();
+    const behind = screen.getByRole("main").parentElement;
+    expect(behind).not.toBeNull();
+    expect(behind?.hasAttribute("inert")).toBe(false);
+    expect(document.getElementById("speaker-portal-sidebar")?.contains(behind ?? null)).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: "Open navigation" }));
+    expect(behind?.hasAttribute("inert")).toBe(true);
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(behind?.hasAttribute("inert")).toBe(false);
+  });
+
+  it("choosing the link for the page already shown closes the menu and returns focus to the menu button", async () => {
+    renderShell();
+    const open = screen.getByRole("button", { name: "Open navigation" });
+    fireEvent.click(open);
+    await act(async () => {
+      fireEvent.click(within(nav()).getByRole("link", { name: "Home" }));
+    });
+    expect(open.getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(open);
   });
 
   it("Sign out directly follows the profile block in the footer", () => {

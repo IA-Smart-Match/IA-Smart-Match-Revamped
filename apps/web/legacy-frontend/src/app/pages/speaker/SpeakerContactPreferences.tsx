@@ -23,6 +23,7 @@ import { Link } from "react-router";
 import type { MyContactChannel, MyContactChannelChange } from "@/lib/api";
 import { usePrincipalKey } from "@/app/components/PrincipalQueryProvider";
 import {
+  useLatestMyContactChannels,
   useMyChannelChoice,
   useMyContactChannels,
   type ChannelChoice,
@@ -68,6 +69,7 @@ export function SpeakerContactPreferences() {
   const principalKey = usePrincipalKey();
   const channels = useMyContactChannels();
   const choice = useMyChannelChoice();
+  const latestChannels = useLatestMyContactChannels();
 
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
   const [status, setStatus] = useState("");
@@ -115,6 +117,20 @@ export function SpeakerContactPreferences() {
         },
         onError: (cause) => {
           setRowError({ channelId, message: speakerPortalError("channel", cause).message });
+          // The refetch codes re-read the list before this runs. If the row
+          // no longer offers the pressed action, that button (or the confirm
+          // row) has gone: close the confirm row for good and move focus to
+          // the row's heading rather than let it fall to <body>. A row that
+          // vanished is handled at page level (orphanError).
+          const latest = latestChannels()?.channels.find(
+            (channel) => channel.contact_channel_id === channelId,
+          );
+          if (latest === undefined) return;
+          const stillOffered = next === "opt_in" ? latest.can_opt_in : latest.can_opt_out;
+          if (!stillOffered) {
+            setConfirmingId(null);
+            setFocusTarget(channelHeadingId(channelId));
+          }
         },
       },
     );
@@ -200,7 +216,11 @@ export function SpeakerContactPreferences() {
         </p>
       </header>
 
-      <p role="status" aria-live="polite" className={status ? "text-sm text-foreground" : "sr-only"}>
+      <p
+        role="status"
+        aria-live="polite"
+        className={status ? "break-words text-sm text-foreground" : "sr-only break-words"}
+      >
         {status}
       </p>
 

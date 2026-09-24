@@ -228,7 +228,11 @@ export function SpeakerInvitations() {
         {HEADING}
       </h1>
 
-      <p role="status" aria-live="polite" className={status ? "text-sm text-foreground" : "sr-only"}>
+      <p
+        role="status"
+        aria-live="polite"
+        className={status ? "break-words text-sm text-foreground" : "sr-only break-words"}
+      >
         {status}
       </p>
 

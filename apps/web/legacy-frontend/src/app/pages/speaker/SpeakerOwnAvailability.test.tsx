@@ -399,6 +399,9 @@ describe("<SpeakerOwnAvailability />", () => {
     renderPage();
     const label = await screen.findByText("Loading your availability…");
     expect(label.closest("[aria-busy='true']")).not.toBeNull();
+    // Route-change focus lands on the h1; it must not sit inside the busy region.
+    const heading = screen.getByRole("heading", { level: 1, name: "Your availability" });
+    expect(heading.closest("[aria-busy='true']")).toBeNull();
   });
 
   it("the form is labelled by the page h1", async () => {

@@ -493,6 +493,74 @@ describe("<SpeakerContactPreferences />", () => {
     );
   });
 
+  it("a refused opt-in whose re-read removes the button moves focus to the row heading, not body", async () => {
+    const HOME_LOCKED = channel({ ...HOME, suppression_reason: "connector", can_opt_in: false });
+    stub({
+      [`GET ${LIST}`]: sequence(list([WORK, HOME]), list([WORK, HOME_LOCKED])),
+      [`POST ${LIST}/ch-home/opt-in`]: {
+        status: 409,
+        body: { error: { code: "speaker_contact_channel_transition_conflict", message: "x" } },
+      },
+    });
+    renderPage();
+    const optIn = await screen.findByRole("button", {
+      name: "Opt in to invitations at dana.home@example.com",
+    });
+    optIn.focus();
+    fireEvent.click(optIn);
+
+    const alert = await within(row("dana.home@example.com")).findByRole("alert");
+    expect(alert.textContent).toBe(
+      "Something changed while you were opting in. The list has been refreshed; try again.",
+    );
+    expect(optIn.isConnected).toBe(false);
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByRole("heading", { level: 3, name: "dana.home@example.com" }),
+      ),
+    );
+  });
+
+  it("a refused opt-out whose re-read removes Opt out closes the confirm row for good", async () => {
+    const WORK_LOCKED = channel({
+      ...WORK,
+      send_eligible: false,
+      suppressed: true,
+      suppression_reason: "delivery",
+      can_opt_out: false,
+    });
+    stub({
+      [`GET ${LIST}`]: sequence(list([WORK, HOME]), list([WORK_LOCKED, HOME]), list([WORK, HOME])),
+      [`POST ${LIST}/ch-work/opt-out`]: {
+        status: 409,
+        body: { error: { code: "speaker_contact_channel_transition_conflict", message: "x" } },
+      },
+    });
+    renderPage();
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Opt out of invitations at dana@example.edu" }),
+    );
+    const confirm = await screen.findByRole("button", {
+      name: "Confirm opt out of invitations at dana@example.edu",
+    });
+    fireEvent.click(confirm);
+
+    await within(row("dana@example.edu")).findByRole("alert");
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByRole("heading", { level: 3, name: "dana@example.edu" }),
+      ),
+    );
+    // When the server offers Opt out again, the old confirm row must not reopen.
+    await act(async () => {
+      await client.invalidateQueries();
+    });
+    await screen.findByRole("button", { name: "Opt out of invitations at dana@example.edu" });
+    expect(
+      screen.queryByRole("button", { name: "Confirm opt out of invitations at dana@example.edu" }),
+    ).toBeNull();
+  });
+
   it("accessible names carry the address, and start with the visible label", async () => {
     stub({ [`GET ${LIST}`]: list([WORK, HOME]) });
     renderPage();
