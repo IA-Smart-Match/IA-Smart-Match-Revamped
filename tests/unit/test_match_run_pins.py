@@ -20,6 +20,7 @@ from smartmatch_domain.match_run import (
     ROUTE_ESTIMATE_SOURCES,
     MatchRunPins,
     inputs_fingerprint,
+    registry_fingerprint,
     weights_fingerprint,
 )
 from smartmatch_worker.handlers import PolicyFailure, _read_match_run_command, default_registry
@@ -400,3 +401,32 @@ def test_the_command_reader_refuses_an_unrecognised_mode():
         )
     assert raised.value.reason == "invalid_command_payload"
     assert "cba-hybrid-1" in str(raised.value)
+
+
+# ---------------------------------------------------------------------------
+# B26 T8c: registry_fingerprint (plan §3.5)
+# ---------------------------------------------------------------------------
+
+
+# 16
+def test_registry_fingerprint_requires_the_keyword():
+    """No default: a caller must say whether its registry carries a band table."""
+    with pytest.raises(TypeError):
+        registry_fingerprint(WEIGHTS)  # type: ignore[call-arg]
+    with pytest.raises(TypeError):
+        registry_fingerprint(WEIGHTS, None)  # type: ignore[misc]
+    assert registry_fingerprint(WEIGHTS, load_bands=None) == weights_fingerprint(WEIGHTS)
+
+
+# 17
+def test_registry_fingerprint_with_bands_differs_and_is_order_independent():
+    from smartmatch_domain.load_bands import Q7_REGISTERED_LOAD_BANDS
+
+    with_bands = registry_fingerprint(WEIGHTS, load_bands=Q7_REGISTERED_LOAD_BANDS)
+    reordered = registry_fingerprint(
+        dict(reversed(list(WEIGHTS.items()))), load_bands=Q7_REGISTERED_LOAD_BANDS
+    )
+    assert with_bands == reordered
+    assert with_bands != weights_fingerprint(WEIGHTS)
+    assert with_bands.startswith("sha256:")
+    assert len(with_bands) == _DIGEST_LENGTH

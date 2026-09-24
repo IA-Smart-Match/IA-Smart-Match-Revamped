@@ -165,7 +165,8 @@ version that produced it.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timedelta
+from collections.abc import Mapping, Sequence
+from datetime import date, datetime, timedelta
 from typing import Annotated, Any, Final, cast
 
 import sqlalchemy as sa
@@ -190,12 +191,22 @@ from smartmatch_domain.explanation import (
     explanation_to_payload,
 )
 from smartmatch_domain.factor_registry import (
+    CBA_REGISTRY,
+    FactorRegistry,
     RegistryNotApprovedError,
     RegistryNotReadyError,
+    UnknownRegistryVersionError,
     assert_registry_approved,
     assert_scoring_ready,
+    current_cba_registry,
+    registry_for_version,
 )
 from smartmatch_domain.factors.cba_semantic_topic import SemanticTopicProvider
+from smartmatch_domain.load_bands import (
+    AssessedLoad,
+    assess_pool_loads,
+    assessed_load_payload,
+)
 from smartmatch_domain.match_run import MATCH_RUN_COMMAND_TYPE, inputs_fingerprint
 from smartmatch_domain.optimizer import (
     PortfolioCandidate,
@@ -204,9 +215,14 @@ from smartmatch_domain.optimizer import (
 )
 from smartmatch_domain.scoring import rank_cba_candidates
 from smartmatch_persistence import schema
+from smartmatch_persistence.engagement_load import EngagementLoadRepository
 from smartmatch_persistence.match_runs import MatchRunRepository
 from smartmatch_persistence.match_weight_settings import MatchWeightSettingRepository
 from smartmatch_persistence.rate_limit import RateLimit
+from smartmatch_persistence.speaker_availability import (
+    SpeakerAvailabilityRepository,
+    StoredSpeakerAvailability,
+)
 from smartmatch_providers.topic_semantics import build_semantic_topic_provider
 from sqlalchemy.orm import Session
 
@@ -325,6 +341,32 @@ class MatchRunRequest(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+class LoadBlockView(BaseModel):
+    """The engagement load that removed a Speaker at Stage A (B26 T8c, ``load_full``).
+
+    The band and why — never the numbers behind it. Built field by field from
+    the stored block, never passed through, and this view has **no field** for
+    two things the stored block keeps:
+
+    * the hours, the declared capacity and the utilization the band was
+      computed from (``completed_hours``, ``confirmed_hours``,
+      ``capacity_hours``, ``utilization``). Load numbers do not go on the API
+      wire; they stay in the stored run payload for audit (owner ruling R-A,
+      2026-09-24);
+    * which bookings lacked hours, by record id. The load read is tenant-wide
+      (OQ2), so those ids can name another unit's bookings (orchestrator
+      ruling, T8d gate).
+    """
+
+    band: str = Field(description="light, moderate, heavy, full, or unknown.")
+    reason: str = Field(
+        description="measured, capacity_not_stated, hours_unknown, or full_by_known_hours."
+    )
+    measurable: bool = Field(description="True exactly when reason is measured.")
+    as_of: str = Field(description="The run's UTC date (ISO).")
+    eli_formula_version: str
+
+
 class ExcludedCandidateView(BaseModel):
     """One named subject that never entered the pool, and why.
 
@@ -346,9 +388,21 @@ class ExcludedCandidateView(BaseModel):
             "role_classification_provenance_unknown, "
             "industry_taxonomy_version_superseded, "
             "role_taxonomy_version_superseded, industry_code_unrecognised, "
-            "role_code_unrecognised, or filed_this_request (the Speaker's own "
-            "login filed this Speaker Request, B26 Q8)."
+            "role_code_unrecognised, filed_this_request (the Speaker's own "
+            "login filed this Speaker Request, B26 Q8), or load_full (the "
+            "Speaker's engagement load is Full under a registry with a load "
+            "band table, B26 T8c)."
         )
+    )
+    load: LoadBlockView | None = Field(
+        default=None,
+        description=(
+            "The load that removed a load_full Speaker. Omitted for every other "
+            "reason and for runs stored without one."
+        ),
+        # Omitted rather than null, so an entry for any other reason keeps the
+        # exact two-key shape B26 T4 shipped.
+        exclude_if=lambda value: value is None,
     )
 
 
@@ -644,6 +698,11 @@ _match_runs: Final[MatchRunRepository] = MatchRunRepository()
 #: worker will fingerprint the run with.
 _weight_settings: Final[MatchWeightSettingRepository] = MatchWeightSettingRepository()
 
+#: B26 T8c: capacity (T2) and bookings (T8c) for the load read. Only a registry
+#: with a load band table reads them; a 2.x create issues neither query.
+_availability: Final[SpeakerAvailabilityRepository] = SpeakerAvailabilityRepository()
+_engagement_load: Final[EngagementLoadRepository] = EngagementLoadRepository()
+
 
 def _authorize_match_run(
     session: Session,
@@ -690,8 +749,13 @@ def _authorize_match_run(
     return unit.id
 
 
-def _assert_scoring_permitted() -> None:
-    """Fail closed unless the registry is approved *and* fully implemented.
+def _assert_scoring_permitted(registry: FactorRegistry) -> None:
+    """Fail closed unless ``registry`` is approved *and* fully implemented.
+
+    The create route passes the **current** registry (the one a new run scores
+    under); the read route passes the **run's own pin**, never the current one,
+    so moving the current registry can never block reading a stored run
+    (B26 T8c, C8). ``CBA_REGISTRY`` keeps the zero-argument calls.
 
     The standing rule is "every scoring path calls
     ``assert_registry_approved()``", and both operations here are scoring paths:
@@ -707,8 +771,12 @@ def _assert_scoring_permitted() -> None:
             capability is not available, not that the request was malformed.
     """
     try:
-        assert_registry_approved()
-        assert_scoring_ready()
+        if registry == CBA_REGISTRY:
+            assert_registry_approved()
+            assert_scoring_ready()
+        else:
+            assert_registry_approved(registry=registry)
+            assert_scoring_ready(registry=registry)
     except (RegistryNotApprovedError, RegistryNotReadyError) as exc:
         raise ApiError(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -853,11 +921,91 @@ def _topic_provider() -> SemanticTopicProvider:
     )
 
 
+def _load_block_view(raw: object) -> LoadBlockView | None:
+    """A stored load block as the wire view, or ``None`` when absent or unreadable.
+
+    The only builder of :class:`LoadBlockView`. Each field is copied by name, so
+    the hours, capacity and utilization (owner ruling R-A) and
+    ``unknown_hours_refs`` — anything else in the stored block — never reach
+    the response. A malformed block reads as no block: it removed nobody on
+    this read, and it is not repaired into one. Only the fields the view shows
+    are checked; the numbers are the stored payload's audit record, not this
+    read's.
+    """
+    if not isinstance(raw, Mapping):
+        return None
+    if not all(
+        isinstance(raw.get(name), str)
+        for name in ("band", "reason", "as_of", "eli_formula_version")
+    ):
+        return None
+    if type(raw.get("measurable")) is not bool:
+        return None
+    return LoadBlockView(
+        band=raw["band"],
+        reason=raw["reason"],
+        measurable=raw["measurable"],
+        as_of=raw["as_of"],
+        eli_formula_version=raw["eli_formula_version"],
+    )
+
+
+def _excluded_payload(item: ExcludedCandidate) -> dict[str, Any]:
+    """One exclusion as stored: T4's two keys, plus the load block for load_full."""
+    entry: dict[str, Any] = {"subject_id": item.subject_id, "reason": item.reason}
+    if item.load is not None:
+        entry["load"] = assessed_load_payload(item.load)
+    return entry
+
+
 def _excluded_views(excluded: tuple[ExcludedCandidate, ...]) -> list[ExcludedCandidateView]:
-    """Render the absences onto the wire, reason token included."""
+    """Render the absences onto the wire, reason token and load block included."""
     return [
-        ExcludedCandidateView(subject_id=item.subject_id, reason=item.reason) for item in excluded
+        ExcludedCandidateView(
+            subject_id=item.subject_id,
+            reason=item.reason,
+            load=None if item.load is None else _load_block_view(assessed_load_payload(item.load)),
+        )
+        for item in excluded
     ]
+
+
+def _pool_loads(
+    session: Session,
+    *,
+    tenant_id: uuid.UUID,
+    registry: FactorRegistry,
+    subject_ids: Sequence[uuid.UUID],
+    as_of: date,
+) -> tuple[
+    Mapping[uuid.UUID, StoredSpeakerAvailability] | None,
+    Mapping[uuid.UUID, AssessedLoad] | None,
+]:
+    """Every named subject's load under ``registry``, or ``(None, None)`` for 2.x.
+
+    Two queries (B26 T8c): T2's ``get_many`` for declared capacity, read once
+    over every named subject and handed on to ``current_verdicts`` so the
+    availability read does not repeat it, and the engagement read. A registry
+    with no band table reads neither, so a 2.x create costs what it did.
+    """
+    bands = registry.load_bands
+    if bands is None:
+        return None, None
+    statements = _availability.get_many(session, tenant_id=tenant_id, professional_ids=subject_ids)
+    engagements = _engagement_load.engagements_for(
+        session, tenant_id=tenant_id, professional_ids=subject_ids, as_of=as_of
+    )
+    loads = assess_pool_loads(
+        subject_ids,
+        capacities={
+            pid: stored.statement.declared_capacity_hours_per_90_days
+            for pid, stored in statements.items()
+        },
+        engagements=engagements,
+        as_of=as_of,
+        bands=bands,
+    )
+    return statements, loads
 
 
 @router.post(
@@ -926,7 +1074,11 @@ def create_match_run(
 
     owning_unit_id = _authorize_match_run(session, principal, unit_id)
 
-    _assert_scoring_permitted()
+    # The one place a new run's rulebook is chosen (B26 T8c). Today this is
+    # 2.0.0; a proposed registry made current without approval fails closed
+    # here with 503 registry_not_ready.
+    registry = current_cba_registry()
+    _assert_scoring_permitted(registry)
 
     if len(body.candidate_subject_ids) > MAX_CANDIDATES:
         raise ApiError(
@@ -962,12 +1114,24 @@ def create_match_run(
     # request field, through which a caller could choose one.
     scoring_mode = request.scoring_mode
 
+    # One UTC date for the whole run: the load window and the availability
+    # verdicts are measured from the same day (T4 C7, T8b R2).
+    as_of = as_of_utc(utc_now())
+    statements, loads = _pool_loads(
+        session,
+        tenant_id=principal.tenant_id,
+        registry=registry,
+        subject_ids=subject_ids,
+        as_of=as_of,
+    )
+
     pool = assemble_cba_pool(
         session,
         tenant_id=principal.tenant_id,
         owning_unit_id=owning_unit_id,
         subject_ids=subject_ids,
         request=request,
+        loads=loads,
     )
 
     # This unit's stored overrides, read from the *authorized* unit and never
@@ -991,6 +1155,7 @@ def create_match_run(
             topic_provider=_topic_provider(),
             scoring_mode=scoring_mode,
             weight_overrides=overrides or None,
+            registry=registry,
         )
     except ValueError as exc:
         raise ApiError(
@@ -1011,7 +1176,8 @@ def create_match_run(
         tenant_id=principal.tenant_id,
         subject_ids=[item.subject_id for item in explanations],
         event_time=request.event_time,
-        as_of=as_of_utc(utc_now()),
+        as_of=as_of,
+        statements=statements,
     )
 
     if len(scorable) < body.portfolio_size:
@@ -1066,13 +1232,15 @@ def create_match_run(
             # whenever `scorable` is, and the 422 above already returned when it
             # was not.
             "scoring_mode": ranked[0].scoring_mode,
+            # B26 T8c: the registry the pool was scored under, which the worker
+            # pins the run to. Always written, so no stored run leaves its
+            # rulebook to be inferred.
+            "registry_version": registry.version,
             "explanations": [explanation_to_payload(item) for item in explanations],
             # B26 T4. Read by the run read, ignored by the worker (it reads its
             # keys with `.get`). `as_of` is the UTC date of this submission.
             "availability": to_payload(availability),
-            "excluded": [
-                {"subject_id": item.subject_id, "reason": item.reason} for item in pool.excluded
-            ],
+            "excluded": [_excluded_payload(item) for item in pool.excluded],
         },
         idempotency_key=idempotency_key,
         charge=charge,
@@ -1254,6 +1422,19 @@ def _read_stored_availability(
         return None, f"the stored availability is not readable: {exc}"
 
 
+def _registry_of_run(registry_version: str) -> FactorRegistry:
+    """The registry a stored run is pinned to; ``CBA_REGISTRY`` for an unknown pin.
+
+    An unknown pin still reads through the CBA gate so the run's row renders;
+    its explanations then report unreadable (``explanation_from_payload``
+    refuses an unknown pin), rather than the whole read failing.
+    """
+    try:
+        return registry_for_version(registry_version)
+    except UnknownRegistryVersionError:
+        return CBA_REGISTRY
+
+
 def _read_stored_excluded(
     payload: dict[str, Any] | None,
 ) -> tuple[list[ExcludedCandidateView], str | None]:
@@ -1261,7 +1442,9 @@ def _read_stored_excluded(
 
     No ``excluded`` key is a run stored before B26 T4: ``([], None)``. One
     unreadable entry makes the whole list unreadable rather than silently
-    shorter — a dropped entry would hide somebody the run never evaluated.
+    shorter — a dropped entry would hide somebody the run never evaluated. A
+    ``load`` block (B26 T8c, ``load_full``) that is present but does not render
+    is unreadable too, never shown as "no block".
     """
     if payload is None or "excluded" not in payload:
         return [], None
@@ -1279,7 +1462,17 @@ def _read_stored_excluded(
                     f"the stored exclusions are not readable: excluded[{index}].{field}: "
                     "missing or not a string"
                 )
-        views.append(ExcludedCandidateView(subject_id=entry["subject_id"], reason=entry["reason"]))
+        load = None
+        if entry.get("load") is not None:
+            load = _load_block_view(entry["load"])
+            if load is None:
+                return (
+                    [],
+                    f"the stored exclusions are not readable: excluded[{index}].load: malformed",
+                )
+        views.append(
+            ExcludedCandidateView(subject_id=entry["subject_id"], reason=entry["reason"], load=load)
+        )
     return views, None
 
 
@@ -1362,7 +1555,6 @@ def read_match_run(
             exists in this unit and tenant.
     """
     _authorize_match_run(session, principal, unit_id)
-    _assert_scoring_permitted()
 
     run = _match_runs.get(session, tenant_id=principal.tenant_id, run_id=match_run_id)
     if run is None or run.owning_unit_id != unit_id:
@@ -1371,6 +1563,10 @@ def read_match_run(
             code="match_run_not_found",
             message="No such match run in this unit.",
         )
+    # Gated on the run's **own** pin, never on the current registry: making a
+    # proposed registry current must not 503 the reads of stored 1.1.1 / 2.0.0
+    # runs (B26 T8c, C8).
+    _assert_scoring_permitted(_registry_of_run(run.registry_version))
 
     payload = _load_command_payload(session, tenant_id=principal.tenant_id, job_id=run.job_id)
 

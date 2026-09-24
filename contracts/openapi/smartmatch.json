@@ -2807,8 +2807,19 @@
       "ExcludedCandidateView": {
         "description": "One named subject that never entered the pool, and why.\n\nDistinct from ``unscorable_candidates`` and deliberately so. An unscorable\ncandidate *was* evaluated and some factor had no evidence; an excluded one\nwas never evaluated at all \u2014 no profile row, or a classification \u00a719 says a\nperson must review first. Collapsing the two would tell a Speaker Connector\nthat somebody scored poorly when in fact nobody has looked at their record.",
         "properties": {
+          "load": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LoadBlockView"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The load that removed a load_full Speaker. Omitted for every other reason and for runs stored without one."
+          },
           "reason": {
-            "description": "A stable token: speaker_profile_not_found, industry_classification_awaiting_review, role_classification_awaiting_review, industry_classification_missing, role_classification_missing, industry_classification_provenance_unknown, role_classification_provenance_unknown, industry_taxonomy_version_superseded, role_taxonomy_version_superseded, industry_code_unrecognised, role_code_unrecognised, or filed_this_request (the Speaker's own login filed this Speaker Request, B26 Q8).",
+            "description": "A stable token: speaker_profile_not_found, industry_classification_awaiting_review, role_classification_awaiting_review, industry_classification_missing, role_classification_missing, industry_classification_provenance_unknown, role_classification_provenance_unknown, industry_taxonomy_version_superseded, role_taxonomy_version_superseded, industry_code_unrecognised, role_code_unrecognised, filed_this_request (the Speaker's own login filed this Speaker Request, B26 Q8), or load_full (the Speaker's engagement load is Full under a registry with a load band table, B26 T8c).",
             "title": "Reason",
             "type": "string"
           },
@@ -3515,6 +3526,44 @@
           "updated_at"
         ],
         "title": "JobStatusResponse",
+        "type": "object"
+      },
+      "LoadBlockView": {
+        "description": "The engagement load that removed a Speaker at Stage A (B26 T8c, ``load_full``).\n\nThe band and why \u2014 never the numbers behind it. Built field by field from\nthe stored block, never passed through, and this view has **no field** for\ntwo things the stored block keeps:\n\n* the hours, the declared capacity and the utilization the band was\n  computed from (``completed_hours``, ``confirmed_hours``,\n  ``capacity_hours``, ``utilization``). Load numbers do not go on the API\n  wire; they stay in the stored run payload for audit (owner ruling R-A,\n  2026-09-24);\n* which bookings lacked hours, by record id. The load read is tenant-wide\n  (OQ2), so those ids can name another unit's bookings (orchestrator\n  ruling, T8d gate).",
+        "properties": {
+          "as_of": {
+            "description": "The run's UTC date (ISO).",
+            "title": "As Of",
+            "type": "string"
+          },
+          "band": {
+            "description": "light, moderate, heavy, full, or unknown.",
+            "title": "Band",
+            "type": "string"
+          },
+          "eli_formula_version": {
+            "title": "Eli Formula Version",
+            "type": "string"
+          },
+          "measurable": {
+            "description": "True exactly when reason is measured.",
+            "title": "Measurable",
+            "type": "boolean"
+          },
+          "reason": {
+            "description": "measured, capacity_not_stated, hours_unknown, or full_by_known_hours.",
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "band",
+          "reason",
+          "measurable",
+          "as_of",
+          "eli_formula_version"
+        ],
+        "title": "LoadBlockView",
         "type": "object"
       },
       "LoginRequest": {

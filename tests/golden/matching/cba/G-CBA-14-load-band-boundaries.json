@@ -1,0 +1,242 @@
+{
+  "id": "G-CBA-14",
+  "title": "Load band boundaries at 0.4999 / 0.5 / 0.7999 / 0.8 / 1.0 / 1.0001",
+  "asserts": "Q7 = A edges: >= 0.50 Moderate, >= 0.80 Heavy, > 1.00 Full, else Light. Utilization is compared exactly, never on float; 1.0000 is Heavy and 1.0001 is Full. Multipliers apply to the unrounded 0.97 composite: 0.873 and 0.679. Full is removed before the solve as load_full.",
+  "owner_decisions": [
+    "B26 Q1/D2",
+    "B26 Q7 = A",
+    "B26 unknown load"
+  ],
+  "registry_version": "3.0.0-approved-b26-eli",
+  "scoring_mode": "cba-physical-1",
+  "as_of": "2026-10-06",
+  "request": {
+    "description": "A panel on financial planning for small businesses.",
+    "sectors": [
+      "52"
+    ],
+    "roles": [
+      "finance"
+    ]
+  },
+  "candidates": [
+    {
+      "subject_id": "SYNTH-CBA-14-A-U4999",
+      "sector": "52",
+      "role": "finance",
+      "profile_present": true,
+      "topic_text": "corporate treasury and financial planning",
+      "city": "Pomona",
+      "postal_code": "91768",
+      "topic_score": 0.8,
+      "topic_rationale": "Their recorded treasury work addresses the request's financial planning focus.",
+      "distance_miles": 10.0,
+      "load": {
+        "capacity_hours": "100.0",
+        "engagements": [
+          {
+            "ref": "G14-U4999",
+            "offset_days": -10,
+            "hours": "49.99",
+            "confirmed": true,
+            "attended": true,
+            "cancelled": false
+          }
+        ]
+      }
+    },
+    {
+      "subject_id": "SYNTH-CBA-14-B-U5000",
+      "sector": "52",
+      "role": "finance",
+      "profile_present": true,
+      "topic_text": "corporate treasury and financial planning",
+      "city": "Pomona",
+      "postal_code": "91768",
+      "topic_score": 0.8,
+      "topic_rationale": "Their recorded treasury work addresses the request's financial planning focus.",
+      "distance_miles": 10.0,
+      "load": {
+        "capacity_hours": "100.0",
+        "engagements": [
+          {
+            "ref": "G14-U5000",
+            "offset_days": -10,
+            "hours": "50.00",
+            "confirmed": true,
+            "attended": true,
+            "cancelled": false
+          }
+        ]
+      }
+    },
+    {
+      "subject_id": "SYNTH-CBA-14-C-U7999",
+      "sector": "52",
+      "role": "finance",
+      "profile_present": true,
+      "topic_text": "corporate treasury and financial planning",
+      "city": "Pomona",
+      "postal_code": "91768",
+      "topic_score": 0.8,
+      "topic_rationale": "Their recorded treasury work addresses the request's financial planning focus.",
+      "distance_miles": 10.0,
+      "load": {
+        "capacity_hours": "100.0",
+        "engagements": [
+          {
+            "ref": "G14-U7999",
+            "offset_days": -10,
+            "hours": "79.99",
+            "confirmed": true,
+            "attended": true,
+            "cancelled": false
+          }
+        ]
+      }
+    },
+    {
+      "subject_id": "SYNTH-CBA-14-D-U8000",
+      "sector": "52",
+      "role": "finance",
+      "profile_present": true,
+      "topic_text": "corporate treasury and financial planning",
+      "city": "Pomona",
+      "postal_code": "91768",
+      "topic_score": 0.8,
+      "topic_rationale": "Their recorded treasury work addresses the request's financial planning focus.",
+      "distance_miles": 10.0,
+      "load": {
+        "capacity_hours": "100.0",
+        "engagements": [
+          {
+            "ref": "G14-U8000",
+            "offset_days": -10,
+            "hours": "80.00",
+            "confirmed": true,
+            "attended": true,
+            "cancelled": false
+          }
+        ]
+      }
+    },
+    {
+      "subject_id": "SYNTH-CBA-14-E-U10000",
+      "sector": "52",
+      "role": "finance",
+      "profile_present": true,
+      "topic_text": "corporate treasury and financial planning",
+      "city": "Pomona",
+      "postal_code": "91768",
+      "topic_score": 0.8,
+      "topic_rationale": "Their recorded treasury work addresses the request's financial planning focus.",
+      "distance_miles": 10.0,
+      "load": {
+        "capacity_hours": "100.0",
+        "engagements": [
+          {
+            "ref": "G14-U10000",
+            "offset_days": -10,
+            "hours": "100.00",
+            "confirmed": true,
+            "attended": true,
+            "cancelled": false
+          }
+        ]
+      }
+    },
+    {
+      "subject_id": "SYNTH-CBA-14-F-U10001",
+      "sector": "52",
+      "role": "finance",
+      "profile_present": true,
+      "topic_text": "corporate treasury and financial planning",
+      "city": "Pomona",
+      "postal_code": "91768",
+      "topic_score": 0.8,
+      "topic_rationale": "Their recorded treasury work addresses the request's financial planning focus.",
+      "distance_miles": 10.0,
+      "load": {
+        "capacity_hours": "100.0",
+        "engagements": [
+          {
+            "ref": "G14-U10001",
+            "offset_days": -10,
+            "hours": "100.01",
+            "confirmed": true,
+            "attended": true,
+            "cancelled": false
+          }
+        ]
+      }
+    }
+  ],
+  "expected": {
+    "ranking": [
+      "SYNTH-CBA-14-A-U4999",
+      "SYNTH-CBA-14-B-U5000",
+      "SYNTH-CBA-14-C-U7999",
+      "SYNTH-CBA-14-D-U8000",
+      "SYNTH-CBA-14-E-U10000"
+    ],
+    "excluded": [
+      {
+        "subject_id": "SYNTH-CBA-14-F-U10001",
+        "reason": "load_full"
+      }
+    ],
+    "candidates": {
+      "SYNTH-CBA-14-A-U4999": {
+        "load_band": "light",
+        "load_reason": "measured",
+        "utilization": "0.4999",
+        "unknown_hours_refs": [],
+        "composite_state": "measured",
+        "heuristic_score": 0.97,
+        "load_multiplier": "1"
+      },
+      "SYNTH-CBA-14-B-U5000": {
+        "load_band": "moderate",
+        "load_reason": "measured",
+        "utilization": "0.5",
+        "unknown_hours_refs": [],
+        "composite_state": "measured",
+        "heuristic_score": 0.873,
+        "load_multiplier": "0.9"
+      },
+      "SYNTH-CBA-14-C-U7999": {
+        "load_band": "moderate",
+        "load_reason": "measured",
+        "utilization": "0.7999",
+        "unknown_hours_refs": [],
+        "composite_state": "measured",
+        "heuristic_score": 0.873,
+        "load_multiplier": "0.9"
+      },
+      "SYNTH-CBA-14-D-U8000": {
+        "load_band": "heavy",
+        "load_reason": "measured",
+        "utilization": "0.8",
+        "unknown_hours_refs": [],
+        "composite_state": "measured",
+        "heuristic_score": 0.679,
+        "load_multiplier": "0.7"
+      },
+      "SYNTH-CBA-14-E-U10000": {
+        "load_band": "heavy",
+        "load_reason": "measured",
+        "utilization": "1",
+        "unknown_hours_refs": [],
+        "composite_state": "measured",
+        "heuristic_score": 0.679,
+        "load_multiplier": "0.7"
+      },
+      "SYNTH-CBA-14-F-U10001": {
+        "load_band": "full",
+        "load_reason": "measured",
+        "utilization": "1.0001",
+        "unknown_hours_refs": []
+      }
+    }
+  }
+}

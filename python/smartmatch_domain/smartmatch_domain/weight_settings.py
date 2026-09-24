@@ -86,7 +86,9 @@ from typing import Final
 
 from smartmatch_domain.factor_registry import (
     APPROVED_SCORING_KEYS,
+    CBA_REGISTRY,
     SCORING_MODELS,
+    FactorRegistry,
     ScoringModel,
     normalize_weights,
 )
@@ -248,6 +250,7 @@ def applied_weights(
     overrides: Mapping[str, float] | None,
     *,
     model: ScoringModel,
+    registry: FactorRegistry = CBA_REGISTRY,
 ) -> Mapping[str, float]:
     """The normalized weights a run under ``model`` actually scores with.
 
@@ -266,11 +269,14 @@ def applied_weights(
             *for scoring*, and forcing the caller to collapse one into the other
             would put that decision at every call site.
         model: The scoring model in force for the run.
+        registry: The rulebook ``model`` belongs to. Defaults to
+            :data:`~smartmatch_domain.factor_registry.CBA_REGISTRY`, so every
+            existing caller is unchanged; the worker passes the run's pinned one.
 
     Returns:
         An immutable mapping over ``model``'s factors, summing to 1.0.
     """
-    return normalize_weights(overrides or None, model=model)
+    return normalize_weights(overrides or None, model=model, registry=registry)
 
 
 @dataclass(frozen=True, slots=True)

@@ -11,7 +11,7 @@ Every read is scoped by tenant **and** unit in the query itself, the discipline
 from __future__ import annotations
 
 import uuid
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
 from typing import Any, Final
@@ -25,7 +25,10 @@ from smartmatch_domain.availability_verdict import (
 from smartmatch_domain.events import EventTime
 from smartmatch_domain.speaker_availability import event_local_span
 from smartmatch_persistence import schema
-from smartmatch_persistence.speaker_availability import SpeakerAvailabilityRepository
+from smartmatch_persistence.speaker_availability import (
+    SpeakerAvailabilityRepository,
+    StoredSpeakerAvailability,
+)
 from sqlalchemy.orm import Session
 
 __all__ = [
@@ -173,21 +176,30 @@ def current_verdicts(
     subject_ids: Sequence[str],
     event_time: EventTime,
     as_of: date,
+    statements: Mapping[uuid.UUID, StoredSpeakerAvailability] | None = None,
 ) -> tuple[StoredVerdict, ...]:
     """Today's verdict for each subject, in order: one ``get_many`` query.
 
     A subject id that is not a UUID can hold no statement and reads as not
     stated. No query is issued for an empty pool.
+
+    ``statements`` (B26 T8c) is a ``get_many`` result the caller already read
+    over a superset of ``subject_ids`` (the 3.x create route reads it once for
+    capacity); it is reused and no query is issued. ``None`` reads it here.
     """
     parsed = {subject: parse_request_id(subject) for subject in subject_ids}
-    stored = _availability.get_many(
-        session,
-        tenant_id=tenant_id,
-        professional_ids=[pid for pid in parsed.values() if pid is not None],
+    stored = (
+        _availability.get_many(
+            session,
+            tenant_id=tenant_id,
+            professional_ids=[pid for pid in parsed.values() if pid is not None],
+        )
+        if statements is None
+        else statements
     )
-    statements = {
+    by_subject = {
         subject: stored[pid].statement
         for subject, pid in parsed.items()
         if pid is not None and pid in stored
     }
-    return verdicts_for_pool(subject_ids, statements, event_local_span(event_time), as_of)
+    return verdicts_for_pool(subject_ids, by_subject, event_local_span(event_time), as_of)

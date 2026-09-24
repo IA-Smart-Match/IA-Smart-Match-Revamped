@@ -1,0 +1,113 @@
+{
+  "id": "G-CBA-17",
+  "title": "An unknown load scores neutral and is labelled",
+  "asserts": "No stated capacity, or unknown hours in the window, is band Unknown with multiplier 1: the score equals the 2.0.0 score of the same evidence, and the load block says why (capacity_not_stated / hours_unknown, measurable false, the refs that lack hours). Never a default capacity, never zero hours (ADR-0011).",
+  "owner_decisions": [
+    "B26 Q1/D2",
+    "B26 Q7 = A",
+    "B26 unknown load"
+  ],
+  "registry_version": "3.0.0-approved-b26-eli",
+  "scoring_mode": "cba-physical-1",
+  "as_of": "2026-10-06",
+  "request": {
+    "description": "A panel on financial planning for small businesses.",
+    "sectors": [
+      "52"
+    ],
+    "roles": [
+      "finance"
+    ]
+  },
+  "candidates": [
+    {
+      "subject_id": "SYNTH-CBA-17-NO-CAPACITY",
+      "sector": "52",
+      "role": "finance",
+      "profile_present": true,
+      "topic_text": "corporate treasury and financial planning",
+      "city": "Pomona",
+      "postal_code": "91768",
+      "topic_score": 0.8,
+      "topic_rationale": "Their recorded treasury work addresses the request's financial planning focus.",
+      "distance_miles": 10.0,
+      "load": {
+        "capacity_hours": null,
+        "engagements": [
+          {
+            "ref": "G17-ATTENDED",
+            "offset_days": -5,
+            "hours": "30",
+            "confirmed": true,
+            "attended": true,
+            "cancelled": false
+          }
+        ]
+      }
+    },
+    {
+      "subject_id": "SYNTH-CBA-17-HOURS-UNKNOWN",
+      "sector": "52",
+      "role": "finance",
+      "profile_present": true,
+      "topic_text": "corporate treasury and financial planning",
+      "city": "Pomona",
+      "postal_code": "91768",
+      "topic_score": 0.8,
+      "topic_rationale": "Their recorded treasury work addresses the request's financial planning focus.",
+      "distance_miles": 10.0,
+      "load": {
+        "capacity_hours": "100.0",
+        "engagements": [
+          {
+            "ref": "G17-ATTENDED",
+            "offset_days": -5,
+            "hours": "20",
+            "confirmed": true,
+            "attended": true,
+            "cancelled": false
+          },
+          {
+            "ref": "G17-DATE-ONLY",
+            "offset_days": 3,
+            "hours": null,
+            "confirmed": true,
+            "attended": false,
+            "cancelled": false
+          }
+        ]
+      }
+    }
+  ],
+  "expected": {
+    "ranking": [
+      "SYNTH-CBA-17-HOURS-UNKNOWN",
+      "SYNTH-CBA-17-NO-CAPACITY"
+    ],
+    "excluded": [],
+    "candidates": {
+      "SYNTH-CBA-17-NO-CAPACITY": {
+        "composite_state": "measured",
+        "heuristic_score": 0.97,
+        "load_band": "unknown",
+        "load_reason": "capacity_not_stated",
+        "load_measurable": false,
+        "load_multiplier": "1",
+        "utilization": null,
+        "unknown_hours_refs": []
+      },
+      "SYNTH-CBA-17-HOURS-UNKNOWN": {
+        "composite_state": "measured",
+        "heuristic_score": 0.97,
+        "load_band": "unknown",
+        "load_reason": "hours_unknown",
+        "load_measurable": false,
+        "load_multiplier": "1",
+        "utilization": "0.2",
+        "unknown_hours_refs": [
+          "G17-DATE-ONLY"
+        ]
+      }
+    }
+  }
+}

@@ -58,11 +58,14 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import ClassVar, Final
 
+from smartmatch_domain.load_bands import RegisteredLoadBands, canonical_load_bands
+
 __all__ = [
     "MATCH_RUN_COMMAND_TYPE",
     "ROUTE_ESTIMATE_SOURCES",
     "MatchRunPins",
     "inputs_fingerprint",
+    "registry_fingerprint",
     "weights_fingerprint",
 ]
 
@@ -130,6 +133,34 @@ def weights_fingerprint(weights: Mapping[str, float]) -> str:
         ``"sha256:"`` followed by 64 hex characters.
     """
     return _digest(_rendered_weights(weights))
+
+
+def registry_fingerprint(
+    weights: Mapping[str, float], *, load_bands: RegisteredLoadBands | None
+) -> str:
+    """The ``registry_hash`` of a run, per the rulebook it scored under (ADR-0027).
+
+    A registry with no band table (1.1.1, 2.0.0) hashes exactly as it always
+    has: :func:`weights_fingerprint` over the applied weights, byte for byte, so
+    no stored run's hash moves. A registry with a band table (3.x) hashes the
+    weights **and** the canonical band table, so the same weights under a
+    different load rule give a different hash.
+
+    The rule keys on whether the registry carries a band table, never on parsing
+    its version string. ``load_bands`` has no default: a caller must say which.
+
+    Args:
+        weights: The applied weights, as :func:`weights_fingerprint` takes them.
+        load_bands: The registry's band table, or ``None`` when it has none.
+
+    Returns:
+        ``"sha256:"`` followed by 64 hex characters.
+    """
+    if load_bands is None:
+        return weights_fingerprint(weights)
+    return _digest(
+        {"weights": _rendered_weights(weights), "load_bands": canonical_load_bands(load_bands)}
+    )
 
 
 def inputs_fingerprint(
@@ -210,7 +241,10 @@ class MatchRunPins:
 
     Attributes:
         registry_version: :data:`smartmatch_domain.factor_registry.REGISTRY_VERSION`.
-        registry_hash: :func:`weights_fingerprint` over the weights in force.
+        registry_hash: :func:`registry_fingerprint` over the weights in force:
+            :func:`weights_fingerprint` for a registry with no band table
+            (1.1.1, 2.0.0), weights plus the canonical band table for 3.x
+            (ADR-0027).
         optimizer_model_version:
             :data:`smartmatch_domain.optimizer.OPTIMIZER_MODEL_VERSION` — the
             CP-SAT model's own version, which changes when the model changes

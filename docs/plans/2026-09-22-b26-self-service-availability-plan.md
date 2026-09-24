@@ -467,12 +467,17 @@ that bound is certain, so ADR-0011 allows it.
 2. `FactorRegistry` gains a versioned `LoadBandTable` (cut points, ownership,
    multipliers). For 3.x, `registry_hash` covers weights **and** the band table.
    For 1.1.1 and 2.0.0 the hash function is unchanged.
-3. `REGISTRY_VERSION` → `3.0.0-approved-b26-eli` once approved. Major, because a
-   penalty makes scores incomparable with 2.x (ADR-0016's reasoning). Until
-   approval, the 3.0.0 registry is declared with status `proposed`, and runs keep
-   using 2.0.0.
-4. **Pinned runs stay reproducible.** `SUPERSEDED_REGISTRY_VERSION` becomes a set
-   holding `1.1.1-approved-g1-m6j` and `2.0.0-approved-oq-cba-004`.
+3. The **current** registry becomes `3.0.0-approved-b26-eli` once approved. Major,
+   because a penalty makes scores incomparable with 2.x (ADR-0016's reasoning).
+   Until approval, the 3.0.0 registry is declared with status `proposed`, and runs
+   keep using 2.0.0. What moves at approval is `CURRENT_CBA_REGISTRY` (one line);
+   `REGISTRY_VERSION` keeps naming the 2.0.0 rulebook, because retargeting it would
+   re-label every stored 2.0.0 run (T8c plan §3.4, C2).
+4. **Pinned runs stay reproducible.** A derived set `SUPERSEDED_REGISTRY_VERSIONS`
+   (every CBA lineage version older than the current registry) holds
+   `1.1.1-approved-g1-m6j` today and `1.1.1-approved-g1-m6j` plus
+   `2.0.0-approved-oq-cba-004` once 3.0.0 is current. `SUPERSEDED_REGISTRY_VERSION`
+   stays the G1 pin's `str` (T8c plan §3.4, C1).
    `registry_for_version` resolves each; a stored run is read at its own pin, not
    re-scored and not re-labelled. `SCORING_MODE_VERSION` stays `1.0.0`: both modes
    admit the same factors as before, and ELI applies in both.
@@ -553,7 +558,7 @@ Each track is its own PR against `main`.
 | **T7** | `VolunteerProfile` close-out (Q3 = a) | 0.5 day | — |
 | **T8a** | `0040_speaker_booking_cancellation`, Connector "Cancel booking" route and button | 1.5 days | — |
 | **T8b** | `eli.py` 2.0.0: centered utilization, bands, no default capacity | 1 day | — (pure domain; branches from `main`) |
-| **T8c** | Registry 3.0.0: band table (Q7 = A), hash coverage, superseded set, Full pre-solve, penalty in scoring, explanation `load` block, `G-CBA-14`…`19` | 3 days | T8a, T8b; registry approval before it becomes current |
+| **T8c** | Registry 3.0.0: band table (Q7 = A), hash coverage, superseded set, Full pre-solve, penalty in scoring, explanation `load` block, `G-CBA-14`…`19` | 3 days | T4 (stack), T8b; approval before current |
 | **T8d** | Load band on Connector run views and on the Speaker's Availability page | 1 day | T8c, T6b-4 |
 
 **Total: 28 engineer-days.** Critical paths:
