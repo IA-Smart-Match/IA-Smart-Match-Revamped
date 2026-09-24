@@ -94,6 +94,9 @@ export const CBA_CAPABILITY_POLICY = {
    * no login and no tenant. This app never asks for it and expects a yes.
    */
   class_exercise: false,
+  // B26 T6b-1. Off in every scope until its turn-on rule clears (T6b-5
+  // merged and parent plan §10 rows 1, 2 and 4).
+  speaker_portal: false,
 } as const;
 
 /** A named product capability. Derived from the policy so the two cannot drift. */

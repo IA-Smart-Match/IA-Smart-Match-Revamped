@@ -455,6 +455,8 @@ def _confirmed_speakers(
             schema.pipeline_record.c.owning_unit_id == unit_id,
             schema.pipeline_record.c.opportunity_event_id == event_id,
             schema.pipeline_record.c.confirmed_at.is_not(None),
+            # B26 T8a: the same set as list_confirmed_speakers.
+            schema.pipeline_record.c.cancelled_at.is_(None),
         )
         .order_by(
             schema.pipeline_record.c.confirmed_at.asc(),

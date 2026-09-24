@@ -785,6 +785,10 @@ def test_the_confirmed_aggregate_equals_its_drill_down_and_the_host_list(
     confirmed journeys and one that stops short of Confirmed, so a filter that
     quietly widened would show up as a mismatch rather than as a plausible
     number.
+
+    B26 T8a (C1 = C): a fourth confirmed journey is then cancelled by a direct
+    ``UPDATE``, so this does not depend on the route. It must leave all three
+    sets, and the three numbers must still agree.
     """
     confirmed_ids = []
     for index in range(3):
@@ -792,6 +796,9 @@ def test_the_confirmed_aggregate_equals_its_drill_down_and_the_host_list(
         assert _post_handoff(context, handoff).status_code == 200
         confirmed_ids.append(handoff.professional_id)
     _unanswered_invitation(engine, context, name="Unanswered")
+    cancelled = _accepted_invitation(engine, context, name="Cancelled Speaker")
+    assert _post_handoff(context, cancelled).status_code == 200
+    cancelled_record = _cancel_directly(engine, context, cancelled.professional_id)
 
     aggregate = _get(context, f"/v1/units/{context.unit_id}/metrics?surface=cba").json()
     confirmed = next(m for m in aggregate["metrics"] if m["name"] == "pipeline_confirmed")
@@ -808,3 +815,135 @@ def test_the_confirmed_aggregate_equals_its_drill_down_and_the_host_list(
     assert {speaker["professional_id"] for speaker in host_list["speakers"]} == {
         str(pid) for pid in confirmed_ids
     }
+    assert str(cancelled_record) not in {row["id"] for row in drill_down["rows"]}
+    assert str(cancelled_record) not in {s["record_id"] for s in host_list["speakers"]}
+
+
+# ---------------------------------------------------------------------------
+# B26 T8a: a cancelled booking is not handed to an Event Host again (C1 = C)
+# ---------------------------------------------------------------------------
+
+
+def _cancel_directly(engine: Engine, ctx: _Context, professional_id: uuid.UUID) -> uuid.UUID:
+    """Cancel a journey with a direct UPDATE, so the test does not depend on the route."""
+    with engine.begin() as conn:
+        return conn.execute(
+            text(
+                "UPDATE pipeline_record SET cancelled_at = confirmed_at, "
+                "cancelled_by_user_id = :actor, updated_at = now() "
+                "WHERE tenant_id = :tid AND subject_id = :sid RETURNING id"
+            ),
+            {"actor": ctx.actor_id, "tid": ctx.tenant_id, "sid": professional_id},
+        ).scalar_one()
+
+
+def _journey_snapshot(engine: Engine, tenant_id: uuid.UUID, subject_id: uuid.UUID) -> Any:
+    with engine.begin() as conn:
+        return conn.execute(
+            text(
+                "SELECT matched_at, contacted_at, confirmed_at, attended_at, "
+                "attended_attendance_id, cancelled_at, cancelled_by_user_id, updated_at "
+                "FROM pipeline_record WHERE tenant_id = :tid AND subject_id = :sid"
+            ),
+            {"tid": tenant_id, "sid": subject_id},
+        ).one()
+
+
+def test_replaying_a_handoff_on_a_cancelled_booking_is_409_and_writes_nothing(
+    engine: Engine, context: _Context
+) -> None:
+    handoff = _accepted_invitation(engine, context)
+    assert _post_handoff(context, handoff).status_code == 200
+    _cancel_directly(engine, context, handoff.professional_id)
+    before = _journey_snapshot(engine, context.tenant_id, handoff.professional_id)
+
+    response = _post_handoff(context, handoff)
+
+    assert response.status_code == 409, response.text
+    assert response.json()["error"]["code"] == "pipeline_record_cancelled"
+    assert _journey_snapshot(engine, context.tenant_id, handoff.professional_id) == before
+
+
+def test_a_handoff_citing_attendance_on_a_cancelled_booking_is_409(
+    engine: Engine, context: _Context
+) -> None:
+    handoff = _accepted_invitation(engine, context)
+    assert _post_handoff(context, handoff).status_code == 200
+    _cancel_directly(engine, context, handoff.professional_id)
+    with engine.begin() as conn:
+        attendance_id = _insert_attendance(
+            conn, context.tenant_id, context.unit_id, handoff.professional_id, context.event_id
+        )
+    before = _journey_snapshot(engine, context.tenant_id, handoff.professional_id)
+
+    response = _post_handoff(context, handoff, attendance_id=str(attendance_id))
+
+    assert response.status_code == 409, response.text
+    assert response.json()["error"]["code"] == "pipeline_record_cancelled"
+    after = _journey_snapshot(engine, context.tenant_id, handoff.professional_id)
+    assert after == before
+    assert after.attended_at is None
+
+
+def test_a_cancellation_racing_the_readback_is_409_not_500(
+    engine: Engine, context: _Context, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A cancel lands between the hand-off's write and its read-back through the Host list.
+
+    The read-back hook cancels the journey inside the route's own session, so the
+    Host list (which excludes cancelled bookings) misses it. That is a 409
+    ``pipeline_record_cancelled``, never the ``RuntimeError`` 500.
+    """
+    from smartmatch_api.routers import cba_handoff
+
+    handoff = _accepted_invitation(engine, context)
+    assert _post_handoff(context, handoff).status_code == 200
+    original = cba_handoff._repo.list_confirmed_speakers
+
+    def cancel_then_list(session: Session, **kwargs: Any):
+        session.execute(
+            text(
+                "UPDATE pipeline_record SET cancelled_at = confirmed_at, "
+                "cancelled_by_user_id = :actor WHERE tenant_id = :tid AND subject_id = :sid"
+            ),
+            {"actor": context.actor_id, "tid": context.tenant_id, "sid": handoff.professional_id},
+        )
+        return original(session, **kwargs)
+
+    monkeypatch.setattr(cba_handoff._repo, "list_confirmed_speakers", cancel_then_list)
+
+    response = _post_handoff(context, handoff)
+
+    assert response.status_code == 409, response.text
+    assert response.json()["error"]["code"] == "pipeline_record_cancelled"
+
+
+def test_the_confirmed_aggregate_equals_the_host_list_after_a_route_cancel(
+    engine: Engine, context: _Context
+) -> None:
+    """The ``:778`` assertion, with the fourth journey cancelled through the route."""
+    confirmed_ids = []
+    for index in range(3):
+        handoff = _accepted_invitation(engine, context, name=f"Speaker {index}")
+        assert _post_handoff(context, handoff).status_code == 200
+        confirmed_ids.append(handoff.professional_id)
+    cancelled = _accepted_invitation(engine, context, name="Cancelled Speaker")
+    record_id = _post_handoff(context, cancelled).json()["speaker"]["record_id"]
+
+    response = context.client.post(
+        f"/v1/units/{context.unit_id}/pipeline-records/{record_id}/cancellation",
+        headers={"Authorization": f"Bearer {context.token}"},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["transitioned"] is True
+
+    aggregate = _get(context, f"/v1/units/{context.unit_id}/metrics?surface=cba").json()
+    confirmed = next(m for m in aggregate["metrics"] if m["name"] == "pipeline_confirmed")
+    drill_down = _get(
+        context, f"/v1/units/{context.unit_id}/metrics/pipeline_confirmed/drill-down?surface=cba"
+    ).json()
+    host_list = _get(context, f"/v1/units/{context.unit_id}/cba/confirmed-speakers").json()
+
+    assert confirmed["value"] == 3 == len(drill_down["rows"]) == len(host_list["speakers"])
+    assert record_id not in {row["id"] for row in drill_down["rows"]}
+    assert record_id not in {s["record_id"] for s in host_list["speakers"]}

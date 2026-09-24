@@ -34,6 +34,11 @@ Every entry encodes ADR-0011's four rules:
 * ``canonical_name`` and ``definition`` give the number one name and meaning;
 * singular ``owning_query`` names its only calculation;
 * ``drill_down`` defines the constituent rows that same query must return.
+
+Register changes
+================
+* 2026-09-23 — owner ruling (B26 T8a, C1 = C): ``pipeline_confirmed`` excludes
+  ``cancelled_at IS NOT NULL``. No other metric changes.
 """
 
 from __future__ import annotations
@@ -157,9 +162,15 @@ METRIC_REGISTER: tuple[MetricDefinition, ...] = (
     MetricDefinition(
         canonical_name="pipeline_confirmed",
         display_name="Confirmed",
-        definition="Pipeline records that have reached the Confirmed stage or a later stage.",
+        definition=(
+            "Pipeline records that have reached the Confirmed stage or a later stage and "
+            "whose booking has not been cancelled."
+        ),
         owning_query="pipeline_funnel_rows_v1",
-        drill_down="The Pipeline records at Confirmed or any later funnel stage.",
+        drill_down=(
+            "The Pipeline records at Confirmed or any later funnel stage, excluding cancelled "
+            "bookings."
+        ),
     ),
     MetricDefinition(
         canonical_name="pipeline_attended",
