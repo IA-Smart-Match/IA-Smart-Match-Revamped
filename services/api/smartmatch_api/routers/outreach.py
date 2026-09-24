@@ -97,6 +97,7 @@ from smartmatch_domain.consent import (
 )
 from smartmatch_domain.outreach import (
     OUTREACH_SEND_COMMAND_TYPE,
+    SYSTEM_ONLY_TEMPLATES,
     TEMPLATES,
     DraftRecipient,
     DraftStatus,
@@ -188,7 +189,7 @@ class DraftRequest(BaseModel):
     contact_channel_id: uuid.UUID = Field(description="The stored contact to address.")
     template_id: str = Field(
         description="A key of the closed outreach template registry.",
-        examples=sorted(TEMPLATES),
+        examples=sorted(set(TEMPLATES) - SYSTEM_ONLY_TEMPLATES),
     )
     values: dict[str, str] = Field(
         description="Exactly the template's declared placeholders — no more, no fewer."
@@ -412,6 +413,17 @@ def create_draft(
 
     owning_unit_id = _authorize_outreach(session, principal, unit_id)
 
+    # B26 T6b-1 (R3): a system-only template (the Speaker portal invite) is
+    # composed only by its own flow. Through this route a caller could supply
+    # any `activation_url` — a phishing link in an institutional email.
+    # Checked before anything is read.
+    if body.template_id in SYSTEM_ONLY_TEMPLATES:
+        raise ApiError(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            code="template_not_composable",
+            message="This template is composed only by the system flow that owns it.",
+        )
+
     facts = _repo.load_recipient(
         session,
         tenant_id=principal.tenant_id,
@@ -620,6 +632,16 @@ def send_draft(
             status_code=status.HTTP_404_NOT_FOUND,
             code="outreach_draft_not_found",
             message="No such outreach draft in this unit.",
+        )
+    # B26 T6b-1 (R3): a system-only draft is sent only by its own flow, which
+    # pairs it with the record the worker checks (the portal invitation id).
+    # Sent from here it would carry no invitation and the worker would refuse
+    # it; the Connector hears now instead.
+    if draft.template_id in SYSTEM_ONLY_TEMPLATES:
+        raise ApiError(
+            status_code=status.HTTP_409_CONFLICT,
+            code="outreach_draft_system_only",
+            message="This message is sent by the system flow that created it. Nothing was sent.",
         )
 
     facts = _repo.load_recipient(

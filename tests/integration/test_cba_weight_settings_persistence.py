@@ -186,7 +186,17 @@ _PREVIOUS_REVISION = "0026_event_registration"
 #: head. It creates eight ``exercise_`` tables and alters nothing that already
 #: existed -- ADR-0025 D2 forbids it a foreign key out of that family at all --
 #: so this file's surface is untouched by it as well.
-_HEAD_REVISION = "0037_exercise_tables"
+#: Moved again by B26 T2: ``0038_speaker_availability`` chains to
+#: ``0037_exercise_tables`` and is the head. It CREATEs
+#: ``speaker_availability`` and ``speaker_availability_window`` (both
+#: cascading from ``speaker_profile``), ALTERs nothing and writes no rows,
+#: so this file's claims still hold through it.
+#: Moved again by B26 T6b-1: ``0039_speaker_portal`` chains to
+#: ``0038_speaker_availability`` and is the head; it touches no weight table.
+#: Moved again by B26 T8a: ``0040_booking_cancellation`` chains to
+#: ``0039_speaker_portal`` and is the head. It adds two nullable
+#: ``pipeline_record`` columns and writes no rows; it touches no weight table.
+_HEAD_REVISION = "0040_booking_cancellation"
 
 NEED = "need-weight-settings-1"
 

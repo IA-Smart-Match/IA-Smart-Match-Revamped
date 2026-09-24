@@ -473,3 +473,120 @@ def test_assert_allowed_raises_for_a_blank_role_membership() -> None:
         assert_allowed(principal, _resource(), at=NOW, require_membership=True)
 
     assert excinfo.value.decision.reason == "no_grant"
+
+
+# ---------------------------------------------------------------------------
+# Rule 8: excluded_roles (B26 T6b-1, owner ruling R8, 2026-09-23)
+# ---------------------------------------------------------------------------
+
+_EXCLUDED = frozenset({"speaker"})
+
+
+def test_an_excluded_role_is_refused_with_its_own_reason() -> None:
+    """A covering, active ``speaker`` membership is skipped, and the denial says why."""
+    principal = Principal(
+        user_id="u1", tenant_id=TENANT, memberships=(_member("iawest.cpp", role="speaker"),)
+    )
+    decision = evaluate(
+        principal, _resource(), at=NOW, require_membership=True, excluded_roles=_EXCLUDED
+    )
+
+    assert not decision.allowed
+    assert decision.reason == "membership_role_excluded"
+    with pytest.raises(AuthorizationError) as raised:
+        assert_allowed(
+            principal, _resource(), at=NOW, require_membership=True, excluded_roles=_EXCLUDED
+        )
+    assert raised.value.decision.reason == "membership_role_excluded"
+
+    # A non-covering excluded membership is ordinary no_grant: it was never
+    # going to satisfy the operation, so exclusion is not the reason.
+    elsewhere = Principal(
+        user_id="u2",
+        tenant_id=TENANT,
+        memberships=(_member("iawest.cpp.engineering.cs", role="speaker"),),
+    )
+    assert evaluate(elsewhere, _resource(), at=NOW, excluded_roles=_EXCLUDED).reason == "no_grant"
+
+    # Without the keyword, the same membership permits (the default is off).
+    assert evaluate(principal, _resource(), at=NOW, require_membership=True).allowed
+
+
+def test_an_excluded_role_never_outranks_suspension_tenant_or_explicit_deny() -> None:
+    membership = (_member("iawest.cpp", role="speaker"),)
+    suspended = Principal(user_id="u1", tenant_id=TENANT, memberships=membership, suspended=True)
+    assert (
+        evaluate(suspended, _resource(), at=NOW, excluded_roles=_EXCLUDED).reason
+        == "principal_suspended"
+    )
+
+    foreign = Principal(user_id="u1", tenant_id=OTHER_TENANT, memberships=membership)
+    assert (
+        evaluate(foreign, _resource(), at=NOW, excluded_roles=_EXCLUDED).reason == "tenant_mismatch"
+    )
+
+    denied = Principal(
+        user_id="u1",
+        tenant_id=TENANT,
+        memberships=membership,
+        resource_grants=(ResourceGrant("event", "event-1", Effect.DENY),),
+    )
+    assert (
+        evaluate(denied, _resource(), at=NOW, excluded_roles=_EXCLUDED).reason
+        == "explicit_resource_deny"
+    )
+
+    # Path 2 is unaffected: a bare allow grant under require_membership keeps
+    # its own reason even when an excluded membership is also present.
+    granted = Principal(
+        user_id="u1",
+        tenant_id=TENANT,
+        memberships=membership,
+        resource_grants=(ResourceGrant("event", "event-1", Effect.ALLOW),),
+    )
+    assert (
+        evaluate(
+            granted, _resource(), at=NOW, require_membership=True, excluded_roles=_EXCLUDED
+        ).reason
+        == "resource_grant_lacks_membership"
+    )
+
+
+@pytest.mark.parametrize(
+    ("required", "tenant_wide"),
+    [
+        (frozenset({"speaker", "coordinator"}), frozenset()),
+        (frozenset(), frozenset({"speaker"})),
+    ],
+    ids=["required", "tenant-wide"],
+)
+def test_excluded_roles_cannot_overlap_required_or_tenant_wide(
+    required: frozenset[str], tenant_wide: frozenset[str]
+) -> None:
+    principal = Principal(user_id="u1", tenant_id=TENANT)
+    with pytest.raises(ValueError, match="excluded"):
+        evaluate(
+            principal,
+            _resource(),
+            at=NOW,
+            required_roles=required,
+            tenant_wide_roles=tenant_wide,
+            excluded_roles=_EXCLUDED,
+        )
+
+
+def test_a_second_non_excluded_membership_still_permits() -> None:
+    """speaker + volunteer at the owning unit: the volunteer membership permits."""
+    principal = Principal(
+        user_id="u1",
+        tenant_id=TENANT,
+        memberships=(
+            _member("iawest.cpp", role="speaker"),
+            _member("iawest.cpp", role="volunteer"),
+        ),
+    )
+    decision = evaluate(
+        principal, _resource(), at=NOW, require_membership=True, excluded_roles=_EXCLUDED
+    )
+    assert decision.allowed
+    assert decision.reason == "inherited_unit_grant"

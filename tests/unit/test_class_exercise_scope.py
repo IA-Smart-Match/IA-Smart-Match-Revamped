@@ -240,13 +240,19 @@ def test_every_capability_is_classified_for_the_new_scope() -> None:
     assert set(capability_decisions(ProductScope.CLASS_EXERCISE)) == set(Capability)
 
 
+#: Capabilities later tracks added, each off in both columns this module pins.
+#: B26 T6b-1 added ``speaker_portal``, staged off in every scope until its
+#: turn-on rule clears; ``test_speaker_portal_composition.py`` owns it.
+_ADDED_BY_LATER_TRACKS = frozenset({Capability.SPEAKER_PORTAL})
+
+
 def test_the_cba_column_is_bit_identical_to_before_this_track() -> None:
     """Adding a product must not re-decide another product."""
     decisions = capability_decisions(ProductScope.CBA)
     assert {
         capability.value: enabled
         for capability, enabled in decisions.items()
-        if capability is not Capability.CLASS_EXERCISE
+        if capability is not Capability.CLASS_EXERCISE and capability not in _ADDED_BY_LATER_TRACKS
     } == _CBA_BEFORE
 
 
@@ -255,12 +261,15 @@ def test_the_legacy_column_is_bit_identical_to_before_this_track() -> None:
     assert {
         capability.value: enabled
         for capability, enabled in decisions.items()
-        if capability is not Capability.CLASS_EXERCISE
+        if capability is not Capability.CLASS_EXERCISE and capability not in _ADDED_BY_LATER_TRACKS
     } == _IA_WEST_LEGACY_BEFORE
 
 
 def test_the_only_new_capability_is_the_exercise_one() -> None:
-    assert {c.value for c in Capability} == set(_CBA_BEFORE) | {"class_exercise"}
+    later = {c.value for c in _ADDED_BY_LATER_TRACKS}
+    assert {c.value for c in Capability} == set(_CBA_BEFORE) | {"class_exercise"} | later
+    for scope in (ProductScope.CBA, ProductScope.IA_WEST_LEGACY):
+        assert not any(capability_decisions(scope)[c] for c in _ADDED_BY_LATER_TRACKS)
 
 
 # ---------------------------------------------------------------------------

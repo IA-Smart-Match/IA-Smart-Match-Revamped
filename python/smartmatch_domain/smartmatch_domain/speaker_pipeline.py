@@ -26,6 +26,12 @@ stage's rows are therefore a strict subset of the previous stage's, which is
 precisely what makes ``downstream / upstream`` a cohort conversion rate and
 not merely a quotient of two numbers.
 
+Since migration ``0040`` (B26 T8a, ADR-0011 register change of 2026-09-23)
+Confirmed excludes cancelled bookings. Nesting still holds: a cancelled row
+cannot be attended (``ck_pipeline_record_cancellation_not_attended``), so
+attended is a subset of confirmed-and-not-cancelled, which is a subset of
+contacted. "Confirmed to speak" now means net of cancellations.
+
 ``pipeline_member_inquiry`` is a fifth such stage and is deliberately absent:
 ``Capability.MEMBER_INQUIRY_NARRATIVE`` is off under ``ProductScope.CBA``,
 and :data:`smartmatch_domain.metrics.CBA_EXCLUDED_METRICS` already says so
