@@ -20,6 +20,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[2]
 SCANNED = ("python", "services", "tools")
 
@@ -207,6 +209,9 @@ _TABLE_PROBES = (
     'T = METADATA.tables["suppression_record"]',
     'T = sa.table("suppression_record", sa.column("address"))',
     "T = schema.suppression_record",
+    # The module's private table alias, imported instead of the table itself.
+    "from smartmatch_persistence.suppression import _TABLE as S",
+    "from .suppression import _TABLE",
 )
 
 
@@ -246,7 +251,15 @@ _LIFT_PROBES = (
     "w = t.c.lifted_at.is_(None)",
     'Q = "update x set lifted_at = now()"',
     'Q = "UPDATE x SET lifted_by_user_id = :u"',
+    "vals = dict(lifted_at=now)\nq = sa.update(t).values(**vals)",
+    "w = t.columns.lifted_at.is_(None)",
 )
+
+
+def test_the_speakers_lift_call_is_not_a_writer() -> None:
+    """``lift(lifted_by_user_id=...)`` is the one sanctioned way to lift."""
+    call = "repo.lift(s, tenant_id=t, address=a, allowed_sources=x, lifted_by_user_id=u)"
+    assert _lift_writer_offenders("probe.py", ast.parse(call)) == []
 
 
 def test_the_guard_catches_a_raw_lift_writer() -> None:
@@ -383,6 +396,19 @@ def _send_path_ids() -> set[str]:
                 if isinstance(k, ast.Constant) and isinstance(k.value, str)
             }
     raise AssertionError("SEND_PATHS not found")
+
+
+@pytest.mark.parametrize(
+    "probe",
+    [
+        "SuppressionRepository().lock_for_address(s, tenant_id=t, address=a)",
+        "self._repo.states_for_addresses(s, tenant_id=t, addresses=a)",
+    ],
+)
+def test_a_lock_or_state_read_is_tracked_on_any_receiver(probe: str) -> None:
+    """Both names are unique to ``SuppressionRepository``: any receiver counts."""
+    bindings = _Bindings(file="probe.py", contact_names=frozenset(), suppression_names=frozenset())
+    assert len(list(_visit(ast.parse(probe), bindings, (), None))) == 1
 
 
 def test_every_known_consumer_has_a_send_path() -> None:

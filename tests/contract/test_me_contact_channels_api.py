@@ -631,6 +631,34 @@ def test_opt_in_unavailable(ctx: _Ctx, state: str) -> None:
     assert ctx.choices(channel) == []
 
 
+def test_opt_in_asks_suppression_before_legality(ctx: _Ctx) -> None:
+    """Both refusals apply: the suppression one answers, as ``assert_transition`` orders it."""
+    speaker = ctx.speaker()
+    channel = ctx.channel(speaker.professional_id, address=speaker.login_email, state="discovered")
+    ctx.suppress(speaker.login_email, "bounce")
+
+    response = ctx.opt_in(speaker.headers, channel)
+
+    assert response.status_code == 409, response.text
+    assert _code(response) == "speaker_contact_channel_suppression_not_liftable"
+    assert ctx.choices(channel) == []
+
+
+def test_opt_in_unavailable_leaves_a_liftable_suppression_in_place(ctx: _Ctx) -> None:
+    speaker = ctx.speaker()
+    channel = ctx.channel(speaker.professional_id, state="discovered")
+    ctx.suppress(ctx.address(channel), "speaker_portal")
+    before = len(ctx.transitions(channel))
+
+    response = ctx.opt_in(speaker.headers, channel)
+
+    assert response.status_code == 409, response.text
+    assert _code(response) == "speaker_contact_channel_opt_in_unavailable"
+    assert ctx.suppression(ctx.address(channel)).lifted_at is None
+    assert len(ctx.transitions(channel)) == before
+    assert ctx.choices(channel) == []
+
+
 def test_opt_in_is_idempotent(ctx: _Ctx) -> None:
     speaker = ctx.speaker()
     channel = ctx.channel(speaker.professional_id)
