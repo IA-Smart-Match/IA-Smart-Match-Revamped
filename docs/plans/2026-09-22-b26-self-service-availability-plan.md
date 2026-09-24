@@ -246,7 +246,32 @@ roles `{admin, coordinator}`. The profile must sit in `unit_id`, otherwise
 
 Response adds `professional_id`, `stated` (false = no row, shown as "Not stated",
 never "Available"), `version`, per-window `source`, `updated_source`,
-`updated_at`. After T8 it also carries `load` (§5.2).
+`updated_at`. After T8 it also carries `load` (§5.2), computed at request time on `GET` and
+`PATCH` (T8d; the Speaker's own `/v1/me/availability` carries the same block):
+
+```json
+{
+  "band": "unknown",
+  "reason": "hours_unknown",
+  "as_of": "2026-10-06",
+  "used_in_matching": false,
+  "engagements_without_end_time": [
+    {
+      "engagement_id": null,
+      "shown": "other_unit",
+      "event_title": null,
+      "local_date": null,
+      "time_precision": null,
+      "editable_here": false
+    }
+  ],
+  "engagements_without_end_time_truncated": false
+}
+```
+
+A band word's inputs only: no hours, ratio or capacity echo (OQ-CBA-005).
+`used_in_matching` is false while 3.0.0 is proposed. For a Connector, another unit's
+engagement is `other_unit` with no id, title or date; the Speaker sees all of their own.
 
 | Status | Code | When |
 |---|---|---|
@@ -503,7 +528,7 @@ of only the affected keys. Errors branch on `ApiRequestError.code`. WCAG 2.2 AA.
 |---|---|---|
 | `CoordinatorSpeakerContacts` availability panel | T5 | Pause date, capacity, windows. States: loading; **Not stated**; stated, nothing blocked; windows; stale (`speaker_availability_stale` keeps input, says "Someone changed this"); error; denied. |
 | `CoordinatorSpeakerContacts` "Invite to portal" | T6b-1 | Pick an eligible email channel; shows Invited / Active / Expired; "Revoke". Hidden when `SPEAKER_PORTAL` is off. |
-| `CoordinatorMatchRuns` / `CoordinatorInvitations` | T4, T8d | "Available", "Unavailable on this date (Speaker's statement)", "Paused until …", "Availability not stated", "changed since this run"; after T8, a band word (Light / Moderate / Heavy / Full / Load not measurable), never a number (OQ-CBA-005). |
+| `AIMatching` (run cards, excluded list), `CoordinatorMatchRuns` (`load_full` token), `CoordinatorInvitations` (compose row), Connector availability panel | T4, T8d | "Available", "Unavailable on this date (Speaker's statement)", "Paused until …", "Availability not stated", "changed since this run"; after T8, a band word (Light / Moderate / Heavy / Full / Load not measurable), never a number (OQ-CBA-005). |
 | `/speaker-portal` shell | T6b-4 | Home (upcoming engagements, open invitations), Invitations (answer), Engagements (upcoming / past), Availability (same form as T5 plus the Speaker's own load band after T8), Contact preferences (opt in / out per channel). |
 | Portal switcher (both shells) | T6b-5 | "Switch portal" menu listing `/v1/me/portals`; hidden with one portal; keyboard-operable menu button with `aria-expanded`; current portal marked `aria-current`. |
 | `/i/{token}` | T6a | Working accept / decline form for Speakers without an account. |
@@ -559,11 +584,11 @@ Each track is its own PR against `main`.
 | **T8a** | `0040_speaker_booking_cancellation`, Connector "Cancel booking" route and button | 1.5 days | — |
 | **T8b** | `eli.py` 2.0.0: centered utilization, bands, no default capacity | 1 day | — (pure domain; branches from `main`) |
 | **T8c** | Registry 3.0.0: band table (Q7 = A), hash coverage, superseded set, Full pre-solve, penalty in scoring, explanation `load` block, `G-CBA-14`…`19` | 3 days | T4 (stack), T8b; approval before current |
-| **T8d** | Load band on Connector run views and on the Speaker's Availability page | 1 day | T8c, T6b-4 |
+| **T8d** | Load band on Connector run views and on the Speaker's Availability page | 2.5 days | Depends on T8c, T6b-4 (and T5, T8a through them) |
 
 **Total: 28 engineer-days.** Critical paths:
 
-1. T6b-1 → T6b-2 → T6b-4 → T6b-5 (switcher) — **11 days**. T8d (1 day) hangs off
+1. T6b-1 → T6b-2 → T6b-4 → T6b-5 (switcher) — **11 days**. T8d (2.5 days) hangs off
    T6b-4 in parallel with T6b-5.
 2. T1 → T2 → T8c → T8d — 6 days of work, with T8b (1 day) in parallel from day
    one, plus waiting for registry 3.0.0 approval before it becomes the current scoring.
@@ -615,7 +640,7 @@ None of these is decided by the owner's answers.
 | 2 | The merge binds a Speaker profile to the wrong person's login. | Existing-login mode requires that login's password; the token proves control of the invited address; one live invitation per Speaker; `uq_speaker_profile_account`; binding recorded with mode and actor; Connector can unbind. |
 | 2b | A later account-creation path inserts a second credentialed account for a merged address, and `load_by_email` then locks that person out. | One shared `find_or_add_role`; a test that fails if any module outside it inserts `pilot_credential`. |
 | 3 | Full is not overridable, but v1.1 §1.3 expects an authorized, expiring override. | Labelled in the run as "Full (no override available)"; override is a follow-up card. |
-| 4 | Most events are `date_only`, so most loads are "not measurable". | Surfaced as that, not as zero. T8d shows Connectors which engagements lack an end time, so the gap is visible and fixable. |
+| 4 | Most events are `date_only`, so most loads are "not measurable". | Surfaced as that, not as zero. T8d lists the engagements without an end time in the Connector availability panel (own unit's by title, with a link to the Events page when the event is Connector-entered; another unit's anonymized), so the gap is visible and fixable. |
 | 5 | A parallel PR takes `0038`–`0040`. | Take head plus one at rebase; one head only. |
 
 ---
