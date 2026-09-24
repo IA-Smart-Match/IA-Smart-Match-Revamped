@@ -68,7 +68,9 @@ def test_no_parameter_names_a_subject() -> None:
     names = set()
     for path, method in OPERATIONS:
         for parameter in _document()["paths"][path][method].get("parameters", []):
-            names.add(parameter["name"])
+            # The bearer header is authentication, not a subject.
+            if parameter["in"] in ("path", "query"):
+                names.add(parameter["name"])
     assert names == {"invitation_id", "when"}
 
 
