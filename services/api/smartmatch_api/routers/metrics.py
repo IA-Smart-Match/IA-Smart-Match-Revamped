@@ -113,6 +113,15 @@ _PIPELINE_STAGE_COLUMNS: Final[dict[str, sa.ColumnElement[Any]]] = {
     "pipeline_member_inquiry": schema.pipeline_record.c.member_inquiry_at,
 }
 
+#: The one exception to "reached stage X is ``<stage>_at IS NOT NULL``": since
+#: migration ``0040`` (B26 T8a, owner ruling C1 = C, ADR-0011 register change of
+#: 2026-09-23) a cancelled booking does not count as Confirmed. It still counts
+#: toward Matched and Contacted, which it did reach; it cannot be Attended
+#: (``ck_pipeline_record_cancellation_not_attended``).
+_PIPELINE_STAGE_EXCLUSIONS: Final[dict[str, sa.ColumnElement[bool]]] = {
+    "pipeline_confirmed": schema.pipeline_record.c.cancelled_at.is_(None),
+}
+
 
 def _pipeline_funnel_rows_v1(
     session: Session,
@@ -124,7 +133,9 @@ def _pipeline_funnel_rows_v1(
 
     Migration ``0011`` (card O2) gave the five Pipeline metrics a real
     evidence table; this is the query card O3 binds them to. "Reached stage
-    X" is exactly ``<stage>_at IS NOT NULL`` and nothing else — the same
+    X" is exactly ``<stage>_at IS NOT NULL`` and nothing else, with one
+    exception: ``pipeline_confirmed`` also requires ``cancelled_at IS NULL``
+    (:data:`_PIPELINE_STAGE_EXCLUSIONS`, B26 T8a) — the same
     predicate ``tests/integration/test_pipeline_record_constraints.py``'s
     ``funnel_counts`` and ``funnel_rows`` helpers were written against, so
     this binding has something to be checked against rather than invented.
@@ -174,11 +185,17 @@ def _pipeline_funnel_rows_v1(
             schema.pipeline_record.c.confirmed_at,
             schema.pipeline_record.c.attended_at,
             schema.pipeline_record.c.member_inquiry_at,
+            schema.pipeline_record.c.cancelled_at,
         )
         .where(
             schema.pipeline_record.c.tenant_id == tenant_id,
             schema.pipeline_record.c.owning_unit_id == unit_id,
             stage_column.is_not(None),
+            *(
+                (_PIPELINE_STAGE_EXCLUSIONS[metric.canonical_name],)
+                if metric.canonical_name in _PIPELINE_STAGE_EXCLUSIONS
+                else ()
+            ),
         )
         .order_by(schema.pipeline_record.c.matched_at, schema.pipeline_record.c.id)
     )
@@ -192,6 +209,7 @@ def _pipeline_funnel_rows_v1(
             "confirmed_at": row.confirmed_at,
             "attended_at": row.attended_at,
             "member_inquiry_at": row.member_inquiry_at,
+            "cancelled_at": row.cancelled_at,
         }
         for row in result
     )

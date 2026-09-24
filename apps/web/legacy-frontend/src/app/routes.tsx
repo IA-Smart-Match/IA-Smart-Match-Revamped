@@ -123,6 +123,11 @@ const CoordinatorReviewQueue = lazy(() =>
     default: m.CoordinatorReviewQueue,
   })),
 );
+const CoordinatorBookings = lazy(() =>
+  import("./pages/coordinator/CoordinatorBookings").then((m) => ({
+    default: m.CoordinatorBookings,
+  })),
+);
 const CoordinatorRedemptionQueue = lazy(() =>
   import("./pages/coordinator/CoordinatorRedemptionQueue").then((m) => ({
     default: m.CoordinatorRedemptionQueue,
@@ -356,6 +361,10 @@ export const router = createBrowserRouter([
       // decision on each. `GET /v1/units/{unit_id}/redemptions/queue` (PR #200)
       // and the decision route are both `admin`+`coordinator` server-side.
       { path: "redemptions", element: withSuspense(<CoordinatorRedemptionQueue />) },
+      // B26 T8a: the unit's confirmed Speaker bookings and the Cancel booking
+      // action. `GET …/cba/confirmed-speakers` and `POST …/cancellation` are
+      // both `admin`+`coordinator` server-side.
+      { path: "bookings", element: withSuspense(<CoordinatorBookings />) },
       // One events page. The Connector's create/edit/publish controls and the
       // per-event feedback QR live here alongside the unit's listing, rather
       // than on a second page in a second shell — both surfaces were

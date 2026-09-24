@@ -7,6 +7,8 @@ card. Two operations:
   every stage it has reached. See :func:`read_pipeline_record`.
 * ``POST /v1/units/{unit_id}/pipeline-records/{record_id}/stages`` — advance it
   to Confirmed, Attended, or Member Inquiry. See :func:`advance_pipeline_stage`.
+* ``POST /v1/units/{unit_id}/pipeline-records/{record_id}/cancellation`` — cancel
+  a confirmed booking (B26 T8a, migration ``0040``). See :func:`cancel_booking`.
 
 ## Why this module exists at all
 
@@ -103,6 +105,10 @@ from smartmatch_domain.pipeline import (
     PipelineStage,
 )
 from smartmatch_persistence.pipeline import (
+    BookingAlreadyAttendedError,
+    BookingConfirmedInFutureError,
+    BookingNotConfirmedError,
+    PipelineRecordCancelledError,
     PipelineRecordRow,
     PipelineRepository,
     PipelineStageOrderError,
@@ -136,6 +142,10 @@ STAGE_ADVANCE_RATE_LIMIT: Final[RateLimit] = RateLimit(
 )
 PIPELINE_READ_RATE_LIMIT: Final[RateLimit] = RateLimit(
     operation="pipeline.read", max_requests=120, window=timedelta(minutes=1)
+)
+#: B26 T8a. The same budget as the advance: cancelling is as consequential.
+BOOKING_CANCEL_RATE_LIMIT: Final[RateLimit] = RateLimit(
+    operation="pipeline.booking_cancel", max_requests=30, window=timedelta(minutes=1)
 )
 
 #: The stages this route may write. See the module docstring for why ``matched``
@@ -222,6 +232,16 @@ class PipelineRecordResponse(BaseModel):
     attendance_id: uuid.UUID | None = Field(
         description="The attendance_record the Attended stage cites, when it has been reached."
     )
+    cancelled_at: datetime | None = Field(
+        default=None,
+        description=(
+            "When a Speaker Connector cancelled this booking (server clock), or null. "
+            "A cancellation is not a stage: current_stage still reports the furthest reached."
+        ),
+    )
+    cancelled_by_user_id: uuid.UUID | None = Field(
+        default=None, description="Who cancelled this booking, or null."
+    )
 
 
 class StageAdvanceResponse(BaseModel):
@@ -240,6 +260,23 @@ class StageAdvanceResponse(BaseModel):
     )
     already_reached: bool = Field(
         description="True when the stage was already recorded before this request arrived."
+    )
+    record: PipelineRecordResponse
+
+
+class BookingCancellationResponse(BaseModel):
+    """What the cancellation did, and the row it left behind.
+
+    The same shape as :class:`StageAdvanceResponse`: ``transitioned`` is this
+    request's own write, ``already_cancelled`` says the booking was cancelled
+    before (a repeat or a lost race), and the first actor and time are kept.
+    """
+
+    transitioned: bool = Field(
+        description="True only when this request's own UPDATE cancelled the booking."
+    )
+    already_cancelled: bool = Field(
+        description="True when the booking was already cancelled before this request."
     )
     record: PipelineRecordResponse
 
@@ -338,6 +375,8 @@ def _record_view(record: PipelineRecordRow) -> PipelineRecordResponse:
         attended_at=record.attended_at,
         member_inquiry_at=record.member_inquiry_at,
         attendance_id=record.attended_attendance_id,
+        cancelled_at=record.cancelled_at,
+        cancelled_by_user_id=record.cancelled_by_user_id,
     )
 
 
@@ -406,8 +445,10 @@ def advance_pipeline_stage(
     Raises:
         ApiError: 404 when this tenant has no such record or it is not in this
             unit; 409 when the previous stage has not been reached, when
-            ``reached_at`` precedes that stage's own timestamp, or when
-            ``attendance_id`` names no attendance record in this tenant.
+            ``reached_at`` precedes that stage's own timestamp, when
+            ``attendance_id`` names no attendance record in this tenant, or
+            when an Attended claim names a cancelled booking
+            (``pipeline_record_cancelled``).
     """
     charge_quota(session, principal, STAGE_ADVANCE_RATE_LIMIT)
 
@@ -448,6 +489,12 @@ def advance_pipeline_stage(
             code="pipeline_stage_prerequisite_unmet",
             message=str(exc),
         ) from exc
+    except PipelineRecordCancelledError as exc:
+        raise ApiError(
+            status_code=status.HTTP_409_CONFLICT,
+            code="pipeline_record_cancelled",
+            message="This booking was cancelled. A cancelled booking cannot be marked attended.",
+        ) from exc
 
     if not outcome.exists or outcome.record is None:
         # The load above found the row, so reaching here means a concurrent
@@ -463,5 +510,81 @@ def advance_pipeline_stage(
     return StageAdvanceResponse(
         transitioned=outcome.transitioned,
         already_reached=outcome.already_reached,
+        record=_record_view(outcome.record),
+    )
+
+
+@router.post(
+    "/{unit_id}/pipeline-records/{record_id}/cancellation",
+    response_model=BookingCancellationResponse,
+    summary="Cancel a confirmed Speaker booking",
+)
+def cancel_booking(
+    principal: CurrentPrincipal,
+    session: DbSession,
+    unit_id: Annotated[uuid.UUID, Path()],
+    record_id: Annotated[uuid.UUID, Path()],
+) -> BookingCancellationResponse:
+    """Cancel one confirmed booking: a transition on the row, never a delete (B26 T8a).
+
+    No body: the time is the server clock (owner ruling C5) and the actor is the
+    caller. A repeat is a ``200`` with ``transitioned: false, already_cancelled:
+    true``, and the first actor and time are kept. No ``Idempotency-Key``: the
+    operation is idempotent in the data.
+
+    Raises:
+        ApiError: 404 when this tenant has no such record or it is not in this
+            unit; 409 ``pipeline_booking_not_confirmed``,
+            ``pipeline_booking_already_attended`` or
+            ``pipeline_booking_confirmed_in_future`` when the row's state refuses
+            the cancellation.
+    """
+    charge_quota(session, principal, BOOKING_CANCEL_RATE_LIMIT)
+
+    owning_unit_id = _authorize_pipeline(session, principal, unit_id)
+    _load_record_or_404(session, principal, record_id=record_id, owning_unit_id=owning_unit_id)
+
+    try:
+        outcome = _repo.cancel_booking(
+            session,
+            tenant_id=principal.tenant_id,
+            record_id=record_id,
+            actor_user_id=principal.user_id,
+            at=utc_now(),
+        )
+    except BookingNotConfirmedError as exc:
+        raise ApiError(
+            status_code=status.HTTP_409_CONFLICT,
+            code="pipeline_booking_not_confirmed",
+            message="This journey has not reached Confirmed, so there is no booking to cancel.",
+        ) from exc
+    except BookingAlreadyAttendedError as exc:
+        raise ApiError(
+            status_code=status.HTTP_409_CONFLICT,
+            code="pipeline_booking_already_attended",
+            message="This speaker already presented. An attended booking cannot be cancelled.",
+        ) from exc
+    except BookingConfirmedInFutureError as exc:
+        raise ApiError(
+            status_code=status.HTTP_409_CONFLICT,
+            code="pipeline_booking_confirmed_in_future",
+            message=(
+                "This booking's confirmation time is in the future. It can be cancelled "
+                "after that time."
+            ),
+        ) from exc
+
+    if not outcome.exists or outcome.record is None:
+        # A concurrent DELETE between the load above and the write.
+        raise ApiError(
+            status_code=status.HTTP_404_NOT_FOUND,
+            code="pipeline_record_not_found",
+            message="No such pipeline record in this unit.",
+        )
+
+    session.commit()
+    return BookingCancellationResponse(
+        transitioned=outcome.transitioned,
+        already_cancelled=outcome.already_cancelled,
         record=_record_view(outcome.record),
     )

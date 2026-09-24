@@ -32,7 +32,7 @@ was kept, what was rejected, and why.
 | Factor registry — now `2.0.0-approved-oq-cba-004`, the four weighted CBA factors (`industry_match`, `role_match`, `cba_semantic_topic`, `proximity`), all `implemented=True`; the G1 pair (`topic_relevance`, `travel_burden`) stays declared and implemented at `retired_in_version="2.0.0-approved-oq-cba-004"`, so a run pinned to `1.1.1-approved-g1-m6j` is still reproducible | `smartmatch_domain.factor_registry`, `smartmatch_domain.factors` | `tests/unit/test_factor_registry.py` (39 test functions) + `tests/golden/matching/cba` (11 golden cases) |
 | Deny-by-default authorization policy | `smartmatch_authz.policy` | 32 |
 | Provider interfaces + fixture adapters + classroom isolation | `smartmatch_providers` | 16 |
-| Tenant-safe schema, enforced by composite keys — 39 Alembic revisions, head `0039_speaker_portal` | `db/migrations` | 11 integration |
+| Tenant-safe schema, enforced by composite keys — 40 Alembic revisions, head `0040_booking_cancellation` | `db/migrations` | 11 integration |
 | Schema matches migration — foreign keys, nullability, types, PK/UQ/CHECK constraint names, per table (ADR-0004 amendment) | `smartmatch_persistence.schema`, `db/migrations` | 493 integration |
 | `job.status` CHECK constraint matches `smartmatch_domain.jobs.JobState` | `db/migrations`, `smartmatch_domain.jobs` | 13 integration |
 | Transactional outbox + dispatcher, parking a job at attempt exhaustion | `smartmatch_worker.dispatcher` | 41 integration |

@@ -43,7 +43,9 @@ pytestmark = pytest.mark.integration
 #: Read off the ``revision =`` line of ``0038_speaker_availability.py``.
 REVISION_BEFORE = "0038_speaker_availability"
 
-#: The revision under test, and the head it makes.
+#: The revision under test. Upgrades target it rather than ``head``: B26 T8a's
+#: ``0040_booking_cancellation`` chains to it, and a downgrade from ``head``
+#: would run 0040's downgrade first.
 REVISION = "0039_speaker_portal"
 
 _NOW = datetime(2026, 11, 2, 15, 0, tzinfo=UTC)
@@ -248,7 +250,7 @@ def test_downgrade_then_upgrade_round_trips(engine: Engine):
         alembic(url, REVISION_BEFORE, expect_success=True)
         with connected(url) as scratch:
             tenant_id, professional_id, channel_id, issuer_id = _seed_at_0038(scratch)
-            alembic(url, "head", expect_success=True)
+            alembic(url, REVISION, expect_success=True)
             assert applied_revision(url) == REVISION
             with scratch.begin() as conn:
                 assert _has_table(conn, "speaker_portal_invitation")
@@ -271,7 +273,7 @@ def test_downgrade_then_upgrade_round_trips(engine: Engine):
                 ).scalar_one()
             assert profiles == 1
 
-            alembic(url, "head", expect_success=True)
+            alembic(url, REVISION, expect_success=True)
             assert applied_revision(url) == REVISION
 
 
@@ -281,7 +283,7 @@ def test_downgrade_refuses_while_an_accepted_invitation_exists(engine: Engine):
         alembic(url, REVISION_BEFORE, expect_success=True)
         with connected(url) as scratch:
             tenant_id, professional_id, channel_id, issuer_id = _seed_at_0038(scratch)
-            alembic(url, "head", expect_success=True)
+            alembic(url, REVISION, expect_success=True)
             with scratch.begin() as conn:
                 invitation_id = _invitation(
                     conn,
@@ -939,7 +941,7 @@ def test_downgrade_refuses_while_speaker_made_rows_exist(engine: Engine, kind: s
         alembic(url, REVISION_BEFORE, expect_success=True)
         with connected(url) as scratch:
             tenant_id, professional_id, channel_id, issuer_id = _seed_at_0038(scratch)
-            alembic(url, "head", expect_success=True)
+            alembic(url, REVISION, expect_success=True)
             with scratch.begin() as conn:
                 if kind == "choice":
                     _choice(conn, tenant_id, professional_id, channel_id, professional_id)

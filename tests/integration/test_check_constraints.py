@@ -215,6 +215,19 @@ CHECK_CONSTRAINT_DEFINITIONS = {
     ("pipeline_record", "ck_pipeline_record_attendance_evidence"): (
         "CHECK (((attended_at IS NULL) = (attended_attendance_id IS NULL)))"
     ),
+    # --- Booking cancellation (migration 0040, B26 T8a) -------------------
+    ("pipeline_record", "ck_pipeline_record_cancellation_actor"): (
+        "CHECK (((cancelled_at IS NULL) = (cancelled_by_user_id IS NULL)))"
+    ),
+    ("pipeline_record", "ck_pipeline_record_cancellation_confirmed"): (
+        "CHECK (((cancelled_at IS NULL) OR (confirmed_at IS NOT NULL)))"
+    ),
+    ("pipeline_record", "ck_pipeline_record_cancellation_order"): (
+        "CHECK (((cancelled_at IS NULL) OR (cancelled_at >= confirmed_at)))"
+    ),
+    ("pipeline_record", "ck_pipeline_record_cancellation_not_attended"): (
+        "CHECK (((cancelled_at IS NULL) OR (attended_at IS NULL)))"
+    ),
     ("pipeline_record", "ck_pipeline_record_matched_provenance"): (
         "CHECK ((matched_provenance = ANY (ARRAY['synthetic / coordinator-accepted'::text, "
         "'match-engine'::text])))"
@@ -965,6 +978,26 @@ BEHAVIOURAL_COVERAGE = {
     ),
     ("pipeline_record", "ck_pipeline_record_matched_provenance"): (
         "test_pipeline_provenance_migration.py"
+    ),
+    # --- Booking cancellation (migration 0040, B26 T8a) -------------------
+    ("pipeline_record", "ck_pipeline_record_cancellation_actor"): (
+        "test_booking_cancellation_migration.py::test_cancellation_needs_both_actor_and_time "
+        "and ::test_an_actor_without_a_time_is_refused. Permitted half: "
+        "::test_a_confirmed_journey_can_be_cancelled"
+    ),
+    ("pipeline_record", "ck_pipeline_record_cancellation_confirmed"): (
+        "test_booking_cancellation_migration.py::test_an_unconfirmed_journey_cannot_be_cancelled. "
+        "Permitted half: ::test_a_confirmed_journey_can_be_cancelled"
+    ),
+    ("pipeline_record", "ck_pipeline_record_cancellation_order"): (
+        "test_booking_cancellation_migration.py::"
+        "test_a_cancellation_cannot_precede_the_confirmation. Permitted half: "
+        "::test_a_cancellation_at_the_confirmation_instant_is_permitted"
+    ),
+    ("pipeline_record", "ck_pipeline_record_cancellation_not_attended"): (
+        "test_booking_cancellation_migration.py::test_an_attended_journey_cannot_be_cancelled "
+        "and ::test_a_cancelled_journey_cannot_be_attended. Permitted half: "
+        "::test_a_confirmed_journey_can_be_cancelled"
     ),
     ("reward_item", "ck_reward_item_points_cost_positive"): "test_engagement_schema_constraints.py",
     ("reward_item", "ck_reward_item_fulfilment_cost_non_negative"): (
