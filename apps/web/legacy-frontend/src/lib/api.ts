@@ -3089,11 +3089,17 @@ export interface SpeakerInvitationResponse {
   recorded_at: string | null;
   /**
    * `"speaker_link"` when the Speaker followed the link in their own
-   * invitation, `"connector_recorded"` when a coordinator entered what they
-   * were told. Worth rendering: the second is a weaker evidentiary claim, and a
+   * invitation, `"speaker_portal"` when they answered while signed in (B26
+   * T6b-2), `"connector_recorded"` when a coordinator entered what they were
+   * told. Worth rendering: the last is a weaker evidentiary claim, and a
    * screen that showed them alike would assert a directness nobody has.
    */
   channel: string | null;
+  /**
+   * The coordinator who entered it — set only for `"connector_recorded"`.
+   * Null for a Speaker's own answer, by link or signed in; a signed-in
+   * answer's login is recorded server-side but never shown here.
+   */
   recorded_by_user_id: string | null;
 }
 
