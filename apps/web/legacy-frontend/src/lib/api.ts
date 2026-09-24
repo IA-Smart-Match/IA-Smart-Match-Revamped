@@ -4068,7 +4068,27 @@ export interface SpeakerPortalAccess {
   expires_at?: string;
   /** When the Speaker activated (`active` only). */
   bound_at?: string;
+  /**
+   * `active` only (B26 T6b-5): `true` when the Speaker signs in with the login
+   * they also use as an Event Host, so suspending it suspends both; `false`
+   * for a Speaker-only login. Never the login id. Absent otherwise.
+   */
+  login_shared?: boolean | null;
 }
+
+/**
+ * The refusals `inviteSpeakerToPortal` can answer with (`error.code`). The
+ * last three are B26 T6b-5's pre-check: the address signs in elsewhere, to
+ * more than one login, or as a staff or student login.
+ */
+export type SpeakerPortalInviteErrorCode =
+  | "speaker_portal_already_active"
+  | "speaker_portal_invitation_conflict"
+  | "speaker_portal_channel_not_eligible"
+  | "speaker_contact_not_found"
+  | "speaker_portal_address_in_other_tenant"
+  | "speaker_portal_address_ambiguous"
+  | "speaker_portal_address_is_staff_login";
 
 /** `202`: the invitation is recorded and its email queued — nothing sent yet. */
 export interface SpeakerPortalInvitation {
@@ -4118,6 +4138,22 @@ export async function revokeSpeakerPortalInvitation(
 ): Promise<{ revoked: boolean }> {
   return requestJson<{ revoked: boolean }>(
     `${speakerPortalBase(unitId, professionalId)}/portal-invitations/current`,
+    { method: "DELETE" },
+    { authenticated: true },
+  );
+}
+
+/**
+ * `DELETE …/portal-access` (B26 T6b-5): end the Speaker role on the bound
+ * login and clear the binding. The login's other roles stay. `unbound: false`
+ * when nothing was bound.
+ */
+export async function unbindSpeakerPortal(
+  unitId: string,
+  professionalId: string,
+): Promise<{ unbound: boolean }> {
+  return requestJson<{ unbound: boolean }>(
+    `${speakerPortalBase(unitId, professionalId)}/portal-access`,
     { method: "DELETE" },
     { authenticated: true },
   );

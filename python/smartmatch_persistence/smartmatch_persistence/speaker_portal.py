@@ -26,6 +26,7 @@ from sqlalchemy.orm import Session
 from smartmatch_persistence import schema
 
 __all__ = [
+    "BoundInvitation",
     "CurrentInvitation",
     "InvitationForActivation",
     "InvitationForSend",
@@ -90,6 +91,14 @@ class CurrentInvitation:
     contact_channel_id: uuid.UUID
     issued_at: datetime
     expires_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class BoundInvitation:
+    """The accepted invitation that made a profile's current binding (T6b-5 §4.4)."""
+
+    id: uuid.UUID
+    binding_mode: str
 
 
 def _live() -> sa.ColumnElement[bool]:
@@ -397,3 +406,91 @@ class SpeakerPortalRepository:
             .distinct()
         ).all()
         return frozenset(row.role for row in rows)
+
+    def lock_bound_profile_invitation(
+        self,
+        session: Session,
+        *,
+        tenant_id: uuid.UUID,
+        professional_id: uuid.UUID,
+        account_user_id: uuid.UUID,
+        lock: bool = True,
+    ) -> BoundInvitation | None:
+        """The accepted, not-unbound invitation that bound ``account_user_id``.
+
+        ``FOR UPDATE`` by default: unbind's second lock, after the profile's.
+        ``lock=False`` is ``GET …/portal-access``'s read of ``binding_mode``.
+        """
+        statement = (
+            sa.select(_INV.c.id, _INV.c.binding_mode)
+            .where(
+                _INV.c.tenant_id == tenant_id,
+                _INV.c.professional_id == professional_id,
+                _INV.c.accepted_at.is_not(None),
+                _INV.c.bound_account_user_id == account_user_id,
+                _INV.c.unbound_at.is_(None),
+            )
+            .order_by(_INV.c.accepted_at.desc())
+            .limit(1)
+        )
+        if lock:
+            statement = statement.with_for_update(of=_INV)
+        row = session.execute(statement).one_or_none()
+        return None if row is None else BoundInvitation(id=row.id, binding_mode=row.binding_mode)
+
+    def account_email(
+        self, session: Session, *, tenant_id: uuid.UUID, user_id: uuid.UUID
+    ) -> str | None:
+        account = schema.user_account
+        return session.execute(
+            sa.select(account.c.email).where(
+                account.c.tenant_id == tenant_id, account.c.id == user_id
+            )
+        ).scalar_one_or_none()
+
+    def unbind(
+        self,
+        session: Session,
+        *,
+        tenant_id: uuid.UUID,
+        professional_id: uuid.UUID,
+        login_user_id: uuid.UUID,
+        invitation_id: uuid.UUID | None,
+        unbound_by_user_id: uuid.UUID,
+        now: datetime,
+    ) -> None:
+        """Unbind steps 5–7 (T6b-5 §4.4). The caller holds the profile and invitation locks.
+
+        * Every active ``speaker`` row on the login ends at ``now``
+          (``valid_until`` is exclusive). Only activation grants ``speaker`` and
+          one login speaks for at most one profile, so these are this profile's.
+          **No other role is touched** (R-I): the Event Host keeps hosting.
+        * The profile's binding is cleared.
+        * The invitation records who unbound it and when.
+        """
+        membership = schema.membership
+        session.execute(
+            sa.update(membership)
+            .where(
+                membership.c.tenant_id == tenant_id,
+                membership.c.user_id == login_user_id,
+                membership.c.role == "speaker",
+                sa.or_(membership.c.valid_until.is_(None), membership.c.valid_until > now),
+            )
+            .values(valid_until=now)
+        )
+        session.execute(
+            sa.update(_PROFILE)
+            .where(
+                _PROFILE.c.tenant_id == tenant_id,
+                _PROFILE.c.professional_id == professional_id,
+                _PROFILE.c.account_user_id == login_user_id,
+            )
+            .values(account_user_id=None, account_bound_at=None)
+        )
+        if invitation_id is not None:
+            session.execute(
+                sa.update(_INV)
+                .where(_INV.c.tenant_id == tenant_id, _INV.c.id == invitation_id)
+                .values(unbound_at=now, unbound_by_user_id=unbound_by_user_id)
+            )

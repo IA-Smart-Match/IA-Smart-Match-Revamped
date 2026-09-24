@@ -5,10 +5,10 @@ scope** until its turn-on rule clears (T6b-5 merged and parent plan §10 rows 1,
 2 and 4). Three routers, each a bare module-level assignment:
 
 ``router``
-    The Speaker Connector's three routes under
+    The Speaker Connector's four routes under
     ``/v1/units/{unit_id}/speaker-contacts/{professional_id}``: invite, revoke
-    the live invitation, and read the portal-access status. Roles
-    ``{admin, coordinator}`` — never ``speaker``.
+    the live invitation, read the portal-access status, and remove portal
+    access (unbind, T6b-5). Roles ``{admin, coordinator}`` — never ``speaker``.
 ``public_router``
     ``POST /v1/speaker-portal/activate``: the JSON activation, which issues a
     session. No principal: the person has no credential until it succeeds.
@@ -49,7 +49,9 @@ from smartmatch_domain.speaker_portal import (
     derive_token,
     token_hash,
 )
+from smartmatch_persistence import login_accounts
 from smartmatch_persistence.contacts import ContactChannelRepository, ContactChannelRow
+from smartmatch_persistence.login_accounts import AddressState
 from smartmatch_persistence.outreach import OutreachRepository
 from smartmatch_persistence.pilot_auth import LoginAttemptLimiter
 from smartmatch_persistence.rate_limit import RateLimit
@@ -62,6 +64,7 @@ from smartmatch_api.dependencies import CurrentPrincipal, DbSession, charge_quot
 from smartmatch_api.errors import ApiError
 from smartmatch_api.routers.auth import LoginResponse
 from smartmatch_api.speaker_portal_activation import (
+    EXISTING_LOGIN_REFUSED_ROLES,
     ActivationCredentialsInvalid,
     ActivationMode,
     ActivationModeMismatch,
@@ -180,6 +183,10 @@ class RevokeResponse(BaseModel):
     revoked: bool = Field(description="`false` when nothing was live. Idempotent.")
 
 
+class UnbindResponse(BaseModel):
+    unbound: bool = Field(description="`false` when nothing was bound. Idempotent.")
+
+
 class PortalAccessResponse(BaseModel):
     """One contact's portal status, as a Speaker Connector sees it (plan L4)."""
 
@@ -190,6 +197,14 @@ class PortalAccessResponse(BaseModel):
     issued_at: datetime | None = None
     expires_at: datetime | None = None
     bound_at: datetime | None = None
+    login_shared: bool | None = Field(
+        default=None,
+        description=(
+            "`active` only: `true` when the Speaker signs in with the login they also use "
+            "as an Event Host (suspending it suspends both), `false` for a Speaker-only "
+            "login. Never the login id."
+        ),
+    )
 
 
 def _eligible_channel(
@@ -214,6 +229,46 @@ def _eligible_channel(
             message="That address cannot be emailed. Choose an address this Speaker agreed to.",
         )
     return channel
+
+
+def _precheck_address(
+    session: Session, *, tenant_id: uuid.UUID, address: str, now: datetime
+) -> None:
+    """Invite step 5b (T6b-5 §4.3): refuse an address activation would refuse.
+
+    Advisory only — reads, locks nothing; activation decides under its locks.
+    Names no other tenant, account or role.
+    """
+    holders = login_accounts.holders_for_address(
+        session, tenant_id=tenant_id, address=address, lock=False
+    )
+    if holders.state is AddressState.OTHER_TENANT:
+        raise ApiError(
+            status_code=status.HTTP_409_CONFLICT,
+            code="speaker_portal_address_in_other_tenant",
+            message=(
+                "This address signs in to another SmartMatch organization. "
+                "Choose a different address."
+            ),
+        )
+    if holders.state is AddressState.AMBIGUOUS:
+        raise ApiError(
+            status_code=status.HTTP_409_CONFLICT,
+            code="speaker_portal_address_ambiguous",
+            message="This address matches more than one login. Fix that before inviting.",
+        )
+    if holders.holder is not None and (
+        _portal.active_roles(session, tenant_id=tenant_id, user_id=holders.holder.user_id, now=now)
+        & EXISTING_LOGIN_REFUSED_ROLES
+    ):
+        raise ApiError(
+            status_code=status.HTTP_409_CONFLICT,
+            code="speaker_portal_address_is_staff_login",
+            message=(
+                "This address belongs to a staff or student login and cannot also be a "
+                "Speaker login."
+            ),
+        )
 
 
 def _is_live_conflict(exc: IntegrityError) -> bool:
@@ -268,6 +323,8 @@ def invite_to_portal(
         professional_id=professional_id,
         unit_id=unit.id,
     )
+
+    _precheck_address(session, tenant_id=principal.tenant_id, address=channel.address, now=now)
 
     _portal.revoke_live(
         session, tenant_id=principal.tenant_id, professional_id=professional_id, revoked_at=now
@@ -408,7 +465,19 @@ def read_portal_access(
         now=now,
     )
     if access is PortalAccessStatus.ACTIVE:
-        return PortalAccessResponse(status=access, bound_at=profile.account_bound_at)
+        assert profile.account_user_id is not None
+        bound = _portal.lock_bound_profile_invitation(
+            session,
+            tenant_id=principal.tenant_id,
+            professional_id=professional_id,
+            account_user_id=profile.account_user_id,
+            lock=False,
+        )
+        return PortalAccessResponse(
+            status=access,
+            bound_at=profile.account_bound_at,
+            login_shared=None if bound is None else bound.binding_mode == "existing_login",
+        )
     if live is None:
         return PortalAccessResponse(status=access)
     return PortalAccessResponse(
@@ -417,6 +486,75 @@ def read_portal_access(
         issued_at=live.issued_at,
         expires_at=live.expires_at,
     )
+
+
+@router.delete(
+    "/{unit_id}/speaker-contacts/{professional_id}/portal-access",
+    response_model=UnbindResponse,
+    summary="Remove a speaker contact's portal access (unbind their login)",
+)
+def unbind_portal_access(
+    principal: CurrentPrincipal,
+    session: DbSession,
+    unit_id: Annotated[uuid.UUID, Path()],
+    professional_id: Annotated[uuid.UUID, Path()],
+) -> UnbindResponse:
+    """End the Speaker role on the bound login and clear the binding (T6b-5 §4.4).
+
+    The login's other roles are untouched: an Event Host who was also this
+    Speaker keeps hosting. A Speaker-only (new-login) binding also loses its
+    credential and every live session, so the contact account is credential-less
+    again and a re-invite runs new-login cleanly (Q3). Idempotent:
+    ``unbound: false`` when nothing was bound.
+
+    Lock order: profile → accepted invitation → [new login only: address →
+    credential row] → writes, the same order activation takes.
+    """
+    charge_quota(session, principal, INVITE_RATE_LIMIT)
+    unit = _authorize_speaker_portal(session, principal, unit_id)
+    now = utc_now()
+    profile = _portal.lock_profile(
+        session,
+        tenant_id=principal.tenant_id,
+        professional_id=professional_id,
+        owning_unit_id=unit.id,
+    )
+    if profile is None:
+        raise _contact_not_found()
+    login = profile.account_user_id
+    if login is None:
+        return UnbindResponse(unbound=False)
+    invitation = _portal.lock_bound_profile_invitation(
+        session,
+        tenant_id=principal.tenant_id,
+        professional_id=professional_id,
+        account_user_id=login,
+    )
+    if login == professional_id:
+        # A new-login binding: the contact account is the login. Retire it
+        # under the same address and row locks every credential writer takes.
+        address = _portal.account_email(session, tenant_id=principal.tenant_id, user_id=login)
+        if address is not None:
+            login_accounts.lock_address(session, address=address)
+            login_accounts.holders_for_address(
+                session,
+                tenant_id=principal.tenant_id,
+                address=address,
+                lock=True,
+                also_lock_user_id=login,
+            )
+        login_accounts.retire_login(session, tenant_id=principal.tenant_id, user_id=login, now=now)
+    _portal.unbind(
+        session,
+        tenant_id=principal.tenant_id,
+        professional_id=professional_id,
+        login_user_id=login,
+        invitation_id=None if invitation is None else invitation.id,
+        unbound_by_user_id=principal.user_id,
+        now=now,
+    )
+    session.commit()
+    return UnbindResponse(unbound=True)
 
 
 # ---------------------------------------------------------------------------

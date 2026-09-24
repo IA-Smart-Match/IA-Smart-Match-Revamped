@@ -1169,10 +1169,15 @@ class TestExistingLogin:
     ) -> None:
         """R-E, R-F, Q1, one-login-one-Speaker, R-B: byte-identical to an unknown token."""
         roles = (case,) if case in {"coordinator", "admin", "student"} else ("volunteer",)
-        host_id, host_address, pw = ctx.host_login(
-            roles=roles, tenant_id=other_tenant if case == "other_tenant" else None
-        )
+        host_address = f"Host-{uuid.uuid4().hex[:8]}@Synthetic.invalid"
+        # Invite first: the invite pre-check would refuse these addresses (§4.3),
+        # and it is advisory — a holder that appears afterwards meets activation.
         professional_id, invitation_id, token, _ = ctx.invited(address=host_address)
+        host_id, _, pw = ctx.host_login(
+            host_address.lower(),
+            roles=roles,
+            tenant_id=other_tenant if case == "other_tenant" else None,
+        )
         if case == "ambiguous":
             ctx.other_credentialed_account(host_address.lower(), tenant_id=other_tenant)
         elif case == "bound_elsewhere":
@@ -1342,7 +1347,9 @@ class TestUnbind:
 
         me = ctx.client.get("/v1/me", headers=auth)
         assert me.status_code == 200
-        assert [m["role"] for m in me.json()["memberships"]] == ["volunteer"]
+        # /v1/me lists every row with its window; the speaker row has ended.
+        windows = {m["role"]: m["valid_until"] for m in me.json()["memberships"]}
+        assert windows["volunteer"] is None and windows["speaker"] is not None
         after = ctx.client.get("/v1/me/portals", headers=auth).json()
         assert [p["portal"] for p in after["portals"]] == ["volunteer"]
         assert after["default_portal"] == "volunteer"
