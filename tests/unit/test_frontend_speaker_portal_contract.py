@@ -9,8 +9,8 @@ hold that, and the boundaries around it, at the level a source scan can reach:
 - no Speaker page calls a Connector route (``/v1/units/…``) or a Connector
   adapter, so no page can come to name a unit or a professional;
 - the three contact-channel adapters take no subject;
-- the two slots a later track fills (the portal switcher, T6b-5, and the load
-  band, T8d) are marked where that track will look, and nothing is built early.
+- the portal switcher (T6b-5) fills its two slots, and the load band slot
+  (T8d) is still marked where that track will look.
 """
 
 from __future__ import annotations
@@ -131,19 +131,20 @@ def test_contact_channel_adapters_take_no_subject() -> None:
     assert _signature(source, "fetchMyContactChannels").strip() == ""
 
 
-def test_the_t6b5_and_t8d_slots_are_marked() -> None:
-    """Raw source: the slots are comments, which ``_code_only`` would strip."""
+def test_the_t6b5_switcher_fills_its_slots_and_the_t8d_slot_is_marked() -> None:
+    """T6b-5 filled both switcher slots; the T8d slot is still a comment (raw source)."""
     layout = LAYOUT.read_text(encoding="utf-8")
-    assert layout.count("SLOT(T6b-5)") == 2, "the layout marks the switcher slot twice"
+    assert "SLOT(T6b-5)" not in layout, "the switcher slots are filled, not left marked"
+    assert layout.count("<PortalSwitcher") == 2, "one switcher per breakpoint"
     identity = layout.index("principalDisplayName(")
     sign_out = layout.index("Sign out", identity)
-    sidebar_slot = layout.index("SLOT(T6b-5)")
-    assert sidebar_slot < identity, "the sidebar switcher slot sits above the identity block"
-    assert "SLOT(T6b-5)" not in layout[identity:sign_out], (
+    sidebar_switcher = layout.index('<PortalSwitcher current="speaker" placement="sidebar"')
+    assert sidebar_switcher < identity, "the sidebar switcher sits above the identity block"
+    assert "<PortalSwitcher" not in layout[identity:sign_out], (
         "nothing may sit between the profile and Sign out (DESIGN.md: sign-out directly "
         "beneath the profile area)"
     )
-    assert "SLOT(T6b-5): portal switcher (mobile)" in layout
+    assert '<PortalSwitcher current="speaker" placement="header"' in layout
 
     availability = OWN_AVAILABILITY.read_text(encoding="utf-8")
     assert availability.count("SLOT(T8d)") == 1, "the availability page marks the load band slot"
