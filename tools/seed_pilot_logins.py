@@ -38,10 +38,10 @@ because login is keyed on ``user_account.email`` and an account holds one
 addresses the owner already has, which is the owner's call and not this
 file's. Until then, either address signs in to the same surface.
 
-Reconciliation is upwards only (``seed_pilot._ensure_membership_set``): an
-account seeded before this change gains the row it is missing on the next run,
-without anything existing being rewritten, and a changed email is still a hard
-refusal.
+Reconciliation is upwards only (``seed_pilot.verify_membership_set``, then
+``login_accounts.find_or_add_role``): an account seeded before this change
+gains the row it is missing on the next run, without anything existing being
+rewritten, and a changed email is still a hard refusal.
 
 ## The role is the seed's to assign, never the login's
 
@@ -55,13 +55,26 @@ even attempt it.
 
 ## Rerunning it
 
-Idempotent for identical data. The identity rows go through
-:func:`seed_pilot.seed_pilot`, which refuses to change a tenant, account, or
-role that already exists with different values. The credential is *replaced*,
-which is how a pilot password is rotated: change the variable, re-run, and
-every previously issued session for that account keeps working until it
-expires — revoking those is a separate operator action this pilot does not
-automate, and the decision record names it.
+Idempotent for identical data. The tenant, unit and account go through
+``seed_pilot``'s helpers, which refuse to change a tenant, account, or role
+that already exists with different values. Every credential write goes
+through ``smartmatch_persistence.login_accounts``, the one ``pilot_credential``
+writer (B26 T6b-5), under the address lock and the credential row locks:
+
+* A free address: the seed's account gets its roles and its first credential.
+* The seed's own login: its roles are checked and added, and its credential is
+  *replaced*, which is how a pilot password is rotated: change the variable,
+  re-run, and every previously issued session for that account keeps working
+  until it expires — revoking those is a separate operator action this pilot
+  does not automate, and the decision record names it.
+* A login the seed did not create (a Speaker who activated at that address):
+  the roles are added to it, its password is **never** changed, and stderr
+  says the password variable was not applied.
+* An address held in another organization, or by two logins: a conflict.
+
+``speaker`` rows (``INVITATION_ONLY_ROLES``) are activation's, active or
+expired by an unbind; the membership check ignores them, so a Host who became
+a Speaker does not fail the next deploy's ``seed-logins`` run.
 """
 
 from __future__ import annotations
@@ -74,22 +87,23 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-import sqlalchemy as sa
 from seed_pilot import (
     SeedConfigurationError,
     SeedConflictError,
+    _existing_or_insert_account,
+    _existing_or_insert_tenant,
+    _existing_or_insert_unit,
     acquire_seed_lock,
     require_development_fixture_settings,
-    seed_pilot,
+    verify_membership_set,
 )
 from smartmatch_api.config import Settings
 from smartmatch_domain.pilot_credentials import (
     MINIMUM_PASSWORD_LENGTH,
-    StoredPassword,
     derive_password_hash,
     new_salt,
 )
-from smartmatch_persistence import login_accounts, schema
+from smartmatch_persistence import login_accounts
 from smartmatch_persistence.engine import create_db_engine
 from smartmatch_persistence.login_accounts import AddressState, NewLogin
 from sqlalchemy.engine import Connection
@@ -176,6 +190,10 @@ class RoleOutcome:
     role: str
     created: bool
     reason: str
+    #: The address already signed in as a login this seed did not create; the
+    #: roles were added to it and the configured password was not applied.
+    #: Reported on stderr (B26 T6b-5 Q4).
+    foreign_login: bool = False
 
 
 def _read_role(entry: RoleCredential, environ: dict[str, str]) -> tuple[str, str] | None:
@@ -213,54 +231,104 @@ def _read_role(entry: RoleCredential, environ: dict[str, str]) -> tuple[str, str
     return email, secret
 
 
-def _account_id(connection: Connection, *, subject: str) -> uuid.UUID:
-    """The account id for a subject the identity seed has just written."""
-    row = connection.execute(
-        sa.select(schema.user_account.c.id).where(schema.user_account.c.external_subject == subject)
-    ).one()
-    return uuid.UUID(str(row.id))
+def _conflict(entry: RoleCredential) -> SeedConflictError:
+    """Names the role and the variable, never the other tenant or any account id."""
+    return SeedConflictError(
+        f"{entry.role}: the address in {entry.email_var} matches a login in another "
+        "organization, or more than one login. Fix that before seeding this role."
+    )
 
 
-def _write_credential(
+def _roles_text(entry: RoleCredential) -> str:
+    return ", ".join(repr(role) for role in entry.roles)
+
+
+def _seed_one(
     connection: Connection,
     *,
     entry: RoleCredential,
-    tenant_id: uuid.UUID,
-    user_id: uuid.UUID,
     email: str,
-    password: StoredPassword,
+    secret: str,
+    tenant_id: uuid.UUID,
     unit_path: str,
     now: datetime,
-) -> None:
-    """Create or rotate the seed's own credential through ``login_accounts``.
+) -> RoleOutcome:
+    """One configured login, inside the caller's seed-locked transaction (plan §3.4).
 
-    Under the address lock and the credential row locks, like every other
-    credential writer (B26 T6b-5 R-G): a free address gets its first
-    credential, the seed's own login is rotated, and any other holder is a
-    conflict.
+    Lock order: the seed's advisory lock (held by the caller) → the address
+    lock → the address's ``pilot_credential`` rows, then writes — the order
+    activation and unbind use (plan §4.5).
     """
     login_accounts.lock_address(connection, address=email)
     holders = login_accounts.holders_for_address(
         connection, tenant_id=tenant_id, address=email, lock=True
     )
-    if holders.state is AddressState.NONE:
+    if holders.state in (AddressState.OTHER_TENANT, AddressState.AMBIGUOUS):
+        raise _conflict(entry)
+
+    def grant(role: str, create: NewLogin | None = None) -> None:
         login_accounts.find_or_add_role(
             connection,
             tenant_id=tenant_id,
             email=email,
-            role=entry.role,
+            role=role,
             path=unit_path,
             now=now,
-            create=NewLogin(user_id=user_id, password=password),
+            create=create,
         )
-    elif holders.holder is not None and holders.holder.user_id == user_id:
-        login_accounts.rotate_own_password(
-            connection, tenant_id=tenant_id, user_id=user_id, password=password, now=now
+
+    holder = holders.holder
+    if holder is not None and holder.external_subject != entry.subject:
+        # Q4: the address already signs in as a login this seed did not create
+        # (an activated Speaker, say). Its roles are added; its password is
+        # never changed, and no second account is created for the subject.
+        for role in entry.roles:
+            grant(role)
+        return RoleOutcome(
+            role=entry.role,
+            created=True,
+            foreign_login=True,
+            reason=(
+                f"{email} already signs in as another login; roles {_roles_text(entry)} "
+                f"added to it; {entry.password_var} was not applied"
+            ),
         )
+
+    # The seed's own subject: create it if absent (refusing a changed email or a
+    # suspended account, as before), check its membership set, then grant.
+    account_id = _existing_or_insert_account(
+        connection, tenant_id=tenant_id, subject=entry.subject, email=email
+    )
+    verify_membership_set(
+        connection,
+        tenant_id=tenant_id,
+        account_id=account_id,
+        path=unit_path,
+        roles=entry.roles,
+    )
+    # A fresh salt on every run, so re-seeding the same password twice does
+    # not produce the same stored bytes twice.
+    stored = derive_password_hash(secret, salt=new_salt())
+    if holder is None:
+        grant(entry.roles[0], NewLogin(user_id=account_id, password=stored))
+        for role in entry.roles[1:]:
+            grant(role)
+        rotated = ""
     else:
-        raise SeedConflictError(
-            f"{entry.role}: the address in {entry.email_var} already signs in as another login"
+        for role in entry.roles:
+            grant(role)
+        # Rotation stays the seed's right over its *own* subject only.
+        login_accounts.rotate_own_password(
+            connection, tenant_id=tenant_id, user_id=account_id, password=stored, now=now
         )
+        rotated = "; password rotated"
+    return RoleOutcome(
+        role=entry.role,
+        created=True,
+        reason=(
+            f"login ready for {email} (roles assigned server-side as {_roles_text(entry)}){rotated}"
+        ),
+    )
 
 
 def seed_role_logins(
@@ -275,18 +343,17 @@ def seed_role_logins(
 ) -> list[RoleOutcome]:
     """Create every configured role login. Returns one outcome per role.
 
-    Identity rows first, through :func:`seed_pilot.seed_pilot` — which is what
-    writes the ``membership`` row carrying the role — then the credential.
-    The order matters: a credential row references an account by composite
-    ``(tenant_id, user_id)``, so the account has to exist, and doing it this
-    way means the role is written by the same code path the existing
-    single-principal seed already uses rather than by a second one that could
-    drift from it.
+    Tenant and unit first (``seed_pilot``'s helpers), then, per address, the
+    one credential writer: ``login_accounts`` (B26 T6b-5 R-G). A free address
+    gets the seed's account and its first credential; the seed's own login
+    gets its roles and a rotated password; a login the seed did not create
+    gets the roles and keeps its password (Q4); an address held in another
+    tenant, or by two logins, is a :class:`SeedConflictError`.
 
     Raises:
         SeedCredentialError: on a half-configured or unusably short entry.
         SeedConflictError: when existing rows disagree with the requested
-            identity (propagated from :func:`seed_pilot.seed_pilot`).
+            identity.
     """
     outcomes: list[RoleOutcome] = []
     now = datetime.now(UTC)
@@ -308,50 +375,25 @@ def seed_role_logins(
             continue
 
         email, secret = configured
-
-        seed_pilot(
+        tenant_id = _existing_or_insert_tenant(
+            connection, slug=tenant_slug, display_name=tenant_name
+        )
+        _existing_or_insert_unit(
             connection,
-            tenant_slug=tenant_slug,
-            tenant_name=tenant_name,
-            unit_path=unit_path,
+            tenant_id=tenant_id,
+            path=unit_path,
             unit_type=unit_type,
-            unit_name=unit_name,
-            subject=entry.subject,
-            email=email,
-            role=entry.role,
-            # Upwards-only reconciliation (``seed_pilot._ensure_membership_set``):
-            # an account seeded before this change gains the row it is missing
-            # on the next run, without its account, email, or existing
-            # membership being touched.
-            additional_roles=entry.additional_roles,
+            display_name=unit_name,
         )
-
-        tenant_id = connection.execute(
-            sa.select(schema.tenant.c.id).where(schema.tenant.c.slug == tenant_slug)
-        ).scalar_one()
-        user_id = _account_id(connection, subject=entry.subject)
-
-        # A fresh salt on every run, so re-seeding the same password twice does
-        # not produce the same stored bytes twice.
-        _write_credential(
-            connection,
-            entry=entry,
-            tenant_id=uuid.UUID(str(tenant_id)),
-            user_id=user_id,
-            email=email,
-            password=derive_password_hash(secret, salt=new_salt()),
-            unit_path=unit_path,
-            now=now,
-        )
-
         outcomes.append(
-            RoleOutcome(
-                role=entry.role,
-                created=True,
-                reason=(
-                    f"login ready for {email} (roles assigned server-side as "
-                    f"{', '.join(repr(role) for role in entry.roles)})"
-                ),
+            _seed_one(
+                connection,
+                entry=entry,
+                email=email,
+                secret=secret,
+                tenant_id=tenant_id,
+                unit_path=unit_path,
+                now=now,
             )
         )
 
@@ -413,7 +455,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         engine.dispose()
 
     for outcome in outcomes:
-        stream = sys.stdout if outcome.created else sys.stderr
+        stream = sys.stdout if outcome.created and not outcome.foreign_login else sys.stderr
         print(f"seed-pilot-logins: {outcome.role}: {outcome.reason}", file=stream)
 
     created = [outcome.role for outcome in outcomes if outcome.created]
