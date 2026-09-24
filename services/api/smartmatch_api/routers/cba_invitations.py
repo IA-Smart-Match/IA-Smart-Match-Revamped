@@ -114,6 +114,7 @@ from smartmatch_persistence.cba_contacts import SpeakerContactRepository
 from smartmatch_persistence.cba_invitations import (
     DEFAULT_BATCH_PAGE_SIZE,
     MAX_BATCH_PAGE_SIZE,
+    BatchRow,
     InvitationRepository,
     InvitationWithDelivery,
 )
@@ -122,6 +123,7 @@ from smartmatch_persistence.outreach import OutreachRepository
 from smartmatch_persistence.rate_limit import RateLimit
 from sqlalchemy.orm import Session
 
+from smartmatch_api.availability_reads import load_request_event_time, request_for_run
 from smartmatch_api.commands import submit_command
 from smartmatch_api.config import get_settings
 from smartmatch_api.dependencies import CurrentPrincipal, DbSession, charge_quota
@@ -230,6 +232,15 @@ class BatchCreateRequest(BaseModel):
             "requiring a run id would make the honest case unrepresentable."
         ),
     )
+    speaker_request_id: uuid.UUID | None = Field(
+        default=None,
+        description=(
+            "The Speaker Request (a filed coordinator_entry event in this unit) "
+            "this batch invites for. Derived from match_run_id when that run "
+            "names one; required otherwise. Compose and dispatch check each "
+            "Speaker's stated availability against its date."
+        ),
+    )
     event_name: str = Field(min_length=1, max_length=200)
     event_date: str = Field(
         min_length=1,
@@ -331,6 +342,12 @@ class BatchResponse(BaseModel):
 
     batch_id: uuid.UUID
     match_run_id: uuid.UUID | None
+    speaker_request_id: uuid.UUID | None = Field(
+        description=(
+            "The Speaker Request this batch invites for. null only on a batch "
+            "stored before it was recorded."
+        )
+    )
     template_id: str
     event_name: str
     event_date: str
@@ -358,6 +375,7 @@ class BatchSummaryView(BaseModel):
 
     batch_id: uuid.UUID
     match_run_id: uuid.UUID | None
+    speaker_request_id: uuid.UUID | None
     template_id: str
     event_name: str
     event_date: str
@@ -603,6 +621,7 @@ def _batch_response(
     return BatchResponse(
         batch_id=batch.id,
         match_run_id=batch.match_run_id,
+        speaker_request_id=batch.speaker_request_id,
         template_id=batch.template_id,
         event_name=batch.event_name,
         event_date=batch.event_date,
@@ -616,8 +635,8 @@ def _batch_response(
 
 def _load_batch_or_404(
     session: Session, principal: CurrentPrincipal, *, unit_id: uuid.UUID, batch_id: uuid.UUID
-) -> uuid.UUID:
-    """The batch id, proven to belong to this unit, or a 404 that says nothing more."""
+) -> BatchRow:
+    """The batch, proven to belong to this unit, or a 404 that says nothing more."""
     batch = _invites.get_batch(session, tenant_id=principal.tenant_id, batch_id=batch_id)
     if batch is None or batch.owning_unit_id != unit_id:
         # A 404 rather than a 403: the batch may exist under a unit this request
@@ -628,7 +647,7 @@ def _load_batch_or_404(
             code="speaker_invitation_batch_not_found",
             message="No such invitation batch in this unit.",
         )
-    return batch.id
+    return batch
 
 
 def _require_idempotency_key(idempotency_key: str | None) -> str:
@@ -736,13 +755,28 @@ def create_invitation_batch(
         ApiError: 404 when the unit does not exist in this tenant; 400 when the
             idempotency key is missing, or when the same person is named twice
             (see :func:`_require_distinct_recipients` — a repeat has no second
-            outcome to report, and dropping it would shorten the answer).
+            outcome to report, and dropping it would shorten the answer); 404
+            ``match_run_not_found`` / ``speaker_request_not_found`` and 422
+            ``speaker_invitation_request_mismatch`` from
+            :func:`_resolve_speaker_request` (B26 T4). A replayed key answers
+            before any of those are asked.
     """
     charge_quota(session, principal, INVITATION_BATCH_RATE_LIMIT)
 
     unit = _authorize_speaker_invitations(session, principal, unit_id)
     key = _require_idempotency_key(idempotency_key)
     _require_distinct_recipients(body.professional_ids)
+
+    # Replay first (B26 T4 §4.2 step 0): a retry of a stored batch reports the
+    # first submission, even one stored before `0041` or whose run can no longer
+    # be resolved. Resolving first would turn such a retry into a 404 or 422.
+    existing = _invites.find_batch_by_key(
+        session, tenant_id=principal.tenant_id, owning_unit_id=unit.id, idempotency_key=key
+    )
+    if existing is not None:
+        return _batch_response(session, principal, batch_id=existing.id, replayed=True)
+
+    speaker_request_id = _resolve_speaker_request(session, principal, unit_id=unit.id, body=body)
 
     reservation = _invites.reserve_batch(
         session,
@@ -754,6 +788,7 @@ def create_invitation_batch(
         event_date=body.event_date,
         created_by_user_id=principal.user_id,
         match_run_id=body.match_run_id,
+        speaker_request_id=speaker_request_id,
     )
 
     if reservation.was_replayed:
@@ -780,6 +815,71 @@ def create_invitation_batch(
     session.commit()
 
     return _batch_response(session, principal, batch_id=reservation.batch.id, replayed=False)
+
+
+def _resolve_speaker_request(
+    session: Session,
+    principal: CurrentPrincipal,
+    *,
+    unit_id: uuid.UUID,
+    body: BatchCreateRequest,
+) -> uuid.UUID | None:
+    """The Speaker Request this batch invites for (B26 T4 §4.2 steps 1-5).
+
+    1. A named run must be in this unit, else ``404 match_run_not_found`` — a
+       run from another unit in the tenant is refused, not stored (C10).
+    2. The run's request is derived when its need names a Speaker Request in
+       this unit; a pre-OQ-CBA-031 run derives none.
+    3. A named request must be a Speaker Request in this unit, else
+       ``404 speaker_request_not_found`` (404, not 403: no confirmation that
+       the id names something elsewhere).
+    4. Both, and they differ: ``422 speaker_invitation_request_mismatch``.
+
+    Returns:
+        The request id, or ``None`` when neither resolves.
+    """
+    derived: uuid.UUID | None = None
+    if body.match_run_id is not None:
+        run = request_for_run(
+            session,
+            tenant_id=principal.tenant_id,
+            unit_id=unit_id,
+            match_run_id=body.match_run_id,
+        )
+        if run is None:
+            raise ApiError(
+                status_code=status.HTTP_404_NOT_FOUND,
+                code="match_run_not_found",
+                message="No such match run in this unit.",
+            )
+        derived = run.speaker_request_id
+
+    if body.speaker_request_id is None:
+        return derived
+
+    event_time = load_request_event_time(
+        session,
+        tenant_id=principal.tenant_id,
+        unit_id=unit_id,
+        speaker_request_id=body.speaker_request_id,
+    )
+    if event_time is None:
+        raise ApiError(
+            status_code=status.HTTP_404_NOT_FOUND,
+            code="speaker_request_not_found",
+            message="No such Speaker Request in this unit.",
+        )
+    if derived is not None and derived != body.speaker_request_id:
+        raise ApiError(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            code="speaker_invitation_request_mismatch",
+            message=(
+                "speaker_request_id names a different Speaker Request from the one "
+                "match_run_id was run for. Name one, or name the run's own. "
+                "Nothing was composed."
+            ),
+        )
+    return body.speaker_request_id
 
 
 def _skip(
@@ -985,6 +1085,7 @@ def list_invitation_batches(
             BatchSummaryView(
                 batch_id=batch.id,
                 match_run_id=batch.match_run_id,
+                speaker_request_id=batch.speaker_request_id,
                 template_id=batch.template_id,
                 event_name=batch.event_name,
                 event_date=batch.event_date,
@@ -1024,7 +1125,7 @@ def read_invitation_batch(
     unit = _authorize_speaker_invitations(session, principal, unit_id)
     resolved = _load_batch_or_404(session, principal, unit_id=unit.id, batch_id=batch_id)
 
-    return _batch_response(session, principal, batch_id=resolved, replayed=False)
+    return _batch_response(session, principal, batch_id=resolved.id, replayed=False)
 
 
 # ---------------------------------------------------------------------------
@@ -1071,7 +1172,8 @@ def dispatch_invitation_batch(
     charge = charge_quota(session, principal, INVITATION_DISPATCH_RATE_LIMIT)
 
     unit = _authorize_speaker_invitations(session, principal, unit_id)
-    resolved = _load_batch_or_404(session, principal, unit_id=unit.id, batch_id=batch_id)
+    batch = _load_batch_or_404(session, principal, unit_id=unit.id, batch_id=batch_id)
+    resolved = batch.id
 
     dispatched: list[DispatchedView] = []
     not_dispatched: list[NotDispatchedView] = []

@@ -3114,6 +3114,8 @@ export interface SpeakerInvitationOutcome {
 export interface SpeakerInvitationBatch {
   batch_id: string;
   match_run_id: string | null;
+  /** The Speaker Request this batch invites for; null only on a batch stored before it was recorded. */
+  speaker_request_id: string | null;
   template_id: string;
   event_name: string;
   /** As the Connector typed it. Rendered verbatim; never parsed or reformatted. */
@@ -3130,6 +3132,7 @@ export interface SpeakerInvitationBatch {
 export interface SpeakerInvitationBatchSummary {
   batch_id: string;
   match_run_id: string | null;
+  speaker_request_id: string | null;
   template_id: string;
   event_name: string;
   event_date: string;
@@ -3206,6 +3209,8 @@ export async function createSpeakerInvitationBatch(
     eventDate: string;
     coordinatorName: string;
     matchRunId?: string | null;
+    /** Derived server-side from `matchRunId`; required when there is no run. */
+    speakerRequestId?: string | null;
   },
 ): Promise<SpeakerInvitationBatch> {
   return requestJson<SpeakerInvitationBatch>(
@@ -3219,6 +3224,7 @@ export async function createSpeakerInvitationBatch(
         event_date: input.eventDate,
         coordinator_name: input.coordinatorName,
         match_run_id: input.matchRunId ?? null,
+        speaker_request_id: input.speakerRequestId ?? null,
       }),
     },
     { authenticated: true },
