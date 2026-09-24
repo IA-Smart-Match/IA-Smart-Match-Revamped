@@ -9,7 +9,8 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { SpeakerAvailability } from "@/lib/api";
+import type { EngagementWithoutEndTime, SpeakerAvailability } from "@/lib/api";
+import { speakerLoadFixture } from "@/test/speakerLoadFixture";
 
 import { SpeakerOwnAvailability } from "./SpeakerOwnAvailability";
 
@@ -92,8 +93,26 @@ function availability(overrides: Partial<SpeakerAvailability> = {}): SpeakerAvai
     unavailable: [],
     updated_source: "connector",
     updated_at: "2026-10-01T12:00:00Z",
+    load: speakerLoadFixture(),
     ...overrides,
   };
+}
+
+const GAP_TITLE = "Corporate treasury guest lecture";
+const GAP: EngagementWithoutEndTime = {
+  engagement_id: "e-one",
+  shown: "event",
+  event_title: GAP_TITLE,
+  local_date: "2026-10-20",
+  time_precision: "date_only",
+  editable_here: false,
+};
+
+/** Text with every `<time>` element removed. */
+function textOutsideTime(root: HTMLElement): string {
+  const copy = root.cloneNode(true) as HTMLElement;
+  for (const time of Array.from(copy.querySelectorAll("time"))) time.remove();
+  return copy.textContent ?? "";
 }
 
 const NOT_STATED = availability({
@@ -301,19 +320,105 @@ describe("<SpeakerOwnAvailability />", () => {
     expect(screen.queryByText(/Someone changed this/)).toBeNull();
   });
 
-  it("a response carrying a load field renders no number from it", async () => {
+  it("a response carrying a load field shows the band word and renders no number from it", async () => {
     stub({
       [`GET ${URL}`]: {
-        body: { ...availability(), load: { band: "moderate", utilization: 0.61 } },
+        body: {
+          ...availability(),
+          load: {
+            ...speakerLoadFixture({
+              band: "moderate",
+              reason: "full_by_known_hours",
+              engagements_without_end_time: [GAP],
+            }),
+            utilization: 0.61,
+          },
+        },
       },
     });
     renderPage();
     await screen.findByText(/Stated: no dates blocked\./);
+    const section = screen.getByRole("region", { name: "Your workload" });
+    expect(within(section).getByText("Moderate")).toBeTruthy();
+    expect(within(section).getByText(GAP_TITLE)).toBeTruthy();
     const text = screen.getByRole("main").textContent ?? "";
     expect(text).not.toContain("0.61");
     expect(text).not.toContain("61");
-    expect(text).not.toMatch(/moderate/i);
+    expect(textOutsideTime(section)).not.toMatch(/[0-9%]/);
   });
+
+  it("the workload section sits between the read states and the form in DOM order", async () => {
+    stub({ [`GET ${URL}`]: { body: availability() } });
+    renderPage();
+    await screen.findByText(/Stated: no dates blocked\./);
+    const heading = screen.getByRole("heading", { level: 1, name: "Your availability" });
+    const section = screen.getByRole("region", { name: "Your workload" });
+    const form = screen.getByRole("form", { name: "Your availability" });
+    expect(screen.getByRole("heading", { level: 2, name: "Your workload" })).toBeTruthy();
+    expect(heading.compareDocumentPosition(section) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(section.compareDocumentPosition(form) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(section).getByText("Matching does not use your workload yet.")).toBeTruthy();
+  });
+
+  it("no workload section while the read is pending or failed", async () => {
+    stub({ [`GET ${URL}`]: () => new Promise<Answer>(() => undefined) });
+    renderPage();
+    await screen.findByText("Loading your availability…");
+    expect(screen.queryByRole("region", { name: "Your workload" })).toBeNull();
+
+    cleanup();
+    stub({ [`GET ${URL}`]: refusal(500, "internal_error") });
+    renderPage();
+    await screen.findByRole("button", { name: "Retry loading your availability" });
+    expect(screen.queryByRole("region", { name: "Your workload" })).toBeNull();
+  });
+
+  it("a save shows the band from the PATCH response", async () => {
+    stub({
+      [`GET ${URL}`]: { body: availability() },
+      [`PATCH ${URL}`]: {
+        body: availability({
+          version: 5,
+          declared_capacity_hours_per_90_days: 12,
+          load: speakerLoadFixture({ band: "heavy" }),
+        }),
+      },
+    });
+    renderPage();
+    await screen.findByText(/Stated: no dates blocked\./);
+    const section = screen.getByRole("region", { name: "Your workload" });
+    expect(within(section).getByText("Light")).toBeTruthy();
+    fireEvent.change(capacityInput(), { target: { value: "12" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save availability" }));
+    await waitFor(() =>
+      expect(
+        within(screen.getByRole("region", { name: "Your workload" })).getByText("Heavy"),
+      ).toBeTruthy(),
+    );
+    expect(gets()).toBe(1);
+  });
+
+  it.each(["light", "moderate", "heavy", "full", "unknown"] as const)(
+    "never says 'available' in main with a %s band",
+    async (band) => {
+      stub({
+        [`GET ${URL}`]: {
+          body: availability({
+            load: speakerLoadFixture({
+              band,
+              reason: band === "unknown" ? "hours_unknown" : "measured",
+              used_in_matching: true,
+              engagements_without_end_time: [GAP],
+              engagements_without_end_time_truncated: true,
+            }),
+          }),
+        },
+      });
+      renderPage();
+      await screen.findByText(/Stated: no dates blocked\./);
+      expect(screen.getByRole("main").textContent).not.toMatch(/\bavailable\b/i);
+    },
+  );
 
   it("404 speaker_profile_not_linked on GET shows the not-linked notice and no form", async () => {
     stub({ [`GET ${URL}`]: refusal(404, "speaker_profile_not_linked") });

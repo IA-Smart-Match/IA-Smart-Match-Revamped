@@ -7,6 +7,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApiRequestError, type SpeakerAvailability } from "./api";
+import { speakerLoadFixture } from "@/test/speakerLoadFixture";
 import {
   addMonths,
   availabilityErrorMessage,
@@ -34,6 +35,7 @@ function stored(overrides: Partial<SpeakerAvailability> = {}): SpeakerAvailabili
     unavailable: [],
     updated_source: "connector",
     updated_at: "2026-10-01T15:00:00Z",
+    load: speakerLoadFixture(),
     ...overrides,
   };
 }

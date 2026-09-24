@@ -9,8 +9,9 @@ hold that, and the boundaries around it, at the level a source scan can reach:
 - no Speaker page calls a Connector route (``/v1/units/…``) or a Connector
   adapter, so no page can come to name a unit or a professional;
 - the three contact-channel adapters take no subject;
-- the two slots a later track fills (the portal switcher, T6b-5, and the load
-  band, T8d) are marked where that track will look, and nothing is built early.
+- the portal switcher slot a later track fills (T6b-5) is marked where that
+  track will look, and nothing is built early; the load band slot (T8d) is
+  filled, by ``LoadBandSummary``, and its marker is gone.
 """
 
 from __future__ import annotations
@@ -131,7 +132,7 @@ def test_contact_channel_adapters_take_no_subject() -> None:
     assert _signature(source, "fetchMyContactChannels").strip() == ""
 
 
-def test_the_t6b5_and_t8d_slots_are_marked() -> None:
+def test_the_t6b5_slots_are_marked_and_t8d_filled_its_slot() -> None:
     """Raw source: the slots are comments, which ``_code_only`` would strip."""
     layout = LAYOUT.read_text(encoding="utf-8")
     assert layout.count("SLOT(T6b-5)") == 2, "the layout marks the switcher slot twice"
@@ -146,7 +147,12 @@ def test_the_t6b5_and_t8d_slots_are_marked() -> None:
     assert "SLOT(T6b-5): portal switcher (mobile)" in layout
 
     availability = OWN_AVAILABILITY.read_text(encoding="utf-8")
-    assert availability.count("SLOT(T8d)") == 1, "the availability page marks the load band slot"
+    assert "SLOT(T8d)" not in availability, "T8d filled the load band slot; the marker goes"
+    assert re.search(
+        r'import \{[^}]*\bLoadBandSummary\b[^}]*\} from "[^"]*components/load/LoadBandSummary"',
+        availability,
+    ), "the availability page imports LoadBandSummary for the Speaker's load band"
+    assert "<LoadBandSummary" in _code_only(availability), "LoadBandSummary is rendered"
 
 
 def test_speaker_portal_reuses_the_t5_form() -> None:

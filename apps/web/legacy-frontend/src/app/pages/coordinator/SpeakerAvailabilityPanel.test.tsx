@@ -8,9 +8,11 @@
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { SpeakerAvailability } from "@/lib/api";
+import type { EngagementWithoutEndTime, SpeakerAvailability } from "@/lib/api";
+import { speakerLoadFixture } from "@/test/speakerLoadFixture";
 
 import { SpeakerAvailabilityPanel } from "./SpeakerAvailabilityPanel";
 
@@ -71,6 +73,7 @@ function availability(overrides: Partial<SpeakerAvailability> = {}): SpeakerAvai
     unavailable: [],
     updated_source: "connector",
     updated_at: "2026-10-01T15:00:00Z",
+    load: speakerLoadFixture(),
     ...overrides,
   };
 }
@@ -679,5 +682,122 @@ describe("<SpeakerAvailabilityPanel /> principal isolation", () => {
     await new Promise((r) => setTimeout(r, 30));
     expect(count(GET)).toBe(0);
     expect(within(region()).getByText("Loading availability…")).toBeTruthy();
+  });
+});
+
+describe("<SpeakerAvailabilityPanel /> workload (B26 T8d V-D)", () => {
+  const TITLE = "Corporate treasury guest lecture";
+  const gaps: EngagementWithoutEndTime[] = [
+    {
+      engagement_id: "e-own",
+      shown: "event",
+      event_title: TITLE,
+      local_date: "2026-10-20",
+      time_precision: "date_only",
+      editable_here: true,
+    },
+    {
+      engagement_id: "e-imported",
+      shown: "event",
+      event_title: "Alumni mentoring breakfast",
+      local_date: "2026-11-03",
+      time_precision: "exact",
+      editable_here: false,
+    },
+    {
+      engagement_id: null,
+      shown: "other_unit",
+      event_title: null,
+      local_date: null,
+      time_precision: null,
+      editable_here: false,
+    },
+  ];
+
+  function renderRouted(client = makeClient()) {
+    return render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter>
+          <SpeakerAvailabilityPanel unitId={UNIT} professionalId={PID} contactName="Dana Reyes" />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+  }
+
+  it("the panel shows the workload section with the connector copy", async () => {
+    stub({ [GET]: [ok(availability({ load: speakerLoadFixture({ band: "moderate" }) }))] });
+    renderRouted();
+    await screen.findByText(/Stated: no dates blocked\./);
+    const group = within(region()).getByRole("group", { name: "Workload" });
+    expect(within(group).getByRole("heading", { level: 4, name: "Workload" })).toBeTruthy();
+    expect(within(group).getByText("Moderate")).toBeTruthy();
+    expect(group.textContent).toContain("Matching does not use workload yet.");
+    expect(group.textContent).toContain(
+      "Recent and upcoming confirmed engagements, against the stated capacity.",
+    );
+    // Between the read states and the form.
+    const form = screen.getByLabelText("Capacity (hours per 90 days)");
+    expect(group.compareDocumentPosition(form) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it.each(["light", "moderate", "heavy", "full", "unknown"] as const)(
+    "no /\\bavailable\\b/i in the panel for a %s band",
+    async (band) => {
+      stub({
+        [GET]: [
+          ok(
+            availability({
+              load: speakerLoadFixture({
+                band,
+                reason: band === "unknown" ? "hours_unknown" : "measured",
+                used_in_matching: true,
+                engagements_without_end_time: gaps,
+                engagements_without_end_time_truncated: true,
+              }),
+            }),
+          ),
+        ],
+      });
+      renderRouted();
+      await screen.findByText(/Stated: no dates blocked\./);
+      expect(within(region()).getByRole("group", { name: "Workload" })).toBeTruthy();
+      expect(region().textContent).not.toMatch(/\bavailable\b/i);
+    },
+  );
+
+  it("the Events link is present only for an editable item", async () => {
+    stub({
+      [GET]: [
+        ok(
+          availability({
+            load: speakerLoadFixture({
+              band: "unknown",
+              reason: "hours_unknown",
+              engagements_without_end_time: gaps,
+            }),
+          }),
+        ),
+      ],
+    });
+    renderRouted();
+    await screen.findByText(/Stated: no dates blocked\./);
+    const group = within(region()).getByRole("group", { name: "Workload" });
+    const links = within(group).getAllByRole("link");
+    expect(links).toHaveLength(1);
+    expect(
+      within(group).getByRole("link", {
+        name: `Add the end time for ${TITLE} on the Events page`,
+      }),
+    ).toBeTruthy();
+  });
+
+  it("no workload section before the read answers", async () => {
+    const pending = deferred();
+    stub({ [GET]: [() => pending.promise] });
+    renderRouted();
+    expect(within(region()).queryByRole("group", { name: "Workload" })).toBeNull();
+    await act(async () => pending.resolve(ok(availability())));
+    await screen.findByText(/Stated: no dates blocked\./);
+    expect(within(region()).getByRole("group", { name: "Workload" })).toBeTruthy();
   });
 });
