@@ -1,6 +1,8 @@
 # B26 T4 — Stage A wiring: stored verdicts, "changed since", compose/dispatch re-check, Q8, `0041`
 
-**Next action:** milestone 2 — write tests 1–12 (§8) and run them red.
+**Next action:** implemented (milestones 1–9); merge after #210, #212, #217, #218 and #215.
+
+**Implementation deviations (2026-09-24):** compose/dispatch tests live in new classes `TestComposeAvailability` / `TestDispatchAvailability`; test 31a flips `origin` with SQL (same row state `upsert_returning_outcome` leaves); `_insert_run_for_event` is raw SQL (`match_run_for`); `describeAvailability` is exported from `AIMatching.tsx` and reused by `CoordinatorInvitations.tsx`; the run read loads the event without the `origin` predicate (`load_batch_request_event_time`).
 
 **Revision ids (implementation, 2026-09-23).** `alembic_version` is `varchar(32)`. T8a's id is `0040_booking_cancellation` (file `0040_speaker_booking_cancellation.py`); T4's is `0041_batch_speaker_request` (file `0041_invitation_batch_speaker_request.py`).
 
