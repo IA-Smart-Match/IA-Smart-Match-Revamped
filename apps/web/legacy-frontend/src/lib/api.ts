@@ -2229,6 +2229,24 @@ export interface MatchFactorExplanation {
 }
 
 /** One candidate's heuristic score and every factor behind it. */
+/**
+ * The Stage A availability verdict a run stored for one candidate (B26 T4).
+ *
+ * It annotates; it never removed, reordered or re-scored anybody. Worded by
+ * state only — there is no number here but the dates.
+ */
+export interface MatchAvailability {
+  verdict: "eligible" | "excluded" | "undetermined";
+  state: "available" | "blacked_out" | "unknown";
+  reason: "clear" | "paused" | "window" | "not_stated" | "event_unresolved";
+  /** The UTC date (`YYYY-MM-DD`) the verdict was taken on. */
+  as_of: string;
+  /** Set exactly when `reason` is `paused`. */
+  paused_until: string | null;
+  /** Null when it could not be checked — "not checked", never "unchanged". */
+  changed_since_run: boolean | null;
+}
+
 export interface MatchCandidateExplanation {
   subject_id: string;
   /** In [0, 1]. Never a percentage, and null when `state` is "unknown". */
@@ -2263,6 +2281,8 @@ export interface MatchCandidateExplanation {
   /** The mode vocabulary's version. Set exactly when `scoring_mode` is. */
   scoring_mode_version?: string | null;
   factors: MatchFactorExplanation[];
+  /** The stored availability verdict; null when the run recorded none. */
+  availability?: MatchAvailability | null;
 }
 
 /**
@@ -2302,6 +2322,13 @@ export interface MatchRunRead {
   considered: MatchCandidateExplanation[];
   /** Candidates excluded because a factor had no evidence. Never scored at 0. */
   unscorable: MatchCandidateExplanation[];
+  /** False for a run stored before availability was recorded, or an unreadable block. */
+  availability_recorded?: boolean;
+  availability_unreadable_reason?: string | null;
+  /** Named subjects that never entered the pool, as stored at submission. */
+  excluded?: ExcludedMatchCandidate[];
+  /** Why the stored exclusions could not be read; `excluded` is then empty, not shorter. */
+  excluded_unreadable_reason?: string | null;
 }
 
 /** `GET /v1/units/{unit_id}/match-runs/{match_run_id}`. */
@@ -3049,6 +3076,8 @@ export interface SpeakerInvitationOutcome {
 export interface SpeakerInvitationBatch {
   batch_id: string;
   match_run_id: string | null;
+  /** The Speaker Request this batch invites for; null only on a batch stored before it was recorded. */
+  speaker_request_id: string | null;
   template_id: string;
   event_name: string;
   /** As the Connector typed it. Rendered verbatim; never parsed or reformatted. */
@@ -3065,6 +3094,7 @@ export interface SpeakerInvitationBatch {
 export interface SpeakerInvitationBatchSummary {
   batch_id: string;
   match_run_id: string | null;
+  speaker_request_id: string | null;
   template_id: string;
   event_name: string;
   event_date: string;
@@ -3141,6 +3171,8 @@ export async function createSpeakerInvitationBatch(
     eventDate: string;
     coordinatorName: string;
     matchRunId?: string | null;
+    /** Derived server-side from `matchRunId`; required when there is no run. */
+    speakerRequestId?: string | null;
   },
 ): Promise<SpeakerInvitationBatch> {
   return requestJson<SpeakerInvitationBatch>(
@@ -3154,6 +3186,7 @@ export async function createSpeakerInvitationBatch(
         event_date: input.eventDate,
         coordinator_name: input.coordinatorName,
         match_run_id: input.matchRunId ?? null,
+        speaker_request_id: input.speakerRequestId ?? null,
       }),
     },
     { authenticated: true },

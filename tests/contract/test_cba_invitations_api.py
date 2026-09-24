@@ -28,12 +28,14 @@ import os
 import secrets
 import uuid
 from collections.abc import Iterator
+from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
 from smartmatch_api.main import app
 from smartmatch_domain.cba_invitations import DELIVERY_VOCABULARY, SPEAKER_RESPONSE_VALUES
+from smartmatch_persistence.cba_invitations import InvitationRepository
 from smartmatch_persistence.engine import create_session_factory
 from smartmatch_providers import FixtureTokenVerifier
 from sqlalchemy import Engine, create_engine, text
@@ -54,6 +56,9 @@ SIBLING_UNIT_PATH = "iawest.invitessibling"
 #: The date as a Connector types it, and the reason the column is Text: this
 #: string is rendered into the message verbatim and never parsed.
 EVENT_DATE = "Friday, 12 June"
+
+#: The local date of every Speaker Request these tests file (B26 T4).
+REQUEST_DATE = date(2026, 10, 5)
 
 #: What a browser sends for the ``/i/{token}`` page's form.
 FORM_CONTENT_TYPE = "application/x-www-form-urlencoded"
@@ -88,6 +93,7 @@ class _Context:
         unit_id: uuid.UUID,
         sibling_unit_id: uuid.UUID,
         token: str,
+        user_id: uuid.UUID,
     ) -> None:
         self.client = client
         self.engine = engine
@@ -95,6 +101,10 @@ class _Context:
         self.unit_id = unit_id
         self.sibling_unit_id = sibling_unit_id
         self.token = token
+        self.user_id = user_id
+        #: Tenants a test created beside this one, swept in teardown.
+        self.other_tenants: list[uuid.UUID] = []
+        self._default_requests: dict[uuid.UUID, uuid.UUID] = {}
 
     @property
     def _headers(self) -> dict[str, str]:
@@ -156,6 +166,176 @@ class _Context:
                     },
                 )
         return professional_id
+
+    def default_request(self, unit_id: uuid.UUID) -> uuid.UUID:
+        """One Speaker Request per unit, filed on first use."""
+        if unit_id not in self._default_requests:
+            self._default_requests[unit_id] = self.speaker_request(unit_id=unit_id)
+        return self._default_requests[unit_id]
+
+    def speaker_request(
+        self,
+        *,
+        unit_id: uuid.UUID | None = None,
+        tenant_id: uuid.UUID | None = None,
+        origin: str = "coordinator_entry",
+        on_date: date = REQUEST_DATE,
+        filed_by_user_id: uuid.UUID | None = None,
+    ) -> uuid.UUID:
+        """A Speaker Request: an ``event`` row hosted by ``unit_id`` (B26 T4).
+
+        ``origin='extraction'`` builds an extracted event instead, which is
+        not a Speaker Request and must be refused as one.
+        """
+        event_id = uuid.uuid4()
+        title = f"Career Panel {event_id.hex[:8]}"
+        extracted = origin == "extraction"
+        with self.engine.begin() as conn:
+            conn.execute(
+                text(
+                    "INSERT INTO event (id, tenant_id, host_org_unit_id, title, "
+                    "normalized_title, on_date, time_zone, time_precision, resolved_date, "
+                    "origin, source_url, fetched_at, extractor_version, filed_by_user_id) "
+                    "VALUES (:id, :t, :u, :title, :norm, :d, 'America/Los_Angeles', "
+                    "'date_only', :d, :origin, :url, :fetched, :extractor, :filed)"
+                ),
+                {
+                    "id": event_id,
+                    "t": tenant_id or self.tenant_id,
+                    "u": unit_id or self.unit_id,
+                    "title": title,
+                    "norm": title.lower(),
+                    "d": on_date,
+                    "origin": origin,
+                    "url": f"https://events.example.invalid/{event_id.hex}" if extracted else None,
+                    "fetched": datetime(2026, 9, 1, tzinfo=UTC) if extracted else None,
+                    "extractor": "fixture-1" if extracted else None,
+                    "filed": filed_by_user_id,
+                },
+            )
+        return event_id
+
+    def match_run_for(self, need: str, *, unit_id: uuid.UUID | None = None) -> uuid.UUID:
+        """A stored match run whose ``event_need_id`` is ``need``, in ``unit_id``."""
+        owning = unit_id or self.unit_id
+        job_id = uuid.uuid4()
+        run_id = uuid.uuid4()
+        with self.engine.begin() as conn:
+            conn.execute(
+                text(
+                    "INSERT INTO job (id, tenant_id, owning_unit_id, command_type, status, "
+                    "payload) VALUES (:id, :t, :u, 'match-run.create', 'succeeded', "
+                    "CAST('{}' AS jsonb))"
+                ),
+                {"id": job_id, "t": self.tenant_id, "u": owning},
+            )
+            conn.execute(
+                text(
+                    "INSERT INTO match_run (id, tenant_id, owning_unit_id, job_id, "
+                    "event_need_id, inputs_hash, portfolio_size, random_seed, "
+                    "registry_version, registry_hash, weights, optimizer_model_version, "
+                    "solver_name, solver_version, route_estimate_source, "
+                    "route_estimate_version, portfolio_status) VALUES (:id, :t, :u, :job, "
+                    ":need, 'sha256:0000', 1, 0, '2.0.0', 'sha256:1111', "
+                    "CAST('{\"topic_relevance\": 1.0}' AS jsonb), '1.0.0-cpsat', "
+                    "'ortools-cpsat', '9.99.0', 'straight_line', '1.0.0-straight-line', "
+                    "'optimal')"
+                ),
+                {"id": run_id, "t": self.tenant_id, "u": owning, "job": job_id, "need": need},
+            )
+        return run_id
+
+    def other_tenant_request(self) -> uuid.UUID:
+        """A Speaker Request in a second tenant, swept in teardown."""
+        tenant_id = uuid.uuid4()
+        unit_id = uuid.uuid4()
+        with self.engine.begin() as conn:
+            conn.execute(
+                text("INSERT INTO tenant (id, slug, display_name) VALUES (:id, :slug, :slug)"),
+                {"id": tenant_id, "slug": f"test-invites-other-{tenant_id.hex[:12]}"},
+            )
+            conn.execute(
+                text(
+                    "INSERT INTO org_unit (id, tenant_id, path, unit_type, display_name) "
+                    "VALUES (:id, :t, CAST(:p AS ltree), 'department', 'Elsewhere')"
+                ),
+                {"id": unit_id, "t": tenant_id, "p": UNIT_PATH},
+            )
+        self.other_tenants.append(tenant_id)
+        return self.speaker_request(unit_id=unit_id, tenant_id=tenant_id)
+
+    def reserve_legacy_batch(self, key: str) -> uuid.UUID:
+        """A batch stored the way a pre-``0041`` row reads: no Speaker Request."""
+        session_factory = create_session_factory(
+            self.engine.url.render_as_string(hide_password=False)
+        )
+        with session_factory() as session:
+            reservation = InvitationRepository().reserve_batch(
+                session,
+                tenant_id=self.tenant_id,
+                owning_unit_id=self.unit_id,
+                idempotency_key=key,
+                template_id="cba.speaker_invitation.v1",
+                event_name="Spring Showcase",
+                event_date=EVENT_DATE,
+                created_by_user_id=self.user_id,
+            )
+            session.commit()
+            return reservation.batch.id
+
+    def count_batches(self) -> int:
+        with self.engine.begin() as conn:
+            return int(
+                conn.execute(
+                    text("SELECT count(*) FROM cba_invitation_batch WHERE tenant_id = :t"),
+                    {"t": self.tenant_id},
+                ).scalar_one()
+            )
+
+    def state_availability(
+        self,
+        professional_id: uuid.UUID,
+        *,
+        paused_until: date | None = None,
+        windows: tuple[tuple[date, date], ...] = (),
+    ) -> None:
+        """Store (or replace) a Speaker's availability statement (B26 T4)."""
+        with self.engine.begin() as conn:
+            conn.execute(
+                text(
+                    "DELETE FROM speaker_availability WHERE tenant_id = :t AND professional_id = :p"
+                ),
+                {"t": self.tenant_id, "p": professional_id},
+            )
+            conn.execute(
+                text(
+                    "INSERT INTO speaker_availability (tenant_id, professional_id, "
+                    "invitations_paused_until, updated_source, updated_by_user_id) "
+                    "VALUES (:t, :p, :paused, 'connector', :u)"
+                ),
+                {
+                    "t": self.tenant_id,
+                    "p": professional_id,
+                    "paused": paused_until,
+                    "u": self.user_id,
+                },
+            )
+            for starts_on, ends_on in windows:
+                conn.execute(
+                    text(
+                        "INSERT INTO speaker_availability_window (id, tenant_id, "
+                        "professional_id, starts_on, ends_on, created_source, "
+                        "created_by_user_id) VALUES (:id, :t, :p, :s, :e, 'connector', :u)"
+                    ),
+                    {
+                        "id": uuid.uuid4(),
+                        "t": self.tenant_id,
+                        "p": professional_id,
+                        "s": starts_on,
+                        "e": ends_on,
+                        "u": self.user_id,
+                    },
+                )
 
     def address_of(self, professional_id: uuid.UUID) -> str:
         return f"speaker-{professional_id.hex[:8]}@synthetic.invalid"
@@ -223,6 +403,10 @@ class _Context:
             "event_date": EVENT_DATE,
             "coordinator_name": "Dana Okafor",
         }
+        # C12 = R1 (B26 T4): every new batch names a Speaker Request. A test
+        # that is not about which one gets this unit's default request.
+        if "speaker_request_id" not in overrides and "match_run_id" not in overrides:
+            body["speaker_request_id"] = str(self.default_request(unit_id or self.unit_id))
         body.update(overrides)
         headers = dict(self._headers)
         if key is not None:
@@ -344,13 +528,19 @@ def ctx(engine: Engine) -> Iterator[_Context]:
     )
     client.app.state.token_verifier = verifier
 
-    yield _Context(client, engine, tenant_id, unit_id, sibling_unit_id, token)
+    context = _Context(client, engine, tenant_id, unit_id, sibling_unit_id, token, user_id)
+    yield context
 
     with engine.begin() as conn:
         # Child-first: every foreign key in 0021 and 0029 is RESTRICT.
         for table in (
             "cba_invitation",
             "cba_invitation_batch",
+            # B26 T4: `0041` points batches at `event` (RESTRICT); runs point at `job`.
+            "match_run",
+            "speaker_availability_window",
+            "speaker_availability",
+            "event",
             "delivery_event",
             "outreach_send",
             "outreach_draft",
@@ -368,6 +558,10 @@ def ctx(engine: Engine) -> Iterator[_Context]:
         ):
             conn.execute(text(f"DELETE FROM {table} WHERE tenant_id = :tid"), {"tid": tenant_id})
         conn.execute(text("DELETE FROM tenant WHERE id = :tid"), {"tid": tenant_id})
+        for other in context.other_tenants:
+            for table in ("event", "org_unit"):
+                conn.execute(text(f"DELETE FROM {table} WHERE tenant_id = :t"), {"t": other})
+            conn.execute(text("DELETE FROM tenant WHERE id = :t"), {"t": other})
 
 
 # ---------------------------------------------------------------------------
@@ -539,6 +733,296 @@ class TestBatchIsIdempotent:
 
         assert second["replayed"] is False
         assert ctx.count_invitations() == 2
+
+
+# ---------------------------------------------------------------------------
+# The batch names its Speaker Request (B26 T4, 0041)
+# ---------------------------------------------------------------------------
+
+
+class TestBatchRequest:
+    """A batch invites for one Speaker Request, derived from its run or named."""
+
+    def test_a_run_derives_the_speaker_request(self, ctx: _Context):
+        """13."""
+        professional_id = ctx.roster_contact(name="Sam Rivera")
+        request_id = ctx.speaker_request()
+        run_id = ctx.match_run_for(str(request_id))
+
+        response = ctx.create_batch([professional_id], match_run_id=str(run_id))
+
+        assert response.status_code == 201, response.text
+        body = response.json()
+        assert body["speaker_request_id"] == str(request_id)
+        assert body["match_run_id"] == str(run_id)
+        with ctx.engine.begin() as conn:
+            stored = conn.execute(
+                text("SELECT speaker_request_id FROM cba_invitation_batch WHERE id = :i"),
+                {"i": body["batch_id"]},
+            ).scalar_one()
+        assert str(stored) == str(request_id)
+
+    def test_a_hand_picked_batch_stores_its_named_request(self, ctx: _Context):
+        """14: no run; the Connector names the request."""
+        professional_id = ctx.roster_contact(name="Sam Rivera")
+        request_id = ctx.speaker_request()
+
+        response = ctx.create_batch([professional_id], speaker_request_id=str(request_id))
+
+        assert response.status_code == 201, response.text
+        body = response.json()
+        assert body["speaker_request_id"] == str(request_id)
+        assert body["match_run_id"] is None
+
+    @pytest.mark.parametrize(
+        "case",
+        [
+            "run_in_another_unit",
+            "request_in_another_unit",
+            "request_in_another_tenant",
+            "extracted_event",
+            "no_such_request",
+            "request_differs_from_the_runs",
+            "neither",
+            "pre_031_run_and_no_request",
+        ],
+    )
+    def test_refusals(self, ctx: _Context, case: str):
+        """15: every refusal reserves nothing."""
+        professional_id = ctx.roster_contact(name="Sam Rivera")
+        own_request = ctx.speaker_request()
+        body: dict[str, Any]
+        if case == "run_in_another_unit":
+            run_id = ctx.match_run_for(str(own_request), unit_id=ctx.sibling_unit_id)
+            body = {"match_run_id": str(run_id)}
+            expected = (404, "match_run_not_found")
+        elif case == "request_in_another_unit":
+            body = {"speaker_request_id": str(ctx.speaker_request(unit_id=ctx.sibling_unit_id))}
+            expected = (404, "speaker_request_not_found")
+        elif case == "request_in_another_tenant":
+            body = {"speaker_request_id": str(ctx.other_tenant_request())}
+            expected = (404, "speaker_request_not_found")
+        elif case == "extracted_event":
+            body = {"speaker_request_id": str(ctx.speaker_request(origin="extraction"))}
+            expected = (404, "speaker_request_not_found")
+        elif case == "no_such_request":
+            body = {"speaker_request_id": str(uuid.uuid4())}
+            expected = (404, "speaker_request_not_found")
+        elif case == "request_differs_from_the_runs":
+            run_id = ctx.match_run_for(str(own_request))
+            body = {"match_run_id": str(run_id), "speaker_request_id": str(ctx.speaker_request())}
+            expected = (422, "speaker_invitation_request_mismatch")
+        elif case == "neither":
+            # C12 = R1: a new batch must name a request, directly or by its run.
+            body = {"speaker_request_id": None, "match_run_id": None}
+            expected = (422, "speaker_invitation_request_required")
+        else:
+            run_id = ctx.match_run_for("need-career-panel")
+            body = {"match_run_id": str(run_id)}
+            expected = (422, "speaker_invitation_request_required")
+
+        response = ctx.create_batch([professional_id], **body)
+
+        assert (response.status_code, response.json()["error"]["code"]) == expected, response.text
+        assert ctx.count_batches() == 0
+        assert ctx.count_invitations() == 0
+
+    def test_an_explicit_request_with_a_pre_031_run_is_stored(self, ctx: _Context):
+        """A run whose need is free text derives nothing; the explicit id stands."""
+        professional_id = ctx.roster_contact(name="Sam Rivera")
+        request_id = ctx.speaker_request()
+        run_id = ctx.match_run_for("need-career-panel")
+
+        response = ctx.create_batch(
+            [professional_id], match_run_id=str(run_id), speaker_request_id=str(request_id)
+        )
+
+        assert response.status_code == 201, response.text
+        assert response.json()["speaker_request_id"] == str(request_id)
+
+    def test_list_and_read_return_the_speaker_request(self, ctx: _Context):
+        """16."""
+        professional_id = ctx.roster_contact(name="Sam Rivera")
+        request_id = ctx.speaker_request()
+        batch = ctx.create_batch([professional_id], speaker_request_id=str(request_id)).json()
+
+        listed = ctx.list_batches().json()["batches"]
+        read = ctx.read_batch(batch["batch_id"]).json()
+
+        assert [entry["speaker_request_id"] for entry in listed] == [str(request_id)]
+        assert read["speaker_request_id"] == str(request_id)
+
+    def test_replay_of_a_stored_key_with_no_request_returns_the_stored_batch(self, ctx: _Context):
+        """16a: a pre-``0041`` batch replays; it is not refused for naming no request."""
+        professional_id = ctx.roster_contact(name="Sam Rivera")
+        stored_id = ctx.reserve_legacy_batch("legacy-key")
+
+        response = ctx.create_batch(
+            [professional_id], key="legacy-key", speaker_request_id=None, match_run_id=None
+        )
+
+        assert response.status_code == 201, response.text
+        body = response.json()
+        assert body["replayed"] is True
+        assert body["batch_id"] == str(stored_id)
+        assert body["speaker_request_id"] is None
+        assert body["invitations"] == []
+        assert ctx.count_batches() == 1
+
+
+# ---------------------------------------------------------------------------
+# Availability at compose and dispatch (B26 T4)
+# ---------------------------------------------------------------------------
+
+#: A pause still in force on any date these tests run.
+PAUSED_UNTIL = date(2027, 1, 10)
+#: A window over :data:`REQUEST_DATE`.
+ON_THE_DAY = ((REQUEST_DATE, REQUEST_DATE),)
+
+
+class TestComposeAvailability:
+    """Compose checks each Speaker's statement against the batch's request (§4.3)."""
+
+    def test_a_blacked_out_speaker_is_skipped_as_unavailable_on_date(self, ctx: _Context):
+        """24."""
+        professional_id = ctx.roster_contact(name="Sam Rivera")
+        ctx.state_availability(professional_id, windows=ON_THE_DAY)
+
+        body = ctx.create_batch([professional_id]).json()
+
+        outcome = body["invitations"][0]
+        assert outcome["status"] == "skipped"
+        assert outcome["skip_reason"] == "speaker_unavailable_on_date"
+        assert outcome["recipient_address"] is None
+        stored = ctx.stored(outcome["invitation_id"])
+        assert (stored.status, stored.skip_reason) == ("skipped", "speaker_unavailable_on_date")
+
+    def test_a_paused_speaker_is_skipped_as_invitations_paused(self, ctx: _Context):
+        """25."""
+        professional_id = ctx.roster_contact(name="Sam Rivera")
+        ctx.state_availability(professional_id, paused_until=PAUSED_UNTIL)
+
+        body = ctx.create_batch([professional_id]).json()
+
+        assert body["invitations"][0]["skip_reason"] == "speaker_invitations_paused"
+        assert body["invited_count"] == 0
+
+    def test_an_unstated_speaker_is_invited(self, ctx: _Context):
+        """26: not stated is not a reason to write to nobody."""
+        unstated = ctx.roster_contact(name="Sam Rivera")
+        clear = ctx.roster_contact(name="Ada Chen")
+        ctx.state_availability(clear, windows=((date(2026, 12, 1), date(2026, 12, 2)),))
+
+        body = ctx.create_batch([unstated, clear]).json()
+
+        assert body["invited_count"] == 2
+        assert all(entry["status"] == "pending" for entry in body["invitations"])
+
+    def test_a_hand_picked_batch_is_checked_against_its_request(self, ctx: _Context):
+        """27: no run — the named request's own date decides."""
+        professional_id = ctx.roster_contact(name="Sam Rivera")
+        later = date(2026, 11, 20)
+        request_id = ctx.speaker_request(on_date=later)
+        ctx.state_availability(professional_id, windows=((later, later),))
+
+        body = ctx.create_batch([professional_id], speaker_request_id=str(request_id)).json()
+
+        assert body["match_run_id"] is None
+        assert body["invitations"][0]["skip_reason"] == "speaker_unavailable_on_date"
+
+    def test_suppression_outranks_unavailability(self, ctx: _Context):
+        """28: consent first — a Speaker who said stop is reported as such."""
+        professional_id = ctx.roster_contact(name="Sam Rivera")
+        ctx.suppress(ctx.address_of(professional_id))
+        ctx.state_availability(professional_id, windows=ON_THE_DAY)
+
+        body = ctx.create_batch([professional_id]).json()
+
+        assert body["invitations"][0]["skip_reason"] == "channel_suppressed"
+
+
+class TestDispatchAvailability:
+    """Dispatch re-checks availability read now; a refusal stays pending (§4.4)."""
+
+    def _one_pending(self, ctx: _Context) -> tuple[str, str, uuid.UUID]:
+        professional_id = ctx.roster_contact(name="Sam Rivera")
+        batch = ctx.create_batch([professional_id]).json()
+        assert batch["invitations"][0]["status"] == "pending"
+        return batch["batch_id"], batch["invitations"][0]["invitation_id"], professional_id
+
+    def test_a_window_added_after_compose_refuses_dispatch_and_stays_pending(self, ctx: _Context):
+        """29."""
+        batch_id, invitation_id, professional_id = self._one_pending(ctx)
+        ctx.state_availability(professional_id, windows=ON_THE_DAY)
+
+        response = ctx.dispatch(batch_id)
+
+        assert response.status_code == 202, response.text
+        body = response.json()
+        assert body["dispatched"] == []
+        assert body["not_dispatched"] == [
+            {"invitation_id": invitation_id, "reason": "speaker_unavailable_on_date"}
+        ]
+        assert ctx.stored(invitation_id).status == "pending"
+
+    def test_a_pause_added_after_compose_refuses_dispatch(self, ctx: _Context):
+        batch_id, invitation_id, professional_id = self._one_pending(ctx)
+        ctx.state_availability(professional_id, paused_until=PAUSED_UNTIL)
+
+        body = ctx.dispatch(batch_id).json()
+
+        assert body["not_dispatched"] == [
+            {"invitation_id": invitation_id, "reason": "speaker_invitations_paused"}
+        ]
+
+    def test_clearing_the_window_lets_a_second_dispatch_send(self, ctx: _Context):
+        """30."""
+        batch_id, invitation_id, professional_id = self._one_pending(ctx)
+        ctx.state_availability(professional_id, windows=ON_THE_DAY)
+        assert ctx.dispatch(batch_id).json()["dispatched"] == []
+
+        ctx.state_availability(professional_id)
+        body = ctx.dispatch(batch_id).json()
+
+        assert [entry["invitation_id"] for entry in body["dispatched"]] == [invitation_id]
+        assert ctx.stored(invitation_id).status == "dispatched"
+
+    def test_a_legacy_batch_with_no_request_is_not_checked(self, ctx: _Context):
+        """31: a pre-``0041`` batch the backfill could not link has no date to check."""
+        batch_id, invitation_id, professional_id = self._one_pending(ctx)
+        with ctx.engine.begin() as conn:
+            conn.execute(
+                text("UPDATE cba_invitation_batch SET speaker_request_id = NULL WHERE id = :b"),
+                {"b": batch_id},
+            )
+        ctx.state_availability(professional_id, windows=ON_THE_DAY)
+
+        body = ctx.dispatch(batch_id).json()
+
+        assert [entry["invitation_id"] for entry in body["dispatched"]] == [invitation_id]
+
+    def test_dispatch_still_checks_after_the_request_origin_flips_to_extraction(
+        self, ctx: _Context
+    ):
+        """31a: an unfiled request rewritten to ``extraction`` keeps its date."""
+        batch_id, invitation_id, professional_id = self._one_pending(ctx)
+        request_id = ctx.default_request(ctx.unit_id)
+        with ctx.engine.begin() as conn:
+            conn.execute(
+                text(
+                    "UPDATE event SET origin = 'extraction', "
+                    "source_url = 'https://events.example.invalid/flip', "
+                    "fetched_at = now(), extractor_version = 'fixture-1' WHERE id = :e"
+                ),
+                {"e": request_id},
+            )
+        ctx.state_availability(professional_id, windows=ON_THE_DAY)
+
+        body = ctx.dispatch(batch_id).json()
+
+        assert body["not_dispatched"] == [
+            {"invitation_id": invitation_id, "reason": "speaker_unavailable_on_date"}
+        ]
 
 
 # ---------------------------------------------------------------------------
