@@ -85,6 +85,7 @@ from smartmatch_persistence.pipeline import (
     CbaInvitationNotFoundError,
     ConfirmedSpeakerRow,
     ConflictingOwningUnitError,
+    PipelineRecordCancelledError,
     PipelineStageOrderError,
     UnknownAttendanceEvidenceError,
     UnknownOpportunityEventError,
@@ -116,6 +117,19 @@ HANDOFF_RATE_LIMIT: Final[RateLimit] = RateLimit(
 CONFIRMED_READ_RATE_LIMIT: Final[RateLimit] = RateLimit(
     operation="cba.confirmed_speakers_read", max_requests=120, window=timedelta(minutes=1)
 )
+
+#: B26 T8a (C1 = C): the refusal a hand-off gets on a cancelled booking.
+_CANCELLED_MESSAGE: Final[str] = (
+    "This booking was cancelled by a Speaker Connector. It cannot be handed to an Event Host again."
+)
+
+
+def _cancelled_error() -> ApiError:
+    return ApiError(
+        status_code=status.HTTP_409_CONFLICT,
+        code="pipeline_record_cancelled",
+        message=_CANCELLED_MESSAGE,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -372,8 +386,9 @@ def reconcile_speaker_handoff(
     Raises:
         ApiError: 404 when the invitation is not in this unit or the event is
             not in this tenant; 409 when the invitation records no acceptance,
-            when the cited attendance is not this journey's, or when the stored
-            timestamps cannot be ordered into the funnel.
+            when the cited attendance is not this journey's, when the stored
+            timestamps cannot be ordered into the funnel, or when the booking was
+            cancelled (``pipeline_record_cancelled``, B26 T8a; nothing is written).
     """
     charge_quota(session, principal, HANDOFF_RATE_LIMIT)
 
@@ -436,6 +451,8 @@ def reconcile_speaker_handoff(
             code="pipeline_record_unit_conflict",
             message=str(exc),
         ) from exc
+    except PipelineRecordCancelledError as exc:
+        raise _cancelled_error() from exc
 
     speaker = _confirmed_speaker_or_unreachable(
         session,
