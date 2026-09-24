@@ -1296,6 +1296,8 @@ def _batch_for(ctx: _Ctx, professional_id: uuid.UUID) -> tuple[str, str]:
     created = ctx.client.post(
         f"/v1/units/{ctx.unit_id}/speaker-invitations/batches",
         json={
+            # B26 T4: a batch names the Speaker Request it invites for.
+            "speaker_request_id": str(ctx.speaker_request()),
             "professional_ids": [str(professional_id)],
             "event_name": "Accounting Society Spring Mixer",
             "event_date": EVENT_DATE_TEXT,
