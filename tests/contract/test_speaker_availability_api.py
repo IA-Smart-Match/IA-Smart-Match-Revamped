@@ -1154,3 +1154,41 @@ def test_another_units_booking_without_an_event_row_carries_no_record_id(ctx: _C
     ]
     assert str(records[ctx.unit_id]) in response.text
     assert str(records[ctx.sibling_unit_id]) not in response.text
+
+
+#: Owner ruling R-A (2026-09-24): no load number reaches the API wire.
+_RA_LOAD_NUMBERS = frozenset(
+    {"completed_hours", "confirmed_hours", "capacity_hours", "utilization"}
+)
+
+
+def _keys_in(value: Any) -> set[str]:
+    """Every key anywhere in a JSON value."""
+    if isinstance(value, dict):
+        return set(value) | {k for child in value.values() for k in _keys_in(child)}
+    if isinstance(value, list):
+        return {k for child in value for k in _keys_in(child)}
+    return set()
+
+
+def _assert_no_load_number(load: dict[str, Any]) -> None:
+    keys = _keys_in(load)
+    assert _RA_LOAD_NUMBERS.isdisjoint(keys), keys
+    assert not [k for k in keys if "hours" in k or "utilization" in k], keys
+
+
+# A16 (owner ruling R-A)
+def test_load_on_get_and_patch_carries_no_hours_capacity_or_utilization(ctx: _Context) -> None:
+    """Band and reason only, with numbers behind them; a pin on SpeakerLoadView's shape."""
+    pid = ctx.add_roster_contact()
+    _book(ctx, pid, offset_days=-10, hours=6, attended=True)
+    _book(ctx, pid, offset_days=3, precision="date_only")
+    created = ctx.create(pid, declared_capacity_hours_per_90_days=10)
+    patched = ctx.patch(pid, _body(expected_version=1, declared_capacity_hours_per_90_days=20))
+    read = _load(ctx.get(pid))
+
+    assert (read["band"], read["reason"]) == ("unknown", "hours_unknown")
+    for load in (created["load"], _load(patched), read):
+        _assert_no_load_number(load)
+    # The Speaker's own stated input is not a load number: it stays.
+    assert patched.json()["declared_capacity_hours_per_90_days"] == 20

@@ -124,3 +124,16 @@ def test_load_is_required_in_the_response() -> None:
     assert "load" in _schema("SpeakerAvailabilityResponse")["required"]
     item = _schema("EngagementWithoutEndTimeView")
     assert set(item["required"]) == set(item["properties"])
+
+
+# O3 (owner ruling R-A, 2026-09-24)
+def test_the_candidate_load_block_publishes_no_load_number() -> None:
+    """Band and reason on the wire; hours, capacity and utilization stay stored.
+
+    ``multiplier`` and ``composite_before_load`` are scores, not load hours.
+    """
+    properties = _schema("CandidateLoadBlockView")["properties"]
+    removed = {"completed_hours", "confirmed_hours", "capacity_hours", "utilization"}
+    assert removed.isdisjoint(properties), sorted(removed & set(properties))
+    assert {"band", "reason", "multiplier", "composite_before_load"} <= set(properties)
+    assert "unknown_hours_refs" not in properties

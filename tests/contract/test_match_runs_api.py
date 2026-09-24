@@ -1979,6 +1979,13 @@ def _all_candidates(run: dict[str, Any]) -> list[dict[str, Any]]:
     return run["shortlist"] + run["considered"] + run["unscorable"]
 
 
+#: Owner ruling R-A (2026-09-24): load numbers never reach the API wire. They
+#: stay in the stored run payload, for audit; the wire carries the band and why.
+_RA_LOAD_NUMBERS = frozenset(
+    {"completed_hours", "confirmed_hours", "capacity_hours", "utilization"}
+)
+
+
 # R1
 def test_a_2_0_0_run_reads_load_recorded_false_and_every_load_null(load_context, engine) -> None:
     _seed_loads(load_context)
@@ -2023,12 +2030,14 @@ def test_the_candidate_load_block_is_copied_without_rounding_and_without_refs(
     zeta_id = str(load_context.speakers["zeta"])
     assert stored[zeta_id]["load"]["unknown_hours_refs"] == [refs["zeta_ref"]]
     for subject_id, candidate in _candidates(run).items():
+        # Owner ruling R-A: the load numbers stay in the stored payload.
         expected = {
             key: value
             for key, value in stored[subject_id]["load"].items()
-            if key != "unknown_hours_refs"
+            if key != "unknown_hours_refs" and key not in _RA_LOAD_NUMBERS
         }
         assert candidate["load"] == expected, subject_id
+        assert set(stored[subject_id]["load"]) >= _RA_LOAD_NUMBERS, subject_id
     assert "unknown_hours_refs" not in _keys_anywhere(_all_candidates(run))
     assert refs["zeta_ref"] not in json.dumps(run)
 
@@ -2145,3 +2154,40 @@ def test_t8cs_excluded_load_schema_is_unchanged() -> None:
     assert schemas["MatchRunResponse"]["properties"]["load_recorded"]["type"] == "boolean"
     # Review L1: required, never defaulted; the read derives it from the pin.
     assert "load_recorded" in schemas["MatchRunResponse"]["required"]
+
+
+# R8 (owner ruling R-A)
+def test_no_load_number_reaches_the_wire_and_the_stored_payload_keeps_them(
+    load_context, engine, monkeypatch
+) -> None:
+    """Band and reason on the wire; hours, capacity and utilization stored only.
+
+    ``multiplier`` and ``composite_before_load`` are scores, not load hours:
+    they stay on every candidate block.
+    """
+    _seed_loads(load_context)
+    _make_3_0_0_current(monkeypatch, evaluate=True)
+
+    accepted, run = _submit_and_execute(load_context, engine, _load_submission(load_context))
+
+    assert run["load_recorded"] is True
+    blocks = [candidate["load"] for candidate in _all_candidates(run)]
+    assert blocks and all(block is not None for block in blocks)
+    for block in blocks:
+        assert {"band", "reason", "multiplier", "composite_before_load"} <= set(block), block
+        assert _RA_LOAD_NUMBERS.isdisjoint(block), block
+    assert any(entry.get("load") for entry in run["excluded"])
+    assert _RA_LOAD_NUMBERS.isdisjoint(_keys_anywhere(run))
+    assert any(entry.get("load") for entry in accepted["excluded_candidates"])
+    assert _RA_LOAD_NUMBERS.isdisjoint(_keys_anywhere(accepted))
+
+    payload = _stored_payload(engine, uuid.UUID(accepted["job_id"]))
+    assert payload["explanations"]
+    for entry in payload["explanations"]:
+        assert set(entry["load"]) >= _RA_LOAD_NUMBERS, entry["subject_id"]
+        assert "unknown_hours_refs" in entry["load"], entry["subject_id"]
+    full = [entry for entry in payload["excluded"] if entry["reason"] == "load_full"]
+    assert full
+    for entry in full:
+        assert set(entry["load"]) >= _RA_LOAD_NUMBERS, entry["subject_id"]
+        assert "unknown_hours_refs" in entry["load"], entry["subject_id"]

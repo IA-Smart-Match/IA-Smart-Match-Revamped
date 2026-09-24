@@ -1420,3 +1420,43 @@ def test_no_subject_is_taken_from_the_request() -> None:
         assert keywords["tenant_id"] == "principal.tenant_id"
         assert keywords["viewer_unit_id"] == "None"
         assert "principal.user_id" not in ast.unparse(call)
+
+
+#: Owner ruling R-A (2026-09-24): no load number reaches the API wire.
+_RA_LOAD_NUMBERS = frozenset(
+    {"completed_hours", "confirmed_hours", "capacity_hours", "utilization"}
+)
+
+
+def _keys_in(value: Any) -> set[str]:
+    """Every key anywhere in a JSON value."""
+    if isinstance(value, dict):
+        return set(value) | {k for child in value.values() for k in _keys_in(child)}
+    if isinstance(value, list):
+        return {k for child in value for k in _keys_in(child)}
+    return set()
+
+
+# S6 (owner ruling R-A)
+def test_my_load_on_get_and_patch_carries_no_hours_capacity_or_utilization(
+    ctx: _Ctx, frozen: datetime
+) -> None:
+    """Band and reason only; a pin on SpeakerLoadView's shape on the Speaker's own route."""
+    speaker = ctx.speaker()
+    ctx.journey(
+        speaker.professional_id,
+        _hosted_event(ctx, ctx.unit_id, TODAY + timedelta(days=2), _OWN_TITLE),
+    )
+    patched = ctx.call(
+        "PATCH",
+        "/v1/me/availability",
+        speaker.headers,
+        json=_statement(declared_capacity_hours_per_90_days=12.5),
+    )
+    assert patched.status_code == 200, patched.text
+
+    for load in (patched.json()["load"], _my_load(ctx, speaker)):
+        keys = _keys_in(load)
+        assert _RA_LOAD_NUMBERS.isdisjoint(keys), keys
+        assert not [k for k in keys if "hours" in k or "utilization" in k], keys
+    assert patched.json()["declared_capacity_hours_per_90_days"] == 12.5
