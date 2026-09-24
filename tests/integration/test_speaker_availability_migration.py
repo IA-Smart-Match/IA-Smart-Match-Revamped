@@ -44,7 +44,10 @@ REVISION = "0038_speaker_availability"
 
 #: The head. ``0039_speaker_portal`` (B26 T6b-1) chains to :data:`REVISION`;
 #: it adds nullable ``speaker_profile`` columns and touches neither table here.
-HEAD_REVISION = "0039_speaker_portal"
+#: Moved again by B26 T8a: ``0040_booking_cancellation`` chains to
+#: ``0039_speaker_portal`` and is the head. It adds two nullable
+#: ``pipeline_record`` columns and writes no rows; it touches neither table here.
+HEAD_REVISION = "0040_booking_cancellation"
 
 _NEW_TABLES = ("speaker_availability", "speaker_availability_window")
 

@@ -156,12 +156,16 @@ _PARENT_REVISION = "0024_cba_classification"
 #: ``0038_speaker_availability`` and is the head. It adds two nullable
 #: ``speaker_profile`` columns (``account_user_id``, ``account_bound_at``) and
 #: writes no rows, so this file's claims still hold through it.
-_HEAD_REVISION = "0039_speaker_portal"
+#: Moved again by B26 T8a: ``0040_booking_cancellation`` chains to
+#: ``0039_speaker_portal`` and is the head. It adds two nullable
+#: ``pipeline_record`` columns and writes no rows, so this file's claims still hold through it.
+_HEAD_REVISION = "0040_booking_cancellation"
 
 #: Every revision between :data:`_HEAD_REVISION` and :data:`_THIS_REVISION`, in
 #: descending order. Listed rather than derived, so extending the chain is a
 #: deliberate edit here — which is the whole point of the assertion.
 _REVISIONS_BETWEEN_HEAD_AND_THIS_CARD = (
+    "0039_speaker_portal",
     "0038_speaker_availability",
     "0037_exercise_tables",
     "0036_host_organization",

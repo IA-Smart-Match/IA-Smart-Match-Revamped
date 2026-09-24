@@ -616,6 +616,8 @@ def test_the_opportunity_is_recorded_even_though_no_event_table_constrains_it(
         ).scalars()
 
     assert list(constraints) == [
+        # Migration 0040 (B26 T8a): the canceller's account, not an event.
+        "fk_pipeline_record_cancelled_by_user",
         "pipeline_record_tenant_id_attended_attendance_id_fkey",
         "pipeline_record_tenant_id_owning_unit_id_fkey",
         "pipeline_record_tenant_id_subject_id_fkey",

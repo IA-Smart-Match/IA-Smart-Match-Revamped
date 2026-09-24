@@ -43,8 +43,10 @@ pytestmark = pytest.mark.integration
 #: Read off the ``revision =`` line of ``0039_speaker_portal.py``.
 REVISION_BEFORE = "0039_speaker_portal"
 
-#: The revision under test, and the head it makes.
-REVISION = "0040_speaker_booking_cancellation"
+#: The revision under test, and the head it makes. Read off the ``revision =``
+#: line of ``0040_speaker_booking_cancellation.py``: the file name is 33
+#: characters and ``alembic_version`` is ``varchar(32)``, so the id is shorter.
+REVISION = "0040_booking_cancellation"
 
 _CHECKS = (
     "ck_pipeline_record_cancellation_actor",

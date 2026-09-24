@@ -716,6 +716,11 @@ pipeline_record = sa.Table(
     # This row is updated when a stage is reached, unlike point_ledger_entry —
     # carrying updated_at says mutation is expected here.
     sa.Column("updated_at", _TS, nullable=False, server_default=sa.text("now()")),
+    # Migration 0040 (B26 T8a): a booking's cancellation, as a transition on
+    # the row rather than a delete. Both nullable, no default, set together;
+    # the time is the server clock and the actor the principal who cancelled.
+    sa.Column("cancelled_at", _TS, nullable=True),
+    sa.Column("cancelled_by_user_id", _UUID, nullable=True),
     sa.PrimaryKeyConstraint("id", name="pipeline_record_pkey"),
     # A second row for the same student and opportunity is a second count in
     # every stage it has reached — inflating the aggregate and the drill-down
@@ -773,6 +778,41 @@ pipeline_record = sa.Table(
     sa.CheckConstraint(
         "matched_provenance IN ('synthetic / coordinator-accepted', 'match-engine')",
         name="ck_pipeline_record_matched_provenance",
+    ),
+    # Migration 0040 (B26 T8a). Composite, like every account reference here;
+    # RESTRICT, so an account that cancelled a booking cannot vanish.
+    sa.ForeignKeyConstraint(
+        ["tenant_id", "cancelled_by_user_id"],
+        ["user_account.tenant_id", "user_account.id"],
+        ondelete="RESTRICT",
+        name="fk_pipeline_record_cancelled_by_user",
+    ),
+    # Time and actor are one fact.
+    sa.CheckConstraint(
+        "(cancelled_at IS NULL) = (cancelled_by_user_id IS NULL)",
+        name="ck_pipeline_record_cancellation_actor",
+    ),
+    # Only a confirmed journey is a booking.
+    sa.CheckConstraint(
+        "cancelled_at IS NULL OR confirmed_at IS NOT NULL",
+        name="ck_pipeline_record_cancellation_confirmed",
+    ),
+    # A cancellation never precedes the confirmation it cancels (ruling C4).
+    sa.CheckConstraint(
+        "cancelled_at IS NULL OR cancelled_at >= confirmed_at",
+        name="ck_pipeline_record_cancellation_order",
+    ),
+    # Attended and cancelled exclude each other (ruling C2).
+    sa.CheckConstraint(
+        "cancelled_at IS NULL OR attended_at IS NULL",
+        name="ck_pipeline_record_cancellation_not_attended",
+    ),
+    # Supports the RESTRICT check on account delete; carries no live booking.
+    sa.Index(
+        "ix_pipeline_record_cancelled_by",
+        "tenant_id",
+        "cancelled_by_user_id",
+        postgresql_where=sa.text("cancelled_by_user_id IS NOT NULL"),
     ),
 )
 
