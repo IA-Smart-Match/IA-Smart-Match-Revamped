@@ -27,110 +27,274 @@ ELI is computed **only** from operational workload facts. The prohibited-input
 list in :data:`~smartmatch_domain.factor_registry.PROHIBITED_INPUTS` is enforced
 by the registry schema and by ``tests/unit/test_eli.py``, not by convention.
 
-The index is applied twice, and both applications are separately visible in the
-match explanation (v1.1 §1.3):
+Formula 2.0.0 (B26, parent plan §5.2, decision D2) keeps workload pressure
+only. Travel is not an input and counts 0 (D3: there is no route provider),
+and the modifiers named above are deleted (R3): a manual blackout now lives in
+availability (parent §5.1), not in load.
 
-* **Stage A** — over the declared cap is a hard constraint. The pair is
-  ineligible without an authorized, expiring override.
-* **Stage B** — under the cap, load applies a progressive soft penalty that
-  reduces assignment utility.
+**Window.** Exactly 90 days, the period declared capacity is stated over (R2).
+``d`` is the event's first local date minus ``as_of`` (the caller passes the UTC
+date of run creation). Only confirmed, not-cancelled engagements count at all.
+
+* *completed* — attended, ``-45 <= d <= -1``, i.e. ``[as_of - 45, as_of)``.
+* *confirmed* — ``0 <= d <= 44``, i.e. ``[as_of, as_of + 44]``, **whether
+  attended or not** (R1): an engagement on ``as_of`` already marked attended is
+  upcoming, not completed.
+* Anything else counts in neither, including a past booking never marked
+  attended.
+
+**Bands.** ``utilization = (completed + confirmed) / declared capacity``, banded
+by :data:`Q7_LOAD_BAND_TABLE`: ``>= 0.50`` Moderate, ``>= 0.80`` Heavy,
+``> 1.00`` Full, else Light. The comparisons run on exact integer microseconds
+against ``Decimal`` capacity, never on float, so no rounding moves an edge.
+
+**Unknown.** The band is Unknown when capacity is not stated (there is no
+default capacity, Q6), or when a counted engagement has no hours or no resolved
+date (R4). Unknown hours are never 0 (ADR-0011). If the known hours alone
+already exceed capacity, the band is Full anyway: a certain lower bound.
 """
 
 from __future__ import annotations
 
-import math
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
+from decimal import Context, Decimal, Inexact, InvalidOperation, localcontext
 from enum import StrEnum
+from types import MappingProxyType
 from typing import Final
 
+from smartmatch_domain.events import EventTime, ExactTime, resolved_date
+
 __all__ = [
+    "COMPLETED_WINDOW_DAYS",
+    "CONFIRMED_WINDOW_DAYS",
     "ELI_FORMULA_VERSION",
-    "CapDecision",
-    "EliSnapshot",
-    "EngagementRecord",
+    "Q7_LOAD_BAND_TABLE",
+    "Engagement",
+    "LoadAssessment",
+    "LoadBand",
+    "LoadBandTable",
     "LoadInputs",
-    "LoadModifier",
+    "LoadReason",
     "compute_eli",
-    "evaluate_cap",
-    "load_penalty",
 ]
 
 #: Versioned with the factor registry. Any change to the arithmetic below is a
-#: new version, because stored ``eli_snapshot`` rows record which formula
-#: produced them (v1.1 §2.2 ELI_SNAPSHOT.formula_version).
-ELI_FORMULA_VERSION: Final[str] = "1.1.0"
+#: new version, because a stored load assessment records which formula
+#: produced it.
+ELI_FORMULA_VERSION: Final[str] = "2.0.0"
 
-#: Half-life for recency decay, in days. Proposed default — open decision 2 in
-#: architecture v1.1 Appendix C assigns final parameters to the program owner.
-_DECAY_HALF_LIFE_DAYS: Final[float] = 45.0
+#: Completed window: event local date in ``[as_of - 45, as_of)``, days -45 .. -1.
+COMPLETED_WINDOW_DAYS: Final[int] = 45
+#: Confirmed window: event local date in ``[as_of, as_of + 45)``, days 0 .. +44.
+CONFIRMED_WINDOW_DAYS: Final[int] = 45
+# 45 + 45 = 90 days, the period declared capacity is stated over (R2).
 
-#: Rolling window over which engagements are counted at all.
-_ROLLING_WINDOW_DAYS: Final[int] = 90
+_US_PER_HOUR: Final[int] = 3_600_000_000
+_ONE_MICROSECOND: Final[timedelta] = timedelta(microseconds=1)
 
+#: Precision for the explanation-only quotients (hour totals, utilization).
+#: Fixed rather than the caller's thread context, so the same inputs always give
+#: the same stored numbers. Each call builds a fresh ``Context``: a shared
+#: module-level one would accumulate sticky flags and is not thread-safe. No
+#: band decision reads these values.
+_QUOTIENT_PRECISION: Final[int] = 28
 
-class LoadModifier(StrEnum):
-    """Visible modifiers permitted by v1.1 §1.3.
-
-    Each is a factual, checkable property of the schedule. They are surfaced to
-    the coordinator *and* to the professional, who can correct the underlying
-    availability data (v1.1 §5.1).
-    """
-
-    BACK_TO_BACK = "back_to_back"
-    CONSECUTIVE_WEEKENDS = "consecutive_weekends"
-    SHORT_RECOVERY = "short_recovery"
-    LONG_TRAVEL = "long_travel"
-    SHORT_NOTICE = "short_notice"
-    AT_DECLARED_FREQUENCY = "at_declared_max_frequency"
-    MANUAL_BLACKOUT = "manual_blackout"
+#: Precision for the band comparisons. They multiply short Decimals by integers,
+#: so they are always exact at this precision; ``Inexact`` is trapped so that any
+#: rounding raises instead of silently moving a boundary.
+_EXACT_PRECISION: Final[int] = 60
 
 
-#: Modifiers that are scheduling instructions rather than measured workload.
-#: They stay visible in the snapshot and keep their own Stage A handling; they
-#: do not add load points. This is a classification of the existing modifiers,
-#: not a change to the points-per-modifier or cap values, which are open
-#: decision 2's to set.
-_NON_LOAD_MODIFIERS: Final[frozenset[LoadModifier]] = frozenset({LoadModifier.MANUAL_BLACKOUT})
+class LoadBand(StrEnum):
+    """Q7 load band. ``FULL`` removes the pair before the solve (T8c)."""
+
+    LIGHT = "light"
+    MODERATE = "moderate"
+    HEAVY = "heavy"
+    FULL = "full"
+    UNKNOWN = "unknown"
+
+
+class LoadReason(StrEnum):
+    """Why the band is what it is."""
+
+    #: Capacity stated and every counted engagement has hours.
+    MEASURED = "measured"
+    #: No declared capacity, so there is no bound to measure against (Q6).
+    CAPACITY_NOT_STATED = "capacity_not_stated"
+    #: At least one counted engagement has no hours or no resolved date.
+    HOURS_UNKNOWN = "hours_unknown"
+    #: Known hours alone exceed ``full_above``: a certain lower bound (ADR-0011).
+    FULL_BY_KNOWN_HOURS = "full_by_known_hours"
+
+
+#: The bands a table carries a multiplier for. ``FULL`` has none: a Full pair
+#: is removed, not down-weighted.
+_MULTIPLIER_BANDS: Final[frozenset[LoadBand]] = frozenset(
+    {LoadBand.LIGHT, LoadBand.MODERATE, LoadBand.HEAVY, LoadBand.UNKNOWN}
+)
+
+
+def _require_date(value: object, name: str) -> None:
+    # ``datetime`` subclasses ``date``; a datetime here would carry a clock time
+    # (and maybe a zone) that the date arithmetic silently drops.
+    if not isinstance(value, date) or isinstance(value, datetime):
+        raise TypeError(f"{name} must be a date (not a datetime), got {type(value).__name__}")
+
+
+def _require_bool(value: object, name: str) -> None:
+    if type(value) is not bool:
+        raise TypeError(f"{name} must be a bool, got {type(value).__name__}")
+
+
+def _require_finite_decimal(value: object, name: str) -> Decimal:
+    if not isinstance(value, Decimal):
+        raise TypeError(f"{name} must be a Decimal, got {type(value).__name__}")
+    if not value.is_finite():
+        raise ValueError(f"{name} must be finite, got {value}")
+    return value
 
 
 @dataclass(frozen=True, slots=True)
-class EngagementRecord:
-    """One completed engagement.
+class LoadBandTable:
+    """Cut points and multipliers for the Q7 bands.
 
-    Not "completed *or* committed": an engagement dated after
-    :attr:`LoadInputs.as_of` is rejected by :class:`LoadInputs` rather than
-    counted or silently discarded. Counting a future commitment would make ELI a
-    forward-looking capacity measure, which needs a forward horizon and a
-    forward weighting rule — the recency curve only decays backwards — and both
-    are formula parameters assigned to the program owner (architecture v1.1
-    Appendix C, open decision 2). Until that decision lands, the honest state is
-    that this module measures load that has happened and says so.
+    The edge semantics are code, not table data: utilization ``>=
+    moderate_from`` is at least Moderate, ``>= heavy_from`` is at least Heavy,
+    and ``> full_above`` is Full. A table moves the cut points; it cannot move
+    which side of an edge a value falls on.
+
+    Ownership (approver, approval status) is not here. T8c wraps a table in a
+    registry-side type that carries it, so the registry never edits this type.
 
     Attributes:
-        occurred_on: Date of the engagement. Must not be after the snapshot's
-            ``as_of`` date.
-        event_hours: Hours spent at the event itself. Must be non-negative.
-        travel_hours: Hours spent travelling. Must be non-negative. Sourced from
-            the route matrix; when travel time is unavailable this is 0.0 and
-            the caller records the estimate as unavailable rather than guessing
-            (v1.1 §3.6 R4).
+        moderate_from: Utilization at or above this is at least Moderate.
+        heavy_from: Utilization at or above this is at least Heavy.
+        full_above: Utilization strictly above this is Full.
+        multipliers: One multiplier in ``(0, 1]`` for each of Light, Moderate,
+            Heavy and Unknown; no Full key. Stored read-only. Excluded from
+            ``hash()`` because a ``MappingProxyType`` is unhashable; it still
+            takes part in ``==``.
     """
 
-    occurred_on: date
-    event_hours: float
-    travel_hours: float = 0.0
+    moderate_from: Decimal
+    heavy_from: Decimal
+    full_above: Decimal
+    multipliers: Mapping[LoadBand, Decimal] = field(hash=False)
 
     def __post_init__(self) -> None:
-        if self.event_hours < 0.0:
-            raise ValueError("event_hours must be non-negative")
-        if self.travel_hours < 0.0:
-            raise ValueError("travel_hours must be non-negative")
+        moderate = _require_finite_decimal(self.moderate_from, "moderate_from")
+        heavy = _require_finite_decimal(self.heavy_from, "heavy_from")
+        full = _require_finite_decimal(self.full_above, "full_above")
+        if not Decimal(0) < moderate < heavy <= full:
+            raise ValueError(
+                "band cut points must satisfy 0 < moderate_from < heavy_from <= full_above; "
+                f"got {moderate}, {heavy}, {full}"
+            )
+        if not isinstance(self.multipliers, Mapping):
+            raise TypeError("multipliers must be a mapping of LoadBand to Decimal")
+        keys = frozenset(self.multipliers)
+        if keys != _MULTIPLIER_BANDS:
+            raise ValueError(
+                "multipliers must have exactly the keys light, moderate, heavy and "
+                f"unknown; got {sorted(str(k) for k in keys)}"
+            )
+        for band, multiplier in self.multipliers.items():
+            value = _require_finite_decimal(multiplier, f"multipliers[{band}]")
+            if not Decimal(0) < value <= Decimal(1):
+                raise ValueError(f"multipliers[{band}] must be in (0, 1], got {value}")
+        object.__setattr__(self, "multipliers", MappingProxyType(dict(self.multipliers)))
 
-    @property
-    def total_hours(self) -> float:
-        """Combined event and travel hours."""
-        return self.event_hours + self.travel_hours
+
+#: Q7 table (owner-approved, parent plan header Q7).
+Q7_LOAD_BAND_TABLE: Final[LoadBandTable] = LoadBandTable(
+    moderate_from=Decimal("0.50"),
+    heavy_from=Decimal("0.80"),
+    full_above=Decimal("1.00"),
+    multipliers={
+        LoadBand.LIGHT: Decimal("1.00"),
+        LoadBand.MODERATE: Decimal("0.90"),
+        LoadBand.HEAVY: Decimal("0.70"),
+        LoadBand.UNKNOWN: Decimal("1.00"),
+    },
+)
+
+
+@dataclass(frozen=True, slots=True)
+class Engagement:
+    """One booking of the professional, as ELI is allowed to see it.
+
+    Attributes:
+        ref: Opaque pipeline-record id, so the explanation can name which
+            engagement lacks hours.
+        event_date: The event's first local date; ``None`` when the event's
+            date is unresolved.
+        duration: Event hours as an exact ``timedelta``; ``None`` when unknown.
+            Never 0 (ADR-0011): unknown is not zero.
+        confirmed: The booking was confirmed.
+        attended: Attendance was recorded. Implies ``confirmed``.
+        cancelled: The booking was cancelled. Implies ``confirmed``. A plain
+            input; the caller derives it from the database.
+    """
+
+    ref: str
+    event_date: date | None
+    duration: timedelta | None
+    confirmed: bool
+    attended: bool
+    cancelled: bool
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.ref, str) or not self.ref.strip():
+            raise ValueError("ref must be a non-blank string")
+        if self.event_date is not None:
+            _require_date(self.event_date, "event_date")
+        _require_bool(self.confirmed, "confirmed")
+        _require_bool(self.attended, "attended")
+        _require_bool(self.cancelled, "cancelled")
+        if self.duration is not None:
+            if not isinstance(self.duration, timedelta):
+                raise TypeError("duration must be a timedelta or None")
+            if self.duration <= timedelta(0):
+                raise ValueError("duration must be positive; unknown hours are None, never 0")
+        if self.attended and not self.confirmed:
+            raise ValueError("an attended engagement must be confirmed")
+        if self.cancelled and not self.confirmed:
+            raise ValueError("a cancelled engagement must be confirmed")
+
+    @classmethod
+    def from_event_time(
+        cls,
+        ref: str,
+        event_time: EventTime,
+        *,
+        confirmed: bool,
+        attended: bool,
+        cancelled: bool,
+    ) -> Engagement:
+        """Build an engagement from an event's ``EventTime``.
+
+        The date is ``resolved_date(event_time)``: the start's local date in the
+        event's zone (the first date of a multi-day event), ``on_date`` for a
+        date-only event, ``None`` when unresolved. Hours are the elapsed time
+        from ``starts_at`` to ``ends_at`` for an exact time with a stated end,
+        otherwise unknown. Both ends are converted to UTC first: subtracting
+        two datetimes that share a ``ZoneInfo`` is wall-clock arithmetic in
+        Python and miscounts across a DST change.
+        """
+        duration: timedelta | None = None
+        if isinstance(event_time, ExactTime) and event_time.ends_at is not None:
+            duration = event_time.ends_at.astimezone(UTC) - event_time.starts_at.astimezone(UTC)
+        return cls(
+            ref=ref,
+            event_date=resolved_date(event_time),
+            duration=duration,
+            confirmed=confirmed,
+            attended=attended,
+            cancelled=cancelled,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -142,181 +306,159 @@ class LoadInputs:
     rather than by review.
 
     Attributes:
-        as_of: The date the snapshot is computed for.
-        engagements: Engagements within the rolling window. Entries *older*
-            than the window are ignored rather than rejected — dropping load
-            that has already decayed away changes nothing. Entries dated after
-            ``as_of`` are rejected, because dropping those silently would
-            discard a commitment the caller believes was counted (see
-            :class:`EngagementRecord`).
-        declared_capacity_hours: The professional's own declared rolling
-            capacity. Must be positive — an undeclared capacity is not zero
-            capacity, and the caller must not substitute one.
-        modifiers: Visible modifiers currently in effect.
+        as_of: The date the assessment is for (the caller passes the UTC date
+            of run creation).
+        engagements: The professional's engagements. Any date may be passed;
+            the window rules decide what counts.
+        declared_capacity_hours: The professional's declared capacity per 90
+            days, or ``None`` when not stated. Required, with no default: an
+            unstated capacity is Unknown, never an assumed number (Q6).
     """
 
     as_of: date
-    engagements: tuple[EngagementRecord, ...] = ()
-    declared_capacity_hours: float = 40.0
-    modifiers: frozenset[LoadModifier] = field(default_factory=frozenset)
+    engagements: tuple[Engagement, ...]
+    declared_capacity_hours: Decimal | None
 
     def __post_init__(self) -> None:
-        if self.declared_capacity_hours <= 0.0:
-            raise ValueError(
-                "declared_capacity_hours must be positive; an undeclared capacity is "
-                "not the same as zero capacity and must be resolved by the caller"
-            )
-        future = [r.occurred_on for r in self.engagements if r.occurred_on > self.as_of]
-        if future:
-            raise ValueError(
-                f"engagements must not be dated after as_of={self.as_of.isoformat()}; "
-                f"got {min(future).isoformat()}. ELI measures load that has occurred. "
-                "Forward-looking load needs a horizon and a forward weighting rule "
-                "(open decision 2), so a future-dated engagement is refused rather "
-                "than counted at an invented weight or dropped without telling anyone."
-            )
+        _require_date(self.as_of, "as_of")
+        capacity = self.declared_capacity_hours
+        if capacity is not None:
+            _require_finite_decimal(capacity, "declared_capacity_hours")
+            if capacity <= 0:
+                raise ValueError(
+                    "declared_capacity_hours must be positive; an unstated capacity is "
+                    "None, not zero"
+                )
+        engagements = tuple(self.engagements)
+        refs = [e.ref for e in engagements]
+        if len(set(refs)) != len(refs):
+            duplicates = sorted({r for r in refs if refs.count(r) > 1})
+            raise ValueError(f"engagement refs must be unique; duplicated: {duplicates}")
+        object.__setattr__(self, "engagements", engagements)
 
 
 @dataclass(frozen=True, slots=True)
-class EliSnapshot:
-    """A computed ELI result.
+class LoadAssessment:
+    """A computed load band and the facts behind it.
+
+    ``utilization`` and the hour totals are for the explanation only; the band
+    was decided on exact integer-microsecond comparisons, never on these
+    quotients.
 
     Attributes:
-        score: 0–100. Higher means more loaded.
-        decayed_hours: Recency-weighted hours behind the score.
-        raw_hours: Undecayed hours in the window, for explanation.
-        formula_version: The formula that produced this snapshot.
-        modifiers: Modifiers that were in effect.
-        utilization: ``decayed_hours / declared_capacity_hours``, uncapped, so
-            the explanation can show how far over capacity a professional is.
-            Stored **unrounded**: :func:`evaluate_cap` decides the Stage A hard
-            constraint on this value, and a precision chosen for readability
-            must not decide an eligibility boundary. Round it at render time.
+        band: The Q7 band.
+        reason: Why the band is what it is.
+        measurable: ``reason`` is ``MEASURED``.
+        completed_hours: Known hours of attended engagements in
+            ``[as_of - 45, as_of)``.
+        confirmed_hours: Known hours of confirmed, not-cancelled engagements
+            in ``[as_of, as_of + 44]``, attended or not.
+        capacity_hours: The declared capacity, or ``None``.
+        utilization: ``(completed + confirmed) / capacity``; a lower bound when
+            not measurable; ``None`` without capacity.
+        unknown_hours_refs: Sorted refs of counted engagements without hours or
+            without a resolved date. Filled even when capacity is ``None``.
+        formula_version: The formula that produced this assessment.
     """
 
-    score: float
-    decayed_hours: float
-    raw_hours: float
+    band: LoadBand
+    reason: LoadReason
+    measurable: bool
+    completed_hours: Decimal
+    confirmed_hours: Decimal
+    capacity_hours: Decimal | None
+    utilization: Decimal | None
+    unknown_hours_refs: tuple[str, ...]
     formula_version: str
-    modifiers: frozenset[LoadModifier]
-    utilization: float
 
 
-class CapDecision(StrEnum):
-    """Stage A outcome for the declared-capacity hard constraint."""
-
-    #: Under the declared cap. Proceeds to Stage B with a soft penalty.
-    WITHIN_CAP = "within_cap"
-    #: Over the declared cap. Ineligible without an authorized override.
-    OVER_CAP = "over_cap"
-    #: A manual blackout is in effect. Ineligible; not overridable by load math.
-    BLACKED_OUT = "blacked_out"
+def _micros(duration: timedelta) -> int:
+    return duration // _ONE_MICROSECOND
 
 
-def _decay_weight(days_ago: int) -> float:
-    """Exponential recency weight with a 45-day half-life.
-
-    An engagement today counts fully; one 45 days ago counts half. Continuous
-    rather than stepped, so a professional's score does not jump when an
-    engagement crosses an arbitrary bucket edge.
-    """
-    return math.pow(0.5, days_ago / _DECAY_HALF_LIFE_DAYS)
+def _hours(us: int) -> Decimal:
+    with localcontext(Context(prec=_QUOTIENT_PRECISION)):
+        return Decimal(us) / _US_PER_HOUR
 
 
-def compute_eli(inputs: LoadInputs) -> EliSnapshot:
-    """Compute the Engagement Load Index.
+def _utilization(known_us: int, capacity: Decimal) -> Decimal:
+    with localcontext(Context(prec=_QUOTIENT_PRECISION)):
+        return Decimal(known_us) / (capacity * _US_PER_HOUR)
 
-    The score is the recency-decayed hours expressed as a percentage of declared
-    capacity, clamped to 0–100, then nudged upward by any visible modifiers in
-    effect. Modifiers add a bounded amount so they can express real schedule
-    pressure without dominating the measured hours.
+
+def _tally(inputs: LoadInputs) -> tuple[int, int, tuple[str, ...]]:
+    """Sum known completed and confirmed microseconds; collect unknown refs."""
+    completed_us = 0
+    confirmed_us = 0
+    unknown: list[str] = []
+    for engagement in inputs.engagements:
+        if not engagement.confirmed or engagement.cancelled:
+            continue
+        if engagement.event_date is None:
+            unknown.append(engagement.ref)
+            continue
+        offset = (engagement.event_date - inputs.as_of).days
+        is_confirmed = 0 <= offset < CONFIRMED_WINDOW_DAYS
+        is_completed = engagement.attended and -COMPLETED_WINDOW_DAYS <= offset <= -1
+        if not (is_confirmed or is_completed):
+            continue
+        if engagement.duration is None:
+            unknown.append(engagement.ref)
+        elif is_confirmed:
+            confirmed_us += _micros(engagement.duration)
+        else:
+            completed_us += _micros(engagement.duration)
+    return completed_us, confirmed_us, tuple(sorted(unknown))
+
+
+def _classify(
+    known_us: int, capacity: Decimal, has_unknown: bool, table: LoadBandTable
+) -> tuple[LoadBand, LoadReason]:
+    """Apply parent §5.2 / plan §4 on exact integer-microsecond comparisons."""
+    with localcontext(Context(prec=_EXACT_PRECISION, traps=[Inexact, InvalidOperation])):
+        load = Decimal(known_us)
+        cap_us = capacity * _US_PER_HOUR
+        if load > table.full_above * cap_us:
+            reason = LoadReason.FULL_BY_KNOWN_HOURS if has_unknown else LoadReason.MEASURED
+            return LoadBand.FULL, reason
+        if has_unknown:
+            return LoadBand.UNKNOWN, LoadReason.HOURS_UNKNOWN
+        if load >= table.heavy_from * cap_us:
+            return LoadBand.HEAVY, LoadReason.MEASURED
+        if load >= table.moderate_from * cap_us:
+            return LoadBand.MODERATE, LoadReason.MEASURED
+        return LoadBand.LIGHT, LoadReason.MEASURED
+
+
+def compute_eli(inputs: LoadInputs, table: LoadBandTable = Q7_LOAD_BAND_TABLE) -> LoadAssessment:
+    """Compute the load band for one professional.
 
     Args:
         inputs: The permitted operational facts.
+        table: Band cut points and multipliers; the registry passes its own.
 
     Returns:
-        A snapshot carrying the score, its inputs, and the formula version.
+        The band, its reason, the known hour totals and the refs that lack
+        hours.
     """
-    window_start = inputs.as_of - timedelta(days=_ROLLING_WINDOW_DAYS)
+    completed_us, confirmed_us, unknown_refs = _tally(inputs)
+    known_us = completed_us + confirmed_us
+    capacity = inputs.declared_capacity_hours
 
-    raw_hours = 0.0
-    decayed_hours = 0.0
-    for record in inputs.engagements:
-        if record.occurred_on < window_start:
-            continue
-        days_ago = (inputs.as_of - record.occurred_on).days
-        raw_hours += record.total_hours
-        decayed_hours += record.total_hours * _decay_weight(days_ago)
+    if capacity is None:
+        band, reason, utilization = LoadBand.UNKNOWN, LoadReason.CAPACITY_NOT_STATED, None
+    else:
+        band, reason = _classify(known_us, capacity, bool(unknown_refs), table)
+        utilization = _utilization(known_us, capacity)
 
-    utilization = decayed_hours / inputs.declared_capacity_hours
-    base_score = min(100.0, utilization * 100.0)
-
-    # Normalize once and score the normalized set, so the number the explanation
-    # names and the number the score counts cannot disagree. `modifiers` is
-    # annotated `frozenset`, but the annotation is not a runtime check: a list
-    # with six copies of one modifier used to score 20 beside an explanation
-    # naming a single modifier.
-    active_modifiers = frozenset(inputs.modifiers)
-
-    # Each modifier adds 4 points, capped at 20 total, so modifiers can never
-    # by themselves push an otherwise-idle professional to a high load score.
-    # MANUAL_BLACKOUT is excluded: it is an instruction from the professional or
-    # coordinator, not measured workload. It already has its own Stage A branch
-    # in `evaluate_cap`, and counting it here also wrote 4 points of work nobody
-    # did into a persisted, professional-visible snapshot (v1.1 §5.1 gives the
-    # professional the right to correct their workload data — and there would be
-    # nothing there to correct).
-    scoring_modifiers = active_modifiers - _NON_LOAD_MODIFIERS
-    modifier_points = min(20.0, 4.0 * len(scoring_modifiers))
-    score = min(100.0, base_score + modifier_points)
-
-    return EliSnapshot(
-        score=round(score, 2),
-        decayed_hours=round(decayed_hours, 2),
-        raw_hours=round(raw_hours, 2),
-        formula_version=ELI_FORMULA_VERSION,
-        modifiers=active_modifiers,
-        # Unrounded on purpose — see EliSnapshot.utilization. Rounding here to
-        # 4 dp put 100.000–100.005 % of declared capacity on the wrong side of
-        # the Stage A hard cap, and re-rounding to 2 dp for a tidier explanation
-        # would have widened that to 0.5 % without failing a single test.
+    return LoadAssessment(
+        band=band,
+        reason=reason,
+        measurable=reason is LoadReason.MEASURED,
+        completed_hours=_hours(completed_us),
+        confirmed_hours=_hours(confirmed_us),
+        capacity_hours=capacity,
         utilization=utilization,
+        unknown_hours_refs=unknown_refs,
+        formula_version=ELI_FORMULA_VERSION,
     )
-
-
-def evaluate_cap(snapshot: EliSnapshot) -> CapDecision:
-    """Apply the Stage A hard constraint.
-
-    A manual blackout is checked first and is not a load judgement — it is the
-    professional's or coordinator's explicit instruction, and no amount of spare
-    capacity overrides it.
-
-    Args:
-        snapshot: A computed ELI snapshot.
-
-    Returns:
-        The Stage A decision. ``OVER_CAP`` makes the pair ineligible unless an
-        authorized override with reason, author, timestamp, and expiration
-        exists (v1.1 §1.3).
-    """
-    if LoadModifier.MANUAL_BLACKOUT in snapshot.modifiers:
-        return CapDecision.BLACKED_OUT
-    if snapshot.utilization > 1.0:
-        return CapDecision.OVER_CAP
-    return CapDecision.WITHIN_CAP
-
-
-def load_penalty(snapshot: EliSnapshot) -> float:
-    """Return the Stage B soft penalty in ``[0.0, 1.0]``.
-
-    Quadratic in the score, so light load is close to free and the penalty rises
-    steeply as a professional approaches their declared cap. That keeps the
-    optimizer from spreading work so thinly that it ignores suitability, while
-    still strongly discouraging assignments near the cap.
-
-    This is the *soft* application only. The hard cap is
-    :func:`evaluate_cap`, and the two are reported separately in the match
-    explanation.
-    """
-    normalized = min(1.0, max(0.0, snapshot.score / 100.0))
-    return round(normalized**2, 4)

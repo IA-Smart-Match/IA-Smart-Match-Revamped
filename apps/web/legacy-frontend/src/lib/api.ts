@@ -1847,71 +1847,6 @@ export async function fetchCoordinatorEvents(coordinatorId: string): Promise<{ d
 }
 
 // ---------------------------------------------------------------------------
-// Volunteer portal types
-// ---------------------------------------------------------------------------
-
-export interface VolunteerProfile {
-  volunteer_id: string;
-  name: string;
-  title: string;
-  company: string;
-  board_role: string;
-  metro_region: string;
-  expertise_tags: string;
-  initials: string;
-  recovery_status: string;
-  recovery_label: string;
-  volunteer_fatigue: number;
-  source?: string;
-}
-
-export type AssignmentStage = "Matched" | "Contacted" | "Confirmed" | "Attended";
-
-/**
- * One volunteer assignment as the client is allowed to see it.
- *
- * `match_score` is intentionally absent: it is a G1-gated factor-registry
- * output and is stripped by {@link stripG1ScoreFields} inside
- * {@link fetchVolunteerAssignments}, so it never reaches component state.
- * The request itself stays because the rest of the row (event, date, region,
- * stage, recovery) is what the assignments list is actually built from.
- */
-export interface VolunteerAssignment {
-  assignment_id: string;
-  event_id: string;
-  event_name: string;
-  event_date: string;
-  region: string;
-  stage: AssignmentStage;
-  volunteer_fatigue: number;
-  recovery_status: string;
-  recovery_label: string;
-  coverage_status: string;
-}
-
-export async function fetchVolunteerProfile(
-  volunteerId: string,
-): Promise<VolunteerProfile & { source: string }> {
-  const subjectPath = portalSubjectPath(volunteerId, "volunteer");
-  return requestJson<VolunteerProfile & { source: string }>(
-    `${API_BASE}/portals/volunteers/${subjectPath}`,
-  );
-}
-
-export async function fetchVolunteerAssignments(
-  volunteerId: string,
-): Promise<{ data: VolunteerAssignment[]; total: number; source: string }> {
-  const subjectPath = portalSubjectPath(volunteerId, "volunteer");
-  const payload = await requestJson<{
-    data: VolunteerAssignment[];
-    total: number;
-    source: string;
-  }>(`${API_BASE}/portals/volunteers/${subjectPath}/assignments`);
-  // G1 fail-closed: the score is discarded here, not merely left unrendered.
-  return { ...payload, data: (payload.data ?? []).map(stripG1ScoreFields) };
-}
-
-// ---------------------------------------------------------------------------
 // Identity + accountable metrics (`contracts/openapi/smartmatch.json`)
 // ---------------------------------------------------------------------------
 
@@ -4395,22 +4330,6 @@ export interface SpeakerHandoffResult {
   speaker: ConfirmedSpeaker;
 }
 
-/**
- * `POST /v1/units/{unit_id}/cba/events/{event_id}/speaker-handoff` — bring one
- * speaker's journey up to whatever the stored evidence already supports.
- *
- * `200`, not `202`: the writes land in this request or they do not, and the
- * speaker returned is read back through the same query the Host's own list
- * uses. There is no `Idempotency-Key` — the operation is idempotent in the
- * data, because every step and every timestamp derives from a stored row.
- *
- * Rejects with {@link ApiRequestError}: `404` when the invitation is not in this
- * unit or the event not in this tenant; `409` when the invitation records no
- * acceptance (`cba_invitation_not_accepted`), when the cited attendance is not
- * this journey's, or when the stored timestamps cannot be ordered into the
- * funnel; `403` when the server does not grant this account the operation.
- * Render the server's own message — it says which of those happened.
- */
 /** One `pipeline_record` as `GET/POST …/pipeline-records/{id}…` returns it. */
 export interface PipelineRecordView {
   id: string;
@@ -4461,6 +4380,23 @@ export async function cancelBooking(
   );
 }
 
+/**
+ * `POST /v1/units/{unit_id}/cba/events/{event_id}/speaker-handoff` — bring one
+ * speaker's journey up to whatever the stored evidence already supports.
+ *
+ * `200`, not `202`: the writes land in this request or they do not, and the
+ * speaker returned is read back through the same query the Host's own list
+ * uses. There is no `Idempotency-Key` — the operation is idempotent in the
+ * data, because every step and every timestamp derives from a stored row.
+ *
+ * Rejects with {@link ApiRequestError}: `404` when the invitation is not in this
+ * unit or the event not in this tenant; `409` when the invitation records no
+ * acceptance (`cba_invitation_not_accepted`), when the cited attendance is not
+ * this journey's, when the stored timestamps cannot be ordered into the
+ * funnel, or when the booking was cancelled (`pipeline_record_cancelled`,
+ * nothing is written); `403` when the server does not grant this account the
+ * operation. Render the server's own message — it says which of those happened.
+ */
 export async function reconcileSpeakerHandoff(
   unitId: string,
   eventId: string,

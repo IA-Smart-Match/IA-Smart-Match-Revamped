@@ -789,9 +789,7 @@ class PipelineRepository:
                 record.c.attended_at.is_(None),
                 record.c.confirmed_at <= at,
             )
-            .values(
-                cancelled_at=at, cancelled_by_user_id=actor_user_id, updated_at=datetime.now(UTC)
-            )
+            .values(cancelled_at=at, cancelled_by_user_id=actor_user_id, updated_at=at)
             .returning(record.c.id)
         ).one_or_none()
 

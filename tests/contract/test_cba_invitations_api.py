@@ -60,6 +60,23 @@ EVENT_DATE = "Friday, 12 June"
 #: The local date of every Speaker Request these tests file (B26 T4).
 REQUEST_DATE = date(2026, 10, 5)
 
+#: What a browser sends for the ``/i/{token}`` page's form.
+FORM_CONTENT_TYPE = "application/x-www-form-urlencoded"
+
+#: The headers every token page sends (T6a plan §2.3).
+TOKEN_PAGE_HEADERS = {
+    "cache-control": "no-store",
+    "referrer-policy": "no-referrer",
+    "x-robots-tag": "noindex",
+    "x-content-type-options": "nosniff",
+    "content-security-policy": (
+        "default-src 'none'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"
+    ),
+}
+
+#: One byte over the form route's 1 KiB body cap.
+OVERSIZED_FORM_BODY = b"response=accept&pad=" + b"x" * (1025 - len(b"response=accept&pad="))
+
 
 def _token_hash(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
@@ -429,6 +446,16 @@ class _Context:
         return self.client.post(
             "/v1/speaker-invitations/respond", json={"token": token, "response": response}
         )
+
+    def respond_by_form(
+        self,
+        token: str,
+        body: bytes | str | Iterator[bytes] = b"response=accept",
+        *,
+        content_type: str = FORM_CONTENT_TYPE,
+    ):
+        """What the ``/i/{token}`` page's form submits. No credential either."""
+        return self.client.post(f"/i/{token}", content=body, headers={"Content-Type": content_type})
 
 
 @pytest.fixture(scope="module")
@@ -1302,3 +1329,165 @@ class TestSpeakerRespondsThemselves:
         assert suppressions == 0
         assert state == "active_candidate"
         assert ctx.stored(invitation_id).response_status == "declined_invitation"
+
+    def test_json_respond_route_is_unchanged(self, ctx: _Context):
+        """B26 T6a moved the body of this route into a shared helper. Its JSON
+        contract — the answer, the length bounds, the channel — is untouched."""
+        invitation_id, token = self._dispatched_with_token(ctx)
+
+        assert ctx.respond("too-short", "accept").status_code == 422
+        assert ctx.respond(token, "maybe").status_code == 422
+
+        response = ctx.respond(token, "decline")
+
+        assert response.status_code == 200
+        assert response.json() == {"recorded": True}
+        stored = ctx.stored(invitation_id)
+        assert stored.response_status == "declined_invitation"
+        assert stored.response_channel == "speaker_link"
+
+
+class TestSpeakerRespondsByForm:
+    """B26 T6a: the ``/i/{token}`` page's own form, posted back to its own URL.
+
+    Same rules as the JSON route above, and the same anti-oracle posture: every
+    token and every outcome gets byte-identical HTML.
+    """
+
+    def _dispatched_with_token(self, ctx: _Context) -> tuple[str, str]:
+        professional_id = ctx.roster_contact(name="Sam Rivera")
+        batch = ctx.create_batch([professional_id]).json()
+        ctx.dispatch(batch["batch_id"])
+        invitation_id = str(batch["invitations"][0]["invitation_id"])
+        token = secrets.token_urlsafe(32)
+        ctx.set_response_token(invitation_id, token)
+        return invitation_id, token
+
+    def test_form_accept_records_the_answer_by_speaker_link(self, ctx: _Context):
+        invitation_id, token = self._dispatched_with_token(ctx)
+
+        response = ctx.respond_by_form(token, "response=accept")
+
+        assert response.status_code == 200, response.text
+        assert response.headers["content-type"] == "text/html; charset=utf-8"
+        assert "Thank you. We have your answer." in response.text
+        stored = ctx.stored(invitation_id)
+        assert stored.response_status == "accepted_invitation"
+        assert stored.response_channel == "speaker_link"
+
+    def test_form_decline_records_the_answer(self, ctx: _Context):
+        invitation_id, token = self._dispatched_with_token(ctx)
+
+        response = ctx.respond_by_form(token, "response=decline")
+
+        assert response.status_code == 200, response.text
+        stored = ctx.stored(invitation_id)
+        assert stored.response_status == "declined_invitation"
+        assert stored.response_channel == "speaker_link"
+
+    @pytest.mark.parametrize(
+        "case",
+        ["invented", "short", "long", "answered-same", "answered-different", "undispatched"],
+    )
+    def test_form_post_is_identical_for_every_token(self, ctx: _Context, case: str):
+        """A recorded answer, a refused one and an invented token all read the same."""
+        _, baseline_token = self._dispatched_with_token(ctx)
+        baseline = ctx.respond_by_form(baseline_token, "response=accept")
+        assert baseline.status_code == 200
+
+        professional_id = ctx.roster_contact(name="Robin Chen")
+        batch = ctx.create_batch([professional_id], key=f"batch-key-{case}").json()
+        invitation_id = str(batch["invitations"][0]["invitation_id"])
+        if case != "undispatched":
+            ctx.dispatch(batch["batch_id"])
+        token = secrets.token_urlsafe(32)
+        ctx.set_response_token(invitation_id, token)
+        if case in {"answered-same", "answered-different"}:
+            assert ctx.respond_by_form(token, "response=accept").status_code == 200
+        before = ctx.stored(invitation_id).response_status
+
+        target = {"invented": secrets.token_urlsafe(32), "short": "abc", "long": "x" * 300}
+        answer = "decline" if case == "answered-different" else "accept"
+        response = ctx.respond_by_form(target.get(case, token), f"response={answer}")
+
+        assert response.status_code == baseline.status_code
+        assert response.content == baseline.content
+        if case == "answered-same":
+            assert before == "accepted_invitation"
+        assert ctx.stored(invitation_id).response_status == before
+
+    def test_form_post_does_not_echo_the_token(self, ctx: _Context):
+        _, token = self._dispatched_with_token(ctx)
+
+        response = ctx.respond_by_form(token, "response=accept")
+
+        assert token not in response.text
+        assert all(token not in value for value in response.headers.values())
+
+    @pytest.mark.parametrize(
+        ("body", "content_type"),
+        [
+            (b"", FORM_CONTENT_TYPE),
+            (b"response=maybe", FORM_CONTENT_TYPE),
+            (b"response=accept&response=decline", FORM_CONTENT_TYPE),
+            (b"response=accept\xff", FORM_CONTENT_TYPE),
+            (b"response=accept", "text/plain"),
+            (b"a=1&b=2&c=3&d=4&response=accept", FORM_CONTENT_TYPE),
+        ],
+        ids=["missing", "maybe", "repeated", "not-utf8", "text-plain", "five-fields"],
+    )
+    def test_form_post_without_a_valid_response_is_400_for_any_token(
+        self, ctx: _Context, body: bytes, content_type: str
+    ):
+        """Validation depends on the body only, so it cannot say whether a token is real."""
+        invitation_id, token = self._dispatched_with_token(ctx)
+
+        real = ctx.respond_by_form(token, body, content_type=content_type)
+        invented = ctx.respond_by_form(secrets.token_urlsafe(32), body, content_type=content_type)
+
+        assert real.status_code == 400, real.text
+        assert real.headers["content-type"] == "text/html; charset=utf-8"
+        assert "Choose Accept or Decline." in real.text
+        assert invented.status_code == 400
+        assert invented.content == real.content
+        assert ctx.stored(invitation_id).response_status == "awaiting_response"
+
+    def test_form_post_accepts_a_charset_parameter(self, ctx: _Context):
+        invitation_id, token = self._dispatched_with_token(ctx)
+
+        response = ctx.respond_by_form(
+            token,
+            "response=accept",
+            content_type="application/x-www-form-urlencoded; charset=UTF-8",
+        )
+
+        assert response.status_code == 200, response.text
+        assert ctx.stored(invitation_id).response_status == "accepted_invitation"
+
+    def test_form_post_sends_the_token_page_headers(self, ctx: _Context):
+        _, token = self._dispatched_with_token(ctx)
+
+        for response in (
+            ctx.respond_by_form(token, "response=accept"),
+            ctx.respond_by_form(token, "response=maybe"),
+            ctx.respond_by_form(token, OVERSIZED_FORM_BODY),
+        ):
+            for name, value in TOKEN_PAGE_HEADERS.items():
+                assert response.headers.get(name) == value, (response.status_code, name)
+
+    @pytest.mark.parametrize("chunked", [False, True], ids=["content-length", "chunked"])
+    def test_form_post_over_the_body_cap_is_413_for_any_token(self, ctx: _Context, chunked: bool):
+        """1 KiB is ample for one field; anything larger is refused unread."""
+        invitation_id, token = self._dispatched_with_token(ctx)
+
+        def body() -> bytes | Iterator[bytes]:
+            return iter([OVERSIZED_FORM_BODY]) if chunked else OVERSIZED_FORM_BODY
+
+        real = ctx.respond_by_form(token, body())
+        invented = ctx.respond_by_form(secrets.token_urlsafe(32), body())
+
+        assert real.status_code == 413, real.text
+        assert real.headers["content-type"] == "text/html; charset=utf-8"
+        assert invented.status_code == 413
+        assert invented.content == real.content
+        assert ctx.stored(invitation_id).response_status == "awaiting_response"
