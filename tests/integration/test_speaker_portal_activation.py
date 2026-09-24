@@ -18,7 +18,12 @@ pytest.importorskip("sqlalchemy")
 
 from conftest import _TENANT_SCOPED_TABLES, ensure_owning_unit, unique_subject
 from smartmatch_api import speaker_portal_activation as activation
-from smartmatch_api.speaker_portal_activation import ActivationRefused, activate_new_login
+from smartmatch_api.speaker_portal_activation import ActivationRefused, activate
+from smartmatch_domain.pilot_credentials import (
+    MINIMUM_ITERATIONS,
+    derive_password_hash,
+    new_salt,
+)
 from smartmatch_domain.speaker_portal import derive_token, token_hash
 from smartmatch_persistence.speaker_portal import SpeakerPortalRepository
 from sqlalchemy import Engine, text
@@ -96,24 +101,27 @@ def _speaker(engine: Engine, tenant_id: uuid.UUID, *, address: str) -> tuple[uui
     return professional_id, token
 
 
-def _activate(session: Session, token: str) -> None:
-    activate_new_login(
+def _activate(session: Session, token: str, existing: str | None = None) -> None:
+    activate(
         session,
         token=token,
-        new_password=_new_pw(),
+        new_password=None if existing else _new_pw(),
+        existing_password=existing,
         secret=_SECRET,
         now=datetime.now(UTC),
         issue_session=False,
     )
 
 
-def _in_thread(factory: sessionmaker[Session], token: str) -> tuple[threading.Thread, list]:
+def _in_thread(
+    factory: sessionmaker[Session], token: str, existing: str | None = None
+) -> tuple[threading.Thread, list]:
     outcome: list = []
 
     def run() -> None:
         with factory() as session:
             try:
-                _activate(session, token)
+                _activate(session, token, existing)
                 session.commit()
                 outcome.append("activated")
             except ActivationRefused:
@@ -264,3 +272,175 @@ def test_invite_and_activation_take_the_profile_lock_first(
     thread.join(10)
 
     assert seen == [professional_id]
+
+
+# ---------------------------------------------------------------------------
+# B26 T6b-5: existing-login mode and the credential writers (plan §8.1 item 5)
+# ---------------------------------------------------------------------------
+
+
+def _host(engine: Engine, tenant_id: uuid.UUID, address: str) -> tuple[uuid.UUID, str]:
+    """An Event Host login at ``address``: ``(user_id, password)``."""
+    user_id, pw = uuid.uuid4(), _new_pw()
+    stored = derive_password_hash(pw, salt=new_salt(), iterations=MINIMUM_ITERATIONS)
+    with engine.begin() as conn:
+        unit = ensure_owning_unit(conn, tenant_id)
+        assert unit
+        conn.execute(
+            text(
+                "INSERT INTO user_account (id, tenant_id, external_subject, email) "
+                "VALUES (:id, :t, :s, :e)"
+            ),
+            {
+                "id": user_id,
+                "t": tenant_id,
+                "s": unique_subject(f"host-{user_id.hex}"),
+                "e": address,
+            },
+        )
+        conn.execute(
+            text(
+                "INSERT INTO pilot_credential (id, tenant_id, user_id, algorithm, iterations, "
+                "salt, password_hash) VALUES (:id, :t, :u, :a, :i, :s, :h)"
+            ),
+            {
+                "id": uuid.uuid4(),
+                "t": tenant_id,
+                "u": user_id,
+                "a": stored.algorithm,
+                "i": stored.iterations,
+                "s": stored.salt,
+                "h": stored.digest,
+            },
+        )
+        conn.execute(
+            text(
+                "INSERT INTO membership (id, tenant_id, user_id, granted_path, role) "
+                "VALUES (:id, :t, :u, CAST('iawest.jobs' AS ltree), 'volunteer')"
+            ),
+            {"id": uuid.uuid4(), "t": tenant_id, "u": user_id},
+        )
+    return user_id, pw
+
+
+def test_two_invitations_to_one_host_address_bind_once(
+    engine: Engine, session_factory, tenant_id
+) -> None:
+    """Two profiles, one Host login: one binding (one login speaks for one profile)."""
+    address = f"host-{uuid.uuid4().hex[:8]}@example.invalid"
+    host_id, pw = _host(engine, tenant_id, address)
+    first_id, first_token = _speaker(engine, tenant_id, address=address)
+    second_id, second_token = _speaker(engine, tenant_id, address=address)
+
+    with session_factory() as first:
+        _activate(first, first_token, pw)
+        thread, outcome = _in_thread(session_factory, second_token, pw)
+        thread.join(_BLOCK_SECONDS)
+        assert thread.is_alive(), "the second activation should wait on the address lock"
+        first.commit()
+    thread.join(10)
+
+    assert outcome == ["refused"]
+    with engine.connect() as conn:
+        bound = conn.execute(
+            text("SELECT professional_id FROM speaker_profile WHERE account_user_id = :h"),
+            {"h": host_id},
+        ).all()
+        speaker_rows = conn.execute(
+            text("SELECT count(*) FROM membership WHERE user_id = :h AND role = 'speaker'"),
+            {"h": host_id},
+        ).scalar_one()
+    assert [row.professional_id for row in bound] == [first_id]
+    assert speaker_rows == 1
+    assert _state(engine, second_id)[3] is None
+
+
+def test_concurrent_new_login_and_seed_at_one_address_leave_one_credential(
+    engine: Engine, session_factory, tenant_id, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Closes T6b-1 §11's residual: the seed now takes the same address lock."""
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
+    import dataclasses
+
+    import seed_pilot_logins
+
+    address = f"race-{uuid.uuid4().hex[:8]}@example.invalid"
+    professional_id, token = _speaker(engine, tenant_id, address=address)
+    volunteer = next(e for e in seed_pilot_logins.ROLE_CREDENTIALS if e.role == "volunteer")
+    monkeypatch.setattr(
+        seed_pilot_logins,
+        "ROLE_CREDENTIALS",
+        (dataclasses.replace(volunteer, subject=unique_subject(f"race-{uuid.uuid4().hex}")),),
+    )
+    with engine.connect() as conn:
+        slug = conn.execute(
+            text("SELECT slug FROM tenant WHERE id = :t"), {"t": tenant_id}
+        ).scalar_one()
+    outcomes: list = []
+
+    def seed() -> None:
+        with engine.begin() as conn:
+            outcomes.extend(
+                seed_pilot_logins.seed_role_logins(
+                    conn,
+                    environ={volunteer.email_var: address, volunteer.password_var: _new_pw()},
+                    tenant_slug=slug,
+                    tenant_name=slug,
+                    unit_path="iawest.jobs",
+                    unit_type="department",
+                    unit_name="Test Jobs Unit",
+                )
+            )
+
+    with session_factory() as first:
+        _activate(first, token)
+        thread = threading.Thread(target=seed)
+        thread.start()
+        thread.join(_BLOCK_SECONDS)
+        assert thread.is_alive(), "the seed should wait on the address lock"
+        first.commit()
+    thread.join(20)
+
+    assert [o.foreign_login for o in outcomes] == [True]
+    with engine.connect() as conn:
+        holders = conn.execute(
+            text(
+                "SELECT u.id FROM user_account u JOIN pilot_credential c "
+                "ON c.tenant_id = u.tenant_id AND c.user_id = u.id "
+                "WHERE lower(btrim(u.email)) = lower(btrim(:a))"
+            ),
+            {"a": address},
+        ).all()
+    assert [row.id for row in holders] == [professional_id]
+
+
+def test_a_credential_update_waits_for_the_activation_lock(
+    engine: Engine, session_factory, tenant_id
+) -> None:
+    """R-D: FOR UPDATE on the Host's credential holds a concurrent change until commit."""
+    address = f"rowlock-{uuid.uuid4().hex[:8]}@example.invalid"
+    host_id, pw = _host(engine, tenant_id, address)
+    _, token = _speaker(engine, tenant_id, address=address)
+    done: list[str] = []
+
+    def rotate() -> None:
+        with engine.begin() as conn:
+            conn.execute(
+                text("UPDATE pilot_credential SET updated_at = now() WHERE user_id = :u"),
+                {"u": host_id},
+            )
+        done.append("updated")
+
+    with session_factory() as first:
+        _activate(first, token, pw)
+        thread = threading.Thread(target=rotate)
+        thread.start()
+        thread.join(_BLOCK_SECONDS)
+        assert thread.is_alive(), "the update should wait on the activation's row lock"
+        assert done == []
+        first.commit()
+    thread.join(10)
+    assert done == ["updated"]
