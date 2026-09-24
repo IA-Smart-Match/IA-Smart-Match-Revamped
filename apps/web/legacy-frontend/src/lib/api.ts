@@ -3986,6 +3986,96 @@ export async function fetchSpeakerContactChannels(
   );
 }
 
+// Speaker availability (B26 T3)
+//
+// A roster contact's stated availability, read and replaced by a Connector.
+// The types are generic so the speaker's own `/v1/me/availability` (T6b-2)
+// reuses them. "Not stated" is `stated: false` with every value `null` — a
+// screen says "Not stated", never "Available".
+
+export type SpeakerAvailabilitySource = "speaker" | "connector";
+
+/** One inclusive date range, `YYYY-MM-DD`. */
+export interface SpeakerAvailabilityWindow {
+  starts_on: string;
+  ends_on: string;
+}
+
+export interface SpeakerAvailabilityWindowView extends SpeakerAvailabilityWindow {
+  source: SpeakerAvailabilitySource;
+}
+
+export interface SpeakerAvailability {
+  professional_id: string;
+  stated: boolean;
+  /** `null` exactly when `stated` is false. */
+  version: number | null;
+  /** The stored value, even if already past. */
+  invitations_paused_until: string | null;
+  declared_capacity_hours_per_90_days: number | null;
+  unavailable: SpeakerAvailabilityWindowView[];
+  updated_source: SpeakerAvailabilitySource | null;
+  updated_at: string | null;
+}
+
+/** Full replace: every key is sent; `null` clears; an omitted window is deleted. */
+export interface SpeakerAvailabilityUpdatePayload {
+  /** Required: echo `version` from the read (`null` when it was not stated). */
+  expected_version: number | null;
+  invitations_paused_until: string | null;
+  declared_capacity_hours_per_90_days: number | null;
+  unavailable: SpeakerAvailabilityWindow[];
+}
+
+export type SpeakerAvailabilityErrorCode =
+  | "speaker_availability_stale"
+  | "speaker_availability_window_invalid"
+  | "speaker_availability_too_many_windows"
+  | "speaker_availability_pause_invalid"
+  | "speaker_availability_capacity_invalid"
+  | "speaker_contact_not_found";
+
+/**
+ * `GET /v1/units/{unit_id}/speaker-contacts/{professional_id}/availability`
+ *
+ * Rejects with `ApiRequestError`: `404 speaker_contact_not_found` when the
+ * person is not on this unit's roster, `404 unit_not_found`, or `403`.
+ */
+export async function fetchSpeakerAvailability(
+  unitId: string,
+  professionalId: string,
+): Promise<SpeakerAvailability> {
+  return requestJson<SpeakerAvailability>(
+    `/v1/units/${encodeURIComponent(unitId)}/speaker-contacts/` +
+      `${encodeURIComponent(professionalId)}/availability`,
+    { method: "GET" },
+    { authenticated: true },
+  );
+}
+
+/**
+ * `PATCH /v1/units/{unit_id}/speaker-contacts/{professional_id}/availability`
+ *
+ * Sends `payload` unchanged and resolves to the stored statement. Rejects with
+ * `ApiRequestError` whose `code` is a {@link SpeakerAvailabilityErrorCode}:
+ * `409 speaker_availability_stale` (re-read with GET; no `details`), or `422`
+ * with `details.field` — plus `details.index` (the request's window index) for
+ * `window_invalid` and `details.limit` for `too_many_windows`. A malformed body
+ * is `422 invalid_request`.
+ */
+export async function updateSpeakerAvailability(
+  unitId: string,
+  professionalId: string,
+  payload: SpeakerAvailabilityUpdatePayload,
+): Promise<SpeakerAvailability> {
+  return requestJson<SpeakerAvailability>(
+    `/v1/units/${encodeURIComponent(unitId)}/speaker-contacts/` +
+      `${encodeURIComponent(professionalId)}/availability`,
+    { method: "PATCH", body: JSON.stringify(payload) },
+    { authenticated: true },
+  );
+}
+
 // CBA speaker handoff (CBA-HANDOFF-PIPELINE, customer §6 step 9)
 //
 // The far end of the arrow `submitSpeakerRequest` starts: an Event Host asked
