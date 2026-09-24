@@ -18,6 +18,7 @@ from smartmatch_api.errors import ApiError
 from smartmatch_api.routers import speaker_availability_models as models
 from smartmatch_api.routers.speaker_availability_models import (
     SpeakerAvailabilityUpdateRequest,
+    SpeakerLoadView,
     availability_error,
     availability_response,
     stale_error,
@@ -40,6 +41,16 @@ from smartmatch_persistence.speaker_availability import (
 
 TODAY = date(2026, 10, 6)
 NOW = datetime(2026, 10, 6, 12, 0, tzinfo=UTC)
+
+#: The ``load`` block every response carries (B26 T8d): here the unstated one.
+UNSTATED_LOAD = SpeakerLoadView(
+    band="unknown",
+    reason="capacity_not_stated",
+    as_of=TODAY,
+    used_in_matching=False,
+    engagements_without_end_time=[],
+    engagements_without_end_time_truncated=False,
+)
 
 _FULL_BODY: dict[str, Any] = {
     "expected_version": None,
@@ -242,7 +253,7 @@ def test_stale_error_is_409_without_details() -> None:
 
 def test_response_for_no_row_is_not_stated() -> None:
     professional_id = uuid.uuid4()
-    response = availability_response(professional_id, None)
+    response = availability_response(professional_id, None, load=UNSTATED_LOAD)
     assert response.model_dump() == {
         "professional_id": professional_id,
         "stated": False,
@@ -252,7 +263,23 @@ def test_response_for_no_row_is_not_stated() -> None:
         "unavailable": [],
         "updated_source": None,
         "updated_at": None,
+        "load": {
+            "band": "unknown",
+            "reason": "capacity_not_stated",
+            "as_of": TODAY,
+            "used_in_matching": False,
+            "engagements_without_end_time": [],
+            "engagements_without_end_time_truncated": False,
+        },
     }
+
+
+def test_availability_response_requires_a_load_keyword() -> None:
+    """B26 T8d: ``load`` is a required keyword, so no call site can forget it."""
+    with pytest.raises(TypeError):
+        availability_response(uuid.uuid4(), None)  # type: ignore[call-arg]
+    with pytest.raises(TypeError):
+        availability_response(uuid.uuid4(), None, UNSTATED_LOAD)  # type: ignore[misc]
 
 
 def test_response_maps_sources_and_capacity_as_float() -> None:
@@ -275,7 +302,7 @@ def test_response_maps_sources_and_capacity_as_float() -> None:
     stored = _stored(
         paused_until=date(2026, 10, 20), capacity=Decimal("24.5"), windows=windows, version=4
     )
-    response = availability_response(stored.professional_id, stored)
+    response = availability_response(stored.professional_id, stored, load=UNSTATED_LOAD)
     assert response.stated is True
     assert response.version == 4
     assert response.invitations_paused_until == date(2026, 10, 20)
