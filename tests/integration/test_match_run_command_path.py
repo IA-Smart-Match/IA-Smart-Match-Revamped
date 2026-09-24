@@ -31,7 +31,10 @@ pytest.importorskip("sqlalchemy")
 
 from conftest import ensure_owning_unit
 from smartmatch_domain.factor_registry import (
+    CBA_3_PHYSICAL_MODEL,
     CBA_PHYSICAL_MODEL,
+    CBA_REGISTRY_3,
+    REGISTRY_3_VERSION,
     REGISTRY_VERSION,
     SCORING_MODE_VERSION,
     SUPERSEDED_G1_MODEL,
@@ -42,6 +45,7 @@ from smartmatch_domain.jobs import JobState
 from smartmatch_domain.match_run import (
     MATCH_RUN_COMMAND_TYPE,
     inputs_fingerprint,
+    registry_fingerprint,
     weights_fingerprint,
 )
 from smartmatch_persistence.jobs import JobRepository
@@ -51,6 +55,8 @@ from smartmatch_worker.dispatcher import OutboxDispatcher
 from smartmatch_worker.execution import TaskExecutor
 from smartmatch_worker.handlers import default_registry
 from sqlalchemy import text
+
+from tests.unit.registry_evaluation import evaluate_registry_3
 
 pytestmark = pytest.mark.integration
 
@@ -505,3 +511,126 @@ def test_an_unreadable_payload_fails_terminally_and_writes_nothing(
             ).scalar_one()
             == 0
         )
+
+
+# ---------------------------------------------------------------------------
+# B26 T8c: the worker scores under the payload's registry pin (plan §8)
+# ---------------------------------------------------------------------------
+
+#: 2.0.0 cba-physical-1 with default weights, measured on origin/main 1909278f.
+PINNED_2_0_0_PHYSICAL_HASH = (
+    "sha256:f870192c2b1d9977aaf4be3368f51f67accbbbba9955e4346a4445b0be4be4e5"
+)
+
+_ROW = (
+    "SELECT registry_version, registry_hash, weights, inputs_hash, optimizer_model_version, "
+    "solver_name, solver_version, route_estimate_source, route_estimate_version, "
+    "scoring_mode, scoring_mode_version, portfolio_status FROM match_run WHERE job_id = :job"
+)
+
+
+def _row(engine, job_id):
+    with engine.connect() as conn:
+        return conn.execute(text(_ROW), {"job": job_id}).one_or_none()
+
+
+def _refused(session_factory, tenant_id, engine, payload, reason):
+    job_id = _accept(session_factory, tenant_id, payload)
+    outcome = _run(session_factory, tenant_id, job_id)
+    assert outcome.state is JobState.FAILED_POLICY
+    assert _terminal_event(session_factory, tenant_id, job_id)["reason"] == reason
+    assert _row(engine, job_id) is None
+
+
+# W1
+def test_a_payload_without_registry_version_pins_2_0_0_and_the_literal_hash(
+    session_factory, tenant_id, engine
+):
+    job_id = _accept(session_factory, tenant_id, _payload(scoring_mode="cba-physical-1"))
+    assert _run(session_factory, tenant_id, job_id).state is JobState.SUCCEEDED
+    row = _row(engine, job_id)
+    assert row.registry_version == REGISTRY_VERSION
+    assert row.registry_hash == PINNED_2_0_0_PHYSICAL_HASH
+
+
+# W2
+def test_an_explicit_2_0_0_pin_writes_the_identical_row(session_factory, tenant_id, engine):
+    implicit = _accept(session_factory, tenant_id, _payload(scoring_mode="cba-physical-1"))
+    explicit = _accept(
+        session_factory,
+        tenant_id,
+        _payload(scoring_mode="cba-physical-1", registry_version=REGISTRY_VERSION),
+    )
+    _run(session_factory, tenant_id, implicit)
+    _run(session_factory, tenant_id, explicit)
+    first, second = _row(engine, implicit), _row(engine, explicit)
+    assert first is not None
+    assert first == second
+    assert second.registry_hash == PINNED_2_0_0_PHYSICAL_HASH
+
+
+# W3
+def test_a_3_0_0_pin_fails_policy_while_proposed(session_factory, tenant_id, engine):
+    _refused(
+        session_factory,
+        tenant_id,
+        engine,
+        _payload(scoring_mode="cba-physical-1", registry_version=REGISTRY_3_VERSION),
+        "registry_not_ready",
+    )
+
+
+# W4
+def test_an_unknown_pin_is_an_invalid_payload(session_factory, tenant_id, engine):
+    _refused(
+        session_factory,
+        tenant_id,
+        engine,
+        _payload(scoring_mode="cba-physical-1", registry_version="9.9.9-nobody"),
+        "invalid_command_payload",
+    )
+
+
+# W5
+def test_3_0_0_with_no_mode_is_an_invalid_payload(session_factory, tenant_id, engine):
+    _refused(
+        session_factory,
+        tenant_id,
+        engine,
+        _payload(registry_version=REGISTRY_3_VERSION),
+        "invalid_command_payload",
+    )
+
+
+# W6
+def test_under_evaluation_3_0_0_fingerprints_the_band_table(
+    session_factory, tenant_id, engine, monkeypatch
+):
+    evaluate_registry_3(monkeypatch, modules=("smartmatch_worker.handlers",))
+    job_id = _accept(
+        session_factory,
+        tenant_id,
+        _payload(scoring_mode="cba-physical-1", registry_version=REGISTRY_3_VERSION),
+    )
+    assert _run(session_factory, tenant_id, job_id).state is JobState.SUCCEEDED
+    weights = normalize_weights(model=CBA_3_PHYSICAL_MODEL, registry=CBA_REGISTRY_3)
+    row = _row(engine, job_id)
+    assert row.registry_version == REGISTRY_3_VERSION
+    assert row.registry_hash == registry_fingerprint(weights, load_bands=CBA_REGISTRY_3.load_bands)
+    assert row.registry_hash != PINNED_2_0_0_PHYSICAL_HASH
+    assert row.weights == dict(weights)
+    assert row.scoring_mode == "cba-physical-1"
+
+
+# W7
+def test_a_pin_its_mode_does_not_resolve_to_is_an_invalid_payload(
+    session_factory, tenant_id, engine
+):
+    """Pin 2.0.0 with no mode resolves to the 1.1.1 model: refused, never a 1.1.1 run."""
+    _refused(
+        session_factory,
+        tenant_id,
+        engine,
+        _payload(registry_version=REGISTRY_VERSION),
+        "invalid_command_payload",
+    )
