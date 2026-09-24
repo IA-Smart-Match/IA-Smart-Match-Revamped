@@ -243,7 +243,7 @@ describe("loadBandCopy", () => {
     expect(copy.precision).toBe("start time only");
     expect(gapItemText(item(), "speaker").precision).toBeNull();
     expect(eventsLinkName(TITLE)).toBe(
-      "Add the end time for Corporate treasury guest lecture on the Events page",
+      "Add the end time on the Events page for Corporate treasury guest lecture",
     );
   });
 

@@ -100,10 +100,12 @@ def _label(
     origin: str = "coordinator_entry",
     precision: str = "date_only",
     resolved: date | None = AS_OF,
+    record_unit: uuid.UUID = VIEWER_UNIT,
 ) -> EngagementLabel:
     if not event:
         return EngagementLabel(
             record_id=record_id or uuid.uuid4(),
+            record_unit_id=record_unit,
             event_id=None,
             title=None,
             resolved_date=None,
@@ -113,6 +115,7 @@ def _label(
         )
     return EngagementLabel(
         record_id=record_id or uuid.uuid4(),
+        record_unit_id=record_unit,
         event_id=uuid.uuid4(),
         title=title,
         resolved_date=resolved,
@@ -290,7 +293,7 @@ def test_connector_viewer_hides_other_units_titles_and_marks_only_own_coordinato
     """U5: own coordinator_entry editable; own extraction not; another unit anonymized."""
     own_entry = _label(title="Corporate treasury guest lecture", precision="exact")
     own_extracted = _label(title="Risk management seminar", origin="extraction")
-    elsewhere = _label(title="Audit committee panel", host=OTHER_UNIT)
+    elsewhere = _label(title="Audit committee panel", host=OTHER_UNIT, record_unit=OTHER_UNIT)
 
     view = _view(_gaps(), [own_entry, own_extracted, elsewhere], viewer=VIEWER_UNIT)
 
@@ -328,20 +331,45 @@ def test_connector_viewer_hides_other_units_titles_and_marks_only_own_coordinato
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("viewer", [None, VIEWER_UNIT], ids=["speaker", "connector"])
-def test_missing_event_is_event_missing(viewer: uuid.UUID | None) -> None:
-    missing = _label(event=False)
+@pytest.mark.parametrize(
+    ("viewer", "record_unit", "id_shown"),
+    [
+        (None, OTHER_UNIT, True),
+        (VIEWER_UNIT, VIEWER_UNIT, True),
+        (VIEWER_UNIT, OTHER_UNIT, False),
+    ],
+    ids=["speaker", "connector-own-record", "connector-other-units-record"],
+)
+def test_missing_event_is_event_missing(
+    viewer: uuid.UUID | None, record_unit: uuid.UUID, id_shown: bool
+) -> None:
+    """No event row: a Connector sees the record id only when their unit owns the record."""
+    missing = _label(event=False, record_unit=record_unit)
 
     (item,) = _view(_gaps(), [missing], viewer=viewer).engagements_without_end_time
 
     assert item.model_dump() == {
-        "engagement_id": missing.record_id,
+        "engagement_id": missing.record_id if id_shown else None,
         "shown": "event_missing",
         "event_title": None,
         "local_date": None,
         "time_precision": None,
         "editable_here": False,
     }
+
+
+def test_a_record_another_unit_owns_carries_no_id_to_a_connector_even_at_their_event() -> None:
+    """The event is hosted here (title shown, editable), but the booking is another unit's."""
+    theirs = _label(title="Corporate treasury guest lecture", record_unit=OTHER_UNIT)
+
+    (item,) = _view(_gaps(), [theirs], viewer=VIEWER_UNIT).engagements_without_end_time
+
+    assert (item.shown, item.event_title, item.editable_here) == (
+        "event",
+        "Corporate treasury guest lecture",
+        True,
+    )
+    assert item.engagement_id is None
 
 
 def test_labels_keep_repository_order_and_truncate_at_20() -> None:

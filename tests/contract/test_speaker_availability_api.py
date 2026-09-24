@@ -1113,3 +1113,44 @@ def test_get_measures_as_of_from_its_own_utc_now(
     )
 
     assert _load(ctx.get(pid))["as_of"] == "2026-10-05"
+
+
+# A15
+def test_another_units_booking_without_an_event_row_carries_no_record_id(ctx: _Context) -> None:
+    """Review H1: event_missing from another unit's record reaches a Connector without its id."""
+    pid = ctx.add_roster_contact()
+    ctx.create(pid, declared_capacity_hours_per_90_days=10)
+    records = {}
+    for unit in (ctx.unit_id, ctx.sibling_unit_id):
+        record_id = uuid.uuid4()
+        with ctx.engine.begin() as conn:
+            conn.execute(
+                text(
+                    "INSERT INTO pipeline_record (id, tenant_id, owning_unit_id, subject_id, "
+                    "opportunity_event_id, matched_provenance, matched_at, contacted_at, "
+                    "confirmed_at) VALUES (:id, :t, :u, :s, :e, "
+                    "'synthetic / coordinator-accepted', :m, :c, :k)"
+                ),
+                {
+                    "id": record_id,
+                    "t": ctx.tenant_id,
+                    "u": unit,
+                    "s": pid,
+                    # Names no event row (opportunity_event_id has no FK; T8c OQ3).
+                    "e": uuid.uuid4(),
+                    "m": _BOOKED_AT,
+                    "c": _BOOKED_AT + timedelta(hours=1),
+                    "k": _BOOKED_AT + timedelta(hours=2),
+                },
+            )
+        records[unit] = record_id
+
+    response = ctx.get(pid)
+    items = _load(response)["engagements_without_end_time"]
+
+    assert sorted((item["shown"], item["engagement_id"] is None) for item in items) == [
+        ("event_missing", False),
+        ("event_missing", True),
+    ]
+    assert str(records[ctx.unit_id]) in response.text
+    assert str(records[ctx.sibling_unit_id]) not in response.text

@@ -2143,3 +2143,5 @@ def test_t8cs_excluded_load_schema_is_unchanged() -> None:
         {"type": "null"},
     ]
     assert schemas["MatchRunResponse"]["properties"]["load_recorded"]["type"] == "boolean"
+    # Review L1: required, never defaulted; the read derives it from the pin.
+    assert "load_recorded" in schemas["MatchRunResponse"]["required"]

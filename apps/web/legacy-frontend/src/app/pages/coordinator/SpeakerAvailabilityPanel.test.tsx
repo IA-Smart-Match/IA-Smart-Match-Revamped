@@ -786,7 +786,7 @@ describe("<SpeakerAvailabilityPanel /> workload (B26 T8d V-D)", () => {
     expect(links).toHaveLength(1);
     expect(
       within(group).getByRole("link", {
-        name: `Add the end time for ${TITLE} on the Events page`,
+        name: `Add the end time on the Events page for ${TITLE}`,
       }),
     ).toBeTruthy();
   });

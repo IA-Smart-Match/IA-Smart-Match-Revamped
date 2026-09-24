@@ -8,6 +8,7 @@ import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { EngagementWithoutEndTime, LoadBand, SpeakerLoad } from "@/lib/api";
+import { eventsLinkName } from "@/lib/loadBandCopy";
 import { speakerLoadFixture } from "@/test/speakerLoadFixture";
 
 import { LoadBandSummary } from "./LoadBandSummary";
@@ -233,9 +234,12 @@ describe("<LoadBandSummary />", () => {
     );
     const links = within(container).getAllByRole("link");
     expect(links).toHaveLength(1);
+    // WCAG 2.5.3: the accessible name starts with the whole visible text.
     const link = screen.getByRole("link", {
-      name: "Add the end time for Corporate treasury guest lecture on the Events page",
+      name: "Add the end time on the Events page for Corporate treasury guest lecture",
     });
+    expect(link.textContent?.startsWith("Add the end time on the Events page")).toBe(true);
+    expect(link.textContent).toBe(eventsLinkName("Corporate treasury guest lecture"));
     expect(link.getAttribute("href")).toBe("/coordinator-portal/events");
     const items = within(container).getAllByRole("listitem");
     expect(items[1].textContent).toContain(

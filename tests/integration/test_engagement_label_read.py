@@ -153,7 +153,7 @@ def test_labels_carry_title_date_precision_unit_and_origin(
         extracted=True,
     )
     own = _journey(engine, tenant_id, subject_id=subject, event_id=own_event)
-    away = _journey(engine, tenant_id, subject_id=subject, event_id=away_event)
+    away = _journey(engine, tenant_id, subject_id=subject, event_id=away_event, unit_id=other_unit)
     with engine.connect() as conn:
         own_unit = ensure_owning_unit(conn, tenant_id)
 
@@ -163,6 +163,7 @@ def test_labels_carry_title_date_precision_unit_and_origin(
     assert result == (
         EngagementLabel(
             record_id=own,
+            record_unit_id=own_unit,
             event_id=own_event,
             title="Corporate treasury guest lecture",
             resolved_date=AS_OF + timedelta(days=3),
@@ -172,6 +173,7 @@ def test_labels_carry_title_date_precision_unit_and_origin(
         ),
         EngagementLabel(
             record_id=away,
+            record_unit_id=other_unit,
             event_id=away_event,
             title="Audit committee panel",
             resolved_date=AS_OF + timedelta(days=4),
@@ -194,8 +196,11 @@ def test_a_record_naming_no_event_returns_null_event_fields(
 
     (label,) = _read(session_factory, labels, tenant_id, [record])
 
+    with engine.connect() as conn:
+        own_unit = ensure_owning_unit(conn, tenant_id)
     assert label == EngagementLabel(
         record_id=record,
+        record_unit_id=own_unit,
         event_id=None,
         title=None,
         resolved_date=None,
