@@ -250,7 +250,7 @@ def test_used_in_matching_follows_the_current_registry(monkeypatch: pytest.Monke
 def test_the_shipped_current_registry_is_untouched() -> None:
     """Guardrail: T8d reads the pointer; 2.0.0 stays current."""
     assert factor_registry.CURRENT_CBA_REGISTRY is factor_registry.CBA_REGISTRY
-    assert factor_registry.current_cba_registry().version == "2.0.0"
+    assert factor_registry.current_cba_registry().version == factor_registry.REGISTRY_VERSION
 
 
 # ---------------------------------------------------------------------------
