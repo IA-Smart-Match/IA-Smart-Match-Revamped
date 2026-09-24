@@ -303,6 +303,144 @@ def test_unresolved_event_yields_none():
 
 
 # ---------------------------------------------------------------------------
+# Zone-representation independence: the same instants give the same verdict
+# whether supplied as UTC, as a ZoneInfo datetime in the event's zone, or as a
+# fixed offset. Zones whose DST transition falls at local midnight (Santiago,
+# Havana) are where wall-clock arithmetic on a ZoneInfo datetime goes wrong.
+# ---------------------------------------------------------------------------
+
+SANTIAGO = "America/Santiago"
+HAVANA = "America/Havana"
+
+
+def _as_utc(value: datetime, zone: str) -> datetime:
+    return value.astimezone(UTC)
+
+
+def _as_event_zone(value: datetime, zone: str) -> datetime:
+    return value.astimezone(ZoneInfo(zone))
+
+
+def _as_fixed_offset(value: datetime, zone: str) -> datetime:
+    local = value.astimezone(ZoneInfo(zone))
+    return local.replace(tzinfo=timezone(local.utcoffset() or timedelta(0)))
+
+
+_REPRESENTATIONS = pytest.mark.parametrize(
+    "represent",
+    [_as_utc, _as_event_zone, _as_fixed_offset],
+    ids=["utc", "zoneinfo", "fixed_offset"],
+)
+
+# (zone, start instant, end instant, expected (first, last) local dates)
+_BOUNDARY_EVENTS = [
+    pytest.param(
+        LA,
+        datetime(2026, 9, 15, 3, 0, tzinfo=UTC),
+        datetime(2026, 9, 15, 7, 0, tzinfo=UTC),  # 00:00 PDT Sep 15
+        (date(2026, 9, 14), date(2026, 9, 14)),
+        id="la-normal-day-ends-at-midnight",
+    ),
+    pytest.param(
+        LA,
+        datetime(2026, 3, 8, 4, 0, tzinfo=UTC),
+        datetime(2026, 3, 8, 8, 0, tzinfo=UTC),  # 00:00 PST Mar 8 (DST day)
+        (date(2026, 3, 7), date(2026, 3, 7)),
+        id="la-ends-at-midnight-before-spring-forward",
+    ),
+    pytest.param(
+        LA,
+        datetime(2026, 3, 8, 4, 0, tzinfo=UTC),
+        datetime(2026, 3, 8, 10, 30, tzinfo=UTC),  # 03:30 PDT Mar 8
+        (date(2026, 3, 7), date(2026, 3, 8)),
+        id="la-across-spring-forward",
+    ),
+    pytest.param(
+        LA,
+        datetime(2026, 11, 1, 3, 0, tzinfo=UTC),
+        datetime(2026, 11, 1, 9, 30, tzinfo=UTC),  # 01:30 PST (second 01:30)
+        (date(2026, 10, 31), date(2026, 11, 1)),
+        id="la-across-fall-back",
+    ),
+    pytest.param(
+        SANTIAGO,
+        datetime(2026, 9, 6, 0, 0, tzinfo=UTC),
+        datetime(2026, 9, 6, 4, 0, tzinfo=UTC),  # 01:00 -03, first instant of Sep 6
+        (date(2026, 9, 5), date(2026, 9, 5)),
+        id="santiago-ends-at-skipped-midnight",
+    ),
+    pytest.param(
+        HAVANA,
+        datetime(2026, 3, 8, 1, 0, tzinfo=UTC),
+        datetime(2026, 3, 8, 5, 0, tzinfo=UTC),  # 01:00 CDT, first instant of Mar 8
+        (date(2026, 3, 7), date(2026, 3, 7)),
+        id="havana-ends-at-skipped-midnight",
+    ),
+    pytest.param(
+        HAVANA,
+        datetime(2026, 11, 1, 1, 0, tzinfo=UTC),
+        datetime(2026, 11, 1, 5, 0, tzinfo=UTC),  # second 00:00 (CST), after 00:00-01:00 CDT
+        (date(2026, 10, 31), date(2026, 11, 1)),
+        id="havana-ends-at-repeated-midnight",
+    ),
+    pytest.param(
+        SANTIAGO,
+        datetime(2026, 9, 6, 4, 0, tzinfo=UTC),  # 01:00 -03 Sep 6
+        datetime(2026, 9, 6, 6, 0, tzinfo=UTC),
+        (date(2026, 9, 6), date(2026, 9, 6)),
+        id="santiago-starts-at-skipped-midnight",
+    ),
+    pytest.param(
+        HAVANA,
+        datetime(2026, 11, 1, 5, 0, tzinfo=UTC),  # second 00:00 (CST) Nov 1
+        datetime(2026, 11, 1, 7, 0, tzinfo=UTC),
+        (date(2026, 11, 1), date(2026, 11, 1)),
+        id="havana-starts-at-repeated-midnight",
+    ),
+]
+
+
+@_REPRESENTATIONS
+@pytest.mark.parametrize(("zone", "start", "end", "expected"), _BOUNDARY_EVENTS)
+def test_event_span_is_independent_of_zone_representation(represent, zone, start, end, expected):
+    t = ExactTime(represent(start, zone), zone, ends_at=represent(end, zone))
+    assert event_local_span(t) == expected
+
+
+@_REPRESENTATIONS
+@pytest.mark.parametrize(("zone", "start", "end", "expected"), _BOUNDARY_EVENTS)
+def test_verdict_on_boundary_dates_is_independent_of_zone_representation(
+    represent, zone, start, end, expected
+):
+    first, last = expected
+    t = ExactTime(represent(start, zone), zone, ends_at=represent(end, zone))
+    span = event_local_span(t)
+    for day, verdict in (
+        (first - timedelta(days=1), AVAILABLE_CLEAR),
+        (first, WINDOW),
+        (last, WINDOW),
+        (last + timedelta(days=1), AVAILABLE_CLEAR),
+    ):
+        stmt = _stmt(windows=(_w(day, day),))
+        assert _verdict(availability_state_for_event(stmt, span, AS_OF)) == verdict, day
+
+
+def test_skipped_midnight_end_written_as_local_wall_time_excludes_next_day():
+    # Same instant as test 20a (2026-09-06T04:00Z), written as Santiago wall time.
+    tz = ZoneInfo(SANTIAGO)
+    t = ExactTime(
+        datetime(2026, 9, 5, 23, 0, tzinfo=tz),
+        SANTIAGO,
+        ends_at=datetime(2026, 9, 6, 1, 0, tzinfo=tz),
+    )
+    assert event_local_span(t) == (date(2026, 9, 5), date(2026, 9, 5))
+    stmt = _stmt(windows=(_w(date(2026, 9, 6), date(2026, 9, 6)),))
+    assert _verdict(availability_state_for_event(stmt, event_local_span(t), AS_OF)) == (
+        AVAILABLE_CLEAR
+    )
+
+
+# ---------------------------------------------------------------------------
 # Limits
 # ---------------------------------------------------------------------------
 
