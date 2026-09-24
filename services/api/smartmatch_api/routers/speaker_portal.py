@@ -592,13 +592,13 @@ def _activation_caller_key(request: Request) -> str:
     return client.host if client is not None and client.host else "client-address-unavailable"
 
 
-def _charge_activation_attempt(request: Request, session: Session) -> None:
+def _charge_activation_attempt(request: Request, session: Session, *, now: datetime) -> None:
     """Charge one attempt to this caller's own activation bucket, and commit it."""
     decision = LoginAttemptLimiter().check(
         session,
         limit=ACTIVATION_RATE_LIMIT,
         caller_key=_ACTIVATION_KEY_PREFIX + _activation_caller_key(request),
-        now=utc_now(),
+        now=now,
     )
     if not decision.allowed:
         retry_seconds = max(1, int(decision.retry_after.total_seconds()))
@@ -675,7 +675,8 @@ def activate_speaker_portal(
     about the token. Every attempt, including a wrong existing password, is
     charged to the activation limiter first.
     """
-    _charge_activation_attempt(request, session)
+    now = utc_now()  # R6: one reading, for the charge and the activation.
+    _charge_activation_attempt(request, session, now=now)
     if body.new_password is not None:
         try:
             check_new_password(body.new_password)
@@ -693,7 +694,7 @@ def activate_speaker_portal(
             new_password=body.new_password,
             existing_password=body.existing_password,
             secret=secret,
-            now=utc_now(),
+            now=now,
             issue_session=True,
         )
     except ActivationRefused as exc:
@@ -823,7 +824,8 @@ def activate_by_form(
     mismatched new password), 401 (wrong existing password: the existing form
     again), 409 (the other mode: that form), 400 (every invalid token,
     identical bytes, or a malformed form)."""
-    _charge_activation_attempt(request, session)
+    now = utc_now()  # R6: one reading, for the charge and the activation.
+    _charge_activation_attempt(request, session, now=now)
     if form.outcome is FormReadOutcome.TOO_LARGE:
         return _page(
             "That was too long",
@@ -865,7 +867,7 @@ def activate_by_form(
             new_password=new_password,
             existing_password=existing_password,
             secret=secret,
-            now=utc_now(),
+            now=now,
             issue_session=False,
         )
     except ActivationRefused:
