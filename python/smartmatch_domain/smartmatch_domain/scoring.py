@@ -40,9 +40,12 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Final
 
+from smartmatch_domain.eli import LoadBand
 from smartmatch_domain.factor_registry import (
+    CBA_REGISTRY,
     SUPERSEDED_G1_MODEL,
     FactorKind,
+    FactorRegistry,
     RegistryNotReadyError,
     ScoringModel,
     assert_registry_approved,
@@ -70,8 +73,10 @@ from smartmatch_domain.factors.proximity import (
 from smartmatch_domain.factors.role_match import RoleMatchInputs, score_role_match
 from smartmatch_domain.factors.topic_relevance import TopicRelevanceInputs, score_topic_relevance
 from smartmatch_domain.factors.travel_burden import TravelInputs, score_travel_burden
+from smartmatch_domain.load_bands import AssessedLoad
 
 __all__ = [
+    "CBA_LOAD_STAGE_B_FORMULA_VERSION",
     "CBA_STAGE_B_FORMULA_VERSION",
     "STAGE_B_FORMULA_VERSION",
     "CandidateEvidence",
@@ -96,6 +101,11 @@ STAGE_B_FORMULA_VERSION: Final[str] = "1.0.0"
 #: making the composite unknown. A stored run says which composition produced
 #: it, and neither version is ever read as the other.
 CBA_STAGE_B_FORMULA_VERSION: Final[str] = "2.0.0-cba"
+
+#: The CBA composition under a registry that carries a load band table
+#: (registry 3.x, ADR-0027): the weighted composite multiplied by the band's
+#: multiplier, rounded once. The composition changed, so its version does.
+CBA_LOAD_STAGE_B_FORMULA_VERSION: Final[str] = "3.0.0-cba-load"
 
 
 def _kind_table(registry_version: str) -> Mapping[str, FactorKind]:
@@ -177,6 +187,10 @@ class StageBScore:
             ``cba-physical-1``.
         scoring_mode_version: The mode vocabulary's version, set exactly when
             ``scoring_mode`` is.
+        load: The candidate's assessed engagement load, under a registry with
+            a load band table (3.x); ``None`` under 1.x and 2.x.
+        composite_before_load: The unrounded weighted composite before the load
+            multiplier; set exactly when ``load`` is set and ``value`` is known.
     """
 
     subject_id: str
@@ -189,6 +203,8 @@ class StageBScore:
     policy_neutral_factor_keys: tuple[str, ...] = ()
     scoring_mode: str | None = None
     scoring_mode_version: str | None = None
+    load: AssessedLoad | None = None
+    composite_before_load: float | None = None
 
     def __post_init__(self) -> None:
         if not self.subject_id.strip():
@@ -207,6 +223,13 @@ class StageBScore:
             raise ValueError(
                 f"scoring_mode {self.scoring_mode!r} and scoring_mode_version "
                 f"{self.scoring_mode_version!r} must be set or unset together"
+            )
+        expects_composite = self.load is not None and self.value is not None
+        if expects_composite != (self.composite_before_load is not None):
+            raise ValueError(
+                "composite_before_load must be set exactly when a load is recorded and "
+                f"the composite is known; got load={self.load is not None}, "
+                f"value={self.value!r}, composite_before_load={self.composite_before_load!r}"
             )
 
 
@@ -445,6 +468,9 @@ class CbaCandidateEvidence:
             proximity factor, which records it in the score's basis and reads
             it to decide how coarse the value should say it is. ``None`` means
             the caller stated no source; the distance is still scored.
+        load: The speaker's assessed engagement load. Required under a registry
+            with a load band table (3.x) and refused under any other: a 2.x
+            score never saw a load, and a 3.x score never assumes a band.
     """
 
     subject_id: str
@@ -454,6 +480,7 @@ class CbaCandidateEvidence:
     location: SpeakerLocation | None = None
     distance_miles: float | None = None
     distance_provenance: str | None = None
+    load: AssessedLoad | None = None
 
     def __post_init__(self) -> None:
         if not self.subject_id.strip():
@@ -467,6 +494,7 @@ def score_cba_candidate(
     topic_provider: SemanticTopicProvider,
     scoring_mode: str = CBA_PHYSICAL_SCORING_MODE,
     weight_overrides: Mapping[str, float] | None = None,
+    registry: FactorRegistry = CBA_REGISTRY,
 ) -> StageBScore:
     """Score one candidate against the approved CBA four-factor model.
 
@@ -488,10 +516,15 @@ def score_cba_candidate(
         scoring_mode: ``"cba-physical-1"`` or ``"cba-virtual-1"``, resolved
             from the event before scoring and never inferred here.
         weight_overrides: Optional weight overrides, normalized on apply.
+        registry: The rulebook to score under. Defaults to :data:`CBA_REGISTRY`
+            (2.0.0), so every existing caller is unchanged. A registry with a
+            load band table (3.x) applies the load multiplier; its approval
+            gate is that registry's own.
 
     Returns:
-        A :class:`StageBScore` pinned to the CBA registry version, the
-        resolved scoring mode, and :data:`CBA_STAGE_B_FORMULA_VERSION`.
+        A :class:`StageBScore` pinned to the registry version, the resolved
+        scoring mode, and :data:`CBA_STAGE_B_FORMULA_VERSION` (or
+        :data:`CBA_LOAD_STAGE_B_FORMULA_VERSION` under a load band table).
         ``value`` is ``None`` when any factor is unknown.
 
     Raises:
@@ -503,18 +536,27 @@ def score_cba_candidate(
             vocabulary, or names the superseded model (``None``), which this
             function cannot produce.
         ValueError: if a supplied override is negative or the applied weights
-            do not sum to one.
+            do not sum to one; if a load is given under a registry with no band
+            table, missing under one with a table, Full (removed at Stage A), or
+            assessed under another ELI formula.
     """
-    assert_registry_approved()
-    assert_scoring_ready()
+    # The zero-argument calls on the CBA path are the seam
+    # ``tests/unit/test_scoring.py`` patches; another registry passes itself.
+    if registry == CBA_REGISTRY:
+        assert_registry_approved()
+        assert_scoring_ready()
+    else:
+        assert_registry_approved(registry=registry)
+        assert_scoring_ready(registry=registry)
 
-    model = resolve_scoring_model(scoring_mode)
+    model = resolve_scoring_model(scoring_mode, registry=registry)
     return _compose_cba(
         evidence,
         request_description=request_description,
         topic_provider=topic_provider,
         model=model,
         weight_overrides=weight_overrides,
+        registry=registry,
     )
 
 
@@ -566,9 +608,16 @@ def _compose_cba(
     topic_provider: SemanticTopicProvider,
     model: ScoringModel,
     weight_overrides: Mapping[str, float] | None,
+    registry: FactorRegistry = CBA_REGISTRY,
 ) -> StageBScore:
-    """Weight and sum one candidate's CBA factor scores."""
-    applied_weights = normalize_weights(weight_overrides, model=model)
+    """Weight and sum one candidate's CBA factor scores.
+
+    Under a registry with a load band table (3.x, ADR-0027) the unrounded
+    weighted sum is multiplied by the band's multiplier and rounded once, so
+    Light and Unknown (multiplier 1.0) equal the 2.x value bit for bit.
+    """
+    multiplier = _load_multiplier(evidence, registry)
+    applied_weights = normalize_weights(weight_overrides, model=model, registry=registry)
     applied_total = sum(applied_weights.values())
     if abs(applied_total - 1.0) > _BOUND_TOLERANCE:
         raise ValueError(
@@ -583,7 +632,9 @@ def _compose_cba(
         topic_provider=topic_provider,
         model=model,
     )
-    factor_scores = tuple(scores_by_key[key] for key in factor_keys() if key in scores_by_key)
+    factor_scores = tuple(
+        scores_by_key[key] for key in factor_keys(registry=registry) if key in scores_by_key
+    )
 
     # The same deflation guard ``score_candidate`` carries, for the same
     # reason: the factor set above is written out by hand while the weights
@@ -607,6 +658,7 @@ def _compose_cba(
     )
 
     value: float | None
+    composite_before_load: float | None = None
     if unknown_factor_keys:
         # Unchanged from ADR-0011 and unchanged by ADR-0016: an unknown factor
         # makes the composite unknown, is never dropped, is never substituted
@@ -630,7 +682,14 @@ def _compose_cba(
             # factor set.
             contribution = factor_value if kind is FactorKind.SUITABILITY else 1.0 - factor_value
             total += applied_weights[score.factor_key] * contribution
-        value = round(total, 6)
+        if multiplier is None:
+            value = round(total, 6)
+        else:
+            # ADR-0027: multiply the unrounded composite, then round once.
+            # ``total * 1.0 == total`` exactly, so Light and Unknown keep the
+            # 2.x number; a multiplier in (0, 1] keeps the value in [0, 1].
+            composite_before_load = total
+            value = round(total * multiplier, 6)
 
     return StageBScore(
         subject_id=evidence.subject_id,
@@ -640,10 +699,56 @@ def _compose_cba(
         unknown_factor_keys=unknown_factor_keys,
         policy_neutral_factor_keys=policy_neutral_factor_keys,
         registry_version=model.registry_version,
-        formula_version=CBA_STAGE_B_FORMULA_VERSION,
+        formula_version=(
+            CBA_STAGE_B_FORMULA_VERSION
+            if registry.load_bands is None
+            else CBA_LOAD_STAGE_B_FORMULA_VERSION
+        ),
         scoring_mode=model.scoring_mode,
         scoring_mode_version=model.scoring_mode_version,
+        load=evidence.load,
+        composite_before_load=composite_before_load,
     )
+
+
+def _load_multiplier(evidence: CbaCandidateEvidence, registry: FactorRegistry) -> float | None:
+    """The load multiplier this registry applies to this candidate, or ``None``.
+
+    ``None`` means the registry has no band table (1.x, 2.x) and the candidate
+    carries no load. Every other combination is a defect and is refused rather
+    than defaulted: a 3.x candidate without a load would be scored under a band
+    nobody assessed, and a Full candidate should never have left Stage A.
+
+    Raises:
+        ValueError: as described above.
+    """
+    bands = registry.load_bands
+    load = evidence.load
+    if bands is None:
+        if load is not None:
+            raise ValueError(
+                f"{evidence.subject_id}: a load was given, but registry "
+                f"{registry.version!r} has no load band table; a 2.x score never saw a load"
+            )
+        return None
+    if load is None:
+        raise ValueError(
+            f"{evidence.subject_id}: registry {registry.version!r} applies a load band "
+            "table and this candidate carries no load; a band is never defaulted"
+        )
+    band = load.assessment.band
+    if band is LoadBand.FULL:
+        raise ValueError(
+            f"{evidence.subject_id}: load band full is removed at Stage A, before the "
+            "solve, and can never reach Stage B scoring"
+        )
+    if load.assessment.formula_version != bands.eli_formula_version:
+        raise ValueError(
+            f"{evidence.subject_id}: load assessed under ELI formula "
+            f"{load.assessment.formula_version!r}, but registry {registry.version!r} "
+            f"declares its bands against {bands.eli_formula_version!r}"
+        )
+    return float(bands.table.multipliers[band])
 
 
 def rank_cba_candidates(
@@ -653,6 +758,7 @@ def rank_cba_candidates(
     topic_provider: SemanticTopicProvider,
     scoring_mode: str = CBA_PHYSICAL_SCORING_MODE,
     weight_overrides: Mapping[str, float] | None = None,
+    registry: FactorRegistry = CBA_REGISTRY,
 ) -> tuple[StageBScore, ...]:
     """Score a whole CBA pool and order it by the ratified tie-break.
 
@@ -664,6 +770,7 @@ def rank_cba_candidates(
         topic_provider: The semantic comparison adapter.
         scoring_mode: The run's mode, resolved from the event.
         weight_overrides: Optional overrides, passed to every candidate.
+        registry: The rulebook to score under; defaults to :data:`CBA_REGISTRY`.
 
     Returns:
         One :class:`StageBScore` per candidate, ordered by :func:`_ranked`.
@@ -684,6 +791,7 @@ def rank_cba_candidates(
                 topic_provider=topic_provider,
                 scoring_mode=scoring_mode,
                 weight_overrides=weight_overrides,
+                registry=registry,
             )
             for candidate in candidates
         )

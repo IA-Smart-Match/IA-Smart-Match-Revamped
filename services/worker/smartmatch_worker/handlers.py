@@ -76,11 +76,16 @@ from dataclasses import dataclass, field
 from typing import Any, ClassVar, Final
 
 from smartmatch_domain.factor_registry import (
+    CBA_LINEAGE_VERSIONS,
+    CBA_REGISTRY,
     SUPERSEDED_G1_MODEL,
+    FactorRegistry,
     RegistryNotApprovedError,
     RegistryNotReadyError,
+    UnknownRegistryVersionError,
     assert_registry_approved,
     assert_scoring_ready,
+    registry_for_version,
     resolve_scoring_model,
 )
 from smartmatch_domain.factors.proximity import (
@@ -95,7 +100,7 @@ from smartmatch_domain.match_run import (
     MATCH_RUN_COMMAND_TYPE,
     MatchRunPins,
     inputs_fingerprint,
-    weights_fingerprint,
+    registry_fingerprint,
 )
 from smartmatch_domain.optimizer import PortfolioCandidate, PortfolioRequest, solve_portfolio
 from smartmatch_domain.public_url import StaticUrlShapeRefusal, validate_static_url_shape
@@ -970,6 +975,13 @@ class MatchRunCommand:
             payload lacking the field is read as a pre-ADR-0016 run, not as
             ``cba-physical-1``). Every payload written before this field
             existed therefore keeps pinning exactly what it pinned before.
+        registry_version: The registry the pool was scored under, as the
+            create route pinned it (B26 T8c). ``None`` when the payload
+            predates the field: the run then resolves through
+            :data:`~smartmatch_domain.factor_registry.CBA_REGISTRY` exactly as
+            before, and **never** through "whatever is current". When given,
+            the reader has already checked that ``scoring_mode`` resolves to a
+            model carrying this same pin.
     """
 
     event_need_id: str
@@ -977,6 +989,7 @@ class MatchRunCommand:
     random_seed: int
     candidates: tuple[PortfolioCandidate, ...]
     scoring_mode: str | None = None
+    registry_version: str | None = None
 
 
 def _read_candidate_pool(raw_candidates: object, problems: list[str]) -> list[PortfolioCandidate]:
@@ -1065,6 +1078,8 @@ def _read_match_run_command(payload: Mapping[str, Any]) -> MatchRunCommand:
 
     pool = _read_candidate_pool(payload.get("candidates"), problems)
 
+    registry_version, registry = _read_registry_pin(payload.get("registry_version"), problems)
+
     # Absent is a fact, not a gap: a payload with no mode was written by a
     # release that had none, and reading it as cba-physical-1 would pin the run
     # to a rulebook it never saw. Present-but-unrecognised is a different thing
@@ -1077,11 +1092,14 @@ def _read_match_run_command(payload: Mapping[str, Any]) -> MatchRunCommand:
             problems.append(f"scoring_mode must be a non-blank string or absent, got {raw_mode!r}")
         else:
             try:
-                resolve_scoring_model(raw_mode.strip())
+                resolve_scoring_model(raw_mode.strip(), registry=registry or CBA_REGISTRY)
             except UnknownScoringModeError as exc:
                 problems.append(str(exc))
             else:
                 scoring_mode = raw_mode.strip()
+
+    if registry is not None and registry_version is not None and not problems:
+        _check_pin_resolves(registry_version, registry, scoring_mode, problems)
 
     subject_ids = [candidate.subject_id for candidate in pool]
     if len(set(subject_ids)) != len(subject_ids):
@@ -1103,7 +1121,63 @@ def _read_match_run_command(payload: Mapping[str, Any]) -> MatchRunCommand:
         random_seed=random_seed,
         candidates=tuple(pool),
         scoring_mode=scoring_mode,
+        registry_version=registry_version,
     )
+
+
+def _read_registry_pin(
+    raw: object, problems: list[str]
+) -> tuple[str | None, FactorRegistry | None]:
+    """Read the payload's ``registry_version`` pin (B26 T8c), appending to ``problems``.
+
+    Absent (or null) is a payload written before the pin existed: ``(None,
+    None)``, and the caller resolves through ``CBA_REGISTRY`` as it always did.
+    A pin naming no registry this build declares is refused, never read as CBA.
+    So is a pin outside the CBA lineage (the class exercise's registry is
+    declared, but a ``match-run.create`` never scores under it).
+    """
+    if raw is None:
+        return None, None
+    if not isinstance(raw, str) or not raw.strip():
+        problems.append(f"registry_version must be a non-blank string or absent, got {raw!r}")
+        return None, None
+    version = raw.strip()
+    if version not in CBA_LINEAGE_VERSIONS:
+        problems.append(
+            f"registry_version {version!r} is not a CBA registry "
+            f"(expected one of {sorted(CBA_LINEAGE_VERSIONS)})"
+        )
+        return None, None
+    try:
+        return version, registry_for_version(version)
+    except UnknownRegistryVersionError as exc:
+        problems.append(f"registry_version: {exc}")
+        return None, None
+
+
+def _check_pin_resolves(
+    pin: str, registry: FactorRegistry, scoring_mode: str | None, problems: list[str]
+) -> None:
+    """The pinned registry must resolve the mode to a model carrying the payload's pin.
+
+    Compared with ``pin``, never ``registry.version``: pins 1.1.1 and 2.0.0 both
+    resolve to ``CBA_REGISTRY`` (version 2.0.0). Pin ``2.0.0`` with no mode
+    resolves to the 1.1.1 model, and pin ``1.1.1`` with a mode to a 2.0.0
+    model: both refused, never recorded under a rulebook the payload did not
+    name. Pin ``1.1.1`` with no mode is the G1 model and runs. Under 3.0.0,
+    which has no pre-mode model, no mode is refused too.
+    """
+    try:
+        model = resolve_scoring_model(scoring_mode, registry=registry)
+    except UnknownScoringModeError as exc:
+        problems.append(f"scoring_mode under registry_version {pin!r}: {exc}")
+        return
+    if model.registry_version != pin:
+        problems.append(
+            f"registry_version {pin!r} with scoring_mode {scoring_mode!r} "
+            f"resolves to a model pinned to {model.registry_version!r}; the run would be "
+            "recorded under a rulebook the payload did not name"
+        )
 
 
 def handle_match_run_create(context: CommandContext) -> HandlerResult:
@@ -1180,9 +1254,22 @@ def handle_match_run_create(context: CommandContext) -> HandlerResult:
 
     command = _read_match_run_command(payload)
 
+    # The payload's own pin (B26 T8c), or CBA_REGISTRY for a payload written
+    # before the pin existed. Never "whatever is current": the pool was scored
+    # under the pinned registry, and that is the rulebook this row records.
+    registry = (
+        CBA_REGISTRY
+        if command.registry_version is None
+        else registry_for_version(command.registry_version)
+    )
+
     try:
-        assert_registry_approved()
-        assert_scoring_ready()
+        if registry == CBA_REGISTRY:
+            assert_registry_approved()
+            assert_scoring_ready()
+        else:
+            assert_registry_approved(registry=registry)
+            assert_scoring_ready(registry=registry)
     except (RegistryNotApprovedError, RegistryNotReadyError) as exc:
         raise PolicyFailure(
             f"match-run.create refused before scoring: {exc}",
@@ -1195,7 +1282,7 @@ def handle_match_run_create(context: CommandContext) -> HandlerResult:
     # touched its recorded numbers — a reproducible-looking record of something
     # that did not happen, which is precisely what this snapshot exists to
     # prevent.
-    model = resolve_scoring_model(command.scoring_mode)
+    model = resolve_scoring_model(command.scoring_mode, registry=registry)
 
     # This unit's stored weight overrides, or an empty map when it has never
     # configured any (customer §5, migration 0027). Read from the *job's own*
@@ -1222,7 +1309,7 @@ def handle_match_run_create(context: CommandContext) -> HandlerResult:
     # makes a later settings change unable to reach this run: the row carries the
     # numbers themselves, not a reference to the settings that produced them, and
     # 0018's trigger refuses to let the row change afterwards.
-    weights = applied_weights(overrides, model=model)
+    weights = applied_weights(overrides, model=model, registry=registry)
 
     context.emit(
         {
@@ -1246,12 +1333,14 @@ def handle_match_run_create(context: CommandContext) -> HandlerResult:
 
     pins = MatchRunPins(
         registry_version=model.registry_version,
-        # `weights_fingerprint` over the weights *actually applied*, so a
-        # virtual run fingerprints three weights and a physical run four. Two
-        # runs of the same registry in different modes therefore carry the same
-        # registry_version and different registry_hash values — same rulebook,
-        # different model (ADR-0016 Proposal 9).
-        registry_hash=weights_fingerprint(weights),
+        # Over the weights *actually applied*, so a virtual run fingerprints
+        # three weights and a physical run four. Two runs of the same registry
+        # in different modes therefore carry the same registry_version and
+        # different registry_hash values — same rulebook, different model
+        # (ADR-0016 Proposal 9). For 1.1.1 and 2.0.0 this is
+        # `weights_fingerprint`, byte for byte; a 3.x registry's band table is
+        # covered too (ADR-0027).
+        registry_hash=registry_fingerprint(weights, load_bands=registry.load_bands),
         optimizer_model_version=result.model_version,
         solver_name=result.solver_name,
         # From the result, not from this module's own import of ortools: the

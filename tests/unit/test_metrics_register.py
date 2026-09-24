@@ -174,3 +174,33 @@ def test_the_category_shape_enum_still_has_exactly_three_members() -> None:
 def test_category_comparison_is_case_insensitive() -> None:
     assert shape_opportunity_category("HACKATHON") is OpportunityCategoryShape.IN_LIST
     assert shape_opportunity_category("  Datathon  ") is OpportunityCategoryShape.IN_LIST
+
+
+# ---------------------------------------------------------------------------
+# B26 T8a: ADR-0011 register change for pipeline_confirmed (owner ruling C1 = C)
+# ---------------------------------------------------------------------------
+
+
+def test_pipeline_confirmed_definition_names_the_cancellation_exclusion() -> None:
+    confirmed = get_metric("pipeline_confirmed")
+    assert confirmed.definition == (
+        "Pipeline records that have reached the Confirmed stage or a later stage and "
+        "whose booking has not been cancelled."
+    )
+    assert confirmed.drill_down == (
+        "The Pipeline records at Confirmed or any later funnel stage, excluding cancelled bookings."
+    )
+    assert confirmed.owning_query == "pipeline_funnel_rows_v1"
+
+
+def test_no_other_pipeline_metric_mentions_cancellation() -> None:
+    others = [
+        metric
+        for metric in METRIC_REGISTER
+        if metric.canonical_name.startswith("pipeline_")
+        and metric.canonical_name != "pipeline_confirmed"
+    ]
+    assert len(others) == 4
+    for metric in others:
+        text = f"{metric.definition} {metric.drill_down}".lower()
+        assert "cancel" not in text, metric.canonical_name

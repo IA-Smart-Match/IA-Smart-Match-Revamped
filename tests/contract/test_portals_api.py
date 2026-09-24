@@ -182,6 +182,8 @@ def _portals(
         # connector's own name. Administration is a section inside it, revealed
         # by the role on `GET /v1/me`, not a portal with a name of its own.
         ("admin", "coordinator", "Connector Dashboard"),
+        # B26 T6b-1: invitation-only, never seeded.
+        ("speaker", "speaker", "Speaker Portal"),
     ],
 )
 def test_each_stored_role_opens_its_portal_under_a_cba_label(
@@ -237,6 +239,8 @@ def test_the_portal_ids_and_home_paths_are_the_pinned_ones(
         # Changed deliberately from `/dashboard`: the administration surface is
         # no longer a shell of its own to land in.
         "admin": "/coordinator-portal",
+        # B26 T6b-1. The frontend route is capability-gated.
+        "speaker": "/speaker-portal",
     }
     for role, home_path in expected.items():
         body = _portals(client, engine, tenant_id, role=role, name=f"sub-path-{role}")
@@ -248,7 +252,7 @@ def test_the_portal_ids_and_home_paths_are_the_pinned_ones(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("role", ["speaker", "dean", "   ", "Student"])
+@pytest.mark.parametrize("role", ["speakers", "dean", "   ", "Student", "Speaker"])
 def test_an_unmapped_or_blank_role_opens_no_portal(
     client: TestClient, engine: Engine, tenant_id: uuid.UUID, role: str
 ) -> None:
@@ -524,3 +528,33 @@ def test_holding_every_role_lists_the_three_portals_in_a_fixed_order(
         "student",
     ]
     assert body["default_portal"] == "coordinator"
+
+
+# ---------------------------------------------------------------------------
+# B26 T6b-1: the speaker role
+# ---------------------------------------------------------------------------
+
+
+def test_speaker_membership_lists_the_speaker_portal(
+    client: TestClient, engine: Engine, tenant_id: uuid.UUID
+) -> None:
+    body = _portals(client, engine, tenant_id, role="speaker", name="sub-speaker")
+    assert body["default_portal"] == "speaker"
+    assert [entry["portal"] for entry in body["portals"]] == ["speaker"]
+    assert body["portals"][0]["home_path"] == "/speaker-portal"
+    assert body["portals"][0]["display_name"] == "Speaker Portal"
+
+
+def test_host_default_portal_stays_volunteer_with_speaker_role(
+    client: TestClient, engine: Engine, tenant_id: uuid.UUID
+) -> None:
+    """An Event Host who is also a Speaker still lands in the Event Host Portal."""
+    body = _portals_for_roles(
+        client,
+        engine,
+        tenant_id,
+        name="sub-host-speaker",
+        grants=[("speaker", UNIT_PATH), ("volunteer", UNIT_PATH)],
+    )
+    assert [entry["portal"] for entry in body["portals"]] == ["volunteer", "speaker"]
+    assert body["default_portal"] == "volunteer"

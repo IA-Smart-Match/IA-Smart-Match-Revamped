@@ -439,3 +439,43 @@ def test_opportunities_seeded_rows_aggregate_equals_drill_down_count(
     assert drill_down["aggregate_value"] == value
     assert len(drill_down["rows"]) == value
     assert {row["row_data"]["category"] for row in drill_down["rows"]} == {"hackathon", "Datathon"}
+
+
+def test_pipeline_confirmed_does_not_count_a_cancelled_row(
+    storage_binding_context: _StorageBindingContext, engine: Engine
+) -> None:
+    """B26 T8a (ADR-0011 register change): ``pipeline_confirmed`` excludes cancellations.
+
+    One live booking and one cancelled: the aggregate is 1 and the drill-down
+    is exactly the live row. ``pipeline_contacted`` still counts both.
+    """
+    ctx = storage_binding_context
+    with engine.begin() as conn:
+        live = _insert_pipeline_record(
+            conn, ctx.tenant_id, reached="confirmed_at", owning_unit_id=ctx.mine
+        )
+        cancelled = _insert_pipeline_record(
+            conn, ctx.tenant_id, reached="confirmed_at", owning_unit_id=ctx.mine
+        )
+        conn.execute(
+            text(
+                "UPDATE pipeline_record SET cancelled_at = confirmed_at, "
+                "cancelled_by_user_id = :actor WHERE id = :id"
+            ),
+            {"actor": ctx.mine_actor, "id": cancelled},
+        )
+
+    by_name = {
+        item["name"]: item
+        for item in _get(ctx.client, f"/v1/units/{ctx.mine}/metrics", ctx.mine_token).json()[
+            "metrics"
+        ]
+    }
+    drill_down = _get(
+        ctx.client, f"/v1/units/{ctx.mine}/metrics/pipeline_confirmed/drill-down", ctx.mine_token
+    ).json()
+
+    assert by_name["pipeline_confirmed"]["value"] == 1
+    assert by_name["pipeline_contacted"]["value"] == 2
+    assert drill_down["aggregate_value"] == 1
+    assert [row["id"] for row in drill_down["rows"]] == [str(live)]

@@ -113,9 +113,9 @@ from fastapi import APIRouter, Path, status
 from pydantic import BaseModel, Field
 from smartmatch_authz import OrgPath, Resource, assert_allowed
 from smartmatch_domain.factor_registry import (
-    REGISTRY_VERSION,
     SCORING_MODELS,
     ScoringModel,
+    current_cba_registry,
 )
 from smartmatch_domain.weight_settings import (
     InvalidWeightOverrideError,
@@ -343,7 +343,7 @@ def _response(
     overrides = {} if record is None else dict(record.settings.overrides)
     return MatchingWeightsResponse(
         unit_id=unit_id,
-        registry_version=REGISTRY_VERSION,
+        registry_version=current_cba_registry().version,
         configurable_factors=list(configurable_factor_keys()),
         overrides=overrides,
         modes=_modes_view(overrides),

@@ -1,0 +1,117 @@
+{
+  "id": "G-CBA-16",
+  "title": "A cancelled booking drops out of the load",
+  "asserts": "Only confirmed, not-cancelled bookings count. The same two bookings with one cancelled leave 4 of 10 hours (Light, 0.97); none cancelled is 10 of 10 (Heavy, 0.679).",
+  "owner_decisions": [
+    "B26 Q1/D2",
+    "B26 Q7 = A",
+    "B26 unknown load"
+  ],
+  "registry_version": "3.0.0-approved-b26-eli",
+  "scoring_mode": "cba-physical-1",
+  "as_of": "2026-10-06",
+  "request": {
+    "description": "A panel on financial planning for small businesses.",
+    "sectors": [
+      "52"
+    ],
+    "roles": [
+      "finance"
+    ]
+  },
+  "candidates": [
+    {
+      "subject_id": "SYNTH-CBA-16-CANCELLED",
+      "sector": "52",
+      "role": "finance",
+      "profile_present": true,
+      "topic_text": "corporate treasury and financial planning",
+      "city": "Pomona",
+      "postal_code": "91768",
+      "topic_score": 0.8,
+      "topic_rationale": "Their recorded treasury work addresses the request's financial planning focus.",
+      "distance_miles": 10.0,
+      "load": {
+        "capacity_hours": "10.0",
+        "engagements": [
+          {
+            "ref": "G16-FIRST",
+            "offset_days": 5,
+            "hours": "4",
+            "confirmed": true,
+            "attended": false,
+            "cancelled": false
+          },
+          {
+            "ref": "G16-SECOND",
+            "offset_days": 6,
+            "hours": "6",
+            "confirmed": true,
+            "attended": false,
+            "cancelled": true
+          }
+        ]
+      }
+    },
+    {
+      "subject_id": "SYNTH-CBA-16-KEPT",
+      "sector": "52",
+      "role": "finance",
+      "profile_present": true,
+      "topic_text": "corporate treasury and financial planning",
+      "city": "Pomona",
+      "postal_code": "91768",
+      "topic_score": 0.8,
+      "topic_rationale": "Their recorded treasury work addresses the request's financial planning focus.",
+      "distance_miles": 10.0,
+      "load": {
+        "capacity_hours": "10.0",
+        "engagements": [
+          {
+            "ref": "G16-FIRST",
+            "offset_days": 5,
+            "hours": "4",
+            "confirmed": true,
+            "attended": false,
+            "cancelled": false
+          },
+          {
+            "ref": "G16-SECOND",
+            "offset_days": 6,
+            "hours": "6",
+            "confirmed": true,
+            "attended": false,
+            "cancelled": false
+          }
+        ]
+      }
+    }
+  ],
+  "expected": {
+    "ranking": [
+      "SYNTH-CBA-16-CANCELLED",
+      "SYNTH-CBA-16-KEPT"
+    ],
+    "excluded": [],
+    "candidates": {
+      "SYNTH-CBA-16-CANCELLED": {
+        "composite_state": "measured",
+        "heuristic_score": 0.97,
+        "load_band": "light",
+        "load_reason": "measured",
+        "load_multiplier": "1",
+        "utilization": "0.4",
+        "unknown_hours_refs": []
+      },
+      "SYNTH-CBA-16-KEPT": {
+        "composite_state": "measured",
+        "heuristic_score": 0.679,
+        "load_band": "heavy",
+        "load_reason": "measured",
+        "load_multiplier": "0.7",
+        "utilization": "1",
+        "unknown_hours_refs": []
+      }
+    }
+  }
+}

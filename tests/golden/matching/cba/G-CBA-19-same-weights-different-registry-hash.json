@@ -1,0 +1,57 @@
+{
+  "id": "G-CBA-19",
+  "title": "Same weights, 2.x vs 3.x: different registry_hash",
+  "asserts": "3.0.0 applies the same four weights as 2.0.0, value for value, but its registry_hash also covers the canonical band table, so it differs. The 3.x hash is pinned and equals SHA-256 of a hand-written byte string; moving a multiplier moves it, review status does not. Dedicated test.",
+  "owner_decisions": [
+    "B26 Q1/D2",
+    "B26 Q7 = A",
+    "B26 unknown load"
+  ],
+  "registry_version": "3.0.0-approved-b26-eli",
+  "scoring_mode": "cba-physical-1",
+  "as_of": "2026-10-06",
+  "request": {
+    "description": "A panel on financial planning for small businesses.",
+    "sectors": [
+      "52"
+    ],
+    "roles": [
+      "finance"
+    ]
+  },
+  "candidates": [
+    {
+      "subject_id": "SYNTH-CBA-19-SAME-WEIGHTS",
+      "sector": "52",
+      "role": "finance",
+      "profile_present": true,
+      "topic_text": "corporate treasury and financial planning",
+      "city": "Pomona",
+      "postal_code": "91768",
+      "topic_score": 0.8,
+      "topic_rationale": "Their recorded treasury work addresses the request's financial planning focus.",
+      "distance_miles": 10.0,
+      "load": {
+        "capacity_hours": "100.0",
+        "engagements": []
+      }
+    }
+  ],
+  "expected": {
+    "ranking": [
+      "SYNTH-CBA-19-SAME-WEIGHTS"
+    ],
+    "excluded": [],
+    "registry_hash": {
+      "cba-physical-1": "sha256:73d5b67c898424c58984db49fa9542163e31438c23bed9742ecaebc50d9075f2"
+    },
+    "candidates": {
+      "SYNTH-CBA-19-SAME-WEIGHTS": {
+        "composite_state": "measured",
+        "heuristic_score": 0.97,
+        "load_band": "light",
+        "load_multiplier": "1"
+      }
+    }
+  }
+}

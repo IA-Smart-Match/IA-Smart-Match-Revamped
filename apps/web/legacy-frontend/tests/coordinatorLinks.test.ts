@@ -46,6 +46,7 @@ test("the connector shell still registers the routes its pages link to", () => {
     "speaker-requests",
     "review-queue",
     "redemptions",
+    "bookings",
     "events",
     "match-runs",
     "invitations",

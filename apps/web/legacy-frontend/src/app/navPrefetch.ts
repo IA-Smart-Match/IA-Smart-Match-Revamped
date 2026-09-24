@@ -25,6 +25,7 @@ import type { QueryClient } from "@tanstack/react-query";
 
 import {
   ApiRequestError,
+  fetchConfirmedSpeakers,
   fetchHostOrganizations,
   fetchMatchingWeights,
   fetchMeetings,
@@ -90,6 +91,9 @@ const COORDINATOR_PREFETCH: Readonly<Record<string, readonly PrefetchSpec[]>> = 
   ],
   "/coordinator-portal/review-queue": [
     spec("review-items", (u) => [u, "pending"], (u) => fetchReviewItems(u, "pending")),
+  ],
+  "/coordinator-portal/bookings": [
+    spec("confirmed-speakers", (u) => [u, "all"], (u) => fetchConfirmedSpeakers(u)),
   ],
   "/coordinator-portal/redemptions": [
     spec(

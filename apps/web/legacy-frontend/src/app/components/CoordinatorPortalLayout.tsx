@@ -71,6 +71,7 @@ import { Outlet, Link, useLocation, useNavigate } from "react-router";
 import type { LucideIcon } from "lucide-react";
 import {
   LayoutDashboard,
+  CalendarCheck,
   Inbox,
   ClipboardCheck,
   Gift,
@@ -263,6 +264,7 @@ export function CoordinatorPortalLayout() {
         { name: "Events", href: "/coordinator-portal/events", icon: CalendarDays },
         { name: "Run a match", href: "/coordinator-portal/match-runs", icon: Target },
         { name: "Invitations", href: "/coordinator-portal/invitations", icon: Send },
+        { name: "Bookings", href: "/coordinator-portal/bookings", icon: CalendarCheck },
         { name: "Meetings", href: "/coordinator-portal/meetings", icon: Video },
       ],
     },

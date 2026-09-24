@@ -62,12 +62,14 @@ import {
   fetchMatchRun,
   fetchSpeakerContactChannels,
   fetchSpeakerContacts,
+  type MatchAvailability,
   type MatchRunRead,
   type SpeakerContact,
   type SpeakerContactChannel,
   type SpeakerInvitationBatch,
 } from "../../../lib/api";
 import { scopedQueryKey } from "../../../lib/queryClient";
+import { describeAvailability } from "../AIMatching";
 import { PagedList } from "../../components/PagedList";
 import { grantedPortal } from "../../components/PortalGate";
 import { usePrincipalKey } from "../../components/PrincipalQueryProvider";
@@ -84,7 +86,7 @@ import { useScopedQuery } from "../../hooks/useScopedQuery";
  * can I not pick this person" here), and a shared renderer is a place where one
  * screen's wording quietly becomes the other's.
  */
-function describeSkip(reason: string): string {
+export function describeSkip(reason: string): string {
   switch (reason) {
     case "not_on_roster":
       return "Not on this unit's speaker list. Add them first, then invite.";
@@ -96,11 +98,31 @@ function describeSkip(reason: string): string {
       return "Their address has not been activated. Someone has to do that deliberately.";
     case "consent_source_not_approved":
       return "The consent behind this address cannot authorize a send.";
+    // B26 T4: availability, checked after consent at compose and at dispatch.
+    case "speaker_unavailable_on_date":
+      return "The Speaker said they cannot speak on this date.";
+    case "speaker_invitations_paused":
+      return "The Speaker has paused invitations.";
     default:
       // Reported verbatim rather than mapped to anything reassuring: a reason
       // this build does not recognise is not thereby a small problem.
       return `The server reported "${reason}".`;
   }
+}
+
+/**
+ * A compose refusal in Connector words where the server's code has a fix a
+ * Connector can act on; otherwise the server's own message, verbatim.
+ */
+export function describeComposeRefusal(cause: unknown): string {
+  if (!(cause instanceof ApiRequestError)) {
+    return "The batch could not be composed and the server gave no reason. Nothing was written.";
+  }
+  if (cause.code === "speaker_invitation_request_required") {
+    // B26 T4 (C12 = R1): the run predates Speaker Requests being linked to runs.
+    return "This run was made before Speaker Requests were linked. Start a new match run from the Speaker Request.";
+  }
+  return cause.message;
 }
 
 /** One shortlisted person, with the two server reads behind their row. */
@@ -111,6 +133,8 @@ interface Recipient {
   /** The server's channel rows, or null when that read failed for this person. */
   channels: SpeakerContactChannel[] | null;
   channelsError: string | null;
+  /** The run's stored availability verdict (B26 T4). Worded here, decided by the server. */
+  availability?: MatchAvailability | null;
 }
 
 /** Whether this person may be picked, and the sentence that says why not. */
@@ -185,7 +209,7 @@ function judgeConsent(recipient: Recipient): ConsentVerdict {
 }
 
 /** One shortlisted person. Ineligible rows are shown, disabled, with the reason. */
-function RecipientRow({
+export function RecipientRow({
   recipient,
   verdict,
   selected,
@@ -232,6 +256,11 @@ function RecipientRow({
               {verdict.explanation}
             </span>
           )}
+          {/* B26 T4: the run's stored availability, in words. The row stays
+              selectable: the server re-checks at compose and decides. */}
+          <span className="block text-sm text-muted-foreground">
+            {describeAvailability(recipient.availability)}
+          </span>
         </span>
       </label>
     </li>
@@ -355,11 +384,13 @@ export function CoordinatorInvitations() {
               contact,
               channels: channels.channels.map((entry) => entry.channel),
               channelsError: null,
+              availability: candidate.availability ?? null,
             };
           } catch (cause) {
             return {
               subjectId: candidate.subject_id,
               contact,
+              availability: candidate.availability ?? null,
               channels: null,
               channelsError:
                 cause instanceof ApiRequestError
@@ -451,11 +482,7 @@ export function CoordinatorInvitations() {
       setComposed(null);
       // The server's own refusal — a repeated id, an over-large list, a rate
       // limit. Not a message this page made up, and no selection is cleared.
-      setSubmitError(
-        cause instanceof ApiRequestError
-          ? cause.message
-          : "The batch could not be composed and the server gave no reason. Nothing was written.",
-      );
+      setSubmitError(describeComposeRefusal(cause));
     } finally {
       setSubmitting(false);
     }

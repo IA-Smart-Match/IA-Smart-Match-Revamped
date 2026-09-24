@@ -42,7 +42,10 @@ import json
 import os
 import uuid
 from collections.abc import Iterator
+from contextlib import contextmanager
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import pytest
 from fastapi.testclient import TestClient
@@ -64,7 +67,7 @@ from smartmatch_domain.factors.proximity import (
     CBA_PROXIMITY_FACTOR_KEY,
     CBA_VIRTUAL_SCORING_MODE,
 )
-from smartmatch_domain.match_run import MATCH_RUN_COMMAND_TYPE
+from smartmatch_domain.match_run import MATCH_RUN_COMMAND_TYPE, registry_fingerprint
 from smartmatch_domain.naics_sectors import NAICS_TAXONOMY_VERSION
 from smartmatch_persistence.engine import create_session_factory
 from smartmatch_providers import FixtureTokenVerifier
@@ -72,7 +75,9 @@ from smartmatch_providers.tasks import FixtureTaskQueue
 from smartmatch_worker.dispatcher import OutboxDispatcher
 from smartmatch_worker.execution import TaskExecutor
 from smartmatch_worker.handlers import default_registry
-from sqlalchemy import Engine, create_engine, text
+from sqlalchemy import Engine, create_engine, event, text
+
+from tests.unit.registry_evaluation import DOMAIN_MODULES, evaluate_registry_3
 
 pytestmark = pytest.mark.integration
 
@@ -138,6 +143,8 @@ class MatchFixture:
         virtual_request_id: uuid.UUID,
         physical_request_id: uuid.UUID,
         speakers: dict[str, uuid.UUID],
+        user_id: uuid.UUID | None = None,
+        engine: Engine | None = None,
     ) -> None:
         self.client = client
         self.tenant_id = tenant_id
@@ -146,6 +153,99 @@ class MatchFixture:
         self.virtual_request_id = virtual_request_id
         self.physical_request_id = physical_request_id
         self.speakers = speakers
+        self.user_id = user_id
+        self.engine = engine
+
+    def state_availability(
+        self,
+        name: str,
+        *,
+        paused_until: date | None = None,
+        windows: tuple[tuple[date, date], ...] = (),
+    ) -> None:
+        """Store (or replace) one speaker's availability statement (B26 T4)."""
+        assert self.engine is not None and self.user_id is not None
+        professional_id = self.speakers[name]
+        with self.engine.begin() as conn:
+            conn.execute(
+                text(
+                    "DELETE FROM speaker_availability WHERE tenant_id = :t AND professional_id = :p"
+                ),
+                {"t": self.tenant_id, "p": professional_id},
+            )
+            conn.execute(
+                text(
+                    "INSERT INTO speaker_availability (tenant_id, professional_id, "
+                    "invitations_paused_until, updated_source, updated_by_user_id) "
+                    "VALUES (:t, :p, :paused, 'connector', :u)"
+                ),
+                {
+                    "t": self.tenant_id,
+                    "p": professional_id,
+                    "paused": paused_until,
+                    "u": self.user_id,
+                },
+            )
+            for starts_on, ends_on in windows:
+                conn.execute(
+                    text(
+                        "INSERT INTO speaker_availability_window (id, tenant_id, professional_id, "
+                        "starts_on, ends_on, created_source, created_by_user_id) "
+                        "VALUES (:id, :t, :p, :s, :e, 'connector', :u)"
+                    ),
+                    {
+                        "id": uuid.uuid4(),
+                        "t": self.tenant_id,
+                        "p": professional_id,
+                        "s": starts_on,
+                        "e": ends_on,
+                        "u": self.user_id,
+                    },
+                )
+
+    def new_login(self) -> uuid.UUID:
+        """A ``user_account`` in this tenant: a Host, or a Speaker's bound login."""
+        assert self.engine is not None
+        user_id = uuid.uuid4()
+        with self.engine.begin() as conn:
+            conn.execute(
+                text(
+                    "INSERT INTO user_account (id, tenant_id, external_subject, email) "
+                    "VALUES (:id, :t, :s, :e)"
+                ),
+                {
+                    "id": user_id,
+                    "t": self.tenant_id,
+                    "s": f"login-{user_id.hex}",
+                    "e": f"login-{user_id.hex[:8]}@example.invalid",
+                },
+            )
+        return user_id
+
+    def bind_login(self, name: str, user_id: uuid.UUID) -> None:
+        """Bind a login to a Speaker's profile (``0039``), as T6b-5's merge would."""
+        assert self.engine is not None
+        with self.engine.begin() as conn:
+            conn.execute(
+                text(
+                    "UPDATE speaker_profile SET account_user_id = :u, account_bound_at = now() "
+                    "WHERE tenant_id = :t AND professional_id = :p"
+                ),
+                {"u": user_id, "t": self.tenant_id, "p": self.speakers[name]},
+            )
+
+    def file_request(self, filed_by_user_id: uuid.UUID | None) -> uuid.UUID:
+        """A virtual Speaker Request filed by ``filed_by_user_id`` (``None``: unrecorded)."""
+        assert self.engine is not None
+        with self.engine.begin() as conn:
+            return _insert_speaker_request(
+                conn,
+                tenant_id=self.tenant_id,
+                unit_id=self.unit_id,
+                is_virtual=True,
+                title=f"Filed finance panel {uuid.uuid4().hex[:8]}",
+                filed_by_user_id=filed_by_user_id,
+            )
 
     def subject(self, *names: str) -> list[str]:
         """The ids for these speakers, as the request body spells them."""
@@ -159,6 +259,7 @@ def _insert_speaker_request(
     unit_id: uuid.UUID,
     is_virtual: bool,
     title: str,
+    filed_by_user_id: uuid.UUID | None = None,
 ) -> uuid.UUID:
     """File one Speaker Request straight into ``event`` and its targets.
 
@@ -175,9 +276,9 @@ def _insert_speaker_request(
         text(
             "INSERT INTO event (id, tenant_id, host_org_unit_id, title, normalized_title, "
             "description, time_precision, on_date, time_zone, resolved_date, origin, "
-            "is_virtual) VALUES (:id, :tid, :unit, :title, :norm, :desc, 'date_only', "
-            "DATE '2027-03-04', 'America/Los_Angeles', DATE '2027-03-04', "
-            "'coordinator_entry', :virtual)"
+            "is_virtual, filed_by_user_id) VALUES (:id, :tid, :unit, :title, :norm, :desc, "
+            "'date_only', DATE '2027-03-04', 'America/Los_Angeles', DATE '2027-03-04', "
+            "'coordinator_entry', :virtual, :filed)"
         ),
         {
             "id": event_id,
@@ -187,6 +288,7 @@ def _insert_speaker_request(
             "norm": title.lower(),
             "desc": REQUEST_DESCRIPTION,
             "virtual": is_virtual,
+            "filed": filed_by_user_id,
         },
     )
     for kind, code, version in (
@@ -427,6 +529,8 @@ def match_context(engine: Engine) -> Iterator[MatchFixture]:
         virtual_request_id=virtual_request_id,
         physical_request_id=physical_request_id,
         speakers=speakers,
+        user_id=user_id,
+        engine=engine,
     )
 
     with engine.begin() as conn:
@@ -443,6 +547,8 @@ def match_context(engine: Engine) -> Iterator[MatchFixture]:
             "job",
             "speaker_request_classification",
             "event",
+            "speaker_availability_window",
+            "speaker_availability",
             "speaker_profile",
             "membership",
             "resource_grant",
@@ -1131,3 +1237,693 @@ def test_no_percentage_appears_anywhere_in_the_response(match_context, engine) -
             assert 0.0 <= entry["heuristic_score"] <= 1.0
         for factor in entry["factors"]:
             assert factor["value"] is None or 0.0 <= factor["value"] <= 1.0
+
+
+# ---------------------------------------------------------------------------
+# B26 T4 — stored availability verdicts and "changed since this run"
+# ---------------------------------------------------------------------------
+
+#: The Speaker Requests' local date (``_insert_speaker_request``).
+REQUEST_DAY = date(2027, 3, 4)
+#: A pause that is still in force on any run date these tests produce.
+PAUSED_UNTIL = date(2027, 6, 1)
+
+
+@contextmanager
+def _statements() -> Iterator[list[str]]:
+    """Every SQL statement any engine executes inside the block."""
+    seen: list[str] = []
+
+    def record(conn, cursor, statement, parameters, context, executemany):
+        seen.append(statement)
+
+    event.listen(Engine, "before_cursor_execute", record)
+    try:
+        yield seen
+    finally:
+        event.remove(Engine, "before_cursor_execute", record)
+
+
+def _candidates(run: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    return {
+        entry["subject_id"]: entry
+        for entry in run["shortlist"] + run["considered"] + run["unscorable"]
+    }
+
+
+def _rewrite_payload(engine: Engine, job_id: uuid.UUID, expression: str) -> None:
+    """Rewrite the stored command payload, as an older release (or an incident) left it."""
+    with engine.begin() as conn:
+        conn.execute(
+            text(f"UPDATE job SET payload = {expression} WHERE id = :job"), {"job": job_id}
+        )
+
+
+def _read_run(fixture: MatchFixture, engine: Engine, job_id: uuid.UUID) -> dict[str, Any]:
+    run_id = _run_row(engine, job_id).id
+    read = _get(fixture, f"/v1/units/{fixture.unit_id}/match-runs/{run_id}")
+    assert read.status_code == 200, read.text
+    return read.json()
+
+
+def test_availability_costs_one_query_on_create_and_two_on_read(match_context, engine) -> None:
+    """17: one ``get_many`` on create; the event row plus one ``get_many`` on read."""
+    with _statements() as created:
+        accepted = _post(match_context, _submission(match_context))
+    assert accepted.status_code == 202, accepted.text
+    job_id = uuid.UUID(accepted.json()["job_id"])
+    assert _execute_pending(engine, match_context.tenant_id, job_id).status == "executed"
+    run_id = _run_row(engine, job_id).id
+
+    with _statements() as read:
+        response = _get(match_context, f"/v1/units/{match_context.unit_id}/match-runs/{run_id}")
+    assert response.status_code == 200, response.text
+
+    def availability(statements: list[str]) -> int:
+        return sum("speaker_availability" in sql for sql in statements)
+
+    def event_reads(statements: list[str]) -> int:
+        return sum("FROM event" in sql for sql in statements)
+
+    assert availability(created) == 1
+    assert availability(read) == 1
+    assert event_reads(read) == 1
+
+
+def test_the_payload_records_a_verdict_for_every_evaluated_candidate(match_context, engine) -> None:
+    """18: scorable and unscorable alike; the never-evaluated get none."""
+    match_context.state_availability("alpha", windows=((REQUEST_DAY, REQUEST_DAY),))
+    match_context.state_availability("beta", paused_until=PAUSED_UNTIL)
+    match_context.state_availability("gamma")
+
+    accepted, _ = _submit_and_execute(match_context, engine)
+    payload = _stored_payload(engine, uuid.UUID(accepted["job_id"]))
+
+    evaluated = [entry["subject_id"] for entry in payload["explanations"]]
+    stored = payload["availability"]
+    assert [entry["subject_id"] for entry in stored] == evaluated
+    by_subject = {entry["subject_id"]: entry for entry in stored}
+    speakers = {name: str(pid) for name, pid in match_context.speakers.items()}
+
+    assert by_subject[speakers["alpha"]]["verdict"] == "excluded"
+    assert by_subject[speakers["alpha"]]["reason"] == "window"
+    assert by_subject[speakers["beta"]]["reason"] == "paused"
+    assert by_subject[speakers["beta"]]["paused_until"] == PAUSED_UNTIL.isoformat()
+    assert by_subject[speakers["gamma"]]["verdict"] == "eligible"
+    assert by_subject[speakers["delta"]]["reason"] == "not_stated"
+    # epsilon never entered the pool: no verdict, but a stored exclusion (C3).
+    assert speakers["epsilon"] not in by_subject
+    assert {
+        "subject_id": speakers["epsilon"],
+        "reason": "industry_classification_awaiting_review",
+    } in (payload["excluded"])
+
+
+def test_a_run_without_availability_reads_not_recorded(match_context, engine) -> None:
+    """19: a run stored before T4 is "not recorded", never "available"."""
+    accepted, _ = _submit_and_execute(match_context, engine)
+    job_id = uuid.UUID(accepted["job_id"])
+    _rewrite_payload(engine, job_id, "payload - 'availability' - 'excluded'")
+
+    run = _read_run(match_context, engine, job_id)
+
+    assert run["availability_recorded"] is False
+    assert run["availability_unreadable_reason"] is None
+    assert run["excluded"] == []
+    assert run["excluded_unreadable_reason"] is None
+    assert all(entry["availability"] is None for entry in _candidates(run).values())
+    assert run["shortlist_available"] is True
+
+
+def test_a_window_added_after_the_run_reads_changed_since(match_context, engine) -> None:
+    """20: stored "available", now inside a window -> changed since this run."""
+    match_context.state_availability("alpha")
+    accepted, before = _submit_and_execute(match_context, engine)
+    alpha = str(match_context.speakers["alpha"])
+    assert _candidates(before)[alpha]["availability"]["changed_since_run"] is False
+
+    match_context.state_availability("alpha", windows=((REQUEST_DAY, REQUEST_DAY),))
+    run = _read_run(match_context, engine, uuid.UUID(accepted["job_id"]))
+
+    view = _candidates(run)[alpha]["availability"]
+    assert run["availability_recorded"] is True
+    assert view["verdict"] == "eligible"
+    assert view["reason"] == "clear"
+    assert view["changed_since_run"] is True
+    others = [entry for subject, entry in _candidates(run).items() if subject != alpha]
+    assert all(entry["availability"]["changed_since_run"] is False for entry in others)
+
+
+def test_availability_moves_neither_inputs_hash_nor_registry_hash(match_context, engine) -> None:
+    """21a: G-CBA-13 over HTTP — a blacked-out Speaker changes no digest."""
+    _, clear = _submit_and_execute(match_context, engine)
+    match_context.state_availability("alpha", windows=((REQUEST_DAY, REQUEST_DAY),))
+    match_context.state_availability("beta", paused_until=PAUSED_UNTIL)
+    _, blocked = _submit_and_execute(match_context, engine)
+
+    assert blocked["inputs_hash"] == clear["inputs_hash"]
+    assert blocked["registry_hash"] == clear["registry_hash"]
+    assert blocked["registry_version"] == clear["registry_version"] == REGISTRY_VERSION
+
+
+def test_an_excluded_speaker_stays_on_the_shortlist_in_place(match_context, engine) -> None:
+    """21b: the verdict annotates; it removes and reorders no one."""
+    _, clear = _submit_and_execute(match_context, engine)
+    match_context.state_availability("alpha", windows=((REQUEST_DAY, REQUEST_DAY),))
+    _, blocked = _submit_and_execute(match_context, engine)
+
+    for group in ("shortlist", "considered", "unscorable"):
+        assert [e["subject_id"] for e in blocked[group]] == [e["subject_id"] for e in clear[group]]
+    alpha = _candidates(blocked)[str(match_context.speakers["alpha"])]
+    assert alpha["availability"]["verdict"] == "excluded"
+    assert alpha["availability"]["reason"] == "window"
+
+
+def test_a_malformed_availability_block_is_reported_not_repaired(match_context, engine) -> None:
+    """23: strict reader — the run still reads, availability says why it cannot."""
+    accepted, _ = _submit_and_execute(match_context, engine)
+    job_id = uuid.UUID(accepted["job_id"])
+    _rewrite_payload(
+        engine,
+        job_id,
+        "jsonb_set(payload, '{availability,0,verdict}', '\"maybe\"'::jsonb)",
+    )
+
+    run = _read_run(match_context, engine, job_id)
+
+    assert run["availability_recorded"] is False
+    assert "verdict" in run["availability_unreadable_reason"]
+    assert all(entry["availability"] is None for entry in _candidates(run).values())
+    assert run["shortlist_available"] is True
+
+
+# ---------------------------------------------------------------------------
+# B26 T4 Q8 — the requester is left out of their own request's pool
+# ---------------------------------------------------------------------------
+
+
+def _excluded(accepted: dict[str, Any]) -> dict[str, str]:
+    return {entry["subject_id"]: entry["reason"] for entry in accepted["excluded_candidates"]}
+
+
+def test_the_requester_is_excluded_as_filed_this_request(match_context, engine) -> None:
+    """22a."""
+    host = match_context.new_login()
+    match_context.bind_login("alpha", host)
+    request_id = match_context.file_request(host)
+
+    accepted, _ = _submit_and_execute(
+        match_context, engine, _submission(match_context, speaker_request_id=str(request_id))
+    )
+
+    alpha = str(match_context.speakers["alpha"])
+    assert _excluded(accepted)[alpha] == "filed_this_request"
+    payload = _stored_payload(engine, uuid.UUID(accepted["job_id"]))
+    assert alpha not in {entry["subject_id"] for entry in payload["explanations"]}
+    assert alpha not in {entry["subject_id"] for entry in payload["candidates"]}
+
+
+def test_another_hosts_request_excludes_nobody(match_context, engine) -> None:
+    """22b."""
+    match_context.bind_login("alpha", match_context.new_login())
+    request_id = match_context.file_request(match_context.new_login())
+
+    accepted, _ = _submit_and_execute(
+        match_context, engine, _submission(match_context, speaker_request_id=str(request_id))
+    )
+
+    assert "filed_this_request" not in _excluded(accepted).values()
+
+
+def test_a_speaker_with_no_bound_login_is_never_excluded(match_context, engine) -> None:
+    """22c."""
+    request_id = match_context.file_request(match_context.new_login())
+
+    accepted, _ = _submit_and_execute(
+        match_context, engine, _submission(match_context, speaker_request_id=str(request_id))
+    )
+
+    assert "filed_this_request" not in _excluded(accepted).values()
+
+
+def test_a_request_with_no_recorded_filer_excludes_nobody(match_context, engine) -> None:
+    """22d: NULL never equals NULL, and an unknown filer is nobody."""
+    match_context.bind_login("alpha", match_context.new_login())
+    request_id = match_context.file_request(None)
+
+    accepted, _ = _submit_and_execute(
+        match_context, engine, _submission(match_context, speaker_request_id=str(request_id))
+    )
+
+    assert "filed_this_request" not in _excluded(accepted).values()
+
+
+def test_excluding_the_requester_fingerprints_like_not_naming_them(match_context, engine) -> None:
+    """22e: Q8 changes ``candidates`` only as naming fewer people would."""
+    host = match_context.new_login()
+    match_context.bind_login("alpha", host)
+    request_id = match_context.file_request(host)
+
+    _, with_requester = _submit_and_execute(
+        match_context,
+        engine,
+        _submission(
+            match_context,
+            speaker_request_id=str(request_id),
+            candidate_subject_ids=match_context.subject("alpha", "beta", "gamma", "delta"),
+        ),
+    )
+    _, without = _submit_and_execute(
+        match_context,
+        engine,
+        _submission(
+            match_context,
+            speaker_request_id=str(request_id),
+            candidate_subject_ids=match_context.subject("beta", "gamma", "delta"),
+        ),
+    )
+
+    assert with_requester["inputs_hash"] == without["inputs_hash"]
+    assert with_requester["registry_hash"] == without["registry_hash"]
+
+
+def test_the_read_lists_the_excluded_requester(match_context, engine) -> None:
+    """22f (C3): the stored exclusion is on the read, not only on the 202."""
+    host = match_context.new_login()
+    match_context.bind_login("alpha", host)
+    request_id = match_context.file_request(host)
+
+    _, run = _submit_and_execute(
+        match_context, engine, _submission(match_context, speaker_request_id=str(request_id))
+    )
+
+    alpha = str(match_context.speakers["alpha"])
+    assert {"subject_id": alpha, "reason": "filed_this_request"} in run["excluded"]
+    assert alpha not in _candidates(run)
+
+
+def test_a_malformed_excluded_block_is_reported_not_dropped(match_context, engine) -> None:
+    """C3's stored list is read strictly: one bad entry is reported, never skipped."""
+    accepted, _ = _submit_and_execute(match_context, engine)
+    job_id = uuid.UUID(accepted["job_id"])
+    _rewrite_payload(
+        engine,
+        job_id,
+        "jsonb_set(payload, '{excluded}', (payload->'excluded') || '[{\"subject_id\": 7}]'::jsonb)",
+    )
+
+    run = _read_run(match_context, engine, job_id)
+
+    assert run["excluded"] == []
+    assert "subject_id" in run["excluded_unreadable_reason"]
+    assert run["shortlist_available"] is True
+
+
+def test_a_malformed_load_block_on_an_exclusion_is_reported_not_dropped(
+    match_context, engine
+) -> None:
+    """B26 T8c: a present ``load`` that does not render is unreadable, never "no block"."""
+    accepted, _ = _submit_and_execute(match_context, engine)
+    job_id = uuid.UUID(accepted["job_id"])
+    bad = '[{"subject_id": "x", "reason": "load_full", "load": {"band": 7}}]'
+    _rewrite_payload(
+        engine,
+        job_id,
+        f"jsonb_set(payload, '{{excluded}}', (payload->'excluded') || '{bad}'::jsonb)",
+    )
+
+    run = _read_run(match_context, engine, job_id)
+
+    assert run["excluded"] == []
+    assert ".load" in run["excluded_unreadable_reason"]
+
+
+# ---------------------------------------------------------------------------
+# B26 T8c: registry 3.0.0 (proposed, NOT current) on the create and read routes
+# ---------------------------------------------------------------------------
+#
+# 2.0.0 stays current. The 3.0.0 tests switch the current registry for one test
+# only (monkeypatch) and, where the test needs 3.0.0 to score, evaluate its
+# approval gate through tests/unit/registry_evaluation.py. C3 and C8 do the
+# switch WITHOUT the helper and prove the create route fails closed while
+# stored runs stay readable.
+
+#: One fixed run instant, so the load window is exact: as_of = 2026-10-06 (UTC).
+T8C_NOW = datetime(2026, 10, 6, 18, 0, tzinfo=UTC)
+T8C_AS_OF = date(2026, 10, 6)
+_LA = ZoneInfo("America/Los_Angeles")
+
+
+def _make_3_0_0_current(monkeypatch, *, evaluate: bool) -> None:
+    from smartmatch_domain import factor_registry
+    from smartmatch_domain.factor_registry import CBA_REGISTRY_3
+
+    monkeypatch.setattr(factor_registry, "CURRENT_CBA_REGISTRY", CBA_REGISTRY_3)
+    if evaluate:
+        evaluate_registry_3(
+            monkeypatch,
+            modules=(
+                *DOMAIN_MODULES,
+                "smartmatch_api.routers.match_runs",
+                "smartmatch_worker.handlers",
+            ),
+        )
+
+
+@pytest.fixture
+def load_context(match_context, engine, monkeypatch) -> Iterator[MatchFixture]:
+    """``match_context`` at a fixed run date, with its bookings swept afterwards."""
+    from smartmatch_api.routers import match_runs as match_runs_router
+
+    monkeypatch.setattr(match_runs_router, "utc_now", lambda: T8C_NOW)
+    yield match_context
+    with engine.begin() as conn:
+        for table in ("pipeline_record", "attendance_record"):
+            conn.execute(
+                text(f"DELETE FROM {table} WHERE tenant_id = :tid"),
+                {"tid": match_context.tenant_id},
+            )
+
+
+def _state_capacity(fixture: MatchFixture, name: str, hours: str) -> None:
+    fixture.state_availability(name)
+    assert fixture.engine is not None
+    with fixture.engine.begin() as conn:
+        conn.execute(
+            text(
+                "UPDATE speaker_availability SET declared_capacity_hours_per_90_days = "
+                "CAST(:hours AS numeric) WHERE tenant_id = :t AND professional_id = :p"
+            ),
+            {"hours": hours, "t": fixture.tenant_id, "p": fixture.speakers[name]},
+        )
+
+
+def _booking(
+    fixture: MatchFixture, name: str, *, offset_days: int, hours: float | None
+) -> uuid.UUID:
+    """One confirmed booking of ``name`` at noon local, ``offset_days`` from the run.
+
+    ``hours=None`` files a date-only event, whose hours are unknown (never 0).
+    """
+    from smartmatch_domain.events import DateOnlyTime, ExactTime
+    from smartmatch_persistence.events import ORIGIN_COORDINATOR_ENTRY, EventRepository
+
+    day = T8C_AS_OF + timedelta(days=offset_days)
+    if hours is None:
+        event_time: Any = DateOnlyTime(on_date=day, time_zone="America/Los_Angeles")
+    else:
+        starts = datetime(day.year, day.month, day.day, 12, 0, tzinfo=_LA)
+        event_time = ExactTime(
+            starts_at=starts,
+            time_zone="America/Los_Angeles",
+            ends_at=starts + timedelta(hours=hours),
+        )
+    assert fixture.engine is not None
+    session_factory = create_session_factory(
+        fixture.engine.url.render_as_string(hide_password=False)
+    )
+    with session_factory() as session:
+        event_id = EventRepository().upsert(
+            session,
+            tenant_id=fixture.tenant_id,
+            host_org_unit_id=fixture.unit_id,
+            title=f"T8c booking {uuid.uuid4().hex[:10]}",
+            event_time=event_time,
+            origin=ORIGIN_COORDINATOR_ENTRY,
+        )
+        session.commit()
+    record_id = uuid.uuid4()
+    base = datetime(2026, 9, 1, 9, 0, tzinfo=UTC)
+    with fixture.engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO pipeline_record (id, tenant_id, owning_unit_id, subject_id, "
+                "opportunity_event_id, matched_provenance, matched_at, contacted_at, "
+                "confirmed_at) VALUES (:id, :t, :unit, :subject, :event, "
+                "'synthetic / coordinator-accepted', :m, :c, :k)"
+            ),
+            {
+                "id": record_id,
+                "t": fixture.tenant_id,
+                "unit": fixture.unit_id,
+                "subject": fixture.speakers[name],
+                "event": event_id,
+                "m": base,
+                "c": base + timedelta(hours=1),
+                "k": base + timedelta(hours=2),
+            },
+        )
+    return record_id
+
+
+def _seed_loads(fixture: MatchFixture) -> dict[str, Any]:
+    """alpha Moderate, zeta Unknown (hours unknown), beta Full, gamma Full lower bound."""
+    _state_capacity(fixture, "alpha", "10.0")
+    _booking(fixture, "alpha", offset_days=5, hours=5)
+    _state_capacity(fixture, "zeta", "100.0")
+    zeta_ref = _booking(fixture, "zeta", offset_days=4, hours=None)
+    _state_capacity(fixture, "beta", "10.0")
+    _booking(fixture, "beta", offset_days=5, hours=12)
+    _state_capacity(fixture, "gamma", "10.0")
+    _booking(fixture, "gamma", offset_days=3, hours=10.5)
+    gamma_ref = _booking(fixture, "gamma", offset_days=2, hours=None)
+    return {"zeta_ref": str(zeta_ref), "gamma_ref": str(gamma_ref)}
+
+
+def _load_submission(fixture: MatchFixture) -> dict[str, Any]:
+    return _submission(
+        fixture, candidate_subject_ids=fixture.subject("alpha", "zeta", "beta", "gamma")
+    )
+
+
+def _explanations_by_subject(payload: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    return {entry["subject_id"]: entry for entry in payload["explanations"]}
+
+
+def _keys_anywhere(value: Any) -> set[str]:
+    if isinstance(value, dict):
+        found = set(value)
+        for child in value.values():
+            found |= _keys_anywhere(child)
+        return found
+    if isinstance(value, list):
+        found = set()
+        for child in value:
+            found |= _keys_anywhere(child)
+        return found
+    return set()
+
+
+# C1
+def test_create_scores_under_2_0_0_and_reads_no_engagements(load_context, engine) -> None:
+    _seed_loads(load_context)
+    with _statements() as created:
+        accepted = _post(load_context, _load_submission(load_context))
+    assert accepted.status_code == 202, accepted.text
+    payload = _stored_payload(engine, uuid.UUID(accepted.json()["job_id"]))
+
+    assert payload["registry_version"] == REGISTRY_VERSION
+    assert accepted.json()["registry_version"] == REGISTRY_VERSION
+    assert all("load" not in entry for entry in payload["explanations"])
+    assert all("load" not in entry for entry in payload["excluded"])
+    # Beta and gamma are Full, but 2.0.0 has no load band table: nobody is removed.
+    assert {entry["reason"] for entry in payload["excluded"]} <= {
+        "industry_classification_awaiting_review"
+    }
+    # T4's cost: one availability read, and no engagement read at all.
+    assert sum("speaker_availability" in sql for sql in created) == 1
+    assert not any("pipeline_record" in sql for sql in created)
+
+
+# C2
+def test_under_evaluation_create_removes_full_and_stores_load_blocks(
+    load_context, engine, monkeypatch
+) -> None:
+    refs = _seed_loads(load_context)
+    _make_3_0_0_current(monkeypatch, evaluate=True)
+    from smartmatch_domain.factor_registry import (
+        CBA_3_VIRTUAL_MODEL,
+        CBA_REGISTRY_3,
+        REGISTRY_3_VERSION,
+        normalize_weights,
+    )
+
+    accepted, run = _submit_and_execute(load_context, engine, _load_submission(load_context))
+    job_id = uuid.UUID(accepted["job_id"])
+    payload = _stored_payload(engine, job_id)
+    beta, gamma = (str(load_context.speakers[n]) for n in ("beta", "gamma"))
+
+    # Full removed before the solve, reported with its load.
+    assert payload["registry_version"] == REGISTRY_3_VERSION
+    excluded = {entry["subject_id"]: entry for entry in payload["excluded"]}
+    assert excluded[beta]["reason"] == "load_full"
+    assert excluded[beta]["load"]["band"] == "full"
+    assert excluded[gamma]["reason"] == "load_full"
+    assert excluded[gamma]["load"]["reason"] == "full_by_known_hours"
+    # The stored payload keeps the refs: the run's own evidence.
+    assert excluded[gamma]["load"]["unknown_hours_refs"] == [refs["gamma_ref"]]
+    assert {c["subject_id"] for c in payload["candidates"]}.isdisjoint({beta, gamma})
+
+    # Moderate multiplies the unrounded composite by 0.9, then rounds once.
+    alpha = _explanations_by_subject(payload)[str(load_context.speakers["alpha"])]
+    assert alpha["load"]["band"] == "moderate"
+    assert alpha["heuristic_score"] == round(alpha["load"]["composite_before_load"] * 0.9, 6)
+
+    # The worker pinned 3.0.0 and fingerprinted the band table.
+    row = _run_row(engine, job_id)
+    weights = normalize_weights(model=CBA_3_VIRTUAL_MODEL, registry=CBA_REGISTRY_3)
+    assert row.registry_version == REGISTRY_3_VERSION
+    assert row.registry_hash == registry_fingerprint(weights, load_bands=CBA_REGISTRY_3.load_bands)
+
+    # The read renders the Full Speakers with their load, and never the refs.
+    read_excluded = {entry["subject_id"]: entry for entry in run["excluded"]}
+    assert read_excluded[gamma]["reason"] == "load_full"
+    assert read_excluded[gamma]["load"]["band"] == "full"
+    assert read_excluded[gamma]["load"]["reason"] == "full_by_known_hours"
+    assert "unknown_hours_refs" not in read_excluded[gamma]["load"]
+    accepted_excluded = {entry["subject_id"]: entry for entry in accepted["excluded_candidates"]}
+    assert accepted_excluded[beta]["load"]["band"] == "full"
+    assert "unknown_hours_refs" not in accepted_excluded[gamma]["load"]
+
+
+# C3
+def test_a_proposed_current_registry_fails_closed(load_context, engine, monkeypatch) -> None:
+    _make_3_0_0_current(monkeypatch, evaluate=False)
+    with engine.connect() as conn:
+        before = conn.execute(
+            text("SELECT count(*) FROM job WHERE tenant_id = :t"),
+            {"t": load_context.tenant_id},
+        ).scalar_one()
+    response = _post(load_context, _submission(load_context))
+    assert response.status_code == 503, response.text
+    assert response.json()["error"]["code"] == "registry_not_ready"
+    with engine.connect() as conn:
+        after = conn.execute(
+            text("SELECT count(*) FROM job WHERE tenant_id = :t"),
+            {"t": load_context.tenant_id},
+        ).scalar_one()
+    assert after == before
+
+
+# C4
+def test_3_0_0_create_costs_one_more_query_than_2_0_0(load_context, monkeypatch) -> None:
+    _seed_loads(load_context)
+    with _statements() as two:
+        assert _post(load_context, _load_submission(load_context)).status_code == 202
+    _make_3_0_0_current(monkeypatch, evaluate=True)
+    with _statements() as three:
+        assert _post(load_context, _load_submission(load_context)).status_code == 202
+    assert len(three) == len(two) + 1
+    assert sum("pipeline_record" in sql for sql in three) == 1
+    assert sum("speaker_availability" in sql for sql in three) == 1
+
+
+# C5
+def test_cancelling_a_booking_lowers_the_band_on_the_next_run(
+    load_context, engine, monkeypatch
+) -> None:
+    from smartmatch_persistence.pipeline import PipelineRepository
+
+    _make_3_0_0_current(monkeypatch, evaluate=True)
+    _state_capacity(load_context, "alpha", "10.0")
+    _booking(load_context, "alpha", offset_days=5, hours=4)
+    second = _booking(load_context, "alpha", offset_days=6, hours=6)
+    body = _submission(load_context, candidate_subject_ids=load_context.subject("alpha", "zeta"))
+    alpha = str(load_context.speakers["alpha"])
+
+    first = _post(load_context, body)
+    assert first.status_code == 202, first.text
+    before = _explanations_by_subject(_stored_payload(engine, uuid.UUID(first.json()["job_id"])))[
+        alpha
+    ]
+    assert before["load"]["band"] == "heavy"
+
+    assert load_context.engine is not None and load_context.user_id is not None
+    session_factory = create_session_factory(engine.url.render_as_string(hide_password=False))
+    with session_factory() as session:
+        PipelineRepository().cancel_booking(
+            session,
+            tenant_id=load_context.tenant_id,
+            record_id=second,
+            actor_user_id=load_context.user_id,
+            at=datetime.now(UTC),
+        )
+        session.commit()
+
+    again = _post(load_context, body)
+    assert again.status_code == 202, again.text
+    after = _explanations_by_subject(_stored_payload(engine, uuid.UUID(again.json()["job_id"])))[
+        alpha
+    ]
+    assert after["load"]["band"] == "light"
+    assert after["load"]["utilization"] == "0.4"
+
+
+# C6
+def test_a_stored_2_0_0_run_reads_unchanged_after_current_is_switched(
+    load_context, engine, monkeypatch
+) -> None:
+    accepted, before = _submit_and_execute(load_context, engine)
+    _make_3_0_0_current(monkeypatch, evaluate=True)
+    after = _read_run(load_context, engine, uuid.UUID(accepted["job_id"]))
+    assert after["registry_version"] == before["registry_version"] == REGISTRY_VERSION
+    assert after["registry_hash"] == before["registry_hash"]
+    assert after["shortlist"] == before["shortlist"]
+    assert after["considered"] == before["considered"]
+    assert "load" not in _keys_anywhere(after["shortlist"] + after["considered"])
+
+
+# C7
+def test_the_availability_and_load_as_of_are_the_same_date(
+    load_context, engine, monkeypatch
+) -> None:
+    _seed_loads(load_context)
+    _make_3_0_0_current(monkeypatch, evaluate=True)
+    accepted = _post(load_context, _load_submission(load_context))
+    assert accepted.status_code == 202, accepted.text
+    payload = _stored_payload(engine, uuid.UUID(accepted.json()["job_id"]))
+    availability_dates = {entry["as_of"] for entry in payload["availability"]}
+    load_dates = {entry["load"]["as_of"] for entry in payload["explanations"]}
+    load_dates |= {entry["load"]["as_of"] for entry in payload["excluded"] if "load" in entry}
+    assert availability_dates == load_dates == {T8C_AS_OF.isoformat()}
+
+
+# C9
+def test_the_run_read_never_carries_unknown_hours_refs(load_context, engine, monkeypatch) -> None:
+    refs = _seed_loads(load_context)
+    _make_3_0_0_current(monkeypatch, evaluate=True)
+    accepted, run = _submit_and_execute(load_context, engine, _load_submission(load_context))
+    payload = _stored_payload(engine, uuid.UUID(accepted["job_id"]))
+
+    # Stored: non-empty refs on an explanation and on an excluded entry.
+    zeta = _explanations_by_subject(payload)[str(load_context.speakers["zeta"])]
+    assert zeta["load"]["unknown_hours_refs"] == [refs["zeta_ref"]]
+    gamma = next(
+        e
+        for e in payload["excluded"]
+        if e["reason"] == "load_full" and e["load"]["unknown_hours_refs"]
+    )
+    assert gamma["load"]["unknown_hours_refs"] == [refs["gamma_ref"]]
+
+    # On the wire: nowhere, in the 202 or the read.
+    assert "unknown_hours_refs" not in _keys_anywhere(accepted)
+    assert "unknown_hours_refs" not in _keys_anywhere(run)
+    assert refs["zeta_ref"] not in json.dumps(run)
+    assert refs["gamma_ref"] not in json.dumps(run)
+
+
+# C8
+def test_a_flipped_unapproved_current_registry_does_not_block_stored_run_reads(
+    load_context, engine, monkeypatch
+) -> None:
+    accepted, before = _submit_and_execute(load_context, engine)
+    _make_3_0_0_current(monkeypatch, evaluate=False)
+
+    after = _read_run(load_context, engine, uuid.UUID(accepted["job_id"]))
+    assert after["registry_hash"] == before["registry_hash"]
+    assert after["shortlist_available"] is True
+    assert after["shortlist"] == before["shortlist"]
+
+    refused = _post(load_context, _submission(load_context))
+    assert refused.status_code == 503, refused.text
+    assert refused.json()["error"]["code"] == "registry_not_ready"

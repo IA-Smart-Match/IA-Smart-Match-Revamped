@@ -213,6 +213,10 @@ export function accountableDemoMetric(
  * nothing.
  */
 const PIPELINE_STAGE_FIELDS: ReadonlyArray<readonly [string, string]> = [
+  // B26 T8a: a cancelled booking still has `confirmed_at`, so it is checked
+  // first — a cancelled row in a Matched or Contacted drill-down must not read
+  // "confirmed".
+  ["cancelled_at", "cancelled"],
   ["member_inquiry_at", "member inquiry"],
   ["attended_at", "attended"],
   ["confirmed_at", "confirmed"],

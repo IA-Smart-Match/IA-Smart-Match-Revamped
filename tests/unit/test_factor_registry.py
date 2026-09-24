@@ -6,16 +6,29 @@ which encodes the defect found in the legacy baseline so it cannot recur.
 
 from __future__ import annotations
 
+import dataclasses
 import math
+import re
+import sys
 from pathlib import Path
 
 import pytest
+from smartmatch_domain import factor_registry as factor_registry_module
+from smartmatch_domain.eli import ELI_FORMULA_VERSION
 from smartmatch_domain.factor_registry import (
     APPROVED_SCORING_KEYS,
+    APPROVED_SCORING_KEYS_3,
+    CBA_3_PHYSICAL_MODEL,
+    CBA_3_VIRTUAL_MODEL,
     CBA_PHYSICAL_MODEL,
+    CBA_REGISTRY,
+    CBA_REGISTRY_3,
     CBA_VIRTUAL_MODEL,
+    ENGAGEMENT_LOAD_SPEC,
     PROHIBITED_INPUTS,
     PROPOSED_FACTORS,
+    PROPOSED_FACTORS_3,
+    REGISTRY_3_VERSION,
     REGISTRY_APPROVED_ON,
     REGISTRY_APPROVER,
     REGISTRY_STATUS,
@@ -23,24 +36,37 @@ from smartmatch_domain.factor_registry import (
     SCORING_MODE_VERSION,
     SUPERSEDED_G1_MODEL,
     SUPERSEDED_REGISTRY_VERSION,
+    SUPERSEDED_REGISTRY_VERSIONS,
     SUPERSEDED_SCORING_KEYS,
     FactorKind,
+    FactorRegistry,
     FactorSpec,
+    RegistryNotApprovedError,
     active_weights,
     assert_registry_approved,
     assert_scoring_ready,
+    current_cba_registry,
     display_weights,
     factor_keys,
     implemented_scoring_keys,
     normalize_weights,
+    proposed_registry_versions,
     proposed_weights,
+    registry_for_version,
     resolve_scoring_model,
+    superseded_registry_versions,
 )
 from smartmatch_domain.factors.proximity import (
     CBA_PHYSICAL_SCORING_MODE,
+    CBA_SCORING_MODES,
     CBA_VIRTUAL_SCORING_MODE,
     UnknownScoringModeError,
 )
+from smartmatch_domain.load_bands import (
+    ENGAGEMENT_LOAD_FACTOR_KEY,
+    Q7_REGISTERED_LOAD_BANDS,
+)
+from smartmatch_domain.match_run import registry_fingerprint, weights_fingerprint
 
 
 def test_factor_keys_are_unique():
@@ -479,3 +505,337 @@ def test_no_weight_literal_is_typed_outside_this_registry():
         "the §11 virtual weights are typed as literals outside the registry: "
         f"{offenders}. They must be computed by normalize_weights()."
     )
+
+
+# ---------------------------------------------------------------------------
+# B26 T8c: registry 3.0.0, declared ``proposed`` and NOT current
+# ---------------------------------------------------------------------------
+
+#: Measured on origin/main 1909278f and re-measured on the stacked base (T8c
+#: plan §3.5). A 1.1.1 or 2.0.0 run's registry_hash must reproduce byte for byte.
+PINNED_2_0_0_PHYSICAL_HASH = (
+    "sha256:f870192c2b1d9977aaf4be3368f51f67accbbbba9955e4346a4445b0be4be4e5"
+)
+#: cba-virtual-1 divides 0.3 / 0.25 / 0.15 by their float ``sum()``. Python 3.11
+#: adds left to right (0.7000000000000001); 3.12's ``sum()`` is compensated
+#: (0.7). The last digit of every weight, and so the digest, depends on the
+#: interpreter. Production (Dockerfile.api / Dockerfile.worker,
+#: ``python:3.11-slim-bookworm``) and CI run 3.11: that digest is what stored
+#: virtual runs carry. ``pyproject.toml`` also allows 3.12 (local dev).
+PINNED_2_0_0_VIRTUAL_HASH_PY311 = (
+    "sha256:62524878457dee467d747e3b9040a61cf6915e7a5398a08a8d9af4e83792b74c"
+)
+PINNED_2_0_0_VIRTUAL_HASH_PY312 = (
+    "sha256:0b27df1f198b501da27f3a58d0128625f1351a1ba77fa4189807c31865c85ce4"
+)
+PINNED_2_0_0_VIRTUAL_HASH = (
+    PINNED_2_0_0_VIRTUAL_HASH_PY311
+    if sys.version_info < (3, 12)
+    else PINNED_2_0_0_VIRTUAL_HASH_PY312
+)
+PINNED_1_1_1_G1_HASH = "sha256:9da5f1b1ccb6b0627759c77a472fb47d8b77ce634c21fffe9bf53a5b04e79de1"
+
+
+# 1
+def test_registry_3_is_declared_proposed():
+    assert REGISTRY_3_VERSION == "3.0.0-approved-b26-eli"
+    assert CBA_REGISTRY_3.version == REGISTRY_3_VERSION
+    assert CBA_REGISTRY_3.status == "proposed"
+    assert CBA_REGISTRY_3.approver is None
+    assert CBA_REGISTRY_3.approved_on is None
+    assert CBA_REGISTRY_3.load_bands is Q7_REGISTERED_LOAD_BANDS
+    assert CBA_REGISTRY_3.mode_vocabulary == CBA_SCORING_MODES
+    assert registry_for_version(REGISTRY_3_VERSION) is CBA_REGISTRY_3
+
+
+# 2
+def test_registry_3_declares_engagement_load_as_weight_zero_penalty_in_no_model():
+    spec = CBA_REGISTRY_3.spec_by_key[ENGAGEMENT_LOAD_FACTOR_KEY]
+    assert spec is ENGAGEMENT_LOAD_SPEC
+    assert spec.kind is FactorKind.PENALTY
+    assert spec.proposed_weight == 0.0
+    assert spec.implemented is True
+    assert spec.is_retired is False
+    for model in CBA_REGISTRY_3.scoring_modes.values():
+        assert ENGAGEMENT_LOAD_FACTOR_KEY not in model.scoring_keys
+    assert CBA_3_PHYSICAL_MODEL.scoring_keys == CBA_PHYSICAL_MODEL.scoring_keys
+    assert CBA_3_VIRTUAL_MODEL.scoring_keys == CBA_VIRTUAL_MODEL.scoring_keys
+    # The four weighted specs and availability are the same objects as 2.0.0's;
+    # the retired G1 pair stays in CBA_REGISTRY only.
+    assert PROPOSED_FACTORS_3[:4] == PROPOSED_FACTORS[:4]
+    assert all(a is b for a, b in zip(PROPOSED_FACTORS_3[:4], PROPOSED_FACTORS[:4], strict=True))
+    assert PROPOSED_FACTORS_3[4] is ENGAGEMENT_LOAD_SPEC
+    assert PROPOSED_FACTORS_3[5] is PROPOSED_FACTORS[6]
+    assert len(PROPOSED_FACTORS_3) == 6
+    assert APPROVED_SCORING_KEYS | {ENGAGEMENT_LOAD_FACTOR_KEY} == APPROVED_SCORING_KEYS_3
+    for mode in (CBA_PHYSICAL_SCORING_MODE, CBA_VIRTUAL_SCORING_MODE):
+        model = resolve_scoring_model(mode, registry=CBA_REGISTRY_3)
+        assert model.registry_version == REGISTRY_3_VERSION
+        assert model.scoring_mode_version == SCORING_MODE_VERSION
+        assert dict(normalize_weights(model=model, registry=CBA_REGISTRY_3)) == dict(
+            normalize_weights(model=resolve_scoring_model(mode))
+        )
+    with pytest.raises(UnknownScoringModeError):
+        resolve_scoring_model(None, registry=CBA_REGISTRY_3)
+
+
+# 3
+def test_current_registry_is_2_0_0():
+    assert current_cba_registry() is CBA_REGISTRY
+    assert factor_registry_module.CURRENT_CBA_REGISTRY is CBA_REGISTRY
+    assert REGISTRY_VERSION == "2.0.0-approved-oq-cba-004"
+    assert current_cba_registry().version == REGISTRY_VERSION
+    assert SUPERSEDED_REGISTRY_VERSION == "1.1.1-approved-g1-m6j"
+    assert isinstance(SUPERSEDED_REGISTRY_VERSION, str)
+
+
+def test_current_registry_is_read_per_call(monkeypatch):
+    monkeypatch.setattr(factor_registry_module, "CURRENT_CBA_REGISTRY", CBA_REGISTRY_3)
+    assert current_cba_registry() is CBA_REGISTRY_3
+
+
+# 4
+def test_superseded_and_proposed_sets_derive_from_current():
+    assert frozenset({SUPERSEDED_REGISTRY_VERSION}) == SUPERSEDED_REGISTRY_VERSIONS
+    assert superseded_registry_versions() == frozenset({"1.1.1-approved-g1-m6j"})
+    assert proposed_registry_versions() == frozenset({"3.0.0-approved-b26-eli"})
+    assert superseded_registry_versions(CBA_REGISTRY_3) == frozenset(
+        {"1.1.1-approved-g1-m6j", "2.0.0-approved-oq-cba-004"}
+    )
+    assert proposed_registry_versions(CBA_REGISTRY_3) == frozenset()
+
+
+def test_the_derived_sets_refuse_a_registry_outside_the_lineage():
+    stranger = dataclasses.replace(CBA_REGISTRY_3, version="9.9.9-nobody", scoring_modes={})
+    with pytest.raises(ValueError, match="lineage"):
+        superseded_registry_versions(stranger)
+    with pytest.raises(ValueError, match="lineage"):
+        proposed_registry_versions(stranger)
+
+
+# 5
+def test_registry_3_fails_the_approval_gate_and_passes_readiness():
+    with pytest.raises(RegistryNotApprovedError, match="proposed"):
+        assert_registry_approved(registry=CBA_REGISTRY_3)
+    assert_scoring_ready(registry=CBA_REGISTRY_3)
+    assert implemented_scoring_keys(registry=CBA_REGISTRY_3) == APPROVED_SCORING_KEYS_3
+    # And the 2.0.0 gate is untouched.
+    assert_registry_approved()
+    assert_scoring_ready()
+
+
+# 6
+def test_an_approved_copy_cannot_borrow_the_3_0_0_pin():
+    impostor = dataclasses.replace(
+        CBA_REGISTRY_3,
+        status="approved",
+        approver="Somebody Else",
+        approved_on="2026-09-23",
+    )
+    assert impostor.version == REGISTRY_3_VERSION
+    with pytest.raises(RegistryNotApprovedError):
+        assert_registry_approved(registry=impostor)
+    with pytest.raises(RegistryNotApprovedError):
+        assert_scoring_ready(registry=impostor)
+    with pytest.raises(ValueError, match="already bound"):
+        factor_registry_module.register_registry(impostor)
+
+
+def test_the_3_0_0_pin_is_never_unregistered():
+    with pytest.raises(ValueError, match="CBA"):
+        factor_registry_module._unregister_for_tests(REGISTRY_3_VERSION)
+    assert registry_for_version(REGISTRY_3_VERSION) is CBA_REGISTRY_3
+
+
+# 7
+def test_no_production_module_imports_the_evaluation_helper_or_reassigns_current():
+    root = Path(__file__).resolve().parents[2]
+    assignment = re.compile(r"(?:^\s*|\.)CURRENT_CBA_REGISTRY\s*(?::[^=\n]*)?=(?!=)", re.MULTILINE)
+    offenders: list[str] = []
+    for top in ("python", "services", "tools"):
+        for path in sorted((root / top).rglob("*.py")):
+            text = path.read_text(encoding="utf-8")
+            relative = path.relative_to(root).as_posix()
+            if "registry_evaluation" in text:
+                offenders.append(f"{relative}: imports registry_evaluation")
+            if path.name != "factor_registry.py" and assignment.search(text):
+                offenders.append(f"{relative}: assigns CURRENT_CBA_REGISTRY")
+            if (
+                path.name != "factor_registry.py"
+                and "setattr" in text
+                and "CURRENT_CBA_REGISTRY" in text
+            ):
+                offenders.append(f"{relative}: patches CURRENT_CBA_REGISTRY")
+            if path.name != "factor_registry.py":
+                offenders.extend(
+                    f"{relative}: names {name}"
+                    for name in ("CBA_REGISTRY_3", "REGISTRY_3_VERSION")
+                    if re.search(rf"\b{name}\b", text)
+                )
+    assert not offenders, offenders
+    source = (
+        root / "python" / "smartmatch_domain" / "smartmatch_domain" / "factor_registry.py"
+    ).read_text(encoding="utf-8")
+    bindings = assignment.findall(source)
+    assert len(bindings) == 1, bindings
+    assert re.search(
+        r"^CURRENT_CBA_REGISTRY: Final\[FactorRegistry\] = CBA_REGISTRY\b",
+        source,
+        re.MULTILINE,
+    )
+
+
+# 8
+def test_registry_fingerprint_without_bands_is_weights_fingerprint():
+    for model, pinned in (
+        (CBA_PHYSICAL_MODEL, PINNED_2_0_0_PHYSICAL_HASH),
+        (CBA_VIRTUAL_MODEL, PINNED_2_0_0_VIRTUAL_HASH),
+        (SUPERSEDED_G1_MODEL, PINNED_1_1_1_G1_HASH),
+    ):
+        weights = normalize_weights(model=model)
+        assert registry_fingerprint(weights, load_bands=None) == pinned
+        assert weights_fingerprint(weights) == pinned
+    assert CBA_REGISTRY.load_bands is None
+
+
+def test_the_cba_lineage_versions_are_the_three_cba_pins():
+    from smartmatch_domain.factor_registry import CBA_LINEAGE_VERSIONS, REGISTRY_3_VERSION
+
+    assert {
+        SUPERSEDED_REGISTRY_VERSION,
+        REGISTRY_VERSION,
+        REGISTRY_3_VERSION,
+    } == CBA_LINEAGE_VERSIONS
+
+
+# 8b
+def test_both_virtual_literals_are_the_two_float_sums_of_the_same_weights():
+    """Each literal is checked on every interpreter, not only the one running.
+
+    Left-to-right addition is 3.11's ``sum()``; ``math.fsum`` is what 3.12's
+    compensated ``sum()`` returns for these three values.
+    """
+    raw = {
+        key: CBA_REGISTRY.spec_by_key[key].proposed_weight
+        for key in normalize_weights(model=CBA_VIRTUAL_MODEL)
+    }
+    left_to_right = 0.0
+    for value in raw.values():
+        left_to_right += value
+    compensated = math.fsum(raw.values())
+    assert left_to_right != compensated
+    assert (
+        weights_fingerprint({key: value / left_to_right for key, value in raw.items()})
+        == PINNED_2_0_0_VIRTUAL_HASH_PY311
+    )
+    assert (
+        weights_fingerprint({key: value / compensated for key, value in raw.items()})
+        == PINNED_2_0_0_VIRTUAL_HASH_PY312
+    )
+
+
+# 9
+def _registry_3_with(**changes):
+    return dataclasses.replace(CBA_REGISTRY_3, **changes)
+
+
+def _load_spec(**changes):
+    return dataclasses.replace(ENGAGEMENT_LOAD_SPEC, **changes)
+
+
+def _factors_with(spec):
+    return tuple(spec if s.key == ENGAGEMENT_LOAD_FACTOR_KEY else s for s in PROPOSED_FACTORS_3)
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        pytest.param(lambda: _registry_3_with(load_bands=None), id="spec-without-bands"),
+        pytest.param(
+            lambda: dataclasses.replace(CBA_REGISTRY, load_bands=Q7_REGISTERED_LOAD_BANDS),
+            id="bands-without-spec",
+        ),
+        pytest.param(
+            lambda: _registry_3_with(
+                scoring_modes={
+                    CBA_PHYSICAL_SCORING_MODE: dataclasses.replace(
+                        CBA_3_PHYSICAL_MODEL,
+                        scoring_keys=(
+                            *CBA_3_PHYSICAL_MODEL.scoring_keys,
+                            ENGAGEMENT_LOAD_FACTOR_KEY,
+                        ),
+                    ),
+                    CBA_VIRTUAL_SCORING_MODE: CBA_3_VIRTUAL_MODEL,
+                }
+            ),
+            id="spec-in-a-model",
+        ),
+        pytest.param(
+            lambda: _registry_3_with(factors=_factors_with(_load_spec(proposed_weight=0.1))),
+            id="weight-not-zero",
+        ),
+        pytest.param(
+            lambda: _registry_3_with(
+                factors=_factors_with(_load_spec(kind=FactorKind.SUITABILITY))
+            ),
+            id="not-a-penalty",
+        ),
+        pytest.param(
+            lambda: _registry_3_with(factors=_factors_with(_load_spec(implemented=False))),
+            id="not-implemented",
+        ),
+        pytest.param(
+            lambda: _registry_3_with(factors=_factors_with(_load_spec(retired_in_version="4.0.0"))),
+            id="retired",
+        ),
+        pytest.param(
+            lambda: _registry_3_with(
+                load_bands=dataclasses.replace(
+                    Q7_REGISTERED_LOAD_BANDS, eli_formula_version="1.0.0"
+                )
+            ),
+            id="eli-version-mismatch",
+        ),
+    ],
+)
+def test_registry_invariants(build):
+    with pytest.raises(ValueError):
+        build()
+    assert Q7_REGISTERED_LOAD_BANDS.eli_formula_version == ELI_FORMULA_VERSION
+
+
+# 10
+def _toy_registry() -> FactorRegistry:
+    spec = FactorSpec(
+        key="toy_fit",
+        display_label="Toy fit",
+        kind=FactorKind.SUITABILITY,
+        proposed_weight=1.0,
+        implemented=True,
+        rationale="toy",
+    )
+    return FactorRegistry(
+        version="toy-0.0.1",
+        status="proposed",
+        approver=None,
+        approved_on=None,
+        factors=(spec,),
+        approved_scoring_keys=frozenset({"toy_fit"}),
+        scoring_modes={},
+        mode_vocabulary=frozenset(),
+    )
+
+
+def test_toy_exercise_and_cba_registries_are_unchanged_by_the_new_field():
+    from smartmatch_domain.exercise.registry import EXERCISE_REGISTRY
+
+    for registry in (_toy_registry(), EXERCISE_REGISTRY, CBA_REGISTRY):
+        assert registry.load_bands is None
+        first = dataclasses.replace(registry)
+        second = dataclasses.replace(registry)
+        assert first == registry
+        assert first == second
+        assert hash(first) == hash(second)
+    assert dataclasses.replace(CBA_REGISTRY_3) == CBA_REGISTRY_3
+    assert hash(CBA_REGISTRY_3) == hash(dataclasses.replace(CBA_REGISTRY_3))
+    assert CBA_REGISTRY_3 != CBA_REGISTRY

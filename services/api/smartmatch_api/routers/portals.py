@@ -286,7 +286,14 @@ _PORTAL_FOR_ROLE: Final[dict[str, tuple[str, str]]] = {
     # ``memberships[].role`` — and that, not a second portal, is what reveals
     # the Administration section.
     "admin": ("coordinator", "/coordinator-portal"),
+    # B26 T6b-1. The route is capability-gated in the frontend; until
+    # SPEAKER_PORTAL is on, nothing can grant this role.
+    "speaker": ("speaker", "/speaker-portal"),
 }
+
+#: Roles granted only by accepting an invitation (B26 T6b-1, C3), never by a
+#: seed. The compose dev principals exempt them: no compose Speaker exists.
+INVITATION_ONLY_ROLES: Final[frozenset[str]] = frozenset({"speaker"})
 
 #: Stored roles in descending precedence, used when one portal is opened by
 #: more than one of the caller's memberships. Highest wins the descriptor's
@@ -298,14 +305,20 @@ _PORTAL_FOR_ROLE: Final[dict[str, tuple[str, str]]] = {
 #: that also holds ``admin`` would understate a role the server did assign,
 #: while the reverse never overstates one it did not — the descriptor only
 #: echoes rows, and every route still authorizes for itself.
-_ROLE_PRIORITY: Final[tuple[str, ...]] = ("admin", "coordinator", "volunteer", "student")
+_ROLE_PRIORITY: Final[tuple[str, ...]] = (
+    "admin",
+    "coordinator",
+    "volunteer",
+    "speaker",
+    "student",
+)
 
 #: The order portals are listed in, and therefore which one ``default_portal``
 #: names. Fixed here rather than left to membership order, because
 #: ``smartmatch_persistence.principals`` loads memberships with no ``ORDER BY``:
 #: an account holding two roles would otherwise land somewhere different on two
 #: consecutive sign-ins, which is the landing bug in its purest form.
-_PORTAL_ORDER: Final[tuple[str, ...]] = ("coordinator", "volunteer", "student")
+_PORTAL_ORDER: Final[tuple[str, ...]] = ("coordinator", "volunteer", "speaker", "student")
 
 if set(_ROLE_PRIORITY) != set(_PORTAL_FOR_ROLE):  # pragma: no cover - import-time assertion
     # A role with no precedence could not be merged deterministically, and a

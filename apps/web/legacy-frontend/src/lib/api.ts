@@ -2294,6 +2294,24 @@ export interface MatchFactorExplanation {
 }
 
 /** One candidate's heuristic score and every factor behind it. */
+/**
+ * The Stage A availability verdict a run stored for one candidate (B26 T4).
+ *
+ * It annotates; it never removed, reordered or re-scored anybody. Worded by
+ * state only — there is no number here but the dates.
+ */
+export interface MatchAvailability {
+  verdict: "eligible" | "excluded" | "undetermined";
+  state: "available" | "blacked_out" | "unknown";
+  reason: "clear" | "paused" | "window" | "not_stated" | "event_unresolved";
+  /** The UTC date (`YYYY-MM-DD`) the verdict was taken on. */
+  as_of: string;
+  /** Set exactly when `reason` is `paused`. */
+  paused_until: string | null;
+  /** Null when it could not be checked — "not checked", never "unchanged". */
+  changed_since_run: boolean | null;
+}
+
 export interface MatchCandidateExplanation {
   subject_id: string;
   /** In [0, 1]. Never a percentage, and null when `state` is "unknown". */
@@ -2328,6 +2346,8 @@ export interface MatchCandidateExplanation {
   /** The mode vocabulary's version. Set exactly when `scoring_mode` is. */
   scoring_mode_version?: string | null;
   factors: MatchFactorExplanation[];
+  /** The stored availability verdict; null when the run recorded none. */
+  availability?: MatchAvailability | null;
 }
 
 /**
@@ -2367,6 +2387,13 @@ export interface MatchRunRead {
   considered: MatchCandidateExplanation[];
   /** Candidates excluded because a factor had no evidence. Never scored at 0. */
   unscorable: MatchCandidateExplanation[];
+  /** False for a run stored before availability was recorded, or an unreadable block. */
+  availability_recorded?: boolean;
+  availability_unreadable_reason?: string | null;
+  /** Named subjects that never entered the pool, as stored at submission. */
+  excluded?: ExcludedMatchCandidate[];
+  /** Why the stored exclusions could not be read; `excluded` is then empty, not shorter. */
+  excluded_unreadable_reason?: string | null;
 }
 
 /** `GET /v1/units/{unit_id}/match-runs/{match_run_id}`. */
@@ -3114,6 +3141,8 @@ export interface SpeakerInvitationOutcome {
 export interface SpeakerInvitationBatch {
   batch_id: string;
   match_run_id: string | null;
+  /** The Speaker Request this batch invites for; null only on a batch stored before it was recorded. */
+  speaker_request_id: string | null;
   template_id: string;
   event_name: string;
   /** As the Connector typed it. Rendered verbatim; never parsed or reformatted. */
@@ -3130,6 +3159,7 @@ export interface SpeakerInvitationBatch {
 export interface SpeakerInvitationBatchSummary {
   batch_id: string;
   match_run_id: string | null;
+  speaker_request_id: string | null;
   template_id: string;
   event_name: string;
   event_date: string;
@@ -3206,6 +3236,8 @@ export async function createSpeakerInvitationBatch(
     eventDate: string;
     coordinatorName: string;
     matchRunId?: string | null;
+    /** Derived server-side from `matchRunId`; required when there is no run. */
+    speakerRequestId?: string | null;
   },
 ): Promise<SpeakerInvitationBatch> {
   return requestJson<SpeakerInvitationBatch>(
@@ -3219,6 +3251,7 @@ export async function createSpeakerInvitationBatch(
         event_date: input.eventDate,
         coordinator_name: input.coordinatorName,
         match_run_id: input.matchRunId ?? null,
+        speaker_request_id: input.speakerRequestId ?? null,
       }),
     },
     { authenticated: true },
@@ -4051,6 +4084,168 @@ export async function fetchSpeakerContactChannels(
   );
 }
 
+// Speaker availability (B26 T3)
+//
+// A roster contact's stated availability, read and replaced by a Connector.
+// The types are generic so the speaker's own `/v1/me/availability` (T6b-2)
+// reuses them. "Not stated" is `stated: false` with every value `null` — a
+// screen says "Not stated", never "Available".
+
+export type SpeakerAvailabilitySource = "speaker" | "connector";
+
+/** One inclusive date range, `YYYY-MM-DD`. */
+export interface SpeakerAvailabilityWindow {
+  starts_on: string;
+  ends_on: string;
+}
+
+export interface SpeakerAvailabilityWindowView extends SpeakerAvailabilityWindow {
+  source: SpeakerAvailabilitySource;
+}
+
+export interface SpeakerAvailability {
+  professional_id: string;
+  stated: boolean;
+  /** `null` exactly when `stated` is false. */
+  version: number | null;
+  /** The stored value, even if already past. */
+  invitations_paused_until: string | null;
+  declared_capacity_hours_per_90_days: number | null;
+  unavailable: SpeakerAvailabilityWindowView[];
+  updated_source: SpeakerAvailabilitySource | null;
+  updated_at: string | null;
+}
+
+/** Full replace: every key is sent; `null` clears; an omitted window is deleted. */
+export interface SpeakerAvailabilityUpdatePayload {
+  /** Required: echo `version` from the read (`null` when it was not stated). */
+  expected_version: number | null;
+  invitations_paused_until: string | null;
+  declared_capacity_hours_per_90_days: number | null;
+  unavailable: SpeakerAvailabilityWindow[];
+}
+
+export type SpeakerAvailabilityErrorCode =
+  | "speaker_availability_stale"
+  | "speaker_availability_window_invalid"
+  | "speaker_availability_too_many_windows"
+  | "speaker_availability_pause_invalid"
+  | "speaker_availability_capacity_invalid"
+  | "speaker_contact_not_found";
+
+/**
+ * `GET /v1/units/{unit_id}/speaker-contacts/{professional_id}/availability`
+ *
+ * Rejects with `ApiRequestError`: `404 speaker_contact_not_found` when the
+ * person is not on this unit's roster, `404 unit_not_found`, or `403`.
+ */
+export async function fetchSpeakerAvailability(
+  unitId: string,
+  professionalId: string,
+): Promise<SpeakerAvailability> {
+  return requestJson<SpeakerAvailability>(
+    `/v1/units/${encodeURIComponent(unitId)}/speaker-contacts/` +
+      `${encodeURIComponent(professionalId)}/availability`,
+    { method: "GET" },
+    { authenticated: true },
+  );
+}
+
+/**
+ * `PATCH /v1/units/{unit_id}/speaker-contacts/{professional_id}/availability`
+ *
+ * Sends `payload` unchanged and resolves to the stored statement. Rejects with
+ * `ApiRequestError` whose `code` is a {@link SpeakerAvailabilityErrorCode}:
+ * `409 speaker_availability_stale` (re-read with GET; no `details`), or `422`
+ * with `details.field` — plus `details.index` (the request's window index) for
+ * `window_invalid` and `details.limit` for `too_many_windows`. A malformed body
+ * is `422 invalid_request`.
+ */
+export async function updateSpeakerAvailability(
+  unitId: string,
+  professionalId: string,
+  payload: SpeakerAvailabilityUpdatePayload,
+): Promise<SpeakerAvailability> {
+  return requestJson<SpeakerAvailability>(
+    `/v1/units/${encodeURIComponent(unitId)}/speaker-contacts/` +
+      `${encodeURIComponent(professionalId)}/availability`,
+    { method: "PATCH", body: JSON.stringify(payload) },
+    { authenticated: true },
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Speaker portal accounts (B26 T6b-1). Mounted server-side only when the
+// `speaker_portal` capability is on; the UI that calls these is gated on the
+// same capability. The activation token never passes through the browser here.
+// ---------------------------------------------------------------------------
+
+/** What a Speaker Connector sees for one contact's portal access. */
+export type SpeakerPortalAccessStatus = "none" | "invited" | "expired" | "active";
+
+export interface SpeakerPortalAccess {
+  status: SpeakerPortalAccessStatus;
+  /** The channel the live link went to (`invited`/`expired` only). */
+  contact_channel_id?: string;
+  issued_at?: string;
+  expires_at?: string;
+  /** When the Speaker activated (`active` only). */
+  bound_at?: string;
+}
+
+/** `202`: the invitation is recorded and its email queued — nothing sent yet. */
+export interface SpeakerPortalInvitation {
+  invitation_id: string;
+  status: "invited";
+  expires_at: string;
+  job_id: string;
+  events_url: string;
+}
+
+function speakerPortalBase(unitId: string, professionalId: string): string {
+  return (
+    `/v1/units/${encodeURIComponent(unitId)}/speaker-contacts/` +
+    `${encodeURIComponent(professionalId)}`
+  );
+}
+
+/** `GET …/speaker-contacts/{professional_id}/portal-access` */
+export async function fetchSpeakerPortalAccess(
+  unitId: string,
+  professionalId: string,
+): Promise<SpeakerPortalAccess> {
+  return requestJson<SpeakerPortalAccess>(
+    `${speakerPortalBase(unitId, professionalId)}/portal-access`,
+    { method: "GET" },
+    { authenticated: true },
+  );
+}
+
+/** `POST …/portal-invitations` with the chosen email channel. */
+export async function inviteSpeakerToPortal(
+  unitId: string,
+  professionalId: string,
+  contactChannelId: string,
+): Promise<SpeakerPortalInvitation> {
+  return requestJson<SpeakerPortalInvitation>(
+    `${speakerPortalBase(unitId, professionalId)}/portal-invitations`,
+    { method: "POST", body: JSON.stringify({ contact_channel_id: contactChannelId }) },
+    { authenticated: true },
+  );
+}
+
+/** `DELETE …/portal-invitations/current`. `revoked: false` when nothing was live. */
+export async function revokeSpeakerPortalInvitation(
+  unitId: string,
+  professionalId: string,
+): Promise<{ revoked: boolean }> {
+  return requestJson<{ revoked: boolean }>(
+    `${speakerPortalBase(unitId, professionalId)}/portal-invitations/current`,
+    { method: "DELETE" },
+    { authenticated: true },
+  );
+}
+
 // CBA speaker handoff (CBA-HANDOFF-PIPELINE, customer §6 step 9)
 //
 // The far end of the arrow `submitSpeakerRequest` starts: an Event Host asked
@@ -4139,7 +4334,9 @@ export interface ConfirmedSpeakerList {
  * `GET /v1/units/{unit_id}/cba/confirmed-speakers` — who agreed to come.
  *
  * Speakers whose `confirmed_at` is set, ordered by it, so a Host reads them in
- * the order they said yes. Optionally narrowed to one event.
+ * the order they said yes. Optionally narrowed to one event. Cancelled bookings
+ * are not listed (B26 T8a): a Speaker Connector's cancellation removes the
+ * speaker from this list and from the `pipeline_confirmed` count together.
  *
  * An empty `speakers` array means exactly one thing: nobody is confirmed. It is
  * not a report about invitations and a caller must not explain it as one —
@@ -4198,6 +4395,56 @@ export interface SpeakerHandoffResult {
   speaker: ConfirmedSpeaker;
 }
 
+/** One `pipeline_record` as `GET/POST …/pipeline-records/{id}…` returns it. */
+export interface PipelineRecordView {
+  id: string;
+  owning_unit_id: string;
+  subject_id: string;
+  opportunity_event_id: string;
+  matched_provenance: string;
+  current_stage: string;
+  matched_at: string;
+  contacted_at: string | null;
+  confirmed_at: string | null;
+  attended_at: string | null;
+  member_inquiry_at: string | null;
+  attendance_id: string | null;
+  /** When the booking was cancelled (server clock), or `null`. Not a stage. */
+  cancelled_at: string | null;
+  cancelled_by_user_id: string | null;
+}
+
+/** What `POST …/cancellation` did, and the row it left behind. */
+export interface BookingCancellationResult {
+  /** True only when this request's own write cancelled the booking. */
+  transitioned: boolean;
+  /** True when the booking was already cancelled; the first actor and time are kept. */
+  already_cancelled: boolean;
+  record: PipelineRecordView;
+}
+
+/**
+ * `POST /v1/units/{unit_id}/pipeline-records/{record_id}/cancellation` — cancel
+ * one confirmed Speaker booking (B26 T8a).
+ *
+ * No body: the server records its own clock and the caller. A repeat is a 200
+ * with `already_cancelled: true`. Refusals are {@link ApiRequestError}s with
+ * `pipeline_booking_not_confirmed`, `pipeline_booking_already_attended` or
+ * `pipeline_booking_confirmed_in_future` (409), `pipeline_record_not_found`
+ * (404), or the quota code (429).
+ */
+export async function cancelBooking(
+  unitId: string,
+  recordId: string,
+): Promise<BookingCancellationResult> {
+  return requestJson<BookingCancellationResult>(
+    `/v1/units/${encodeURIComponent(unitId)}/pipeline-records/` +
+      `${encodeURIComponent(recordId)}/cancellation`,
+    { method: "POST" },
+    { authenticated: true },
+  );
+}
+
 /**
  * `POST /v1/units/{unit_id}/cba/events/{event_id}/speaker-handoff` — bring one
  * speaker's journey up to whatever the stored evidence already supports.
@@ -4210,9 +4457,10 @@ export interface SpeakerHandoffResult {
  * Rejects with {@link ApiRequestError}: `404` when the invitation is not in this
  * unit or the event not in this tenant; `409` when the invitation records no
  * acceptance (`cba_invitation_not_accepted`), when the cited attendance is not
- * this journey's, or when the stored timestamps cannot be ordered into the
- * funnel; `403` when the server does not grant this account the operation.
- * Render the server's own message — it says which of those happened.
+ * this journey's, when the stored timestamps cannot be ordered into the
+ * funnel, or when the booking was cancelled (`pipeline_record_cancelled`,
+ * nothing is written); `403` when the server does not grant this account the
+ * operation. Render the server's own message — it says which of those happened.
  */
 export async function reconcileSpeakerHandoff(
   unitId: string,

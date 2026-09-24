@@ -1,0 +1,52 @@
+{
+  "id": "G-CBA-18",
+  "title": "A 2.0.0 run stays readable and keeps its hash",
+  "asserts": "Declaring 3.0.0 moves nothing for 2.0.0 or 1.1.1: registry_hash is still weights_fingerprint, byte for byte; a 2.0.0 payload carries no load key and reads back with none; a load key on it, or a 3.0.0 payload without one, is refused. Dedicated test.",
+  "owner_decisions": [
+    "B26 Q1/D2",
+    "B26 Q7 = A",
+    "B26 unknown load"
+  ],
+  "registry_version": "2.0.0-approved-oq-cba-004",
+  "scoring_mode": "cba-physical-1",
+  "request": {
+    "description": "A panel on financial planning for small businesses.",
+    "sectors": [
+      "52"
+    ],
+    "roles": [
+      "finance"
+    ]
+  },
+  "candidates": [
+    {
+      "subject_id": "SYNTH-CBA-18-TWO-POINT-OH",
+      "sector": "52",
+      "role": "finance",
+      "profile_present": true,
+      "topic_text": "corporate treasury and financial planning",
+      "city": "Pomona",
+      "postal_code": "91768",
+      "topic_score": 0.8,
+      "topic_rationale": "Their recorded treasury work addresses the request's financial planning focus.",
+      "distance_miles": 10.0
+    }
+  ],
+  "expected": {
+    "ranking": [
+      "SYNTH-CBA-18-TWO-POINT-OH"
+    ],
+    "registry_hash": {
+      "cba-physical-1": "sha256:f870192c2b1d9977aaf4be3368f51f67accbbbba9955e4346a4445b0be4be4e5",
+      "cba-virtual-1": "sha256:62524878457dee467d747e3b9040a61cf6915e7a5398a08a8d9af4e83792b74c",
+      "cba-virtual-1@py312": "sha256:0b27df1f198b501da27f3a58d0128625f1351a1ba77fa4189807c31865c85ce4",
+      "g1": "sha256:9da5f1b1ccb6b0627759c77a472fb47d8b77ce634c21fffe9bf53a5b04e79de1"
+    },
+    "candidates": {
+      "SYNTH-CBA-18-TWO-POINT-OH": {
+        "composite_state": "measured",
+        "heuristic_score": 0.97
+      }
+    }
+  }
+}
