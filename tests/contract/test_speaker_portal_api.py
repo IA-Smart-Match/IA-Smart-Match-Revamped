@@ -1006,7 +1006,7 @@ def test_a_trailing_tab_or_newline_does_not_escape_the_duplicate_check(
 ) -> None:
     """T6b-1 LOW 1 under T6b-5: the held address is still seen, so a new
     password is the mode mismatch (existing-login mode), never a second login.
-    The holder is an Event Host: under R-C any other holder is the generic 400."""
+    The holder is an Event Host: under Q1 any other holder is the generic 400."""
     base = f"Held-{uuid.uuid4().hex[:8]}@Example.invalid"
     professional_id, _, token, _ = ctx.invited(address=base + trailing)
     ctx.host_login(base)
@@ -1080,7 +1080,7 @@ def _contact_state(ctx: _Ctx, professional_id: uuid.UUID) -> tuple:
     )
 
 
-#: R-C: existing-login mode binds a login only when it holds an active
+#: Q1: existing-login mode binds a login only when it holds an active
 #: ``volunteer`` role and no active ``admin``/``coordinator``/``student`` one.
 #: Each refused holder, as ``(active roles, expired roles)``.
 _REFUSED_ROLE_CASES: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
@@ -1095,7 +1095,7 @@ _REFUSED_ROLE_CASES: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     "speaker_only": (("speaker",), ()),
 }
 
-#: R-C: the holders existing-login mode binds. ``speaker`` alongside
+#: Q1: the holders existing-login mode binds. ``speaker`` alongside
 #: ``volunteer`` neither helps nor hurts; an expired staff role is not held.
 _ACCEPTED_ROLE_CASES: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     "volunteer": (("volunteer",), ()),
@@ -1280,7 +1280,7 @@ class TestExistingLogin:
     def test_refused_holders_are_the_generic_400(
         self, ctx: _Ctx, other_tenant: uuid.UUID, case: str
     ) -> None:
-        """R-E, R-F, R-C, one-login-one-Speaker, R-B: byte-identical to an unknown token."""
+        """R-E, R-F, Q1, one-login-one-Speaker, R-B: byte-identical to an unknown token."""
         host_address = f"Host-{uuid.uuid4().hex[:8]}@Synthetic.invalid"
         # Invite first: the invite pre-check would refuse these addresses (§4.3),
         # and it is advisory — a holder that appears afterwards meets activation.
@@ -1335,7 +1335,7 @@ class TestExistingLogin:
 
     @pytest.mark.parametrize("case", list(_ACCEPTED_ROLE_CASES))
     def test_an_active_volunteer_login_binds(self, ctx: _Ctx, case: str) -> None:
-        """R-C allow-list: an active ``volunteer`` and no active staff or student role."""
+        """Q1 allow-list: an active ``volunteer`` and no active staff or student role."""
         host_address = f"Host-{uuid.uuid4().hex[:8]}@Synthetic.invalid"
         host_id, pw = _holder(ctx, host_address, case)
         professional_id, _, token, _ = ctx.invited(address=host_address)
@@ -1355,7 +1355,7 @@ class TestExistingLogin:
 
     @pytest.mark.parametrize("case", list(_REFUSED_ROLE_CASES))
     def test_a_refused_holder_gets_the_generic_page(self, ctx: _Ctx, case: str) -> None:
-        """``GET /s/{token}`` for an R-C refusal is T6b-1's bytes, and asks for no password."""
+        """``GET /s/{token}`` for an Q1 refusal is T6b-1's bytes, and asks for no password."""
         host_address = f"Host-{uuid.uuid4().hex[:8]}@Synthetic.invalid"
         _, _, token, _ = ctx.invited(address=host_address)
         _holder(ctx, host_address.lower(), case)
@@ -1408,7 +1408,7 @@ def test_invite_precheck_ambiguous_is_409(ctx: _Ctx, other_tenant: uuid.UUID) ->
     assert _no_invitations(ctx)
 
 
-#: R-C: every holder the pre-check refuses gets this one body, whatever it holds.
+#: Q1: every holder the pre-check refuses gets this one body, whatever it holds.
 _NOT_HOST_LOGIN_CODE = "speaker_portal_address_not_host_login"
 _NOT_HOST_LOGIN_MESSAGE = (
     "This address already signs in to SmartMatch and cannot also be a Speaker login. "
@@ -1440,7 +1440,7 @@ _NOT_HOST_LOGIN_MESSAGE = (
     ],
 )
 def test_existing_login_may_bind_is_an_allow_list(held: frozenset[str], binds: bool) -> None:
-    """R-C in one place: the pre-check and activation both call this."""
+    """Q1 in one place: the pre-check and activation both call this."""
     from smartmatch_api.speaker_portal_activation import (
         EXISTING_LOGIN_ALLOWED_ROLES,
         existing_login_may_bind,
@@ -1478,7 +1478,7 @@ def test_invite_precheck_refusals_are_byte_identical(ctx: _Ctx) -> None:
 
 
 def test_invite_to_an_expired_staff_role_only_is_409(ctx: _Ctx) -> None:
-    """R-C: an expired coordinator role and no active volunteer is not an Event Host."""
+    """Q1: an expired coordinator role and no active volunteer is not an Event Host."""
     professional_id, channel_id, address = ctx.contact()
     host_id, _, _ = ctx.host_login(address.lower(), roles=())
     ctx.execute(

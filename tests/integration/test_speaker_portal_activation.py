@@ -344,7 +344,7 @@ def _host(
 def test_only_an_active_volunteer_login_is_bound(
     engine: Engine, session_factory, tenant_id, roles: tuple[str, ...], mode
 ) -> None:
-    """R-C: ``page_mode`` and ``activate`` share the allow-list; a refusal writes nothing."""
+    """Q1: ``page_mode`` and ``activate`` share the allow-list; a refusal writes nothing."""
     address = f"host-{uuid.uuid4().hex[:8]}@example.invalid"
     host_id, pw = _host(engine, tenant_id, address, roles=roles)
     professional_id, token = _speaker(engine, tenant_id, address=address)

@@ -82,9 +82,12 @@ still decides every operation deny-by-default. Concretely:
   mode. When an Event Host's login already holds the invited address, the
   Speaker proves it with *that login's existing password* and the login gains
   `speaker`; no password is set or changed, and no account is created. Only
-  Event Host logins qualify: a login holding an active `admin`, `coordinator`
-  or `student` role is refused (the generic 400 at activation, `409
-  speaker_portal_address_is_staff_login` at invite). A Speaker Connector may
+  Event Host logins qualify, as an allow-list (Q1, amended by the owner the
+  same day): the login must hold an active `volunteer` role and no active
+  `admin`, `coordinator` or `student` role. Any other login — including one
+  with no active role or only `speaker` — is refused (the generic 400 at
+  activation, `409
+  speaker_portal_address_not_host_login` at invite). A Speaker Connector may
   also remove portal access (`DELETE …/portal-access`), which ends the
   `speaker` role and, for a Speaker-only login, deletes its credential and ends
   its sessions.

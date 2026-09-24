@@ -4183,7 +4183,7 @@ export interface SpeakerPortalAccess {
 /**
  * The refusals `inviteSpeakerToPortal` can answer with (`error.code`). The
  * last three are B26 T6b-5's pre-check: the address signs in elsewhere, to
- * more than one login, or to a login existing-login mode cannot bind (R-C:
+ * more than one login, or to a login existing-login mode cannot bind (Q1:
  * anything but an active Event Host — one code, whatever the login holds).
  */
 export type SpeakerPortalInviteErrorCode =

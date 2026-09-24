@@ -237,7 +237,7 @@ def _precheck_address(
     """Invite step 5b (T6b-5 §4.3): refuse an address activation would refuse.
 
     Advisory only — reads, locks nothing; activation decides under its locks.
-    Names no other tenant, account or role: every holder that fails R-C
+    Names no other tenant, account or role: every holder that fails Q1
     (:func:`existing_login_may_bind`) — staff, student, no active role,
     expired roles only, ``speaker`` only — gets one code and one message.
     """

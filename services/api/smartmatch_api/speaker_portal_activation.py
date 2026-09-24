@@ -13,7 +13,7 @@ checks the new password's policy first (steps 1–3); this module is the rest.
     ``speaker`` role.
 ``existing_login``
     Exactly one credentialed account in this tenant holds the address — an
-    Event Host's login (R-C: an active ``volunteer`` role and no active staff
+    Event Host's login (Q1: an active ``volunteer`` role and no active staff
     or student role; :func:`existing_login_may_bind`). The Speaker proves
     it with that login's password; the login gains ``speaker``. No email, no
     credential and no account is written. The contact account keeps its
@@ -90,7 +90,7 @@ _ACTIVATABLE_STATES: Final[frozenset[str]] = frozenset(
     state.value for state in ACTIVATABLE_CHANNEL_STATES
 )
 
-#: R-C (owner ruling 2026-09-24, replacing Q1's deny-list): existing-login mode
+#: Q1 (owner ruling, amended 2026-09-24 from a deny-list): existing-login mode
 #: binds Event Host logins only, as an **allow-list**. A holder needs one of
 #: these roles active …
 EXISTING_LOGIN_ALLOWED_ROLES: Final[frozenset[str]] = frozenset({"volunteer"})
@@ -105,7 +105,7 @@ _SPEAKER_ROLE: Final[str] = "speaker"
 
 
 def existing_login_may_bind(held: frozenset[str]) -> bool:
-    """R-C, the one rule: may a login holding ``held`` (its *active* roles) gain ``speaker``?
+    """Q1, the one rule: may a login holding ``held`` (its *active* roles) gain ``speaker``?
 
     ``True`` only for an active ``volunteer`` with no active staff or student
     role. A login with no active role, only expired roles, or only ``speaker``
@@ -333,7 +333,7 @@ def _choose_mode(
         session, tenant_id=invitation.tenant_id, user_id=holder.user_id, now=now
     )
     if not existing_login_may_bind(held):
-        # R-C: Event Host logins only (an allow-list).
+        # Q1: Event Host logins only (an allow-list).
         raise ActivationRefused
     return ActivationMode.EXISTING_LOGIN, holder
 

@@ -242,8 +242,8 @@ Request `ActivateRequest` (`extra="forbid"`): `token` (str 16–128), `new_passw
 | `NONE` | otherwise | **new login** |
 | `ONE_IN_TENANT` | holder ≠ contact account **and** `contact_credentialed` | `400` (R-B: a merged contact account must stay credential-less) |
 | `ONE_IN_TENANT` | holder bound to another profile (`login_bound_elsewhere`) | `400` (`uq_speaker_profile_account`: one login, one Speaker) |
-| `ONE_IN_TENANT` | holder holds an active `admin`, `coordinator` or `student` membership | `400` (Q1) |
-| `ONE_IN_TENANT` | otherwise | **existing login** |
+| `ONE_IN_TENANT` | holder fails Q1 (amended 2026-09-24): no active `volunteer` membership, or an active `admin`, `coordinator` or `student` one (`existing_login_may_bind`) | `400` (Q1) |
+| `ONE_IN_TENANT` | otherwise (an active `volunteer`, no active staff or student role) | **existing login** |
 | `OTHER_TENANT`, `AMBIGUOUS` | — | `400` (R-E, R-F) |
 
 11. Mode ≠ supplied field → `409 speaker_portal_activation_mode_mismatch`. Roll back; the token stays live.
@@ -272,7 +272,7 @@ T6b-1's invite (§3.2 there), new step **5b** after the channel checks and befor
 |---|---|
 | `OTHER_TENANT` | `409 speaker_portal_address_in_other_tenant` |
 | `AMBIGUOUS` | `409 speaker_portal_address_ambiguous` (Q5), message "This address matches more than one login. Fix that before inviting." (§4.5 item 4) |
-| `ONE_IN_TENANT`, holder has an active staff or student role | `409 speaker_portal_address_is_staff_login` (Q1) |
+| `ONE_IN_TENANT`, holder fails Q1 (staff, student, no active role, expired roles only, `speaker` only) | `409 speaker_portal_address_not_host_login` (Q1), message "This address already signs in to SmartMatch and cannot also be a Speaker login. Choose a different address." One code and one body for every reason: no enumeration, no role named |
 | otherwise | continue |
 
 ### 4.4 Unbind — `DELETE /v1/units/{unit_id}/speaker-contacts/{professional_id}/portal-access`
@@ -365,7 +365,7 @@ The Connector and Student shells get no switcher: under Q1 a staff or student lo
 | Remove portal access | Confirm dialog: "Remove {name}'s Speaker portal access? Their Event Host access, if any, stays." `useMutation`, pending-disabled, invalidates only `["speaker-portal-access", unitId, professionalId]`. |
 | `409 speaker_portal_address_in_other_tenant` | "This address signs in to another SmartMatch organization. Choose a different address." |
 | `409 speaker_portal_address_ambiguous` | "This address matches more than one login. Fix that before inviting." |
-| `409 speaker_portal_address_is_staff_login` | "This address belongs to a staff or student login and cannot also be a Speaker login." |
+| `409 speaker_portal_address_not_host_login` | "This address already signs in to SmartMatch and cannot also be a Speaker login. Choose a different address." |
 
 R-L has no other home: **no route or UI suspends an account today** (the only `suspended` writers are seeds and operators). `vm-deploy.md` gets the same sentence under the operator's suspension procedure, and any future suspend UI must show it.
 
@@ -426,6 +426,8 @@ Local rule: one file at a time; DB tests on a private database `smartmatch_b26_t
 
 **Suspension:** `tests/contract/test_me_suspended.py::test_a_suspended_merged_login_is_refused_on_host_and_speaker_routes`.
 
+**Which logins bind (Q1, amended 2026-09-24 to an allow-list of `{volunteer}`)** (`tests/contract/test_speaker_portal_api.py`): `test_existing_login_may_bind_is_an_allow_list` (the one rule); `test_invite_precheck_refuses_every_holder_but_an_event_host` and `test_invite_precheck_refusals_are_byte_identical` (staff, student, volunteer plus staff or student, no role, expired roles only, `speaker` only: one `409 speaker_portal_address_not_host_login` body, no invitation written); `test_invite_to_an_expired_staff_role_only_is_409`; `test_invite_to_an_event_host_address_is_accepted` (`volunteer`, `volunteer` plus `speaker`, `volunteer` plus an expired `coordinator`); `TestExistingLogin::test_refused_holders_are_the_generic_400`, `::test_a_refused_holder_gets_the_generic_page`, `::test_an_active_volunteer_login_binds`. `tests/integration/test_speaker_portal_activation.py::test_only_an_active_volunteer_login_is_bound` (`page_mode` and `activate` agree; a refusal writes nothing).
+
 **`/s` pages:** `test_s_page_asks_for_the_existing_password_only_for_a_live_existing_login_token`, `test_s_page_is_identical_for_every_other_token` (replaces T6b-1's all-token test), `test_s_form_existing_password_activates_without_a_session`, `test_s_form_wrong_existing_password_is_the_401_page_and_keeps_the_token`.
 
 **Frontend (Vitest, `*.test.tsx` only — CI's glob):**
@@ -466,7 +468,7 @@ Before each push: `$VENV/bin/ruff format` and `ruff check` on touched Python and
 | C2 | T6b-1 §5 step 6 refuses any credentialed contact account. Existing login needs a finer rule. | Kept for new login; for existing login, refused unless the contact account is the holder itself (§4.2 step 10). |
 | C3 | T6b-1 §5 step 8's advisory lock key `'speaker-portal-email:'`. | Renamed `'login-address:'` inside `lock_address`; one function, all callers in one commit. |
 | C4 | T6b-1 §4.6 writes `membership.valid_from = now`. | `NULL` for every `find_or_add_role` insert (§3.2). `created_at` keeps the grant time; unbind and seed reconciliation both need it. |
-| C5 | T6b-1 §11 self-invite mitigation: "the Connector's own login address is credentialed, so activation refuses it". Existing-login mode would now accept it with the Connector's own password. | Q1: refuse holders with an active `admin`, `coordinator` or `student` membership. |
+| C5 | T6b-1 §11 self-invite mitigation: "the Connector's own login address is credentialed, so activation refuses it". Existing-login mode would now accept it with the Connector's own password. | Q1 (amended 2026-09-24): bind only an active `volunteer` with no active `admin`, `coordinator` or `student` membership. |
 | C6 | `test_seed_pilot_logins.py` monkeypatches `seed_pilot` and `PilotCredentialRepository` (`:62-89`). | Rewritten recorder (§8.2); the 8 behaviours it pins are kept. |
 | C7 | §6.3 put the sidebar switcher between the identity block and Sign out. T6b-4's `apps/web/DESIGN.md` ("Signed-in shells") puts it **above** the profile block, so Sign out stays directly beneath the profile. | **DESIGN.md wins** (implementation, milestone 13): above the profile block in both shells. |
 | C8 | T6b-1's review LOW 1 (`d5a39b48`, after this plan) stores the activation address as `strip().lower()` and folds stored emails over all ASCII whitespace; §3.2 said "stored trimmed". | **T6b-1 wins**, ported into `login_accounts.normalise_address` (lock key, holder match, stored email). A held address with a trailing tab is now the `409` mode mismatch, not a second login. |
@@ -475,7 +477,7 @@ Before each push: `$VENV/bin/ruff format` and `ruff check` on touched Python and
 
 | # | Question | Ruling | Where it lands |
 |---|---|---|---|
-| Q1 | Which existing logins may existing-login mode bind? | **Owner: Event Host logins only.** A holder with any active `admin`, `coordinator` or `student` membership is refused: generic `400 speaker_portal_invitation_invalid` at activation, `409 speaker_portal_address_is_staff_login` at invite. | §4.2 step 10, §4.3, §7, §10 C5 |
+| Q1 | Which existing logins may existing-login mode bind? | **Owner: Event Host logins only.** **Amended by the owner 2026-09-24 (PR #224 review ruling "R-C", not §1's R-C): an allow-list of `{volunteer}`.** A holder needs an active `volunteer` membership and no active `admin`, `coordinator` or `student` one. A login with no active role, only expired roles, or only `speaker` is refused; `speaker` and `volunteer` never widen each other, so an active `speaker` beside `volunteer` neither helps nor hurts. Refused: generic `400 speaker_portal_invitation_invalid` at activation, `409 speaker_portal_address_not_host_login` at invite (one generic body for every reason). One rule, `existing_login_may_bind`, serves both. | §4.2 step 10, §4.3, §7, §10 C5 |
 | Q2 | Where do `unbound_at` / `unbound_by_user_id` go? | **Folded into `0039`** (sent to the T6b-1 implementer; `0039` is pushed, not on `main`). No `0041` from this track: `0041` is T4's. | §0 start gate, §2, §4.4 |
 | Q3 | Does a new-login unbind also delete the contact account's credential and end its sessions? | **Yes.** | §4.4 step 4 |
 | Q4 | The seed finds its address already held by a different login. | **Add the seed's roles to that login, never change its password, report on stderr.** | §3.4 |
