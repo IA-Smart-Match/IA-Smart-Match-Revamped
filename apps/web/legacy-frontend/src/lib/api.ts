@@ -5575,3 +5575,88 @@ export async function saveFeedbackQr(
     { authenticated: true },
   );
 }
+
+// ---------------------------------------------------------------------------
+// The Speaker's own contact channels (B26 T6b-4 over T6b-3's routes)
+//
+// `GET /v1/me/contact-channels` and `POST …/{channel_id}/opt-in` / `/opt-out`.
+// No adapter takes a subject: the Speaker is the bearer token's bound profile,
+// resolved server-side (MM-A01). Every field is the server's; a caller shows
+// `send_eligible`, `last_set_by` and `can_opt_*` as they arrive and never
+// re-derives them from `contact_state` or `suppressed`.
+// ---------------------------------------------------------------------------
+
+/** Why a channel is suppressed, in the Speaker's terms. */
+export type MyChannelSuppressionReason = "your_opt_out" | "unsubscribed" | "connector" | "delivery";
+
+export interface MyContactChannel {
+  contact_channel_id: string;
+  channel_kind: string;
+  address: string;
+  contact_state: string;
+  send_eligible: boolean;
+  suppressed: boolean;
+  suppression_reason: MyChannelSuppressionReason | null;
+  speaker_choice: "opt_in" | "opt_out" | null;
+  last_set_by: "speaker" | "connector";
+  can_opt_in: boolean;
+  can_opt_out: boolean;
+  updated_at: string;
+}
+
+/** Capped at 50 server-side; `truncated` says the server stopped sending. */
+export interface MyContactChannelList {
+  channels: MyContactChannel[];
+  truncated: boolean;
+}
+
+/** `changed: false` when nothing would change and nothing was written. */
+export interface MyContactChannelChange {
+  channel: MyContactChannel;
+  changed: boolean;
+}
+
+/**
+ * The codes the three routes return besides the shared 401 / 403 / 422 / 429.
+ * `speaker_contact_channel_speaker_opted_in` / `_opted_out` are Connector-side
+ * 409s (T6b-3 §5.4) that no `/v1/me` route returns, so they are not here.
+ */
+export type MyContactChannelErrorCode =
+  | "speaker_profile_not_linked"
+  | "speaker_contact_channel_not_found"
+  | "speaker_contact_channel_suppression_not_liftable"
+  | "speaker_contact_channel_address_unverified"
+  | "speaker_contact_channel_opt_in_unavailable"
+  | "speaker_contact_channel_transition_conflict";
+
+/** `GET /v1/me/contact-channels` — every channel on the caller's own record. */
+export async function fetchMyContactChannels(): Promise<MyContactChannelList> {
+  return requestJson<MyContactChannelList>(
+    `/v1/me/contact-channels`,
+    { method: "GET" },
+    { authenticated: true },
+  );
+}
+
+/**
+ * `POST /v1/me/contact-channels/{channel_id}/opt-in`, no body. Rejects with
+ * `ApiRequestError` whose `code` is a {@link MyContactChannelErrorCode}; a
+ * `suppression_not_liftable` carries `details.reason` (`connector` or
+ * `delivery`), an `opt_in_unavailable` carries `details.contact_state`.
+ */
+export async function optInMyContactChannel(channelId: string): Promise<MyContactChannelChange> {
+  return requestJson<MyContactChannelChange>(
+    `/v1/me/contact-channels/${encodeURIComponent(channelId)}/opt-in`,
+    { method: "POST" },
+    { authenticated: true },
+  );
+}
+
+/** `POST /v1/me/contact-channels/{channel_id}/opt-out`, no body. Immediate. */
+export async function optOutMyContactChannel(channelId: string): Promise<MyContactChannelChange> {
+  return requestJson<MyContactChannelChange>(
+    `/v1/me/contact-channels/${encodeURIComponent(channelId)}/opt-out`,
+    { method: "POST" },
+    { authenticated: true },
+  );
+}

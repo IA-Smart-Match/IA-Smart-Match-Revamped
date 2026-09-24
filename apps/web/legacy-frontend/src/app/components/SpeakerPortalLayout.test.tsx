@@ -99,6 +99,8 @@ beforeEach(() => {
   state.session = { status: "signed-in", me: ME };
   state.portals = [SPEAKER_GRANT];
   state.principalKey = "principal-1";
+  // `ScrollToTop` scrolls on each route change; jsdom does not implement it.
+  vi.spyOn(window, "scrollTo").mockImplementation(() => undefined);
   vi.stubGlobal(
     "fetch",
     vi.fn(() => Promise.resolve(new Response("{}", { status: 404 }))),
