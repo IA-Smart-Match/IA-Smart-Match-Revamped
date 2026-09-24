@@ -175,3 +175,18 @@ def test_no_optimistic_update_in_the_speaker_portal() -> None:
     assert "SPEAKER_SELF_RESOURCE.availability" in call, (
         "the one cache write is the saved availability row"
     )
+
+
+def test_status_regions_wrap_long_addresses_and_titles() -> None:
+    """1.4.10 Reflow: a status sentence echoes an address or title, so it wraps at 360 px."""
+    found = 0
+    for path in sorted(SPEAKER_PAGES.glob("*.tsx")):
+        if path.name.endswith(".test.tsx"):
+            continue
+        code = _code_only(path.read_text(encoding="utf-8"))
+        for tag in re.findall(r"<p\b[^>]*role=\"status\"[^>]*>", code):
+            found += 1
+            assert "break-words" in tag or "break-all" in tag, (
+                f"{path.name}: the role=status paragraph does not wrap long words"
+            )
+    assert found == 2, f"expected the 2 page status regions, found {found}"
