@@ -56,6 +56,8 @@ DATABASE_URL = os.getenv(
 UNIT_PATH = "iawest.selfsvc"
 SIBLING_UNIT_PATH = "iawest.selfsvcsibling"
 EVENT_DATE_TEXT = "Thursday 12 March 2027"
+#: The Speaker Request's own date, the one EVENT_DATE_TEXT spells (B26 T4).
+EVENT_DATE = date(2027, 3, 12)
 #: 03:00 UTC: still 1 November in Los Angeles, already 2 November in UTC.
 FROZEN_NOW = datetime(2026, 11, 2, 3, 0, tzinfo=UTC)
 TODAY = FROZEN_NOW.date()
@@ -283,11 +285,36 @@ class _Ctx:
 
     # -- Connector side ----------------------------------------------------
 
+    def speaker_request(self) -> uuid.UUID:
+        """The unit's Speaker Request a batch invites for (B26 T4 requires one).
+
+        A Connector-entered, date-only event on the date the invitation spells.
+        """
+        request_id = getattr(self, "_speaker_request_id", None)
+        if request_id is None:
+            request_id = uuid.uuid4()
+            title = f"Accounting Society Spring Mixer {request_id.hex[:8]}"
+            self.execute(
+                "INSERT INTO event (id, tenant_id, host_org_unit_id, title, normalized_title, "
+                "on_date, time_zone, time_precision, resolved_date, origin) VALUES (:id, :t, "
+                ":u, :title, :norm, :d, 'America/Los_Angeles', 'date_only', :d, "
+                "'coordinator_entry')",
+                id=request_id,
+                t=self.tenant_id,
+                u=self.unit_id,
+                title=title,
+                norm=title.lower(),
+                d=EVENT_DATE,
+            )
+            self._speaker_request_id = request_id
+        return request_id
+
     def invite(self, *professional_ids: uuid.UUID) -> dict[uuid.UUID, str]:
         """Compose and dispatch one batch over HTTP; ``{professional_id: invitation_id}``."""
         created = self.client.post(
             f"/v1/units/{self.unit_id}/speaker-invitations/batches",
             json={
+                "speaker_request_id": str(self.speaker_request()),
                 "professional_ids": [str(pid) for pid in professional_ids],
                 "event_name": "Accounting Society Spring Mixer",
                 "event_date": EVENT_DATE_TEXT,
@@ -311,6 +338,7 @@ class _Ctx:
         created = self.client.post(
             f"/v1/units/{self.unit_id}/speaker-invitations/batches",
             json={
+                "speaker_request_id": str(self.speaker_request()),
                 "professional_ids": [str(professional_id)],
                 "event_name": "Composed, never sent",
                 "event_date": EVENT_DATE_TEXT,
@@ -612,6 +640,7 @@ def test_pending_and_skipped_invitations_are_not_listed(ctx: _Ctx) -> None:
     created = ctx.client.post(
         f"/v1/units/{ctx.unit_id}/speaker-invitations/batches",
         json={
+            "speaker_request_id": str(ctx.speaker_request()),
             "professional_ids": [str(speaker.professional_id)],
             "event_name": "Skipped",
             "event_date": EVENT_DATE_TEXT,

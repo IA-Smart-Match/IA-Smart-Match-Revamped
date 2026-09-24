@@ -30,12 +30,15 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import date
 from pathlib import Path
 from typing import Any
 
 import pytest
+from smartmatch_domain.availability_verdict import verdicts_for_pool
 from smartmatch_domain.cba_role_categories import resolve_role_category
 from smartmatch_domain.cba_topic_explanation import explain_cba_topic
+from smartmatch_domain.eligibility import apply_availability_filter
 from smartmatch_domain.explanation import (
     COMPOSITE_NEUTRAL_CAPTION,
     ScoreState,
@@ -64,13 +67,18 @@ from smartmatch_domain.factors.proximity import (
     score_proximity,
 )
 from smartmatch_domain.factors.role_match import RoleMatchInputs
-from smartmatch_domain.match_run import weights_fingerprint
+from smartmatch_domain.match_run import inputs_fingerprint, weights_fingerprint
 from smartmatch_domain.naics_sectors import resolve_sector
 from smartmatch_domain.scoring import (
     CBA_STAGE_B_FORMULA_VERSION,
     CbaCandidateEvidence,
     rank_cba_candidates,
     score_cba_candidate,
+)
+from smartmatch_domain.speaker_availability import (
+    AvailabilityStatement,
+    UnavailableWindow,
+    availability_state_for_event,
 )
 from smartmatch_providers.topic_semantics import FixtureSemanticTopicProvider
 
@@ -81,10 +89,11 @@ SCHEMA_PATH = CBA_DIR / "cba_case.schema.json"
 #: jsonschema dependency, matching what the G1 runner does.
 _CASE_ID_PATTERN = re.compile(r"^G-CBA-[0-9]{2}$")
 
-#: Every case id ADR-0016's golden-case table requires a fixture for. Listed
-#: here rather than derived from the directory, so *deleting* a fixture fails
-#: this suite instead of quietly shrinking it.
-REQUIRED_CASE_IDS = frozenset(f"G-CBA-{n:02d}" for n in range(1, 13))
+#: Every case id ADR-0016's golden-case table requires a fixture for, plus the
+#: owner-ruled cases after it (G-CBA-13, B26 T4). Listed here rather than derived
+#: from the directory, so *deleting* a fixture fails this suite instead of
+#: quietly shrinking it.
+REQUIRED_CASE_IDS = frozenset(f"G-CBA-{n:02d}" for n in range(1, 14))
 
 
 def _case_paths() -> list[Path]:
@@ -286,8 +295,13 @@ def test_every_case_declares_the_decision_it_asserts(case):
     assert _CASE_ID_PATTERN.match(case["id"])
     assert case["title"].strip()
     assert case["asserts"].strip()
-    assert case["adr_proposals"], f"{case['id']} names no ADR-0016 proposal"
-    assert all(1 <= n <= 10 for n in case["adr_proposals"])
+    proposals = case.get("adr_proposals")
+    decisions = case.get("owner_decisions")
+    assert proposals or decisions, f"{case['id']} names no ADR-0016 proposal or owner ruling"
+    if proposals:
+        assert all(1 <= n <= 10 for n in proposals)
+    if decisions:
+        assert all(isinstance(d, str) and d.strip() for d in decisions)
 
 
 @pytest.mark.parametrize("case", _cases(), ids=_ids(_cases()))
@@ -511,3 +525,99 @@ def test_the_superseded_model_is_not_reachable_through_the_cba_scorer():
     )
     assert score.registry_version == REGISTRY_VERSION
     assert score.registry_version != SUPERSEDED_REGISTRY_VERSION
+
+
+# ---------------------------------------------------------------------------
+# G-CBA-13 (B26 T4): Stage A availability moves neither hash nor order
+# ---------------------------------------------------------------------------
+
+
+def _statement(entry: dict[str, Any]) -> AvailabilityStatement | None:
+    stated = entry["availability"]
+    if stated is None:
+        return None
+    paused = stated["invitations_paused_until"]
+    return AvailabilityStatement(
+        invitations_paused_until=None if paused is None else date.fromisoformat(paused),
+        declared_capacity_hours_per_90_days=None,
+        unavailable=tuple(
+            UnavailableWindow(date.fromisoformat(w["starts_on"]), date.fromisoformat(w["ends_on"]))
+            for w in stated["unavailable"]
+        ),
+    )
+
+
+def _fingerprints(ranked) -> tuple[str, str]:
+    weights = ranked[0].applied_weights
+    return (
+        weights_fingerprint(weights),
+        inputs_fingerprint(
+            event_need_id="G-CBA-13",
+            candidate_subject_ids=[score.subject_id for score in ranked],
+            candidate_utilities=[score.value for score in ranked],
+            portfolio_size=2,
+            random_seed=0,
+            weights=weights,
+        ),
+    )
+
+
+def test_g_cba_13_availability_leaves_hash_and_pool_alone():
+    """Four Speakers, one per verdict: the verdicts annotate and change nothing else.
+
+    The unavailable Speaker scores highest, so a verdict that reordered, dropped
+    or re-weighted anybody would move the ranking or one of the two digests.
+    """
+    case = _case("G-CBA-13")
+    assert case["registry_version"] == REGISTRY_VERSION
+    span = (
+        date.fromisoformat(case["event_span"]["first"]),
+        date.fromisoformat(case["event_span"]["last"]),
+    )
+    as_of = date.fromisoformat(case["as_of"])
+
+    before = _rank(case)
+    ranking = [score.subject_id for score in before]
+    utilities = [score.value for score in before]
+    digests = _fingerprints(before)
+
+    statements = {
+        entry["subject_id"]: statement
+        for entry in case["candidates"]
+        if (statement := _statement(entry)) is not None
+    }
+    verdicts = verdicts_for_pool(tuple(ranking), statements, span, as_of)
+
+    # The digests themselves, pinned as hand-recorded literals from the 2.0.0
+    # registry, not only compared run-to-run: a change that moved both runs
+    # alike would pass a comparison and fail here.
+    assert digests[0] == case["expected"]["weights_fingerprint"]
+    assert digests[1] == case["expected"]["inputs_fingerprint"]
+
+    after = _rank(case)
+    assert [score.subject_id for score in after] == ranking == case["expected"]["ranking"]
+    assert [score.value for score in after] == utilities
+    assert _fingerprints(after) == digests
+    assert weights_fingerprint(after[0].applied_weights) == digests[0]
+
+    # One decision per subject, in ranked order: the gate never reorders.
+    evidence = {
+        subject: availability_state_for_event(statements.get(subject), span, as_of).to_evidence(
+            subject
+        )
+        for subject in ranking
+    }
+    decisions = apply_availability_filter(tuple(ranking), evidence)
+    assert [d.subject_id for d in decisions] == ranking
+    assert [v.subject_id for v in verdicts] == ranking
+    assert [v.verdict for v in verdicts] == [d.outcome for d in decisions]
+
+    # Each subject's verdict is the hand-written one.
+    for verdict in verdicts:
+        wanted = case["expected"]["candidates"][verdict.subject_id]["availability"]
+        assert verdict.verdict.value == wanted["verdict"]
+        assert verdict.state.value == wanted["state"]
+        assert verdict.reason.value == wanted["reason"]
+        paused = verdict.paused_until
+        assert (None if paused is None else paused.isoformat()) == wanted["paused_until"]
+        assert verdict.as_of == as_of

@@ -57,7 +57,11 @@ REVISION = "0037_exercise_tables"
 #: Moved again by B26 T8a: ``0040_booking_cancellation`` chains to
 #: ``0039_speaker_portal`` and is the head. It adds two nullable
 #: ``pipeline_record`` columns and writes no rows; it touches no ``exercise_`` table.
-HEAD_REVISION = "0040_booking_cancellation"
+#: Moved again by B26 T4: ``0041_batch_speaker_request`` chains to
+#: ``0040_booking_cancellation`` and is the head. It adds one nullable
+#: ``cba_invitation_batch`` column and backfills only that column, so this
+#: file's claims still hold through it.
+HEAD_REVISION = "0041_batch_speaker_request"
 
 #: Design spec §2's eight tables.
 EXERCISE_TABLES = (

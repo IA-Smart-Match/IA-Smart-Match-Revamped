@@ -703,17 +703,17 @@ checklist for real:
    diverged; resolve before promoting, per
    [`vm-deploy.md`](vm-deploy.md#promoting-a-commit-to-the-vm).
 
-2. **Confirm the migration head is `0040_booking_cancellation`.**
+2. **Confirm the migration head is `0041_batch_speaker_request`.**
    ```bash
-   grep -L 'down_revision = "0040_booking_cancellation"' /dev/null; \
-   grep -rl 'down_revision = "0040_booking_cancellation"' db/migrations/versions/*.py
+   grep -L 'down_revision = "0041_batch_speaker_request"' /dev/null; \
+   grep -rl 'down_revision = "0041_batch_speaker_request"' db/migrations/versions/*.py
    ```
    Pass: the second command prints **nothing** — no later revision points back
-   at `0040_booking_cancellation`, so it is the head
-   (`db/migrations/versions/0040_speaker_booking_cancellation.py` sets its own
-   `down_revision = "0039_speaker_portal"`; the file name is longer than the
+   at `0041_batch_speaker_request`, so it is the head
+   (`db/migrations/versions/0041_invitation_batch_speaker_request.py` sets its own
+   `down_revision = "0040_booking_cancellation"`; the file name is longer than the
    revision id because `alembic_version` is `varchar(32)`). Fail: a revision is
-   printed — the head has moved past `0040`; re-derive this step against the new file
+   printed — the head has moved past `0041`; re-derive this step against the new file
    before continuing, since the tables the grant in [§3](#3-the-database-role)
    depends on may have changed shape.
 
