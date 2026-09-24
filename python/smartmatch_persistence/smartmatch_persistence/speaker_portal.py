@@ -352,3 +352,48 @@ class SpeakerPortalRepository:
             .returning(_INV.c.id)
         ).all()
         return bool(result)
+
+    # -- one login, two roles (B26 T6b-5) ------------------------------------
+
+    def login_bound_elsewhere(
+        self,
+        session: Session,
+        *,
+        tenant_id: uuid.UUID,
+        account_user_id: uuid.UUID,
+        excluding_professional_id: uuid.UUID,
+    ) -> bool:
+        """Whether ``account_user_id`` already speaks for another profile.
+
+        One login speaks for at most one Speaker (``uq_speaker_profile_account``);
+        activation refuses before the bind rather than relying on the violation.
+        """
+        return (
+            session.execute(
+                sa.select(sa.literal(1))
+                .where(
+                    _PROFILE.c.tenant_id == tenant_id,
+                    _PROFILE.c.account_user_id == account_user_id,
+                    _PROFILE.c.professional_id != excluding_professional_id,
+                )
+                .limit(1)
+            ).first()
+            is not None
+        )
+
+    def active_roles(
+        self, session: Session, *, tenant_id: uuid.UUID, user_id: uuid.UUID, now: datetime
+    ) -> frozenset[str]:
+        """The roles ``user_id`` holds at ``now``, at any path (``valid_until`` exclusive)."""
+        membership = schema.membership
+        rows = session.execute(
+            sa.select(membership.c.role)
+            .where(
+                membership.c.tenant_id == tenant_id,
+                membership.c.user_id == user_id,
+                sa.or_(membership.c.valid_from.is_(None), membership.c.valid_from <= now),
+                sa.or_(membership.c.valid_until.is_(None), membership.c.valid_until > now),
+            )
+            .distinct()
+        ).all()
+        return frozenset(row.role for row in rows)

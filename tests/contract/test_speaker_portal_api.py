@@ -1163,7 +1163,8 @@ class TestExistingLogin:
         if case == "ambiguous":
             ctx.other_credentialed_account(host_address.lower(), tenant_id=other_tenant)
         elif case == "bound_elsewhere":
-            _, _, other_token, _ = ctx.invited(address=host_address)
+            # uq_contact_channel_address is exact; the address lock folds case.
+            _, _, other_token, _ = ctx.invited(address=host_address.upper())
             assert ctx.activate_existing(other_token, pw).status_code == 200
         elif case == "merged_contact_credentialed":
             ctx.credential_for(professional_id)

@@ -29,7 +29,7 @@ from typing import Annotated, Final, Literal
 
 from fastapi import APIRouter, Depends, Path, Request, status
 from fastapi.responses import HTMLResponse
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from smartmatch_authz import OrgPath, Resource, assert_allowed
 from smartmatch_domain.consent import ConsentSource, ContactState, is_send_eligible
 from smartmatch_domain.outreach import (
@@ -61,7 +61,14 @@ from smartmatch_api.commands import submit_command
 from smartmatch_api.dependencies import CurrentPrincipal, DbSession, charge_quota
 from smartmatch_api.errors import ApiError
 from smartmatch_api.routers.auth import LoginResponse
-from smartmatch_api.speaker_portal_activation import ActivationRefused, activate_new_login
+from smartmatch_api.speaker_portal_activation import (
+    ActivationCredentialsInvalid,
+    ActivationMode,
+    ActivationModeMismatch,
+    ActivationRefused,
+    activate,
+    page_mode,
+)
 from smartmatch_api.token_pages import FormRead, FormReadOutcome, read_urlencoded_form, token_page
 from smartmatch_api.units import OrgUnitRow, load_unit_or_404
 from smartmatch_api.utils import utc_now
@@ -418,13 +425,27 @@ def read_portal_access(
 
 
 class ActivateRequest(BaseModel):
-    """The token from the link, and the Speaker's first password."""
+    """The token from the link, and **exactly one** password (B26 T6b-5 §4.1).
+
+    ``new_password`` when no login holds the invited address (the Speaker's
+    first password); ``existing_password`` when an Event Host's login holds it
+    (that login's password). Which one is expected is decided server-side,
+    under the locks; sending the other is ``409
+    speaker_portal_activation_mode_mismatch``.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
     token: str = Field(min_length=16, max_length=128)
     #: The 1024 bound only limits parsing; the policy limit is 256.
-    new_password: str = Field(min_length=1, max_length=1024)
+    new_password: str | None = Field(default=None, min_length=1, max_length=1024)
+    existing_password: str | None = Field(default=None, min_length=1, max_length=1024)
+
+    @model_validator(mode="after")
+    def _exactly_one_password(self) -> ActivateRequest:
+        if (self.new_password is None) == (self.existing_password is None):
+            raise ValueError("send exactly one of new_password and existing_password")
+        return self
 
 
 def _activation_caller_key(request: Request) -> str:
@@ -464,42 +485,87 @@ def _invalid_invitation() -> ApiError:
     )
 
 
+def _credentials_invalid() -> ApiError:
+    """Existing-login mode, wrong password: the login route's 401 shape."""
+    return ApiError(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        code="speaker_portal_credentials_invalid",
+        message="That password does not match. Use the password you sign in to SmartMatch with.",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+
+def _field_for(mode: ActivationMode) -> str:
+    return "existing_password" if mode is ActivationMode.EXISTING_LOGIN else "new_password"
+
+
+def _mode_mismatch(expected: ActivationMode) -> ApiError:
+    return ApiError(
+        status_code=status.HTTP_409_CONFLICT,
+        code="speaker_portal_activation_mode_mismatch",
+        message=(
+            "This address already signs in to SmartMatch. Enter that password instead."
+            if expected is ActivationMode.EXISTING_LOGIN
+            else "Choose a new password for your Speaker Portal account."
+        ),
+        details={"expected": _field_for(expected)},
+    )
+
+
 @public_router.post(
     "/v1/speaker-portal/activate",
     response_model=LoginResponse,
     summary="Activate a Speaker Portal login from an invitation link",
+    responses={
+        400: {"description": "`speaker_portal_invitation_invalid`: every refusal, identically"},
+        401: {"description": "`speaker_portal_credentials_invalid`: wrong existing password"},
+        409: {"description": "`speaker_portal_activation_mode_mismatch`: send the other field"},
+        422: {"description": "`password_too_weak` or `invalid_request`"},
+        429: {"description": "`rate_limited`"},
+    },
 )
 def activate_speaker_portal(
     request: Request, session: DbSession, body: ActivateRequest
 ) -> LoginResponse:
-    """Set the Speaker's first password, grant ``speaker``, and issue a session.
+    """Bind the Speaker to a login, grant ``speaker``, and issue a session for that login.
 
-    Every refusal is ``400 speaker_portal_invitation_invalid``, identically. The
-    password policy is checked before the token (``422 password_too_weak``), so
-    it says nothing about the token.
+    New login: sets the Speaker's first password. Existing login (T6b-5): an
+    Event Host's login proves itself with its password and gains ``speaker``;
+    the session is that login's. Every other refusal is ``400
+    speaker_portal_invitation_invalid``, identically. A new password's policy is
+    checked before the token (``422 password_too_weak``), so it says nothing
+    about the token. Every attempt, including a wrong existing password, is
+    charged to the activation limiter first.
     """
     _charge_activation_attempt(request, session)
-    try:
-        check_new_password(body.new_password)
-    except PasswordPolicyError as exc:
-        raise ApiError(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            code="password_too_weak",
-            message=str(exc),
-        ) from exc
+    if body.new_password is not None:
+        try:
+            check_new_password(body.new_password)
+        except PasswordPolicyError as exc:
+            raise ApiError(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                code="password_too_weak",
+                message=str(exc),
+            ) from exc
     secret = _token_secret(request)
     try:
-        issued = activate_new_login(
+        result = activate(
             session,
             token=body.token,
             new_password=body.new_password,
+            existing_password=body.existing_password,
             secret=secret,
             now=utc_now(),
             issue_session=True,
         )
     except ActivationRefused as exc:
         raise _invalid_invitation() from exc
+    except ActivationCredentialsInvalid as exc:
+        raise _credentials_invalid() from exc
+    except ActivationModeMismatch as exc:
+        raise _mode_mismatch(exc.expected) from exc
     session.commit()
+    issued = result.session
     assert issued is not None
     return LoginResponse(
         access_token=issued.token,
@@ -514,6 +580,8 @@ def activate_speaker_portal(
 
 _PAGE_TITLE: Final[str] = "Speaker Portal"
 
+#: T6b-1's page, byte for byte: every token that is not a live, verified
+#: existing-login invitation gets exactly this (T6b-5 C1).
 _FORM_HTML: Final[str] = (
     '<p id="s-help">Choose a password for your Speaker Portal account: 12 to 256 '
     "characters. This link works once. A very long password in a non-Latin script "
@@ -531,6 +599,22 @@ _FORM_HTML: Final[str] = (
     "</form>"
 )
 
+#: T6b-5: a live invitation to an address an Event Host's login already holds.
+#: Only someone holding the live 256-bit token can see this page.
+_EXISTING_FORM_HTML: Final[str] = (
+    '<p id="s-help">This email address already signs in to SmartMatch. Enter that '
+    "password to add your Speaker access. This link works once.</p>"
+    '<form method="post" aria-describedby="s-help">'
+    '<p><label for="s-existing">SmartMatch password</label> '
+    '<input id="s-existing" name="existing_password" type="password" '
+    'autocomplete="current-password" maxlength="1024" required></p>'
+    '<button type="submit">Add Speaker access</button>'
+    "</form>"
+)
+
+_NEW_HEADING: Final[str] = "Set up your Speaker Portal account"
+_EXISTING_HEADING: Final[str] = "Add Speaker access to your SmartMatch login"
+
 
 def _page(heading: str, body_html: str, status_code: int) -> HTMLResponse:
     return token_page(_PAGE_TITLE, heading, body_html, status_code=status_code)
@@ -545,20 +629,42 @@ def _invalid_page() -> HTMLResponse:
     )
 
 
+def _form_page(mode: ActivationMode, status_code: int, notice: str = "") -> HTMLResponse:
+    """The form ``mode`` needs, with an optional alert above it."""
+    alert = f'<p role="alert">{notice}</p>' if notice else ""
+    if mode is ActivationMode.EXISTING_LOGIN:
+        return _page(_EXISTING_HEADING, alert + _EXISTING_FORM_HTML, status_code)
+    return _page(_NEW_HEADING, alert + _FORM_HTML, status_code)
+
+
 @pages_router.get(
     "/s/{token}",
     summary="Speaker Portal activation page",
     responses={200: {"content": {"text/html": {}}, "description": "Activation page"}},
 )
-def activation_page(token: str) -> HTMLResponse:
-    """The password form. **Never changes state**, never reads the database, never
-    echoes the token: the bytes are the same for every token."""
-    return _page("Set up your Speaker Portal account", _FORM_HTML, status.HTTP_200_OK)
+def activation_page(request: Request, session: DbSession, token: str) -> HTMLResponse:
+    """The password form the invitation needs. **Never changes state**: reads only,
+    no lock, no rate-limit charge, and never echoes the token.
+
+    Every token gets T6b-1's new-password form, byte for byte, except a live,
+    verified invitation whose address an Event Host's login already holds: that
+    one asks for the existing password (T6b-5 §4.2, C1)."""
+    secret: str | None = getattr(request.app.state, "speaker_portal_token_secret", None)
+    mode = page_mode(session, token=token, secret=secret, now=utc_now()) if secret else None
+    return _form_page(mode or ActivationMode.NEW_LOGIN, status.HTTP_200_OK)
 
 
 async def _read_activation_form(request: Request) -> FormRead:
     return await read_urlencoded_form(
         request, max_bytes=_FORM_MAX_BYTES, max_fields=_FORM_MAX_FIELDS
+    )
+
+
+def _bad_form() -> HTMLResponse:
+    return _page(
+        "Please use the form",
+        "<p>Open the link from your email again and fill in the form.</p>",
+        status.HTTP_400_BAD_REQUEST,
     )
 
 
@@ -574,8 +680,11 @@ def activate_by_form(
     form: Annotated[FormRead, Depends(_read_activation_form)],
 ) -> HTMLResponse:
     """Activate from the form, and issue **no session** (C4): the page links to
-    ``/login``. Refusals: 413 (body too large), 422 (weak or mismatched
-    password), 400 (every invalid token, identical bytes, or a malformed form)."""
+    ``/login``. Accepts ``new_password`` + ``confirm_password``, or
+    ``existing_password`` (T6b-5). Refusals: 413 (body too large), 422 (weak or
+    mismatched new password), 401 (wrong existing password: the existing form
+    again), 409 (the other mode: that form), 400 (every invalid token,
+    identical bytes, or a malformed form)."""
     _charge_activation_attempt(request, session)
     if form.outcome is FormReadOutcome.TOO_LARGE:
         return _page(
@@ -583,35 +692,40 @@ def activate_by_form(
             "<p>Choose a shorter password and try again.</p>",
             status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
         )
+    if form.outcome is not FormReadOutcome.OK:
+        return _bad_form()
     new_values = form.fields.get("new_password", ())
     confirm_values = form.fields.get("confirm_password", ())
-    if form.outcome is not FormReadOutcome.OK or len(new_values) != 1 or len(confirm_values) != 1:
-        return _page(
-            "Please use the form",
-            "<p>Open the link from your email again and fill in both fields.</p>",
-            status.HTTP_400_BAD_REQUEST,
-        )
-    new_password = new_values[0]
-    try:
-        check_new_password(new_password)
-    except PasswordPolicyError:
-        return _page(
-            "Choose a different password",
-            "<p>Use 12 to 256 characters, not only spaces. Go back and try again.</p>",
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
-        )
-    if new_password != confirm_values[0]:
-        return _page(
-            "The passwords do not match",
-            "<p>Go back and type the same password in both fields.</p>",
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
-        )
+    existing_values = form.fields.get("existing_password", ())
+    new_password: str | None = None
+    existing_password: str | None = None
+    if len(existing_values) == 1 and not new_values and not confirm_values:
+        existing_password = existing_values[0]
+    elif len(new_values) == 1 and len(confirm_values) == 1 and not existing_values:
+        new_password = new_values[0]
+        try:
+            check_new_password(new_password)
+        except PasswordPolicyError:
+            return _page(
+                "Choose a different password",
+                "<p>Use 12 to 256 characters, not only spaces. Go back and try again.</p>",
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+        if new_password != confirm_values[0]:
+            return _page(
+                "The passwords do not match",
+                "<p>Go back and type the same password in both fields.</p>",
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+    else:
+        return _bad_form()
     secret = _token_secret(request)
     try:
-        activate_new_login(
+        result = activate(
             session,
             token=token,
             new_password=new_password,
+            existing_password=existing_password,
             secret=secret,
             now=utc_now(),
             issue_session=False,
@@ -619,7 +733,25 @@ def activate_by_form(
     except ActivationRefused:
         session.rollback()
         return _invalid_page()
+    except ActivationCredentialsInvalid:
+        session.rollback()
+        return _form_page(
+            ActivationMode.EXISTING_LOGIN,
+            status.HTTP_401_UNAUTHORIZED,
+            "That password does not match.",
+        )
+    except ActivationModeMismatch as exc:
+        session.rollback()
+        return _form_page(exc.expected, status.HTTP_409_CONFLICT)
     session.commit()
+    if result.mode is ActivationMode.EXISTING_LOGIN:
+        return _page(
+            "Speaker access is added",
+            "<p>Speaker access is added to your SmartMatch login. "
+            '<a href="/login">Sign in</a>, or reload SmartMatch if you are already '
+            "signed in, then use Switch portal.</p>",
+            status.HTTP_200_OK,
+        )
     return _page(
         "Your Speaker account is ready",
         '<p>You can now <a href="/login">sign in</a> with your email address and '

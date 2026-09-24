@@ -330,7 +330,8 @@ def test_two_invitations_to_one_host_address_bind_once(
     address = f"host-{uuid.uuid4().hex[:8]}@example.invalid"
     host_id, pw = _host(engine, tenant_id, address)
     first_id, first_token = _speaker(engine, tenant_id, address=address)
-    second_id, second_token = _speaker(engine, tenant_id, address=address)
+    # uq_contact_channel_address is exact; the address lock folds case.
+    second_id, second_token = _speaker(engine, tenant_id, address=address.upper())
 
     with session_factory() as first:
         _activate(first, first_token, pw)
