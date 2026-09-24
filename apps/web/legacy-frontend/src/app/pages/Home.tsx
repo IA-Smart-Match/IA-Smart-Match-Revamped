@@ -17,6 +17,8 @@
  */
 import { Navigate } from "react-router";
 
+import { readRememberedPortal } from "@/lib/portalChoice";
+
 import { useSession } from "../hooks/useSession";
 import { usePortalAccess, useRetryPortalAccess } from "../hooks/usePortalAccess";
 import { LandingPage } from "./LandingPage";
@@ -78,7 +80,12 @@ export function Home() {
   }
 
   const { mapping } = portalAccess;
+  // A two-portal login (B26 T6b-5) lands where it last switched to — but only
+  // among the portals the server granted just now; the stored id alone opens
+  // nothing. Otherwise the server's own default.
+  const remembered = readRememberedPortal(mapping.portals.map((entry) => entry.portal));
   const target =
+    mapping.portals.find((entry) => entry.portal === remembered) ??
     mapping.portals.find((entry) => entry.portal === mapping.default_portal) ??
     mapping.portals[0];
 

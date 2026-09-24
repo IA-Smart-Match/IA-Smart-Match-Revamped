@@ -15,8 +15,10 @@
  *   and back to the menu button when Escape, the overlay, Close or a link
  *   closes it. A route change moves focus to the new page's `h1`; the shell's
  *   first render (sign-in, reload) moves nothing.
- * - **Later slots.** Two marked JSX comments are where the portal switcher
- *   goes (T6b-5); nothing is rendered for it here.
+ * - **Portal switcher (T6b-5).** For a login that also holds the Event Host
+ *   role: above the profile block on desktop, so Sign out stays directly
+ *   beneath the profile, and in the mobile header's right-hand slot. It
+ *   renders nothing with one portal.
  *
  * Route guarding is UX only: every `/v1/me/*` request is authorized
  * server-side, deny-by-default.
@@ -32,6 +34,7 @@ import { prefetchPortalRoute } from "../navPrefetch";
 import { principalDisplayName, principalInitials } from "../../lib/principal";
 import { BrandLogo } from "./BrandLogo";
 import { PortalGate, grantedPortal } from "./PortalGate";
+import { PortalSwitcher } from "./PortalSwitcher";
 import { usePrincipalKey } from "./PrincipalQueryProvider";
 import { ScrollToTop } from "./ScrollToTop";
 import { SessionGate } from "./SessionGate";
@@ -210,7 +213,9 @@ export function SpeakerPortalLayout() {
           </nav>
 
           <div className="border-t border-sidebar-border p-4">
-            {/* SLOT(T6b-5): portal switcher, shown only with 2+ portals */}
+            <div className="hidden lg:block">
+              <PortalSwitcher current="speaker" placement="sidebar" />
+            </div>
             <div className="flex items-center gap-3 px-3 py-2">
               <div
                 className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-medium text-primary-foreground"
@@ -252,8 +257,9 @@ export function SpeakerPortalLayout() {
               <Menu className="h-6 w-6" aria-hidden="true" />
             </button>
             <BrandLogo compact className="w-[145px]" />
-            {/* SLOT(T6b-5): portal switcher (mobile) */}
-            <div className="w-11" aria-hidden="true" />
+            <div className="flex min-w-11 justify-end">
+              <PortalSwitcher current="speaker" placement="header" />
+            </div>
           </div>
         </header>
 

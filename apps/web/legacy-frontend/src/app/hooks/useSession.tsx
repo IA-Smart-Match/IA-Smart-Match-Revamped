@@ -21,6 +21,7 @@ import {
 } from "react";
 
 import type { MeResponse } from "@/lib/api";
+import { forgetRememberedPortal } from "@/lib/portalChoice";
 import {
   loadSession,
   resetSession,
@@ -69,6 +70,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     // The state moves to `loading` first so the UI cannot keep rendering a
     // portal while the revocation is still in flight.
     setState({ status: "loading" });
+    // B26 T6b-5: the next person on a shared browser starts at the server's
+    // default portal, not at the one this person last switched to.
+    forgetRememberedPortal();
     void signOutOfSession().then(() => {
       // Signed out, unconditionally. This used to re-ask `GET /v1/me` whenever
       // the browser could still authenticate afterwards — which, on a bundle
