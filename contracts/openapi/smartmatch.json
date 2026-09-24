@@ -177,6 +177,115 @@
         "title": "AttendanceSummaryResponse",
         "type": "object"
       },
+      "AvailabilityView": {
+        "description": "The Stage A availability verdict this run recorded for one candidate (B26 T4).\n\nIt annotates; it never removed, reordered or re-scored anybody. No number.",
+        "properties": {
+          "as_of": {
+            "description": "The UTC date (YYYY-MM-DD) the verdict was taken on.",
+            "title": "As Of",
+            "type": "string"
+          },
+          "changed_since_run": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "True when today's verdict, reason or pause date differs from the stored one. null when it could not be checked (the request can no longer be read in this unit): not checked, never unchanged.",
+            "title": "Changed Since Run"
+          },
+          "paused_until": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The stored pause date, set exactly when reason is paused.",
+            "title": "Paused Until"
+          },
+          "reason": {
+            "description": "clear, paused, window, not_stated, or event_unresolved.",
+            "title": "Reason",
+            "type": "string"
+          },
+          "state": {
+            "description": "available, blacked_out, or unknown.",
+            "title": "State",
+            "type": "string"
+          },
+          "verdict": {
+            "description": "eligible, excluded, or undetermined.",
+            "title": "Verdict",
+            "type": "string"
+          }
+        },
+        "required": [
+          "verdict",
+          "state",
+          "reason",
+          "as_of"
+        ],
+        "title": "AvailabilityView",
+        "type": "object"
+      },
+      "AvailabilityWindowInput": {
+        "additionalProperties": false,
+        "description": "One inclusive date range the speaker cannot speak on.",
+        "properties": {
+          "ends_on": {
+            "format": "date",
+            "title": "Ends On",
+            "type": "string"
+          },
+          "starts_on": {
+            "format": "date",
+            "title": "Starts On",
+            "type": "string"
+          }
+        },
+        "required": [
+          "starts_on",
+          "ends_on"
+        ],
+        "title": "AvailabilityWindowInput",
+        "type": "object"
+      },
+      "AvailabilityWindowView": {
+        "description": "A stored window and which surface first wrote it.",
+        "properties": {
+          "ends_on": {
+            "format": "date",
+            "title": "Ends On",
+            "type": "string"
+          },
+          "source": {
+            "enum": [
+              "speaker",
+              "connector"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
+          "starts_on": {
+            "format": "date",
+            "title": "Starts On",
+            "type": "string"
+          }
+        },
+        "required": [
+          "starts_on",
+          "ends_on",
+          "source"
+        ],
+        "title": "AvailabilityWindowView",
+        "type": "object"
+      },
       "BatchCreateRequest": {
         "description": "Compose invitations for a reviewed shortlist.\n\nNote what cannot be supplied: **a template**, **a body**, **a recipient\naddress**, and **a response link**. The template is\n:data:`~smartmatch_domain.cba_invitations.INVITATION_TEMPLATE_ID`, because\nwhich words an institution uses is a copy decision recorded in the closed\nregistry rather than one a caller makes per batch. The address is resolved\nfrom the recipient's own stored channels. The response link is composed\nserver-side from the configured origin and a freshly minted token \u2014 a caller\nsupplying one would be putting an arbitrary link into an institutional email\nover an already-consented address, which is a phishing primitive rather than\na parameter.\n\nWhat a caller does supply is who to invite and what the event is.",
         "properties": {
@@ -223,6 +332,19 @@
             "minItems": 1,
             "title": "Professional Ids",
             "type": "array"
+          },
+          "speaker_request_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The Speaker Request (a filed coordinator_entry event in this unit) this batch invites for. Derived from match_run_id when that run names one; required otherwise (422 speaker_invitation_request_required). Compose and dispatch check each Speaker's stated availability against its date.",
+            "title": "Speaker Request Id"
           }
         },
         "required": [
@@ -314,6 +436,19 @@
             "title": "Skipped Count",
             "type": "integer"
           },
+          "speaker_request_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The Speaker Request this batch invites for. null only on a batch stored before it was recorded.",
+            "title": "Speaker Request Id"
+          },
           "template_id": {
             "title": "Template Id",
             "type": "string"
@@ -322,6 +457,7 @@
         "required": [
           "batch_id",
           "match_run_id",
+          "speaker_request_id",
           "template_id",
           "event_name",
           "event_date",
@@ -366,6 +502,18 @@
             ],
             "title": "Match Run Id"
           },
+          "speaker_request_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Speaker Request Id"
+          },
           "template_id": {
             "title": "Template Id",
             "type": "string"
@@ -374,6 +522,7 @@
         "required": [
           "batch_id",
           "match_run_id",
+          "speaker_request_id",
           "template_id",
           "event_name",
           "event_date",
@@ -410,6 +559,17 @@
       "CandidateExplanationView": {
         "description": "One candidate's heuristic score and every factor behind it.",
         "properties": {
+          "availability": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AvailabilityView"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The availability verdict stored with the run, or null when the run recorded none (see availability_recorded)."
+          },
           "caption": {
             "anyOf": [
               {
@@ -2592,7 +2752,7 @@
         "description": "One named subject that never entered the pool, and why.\n\nDistinct from ``unscorable_candidates`` and deliberately so. An unscorable\ncandidate *was* evaluated and some factor had no evidence; an excluded one\nwas never evaluated at all \u2014 no profile row, or a classification \u00a719 says a\nperson must review first. Collapsing the two would tell a Speaker Connector\nthat somebody scored poorly when in fact nobody has looked at their record.",
         "properties": {
           "reason": {
-            "description": "A stable token: speaker_profile_not_found, industry_classification_awaiting_review, role_classification_awaiting_review, industry_classification_missing, role_classification_missing, industry_classification_provenance_unknown, role_classification_provenance_unknown, industry_taxonomy_version_superseded, role_taxonomy_version_superseded, industry_code_unrecognised, or role_code_unrecognised.",
+            "description": "A stable token: speaker_profile_not_found, industry_classification_awaiting_review, role_classification_awaiting_review, industry_classification_missing, role_classification_missing, industry_classification_provenance_unknown, role_classification_provenance_unknown, industry_taxonomy_version_superseded, role_taxonomy_version_superseded, industry_code_unrecognised, role_code_unrecognised, or filed_this_request (the Speaker's own login filed this Speaker Request, B26 Q8).",
             "title": "Reason",
             "type": "string"
           },
@@ -3491,6 +3651,24 @@
       "MatchRunResponse": {
         "description": "One persisted run, its shortlist, and the explanations behind it.",
         "properties": {
+          "availability_recorded": {
+            "default": false,
+            "description": "True when the run stored an availability verdict per evaluated candidate (B26 T4). False for a run stored before that, or whose stored block is unreadable: every availability is then null and a surface says 'not recorded', never 'available'.",
+            "title": "Availability Recorded",
+            "type": "boolean"
+          },
+          "availability_unreadable_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why the stored availability block could not be read, when it could not.",
+            "title": "Availability Unreadable Reason"
+          },
           "considered": {
             "description": "Scored candidates that were not selected, in ranked order.",
             "items": {
@@ -3507,6 +3685,14 @@
           "event_need_id": {
             "title": "Event Need Id",
             "type": "string"
+          },
+          "excluded": {
+            "description": "Named subjects that never entered the pool, with the reason stored at submission. Empty for a run stored before it was recorded.",
+            "items": {
+              "$ref": "#/components/schemas/ExcludedCandidateView"
+            },
+            "title": "Excluded",
+            "type": "array"
           },
           "id": {
             "format": "uuid",
@@ -4196,7 +4382,7 @@
             "type": "string"
           },
           "reason": {
-            "description": "A consent fact read *now*, not at batch creation: a channel can be suppressed, de-activated, or removed between composing a batch and sending it. The invitation stays pending and can be dispatched later if the reason is resolved.",
+            "description": "A consent fact read *now*, not at batch creation: a channel can be suppressed, de-activated, or removed between composing a batch and sending it. Or, after consent, the Speaker's availability read now against the batch's Speaker Request: speaker_unavailable_on_date or speaker_invitations_paused. The invitation stays pending and can be dispatched later if the reason is resolved.",
             "title": "Reason",
             "type": "string"
           }
@@ -5605,6 +5791,158 @@
           "concluded_at"
         ],
         "title": "SendSummaryView",
+        "type": "object"
+      },
+      "SpeakerAvailabilityResponse": {
+        "description": "A speaker's stated availability; ``stated: false`` means no row (\"Not stated\").",
+        "properties": {
+          "declared_capacity_hours_per_90_days": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Declared Capacity Hours Per 90 Days"
+          },
+          "invitations_paused_until": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Invitations Paused Until"
+          },
+          "professional_id": {
+            "format": "uuid",
+            "title": "Professional Id",
+            "type": "string"
+          },
+          "stated": {
+            "title": "Stated",
+            "type": "boolean"
+          },
+          "unavailable": {
+            "items": {
+              "$ref": "#/components/schemas/AvailabilityWindowView"
+            },
+            "title": "Unavailable",
+            "type": "array"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "updated_source": {
+            "anyOf": [
+              {
+                "enum": [
+                  "speaker",
+                  "connector"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated Source"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          }
+        },
+        "required": [
+          "professional_id",
+          "stated",
+          "version",
+          "invitations_paused_until",
+          "declared_capacity_hours_per_90_days",
+          "unavailable",
+          "updated_source",
+          "updated_at"
+        ],
+        "title": "SpeakerAvailabilityResponse",
+        "type": "object"
+      },
+      "SpeakerAvailabilityUpdateRequest": {
+        "additionalProperties": false,
+        "description": "Full replace. Every key is required; ``null`` clears. No subject field (MM-A01).",
+        "properties": {
+          "declared_capacity_hours_per_90_days": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Declared Capacity Hours Per 90 Days"
+          },
+          "expected_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Version"
+          },
+          "invitations_paused_until": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Invitations Paused Until"
+          },
+          "unavailable": {
+            "items": {
+              "$ref": "#/components/schemas/AvailabilityWindowInput"
+            },
+            "title": "Unavailable",
+            "type": "array"
+          }
+        },
+        "required": [
+          "expected_version",
+          "invitations_paused_until",
+          "declared_capacity_hours_per_90_days",
+          "unavailable"
+        ],
+        "title": "SpeakerAvailabilityUpdateRequest",
         "type": "object"
       },
       "SpeakerContactClassificationSource": {
@@ -11713,7 +12051,7 @@
     },
     "/v1/units/{unit_id}/match-runs": {
       "post": {
-        "description": "Score this unit's named speakers against a filed Speaker Request.\n\nReturns ``202``: nothing has been solved and no ``match_run`` row exists\nwhen this returns. The command is recorded and will be dispatched; follow\n``events_url``, then read the run.\n\nQuota is charged first (ADR-0015), ahead of the load, the authorization and\nthe validation, so a caller producing 404s against invented unit ids spends\nexactly what a caller submitting real runs spends.\n\nWhat is persisted on ``job.payload``, and why each part is there:\n\n* ``event_need_id``, ``portfolio_size``, ``random_seed`` and ``candidates``\n  \u2014 the four keys ``smartmatch_worker.handlers._read_match_run_command``\n  reads back. Renaming one here changes what the worker is given, so the two\n  ends move together. ``event_need_id`` is the Speaker Request's own id,\n  which is what makes a stored run traceable to the request it answered.\n* ``scoring_mode`` \u2014 resolved from that request's virtual/physical switch.\n  The worker pins the registry, the weights and the route-estimate version\n  off it, so this is the value that decides which rulebook the snapshot\n  records.\n* ``explanations`` \u2014 the per-factor account of every candidate, scorable and\n  unscorable alike. The worker ignores this key (it reads its four with\n  ``.get``), and the read route renders it. Recomputing the explanation on\n  the read would be a second scoring of possibly different evidence under\n  possibly newer weights; storing it means what a coordinator sees is what\n  was actually scored, under the registry version recorded on it.\n\nRaises:\n    ApiError: 503 when the registry is not ready; 404 when no such Speaker\n        Request exists in this unit; 400 when the pool is over\n        :data:`MAX_CANDIDATES` or names a duplicate subject; 422 when fewer\n        candidates can be scored than the requested shortlist needs, which\n        is the physical model's ordinary answer for a roster whose ZIPs are\n        missing, since an unresolved distance is unknown and never Far.",
+        "description": "Score this unit's named speakers against a filed Speaker Request.\n\nReturns ``202``: nothing has been solved and no ``match_run`` row exists\nwhen this returns. The command is recorded and will be dispatched; follow\n``events_url``, then read the run.\n\nQuota is charged first (ADR-0015), ahead of the load, the authorization and\nthe validation, so a caller producing 404s against invented unit ids spends\nexactly what a caller submitting real runs spends.\n\nWhat is persisted on ``job.payload``, and why each part is there:\n\n* ``event_need_id``, ``portfolio_size``, ``random_seed`` and ``candidates``\n  \u2014 the four keys ``smartmatch_worker.handlers._read_match_run_command``\n  reads back. Renaming one here changes what the worker is given, so the two\n  ends move together. ``event_need_id`` is the Speaker Request's own id,\n  which is what makes a stored run traceable to the request it answered.\n* ``scoring_mode`` \u2014 resolved from that request's virtual/physical switch.\n  The worker pins the registry, the weights and the route-estimate version\n  off it, so this is the value that decides which rulebook the snapshot\n  records.\n* ``explanations`` \u2014 the per-factor account of every candidate, scorable and\n  unscorable alike. The worker ignores this key (it reads its four with\n  ``.get``), and the read route renders it. Recomputing the explanation on\n  the read would be a second scoring of possibly different evidence under\n  possibly newer weights; storing it means what a coordinator sees is what\n  was actually scored, under the registry version recorded on it.\n\n* ``availability`` and ``excluded`` (B26 T4) \u2014 each evaluated candidate's\n  Stage A availability verdict, and the named subjects that never entered\n  the pool. Both are read by the run read; the worker never reads them.\n  ``submit_command`` fingerprints the whole payload, and ``availability``\n  carries a UTC date, so a retry under the same key across a UTC midnight\n  or after an availability edit is a ``409``, not a replay (C8).\n\nRaises:\n    ApiError: 503 when the registry is not ready; 404 when no such Speaker\n        Request exists in this unit; 400 when the pool is over\n        :data:`MAX_CANDIDATES` or names a duplicate subject; 422 when fewer\n        candidates can be scored than the requested shortlist needs, which\n        is the physical model's ordinary answer for a roster whose ZIPs are\n        missing, since an unresolved distance is unknown and never Far.",
         "operationId": "create_match_run_v1_units__unit_id__match_runs_post",
         "parameters": [
           {
@@ -16173,6 +16511,294 @@
         ]
       }
     },
+    "/v1/units/{unit_id}/speaker-contacts/{professional_id}/availability": {
+      "get": {
+        "description": "The statement, or ``stated: false`` when the speaker has said nothing.\n\nRaises:\n    ApiError: 404 ``unit_not_found`` / ``speaker_contact_not_found``; 403.",
+        "operationId": "get_speaker_contact_availability_v1_units__unit_id__speaker_contacts__professional_id__availability_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "professional_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Professional Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpeakerAvailabilityResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Read a roster contact's stated availability",
+        "tags": [
+          "speaker-contacts"
+        ]
+      },
+      "patch": {
+        "description": "Full replace: omitted windows are deleted, ``null`` clears pause and capacity.\n\n``expected_version`` is always checked; ``null`` means \"I read no row\".\n\nRaises:\n    ApiError: 404 ``unit_not_found`` / ``speaker_contact_not_found``; 403;\n        409 ``speaker_availability_stale``; 422 with a\n        ``speaker_availability_*`` code.",
+        "operationId": "update_speaker_contact_availability_v1_units__unit_id__speaker_contacts__professional_id__availability_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "professional_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Professional Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SpeakerAvailabilityUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpeakerAvailabilityResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Replace a roster contact's stated availability",
+        "tags": [
+          "speaker-contacts"
+        ]
+      }
+    },
     "/v1/units/{unit_id}/speaker-contacts/{professional_id}/channels": {
       "get": {
         "description": "Every channel this unit holds for this person, each with its full trail.\n\n``send_eligible`` is on every row, so \"why can I not write to this person\" is\nanswerable by reading rather than only by trying. A person with no channel at\nall \u2014 the ordinary case for a contact added through the \u00a713 form, which\nwrites none \u2014 returns an empty list, which is the honest answer and not a\n404: the contact exists, and holds nothing.\n\nRaises:\n    ApiError: 404 when the person is not on this unit's roster.",
@@ -17077,7 +17703,7 @@
         ]
       },
       "post": {
-        "description": "Compose one invitation per eligible recipient. **Nothing is sent.**\n\n``201`` rather than ``202``: unlike the dispatch, this has completed when it\nreturns \u2014 the batch and every outcome in it are rows a Connector can read\nback. Reserving ``202`` for the operation that genuinely defers work is what\nkeeps the distinction meaningful.\n\nEach named recipient is resolved in three steps, and each step's failure is a\n*skip with a reason* rather than an error, because a batch that refused\nwholesale on one bad name would make a Connector fix their list by bisection:\n\n1. They must be on **this unit's** \u00a713 roster \u2014 otherwise ``not_on_roster``.\n2. They must hold a channel an invitation may address \u2014 otherwise the reason\n   ``choose_invitation_channel`` gives, which names the condition that failed\n   rather than saying \"ineligible\".\n3. The message must compose \u2014 which, having passed step 2, it does.\n\nSending an invitation does not advance anybody's consent, and there is no\npath here that could: the eligibility question is asked of stored state and\nnothing writes back to ``contact_channel``. A contact who is not already an\n``active_candidate`` is skipped and stays exactly where they were.\n\nRaises:\n    ApiError: 404 when the unit does not exist in this tenant; 400 when the\n        idempotency key is missing, or when the same person is named twice\n        (see :func:`_require_distinct_recipients` \u2014 a repeat has no second\n        outcome to report, and dropping it would shorten the answer).",
+        "description": "Compose one invitation per eligible recipient. **Nothing is sent.**\n\n``201`` rather than ``202``: unlike the dispatch, this has completed when it\nreturns \u2014 the batch and every outcome in it are rows a Connector can read\nback. Reserving ``202`` for the operation that genuinely defers work is what\nkeeps the distinction meaningful.\n\nEach named recipient is resolved in three steps, and each step's failure is a\n*skip with a reason* rather than an error, because a batch that refused\nwholesale on one bad name would make a Connector fix their list by bisection:\n\n1. They must be on **this unit's** \u00a713 roster \u2014 otherwise ``not_on_roster``.\n2. They must hold a channel an invitation may address \u2014 otherwise the reason\n   ``choose_invitation_channel`` gives, which names the condition that failed\n   rather than saying \"ineligible\".\n3. The message must compose \u2014 which, having passed step 2, it does.\n\nSending an invitation does not advance anybody's consent, and there is no\npath here that could: the eligibility question is asked of stored state and\nnothing writes back to ``contact_channel``. A contact who is not already an\n``active_candidate`` is skipped and stays exactly where they were.\n\nRaises:\n    ApiError: 404 when the unit does not exist in this tenant; 400 when the\n        idempotency key is missing, or when the same person is named twice\n        (see :func:`_require_distinct_recipients` \u2014 a repeat has no second\n        outcome to report, and dropping it would shorten the answer); 404\n        ``match_run_not_found`` / ``speaker_request_not_found`` and 422\n        ``speaker_invitation_request_mismatch`` /\n        ``speaker_invitation_request_required`` from\n        :func:`_resolve_speaker_request` (B26 T4). A replayed key answers\n        before any of those are asked.",
         "operationId": "create_invitation_batch_v1_units__unit_id__speaker_invitations_batches_post",
         "parameters": [
           {
@@ -17375,7 +18001,7 @@
     },
     "/v1/units/{unit_id}/speaker-invitations/batches/{batch_id}/dispatch": {
       "post": {
-        "description": "Submit one ``outreach.send`` per pending invitation. **Nothing is sent.**\n\n``202`` and no status field, for ``send_draft``'s reason: each command is\nrecorded and the dispatcher has not moved it. Follow each ``events_url``,\nthen read the batch.\n\n**Consent is rechecked here**, per invitation, against state read now \u2014 not\nagainst what was true when the batch was composed. A channel can be\nsuppressed, moved back down the lifecycle, or removed in between, and an\ninvitation composed before that must not go out after it. A refused\ninvitation appears in ``not_dispatched`` with the reason and **stays\npending**, so resolving the reason and dispatching again works, and so the\nbatch never silently loses a recipient. The worker rechecks a third time at\ndelivery, which is the only check that closes the window after this returns.\n\nDispatching twice is safe in three independent ways, which is deliberate on a\nroute that puts mail in inboxes: only ``pending`` invitations are considered,\n``mark_dispatched`` is guarded on that same status, and each command carries a\nkey derived from the invitation id so ``submit_command`` replays rather than\nqueues a second send.\n\nRaises:\n    ApiError: 404 when no such batch exists in this unit.",
+        "description": "Submit one ``outreach.send`` per pending invitation. **Nothing is sent.**\n\n``202`` and no status field, for ``send_draft``'s reason: each command is\nrecorded and the dispatcher has not moved it. Follow each ``events_url``,\nthen read the batch.\n\n**Consent is rechecked here**, per invitation, against state read now \u2014 not\nagainst what was true when the batch was composed. A channel can be\nsuppressed, moved back down the lifecycle, or removed in between, and an\ninvitation composed before that must not go out after it. A refused\ninvitation appears in ``not_dispatched`` with the reason and **stays\npending**, so resolving the reason and dispatching again works, and so the\nbatch never silently loses a recipient. The worker rechecks a third time at\ndelivery, which is the only check that closes the window after this returns.\n\nDispatching twice is safe in three independent ways, which is deliberate on a\nroute that puts mail in inboxes: only ``pending`` invitations are considered,\n``mark_dispatched`` is guarded on that same status, and each command carries a\nkey derived from the invitation id so ``submit_command`` replays rather than\nqueues a second send.\n\n**Availability is rechecked too** (B26 T4), after consent, against the\nbatch's own Speaker Request and each Speaker's statement read now.\n\nRaises:\n    ApiError: 404 when no such batch exists in this unit; 409\n        ``speaker_invitation_request_unreadable`` when the batch's request\n        cannot be read (a broken invariant; nothing is submitted).",
         "operationId": "dispatch_invitation_batch_v1_units__unit_id__speaker_invitations_batches__batch_id__dispatch_post",
         "parameters": [
           {

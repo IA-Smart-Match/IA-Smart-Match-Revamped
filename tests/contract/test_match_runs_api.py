@@ -42,6 +42,8 @@ import json
 import os
 import uuid
 from collections.abc import Iterator
+from contextlib import contextmanager
+from datetime import date
 from typing import Any
 
 import pytest
@@ -72,7 +74,7 @@ from smartmatch_providers.tasks import FixtureTaskQueue
 from smartmatch_worker.dispatcher import OutboxDispatcher
 from smartmatch_worker.execution import TaskExecutor
 from smartmatch_worker.handlers import default_registry
-from sqlalchemy import Engine, create_engine, text
+from sqlalchemy import Engine, create_engine, event, text
 
 pytestmark = pytest.mark.integration
 
@@ -138,6 +140,8 @@ class MatchFixture:
         virtual_request_id: uuid.UUID,
         physical_request_id: uuid.UUID,
         speakers: dict[str, uuid.UUID],
+        user_id: uuid.UUID | None = None,
+        engine: Engine | None = None,
     ) -> None:
         self.client = client
         self.tenant_id = tenant_id
@@ -146,6 +150,99 @@ class MatchFixture:
         self.virtual_request_id = virtual_request_id
         self.physical_request_id = physical_request_id
         self.speakers = speakers
+        self.user_id = user_id
+        self.engine = engine
+
+    def state_availability(
+        self,
+        name: str,
+        *,
+        paused_until: date | None = None,
+        windows: tuple[tuple[date, date], ...] = (),
+    ) -> None:
+        """Store (or replace) one speaker's availability statement (B26 T4)."""
+        assert self.engine is not None and self.user_id is not None
+        professional_id = self.speakers[name]
+        with self.engine.begin() as conn:
+            conn.execute(
+                text(
+                    "DELETE FROM speaker_availability WHERE tenant_id = :t AND professional_id = :p"
+                ),
+                {"t": self.tenant_id, "p": professional_id},
+            )
+            conn.execute(
+                text(
+                    "INSERT INTO speaker_availability (tenant_id, professional_id, "
+                    "invitations_paused_until, updated_source, updated_by_user_id) "
+                    "VALUES (:t, :p, :paused, 'connector', :u)"
+                ),
+                {
+                    "t": self.tenant_id,
+                    "p": professional_id,
+                    "paused": paused_until,
+                    "u": self.user_id,
+                },
+            )
+            for starts_on, ends_on in windows:
+                conn.execute(
+                    text(
+                        "INSERT INTO speaker_availability_window (id, tenant_id, professional_id, "
+                        "starts_on, ends_on, created_source, created_by_user_id) "
+                        "VALUES (:id, :t, :p, :s, :e, 'connector', :u)"
+                    ),
+                    {
+                        "id": uuid.uuid4(),
+                        "t": self.tenant_id,
+                        "p": professional_id,
+                        "s": starts_on,
+                        "e": ends_on,
+                        "u": self.user_id,
+                    },
+                )
+
+    def new_login(self) -> uuid.UUID:
+        """A ``user_account`` in this tenant: a Host, or a Speaker's bound login."""
+        assert self.engine is not None
+        user_id = uuid.uuid4()
+        with self.engine.begin() as conn:
+            conn.execute(
+                text(
+                    "INSERT INTO user_account (id, tenant_id, external_subject, email) "
+                    "VALUES (:id, :t, :s, :e)"
+                ),
+                {
+                    "id": user_id,
+                    "t": self.tenant_id,
+                    "s": f"login-{user_id.hex}",
+                    "e": f"login-{user_id.hex[:8]}@example.invalid",
+                },
+            )
+        return user_id
+
+    def bind_login(self, name: str, user_id: uuid.UUID) -> None:
+        """Bind a login to a Speaker's profile (``0039``), as T6b-5's merge would."""
+        assert self.engine is not None
+        with self.engine.begin() as conn:
+            conn.execute(
+                text(
+                    "UPDATE speaker_profile SET account_user_id = :u, account_bound_at = now() "
+                    "WHERE tenant_id = :t AND professional_id = :p"
+                ),
+                {"u": user_id, "t": self.tenant_id, "p": self.speakers[name]},
+            )
+
+    def file_request(self, filed_by_user_id: uuid.UUID | None) -> uuid.UUID:
+        """A virtual Speaker Request filed by ``filed_by_user_id`` (``None``: unrecorded)."""
+        assert self.engine is not None
+        with self.engine.begin() as conn:
+            return _insert_speaker_request(
+                conn,
+                tenant_id=self.tenant_id,
+                unit_id=self.unit_id,
+                is_virtual=True,
+                title=f"Filed finance panel {uuid.uuid4().hex[:8]}",
+                filed_by_user_id=filed_by_user_id,
+            )
 
     def subject(self, *names: str) -> list[str]:
         """The ids for these speakers, as the request body spells them."""
@@ -159,6 +256,7 @@ def _insert_speaker_request(
     unit_id: uuid.UUID,
     is_virtual: bool,
     title: str,
+    filed_by_user_id: uuid.UUID | None = None,
 ) -> uuid.UUID:
     """File one Speaker Request straight into ``event`` and its targets.
 
@@ -175,9 +273,9 @@ def _insert_speaker_request(
         text(
             "INSERT INTO event (id, tenant_id, host_org_unit_id, title, normalized_title, "
             "description, time_precision, on_date, time_zone, resolved_date, origin, "
-            "is_virtual) VALUES (:id, :tid, :unit, :title, :norm, :desc, 'date_only', "
-            "DATE '2027-03-04', 'America/Los_Angeles', DATE '2027-03-04', "
-            "'coordinator_entry', :virtual)"
+            "is_virtual, filed_by_user_id) VALUES (:id, :tid, :unit, :title, :norm, :desc, "
+            "'date_only', DATE '2027-03-04', 'America/Los_Angeles', DATE '2027-03-04', "
+            "'coordinator_entry', :virtual, :filed)"
         ),
         {
             "id": event_id,
@@ -187,6 +285,7 @@ def _insert_speaker_request(
             "norm": title.lower(),
             "desc": REQUEST_DESCRIPTION,
             "virtual": is_virtual,
+            "filed": filed_by_user_id,
         },
     )
     for kind, code, version in (
@@ -427,6 +526,8 @@ def match_context(engine: Engine) -> Iterator[MatchFixture]:
         virtual_request_id=virtual_request_id,
         physical_request_id=physical_request_id,
         speakers=speakers,
+        user_id=user_id,
+        engine=engine,
     )
 
     with engine.begin() as conn:
@@ -443,6 +544,8 @@ def match_context(engine: Engine) -> Iterator[MatchFixture]:
             "job",
             "speaker_request_classification",
             "event",
+            "speaker_availability_window",
+            "speaker_availability",
             "speaker_profile",
             "membership",
             "resource_grant",
@@ -1131,3 +1234,285 @@ def test_no_percentage_appears_anywhere_in_the_response(match_context, engine) -
             assert 0.0 <= entry["heuristic_score"] <= 1.0
         for factor in entry["factors"]:
             assert factor["value"] is None or 0.0 <= factor["value"] <= 1.0
+
+
+# ---------------------------------------------------------------------------
+# B26 T4 — stored availability verdicts and "changed since this run"
+# ---------------------------------------------------------------------------
+
+#: The Speaker Requests' local date (``_insert_speaker_request``).
+REQUEST_DAY = date(2027, 3, 4)
+#: A pause that is still in force on any run date these tests produce.
+PAUSED_UNTIL = date(2027, 6, 1)
+
+
+@contextmanager
+def _statements() -> Iterator[list[str]]:
+    """Every SQL statement any engine executes inside the block."""
+    seen: list[str] = []
+
+    def record(conn, cursor, statement, parameters, context, executemany):
+        seen.append(statement)
+
+    event.listen(Engine, "before_cursor_execute", record)
+    try:
+        yield seen
+    finally:
+        event.remove(Engine, "before_cursor_execute", record)
+
+
+def _candidates(run: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    return {
+        entry["subject_id"]: entry
+        for entry in run["shortlist"] + run["considered"] + run["unscorable"]
+    }
+
+
+def _rewrite_payload(engine: Engine, job_id: uuid.UUID, expression: str) -> None:
+    """Rewrite the stored command payload, as an older release (or an incident) left it."""
+    with engine.begin() as conn:
+        conn.execute(
+            text(f"UPDATE job SET payload = {expression} WHERE id = :job"), {"job": job_id}
+        )
+
+
+def _read_run(fixture: MatchFixture, engine: Engine, job_id: uuid.UUID) -> dict[str, Any]:
+    run_id = _run_row(engine, job_id).id
+    read = _get(fixture, f"/v1/units/{fixture.unit_id}/match-runs/{run_id}")
+    assert read.status_code == 200, read.text
+    return read.json()
+
+
+def test_availability_costs_one_query_on_create_and_two_on_read(match_context, engine) -> None:
+    """17: one ``get_many`` on create; the event row plus one ``get_many`` on read."""
+    with _statements() as created:
+        accepted = _post(match_context, _submission(match_context))
+    assert accepted.status_code == 202, accepted.text
+    job_id = uuid.UUID(accepted.json()["job_id"])
+    assert _execute_pending(engine, match_context.tenant_id, job_id).status == "executed"
+    run_id = _run_row(engine, job_id).id
+
+    with _statements() as read:
+        response = _get(match_context, f"/v1/units/{match_context.unit_id}/match-runs/{run_id}")
+    assert response.status_code == 200, response.text
+
+    def availability(statements: list[str]) -> int:
+        return sum("speaker_availability" in sql for sql in statements)
+
+    def event_reads(statements: list[str]) -> int:
+        return sum("FROM event" in sql for sql in statements)
+
+    assert availability(created) == 1
+    assert availability(read) == 1
+    assert event_reads(read) == 1
+
+
+def test_the_payload_records_a_verdict_for_every_evaluated_candidate(match_context, engine) -> None:
+    """18: scorable and unscorable alike; the never-evaluated get none."""
+    match_context.state_availability("alpha", windows=((REQUEST_DAY, REQUEST_DAY),))
+    match_context.state_availability("beta", paused_until=PAUSED_UNTIL)
+    match_context.state_availability("gamma")
+
+    accepted, _ = _submit_and_execute(match_context, engine)
+    payload = _stored_payload(engine, uuid.UUID(accepted["job_id"]))
+
+    evaluated = [entry["subject_id"] for entry in payload["explanations"]]
+    stored = payload["availability"]
+    assert [entry["subject_id"] for entry in stored] == evaluated
+    by_subject = {entry["subject_id"]: entry for entry in stored}
+    speakers = {name: str(pid) for name, pid in match_context.speakers.items()}
+
+    assert by_subject[speakers["alpha"]]["verdict"] == "excluded"
+    assert by_subject[speakers["alpha"]]["reason"] == "window"
+    assert by_subject[speakers["beta"]]["reason"] == "paused"
+    assert by_subject[speakers["beta"]]["paused_until"] == PAUSED_UNTIL.isoformat()
+    assert by_subject[speakers["gamma"]]["verdict"] == "eligible"
+    assert by_subject[speakers["delta"]]["reason"] == "not_stated"
+    # epsilon never entered the pool: no verdict, but a stored exclusion (C3).
+    assert speakers["epsilon"] not in by_subject
+    assert {
+        "subject_id": speakers["epsilon"],
+        "reason": "industry_classification_awaiting_review",
+    } in (payload["excluded"])
+
+
+def test_a_run_without_availability_reads_not_recorded(match_context, engine) -> None:
+    """19: a run stored before T4 is "not recorded", never "available"."""
+    accepted, _ = _submit_and_execute(match_context, engine)
+    job_id = uuid.UUID(accepted["job_id"])
+    _rewrite_payload(engine, job_id, "payload - 'availability' - 'excluded'")
+
+    run = _read_run(match_context, engine, job_id)
+
+    assert run["availability_recorded"] is False
+    assert run["availability_unreadable_reason"] is None
+    assert run["excluded"] == []
+    assert all(entry["availability"] is None for entry in _candidates(run).values())
+    assert run["shortlist_available"] is True
+
+
+def test_a_window_added_after_the_run_reads_changed_since(match_context, engine) -> None:
+    """20: stored "available", now inside a window -> changed since this run."""
+    match_context.state_availability("alpha")
+    accepted, before = _submit_and_execute(match_context, engine)
+    alpha = str(match_context.speakers["alpha"])
+    assert _candidates(before)[alpha]["availability"]["changed_since_run"] is False
+
+    match_context.state_availability("alpha", windows=((REQUEST_DAY, REQUEST_DAY),))
+    run = _read_run(match_context, engine, uuid.UUID(accepted["job_id"]))
+
+    view = _candidates(run)[alpha]["availability"]
+    assert run["availability_recorded"] is True
+    assert view["verdict"] == "eligible"
+    assert view["reason"] == "clear"
+    assert view["changed_since_run"] is True
+    others = [entry for subject, entry in _candidates(run).items() if subject != alpha]
+    assert all(entry["availability"]["changed_since_run"] is False for entry in others)
+
+
+def test_availability_moves_neither_inputs_hash_nor_registry_hash(match_context, engine) -> None:
+    """21a: G-CBA-13 over HTTP — a blacked-out Speaker changes no digest."""
+    _, clear = _submit_and_execute(match_context, engine)
+    match_context.state_availability("alpha", windows=((REQUEST_DAY, REQUEST_DAY),))
+    match_context.state_availability("beta", paused_until=PAUSED_UNTIL)
+    _, blocked = _submit_and_execute(match_context, engine)
+
+    assert blocked["inputs_hash"] == clear["inputs_hash"]
+    assert blocked["registry_hash"] == clear["registry_hash"]
+    assert blocked["registry_version"] == clear["registry_version"] == REGISTRY_VERSION
+
+
+def test_an_excluded_speaker_stays_on_the_shortlist_in_place(match_context, engine) -> None:
+    """21b: the verdict annotates; it removes and reorders no one."""
+    _, clear = _submit_and_execute(match_context, engine)
+    match_context.state_availability("alpha", windows=((REQUEST_DAY, REQUEST_DAY),))
+    _, blocked = _submit_and_execute(match_context, engine)
+
+    for group in ("shortlist", "considered", "unscorable"):
+        assert [e["subject_id"] for e in blocked[group]] == [e["subject_id"] for e in clear[group]]
+    alpha = _candidates(blocked)[str(match_context.speakers["alpha"])]
+    assert alpha["availability"]["verdict"] == "excluded"
+    assert alpha["availability"]["reason"] == "window"
+
+
+def test_a_malformed_availability_block_is_reported_not_repaired(match_context, engine) -> None:
+    """23: strict reader — the run still reads, availability says why it cannot."""
+    accepted, _ = _submit_and_execute(match_context, engine)
+    job_id = uuid.UUID(accepted["job_id"])
+    _rewrite_payload(
+        engine,
+        job_id,
+        "jsonb_set(payload, '{availability,0,verdict}', '\"maybe\"'::jsonb)",
+    )
+
+    run = _read_run(match_context, engine, job_id)
+
+    assert run["availability_recorded"] is False
+    assert "verdict" in run["availability_unreadable_reason"]
+    assert all(entry["availability"] is None for entry in _candidates(run).values())
+    assert run["shortlist_available"] is True
+
+
+# ---------------------------------------------------------------------------
+# B26 T4 Q8 — the requester is left out of their own request's pool
+# ---------------------------------------------------------------------------
+
+
+def _excluded(accepted: dict[str, Any]) -> dict[str, str]:
+    return {entry["subject_id"]: entry["reason"] for entry in accepted["excluded_candidates"]}
+
+
+def test_the_requester_is_excluded_as_filed_this_request(match_context, engine) -> None:
+    """22a."""
+    host = match_context.new_login()
+    match_context.bind_login("alpha", host)
+    request_id = match_context.file_request(host)
+
+    accepted, _ = _submit_and_execute(
+        match_context, engine, _submission(match_context, speaker_request_id=str(request_id))
+    )
+
+    alpha = str(match_context.speakers["alpha"])
+    assert _excluded(accepted)[alpha] == "filed_this_request"
+    payload = _stored_payload(engine, uuid.UUID(accepted["job_id"]))
+    assert alpha not in {entry["subject_id"] for entry in payload["explanations"]}
+    assert alpha not in {entry["subject_id"] for entry in payload["candidates"]}
+
+
+def test_another_hosts_request_excludes_nobody(match_context, engine) -> None:
+    """22b."""
+    match_context.bind_login("alpha", match_context.new_login())
+    request_id = match_context.file_request(match_context.new_login())
+
+    accepted, _ = _submit_and_execute(
+        match_context, engine, _submission(match_context, speaker_request_id=str(request_id))
+    )
+
+    assert "filed_this_request" not in _excluded(accepted).values()
+
+
+def test_a_speaker_with_no_bound_login_is_never_excluded(match_context, engine) -> None:
+    """22c."""
+    request_id = match_context.file_request(match_context.new_login())
+
+    accepted, _ = _submit_and_execute(
+        match_context, engine, _submission(match_context, speaker_request_id=str(request_id))
+    )
+
+    assert "filed_this_request" not in _excluded(accepted).values()
+
+
+def test_a_request_with_no_recorded_filer_excludes_nobody(match_context, engine) -> None:
+    """22d: NULL never equals NULL, and an unknown filer is nobody."""
+    match_context.bind_login("alpha", match_context.new_login())
+    request_id = match_context.file_request(None)
+
+    accepted, _ = _submit_and_execute(
+        match_context, engine, _submission(match_context, speaker_request_id=str(request_id))
+    )
+
+    assert "filed_this_request" not in _excluded(accepted).values()
+
+
+def test_excluding_the_requester_fingerprints_like_not_naming_them(match_context, engine) -> None:
+    """22e: Q8 changes ``candidates`` only as naming fewer people would."""
+    host = match_context.new_login()
+    match_context.bind_login("alpha", host)
+    request_id = match_context.file_request(host)
+
+    _, with_requester = _submit_and_execute(
+        match_context,
+        engine,
+        _submission(
+            match_context,
+            speaker_request_id=str(request_id),
+            candidate_subject_ids=match_context.subject("alpha", "beta", "gamma", "delta"),
+        ),
+    )
+    _, without = _submit_and_execute(
+        match_context,
+        engine,
+        _submission(
+            match_context,
+            speaker_request_id=str(request_id),
+            candidate_subject_ids=match_context.subject("beta", "gamma", "delta"),
+        ),
+    )
+
+    assert with_requester["inputs_hash"] == without["inputs_hash"]
+    assert with_requester["registry_hash"] == without["registry_hash"]
+
+
+def test_the_read_lists_the_excluded_requester(match_context, engine) -> None:
+    """22f (C3): the stored exclusion is on the read, not only on the 202."""
+    host = match_context.new_login()
+    match_context.bind_login("alpha", host)
+    request_id = match_context.file_request(host)
+
+    _, run = _submit_and_execute(
+        match_context, engine, _submission(match_context, speaker_request_id=str(request_id))
+    )
+
+    alpha = str(match_context.speakers["alpha"])
+    assert {"subject_id": alpha, "reason": "filed_this_request"} in run["excluded"]
+    assert alpha not in _candidates(run)
