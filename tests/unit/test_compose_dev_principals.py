@@ -45,7 +45,10 @@ from seed_pilot_principals import (  # noqa: E402
     SEEDED_BY_THIS_TOOL,
     DevPrincipal,
 )
-from smartmatch_api.routers.portals import _PORTAL_FOR_ROLE  # noqa: E402
+from smartmatch_api.routers.portals import (  # noqa: E402
+    _PORTAL_FOR_ROLE,
+    INVITATION_ONLY_ROLES,
+)
 
 #: The one line in ``docker-compose.yml`` that carries the whole map. Anchored
 #: to the key so a JSON object appearing anywhere else in the file cannot stand
@@ -103,7 +106,10 @@ def test_the_four_principals_open_the_four_portals() -> None:
         "to open every portal, and a duplicate leaves one unenterable while "
         "looking complete"
     )
-    assert set(roles) == set(_PORTAL_FOR_ROLE), (
+    # Invitation-only roles (``speaker``, B26 T6b-1 C3) are granted by accepting
+    # a portal invitation and never seeded, so no compose principal holds one.
+    assert not set(roles) & INVITATION_ONLY_ROLES
+    assert set(roles) == set(_PORTAL_FOR_ROLE) - INVITATION_ONLY_ROLES, (
         f"the compose principals cover the roles {sorted(set(roles))}, and "
         f"routers/portals.py maps {sorted(_PORTAL_FOR_ROLE)}. A role the "
         "product has a portal for and the pilot has no principal for cannot be "

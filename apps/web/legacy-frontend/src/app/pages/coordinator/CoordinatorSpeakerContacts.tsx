@@ -81,6 +81,7 @@ import { grantedPortal } from "../../components/PortalGate";
 import { usePortalAccess } from "../../hooks/usePortalAccess";
 import { useAuthenticatedPrincipal } from "../../hooks/useSession";
 import { useScopedQuery } from "../../hooks/useScopedQuery";
+import { SpeakerPortalInvite } from "./SpeakerPortalInvite";
 
 /** The display name a released taxonomy gives a stored code, or the code itself. */
 function displayName(options: readonly TaxonomyOption[], code: string | null): string | null {
@@ -137,10 +138,12 @@ function ContactRow({
   contact,
   onCorrect,
   correcting,
+  unitId,
 }: {
   contact: SpeakerContact;
   onCorrect: (professionalId: string, industry: string, role: string) => void;
   correcting: boolean;
+  unitId: string;
 }) {
   const [industry, setIndustry] = useState(contact.primary_industry_code ?? "");
   const [role, setRole] = useState(contact.primary_role_code ?? "");
@@ -225,6 +228,8 @@ function ContactRow({
           ) : null}
         </div>
       ) : null}
+      {/* B26 T6b-1. Renders nothing unless `speaker_portal` is on. */}
+      <SpeakerPortalInvite unitId={unitId} professionalId={contact.professional_id} />
     </li>
   );
 }
@@ -549,6 +554,7 @@ export function CoordinatorSpeakerContacts() {
                           contact={contact}
                           correcting={correctingId === contact.professional_id}
                           onCorrect={handleCorrect}
+                          unitId={unitId}
                         />
                       ))}
                     </ul>

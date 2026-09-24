@@ -101,6 +101,7 @@ __all__ = [
     "MAX_RENDERED_SUBJECT_CHARS",
     "OUTREACH_SEND_COMMAND_TYPE",
     "RESERVED_INVALID_SUFFIX",
+    "SYSTEM_ONLY_TEMPLATES",
     "TEMPLATES",
     "ComposedDraft",
     "ContentStatus",
@@ -330,6 +331,16 @@ _PILOT_PLACEHOLDERS: Final[frozenset[str]] = frozenset(
 #: from the configured public origin and the invitation's own token.
 _INVITATION_PLACEHOLDERS: Final[frozenset[str]] = _PILOT_PLACEHOLDERS | {"response_url"}
 
+#: The Speaker portal invite's contract (B26 T6b-1). Not derived from
+#: ``_PILOT_PLACEHOLDERS``: it is about an account, not an event.
+#:
+#: ``activation_url`` is always ``smartmatch_domain.speaker_portal.ACTIVATION_URL_SENTINEL``
+#: when composed: the stored draft never holds a link, and the worker renders
+#: ``{base}/s/{token}`` into the message it sends (plan C1 = b).
+_PORTAL_INVITE_PLACEHOLDERS: Final[frozenset[str]] = frozenset(
+    {"professional_name", "unit_name", "expires_on", "activation_url"}
+)
+
 #: The closed set of templates. Every entry addresses someone who has *already*
 #: consented through an approved source; none asks anyone to opt in.
 #:
@@ -411,9 +422,34 @@ TEMPLATES: Final[Mapping[str, OutreachTemplate]] = MappingProxyType(
                 ),
                 placeholders=_INVITATION_PLACEHOLDERS,
             ),
+            # Fifth template, B26 T6b-1: a Speaker Connector invites a contact
+            # to set a password for the Speaker Portal. Addressed, like the
+            # others, only to a send-eligible channel. System-only: see
+            # SYSTEM_ONLY_TEMPLATES below.
+            _template(
+                "cba.speaker_portal_invite.v1",
+                subject="Your Speaker Portal account at $unit_name",
+                body=(
+                    "Hello $professional_name,\n\n"
+                    "$unit_name has set up a Speaker Portal account for you, where "
+                    "you can see your speaking invitations and keep your details "
+                    "up to date.\n\n"
+                    "Choose a password here: $activation_url\n\n"
+                    "This link works once and expires on $expires_on. If you did not "
+                    "expect this message, you can ignore it.\n"
+                ),
+                placeholders=_PORTAL_INVITE_PLACEHOLDERS,
+            ),
         )
     }
 )
+
+#: Templates only a system flow may compose or send (plan R3). The generic
+#: compose route refuses them (``400 template_not_composable``) and the generic
+#: send route refuses a draft that uses one (``409 outreach_draft_system_only``).
+#: Without this, a Connector could compose the portal invite with any
+#: ``activation_url`` — a phishing link in an institutional email.
+SYSTEM_ONLY_TEMPLATES: Final[frozenset[str]] = frozenset({"cba.speaker_portal_invite.v1"})
 
 
 @dataclass(frozen=True, slots=True)

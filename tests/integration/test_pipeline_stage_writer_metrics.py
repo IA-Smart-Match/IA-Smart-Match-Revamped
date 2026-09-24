@@ -282,3 +282,52 @@ def test_repeating_the_advance_does_not_double_count(ctx: _Context) -> None:
     assert repeat.json()["already_reached"] is True
 
     assert _metrics_by_name(ctx)["pipeline_confirmed"]["value"] == 1
+
+
+# ---------------------------------------------------------------------------
+# B26 T8a: a cancelled booking (ADR-0011 register change for pipeline_confirmed)
+# ---------------------------------------------------------------------------
+
+
+def _cancel_directly(ctx: _Context) -> None:
+    """Cancel with a direct UPDATE, so this file does not depend on the route."""
+    with ctx.engine.begin() as conn:
+        conn.execute(
+            text(
+                "UPDATE pipeline_record SET cancelled_at = confirmed_at, "
+                "cancelled_by_user_id = subject_id WHERE tenant_id = :tid AND id = :id"
+            ),
+            {"tid": ctx.tenant_id, "id": ctx.record_id},
+        )
+
+
+def test_a_cancelled_booking_leaves_confirmed_but_stays_in_contacted(ctx: _Context) -> None:
+    assert _advance(ctx, "confirmed", CONFIRMED_AT).status_code == 200
+    assert _metrics_by_name(ctx)["pipeline_confirmed"]["value"] == 1
+
+    _cancel_directly(ctx)
+
+    metrics = _metrics_by_name(ctx)
+    assert metrics["pipeline_confirmed"]["value"] == 0
+    assert metrics["pipeline_contacted"]["value"] == 1
+    assert metrics["pipeline_matched"]["value"] == 1
+
+
+def test_the_funnel_still_nests_with_a_cancelled_booking(ctx: _Context) -> None:
+    """Attended is a subset of confirmed-and-not-cancelled, which is a subset of contacted."""
+    assert _advance(ctx, "confirmed", CONFIRMED_AT).status_code == 200
+    _cancel_directly(ctx)
+
+    metrics = _metrics_by_name(ctx)
+    values = [
+        metrics[name]["value"]
+        for name in (
+            "pipeline_matched",
+            "pipeline_contacted",
+            "pipeline_confirmed",
+            "pipeline_attended",
+            "pipeline_member_inquiry",
+        )
+    ]
+    assert values == sorted(values, reverse=True), values
+    assert values == [1, 1, 0, 0, 0]

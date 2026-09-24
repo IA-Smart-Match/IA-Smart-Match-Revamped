@@ -5,6 +5,7 @@ import { CoordinatorPortalLayout } from "./components/CoordinatorPortalLayout";
 import { VolunteerPortalLayout } from "./components/VolunteerPortalLayout";
 import { RouteFallback } from "./components/RouteFallback";
 import { NotFound } from "./components/NotFound";
+import { speakerPortalRoutes } from "./speakerPortalRoutes";
 import { LEGACY_ROUTE_REDIRECTS } from "./legacyRedirects";
 import { Home } from "./pages/Home";
 import { LoginPage } from "./pages/LoginPage";
@@ -120,6 +121,11 @@ const CoordinatorSpeakerFeedback = lazy(() =>
 const CoordinatorReviewQueue = lazy(() =>
   import("./pages/coordinator/CoordinatorReviewQueue").then((m) => ({
     default: m.CoordinatorReviewQueue,
+  })),
+);
+const CoordinatorBookings = lazy(() =>
+  import("./pages/coordinator/CoordinatorBookings").then((m) => ({
+    default: m.CoordinatorBookings,
   })),
 );
 const CoordinatorRedemptionQueue = lazy(() =>
@@ -355,6 +361,10 @@ export const router = createBrowserRouter([
       // decision on each. `GET /v1/units/{unit_id}/redemptions/queue` (PR #200)
       // and the decision route are both `admin`+`coordinator` server-side.
       { path: "redemptions", element: withSuspense(<CoordinatorRedemptionQueue />) },
+      // B26 T8a: the unit's confirmed Speaker bookings and the Cancel booking
+      // action. `GET …/cba/confirmed-speakers` and `POST …/cancellation` are
+      // both `admin`+`coordinator` server-side.
+      { path: "bookings", element: withSuspense(<CoordinatorBookings />) },
       // One events page. The Connector's create/edit/publish controls and the
       // per-event feedback QR live here alongside the unit's listing, rather
       // than on a second page in a second shell — both surfaces were
@@ -426,5 +436,7 @@ export const router = createBrowserRouter([
 
   // Anything else. An honest 404 rather than react-router's stock
   // "Unexpected Application Error!" with a stack trace — see `NotFound`.
+  // B26 T6b-1: `/speaker-portal`, only when `speaker_portal` is on.
+  ...speakerPortalRoutes(),
   { path: "*", element: <NotFound /> },
 ]);

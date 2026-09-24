@@ -12,6 +12,7 @@ environment must fail to boot, not fail closed later under load.
 from __future__ import annotations
 
 from functools import lru_cache
+from typing import Final
 
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -162,6 +163,13 @@ class Settings(BaseSettings):
     #: logged and never returned by any route.
     exercise_instructor_passcode: SecretStr | None = None
 
+    #: The Speaker portal activation-token secret (B26 T6b-1 plan §4.1). Read
+    #: from ``SMARTMATCH_SPEAKER_PORTAL_TOKEN_SECRET``; the worker must hold the
+    #: same value. Read only when ``Capability.SPEAKER_PORTAL`` is on, and then
+    #: required (:func:`check_speaker_portal_startup`). No synthetic fallback:
+    #: a forgeable activation link lets someone else take over the account.
+    speaker_portal_token_secret: SecretStr | None = None
+
     #: Whether the class exercise's workspace cookie carries ``Secure``.
     #: Read from ``SMARTMATCH_EXERCISE_COOKIE_SECURE``.
     #:
@@ -280,6 +288,35 @@ def require_exercise_workspace_secret(settings: Settings) -> str:
             f"{MINIMUM_WORKSPACE_SECRET_LENGTH} characters; the configured "
             "value is shorter. Generate one with "
             "`python -c 'import secrets; print(secrets.token_urlsafe(32))'`."
+        )
+    return secret
+
+
+#: The shortest Speaker portal token secret a process will boot with.
+MINIMUM_SPEAKER_PORTAL_SECRET_LENGTH: Final[int] = 32
+
+
+def check_speaker_portal_startup(settings: Settings) -> str | None:
+    """The Speaker portal token secret when the capability is on; ``None`` when off.
+
+    Off: returns ``None`` without reading the secret. On: returns the unwrapped
+    secret, or raises when it is missing, blank or shorter than
+    :data:`MINIMUM_SPEAKER_PORTAL_SECRET_LENGTH` (plan §4.2, R10).
+
+    Raises:
+        ValueError: naming the variable and the minimum length, quoting no
+            part of the value.
+    """
+    if not settings.capability_enabled(Capability.SPEAKER_PORTAL):
+        return None
+    stored = settings.speaker_portal_token_secret
+    secret = stored.get_secret_value() if stored is not None else None
+    if secret is None or not secret.strip() or len(secret) < MINIMUM_SPEAKER_PORTAL_SECRET_LENGTH:
+        raise ValueError(
+            "SMARTMATCH_SPEAKER_PORTAL_TOKEN_SECRET is required, at least "
+            f"{MINIMUM_SPEAKER_PORTAL_SECRET_LENGTH} characters, when the speaker_portal "
+            "capability is on; the api and the worker must hold the same value. Generate "
+            "one with `python -c 'import secrets; print(secrets.token_urlsafe(48))'`."
         )
     return secret
 

@@ -69,6 +69,15 @@ still decides every operation deny-by-default. Concretely:
   `membership`, never by a request. There is no endpoint in this API that sets a
   password or grants a role.
 
+  **Amended 2026-09-23 (B26 T6b-1, owner Q2 = B).** One exception exists: a
+  Speaker who holds a valid, unexpired, single-use portal invitation may set
+  their *first* password and receive the `speaker` role, through `POST
+  /v1/speaker-portal/activate` or the `/s/{token}` form. The browser still
+  asserts nothing: the role, the unit and the account are read from the
+  invitation row a Speaker Connector created, the token is verified against a
+  server secret, and activation refuses any account that already holds a
+  credential. Mounted only while `SPEAKER_PORTAL` is on (off in every scope).
+
 This preserves what PR #10 and PR #32 established, and a login that let the
 browser assert a role would have undone both.
 

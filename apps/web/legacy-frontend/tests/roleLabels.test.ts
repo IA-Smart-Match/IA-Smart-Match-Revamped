@@ -22,7 +22,14 @@ import {
 } from "../src/lib/roleLabels.ts";
 
 test("the stored role vocabulary is unchanged", () => {
-  assert.deepEqual([...KNOWN_ROLES].sort(), ["admin", "coordinator", "student", "volunteer"]);
+  // `speaker` joined with B26 T6b-1 (invitation-only).
+  assert.deepEqual([...KNOWN_ROLES].sort(), [
+    "admin",
+    "coordinator",
+    "speaker",
+    "student",
+    "volunteer",
+  ]);
 });
 
 test("each stored role carries a complete presentation", () => {
@@ -46,7 +53,7 @@ test("the customer's personas are the ones shown", () => {
 });
 
 test("an unmapped role is reported, never guessed", () => {
-  for (const unknown of ["", "   ", "speaker", "dean", "Student", "coordinator "]) {
+  for (const unknown of ["", "   ", "speakers", "dean", "Student", "coordinator "]) {
     assert.equal(personaForRole(unknown), null, `${unknown} must map to no persona`);
     assert.equal(visibleRoleLabel(unknown), null);
     assert.equal(portalDisplayNameForRole(unknown), null);

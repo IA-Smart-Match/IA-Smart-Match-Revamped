@@ -118,6 +118,9 @@ _TENANT_SCOPED_TABLES = (
     # teardown's `job` sweep failed on a foreign key from a row a test left.
     "cba_invitation",
     "cba_invitation_batch",
+    # Migration 0039. Holds ON DELETE RESTRICT references to `speaker_profile`,
+    # `contact_channel` and `user_account`, so it goes above all three.
+    "speaker_portal_invitation",
     "match_run",
     # Migration 0021, in dependency order among themselves and all before
     # `job`, which `outreach_send` references ON DELETE RESTRICT — the same
@@ -132,6 +135,10 @@ _TENANT_SCOPED_TABLES = (
     # immutable, for `match_run`'s reason: 0022 blocks UPDATE only, because
     # retention is a separate decision and a table nothing could delete from
     # would make its tenant undeletable.
+    # Migration 0039 (added for T6b-3). Append-only, like the transition log
+    # below; holds ON DELETE RESTRICT references to `contact_channel`,
+    # `speaker_profile` and `user_account`.
+    "contact_channel_speaker_choice",
     "contact_channel_transition",
     "contact_channel",
     "suppression_record",
@@ -208,6 +215,12 @@ _TENANT_SCOPED_TABLES = (
     # Migration 0024. Holds ON DELETE RESTRICT references to *both*
     # `user_account` and `org_unit`, so it goes above the pair — getting this
     # order wrong is the failure PR #26 had to fix for `match_run`/`job`.
+    #
+    # Migration 0038, above `speaker_profile`. Both cascade from it and are
+    # listed anyway so this tuple stays the full set of tenant-scoped tables;
+    # both also hold ON DELETE RESTRICT references to `user_account`.
+    "speaker_availability_window",
+    "speaker_availability",
     "speaker_profile",
     "user_account",
     "org_unit",
