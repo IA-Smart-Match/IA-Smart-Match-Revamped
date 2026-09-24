@@ -51,9 +51,9 @@ HOST_PROFILE = PAGES / "volunteer" / "VolunteerProfile.tsx"
 CONNECTOR_REQUESTS = PAGES / "coordinator" / "CoordinatorSpeakerRequests.tsx"
 CONNECTOR_MATCH_RUNS = PAGES / "coordinator" / "CoordinatorMatchRuns.tsx"
 
-#: The volunteer-portal pages the router mounts. ``VolunteerConfirmedSpeaker``
-#: and ``VolunteerAssignments`` stay in the directory unmounted — the former is
-#: pinned by ``test_frontend_handoff_contract.py`` to routes only a Connector
+#: The volunteer-portal pages the router mounts. Only ``VolunteerConfirmedSpeaker``
+#: stays in the directory unmounted (``VolunteerAssignments`` was deleted in
+#: B26 T7) — it is pinned by ``test_frontend_handoff_contract.py`` to routes only a Connector
 #: may call, which is exactly why it is not on this list.
 MOUNTED_HOST_PAGES = (HOST_HOME, HOST_REQUEST_FORM, HOST_REQUESTS, HOST_ORGANIZATION, HOST_PROFILE)
 
