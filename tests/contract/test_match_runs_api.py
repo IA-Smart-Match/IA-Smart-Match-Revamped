@@ -1927,3 +1927,46 @@ def test_a_flipped_unapproved_current_registry_does_not_block_stored_run_reads(
     refused = _post(load_context, _submission(load_context))
     assert refused.status_code == 503, refused.text
     assert refused.json()["error"]["code"] == "registry_not_ready"
+
+
+# ---------------------------------------------------------------------------
+# Owner ruling R-A (2026-09-24): load numbers never reach the API wire
+# ---------------------------------------------------------------------------
+#
+# The wire's load block names the band and why; the hours, the declared
+# capacity and the utilization it was computed from stay in the stored run
+# payload only, for audit.
+
+LOAD_NUMBER_KEYS = frozenset(
+    {"completed_hours", "confirmed_hours", "capacity_hours", "utilization"}
+)
+WIRE_LOAD_BLOCK_KEYS = frozenset({"band", "reason", "measurable", "as_of", "eli_formula_version"})
+
+
+# C10
+def test_no_load_number_reaches_the_wire_and_the_stored_payload_keeps_them(
+    load_context, engine, monkeypatch
+) -> None:
+    _seed_loads(load_context)
+    _make_3_0_0_current(monkeypatch, evaluate=True)
+    accepted, run = _submit_and_execute(load_context, engine, _load_submission(load_context))
+    payload = _stored_payload(engine, uuid.UUID(accepted["job_id"]))
+    beta, gamma = (str(load_context.speakers[n]) for n in ("beta", "gamma"))
+
+    # Stored: every load_full exclusion keeps its hours, capacity and utilization.
+    stored = {e["subject_id"]: e["load"] for e in payload["excluded"] if "load" in e}
+    assert set(stored) == {beta, gamma}
+    for block in stored.values():
+        assert set(block) >= LOAD_NUMBER_KEYS
+    assert stored[beta]["capacity_hours"] == "10.0"
+
+    # On the wire: band and reason only, in the 202 and on the read.
+    for wire in (accepted["excluded_candidates"], run["excluded"]):
+        loads = {e["subject_id"]: e["load"] for e in wire if "load" in e}
+        assert set(loads) == {beta, gamma}
+        for block in loads.values():
+            assert set(block) == WIRE_LOAD_BLOCK_KEYS
+        assert loads[gamma]["band"] == "full"
+        assert loads[gamma]["reason"] == "full_by_known_hours"
+    assert LOAD_NUMBER_KEYS.isdisjoint(_keys_anywhere(accepted))
+    assert LOAD_NUMBER_KEYS.isdisjoint(_keys_anywhere(run))
