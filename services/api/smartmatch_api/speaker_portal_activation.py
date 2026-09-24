@@ -105,13 +105,22 @@ def activate_new_login(
     if not hmac.compare_digest(token, derive_token(secret, invitation.id)):
         raise ActivationRefused
     # Steps 8–9: serialize new logins for this address; refuse a second one.
-    _portal.lock_address(session, address=invitation.address)
+    # Normalised once, here, and that one value is what the lock, the check and
+    # the stored email all see.
+    folded_address = invitation.address.strip().lower()
+    _portal.lock_address(session, folded_address=folded_address)
     if _portal.other_credentialed_account_exists(
-        session, address=invitation.address, excluding_user_id=professional_id
+        session, folded_address=folded_address, excluding_user_id=professional_id
     ):
         raise ActivationRefused
 
-    _bind(session, invitation=invitation, new_password=new_password, now=now)
+    _bind(
+        session,
+        invitation=invitation,
+        folded_address=folded_address,
+        new_password=new_password,
+        now=now,
+    )
 
     if not issue_session:
         return None
@@ -142,13 +151,18 @@ def _is_unusable(invitation: InvitationForActivation, *, now: datetime) -> bool:
 
 
 def _bind(
-    session: Session, *, invitation: InvitationForActivation, new_password: str, now: datetime
+    session: Session,
+    *,
+    invitation: InvitationForActivation,
+    folded_address: str,
+    new_password: str,
+    now: datetime,
 ) -> None:
     """Steps 10–14. Any failure propagates and the route's session rolls back."""
     tenant_id: uuid.UUID = invitation.tenant_id
     professional_id: uuid.UUID = invitation.professional_id
     _portal.set_account_email(
-        session, tenant_id=tenant_id, user_id=professional_id, address=invitation.address
+        session, tenant_id=tenant_id, user_id=professional_id, folded_address=folded_address
     )
     PilotCredentialRepository().upsert(
         session,
