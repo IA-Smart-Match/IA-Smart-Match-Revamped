@@ -2,7 +2,7 @@
 
 Parent plan: `docs/plans/2026-09-22-b26-self-service-availability-plan.md` (§8).
 Orchestrator: Opus 5.5. The owner merges; the orchestrator never merges.
-Updated: 2026-09-23 15:10 PDT.
+Updated: 2026-09-24 07:45 PDT.
 
 Status vocabulary: planned · plan-reviewed (Opus) · codex-approved · implementing · PR #N · CI · reviewed · ready.
 **Review of record (owner ruling 2026-09-23 13:10):** Codex is locked until 2026-09-28, so **Opus replaces Codex** — Opus plan gate + Opus diff review (max 2 rounds). Codex's one partial finding (T1 DST) is fixed in #210.
@@ -13,22 +13,22 @@ Status vocabulary: planned · plan-reviewed (Opus) · codex-approved · implemen
 
 | Wave | Track | Status | Branch | PR | CI | Open findings |
 |---|---|---|---|---|---|---|
-| 1 | T1 | reviewed; DST fix red→green | `feat/b26-t1` | #210 | 10/10 @2c89266b | — |
-| 1 | T7 | reviewed (Opus APPROVE) | `feat/b26-t7` | #211 | 10/10 @4225d64d | — |
-| 1 | T6a | reviewed (security APPROVE; access-log redaction moved to T6b-1 R4) | `feat/b26-t6a` | #213 | 10/10 @6e1857fb | — |
-| 2 | T2 (`0038`) | reviewed (DB APPROVE); T1 fix merged | `feat/b26-t2` | #212 | re-running @1ca64299 | secret scan fails from T6b-1 branch (fix in progress) |
-| 3 | T3 | PR; diff review running | `feat/b26-t3` | #215 | 8/9 (secret scan, same cause) | — |
-| 3 | T8b | reviewed; review fixes red→green | `feat/b26-t8b` | #214 | 10/10 @55624cdd | — |
-| 3 | T6b-1 (`0039`) | implementing; 0039 pushed incl. T6b-2/T6b-3/T6b-5 additions | `feat/b26-t6b-1` | — | — | gitleaks false positive in cf7f5f80 → owner-approved rewrite |
-| 3 | T4 (`0041`) | plan final @2208de84; waits on T8a's 0040 | `feat/b26-t4` | — | — | — |
-| 4 | T8a (`0040`) | implementing (stacked on T6b-1) | `feat/b26-t8a` | — | — | — |
-| 4 | T5 | implementing (stacked on T3) | `feat/b26-t5` | — | — | — |
-| 4 | T6b-2 | plan final @f30f85e9 | `feat/b26-t6b-2` | — | — | — |
-| 4 | T6b-3 | plan final @78432e2f (stacks on T6b-2) | `feat/b26-t6b-3` | — | — | — |
-| 5 | T6b-4 | plan final @1b4cf71b | `feat/b26-t6b-4` | — | — | — |
-| 5 | T8c | plan final @0a6b458e (3.0.0 proposed, not current) | `feat/b26-t8c` | — | — | — |
-| 6 | T6b-5 | plan final @3fc6f8da | `feat/b26-t6b-5` | — | — | — |
-| 6 | T8d | plan gate APPROVE; MED fixes applying | `feat/b26-t8d` | — | — | — |
+| 1 | T1 | reviewed | `feat/b26-t1` | #210 | 10/10 @2c89266b | — |
+| 1 | T7 | reviewed | `feat/b26-t7` | #211 | 10/10 @4225d64d | — |
+| 1 | T6a | reviewed | `feat/b26-t6a` | #213 | 10/10 @6e1857fb | — |
+| 2 | T2 (`0038`) | reviewed | `feat/b26-t2` | #212 | 10/10 @1ca64299 | — |
+| 3 | T3 | reviewed | `feat/b26-t3` | #215 | 10/10 @8aacf50e | — |
+| 3 | T8b | reviewed | `feat/b26-t8b` | #214 | 10/10 @55624cdd | — |
+| 3 | T6b-1 (`0039`) | reviewed (security) | `feat/b26-t6b-1` | #217 | 10/10 @d5a39b48 | — |
+| 4 | T5 | reviewed | `feat/b26-t5` | #216 | 10/10 @cc2ac502 | owner browser pass |
+| 4 | T8a (`0040_booking_cancellation`) | reviewed | `feat/b26-t8a` | #218 | 10/10 @a622fb10 | — |
+| 4 | T4 (`0041_batch_speaker_request`) | reviewed; verifying fixes | `feat/b26-t4` | #220 | 10/10 @0237b79b | — |
+| 4 | T6b-2 | reviewed; LOW fixes in | `feat/b26-t6b-2` | #219 | 9/10 (python) @ee1c0fd6 | fixing CI |
+| 5 | T6b-3 | review fixes in progress | `feat/b26-t6b-3` | #222 | 10/10 @270cb113 | delta security review |
+| 5 | T8c | CI fix + review | `feat/b26-t8c` | #221 | 9/10 (python) @80cbdaba | review pending |
+| 5 | T6b-4 | built, PR opening | `feat/b26-t6b-4` | — | — | a11y review |
+| 6 | T6b-5 | mid-merge (switcher) | `feat/b26-t6b-5` | — | — | — |
+| 6 | T8d | plan final @6f8de7ac | `feat/b26-t8d` | — | — | after T8c + T6b-4 |
 
 ## Owner rulings during the build
 
