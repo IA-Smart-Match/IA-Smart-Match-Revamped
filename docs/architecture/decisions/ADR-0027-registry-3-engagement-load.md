@@ -63,7 +63,11 @@ edit to 2.0.0.
    pre-load composite, `as_of`, ELI formula version); a 1.x or 2.x payload
    never does. The reader decides presence from the pinned registry and refuses
    a mismatch rather than repairing it. `unknown_hours_refs` stays in the
-   stored payload and never reaches the API wire.
+   stored payload and never reaches the API wire. Nor do the load numbers:
+   the hours, the capacity and the utilization stay in the stored payload
+   for audit, and a wire load block carries the band, the reason,
+   `measurable`, `as_of` and the ELI formula version (owner ruling R-A,
+   2026-09-24).
 8. **Current, superseded, proposed.** `CURRENT_CBA_REGISTRY` names the
    registry new runs score under. `SUPERSEDED_REGISTRY_VERSIONS` and
    `proposed_registry_versions()` are derived from it over the CBA lineage
