@@ -16,6 +16,7 @@ cannot pass.
 from __future__ import annotations
 
 import ast
+import functools
 import re
 from collections.abc import Iterator
 from pathlib import Path
@@ -38,6 +39,17 @@ _SQL_BY_VERB: dict[str, re.Pattern[str]] = {
 }
 _ADDRESS_LOCK = "pg_advisory_xact_lock"
 _ADDRESS_WORDS = re.compile(r"(?i)email|address")
+
+
+@functools.cache
+def _parse(source: str) -> ast.Module:
+    """One parse per distinct source: the scans below walk every file several times."""
+    return ast.parse(source)
+
+
+@functools.cache
+def _read(path: Path) -> str:
+    return path.read_text(encoding="utf-8")
 
 
 def _callee_name(func: ast.expr) -> str | None:
@@ -72,7 +84,7 @@ def _verb_matches(name: str | None, verb: str) -> bool:
 def python_hits(source: str, verb: str) -> list[int]:
     """Line numbers where ``source`` writes ``pilot_credential`` with ``verb``."""
     hits: list[int] = []
-    tree = ast.parse(source)
+    tree = _parse(source)
     aliases = _table_aliases(tree)
     for node in ast.walk(tree):
         if isinstance(node, ast.Call):
@@ -105,7 +117,9 @@ def text_hits(source: str, verb: str) -> list[int]:
 def address_lock_hits(source: str) -> list[int]:
     """Calls whose source spells an advisory transaction lock over an email or address."""
     hits: list[int] = []
-    for node in ast.walk(ast.parse(source)):
+    if _ADDRESS_LOCK not in source:
+        return hits  # no call can spell it; skip the per-call segment work
+    for node in ast.walk(_parse(source)):
         if not isinstance(node, ast.Call):
             continue
         segment = ast.get_source_segment(source, node) or ""
@@ -132,7 +146,7 @@ def _offenders(verbs: tuple[str, ...]) -> list[str]:
         relative = path.relative_to(_ROOT)
         if relative == _WRITER:
             continue
-        source = path.read_text(encoding="utf-8")
+        source = _read(path)
         for verb in verbs:
             found.extend(f"{relative}:{line} ({verb})" for line in python_hits(source, verb))
     for path in _files(".sh", ".sql"):
@@ -172,8 +186,7 @@ def test_no_module_calls_a_credential_upsert() -> None:
     offenders = [
         str(path.relative_to(_ROOT))
         for path in _files(".py")
-        if "PilotCredentialRepository" in (text := path.read_text(encoding="utf-8"))
-        and ".upsert(" in text
+        if "PilotCredentialRepository" in (text := _read(path)) and ".upsert(" in text
     ]
     assert offenders == []
 
@@ -241,7 +254,7 @@ def test_only_login_accounts_takes_an_address_lock() -> None:
         f"{path.relative_to(_ROOT)}:{line}"
         for path in _files(".py")
         if path.relative_to(_ROOT) != _WRITER
-        for line in address_lock_hits(path.read_text(encoding="utf-8"))
+        for line in address_lock_hits(_read(path))
     ]
     assert offenders == [], "lock an address only through login_accounts.lock_address"
     assert address_lock_hits(
