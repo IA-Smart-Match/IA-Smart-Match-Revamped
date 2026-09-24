@@ -2196,6 +2196,34 @@ OPERATIONS: tuple[Operation, ...] = (
         resource_type="org_unit",
         unit_scoped=True,
     ),
+    # A roster contact's stated availability (B26 T3): the Connector's read and
+    # full-replace write. Same authorizer and constant as the §13 roster, for the
+    # channel rows' reason: reaching availability through the roster path must
+    # not reach a contact the roster's own authorizer would refuse.
+    Operation(
+        key="speaker_contact.availability.read",
+        method="GET",
+        path="/v1/units/{unit_id}/speaker-contacts/{professional_id}/availability",
+        module="smartmatch_api.routers.speaker_availability",
+        authorizer="_authorize_speaker_contacts",
+        roles_constant="_SPEAKER_CONTACT_ROLES",
+        authorizer_module="smartmatch_api.routers.cba_contacts",
+        required_roles=frozenset({"admin", "coordinator"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
+    Operation(
+        key="speaker_contact.availability.update",
+        method="PATCH",
+        path="/v1/units/{unit_id}/speaker-contacts/{professional_id}/availability",
+        module="smartmatch_api.routers.speaker_availability",
+        authorizer="_authorize_speaker_contacts",
+        roles_constant="_SPEAKER_CONTACT_ROLES",
+        authorizer_module="smartmatch_api.routers.cba_contacts",
+        required_roles=frozenset({"admin", "coordinator"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
     # The five Speaker-invitation operations (card ``CBA-INVITATIONS``,
     # customer §6 steps 7-8 and §13). One role set, ``{admin, coordinator}``,
     # and one authorizer for all five — the same argument ``_authorize_outreach``
@@ -8942,6 +8970,13 @@ MATRIX["metrics.speaker_pipeline"] = MATRIX["metrics.read"]
 #: object for the reason given above: a cell where the two disagreed would claim
 #: one function decides two different things.
 MATRIX["pipeline.booking.cancel"] = MATRIX["pipeline.stage.advance"]
+
+#: The availability read and write are ``speaker_contact.read`` and
+#: ``speaker_contact.update`` seen through a second route (B26 T3): the same
+#: ``_authorize_speaker_contacts`` decides them, so they share the row objects
+#: for the reason given above — a disagreement must be unrepresentable.
+MATRIX["speaker_contact.availability.read"] = MATRIX["speaker_contact.read"]
+MATRIX["speaker_contact.availability.update"] = MATRIX["speaker_contact.update"]
 
 CELLS = [(operation.key, shape.name) for operation in OPERATIONS for shape in SHAPES]
 
