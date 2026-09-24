@@ -382,6 +382,31 @@
         "title": "BatchSummaryView",
         "type": "object"
       },
+      "BookingCancellationResponse": {
+        "description": "What the cancellation did, and the row it left behind.\n\nThe same shape as :class:`StageAdvanceResponse`: ``transitioned`` is this\nrequest's own write, ``already_cancelled`` says the booking was cancelled\nbefore (a repeat or a lost race), and the first actor and time are kept.",
+        "properties": {
+          "already_cancelled": {
+            "description": "True when the booking was already cancelled before this request.",
+            "title": "Already Cancelled",
+            "type": "boolean"
+          },
+          "record": {
+            "$ref": "#/components/schemas/PipelineRecordResponse"
+          },
+          "transitioned": {
+            "description": "True only when this request's own UPDATE cancelled the booking.",
+            "title": "Transitioned",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "transitioned",
+          "already_cancelled",
+          "record"
+        ],
+        "title": "BookingCancellationResponse",
+        "type": "object"
+      },
       "CandidateExplanationView": {
         "description": "One candidate's heuristic score and every factor behind it.",
         "properties": {
@@ -1523,6 +1548,7 @@
             "description": "A key of the closed outreach template registry.",
             "examples": [
               "cba.speaker_invitation.v1",
+              "cba.speaker_portal_invite.v1",
               "pilot.event_invitation.v1",
               "pilot.schedule_change.v1",
               "pilot.visit_confirmation.v1"
@@ -4210,6 +4236,32 @@
               }
             ],
             "title": "Attended At"
+          },
+          "cancelled_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When a Speaker Connector cancelled this booking (server clock), or null. A cancellation is not a stage: current_stage still reports the furthest reached.",
+            "title": "Cancelled At"
+          },
+          "cancelled_by_user_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Who cancelled this booking, or null.",
+            "title": "Cancelled By User Id"
           },
           "confirmed_at": {
             "anyOf": [
@@ -9284,7 +9336,7 @@
     },
     "/v1/units/{unit_id}/cba/confirmed-speakers": {
       "get": {
-        "description": "The speakers whose ``confirmed_at`` is set, in this unit.\n\nWith no ``event_id`` this is the *same set* the ``pipeline_confirmed``\naggregate counts -- the same predicate against the same table, scoped by the\nsame tenant and unit. It is not a second count of that metric: it reports no\ntotal, only which speakers and who they are, which the aggregate cannot say\nand the register does not publish.\n\nOrdered by ``confirmed_at`` then ``id``, so the Host reads them in the order\nthey said yes.",
+        "description": "The speakers whose ``confirmed_at`` is set and who were not cancelled, in this unit.\n\nWith no ``event_id`` this is the *same set* the ``pipeline_confirmed``\naggregate counts -- the same predicate against the same table, scoped by the\nsame tenant and unit. Both exclude cancelled bookings (B26 T8a, C1 = C).\nIt is not a second count of that metric: it reports no total, only which\nspeakers and who they are, which the aggregate cannot say and the register\ndoes not publish.\n\nOrdered by ``confirmed_at`` then ``id``, so the Host reads them in the order\nthey said yes.",
         "operationId": "confirmed_speakers_view_v1_units__unit_id__cba_confirmed_speakers_get",
         "parameters": [
           {
@@ -9431,7 +9483,7 @@
     },
     "/v1/units/{unit_id}/cba/events/{event_id}/speaker-handoff": {
       "post": {
-        "description": "Bring one speaker's journey up to whatever the stored evidence supports.\n\nWrites ``matched`` from the invitation's ``created_at``, ``contacted`` from\nits ``dispatched_at``, ``confirmed`` from its ``response_recorded_at`` -- and\nonly when the Speaker accepted -- and, when ``attendance_id`` is given,\n``attended`` from that attendance row's own timestamp. Nothing is inferred\nand nothing is defaulted: a stage whose evidence is absent is not written.\n\nA repeat is a ``200`` with an empty ``applied``, not a ``409``: a coordinator\nre-running a handoff has asked for nothing illegal, and the speaker they get\nback is the one that was already there.\n\nRaises:\n    ApiError: 404 when the invitation is not in this unit or the event is\n        not in this tenant; 409 when the invitation records no acceptance,\n        when the cited attendance is not this journey's, or when the stored\n        timestamps cannot be ordered into the funnel.",
+        "description": "Bring one speaker's journey up to whatever the stored evidence supports.\n\nWrites ``matched`` from the invitation's ``created_at``, ``contacted`` from\nits ``dispatched_at``, ``confirmed`` from its ``response_recorded_at`` -- and\nonly when the Speaker accepted -- and, when ``attendance_id`` is given,\n``attended`` from that attendance row's own timestamp. Nothing is inferred\nand nothing is defaulted: a stage whose evidence is absent is not written.\n\nA repeat is a ``200`` with an empty ``applied``, not a ``409``: a coordinator\nre-running a handoff has asked for nothing illegal, and the speaker they get\nback is the one that was already there.\n\nRaises:\n    ApiError: 404 when the invitation is not in this unit or the event is\n        not in this tenant; 409 when the invitation records no acceptance,\n        when the cited attendance is not this journey's, when the stored\n        timestamps cannot be ordered into the funnel, or when the booking was\n        cancelled (``pipeline_record_cancelled``, B26 T8a; nothing is written).",
         "operationId": "reconcile_speaker_handoff_v1_units__unit_id__cba_events__event_id__speaker_handoff_post",
         "parameters": [
           {
@@ -14414,9 +14466,149 @@
         ]
       }
     },
+    "/v1/units/{unit_id}/pipeline-records/{record_id}/cancellation": {
+      "post": {
+        "description": "Cancel one confirmed booking: a transition on the row, never a delete (B26 T8a).\n\nNo body: the time is the server clock (owner ruling C5) and the actor is the\ncaller. A repeat is a ``200`` with ``transitioned: false, already_cancelled:\ntrue``, and the first actor and time are kept. No ``Idempotency-Key``: the\noperation is idempotent in the data.\n\nRaises:\n    ApiError: 404 when this tenant has no such record or it is not in this\n        unit; 409 ``pipeline_booking_not_confirmed``,\n        ``pipeline_booking_already_attended`` or\n        ``pipeline_booking_confirmed_in_future`` when the row's state refuses\n        the cancellation.",
+        "operationId": "cancel_booking_v1_units__unit_id__pipeline_records__record_id__cancellation_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "record_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Record Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BookingCancellationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Cancel a confirmed Speaker booking",
+        "tags": [
+          "pipeline"
+        ]
+      }
+    },
     "/v1/units/{unit_id}/pipeline-records/{record_id}/stages": {
       "post": {
-        "description": "Advance one journey to Confirmed, Attended, or Member Inquiry.\n\nThe legality of the move is decided by\n:meth:`~smartmatch_persistence.pipeline.PipelineRepository.advance_stage`,\nand this handler restates none of it: Attended is reachable only from\nConfirmed because ``assert_stage_reachable`` says so and because\n``ck_pipeline_record_stage_prefix`` refuses the row otherwise, not because of\na check written here. The one rule this module adds is *which* stages a human\nmay claim at all, which is a question about evidence rather than about\nordering \u2014 see the module docstring.\n\nRepeating a request that already landed is a ``200`` with ``transitioned:\nfalse`` and ``already_reached: true``, not a ``409``: a coordinator asserting\na fact that is already recorded has not asked for anything illegal, and the\nrow they get back is the one that was already there.\n\nRaises:\n    ApiError: 404 when this tenant has no such record or it is not in this\n        unit; 409 when the previous stage has not been reached, when\n        ``reached_at`` precedes that stage's own timestamp, or when\n        ``attendance_id`` names no attendance record in this tenant.",
+        "description": "Advance one journey to Confirmed, Attended, or Member Inquiry.\n\nThe legality of the move is decided by\n:meth:`~smartmatch_persistence.pipeline.PipelineRepository.advance_stage`,\nand this handler restates none of it: Attended is reachable only from\nConfirmed because ``assert_stage_reachable`` says so and because\n``ck_pipeline_record_stage_prefix`` refuses the row otherwise, not because of\na check written here. The one rule this module adds is *which* stages a human\nmay claim at all, which is a question about evidence rather than about\nordering \u2014 see the module docstring.\n\nRepeating a request that already landed is a ``200`` with ``transitioned:\nfalse`` and ``already_reached: true``, not a ``409``: a coordinator asserting\na fact that is already recorded has not asked for anything illegal, and the\nrow they get back is the one that was already there.\n\nRaises:\n    ApiError: 404 when this tenant has no such record or it is not in this\n        unit; 409 when the previous stage has not been reached, when\n        ``reached_at`` precedes that stage's own timestamp, when\n        ``attendance_id`` names no attendance record in this tenant, or\n        when an Attended claim names a cancelled booking\n        (``pipeline_record_cancelled``).",
         "operationId": "advance_pipeline_stage_v1_units__unit_id__pipeline_records__record_id__stages_post",
         "parameters": [
           {
