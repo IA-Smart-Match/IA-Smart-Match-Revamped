@@ -19,8 +19,10 @@ import json
 import os
 import uuid
 from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import pytest
 from fastapi.testclient import TestClient
@@ -29,6 +31,7 @@ from smartmatch_persistence.engine import create_session_factory
 from smartmatch_persistence.rate_limit import RateLimit
 from smartmatch_providers import FixtureTokenVerifier
 from sqlalchemy import Engine, create_engine, text
+from sqlalchemy import event as sa_event
 
 pytestmark = pytest.mark.integration
 
@@ -226,6 +229,10 @@ def ctx(engine: Engine, monkeypatch: pytest.MonkeyPatch) -> Iterator[_Context]:
         # Child-first: the availability rows restrict against `user_account`
         # (created_by / updated_by) and cascade from `speaker_profile`.
         for table in (
+            # B26 T8d: bookings and their events, before the people and units.
+            "pipeline_record",
+            "attendance_record",
+            "event",
             "speaker_availability_window",
             "speaker_availability",
             "speaker_profile",
@@ -265,6 +272,15 @@ def test_get_unstated_is_stated_false_with_null_version(ctx: _Context) -> None:
         "unavailable": [],
         "updated_source": None,
         "updated_at": None,
+        # B26 T8d: the current load band, on every response.
+        "load": {
+            "band": "unknown",
+            "reason": "capacity_not_stated",
+            "as_of": TODAY.isoformat(),
+            "used_in_matching": False,
+            "engagements_without_end_time": [],
+            "engagements_without_end_time_truncated": False,
+        },
     }
 
 
@@ -646,3 +662,454 @@ def test_quota_is_charged_before_the_404(ctx: _Context, monkeypatch: pytest.Monk
     assert refused.status_code == 429, refused.text
     assert _error(refused)["code"] == "rate_limited"
     assert ctx.rows(pid) == 0
+
+
+# ---------------------------------------------------------------------------
+# B26 T8d: the current load band on the Connector's availability read
+# ---------------------------------------------------------------------------
+#
+# Computed at request time with T8c's load read and T8b's compute_eli, against
+# the Q7 table while 2.0.0 is current (used_in_matching false). A band word's
+# inputs only: no number inside `load`. Another unit's engagement counts but
+# reaches the Connector with no title, date or record id.
+
+_ZONE = "America/Los_Angeles"
+_BOOKED_AT = datetime(2026, 9, 1, 9, 0, tzinfo=UTC)
+#: Digit-free titles, so "no number" assertions test the load, not the title.
+_TITLE = "Corporate treasury guest lecture"
+
+
+def _event_time(day: date, *, hours: float | None, precision: str) -> Any:
+    from smartmatch_domain.events import DateOnlyTime, ExactTime, UnresolvedTime
+
+    if precision == "date_only":
+        return DateOnlyTime(on_date=day, time_zone=_ZONE)
+    if precision == "unresolved":
+        return UnresolvedTime()
+    starts = datetime(day.year, day.month, day.day, 12, 0, tzinfo=ZoneInfo(_ZONE))
+    ends = None if hours is None else starts + timedelta(hours=hours)
+    return ExactTime(starts_at=starts, time_zone=_ZONE, ends_at=ends)
+
+
+def _book(
+    ctx: _Context,
+    pid: str,
+    *,
+    offset_days: int,
+    hours: float | None = None,
+    precision: str = "exact",
+    host: uuid.UUID | None = None,
+    extracted: bool = False,
+    attended: bool = False,
+    title: str | None = None,
+) -> uuid.UUID:
+    """One confirmed booking of ``pid`` at an event ``offset_days`` from TODAY.
+
+    ``hours=None`` on an exact event states no end: its hours are unknown.
+    """
+    from smartmatch_persistence.events import (
+        ORIGIN_COORDINATOR_ENTRY,
+        ORIGIN_EXTRACTION,
+        EventProvenance,
+        EventRepository,
+    )
+
+    host_unit = host or ctx.unit_id
+    factory = create_session_factory(ctx.engine.url.render_as_string(hide_password=False))
+    with factory() as session:
+        event_id = EventRepository().upsert(
+            session,
+            tenant_id=ctx.tenant_id,
+            host_org_unit_id=host_unit,
+            title=title or f"{_TITLE} {uuid.uuid4().hex}",
+            event_time=_event_time(
+                TODAY + timedelta(days=offset_days), hours=hours, precision=precision
+            ),
+            origin=ORIGIN_EXTRACTION if extracted else ORIGIN_COORDINATOR_ENTRY,
+            provenance=(
+                EventProvenance(
+                    source_url=f"https://calendar.example.invalid/{uuid.uuid4().hex}",
+                    fetched_at=_BOOKED_AT,
+                    extractor_version="synthetic-json-1",
+                )
+                if extracted
+                else None
+            ),
+        )
+        session.commit()
+    record_id = uuid.uuid4()
+    attendance_id = uuid.uuid4() if attended else None
+    with ctx.engine.begin() as conn:
+        if attendance_id is not None:
+            conn.execute(
+                text(
+                    "INSERT INTO attendance_record (id, tenant_id, owning_unit_id, subject_id, "
+                    "event_id, method) VALUES (:id, :t, :u, :s, :e, 'qr_scan')"
+                ),
+                {"id": attendance_id, "t": ctx.tenant_id, "u": host_unit, "s": pid, "e": event_id},
+            )
+        conn.execute(
+            text(
+                "INSERT INTO pipeline_record (id, tenant_id, owning_unit_id, subject_id, "
+                "opportunity_event_id, matched_provenance, matched_at, contacted_at, "
+                "confirmed_at, attended_at, attended_attendance_id) VALUES (:id, :t, :u, :s, "
+                ":e, 'synthetic / coordinator-accepted', :m, :c, :k, :a, :aid)"
+            ),
+            {
+                "id": record_id,
+                "t": ctx.tenant_id,
+                "u": host_unit,
+                "s": pid,
+                "e": event_id,
+                "m": _BOOKED_AT,
+                "c": _BOOKED_AT + timedelta(hours=1),
+                "k": _BOOKED_AT + timedelta(hours=2),
+                "a": _BOOKED_AT + timedelta(hours=3) if attended else None,
+                "aid": attendance_id,
+            },
+        )
+    return record_id
+
+
+def _numbers_in(value: Any) -> list[Any]:
+    """Every int or float (bools excluded) anywhere in a JSON value."""
+    if isinstance(value, bool):
+        return []
+    if isinstance(value, (int, float)):
+        return [value]
+    if isinstance(value, dict):
+        return [n for child in value.values() for n in _numbers_in(child)]
+    if isinstance(value, list):
+        return [n for child in value for n in _numbers_in(child)]
+    return []
+
+
+@contextmanager
+def _statements() -> Iterator[list[str]]:
+    """Every SQL statement any engine executes inside the block."""
+    captured: list[str] = []
+
+    def _capture(_conn: Any, _cursor: Any, statement: str, *_args: Any) -> None:
+        captured.append(statement)
+
+    sa_event.listen(Engine, "before_cursor_execute", _capture)
+    try:
+        yield captured
+    finally:
+        sa_event.remove(Engine, "before_cursor_execute", _capture)
+
+
+def _load(response: Any) -> dict[str, Any]:
+    assert response.status_code == 200, response.text
+    load: dict[str, Any] = response.json()["load"]
+    return load
+
+
+# A1
+def test_get_carries_load_on_every_response(ctx: _Context) -> None:
+    pid = ctx.add_roster_contact()
+    unstated = _load(ctx.get(pid))
+    created = ctx.create(pid, declared_capacity_hours_per_90_days=10)
+    stated = _load(ctx.get(pid))
+
+    assert (unstated["band"], unstated["reason"]) == ("unknown", "capacity_not_stated")
+    assert created["load"] == stated
+    assert (stated["band"], stated["reason"]) == ("light", "measured")
+    assert set(stated) == {
+        "band",
+        "reason",
+        "as_of",
+        "used_in_matching",
+        "engagements_without_end_time",
+        "engagements_without_end_time_truncated",
+    }
+
+
+# A2
+def test_capacity_and_exact_engagements_give_the_band_word(ctx: _Context) -> None:
+    """Attended 6 h ten days ago against 10.0 h: utilization 0.6, Moderate."""
+    pid = ctx.add_roster_contact()
+    ctx.create(pid, declared_capacity_hours_per_90_days=10)
+    _book(ctx, pid, offset_days=-10, hours=6, attended=True)
+
+    load = _load(ctx.get(pid))
+
+    assert (load["band"], load["reason"]) == ("moderate", "measured")
+    assert load["engagements_without_end_time"] == []
+    assert load["as_of"] == TODAY.isoformat()
+
+
+# A3
+def test_a_date_only_engagement_is_hours_unknown_and_listed(ctx: _Context) -> None:
+    pid = ctx.add_roster_contact()
+    ctx.create(pid, declared_capacity_hours_per_90_days=10)
+    record = _book(ctx, pid, offset_days=3, precision="date_only", title=_TITLE)
+
+    load = _load(ctx.get(pid))
+
+    assert (load["band"], load["reason"]) == ("unknown", "hours_unknown")
+    assert load["engagements_without_end_time"] == [
+        {
+            "engagement_id": str(record),
+            "shown": "event",
+            "event_title": _TITLE,
+            "local_date": (TODAY + timedelta(days=3)).isoformat(),
+            "time_precision": "date_only",
+            "editable_here": True,
+        }
+    ]
+    assert load["engagements_without_end_time_truncated"] is False
+
+
+# A4
+def test_an_exact_event_without_end_is_listed_with_precision_exact(ctx: _Context) -> None:
+    pid = ctx.add_roster_contact()
+    ctx.create(pid, declared_capacity_hours_per_90_days=10)
+    record = _book(ctx, pid, offset_days=2, hours=None, title=_TITLE)
+
+    (item,) = _load(ctx.get(pid))["engagements_without_end_time"]
+
+    assert item["engagement_id"] == str(record)
+    assert (item["shown"], item["time_precision"]) == ("event", "exact")
+    assert item["local_date"] == (TODAY + timedelta(days=2)).isoformat()
+
+
+# A5
+def test_another_units_engagement_counts_but_shows_no_title_and_no_record_id(
+    ctx: _Context,
+) -> None:
+    pid = ctx.add_roster_contact()
+    ctx.create(pid, declared_capacity_hours_per_90_days=10)
+    away_title = "Audit committee panel"
+    away = _book(
+        ctx, pid, offset_days=4, precision="date_only", host=ctx.sibling_unit_id, title=away_title
+    )
+    _book(ctx, pid, offset_days=5, hours=12, host=ctx.sibling_unit_id)
+
+    response = ctx.get(pid)
+    load = _load(response)
+
+    # Counted: 12 known hours already exceed 10.0, with one more unknown.
+    assert (load["band"], load["reason"]) == ("full", "full_by_known_hours")
+    assert load["engagements_without_end_time"] == [
+        {
+            "engagement_id": None,
+            "shown": "other_unit",
+            "event_title": None,
+            "local_date": None,
+            "time_precision": None,
+            "editable_here": False,
+        }
+    ]
+    assert str(away) not in response.text
+    assert away_title not in response.text
+
+
+# A6
+def test_own_coordinator_entry_event_is_editable_and_extracted_is_not(ctx: _Context) -> None:
+    pid = ctx.add_roster_contact()
+    ctx.create(pid, declared_capacity_hours_per_90_days=10)
+    entered = _book(ctx, pid, offset_days=2, precision="date_only")
+    extracted = _book(ctx, pid, offset_days=3, precision="date_only", extracted=True)
+
+    items = _load(ctx.get(pid))["engagements_without_end_time"]
+
+    assert [(i["engagement_id"], i["editable_here"]) for i in items] == [
+        (str(entered), True),
+        (str(extracted), False),
+    ]
+
+
+# A7
+def test_a_cancelled_booking_is_not_counted(ctx: _Context) -> None:
+    from smartmatch_persistence.pipeline import PipelineRepository
+
+    pid = ctx.add_roster_contact()
+    ctx.create(pid, declared_capacity_hours_per_90_days=10)
+    cancelled = _book(ctx, pid, offset_days=3, hours=12)
+    assert _load(ctx.get(pid))["band"] == "full"
+    with ctx.engine.connect() as conn:
+        actor = conn.execute(
+            text(
+                "SELECT id FROM user_account WHERE tenant_id = :t "
+                "AND external_subject LIKE 'sub-availability-coordinator-%'"
+            ),
+            {"t": ctx.tenant_id},
+        ).scalar_one()
+    factory = create_session_factory(ctx.engine.url.render_as_string(hide_password=False))
+    with factory() as session:
+        outcome = PipelineRepository().cancel_booking(
+            session, tenant_id=ctx.tenant_id, record_id=cancelled, actor_user_id=actor, at=NOW
+        )
+        session.commit()
+    assert outcome.transitioned
+
+    load = _load(ctx.get(pid))
+
+    assert (load["band"], load["reason"]) == ("light", "measured")
+
+
+# A8
+def test_patch_response_recomputes_the_band_from_the_new_capacity(ctx: _Context) -> None:
+    pid = ctx.add_roster_contact()
+    _book(ctx, pid, offset_days=3, hours=6)
+    assert _load(ctx.get(pid))["reason"] == "capacity_not_stated"
+
+    tight = ctx.create(pid, declared_capacity_hours_per_90_days=10)
+    roomy = ctx.patch(pid, _body(expected_version=1, declared_capacity_hours_per_90_days=100))
+
+    assert (tight["load"]["band"], tight["load"]["reason"]) == ("moderate", "measured")
+    assert _load(roomy)["band"] == "light"
+    assert _load(ctx.get(pid)) == _load(roomy)
+
+
+# A9
+def test_load_costs_one_query_and_two_with_gaps(
+    ctx: _Context, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Against T3's own reads: +1 statement for the engagements, +1 more for labels."""
+    from smartmatch_api.routers import speaker_availability as router
+    from smartmatch_api.routers.speaker_availability_models import SpeakerLoadView
+
+    pid = ctx.add_roster_contact()
+    ctx.create(pid, declared_capacity_hours_per_90_days=10)
+    _book(ctx, pid, offset_days=3, hours=2)
+    real = router.current_speaker_load
+    ctx.get(pid)  # warm the quota bucket, so every counted GET takes the same path
+
+    def _fixed(*_args: Any, **_kwargs: Any) -> SpeakerLoadView:
+        return SpeakerLoadView(
+            band="light",
+            reason="measured",
+            as_of=TODAY,
+            used_in_matching=False,
+            engagements_without_end_time=[],
+            engagements_without_end_time_truncated=False,
+        )
+
+    monkeypatch.setattr(router, "current_speaker_load", _fixed)
+    with _statements() as baseline:
+        assert ctx.get(pid).status_code == 200
+    monkeypatch.setattr(router, "current_speaker_load", real)
+    with _statements() as measured:
+        assert _load(ctx.get(pid))["engagements_without_end_time"] == []
+    _book(ctx, pid, offset_days=4, precision="date_only")
+    with _statements() as with_gaps:
+        assert len(_load(ctx.get(pid))["engagements_without_end_time"]) == 1
+
+    assert len(measured) - len(baseline) == 1, measured
+    assert len(with_gaps) - len(baseline) == 2, with_gaps
+
+
+# A10
+def test_no_number_inside_load(ctx: _Context) -> None:
+    pid = ctx.add_roster_contact()
+    ctx.create(pid, declared_capacity_hours_per_90_days=10)
+    _book(ctx, pid, offset_days=-10, hours=6, attended=True)
+    _book(ctx, pid, offset_days=3, precision="date_only")
+    _book(ctx, pid, offset_days=4, precision="date_only", host=ctx.sibling_unit_id)
+
+    load = _load(ctx.get(pid))
+
+    assert len(load["engagements_without_end_time"]) == 2
+    assert _numbers_in(load) == []
+
+
+# A11
+def test_band_equals_assess_pool_loads_on_the_same_inputs(ctx: _Context) -> None:
+    from decimal import Decimal
+
+    from smartmatch_domain.load_bands import Q7_REGISTERED_LOAD_BANDS, assess_pool_loads
+    from smartmatch_persistence.engagement_load import EngagementLoadRepository
+
+    pid = ctx.add_roster_contact()
+    ctx.create(pid, declared_capacity_hours_per_90_days=20)
+    _book(ctx, pid, offset_days=-10, hours=6, attended=True)
+    _book(ctx, pid, offset_days=3, hours=8)
+    _book(ctx, pid, offset_days=4, hours=3, host=ctx.sibling_unit_id)
+
+    load = _load(ctx.get(pid))
+
+    subject = uuid.UUID(pid)
+    factory = create_session_factory(ctx.engine.url.render_as_string(hide_password=False))
+    with factory() as session:
+        engagements = EngagementLoadRepository().engagements_for(
+            session, tenant_id=ctx.tenant_id, professional_ids=[subject], as_of=TODAY
+        )
+    expected = assess_pool_loads(
+        [subject],
+        capacities={subject: Decimal("20")},
+        engagements=engagements,
+        as_of=TODAY,
+        bands=Q7_REGISTERED_LOAD_BANDS,
+    )[subject].assessment
+    assert (load["band"], load["reason"]) == (expected.band.value, expected.reason.value)
+    assert load["band"] == "heavy"
+
+
+# A12
+def test_used_in_matching_is_false_while_2_0_0_is_current_and_true_after_a_patched_flip(
+    ctx: _Context, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from smartmatch_domain import factor_registry
+    from smartmatch_domain.factor_registry import CBA_REGISTRY_3
+
+    pid = ctx.add_roster_contact()
+    assert _load(ctx.get(pid))["used_in_matching"] is False
+
+    monkeypatch.setattr(factor_registry, "CURRENT_CBA_REGISTRY", CBA_REGISTRY_3)
+
+    assert _load(ctx.get(pid))["used_in_matching"] is True
+
+
+# A13
+def test_a_load_read_failure_on_patch_rolls_back_so_the_retry_is_not_stale(
+    ctx: _Context, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from smartmatch_api.routers import speaker_availability as router
+
+    pid = ctx.add_roster_contact()
+    ctx.create(pid, declared_capacity_hours_per_90_days=10)
+    real = router.current_speaker_load
+    calls = {"n": 0}
+
+    def _fails_once(*args: Any, **kwargs: Any) -> Any:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("load read failed")
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(router, "current_speaker_load", _fails_once)
+    lenient = TestClient(ctx.client.app, raise_server_exceptions=False)
+    body = _body(expected_version=1, declared_capacity_hours_per_90_days=20)
+
+    failed = lenient.patch(ctx.url(pid), json=body, headers=ctx.headers())
+    assert failed.status_code == 500, failed.text
+    with ctx.engine.connect() as conn:
+        stored = conn.execute(
+            text(
+                "SELECT version, declared_capacity_hours_per_90_days FROM speaker_availability "
+                "WHERE professional_id = :p"
+            ),
+            {"p": pid},
+        ).one()
+    assert stored.version == 1
+    assert float(stored.declared_capacity_hours_per_90_days) == 10.0
+
+    retried = ctx.patch(pid, body)
+
+    assert retried.status_code == 200, retried.text
+    assert retried.json()["version"] == 2
+
+
+# A14
+def test_get_measures_as_of_from_its_own_utc_now(
+    ctx: _Context, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The GET reads its own clock: 23:30 UTC on 5 Oct measures as of the 5th (UTC)."""
+    pid = ctx.add_roster_contact()
+    monkeypatch.setattr(
+        f"{ROUTER_MODULE}.utc_now", lambda: datetime(2026, 10, 5, 23, 30, tzinfo=UTC)
+    )
+
+    assert _load(ctx.get(pid))["as_of"] == "2026-10-05"
