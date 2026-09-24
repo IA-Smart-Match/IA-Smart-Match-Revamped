@@ -1927,3 +1927,192 @@ def test_a_flipped_unapproved_current_registry_does_not_block_stored_run_reads(
     refused = _post(load_context, _submission(load_context))
     assert refused.status_code == 503, refused.text
     assert refused.json()["error"]["code"] == "registry_not_ready"
+
+
+# ---------------------------------------------------------------------------
+# B26 T8d: the run read renders each candidate's stored load (R1–R7)
+# ---------------------------------------------------------------------------
+#
+# T8c stores a load block on every 3.x explanation; T8d copies it onto the
+# candidate view, field for field and without the unknown_hours_refs (other
+# units' record ids), and says per run whether load was recorded, from the
+# run's own pin. No new query on the read. 2.0.0 stays current: 3.0.0 is made
+# current for one test only, under evaluation.
+
+#: T8c's excluded-candidate load block, as the OpenAPI document published it on
+#: the T8c base (origin/feat/b26-t8c @ a4ccfa5d). T8d must not change it (R7).
+_T8C_LOAD_BLOCK_PROPERTIES: dict[str, Any] = {
+    "as_of": {"description": "The run's UTC date (ISO).", "title": "As Of", "type": "string"},
+    "band": {
+        "description": "light, moderate, heavy, full, or unknown.",
+        "title": "Band",
+        "type": "string",
+    },
+    "capacity_hours": {"anyOf": [{"type": "string"}, {"type": "null"}], "title": "Capacity Hours"},
+    "completed_hours": {"title": "Completed Hours", "type": "string"},
+    "confirmed_hours": {"title": "Confirmed Hours", "type": "string"},
+    "eli_formula_version": {"title": "Eli Formula Version", "type": "string"},
+    "measurable": {"title": "Measurable", "type": "boolean"},
+    "reason": {
+        "description": "measured, capacity_not_stated, hours_unknown, or full_by_known_hours.",
+        "title": "Reason",
+        "type": "string",
+    },
+    "utilization": {
+        "anyOf": [{"type": "string"}, {"type": "null"}],
+        "description": "Unrounded; a lower bound when not measurable; null without capacity.",
+        "title": "Utilization",
+    },
+}
+_T8C_LOAD_BLOCK_REQUIRED = [
+    "band",
+    "reason",
+    "measurable",
+    "completed_hours",
+    "confirmed_hours",
+    "as_of",
+    "eli_formula_version",
+]
+
+
+def _all_candidates(run: dict[str, Any]) -> list[dict[str, Any]]:
+    return run["shortlist"] + run["considered"] + run["unscorable"]
+
+
+# R1
+def test_a_2_0_0_run_reads_load_recorded_false_and_every_load_null(load_context, engine) -> None:
+    _seed_loads(load_context)
+    _, run = _submit_and_execute(load_context, engine, _load_submission(load_context))
+
+    assert run["registry_version"] == REGISTRY_VERSION
+    assert run["load_recorded"] is False
+    assert _all_candidates(run)
+    assert all(candidate.get("load") is None for candidate in _all_candidates(run))
+    # Omitted, not null: a 2.x candidate keeps the exact shape T4 shipped.
+    assert "load" not in _keys_anywhere(_all_candidates(run))
+
+
+# R2
+def test_under_evaluation_a_3_0_0_run_reads_each_candidates_stored_band(
+    load_context, engine, monkeypatch
+) -> None:
+    _seed_loads(load_context)
+    _make_3_0_0_current(monkeypatch, evaluate=True)
+
+    _, run = _submit_and_execute(load_context, engine, _load_submission(load_context))
+
+    assert run["load_recorded"] is True
+    by_subject = _candidates(run)
+    alpha = by_subject[str(load_context.speakers["alpha"])]["load"]
+    zeta = by_subject[str(load_context.speakers["zeta"])]["load"]
+    assert (alpha["band"], alpha["reason"]) == ("moderate", "measured")
+    assert (zeta["band"], zeta["reason"]) == ("unknown", "hours_unknown")
+    assert all(candidate["load"] is not None for candidate in _all_candidates(run))
+
+
+# R3
+def test_the_candidate_load_block_is_copied_without_rounding_and_without_refs(
+    load_context, engine, monkeypatch
+) -> None:
+    refs = _seed_loads(load_context)
+    _make_3_0_0_current(monkeypatch, evaluate=True)
+
+    accepted, run = _submit_and_execute(load_context, engine, _load_submission(load_context))
+
+    stored = _explanations_by_subject(_stored_payload(engine, uuid.UUID(accepted["job_id"])))
+    zeta_id = str(load_context.speakers["zeta"])
+    assert stored[zeta_id]["load"]["unknown_hours_refs"] == [refs["zeta_ref"]]
+    for subject_id, candidate in _candidates(run).items():
+        expected = {
+            key: value
+            for key, value in stored[subject_id]["load"].items()
+            if key != "unknown_hours_refs"
+        }
+        assert candidate["load"] == expected, subject_id
+    assert "unknown_hours_refs" not in _keys_anywhere(_all_candidates(run))
+    assert refs["zeta_ref"] not in json.dumps(run)
+
+
+# R4
+def test_load_adds_no_query_to_the_run_read(load_context, engine, monkeypatch) -> None:
+    _seed_loads(load_context)
+    before, _ = _submit_and_execute(load_context, engine, _load_submission(load_context))
+    _make_3_0_0_current(monkeypatch, evaluate=True)
+    after, _ = _submit_and_execute(load_context, engine, _load_submission(load_context))
+
+    with _statements() as two:
+        read_two = _read_run(load_context, engine, uuid.UUID(before["job_id"]))
+    with _statements() as three:
+        read_three = _read_run(load_context, engine, uuid.UUID(after["job_id"]))
+
+    assert (read_two["load_recorded"], read_three["load_recorded"]) == (False, True)
+    assert len(three) == len(two)
+    assert not any("pipeline_record" in sql for sql in three)
+    assert sum("speaker_availability" in sql for sql in three) == 1
+    assert sum("FROM event" in sql for sql in three) == 1
+
+
+# R5
+def test_an_unknown_pin_reads_load_recorded_false(load_context, engine, monkeypatch) -> None:
+    _seed_loads(load_context)
+    _make_3_0_0_current(monkeypatch, evaluate=True)
+    accepted, run = _submit_and_execute(load_context, engine, _load_submission(load_context))
+    assert run["load_recorded"] is True
+    with engine.begin() as conn:
+        conn.execute(
+            text("UPDATE match_run SET registry_version = :v WHERE job_id = :job"),
+            {"v": "9.9.9-not-declared", "job": uuid.UUID(accepted["job_id"])},
+        )
+
+    reread = _read_run(load_context, engine, uuid.UUID(accepted["job_id"]))
+
+    assert reread["registry_version"] == "9.9.9-not-declared"
+    assert reread["load_recorded"] is False
+
+
+# R6
+def test_excluded_load_full_keeps_its_load_block(load_context, engine, monkeypatch) -> None:
+    refs = _seed_loads(load_context)
+    _make_3_0_0_current(monkeypatch, evaluate=True)
+
+    _, run = _submit_and_execute(load_context, engine, _load_submission(load_context))
+
+    excluded = {entry["subject_id"]: entry for entry in run["excluded"]}
+    gamma = excluded[str(load_context.speakers["gamma"])]
+    beta = excluded[str(load_context.speakers["beta"])]
+    assert gamma["reason"] == beta["reason"] == "load_full"
+    assert (gamma["load"]["band"], gamma["load"]["reason"]) == ("full", "full_by_known_hours")
+    assert set(gamma["load"]) == set(_T8C_LOAD_BLOCK_PROPERTIES)
+    assert refs["gamma_ref"] not in json.dumps(run)
+
+
+# R7
+def test_t8cs_excluded_load_schema_is_unchanged() -> None:
+    from pathlib import Path
+
+    document = json.loads(
+        (
+            Path(__file__).resolve().parents[2] / "contracts" / "openapi" / "smartmatch.json"
+        ).read_text(encoding="utf-8")
+    )
+    schemas = document["components"]["schemas"]
+
+    block = schemas["LoadBlockView"]
+    assert block["properties"] == _T8C_LOAD_BLOCK_PROPERTIES
+    assert block["required"] == _T8C_LOAD_BLOCK_REQUIRED
+    assert schemas["ExcludedCandidateView"]["properties"]["load"]["anyOf"] == [
+        {"$ref": "#/components/schemas/LoadBlockView"},
+        {"type": "null"},
+    ]
+    # The candidate block is its own component: T8c's plus the two Stage B fields.
+    candidate = schemas["CandidateLoadBlockView"]
+    assert set(candidate["properties"]) == set(_T8C_LOAD_BLOCK_PROPERTIES) | {
+        "multiplier",
+        "composite_before_load",
+    }
+    assert "unknown_hours_refs" not in candidate["properties"]
+    assert schemas["CandidateExplanationView"]["properties"]["load"]["anyOf"] == [
+        {"$ref": "#/components/schemas/CandidateLoadBlockView"},
+        {"type": "null"},
+    ]
+    assert schemas["MatchRunResponse"]["properties"]["load_recorded"]["type"] == "boolean"
