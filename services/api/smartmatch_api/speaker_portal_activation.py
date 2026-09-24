@@ -5,8 +5,11 @@ which issues a session) and the no-JS form route (``POST /s/{token}``, which
 does not, C4). The route charges the rate limit and checks the password policy
 first (steps 1–2); this module is steps 3–15.
 
-Lock order is **profile → invitation → address advisory lock**, the same as
-invite's profile → invitation (R5). Every refusal raises the one
+Lock order is **profile → invitation → address advisory lock → credential
+rows**, the same as invite's profile → invitation (R5; T6b-5 plan §4.5). The
+address lock, the credential row locks and every credential write belong to
+:mod:`smartmatch_persistence.login_accounts`, the one ``pilot_credential``
+writer (T6b-5 R-G). Every refusal raises the one
 :class:`ActivationRefused`, which the routes answer with one status, code and
 body. Nothing here commits: the route commits once (step 16), and on any
 exception ``get_session`` rolls back, so nothing from steps 10–15 persists.
@@ -33,7 +36,9 @@ from smartmatch_domain.speaker_portal import (
     is_well_formed_token,
     token_hash,
 )
-from smartmatch_persistence.pilot_auth import PilotCredentialRepository, PilotSessionRepository
+from smartmatch_persistence import login_accounts
+from smartmatch_persistence.login_accounts import AddressState, LoginAccountError, NewLogin
+from smartmatch_persistence.pilot_auth import PilotSessionRepository
 from smartmatch_persistence.speaker_portal import (
     InvitationForActivation,
     SpeakerPortalRepository,
@@ -95,20 +100,22 @@ def activate_new_login(
     if invitation is None or _is_unusable(invitation, now=now):
         raise ActivationRefused
     professional_id = invitation.professional_id
-    if _portal.account_has_credential(
-        session, tenant_id=invitation.tenant_id, user_id=professional_id
-    ):
-        # The contact account is already a login (round-2 gate). New-login mode
-        # never replaces an existing password; existing-login mode is T6b-5.
-        raise ActivationRefused
     # Step 7 (R1): verified against the secret, not only the hash.
     if not hmac.compare_digest(token, derive_token(secret, invitation.id)):
         raise ActivationRefused
-    # Steps 8–9: serialize new logins for this address; refuse a second one.
-    _portal.lock_address(session, address=invitation.address)
-    if _portal.other_credentialed_account_exists(
-        session, address=invitation.address, excluding_user_id=professional_id
-    ):
+    # Steps 8–9: the address lock, then every credential row at the address plus
+    # the contact account's own, FOR UPDATE (login_accounts, T6b-5 §4.2 step 9).
+    login_accounts.lock_address(session, address=invitation.address)
+    holders = login_accounts.holders_for_address(
+        session,
+        tenant_id=invitation.tenant_id,
+        address=invitation.address,
+        lock=True,
+        also_lock_user_id=professional_id,
+    )
+    if holders.state is not AddressState.NONE or holders.also_locked_credentialed:
+        # A second credential for the address, or a contact account that is
+        # already a login (round-2 gate): new-login mode never replaces one.
         raise ActivationRefused
 
     _bind(session, invitation=invitation, new_password=new_password, now=now)
@@ -147,23 +154,23 @@ def _bind(
     """Steps 10–14. Any failure propagates and the route's session rolls back."""
     tenant_id: uuid.UUID = invitation.tenant_id
     professional_id: uuid.UUID = invitation.professional_id
-    _portal.set_account_email(
-        session, tenant_id=tenant_id, user_id=professional_id, address=invitation.address
-    )
-    PilotCredentialRepository().upsert(
-        session,
-        tenant_id=tenant_id,
-        user_id=professional_id,
-        password=derive_password_hash(new_password, salt=new_salt()),
-        now=now,
-    )
-    _portal.grant_speaker_membership(
-        session,
-        tenant_id=tenant_id,
-        user_id=professional_id,
-        granted_path=invitation.owning_unit_path,
-        now=now,
-    )
+    try:
+        grant = login_accounts.find_or_add_role(
+            session,
+            tenant_id=tenant_id,
+            email=invitation.address,
+            role="speaker",
+            path=invitation.owning_unit_path,
+            now=now,
+            create=NewLogin(
+                user_id=professional_id,
+                password=derive_password_hash(new_password, salt=new_salt()),
+            ),
+        )
+    except LoginAccountError as exc:
+        raise ActivationRefused from exc
+    if grant.user_id != professional_id or not grant.login_created:
+        raise ActivationRefused
     if not _portal.bind_profile(
         session,
         tenant_id=tenant_id,
@@ -177,6 +184,7 @@ def _bind(
         tenant_id=tenant_id,
         invitation_id=invitation.id,
         bound_account_user_id=professional_id,
+        binding_mode="new_login",
         now=now,
     ):
         raise ActivationRefused

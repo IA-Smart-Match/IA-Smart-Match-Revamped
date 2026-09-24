@@ -44,8 +44,19 @@ def _callee_name(func: ast.expr) -> str | None:
     return None
 
 
-def _names_the_table(node: ast.expr) -> bool:
-    return (isinstance(node, ast.Name) and node.id == _TABLE) or (
+def _table_aliases(tree: ast.AST) -> frozenset[str]:
+    """Names bound to the table: ``_C = schema.pilot_credential`` or ``import … as _C``."""
+    aliases = {_TABLE}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign) and _names_the_table(node.value, frozenset(aliases)):
+            aliases.update(t.id for t in node.targets if isinstance(t, ast.Name))
+        elif isinstance(node, ast.ImportFrom):
+            aliases.update(a.asname for a in node.names if a.name == _TABLE and a.asname)
+    return frozenset(aliases)
+
+
+def _names_the_table(node: ast.expr, aliases: frozenset[str] = frozenset({_TABLE})) -> bool:
+    return (isinstance(node, ast.Name) and node.id in aliases) or (
         isinstance(node, ast.Attribute) and node.attr == _TABLE
     )
 
@@ -57,15 +68,19 @@ def _verb_matches(name: str | None, verb: str) -> bool:
 def python_hits(source: str, verb: str) -> list[int]:
     """Line numbers where ``source`` writes ``pilot_credential`` with ``verb``."""
     hits: list[int] = []
-    for node in ast.walk(ast.parse(source)):
+    tree = ast.parse(source)
+    aliases = _table_aliases(tree)
+    for node in ast.walk(tree):
         if isinstance(node, ast.Call):
             name = _callee_name(node.func)
             if not _verb_matches(name, verb):
                 continue
             # insert(pilot_credential), sa.insert(schema.pilot_credential), pg_insert(...),
-            # or schema.pilot_credential.insert().
-            first_argument = bool(node.args) and _names_the_table(node.args[0])
-            receiver = isinstance(node.func, ast.Attribute) and _names_the_table(node.func.value)
+            # sa.insert(<alias>), or schema.pilot_credential.insert().
+            first_argument = bool(node.args) and _names_the_table(node.args[0], aliases)
+            receiver = isinstance(node.func, ast.Attribute) and _names_the_table(
+                node.func.value, aliases
+            )
             if first_argument or receiver:
                 hits.append(node.lineno)
         elif (
@@ -171,6 +186,10 @@ _PLANTED_HITS = {
     ),
     "f_string": 'table = "x"\nsql = f"INSERT INTO pilot_credential (id) VALUES ({table})"\n',
     "table_method": "schema.pilot_credential.insert().values(id=1)\n",
+    "module_alias": "_C = schema.pilot_credential\nsa.insert(_C).values(id=1)\n",
+    "import_alias": (
+        "from smartmatch_persistence.schema import pilot_credential as creds\nsa.insert(creds)\n"
+    ),
 }
 _PLANTED_SHELL = "psql <<'SQL'\ninsert   into PILOT_CREDENTIAL (id) values (1);\nSQL\n"
 _PLANTED_CLEAN = {

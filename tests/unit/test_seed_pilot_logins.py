@@ -68,7 +68,7 @@ class _Recorder:
     def seed_pilot(self, _connection: object, **kwargs: object) -> None:
         self.seeded.append(kwargs)
 
-    def upsert(self, _connection: object, **kwargs: object) -> None:
+    def write_credential(self, _connection: object, **kwargs: object) -> None:
         self.credentials.append(kwargs["user_id"])  # type: ignore[arg-type]
 
 
@@ -79,11 +79,7 @@ def recorder(monkeypatch: pytest.MonkeyPatch) -> _Recorder:
     account_id = uuid.uuid4()
     monkeypatch.setattr(seed_pilot_logins, "seed_pilot", rec.seed_pilot)
     monkeypatch.setattr(seed_pilot_logins, "_account_id", lambda _c, *, subject: account_id)
-    monkeypatch.setattr(
-        seed_pilot_logins,
-        "PilotCredentialRepository",
-        lambda: SimpleNamespace(upsert=rec.upsert),
-    )
+    monkeypatch.setattr(seed_pilot_logins, "_write_credential", rec.write_credential)
     monkeypatch.setattr(
         seed_pilot_logins.sa,
         "select",

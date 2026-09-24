@@ -72,6 +72,7 @@ import sys
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 import sqlalchemy as sa
 from seed_pilot import (
@@ -84,12 +85,13 @@ from seed_pilot import (
 from smartmatch_api.config import Settings
 from smartmatch_domain.pilot_credentials import (
     MINIMUM_PASSWORD_LENGTH,
+    StoredPassword,
     derive_password_hash,
     new_salt,
 )
-from smartmatch_persistence import schema
+from smartmatch_persistence import login_accounts, schema
 from smartmatch_persistence.engine import create_db_engine
-from smartmatch_persistence.pilot_auth import PilotCredentialRepository
+from smartmatch_persistence.login_accounts import AddressState, NewLogin
 from sqlalchemy.engine import Connection
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -219,6 +221,48 @@ def _account_id(connection: Connection, *, subject: str) -> uuid.UUID:
     return uuid.UUID(str(row.id))
 
 
+def _write_credential(
+    connection: Connection,
+    *,
+    entry: RoleCredential,
+    tenant_id: uuid.UUID,
+    user_id: uuid.UUID,
+    email: str,
+    password: StoredPassword,
+    unit_path: str,
+    now: datetime,
+) -> None:
+    """Create or rotate the seed's own credential through ``login_accounts``.
+
+    Under the address lock and the credential row locks, like every other
+    credential writer (B26 T6b-5 R-G): a free address gets its first
+    credential, the seed's own login is rotated, and any other holder is a
+    conflict.
+    """
+    login_accounts.lock_address(connection, address=email)
+    holders = login_accounts.holders_for_address(
+        connection, tenant_id=tenant_id, address=email, lock=True
+    )
+    if holders.state is AddressState.NONE:
+        login_accounts.find_or_add_role(
+            connection,
+            tenant_id=tenant_id,
+            email=email,
+            role=entry.role,
+            path=unit_path,
+            now=now,
+            create=NewLogin(user_id=user_id, password=password),
+        )
+    elif holders.holder is not None and holders.holder.user_id == user_id:
+        login_accounts.rotate_own_password(
+            connection, tenant_id=tenant_id, user_id=user_id, password=password, now=now
+        )
+    else:
+        raise SeedConflictError(
+            f"{entry.role}: the address in {entry.email_var} already signs in as another login"
+        )
+
+
 def seed_role_logins(
     connection: Connection,
     *,
@@ -245,7 +289,7 @@ def seed_role_logins(
             identity (propagated from :func:`seed_pilot.seed_pilot`).
     """
     outcomes: list[RoleOutcome] = []
-    repository = PilotCredentialRepository()
+    now = datetime.now(UTC)
 
     for entry in ROLE_CREDENTIALS:
         configured = _read_role(entry, environ)
@@ -289,12 +333,15 @@ def seed_role_logins(
 
         # A fresh salt on every run, so re-seeding the same password twice does
         # not produce the same stored bytes twice.
-        stored = derive_password_hash(secret, salt=new_salt())
-        repository.upsert(
-            connection,  # type: ignore[arg-type]
+        _write_credential(
+            connection,
+            entry=entry,
             tenant_id=uuid.UUID(str(tenant_id)),
             user_id=user_id,
-            password=stored,
+            email=email,
+            password=derive_password_hash(secret, salt=new_salt()),
+            unit_path=unit_path,
+            now=now,
         )
 
         outcomes.append(

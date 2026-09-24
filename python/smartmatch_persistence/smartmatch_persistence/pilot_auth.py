@@ -26,6 +26,12 @@ picking the first would be the API deciding an identity question on the
 caller's behalf. The route treats the ``None`` exactly as it treats a wrong
 password, so an ambiguous address is not distinguishable from an unknown one.
 
+## Credentials are written only by ``login_accounts``
+
+This module reads ``pilot_credential``; it never writes it. Every insert,
+update and delete is :mod:`smartmatch_persistence.login_accounts`'s, and
+``tests/unit/test_login_account_writers.py`` fails if another module spells one.
+
 ## Sessions are refused, not merely absent
 
 :meth:`PilotSessionRepository.resolve_subject` filters on ``revoked_at IS
@@ -98,7 +104,13 @@ class CredentialedAccount:
 
 
 class PilotCredentialRepository:
-    """Reads and writes ``pilot_credential`` rows."""
+    """Reads ``pilot_credential`` rows.
+
+    It writes none. :mod:`smartmatch_persistence.login_accounts` is the one
+    writer (B26 T6b-5): every credential insert, rotation and removal goes
+    through it, under the address lock, so no path can give an address a
+    second credential and break :meth:`load_by_email` for both logins.
+    """
 
     def load_by_email(self, session: Session, *, email: str) -> CredentialedAccount | None:
         """Load the single credentialed account for ``email``, or ``None``.
@@ -157,54 +169,6 @@ class PilotCredentialRepository:
                 digest=bytes(row.password_hash),
             ),
         )
-
-    def upsert(
-        self,
-        session: Session,
-        *,
-        tenant_id: uuid.UUID,
-        user_id: uuid.UUID,
-        password: StoredPassword,
-        now: datetime | None = None,
-    ) -> None:
-        """Write or replace one account's pilot credential. **Does not commit.**
-
-        Called by the seed tool, and by exactly one route: Speaker portal
-        activation (B26 T6b-1), which sets a Speaker's *first* password from a
-        single-use invitation token and refuses any account that already holds
-        a credential. No endpoint changes an existing password; the owner still
-        supplies every other pilot credential out of band.
-
-        Replacing rather than appending is deliberate — see migration ``0020``:
-        rotating a pilot password is re-running the seed, not accumulating
-        versions of a secret in a table.
-        """
-        moment = now or datetime.now(UTC)
-        statement = (
-            pg_insert(schema.pilot_credential)
-            .values(
-                id=uuid.uuid4(),
-                tenant_id=tenant_id,
-                user_id=user_id,
-                algorithm=password.algorithm,
-                iterations=password.iterations,
-                salt=password.salt,
-                password_hash=password.digest,
-                created_at=moment,
-                updated_at=moment,
-            )
-            .on_conflict_do_update(
-                constraint="uq_pilot_credential_account",
-                set_={
-                    "algorithm": password.algorithm,
-                    "iterations": password.iterations,
-                    "salt": password.salt,
-                    "password_hash": password.digest,
-                    "updated_at": moment,
-                },
-            )
-        )
-        session.execute(statement)
 
 
 class PilotSessionRepository:

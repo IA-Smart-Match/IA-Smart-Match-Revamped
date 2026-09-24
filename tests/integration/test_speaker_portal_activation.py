@@ -168,16 +168,17 @@ def _state(engine: Engine, professional_id: uuid.UUID) -> tuple:
 def test_activation_is_atomic(
     engine: Engine, session_factory, tenant_id, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Fail step 12 (the membership): nothing from steps 10–14 persists."""
+    """Fail the bind, after ``find_or_add_role`` wrote the email, credential and
+    membership: nothing from steps 10–14 persists (T6b-5 moved those writes)."""
     professional_id, token = _speaker(
         engine, tenant_id, address=f"atomic-{uuid.uuid4().hex[:8]}@example.invalid"
     )
     before = _state(engine, professional_id)
 
     def boom(*args, **kwargs):
-        raise RuntimeError("injected failure at step 12")
+        raise RuntimeError("injected failure at the bind")
 
-    monkeypatch.setattr(activation._portal, "grant_speaker_membership", boom)
+    monkeypatch.setattr(activation._portal, "bind_profile", boom)
     with session_factory() as session:
         with pytest.raises(RuntimeError):
             _activate(session, token)
