@@ -101,6 +101,9 @@ ROUTE_ROLE_LEDGER: dict[tuple[str, str], frozenset[str] | None] = {
     ("GET", "/v1/units/{unit_id}/speaker-contacts/{professional_id}/portal-access"): (
         _SPEAKER_PORTAL
     ),
+    ("DELETE", "/v1/units/{unit_id}/speaker-contacts/{professional_id}/portal-access"): (
+        _SPEAKER_PORTAL
+    ),
     ("GET", _SPEAKER_AVAILABILITY_PATH): _SPEAKER_CONTACT,
     ("PATCH", _SPEAKER_AVAILABILITY_PATH): _SPEAKER_CONTACT,
     ("GET", "/v1/me/availability"): _SPEAKER_SELF,
@@ -266,6 +269,7 @@ def test_the_ledger_covers_exactly_the_routes_this_track_owns() -> None:
             "/v1/units/{unit_id}/speaker-contacts/{professional_id}/portal-invitations/current",
         ),
         ("GET", "/v1/units/{unit_id}/speaker-contacts/{professional_id}/portal-access"),
+        ("DELETE", "/v1/units/{unit_id}/speaker-contacts/{professional_id}/portal-access"),
         ("GET", _SPEAKER_AVAILABILITY_PATH),
         ("PATCH", _SPEAKER_AVAILABILITY_PATH),
         ("GET", "/v1/me/availability"),

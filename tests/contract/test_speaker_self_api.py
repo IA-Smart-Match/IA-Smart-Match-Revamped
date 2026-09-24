@@ -1192,3 +1192,190 @@ def test_routes_mounted_when_on() -> None:
         for method in getattr(route, "methods", ())
     }
     assert set(ROUTES) <= mounted
+
+
+# ---------------------------------------------------------------------------
+# B26 T6b-5: /v1/me/* after activation, in both modes (plan §8.1 item 6)
+# ---------------------------------------------------------------------------
+
+
+def _host_login_at(ctx: _Ctx, address: str) -> tuple[uuid.UUID, str]:
+    """An Event Host login already holding ``address``: ``(user_id, password)``."""
+    from smartmatch_domain.pilot_credentials import (
+        MINIMUM_ITERATIONS,
+        derive_password_hash,
+        new_salt,
+    )
+
+    user_id = uuid.uuid4()
+    pw = _new_pw()
+    stored = derive_password_hash(pw, salt=new_salt(), iterations=MINIMUM_ITERATIONS)
+    ctx.execute(
+        "INSERT INTO user_account (id, tenant_id, external_subject, email) "
+        "VALUES (:id, :t, :s, :e)",
+        id=user_id,
+        t=ctx.tenant_id,
+        s=f"sub-self-host-{user_id.hex}",
+        e=address,
+    )
+    ctx.execute(
+        "INSERT INTO pilot_credential (id, tenant_id, user_id, algorithm, iterations, salt, "
+        "password_hash) VALUES (:id, :t, :u, :a, :i, :s, :h)",
+        id=uuid.uuid4(),
+        t=ctx.tenant_id,
+        u=user_id,
+        a=stored.algorithm,
+        i=stored.iterations,
+        s=stored.salt,
+        h=stored.digest,
+    )
+    ctx.grant(user_id, "volunteer")
+    return user_id, pw
+
+
+def _activated(
+    ctx: _Ctx, monkeypatch: pytest.MonkeyPatch, *, existing: bool
+) -> tuple[uuid.UUID, uuid.UUID, dict[str, str]]:
+    """Invite and activate through the real routes: ``(professional_id, login_id, headers)``."""
+    monkeypatch.setattr(
+        portal_router, "_activation_caller_key", lambda request: f"test-{ctx.tenant_id.hex}"
+    )
+    professional_id, channel_id = ctx.contact("Dana Reyes")
+    if existing:
+        login_id, pw = _host_login_at(ctx, ctx.address_of(professional_id).upper())
+        body = {"existing_password": pw}
+    else:
+        login_id = professional_id
+        body = {"new_password": _new_pw()}
+    invited = ctx.client.post(
+        f"/v1/units/{ctx.unit_id}/speaker-contacts/{professional_id}/portal-invitations",
+        json={"contact_channel_id": str(channel_id)},
+        headers=ctx.coordinator,
+    )
+    assert invited.status_code == 202, invited.text
+    token = derive_token(ctx.secret, uuid.UUID(invited.json()["invitation_id"]))
+    activated = ctx.client.post("/v1/speaker-portal/activate", json={"token": token, **body})
+    assert activated.status_code == 200, activated.text
+    return (
+        professional_id,
+        login_id,
+        {"Authorization": f"Bearer {activated.json()['access_token']}"},
+    )
+
+
+def _batch_for(ctx: _Ctx, professional_id: uuid.UUID) -> tuple[str, str]:
+    created = ctx.client.post(
+        f"/v1/units/{ctx.unit_id}/speaker-invitations/batches",
+        json={
+            "professional_ids": [str(professional_id)],
+            "event_name": "Accounting Society Spring Mixer",
+            "event_date": EVENT_DATE_TEXT,
+            "coordinator_name": "Dana Okafor",
+        },
+        headers={**ctx.coordinator, "Idempotency-Key": f"key-{uuid.uuid4().hex}"},
+    )
+    assert created.status_code == 201, created.text
+    batch = created.json()
+    dispatched = ctx.client.post(
+        f"/v1/units/{ctx.unit_id}/speaker-invitations/batches/{batch['batch_id']}/dispatch",
+        headers=ctx.coordinator,
+    )
+    assert dispatched.status_code == 202, dispatched.text
+    return str(batch["batch_id"]), str(batch["invitations"][0]["invitation_id"])
+
+
+def _assert_own_rows_through_the_login(
+    ctx: _Ctx, professional_id: uuid.UUID, login_id: uuid.UUID, headers: dict[str, str]
+) -> None:
+    other = ctx.speaker("Other Speaker")
+    batch_id, invitation_id = _batch_for(ctx, professional_id)
+    ctx.invite(other.professional_id)
+
+    listed = ctx.call("GET", "/v1/me/invitations", headers)
+    assert listed.status_code == 200, listed.text
+    assert [item["invitation_id"] for item in listed.json()["invitations"]] == [invitation_id]
+    availability = ctx.call("GET", "/v1/me/availability", headers)
+    assert availability.status_code == 200, availability.text
+    assert availability.json()["professional_id"] == str(professional_id)
+    engagements = ctx.call("GET", "/v1/me/engagements", headers)
+    assert engagements.status_code == 200, engagements.text
+
+    answered = ctx.client.post(
+        f"/v1/me/invitations/{invitation_id}/response",
+        json={"response": "accept"},
+        headers=headers,
+    )
+    assert answered.status_code == 200, answered.text
+    assert answered.json()["invitation"]["response"]["recorded_by"] == "speaker"
+    assert ctx.stored(invitation_id).response_recorded_by_user_id == login_id
+
+    connector = ctx.client.get(
+        f"/v1/units/{ctx.unit_id}/speaker-invitations/batches/{batch_id}",
+        headers=ctx.coordinator,
+    )
+    assert connector.status_code == 200, connector.text
+    [row] = [
+        item
+        for item in connector.json()["invitations"]
+        if str(item["invitation_id"]) == invitation_id
+    ]
+    assert row["speaker_response"]["recorded_by_user_id"] is None
+    if login_id != professional_id:
+        # The Host's login id never reaches the Connector view (T6b-2's rule).
+        assert str(login_id) not in connector.text
+
+
+def test_availability_and_invitations_after_existing_login_activation(
+    ctx: _Ctx, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    professional_id, login_id, headers = _activated(ctx, monkeypatch, existing=True)
+    assert login_id != professional_id
+    _assert_own_rows_through_the_login(ctx, professional_id, login_id, headers)
+
+
+def test_after_new_login_activation(ctx: _Ctx, monkeypatch: pytest.MonkeyPatch) -> None:
+    professional_id, login_id, headers = _activated(ctx, monkeypatch, existing=False)
+    assert login_id == professional_id
+    _assert_own_rows_through_the_login(ctx, professional_id, login_id, headers)
+
+
+def test_after_unbind_the_speaker_routes_answer_not_linked(
+    ctx: _Ctx, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """T6b-5 §4.4: the next request by the (still signed-in) Host login loses the portal."""
+    professional_id, _login_id, headers = _activated(ctx, monkeypatch, existing=True)
+    assert ctx.call("GET", "/v1/me/availability", headers).status_code == 200
+
+    unbound = ctx.client.delete(
+        f"/v1/units/{ctx.unit_id}/speaker-contacts/{professional_id}/portal-access",
+        headers=ctx.coordinator,
+    )
+    assert unbound.json() == {"unbound": True}
+
+    for method, path in ROUTES:
+        concrete, kwargs = _request_for(method, path)
+        response = ctx.call(method, concrete, headers, **kwargs)
+        assert response.status_code == 404, (method, path, response.text)
+        assert _code(response) == "speaker_profile_not_linked"
+    portals = ctx.call("GET", "/v1/me/portals", headers).json()
+    assert [p["portal"] for p in portals["portals"]] == ["volunteer"]
+
+
+def test_a_suspended_merged_login_is_refused_on_host_and_speaker_routes(ctx: _Ctx) -> None:
+    """R-L: suspension is per login, so one suspended login loses both roles.
+
+    (Plan §8.1 names ``test_me_suspended.py``; it lives here because this module
+    builds the application with ``SPEAKER_PORTAL`` on.)
+    """
+    speaker = ctx.speaker(merged_login=True)
+    ctx.grant(speaker.login_id, "volunteer")
+    assert ctx.call("GET", "/v1/me/availability", speaker.headers).status_code == 200
+    host_read = f"/v1/units/{ctx.unit_id}/host/speaker-requests"
+    assert ctx.call("GET", host_read, speaker.headers).status_code == 200
+
+    ctx.execute("UPDATE user_account SET suspended = true WHERE id = :u", u=speaker.login_id)
+
+    for path in ("/v1/me/availability", host_read):
+        response = ctx.call("GET", path, speaker.headers)
+        assert response.status_code == 403, (path, response.text)
+        assert response.json()["error"]["details"]["reason"] == "principal_suspended", path

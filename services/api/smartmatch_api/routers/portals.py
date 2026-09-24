@@ -338,6 +338,12 @@ if set(_PORTAL_ORDER) != {portal for portal, _home in _PORTAL_FOR_ROLE.values()}
         f"{sorted({portal for portal, _home in _PORTAL_FOR_ROLE.values()})}"
     )
 
+if not _PORTAL_ORDER.index("volunteer") < _PORTAL_ORDER.index("speaker"):  # pragma: no cover
+    # B26 T6b-5 R-J: one login may hold the Event Host and Speaker roles after an
+    # existing-login activation, and `default_portal` is the first listed. The
+    # Host must keep landing in the Event Host Portal, so volunteer comes first.
+    raise RuntimeError("the Event Host Portal must be listed before the Speaker Portal")
+
 _HOMES_PER_PORTAL: Final[dict[str, set[str]]] = {}
 for _portal, _home in _PORTAL_FOR_ROLE.values():
     _HOMES_PER_PORTAL.setdefault(_portal, set()).add(_home)
