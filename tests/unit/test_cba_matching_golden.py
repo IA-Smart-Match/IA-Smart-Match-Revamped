@@ -28,14 +28,21 @@ none is attempted.
 
 from __future__ import annotations
 
+import copy
+import dataclasses
+import hashlib
 import json
 import re
+from collections.abc import Mapping
+from datetime import date, timedelta
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
 import pytest
 from smartmatch_domain.cba_role_categories import resolve_role_category
 from smartmatch_domain.cba_topic_explanation import explain_cba_topic
+from smartmatch_domain.eli import Engagement, LoadBand
 from smartmatch_domain.explanation import (
     COMPOSITE_NEUTRAL_CAPTION,
     ScoreState,
@@ -44,11 +51,21 @@ from smartmatch_domain.explanation import (
     explanation_to_payload,
 )
 from smartmatch_domain.factor_registry import (
+    CBA_3_PHYSICAL_MODEL,
+    CBA_3_VIRTUAL_MODEL,
+    CBA_PHYSICAL_MODEL,
+    CBA_REGISTRY,
+    CBA_REGISTRY_3,
+    CBA_VIRTUAL_MODEL,
+    REGISTRY_3_VERSION,
     REGISTRY_VERSION,
     SCORING_MODE_VERSION,
+    SUPERSEDED_G1_MODEL,
     SUPERSEDED_REGISTRY_VERSION,
     display_weights,
     factor_keys,
+    normalize_weights,
+    registry_for_version,
     resolve_scoring_model,
 )
 from smartmatch_domain.factors.cba_semantic_topic import (
@@ -64,15 +81,28 @@ from smartmatch_domain.factors.proximity import (
     score_proximity,
 )
 from smartmatch_domain.factors.role_match import RoleMatchInputs
-from smartmatch_domain.match_run import weights_fingerprint
+from smartmatch_domain.load_bands import (
+    AssessedLoad,
+    LoadReviewStatus,
+    assess_pool_loads,
+    stage_a_load_excluded,
+)
+from smartmatch_domain.match_run import (
+    inputs_fingerprint,
+    registry_fingerprint,
+    weights_fingerprint,
+)
 from smartmatch_domain.naics_sectors import resolve_sector
 from smartmatch_domain.scoring import (
+    CBA_LOAD_STAGE_B_FORMULA_VERSION,
     CBA_STAGE_B_FORMULA_VERSION,
     CbaCandidateEvidence,
     rank_cba_candidates,
     score_cba_candidate,
 )
 from smartmatch_providers.topic_semantics import FixtureSemanticTopicProvider
+
+from tests.unit.registry_evaluation import evaluate_registry_3
 
 CBA_DIR = Path(__file__).resolve().parents[1] / "golden" / "matching" / "cba"
 SCHEMA_PATH = CBA_DIR / "cba_case.schema.json"
@@ -102,6 +132,11 @@ def _cases() -> list[dict[str, Any]]:
 def _scored_cases() -> list[dict[str, Any]]:
     """The cases the CBA composition can actually run (i.e. not the 1.x one)."""
     return [case for case in _cases() if case["scoring_mode"] is not None]
+
+
+def _load_cases() -> list[dict[str, Any]]:
+    """The registry 3.0.0 cases (B26 T8c), run with the load band table."""
+    return [case for case in _cases() if case["registry_version"] == REGISTRY_3_VERSION]
 
 
 def _case(case_id: str) -> dict[str, Any]:
@@ -511,3 +546,384 @@ def test_the_superseded_model_is_not_reachable_through_the_cba_scorer():
     )
     assert score.registry_version == REGISTRY_VERSION
     assert score.registry_version != SUPERSEDED_REGISTRY_VERSION
+
+
+# ---------------------------------------------------------------------------
+# B26 T8c: registry 3.0.0 (proposed) — the load cases G-CBA-14…19
+# ---------------------------------------------------------------------------
+#
+# 3.0.0 is never current. Each case below names it explicitly and evaluates its
+# approval gate through tests/unit/registry_evaluation.py, which lets exactly
+# CBA_REGISTRY_3 through the scoring and explanation gates for one test.
+
+_US_PER_HOUR = 3_600_000_000
+
+
+def _exact_hours(hours: str | None) -> timedelta | None:
+    """Decimal hours to an exact timedelta; a fixture that would round fails."""
+    if hours is None:
+        return None
+    us = Decimal(hours) * _US_PER_HOUR
+    assert us == us.to_integral_value(), f"fixture hours {hours} are not whole microseconds"
+    return timedelta(microseconds=int(us))
+
+
+def _case_loads(case: dict[str, Any]) -> Mapping[str, AssessedLoad]:
+    as_of = date.fromisoformat(case["as_of"])
+    capacities: dict[str, Decimal | None] = {}
+    engagements: dict[str, tuple[Engagement, ...]] = {}
+    for entry in case["candidates"]:
+        load = entry["load"]
+        subject = entry["subject_id"]
+        capacity = load["capacity_hours"]
+        capacities[subject] = None if capacity is None else Decimal(capacity)
+        engagements[subject] = tuple(
+            Engagement(
+                ref=e["ref"],
+                event_date=None
+                if e["offset_days"] is None
+                else as_of + timedelta(days=e["offset_days"]),
+                duration=_exact_hours(e["hours"]),
+                confirmed=e["confirmed"],
+                attended=e["attended"],
+                cancelled=e["cancelled"],
+            )
+            for e in load["engagements"]
+        )
+    return assess_pool_loads(
+        [entry["subject_id"] for entry in case["candidates"]],  # type: ignore[misc]
+        capacities=capacities,  # type: ignore[arg-type]
+        engagements=engagements,  # type: ignore[arg-type]
+        as_of=as_of,
+        bands=CBA_REGISTRY_3.load_bands,  # type: ignore[arg-type]
+    )
+
+
+def _stage_a(case: dict[str, Any]):
+    """Split the pool at Stage A: Full is removed as load_full, before any scoring."""
+    loads = _case_loads(case)
+    kept: list[CbaCandidateEvidence] = []
+    excluded: list[dict[str, str]] = []
+    for evidence in _pool(case):
+        load = loads[evidence.subject_id]
+        if stage_a_load_excluded(load):
+            excluded.append({"subject_id": evidence.subject_id, "reason": "load_full"})
+        else:
+            kept.append(dataclasses.replace(evidence, load=load))
+    return loads, kept, excluded
+
+
+def _rank_3(case: dict[str, Any], kept, *, scoring_mode: str | None = None):
+    return rank_cba_candidates(
+        kept,
+        request_description=case["request"]["description"],
+        topic_provider=_provider(case),
+        scoring_mode=scoring_mode or case["scoring_mode"],
+        registry=registry_for_version(case["registry_version"]),
+    )
+
+
+@pytest.fixture
+def registry_3(monkeypatch):
+    evaluate_registry_3(monkeypatch)
+
+
+def _assert_load(case_id: str, subject: str, load: AssessedLoad, wanted: dict[str, Any]) -> None:
+    assessment = load.assessment
+    if "load_band" in wanted:
+        assert assessment.band.value == wanted["load_band"], (case_id, subject)
+    if "load_reason" in wanted:
+        assert assessment.reason.value == wanted["load_reason"], (case_id, subject)
+    if "load_measurable" in wanted:
+        assert assessment.measurable is wanted["load_measurable"], (case_id, subject)
+    if "utilization" in wanted:
+        expected = wanted["utilization"]
+        if expected is None:
+            assert assessment.utilization is None, (case_id, subject)
+        else:
+            assert assessment.utilization == Decimal(expected), (case_id, subject)
+    if "unknown_hours_refs" in wanted:
+        assert list(assessment.unknown_hours_refs) == wanted["unknown_hours_refs"]
+
+
+@pytest.mark.parametrize("case", _load_cases(), ids=_ids(_load_cases()))
+def test_the_load_case_scores_exactly_as_approved(case, registry_3):
+    """Every 3.0.0 case: Stage A removal, bands, multipliers, scores, round trip."""
+    expected = case["expected"]
+    loads, kept, excluded = _stage_a(case)
+    ranked = _rank_3(case, kept)
+    by_subject = {score.subject_id: score for score in ranked}
+
+    assert excluded == expected.get("excluded", [])
+    if "ranking" in expected:
+        assert [score.subject_id for score in ranked] == expected["ranking"]
+
+    for score in ranked:
+        assert score.registry_version == REGISTRY_3_VERSION
+        assert score.scoring_mode == case["scoring_mode"]
+        assert score.formula_version == CBA_LOAD_STAGE_B_FORMULA_VERSION
+        assert score.load is loads[score.subject_id]
+        explanation = explain_candidate(score)
+        payload = explanation_to_payload(explanation)
+        assert "load" in payload
+        assert explanation_from_payload(payload) == explanation
+
+    excluded_ids = {entry["subject_id"] for entry in excluded}
+    for subject, wanted in expected.get("candidates", {}).items():
+        _assert_load(case["id"], subject, loads[subject], wanted)
+        if subject in excluded_ids:
+            assert "heuristic_score" not in wanted, "an excluded subject is never scored"
+            assert subject not in by_subject
+            continue
+        score = by_subject[subject]
+        explanation = explain_candidate(score)
+        if "heuristic_score" in wanted:
+            assert score.value == wanted["heuristic_score"]
+            assert explanation.heuristic_score == wanted["heuristic_score"]
+        if "composite_state" in wanted:
+            assert explanation.state.value == wanted["composite_state"]
+        if "load_multiplier" in wanted:
+            assert explanation.load is not None
+            assert explanation.load.multiplier == Decimal(wanted["load_multiplier"])
+            payload_load = explanation_to_payload(explanation)["load"]
+            assert payload_load["multiplier"] == wanted["load_multiplier"]
+
+
+@pytest.mark.parametrize("case", _load_cases(), ids=_ids(_load_cases()))
+def test_no_load_case_renders_a_percentage_or_an_unknown_as_zero(case, registry_3):
+    _, kept, _ = _stage_a(case)
+    for score in _rank_3(case, kept):
+        explanation = explain_candidate(score)
+        assert explanation.score_label == "heuristic score"
+        assert explanation.load is not None
+        assert explanation.load.band is not LoadBand.FULL
+        if explanation.load.band is LoadBand.UNKNOWN:
+            # Unknown is neutral (multiplier 1), never a zero load.
+            assert explanation.load.multiplier == 1
+        if explanation.heuristic_score is not None:
+            assert 0.0 <= explanation.heuristic_score <= 1.0
+
+
+def test_g_cba_14_band_boundaries(registry_3):
+    case = _case("G-CBA-14")
+    loads, kept, excluded = _stage_a(case)
+    bands = {subject: load.assessment.band.value for subject, load in loads.items()}
+    assert bands == {
+        "SYNTH-CBA-14-A-U4999": "light",
+        "SYNTH-CBA-14-B-U5000": "moderate",
+        "SYNTH-CBA-14-C-U7999": "moderate",
+        "SYNTH-CBA-14-D-U8000": "heavy",
+        "SYNTH-CBA-14-E-U10000": "heavy",
+        "SYNTH-CBA-14-F-U10001": "full",
+    }
+    assert excluded == [{"subject_id": "SYNTH-CBA-14-F-U10001", "reason": "load_full"}]
+    values = {score.subject_id: score.value for score in _rank_3(case, kept)}
+    assert values == {
+        "SYNTH-CBA-14-A-U4999": 0.97,
+        "SYNTH-CBA-14-B-U5000": 0.873,
+        "SYNTH-CBA-14-C-U7999": 0.873,
+        "SYNTH-CBA-14-D-U8000": 0.679,
+        "SYNTH-CBA-14-E-U10000": 0.679,
+    }
+
+
+def test_g_cba_15_full_is_removed_before_the_solve(registry_3):
+    case = _case("G-CBA-15")
+    loads, kept, excluded = _stage_a(case)
+    assert [entry["subject_id"] for entry in excluded] == [
+        "SYNTH-CBA-15-FULL",
+        "SYNTH-CBA-15-FULL-LOWER-BOUND",
+    ]
+    # Full can never reach Stage B, even if a caller forgets Stage A.
+    full = next(e for e in _pool(case) if e.subject_id == "SYNTH-CBA-15-FULL")
+    with pytest.raises(ValueError, match="Stage A"):
+        _rank_3(case, [dataclasses.replace(full, load=loads[full.subject_id])])
+
+    # The kept pool fingerprints exactly like a pool that never named the Full two.
+    ranked = _rank_3(case, kept)
+    never_named = dict(
+        case, candidates=[c for c in case["candidates"] if "LIGHT" in c["subject_id"]]
+    )
+    _, kept_alone, excluded_alone = _stage_a(never_named)
+    assert excluded_alone == []
+    ranked_alone = _rank_3(never_named, kept_alone)
+
+    def fingerprint(scores):
+        return inputs_fingerprint(
+            event_need_id="G-CBA-15",
+            candidate_subject_ids=[s.subject_id for s in scores],
+            candidate_utilities=[s.value for s in scores],
+            portfolio_size=2,
+            random_seed=0,
+            weights=scores[0].applied_weights,
+        )
+
+    assert fingerprint(ranked) == fingerprint(ranked_alone)
+
+
+def test_g_cba_16_a_cancelled_booking_drops_out(registry_3):
+    case = _case("G-CBA-16")
+    loads, kept, _ = _stage_a(case)
+    assert loads["SYNTH-CBA-16-CANCELLED"].assessment.confirmed_hours == Decimal(4)
+    assert loads["SYNTH-CBA-16-KEPT"].assessment.confirmed_hours == Decimal(10)
+    ranked = _rank_3(case, kept)
+    assert [(s.subject_id, s.value) for s in ranked] == [
+        ("SYNTH-CBA-16-CANCELLED", 0.97),
+        ("SYNTH-CBA-16-KEPT", 0.679),
+    ]
+
+
+def test_g_cba_17_unknown_load_scores_neutral_and_is_labelled(registry_3):
+    case = _case("G-CBA-17")
+    _, kept, _ = _stage_a(case)
+    two_point_oh = {
+        score.subject_id: score.value
+        for score in rank_cba_candidates(
+            _pool(case),
+            request_description=case["request"]["description"],
+            topic_provider=_provider(case),
+            scoring_mode=case["scoring_mode"],
+        )
+    }
+    for score in _rank_3(case, kept):
+        # Float equality, not approx: multiplier 1.0 leaves the 2.0.0 number alone.
+        assert score.value == two_point_oh[score.subject_id]
+        payload = explanation_to_payload(explain_candidate(score))
+        assert payload["load"]["band"] == "unknown"
+        assert payload["load"]["multiplier"] == "1"
+        assert payload["load"]["measurable"] is False
+
+
+_PRE_T8C_PAYLOAD_KEYS = frozenset(
+    {
+        "subject_id",
+        "heuristic_score",
+        "state",
+        "score_label",
+        "registry_version",
+        "formula_version",
+        "scoring_mode",
+        "scoring_mode_version",
+        "unknown_factor_keys",
+        "policy_neutral_factor_keys",
+        "factors",
+    }
+)
+
+
+def test_g_cba_18_a_two_point_oh_run_stays_readable_and_keeps_its_hash(registry_3):
+    case = _case("G-CBA-18")
+    assert case["registry_version"] == REGISTRY_VERSION
+    pinned = case["expected"]["registry_hash"]
+
+    # 1. The hash function for 1.1.1 and 2.0.0 is unchanged, byte for byte.
+    for key, model in (
+        ("cba-physical-1", CBA_PHYSICAL_MODEL),
+        ("cba-virtual-1", CBA_VIRTUAL_MODEL),
+        ("g1", SUPERSEDED_G1_MODEL),
+    ):
+        weights = normalize_weights(model=model)
+        assert registry_fingerprint(weights, load_bands=None) == pinned[key]
+        assert weights_fingerprint(weights) == pinned[key]
+
+    # 2. A 2.0.0 payload carries no load key and reads back with none.
+    explanation = explain_candidate(_rank(case)[0])
+    payload = explanation_to_payload(explanation)
+    assert "load" not in payload
+    assert set(payload) == _PRE_T8C_PAYLOAD_KEYS
+    restored = explanation_from_payload(payload)
+    assert restored.load is None
+    assert restored == explanation
+
+    # 3. A load key on it, even null, is refused rather than ignored.
+    with pytest.raises(ValueError, match="load"):
+        explanation_from_payload({**payload, "load": None})
+
+    # 4. A 3.0.0 payload with its load deleted is refused rather than defaulted.
+    three = _case("G-CBA-14")
+    _, kept, _ = _stage_a(three)
+    stored = explanation_to_payload(explain_candidate(_rank_3(three, kept)[0]))
+    del stored["load"]
+    with pytest.raises(ValueError, match="load"):
+        explanation_from_payload(stored)
+
+    # 5. Every pin resolves to the rulebook that produced it.
+    assert registry_for_version(SUPERSEDED_REGISTRY_VERSION) is CBA_REGISTRY
+    assert registry_for_version(REGISTRY_VERSION) is CBA_REGISTRY
+    assert registry_for_version(REGISTRY_3_VERSION) is CBA_REGISTRY_3
+
+
+#: Hand-written, not rendered by the code under test (T8c plan §10, G-CBA-19).
+_G_CBA_19_LITERAL = (
+    b'{"load_bands":{"eli_formula_version":"2.0.0","full_above":"1","heavy_from":"0.8",'
+    b'"moderate_from":"0.5","multipliers":{"heavy":"0.7","light":"1","moderate":"0.9",'
+    b'"unknown":"1"}},"weights":{"cba_semantic_topic":"0.15","industry_match":"0.3",'
+    b'"proximity":"0.3","role_match":"0.25"}}'
+)
+
+
+def test_g_cba_19_same_weights_different_registry_hash(registry_3):
+    case = _case("G-CBA-19")
+    bands = CBA_REGISTRY_3.load_bands
+    assert bands is not None
+
+    # 1. Same weights, value for value.
+    w3 = normalize_weights(model=CBA_3_PHYSICAL_MODEL, registry=CBA_REGISTRY_3)
+    w2 = normalize_weights(model=CBA_PHYSICAL_MODEL)
+    assert dict(w3) == dict(w2)
+    v3 = normalize_weights(model=CBA_3_VIRTUAL_MODEL, registry=CBA_REGISTRY_3)
+    v2 = normalize_weights(model=CBA_VIRTUAL_MODEL)
+    assert dict(v3) == dict(v2)
+
+    # 2. Different hash.
+    h2 = registry_fingerprint(w2, load_bands=None)
+    h3 = registry_fingerprint(w3, load_bands=bands)
+    assert h2 == "sha256:f870192c2b1d9977aaf4be3368f51f67accbbbba9955e4346a4445b0be4be4e5"
+    assert h3 != h2
+
+    # 3. Pinned, and equal to a hand-written byte string.
+    assert h3 == case["expected"]["registry_hash"]["cba-physical-1"]
+    assert h3 == "sha256:73d5b67c898424c58984db49fa9542163e31438c23bed9742ecaebc50d9075f2"
+    assert h3 == "sha256:" + hashlib.sha256(_G_CBA_19_LITERAL).hexdigest()
+
+    # 4. Virtual 3.x differs from virtual 2.x and from physical 3.x.
+    hv3 = registry_fingerprint(v3, load_bands=bands)
+    assert hv3 != registry_fingerprint(v2, load_bands=None)
+    assert hv3 != h3
+
+    # 5. A multiplier moves it; review status does not; 0.5 and 0.50 hash alike.
+    table = bands.table
+    heavier = dataclasses.replace(
+        bands,
+        table=dataclasses.replace(
+            table,
+            multipliers={**table.multipliers, LoadBand.HEAVY: Decimal("0.71")},
+        ),
+    )
+    assert registry_fingerprint(w3, load_bands=heavier) != h3
+    reviewed = dataclasses.replace(
+        bands,
+        ownership=dataclasses.replace(bands.ownership, review_status=LoadReviewStatus.REVIEWED),
+    )
+    assert registry_fingerprint(w3, load_bands=reviewed) == h3
+    respelled = dataclasses.replace(
+        bands, table=dataclasses.replace(table, moderate_from=Decimal("0.5"))
+    )
+    assert table.moderate_from == Decimal("0.50")
+    assert registry_fingerprint(w3, load_bands=respelled) == h3
+
+    # 6. Same scoring_mode, different registry_version.
+    _, kept, _ = _stage_a(case)
+    three = _rank_3(case, kept)[0]
+    two = _rank(_case("G-CBA-09"))[0]
+    assert three.scoring_mode == two.scoring_mode == CBA_PHYSICAL_SCORING_MODE
+    assert three.registry_version == REGISTRY_3_VERSION
+    assert two.registry_version == REGISTRY_VERSION
+    assert three.value == two.value == 0.97
+
+
+def test_the_load_cases_never_make_3_0_0_current():
+    from smartmatch_domain.factor_registry import current_cba_registry
+
+    assert current_cba_registry() is CBA_REGISTRY
+    assert copy.copy(REGISTRY_VERSION) == "2.0.0-approved-oq-cba-004"

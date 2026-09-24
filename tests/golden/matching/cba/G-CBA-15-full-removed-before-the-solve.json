@@ -1,0 +1,164 @@
+{
+  "id": "G-CBA-15",
+  "title": "A Full speaker is removed before the solve",
+  "asserts": "Full (known hours above capacity, or known hours alone above capacity with some hours unknown) is removed at Stage A as load_full, is never scored, and never reaches the optimizer. The kept pool fingerprints exactly like a pool that never named the Full two.",
+  "owner_decisions": [
+    "B26 Q1/D2",
+    "B26 Q7 = A",
+    "B26 unknown load"
+  ],
+  "registry_version": "3.0.0-approved-b26-eli",
+  "scoring_mode": "cba-physical-1",
+  "as_of": "2026-10-06",
+  "request": {
+    "description": "A panel on financial planning for small businesses.",
+    "sectors": [
+      "52"
+    ],
+    "roles": [
+      "finance"
+    ]
+  },
+  "candidates": [
+    {
+      "subject_id": "SYNTH-CBA-15-FULL",
+      "sector": "52",
+      "role": "finance",
+      "profile_present": true,
+      "topic_text": "corporate treasury and financial planning",
+      "city": "Pomona",
+      "postal_code": "91768",
+      "topic_score": 0.8,
+      "topic_rationale": "Their recorded treasury work addresses the request's financial planning focus.",
+      "distance_miles": 10.0,
+      "load": {
+        "capacity_hours": "10.0",
+        "engagements": [
+          {
+            "ref": "G15-FULL",
+            "offset_days": -3,
+            "hours": "12",
+            "confirmed": true,
+            "attended": true,
+            "cancelled": false
+          }
+        ]
+      }
+    },
+    {
+      "subject_id": "SYNTH-CBA-15-FULL-LOWER-BOUND",
+      "sector": "52",
+      "role": "finance",
+      "profile_present": true,
+      "topic_text": "corporate treasury and financial planning",
+      "city": "Pomona",
+      "postal_code": "91768",
+      "topic_score": 0.8,
+      "topic_rationale": "Their recorded treasury work addresses the request's financial planning focus.",
+      "distance_miles": 10.0,
+      "load": {
+        "capacity_hours": "10.0",
+        "engagements": [
+          {
+            "ref": "G15-KNOWN",
+            "offset_days": -3,
+            "hours": "10.5",
+            "confirmed": true,
+            "attended": true,
+            "cancelled": false
+          },
+          {
+            "ref": "G15-DATE-ONLY",
+            "offset_days": 2,
+            "hours": null,
+            "confirmed": true,
+            "attended": false,
+            "cancelled": false
+          }
+        ]
+      }
+    },
+    {
+      "subject_id": "SYNTH-CBA-15-LIGHT-1",
+      "sector": "52",
+      "role": "finance",
+      "profile_present": true,
+      "topic_text": "corporate treasury and financial planning",
+      "city": "Pomona",
+      "postal_code": "91768",
+      "topic_score": 0.8,
+      "topic_rationale": "Their recorded treasury work addresses the request's financial planning focus.",
+      "distance_miles": 10.0,
+      "load": {
+        "capacity_hours": "100.0",
+        "engagements": []
+      }
+    },
+    {
+      "subject_id": "SYNTH-CBA-15-LIGHT-2",
+      "sector": "52",
+      "role": "finance",
+      "profile_present": true,
+      "topic_text": "corporate treasury and financial planning",
+      "city": "Pomona",
+      "postal_code": "91768",
+      "topic_score": 0.8,
+      "topic_rationale": "Their recorded treasury work addresses the request's financial planning focus.",
+      "distance_miles": 10.0,
+      "load": {
+        "capacity_hours": "100.0",
+        "engagements": []
+      }
+    }
+  ],
+  "expected": {
+    "ranking": [
+      "SYNTH-CBA-15-LIGHT-1",
+      "SYNTH-CBA-15-LIGHT-2"
+    ],
+    "excluded": [
+      {
+        "subject_id": "SYNTH-CBA-15-FULL",
+        "reason": "load_full"
+      },
+      {
+        "subject_id": "SYNTH-CBA-15-FULL-LOWER-BOUND",
+        "reason": "load_full"
+      }
+    ],
+    "candidates": {
+      "SYNTH-CBA-15-FULL": {
+        "load_band": "full",
+        "load_reason": "measured",
+        "utilization": "1.2",
+        "unknown_hours_refs": []
+      },
+      "SYNTH-CBA-15-FULL-LOWER-BOUND": {
+        "load_band": "full",
+        "load_reason": "full_by_known_hours",
+        "utilization": "1.05",
+        "unknown_hours_refs": [
+          "G15-DATE-ONLY"
+        ]
+      },
+      "SYNTH-CBA-15-LIGHT-1": {
+        "composite_state": "measured",
+        "heuristic_score": 0.97,
+        "load_band": "light",
+        "load_reason": "measured",
+        "load_multiplier": "1",
+        "utilization": "0",
+        "unknown_hours_refs": []
+      },
+      "SYNTH-CBA-15-LIGHT-2": {
+        "composite_state": "measured",
+        "heuristic_score": 0.97,
+        "load_band": "light",
+        "load_reason": "measured",
+        "load_multiplier": "1",
+        "utilization": "0",
+        "unknown_hours_refs": []
+      }
+    }
+  }
+}
