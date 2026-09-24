@@ -260,6 +260,28 @@ class ContactChannelRepository:
         ).one_or_none()
         return None if row is None else _to_contact(row)
 
+    def lock(
+        self, session: Session, *, tenant_id: uuid.UUID, contact_channel_id: uuid.UUID
+    ) -> bool:
+        """``SELECT id ... FOR UPDATE`` on one channel; ``False`` when it does not exist.
+
+        Its own statement, with no join and no subquery, so the lock is taken on
+        ``contact_channel`` alone (B26 T6b-3, S5). Callers then re-read through
+        :meth:`get`, so the suppression flag and state they act on are read
+        after the lock.
+        """
+        return (
+            session.execute(
+                sa.select(schema.contact_channel.c.id)
+                .where(
+                    schema.contact_channel.c.tenant_id == tenant_id,
+                    schema.contact_channel.c.id == contact_channel_id,
+                )
+                .with_for_update()
+            ).first()
+            is not None
+        )
+
     def list_for_unit(
         self,
         session: Session,

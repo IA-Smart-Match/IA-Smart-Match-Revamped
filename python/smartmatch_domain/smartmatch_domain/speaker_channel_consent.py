@@ -19,7 +19,9 @@ send gate.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from enum import StrEnum
+from types import MappingProxyType
 from typing import Final
 
 from smartmatch_domain.consent import ContactState, is_escalation
@@ -30,6 +32,7 @@ __all__ = [
     "SELF_SERVICE_REASON",
     "SPEAKER_OPTED_IN",
     "SPEAKER_OPTED_OUT",
+    "SPEAKER_WINS_MESSAGES",
     "OptInPath",
     "SpeakerChoice",
     "connector_transition_conflict",
@@ -56,6 +59,21 @@ SELF_SERVICE_REASON: Final[str] = "Speaker opted in through the Speaker portal"
 #: The Speaker-wins 409 codes, shared by every Connector surface that moves a channel.
 SPEAKER_OPTED_OUT: Final[str] = "speaker_contact_channel_speaker_opted_out"
 SPEAKER_OPTED_IN: Final[str] = "speaker_contact_channel_speaker_opted_in"
+
+#: What a Connector reads with each code. No address, no id.
+SPEAKER_WINS_MESSAGES: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        SPEAKER_OPTED_OUT: (
+            "The Speaker opted out of this address in the Speaker portal. A Connector "
+            "may not move it toward a send; only the Speaker's own opt-in can."
+        ),
+        SPEAKER_OPTED_IN: (
+            "The Speaker opted in to this address in the Speaker portal. A Connector "
+            "may not suppress it, change its consent evidence or move it away from "
+            "'active_candidate'; the Speaker can opt out themselves."
+        ),
+    }
+)
 
 OptInPath = tuple[tuple[ContactState, ContactState], ...]
 
