@@ -167,8 +167,8 @@ describe("SpeakerPortalInvite", () => {
     ],
     [
       409,
-      "speaker_portal_address_is_staff_login",
-      "This address belongs to a staff or student login and cannot also be a Speaker login",
+      "speaker_portal_address_not_host_login",
+      "This address already signs in to SmartMatch and cannot also be a Speaker login. Choose a different address",
     ],
   ])("maps %s %s to its message", async (status, code, message) => {
     stub({
