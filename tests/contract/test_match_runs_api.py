@@ -1973,17 +1973,19 @@ def test_no_load_number_reaches_the_wire_and_the_stored_payload_keeps_them(
 
 
 # ---------------------------------------------------------------------------
-# B26 T8d: the run read renders each candidate's stored load (R1–R7)
+# B26 T8d: the run read renders each candidate's stored load (R1–R8)
 # ---------------------------------------------------------------------------
 #
-# T8c stores a load block on every 3.x explanation; T8d copies it onto the
-# candidate view, field for field and without the unknown_hours_refs (other
-# units' record ids), and says per run whether load was recorded, from the
-# run's own pin. No new query on the read. 2.0.0 stays current: 3.0.0 is made
-# current for one test only, under evaluation.
+# T8c stores a load block on every 3.x explanation; T8d copies the band, the
+# reason and the two Stage B scores onto the candidate view — never the load
+# numbers (owner ruling R-A) or the unknown_hours_refs (other units' record
+# ids) — and says per run whether load was recorded, from the run's own pin.
+# No new query on the read. 2.0.0 stays current: 3.0.0 is made current for one
+# test only, under evaluation.
 
 #: T8c's excluded-candidate load block, as the OpenAPI document published it on
-#: the T8c base (origin/feat/b26-t8c @ a4ccfa5d). T8d must not change it (R7).
+#: the T8c base (origin/feat/b26-t8c @ 4f36dfab, owner ruling R-A: no load
+#: numbers). T8d must not change it (R7).
 _T8C_LOAD_BLOCK_PROPERTIES: dict[str, Any] = {
     "as_of": {"description": "The run's UTC date (ISO).", "title": "As Of", "type": "string"},
     "band": {
@@ -1991,31 +1993,19 @@ _T8C_LOAD_BLOCK_PROPERTIES: dict[str, Any] = {
         "title": "Band",
         "type": "string",
     },
-    "capacity_hours": {"anyOf": [{"type": "string"}, {"type": "null"}], "title": "Capacity Hours"},
-    "completed_hours": {"title": "Completed Hours", "type": "string"},
-    "confirmed_hours": {"title": "Confirmed Hours", "type": "string"},
     "eli_formula_version": {"title": "Eli Formula Version", "type": "string"},
-    "measurable": {"title": "Measurable", "type": "boolean"},
+    "measurable": {
+        "description": "True exactly when reason is measured.",
+        "title": "Measurable",
+        "type": "boolean",
+    },
     "reason": {
         "description": "measured, capacity_not_stated, hours_unknown, or full_by_known_hours.",
         "title": "Reason",
         "type": "string",
     },
-    "utilization": {
-        "anyOf": [{"type": "string"}, {"type": "null"}],
-        "description": "Unrounded; a lower bound when not measurable; null without capacity.",
-        "title": "Utilization",
-    },
 }
-_T8C_LOAD_BLOCK_REQUIRED = [
-    "band",
-    "reason",
-    "measurable",
-    "completed_hours",
-    "confirmed_hours",
-    "as_of",
-    "eli_formula_version",
-]
+_T8C_LOAD_BLOCK_REQUIRED = ["band", "reason", "measurable", "as_of", "eli_formula_version"]
 
 
 def _all_candidates(run: dict[str, Any]) -> list[dict[str, Any]]:

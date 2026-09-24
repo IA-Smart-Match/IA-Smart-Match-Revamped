@@ -2349,9 +2349,11 @@ export interface SpeakerLoad {
 }
 
 /**
- * A run's stored load, band fields only. The wire also carries hours and
- * utilization for audit; they are deliberately not typed here, so no page can
- * render them (OQ-CBA-005).
+ * A run's stored load, band fields only (OQ-CBA-005). The wire carries band,
+ * reason, measurable, as_of and eli_formula_version, plus multiplier and
+ * composite_before_load on a candidate; only the two a page shows are typed
+ * here. The hours, capacity and utilization never reach the wire: they stay in
+ * the stored run payload for audit (owner ruling R-A).
  */
 export interface MatchLoad {
   band: LoadBand;

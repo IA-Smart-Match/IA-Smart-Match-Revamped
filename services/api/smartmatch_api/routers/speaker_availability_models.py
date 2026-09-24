@@ -148,7 +148,8 @@ class EngagementWithoutEndTimeView(BaseModel):
 class SpeakerLoadView(BaseModel):
     """The Speaker's current load band (B26 T8d).
 
-    A band word's inputs only: no hours, no ratio, no capacity echo (OQ-CBA-005).
+    A band word's inputs only: no hours, no ratio, no capacity echo (OQ-CBA-005;
+    owner ruling R-A: load numbers never reach the API wire).
     Computed at request time with the code a 3.x run uses.
     """
 

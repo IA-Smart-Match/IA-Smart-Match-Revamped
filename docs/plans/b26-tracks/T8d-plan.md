@@ -24,7 +24,7 @@ Line numbers are `main` @ `1909278f` unless a branch is named. Frontend paths ar
 |---|---|---|
 | D1 | Where does the **current** band come from, for the Speaker and for the Connector? | A new `load` field on the shared `SpeakerAvailabilityResponse` (T3's model, reused by T6b-2's `/v1/me/availability`). Computed **at request time** on `GET` and `PATCH`, with T8c's `EngagementLoadRepository` and `assess_pool_loads` and T8b's `compute_eli`: the same code a 3.x run uses. Not from a run explanation: a Speaker has no run, and a run's band is a snapshot. |
 | D2 | Registry `3.0.0` is proposed, not current. Is the current band computed anyway? | **Yes, independent of the flip.** Band table = the current registry's `load_bands` when it has one, else T8c's `Q7_REGISTERED_LOAD_BANDS` (the same Q7 table 3.0.0 declares). The response says whether matching uses it: `used_in_matching = current_cba_registry().load_bands is not None` (false today). **Flagged for the orchestrator** (OQ-1). |
-| D3 | What does the wire carry? | Availability routes: **band word inputs only**: `band`, `reason`, `as_of`, `used_in_matching`, and the engagements without an end time. No hours, no utilization, no capacity echo in `load`. Run read: T8c's stored block (numbers kept for audit); the `api.ts` type declares only `band` and `reason`, so no page can render a number without editing the type (source scan F1). |
+| D3 | What does the wire carry? | Availability routes: **band word inputs only**: `band`, `reason`, `as_of`, `used_in_matching`, and the engagements without an end time. No hours, no utilization, no capacity echo in `load`. Run read: band, reason, measurable, `as_of`, ELI version, and on a candidate `multiplier` and `composite_before_load`; the hours, capacity and utilization stay in the stored payload for audit and are **not** on the wire (owner ruling R-A, 2026-09-24; tests R3, R8, O3). The `api.ts` type declares only `band` and `reason`, so no page can render a number without editing the type (source scan F1). |
 | D4 | How do Connectors see which engagements lack an end time (parent §11 risk 4)? | In the Connector availability panel (T5), from `load.engagements_without_end_time`: event title and date for events hosted by this unit, with a link to the Events page when the event is a Connector-entered one; "An engagement another unit recorded" otherwise (unit privacy). The run card says the gap exists and points to that panel. The run read gains **no** query (T4 test 17 pins its count). |
 | D5 | Run views on 2.0.0 runs (every production run today)? | `MatchRunResponse.load_recorded` (from the run's own pin, like T4's `availability_recorded`). False → one header row "Workload: Not part of this run's matching" and nothing on the cards. True → a band word on every card, compose row and `load_full` exclusion. |
 
@@ -335,8 +335,8 @@ export interface SpeakerLoad {
   engagements_without_end_time_truncated: boolean;
 }
 /**
- * A run's stored load, band fields only. The wire also carries hours and utilization for
- * audit; they are deliberately not typed here, so no page can render them (OQ-CBA-005).
+ * A run's stored load, band fields only (OQ-CBA-005). The hours, capacity and utilization
+ * never reach the wire: they stay in the stored run payload for audit (owner ruling R-A).
  */
 export interface MatchLoad { band: LoadBand; reason: LoadReason }
 ```
@@ -693,7 +693,7 @@ OQ-1…OQ-3: accepted as recommended. OQ-4 and OQ-5: follow-up cards, not T8d.
 |---|---|---|
 | OQ-1 | **(orchestrator flag)** Compute and show the current band while registry 3.0.0 is proposed? | **Yes.** Compute from T8b / T8c code with the Q7 table, label it "Matching does not use workload yet" via `used_in_matching`. It lets Speakers and Connectors fix capacity and end times before the flip, and the flip needs no frontend change. |
 | OQ-2 | Show a Speaker their band before IA West reviews the rule (parent §10 row 3)? | **Yes, with the not-used sentence.** Parent §2 lists "current load band" among the data a Speaker sees. Hiding it until `used_in_matching` is a one-line change in `LoadBandSummary` if the owner prefers. |
-| OQ-3 | Keep hours and utilization on the run-read wire (T8c's excluded block, T8d's candidate block)? | **Keep.** The run read is a Connector-only audit record that already carries weights and `inputs_hash`; screens stay band-only by type (F1). Availability routes, which Speakers read, carry no numbers. |
+| OQ-3 | Keep hours and utilization on the run-read wire (T8c's excluded block, T8d's candidate block)? | **Superseded by owner ruling R-A (2026-09-24): no.** Load numbers do not go on the API wire; they stay in the stored run payload for audit. Both blocks carry band and reason (+ `measurable`, `as_of`, ELI version; the candidate block also `multiplier` and `composite_before_load`, which are scores). Screens stay band-only by type (F1). Availability routes carry no numbers (A10, A16, S6). |
 | OQ-4 | Re-check Full at compose and dispatch, as T4 does for availability? | **Not in T8d.** Parent Q4 covers availability only, and Full is a run-time Stage A rule. Card it if the owner wants a Speaker who became Full after the run refused at compose. |
 | OQ-5 | Add "changed since this run" for the band, and a deep link from the gap list to one event? | **Neither in T8d.** A load band drifts daily as the window slides (noisy) and would add a query to T4's pinned read; the Events page has no `?event=` link today. Two follow-up cards: `B26-FU-LOAD-CHANGED-SINCE`, `B26-FU-EVENT-DEEP-LINK`. |
 

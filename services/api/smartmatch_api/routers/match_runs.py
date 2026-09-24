@@ -413,9 +413,13 @@ class CandidateLoadBlockView(LoadBlockView):
 
     T8c's :class:`LoadBlockView` plus the two Stage B fields a scored candidate
     has. A subclass, so T8c's excluded-candidate schema stays exactly as it is.
-    Like its parent it has **no field** for the stored ``unknown_hours_refs``:
-    those name bookings in every unit, and no other unit's record id reaches
-    the Connector run wire. Screens show the band word only (OQ-CBA-005).
+    ``multiplier`` and ``composite_before_load`` are scores, not load hours.
+    Like its parent it has **no field** for the load numbers — the hours, the
+    declared capacity and the utilization stay in the stored run payload for
+    audit (owner ruling R-A, 2026-09-24) — nor for the stored
+    ``unknown_hours_refs``: those name bookings in every unit, and no other
+    unit's record id reaches the Connector run wire. Screens show the band word
+    only (OQ-CBA-005).
     """
 
     multiplier: str = Field(
@@ -874,11 +878,12 @@ def _to_view(
 
 
 def _candidate_load_view(load: LoadExplanation | None) -> CandidateLoadBlockView | None:
-    """A stored 3.x load block onto the wire, field for field (B26 T8d).
+    """A stored 3.x load block onto the wire: the band, why, and the two scores (B26 T8d).
 
-    Decimals as strings, unrounded; ``multiplier`` canonical, exactly as the
-    payload stores it. ``unknown_hours_refs`` is not copied: the view has no
-    field for it (plan-gate MED 2).
+    ``multiplier`` canonical, exactly as the payload stores it. Not copied, and
+    the view has no field for them: the hours, capacity and utilization (owner
+    ruling R-A — stored for audit, never on the wire) and ``unknown_hours_refs``
+    (plan-gate MED 2).
     """
     if load is None:
         return None
@@ -886,10 +891,6 @@ def _candidate_load_view(load: LoadExplanation | None) -> CandidateLoadBlockView
         band=load.band.value,
         reason=load.reason.value,
         measurable=load.measurable,
-        completed_hours=str(load.completed_hours),
-        confirmed_hours=str(load.confirmed_hours),
-        capacity_hours=None if load.capacity_hours is None else str(load.capacity_hours),
-        utilization=None if load.utilization is None else str(load.utilization),
         as_of=load.as_of.isoformat(),
         eli_formula_version=load.eli_formula_version,
         multiplier=canonical_decimal(load.multiplier),

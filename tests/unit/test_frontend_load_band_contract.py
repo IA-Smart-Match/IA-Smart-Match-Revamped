@@ -1,8 +1,10 @@
 """Source contract for the load band on the frontend (B26 T8d plan §9.5, F1-F4).
 
 The load band is a word, never a number (OQ-CBA-005). The run read's wire
-still carries hours, utilization and the multiplier for audit (OQ-3), so the
-rule is held where a screen could break it:
+carries no hours, capacity or utilization (owner ruling R-A: they stay in the
+stored run payload for audit), but a candidate's block still carries the
+multiplier and the composite before load, so the rule is held where a screen
+could break it:
 
 - F1: the TypeScript types for a load declare no ``number``, so no page can
   render one without editing the type first;
