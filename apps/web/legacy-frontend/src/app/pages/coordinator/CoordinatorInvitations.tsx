@@ -62,12 +62,14 @@ import {
   fetchMatchRun,
   fetchSpeakerContactChannels,
   fetchSpeakerContacts,
+  type MatchAvailability,
   type MatchRunRead,
   type SpeakerContact,
   type SpeakerContactChannel,
   type SpeakerInvitationBatch,
 } from "../../../lib/api";
 import { scopedQueryKey } from "../../../lib/queryClient";
+import { describeAvailability } from "../AIMatching";
 import { PagedList } from "../../components/PagedList";
 import { grantedPortal } from "../../components/PortalGate";
 import { usePrincipalKey } from "../../components/PrincipalQueryProvider";
@@ -84,7 +86,7 @@ import { useScopedQuery } from "../../hooks/useScopedQuery";
  * can I not pick this person" here), and a shared renderer is a place where one
  * screen's wording quietly becomes the other's.
  */
-function describeSkip(reason: string): string {
+export function describeSkip(reason: string): string {
   switch (reason) {
     case "not_on_roster":
       return "Not on this unit's speaker list. Add them first, then invite.";
@@ -96,6 +98,11 @@ function describeSkip(reason: string): string {
       return "Their address has not been activated. Someone has to do that deliberately.";
     case "consent_source_not_approved":
       return "The consent behind this address cannot authorize a send.";
+    // B26 T4: availability, checked after consent at compose and at dispatch.
+    case "speaker_unavailable_on_date":
+      return "The Speaker said they cannot speak on this date.";
+    case "speaker_invitations_paused":
+      return "The Speaker has paused invitations.";
     default:
       // Reported verbatim rather than mapped to anything reassuring: a reason
       // this build does not recognise is not thereby a small problem.
@@ -111,6 +118,8 @@ interface Recipient {
   /** The server's channel rows, or null when that read failed for this person. */
   channels: SpeakerContactChannel[] | null;
   channelsError: string | null;
+  /** The run's stored availability verdict (B26 T4). Worded here, decided by the server. */
+  availability?: MatchAvailability | null;
 }
 
 /** Whether this person may be picked, and the sentence that says why not. */
@@ -185,7 +194,7 @@ function judgeConsent(recipient: Recipient): ConsentVerdict {
 }
 
 /** One shortlisted person. Ineligible rows are shown, disabled, with the reason. */
-function RecipientRow({
+export function RecipientRow({
   recipient,
   verdict,
   selected,
@@ -232,6 +241,11 @@ function RecipientRow({
               {verdict.explanation}
             </span>
           )}
+          {/* B26 T4: the run's stored availability, in words. The row stays
+              selectable: the server re-checks at compose and decides. */}
+          <span className="block text-sm text-muted-foreground">
+            {describeAvailability(recipient.availability)}
+          </span>
         </span>
       </label>
     </li>
@@ -355,11 +369,13 @@ export function CoordinatorInvitations() {
               contact,
               channels: channels.channels.map((entry) => entry.channel),
               channelsError: null,
+              availability: candidate.availability ?? null,
             };
           } catch (cause) {
             return {
               subjectId: candidate.subject_id,
               contact,
+              availability: candidate.availability ?? null,
               channels: null,
               channelsError:
                 cause instanceof ApiRequestError

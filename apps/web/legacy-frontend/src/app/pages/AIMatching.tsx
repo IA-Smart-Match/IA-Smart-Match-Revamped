@@ -80,11 +80,14 @@ import { useScopedQuery } from "@/app/hooks/useScopedQuery";
 import {
   fetchMatchRun,
   hasSmartmatchAuth,
+  type ExcludedMatchCandidate,
+  type MatchAvailability,
   type MatchCandidateExplanation,
   type MatchFactorExplanation,
   type MatchRunRead,
 } from "@/lib/api";
 import { MATCHING_UNAVAILABLE_REASON, unavailableMatchingMetric } from "@/lib/metrics";
+import { MATCH_INELIGIBILITY_EXPLANATIONS } from "./coordinator/CoordinatorMatchRuns";
 
 /** Query parameter naming which persisted run to read. */
 const RUN_ID_PARAM = "run";
@@ -188,8 +191,64 @@ function FactorRow({ factor }: { factor: MatchFactorExplanation }) {
   );
 }
 
+/** A stored date (`YYYY-MM-DD`) as a long date, read in UTC so it never shifts a day. */
+function longDate(isoDate: string): string {
+  return new Date(`${isoDate}T00:00:00Z`).toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    timeZone: "UTC",
+  });
+}
+
+/**
+ * The stored availability verdict in words (B26 T4 plan §7). By state only:
+ * the only digits come from a date, and nothing here scores anybody.
+ */
+export function describeAvailability(view: MatchAvailability | null | undefined): string {
+  if (!view) {
+    return "Availability not recorded for this run";
+  }
+  let text: string;
+  if (view.reason === "window") {
+    text = "Unavailable on this date (Speaker's statement)";
+  } else if (view.reason === "paused") {
+    text = view.paused_until ? `Paused until ${longDate(view.paused_until)}` : "Paused";
+  } else if (view.reason === "not_stated") {
+    text = "Availability not stated";
+  } else if (view.reason === "event_unresolved") {
+    text = "Event date not set, so availability was not checked";
+  } else {
+    text = "Available";
+  }
+  return view.changed_since_run === true ? `${text} — changed since this run` : text;
+}
+
+/** The named subjects the run never evaluated, worded like the submission screen does. */
+export function ExcludedCandidates({ excluded }: { excluded: readonly ExcludedMatchCandidate[] }) {
+  if (excluded.length === 0) {
+    return null;
+  }
+  return (
+    <section className="rounded-2xl border border-border bg-muted p-6">
+      <h2 className="text-base font-semibold text-foreground">Left out of this run</h2>
+      <ul className="mt-3 list-none space-y-2 text-sm">
+        {excluded.map((entry) => (
+          <li key={entry.subject_id}>
+            <span className="font-medium text-foreground">{entry.subject_id}</span>
+            <span className="text-muted-foreground">
+              {" — "}
+              {MATCH_INELIGIBILITY_EXPLANATIONS[entry.reason] ?? entry.reason}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 /** One candidate card: the score, its label and registry version, its factors. */
-function CandidateCard({
+export function CandidateCard({
   candidate,
   registryVersion,
 }: {
@@ -230,6 +289,9 @@ function CandidateCard({
         Factor registry {candidate.registry_version || registryVersion} · formula{" "}
         {candidate.formula_version}
         {candidate.scoring_mode ? ` · mode ${candidate.scoring_mode}` : ""}
+      </p>
+      <p className="mt-1 text-sm text-foreground/80">
+        {describeAvailability(candidate.availability)}
       </p>
       <ul className="mt-3 list-none">
         {candidate.factors.map((factor) => (
@@ -420,6 +482,8 @@ export function AIMatching() {
             </ul>
           </section>
         ) : null}
+
+        <ExcludedCandidates excluded={run.excluded ?? []} />
 
         {run.considered.length > 0 ? (
           <section>
