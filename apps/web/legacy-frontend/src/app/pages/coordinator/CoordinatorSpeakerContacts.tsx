@@ -93,6 +93,7 @@ import { usePortalAccess } from "../../hooks/usePortalAccess";
 import { useAuthenticatedPrincipal } from "../../hooks/useSession";
 import { useScopedQuery } from "../../hooks/useScopedQuery";
 import { SpeakerAvailabilityPanel } from "./SpeakerAvailabilityPanel";
+import { SpeakerPortalInvite } from "./SpeakerPortalInvite";
 
 /** The display name a released taxonomy gives a stored code, or the code itself. */
 function displayName(options: readonly TaxonomyOption[], code: string | null): string | null {
@@ -255,6 +256,8 @@ function ContactRow({
           ) : null}
         </div>
       ) : null}
+      {/* B26 T6b-1. Renders nothing unless `speaker_portal` is on. */}
+      <SpeakerPortalInvite unitId={unitId} professionalId={contact.professional_id} />
 
       {availabilityOpen ? (
         <SpeakerAvailabilityPanel

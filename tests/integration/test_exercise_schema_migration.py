@@ -52,7 +52,9 @@ REVISION = "0037_exercise_tables"
 #: The current head. ``0038_speaker_availability`` (B26 T2) chains to
 #: :data:`REVISION` and creates two ``speaker_availability`` tables; it
 #: touches no ``exercise_`` table, so every claim below holds through it.
-HEAD_REVISION = "0038_speaker_availability"
+#: Moved again by B26 T6b-1: ``0039_speaker_portal`` chains to
+#: ``0038_speaker_availability``; it touches no ``exercise_`` table either.
+HEAD_REVISION = "0039_speaker_portal"
 
 #: Design spec §2's eight tables.
 EXERCISE_TABLES = (

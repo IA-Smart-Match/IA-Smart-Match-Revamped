@@ -169,10 +169,11 @@ class PilotCredentialRepository:
     ) -> None:
         """Write or replace one account's pilot credential. **Does not commit.**
 
-        Called by the seed tool, never by a route: there is no endpoint in this
-        API that sets a password, because the owner supplies pilot credentials
-        out of band and a self-service password surface is part of real
-        authentication rather than of a stand-in for it.
+        Called by the seed tool, and by exactly one route: Speaker portal
+        activation (B26 T6b-1), which sets a Speaker's *first* password from a
+        single-use invitation token and refuses any account that already holds
+        a credential. No endpoint changes an existing password; the owner still
+        supplies every other pilot credential out of band.
 
         Replacing rather than appending is deliberate — see migration ``0020``:
         rotating a pilot password is re-running the seed, not accumulating

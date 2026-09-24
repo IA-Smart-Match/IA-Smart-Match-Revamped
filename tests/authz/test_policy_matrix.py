@@ -418,6 +418,25 @@ UNAUTHENTICATED_ROUTES: dict[tuple[str, str], str] = {
         "event — an inactive or unknown token gets an identical 404 rather "
         "than disclosing which."
     ),
+    ("GET", "/s/{token}"): (
+        "B26 T6b-1. The Speaker portal activation page an invitation links to. "
+        "Reached from an email by a contact who has no login yet, so the token in "
+        "the path is the whole of it. It never changes state, never echoes the "
+        "token, and returns identical bytes for every token, so it is no oracle."
+    ),
+    ("POST", "/s/{token}"): (
+        "B26 T6b-1. The no-JS form half of activation: sets the contact's first "
+        "password and grants the `speaker` role. Public because the person has no "
+        "credential until it succeeds. The 256-bit token, verified against the "
+        "server secret, is the whole authorization; every refusal is one "
+        "identical 400 page; it issues no session (C4)."
+    ),
+    ("POST", "/v1/speaker-portal/activate"): (
+        "B26 T6b-1. The JSON half of activation, for the SPA. Same token, same "
+        "one generic 400 for every refusal, rate-limited on its own "
+        "pre-authentication bucket. Issues a session on success, which is the "
+        "first credential this person holds."
+    ),
     ("GET", "/i/{token}"): (
         "The accept-or-decline page an invitation links to, and the exact "
         "counterpart of ``GET /u/{token}``: reached from an email by somebody "
@@ -1001,6 +1020,17 @@ class Operation:
     #: against the live object, so widening the tenant-wide set in the code
     #: without recording it here fails.
     tenant_wide_roles: frozenset[str] = frozenset()
+    #: The module-level constant the authorizer passes as ``excluded_roles``
+    #: (policy module docstring, rule 8), or ``None`` when it passes none.
+    #: Only the two aggregate metrics reads name one: owner ruling R8
+    #: (2026-09-23) refuses a speaker-only principal there, and those are the
+    #: only operations with no ``required_roles`` that a ``speaker``
+    #: membership would otherwise satisfy. Held against the source and the
+    #: live object by
+    #: :func:`test_the_authorizer_passes_the_excluded_roles_the_matrix_names`.
+    excluded_roles_constant: str | None = None
+    #: What that constant contains, or empty when there is none.
+    excluded_roles: frozenset[str] = frozenset()
 
     @property
     def resource_id(self) -> str:
@@ -1141,6 +1171,8 @@ OPERATIONS: tuple[Operation, ...] = (
         require_membership=True,
         tenant_wide_roles_constant="_TENANT_WIDE_AGGREGATE_ROLES",
         tenant_wide_roles=frozenset({"admin"}),
+        excluded_roles_constant="_AGGREGATE_EXCLUDED_ROLES",
+        excluded_roles=frozenset({"speaker"}),
     ),
     # The same register, presented as a funnel, and deliberately the *same*
     # authorizer object rather than an equivalent one: ``authorizer_module``
@@ -1170,6 +1202,8 @@ OPERATIONS: tuple[Operation, ...] = (
         require_membership=True,
         tenant_wide_roles_constant="_TENANT_WIDE_AGGREGATE_ROLES",
         tenant_wide_roles=frozenset({"admin"}),
+        excluded_roles_constant="_AGGREGATE_EXCLUDED_ROLES",
+        excluded_roles=frozenset({"speaker"}),
     ),
     Operation(
         key="metrics.drill_down",
@@ -2043,6 +2077,42 @@ OPERATIONS: tuple[Operation, ...] = (
         unit_scoped=True,
     ),
     Operation(
+        key="speaker_portal.invite",
+        method="POST",
+        path="/v1/units/{unit_id}/speaker-contacts/{professional_id}/portal-invitations",
+        module="smartmatch_api.routers.speaker_portal",
+        authorizer="_authorize_speaker_portal",
+        roles_constant="_SPEAKER_PORTAL_ROLES",
+        authorizer_module=None,
+        required_roles=frozenset({"admin", "coordinator"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
+    Operation(
+        key="speaker_portal.revoke",
+        method="DELETE",
+        path="/v1/units/{unit_id}/speaker-contacts/{professional_id}/portal-invitations/current",
+        module="smartmatch_api.routers.speaker_portal",
+        authorizer="_authorize_speaker_portal",
+        roles_constant="_SPEAKER_PORTAL_ROLES",
+        authorizer_module=None,
+        required_roles=frozenset({"admin", "coordinator"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
+    Operation(
+        key="speaker_portal.read",
+        method="GET",
+        path="/v1/units/{unit_id}/speaker-contacts/{professional_id}/portal-access",
+        module="smartmatch_api.routers.speaker_portal",
+        authorizer="_authorize_speaker_portal",
+        roles_constant="_SPEAKER_PORTAL_ROLES",
+        authorizer_module=None,
+        required_roles=frozenset({"admin", "coordinator"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
+    Operation(
         key="speaker_contact.update",
         method="PATCH",
         path="/v1/units/{unit_id}/speaker-contacts/{professional_id}",
@@ -2576,6 +2646,14 @@ TENANT_WIDE_ROLE_OPERATIONS: frozenset[str] = frozenset(
     {"metrics.read", "metrics.speaker_pipeline"}
 )
 
+#: Operations whose authorizer names roles that never satisfy them, even on a
+#: covering, active membership (policy module docstring, rule 8). Owner ruling
+#: R8 (2026-09-23): a speaker-only principal is refused the aggregate metrics
+#: reads, the two operations with no ``required_roles`` in ``services/api``.
+#: Checked in both directions by
+#: :func:`test_every_excluded_role_operation_is_declared`.
+EXCLUDED_ROLE_OPERATIONS: frozenset[str] = frozenset({"metrics.read", "metrics.speaker_pipeline"})
+
 OPERATIONS_BY_KEY = {operation.key: operation for operation in OPERATIONS}
 
 
@@ -2657,6 +2735,15 @@ SHAPES: tuple[Shape, ...] = (
             "quietly skipping the assertion"
         ),
         memberships=(_member(OWNING_UNIT, "volunteer"),),
+    ),
+    Shape(
+        name="speaker_at_owning_unit",
+        description=(
+            "a Speaker's own login: an active `speaker` membership at the owning "
+            "unit, invitation-only (B26 T6b-1). Every operation refuses it; the "
+            "two aggregate metrics reads refuse it by name (owner ruling R8)"
+        ),
+        memberships=(_member(OWNING_UNIT, "speaker"),),
     ),
     Shape(
         name="member_with_no_memberships",
@@ -2839,6 +2926,10 @@ MATRIX: dict[str, dict[str, Cell]] = {
                 "what is left is a deny on the unit, which beats inheritance."
             ),
         ),
+        "speaker_at_owning_unit": deny(
+            "no_grant",
+            why="`speaker` is outside this operation's role set, as `volunteer` is",
+        ),
     },
     "job.read": {
         "admin_at_org_root": permit(why="an admin grant at the root covers every unit beneath it"),
@@ -2925,6 +3016,10 @@ MATRIX: dict[str, dict[str, Cell]] = {
                 "through the hole the deny exists to make."
             ),
         ),
+        "speaker_at_owning_unit": deny(
+            "no_grant",
+            why="`speaker` is outside this operation's role set, as `volunteer` is",
+        ),
     },
     "job.events.read": {
         "admin_at_org_root": permit(),
@@ -2958,6 +3053,10 @@ MATRIX: dict[str, dict[str, Cell]] = {
             ),
         ),
         "job_actor_with_explicit_deny": deny("explicit_resource_deny"),
+        "speaker_at_owning_unit": deny(
+            "no_grant",
+            why="`speaker` is outside this operation's role set, as `volunteer` is",
+        ),
     },
     "job.redrive": {
         "admin_at_org_root": permit(),
@@ -3013,6 +3112,10 @@ MATRIX: dict[str, dict[str, Cell]] = {
                 "the actor differently."
             ),
         ),
+        "speaker_at_owning_unit": deny(
+            "no_grant",
+            why="`speaker` is outside this operation's role set, as `volunteer` is",
+        ),
     },
     "job.abandon": {
         "admin_at_org_root": permit(),
@@ -3045,6 +3148,10 @@ MATRIX: dict[str, dict[str, Cell]] = {
             why="abandon shares `authorize_job_command` with re-drive, at the same tightness",
         ),
         "job_actor_with_explicit_deny": deny("explicit_resource_deny"),
+        "speaker_at_owning_unit": deny(
+            "no_grant",
+            why="`speaker` is outside this operation's role set, as `volunteer` is",
+        ),
     },
     # Same shape as `import.create`'s own row, cell for cell: both operations
     # authorize an `org_unit` resource through the same `assert_allowed` call
@@ -3123,6 +3230,10 @@ MATRIX: dict[str, dict[str, Cell]] = {
                 "the actor half of the shape is inert here for the reason above; "
                 "what is left is a deny on the unit, which beats inheritance"
             ),
+        ),
+        "speaker_at_owning_unit": deny(
+            "no_grant",
+            why="`speaker` is outside this operation's role set, as `volunteer` is",
         ),
     },
     # The two metrics rows no longer share an outcome on every shape, because
@@ -3240,6 +3351,15 @@ MATRIX: dict[str, dict[str, Cell]] = {
             "explicit_resource_deny",
             why="the actor half of the shape is inert here; the deny on the unit beats inheritance",
         ),
+        "speaker_at_owning_unit": deny(
+            "membership_role_excluded",
+            why=(
+                "owner ruling R8 (2026-09-23): a speaker-only principal is refused "
+                "aggregate reads. This operation names no required_roles, so a "
+                "`speaker` membership would satisfy it; `_AGGREGATE_EXCLUDED_ROLES` "
+                "excludes it by name (policy rule 8)"
+            ),
+        ),
     },
     "metrics.drill_down": {
         "admin_at_org_root": permit(
@@ -3304,6 +3424,10 @@ MATRIX: dict[str, dict[str, Cell]] = {
         "cross_tenant_coordinator": deny("tenant_mismatch"),
         "job_actor_without_role": deny("no_grant"),
         "job_actor_with_explicit_deny": deny("explicit_resource_deny"),
+        "speaker_at_owning_unit": deny(
+            "no_grant",
+            why="`speaker` is outside this operation's role set, as `volunteer` is",
+        ),
     },
     # `events.read` and `events.tag_quarantine.read` share one authorizer and
     # therefore share every outcome, which is why the two rows below are
@@ -3393,6 +3517,10 @@ MATRIX: dict[str, dict[str, Cell]] = {
                 "inheritance"
             ),
         ),
+        "speaker_at_owning_unit": deny(
+            "no_grant",
+            why="`speaker` is outside this operation's role set, as `volunteer` is",
+        ),
     },
     "events.read": {
         "admin_at_org_root": permit(
@@ -3472,6 +3600,10 @@ MATRIX: dict[str, dict[str, Cell]] = {
                 "what is left is a deny on the unit, which beats inheritance"
             ),
         ),
+        "speaker_at_owning_unit": deny(
+            "no_grant",
+            why="`speaker` is outside this operation's role set, as `volunteer` is",
+        ),
     },
     "events.tag_quarantine.read": {
         "admin_at_org_root": permit(
@@ -3546,6 +3678,10 @@ MATRIX: dict[str, dict[str, Cell]] = {
                 "the actor half of the shape is inert here for the reason above; "
                 "what is left is a deny on the unit, which beats inheritance"
             ),
+        ),
+        "speaker_at_owning_unit": deny(
+            "no_grant",
+            why="`speaker` is outside this operation's role set, as `volunteer` is",
         ),
     },
     # `match_run.create` and `match_run.read` share one authorizer, so — like
@@ -3657,6 +3793,10 @@ MATRIX: dict[str, dict[str, Cell]] = {
                 "what is left is a deny on the unit, which beats inheritance"
             ),
         ),
+        "speaker_at_owning_unit": deny(
+            "no_grant",
+            why="`speaker` is outside this operation's role set, as `volunteer` is",
+        ),
     },
     # Identical to the row above, cell for cell, and deliberately written out
     # rather than aliased: the two routes share one authorizer *today* because
@@ -3735,6 +3875,10 @@ MATRIX: dict[str, dict[str, Cell]] = {
                 "the actor half of the shape is inert here; what is left is a "
                 "deny on the unit, which beats inheritance"
             ),
+        ),
+        "speaker_at_owning_unit": deny(
+            "no_grant",
+            why="`speaker` is outside this operation's role set, as `volunteer` is",
         ),
     },
     # The two registration writes. Cell for cell they agree with the two reads
@@ -3845,6 +3989,10 @@ MATRIX: dict[str, dict[str, Cell]] = {
                 "on the unit, which beats inheritance"
             ),
         ),
+        "speaker_at_owning_unit": deny(
+            "no_grant",
+            why="`speaker` is outside this operation's role set, as `volunteer` is",
+        ),
     },
     # Identical to the row above, cell for cell, and written out rather than
     # aliased for the same reason. The one thing a reader should not conclude
@@ -3916,6 +4064,10 @@ MATRIX: dict[str, dict[str, Cell]] = {
                 "the actor half of the shape is inert here; what is left is a deny "
                 "on the unit, which beats inheritance"
             ),
+        ),
+        "speaker_at_owning_unit": deny(
+            "no_grant",
+            why="`speaker` is outside this operation's role set, as `volunteer` is",
         ),
     },
     "matching_weights.read": {
@@ -3999,6 +4151,10 @@ MATRIX: dict[str, dict[str, Cell]] = {
                 "left is a deny on the unit, which beats inheritance"
             ),
         ),
+        "speaker_at_owning_unit": deny(
+            "no_grant",
+            why="`speaker` is outside this operation's role set, as `volunteer` is",
+        ),
     },
     "matching_weights.update": {
         "admin_at_org_root": permit(
@@ -4077,6 +4233,10 @@ MATRIX: dict[str, dict[str, Cell]] = {
                 "the actor half is inert here for the reason above; what is "
                 "left is a deny on the unit, which beats inheritance"
             ),
+        ),
+        "speaker_at_owning_unit": deny(
+            "no_grant",
+            why="`speaker` is outside this operation's role set, as `volunteer` is",
         ),
     },
     "match_run.create": {
@@ -4159,6 +4319,10 @@ MATRIX: dict[str, dict[str, Cell]] = {
                 "left is a deny on the unit, which beats inheritance"
             ),
         ),
+        "speaker_at_owning_unit": deny(
+            "no_grant",
+            why="`speaker` is outside this operation's role set, as `volunteer` is",
+        ),
     },
     "outreach.draft.create": {
         "admin_at_org_root": permit(
@@ -4240,6 +4404,10 @@ MATRIX: dict[str, dict[str, Cell]] = {
                 "is a deny on the unit, which beats inheritance"
             ),
         ),
+        "speaker_at_owning_unit": deny(
+            "no_grant",
+            why="`speaker` is outside this operation's role set, as `volunteer` is",
+        ),
     },
     "outreach.draft.list": {
         "admin_at_org_root": permit(
@@ -4320,6 +4488,10 @@ MATRIX: dict[str, dict[str, Cell]] = {
                 "the actor half is inert here for the reason above; what is left "
                 "is a deny on the unit, which beats inheritance"
             ),
+        ),
+        "speaker_at_owning_unit": deny(
+            "no_grant",
+            why="`speaker` is outside this operation's role set, as `volunteer` is",
         ),
     },
     "outreach.send.submit": {
@@ -4403,6 +4575,10 @@ MATRIX: dict[str, dict[str, Cell]] = {
                 "is a deny on the unit, which beats inheritance"
             ),
         ),
+        "speaker_at_owning_unit": deny(
+            "no_grant",
+            why="`speaker` is outside this operation's role set, as `volunteer` is",
+        ),
     },
     "outreach.send.read": {
         "admin_at_org_root": permit(
@@ -4484,6 +4660,10 @@ MATRIX: dict[str, dict[str, Cell]] = {
                 "is a deny on the unit, which beats inheritance"
             ),
         ),
+        "speaker_at_owning_unit": deny(
+            "no_grant",
+            why="`speaker` is outside this operation's role set, as `volunteer` is",
+        ),
     },
     "match_run.read": {
         "admin_at_org_root": permit(
@@ -4555,6 +4735,10 @@ MATRIX: dict[str, dict[str, Cell]] = {
                 "the actor half of the shape is inert here for the reason "
                 "above; what is left is a deny on the unit"
             ),
+        ),
+        "speaker_at_owning_unit": deny(
+            "no_grant",
+            why="`speaker` is outside this operation's role set, as `volunteer` is",
         ),
     },
     # The three student rewards operations share `_authorize_student_rewards`,
@@ -4668,6 +4852,10 @@ MATRIX: dict[str, dict[str, Cell]] = {
                 "unit is what answers"
             ),
         ),
+        "speaker_at_owning_unit": deny(
+            "no_grant",
+            why="`speaker` is outside this operation's role set, as `volunteer` is",
+        ),
     },
     "redemption.create": {
         "admin_at_org_root": deny(
@@ -4724,6 +4912,10 @@ MATRIX: dict[str, dict[str, Cell]] = {
         "job_actor_with_explicit_deny": deny(
             "explicit_resource_deny",
             why="the actor half is inert; what is left is a deny on the unit",
+        ),
+        "speaker_at_owning_unit": deny(
+            "no_grant",
+            why="`speaker` is outside this operation's role set, as `volunteer` is",
         ),
     },
     "redemption.read": {
@@ -4782,6 +4974,10 @@ MATRIX: dict[str, dict[str, Cell]] = {
         "job_actor_with_explicit_deny": deny(
             "explicit_resource_deny",
             why="the actor half is inert; what is left is a deny on the unit",
+        ),
+        "speaker_at_owning_unit": deny(
+            "no_grant",
+            why="`speaker` is outside this operation's role set, as `volunteer` is",
         ),
     },
     # The coordinator half, authorized by `_authorize_redemption_decision` and
@@ -4853,6 +5049,10 @@ MATRIX: dict[str, dict[str, Cell]] = {
         "job_actor_with_explicit_deny": deny(
             "explicit_resource_deny",
             why="the actor half is inert; what is left is a deny on the unit",
+        ),
+        "speaker_at_owning_unit": deny(
+            "no_grant",
+            why="`speaker` is outside this operation's role set, as `volunteer` is",
         ),
     },
     # The queue's own authorizer, `_authorize_redemption_queue`, reads the same
@@ -4926,6 +5126,10 @@ MATRIX: dict[str, dict[str, Cell]] = {
             "explicit_resource_deny",
             why="the actor half is inert; what is left is a deny on the unit",
         ),
+        "speaker_at_owning_unit": deny(
+            "no_grant",
+            why="`speaker` is outside this operation's role set, as `volunteer` is",
+        ),
     },
     # Both S12 funnel operations run the same authorizer over the same resource,
     # so their rectangles are identical by construction rather than by
@@ -4997,6 +5201,10 @@ MATRIX: dict[str, dict[str, Cell]] = {
             "explicit_resource_deny",
             why="the actor half is inert; what is left is a deny on the unit",
         ),
+        "speaker_at_owning_unit": deny(
+            "no_grant",
+            why="`speaker` is outside this operation's role set, as `volunteer` is",
+        ),
     },
     "pipeline.stage.advance": {
         "admin_at_org_root": permit(
@@ -5065,6 +5273,10 @@ MATRIX: dict[str, dict[str, Cell]] = {
         "job_actor_with_explicit_deny": deny(
             "explicit_resource_deny",
             why="the actor half is inert; what is left is a deny on the unit",
+        ),
+        "speaker_at_owning_unit": deny(
+            "no_grant",
+            why="`speaker` is outside this operation's role set, as `volunteer` is",
         ),
     },
     # The attendance write. The same rectangle as the engagement read below —
@@ -5142,6 +5354,10 @@ MATRIX: dict[str, dict[str, Cell]] = {
         "job_actor_with_explicit_deny": deny(
             "explicit_resource_deny",
             why="the actor half is inert; what is left is a deny on the unit",
+        ),
+        "speaker_at_owning_unit": deny(
+            "no_grant",
+            why="`speaker` is outside this operation's role set, as `volunteer` is",
         ),
     },
     # The R2 engagement read. Shaped like `events.read` rather than like the
@@ -5232,6 +5448,10 @@ MATRIX: dict[str, dict[str, Cell]] = {
             "explicit_resource_deny",
             why="the actor half is inert; what is left is a deny on the unit",
         ),
+        "speaker_at_owning_unit": deny(
+            "no_grant",
+            why="`speaker` is outside this operation's role set, as `volunteer` is",
+        ),
     },
     "outreach.send.list": {
         "admin_at_org_root": permit(
@@ -5309,6 +5529,10 @@ MATRIX: dict[str, dict[str, Cell]] = {
                 "the actor half is inert here for the reason above; what is left "
                 "is a deny on the unit, which beats inheritance"
             ),
+        ),
+        "speaker_at_owning_unit": deny(
+            "no_grant",
+            why="`speaker` is outside this operation's role set, as `volunteer` is",
         ),
     },
     "outreach.contact.list": {
@@ -5388,6 +5612,10 @@ MATRIX: dict[str, dict[str, Cell]] = {
                 "is a deny on the unit, which beats inheritance"
             ),
         ),
+        "speaker_at_owning_unit": deny(
+            "no_grant",
+            why="`speaker` is outside this operation's role set, as `volunteer` is",
+        ),
     },
     "outreach.contact.read": {
         "admin_at_org_root": permit(
@@ -5465,6 +5693,10 @@ MATRIX: dict[str, dict[str, Cell]] = {
                 "the actor half is inert here for the reason above; what is left "
                 "is a deny on the unit, which beats inheritance"
             ),
+        ),
+        "speaker_at_owning_unit": deny(
+            "no_grant",
+            why="`speaker` is outside this operation's role set, as `volunteer` is",
         ),
     },
     "outreach.contact.create": {
@@ -5547,6 +5779,10 @@ MATRIX: dict[str, dict[str, Cell]] = {
                 "is a deny on the unit, which beats inheritance"
             ),
         ),
+        "speaker_at_owning_unit": deny(
+            "no_grant",
+            why="`speaker` is outside this operation's role set, as `volunteer` is",
+        ),
     },
     "outreach.contact.update": {
         "admin_at_org_root": permit(
@@ -5626,6 +5862,10 @@ MATRIX: dict[str, dict[str, Cell]] = {
                 "the actor half is inert here for the reason above; what is left "
                 "is a deny on the unit, which beats inheritance"
             ),
+        ),
+        "speaker_at_owning_unit": deny(
+            "no_grant",
+            why="`speaker` is outside this operation's role set, as `volunteer` is",
         ),
     },
     "outreach.contact.transition": {
@@ -5707,6 +5947,10 @@ MATRIX: dict[str, dict[str, Cell]] = {
                 "the actor half is inert here for the reason above; what is left "
                 "is a deny on the unit, which beats inheritance"
             ),
+        ),
+        "speaker_at_owning_unit": deny(
+            "no_grant",
+            why="`speaker` is outside this operation's role set, as `volunteer` is",
         ),
     },
     # The two Speaker Request rows. They differ in exactly one cell —
@@ -5803,6 +6047,13 @@ MATRIX: dict[str, dict[str, Cell]] = {
                 "left is a deny on the unit, which beats inheritance"
             ),
         ),
+        "speaker_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "admits `volunteer` but not `speaker`: the Speaker role is its "
+                "own role and never widens into the Event Host's (B26 T6b-1)"
+            ),
+        ),
     },
     "speaker_request.list": {
         "admin_at_org_root": permit(
@@ -5876,6 +6127,10 @@ MATRIX: dict[str, dict[str, Cell]] = {
         "job_actor_with_explicit_deny": deny(
             "explicit_resource_deny",
             why="the actor half is inert; a deny on the unit beats inheritance",
+        ),
+        "speaker_at_owning_unit": deny(
+            "no_grant",
+            why="`speaker` is outside this operation's role set, as `volunteer` is",
         ),
     },
     # The host-scoped read, OQ-CBA-014's closure. Compare it against
@@ -5979,6 +6234,13 @@ MATRIX: dict[str, dict[str, Cell]] = {
         "job_actor_with_explicit_deny": deny(
             "explicit_resource_deny",
             why="the actor half is inert; a deny on the unit beats inheritance",
+        ),
+        "speaker_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "admits `volunteer` but not `speaker`: the Speaker role is its "
+                "own role and never widens into the Event Host's (B26 T6b-1)"
+            ),
         ),
     },
     # The three host-organization rows (migration `0036`, owner decision 4).
@@ -6084,6 +6346,13 @@ MATRIX: dict[str, dict[str, Cell]] = {
             "explicit_resource_deny",
             why="the actor half is inert; a deny on the unit beats inheritance",
         ),
+        "speaker_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "admits `volunteer` but not `speaker`: the Speaker role is its "
+                "own role and never widens into the Event Host's (B26 T6b-1)"
+            ),
+        ),
     },
     "host_organization.upsert_own": {
         "admin_at_org_root": deny(
@@ -6181,6 +6450,13 @@ MATRIX: dict[str, dict[str, Cell]] = {
                 "is a deny on the unit, which beats inheritance"
             ),
         ),
+        "speaker_at_owning_unit": deny(
+            "no_grant",
+            why=(
+                "admits `volunteer` but not `speaker`: the Speaker role is its "
+                "own role and never widens into the Event Host's (B26 T6b-1)"
+            ),
+        ),
     },
     "host_organization.list": {
         "admin_at_org_root": permit(
@@ -6256,6 +6532,10 @@ MATRIX: dict[str, dict[str, Cell]] = {
         "job_actor_with_explicit_deny": deny(
             "explicit_resource_deny",
             why="the actor half is inert; a deny on the unit beats inheritance",
+        ),
+        "speaker_at_owning_unit": deny(
+            "no_grant",
+            why="`speaker` is outside this operation's role set, as `volunteer` is",
         ),
     },
     # The five contact-management rows (customer §13). They are identical to
@@ -6367,6 +6647,10 @@ MATRIX: dict[str, dict[str, Cell]] = {
                 "left is a deny on the unit, which beats inheritance"
             ),
         ),
+        "speaker_at_owning_unit": deny(
+            "no_grant",
+            why="`speaker` is outside this operation's role set, as `volunteer` is",
+        ),
     },
     "speaker_contact.list": {
         "admin_at_org_root": permit(
@@ -6438,6 +6722,10 @@ MATRIX: dict[str, dict[str, Cell]] = {
             "explicit_resource_deny",
             why="the actor half is inert; a deny on the unit beats inheritance",
         ),
+        "speaker_at_owning_unit": deny(
+            "no_grant",
+            why="`speaker` is outside this operation's role set, as `volunteer` is",
+        ),
     },
     "speaker_contact.read": {
         "admin_at_org_root": permit(
@@ -6507,6 +6795,172 @@ MATRIX: dict[str, dict[str, Cell]] = {
         "job_actor_with_explicit_deny": deny(
             "explicit_resource_deny",
             why="the actor half is inert; a deny on the unit beats inheritance",
+        ),
+        "speaker_at_owning_unit": deny(
+            "no_grant",
+            why="`speaker` is outside this operation's role set, as `volunteer` is",
+        ),
+    },
+    "speaker_portal.invite": {
+        "admin_at_org_root": permit(
+            why="an admin grant at the root covers every unit beneath it",
+        ),
+        "coordinator_at_owning_unit": permit(
+            why="B26 T6b-1: the Speaker Connector persona, as the speaker-contact rows",
+        ),
+        "coordinator_at_sibling_unit": deny(
+            "no_grant",
+            why="B26 T6b-1: the Speaker Connector persona, as the speaker-contact rows",
+        ),
+        "admin_at_sibling_unit": deny(
+            "no_grant",
+            why="B26 T6b-1: the Speaker Connector persona, as the speaker-contact rows",
+        ),
+        "student_at_owning_unit": deny(
+            "no_grant",
+            why="B26 T6b-1: the Speaker Connector persona, as the speaker-contact rows",
+        ),
+        "volunteer_at_owning_unit": deny(
+            "no_grant",
+            why="B26 T6b-1: the Speaker Connector persona, as the speaker-contact rows",
+        ),
+        "member_with_no_memberships": deny("no_grant"),
+        "resource_grant_only": deny(
+            "resource_grant_lacks_required_role",
+            why="S-007. A grant conveys reach, not authority. See the module docstring.",
+        ),
+        "admin_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="v1.1 §2.1: an explicit deny on the resource beats inheritance",
+        ),
+        "expired_coordinator_at_owning_unit": deny("no_grant"),
+        "suspended_admin": deny(
+            "principal_suspended",
+            why="suspension is checked first and does not wait for the IdP to revoke a token",
+        ),
+        "cross_tenant_coordinator": deny(
+            "tenant_mismatch",
+            why="tenant isolation is structural and precedes every grant question",
+        ),
+        "job_actor_without_role": deny(
+            "no_grant",
+            why="a read queues nothing, so the actor half of the shape is inert",
+        ),
+        "job_actor_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="the actor half is inert; a deny on the unit beats inheritance",
+        ),
+        "speaker_at_owning_unit": deny(
+            "no_grant",
+            why="`speaker` is outside this operation's role set, as `volunteer` is",
+        ),
+    },
+    "speaker_portal.revoke": {
+        "admin_at_org_root": permit(
+            why="an admin grant at the root covers every unit beneath it",
+        ),
+        "coordinator_at_owning_unit": permit(
+            why="B26 T6b-1: the Speaker Connector persona, as the speaker-contact rows",
+        ),
+        "coordinator_at_sibling_unit": deny(
+            "no_grant",
+            why="B26 T6b-1: the Speaker Connector persona, as the speaker-contact rows",
+        ),
+        "admin_at_sibling_unit": deny(
+            "no_grant",
+            why="B26 T6b-1: the Speaker Connector persona, as the speaker-contact rows",
+        ),
+        "student_at_owning_unit": deny(
+            "no_grant",
+            why="B26 T6b-1: the Speaker Connector persona, as the speaker-contact rows",
+        ),
+        "volunteer_at_owning_unit": deny(
+            "no_grant",
+            why="B26 T6b-1: the Speaker Connector persona, as the speaker-contact rows",
+        ),
+        "member_with_no_memberships": deny("no_grant"),
+        "resource_grant_only": deny(
+            "resource_grant_lacks_required_role",
+            why="S-007. A grant conveys reach, not authority. See the module docstring.",
+        ),
+        "admin_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="v1.1 §2.1: an explicit deny on the resource beats inheritance",
+        ),
+        "expired_coordinator_at_owning_unit": deny("no_grant"),
+        "suspended_admin": deny(
+            "principal_suspended",
+            why="suspension is checked first and does not wait for the IdP to revoke a token",
+        ),
+        "cross_tenant_coordinator": deny(
+            "tenant_mismatch",
+            why="tenant isolation is structural and precedes every grant question",
+        ),
+        "job_actor_without_role": deny(
+            "no_grant",
+            why="a read queues nothing, so the actor half of the shape is inert",
+        ),
+        "job_actor_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="the actor half is inert; a deny on the unit beats inheritance",
+        ),
+        "speaker_at_owning_unit": deny(
+            "no_grant",
+            why="`speaker` is outside this operation's role set, as `volunteer` is",
+        ),
+    },
+    "speaker_portal.read": {
+        "admin_at_org_root": permit(
+            why="an admin grant at the root covers every unit beneath it",
+        ),
+        "coordinator_at_owning_unit": permit(
+            why="B26 T6b-1: the Speaker Connector persona, as the speaker-contact rows",
+        ),
+        "coordinator_at_sibling_unit": deny(
+            "no_grant",
+            why="B26 T6b-1: the Speaker Connector persona, as the speaker-contact rows",
+        ),
+        "admin_at_sibling_unit": deny(
+            "no_grant",
+            why="B26 T6b-1: the Speaker Connector persona, as the speaker-contact rows",
+        ),
+        "student_at_owning_unit": deny(
+            "no_grant",
+            why="B26 T6b-1: the Speaker Connector persona, as the speaker-contact rows",
+        ),
+        "volunteer_at_owning_unit": deny(
+            "no_grant",
+            why="B26 T6b-1: the Speaker Connector persona, as the speaker-contact rows",
+        ),
+        "member_with_no_memberships": deny("no_grant"),
+        "resource_grant_only": deny(
+            "resource_grant_lacks_required_role",
+            why="S-007. A grant conveys reach, not authority. See the module docstring.",
+        ),
+        "admin_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="v1.1 §2.1: an explicit deny on the resource beats inheritance",
+        ),
+        "expired_coordinator_at_owning_unit": deny("no_grant"),
+        "suspended_admin": deny(
+            "principal_suspended",
+            why="suspension is checked first and does not wait for the IdP to revoke a token",
+        ),
+        "cross_tenant_coordinator": deny(
+            "tenant_mismatch",
+            why="tenant isolation is structural and precedes every grant question",
+        ),
+        "job_actor_without_role": deny(
+            "no_grant",
+            why="a read queues nothing, so the actor half of the shape is inert",
+        ),
+        "job_actor_with_explicit_deny": deny(
+            "explicit_resource_deny",
+            why="the actor half is inert; a deny on the unit beats inheritance",
+        ),
+        "speaker_at_owning_unit": deny(
+            "no_grant",
+            why="`speaker` is outside this operation's role set, as `volunteer` is",
         ),
     },
     "speaker_contact.update": {
@@ -6585,6 +7039,10 @@ MATRIX: dict[str, dict[str, Cell]] = {
                 "the actor half is inert here for the reason above; what is "
                 "left is a deny on the unit, which beats inheritance"
             ),
+        ),
+        "speaker_at_owning_unit": deny(
+            "no_grant",
+            why="`speaker` is outside this operation's role set, as `volunteer` is",
         ),
     },
     "speaker_contact.correct_classification": {
@@ -6668,6 +7126,10 @@ MATRIX: dict[str, dict[str, Cell]] = {
                 "the actor half is inert here for the reason above; what is "
                 "left is a deny on the unit, which beats inheritance"
             ),
+        ),
+        "speaker_at_owning_unit": deny(
+            "no_grant",
+            why="`speaker` is outside this operation's role set, as `volunteer` is",
         ),
     },
     # The three §13 channel operations. Their rectangles are identical to the
@@ -6760,6 +7222,10 @@ MATRIX: dict[str, dict[str, Cell]] = {
                 "left is a deny on the unit, which beats inheritance"
             ),
         ),
+        "speaker_at_owning_unit": deny(
+            "no_grant",
+            why="`speaker` is outside this operation's role set, as `volunteer` is",
+        ),
     },
     "speaker_contact.channel.list": {
         "admin_at_org_root": permit(
@@ -6836,6 +7302,10 @@ MATRIX: dict[str, dict[str, Cell]] = {
                 "the actor half is inert here for the reason above; what is "
                 "left is a deny on the unit, which beats inheritance"
             ),
+        ),
+        "speaker_at_owning_unit": deny(
+            "no_grant",
+            why="`speaker` is outside this operation's role set, as `volunteer` is",
         ),
     },
     "speaker_contact.channel.transition": {
@@ -6918,6 +7388,10 @@ MATRIX: dict[str, dict[str, Cell]] = {
                 "left is a deny on the unit, which beats inheritance"
             ),
         ),
+        "speaker_at_owning_unit": deny(
+            "no_grant",
+            why="`speaker` is outside this operation's role set, as `volunteer` is",
+        ),
     },
     "speaker_invitation.batch.create": {
         "admin_at_org_root": permit(
@@ -6998,6 +7472,10 @@ MATRIX: dict[str, dict[str, Cell]] = {
                 "left is a deny on the unit, which beats inheritance"
             ),
         ),
+        "speaker_at_owning_unit": deny(
+            "no_grant",
+            why="`speaker` is outside this operation's role set, as `volunteer` is",
+        ),
     },
     "speaker_invitation.batch.list": {
         "admin_at_org_root": permit(
@@ -7060,6 +7538,10 @@ MATRIX: dict[str, dict[str, Cell]] = {
             "explicit_resource_deny",
             why="the actor half is inert; a deny on the unit beats inheritance",
         ),
+        "speaker_at_owning_unit": deny(
+            "no_grant",
+            why="`speaker` is outside this operation's role set, as `volunteer` is",
+        ),
     },
     "speaker_invitation.batch.read": {
         "admin_at_org_root": permit(
@@ -7119,6 +7601,10 @@ MATRIX: dict[str, dict[str, Cell]] = {
         "job_actor_with_explicit_deny": deny(
             "explicit_resource_deny",
             why="the actor half is inert; a deny on the unit beats inheritance",
+        ),
+        "speaker_at_owning_unit": deny(
+            "no_grant",
+            why="`speaker` is outside this operation's role set, as `volunteer` is",
         ),
     },
     "speaker_invitation.batch.dispatch": {
@@ -7189,6 +7675,10 @@ MATRIX: dict[str, dict[str, Cell]] = {
             "explicit_resource_deny",
             why="the actor half is inert; a deny on the unit beats inheritance",
         ),
+        "speaker_at_owning_unit": deny(
+            "no_grant",
+            why="`speaker` is outside this operation's role set, as `volunteer` is",
+        ),
     },
     "speaker_invitation.response.record": {
         "admin_at_org_root": permit(
@@ -7251,6 +7741,10 @@ MATRIX: dict[str, dict[str, Cell]] = {
         "job_actor_with_explicit_deny": deny(
             "explicit_resource_deny",
             why="the actor half is inert; a deny on the unit beats inheritance",
+        ),
+        "speaker_at_owning_unit": deny(
+            "no_grant",
+            why="`speaker` is outside this operation's role set, as `volunteer` is",
         ),
     },
     # --- Student speaker feedback (customer §§15-16, OQ-CBA-003) --------
@@ -7359,6 +7853,10 @@ MATRIX: dict[str, dict[str, Cell]] = {
                 "on the unit, which beats inheritance"
             ),
         ),
+        "speaker_at_owning_unit": deny(
+            "no_grant",
+            why="`speaker` is outside this operation's role set, as `volunteer` is",
+        ),
     },
     # Identical to the row above, cell for cell, and written out rather than
     # aliased for `student_event.cancel`'s reason. The one thing a reader should
@@ -7428,6 +7926,10 @@ MATRIX: dict[str, dict[str, Cell]] = {
             "explicit_resource_deny",
             why="the actor half is inert; a deny on the unit beats inheritance",
         ),
+        "speaker_at_owning_unit": deny(
+            "no_grant",
+            why="`speaker` is outside this operation's role set, as `volunteer` is",
+        ),
     },
     # The read half of the student's own surface. Same cells again, and a
     # separate row because it is a separate authorizer — see the dispatcher's
@@ -7493,6 +7995,10 @@ MATRIX: dict[str, dict[str, Cell]] = {
         "job_actor_with_explicit_deny": deny(
             "explicit_resource_deny",
             why="the actor half is inert; a deny on the unit beats inheritance",
+        ),
+        "speaker_at_owning_unit": deny(
+            "no_grant",
+            why="`speaker` is outside this operation's role set, as `volunteer` is",
         ),
     },
     # The Connector's aggregate, and the mirror of the three rows above: every
@@ -7580,6 +8086,10 @@ MATRIX: dict[str, dict[str, Cell]] = {
         "job_actor_with_explicit_deny": deny(
             "explicit_resource_deny",
             why="the actor half is inert; a deny on the unit beats inheritance",
+        ),
+        "speaker_at_owning_unit": deny(
+            "no_grant",
+            why="`speaker` is outside this operation's role set, as `volunteer` is",
         ),
     },
     # The unit-level pool, cell for cell the same rectangle as the per-speaker
@@ -7672,6 +8182,10 @@ MATRIX: dict[str, dict[str, Cell]] = {
             "explicit_resource_deny",
             why="the actor half is inert; a deny on the unit beats inheritance",
         ),
+        "speaker_at_owning_unit": deny(
+            "no_grant",
+            why="`speaker` is outside this operation's role set, as `volunteer` is",
+        ),
     },
     # The CBA speaker handoff. Both operations below call the identical
     # `_authorize_handoff` against the identical `org_unit` resource, so their
@@ -7740,6 +8254,10 @@ MATRIX: dict[str, dict[str, Cell]] = {
             "explicit_resource_deny",
             why="the actor half is inert; what is left is a deny on the unit",
         ),
+        "speaker_at_owning_unit": deny(
+            "no_grant",
+            why="`speaker` is outside this operation's role set, as `volunteer` is",
+        ),
     },
     "cba_handoff.confirmed_speakers.read": {
         "admin_at_org_root": permit(
@@ -7798,6 +8316,10 @@ MATRIX: dict[str, dict[str, Cell]] = {
         "job_actor_with_explicit_deny": deny(
             "explicit_resource_deny",
             why="the actor half is inert; what is left is a deny on the unit",
+        ),
+        "speaker_at_owning_unit": deny(
+            "no_grant",
+            why="`speaker` is outside this operation's role set, as `volunteer` is",
         ),
     },
     # Appended at the end for the merge reason the ``Operation`` above states.
@@ -7897,6 +8419,10 @@ MATRIX: dict[str, dict[str, Cell]] = {
             "explicit_resource_deny",
             why="the actor half is inert; a deny on the unit beats inheritance",
         ),
+        "speaker_at_owning_unit": deny(
+            "no_grant",
+            why="`speaker` is outside this operation's role set, as `volunteer` is",
+        ),
     },
     "meeting.record": {
         "admin_at_org_root": permit(
@@ -7967,6 +8493,10 @@ MATRIX: dict[str, dict[str, Cell]] = {
             "explicit_resource_deny",
             why="the actor half is inert; what is left is a deny on the unit",
         ),
+        "speaker_at_owning_unit": deny(
+            "no_grant",
+            why="`speaker` is outside this operation's role set, as `volunteer` is",
+        ),
     },
     "meeting.list": {
         # Cell for cell identical to `meeting.record` above, and that identity is
@@ -8034,6 +8564,10 @@ MATRIX: dict[str, dict[str, Cell]] = {
             "explicit_resource_deny",
             why="the actor half is inert; what is left is a deny on the unit",
         ),
+        "speaker_at_owning_unit": deny(
+            "no_grant",
+            why="`speaker` is outside this operation's role set, as `volunteer` is",
+        ),
     },
     "manual_event.create": {
         "admin_at_org_root": permit(
@@ -8094,6 +8628,10 @@ MATRIX: dict[str, dict[str, Cell]] = {
             "explicit_resource_deny",
             why="the actor half is inert; what is left is a deny on the unit",
         ),
+        "speaker_at_owning_unit": deny(
+            "no_grant",
+            why="`speaker` is outside this operation's role set, as `volunteer` is",
+        ),
     },
     "manual_event.read": {
         "admin_at_org_root": permit(
@@ -8146,6 +8684,10 @@ MATRIX: dict[str, dict[str, Cell]] = {
         "job_actor_with_explicit_deny": deny(
             "explicit_resource_deny",
             why="the actor half is inert; what is left is a deny on the unit",
+        ),
+        "speaker_at_owning_unit": deny(
+            "no_grant",
+            why="`speaker` is outside this operation's role set, as `volunteer` is",
         ),
     },
     "manual_event.update": {
@@ -8207,6 +8749,10 @@ MATRIX: dict[str, dict[str, Cell]] = {
             "explicit_resource_deny",
             why="the actor half is inert; what is left is a deny on the unit",
         ),
+        "speaker_at_owning_unit": deny(
+            "no_grant",
+            why="`speaker` is outside this operation's role set, as `volunteer` is",
+        ),
     },
     "manual_event.publish": {
         "admin_at_org_root": permit(
@@ -8266,6 +8812,10 @@ MATRIX: dict[str, dict[str, Cell]] = {
         "job_actor_with_explicit_deny": deny(
             "explicit_resource_deny",
             why="the actor half is inert; what is left is a deny on the unit",
+        ),
+        "speaker_at_owning_unit": deny(
+            "no_grant",
+            why="`speaker` is outside this operation's role set, as `volunteer` is",
         ),
     },
     "manual_event.feedback_qr.read": {
@@ -8327,6 +8877,10 @@ MATRIX: dict[str, dict[str, Cell]] = {
             "explicit_resource_deny",
             why="the actor half is inert; what is left is a deny on the unit",
         ),
+        "speaker_at_owning_unit": deny(
+            "no_grant",
+            why="`speaker` is outside this operation's role set, as `volunteer` is",
+        ),
     },
     "manual_event.feedback_qr.write": {
         "admin_at_org_root": permit(
@@ -8386,6 +8940,10 @@ MATRIX: dict[str, dict[str, Cell]] = {
         "job_actor_with_explicit_deny": deny(
             "explicit_resource_deny",
             why="the actor half is inert; what is left is a deny on the unit",
+        ),
+        "speaker_at_owning_unit": deny(
+            "no_grant",
+            why="`speaker` is outside this operation's role set, as `volunteer` is",
         ),
     },
 }
@@ -8579,6 +9137,10 @@ def _authorize(operation: Operation, shape: Shape) -> None:
         # five contact-management operations are customer §13's single Speaker
         # Connector persona, so there is one decision and it is made here.
         "_authorize_speaker_contacts",
+        # B26 T6b-1 (`routers/speaker_portal.py`), on the same terms: load the
+        # unit, then make exactly this call with `_SPEAKER_PORTAL_ROLES`. One
+        # name for invite, revoke and the access read.
+        "_authorize_speaker_portal",
         # The fourteenth (`routers/student_events.py`), on the same terms: load
         # the unit, then make exactly this call against that row's path with
         # `_STUDENT_EVENT_ROLES`. One name for two operations, the
@@ -8786,6 +9348,7 @@ def _authorize(operation: Operation, shape: Shape) -> None:
             required_roles=operation.required_roles,
             require_membership=operation.require_membership,
             tenant_wide_roles=operation.tenant_wide_roles,
+            excluded_roles=operation.excluded_roles,
         )
         return
 
@@ -9477,6 +10040,88 @@ def test_every_tenant_wide_operation_is_declared() -> None:
         f"actually give tenant-wide reach: {sorted(stale)}. Remove them, or "
         f"restore the tenant_wide_roles argument on their authorizer."
     )
+
+
+def _excluded_roles_argument(function_node: ast.AST) -> str | None:
+    """The name a policy call inside ``function_node`` passes as ``excluded_roles``."""
+    for child in ast.walk(function_node):
+        if not isinstance(child, ast.Call):
+            continue
+        if _referenced_name(child.func) not in _POLICY_ENTRY_POINTS:
+            continue
+        for keyword in child.keywords:
+            if keyword.arg == "excluded_roles":
+                return _referenced_name(keyword.value)
+    return None
+
+
+@pytest.mark.parametrize("operation", OPERATIONS, ids=lambda op: op.key)
+def test_the_authorizer_passes_the_excluded_roles_the_matrix_names(
+    operation: Operation,
+) -> None:
+    """``excluded_roles`` must describe the code, in both directions and by name.
+
+    The counterpart of
+    :func:`test_the_authorizer_passes_the_tenant_wide_roles_the_matrix_names`:
+    :func:`_authorize` builds its policy call from the row's own field, so
+    without this check deleting ``excluded_roles=_AGGREGATE_EXCLUDED_ROLES``
+    from ``_authorize_aggregate_read`` would leave ``tests/authz`` green while
+    a speaker-only principal read every aggregate (owner ruling R8).
+    """
+    function_node = _authorizer_function_node(operation)
+    passed = _excluded_roles_argument(function_node)
+
+    if operation.excluded_roles_constant is None:
+        assert operation.excluded_roles == frozenset(), operation.key
+        assert passed is None, (
+            f"{operation.authz_module}.{operation.authorizer} now passes "
+            f"excluded_roles={passed!r}, but MATRIX records no exclusion for "
+            f"{operation.key}. Record it on the row and in EXCLUDED_ROLE_OPERATIONS."
+        )
+        return
+
+    assert passed == operation.excluded_roles_constant, (
+        f"MATRIX says {operation.key} passes {operation.excluded_roles_constant!r} "
+        f"as excluded_roles, but {operation.authz_module}.{operation.authorizer} "
+        f"passes {passed!r}. Without it a speaker-only principal reads aggregates, "
+        f"which owner ruling R8 (2026-09-23) refuses."
+    )
+    module = importlib.import_module(operation.authz_module)
+    declared = getattr(module, operation.excluded_roles_constant, None)
+    assert declared is not None, (
+        f"{operation.authz_module} has no {operation.excluded_roles_constant}"
+    )
+    assert declared == operation.excluded_roles, (
+        f"{operation.key}: MATRIX states excluded roles "
+        f"{sorted(operation.excluded_roles)} but "
+        f"{operation.authz_module}.{operation.excluded_roles_constant} is "
+        f"{sorted(declared)}"
+    )
+
+
+def test_every_excluded_role_operation_is_declared() -> None:
+    """Both directions, as the other category tables are checked."""
+    excluded = {operation.key for operation in OPERATIONS if operation.excluded_roles}
+    assert excluded == EXCLUDED_ROLE_OPERATIONS, (
+        f"undeclared: {sorted(excluded - EXCLUDED_ROLE_OPERATIONS)}; "
+        f"stale: {sorted(EXCLUDED_ROLE_OPERATIONS - excluded)}"
+    )
+
+
+@pytest.mark.parametrize("operation", OPERATIONS, ids=lambda op: op.key)
+def test_a_speaker_membership_reaches_no_operation(operation: Operation) -> None:
+    """The ``speaker`` role grants nothing on its own, observed on the real authorizer.
+
+    B26 T6b-1: deny-by-default, and ``speaker`` never widens ``volunteer`` or
+    vice versa. The aggregate reads refuse it by name (R8); every other
+    operation refuses it because it is outside the role set.
+    """
+    observed = _observe(operation, SHAPES_BY_NAME["speaker_at_owning_unit"])
+    assert not observed.permit, f"{operation.key} admits a speaker-only principal"
+    expected = (
+        "membership_role_excluded" if operation.key in EXCLUDED_ROLE_OPERATIONS else "no_grant"
+    )
+    assert observed.reason == expected, operation.key
 
 
 def test_the_matrix_is_a_full_rectangle() -> None:

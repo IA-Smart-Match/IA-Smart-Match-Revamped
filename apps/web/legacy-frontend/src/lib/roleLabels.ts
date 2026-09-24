@@ -38,9 +38,8 @@
 /**
  * The CBA personas, as customer §2 names them.
  *
- * `speaker` is deliberately present and deliberately unreachable from any
- * stored role: speakers are contact records, not login accounts. Naming the
- * persona without inventing a role for it keeps the vocabulary honest.
+ * `speaker` is the persona of the `speaker` stored role (B26 T6b-1), which
+ * only accepting a Speaker portal invitation grants. It is never seeded.
  */
 export type Persona = "student" | "event_host" | "speaker_connector" | "speaker";
 
@@ -86,6 +85,12 @@ export const ROLE_PRESENTATION = {
     persona: "speaker_connector",
     roleLabel: "Speaker Connector (administrator)",
     portalDisplayName: "Connector Dashboard",
+  },
+  /** B26 T6b-1: granted only by accepting a portal invitation. */
+  speaker: {
+    persona: "speaker",
+    roleLabel: "Speaker",
+    portalDisplayName: "Speaker Portal",
   },
 } as const;
 

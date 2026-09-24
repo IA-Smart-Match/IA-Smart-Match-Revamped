@@ -4076,6 +4076,78 @@ export async function updateSpeakerAvailability(
   );
 }
 
+// ---------------------------------------------------------------------------
+// Speaker portal accounts (B26 T6b-1). Mounted server-side only when the
+// `speaker_portal` capability is on; the UI that calls these is gated on the
+// same capability. The activation token never passes through the browser here.
+// ---------------------------------------------------------------------------
+
+/** What a Speaker Connector sees for one contact's portal access. */
+export type SpeakerPortalAccessStatus = "none" | "invited" | "expired" | "active";
+
+export interface SpeakerPortalAccess {
+  status: SpeakerPortalAccessStatus;
+  /** The channel the live link went to (`invited`/`expired` only). */
+  contact_channel_id?: string;
+  issued_at?: string;
+  expires_at?: string;
+  /** When the Speaker activated (`active` only). */
+  bound_at?: string;
+}
+
+/** `202`: the invitation is recorded and its email queued — nothing sent yet. */
+export interface SpeakerPortalInvitation {
+  invitation_id: string;
+  status: "invited";
+  expires_at: string;
+  job_id: string;
+  events_url: string;
+}
+
+function speakerPortalBase(unitId: string, professionalId: string): string {
+  return (
+    `/v1/units/${encodeURIComponent(unitId)}/speaker-contacts/` +
+    `${encodeURIComponent(professionalId)}`
+  );
+}
+
+/** `GET …/speaker-contacts/{professional_id}/portal-access` */
+export async function fetchSpeakerPortalAccess(
+  unitId: string,
+  professionalId: string,
+): Promise<SpeakerPortalAccess> {
+  return requestJson<SpeakerPortalAccess>(
+    `${speakerPortalBase(unitId, professionalId)}/portal-access`,
+    { method: "GET" },
+    { authenticated: true },
+  );
+}
+
+/** `POST …/portal-invitations` with the chosen email channel. */
+export async function inviteSpeakerToPortal(
+  unitId: string,
+  professionalId: string,
+  contactChannelId: string,
+): Promise<SpeakerPortalInvitation> {
+  return requestJson<SpeakerPortalInvitation>(
+    `${speakerPortalBase(unitId, professionalId)}/portal-invitations`,
+    { method: "POST", body: JSON.stringify({ contact_channel_id: contactChannelId }) },
+    { authenticated: true },
+  );
+}
+
+/** `DELETE …/portal-invitations/current`. `revoked: false` when nothing was live. */
+export async function revokeSpeakerPortalInvitation(
+  unitId: string,
+  professionalId: string,
+): Promise<{ revoked: boolean }> {
+  return requestJson<{ revoked: boolean }>(
+    `${speakerPortalBase(unitId, professionalId)}/portal-invitations/current`,
+    { method: "DELETE" },
+    { authenticated: true },
+  );
+}
+
 // CBA speaker handoff (CBA-HANDOFF-PIPELINE, customer §6 step 9)
 //
 // The far end of the arrow `submitSpeakerRequest` starts: an Event Host asked

@@ -197,6 +197,7 @@ from fastapi import FastAPI, Header, HTTPException, Request, status
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, ValidationError
 from smartmatch_domain.outreach import OUTREACH_SEND_COMMAND_TYPE
+from smartmatch_domain.product_scope import Capability, is_capability_enabled
 from smartmatch_persistence.engine import create_session_factory
 from smartmatch_persistence.jobs import DEFAULT_JOB_LEASE
 from smartmatch_providers.base import Edition
@@ -204,7 +205,11 @@ from smartmatch_providers.registry import build_email_provider, build_paid_extra
 from smartmatch_providers.tasks import TaskQueue
 from sqlalchemy.orm import Session, sessionmaker
 
-from smartmatch_worker.config import WorkerSettings, get_settings
+from smartmatch_worker.config import (
+    WorkerSettings,
+    check_worker_speaker_portal_startup,
+    get_settings,
+)
 from smartmatch_worker.dispatcher import (
     OutboxDispatcher,
     ScheduledPass,
@@ -467,6 +472,9 @@ def create_app(
         # `build_email_provider` is what refuses a live client.
         if registry_is_ours:
             secret = resolved.outreach_unsubscribe_secret
+            # B26 T6b-1 (R10): refuse to boot with SPEAKER_PORTAL on and no
+            # usable token secret; `None` when off.
+            portal_secret = check_worker_speaker_portal_startup(resolved)
             app.state.registry = with_outreach_send(
                 app.state.registry,
                 build_outreach_send_handler(
@@ -484,6 +492,10 @@ def create_app(
                     public_base_url=resolved.outreach_public_base_url,
                     unsubscribe_secret=secret.get_secret_value() if secret else None,
                     live_mode=resolved.outreach_live_mode,
+                    speaker_portal_token_secret=portal_secret,
+                    speaker_portal_enabled=is_capability_enabled(
+                        resolved.product_scope, Capability.SPEAKER_PORTAL
+                    ),
                 ),
                 OUTREACH_SEND_COMMAND_TYPE,
             )
