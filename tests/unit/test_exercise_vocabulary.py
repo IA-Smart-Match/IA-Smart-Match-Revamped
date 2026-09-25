@@ -138,3 +138,64 @@ def test_goal_topic_for_matching_maps_a_label_and_keeps_a_legacy_goal_as_written
     )
     # A dataset stored before the vocabulary closed ranks as it did.
     assert goal_topic_for_matching("analytics") == "analytics"
+
+
+@pytest.mark.parametrize("goal", ["Undecided", "Graduate school"])
+def test_a_goal_that_points_at_no_topic_is_a_measured_miss_not_unknown(goal: str) -> None:
+    """Owner ruling 2: measured 0.0, through the API's own row-to-evidence step."""
+    from smartmatch_api.exercise_dependencies import ExerciseEventRow, TeamProfileRow
+    from smartmatch_api.routers.exercise_matching_models import event_evidence, rankable_set
+    from smartmatch_domain.student_factors import career_goal_fit
+
+    row = TeamProfileRow(
+        profile_no=1,
+        display_name="Fictional One",
+        major="Accounting",
+        class_year="Senior",
+        past_event_keys=(),
+        stated_interests=("Consulting",),
+        career_goal=goal,
+        overlay_added_event_topics=(),
+        overlay_card_interests=None,
+        overlay_card_career_goal=None,
+        non_responding=False,
+    )
+    event = ExerciseEventRow(
+        event_key="E11",
+        name="Northline (fictional)",
+        topic_tags=("Technology / information systems",),
+        target_majors=("Computer Information Systems",),
+        is_exercise_event=True,
+        sequence=11,
+    )
+
+    evidence = rankable_set((row,), (event,)).profiles[0].evidence
+    fit = career_goal_fit(evidence, event_evidence(event))
+
+    assert fit.value == 0.0
+    assert not fit.is_unknown
+
+
+def test_the_results_rule_reads_the_hidden_goals_topic() -> None:
+    """``simulation_profiles`` turns the hidden goal into the topic the rule compares."""
+    from smartmatch_api.exercise_dependencies import SimulationProfileRow
+    from smartmatch_api.routers.exercise_results_models import simulation_profiles
+
+    rows = (
+        SimulationProfileRow(
+            profile_no=1,
+            display_name="Fictional One",
+            major="Accounting",
+            class_year="Senior",
+            past_event_keys=(),
+            stated_interests=None,
+            career_goal="Undecided",
+            hidden_true_interests=("Consulting",),
+            hidden_true_career_goal="Data, analytics or IT role",
+        ),
+    )
+
+    (profile,) = simulation_profiles(rows, non_responding_profile_nos=frozenset())
+
+    assert profile.career_goal == "Technology / information systems"
+    assert "Technology" not in repr(profile), "derived from a withheld column"

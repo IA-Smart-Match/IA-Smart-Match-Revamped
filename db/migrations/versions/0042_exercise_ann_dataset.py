@@ -16,6 +16,9 @@ vocabularies) and OQ-CE-05 (the upload is her ``.xlsx``). It carries two values
     simulated-results rule and by the refresh, which copies it onto a new card
     (OQ-CE-13, answered by the same Read Me). Nullable: a dataset stored
     before this revision has none, and the file may leave the cell blank.
+    Such a dataset's simulated results earn no career-goal fit (the rule now
+    reads the hidden goal, not the public one); only placeholder-CSV uploads
+    are affected, and re-uploading Ann's file restores it.
 
 ``tiebreak_order``
     "Fixed random order 1–300 for the last step of the tie-break. Never

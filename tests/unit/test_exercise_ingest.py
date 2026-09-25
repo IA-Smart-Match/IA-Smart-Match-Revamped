@@ -605,3 +605,23 @@ def test_the_column_name_guard_can_fail() -> None:
         module.__file__ = str(offender)
 
         assert _column_names_written_inside_functions(module) == [("read", LAYOUT.major_column)]
+
+
+# ---------------------------------------------------------------------------
+# Review round 1
+# ---------------------------------------------------------------------------
+
+
+def test_all_majors_beside_something_that_is_not_a_major_is_refused() -> None:
+    refusal = _refusal(_with_event(0, target_major="All majors; Basket Weaving"))
+
+    assert refusal.message == (
+        "Row 2 of the `Events` sheet has `Basket Weaving` in the column `target_major`, "
+        'which is not one of the 6 majors or "All majors".'
+    )
+
+
+def test_an_event_attended_twice_in_one_cell_is_one_attendance() -> None:
+    dataset = _accepted(_with_profile(3, events_attended="E01;E01; E01;E03"))
+
+    assert dataset.profiles[3].past_event_keys == ("E01", "E03")

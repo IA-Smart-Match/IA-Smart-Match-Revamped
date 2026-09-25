@@ -13,11 +13,10 @@
  *   ranked for this event at all. They are in the "all profiles" column and
  *   can never be in the "on this list" one, and saying so is the difference
  *   between a table that adds up and one that seems to have lost people.
- * - **`unlisted_class_years`** — every year in the file that has nobody on the
- *   list. PR #188 notes that class-year ordering is withdrawn
- *   (`PLACEHOLDER_CLASS_YEAR_RANK` is empty), so this list is currently every
- *   year in the file. It is shown as what the server said, without a claim
- *   about why.
+ * - **`unlisted_class_years`** — years in the file that the server's class-year
+ *   order does not name. With Ann's four years (2026-09-24) this is empty for
+ *   her file; a dataset stored earlier may still carry one. It is shown as what
+ *   the server said, without a claim about why.
  *
  * No vocabulary is written here. Majors and years are keys of the maps the
  * server sent, rendered as the file spells them. The vocabularies are closed

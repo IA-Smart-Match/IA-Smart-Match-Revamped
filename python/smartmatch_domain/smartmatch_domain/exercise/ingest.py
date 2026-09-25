@@ -263,7 +263,7 @@ class _Cells:
         if not text:
             return None
         found = lookup(text)
-        return found if found is not None else self._unknown(column, text, what)
+        return found if found is not None else self.unknown(column, text, what)
 
     def required_term(
         self, column: str, lookup: Callable[[str], str | None], what: str
@@ -282,11 +282,11 @@ class _Cells:
         for entry in _split_cell(self.text(column), self._layout):
             found = lookup(entry)
             if found is None:
-                return self._unknown(column, entry, what)
+                return self.unknown(column, entry, what)
             seen.setdefault(found, None)
         return tuple(seen)
 
-    def _unknown(self, column: str, text: str, what: str) -> IngestRefusal:
+    def unknown(self, column: str, text: str, what: str) -> IngestRefusal:
         if column in self._layout.withheld_columns:
             return self.refuse(
                 "unknown_value", f"has a value in the column `{column}` that is not {what}."
@@ -356,11 +356,19 @@ def _parse_event(
 
 
 def _target_majors(cells: _Cells, layout: ExerciseFileLayout) -> tuple[str, ...] | IngestRefusal:
-    """The event's majors; "All majors" is every one of the six."""
-    entries = _split_cell(cells.text(layout.target_majors_column), layout)
+    """The event's majors; "All majors" is every one of the six.
+
+    Every entry is checked before "All majors" expands, so a cell that says
+    "All majors" beside something that is not a major is still refused.
+    """
+    column = layout.target_majors_column
+    for entry in _split_cell(cells.text(column), layout):
+        if not is_all_majors(entry) and canonical_major(entry) is None:
+            return cells.unknown(column, entry, _A_MAJOR + ' or "All majors"')
+    entries = _split_cell(cells.text(column), layout)
     if any(is_all_majors(entry) for entry in entries):
         return EXERCISE_MAJORS
-    return cells.terms(layout.target_majors_column, canonical_major, _A_MAJOR + ' or "All majors"')
+    return cells.terms(column, canonical_major, _A_MAJOR)
 
 
 # ---------------------------------------------------------------------------
@@ -419,7 +427,11 @@ def _parse_profile(cells: _Cells, layout: ExerciseFileLayout) -> ParsedProfile |
         display_name=f"{first} {last}",
         major=major,
         class_year=year,
-        past_event_keys=_split_cell(cells.text(layout.past_event_keys_column), layout),
+        # Each attended event once: ``E01;E01`` is one attendance, not two, or
+        # the results rule would count a frequent attender who is not one.
+        past_event_keys=tuple(
+            dict.fromkeys(_split_cell(cells.text(layout.past_event_keys_column), layout))
+        ),
         stated_interests=card.interests,
         career_goal=card.career_goal,
         tiebreak_order=tiebreak,

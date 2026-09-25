@@ -573,10 +573,11 @@ session (the passcode) and sends `X-Exercise-Request`. Step 0 needs neither.
    tunnel hostname, and proves nothing about the database or the grant. Use the
    checks in [§3](#3-the-database-role) for those.
 
-1. **Upload the data file.** `POST /v1/exercise/instructor/datasets` with a raw
-   `text/csv` **body** — `Content-Type: text/csv`, the file's bytes, **no
-   multipart form** (`exercise_instructor.py:373-383`, owner decision
-   2026-09-21). Do this before the room fills; it creates the dataset every
+1. **Upload the data file.** `POST /v1/exercise/instructor/datasets` with Ann's
+   `.xlsx` as the raw **body** — `Content-Type:
+   application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`, the
+   workbook's bytes as she sent it, **no multipart form** (owner decisions
+   2026-09-21 and 2026-09-24; OQ-CE-05). The instructor page does this for you. Do this before the room fills; it creates the dataset every
    later step is keyed on.
 2. **Confirm the teams.** `GET /v1/exercise/instructor/workspaces`
    (`exercise_instructor.py:615-616`) lists the teams that have entered. Teams
@@ -984,11 +985,12 @@ check result, and the date/SHA — in the evidence table above.
 * **No real students ran it.** Every step above, where marked, is either
   unexecuted or executed by the documenting agent's own repo inspection, not
   by an operator on the VM against real traffic.
-* **The dataset is a synthetic/placeholder layout, not a graded one.**
-  OQ-CE-01 (the synthetic dataset's exact shape) is **OPEN** — the CSV upload
-  in [§7](#7-day-of-class-runbook) step 1 accepts whatever raw CSV is handed
-  to it; nothing here asserts that shape matches what the class actually
-  needs.
+* **The dataset's shape is Ann's, but its content is not graded here.**
+  OQ-CE-01 closed on 2026-09-24: the upload in
+  [§7](#7-day-of-class-runbook) step 1 accepts only Ann's workbook layout and
+  vocabularies. Nothing here asserts that the rankings it produces are the
+  ones the class needs; OQ-CE-14 (the role→topic table) and OQ-CE-15 (Ann's
+  P004 test case) are open with Ann.
 * **The matching coefficients are a placeholder.** OQ-CE-03/04 are **OPEN** —
   [§7](#7-day-of-class-runbook) step 6 documents that the results endpoint
   answers `409` by design until they are confirmed. This is expected, not a

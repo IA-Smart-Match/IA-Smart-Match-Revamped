@@ -42,7 +42,7 @@ one route on one screen.
 So the upload is the same bytes by a simpler road: Ann's ``.xlsx`` **is** the
 request body (OQ-CE-05, closed 2026-09-24), with the instructor's label and the
 browser's file name as query parameters. The owner confirmed on 2026-09-21
-that the body stays raw bytes. The ingest core takes bytes and a file name and neither knows nor
+that the body stays raw bytes. The ingest core takes bytes and neither knows nor
 cares how they arrived, so switching to multipart later is a change to this
 handler's signature and to nothing else. Recorded on this track's pull request
 as an owner decision rather than made quietly: if the answer is "take the

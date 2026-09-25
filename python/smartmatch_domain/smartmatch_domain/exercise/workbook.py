@@ -263,14 +263,21 @@ def _read_named(
     workbook: openpyxl.Workbook, sheet_names: Sequence[str]
 ) -> tuple[SheetRows, ...] | IngestRefusal:
     """Find each named sheet, then read it. The first failure is the answer."""
-    by_name: dict[str, str] = {}
+    by_name: dict[str, list[str]] = {}
     for name in workbook.sheetnames:
-        by_name.setdefault(normalize_header(name), name)
+        by_name.setdefault(normalize_header(name), []).append(name)
     read: list[SheetRows] = []
     for wanted in sheet_names:
-        title = by_name.get(normalize_header(wanted))
-        if title is None:
+        titles = by_name.get(normalize_header(wanted), [])
+        if not titles:
             return IngestRefusal("missing_sheet", f"The workbook has no sheet named `{wanted}`.")
+        if len(titles) > 1:
+            return IngestRefusal(
+                "duplicate_sheet",
+                f"The workbook has more than one sheet named like `{wanted}`; please "
+                "leave one of them and upload it again.",
+            )
+        title = titles[0]
         worksheet = workbook[title]
         if not isinstance(worksheet, ReadOnlyWorksheet):
             return IngestRefusal(
@@ -295,6 +302,10 @@ def _read_sheet(title: str, worksheet: ReadOnlyWorksheet) -> SheetRows | IngestR
     # types-openpyxl declares ``ReadOnlyWorksheet.iter_rows`` as a copy of
     # ``Worksheet.iter_rows``, self type included; the runtime method is the
     # read-only one, which streams.
+    # A read-only sheet stops at the row its ``<dimension>`` declares, and a
+    # stale declaration would drop rows without a word (ADR-0011). Reset it so
+    # the sheet is read to its real end; the ``islice`` caps bound the work.
+    worksheet.reset_dimensions()
     raw_rows = worksheet.iter_rows(max_col=MAX_COLUMN_COUNT + 1, values_only=True)  # type: ignore[misc]
     numbered = enumerate(raw_rows, start=1)
     header: tuple[int, list[str]] | None = None

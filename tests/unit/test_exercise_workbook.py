@@ -296,3 +296,53 @@ def test_every_upload_is_refused_when_openpyxl_is_not_using_defusedxml(
 def test_openpyxl_is_using_defusedxml_in_this_environment() -> None:
     """The dependency is declared; this proves it is installed and picked up."""
     assert openpyxl.DEFUSEDXML is True
+
+
+# ---------------------------------------------------------------------------
+# Review round 1
+# ---------------------------------------------------------------------------
+
+
+def test_a_stale_sheet_dimension_does_not_drop_rows() -> None:
+    """A read-only sheet stops at its declared ``<dimension>``; the reader resets it.
+
+    Found in review: a Profiles sheet declaring ``A1:N55`` over 61 rows parsed as
+    54 profiles and was accepted. Rows past a stale declaration must still be read.
+    """
+    import re
+
+    raw = good_workbook()
+    part = "xl/worksheets/sheet2.xml"
+    xml = zipfile.ZipFile(io.BytesIO(raw)).read(part)
+    stale = re.sub(rb'<dimension ref="[^"]*"\s*/>', b'<dimension ref="A1:N55"/>', xml)
+    assert stale != xml, "the fixture's Profiles sheet carries no dimension to falsify"
+
+    result = read_sheets(_replace_part(raw, part, stale), ("Profiles",))
+
+    assert isinstance(result, tuple)
+    assert len(result[0].rows) == 60
+
+
+@pytest.mark.usefixtures("openpyxl_must_not_open")
+def test_a_part_compressed_with_another_method_is_refused() -> None:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_BZIP2) as archive:
+        archive.writestr("xl/workbook.xml", b"<x/>")
+
+    assert _refused(buffer.getvalue()).code == "unreadable_workbook"
+
+
+def test_two_sheets_that_share_a_name_are_refused_rather_than_guessed() -> None:
+    book = openpyxl.Workbook()
+    first = book.active
+    assert first is not None
+    first.title = "Profiles"
+    first.append(["id"])
+    second = book.create_sheet("profiles ")
+    second.append(["id"])
+    buffer = io.BytesIO()
+    book.save(buffer)
+
+    refusal = _refused(buffer.getvalue())
+    assert refusal.code == "duplicate_sheet"
+    assert "`Profiles`" in refusal.message
