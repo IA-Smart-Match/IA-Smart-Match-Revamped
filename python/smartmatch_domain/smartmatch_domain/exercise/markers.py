@@ -25,9 +25,10 @@ The empty-group notice is **not** re-implemented here. It already exists as
 :func:`list_composition` composes it rather than deriving the same answer a
 second way.
 
-**PLACEHOLDER (OQ-CE-01).** No vocabulary of majors and no vocabulary of class
-years: every label arrives as data and is counted under the spelling it
-arrived with.
+Majors and years arrive as data and are counted under the spelling they
+arrived with. The vocabularies are closed at ingest
+(:mod:`smartmatch_domain.exercise.vocabulary`), so that spelling is Ann's;
+nothing here needs to know the list.
 """
 
 from __future__ import annotations

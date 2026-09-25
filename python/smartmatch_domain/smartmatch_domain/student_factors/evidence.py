@@ -7,12 +7,13 @@ expected to compose the same functions over the same shapes when that track
 ships. Nothing here is exercise-specific, and nothing here knows about a
 registry, a ranker, or a screen.
 
-**PLACEHOLDER (OQ-CE-01).** The column names and value vocabularies of Ann's
-data file are open. Every field below is therefore free text compared as an
-exact normalized string (:mod:`smartmatch_domain.student_factors.terms`); no
-enum, no CHECK, no fixed list, and no G3 mapping is declared. When OQ-CE-01
-closes, what changes is the mapping from Ann's columns onto these fields, not
-these shapes.
+Every field below is free text compared as an exact normalized string
+(:mod:`smartmatch_domain.student_factors.terms`); no enum, no CHECK, no fixed
+list, and no G3 mapping is declared here. The class exercise closes its
+vocabularies at ingest (:mod:`smartmatch_domain.exercise.vocabulary`) and maps
+a career-goal label to the topic ``career_goal`` holds before a card reaches
+these shapes, which are shared with a student registry that may not share
+either.
 
 **The three-state rule (ADR-0011, and the pattern**
 :mod:`smartmatch_domain.match_depth` **sets).** An empty card is not the same

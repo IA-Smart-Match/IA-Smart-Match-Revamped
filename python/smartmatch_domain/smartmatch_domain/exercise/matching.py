@@ -113,24 +113,30 @@ EXERCISE_STAGE_B_FORMULA_VERSION: Final[str] = "1.0.0-exercise"
 class ExerciseProfile:
     """One of the 300, as the ranker needs to read it.
 
-    **PLACEHOLDER (OQ-CE-01).** ``class_year`` is free text compared by the
-    caller's own ``year_rank`` mapping; no vocabulary of year names is declared
-    anywhere in this package.
+    ``class_year`` is compared through the caller's ``year_rank`` mapping —
+    :data:`~smartmatch_domain.exercise.vocabulary.EXERCISE_CLASS_YEAR_RANK` in
+    production, "seniors first".
 
     Attributes:
-        profile_no: The profile's number in the data file. The input to the
-            fixed order, and nothing else.
+        profile_no: The profile's number in the data file.
         class_year: The profile's year, as the data file spells it.
         evidence: What the four factors may see.
+        tiebreak_order: Ann's ``tiebreak_order`` — the profile's place in the
+            fixed order that settles the last tie (owner ruling of
+            2026-09-24). ``None`` for a dataset stored before the column
+            existed, which keeps the checksum-seeded order.
     """
 
     profile_no: int
     class_year: str
     evidence: ProfileEvidence
+    tiebreak_order: int | None = None
 
     def __post_init__(self) -> None:
         if not self.class_year.strip():
             raise ValueError("class_year: must not be empty or blank")
+        if self.tiebreak_order is not None and self.tiebreak_order < 1:
+            raise ValueError(f"tiebreak_order: must be positive, got {self.tiebreak_order}")
 
 
 @dataclass(frozen=True, slots=True)
@@ -163,7 +169,7 @@ class ExerciseList:
         invite_limit: The cap the list was cut at.
         unlisted_class_years: Class years carried by a profile that were not in
             the caller's ``year_rank`` mapping. Such a year ranks last and is
-            reported here rather than guessed at (OQ-CE-01).
+            reported here rather than guessed at.
     """
 
     entries: tuple[ExerciseListEntry, ...]
@@ -256,8 +262,7 @@ def _unlisted_year_rank(year_rank: Mapping[str, int]) -> int:
 
     Derived from the caller's own mapping rather than fixed at a literal, so a
     caller whose ranks are negative still gets "last" rather than "somewhere in
-    the middle". Never guessed from the year's own spelling: OQ-CE-01 is open
-    and the year vocabulary is Ann's to state.
+    the middle". Never guessed from the year's own spelling.
     """
     return min(year_rank.values(), default=0) - 1
 
@@ -289,9 +294,11 @@ def _exercise_ranked(entries: Sequence[_Ranked]) -> tuple[_Ranked, ...]:
     ``(value is None, -value, -info_rank, -year_rank, permutation_position)``:
     a known score first, then the higher composite, then more information on
     file, then the earlier year (seniors first, as the caller's ``year_rank``
-    defines "earlier"), then the fixed order seeded from the dataset checksum.
-    The last element is a total order over the dataset, so the sort never falls
-    through to input order and never depends on it.
+    defines "earlier"), then the fixed order — Ann's ``tiebreak_order`` when
+    the dataset carries it, else the order seeded from the dataset checksum
+    (:func:`_fixed_order`). The last element is a total order over the
+    dataset, so the sort never falls through to input order and never depends
+    on it.
     """
     return tuple(
         sorted(
@@ -397,6 +404,31 @@ def _contributing_keys(score: StageBScore) -> tuple[str, ...]:
     )
 
 
+def _fixed_order(profiles: Sequence[ExerciseProfile], dataset_checksum: str) -> Mapping[int, int]:
+    """``{profile_no: position}`` for the last step of the tie-break.
+
+    Ann's ``tiebreak_order`` when every profile carries one — "Fixed random
+    order 1–300 for the last step of the tie-break. Never changes between
+    runs." — and the checksum-seeded permutation when none does, which is what
+    a dataset stored before the column existed has. A dataset where only some
+    profiles carry one is refused: mixing the two orders would put every
+    profile of one kind ahead of every profile of the other, which is an order
+    nobody chose.
+    """
+    orders = [profile.tiebreak_order for profile in profiles]
+    if all(order is None for order in orders):
+        return exercise_permutation(dataset_checksum, [p.profile_no for p in profiles])
+    if any(order is None for order in orders):
+        raise ValueError("tiebreak_order: some profiles carry one and some do not")
+    if len(set(orders)) != len(orders):
+        raise ValueError("tiebreak_order: two profiles share one place in the fixed order")
+    return {
+        profile.profile_no: profile.tiebreak_order
+        for profile in profiles
+        if profile.tiebreak_order is not None
+    }
+
+
 def _ranked_entries(
     event: EventEvidence,
     profiles: Sequence[ExerciseProfile],
@@ -416,7 +448,7 @@ def _ranked_entries(
     if len(set(profile_nos)) != len(profile_nos):
         raise ValueError("profile_no: duplicate profile number in rank_profiles_for_event")
 
-    permutation = exercise_permutation(dataset_checksum, profile_nos)
+    permutation = _fixed_order(profiles, dataset_checksum)
     unlisted = _unlisted_year_rank(year_rank)
     entries: list[_Ranked] = []
     for profile in profiles:
@@ -452,13 +484,12 @@ def rank_profiles_for_event(
         invite_limit: The dataset's invite limit (30 by default, set by the
             instructor). Must be positive.
         year_rank: ``{class_year: rank}``, higher first, supplied by the
-            caller. **There is no production default** (OQ-CE-01): the year
-            vocabulary is Ann's, and a year this mapping does not name ranks
-            below every year it does, reported through
-            :func:`unlisted_class_years` rather than guessed.
-        dataset_checksum: The loaded file's checksum. The whole of the fixed
-            order's seed, so the order is identical across runs, teams, and
-            processes.
+            caller — ``vocabulary.EXERCISE_CLASS_YEAR_RANK`` in production. A
+            year this mapping does not name ranks below every year it does,
+            reported through :func:`unlisted_class_years` rather than guessed.
+        dataset_checksum: The loaded file's checksum. The fixed order's seed
+            when the profiles carry no ``tiebreak_order``, so the order is
+            identical across runs, teams, and processes either way.
 
     Returns:
         One :class:`~smartmatch_domain.scoring.StageBScore` per listed profile,
@@ -467,7 +498,8 @@ def rank_profiles_for_event(
 
     Raises:
         ValueError: for a non-positive ``invite_limit``, a blank
-            ``dataset_checksum``, or a duplicate ``profile_no``.
+            ``dataset_checksum``, a duplicate ``profile_no``, or a
+            ``tiebreak_order`` carried by only some profiles or shared by two.
     """
     if invite_limit <= 0:
         raise ValueError(f"invite_limit: must be positive, got {invite_limit}")

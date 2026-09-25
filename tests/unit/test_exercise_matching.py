@@ -38,8 +38,9 @@ EVENT = EventEvidence(
     target_majors=("Marketing",),
 )
 
-# Test-only. The class-year vocabulary is OQ-CE-01 and the module ships no
-# default mapping; this one exists for these tests and nowhere else.
+# Test-only. The ranker takes the caller's mapping; production passes
+# ``vocabulary.EXERCISE_CLASS_YEAR_RANK``. A smaller one keeps these tests about
+# the ranker rather than about Ann's four years.
 TEST_ONLY_YEAR_RANK = {"Senior": 3, "Junior": 2, "Sophomore": 1}
 
 CHECKSUM = "sha256:testonly0001"
@@ -428,3 +429,93 @@ def test_neither_ranker_imports_the_other() -> None:
         if "exercise" in module or "exercise" in name
     }
     assert exercise_imports == set()
+
+
+# ---------------------------------------------------------------------------
+# Ann's tiebreak_order (owner ruling 3, 2026-09-24)
+# ---------------------------------------------------------------------------
+
+
+def _tied(orders: list[int | None]) -> list[ExerciseProfile]:
+    return [
+        ExerciseProfile(number, "Senior", _major_only(f"p{number}"), tiebreak_order=order)
+        for number, order in enumerate(orders, start=1)
+    ]
+
+
+def test_anns_tiebreak_order_settles_the_last_tie() -> None:
+    assert _ranked_ids(_tied([3, 1, 2])) == ["p2", "p3", "p1"]
+    assert _reasons(_tied([3, 1, 2]))[0] == "Tied; placed in a fixed order that never changes."
+
+
+def test_the_tiebreak_order_does_not_depend_on_the_checksum() -> None:
+    profiles = _tied([5, 4, 3, 2, 1])
+    other = [
+        score.subject_id
+        for score in rank_profiles_for_event(
+            EVENT,
+            profiles,
+            invite_limit=10,
+            year_rank=TEST_ONLY_YEAR_RANK,
+            dataset_checksum="sha256:another-upload",
+        )
+    ]
+    assert other == _ranked_ids(profiles) == ["p5", "p4", "p3", "p2", "p1"]
+
+
+def test_the_tiebreak_order_is_the_last_key_not_the_first() -> None:
+    profiles = [
+        ExerciseProfile(1, "Junior", _major_only("junior-first-in-order"), tiebreak_order=1),
+        ExerciseProfile(2, "Senior", _major_only("senior"), tiebreak_order=2),
+    ]
+    assert _ranked_ids(profiles) == ["senior", "junior-first-in-order"]
+
+
+def test_a_dataset_without_tiebreak_order_keeps_the_checksum_order() -> None:
+    from smartmatch_domain.exercise.determinism import exercise_permutation
+
+    permutation = exercise_permutation(CHECKSUM, range(1, 6))
+    expected = [f"p{number}" for number in sorted(range(1, 6), key=permutation.__getitem__)]
+    assert _ranked_ids(_tied([None] * 5)) == expected
+
+
+def test_a_tiebreak_order_on_only_some_profiles_is_refused() -> None:
+    with pytest.raises(ValueError, match="some profiles carry one"):
+        _ranked_ids(_tied([1, None, 2]))
+
+
+def test_a_shared_tiebreak_order_is_refused() -> None:
+    with pytest.raises(ValueError, match="share one place"):
+        _ranked_ids(_tied([1, 1, 2]))
+
+
+def test_a_non_positive_tiebreak_order_is_refused() -> None:
+    with pytest.raises(ValueError, match="tiebreak_order"):
+        ExerciseProfile(1, "Senior", _major_only("p1"), tiebreak_order=0)
+
+
+def test_anns_year_order_wakes_the_year_sentence() -> None:
+    """Owner ruling 4: seniors first, and the dormant year rung speaks."""
+    from smartmatch_domain.exercise.vocabulary import EXERCISE_CLASS_YEAR_RANK
+
+    profiles = [
+        ExerciseProfile(1, "Freshman", _major_only("freshman"), tiebreak_order=1),
+        ExerciseProfile(2, "Senior", _major_only("senior"), tiebreak_order=2),
+        ExerciseProfile(3, "Junior", _major_only("junior"), tiebreak_order=3),
+        ExerciseProfile(4, "Sophomore", _major_only("sophomore"), tiebreak_order=4),
+    ]
+    listing = exercise_ranked_list(
+        EVENT,
+        profiles,
+        invite_limit=30,
+        year_rank=EXERCISE_CLASS_YEAR_RANK,
+        dataset_checksum=CHECKSUM,
+    )
+    assert [entry.profile_id for entry in listing.entries] == [
+        "senior",
+        "junior",
+        "sophomore",
+        "freshman",
+    ]
+    assert {entry.reason for entry in listing.entries} == {"Tied on major; ordered by year."}
+    assert listing.unlisted_class_years == ()

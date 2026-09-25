@@ -9,78 +9,58 @@ upload that has no adapter because it has no pipeline (§3: the instructor
 needs an answer on the spot).
 
 Every refusal is one sentence a non-programmer can act on, in §3's order, and
-the first failure is the whole answer. The spec's own example is carried
-verbatim by :func:`_missing_columns_sentence`: *The file is missing the column
-``major``.* The requirements ask Danny for "data-file loading with a plain
-error when a column is missing", and a stack trace, a field path or a list of
-twelve problems are all worse answers than the first one.
+the first failure is the whole answer. A missing sheet names the sheet and a
+missing column names the sheet and the column: *The `Profiles` sheet is missing
+the column `tiebreak_order`.*
 
-PLACEHOLDER (OQ-CE-01) — the layout
-===================================
-Ann's 20-row sample has not arrived; the owner ruled on 2026-09-18 to build to
-the placeholder columns now. Every column name, the list-cell separator and
-the way a row declares what it is live on
-:class:`~smartmatch_domain.exercise.layout.ExerciseFileLayout`; no function
-below contains a column name. §3 says "multipart, one file" while §2 needs
-about 300 profiles *and* 12 events, so the placeholder is **one CSV with a
-``record_type`` column** saying which a row is. The alternatives, and why they
-lost, are on this track's pull request — each is a different layout object
-rather than a different parser.
-
-PLACEHOLDER (OQ-CE-05) — CSV, and what happens to an XLSX
+Ann's workbook (OQ-CE-01 and OQ-CE-05, closed 2026-09-24)
 =========================================================
-``csv.DictReader`` from the standard library. ``openpyxl`` is not imported, is
-not a dependency and is not a fallback: an XLSX is **refused with a sentence
-asking for a CSV export**, detected by ZIP magic bytes as well as by name,
-because a workbook renamed ``.csv`` is still a workbook.
+The file is Ann's ``.xlsx`` as she sent it, read by
+:mod:`smartmatch_domain.exercise.workbook` (which owns every guard on the
+bytes, the ZIP and the XML) and described by
+:data:`~smartmatch_domain.exercise.layout.EXERCISE_LAYOUT`; no function below
+contains a column name. Only the ``Profiles`` and ``Events`` sheets are read.
 
-No vocabulary is closed here
-============================
-§3 asks for "every ``class_year`` in the vocabulary" and interest terms
-"mapped to G3". Both vocabularies are OQ-CE-01 and the G3 mapping is a gated
-area, so this module does neither. ``class_year`` is validated only for what
-the database would refuse, and the distinct values found are **reported** so
-the vocabulary can be read off the file instead of off a guess. Terms are
-normalized and counted, never mapped; the one thing a list cell can lose is an
-entry that is punctuation only, and that is counted too (ADR-0011).
+Every value is checked against the closed vocabularies of
+:mod:`smartmatch_domain.exercise.vocabulary` — six majors, four years, thirteen
+topics, sixteen career goals — and stored in Ann's spelling. A value outside
+them is refused, which is the owner's ruling of 2026-09-24.
 
-ADR-0025 D6 — the withheld column
-=================================
-``hidden_true_interests`` is parsed onto :class:`ParsedProfile` so the
-repository can store it and the simulated-results rule can read it. It appears
-in no refusal sentence, on :class:`IngestReport` in no form, in no ``repr``
-and in no log line. The log records counts only.
+What the file says, and what is decided here
+============================================
+* ``profile_id`` ``P004`` is profile number 4; anything but ``P`` and digits
+  is refused. ``display_name`` is first name, a space, last name.
+* ``card_completed`` says whether a card exists. ``No`` beside a stated
+  interest or a stated goal is a contradiction and is refused.
+* ``tiebreak_order`` is a whole number, unique across the file: the last step
+  of the tie-break (owner ruling 3).
+* An event's ``target_major`` of ``All majors`` is stored as all six majors.
+* An event's ``sequence`` is its row position on the ``Events`` sheet.
+* ``seats`` is read on the two exercise events and must be
+  :data:`~smartmatch_domain.exercise.simulation.EVENT_SEATS`: the simulated
+  results run with that many seats, and a file saying otherwise is refused
+  rather than ignored.
+* A past event a profile attended must be one of the file's past events.
 
-Untrusted input
-===============
-The byte cap, the cell cap, the column cap and the row cap are checked before
-any per-row work; the row cap is applied to a slice rather than to a fully
-read file; NUL bytes are refused; the two numeric columns are bounded to what
-a PostgreSQL ``integer`` holds. ``csv.field_size_limit`` is **not** touched —
-it is process-global, so setting and restoring it around a parse corrupts it
-for every other reader when two parses overlap; :func:`_read_rows` says what
-stands in for it. Every refusal that quotes the file passes it through
-:func:`_quote` first — a heading and a cell are whatever the uploader typed.
-
-No cell is ever evaluated: a leading ``=``, ``+`` or ``@`` is data here. The
-CSV-injection risk of those prefixes belongs to the **download** track of §8,
-which writes cells rather than reading them; noted here, acted on there.
+ADR-0025 D6 — the withheld columns
+==================================
+``hidden_true_interests`` and ``hidden_true_career_goal`` are parsed onto
+:class:`ParsedProfile` so the repository can store them and the results rule
+and the refresh can read them. A refusal about one of them names the column
+and never quotes the cell; they appear on :class:`IngestReport` in no form, in
+no ``repr`` and in no log line. The log records counts only.
 """
 
 from __future__ import annotations
 
-import csv
 import hashlib
-import io
-import itertools
 import logging
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Final
 
-from smartmatch_domain.events import normalize_tag_value
 from smartmatch_domain.exercise.layout import (
-    PLACEHOLDER_LAYOUT,
+    EXERCISE_LAYOUT,
     ExerciseFileLayout,
     IngestRefusal,
     IngestReport,
@@ -89,20 +69,35 @@ from smartmatch_domain.exercise.layout import (
     ParsedEvent,
     ParsedProfile,
 )
+from smartmatch_domain.exercise.simulation import EVENT_SEATS
+from smartmatch_domain.exercise.vocabulary import (
+    EXERCISE_CAREER_GOALS,
+    EXERCISE_CLASS_YEARS,
+    EXERCISE_MAJORS,
+    EXERCISE_TOPICS,
+    canonical_career_goal,
+    canonical_class_year,
+    canonical_major,
+    canonical_topic,
+    is_all_majors,
+)
+from smartmatch_domain.exercise.workbook import (
+    MAX_UPLOAD_BYTES,
+    SheetRows,
+    quote,
+    read_sheets,
+)
 from smartmatch_domain.ingest import normalize_header
 
 # The layout types are re-exported so a caller needs one import to parse a file
 # and read the answer; ``layout.py`` holds their definitions.
 __all__ = [
     "EXERCISE_EVENT_ROW_COUNT",
-    "MAX_CELL_CHARACTERS",
-    "MAX_COLUMN_COUNT",
+    "EXERCISE_LAYOUT",
     "MAX_COLUMN_INTEGER",
-    "MAX_DATA_ROW_COUNT",
     "MAX_PROFILE_ROW_COUNT",
     "MAX_UPLOAD_BYTES",
     "MIN_PROFILE_ROW_COUNT",
-    "PLACEHOLDER_LAYOUT",
     "ExerciseFileLayout",
     "IngestRefusal",
     "IngestReport",
@@ -115,113 +110,42 @@ __all__ = [
 
 _LOGGER = logging.getLogger(__name__)
 
-#: The largest upload this will look at, in bytes. About three hundred profiles
-#: and twelve events is well under a hundred kilobytes; two mebibytes leaves an
-#: instructor room to paste in a wider export without leaving room for a file
-#: that is not a class roster at all. Checked before anything is decoded.
-MAX_UPLOAD_BYTES: Final[int] = 2 * 1024 * 1024
-
-#: The longest a single cell may be. Long enough for a sentence of interests,
-#: short enough that a million-character field is refused rather than parsed.
-MAX_CELL_CHARACTERS: Final[int] = 500
-
-#: The most columns a header may carry. The placeholder layout needs thirteen.
-MAX_COLUMN_COUNT: Final[int] = 64
-
-#: The most data rows that will be read. Design spec §2's file is about 312
-#: rows; this bound exists so a file that is not one stops early.
-MAX_DATA_ROW_COUNT: Final[int] = 4_000
-
-#: Design spec §3: "row count within 50–1000". Counted over profile rows, which
-#: are "the 300" the sentence is about, and aligned with
-#: ``ck_exercise_dataset_row_count`` (``row_count >= 0``) — this pair is the
-#: narrower of the two, so what this accepts the database accepts.
+#: Design spec §3: "row count within 50–1000", counted over profile rows.
 MIN_PROFILE_ROW_COUNT: Final[int] = 50
 MAX_PROFILE_ROW_COUNT: Final[int] = 1_000
 
-#: Design spec §3: "exactly two rows flagged as exercise events". Northline is
-#: round one and Harbor is round two; that is the case, not an open question.
+#: Design spec §3: "exactly two rows flagged as exercise events".
 EXERCISE_EVENT_ROW_COUNT: Final[int] = 2
 
-#: How many offending values a refusal sentence names before it stops counting
-#: them out. A sentence that lists three hundred duplicates is not a sentence.
+#: How many offending values a refusal sentence names before it stops.
 _MAX_NAMED_VALUES: Final[int] = 5
 
-#: The largest value ``exercise_profile.profile_no`` and
-#: ``exercise_event.sequence`` can hold. Both are PostgreSQL ``integer``
-#: (int4), and Python's ``int`` has no ceiling — so without this a
-#: four-hundred-digit cell parses happily here and is refused four layers later
-#: by a driver, which reports it with the row attached.
+#: The largest value an ``integer`` column holds (``profile_no``,
+#: ``tiebreak_order``, ``sequence``). Python's ``int`` has no ceiling, so
+#: without this a long digit string parses here and a driver refuses it later.
 MAX_COLUMN_INTEGER: Final[int] = 2_147_483_647
 
-#: The most digits a number cell may carry before it is refused unread. Ten is
-#: the width of :data:`MAX_COLUMN_INTEGER`; the point of checking the length
-#: before calling ``int()`` is that parsing a very long digit string is itself
-#: work a hostile upload should not be able to ask for.
+#: The most digits a number cell may carry before it is refused unread.
 _MAX_NUMBER_DIGITS: Final[int] = 10
 
-#: How much of a quoted piece of the uploaded file a sentence shows.
-_QUOTED_TEXT_CHARACTERS: Final[int] = 40
-
-#: Where ``csv.DictReader`` puts cells past the end of the header.
-_OVERFLOW_KEY: Final[str] = "__extra_cells__"
-
-
-def _quote(text: str) -> str:
-    """Render a piece of the uploaded file for a sentence an instructor reads.
-
-    Every refusal that names something the uploader typed — a heading, a cell,
-    an event key — goes through this first, because file content can carry
-    newlines that turn one log line into several, control characters, a
-    backtick that breaks out of the quoting these sentences use, and ten
-    thousand characters where forty would do. Unprintables become spaces,
-    whitespace collapses, backticks are removed (they are this module's
-    delimiter, not the uploader's), and the result is truncated. Empty input
-    reads as ``(blank)``.
-
-    Presentation only: nothing here is ever written to a row, and the stored
-    values keep their own spelling.
-    """
-    flattened = "".join(character if character.isprintable() else " " for character in text)
-    cleaned = " ".join(flattened.replace("`", "").split())
-    if not cleaned:
-        return "(blank)"
-    if len(cleaned) > _QUOTED_TEXT_CHARACTERS:
-        return cleaned[:_QUOTED_TEXT_CHARACTERS] + "…"
-    return cleaned
+_Row = tuple[int, Mapping[str, str]]
 
 
 def parse_exercise_file(
-    content: bytes | str,
-    *,
-    filename: str | None = None,
-    layout: ExerciseFileLayout = PLACEHOLDER_LAYOUT,
+    content: bytes, *, layout: ExerciseFileLayout = EXERCISE_LAYOUT
 ) -> ParsedDataset | IngestRefusal:
-    """Read an uploaded data file, or say in one sentence why it was refused.
+    """Read an uploaded workbook, or say in one sentence why it was refused.
 
     Args:
-        content: The uploaded bytes. A ``str`` is accepted for callers that
-            already hold text and is encoded as UTF-8 before anything else, so
-            that the checksum is a checksum of bytes either way.
-        filename: What the browser called the file, used only to recognise an
-            XLSX by name. Never opened, never joined to a path.
-        layout: PLACEHOLDER (OQ-CE-01). Defaults to :data:`PLACEHOLDER_LAYOUT`.
+        content: The uploaded bytes.
+        layout: Where the file keeps each value. Defaults to Ann's.
 
     Returns:
         A :class:`ParsedDataset` when every check of design spec §3 passed, or
         the first :class:`IngestRefusal` otherwise.
     """
-    raw = content.encode("utf-8") if isinstance(content, str) else bytes(content)
-    guard = _guard_upload(raw, filename=filename)
-    if guard is not None:
-        return guard
-    decoded = _decode(raw)
-    if isinstance(decoded, IngestRefusal):
-        return decoded
-    rows = _read_rows(decoded, layout)
-    if isinstance(rows, IngestRefusal):
-        return rows
-    dataset = _build_dataset(rows, layout=layout, checksum=hashlib.sha256(raw).hexdigest())
+    raw = bytes(content)
+    dataset = _parse(raw, layout)
     if isinstance(dataset, IngestRefusal):
         _LOGGER.info("exercise data file refused: code=%s", dataset.code)
         return dataset
@@ -234,423 +158,329 @@ def parse_exercise_file(
     return dataset
 
 
-# ---------------------------------------------------------------------------
-# Guards that run before a single row is parsed
-# ---------------------------------------------------------------------------
-
-#: The first four bytes of every ZIP container, which is what an XLSX is.
-_ZIP_MAGIC: Final[bytes] = b"PK\x03\x04"
-
-
-def _guard_upload(raw: bytes, *, filename: str | None) -> IngestRefusal | None:
-    """Size, format and NUL checks, in that order. ``None`` means "carry on"."""
-    if len(raw) > MAX_UPLOAD_BYTES:
-        return IngestRefusal(
-            "file_too_large",
-            f"The file is larger than {MAX_UPLOAD_BYTES // (1024 * 1024)} MB, "
-            "which is much larger than a class data file; please check you "
-            "picked the right file.",
-        )
-    if not raw.strip():
-        return IngestRefusal("file_empty", "The file is empty.")
-    name = (filename or "").strip().lower()
-    if raw.startswith(_ZIP_MAGIC) or name.endswith((".xlsx", ".xlsm")):
-        return IngestRefusal(
-            "spreadsheet_not_csv",
-            "This looks like an Excel workbook. Please save it as CSV "
-            "(File, Save As, CSV UTF-8) and upload that file instead.",
-        )
-    if b"\x00" in raw:
-        return IngestRefusal(
-            "binary_content",
-            "The file does not look like a CSV file; please upload the CSV "
-            "export of the data file.",
-        )
-    return None
-
-
-def _decode(raw: bytes) -> str | IngestRefusal:
-    """UTF-8 with a tolerated byte-order mark, or a sentence about the encoding."""
-    try:
-        return raw.decode("utf-8-sig")
-    except UnicodeDecodeError:
-        return IngestRefusal(
-            "undecodable_text",
-            "The file could not be read as text; please re-save it as CSV UTF-8 "
-            "and upload it again.",
-        )
-
-
-# ---------------------------------------------------------------------------
-# Reading the rows
-# ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True, slots=True)
-class _Sheet:
-    """The header map and the data rows, once the CSV itself has been read."""
-
-    #: Normalized header name to the spelling the file actually used.
-    headers: Mapping[str, str]
-    #: Each data row as the file gave it, paired with its line number.
-    rows: tuple[tuple[int, Mapping[str, str]], ...]
-
-
-def _read_rows(text: str, layout: ExerciseFileLayout) -> _Sheet | IngestRefusal:
-    """Read the CSV, one row past the cap and no further.
-
-    **``csv.field_size_limit`` is deliberately not touched.** It is
-    process-global rather than per-reader, so two parses running at once
-    interleave the set and the restore and the loser leaves the global at the
-    other's value for every reader in the process — including the CBA import
-    path. Nothing here needs it raised: the 2 MiB upload cap bounds the file,
-    :data:`MAX_CELL_CHARACTERS` bounds a cell, and the stdlib default of
-    131072 is itself a bound, above which ``csv.Error`` becomes the plain
-    sentence below.
-
-    Rows come through :func:`itertools.islice` at one past
-    :data:`MAX_DATA_ROW_COUNT`, so a million-row file costs the cap and not
-    the file. That extra row is what :func:`_collect_rows` refuses on, and it
-    is why the sentence says "more than" rather than a total.
-    """
-    reader = csv.DictReader(io.StringIO(text), restkey=_OVERFLOW_KEY, restval="")
-    try:
-        fieldnames = reader.fieldnames
-        body = [(reader.line_num, row) for row in itertools.islice(reader, MAX_DATA_ROW_COUNT + 1)]
-    except csv.Error:
-        return IngestRefusal(
-            "unreadable_csv",
-            "The file could not be read as a CSV table; please check it "
-            "opens as a spreadsheet and re-export it.",
-        )
-    headers = _header_map(fieldnames)
-    if isinstance(headers, IngestRefusal):
-        return headers
-    missing = _missing_columns(headers, layout)
+def _parse(raw: bytes, layout: ExerciseFileLayout) -> ParsedDataset | IngestRefusal:
+    """The whole of §3, in order. The first refusal is the answer."""
+    sheets = read_sheets(raw, (layout.profiles_sheet, layout.events_sheet))
+    if isinstance(sheets, IngestRefusal):
+        return sheets
+    profile_sheet, event_sheet = sheets
+    missing = _missing_columns(profile_sheet, layout.profile_columns) or _missing_columns(
+        event_sheet, layout.event_columns
+    )
     if missing is not None:
         return missing
-    return _collect_rows(headers, body)
-
-
-def _header_map(fieldnames: Sequence[str] | None) -> Mapping[str, str] | IngestRefusal:
-    """Normalized column name to the file's own spelling.
-
-    Compared through ``normalize_header``, so ``"Class Year"`` and
-    ``" CLASS-YEAR "`` are one column: header text is presentation, never an
-    identity — the rule the CBA import path already follows.
-    """
-    if not fieldnames:
-        return IngestRefusal("no_header_row", "The file has no header row naming its columns.")
-    if len(fieldnames) > MAX_COLUMN_COUNT:
-        return IngestRefusal(
-            "too_many_columns",
-            f"The file has {len(fieldnames)} columns, which is more than this "
-            f"page reads ({MAX_COLUMN_COUNT}).",
-        )
-    mapped: dict[str, str] = {}
-    for name in fieldnames:
-        heading = name or ""
-        if len(heading) > MAX_CELL_CHARACTERS:
-            return IngestRefusal(
-                "column_name_too_long",
-                f"One of the column headings is longer than {MAX_CELL_CHARACTERS} "
-                "characters; please check the first row of the file.",
-            )
-        key = normalize_header(heading)
-        if key and key in mapped:
-            return IngestRefusal(
-                "duplicate_column",
-                f"The file has two columns named `{_quote(heading)}`; please leave "
-                "one of them and upload it again.",
-            )
-        if key:
-            mapped[key] = name
-    return mapped
-
-
-def _missing_columns(
-    headers: Mapping[str, str], layout: ExerciseFileLayout
-) -> IngestRefusal | None:
-    """Design spec §3's first check, reporting every missing column at once.
-
-    All of them in one sentence rather than one at a time: an instructor fixing
-    a file five minutes before class should learn everything wrong with its
-    header in one upload.
-    """
-    missing = [
-        column for column in layout.required_columns if normalize_header(column) not in headers
-    ]
-    if not missing:
-        return None
-    return IngestRefusal("missing_columns", _missing_columns_sentence(missing))
-
-
-def _missing_columns_sentence(missing: Sequence[str]) -> str:
-    """Design spec §3's example, verbatim for one column and extended for more."""
-    if len(missing) == 1:
-        return f"The file is missing the column `{missing[0]}`."
-    listed = ", ".join(f"`{column}`" for column in missing)
-    return f"The file is missing these columns: {listed}."
-
-
-def _collect_rows(
-    headers: Mapping[str, str], body: Sequence[tuple[int, Mapping[str, object]]]
-) -> _Sheet | IngestRefusal:
-    """Bound the row count and every cell, and drop rows that are entirely blank.
-
-    ``body`` carries each row's **file line number** from
-    ``csv.DictReader.line_num`` rather than its position: a quoted cell may
-    contain a newline, and then every row after it sits on a later line than
-    its index suggests — so "row 12" would point at the wrong row, which is
-    worse than not saying.
-    """
-    if len(body) > MAX_DATA_ROW_COUNT:
-        return IngestRefusal(
-            "too_many_rows",
-            f"The file has more than {MAX_DATA_ROW_COUNT} rows, which is more "
-            "than this page reads.",
-        )
-    kept: list[tuple[int, Mapping[str, str]]] = []
-    for line, row in body:
-        if row.get(_OVERFLOW_KEY):
-            return IngestRefusal(
-                "ragged_row",
-                f"Row {line} has more cells than the header has columns; please "
-                "check the file for a stray comma and upload it again.",
-            )
-        cells = {key: _cell_text(value) for key, value in row.items() if key != _OVERFLOW_KEY}
-        too_long = next((k for k, v in cells.items() if len(v) > MAX_CELL_CHARACTERS), None)
-        if too_long is not None:
-            return IngestRefusal(
-                "cell_too_long",
-                f"Row {line} has more than {MAX_CELL_CHARACTERS} characters in "
-                f"the column `{_quote(too_long)}`; please shorten it and upload again.",
-            )
-        if any(cells.values()):
-            kept.append((line, cells))
-    return _Sheet(headers=headers, rows=tuple(kept))
-
-
-def _cell_text(value: object) -> str:
-    """One cell as trimmed text. A missing cell and a blank one are both blank."""
-    if value is None:
-        return ""
-    if isinstance(value, str):
-        return value.strip()
-    return str(value).strip()
-
-
-# ---------------------------------------------------------------------------
-# Turning rows into profiles and events
-# ---------------------------------------------------------------------------
-
-
-def _get(sheet: _Sheet, row: Mapping[str, str], column: str) -> str:
-    """One layout column out of one row, found through the normalized header."""
-    return row.get(sheet.headers[normalize_header(column)], "")
-
-
-def _build_dataset(
-    sheet: _Sheet, *, layout: ExerciseFileLayout, checksum: str
-) -> ParsedDataset | IngestRefusal:
-    """Split the rows by kind, parse each, then run the cross-row checks."""
-    split = _split_by_kind(sheet, layout)
-    if isinstance(split, IngestRefusal):
-        return split
-    profile_rows, event_rows = split
-    count = len(profile_rows)
+    count = len(profile_sheet.rows)
     if count < MIN_PROFILE_ROW_COUNT or count > MAX_PROFILE_ROW_COUNT:
         return IngestRefusal(
             "row_count_out_of_range",
-            f"The file has {count} profile rows; it needs between "
+            f"The `{profile_sheet.title}` sheet has {count} profiles; it needs between "
             f"{MIN_PROFILE_ROW_COUNT} and {MAX_PROFILE_ROW_COUNT}.",
         )
-    profile_batch = _parse_profiles(sheet, profile_rows, layout)
-    if isinstance(profile_batch, IngestRefusal):
-        return profile_batch
-    event_batch = _parse_events(sheet, event_rows, layout)
-    if isinstance(event_batch, IngestRefusal):
-        return event_batch
-    profiles, events = profile_batch.profiles, event_batch.events
-    cross = _check_across_rows(profiles, events)
+    events = _parse_events(event_sheet, layout)
+    if isinstance(events, IngestRefusal):
+        return events
+    profiles = _parse_profiles(profile_sheet, layout)
+    if isinstance(profiles, IngestRefusal):
+        return profiles
+    cross = _check_across_rows(profile_sheet.title, profiles, events, layout)
     if cross is not None:
         return cross
     return ParsedDataset(
         profiles=profiles,
         events=events,
-        checksum=checksum,
+        checksum=hashlib.sha256(raw).hexdigest(),
         row_count=count,
-        report=_build_report(
-            profiles, events, discarded=profile_batch.discarded + event_batch.discarded
-        ),
+        report=_build_report(profiles, events),
     )
 
 
-def _split_by_kind(
-    sheet: _Sheet, layout: ExerciseFileLayout
-) -> (
-    tuple[list[tuple[int, Mapping[str, str]]], list[tuple[int, Mapping[str, str]]]] | IngestRefusal
-):
-    """PLACEHOLDER (OQ-CE-01): one file, one discriminator column, two kinds."""
-    profiles: list[tuple[int, Mapping[str, str]]] = []
-    events: list[tuple[int, Mapping[str, str]]] = []
-    for line, row in sheet.rows:
-        kind = _get(sheet, row, layout.record_type_column).casefold()
-        if kind == layout.profile_record_value.casefold():
-            profiles.append((line, row))
-        elif kind == layout.event_record_value.casefold():
-            events.append((line, row))
-        else:
-            return IngestRefusal(
-                "unknown_record_type",
-                f"Row {line} has `{layout.record_type_column}` set to "
-                f"`{_quote(kind)}`; every row must say either "
-                f"`{layout.profile_record_value}` or `{layout.event_record_value}`.",
-            )
-    return profiles, events
+def _missing_columns(sheet: SheetRows, required: Sequence[str]) -> IngestRefusal | None:
+    """Every missing column of one sheet, named with the sheet, in one sentence."""
+    missing = [column for column in required if normalize_header(column) not in sheet.headers]
+    if not missing:
+        return None
+    if len(missing) == 1:
+        sentence = f"The `{sheet.title}` sheet is missing the column `{missing[0]}`."
+    else:
+        listed = ", ".join(f"`{column}`" for column in missing)
+        sentence = f"The `{sheet.title}` sheet is missing these columns: {listed}."
+    return IngestRefusal("missing_columns", sentence)
 
 
-@dataclass(frozen=True, slots=True)
-class _ProfileBatch:
-    """Parsed profiles, and how many list entries normalised away (ADR-0011)."""
-
-    profiles: tuple[ParsedProfile, ...]
-    discarded: int
+# ---------------------------------------------------------------------------
+# One cell at a time
+# ---------------------------------------------------------------------------
 
 
-@dataclass(frozen=True, slots=True)
-class _EventBatch:
-    """Parsed events, and how many list entries normalised away (ADR-0011)."""
+class _Cells:
+    """One row of one sheet, read by layout column name, with its refusals.
 
-    events: tuple[ParsedEvent, ...]
-    discarded: int
+    Every sentence says the row number Excel shows and the sheet's name, so an
+    instructor can find the cell. A cell of a withheld column is never quoted.
+    """
 
+    __slots__ = ("_layout", "_line", "_row", "_sheet")
 
-def _parse_profiles(
-    sheet: _Sheet, rows: Sequence[tuple[int, Mapping[str, str]]], layout: ExerciseFileLayout
-) -> _ProfileBatch | IngestRefusal:
-    """One profile per row, refusing anything ``exercise_profile`` would refuse."""
-    parsed: list[ParsedProfile] = []
-    discarded = 0
-    for line, row in rows:
-        number = _positive_int(_get(sheet, row, layout.profile_no_column))
-        if number is None:
-            return IngestRefusal(
-                "bad_profile_no",
-                f"Row {line} has no whole number in the column `{layout.profile_no_column}`.",
-            )
-        name = _get(sheet, row, layout.display_name_column)
-        if not name:
-            return IngestRefusal(
-                "missing_display_name",
-                f"Row {line} has nothing in the column `{layout.display_name_column}`.",
-            )
-        card = _get(sheet, row, layout.stated_interests_column)
-        interests, lost_interests = _terms(card, layout)
-        withheld, lost_withheld = _terms(_get(sheet, row, layout.hidden_interests_column), layout)
-        discarded += lost_interests + lost_withheld
-        parsed.append(
-            ParsedProfile(
-                profile_no=number,
-                display_name=name,
-                major=_get(sheet, row, layout.major_column) or None,
-                class_year=_get(sheet, row, layout.class_year_column) or None,
-                past_event_keys=_split_cell(
-                    _get(sheet, row, layout.past_event_keys_column), layout
-                ),
-                stated_interests=interests if card else None,
-                career_goal=_get(sheet, row, layout.career_goal_column) or None,
-                hidden_true_interests=withheld,
-            )
+    def __init__(
+        self, sheet: SheetRows, line: int, row: Mapping[str, str], layout: ExerciseFileLayout
+    ) -> None:
+        self._sheet = sheet
+        self._line = line
+        self._row = row
+        self._layout = layout
+
+    def text(self, column: str) -> str:
+        return self._row.get(self._sheet.headers[normalize_header(column)], "")
+
+    def refuse(self, code: str, detail: str) -> IngestRefusal:
+        return IngestRefusal(code, f"Row {self._line} of the `{self._sheet.title}` sheet {detail}")
+
+    def required(self, column: str) -> str | IngestRefusal:
+        value = self.text(column)
+        return value or self.refuse("missing_value", f"has nothing in the column `{column}`.")
+
+    def whole_number(self, column: str) -> int | IngestRefusal:
+        value = _positive_int(self.text(column))
+        if value is None:
+            return self.refuse("bad_number", f"has no whole number in the column `{column}`.")
+        return value
+
+    def yes_no(self, column: str) -> bool | IngestRefusal:
+        folded = self.text(column).casefold()
+        if folded in {value.casefold() for value in self._layout.true_values}:
+            return True
+        if folded in {value.casefold() for value in self._layout.false_values}:
+            return False
+        return self.refuse(
+            "bad_yes_no", f"has a value in the column `{column}` that is neither Yes nor No."
         )
-    return _ProfileBatch(profiles=tuple(parsed), discarded=discarded)
+
+    def term(
+        self, column: str, lookup: Callable[[str], str | None], what: str
+    ) -> str | IngestRefusal | None:
+        """One vocabulary term, blank read as ``None``."""
+        text = self.text(column)
+        if not text:
+            return None
+        found = lookup(text)
+        return found if found is not None else self._unknown(column, text, what)
+
+    def required_term(
+        self, column: str, lookup: Callable[[str], str | None], what: str
+    ) -> str | IngestRefusal:
+        """One vocabulary term that must be there."""
+        found = self.term(column, lookup, what)
+        if found is None:
+            return self.refuse("missing_value", f"has nothing in the column `{column}`.")
+        return found
+
+    def terms(
+        self, column: str, lookup: Callable[[str], str | None], what: str
+    ) -> tuple[str, ...] | IngestRefusal:
+        """A list cell of vocabulary terms, in file order, each once."""
+        seen: dict[str, None] = {}
+        for entry in _split_cell(self.text(column), self._layout):
+            found = lookup(entry)
+            if found is None:
+                return self._unknown(column, entry, what)
+            seen.setdefault(found, None)
+        return tuple(seen)
+
+    def _unknown(self, column: str, text: str, what: str) -> IngestRefusal:
+        if column in self._layout.withheld_columns:
+            return self.refuse(
+                "unknown_value", f"has a value in the column `{column}` that is not {what}."
+            )
+        return self.refuse(
+            "unknown_value", f"has `{quote(text)}` in the column `{column}`, which is not {what}."
+        )
+
+
+_A_MAJOR: Final[str] = f"one of the {len(EXERCISE_MAJORS)} majors"
+_A_YEAR: Final[str] = ", ".join(EXERCISE_CLASS_YEARS[:-1]) + f" or {EXERCISE_CLASS_YEARS[-1]}"
+_A_TOPIC: Final[str] = f"one of the {len(EXERCISE_TOPICS)} topics"
+_A_GOAL: Final[str] = f"one of the {len(EXERCISE_CAREER_GOALS)} career goals"
+
+
+# ---------------------------------------------------------------------------
+# Events
+# ---------------------------------------------------------------------------
 
 
 def _parse_events(
-    sheet: _Sheet, rows: Sequence[tuple[int, Mapping[str, str]]], layout: ExerciseFileLayout
-) -> _EventBatch | IngestRefusal:
-    """One event per row, refusing anything ``exercise_event`` would refuse."""
+    sheet: SheetRows, layout: ExerciseFileLayout
+) -> tuple[ParsedEvent, ...] | IngestRefusal:
+    """One event per row, its position on the sheet as its sequence."""
     parsed: list[ParsedEvent] = []
-    discarded = 0
-    for line, row in rows:
-        key = _get(sheet, row, layout.event_key_column)
-        name = _get(sheet, row, layout.event_name_column)
-        sequence = _positive_int(_get(sheet, row, layout.sequence_column))
-        flag = _boolean(_get(sheet, row, layout.is_exercise_event_column), layout)
-        blank = _first_blank({layout.event_key_column: key, layout.event_name_column: name})
-        if blank is not None:
-            return IngestRefusal(
-                "missing_event_field",
-                f"Row {line} has nothing in the column `{blank}`.",
-            )
-        if sequence is None:
-            return IngestRefusal(
-                "bad_event_sequence",
-                f"Row {line} has no whole number in the column `{layout.sequence_column}`.",
-            )
-        if flag is None:
-            return IngestRefusal(
-                "bad_event_flag",
-                f"Row {line} has a value in the column "
-                f"`{layout.is_exercise_event_column}` that is neither yes nor no.",
-            )
-        topics, lost_topics = _terms(_get(sheet, row, layout.topic_tags_column), layout)
-        discarded += lost_topics
-        parsed.append(
-            ParsedEvent(
-                event_key=key,
-                name=name,
-                topic_tags=topics,
-                # Split, not folded: a major is stored as written on
-                # ``exercise_profile.major`` too, and folding one side of a
-                # comparison but not the other is how "Data Science" stops
-                # matching "data science" later.
-                target_majors=_split_cell(_get(sheet, row, layout.target_majors_column), layout),
-                is_exercise_event=flag,
-                sequence=sequence,
-            )
+    for position, (line, row) in enumerate(sheet.rows, start=1):
+        event = _parse_event(_Cells(sheet, line, row, layout), layout, position)
+        if isinstance(event, IngestRefusal):
+            return event
+        parsed.append(event)
+    return tuple(parsed)
+
+
+def _parse_event(
+    cells: _Cells, layout: ExerciseFileLayout, position: int
+) -> ParsedEvent | IngestRefusal:
+    key = cells.required(layout.event_key_column)
+    if isinstance(key, IngestRefusal):
+        return key
+    name = cells.required(layout.event_name_column)
+    if isinstance(name, IngestRefusal):
+        return name
+    flag = cells.yes_no(layout.is_exercise_event_column)
+    if isinstance(flag, IngestRefusal):
+        return flag
+    topics = cells.terms(layout.topic_tags_column, canonical_topic, _A_TOPIC)
+    if isinstance(topics, IngestRefusal):
+        return topics
+    majors = _target_majors(cells, layout)
+    if isinstance(majors, IngestRefusal):
+        return majors
+    if flag and _positive_int(cells.text(layout.seats_column)) != EVENT_SEATS:
+        return cells.refuse(
+            "bad_seats",
+            f"gives `{quote(cells.text(layout.seats_column))}` in the column "
+            f"`{layout.seats_column}` for an exercise event; this exercise runs with "
+            f"{EVENT_SEATS} seats per event.",
         )
-    return _EventBatch(events=tuple(parsed), discarded=discarded)
+    return ParsedEvent(
+        event_key=key,
+        name=name,
+        topic_tags=topics,
+        target_majors=majors,
+        is_exercise_event=flag,
+        sequence=position,
+    )
 
 
-def _first_blank(fields: Mapping[str, str]) -> str | None:
-    """The first named field that is empty, or ``None`` when all are filled."""
-    return next((column for column, value in fields.items() if not value), None)
+def _target_majors(cells: _Cells, layout: ExerciseFileLayout) -> tuple[str, ...] | IngestRefusal:
+    """The event's majors; "All majors" is every one of the six."""
+    entries = _split_cell(cells.text(layout.target_majors_column), layout)
+    if any(is_all_majors(entry) for entry in entries):
+        return EXERCISE_MAJORS
+    return cells.terms(layout.target_majors_column, canonical_major, _A_MAJOR + ' or "All majors"')
+
+
+# ---------------------------------------------------------------------------
+# Profiles
+# ---------------------------------------------------------------------------
+
+
+def _parse_profiles(
+    sheet: SheetRows, layout: ExerciseFileLayout
+) -> tuple[ParsedProfile, ...] | IngestRefusal:
+    """One profile per row, refusing anything the vocabulary or the table would."""
+    parsed: list[ParsedProfile] = []
+    for line, row in sheet.rows:
+        profile = _parse_profile(_Cells(sheet, line, row, layout), layout)
+        if isinstance(profile, IngestRefusal):
+            return profile
+        parsed.append(profile)
+    return tuple(parsed)
+
+
+def _parse_profile(cells: _Cells, layout: ExerciseFileLayout) -> ParsedProfile | IngestRefusal:
+    number = _profile_no(cells.text(layout.profile_id_column), layout)
+    if number is None:
+        return cells.refuse(
+            "bad_profile_id",
+            f"has `{quote(cells.text(layout.profile_id_column))}` in the column "
+            f"`{layout.profile_id_column}`; a profile id is {layout.profile_id_prefix} "
+            f"followed by a number, such as {layout.profile_id_prefix}004.",
+        )
+    first = cells.required(layout.first_name_column)
+    if isinstance(first, IngestRefusal):
+        return first
+    last = cells.required(layout.last_name_column)
+    if isinstance(last, IngestRefusal):
+        return last
+    major = cells.required_term(layout.major_column, canonical_major, _A_MAJOR)
+    if isinstance(major, IngestRefusal):
+        return major
+    year = cells.required_term(layout.class_year_column, canonical_class_year, _A_YEAR)
+    if isinstance(year, IngestRefusal):
+        return year
+    card = _card(cells, layout)
+    if isinstance(card, IngestRefusal):
+        return card
+    tiebreak = cells.whole_number(layout.tiebreak_order_column)
+    if isinstance(tiebreak, IngestRefusal):
+        return tiebreak
+    hidden_interests = cells.terms(layout.hidden_interests_column, canonical_topic, _A_TOPIC)
+    if isinstance(hidden_interests, IngestRefusal):
+        return hidden_interests
+    hidden_goal = cells.term(layout.hidden_career_goal_column, canonical_career_goal, _A_GOAL)
+    if isinstance(hidden_goal, IngestRefusal):
+        return hidden_goal
+    return ParsedProfile(
+        profile_no=number,
+        display_name=f"{first} {last}",
+        major=major,
+        class_year=year,
+        past_event_keys=_split_cell(cells.text(layout.past_event_keys_column), layout),
+        stated_interests=card.interests,
+        career_goal=card.career_goal,
+        tiebreak_order=tiebreak,
+        hidden_true_interests=hidden_interests,
+        hidden_true_career_goal=hidden_goal,
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class _Card:
+    """What a row says about its card: ``interests is None`` means no card."""
+
+    interests: tuple[str, ...] | None
+    career_goal: str | None
+
+
+def _card(cells: _Cells, layout: ExerciseFileLayout) -> _Card | IngestRefusal:
+    """``card_completed`` decides whether a card exists; the row must agree."""
+    completed = cells.yes_no(layout.card_completed_column)
+    if isinstance(completed, IngestRefusal):
+        return completed
+    interests = cells.terms(layout.stated_interests_column, canonical_topic, _A_TOPIC)
+    if isinstance(interests, IngestRefusal):
+        return interests
+    goal = cells.term(layout.career_goal_column, canonical_career_goal, _A_GOAL)
+    if isinstance(goal, IngestRefusal):
+        return goal
+    if completed:
+        return _Card(interests=interests, career_goal=goal)
+    for column in (layout.stated_interests_column, layout.career_goal_column):
+        if cells.text(column):
+            return cells.refuse(
+                "card_contradiction",
+                f"says No in the column `{layout.card_completed_column}` but has a value "
+                f"in the column `{column}`; a profile without a card has no stated "
+                "interests and no stated career goal.",
+            )
+    return _Card(interests=None, career_goal=None)
+
+
+def _profile_no(text: str, layout: ExerciseFileLayout) -> int | None:
+    """``P004`` as ``4``, or ``None`` for anything that is not the prefix and digits."""
+    prefix = layout.profile_id_prefix
+    if text[: len(prefix)].casefold() != prefix.casefold():
+        return None
+    digits = text[len(prefix) :]
+    if not digits.isascii() or not digits.isdigit():
+        return None
+    return _positive_int(digits)
 
 
 def _positive_int(text: str) -> int | None:
-    """A whole number the column can hold, or ``None`` for anything else.
+    """A whole number an ``integer`` column can hold, or ``None``.
 
-    Bounded at both ends by what ``exercise_profile.profile_no`` and
-    ``exercise_event.sequence`` are: ``CHECK (… >= 1)`` below, PostgreSQL
-    ``integer`` above. Python's ``int`` has neither bound, so without this a
-    four-hundred-digit cell parses here and is refused by a driver later, with
-    the row in the error text. The digit count is checked before ``int()``,
-    because converting a very long digit string is itself work an uploaded
-    file should not be able to ask for.
+    The digit count is checked before ``int()``, because converting a very long
+    digit string is itself work an uploaded file should not be able to ask for.
     """
-    if len(text) > _MAX_NUMBER_DIGITS:
+    if not text or len(text) > _MAX_NUMBER_DIGITS or not text.isascii() or not text.isdigit():
         return None
-    try:
-        value = int(text)
-    except ValueError:
-        return None
+    value = int(text)
     return value if 1 <= value <= MAX_COLUMN_INTEGER else None
-
-
-def _boolean(text: str, layout: ExerciseFileLayout) -> bool | None:
-    """A yes or a no out of a cell, or ``None`` when it is neither.
-
-    ``None`` rather than a default: a cell nobody can read as yes or no is no
-    evidence that the answer is no, and guessing would silently decide which
-    two events the teams run.
-    """
-    folded = text.casefold()
-    if folded in {value.casefold() for value in layout.true_values}:
-        return True
-    if folded in {value.casefold() for value in layout.false_values}:
-        return False
-    return None
 
 
 def _split_cell(text: str, layout: ExerciseFileLayout) -> tuple[str, ...]:
@@ -660,63 +490,45 @@ def _split_cell(text: str, layout: ExerciseFileLayout) -> tuple[str, ...]:
     return tuple(part.strip() for part in text.split(layout.list_cell_separator) if part.strip())
 
 
-def _terms(text: str, layout: ExerciseFileLayout) -> tuple[tuple[str, ...], int]:
-    """A list cell as normalized terms, plus how many entries it lost.
-
-    ``normalize_tag_value`` is the repository's existing fold, reused rather
-    than restated so an exercise term and a CBA tag compare the same way. No
-    term is looked up in a vocabulary: the G3 mapping §3 mentions is OQ-CE-01
-    and a gated area, so this module counts instead (ADR-0011).
-
-    One kind of entry cannot survive the fold — ``---`` is punctuation only
-    and normalises to the empty string. Storing it would put a term nobody
-    wrote into an array; dropping it silently is what ADR-0011 forbids. So it
-    is dropped **and counted**, onto ``IngestReport.discarded_list_entries``.
-    """
-    seen: dict[str, None] = {}
-    discarded = 0
-    for entry in _split_cell(text, layout):
-        folded = normalize_tag_value(entry)
-        if not folded:
-            discarded += 1
-            continue
-        seen.setdefault(folded, None)
-    return tuple(seen), discarded
-
-
 # ---------------------------------------------------------------------------
 # Checks that need every row
 # ---------------------------------------------------------------------------
 
 
 def _check_across_rows(
-    profiles: Sequence[ParsedProfile], events: Sequence[ParsedEvent]
+    profile_sheet: str,
+    profiles: Sequence[ParsedProfile],
+    events: Sequence[ParsedEvent],
+    layout: ExerciseFileLayout,
 ) -> IngestRefusal | None:
     """Design spec §3's remaining checks, in the order the spec lists them."""
     flagged = sum(1 for event in events if event.is_exercise_event)
     if flagged != EXERCISE_EVENT_ROW_COUNT:
         return IngestRefusal(
             "wrong_exercise_event_count",
-            f"The file flags {flagged} rows as exercise events; it needs exactly "
+            f"The file flags {flagged} events as exercise events; it needs exactly "
             f"{EXERCISE_EVENT_ROW_COUNT}, one for each round.",
         )
-    duplicates = _duplicates([str(profile.profile_no) for profile in profiles])
+    prefix = layout.profile_id_prefix
+    duplicates = _duplicates([f"{prefix}{profile.profile_no:03d}" for profile in profiles])
     if duplicates:
         return IngestRefusal(
-            "duplicate_profile_no",
-            f"Two or more profiles share the same number: {_listed(duplicates)}.",
+            "duplicate_profile_id",
+            f"Two or more profiles share the same id: {_listed(duplicates)}.",
         )
     duplicate_keys = _duplicates([event.event_key for event in events])
     if duplicate_keys:
         return IngestRefusal(
             "duplicate_event_key",
-            f"Two or more events share the same key: {_listed(duplicate_keys)}.",
+            f"Two or more events share the same id: {_listed(duplicate_keys)}.",
         )
-    duplicate_sequences = _duplicates([str(event.sequence) for event in events])
-    if duplicate_sequences:
+    duplicate_orders = _duplicates([str(profile.tiebreak_order) for profile in profiles])
+    if duplicate_orders:
         return IngestRefusal(
-            "duplicate_event_sequence",
-            f"Two or more events share the same position: {_listed(duplicate_sequences)}.",
+            "duplicate_tiebreak_order",
+            f"Two or more profiles on the `{profile_sheet}` sheet share the same "
+            f"`{layout.tiebreak_order_column}`: {_listed(duplicate_orders)}; each "
+            "profile needs its own place in the fixed order.",
         )
     return _check_past_event_keys(profiles, events)
 
@@ -724,14 +536,13 @@ def _check_across_rows(
 def _check_past_event_keys(
     profiles: Sequence[ParsedProfile], events: Sequence[ParsedEvent]
 ) -> IngestRefusal | None:
-    """Every attended event must be an event in the file.
+    """Every attended event must be one of the file's *past* events.
 
     Refused rather than trimmed: quietly discarding an attendance would change
-    who "went to similar events before" without telling anybody — a wrong
-    ranked list that looks right (ADR-0011). The sentence names the keys and
-    how many rows used them.
+    who "went to similar events before" without telling anybody (ADR-0011). An
+    exercise event cannot have been attended yet, so naming one is refused too.
     """
-    known = {event.event_key for event in events}
+    known = {event.event_key for event in events if not event.is_exercise_event}
     counts: dict[str, int] = {}
     for profile in profiles:
         for key in profile.past_event_keys:
@@ -740,11 +551,11 @@ def _check_past_event_keys(
     if not counts:
         return None
     named = sorted(counts.items(), key=lambda item: (-item[1], item[0]))[:_MAX_NAMED_VALUES]
-    listed = ", ".join(f"`{_quote(key)}` ({used} rows)" for key, used in named)
+    listed = ", ".join(f"`{quote(key)}` ({used} rows)" for key, used in named)
+    more = f" and {len(counts) - len(named)} more" if len(counts) > len(named) else ""
     return IngestRefusal(
         "unknown_past_event_key",
-        f"Some profiles list past events that are not in the file: {listed}."
-        + (f" and {len(counts) - len(named)} more." if len(counts) > len(named) else ""),
+        f"Some profiles list attended events that are not past events in the file: {listed}{more}.",
     )
 
 
@@ -761,30 +572,25 @@ def _duplicates(values: Sequence[str]) -> tuple[str, ...]:
 
 def _listed(values: Sequence[str]) -> str:
     """A few values in backticks, quoted from the file, with a count of the rest."""
-    shown = ", ".join(f"`{_quote(value)}`" for value in values[:_MAX_NAMED_VALUES])
+    shown = ", ".join(f"`{quote(value)}`" for value in values[:_MAX_NAMED_VALUES])
     remaining = len(values) - _MAX_NAMED_VALUES
     return f"{shown} and {remaining} more" if remaining > 0 else shown
 
 
-def _build_report(
-    profiles: Sequence[ParsedProfile], events: Sequence[ParsedEvent], *, discarded: int
-) -> IngestReport:
-    """Counts only. Nothing here reads ``hidden_true_interests`` (ADR-0025 D6)."""
-    years = sorted({profile.class_year for profile in profiles if profile.class_year})
+def _build_report(profiles: Sequence[ParsedProfile], events: Sequence[ParsedEvent]) -> IngestReport:
+    """Counts only. Nothing here reads a withheld field (ADR-0025 D6)."""
+    used = {profile.class_year for profile in profiles}
     interests = {term for p in profiles for term in (p.stated_interests or ())}
     topics = {term for event in events for term in event.topic_tags}
     return IngestReport(
         profile_count=len(profiles),
         event_count=len(events),
         exercise_event_count=sum(1 for event in events if event.is_exercise_event),
-        distinct_class_years=tuple(years),
-        profiles_missing_major=sum(1 for p in profiles if p.major is None),
-        profiles_missing_class_year=sum(1 for p in profiles if p.class_year is None),
+        distinct_class_years=tuple(year for year in EXERCISE_CLASS_YEARS if year in used),
         profiles_without_card=sum(1 for p in profiles if p.stated_interests is None),
         distinct_stated_interest_terms=len(interests),
         distinct_topic_tag_terms=len(topics),
         events_without_topic_tags=sum(1 for event in events if not event.topic_tags),
-        discarded_list_entries=discarded,
         markers=_markers(profiles),
     )
 
