@@ -89,6 +89,7 @@ from smartmatch_domain.exercise.asking import (
     copied_card_career_goal,
 )
 from smartmatch_domain.exercise.instructor_session import mint_instructor_session
+from smartmatch_domain.exercise.registry import EXERCISE_DEFAULT_WEIGHTS
 from smartmatch_domain.exercise.simulation import (
     EVENT_SEATS,
     EXISTING_SIGNUPS,
@@ -627,7 +628,14 @@ def confirmed(monkeypatch: pytest.MonkeyPatch) -> SimulationCoefficients:
 
 
 def _entered(fakes: _Fakes, team_number: int) -> TestClient:
-    """A client that has entered a team number and holds its cookie."""
+    """A client that has entered a team number, holds its cookie, and has a final setting.
+
+    The final setting is saved for both rounds **with the course's starting
+    values**, so every run below names one (Ann to Chau, Discord, 2026-09-24:
+    the team chooses one final setting before it runs) and the list it builds
+    is the list the default route shows — which keeps each comparison against
+    ``…/list`` a comparison of like with like.
+    """
     client = TestClient(_exercise_app(fakes))
     response = client.post(
         "/v1/exercise/workspaces",
@@ -635,6 +643,14 @@ def _entered(fakes: _Fakes, team_number: int) -> TestClient:
         headers=_HEADER,
     )
     assert response.status_code == 200, response.text
+    workspace = fakes.workspaces.rows[(_DATASET_ID, team_number)]
+    for event_key in ("round-one", "round-two"):
+        fakes.settings.rows[(workspace.id, event_key, _FINAL)] = SavedSetting(
+            event_key=event_key,
+            name=_FINAL,
+            weights=dict(EXERCISE_DEFAULT_WEIGHTS),
+            created_at=_WHEN,
+        )
     return client
 
 
@@ -652,6 +668,16 @@ _REFRESH = f"{_BASE}/refresh"
 _REFRESH_ALL = "/v1/exercise/instructor/refresh-all"
 _HEADER = {EXERCISE_REQUEST_HEADER: "1"}
 
+#: The saved setting every entered team holds for both rounds (see ``_entered``).
+_FINAL = "final"
+_FINAL_BODY = {"setting_name": _FINAL}
+
+#: The sentence a run without a final setting is refused with. Written out here
+#: because it is the owner's rule in a team's words, compared byte for byte.
+_FINAL_SETTING_SENTENCE = (
+    "Choose one of your saved settings as your final setting before running results."
+)
+
 
 def _run(client: TestClient, path: str = _RESULTS, **body: object) -> object:
     return client.post(path, json=body or {}, headers=_HEADER)
@@ -668,7 +694,7 @@ def test_a_run_refuses_while_the_rule_has_no_confirmed_coefficients(
     """No ``confirmed`` fixture here, deliberately: this is what ships today."""
     fakes.unlock("round-one")
 
-    response = client.post(_RESULTS, json={}, headers=_HEADER)
+    response = client.post(_RESULTS, json=_FINAL_BODY, headers=_HEADER)
 
     assert response.status_code == 409
     body = response.json()["error"]
@@ -730,13 +756,13 @@ def test_an_unlocked_event_runs_and_stores_the_three_panels(
 ) -> None:
     fakes.unlock("round-one")
 
-    response = client.post(_RESULTS, json={}, headers=_HEADER)
+    response = client.post(_RESULTS, json=_FINAL_BODY, headers=_HEADER)
 
     assert response.status_code == 201, response.text
     body = response.json()
     assert body["event_key"] == "round-one"
     assert body["round"] == FIRST_ROUND
-    assert body["setting_name"] is None
+    assert body["setting_name"] == _FINAL
     assert body["team"]["invited_count"] == _INVITE_LIMIT
     assert body["email_everyone"]["invited_count"] == len(_ROWS)
     assert body["round_one"] is None, "round one has no earlier round to compare with"
@@ -748,7 +774,7 @@ def test_a_second_run_is_refused_with_the_specs_own_sentence(
 ) -> None:
     """Design spec §9 writes this sentence out; it is compared byte for byte."""
     fakes.unlock("round-one")
-    assert client.post(_RESULTS, json={}, headers=_HEADER).status_code == 201
+    assert client.post(_RESULTS, json=_FINAL_BODY, headers=_HEADER).status_code == 201
 
     response = client.post(_RESULTS, json={}, headers=_HEADER)
 
@@ -797,6 +823,133 @@ def test_the_round_is_read_off_the_data_file_rather_than_from_a_name() -> None:
 
 
 # ---------------------------------------------------------------------------
+# The final setting (Ann to Chau, Discord, 2026-09-24)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "body",
+    [{}, {"setting_name": None}, {"setting_name": ""}, {"setting_name": "   "}],
+    ids=["left-out", "null", "empty", "blank"],
+)
+def test_a_run_without_a_final_setting_is_refused_with_a_sentence(
+    fakes: _Fakes,
+    client: TestClient,
+    confirmed: SimulationCoefficients,
+    body: Mapping[str, object],
+) -> None:
+    """Step three of the owner's flow: the team chooses one final setting.
+
+    There is no longer a run on the course's starting values. A team that wants
+    them saves them under a name, which is the same act as choosing any other
+    final setting.
+    """
+    fakes.unlock("round-one")
+
+    response = client.post(_RESULTS, json=body, headers=_HEADER)
+
+    assert response.status_code == 422
+    error = response.json()["error"]
+    assert error["code"] == "exercise_final_setting_required"
+    assert error["message"] == _FINAL_SETTING_SENTENCE
+    assert fakes.results.runs == {}, "a refused run must store nothing"
+
+
+def test_a_run_with_no_body_at_all_is_refused_with_the_same_sentence(
+    fakes: _Fakes, client: TestClient, confirmed: SimulationCoefficients
+) -> None:
+    fakes.unlock("round-one")
+
+    response = client.post(_RESULTS, headers=_HEADER)
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "exercise_final_setting_required"
+    assert fakes.results.runs == {}
+
+
+def test_the_final_setting_is_trimmed_before_it_is_looked_up_and_stored(
+    fakes: _Fakes, client: TestClient, confirmed: SimulationCoefficients
+) -> None:
+    fakes.unlock("round-one")
+
+    response = client.post(_RESULTS, json={"setting_name": f"  {_FINAL} "}, headers=_HEADER)
+
+    assert response.status_code == 201, response.text
+    assert response.json()["setting_name"] == _FINAL
+
+
+# -- the order of the refusals ------------------------------------------------
+#
+# The event's own state is answered first, whatever the body says: a sentence
+# about the body is only useful once the event can actually be run. The body is
+# answered before OQ-CE-03, which is the owner's to close and refuses every run
+# on this deployment today — after it, the team's own step would be unreachable.
+
+
+def test_an_unknown_event_is_answered_before_a_missing_final_setting(
+    client: TestClient, confirmed: SimulationCoefficients
+) -> None:
+    response = client.post(f"{_BASE}/events/not-in-this-file/results", json={}, headers=_HEADER)
+
+    assert response.json()["error"]["code"] == "exercise_event_unknown"
+
+
+def test_a_past_event_is_answered_before_a_missing_final_setting(
+    fakes: _Fakes, client: TestClient, confirmed: SimulationCoefficients
+) -> None:
+    fakes.unlock("past-analytics")
+
+    response = client.post(f"{_BASE}/events/past-analytics/results", json={}, headers=_HEADER)
+
+    assert response.json()["error"]["code"] == "exercise_event_is_not_a_round"
+
+
+def test_a_locked_event_is_answered_before_a_missing_final_setting(
+    fakes: _Fakes, client: TestClient, confirmed: SimulationCoefficients
+) -> None:
+    """Choosing a setting would not open the event; the lock is the true answer."""
+    response = client.post(_RESULTS, json={}, headers=_HEADER)
+
+    assert response.json()["error"]["code"] == "exercise_results_locked"
+
+
+def test_an_event_already_run_is_answered_before_a_missing_final_setting(
+    fakes: _Fakes, client: TestClient, confirmed: SimulationCoefficients
+) -> None:
+    """Asking a team that has run to choose a setting would invite a second try."""
+    fakes.unlock("round-one")
+    assert client.post(_RESULTS, json=_FINAL_BODY, headers=_HEADER).status_code == 201
+
+    response = client.post(_RESULTS, json={}, headers=_HEADER)
+
+    assert response.json()["error"]["code"] == "exercise_results_already_run"
+
+
+def test_a_missing_final_setting_is_answered_before_the_unconfirmed_rule(
+    fakes: _Fakes, client: TestClient
+) -> None:
+    """No ``confirmed`` fixture: this is the order a team meets on this deployment."""
+    fakes.unlock("round-one")
+
+    response = client.post(_RESULTS, json={}, headers=_HEADER)
+
+    assert response.json()["error"]["code"] == "exercise_final_setting_required"
+
+
+def test_the_published_request_names_the_final_setting_as_required() -> None:
+    """The contract a client is generated from says what the route enforces."""
+    app = FastAPI()
+    for router in routers_for(_settings()):
+        app.include_router(router)
+    schema = app.openapi()["components"]["schemas"]["RunResultsRequest"]
+
+    assert schema["required"] == ["setting_name"]
+    assert schema["properties"]["setting_name"]["type"] == "string"
+    assert schema["properties"]["setting_name"]["minLength"] == 1
+    assert "starting values" not in schema["properties"]["setting_name"]["description"]
+
+
+# ---------------------------------------------------------------------------
 # The panels (design spec §10, §11)
 # ---------------------------------------------------------------------------
 
@@ -813,8 +966,8 @@ def test_the_same_request_twice_gives_the_same_panels(
     """
     fakes.unlock("round-one")
     with _entered(fakes, 1) as first, _entered(fakes, 2) as second:
-        one = first.post(_RESULTS, json={}, headers=_HEADER).json()
-        two = second.post(_RESULTS, json={}, headers=_HEADER).json()
+        one = first.post(_RESULTS, json=_FINAL_BODY, headers=_HEADER).json()
+        two = second.post(_RESULTS, json=_FINAL_BODY, headers=_HEADER).json()
 
     assert one["team"] == two["team"]
     assert one["email_everyone"] == two["email_everyone"]
@@ -827,10 +980,10 @@ def test_two_teams_with_different_seeds_are_free_to_differ(
     """The seed is per team, so a shared answer must not be shared *state*."""
     fakes.unlock("round-one")
     with _entered(fakes, 1) as first:
-        one = first.post(_RESULTS, json={}, headers=_HEADER).json()
+        one = first.post(_RESULTS, json=_FINAL_BODY, headers=_HEADER).json()
     fakes.workspaces.seed_for_every_team = 13
     with _entered(fakes, 2) as second:
-        two = second.post(_RESULTS, json={}, headers=_HEADER).json()
+        two = second.post(_RESULTS, json=_FINAL_BODY, headers=_HEADER).json()
 
     assert one["team"]["invited_profile_nos"] == two["team"]["invited_profile_nos"], (
         "the invited list is the ranked list and does not read the seed"
@@ -849,7 +1002,7 @@ def test_email_everyone_uses_the_same_seed_as_the_teams_own_list(
     """
     fakes.unlock("round-one")
 
-    body = client.post(_RESULTS, json={}, headers=_HEADER).json()
+    body = client.post(_RESULTS, json=_FINAL_BODY, headers=_HEADER).json()
 
     invited = set(body["team"]["invited_profile_nos"])
     for panel in ("signed_up_profile_nos", "attended_profile_nos"):
@@ -864,7 +1017,7 @@ def test_seats_empty_is_the_cases_own_arithmetic(
     """``60 - 8 - attended``, from the two named constants and not from a literal."""
     fakes.unlock("round-one")
 
-    body = client.post(_RESULTS, json={}, headers=_HEADER).json()
+    body = client.post(_RESULTS, json=_FINAL_BODY, headers=_HEADER).json()
 
     assert body["event_seats"] == EVENT_SEATS
     assert body["existing_signups"] == EXISTING_SIGNUPS
@@ -878,7 +1031,7 @@ def test_the_panels_nest_the_way_the_rule_promises(
 ) -> None:
     fakes.unlock("round-one")
 
-    body = client.post(_RESULTS, json={}, headers=_HEADER).json()
+    body = client.post(_RESULTS, json=_FINAL_BODY, headers=_HEADER).json()
 
     for panel in (body["team"], body["email_everyone"]):
         invited = set(panel["invited_profile_nos"])
@@ -896,7 +1049,7 @@ def test_the_invited_set_is_the_ranked_list_cut_at_the_invite_limit(
     """Composed from the matching track's ranker, never re-derived here."""
     fakes.unlock("round-one")
 
-    body = client.post(_RESULTS, json={}, headers=_HEADER).json()
+    body = client.post(_RESULTS, json=_FINAL_BODY, headers=_HEADER).json()
     listed = client.get(f"{_BASE}/events/round-one/list").json()
 
     assert body["team"]["invited_profile_nos"] == sorted(
@@ -944,7 +1097,7 @@ def test_reading_the_run_back_gives_the_stored_panels(
     fakes: _Fakes, client: TestClient, confirmed: SimulationCoefficients
 ) -> None:
     fakes.unlock("round-one")
-    written = client.post(_RESULTS, json={}, headers=_HEADER).json()
+    written = client.post(_RESULTS, json=_FINAL_BODY, headers=_HEADER).json()
 
     read_back = client.get(f"{_BASE}/events/round-one/results").json()
 
@@ -962,9 +1115,9 @@ def test_round_two_carries_the_stored_round_one_panel(
     fakes: _Fakes, client: TestClient, confirmed: SimulationCoefficients
 ) -> None:
     fakes.unlock("round-one", "round-two")
-    first = client.post(_RESULTS, json={}, headers=_HEADER).json()
+    first = client.post(_RESULTS, json=_FINAL_BODY, headers=_HEADER).json()
 
-    second = client.post(_RESULTS_TWO, json={}, headers=_HEADER).json()
+    second = client.post(_RESULTS_TWO, json=_FINAL_BODY, headers=_HEADER).json()
 
     assert second["round"] == EXERCISE_ROUNDS
     assert second["round_one"] is not None
@@ -1046,7 +1199,7 @@ def _prepare_refresh(
 ) -> Mapping[str, object]:
     """Run round one and choose, which is what a refresh needs behind it."""
     fakes.unlock("round-one", "round-two")
-    first = client.post(_RESULTS, json={}, headers=_HEADER).json()
+    first = client.post(_RESULTS, json=_FINAL_BODY, headers=_HEADER).json()
     assert client.post(_ASKING, json={"choice": choice}, headers=_HEADER).status_code == 200
     return first
 
@@ -1055,7 +1208,7 @@ def test_a_refresh_before_the_choice_is_refused(
     fakes: _Fakes, client: TestClient, confirmed: SimulationCoefficients
 ) -> None:
     fakes.unlock("round-one")
-    client.post(_RESULTS, json={}, headers=_HEADER)
+    client.post(_RESULTS, json=_FINAL_BODY, headers=_HEADER)
 
     response = client.post(_REFRESH, json={}, headers=_HEADER)
 
@@ -1111,7 +1264,7 @@ def test_a_refresh_touches_only_this_teams_overlay(
     fakes.unlock("round-one")
     with _entered(fakes, 1) as first, _entered(fakes, 2) as second:
         second_before = second.get(f"{_BASE}/events/round-one/list").json()
-        first.post(_RESULTS, json={}, headers=_HEADER)
+        first.post(_RESULTS, json=_FINAL_BODY, headers=_HEADER)
         first.post(_ASKING, json={"choice": "required"}, headers=_HEADER)
         assert first.post(_REFRESH, json={}, headers=_HEADER).status_code == 200
 
@@ -1150,7 +1303,7 @@ def test_the_non_responding_never_sign_up_in_round_two(
         for (_, profile_no), row in fakes.team_view.overlays.items()
         if row.non_responding
     }
-    body = client.post(_RESULTS_TWO, json={}, headers=_HEADER).json()
+    body = client.post(_RESULTS_TWO, json=_FINAL_BODY, headers=_HEADER).json()
 
     assert silent
     assert silent.isdisjoint(body["team"]["signed_up_profile_nos"])
@@ -1357,7 +1510,7 @@ def test_refresh_all_covers_exactly_the_teams_that_have_chosen(
     fakes.unlock("round-one")
     with _entered(fakes, 1) as one, _entered(fakes, 2) as two, _entered(fakes, 3) as three:
         for client in (one, two, three):
-            client.post(_RESULTS, json={}, headers=_HEADER)
+            client.post(_RESULTS, json=_FINAL_BODY, headers=_HEADER)
         one.post(_ASKING, json={"choice": "required"}, headers=_HEADER)
         two.post(_ASKING, json={"choice": "small_reward"}, headers=_HEADER)
         two.post(_REFRESH, json={}, headers=_HEADER)
@@ -1380,7 +1533,7 @@ def test_refresh_all_skips_and_counts_a_team_with_no_first_round(
 ) -> None:
     fakes.unlock("round-one")
     with _entered(fakes, 1) as one, _entered(fakes, 2) as two:
-        one.post(_RESULTS, json={}, headers=_HEADER)
+        one.post(_RESULTS, json=_FINAL_BODY, headers=_HEADER)
         one.post(_ASKING, json={"choice": "required"}, headers=_HEADER)
         two.post(_ASKING, json={"choice": "required"}, headers=_HEADER)
 
@@ -1398,7 +1551,7 @@ def test_refresh_all_produces_what_the_teams_own_buttons_would_have(
     fakes.unlock("round-one")
     with _entered(fakes, 1) as one, _entered(fakes, 2) as two:
         for client in (one, two):
-            client.post(_RESULTS, json={}, headers=_HEADER)
+            client.post(_RESULTS, json=_FINAL_BODY, headers=_HEADER)
             client.post(_ASKING, json={"choice": "required"}, headers=_HEADER)
         by_hand = one.post(_REFRESH, json={}, headers=_HEADER).json()
         with _instructor(fakes) as instructor:
@@ -1662,7 +1815,7 @@ def test_a_response_body_carries_no_withheld_value(
 ) -> None:
     """The walks above read declarations; this reads what actually went out."""
     fakes.unlock("round-one")
-    client.post(_RESULTS, json={}, headers=_HEADER)
+    client.post(_RESULTS, json=_FINAL_BODY, headers=_HEADER)
     client.post(_ASKING, json={"choice": "required"}, headers=_HEADER)
 
     bodies = "".join(
