@@ -77,7 +77,7 @@ describe("<ExerciseEntry />", () => {
     renderEntry();
     await waitFor(() => expect(screen.getByRole("radio", { name: /team 1/i })).toBeDefined());
     const sentence =
-      "For California State Polytechnic University, Pomona — College of Business Administration instructional use only.";
+      "For California State Polytechnic University, Pomona — College of Business Administration instructional use only. All student profiles are fictional.";
     expect(screen.getByText(sentence)).toBeDefined();
     expect(EXERCISE_LICENSE_LINE).toBe(sentence);
   });

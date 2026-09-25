@@ -19,8 +19,8 @@
  * previous file's label. Nothing here warns about that, deliberately.
  *
  * **The license line is a constant of the exercise, not of a data file.**
- * OQ-CE-09 closed 2026-09-25 (Danny, owner, recording Ann's answers to the
- * team's question list of 2026-09-22): {@link EXERCISE_LICENSE_LINE}. It is
+ * OQ-CE-09 closed 2026-09-25 (Ann Wang, email reply to the team's question
+ * list): {@link EXERCISE_LICENSE_LINE}. It is
  * rendered here, in every state of the screen — loading, refused, unreachable
  * and ready — because this is the opening screen and no team has picked a
  * workspace yet, so no data file is in play. It is not read from
@@ -44,11 +44,11 @@ import { useExerciseResource } from "./useExerciseResource";
 import { clearWorkspacePointer, readWorkspacePointer, writeWorkspacePointer } from "./workspacePointer";
 
 /**
- * The opening screen's license line (OQ-CE-09, closed 2026-09-25). Ann's
- * sentence, verbatim.
+ * The opening screen's license line (OQ-CE-09, closed 2026-09-25). Ann's two
+ * sentences, verbatim.
  */
 export const EXERCISE_LICENSE_LINE =
-  "For California State Polytechnic University, Pomona — College of Business Administration instructional use only.";
+  "For California State Polytechnic University, Pomona — College of Business Administration instructional use only. All student profiles are fictional.";
 
 /** Where a team goes once it is in. */
 export const EVENT_PICKER_PATH = "/exercise/events";

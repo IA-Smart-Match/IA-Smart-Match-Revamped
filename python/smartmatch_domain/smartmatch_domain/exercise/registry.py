@@ -29,11 +29,11 @@ Three separate things keep this rulebook out of the CBA process:
 
 ## Weights
 
-**PLACEHOLDER (OQ-CE-02).** The register's stated placeholder is equal weights
-— 0.25 each — and that is what the four named constants below carry. They are
-placeholders, not a decision: OQ-CE-02 stays OPEN, and Ann and Chau set the
-real numbers. A team adjusts them per run through ``weights``, which is the
-requirement ("four adjustable factors") and not a way of closing the row.
+Equal weights — 0.25 each — are what the four named constants below carry.
+OQ-CE-02 closed 2026-09-25 (Ann Wang, email reply to the team's question
+list): *"Equal is fine. Teams should decide for themselves which factors matter
+most."* A team adjusts them per run through ``weights``, which is the
+requirement ("four adjustable factors").
 
 ## Why this module validates weight overrides itself
 
@@ -123,9 +123,9 @@ EXERCISE_SCORING_MODE_VERSION: Final[str] = "1.0.0"
 #: nameable here, which is the point (ADR-0016 Proposal 5).
 EXERCISE_MODE_VOCABULARY: Final[frozenset[str]] = frozenset({EXERCISE_SCORING_MODE})
 
-#: **PLACEHOLDER (OQ-CE-02.)** Equal weights, the register's stated
-#: placeholder, one named constant per factor so a later decision replaces a
-#: number that has a name rather than one of four identical literals.
+#: Equal weights, confirmed (OQ-CE-02 closed 2026-09-25), one named constant
+#: per factor so a later change replaces a number that has a name rather than
+#: one of four identical literals.
 SAME_MAJOR_DEFAULT_WEIGHT: Final[float] = 0.25
 STATED_INTEREST_OVERLAP_DEFAULT_WEIGHT: Final[float] = 0.25
 CAREER_GOAL_FIT_DEFAULT_WEIGHT: Final[float] = 0.25
@@ -143,8 +143,8 @@ EXERCISE_FACTOR_LABELS: Final[Mapping[str, str]] = MappingProxyType(
     }
 )
 
-#: **PLACEHOLDER (OQ-CE-02.)** The default weights by key, bound to the four
-#: constants above rather than restating them.
+#: The default weights by key (OQ-CE-02), bound to the four constants above
+#: rather than restating them.
 EXERCISE_DEFAULT_WEIGHTS: Final[Mapping[str, float]] = MappingProxyType(
     {
         SAME_MAJOR_FACTOR_KEY: SAME_MAJOR_DEFAULT_WEIGHT,
@@ -177,7 +177,7 @@ _RATIONALE: Final[Mapping[str, str]] = MappingProxyType(
 
 
 def _exercise_spec(key: str, weight: float) -> FactorSpec:
-    """One exercise factor's spec: Ann's label, the placeholder weight, built."""
+    """One exercise factor's spec: Ann's label, the default weight, built."""
     return FactorSpec(
         key=key,
         display_label=EXERCISE_FACTOR_LABELS[key],
@@ -268,7 +268,7 @@ def validate_exercise_weight_overrides(raw: Mapping[str, object]) -> Mapping[str
 
     Args:
         raw: What a team proposed, keyed by factor key. An **empty mapping is
-            valid** and means "use the placeholder defaults"; a mapping that
+            valid** and means "use the equal defaults"; a mapping that
             zeroes every factor is refused, because it says "score nothing"
             and every profile would then tie on 0.0 and be ordered by the
             tie-break alone.

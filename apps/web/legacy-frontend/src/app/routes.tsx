@@ -305,8 +305,9 @@ export const router = createBrowserRouter([
     element: withSuspense(<ExerciseInstructor />),
     errorElement: <NotFound />,
   },
-  // The "five quick questions" card, as a one-screen mock-up the instructor
-  // opens in front of the room (requirements row "Asking for more"). Reads no
+  // The profile card (interests and career goal, plus a confirm-your-major
+  // step; OQ-CE-11), as a one-screen mock-up the instructor opens in front of
+  // the room (requirements row "Asking for more"). Reads no
   // API and shows no real person's data.
   {
     path: "exercise/profile-card",

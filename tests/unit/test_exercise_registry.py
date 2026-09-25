@@ -4,8 +4,8 @@ Design spec §4.3. The claim PR #173 made is that the registry mechanism is
 parameterised; this file is the first *product* registry to sit beside
 :data:`~smartmatch_domain.factor_registry.CBA_REGISTRY` and prove it, and it
 pins the three things that keep the two apart: an unmistakable version, its own
-closed mode vocabulary, and defaults that are placeholders rather than
-decisions.
+closed mode vocabulary, and equal defaults that Ann confirmed (OQ-CE-02,
+closed 2026-09-25).
 """
 
 from __future__ import annotations
@@ -78,13 +78,24 @@ def test_the_factors_are_labelled_in_anns_plain_words() -> None:
         assert spec.display_label == EXERCISE_FACTOR_LABELS[spec.key]
 
 
-def test_default_weights_are_the_oq_ce_02_placeholder_equal_set() -> None:
-    """PLACEHOLDER (OQ-CE-02). Equal, named, and not a decision."""
+def test_default_weights_are_the_oq_ce_02_equal_set() -> None:
+    """OQ-CE-02 closed 2026-09-25: equal, named, and teams decide the rest."""
     assert SAME_MAJOR_DEFAULT_WEIGHT == 0.25
     assert STATED_INTEREST_OVERLAP_DEFAULT_WEIGHT == 0.25
     assert CAREER_GOAL_FIT_DEFAULT_WEIGHT == 0.25
     assert PAST_EVENT_TOPIC_OVERLAP_DEFAULT_WEIGHT == 0.25
     assert set(EXERCISE_DEFAULT_WEIGHTS.values()) == {0.25}
+
+
+def test_the_default_weights_are_no_longer_marked_placeholders() -> None:
+    """Ann confirmed equal weights; a marker left behind would be untrue."""
+    from pathlib import Path
+
+    from smartmatch_domain.exercise import registry
+
+    source = Path(registry.__file__).read_text(encoding="utf-8")
+    assert "PLACEHOLDER (OQ-CE-02" not in source
+    assert "OQ-CE-02 closed 2026-09-25" in source
 
 
 def test_the_gates_pass_for_the_exercise_rulebook() -> None:

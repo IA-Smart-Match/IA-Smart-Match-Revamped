@@ -53,11 +53,11 @@ reason line says" and do not say which wins, so the choice is
 rather than a precedence buried in an ``if``. The tie line wins, as approved
 (OQ-CE-12 closed 2026-09-25).
 
-**OQ-CE-12 closed 2026-09-25.** Decided by Danny (owner), recording Ann's
-answers to the team's question list (2026-09-22): every reason line is approved
-as written — Ann's two phrases in their rendered form, the three tie sentences
-drafted beside them, the "What counted: same major." framing, and the tie line
-winning over the major-only line.
+**OQ-CE-12 closed 2026-09-25.** Decided by Ann Wang, email reply to the
+team's question list: every reason line is approved as written — Ann's two
+phrases in their rendered form, the three tie sentences drafted beside them,
+the "What counted: same major." framing, and the tie line winning over the
+major-only line.
 
 A factor "contributes" when its value is known and above zero. A measured zero
 adds nothing to the composition, and naming it would tell a class participant

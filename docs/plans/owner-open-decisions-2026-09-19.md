@@ -355,15 +355,15 @@ Cards #15–#21 below: rate limiting, `unlock` scope, passcode delivery,
 | 3 | Upload: raw CSV vs multipart | Danny | CE-MOUNT, Oct 2 | Keep raw `text/csv` | OPEN |
 | 4 | Instructor session storage | Danny | Nothing hard | Keep the signed cookie | OPEN |
 | 5 | Eight simulation coefficients | Chau + Ann | Oct 16 results | Chau proposes Oct 2, Ann confirms Nov 9 | OPEN |
-| 6 | Default factor weights | Chau + Ann | Oct 2 defaults | Ask in the Chau message | OPEN |
-| 7 | Points per attendance / card | Ann + Chau | Nov 9 | Ask in the Chau message | OPEN |
+| 6 | Default factor weights | Chau + Ann | Oct 2 defaults | Ask in the Chau message | CLOSED 2026-09-25 (OQ-CE-02, Ann): equal weights stay |
+| 7 | Points per attendance / card | Ann + Chau | Nov 9 | Ask in the Chau message | CLOSED 2026-09-25 (OQ-CE-10, Ann): one point each |
 | 8 | File layout and column names | Ann | Sept 25 file, Oct 2 | Ask Ann; chase the sample | WAITING ON ANN |
 | 9 | CSV or XLSX | Danny + Ann | Sept 25 file | Ask for CSV | WAITING ON ANN |
-| 10 | Reason-line wording and precedence | Ann | Oct 2 reason lines | Ask Ann; never write her words | CLOSED 2026-09-25 (OQ-CE-12): all lines approved as written; tie line wins |
-| 11 | Three percentages + half-rounding | Ann | Nov 9 | Ask Ann; half-up if she declines | CLOSED 2026-09-25 (OQ-CE-04): 30/55/80 + 15 confirmed; round half up (Danny) |
+| 10 | Reason-line wording and precedence | Ann | Oct 2 reason lines | Ask Ann; never write her words | CLOSED 2026-09-25 (OQ-CE-12, Ann): all lines approved as written; tie line wins |
+| 11 | Three percentages + half-rounding | Ann | Nov 9 | Ask Ann; half-up if she declines | CLOSED 2026-09-25 (OQ-CE-04, Ann): 30/55/80 + 15 confirmed; round half up (Danny) |
 | 12 | Two tabs, one team number | Ann | Nothing hard | Confirm shared | CLOSED 2026-09-25 (OQ-CE-08): shared per team number |
-| 13 | The five quick questions | Ann | Nov 9 | Ask Ann | CLOSED 2026-09-25 (OQ-CE-11): major, year, stated interests, career goal, past events |
-| 14 | License line | Ann | Nov 20 | Ask now, ship when it arrives | CLOSED 2026-09-25 (OQ-CE-09): sentence on the opening screen |
+| 13 | The five quick questions | Ann | Nov 9 | Ask Ann | CLOSED 2026-09-25 (OQ-CE-11, Ann): card asks interests and career goal only; major confirmed on activation |
+| 14 | License line | Ann | Nov 20 | Ask now, ship when it arrives | CLOSED 2026-09-25 (OQ-CE-09, Ann): two sentences on the opening screen |
 | 15 | Rate limiting for no-login routes | Danny | Oct 2 public URL | Proxy on the VM, alongside #2 | OPEN |
 | 16 | `unlock` on a non-active file | Danny | Oct 16 results | No — teams' file only | OPEN |
 | 17 | Passcode delivery | Danny + Ann | Oct 16 session | DM, rotate after spring | CLOSED 2026-09-25 (OQ-CE-07): per deployment, out of band, rotate by changing the value |

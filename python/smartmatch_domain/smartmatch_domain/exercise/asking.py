@@ -8,11 +8,11 @@ invited to complete a card. Ann's build table fixes what each one produces:
     (about 80 percent, but about 15 percent of those without a card stop
     opening messages and never sign up in round two).
 
-Those four numbers are confirmed: OQ-CE-04 closed 2026-09-25 (Danny, owner,
-recording Ann's answers to the team's question list of 2026-09-22) — 30 percent
-/ 55 percent / 80 percent, plus 15 percent non-responding under "required".
-Ann gave no view on how a half rounds; Danny settled it per the owner-doc
-recommendation: **round half up** (see :func:`select_share`).
+Those four numbers are confirmed: OQ-CE-04 closed 2026-09-25 (Ann Wang,
+email reply to the team's question list) — 30 percent / 55 percent / 80
+percent, plus 15 percent non-responding under "required". Ann gave no view on
+how a half rounds; Danny settled it per the owner-doc recommendation: **round
+half up** (see :func:`select_share`).
 
 The three choice names are not placeholders. They are fixed by design spec §12
 and again by the database: the ``ck_exercise_team_workspace_asking_choice``

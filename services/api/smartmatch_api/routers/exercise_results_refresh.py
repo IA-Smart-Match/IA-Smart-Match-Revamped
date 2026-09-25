@@ -22,10 +22,10 @@ parameter and no return field here with a place to put an interest term.
 
 OQ-CE-04 — the shares and the half-round in ``select_share``
 ============================================================
-Closed 2026-09-25 (Danny, owner, recording Ann's answers to the team's question
-list of 2026-09-22): 30 / 55 / 80 percent, plus 15 percent non-responding under
-"required". Ann gave no view on halves, so Danny settled the half-rounding per
-the owner-doc recommendation: **round half up**. ``asking.select_share`` rounds
+Closed 2026-09-25 (Ann Wang, email reply to the team's question list): 30 /
+55 / 80 percent, plus 15 percent non-responding under "required". Ann gave no
+view on halves, so Danny settled the half-rounding per the owner-doc
+recommendation: **round half up**. ``asking.select_share`` rounds
 ``share * n`` half up in decimal arithmetic, so a group of ten at a share of
 exactly ``0.05`` picks one, and a group of fifteen at thirty percent picks five.
 

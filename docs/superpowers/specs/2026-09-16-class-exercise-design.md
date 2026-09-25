@@ -158,7 +158,7 @@ an unknown factor contributes nothing and its weight is **not** re-spread
 (ADR-0016). A profile with only major on file gets exactly the major
 contribution.
 
-**PLACEHOLDER until 9/18:** default weights (OQ-CE-02; placeholder equal).
+**Default weights:** equal, 0.25 each (OQ-CE-02, closed 2026-09-25: "Teams should decide for themselves which factors matter most").
 
 ### 4.4 Exercise-only: `_exercise_ranked`
 
