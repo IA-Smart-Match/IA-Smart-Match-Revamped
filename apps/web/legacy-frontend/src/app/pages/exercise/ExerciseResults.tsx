@@ -22,9 +22,17 @@
  * all — it simply means this team has not run yet, which is the screen's
  * ordinary first state.
  *
+ * **The team runs its final setting, and nothing else** (Ann to Chau, Discord,
+ * 2026-09-24): set weights, save up to three settings and compare two, choose
+ * one final setting, then run once the instructor unlocks the event. So the run
+ * button stays off until one of this event's saved settings is chosen, and a
+ * team with none saved is told to save one first. The server refuses a run
+ * without a final setting too; this screen only makes the step visible.
+ *
  * Names for the team's own panels are joined from the ranked list by
  * `profile_no` (owner decision, 2026-09-21): the results routes carry numbers
- * and counts, and nothing here asks the backend for names.
+ * and counts, and nothing here asks the backend for names. The list asked is
+ * the one the run's final setting built, so the names match who was invited.
  */
 import * as React from "react";
 import { Link, useParams } from "react-router";
@@ -34,13 +42,17 @@ import {
   readAskingChoice,
   readRankedList,
   readResults,
+  readSavedSettings,
   refreshProfiles,
   runResults,
   type AskingStateView,
+  type ListWeighting,
   type ResultsView,
+  type SavedSettingsView,
 } from "../../../lib/exerciseClient";
 import { ExerciseLoading, ExerciseNotice, ExerciseScreen } from "./ExerciseScreen";
 import { ResultPanels, type NamesByProfileNo } from "./ResultPanels";
+import { SettingPicker } from "./SavedSettingsPanel";
 import { useExerciseResource } from "./useExerciseResource";
 import { workspaceRequiredNotice } from "./refusals";
 
@@ -55,6 +67,8 @@ interface ResultsData {
   readonly results: ResultsView | null;
   readonly names: NamesByProfileNo;
   readonly asking: AskingStateView;
+  /** This event's saved settings, to choose the final one from; `null` once run. */
+  readonly saved: SavedSettingsView | null;
 }
 
 export function ExerciseResults(): React.JSX.Element {
@@ -70,8 +84,11 @@ export function ExerciseResults(): React.JSX.Element {
           throw error;
         }
       }
-      const names = await namesForEvent(eventKey, signal);
-      return { results, names, asking: await readAskingChoice(signal) };
+      const names = await namesForEvent(eventKey, results?.setting_name ?? null, signal);
+      const asking = await readAskingChoice(signal);
+      // Only needed before the run: afterwards there is nothing left to choose.
+      const saved = results === null ? await readSavedSettings(eventKey, signal) : null;
+      return { results, names, asking, saved };
     },
     [eventKey],
   );
@@ -106,14 +123,24 @@ export function ExerciseResults(): React.JSX.Element {
 /**
  * The names the ranked list gives this event's profile numbers.
  *
+ * Asked of the list the run's final setting built, when there is a run, so the
+ * team's own panel is named from the list it actually invited. A setting
+ * deleted since the run is refused by the list route and falls back below.
+ *
  * A failure here is not a failure of the results screen: the counts and the
  * comparison are the lesson, and the names are the illustration. So a refusal
  * on the list leaves the map empty and the panels fall back to profile
  * numbers, rather than taking the whole screen down.
  */
-async function namesForEvent(eventKey: string, signal: AbortSignal): Promise<NamesByProfileNo> {
+async function namesForEvent(
+  eventKey: string,
+  settingName: string | null,
+  signal: AbortSignal,
+): Promise<NamesByProfileNo> {
+  const weighting: ListWeighting =
+    settingName === null ? { kind: "default" } : { kind: "setting", name: settingName };
   try {
-    const list = await readRankedList(eventKey, { kind: "default" }, signal);
+    const list = await readRankedList(eventKey, weighting, signal);
     return new Map(list.entries.map((entry) => [entry.profile_no, entry.display_name]));
   } catch (error) {
     // An abort is not a missing list — it is this load being replaced. It has
@@ -137,6 +164,7 @@ function ResultsBody({
 }): React.JSX.Element {
   const [pending, setPending] = React.useState(false);
   const [refusal, setRefusal] = React.useState<string | null>(null);
+  const [finalSetting, setFinalSetting] = React.useState("");
 
   async function run(action: () => Promise<void>): Promise<void> {
     if (pending) {
@@ -171,13 +199,19 @@ function ResultsBody({
           <p className="text-xl text-slate-700 dark:text-slate-200">
             Your team has not run results for this event yet. A team runs them once.
           </p>
+          <FinalSettingChoice
+            eventKey={eventKey}
+            saved={data.saved}
+            value={finalSetting}
+            onChange={setFinalSetting}
+          />
           <div>
             <button
               type="button"
-              disabled={pending}
+              disabled={pending || finalSetting === ""}
               onClick={() =>
                 void run(async () => {
-                  await runResults(eventKey, null);
+                  await runResults(eventKey, finalSetting);
                   onChanged();
                 })
               }
@@ -224,6 +258,52 @@ function ResultsBody({
           </div>
         )}
       </section>
+    </div>
+  );
+}
+
+/**
+ * Step three of the owner's flow: the team's one final setting for this event.
+ *
+ * The choices are the team's saved settings, read from the server, so a name
+ * here is always one the run route can find. Nothing is chosen for the team,
+ * even when it has saved only one: choosing is the step.
+ */
+function FinalSettingChoice({
+  eventKey,
+  saved,
+  value,
+  onChange,
+}: {
+  readonly eventKey: string;
+  readonly saved: SavedSettingsView | null;
+  readonly value: string;
+  readonly onChange: (value: string) => void;
+}): React.JSX.Element {
+  const settings = saved?.settings ?? [];
+  if (settings.length === 0) {
+    return (
+      <p className="text-xl text-slate-700 dark:text-slate-200" data-slot="exercise-final-setting">
+        Your team has not saved any settings for this event yet. Save one on{" "}
+        <Link to={`/exercise/events/${encodeURIComponent(eventKey)}`} className="underline">
+          your team's list
+        </Link>{" "}
+        first, then choose it here as your final setting.
+      </p>
+    );
+  }
+  return (
+    <div className="flex flex-col gap-2" data-slot="exercise-final-setting">
+      <SettingPicker
+        id="exercise-final-setting"
+        label="Your team's final setting"
+        value={value}
+        onChange={onChange}
+        settings={settings}
+      />
+      <p className="text-xl text-slate-600 dark:text-slate-300">
+        Your team's invited list is built from the setting you choose.
+      </p>
     </div>
   );
 }

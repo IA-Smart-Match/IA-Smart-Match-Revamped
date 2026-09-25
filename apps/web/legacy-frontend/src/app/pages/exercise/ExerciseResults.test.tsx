@@ -292,9 +292,10 @@ describe("<ExerciseResults />", () => {
     renderResults();
     await waitFor(() =>
       expect(
-        screen.getByText(/save one on your team's list first, then choose it here/i),
-      ).toBeDefined(),
+        document.querySelector('[data-slot="exercise-final-setting"]')?.textContent,
+      ).toMatch(/save one on your team's list first, then choose it here/i),
     );
+    expect(screen.getByRole("link", { name: "your team's list" })).toBeDefined();
     expect(
       (screen.getByRole("button", { name: /run results/i }) as HTMLButtonElement).disabled,
     ).toBe(true);

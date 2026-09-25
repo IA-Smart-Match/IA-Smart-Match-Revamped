@@ -429,11 +429,17 @@ export function compareSettings(eventKey: string, a: string, b: string, signal?:
   );
 }
 
-/** `POST …/events/{event_key}/results` — 201, once per team per event. */
-export function runResults(eventKey: string, settingName: string | null, signal?: AbortSignal) {
+/**
+ * `POST …/events/{event_key}/results` — 201, once per team per event.
+ *
+ * `settingName` is the team's **final setting**, one of its saved settings for
+ * this event, and is required: the server refuses a run without one (Ann to
+ * Chau, Discord, 2026-09-24). There is no run on the course's starting values.
+ */
+export function runResults(eventKey: string, settingName: string, signal?: AbortSignal) {
   return exerciseRequest<ResultsView>(
     `/workspaces/current/events/${encodeURIComponent(eventKey)}/results`,
-    { method: "POST", json: settingName === null ? {} : { setting_name: settingName }, signal },
+    { method: "POST", json: { setting_name: settingName }, signal },
   );
 }
 

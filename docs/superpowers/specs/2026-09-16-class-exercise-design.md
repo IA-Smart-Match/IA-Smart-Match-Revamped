@@ -166,6 +166,8 @@ the simulation both read it.
   stores the four weights; a fourth name is refused with a sentence.
 - `GET .../settings/compare?a=&b=` returns both ranked lists and the set of
   profile numbers on both, which the screen highlights.
+- One saved setting becomes the team's **final setting**, and the results run
+  is built from it (§9; Ann to Chau, Discord, 2026-09-24).
 - Reuse `smartmatch_domain/weight_settings.validate_weight_overrides` for
   range and key checks; the persistence is the new table, not
   `match_weight_setting`.
@@ -191,6 +193,33 @@ pandas.
 `exercise_result_unlock` has a row for the dataset and event; a second run
 hits the UNIQUE constraint and is refused with "This team has already run
 results for this event." Instructor: `POST /v1/exercise/instructor/events/{event_key}/unlock`.
+
+**The run takes the team's final setting** (source: Ann to Chau, Discord,
+2026-09-24). The flow is: the team sets weights and the app picks the top 30;
+the team saves up to three settings and compares two; **the team chooses one
+final setting**; the instructor unlocks results and the team runs them once.
+So the request body is `{"setting_name": "<one of the team's saved settings for
+this event>"}`, and `setting_name` is required. There is no run on the course's
+starting values: a team that wants them saves them under a name like any other
+setting. The results screen keeps its run button off until a saved setting is
+chosen, and with none saved it tells the team to save one first.
+
+The run's refusals, in the order a team meets them:
+
+| Order | Refusal | Status, code |
+|---|---|---|
+| 1 | Event not in this team's data file | 404 `exercise_event_unknown` |
+| 2 | Event is not one of the two rounds | 409 `exercise_event_is_not_a_round` |
+| 3 | Results not unlocked for this event | 409 `exercise_results_locked` |
+| 4 | This team has already run this event | 409 `exercise_results_already_run` |
+| 5 | `setting_name` left out or blank: "Choose one of your saved settings as your final setting before running results." | 422 `exercise_final_setting_required` |
+| 6 | Results rule has no confirmed coefficients (OQ-CE-03) | 409 `exercise_results_rule_not_confirmed` |
+| 7 | `setting_name` is not one of this team's saved settings | 404 `exercise_setting_unknown` |
+
+Rows 1–4 say whether the event can be run at all, whatever the body says;
+asking a team that has already run to choose a setting would invite a second
+try. Row 5 is the team's own step, so it comes before row 6, which is the
+owner's to close and refuses every run until then.
 
 ## 10. Comparison view
 
