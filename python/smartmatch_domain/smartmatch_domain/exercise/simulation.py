@@ -63,8 +63,9 @@ For one profile and one event, with coefficients ``c``:
   when a third is below ``c.attend_given_signup``.
 
 Terms are compared as exact strings after ``strip()`` and ``casefold()``.
-There is no vocabulary and no synonym table here: which terms exist is
-OQ-CE-01 and is not this module's to decide.
+The vocabularies are closed at ingest
+(:mod:`smartmatch_domain.exercise.vocabulary`), so both sides of every
+comparison are already in Ann's spelling; there is no synonym table here.
 
 **Unknown is not a mismatch (ADR-0011).** A profile with no career goal simply
 does not collect the career-goal part of ``fit_share``. It is not penalised,
@@ -217,12 +218,12 @@ class InviteLimitExceededError(ValueError):
 class SimulationProfile:
     """One made-up profile, as the rule needs to read it.
 
-    **PLACEHOLDER (OQ-CE-01).** The value vocabularies behind ``major``,
-    ``true_interests``, and ``career_goal`` are undecided, and so is whether
-    the career goal is a G3 term. Nothing here fixes them: terms are compared
-    as exact normalised strings and no enum or vocabulary is declared. When
-    OQ-CE-01 closes, the mapping from Ann's columns to these fields is what
-    changes, not this shape.
+    Built by the results route from a stored row: ``true_interests`` from
+    ``hidden_true_interests`` and ``career_goal`` from the **topic** that
+    ``hidden_true_career_goal`` points at, through
+    :func:`~smartmatch_domain.exercise.vocabulary.goal_topic_for_matching` —
+    the same table "career goal fits this event" reads, so the rule and the
+    factor cannot disagree about what a goal means.
 
     Attributes:
         profile_no: The profile's number in the data file. The only thing that
@@ -242,8 +243,11 @@ class SimulationProfile:
             ``exercise_profile.hidden_true_interests`` holds, so it earns the
             same treatment. The value is still there to be read deliberately —
             this module reads it on every call.
-        career_goal: The hidden true career goal, or ``None`` when the file has
-            none. ``None`` contributes no fit and costs nothing.
+        career_goal: The topic the hidden true career goal points at, or
+            ``None`` when the file has no goal or the goal points at no topic
+            (``Undecided``, ``Graduate school``). ``None`` contributes no fit
+            and costs nothing. ``repr=False`` for the same reason as
+            ``true_interests``: it is derived from a withheld column.
         past_event_count: How many past events this profile attended.
         non_responding: ``True`` for a profile that stopped opening messages
             after the ``required`` asking choice (design spec §13). Such a
@@ -253,7 +257,7 @@ class SimulationProfile:
     profile_no: int
     major: str
     true_interests: frozenset[str] = field(default=frozenset(), repr=False)
-    career_goal: str | None = None
+    career_goal: str | None = field(default=None, repr=False)
     past_event_count: int = 0
     non_responding: bool = False
 
@@ -262,8 +266,7 @@ class SimulationProfile:
 class SimulationEvent:
     """One exercise event, as the rule needs to read it.
 
-    **PLACEHOLDER (OQ-CE-01)**, for the same reason as
-    :class:`SimulationProfile`: the topic and major vocabularies are undecided.
+    Topics and majors are in Ann's spelling, as ingest stored them.
 
     Attributes:
         event_key: The event's key. Part of every draw, so two events with one

@@ -12,8 +12,8 @@ Four claims that are cheap to hold and expensive to discover broken:
 4. Registering a second rulebook leaves the CBA registry's own numbers exactly
    where they were.
 
-The class-year mapping is **test-only**. OQ-CE-01 is open, the year vocabulary
-is Ann's, and the module ships no default.
+The class-year mapping is **test-only**, so these cases stay about the ranker;
+production passes ``vocabulary.EXERCISE_CLASS_YEAR_RANK``.
 """
 
 from __future__ import annotations

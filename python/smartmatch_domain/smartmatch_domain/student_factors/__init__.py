@@ -14,8 +14,10 @@ shared one. The composition — which rulebook, which weights, which order —
 belongs to whichever registry composes these functions, and today that is
 :mod:`smartmatch_domain.exercise.registry` alone.
 
-**PLACEHOLDER (OQ-CE-01).** No vocabulary is declared here: terms are compared
-as exact normalized strings.
+No vocabulary is declared here: terms are compared as exact normalized
+strings. The class exercise closes its vocabularies at ingest
+(:mod:`smartmatch_domain.exercise.vocabulary`), and these functions are shared
+with a student registry that may not share that list.
 """
 
 from __future__ import annotations

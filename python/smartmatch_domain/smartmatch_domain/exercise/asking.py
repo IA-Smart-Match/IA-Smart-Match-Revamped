@@ -25,14 +25,17 @@ exactly ``better_recommendations``, ``small_reward``, and ``required``.
 :func:`select_share` is the pure, deterministic part of the refresh: given some
 profile numbers and a share, it says *which* of them.
 :func:`copied_card_career_goal` is the other pure part: given the base row's
-career goal, it says what the copied card carries — **PLACEHOLDER (OQ-CE-13)**,
-switchable in one line. The refresh itself
+career goal and the hidden true career goal, it says what the copied card
+carries — the hidden one, since Ann's Read Me of 2026-09-24 answered OQ-CE-13
+("a new card copies these", of both pink columns). The refresh itself
 (design spec §13 — writing overlay rows, copying a card from the hidden true
-interests, recomputing markers) is not here and cannot be: it needs the overlay
+values, recomputing markers) is not here and cannot be: it needs the overlay
 repository, and this package imports no persistence.
 
-Nothing in this module reads a profile's hidden true interests, and nothing it
-returns carries one: it takes profile numbers and returns profile numbers.
+Nothing in this module reads a profile's hidden true interests.
+:func:`copied_card_career_goal` is handed a hidden true career goal by its one
+caller and returns it for the overlay write, which is the refresh Ann
+describes: a card the profile completes states what it truly wants.
 """
 
 from __future__ import annotations
@@ -93,15 +96,11 @@ class CopiedCardCareerGoal(StrEnum):
     """What career goal a card copied by design spec §13's refresh carries.
 
     The refresh copies *interests* out of the withheld column onto a team's
-    overlay row. What the same card says about a career goal is a separate
-    question, because the base row's ``career_goal`` is **not** withheld and is
-    already visible to every team — so the copied card can either restate it or
-    say nothing and let the base row stand.
-
-    Both readings produce the same ranked list today (see
-    :func:`copied_card_career_goal`), which is exactly why the rule has to be
-    written down rather than inferred: it is invisible until something else
-    changes, and then it is load-bearing.
+    overlay row. What the same card says about a career goal was OQ-CE-13, and
+    Ann's Read Me answered it on 2026-09-24: the hidden true career goal is
+    "used only by the results rule and by the refresh (a new card copies
+    these)". :attr:`HIDDEN_GOAL` is that answer; the two earlier readings stay
+    as members so a test can still name them.
 
     A third answer is one member here plus one branch in
     :func:`copied_card_career_goal`. Nothing outside this module decides it, and
@@ -114,43 +113,39 @@ class CopiedCardCareerGoal(StrEnum):
     #: The copied card carries no career goal at all. What shipped in PR #190:
     #: the overlay column is left ``NULL`` and the base row stands behind it.
     NONE = "none"
+    #: The copied card carries the profile's hidden true career goal, and
+    #: ``None`` when the file has none. Ann's answer of 2026-09-24.
+    HIDDEN_GOAL = "hidden_goal"
 
 
-#: PLACEHOLDER (OQ-CE-13): which reading design spec §13's copied card takes.
-#:
-#: The owner ruled on 2026-09-21 that *"copied cards carry the base
-#: ``career_goal``; ``NULL`` only when the base has none"*, and the register row
-#: **OQ-CE-13 is OPEN** pending Ann — so this is a placeholder in the same sense
-#: the shares above are: a stated answer, held in one named place. Changing Ann's
-#: answer is changing this one line; every caller takes it as a default.
-COPIED_CARD_CAREER_GOAL: Final[CopiedCardCareerGoal] = CopiedCardCareerGoal.BASE_GOAL
+#: Which reading design spec §13's copied card takes: Ann's, of 2026-09-24
+#: (OQ-CE-13 closed). Every caller takes it as a default.
+COPIED_CARD_CAREER_GOAL: Final[CopiedCardCareerGoal] = CopiedCardCareerGoal.HIDDEN_GOAL
 
 
 def copied_card_career_goal(
     base_career_goal: str | None,
     policy: CopiedCardCareerGoal = COPIED_CARD_CAREER_GOAL,
+    *,
+    hidden_true_career_goal: str | None = None,
 ) -> str | None:
     """The career goal a copied card carries, under ``policy``.
 
-    Pure: it takes the base row's career goal and returns a value, and it is the
-    **one** place either reading is written. A caller that wants the shipped
-    reading passes no ``policy`` at all.
+    Pure: it takes the base row's goal and the hidden true goal and returns a
+    value, and it is the **one** place any reading is written. A caller that
+    wants the shipped reading passes no ``policy`` at all.
 
-    Under :attr:`CopiedCardCareerGoal.BASE_GOAL` the answer is the base row's own
-    goal — which is ``None`` when the base row has none, so "the base has no
-    goal" and "the card says nothing" stay the same fact rather than becoming
-    two. Under :attr:`CopiedCardCareerGoal.NONE` the answer is always ``None``.
-
-    Why both give the same ranked list today: a reader resolves a team's view as
-    overlay-over-base (``exercise_matching_models._profile_evidence``), so a
-    copied card with no goal of its own already reads the base row's. Writing the
-    goal makes that resolution explicit at the row rather than implicit in the
-    reader; it does not move a profile.
+    * :attr:`CopiedCardCareerGoal.HIDDEN_GOAL` (shipped): the hidden true
+      career goal, ``None`` when the file has none.
+    * :attr:`CopiedCardCareerGoal.BASE_GOAL`: the base row's own goal.
+    * :attr:`CopiedCardCareerGoal.NONE`: always ``None``.
 
     Args:
         base_career_goal: The base row's ``career_goal``, or ``None``.
         policy: Which reading to apply. Defaults to
             :data:`COPIED_CARD_CAREER_GOAL`.
+        hidden_true_career_goal: The profile's withheld true career goal, or
+            ``None``. Read only under :attr:`CopiedCardCareerGoal.HIDDEN_GOAL`.
 
     Returns:
         The value to store in ``exercise_profile_overlay.card_career_goal``, or
@@ -158,14 +153,13 @@ def copied_card_career_goal(
 
     Raises:
         AssertionError: If ``policy`` is not a member of
-            :class:`CopiedCardCareerGoal`. A third member added without a branch
-            here must be refused, not silently read as
-            :attr:`CopiedCardCareerGoal.NONE` — the wrong answer that looks like
-            a deliberate one. Raised via :func:`typing.assert_never`, so mypy
-            also flags an unhandled member statically, at the call site of
-            ``assert_never`` rather than only at runtime.
+            :class:`CopiedCardCareerGoal`. A member added without a branch here
+            must be refused, not silently read as another reading — raised via
+            :func:`typing.assert_never`, so mypy also flags it statically.
     """
     match policy:
+        case CopiedCardCareerGoal.HIDDEN_GOAL:
+            return hidden_true_career_goal
         case CopiedCardCareerGoal.BASE_GOAL:
             return base_career_goal
         case CopiedCardCareerGoal.NONE:

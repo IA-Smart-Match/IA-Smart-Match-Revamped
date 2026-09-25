@@ -748,6 +748,7 @@ CHECK_CONSTRAINT_DEFINITIONS = {
         "CHECK ((length(btrim(display_name)) > 0))"
     ),
     ("exercise_profile", "ck_exercise_profile_profile_no"): "CHECK ((profile_no >= 1))",
+    ("exercise_profile", "ck_exercise_profile_tiebreak_order"): "CHECK ((tiebreak_order >= 1))",
     # `round IN (1, 2)` as written in the migration; PostgreSQL renders every
     # `IN` as `= ANY (ARRAY[...])`, which is why this is pinned as rendered
     # rather than as declared.
@@ -1489,6 +1490,11 @@ BEHAVIOURAL_COVERAGE = {
         "'   '. The column is NOT NULL, so a blank is the only way a nameless profile could "
         "reach a team's screen — it would render as an empty card. Permitted half: "
         "::test_exercise_profile_accepts_a_numbered_named_profile"
+    ),
+    ("exercise_profile", "ck_exercise_profile_tiebreak_order"): (
+        "0042 added, ::test_exercise_profile_rejects_a_tiebreak_order_below_one. Ann's "
+        "fixed order starts at 1; NULL is a dataset stored before 0042. Permitted half: "
+        "::test_exercise_profile_accepts_a_tiebreak_order_of_one_or_none"
     ),
     ("exercise_event", "ck_exercise_event_sequence"): (
         "0037 added, ::test_exercise_event_rejects_a_sequence_below_one. Permitted half: "
@@ -2516,13 +2522,19 @@ def _insert_exercise_profile(
     *,
     profile_no: int = 1,
     display_name: str = "Robin Ellery",
+    tiebreak_order: int | None = None,
 ) -> None:
     conn.execute(
         text(
-            "INSERT INTO exercise_profile (dataset_id, profile_no, display_name) "
-            "VALUES (:dataset_id, :profile_no, :display_name)"
+            "INSERT INTO exercise_profile (dataset_id, profile_no, display_name, tiebreak_order) "
+            "VALUES (:dataset_id, :profile_no, :display_name, :tiebreak_order)"
         ),
-        {"dataset_id": dataset_id, "profile_no": profile_no, "display_name": display_name},
+        {
+            "dataset_id": dataset_id,
+            "profile_no": profile_no,
+            "display_name": display_name,
+            "tiebreak_order": tiebreak_order,
+        },
     )
 
 
@@ -2724,6 +2736,29 @@ def test_exercise_profile_accepts_a_numbered_named_profile(
     with engine.begin() as conn:
         dataset_id = exercise_dataset(conn)
         _insert_exercise_profile(conn, dataset_id, profile_no=1, display_name="Robin Ellery")
+
+
+def test_exercise_profile_rejects_a_tiebreak_order_below_one(
+    engine: Engine, exercise_dataset
+) -> None:
+    with engine.begin() as conn:
+        dataset_id = exercise_dataset(conn)
+
+    with (
+        pytest.raises(IntegrityError, match="ck_exercise_profile_tiebreak_order"),
+        engine.begin() as conn,
+    ):
+        _insert_exercise_profile(conn, dataset_id, tiebreak_order=0)
+
+
+def test_exercise_profile_accepts_a_tiebreak_order_of_one_or_none(
+    engine: Engine, exercise_dataset
+) -> None:
+    """``NULL`` is a dataset stored before 0042, which keeps the checksum order."""
+    with engine.begin() as conn:
+        dataset_id = exercise_dataset(conn)
+        _insert_exercise_profile(conn, dataset_id, profile_no=1, tiebreak_order=1)
+        _insert_exercise_profile(conn, dataset_id, profile_no=2, tiebreak_order=None)
 
 
 # --- exercise_event --------------------------------------------------------

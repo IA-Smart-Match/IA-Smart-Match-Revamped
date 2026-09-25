@@ -228,13 +228,10 @@ export interface IngestReportView {
   readonly event_count: number;
   readonly exercise_event_count: number;
   readonly distinct_class_years: string[];
-  readonly profiles_missing_major: number;
-  readonly profiles_missing_class_year: number;
   readonly profiles_without_card: number;
   readonly distinct_stated_interest_terms: number;
   readonly distinct_topic_tag_terms: number;
   readonly events_without_topic_tags: number;
-  readonly discarded_list_entries: number;
   readonly major_only: number;
   readonly major_plus_events: number;
   readonly completed_card: number;
@@ -490,27 +487,30 @@ export function listDatasets(signal?: AbortSignal) {
   return exerciseRequest<DatasetView[]>("/instructor/datasets", { signal });
 }
 
+/** The content type of Ann's Excel workbook, the only file the upload takes. */
+export const XLSX_CONTENT_TYPE =
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
 /**
  * `POST /v1/exercise/instructor/datasets?label=…&source_filename=…`.
  *
- * **The one function that changes if owner decision 2 goes the other way.**
- * The route takes the CSV as a raw `text/csv` request body with the label and
- * the file name as query parameters, because FastAPI's multipart parsing needs
- * `python-multipart`, which this repository does not carry (PR #184, design
- * spec §3's "As shipped" note). Design spec §3 itself asks for multipart. If
- * the owner rules that way, this function and the one screen that calls it are
- * the whole of the change — which is why the shape is isolated here rather
- * than written into the upload form.
+ * The route takes Ann's workbook (.xlsx) as a raw request body of type
+ * `XLSX_CONTENT_TYPE`, with the label and the file name as query parameters.
+ * There is no multipart and no `FormData`: FastAPI's multipart parsing needs
+ * `python-multipart`, which this repository does not carry (PR #184), and the
+ * owner ruled on 2026-09-21 that the raw body stays. The shape is isolated
+ * here rather than written into the upload form, so a later change to it is
+ * this function and the one screen that calls it.
  */
 export function uploadDataset(
-  csv: string,
+  workbook: ArrayBuffer,
   label: string,
   sourceFilename: string | undefined,
   signal?: AbortSignal,
 ) {
   return exerciseRequest<UploadedDatasetView>("/instructor/datasets", {
     method: "POST",
-    rawBody: { body: csv, contentType: "text/csv" },
+    rawBody: { body: workbook, contentType: XLSX_CONTENT_TYPE },
     query: { label, source_filename: sourceFilename },
     signal,
   });

@@ -794,10 +794,11 @@ def test_every_state_changing_route_requires_the_csrf_header(
 
 
 def _csv(rows: int = 12) -> bytes:
-    """A placeholder-layout file the ingest core accepts is not needed here —
-    the parser's own tests own that. What is needed is a file it *refuses*, so
+    """A CSV, which the route now refuses: Ann's ``.xlsx`` is the upload (OQ-CE-05).
+
+    The parser's own tests own what it accepts; this is a file it *refuses*, so
     the route's refusal path is the thing under test."""
-    return ("record_type\n" + "profile\n" * rows).encode("utf-8")
+    return ("profile_id\n" + "P001\n" * rows).encode("utf-8")
 
 
 def test_a_refused_file_is_one_plain_sentence(signed_in: TestClient) -> None:
@@ -812,7 +813,41 @@ def test_a_refused_file_is_one_plain_sentence(signed_in: TestClient) -> None:
     message = response.json()["error"]["message"]
     assert message.endswith(".")
     assert "Traceback" not in message
-    assert response.json()["error"]["code"].startswith("exercise_ingest_")
+    assert response.json()["error"]["code"] == "exercise_ingest_not_a_workbook"
+    assert ".xlsx" in message
+
+
+def test_anns_workbook_is_accepted_as_the_raw_body(signed_in: TestClient) -> None:
+    """OQ-CE-05, closed 2026-09-24: the instructor uploads Ann's file as she sent it."""
+    from smartmatch_domain.exercise.workbook import XLSX_MEDIA_TYPE
+
+    from tests.unit.exercise_workbooks import ANN_FULL_FILE
+
+    response = signed_in.post(
+        "/v1/exercise/instructor/datasets",
+        params={"label": "Ann's student body", "source_filename": ANN_FULL_FILE.name},
+        content=ANN_FULL_FILE.read_bytes(),
+        headers={EXERCISE_REQUEST_HEADER: "1", "content-type": XLSX_MEDIA_TYPE},
+    )
+
+    assert response.status_code == 201, response.text
+    report = response.json()["report"]
+    assert (report["profile_count"], report["event_count"]) == (300, 12)
+    assert (report["major_only"], report["major_plus_events"], report["completed_card"]) == (
+        166,
+        64,
+        70,
+    )
+    assert "hidden" not in response.text
+
+
+def test_the_upload_route_publishes_the_xlsx_media_type(signed_in: TestClient) -> None:
+    from smartmatch_domain.exercise.workbook import XLSX_MEDIA_TYPE
+
+    schema = signed_in.app.openapi()  # type: ignore[attr-defined]
+    body = schema["paths"]["/v1/exercise/instructor/datasets"]["post"]["requestBody"]
+
+    assert list(body["content"]) == [XLSX_MEDIA_TYPE]
 
 
 def test_the_dataset_list_is_behind_the_session_and_names_the_file(

@@ -13,16 +13,17 @@ any row:
   the rule is that synthetic rows are never one join from real ones. A test
   that needed a database to say so would not run in the gate that matters —
   the one a change to ``schema.py`` passes through.
-* **D6 — the withheld field.** ``hidden_true_interests`` is stored and read
-  only by the simulated-results rule. ``EXERCISE_WITHHELD_FIELDS`` is the
-  frozenset that names it, and this file pins its membership so that removing
-  the name is a failing test rather than a silent widening.
+* **D6 — the withheld fields.** ``hidden_true_interests`` and
+  ``hidden_true_career_goal`` are stored and read only by the simulated-results
+  rule and the refresh. ``EXERCISE_WITHHELD_FIELDS`` is the frozenset that
+  names them, and this file pins its membership so that removing a name is a
+  failing test rather than a silent widening.
 
-It also pins the two things OQ-CE-01 must be able to answer later: the
-placeholder columns exist under the spec's names, and **no CHECK constrains
-``class_year`` or ``career_goal``**. A vocabulary constraint written before
-Ann's sample arrives would close the open question in code, and unpicking it
-would be a migration rather than an edit.
+It also pins what Ann's data file (2026-09-24, OQ-CE-01 closed) needs: the
+columns exist, revision 0042's two columns and their constraints exist, and
+**no CHECK constrains ``major``, ``class_year`` or ``career_goal``** — the
+owner ruled the vocabularies closed in code, where changing one is an edit
+rather than a migration.
 """
 
 from __future__ import annotations
@@ -49,10 +50,8 @@ EXPECTED_TABLES = (
     "exercise_result_unlock",
 )
 
-#: Columns design spec §2 marks ``PLACEHOLDER until 9/18`` — the ones OQ-CE-01
-#: settles. Built to the spec's names so the shape exists; typed loosely on
-#: purpose so the answer does not need a second migration to be recorded.
-PLACEHOLDER_PROFILE_COLUMNS = (
+#: The columns Ann's data file fills (revision 0037, plus 0042's two).
+ANN_PROFILE_COLUMNS = (
     "display_name",
     "major",
     "class_year",
@@ -60,8 +59,10 @@ PLACEHOLDER_PROFILE_COLUMNS = (
     "stated_interests",
     "career_goal",
     "hidden_true_interests",
+    "tiebreak_order",
+    "hidden_true_career_goal",
 )
-PLACEHOLDER_EVENT_COLUMNS = (
+ANN_EVENT_COLUMNS = (
     "event_key",
     "name",
     "topic_tags",
@@ -171,9 +172,16 @@ def test_no_table_outside_the_exercise_family_references_one():
     assert not strays, f"non-exercise tables reference exercise tables: {strays}"
 
 
-def test_hidden_true_interests_is_the_withheld_field():
-    """ADR-0025 D6, pinned as a name rather than as a convention."""
-    assert "hidden_true_interests" in exercise_schema.EXERCISE_WITHHELD_FIELDS
+def test_both_hidden_columns_are_the_withheld_fields():
+    """ADR-0025 D6, pinned as names rather than as a convention.
+
+    Ann's Read Me: "Pink columns are HIDDEN: the app must never show them and
+    never use them for matching." Her file has two pink columns.
+    """
+    assert {
+        "hidden_true_interests",
+        "hidden_true_career_goal",
+    } == exercise_schema.EXERCISE_WITHHELD_FIELDS
     assert isinstance(exercise_schema.EXERCISE_WITHHELD_FIELDS, frozenset)
 
 
@@ -248,23 +256,21 @@ def test_the_public_projection_refuses_a_withheld_name_that_is_not_a_column(
         exercise_schema.exercise_profile_public_columns()
 
 
-@pytest.mark.parametrize("column_name", PLACEHOLDER_PROFILE_COLUMNS)
-def test_profile_carries_the_placeholder_columns(column_name: str):
+@pytest.mark.parametrize("column_name", ANN_PROFILE_COLUMNS)
+def test_profile_carries_anns_columns(column_name: str):
     assert column_name in _table("exercise_profile").columns
 
 
-@pytest.mark.parametrize("column_name", PLACEHOLDER_EVENT_COLUMNS)
-def test_event_carries_the_placeholder_columns(column_name: str):
+@pytest.mark.parametrize("column_name", ANN_EVENT_COLUMNS)
+def test_event_carries_anns_columns(column_name: str):
     assert column_name in _table("exercise_event").columns
 
 
-def test_no_check_constrains_the_open_vocabularies():
-    """OQ-CE-01 stays open, which means it stays out of the database.
+def test_no_check_constrains_a_vocabulary():
+    """The vocabularies are closed in code (owner ruling 2026-09-24), not in DDL.
 
-    ``class_year`` and ``career_goal`` are the two columns whose *values* the
-    open question decides. A CHECK naming today's guesses would answer it in
-    DDL, and the answer would then need a migration to change rather than an
-    ingest edit.
+    A CHECK naming Ann's majors, years or goals would need a migration to
+    change rather than an edit to ``smartmatch_domain.exercise.vocabulary``.
     """
     profile = _table("exercise_profile")
     expressions = [
@@ -275,12 +281,23 @@ def test_no_check_constrains_the_open_vocabularies():
     for expression in expressions:
         assert "class_year" not in expression, f"CHECK constrains class_year: {expression}"
         assert "career_goal" not in expression, f"CHECK constrains career_goal: {expression}"
+        assert "major" not in expression, f"CHECK constrains major: {expression}"
 
 
-def test_the_placeholder_marker_is_literally_present():
-    """The register's ID, in the source, where a reader of the column finds it."""
+def test_the_fixed_order_is_positive_and_unique_within_a_dataset():
+    """Revision 0042: Ann's ``tiebreak_order`` is a place in one dataset's order."""
+    profile = _table("exercise_profile")
+    names = {constraint.name for constraint in profile.constraints}
+
+    assert {"ck_exercise_profile_tiebreak_order", "uq_exercise_profile_tiebreak_order"} <= names
+    assert profile.c.tiebreak_order.nullable
+    assert profile.c.hidden_true_career_goal.nullable
+
+
+def test_the_schema_no_longer_calls_oq_ce_01_open():
+    """Ann's file closed it; a PLACEHOLDER marker left behind would be untrue."""
     source = Path(exercise_schema.__file__).read_text(encoding="utf-8")
-    assert "PLACEHOLDER (OQ-CE-01)" in source
+    assert "PLACEHOLDER (OQ-CE-01)" not in source
 
 
 #: The constraints design spec §2 and §9 name in words. Each is the whole of

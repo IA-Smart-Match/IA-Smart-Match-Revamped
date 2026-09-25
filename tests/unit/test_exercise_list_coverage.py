@@ -5,8 +5,8 @@ Requirements row "Who is on the list"
 major or year that exists among the 300 has nobody on the list."* The design
 spec §7 records the notice itself as backlog behind the counts table; this
 module is that backlog item built as a pure function, with the grouping
-values passed in rather than read from a table, because OQ-CE-01 (the data
-file's column names and value vocabularies) is still open.
+values passed in rather than read from a table: the vocabularies are closed
+at ingest, and a notice that counts labels needs none of them.
 
 The ADR-0011 rule the whole platform runs on applies here too: a profile
 whose major or year is not on file is **unknown**, not a group. It is never
@@ -64,7 +64,7 @@ def test_unknown_on_the_list_does_not_cover_a_label():
 
 
 def test_order_follows_first_appearance_among_all_profiles():
-    """Deterministic without hardcoding a vocabulary (OQ-CE-01 is open).
+    """Deterministic without hardcoding a vocabulary.
 
     The caller decides the order by the order it hands over the whole set, so
     once Ann's year vocabulary lands the caller can impose it without this

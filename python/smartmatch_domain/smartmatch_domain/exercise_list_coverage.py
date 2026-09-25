@@ -7,12 +7,12 @@ design spec §7 parks that notice behind the counts table as backlog; this
 module is the notice's decision, and only its decision.
 
 **What this module deliberately does not know.** It holds no vocabulary of
-majors and no vocabulary of class years, because OQ-CE-01 — the data file's
-column names and value vocabularies — is open until Ann's sample lands. Every
-label comes in as data. It also reads no table, takes no dataset or team
-identifier, and returns no sentence: the wording belongs to the surface that
-shows it, and the reading belongs to the caller that will later compose this
-with the exercise's profile rows.
+majors and no vocabulary of class years: those are closed at ingest
+(:mod:`smartmatch_domain.exercise.vocabulary`), and a notice that counts
+labels needs none of them. Every label comes in as data. It also reads no
+table, takes no dataset or team identifier, and returns no sentence: the
+wording belongs to the surface that shows it, and the reading belongs to the
+caller that will later compose this with the exercise's profile rows.
 
 **Unknown is not a group (ADR-0011).** A profile whose major or year is not
 on file arrives as ``None``. It is never coerced to a label, never counted as

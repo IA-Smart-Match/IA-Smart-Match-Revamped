@@ -49,22 +49,21 @@ containment query belongs with the query that needs it; nothing reads these
 tables yet, so an index today would be migration ``0038`` written on a guess —
 and the first repository track can measure instead.
 
-PLACEHOLDER (OQ-CE-01)
-======================
-The columns describing a profile and an event are built to the *shape* design
-spec §2 names and to no vocabulary at all. Ann's 20-row sample decides the
-column mapping, the ``class_year`` values, whether past events are named by
-key or by title, and whether a career goal is a G3 term or a small fixed list.
-Until it arrives:
+Vocabularies live in code, not in DDL
+======================================
+Ann's data file (2026-09-24) closed OQ-CE-01, and the owner ruled the same day
+that its vocabularies — six majors, four years, thirteen topics, sixteen
+career goals — are closed **in code**
+(``smartmatch_domain.exercise.vocabulary``) and enforced at ingest. So:
 
-* ``class_year`` and ``career_goal`` are ``TEXT`` with **no CHECK**. Writing
-  today's guess as a constraint would answer the open question in DDL, where
-  changing the answer costs a migration instead of an ingest edit.
-* the list columns are ``TEXT[]`` rather than a normalized side table, so a
-  vocabulary decision changes what is written, not what exists.
+* ``major``, ``class_year`` and ``career_goal`` are ``TEXT`` with **no CHECK**.
+  A vocabulary written as a constraint costs a migration to change; the ingest
+  edit is the cheaper place, and it is the one place a value enters.
+* the list columns are ``TEXT[]`` rather than a normalized side table, for the
+  same reason.
 
-Marked here and in the migration docstring, and asserted literally by
-``test_the_placeholder_marker_is_literally_present``.
+Revision ``0042_exercise_ann_dataset`` added Ann's two columns this table did
+not have: ``hidden_true_career_goal`` (withheld) and ``tiebreak_order``.
 """
 
 from __future__ import annotations
@@ -153,8 +152,8 @@ exercise_profile = sa.Table(
     # replaced data file produces a new dataset rather than renumbering this
     # one.
     sa.Column("profile_no", sa.Integer, nullable=False),
-    # PLACEHOLDER (OQ-CE-01) — the seven columns below are built to design
-    # spec §2's names and to no vocabulary. See the module docstring.
+    # Ann's columns, stored in her spelling. Vocabularies are closed in code,
+    # not here. See the module docstring.
     sa.Column("display_name", sa.Text, nullable=False),
     sa.Column("major", sa.Text, nullable=True),
     sa.Column("class_year", sa.Text, nullable=True),
@@ -168,11 +167,19 @@ exercise_profile = sa.Table(
     # ADR-0025 D6: withheld. Read by the simulated-results rule and by nothing
     # else; on no response model; in `EXERCISE_WITHHELD_FIELDS` above.
     sa.Column("hidden_true_interests", _TEXTS, nullable=False, server_default=_EMPTY_ARRAY),
+    # Revision 0042. Ann's "fixed random order" for the last tie-break step.
+    # NULL on a dataset stored before 0042, which keeps the checksum order.
+    sa.Column("tiebreak_order", sa.Integer, nullable=True),
+    # Revision 0042. ADR-0025 D6: withheld, like the column above — in
+    # `EXERCISE_WITHHELD_FIELDS`, so no public read selects it.
+    sa.Column("hidden_true_career_goal", sa.Text, nullable=True),
     sa.PrimaryKeyConstraint("dataset_id", "profile_no", name="exercise_profile_pkey"),
     sa.CheckConstraint("profile_no >= 1", name="ck_exercise_profile_profile_no"),
     sa.CheckConstraint(
         "length(btrim(display_name)) > 0", name="ck_exercise_profile_display_name_shape"
     ),
+    sa.CheckConstraint("tiebreak_order >= 1", name="ck_exercise_profile_tiebreak_order"),
+    sa.UniqueConstraint("dataset_id", "tiebreak_order", name="uq_exercise_profile_tiebreak_order"),
 )
 
 
@@ -185,10 +192,9 @@ exercise_event = sa.Table(
         sa.ForeignKey("exercise_dataset.id", ondelete="CASCADE"),
         nullable=False,
     ),
-    # PLACEHOLDER (OQ-CE-01) — the six columns below are built to design spec
-    # §2's names. Whether a past event is named by key or by title is part of
-    # what the 20-row sample settles; ``event_key`` is the identifier either
-    # way, which is why it is the key and ``name`` is the label.
+    # Ann's ``event_id`` (E01–E12) is ``event_key`` — profiles name the past
+    # events they attended by it — and ``event_name`` is ``name``, the label.
+    # ``sequence`` is the event's row position on her Events sheet.
     sa.Column("event_key", sa.Text, nullable=False),
     sa.Column("name", sa.Text, nullable=False),
     sa.Column("topic_tags", _TEXTS, nullable=False, server_default=_EMPTY_ARRAY),

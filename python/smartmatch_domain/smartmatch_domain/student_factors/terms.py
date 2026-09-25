@@ -1,11 +1,11 @@
 """How a term is compared, and nothing else.
 
-**PLACEHOLDER (OQ-CE-01).** The value vocabularies behind majors, interests,
-career goals, and event topics are undecided until Ann's sample file lands, so
-this module declares none. A term is compared as an exact string after
-``strip()`` and ``casefold()`` — the same rule
-:mod:`smartmatch_domain.exercise.simulation` already applied — and no enum,
-synonym table, or G3 mapping is introduced anywhere by this comparison.
+This module declares no vocabulary. A term is compared as an exact string
+after ``strip()`` and ``casefold()`` — the same rule
+:mod:`smartmatch_domain.exercise.simulation` applies — and no enum, synonym
+table, or G3 mapping is introduced anywhere by this comparison. The class
+exercise's closed lists live in :mod:`smartmatch_domain.exercise.vocabulary`
+and are enforced at ingest, before a term reaches this comparison.
 
 The rule lives here rather than inside either caller because two copies of
 "how a term is compared" is one more than the question has: the simulated

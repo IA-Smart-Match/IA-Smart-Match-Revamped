@@ -61,7 +61,11 @@ REVISION = "0037_exercise_tables"
 #: ``0040_booking_cancellation`` and is the head. It adds one nullable
 #: ``cba_invitation_batch`` column and backfills only that column, so this
 #: file's claims still hold through it.
-HEAD_REVISION = "0041_batch_speaker_request"
+#: Moved again by CE-DATASET: ``0042_exercise_ann_dataset`` chains to
+#: ``0041_batch_speaker_request`` and is the head. It adds two nullable
+#: ``exercise_profile`` columns and writes no rows, so this file's claims still
+#: hold through it.
+HEAD_REVISION = "0042_exercise_ann_dataset"
 
 #: Design spec §2's eight tables.
 EXERCISE_TABLES = (
@@ -292,11 +296,11 @@ def test_the_invite_limit_defaults_to_thirty(engine: Engine):
 
 
 def test_class_year_and_career_goal_carry_no_check(engine: Engine):
-    """OQ-CE-01 stays open, asserted against the catalogue rather than the code.
+    """The vocabularies stay out of DDL, asserted against the catalogue.
 
-    The unit test reads the mirror; this reads ``pg_constraint``. A vocabulary
-    that reached the database through a migration the mirror never learned
-    about would close the open question just as thoroughly.
+    The owner closed them in code (2026-09-24). The unit test reads the mirror;
+    this reads ``pg_constraint``, so a vocabulary that reached the database
+    through a migration the mirror never learned about would still fail here.
     """
     with scratch_database(engine) as url:
         alembic(url, "head", expect_success=True)

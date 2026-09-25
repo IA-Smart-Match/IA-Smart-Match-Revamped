@@ -79,10 +79,14 @@ _WITHHELD = {
     3: [],
 }
 
-#: The **public** ``career_goal`` each profile's base row carries. Profile 3 has
-#: none, which is the second half of the owner's ruling of 2026-09-21 (OQ-CE-13):
-#: a copied card carries the base goal, and ``NULL`` only where there is none.
+#: The **public** ``career_goal`` each profile's base row carries.
 _BASE_GOALS: dict[int, str | None] = {1: "analytics", 2: "brand", 3: None}
+
+#: The **withheld** ``hidden_true_career_goal`` of each profile — deliberately
+#: not its base goal, so a test can tell which one a copied card carries. Ann's
+#: Read Me of 2026-09-24 (OQ-CE-13): "a new card copies these". Profile 3 has
+#: none, so its copied card carries ``NULL``.
+_HIDDEN_GOALS: dict[int, str | None] = {1: "true-goal-one", 2: "true-goal-two", 3: None}
 
 _TEAM = ResultPanel(
     invited_profile_nos=(1, 2, 3),
@@ -155,9 +159,9 @@ def _insert_events(session: Session, *, dataset_id: uuid.UUID) -> None:
 def _insert_profiles(session: Session, *, dataset_id: uuid.UUID) -> None:
     """Three fictional profiles, each carrying a withheld cell of its own.
 
-    The vocabularies are deliberately not anybody's: ``"Alpha"`` and ``"one"``
-    name no major and no class year a data file might carry, because OQ-CE-01 is
-    open and this file closes nothing.
+    The values are deliberately not Ann's vocabulary: ``"Alpha"`` and ``"one"``
+    exercise the repository, which stores what it is given; the vocabulary is
+    ingest's to enforce.
     """
     session.execute(
         sa.insert(schema.exercise_profile),
@@ -172,6 +176,7 @@ def _insert_profiles(session: Session, *, dataset_id: uuid.UUID) -> None:
                 "stated_interests": None,
                 "career_goal": _BASE_GOALS[profile_no],
                 "hidden_true_interests": withheld,
+                "hidden_true_career_goal": _HIDDEN_GOALS[profile_no],
             }
             for profile_no, withheld in sorted(_WITHHELD.items())
         ],
@@ -558,12 +563,12 @@ def test_a_refresh_writes_the_overlay_and_may_not_run_twice(
     assert rows[1].card_interests is None, "no card was asked for, so none was given"
 
 
-def test_a_copied_card_carries_the_base_rows_career_goal(
+def test_a_copied_card_carries_the_hidden_true_career_goal(
     exercise_sessions: sessionmaker[Session],
 ) -> None:
-    """The owner's ruling of 2026-09-21, as rows (OQ-CE-13).
+    """Ann's Read Me of 2026-09-24, as rows (OQ-CE-13).
 
-    Profiles 1 and 2 have a base goal and get one on the copied card; profile 3
+    Profiles 1 and 2 have a hidden goal and get it on the copied card; profile 3
     has none and its copied card carries ``NULL``. Nothing is passed in: the
     default is ``asking.COPIED_CARD_CAREER_GOAL``, which is the point — a caller
     never states the policy.
@@ -586,19 +591,28 @@ def test_a_copied_card_carries_the_base_rows_career_goal(
 
         goals = _overlay_goals(session, workspace_id=workspace_id)
 
-    assert goals == _BASE_GOALS
-    assert goals[3] is None, "NULL only where the base row has no goal"
+    assert goals == _HIDDEN_GOALS
+    assert goals != _BASE_GOALS, "the hidden goal, not the public one"
+    assert goals[3] is None, "NULL only where the file has no hidden goal"
 
 
+@pytest.mark.parametrize(
+    ("policy", "expected"),
+    [
+        (CopiedCardCareerGoal.NONE, {1: None, 2: None, 3: None}),
+        (CopiedCardCareerGoal.BASE_GOAL, _BASE_GOALS),
+    ],
+)
 def test_the_copied_cards_goal_is_switchable_in_one_place(
     exercise_sessions: sessionmaker[Session],
+    policy: CopiedCardCareerGoal,
+    expected: dict[int, str | None],
 ) -> None:
-    """``CopiedCardCareerGoal.NONE`` is PR #190's shipped reading, still reachable.
+    """The two earlier readings (PR #190's and the 2026-09-21 ruling's) stay reachable.
 
     The policy is **injected** rather than monkeypatched, because it is a
-    parameter: if Ann answers the other way, the change is
-    ``asking.COPIED_CARD_CAREER_GOAL`` and nothing else, and this test is what
-    says the other branch still works when it happens.
+    parameter: a change of answer is ``asking.COPIED_CARD_CAREER_GOAL`` and
+    nothing else, and this test is what says the other branches still work.
     """
     results = ExerciseResultsRepository()
     with exercise_sessions() as session:
@@ -613,7 +627,7 @@ def test_the_copied_cards_goal_is_switchable_in_one_place(
             card_profile_nos=[1, 2, 3],
             non_responding_profile_nos=[],
             now=_now(session),
-            career_goal_policy=CopiedCardCareerGoal.NONE,
+            career_goal_policy=policy,
         )
         session.commit()
 
@@ -627,7 +641,7 @@ def test_the_copied_cards_goal_is_switchable_in_one_place(
             ).all()
         }
 
-    assert goals == {1: None, 2: None, 3: None}
+    assert goals == expected
     assert cards == {profile_no: _WITHHELD[profile_no] for profile_no in (1, 2, 3)}, (
         "the switch moves the goal only; the card copy is unchanged"
     )
@@ -655,7 +669,7 @@ def test_a_profile_the_refresh_did_not_card_gets_no_goal(
 
         goals = _overlay_goals(session, workspace_id=workspace_id)
 
-    assert goals == {1: None, 2: "brand"}, (
+    assert goals == {1: None, 2: "true-goal-two"}, (
         "profile 1 gained topics only, so its overlay says nothing about a card"
     )
 
@@ -1103,7 +1117,7 @@ def test_a_none_policy_issues_no_career_goal_statement_at_all(
     ], "a NONE policy must issue no card_career_goal statement, not write NULLs"
 
 
-def test_a_base_goal_policy_issues_exactly_one_career_goal_statement(
+def test_the_default_policy_issues_exactly_one_career_goal_statement(
     exercise_sessions: sessionmaker[Session],
 ) -> None:
     """The other side of the pin above, so it cannot pass by writing nothing."""

@@ -163,12 +163,17 @@ _PARENT_REVISION = "0024_cba_classification"
 #: ``0040_booking_cancellation`` and is the head. It adds one nullable
 #: ``cba_invitation_batch`` column and backfills only that column, so this
 #: file's claims still hold through it.
-_HEAD_REVISION = "0041_batch_speaker_request"
+#: Moved again by CE-DATASET: ``0042_exercise_ann_dataset`` chains to
+#: ``0041_batch_speaker_request`` and is the head. It adds two nullable
+#: ``exercise_profile`` columns and writes no rows, so this file's claims still
+#: hold through it.
+_HEAD_REVISION = "0042_exercise_ann_dataset"
 
 #: Every revision between :data:`_HEAD_REVISION` and :data:`_THIS_REVISION`, in
 #: descending order. Listed rather than derived, so extending the chain is a
 #: deliberate edit here — which is the whole point of the assertion.
 _REVISIONS_BETWEEN_HEAD_AND_THIS_CARD = (
+    "0041_batch_speaker_request",
     "0040_booking_cancellation",
     "0039_speaker_portal",
     "0038_speaker_availability",

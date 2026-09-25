@@ -79,26 +79,25 @@ def copied_cards(
     form is that nothing holds this result beyond ``apply_refresh``, and that
     ``SimulationProfileRow.hidden_true_interests`` is ``field(repr=False)``.)
 
-    **The career goal follows a named policy.** The owner ruled on 2026-09-21
-    that a copied card carries the base row's ``career_goal``, and ``NULL`` only
-    when the base has none — PLACEHOLDER (OQ-CE-13), written once in
-    ``smartmatch_domain.exercise.asking.copied_card_career_goal`` and switched by
-    the one constant this parameter defaults to. ``career_goal`` is a **public**
-    column, already on every team's own list, and it is read off the rows this
-    function has loaded for the card copy — so no query is added and no reader of
-    the withheld column is added either.
+    **The career goal follows a named policy.** Ann's Read Me of 2026-09-24
+    answered OQ-CE-13: the hidden true career goal is "used only by the results
+    rule and by the refresh (a new card copies these)". So the shipped policy,
+    ``asking.COPIED_CARD_CAREER_GOAL = HIDDEN_GOAL``, copies
+    ``hidden_true_career_goal`` onto the new card, exactly as the interests are
+    copied from ``hidden_true_interests``. It is read off the rows this function
+    has already loaded through ``load_simulation_profiles`` — the one reader of
+    both withheld columns — so no query and no second reader is added. From the
+    overlay it reaches the team's own copied card, as the interests do.
 
     The goals come back **without their ``None`` entries**, so a policy that says
-    nothing writes no statement at all and the refresh's statement sequence is
-    the one PR #190 shipped. A profile whose base row has no goal is simply
-    absent and the column keeps its ``NULL`` default, which is the ruling's
-    second half read as a row rather than as a write.
+    nothing writes no statement at all. A profile whose file row has no goal is
+    simply absent and the column keeps its ``NULL`` default.
 
     Args:
         session: Not committed here. Reads only.
         dataset_id: The workspace's dataset.
         profile_nos: The profiles the card share fell on. Repeats are folded.
-        career_goal_policy: PLACEHOLDER (OQ-CE-13). Defaults to
+        career_goal_policy: Which reading applies. Defaults to
             ``asking.COPIED_CARD_CAREER_GOAL``, so a caller never states it.
 
     Returns:
@@ -116,6 +115,13 @@ def copied_cards(
     career_goals = {
         row.profile_no: goal
         for row in chosen
-        if (goal := copied_card_career_goal(row.career_goal, career_goal_policy)) is not None
+        if (
+            goal := copied_card_career_goal(
+                row.career_goal,
+                career_goal_policy,
+                hidden_true_career_goal=row.hidden_true_career_goal,
+            )
+        )
+        is not None
     }
     return interests, career_goals

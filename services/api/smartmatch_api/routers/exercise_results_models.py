@@ -6,15 +6,16 @@ that turns stored rows into the domain's simulation inputs, and the derivation
 of a run's *round*. Nothing here imports FastAPI and nothing here decides a
 status code.
 
-ADR-0025 D6 — the withheld column
-=================================
+ADR-0025 D6 — the withheld columns
+==================================
 :func:`simulation_profiles` is the one function in the API package that reads a
-profile's hidden true interests, and it reads them **into**
-:class:`~smartmatch_domain.exercise.simulation.SimulationProfile` — the input of
-design spec §11's rule, which is the one thing the column exists for. From there
-the value goes nowhere: the rule returns profile numbers, the panels below carry
-profile numbers, and no model in this module has a field with a place to put an
-interest term.
+profile's hidden true interests and hidden true career goal, and it reads them
+**into** :class:`~smartmatch_domain.exercise.simulation.SimulationProfile` — the
+input of design spec §11's rule, which is what the columns exist for. The goal
+goes in as the topic it points at (``vocabulary.goal_topic_for_matching``, the
+same table the ranker reads). From there the values go nowhere: the rule
+returns profile numbers, the panels below carry profile numbers, and no model in
+this module has a field with a place to put an interest term or a goal.
 
 The two ways such a value escapes without anybody writing a line that names it
 are both shut. A response model cannot carry it, because none of them has the
@@ -59,6 +60,7 @@ from smartmatch_domain.exercise.simulation import (
     SimulationEvent,
     SimulationProfile,
 )
+from smartmatch_domain.exercise.vocabulary import goal_topic_for_matching
 
 from smartmatch_api.exercise_dependencies import (
     ExerciseEventRow,
@@ -124,8 +126,7 @@ def round_of(events: Sequence[ExerciseEventRow], event_key: str) -> int | None:
     ``is_exercise_event`` is what tells them apart. So round one is the first
     exercise event by ``sequence`` and round two is the second — read off the
     rows rather than matched against a name, because the two events' names are
-    Ann's (OQ-CE-01) and naming them here would close a vocabulary this track may
-    not close.
+    Ann's data and may change from one file to the next.
 
     ``None`` for a past event, and for a third exercise event in a file that
     somehow carried one: ``exercise_result_run.round`` admits 1 and 2 and a run
@@ -161,9 +162,10 @@ def simulation_profiles(
 ) -> tuple[SimulationProfile, ...]:
     """Stored profiles as design spec §11's rule reads them, in file order.
 
-    The rule reads a profile's **hidden true interests**, which is what the
-    column is for and what makes "a list built on what the app knows can miss
-    people" true rather than asserted. This function is where those rows become
+    The rule reads a profile's **hidden true interests** and the topic its
+    **hidden true career goal** points at, which is what those columns are for
+    and what makes "a list built on what the app knows can miss people" true
+    rather than asserted. This function is where those rows become
     rule inputs; see this module's docstring for why that is the whole of their
     journey.
 
@@ -180,7 +182,7 @@ def simulation_profiles(
     happened yet.
 
     Args:
-        rows: The data file's profiles, including the withheld column.
+        rows: The data file's profiles, including the withheld columns.
         non_responding_profile_nos: Profiles this team's refresh marked as asked
             and not answering (design spec §13, under ``required`` only). Passed
             in rather than read here because it is a fact about *one team's*
@@ -191,7 +193,7 @@ def simulation_profiles(
             profile_no=row.profile_no,
             major=row.major or "",
             true_interests=frozenset(row.hidden_true_interests),
-            career_goal=row.career_goal,
+            career_goal=goal_topic_for_matching(row.hidden_true_career_goal),
             past_event_count=len(row.past_event_keys),
             non_responding=row.profile_no in non_responding_profile_nos,
         )

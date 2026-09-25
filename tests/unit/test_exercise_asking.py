@@ -80,20 +80,41 @@ def test_the_completion_shares_cannot_be_retuned_at_runtime():
 # --- The copied card's career goal (OQ-CE-13) ------------------------------
 
 
-def test_the_shipped_policy_is_the_owners_ruling():
-    """2026-09-21: *copied cards carry the base ``career_goal``*."""
-    assert COPIED_CARD_CAREER_GOAL is CopiedCardCareerGoal.BASE_GOAL
+def test_the_shipped_policy_is_anns_answer():
+    """Ann's Read Me, 2026-09-24: the hidden true career goal — "a new card copies these"."""
+    assert COPIED_CARD_CAREER_GOAL is CopiedCardCareerGoal.HIDDEN_GOAL
 
 
-def test_the_policy_constant_carries_its_open_question_id():
-    """A placeholder without its row ID is a number nobody can trace."""
+def test_the_policy_constant_is_no_longer_a_placeholder():
+    """OQ-CE-13 is closed; the constant must not still say it is open."""
     source = Path(asking.__file__).read_text(encoding="utf-8")
     marker = source.index("COPIED_CARD_CAREER_GOAL: Final")
-    assert "PLACEHOLDER (OQ-CE-13)" in source[:marker]
+    assert "PLACEHOLDER (OQ-CE-13)" not in source
+    assert "OQ-CE-13 closed" in source[:marker]
 
 
-def test_the_policy_has_at_least_the_two_readings_that_were_argued():
-    assert {member.value for member in CopiedCardCareerGoal} >= {"base_goal", "none"}
+def test_the_policy_has_the_three_readings_that_were_argued():
+    assert {member.value for member in CopiedCardCareerGoal} == {
+        "base_goal",
+        "none",
+        "hidden_goal",
+    }
+
+
+@pytest.mark.parametrize("hidden", ["Data, analytics or IT role", None])
+def test_under_hidden_goal_the_copied_card_carries_the_hidden_goal(hidden: str | None):
+    assert (
+        copied_card_career_goal(
+            "Undecided", CopiedCardCareerGoal.HIDDEN_GOAL, hidden_true_career_goal=hidden
+        )
+        == hidden
+    )
+
+
+def test_the_default_reads_the_hidden_goal_and_ignores_the_base():
+    assert copied_card_career_goal(None, hidden_true_career_goal="Consulting role") == (
+        "Consulting role"
+    )
 
 
 @pytest.mark.parametrize("base", ["analytics", "brand", ""])
@@ -124,13 +145,17 @@ def test_every_member_is_answered_rather_than_falling_through():
     about and stays green while a third falls through.
     """
     answers = {
-        member: copied_card_career_goal("analytics", member) for member in CopiedCardCareerGoal
+        member: copied_card_career_goal("analytics", member, hidden_true_career_goal="true")
+        for member in CopiedCardCareerGoal
     }
-    assert set(answers) == {CopiedCardCareerGoal.BASE_GOAL, CopiedCardCareerGoal.NONE}, (
-        "a member was added; give it a branch in copied_card_career_goal and a case here"
-    )
+    assert set(answers) == {
+        CopiedCardCareerGoal.BASE_GOAL,
+        CopiedCardCareerGoal.NONE,
+        CopiedCardCareerGoal.HIDDEN_GOAL,
+    }, "a member was added; give it a branch in copied_card_career_goal and a case here"
     assert answers[CopiedCardCareerGoal.BASE_GOAL] == "analytics"
     assert answers[CopiedCardCareerGoal.NONE] is None
+    assert answers[CopiedCardCareerGoal.HIDDEN_GOAL] == "true"
 
 
 def test_a_policy_that_is_not_a_member_is_refused_rather_than_answered():

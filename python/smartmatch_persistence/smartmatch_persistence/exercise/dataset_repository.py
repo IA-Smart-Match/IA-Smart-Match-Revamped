@@ -228,6 +228,7 @@ class ExerciseProfileRow:
     past_event_keys: tuple[str, ...]
     stated_interests: tuple[str, ...] | None
     career_goal: str | None
+    tiebreak_order: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -246,7 +247,8 @@ class ExerciseEventRow:
 class SimulationProfileRow:
     """A profile **including** its withheld true interests (ADR-0025 D6).
 
-    The one type in this package that carries ``hidden_true_interests``, and
+    The one type in this package that carries ``hidden_true_interests`` and
+    ``hidden_true_career_goal``, and
     :meth:`ExerciseDatasetRepository.load_simulation_profiles` is the one
     method that builds it. It exists for design spec §11's simulated-results
     rule, which is the only thing the column is for: no factor function reads
@@ -272,6 +274,7 @@ class SimulationProfileRow:
     stated_interests: tuple[str, ...] | None
     career_goal: str | None
     hidden_true_interests: tuple[str, ...] = field(repr=False)
+    hidden_true_career_goal: str | None = field(default=None, repr=False)
 
 
 def sanitise_source_filename(name: str | None) -> str:
@@ -458,6 +461,7 @@ class ExerciseDatasetRepository:
                 past_event_keys=_tuple(row.past_event_keys),
                 stated_interests=_optional_tuple(row.stated_interests),
                 career_goal=row.career_goal,
+                tiebreak_order=row.tiebreak_order,
             )
             for row in session.execute(statement).all()
         )
@@ -493,10 +497,11 @@ class ExerciseDatasetRepository:
     def load_simulation_profiles(
         self, session: Session, *, dataset_id: uuid.UUID
     ) -> tuple[SimulationProfileRow, ...]:
-        """The **only** read in this package that selects the withheld column.
+        """The **only** read in this package that selects the withheld columns.
 
-        ADR-0025 D6: ``hidden_true_interests`` is stored on the profile row and
-        is read by the simulated-results rule of design spec §11 and by nothing
+        ADR-0025 D6: ``hidden_true_interests`` and ``hidden_true_career_goal``
+        are stored on the profile row and are read by the simulated-results rule
+        of design spec §11 and the refresh's card copy (§13), and by nothing
         else. The column is named explicitly below so that the exception is
         visible at the call site rather than implied by a ``select(table)``,
         and the method is named for its one caller so that a second caller has
@@ -512,6 +517,7 @@ class ExerciseDatasetRepository:
                 exercise_profile.c.stated_interests,
                 exercise_profile.c.career_goal,
                 exercise_profile.c.hidden_true_interests,
+                exercise_profile.c.hidden_true_career_goal,
             )
             .where(exercise_profile.c.dataset_id == dataset_id)
             .order_by(exercise_profile.c.profile_no)
@@ -526,6 +532,7 @@ class ExerciseDatasetRepository:
                 stated_interests=_optional_tuple(row.stated_interests),
                 career_goal=row.career_goal,
                 hidden_true_interests=_tuple(row.hidden_true_interests),
+                hidden_true_career_goal=row.hidden_true_career_goal,
             )
             for row in session.execute(statement).all()
         )
@@ -599,7 +606,9 @@ def _profile_values(dataset_id: uuid.UUID, profile: ParsedProfile) -> dict[str, 
             None if profile.stated_interests is None else list(profile.stated_interests)
         ),
         "career_goal": profile.career_goal,
+        "tiebreak_order": profile.tiebreak_order,
         "hidden_true_interests": list(profile.hidden_true_interests),
+        "hidden_true_career_goal": profile.hidden_true_career_goal,
     }
 
 

@@ -7,9 +7,10 @@
  * than derived: the API carries the wire values `major_only`,
  * `major_plus_events` and `completed_card`, and a projector needs the words.
  *
- * This is not an OQ-CE-01 vocabulary. That open row is about the *data file's*
- * columns and values — majors, years, interests — and nothing in this module
- * touches those; they render as whatever strings the file carries.
+ * This is not a data-file vocabulary. The *data file's* columns and values —
+ * majors, years, interests — are closed by Ann's workbook of 2026-09-24 and
+ * owned by the server; nothing in this module touches those, and they render
+ * as whatever strings the file carries.
  *
  * An unrecognised marker renders as itself rather than as "unknown" or as
  * nothing. Design spec §7: absent information is `unknown`, and an empty card
