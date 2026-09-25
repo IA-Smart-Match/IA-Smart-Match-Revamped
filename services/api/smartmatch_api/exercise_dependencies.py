@@ -120,6 +120,7 @@ from smartmatch_persistence.exercise.instructor_repository import (
     ExerciseWriteRefused,
 )
 from smartmatch_persistence.exercise.instructor_rows import (
+    InstructorEventRow,
     InstructorResultRun,
     InstructorSavedSetting,
     InstructorWorkspaceRow,
@@ -189,6 +190,7 @@ __all__ = [
     "ExerciseWorkspace",
     "ExerciseWriteRefused",
     "InstructorCookiePolicy",
+    "InstructorEventRow",
     "InstructorPasscode",
     "InstructorRepository",
     "InstructorResultRun",

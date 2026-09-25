@@ -74,7 +74,21 @@ const LOGIN = "/v1/exercise/instructor/login";
 const LOGOUT = "/v1/exercise/instructor/logout";
 const DATASETS = "/v1/exercise/instructor/datasets";
 const WORKSPACES = "/v1/exercise/instructor/workspaces";
-const EVENTS = "/v1/exercise/workspaces/current/events";
+/** The team route. The instructor page must never need it (CE-INSTRUCTOR-UNLOCK). */
+const TEAM_EVENTS = "/v1/exercise/workspaces/current/events";
+const INSTRUCTOR_EVENTS = "/v1/exercise/instructor/events";
+const TEAMS_FILE = "11111111-1111-1111-1111-111111111111";
+
+function eventsView(roundTwoOpen: boolean) {
+  return {
+    dataset_id: TEAMS_FILE,
+    dataset_label: "Autumn draft",
+    events: [
+      { event_key: "round-one", name: "Round one", unlocked: false },
+      { event_key: "round-two", name: "Round two", unlocked: roundTwoOpen },
+    ],
+  };
+}
 
 const TEAM = {
   team_number: 3,
@@ -92,7 +106,7 @@ function signedInStubs(extra: Record<string, { body: unknown; status?: number }>
     [`POST ${LOGIN}`]: { body: { signed_in: true } },
     [`GET ${DATASETS}`]: { body: [] },
     [`GET ${WORKSPACES}`]: { body: { teams: [TEAM], active_dataset_label: "Autumn draft" } },
-    [EVENTS]: { body: { events: [] } },
+    [`GET ${INSTRUCTOR_EVENTS}`]: { body: eventsView(false) },
     ...extra,
   };
 }
@@ -226,6 +240,167 @@ describe("<ExerciseInstructor />", () => {
     expect(screen.getByText(/if it cannot be done, no team is changed/i)).toBeDefined();
   });
 
+
+  it("lists the events with the passcode alone, and never asks the team route", async () => {
+    // CE-INSTRUCTOR-UNLOCK. Fails on the merged code: the list came from
+    // `/workspaces/current/events`, which 401s without a team cookie, so the
+    // panel said "cannot be listed from this browser" instead of the events.
+    stub(signedInStubs({ [`GET ${INSTRUCTOR_EVENTS}`]: { body: eventsView(true) } }));
+    renderInstructor();
+    await signIn();
+
+    await screen.findByText("Round one");
+    expect(screen.getByText("Round two")).toBeDefined();
+    expect(calls.some((call) => call.url.startsWith(TEAM_EVENTS))).toBe(false);
+    expect(document.body.textContent).not.toMatch(/cannot be listed from this browser/i);
+    expect(document.body.textContent).not.toMatch(/pressing a team's event/i);
+  });
+
+  it("shows which events are already open after a reload", async () => {
+    // The server's row, not local state: round two arrives already open.
+    hasSession = true;
+    stub(signedInStubs({ [`GET ${INSTRUCTOR_EVENTS}`]: { body: eventsView(true) } }));
+    renderInstructor();
+
+    const roundTwo = (await screen.findByText("Round two")).closest("li");
+    const roundOne = screen.getByText("Round one").closest("li");
+    expect(roundTwo?.textContent).toContain("Results are open.");
+    expect(roundOne?.textContent).not.toContain("Results are open.");
+    expect(roundOne?.querySelector("button")?.textContent).toBe("Open results");
+  });
+
+  it("unlocks against the listed file and re-reads the list from the server", async () => {
+    const answers = signedInStubs({
+      [`POST ${INSTRUCTOR_EVENTS}/round-two/unlock`]: {
+        body: { event_key: "round-two", unlocked: true },
+      },
+    });
+    stub(answers);
+    renderInstructor();
+    await signIn();
+
+    const roundTwo = (await screen.findByText("Round two")).closest("li");
+    answers[`GET ${INSTRUCTOR_EVENTS}`] = { body: eventsView(true) };
+    fireEvent.click(roundTwo?.querySelector("button") as HTMLButtonElement);
+
+    await waitFor(() =>
+      expect(screen.getByText("Round two").closest("li")?.textContent).toContain(
+        "Results are open.",
+      ),
+    );
+    const unlock = calls.find((call) => call.url.includes("/unlock"));
+    expect(unlock?.url).toBe(`${INSTRUCTOR_EVENTS}/round-two/unlock?dataset_id=${TEAMS_FILE}`);
+    expect(new Headers(unlock?.init.headers).get("X-Exercise-Request")).toBe("1");
+    const reads = calls.filter(
+      (call) => call.url.startsWith(INSTRUCTOR_EVENTS) && !call.url.includes("/unlock"),
+    );
+    expect(reads.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("shows the server's sentence when there is no file to unlock in", async () => {
+    stub(
+      signedInStubs({
+        [`GET ${INSTRUCTOR_EVENTS}`]: {
+          body: {
+            error: { code: "exercise_no_teams_yet", message: "No team has entered a number yet." },
+          },
+          status: 409,
+        },
+      }),
+    );
+    renderInstructor();
+    await signIn();
+
+    const panel = (
+      await screen.findByRole("heading", { name: /open results for an event/i })
+    ).closest("section");
+    await waitFor(() =>
+      expect(panel?.textContent).toContain("No team has entered a number yet."),
+    );
+  });
+
+  it("checks again once a team has entered, without a page reload", async () => {
+    // Review finding: the instructor signs in before any team enters, and the
+    // 409 used to be the panel's last word until the page was reloaded.
+    const answers = signedInStubs({
+      [`GET ${INSTRUCTOR_EVENTS}`]: {
+        body: {
+          error: { code: "exercise_no_teams_yet", message: "No team has entered a number yet." },
+        },
+        status: 409,
+      },
+    });
+    stub(answers);
+    renderInstructor();
+    await signIn();
+
+    const again = await screen.findByRole("button", { name: /check again/i });
+    answers[`GET ${INSTRUCTOR_EVENTS}`] = { body: eventsView(false) };
+    fireEvent.click(again);
+
+    await screen.findByText("Round one");
+    expect(screen.queryByText("No team has entered a number yet.")).toBeNull();
+  });
+
+  it("reloads the teams panel after an upload", async () => {
+    // Fails on the merged code: only the data-files panel reloaded, so Teams
+    // kept saying "No data file has been uploaded yet." until a page reload.
+    const answers = signedInStubs({
+      [`GET ${WORKSPACES}`]: { body: { teams: [], active_dataset_label: null } },
+      [`POST ${DATASETS}`]: {
+        body: {
+          dataset: {
+            dataset_id: "22222222-2222-2222-2222-222222222222",
+            label: "Autumn final",
+            source_filename: "autumn.xlsx",
+            uploaded_at: "2026-09-21T10:00:00Z",
+            row_count: 300,
+            event_count: 12,
+            checksum: "abc",
+            invite_limit: 30,
+            license_line: null,
+          },
+          report: {
+            profile_count: 300,
+            event_count: 12,
+            exercise_event_count: 2,
+            distinct_class_years: ["third"],
+            profiles_without_card: 230,
+            distinct_stated_interest_terms: 40,
+            distinct_topic_tag_terms: 18,
+            events_without_topic_tags: 0,
+            major_only: 230,
+            major_plus_events: 0,
+            completed_card: 70,
+          },
+          notice: "The teams are still working in the data file they entered on.",
+        },
+      },
+    });
+    stub(answers);
+    renderInstructor();
+    await signIn();
+    const teams = document.querySelector('[data-slot="exercise-instructor-teams"]');
+    await waitFor(() =>
+      expect(teams?.textContent).toContain("No data file has been uploaded yet."),
+    );
+
+    answers[`GET ${WORKSPACES}`] = {
+      body: { teams: [], active_dataset_label: "Autumn final" },
+    };
+    fireEvent.change(screen.getByLabelText(/call this file/i), {
+      target: { value: "Autumn final" },
+    });
+    const file = new File([new Uint8Array([0x50, 0x4b, 0x03, 0x04])], "autumn.xlsx", {
+      type: XLSX,
+    });
+    fireEvent.change(screen.getByLabelText(/excel workbook/i), { target: { files: [file] } });
+    fireEvent.click(screen.getByRole("button", { name: /upload this file/i }));
+
+    await waitFor(() =>
+      expect(teams?.textContent).toContain("The newest data file is Autumn final."),
+    );
+  });
 
   it("reports a re-point as an outcome, not as a refusal", async () => {
     // L2. Fails on the merged code: the sentence went through `setRefusal`, so

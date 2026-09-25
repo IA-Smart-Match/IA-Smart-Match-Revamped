@@ -117,9 +117,10 @@ def coefficients_or_refusal() -> SimulationCoefficients:
 
     The register's answer is "Chau proposes; Ann confirms", and nothing has been
     confirmed — so the domain ships none and refuses. The sentence a team reads
-    is the domain's, passed through unchanged rather than rewritten here: the
-    open question's identifier belongs in it, and two wordings of "this is not
-    decided yet" would be one more than the question has.
+    is the domain's, passed through unchanged rather than rewritten here: two
+    wordings of "this is not decided yet" would be one more than the question
+    has. The register ID (OQ-CE-03) is kept out of that sentence and in the
+    comments: a student has no use for an internal identifier.
     """
     try:
         return require_coefficients()

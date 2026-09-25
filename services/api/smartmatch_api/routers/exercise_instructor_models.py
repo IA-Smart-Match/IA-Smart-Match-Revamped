@@ -35,6 +35,7 @@ from smartmatch_domain.exercise.ingest import ParsedDataset
 
 from smartmatch_api.exercise_dependencies import (
     DatasetSummary,
+    InstructorEventRow,
     InstructorResultRun,
     InstructorSavedSetting,
     InstructorWorkspaceRow,
@@ -52,6 +53,8 @@ __all__ = [
     "TEAMS_HAVE_NOT_MOVED",
     "DatasetView",
     "IngestReportView",
+    "InstructorEventView",
+    "InstructorEventsView",
     "InstructorLoginRequest",
     "InstructorSessionView",
     "InviteLimitRequest",
@@ -64,6 +67,7 @@ __all__ = [
     "UnlockView",
     "UploadedDatasetView",
     "dataset_view",
+    "event_view",
     "report_view",
     "run_view",
     "setting_view",
@@ -281,6 +285,32 @@ class TeamDetailView(BaseModel):
     result_runs: tuple[ResultRunView, ...]
 
 
+class InstructorEventView(BaseModel):
+    """One event the teams run, and whether its results are open (design spec §9)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    event_key: str
+    name: str
+    unlocked: bool = Field(
+        description="Whether the instructor has opened results for this event in this data file."
+    )
+
+
+class InstructorEventsView(BaseModel):
+    """The unlock panel's list: the teams' data file and its exercise events.
+
+    ``dataset_id`` is the file the unlock will write to when it is passed back,
+    so the list and the button cannot address two different files.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    dataset_id: uuid.UUID
+    dataset_label: str
+    events: tuple[InstructorEventView, ...]
+
+
 class UnlockView(BaseModel):
     """Design spec §9: results for one event are now open to the teams."""
 
@@ -357,6 +387,10 @@ def team_view(row: InstructorWorkspaceRow) -> TeamSummaryView:
         asking_choice=row.asking_choice,
         refreshed_at=row.refreshed_at,
     )
+
+
+def event_view(row: InstructorEventRow) -> InstructorEventView:
+    return InstructorEventView(event_key=row.event_key, name=row.name, unlocked=row.unlocked)
 
 
 def setting_view(row: InstructorSavedSetting) -> SavedSettingView:

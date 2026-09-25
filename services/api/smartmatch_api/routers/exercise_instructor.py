@@ -113,6 +113,7 @@ from smartmatch_api.exercise_errors import ExerciseError
 from smartmatch_api.routers.exercise_instructor_models import (
     TEAMS_HAVE_NOT_MOVED,
     DatasetView,
+    InstructorEventsView,
     InviteLimitRequest,
     RepointView,
     TeamDetailView,
@@ -121,6 +122,7 @@ from smartmatch_api.routers.exercise_instructor_models import (
     UnlockView,
     UploadedDatasetView,
     dataset_view,
+    event_view,
     report_view,
     run_view,
     setting_view,
@@ -358,6 +360,40 @@ def _no_such_dataset() -> ExerciseError:
 # ---------------------------------------------------------------------------
 # Results lock
 # ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/events",
+    response_model=InstructorEventsView,
+    summary="The events the teams run, and which are already open (design spec §9)",
+)
+def list_instructor_events(
+    session: ExerciseSession,
+    instructor: InstructorRepository,
+    dataset_id: _DatasetChoice = None,
+) -> InstructorEventsView:
+    """The unlock panel's list, read with the passcode session alone.
+
+    It used to come from the team route, which needs a workspace cookie, so an
+    instructor who had not entered as a team saw an empty panel. And "open" was
+    whatever the button last said, so a reload forgot every unlock.
+
+    Resolved by :func:`_teams_dataset`, exactly as the unlock is, so the list
+    names the file the unlock writes to and never another file's lock. The
+    same sentences refuse it: no team yet, a file no team is in, or teams split
+    across files. Read-only, so no ``X-Exercise-Request``.
+
+    Raises:
+        ExerciseError: 409 when no data file can be resolved, 401 without a
+            session.
+    """
+    dataset = _teams_dataset(instructor, session, requested=dataset_id)
+    rows = instructor.list_exercise_events(session, dataset_id=dataset.dataset_id)
+    return InstructorEventsView(
+        dataset_id=dataset.dataset_id,
+        dataset_label=dataset.label,
+        events=tuple(event_view(row) for row in rows),
+    )
 
 
 @router.post(

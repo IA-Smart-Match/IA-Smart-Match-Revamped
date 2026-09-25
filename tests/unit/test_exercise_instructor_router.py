@@ -70,6 +70,7 @@ from smartmatch_domain.exercise import EXERCISE_WITHHELD_FIELDS
 from smartmatch_domain.exercise.instructor_session import mint_instructor_session
 from smartmatch_domain.exercise.workspace_token import derive_workspace_token
 from smartmatch_persistence.exercise.instructor_repository import (
+    InstructorEventRow,
     InstructorResultRun,
     InstructorSavedSetting,
     InstructorWorkspaceRow,
@@ -245,6 +246,18 @@ class _FakeInstructorRepository:
             return False
         self.datasets.invite_limit = invite_limit
         return True
+
+    def list_exercise_events(
+        self, _session: object, *, dataset_id: uuid.UUID
+    ) -> tuple[InstructorEventRow, ...]:
+        return (
+            InstructorEventRow(
+                event_key=_EVENT_KEY,
+                name="Northline Analytics",
+                sequence=11,
+                unlocked=(dataset_id, _EVENT_KEY) in self.unlocked,
+            ),
+        )
 
     def unlock_results(self, _session: object, *, dataset_id: uuid.UUID, event_key: str) -> bool:
         already = (dataset_id, event_key) in self.unlocked
@@ -944,6 +957,60 @@ def test_unlocking_an_event_that_is_not_in_the_file_is_one_sentence(
     )
 
 
+def test_the_instructor_lists_the_teams_events_without_a_team_cookie(
+    signed_in: TestClient,
+) -> None:
+    """CE-INSTRUCTOR-UNLOCK: the unlock panel's list, read with the passcode alone.
+
+    It used to come from the team route, which answers 401 without a workspace
+    cookie, so the instructor saw an empty panel until she entered as a team.
+    """
+    assert set(signed_in.cookies.keys()) == {INSTRUCTOR_COOKIE_NAME}
+    response = signed_in.get("/v1/exercise/instructor/events")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "dataset_id": str(_TEAMS_DATASET_ID),
+        "dataset_label": _TEAMS_DATASET_LABEL,
+        "events": [{"event_key": _EVENT_KEY, "name": "Northline Analytics", "unlocked": False}],
+    }
+
+
+def test_the_event_list_says_which_events_are_already_open(
+    signed_in: TestClient,
+) -> None:
+    """What survives a reload is the server's row, not the button's local state."""
+    signed_in.post(
+        f"/v1/exercise/instructor/events/{_EVENT_KEY}/unlock",
+        headers={EXERCISE_REQUEST_HEADER: "1"},
+    )
+
+    events = signed_in.get("/v1/exercise/instructor/events").json()["events"]
+
+    assert events == [{"event_key": _EVENT_KEY, "name": "Northline Analytics", "unlocked": True}]
+
+
+def test_the_event_list_resolves_the_file_the_unlock_writes_to(
+    signed_in: TestClient, state: dict[str, Any]
+) -> None:
+    """Same resolution as the unlock, so the panel never shows another file's lock."""
+    state["instructor"].teams.clear()
+    none_yet = signed_in.get("/v1/exercise/instructor/events")
+    state["instructor"].teams[3] = (uuid.uuid4(), _TEAMS_DATASET_ID)
+    empty_file = signed_in.get(
+        "/v1/exercise/instructor/events", params={"dataset_id": str(_DATASET_ID)}
+    )
+
+    assert none_yet.status_code == 409
+    assert none_yet.json()["error"]["message"] == "No team has entered a number yet."
+    assert empty_file.status_code == 409
+    assert empty_file.json()["error"]["code"] == "exercise_dataset_has_no_teams"
+
+
+def test_the_instructor_event_list_is_shut_without_a_session(client: TestClient) -> None:
+    assert client.get("/v1/exercise/instructor/events").status_code == 401
+
+
 def test_the_team_list_reports_counts_and_no_identifiers(signed_in: TestClient) -> None:
     response = signed_in.get("/v1/exercise/instructor/workspaces")
 
@@ -1385,6 +1452,17 @@ _EXPECTED_INSTRUCTOR_ROUTES: dict[tuple[str, str], tuple[int, str, tuple[str, ..
             "get_settings",
             "get_workspace_secret",
             "require_exercise_request_header",
+            "require_instructor_session",
+        ),
+    ),
+    ("GET", "/v1/exercise/instructor/events"): (
+        200,
+        "InstructorEventsView",
+        (
+            "get_exercise_session",
+            "get_instructor_repository",
+            "get_settings",
+            "get_workspace_secret",
             "require_instructor_session",
         ),
     ),
