@@ -21,13 +21,15 @@ carry beyond "this browser presented the passcode, and it was still this
 deployment's passcode when it did". The instructor is not a *who*; the
 passcode is a *door*, and this module is the lock.
 
-PLACEHOLDER (OQ-CE-07) — one environment variable per deployment
-================================================================
+OQ-CE-07 — one environment variable per deployment
+==================================================
 
-The register's safe default: ``SMARTMATCH_EXERCISE_INSTRUCTOR_PASSCODE``, one
-per deployment, shared out of band, rotated after the spring run. Nothing here
-closes that row. If the answer turns out to be per-person passcodes or a
-rotation schedule, this module and the settings field are what change.
+Closed 2026-09-25 (Danny, owner, recording Ann's answers to the team's question
+list of 2026-09-22): ``SMARTMATCH_EXERCISE_INSTRUCTOR_PASSCODE`` is set per
+deployment, shared out of band, and rotated by changing the env value (the api
+reads it at start, so a restart applies it). A rotation does **not** end live
+instructor sessions: they are signed with the workspace secret, not the
+passcode (see :func:`mint_instructor_session`).
 
 Why the session is *signed* rather than stored
 ==============================================

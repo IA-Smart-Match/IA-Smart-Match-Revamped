@@ -716,7 +716,7 @@ def routers_for(settings: Settings) -> tuple[APIRouter, ...]:
 
 
 # The class exercise's workspace cookie is derived from a deployment secret
-# (design spec §15; PLACEHOLDER, OQ-CE-08). A process that serves the exercise
+# (design spec §15; OQ-CE-08, closed 2026-09-25). A process that serves the exercise
 # without one would either derive every token from an empty key — making a
 # workspace id a workspace token — or fall back to per-entry random tokens,
 # which silently logs a team's first laptop out when its second one enters the
