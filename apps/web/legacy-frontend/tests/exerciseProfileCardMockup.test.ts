@@ -61,7 +61,10 @@ test("any control on the screen is visibly inert and says so", () => {
   // A button is allowed only if it cannot be pressed and is labelled as part
   // of the mock-up, so nobody in the room believes a card was filed.
   if (/<button|<Button/.test(mockup)) {
-    assert.match(mockup, /disabled/);
+    // Every button, not just one: count the openings against the `disabled`s.
+    const buttons = (mockup.match(/<button\b/g) ?? []).length;
+    const disabled = (mockup.match(/<button\b[^>]*\sdisabled\s/g) ?? []).length;
+    assert.equal(disabled, buttons);
     assert.match(mockup, /mock-up/i);
   }
 });
@@ -83,7 +86,8 @@ test("is sized for a projector", () => {
 test("the card's contents are confirmed, and the screen is still a mock-up (OQ-CE-11)", () => {
   // OQ-CE-11 closed 2026-09-25 (Ann Wang, email reply). A "stand-in until Ann
   // confirms" left behind would be untrue.
-  assert.equal(/stand-in|until Ann confirms|is open too|five quick/i.test(mockup), false);
+  assert.equal(/stand-in|until Ann confirms|is open too/i.test(mockup), false);
+  assert.equal(/Five quick questions/.test(mockup), false, "the heading must not say five");
   assert.match(mockup, /OQ-CE-11 closed 2026-09-25/);
   assert.match(mockup, /Mock-up only/);
 });

@@ -88,6 +88,8 @@ describe("<ExerciseEntry />", () => {
       vi.fn(() => Promise.reject(new TypeError("offline"))),
     );
     renderEntry();
+    // Wait for the unreachable state itself, not just the loading one.
+    await screen.findByRole("button", { name: /try again/i });
     expect(screen.getByText(EXERCISE_LICENSE_LINE)).toBeDefined();
   });
 

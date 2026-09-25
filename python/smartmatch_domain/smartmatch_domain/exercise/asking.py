@@ -199,7 +199,7 @@ def _half_up_count(share: float, size: int) -> int:
     number as written, ``0.29`` rather than its binary neighbour — and rounded
     with :data:`~decimal.ROUND_HALF_UP`.
     """
-    exact = Decimal(repr(share)) * size
+    exact = Decimal(str(float(share))) * size
     return int(exact.quantize(Decimal(1), rounding=ROUND_HALF_UP))
 
 
