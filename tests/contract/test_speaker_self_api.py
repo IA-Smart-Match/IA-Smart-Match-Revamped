@@ -29,6 +29,7 @@ import os
 import secrets
 import uuid
 from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
@@ -45,6 +46,7 @@ from smartmatch_domain.speaker_portal import derive_token
 from smartmatch_persistence.engine import create_session_factory
 from smartmatch_providers import FixtureTokenVerifier
 from sqlalchemy import Engine, create_engine, text
+from sqlalchemy import event as sa_event
 
 pytestmark = pytest.mark.integration
 
@@ -1221,6 +1223,243 @@ def test_routes_mounted_when_on() -> None:
         for method in getattr(route, "methods", ())
     }
     assert set(ROUTES) <= mounted
+
+
+# ---------------------------------------------------------------------------
+# B26 T8d: the Speaker's own load band
+# ---------------------------------------------------------------------------
+#
+# The same computation as the Connector route, with the Speaker as the viewer:
+# every unit's engagement of theirs is named, and nothing is editable here.
+
+_OWN_TITLE = "Corporate treasury guest lecture"
+_AWAY_TITLE = "Audit committee panel"
+
+
+def _hosted_event(ctx: _Ctx, host: uuid.UUID, on: date, title: str) -> uuid.UUID:
+    """A date-only event hosted by ``host``: its hours are unknown."""
+    event_id = uuid.uuid4()
+    ctx.execute(
+        "INSERT INTO event (id, tenant_id, host_org_unit_id, title, normalized_title, "
+        "on_date, time_zone, time_precision, resolved_date, origin) VALUES (:id, :t, :u, "
+        ":title, :norm, :on, 'America/Los_Angeles', 'date_only', :on, 'coordinator_entry')",
+        id=event_id,
+        t=ctx.tenant_id,
+        u=host,
+        title=title,
+        norm=title.lower(),
+        on=on,
+    )
+    return event_id
+
+
+def _my_load(ctx: _Ctx, speaker: _Speaker) -> dict[str, Any]:
+    response = ctx.call("GET", "/v1/me/availability", speaker.headers)
+    assert response.status_code == 200, response.text
+    load: dict[str, Any] = response.json()["load"]
+    return load
+
+
+@contextmanager
+def _statements() -> Iterator[list[str]]:
+    captured: list[str] = []
+
+    def _capture(_conn: Any, _cursor: Any, statement: str, *_args: Any) -> None:
+        captured.append(statement)
+
+    sa_event.listen(Engine, "before_cursor_execute", _capture)
+    try:
+        yield captured
+    finally:
+        sa_event.remove(Engine, "before_cursor_execute", _capture)
+
+
+# S1
+def test_my_availability_carries_load(ctx: _Ctx, frozen: datetime) -> None:
+    speaker = ctx.speaker()
+
+    assert _my_load(ctx, speaker) == {
+        "band": "unknown",
+        "reason": "capacity_not_stated",
+        "as_of": TODAY.isoformat(),
+        "used_in_matching": False,
+        "engagements_without_end_time": [],
+        "engagements_without_end_time_truncated": False,
+    }
+
+
+# S2
+def test_the_speaker_sees_titles_from_every_unit_and_nothing_editable(
+    ctx: _Ctx, frozen: datetime, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("smartmatch_api.routers.speaker_availability.utc_now", lambda: frozen)
+    speaker = ctx.speaker()
+    own = ctx.journey(
+        speaker.professional_id,
+        _hosted_event(ctx, ctx.unit_id, TODAY + timedelta(days=2), _OWN_TITLE),
+    )
+    away = ctx.journey(
+        speaker.professional_id,
+        _hosted_event(ctx, ctx.sibling_unit_id, TODAY + timedelta(days=3), _AWAY_TITLE),
+    )
+
+    items = _my_load(ctx, speaker)["engagements_without_end_time"]
+
+    assert items == [
+        {
+            "engagement_id": str(own),
+            "shown": "event",
+            "event_title": _OWN_TITLE,
+            "local_date": (TODAY + timedelta(days=2)).isoformat(),
+            "time_precision": "date_only",
+            "editable_here": False,
+        },
+        {
+            "engagement_id": str(away),
+            "shown": "event",
+            "event_title": _AWAY_TITLE,
+            "local_date": (TODAY + timedelta(days=3)).isoformat(),
+            "time_precision": "date_only",
+            "editable_here": False,
+        },
+    ]
+    # The Connector's view of the same Speaker: their own event editable, the
+    # other unit's anonymized.
+    connector = ctx.connector_availability(speaker.professional_id).json()["load"]
+    assert [
+        (i["shown"], i["editable_here"]) for i in connector["engagements_without_end_time"]
+    ] == [
+        ("event", True),
+        ("other_unit", False),
+    ]
+
+
+# S3
+def test_my_patch_recomputes_the_band(ctx: _Ctx, frozen: datetime) -> None:
+    speaker = ctx.speaker()
+    ctx.journey(
+        speaker.professional_id,
+        _hosted_event(ctx, ctx.unit_id, TODAY + timedelta(days=2), _OWN_TITLE),
+    )
+    assert _my_load(ctx, speaker)["reason"] == "capacity_not_stated"
+
+    response = ctx.call(
+        "PATCH",
+        "/v1/me/availability",
+        speaker.headers,
+        json=_statement(declared_capacity_hours_per_90_days=12.5),
+    )
+
+    assert response.status_code == 200, response.text
+    load = response.json()["load"]
+    assert (load["band"], load["reason"]) == ("unknown", "hours_unknown")
+    assert load == _my_load(ctx, speaker)
+
+
+# S4
+def test_my_load_costs_the_same_queries_as_the_connector_route(
+    ctx: _Ctx, frozen: datetime, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from smartmatch_api.routers import speaker_availability
+    from smartmatch_api.routers.speaker_availability_models import SpeakerLoadView
+
+    monkeypatch.setattr(speaker_availability, "utc_now", lambda: frozen)
+    speaker = ctx.speaker()
+    ctx.journey(
+        speaker.professional_id,
+        _hosted_event(ctx, ctx.unit_id, TODAY + timedelta(days=2), _OWN_TITLE),
+    )
+    fixed = SpeakerLoadView(
+        band="light",
+        reason="measured",
+        as_of=TODAY,
+        used_in_matching=False,
+        engagements_without_end_time=[],
+        engagements_without_end_time_truncated=False,
+    )
+
+    def mine() -> Any:
+        return ctx.call("GET", "/v1/me/availability", speaker.headers)
+
+    def theirs() -> Any:
+        return ctx.connector_availability(speaker.professional_id)
+
+    deltas = []
+    for module, read in ((speaker_self, mine), (speaker_availability, theirs)):
+        read()  # warm the quota bucket, so both counted reads take the same path
+        real = module.current_speaker_load
+        monkeypatch.setattr(module, "current_speaker_load", lambda *_a, **_k: fixed)
+        with _statements() as baseline:
+            assert read().status_code == 200
+        monkeypatch.setattr(module, "current_speaker_load", real)
+        with _statements() as measured:
+            assert len(read().json()["load"]["engagements_without_end_time"]) == 1
+        deltas.append(len(measured) - len(baseline))
+
+    assert deltas == [2, 2]
+
+
+# S5
+def test_no_subject_is_taken_from_the_request() -> None:
+    """The load is keyed by the bound profile, never by the login or a request field."""
+    import ast
+    from pathlib import Path
+
+    source = Path(speaker_self.__file__).read_text(encoding="utf-8")
+    calls = [
+        node
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "current_speaker_load"
+    ]
+    assert len(calls) == 2
+    for call in calls:
+        keywords = {keyword.arg: ast.unparse(keyword.value) for keyword in call.keywords}
+        assert keywords["professional_id"] == "bound.professional_id"
+        assert keywords["tenant_id"] == "principal.tenant_id"
+        assert keywords["viewer_unit_id"] == "None"
+        assert "principal.user_id" not in ast.unparse(call)
+
+
+#: Owner ruling R-A (2026-09-24): no load number reaches the API wire.
+_RA_LOAD_NUMBERS = frozenset(
+    {"completed_hours", "confirmed_hours", "capacity_hours", "utilization"}
+)
+
+
+def _keys_in(value: Any) -> set[str]:
+    """Every key anywhere in a JSON value."""
+    if isinstance(value, dict):
+        return set(value) | {k for child in value.values() for k in _keys_in(child)}
+    if isinstance(value, list):
+        return {k for child in value for k in _keys_in(child)}
+    return set()
+
+
+# S6 (owner ruling R-A)
+def test_my_load_on_get_and_patch_carries_no_hours_capacity_or_utilization(
+    ctx: _Ctx, frozen: datetime
+) -> None:
+    """Band and reason only; a pin on SpeakerLoadView's shape on the Speaker's own route."""
+    speaker = ctx.speaker()
+    ctx.journey(
+        speaker.professional_id,
+        _hosted_event(ctx, ctx.unit_id, TODAY + timedelta(days=2), _OWN_TITLE),
+    )
+    patched = ctx.call(
+        "PATCH",
+        "/v1/me/availability",
+        speaker.headers,
+        json=_statement(declared_capacity_hours_per_90_days=12.5),
+    )
+    assert patched.status_code == 200, patched.text
+
+    for load in (patched.json()["load"], _my_load(ctx, speaker)):
+        keys = _keys_in(load)
+        assert _RA_LOAD_NUMBERS.isdisjoint(keys), keys
+        assert not [k for k in keys if "hours" in k or "utilization" in k], keys
+    assert patched.json()["declared_capacity_hours_per_90_days"] == 12.5
 
 
 # ---------------------------------------------------------------------------

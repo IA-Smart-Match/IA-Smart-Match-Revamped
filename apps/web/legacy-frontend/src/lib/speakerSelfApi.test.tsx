@@ -18,6 +18,7 @@ import {
   type SpeakerAvailability,
   type SpeakerAvailabilityUpdatePayload,
 } from "./api";
+import { speakerLoadFixture } from "@/test/speakerLoadFixture";
 
 // Built at runtime: a credential-shaped literal in a test is flagged by the
 // forbidden-behaviour scanner.
@@ -32,6 +33,7 @@ const STATEMENT: SpeakerAvailability = {
   unavailable: [],
   updated_source: null,
   updated_at: null,
+  load: speakerLoadFixture(),
 };
 
 const INVITATION: MyInvitation = {

@@ -391,7 +391,7 @@ describe("<CoordinatorBookings />", () => {
     );
   });
 
-  it("success invalidates the confirmed-speakers prefix and the unit metrics key", async () => {
+  it("success invalidates confirmed-speakers, the unit metrics key and the speaker-availability prefix, and nothing else", async () => {
     stub({
       [`GET ${LIST}`]: list([speaker("r1", "Dana Reyes")]),
       [`GET ${EVENTS}`]: eventsAnswer,
@@ -403,11 +403,15 @@ describe("<CoordinatorBookings />", () => {
 
     fireEvent.click(within(dialog).getByRole("button", { name: "Cancel booking" }));
 
-    await waitFor(() => expect(spy).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(3));
     const keys = spy.mock.calls.map(([filters]) => filters?.queryKey);
+    // B26 T8d: a cancellation lowers the Speaker's load band.
     expect(keys).toEqual([
       ["principal-1", "confirmed-speakers", UNIT],
       ["principal-1", "metrics", UNIT],
+      ["principal-1", "speaker-availability", UNIT],
     ]);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(spy).toHaveBeenCalledTimes(3);
   });
 });

@@ -606,6 +606,17 @@
             "description": "The composite in [0.0, 1.0], or null when any factor's evidence was absent. Not a percentage and never rendered as one.",
             "title": "Heuristic Score"
           },
+          "load": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CandidateLoadBlockView"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The engagement load recorded for this candidate at run time (registry 3.x only; omitted on 1.x and 2.x runs, see load_recorded). Screens show the band word only (OQ-CBA-005)."
+          },
           "policy_neutral_factor_keys": {
             "description": "The factors whose value came from a stated customer policy rather than a measurement, in registry order. These participate in the composite; they are listed so a consumer can say which parts of a score were policy without comparing floats to a constant.",
             "items": {
@@ -676,6 +687,63 @@
           "factors"
         ],
         "title": "CandidateExplanationView",
+        "type": "object"
+      },
+      "CandidateLoadBlockView": {
+        "description": "The engagement load a 3.x score was multiplied by (B26 T8d).\n\nT8c's :class:`LoadBlockView` plus the two Stage B fields a scored candidate\nhas. A subclass, so T8c's excluded-candidate schema stays exactly as it is.\n``multiplier`` and ``composite_before_load`` are scores, not load hours.\nLike its parent it has **no field** for the load numbers \u2014 the hours, the\ndeclared capacity and the utilization stay in the stored run payload for\naudit (owner ruling R-A, 2026-09-24) \u2014 nor for the stored\n``unknown_hours_refs``: those name bookings in every unit, and no other\nunit's record id reaches the Connector run wire. Screens show the band word\nonly (OQ-CBA-005).",
+        "properties": {
+          "as_of": {
+            "description": "The run's UTC date (ISO).",
+            "title": "As Of",
+            "type": "string"
+          },
+          "band": {
+            "description": "light, moderate, heavy, full, or unknown.",
+            "title": "Band",
+            "type": "string"
+          },
+          "composite_before_load": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The unrounded composite before the multiplier; null iff heuristic_score is.",
+            "title": "Composite Before Load"
+          },
+          "eli_formula_version": {
+            "title": "Eli Formula Version",
+            "type": "string"
+          },
+          "measurable": {
+            "description": "True exactly when reason is measured.",
+            "title": "Measurable",
+            "type": "boolean"
+          },
+          "multiplier": {
+            "description": "The registry's multiplier for this band, as a canonical decimal string.",
+            "title": "Multiplier",
+            "type": "string"
+          },
+          "reason": {
+            "description": "measured, capacity_not_stated, hours_unknown, or full_by_known_hours.",
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "band",
+          "reason",
+          "measurable",
+          "as_of",
+          "eli_formula_version",
+          "multiplier",
+          "composite_before_load"
+        ],
+        "title": "CandidateLoadBlockView",
         "type": "object"
       },
       "ChannelListResponse": {
@@ -1870,6 +1938,91 @@
           "state"
         ],
         "title": "EditWindowView",
+        "type": "object"
+      },
+      "EngagementWithoutEndTimeView": {
+        "description": "One counted engagement whose hours are unknown (T8b R4), labelled for this caller (T8d).",
+        "properties": {
+          "editable_here": {
+            "description": "Connector route only: this unit hosts the event and entered it, so its end time can be added on the Events page. Always false for the Speaker.",
+            "title": "Editable Here",
+            "type": "boolean"
+          },
+          "engagement_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The engagement's record id. On the Connector route it is null unless the Connector's unit owns the record (always null for other_unit): no other unit's record id reaches a Speaker Connector.",
+            "title": "Engagement Id"
+          },
+          "event_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Set exactly when shown is event.",
+            "title": "Event Title"
+          },
+          "local_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The event's local date when shown is event and it is resolved; else null.",
+            "title": "Local Date"
+          },
+          "shown": {
+            "description": "event: title and date are shown. other_unit: the Connector route, and another unit hosts the event. event_missing: no event record.",
+            "enum": [
+              "event",
+              "other_unit",
+              "event_missing"
+            ],
+            "title": "Shown",
+            "type": "string"
+          },
+          "time_precision": {
+            "anyOf": [
+              {
+                "enum": [
+                  "exact",
+                  "date_only",
+                  "unresolved"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null unless shown is event.",
+            "title": "Time Precision"
+          }
+        },
+        "required": [
+          "engagement_id",
+          "shown",
+          "event_title",
+          "local_date",
+          "time_precision",
+          "editable_here"
+        ],
+        "title": "EngagementWithoutEndTimeView",
         "type": "object"
       },
       "ErrorBody": {
@@ -3825,6 +3978,11 @@
             "title": "Job Id",
             "type": "string"
           },
+          "load_recorded": {
+            "description": "True when this run's registry pin applies engagement load (3.x), so every candidate carries a load block (B26 T8d). False for 1.x and 2.x runs and for an unknown pin.",
+            "title": "Load Recorded",
+            "type": "boolean"
+          },
           "optimizer_model_version": {
             "title": "Optimizer Model Version",
             "type": "string"
@@ -3953,7 +4111,8 @@
           "shortlist",
           "shortlist_available",
           "considered",
-          "unscorable"
+          "unscorable",
+          "load_recorded"
         ],
         "title": "MatchRunResponse",
         "type": "object"
@@ -5936,6 +6095,9 @@
             ],
             "title": "Invitations Paused Until"
           },
+          "load": {
+            "$ref": "#/components/schemas/SpeakerLoadView"
+          },
           "professional_id": {
             "format": "uuid",
             "title": "Professional Id",
@@ -5999,7 +6161,8 @@
           "declared_capacity_hours_per_90_days",
           "unavailable",
           "updated_source",
-          "updated_at"
+          "updated_at",
+          "load"
         ],
         "title": "SpeakerAvailabilityResponse",
         "type": "object"
@@ -6712,6 +6875,65 @@
           "speaker"
         ],
         "title": "SpeakerHandoffResponse",
+        "type": "object"
+      },
+      "SpeakerLoadView": {
+        "description": "The Speaker's current load band (B26 T8d).\n\nA band word's inputs only: no hours, no ratio, no capacity echo (OQ-CBA-005;\nowner ruling R-A: load numbers never reach the API wire).\nComputed at request time with the code a 3.x run uses.",
+        "properties": {
+          "as_of": {
+            "description": "The UTC date the band was measured on.",
+            "format": "date",
+            "title": "As Of",
+            "type": "string"
+          },
+          "band": {
+            "enum": [
+              "light",
+              "moderate",
+              "heavy",
+              "full",
+              "unknown"
+            ],
+            "title": "Band",
+            "type": "string"
+          },
+          "engagements_without_end_time": {
+            "description": "Counted engagements whose hours are unknown, at most 20, earliest first.",
+            "items": {
+              "$ref": "#/components/schemas/EngagementWithoutEndTimeView"
+            },
+            "title": "Engagements Without End Time",
+            "type": "array"
+          },
+          "engagements_without_end_time_truncated": {
+            "title": "Engagements Without End Time Truncated",
+            "type": "boolean"
+          },
+          "reason": {
+            "enum": [
+              "measured",
+              "capacity_not_stated",
+              "hours_unknown",
+              "full_by_known_hours"
+            ],
+            "title": "Reason",
+            "type": "string"
+          },
+          "used_in_matching": {
+            "description": "Whether the current matching registry applies engagement load. False while registry 3.0.0 is only proposed: the band is shown, not used.",
+            "title": "Used In Matching",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "band",
+          "reason",
+          "as_of",
+          "used_in_matching",
+          "engagements_without_end_time",
+          "engagements_without_end_time_truncated"
+        ],
+        "title": "SpeakerLoadView",
         "type": "object"
       },
       "SpeakerPipelineRange": {

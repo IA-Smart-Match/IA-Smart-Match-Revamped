@@ -64,6 +64,7 @@ from smartmatch_api.routers.speaker_availability_models import (
     statement_from_request,
     write_statement,
 )
+from smartmatch_api.speaker_load import current_speaker_load
 from smartmatch_api.utils import utc_now
 
 __all__ = [
@@ -342,10 +343,20 @@ def get_my_availability(
     """The bound profile's statement, or ``stated: false`` when there is none."""
     charge_quota(session, principal, SPEAKER_SELF_READ_RATE_LIMIT)
     bound = _authorize_speaker_self(session, principal)
+    now = utc_now()
     stored = _availability.get(
         session, tenant_id=principal.tenant_id, professional_id=bound.professional_id
     )
-    return availability_response(bound.professional_id, stored)
+    # B26 T8d: the Speaker's own band; they see every unit's engagement of theirs.
+    load = current_speaker_load(
+        session,
+        tenant_id=principal.tenant_id,
+        professional_id=bound.professional_id,
+        capacity=None if stored is None else stored.statement.declared_capacity_hours_per_90_days,
+        viewer_unit_id=None,
+        now=now,
+    )
+    return availability_response(bound.professional_id, stored, load=load)
 
 
 @router.patch(
@@ -385,8 +396,17 @@ def update_my_availability(
         expected_version=body.expected_version,
         now=now,
     )
+    # Before the commit (B26 T8d, plan-gate MED 4): a failure rolls the write back.
+    load = current_speaker_load(
+        session,
+        tenant_id=principal.tenant_id,
+        professional_id=bound.professional_id,
+        capacity=result.statement.declared_capacity_hours_per_90_days,
+        viewer_unit_id=None,
+        now=now,
+    )
     session.commit()
-    return availability_response(bound.professional_id, result)
+    return availability_response(bound.professional_id, result, load=load)
 
 
 @router.get(

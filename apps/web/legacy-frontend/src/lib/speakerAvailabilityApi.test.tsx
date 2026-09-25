@@ -13,6 +13,7 @@ import {
   type SpeakerAvailability,
   type SpeakerAvailabilityUpdatePayload,
 } from "./api";
+import { speakerLoadFixture } from "@/test/speakerLoadFixture";
 
 const UNIT = "unit/1";
 const PROFESSIONAL = "pro 2";
@@ -32,6 +33,7 @@ const STORED: SpeakerAvailability = {
   unavailable: [{ starts_on: "2026-11-01", ends_on: "2026-11-02", source: "connector" }],
   updated_source: "connector",
   updated_at: "2026-10-06T15:00:00Z",
+  load: speakerLoadFixture(),
 };
 
 function respond(status: number, body: unknown): ReturnType<typeof vi.fn> {

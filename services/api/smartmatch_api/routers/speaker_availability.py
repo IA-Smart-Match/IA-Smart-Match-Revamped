@@ -22,6 +22,14 @@ is recorded with ``updated_source = 'connector'``.
    never calls the repository's ``upsert`` itself.
 
 "Today" is the UTC date of :func:`utc_now` (plan C1).
+
+## The load band (B26 T8d)
+
+Both handlers answer with the Speaker's current ``load``, computed by
+:func:`~smartmatch_api.speaker_load.current_speaker_load` for this unit as the
+viewer (another unit's engagements are anonymized). ``PATCH`` computes it
+before ``session.commit()``: a load-read failure then rolls the write back, so
+a retry with the same ``expected_version`` is not a false ``409``.
 """
 
 from __future__ import annotations
@@ -53,6 +61,7 @@ from smartmatch_api.routers.speaker_availability_models import (
     statement_from_request,
     write_statement,
 )
+from smartmatch_api.speaker_load import current_speaker_load
 from smartmatch_api.utils import utc_now
 
 router = APIRouter(prefix="/v1/units", tags=["speaker-contacts"])
@@ -100,10 +109,19 @@ def get_speaker_contact_availability(
     """
     charge_quota(session, principal, SPEAKER_CONTACT_READ_RATE_LIMIT)
     owning_unit_id = _authorize_speaker_contacts(session, principal, unit_id)
+    now = utc_now()
     stored = _load(
         session, principal, owning_unit_id=owning_unit_id, professional_id=professional_id
     )
-    return availability_response(professional_id, stored)
+    load = current_speaker_load(
+        session,
+        tenant_id=principal.tenant_id,
+        professional_id=professional_id,
+        capacity=None if stored is None else stored.statement.declared_capacity_hours_per_90_days,
+        viewer_unit_id=owning_unit_id,
+        now=now,
+    )
+    return availability_response(professional_id, stored, load=load)
 
 
 @router.patch(
@@ -149,5 +167,14 @@ def update_speaker_contact_availability(
         expected_version=body.expected_version,
         now=now,
     )
+    # Before the commit (plan-gate MED 4): a failure here rolls the write back.
+    load = current_speaker_load(
+        session,
+        tenant_id=principal.tenant_id,
+        professional_id=professional_id,
+        capacity=result.statement.declared_capacity_hours_per_90_days,
+        viewer_unit_id=owning_unit_id,
+        now=now,
+    )
     session.commit()
-    return availability_response(professional_id, result)
+    return availability_response(professional_id, result, load=load)

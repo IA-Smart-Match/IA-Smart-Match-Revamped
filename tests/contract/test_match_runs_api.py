@@ -1970,3 +1970,250 @@ def test_no_load_number_reaches_the_wire_and_the_stored_payload_keeps_them(
         assert loads[gamma]["reason"] == "full_by_known_hours"
     assert LOAD_NUMBER_KEYS.isdisjoint(_keys_anywhere(accepted))
     assert LOAD_NUMBER_KEYS.isdisjoint(_keys_anywhere(run))
+
+
+# ---------------------------------------------------------------------------
+# B26 T8d: the run read renders each candidate's stored load (R1–R8)
+# ---------------------------------------------------------------------------
+#
+# T8c stores a load block on every 3.x explanation; T8d copies the band, the
+# reason and the two Stage B scores onto the candidate view — never the load
+# numbers (owner ruling R-A) or the unknown_hours_refs (other units' record
+# ids) — and says per run whether load was recorded, from the run's own pin.
+# No new query on the read. 2.0.0 stays current: 3.0.0 is made current for one
+# test only, under evaluation.
+
+#: T8c's excluded-candidate load block, as the OpenAPI document published it on
+#: the T8c base (origin/feat/b26-t8c @ 4f36dfab, owner ruling R-A: no load
+#: numbers). T8d must not change it (R7).
+_T8C_LOAD_BLOCK_PROPERTIES: dict[str, Any] = {
+    "as_of": {"description": "The run's UTC date (ISO).", "title": "As Of", "type": "string"},
+    "band": {
+        "description": "light, moderate, heavy, full, or unknown.",
+        "title": "Band",
+        "type": "string",
+    },
+    "eli_formula_version": {"title": "Eli Formula Version", "type": "string"},
+    "measurable": {
+        "description": "True exactly when reason is measured.",
+        "title": "Measurable",
+        "type": "boolean",
+    },
+    "reason": {
+        "description": "measured, capacity_not_stated, hours_unknown, or full_by_known_hours.",
+        "title": "Reason",
+        "type": "string",
+    },
+}
+_T8C_LOAD_BLOCK_REQUIRED = ["band", "reason", "measurable", "as_of", "eli_formula_version"]
+
+
+def _all_candidates(run: dict[str, Any]) -> list[dict[str, Any]]:
+    return run["shortlist"] + run["considered"] + run["unscorable"]
+
+
+# R1
+def test_a_2_0_0_run_reads_load_recorded_false_and_every_load_null(load_context, engine) -> None:
+    _seed_loads(load_context)
+    _, run = _submit_and_execute(load_context, engine, _load_submission(load_context))
+
+    assert run["registry_version"] == REGISTRY_VERSION
+    assert run["load_recorded"] is False
+    assert _all_candidates(run)
+    assert all(candidate.get("load") is None for candidate in _all_candidates(run))
+    # Omitted, not null: a 2.x candidate keeps the exact shape T4 shipped.
+    assert "load" not in _keys_anywhere(_all_candidates(run))
+
+
+# R2
+def test_under_evaluation_a_3_0_0_run_reads_each_candidates_stored_band(
+    load_context, engine, monkeypatch
+) -> None:
+    _seed_loads(load_context)
+    _make_3_0_0_current(monkeypatch, evaluate=True)
+
+    _, run = _submit_and_execute(load_context, engine, _load_submission(load_context))
+
+    assert run["load_recorded"] is True
+    by_subject = _candidates(run)
+    alpha = by_subject[str(load_context.speakers["alpha"])]["load"]
+    zeta = by_subject[str(load_context.speakers["zeta"])]["load"]
+    assert (alpha["band"], alpha["reason"]) == ("moderate", "measured")
+    assert (zeta["band"], zeta["reason"]) == ("unknown", "hours_unknown")
+    assert all(candidate["load"] is not None for candidate in _all_candidates(run))
+
+
+# R3
+def test_the_candidate_load_block_is_copied_without_rounding_and_without_refs(
+    load_context, engine, monkeypatch
+) -> None:
+    refs = _seed_loads(load_context)
+    _make_3_0_0_current(monkeypatch, evaluate=True)
+
+    accepted, run = _submit_and_execute(load_context, engine, _load_submission(load_context))
+
+    stored = _explanations_by_subject(_stored_payload(engine, uuid.UUID(accepted["job_id"])))
+    zeta_id = str(load_context.speakers["zeta"])
+    assert stored[zeta_id]["load"]["unknown_hours_refs"] == [refs["zeta_ref"]]
+    for subject_id, candidate in _candidates(run).items():
+        # Owner ruling R-A: the load numbers stay in the stored payload.
+        expected = {
+            key: value
+            for key, value in stored[subject_id]["load"].items()
+            if key != "unknown_hours_refs" and key not in LOAD_NUMBER_KEYS
+        }
+        assert candidate["load"] == expected, subject_id
+        assert set(stored[subject_id]["load"]) >= LOAD_NUMBER_KEYS, subject_id
+    assert "unknown_hours_refs" not in _keys_anywhere(_all_candidates(run))
+    assert refs["zeta_ref"] not in json.dumps(run)
+
+
+# R4
+def test_load_adds_no_query_to_the_run_read(load_context, engine, monkeypatch) -> None:
+    _seed_loads(load_context)
+    before, _ = _submit_and_execute(load_context, engine, _load_submission(load_context))
+    _make_3_0_0_current(monkeypatch, evaluate=True)
+    after, _ = _submit_and_execute(load_context, engine, _load_submission(load_context))
+
+    with _statements() as two:
+        read_two = _read_run(load_context, engine, uuid.UUID(before["job_id"]))
+    with _statements() as three:
+        read_three = _read_run(load_context, engine, uuid.UUID(after["job_id"]))
+
+    assert (read_two["load_recorded"], read_three["load_recorded"]) == (False, True)
+    assert len(three) == len(two)
+    assert not any("pipeline_record" in sql for sql in three)
+    assert sum("speaker_availability" in sql for sql in three) == 1
+    assert sum("FROM event" in sql for sql in three) == 1
+
+
+# R5
+def test_an_unknown_pin_reads_load_recorded_false(load_context, engine, monkeypatch) -> None:
+    """A stored run whose pin this build does not declare: never guessed from its data.
+
+    ``match_run`` rows are immutable (migration 0018), so the unknown-pin run is
+    a second row, written as an older or foreign release would have, carrying
+    the 3.0.0 run's own payload with its stored load blocks.
+    """
+    _seed_loads(load_context)
+    _make_3_0_0_current(monkeypatch, evaluate=True)
+    accepted, run = _submit_and_execute(load_context, engine, _load_submission(load_context))
+    assert run["load_recorded"] is True
+    source_job = uuid.UUID(accepted["job_id"])
+    job_id = uuid.uuid4()
+    run_id = uuid.uuid4()
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO job (id, tenant_id, owning_unit_id, command_type, status, payload) "
+                "SELECT :id, tenant_id, owning_unit_id, command_type, 'succeeded', payload "
+                "FROM job WHERE id = :source"
+            ),
+            {"id": job_id, "source": source_job},
+        )
+        conn.execute(
+            text(
+                "INSERT INTO match_run (id, tenant_id, owning_unit_id, job_id, event_need_id, "
+                "inputs_hash, portfolio_size, random_seed, registry_version, registry_hash, "
+                "weights, optimizer_model_version, solver_name, solver_version, "
+                "route_estimate_source, route_estimate_version, portfolio_status) "
+                "SELECT :id, tenant_id, owning_unit_id, :job, event_need_id, inputs_hash, "
+                "portfolio_size, random_seed, :pin, registry_hash, weights, "
+                "optimizer_model_version, solver_name, solver_version, route_estimate_source, "
+                "route_estimate_version, portfolio_status FROM match_run WHERE job_id = :source"
+            ),
+            {"id": run_id, "job": job_id, "pin": "9.9.9-not-declared", "source": source_job},
+        )
+
+    read = _get(load_context, f"/v1/units/{load_context.unit_id}/match-runs/{run_id}")
+
+    assert read.status_code == 200, read.text
+    assert read.json()["registry_version"] == "9.9.9-not-declared"
+    assert read.json()["load_recorded"] is False
+
+
+# R6
+def test_excluded_load_full_keeps_its_load_block(load_context, engine, monkeypatch) -> None:
+    refs = _seed_loads(load_context)
+    _make_3_0_0_current(monkeypatch, evaluate=True)
+
+    _, run = _submit_and_execute(load_context, engine, _load_submission(load_context))
+
+    excluded = {entry["subject_id"]: entry for entry in run["excluded"]}
+    gamma = excluded[str(load_context.speakers["gamma"])]
+    beta = excluded[str(load_context.speakers["beta"])]
+    assert gamma["reason"] == beta["reason"] == "load_full"
+    assert (gamma["load"]["band"], gamma["load"]["reason"]) == ("full", "full_by_known_hours")
+    assert set(gamma["load"]) == set(_T8C_LOAD_BLOCK_PROPERTIES)
+    assert refs["gamma_ref"] not in json.dumps(run)
+
+
+# R7
+def test_t8cs_excluded_load_schema_is_unchanged() -> None:
+    from pathlib import Path
+
+    document = json.loads(
+        (
+            Path(__file__).resolve().parents[2] / "contracts" / "openapi" / "smartmatch.json"
+        ).read_text(encoding="utf-8")
+    )
+    schemas = document["components"]["schemas"]
+
+    block = schemas["LoadBlockView"]
+    assert block["properties"] == _T8C_LOAD_BLOCK_PROPERTIES
+    assert block["required"] == _T8C_LOAD_BLOCK_REQUIRED
+    assert schemas["ExcludedCandidateView"]["properties"]["load"]["anyOf"] == [
+        {"$ref": "#/components/schemas/LoadBlockView"},
+        {"type": "null"},
+    ]
+    # The candidate block is its own component: T8c's plus the two Stage B fields.
+    candidate = schemas["CandidateLoadBlockView"]
+    assert set(candidate["properties"]) == set(_T8C_LOAD_BLOCK_PROPERTIES) | {
+        "multiplier",
+        "composite_before_load",
+    }
+    assert "unknown_hours_refs" not in candidate["properties"]
+    assert schemas["CandidateExplanationView"]["properties"]["load"]["anyOf"] == [
+        {"$ref": "#/components/schemas/CandidateLoadBlockView"},
+        {"type": "null"},
+    ]
+    assert schemas["MatchRunResponse"]["properties"]["load_recorded"]["type"] == "boolean"
+    # Review L1: required, never defaulted; the read derives it from the pin.
+    assert "load_recorded" in schemas["MatchRunResponse"]["required"]
+
+
+# R8 (owner ruling R-A)
+def test_no_candidate_load_number_reaches_the_wire_and_the_stored_payload_keeps_them(
+    load_context, engine, monkeypatch
+) -> None:
+    """Band and reason on the wire; hours, capacity and utilization stored only.
+
+    ``multiplier`` and ``composite_before_load`` are scores, not load hours:
+    they stay on every candidate block.
+    """
+    _seed_loads(load_context)
+    _make_3_0_0_current(monkeypatch, evaluate=True)
+
+    accepted, run = _submit_and_execute(load_context, engine, _load_submission(load_context))
+
+    assert run["load_recorded"] is True
+    blocks = [candidate["load"] for candidate in _all_candidates(run)]
+    assert blocks and all(block is not None for block in blocks)
+    for block in blocks:
+        assert {"band", "reason", "multiplier", "composite_before_load"} <= set(block), block
+        assert LOAD_NUMBER_KEYS.isdisjoint(block), block
+    assert any(entry.get("load") for entry in run["excluded"])
+    assert LOAD_NUMBER_KEYS.isdisjoint(_keys_anywhere(run))
+    assert any(entry.get("load") for entry in accepted["excluded_candidates"])
+    assert LOAD_NUMBER_KEYS.isdisjoint(_keys_anywhere(accepted))
+
+    payload = _stored_payload(engine, uuid.UUID(accepted["job_id"]))
+    assert payload["explanations"]
+    for entry in payload["explanations"]:
+        assert set(entry["load"]) >= LOAD_NUMBER_KEYS, entry["subject_id"]
+        assert "unknown_hours_refs" in entry["load"], entry["subject_id"]
+    full = [entry for entry in payload["excluded"] if entry["reason"] == "load_full"]
+    assert full
+    for entry in full:
+        assert set(entry["load"]) >= LOAD_NUMBER_KEYS, entry["subject_id"]
+        assert "unknown_hours_refs" in entry["load"], entry["subject_id"]

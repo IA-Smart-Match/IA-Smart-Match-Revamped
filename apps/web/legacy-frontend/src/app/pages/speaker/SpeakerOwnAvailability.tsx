@@ -14,9 +14,10 @@
  * Errors are fixed text (§7): the four `speaker_availability_*` field errors
  * keep T5's field messages; everything else is the Speaker map's.
  *
- * A `load` field the response may carry (T8 adds it) is not read here: the
- * Speaker's load band is T8d's, in the slot marked below, and it is a band
- * word only, never a number (OQ-CBA-005).
+ * The response's `load` is the Speaker's current load band (B26 T8d),
+ * rendered by `LoadBandSummary` between the heading and the form once the read
+ * has answered: a band word only, never a number (OQ-CBA-005). A save writes
+ * the PATCH response into the cache, so the band shown is the recomputed one.
  */
 import { useCallback, useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -30,6 +31,7 @@ import {
   type AvailabilityError,
 } from "@/lib/speakerAvailabilityDraft";
 import { usePrincipalKey } from "@/app/components/PrincipalQueryProvider";
+import { LoadBandSummary } from "@/app/components/load/LoadBandSummary";
 import {
   SpeakerAvailabilityForm,
   type StaleState,
@@ -169,7 +171,14 @@ export function SpeakerOwnAvailability() {
       >
         {HEADING}
       </h1>
-      {/* SLOT(T8d): the Speaker's own load band — a band word only, never a number (OQ-CBA-005) */}
+      {query.data !== undefined ? (
+        <LoadBandSummary
+          load={query.data.load}
+          audience="speaker"
+          headingLevel={2}
+          idPrefix={ID_PREFIX}
+        />
+      ) : null}
       {/* aria-busy sits on the content, not on the h1 that route-change focus lands on. */}
       <div aria-busy={query.data === undefined && !query.isError ? true : undefined}>{body}</div>
     </div>

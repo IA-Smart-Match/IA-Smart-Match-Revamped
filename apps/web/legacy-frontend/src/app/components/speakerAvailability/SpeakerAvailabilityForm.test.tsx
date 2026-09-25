@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { SpeakerAvailability } from "@/lib/api";
 import { COPY } from "@/lib/speakerAvailabilityDraft";
+import { speakerLoadFixture } from "@/test/speakerLoadFixture";
 
 import { SpeakerAvailabilityForm } from "./SpeakerAvailabilityForm";
 
@@ -27,6 +28,7 @@ function stored(overrides: Partial<SpeakerAvailability> = {}): SpeakerAvailabili
     unavailable: [],
     updated_source: "connector",
     updated_at: "2026-10-01T15:00:00Z",
+    load: speakerLoadFixture(),
     ...overrides,
   };
 }

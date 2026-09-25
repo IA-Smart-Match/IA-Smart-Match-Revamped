@@ -2247,6 +2247,54 @@ export interface MatchAvailability {
   changed_since_run: boolean | null;
 }
 
+// Engagement load (B26 T8d)
+//
+// A band word's inputs only: never hours, a ratio or a multiplier on a screen
+// (OQ-CBA-005). `loadBandCopy.ts` words every value.
+
+export type LoadBand = "light" | "moderate" | "heavy" | "full" | "unknown";
+
+export type LoadReason = "measured" | "capacity_not_stated" | "hours_unknown" | "full_by_known_hours";
+
+/** One counted engagement whose hours are unknown, labelled for the caller (B26 T8d §4.1). */
+export interface EngagementWithoutEndTime {
+  /** The record id; on the Connector route null unless their unit owns the record (always for "other_unit"). */
+  engagement_id: string | null;
+  shown: "event" | "other_unit" | "event_missing";
+  /** Set exactly when `shown` is "event". */
+  event_title: string | null;
+  /** `YYYY-MM-DD`, set only when `shown` is "event" and the date is resolved. */
+  local_date: string | null;
+  time_precision: "exact" | "date_only" | "unresolved" | null;
+  /** Connector route only: this unit hosts it and it is a Connector-entered event. */
+  editable_here: boolean;
+}
+
+/** A Speaker's current load band, measured at request time (B26 T8d §4.1). */
+export interface SpeakerLoad {
+  band: LoadBand;
+  reason: LoadReason;
+  /** The UTC date (`YYYY-MM-DD`) it was measured on. */
+  as_of: string;
+  /** Whether the current factor registry applies load in matching. */
+  used_in_matching: boolean;
+  /** At most 20, in the server's order. */
+  engagements_without_end_time: EngagementWithoutEndTime[];
+  engagements_without_end_time_truncated: boolean;
+}
+
+/**
+ * A run's stored load, band fields only (OQ-CBA-005). The wire carries band,
+ * reason, measurable, as_of and eli_formula_version, plus multiplier and
+ * composite_before_load on a candidate; only the two a page shows are typed
+ * here. The hours, capacity and utilization never reach the wire: they stay in
+ * the stored run payload for audit (owner ruling R-A).
+ */
+export interface MatchLoad {
+  band: LoadBand;
+  reason: LoadReason;
+}
+
 export interface MatchCandidateExplanation {
   subject_id: string;
   /** In [0, 1]. Never a percentage, and null when `state` is "unknown". */
@@ -2283,6 +2331,8 @@ export interface MatchCandidateExplanation {
   factors: MatchFactorExplanation[];
   /** The stored availability verdict; null when the run recorded none. */
   availability?: MatchAvailability | null;
+  /** The load recorded at run time (3.x runs only); absent on 1.x and 2.x runs. */
+  load?: MatchLoad | null;
 }
 
 /**
@@ -2329,6 +2379,8 @@ export interface MatchRunRead {
   excluded?: ExcludedMatchCandidate[];
   /** Why the stored exclusions could not be read; `excluded` is then empty, not shorter. */
   excluded_unreadable_reason?: string | null;
+  /** True when this run's registry pin applies engagement load (3.x), so every candidate carries a load. */
+  load_recorded: boolean;
 }
 
 /** `GET /v1/units/{unit_id}/match-runs/{match_run_id}`. */
@@ -2387,6 +2439,8 @@ export interface ExcludedMatchCandidate {
    * Connector somebody scored poorly when nobody has looked at their record.
    */
   reason: string;
+  /** The stored load block for a `load_full` exclusion (B26 T8c), band fields only. */
+  load?: MatchLoad | null;
 }
 
 /**
@@ -4172,6 +4226,8 @@ export interface SpeakerAvailability {
   unavailable: SpeakerAvailabilityWindowView[];
   updated_source: SpeakerAvailabilitySource | null;
   updated_at: string | null;
+  /** The current load band (B26 T8d): a band word's inputs only, never a number. */
+  load: SpeakerLoad;
 }
 
 /** Full replace: every key is sent; `null` clears; an omitted window is deleted. */

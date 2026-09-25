@@ -34,7 +34,7 @@ from decimal import Decimal
 from typing import Final, Literal
 
 from fastapi import status
-from pydantic import BaseModel, ConfigDict, StrictFloat, StrictInt
+from pydantic import BaseModel, ConfigDict, Field, StrictFloat, StrictInt
 from smartmatch_domain.speaker_availability import (
     MAX_WINDOWS,
     AvailabilityErrorCode,
@@ -56,8 +56,10 @@ from smartmatch_api.errors import ApiError
 __all__ = [
     "AvailabilityWindowInput",
     "AvailabilityWindowView",
+    "EngagementWithoutEndTimeView",
     "SpeakerAvailabilityResponse",
     "SpeakerAvailabilityUpdateRequest",
+    "SpeakerLoadView",
     "availability_error",
     "availability_response",
     "stale_error",
@@ -112,6 +114,60 @@ class AvailabilityWindowView(BaseModel):
     source: Literal["speaker", "connector"]
 
 
+class EngagementWithoutEndTimeView(BaseModel):
+    """One counted engagement whose hours are unknown (T8b R4), labelled for this caller (T8d)."""
+
+    engagement_id: uuid.UUID | None = Field(
+        description=(
+            "The engagement's record id. On the Connector route it is null unless "
+            "the Connector's unit owns the record (always null for other_unit): no "
+            "other unit's record id reaches a Speaker Connector."
+        )
+    )
+    shown: Literal["event", "other_unit", "event_missing"] = Field(
+        description=(
+            "event: title and date are shown. other_unit: the Connector route, and "
+            "another unit hosts the event. event_missing: no event record."
+        )
+    )
+    event_title: str | None = Field(description="Set exactly when shown is event.")
+    local_date: date | None = Field(
+        description="The event's local date when shown is event and it is resolved; else null."
+    )
+    time_precision: Literal["exact", "date_only", "unresolved"] | None = Field(
+        description="Null unless shown is event."
+    )
+    editable_here: bool = Field(
+        description=(
+            "Connector route only: this unit hosts the event and entered it, so its "
+            "end time can be added on the Events page. Always false for the Speaker."
+        )
+    )
+
+
+class SpeakerLoadView(BaseModel):
+    """The Speaker's current load band (B26 T8d).
+
+    A band word's inputs only: no hours, no ratio, no capacity echo (OQ-CBA-005;
+    owner ruling R-A: load numbers never reach the API wire).
+    Computed at request time with the code a 3.x run uses.
+    """
+
+    band: Literal["light", "moderate", "heavy", "full", "unknown"]
+    reason: Literal["measured", "capacity_not_stated", "hours_unknown", "full_by_known_hours"]
+    as_of: date = Field(description="The UTC date the band was measured on.")
+    used_in_matching: bool = Field(
+        description=(
+            "Whether the current matching registry applies engagement load. False "
+            "while registry 3.0.0 is only proposed: the band is shown, not used."
+        )
+    )
+    engagements_without_end_time: list[EngagementWithoutEndTimeView] = Field(
+        description="Counted engagements whose hours are unknown, at most 20, earliest first."
+    )
+    engagements_without_end_time_truncated: bool
+
+
 class SpeakerAvailabilityResponse(BaseModel):
     """A speaker's stated availability; ``stated: false`` means no row ("Not stated")."""
 
@@ -125,6 +181,8 @@ class SpeakerAvailabilityResponse(BaseModel):
     unavailable: list[AvailabilityWindowView]
     updated_source: Literal["speaker", "connector"] | None
     updated_at: datetime | None
+    #: The current load band (B26 T8d); always present, a band word's inputs only.
+    load: SpeakerLoadView
 
 
 def statement_from_request(
@@ -180,9 +238,15 @@ def stale_error() -> ApiError:
 
 
 def availability_response(
-    professional_id: uuid.UUID, stored: StoredSpeakerAvailability | None
+    professional_id: uuid.UUID,
+    stored: StoredSpeakerAvailability | None,
+    *,
+    load: SpeakerLoadView,
 ) -> SpeakerAvailabilityResponse:
-    """The response body; no row is ``stated: false`` with everything else empty."""
+    """The response body; no row is ``stated: false`` with everything else empty.
+
+    ``load`` is a required keyword (B26 T8d), so no call site can forget it.
+    """
     if stored is None:
         return SpeakerAvailabilityResponse(
             professional_id=professional_id,
@@ -193,6 +257,7 @@ def availability_response(
             unavailable=[],
             updated_source=None,
             updated_at=None,
+            load=load,
         )
     capacity = stored.statement.declared_capacity_hours_per_90_days
     return SpeakerAvailabilityResponse(
@@ -211,6 +276,7 @@ def availability_response(
         ],
         updated_source=stored.updated_source.value,
         updated_at=stored.updated_at,
+        load=load,
     )
 
 
