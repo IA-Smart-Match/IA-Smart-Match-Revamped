@@ -62,6 +62,12 @@ const BUTTON =
 /** The read's 404, which means "not run yet" rather than "something is wrong". */
 const NOT_RUN = "exercise_results_not_run";
 
+/** The run's 404 for a final setting this team no longer has (deleted in another tab). */
+const SETTING_UNKNOWN = "exercise_setting_unknown";
+
+/** Says why the run button is off; the button points at it with `aria-describedby`. */
+const FINAL_SETTING_HINT = "exercise-final-setting-hint";
+
 interface ResultsData {
   /** `null` until this team has run results for this event. */
   readonly results: ResultsView | null;
@@ -84,10 +90,13 @@ export function ExerciseResults(): React.JSX.Element {
           throw error;
         }
       }
-      const names = await namesForEvent(eventKey, results?.setting_name ?? null, signal);
-      const asking = await readAskingChoice(signal);
-      // Only needed before the run: afterwards there is nothing left to choose.
-      const saved = results === null ? await readSavedSettings(eventKey, signal) : null;
+      // Independent reads, so they go together. The saved settings are only
+      // needed before the run: afterwards there is nothing left to choose.
+      const [names, asking, saved] = await Promise.all([
+        namesForEvent(eventKey, results?.setting_name ?? null, signal),
+        readAskingChoice(signal),
+        results === null ? readSavedSettings(eventKey, signal) : Promise.resolve(null),
+      ]);
       return { results, names, asking, saved };
     },
     [eventKey],
@@ -209,9 +218,21 @@ function ResultsBody({
             <button
               type="button"
               disabled={pending || finalSetting === ""}
+              aria-describedby={FINAL_SETTING_HINT}
               onClick={() =>
                 void run(async () => {
-                  await runResults(eventKey, finalSetting);
+                  try {
+                    await runResults(eventKey, finalSetting);
+                  } catch (error) {
+                    // The chosen name was deleted since this screen loaded:
+                    // clear it and re-read the list, so the picker only offers
+                    // names the run route can still find. The sentence still shows.
+                    if (isRefusal(error) && error.code === SETTING_UNKNOWN) {
+                      setFinalSetting("");
+                      onChanged();
+                    }
+                    throw error;
+                  }
                   onChanged();
                 })
               }
@@ -283,7 +304,11 @@ function FinalSettingChoice({
   const settings = saved?.settings ?? [];
   if (settings.length === 0) {
     return (
-      <p className="text-xl text-slate-700 dark:text-slate-200" data-slot="exercise-final-setting">
+      <p
+        id={FINAL_SETTING_HINT}
+        className="text-xl text-slate-700 dark:text-slate-200"
+        data-slot="exercise-final-setting"
+      >
         Your team has not saved any settings for this event yet. Save one on{" "}
         <Link to={`/exercise/events/${encodeURIComponent(eventKey)}`} className="underline">
           your team's list
@@ -301,8 +326,9 @@ function FinalSettingChoice({
         onChange={onChange}
         settings={settings}
       />
-      <p className="text-xl text-slate-600 dark:text-slate-300">
-        Your team's invited list is built from the setting you choose.
+      <p id={FINAL_SETTING_HINT} className="text-xl text-slate-600 dark:text-slate-300">
+        Your team's invited list is built from the setting you choose. Choose one to run
+        results.
       </p>
     </div>
   );

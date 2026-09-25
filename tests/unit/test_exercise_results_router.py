@@ -941,8 +941,16 @@ def test_the_published_request_names_the_final_setting_as_required() -> None:
     app = FastAPI()
     for router in routers_for(_settings()):
         app.include_router(router)
-    schema = app.openapi()["components"]["schemas"]["RunResultsRequest"]
+    document = app.openapi()
+    schema = document["components"]["schemas"]["RunResultsRequest"]
+    operation = document["paths"]["/v1/exercise/workspaces/current/events/{event_key}/results"][
+        "post"
+    ]
 
+    assert operation["requestBody"]["required"] is True
+    assert operation["requestBody"]["content"]["application/json"]["schema"] == {
+        "$ref": "#/components/schemas/RunResultsRequest"
+    }
     assert schema["required"] == ["setting_name"]
     assert schema["properties"]["setting_name"]["type"] == "string"
     assert schema["properties"]["setting_name"]["minLength"] == 1

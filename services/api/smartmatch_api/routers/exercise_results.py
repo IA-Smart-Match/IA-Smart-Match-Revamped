@@ -177,6 +177,11 @@ def _round_one_or_none(
     dependencies=_STATE_CHANGING,
     status_code=status.HTTP_201_CREATED,
     summary="Run results for one event, once",
+    # The body carries the required final setting, so the operation says the
+    # body is required too — the component schema alone would let a generated
+    # client send none. The handler still answers a missing body with the
+    # exercise's own sentence (``Body(default_factory=...)`` below).
+    openapi_extra={"requestBody": {"required": True}},
 )
 def run_results(
     session: ExerciseSession,

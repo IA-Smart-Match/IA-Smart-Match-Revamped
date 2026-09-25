@@ -303,6 +303,75 @@ describe("<ExerciseResults />", () => {
     expect(calls.some((call) => call.init.method === "POST")).toBe(false);
   });
 
+  it("tells a screen reader why the run button is off", async () => {
+    stub({
+      [`GET ${RESULTS}`]: NOT_RUN,
+      [LIST]: NO_LIST,
+      [ASKING]: NO_CHOICE,
+      [SETTINGS]: TWO_SAVED,
+    });
+    renderResults();
+    const run = await screen.findByRole("button", { name: /run results/i });
+    const hintId = run.getAttribute("aria-describedby");
+    expect(hintId).not.toBeNull();
+    expect(document.getElementById(String(hintId))?.textContent).toMatch(
+      /choose one to run results/i,
+    );
+  });
+
+  it("clears a final setting deleted elsewhere and reads the settings again", async () => {
+    const sentence = "Your team has no saved settings with that name.";
+    stub({
+      [`GET ${RESULTS}`]: NOT_RUN,
+      [LIST]: NO_LIST,
+      [ASKING]: NO_CHOICE,
+      [SETTINGS]: TWO_SAVED,
+      [`POST ${RESULTS}`]: {
+        body: { error: { code: "exercise_setting_unknown", message: sentence } },
+        status: 404,
+      },
+    });
+    renderResults();
+    await runWith("Wide net");
+    await waitFor(() => expect(screen.getByText(sentence)).toBeDefined());
+    await waitFor(() =>
+      expect(calls.filter((call) => call.url === SETTINGS).length).toBeGreaterThan(1),
+    );
+    expect((screen.getByLabelText(/final setting/i) as HTMLSelectElement).value).toBe("");
+    expect(
+      (screen.getByRole("button", { name: /run results/i }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+  });
+
+  it("reads no saved settings once the team has run", async () => {
+    stub({
+      [`GET ${RESULTS}`]: {
+        body: {
+          event_key: "northline",
+          event_name: "Northline Analytics",
+          round: 1,
+          setting_name: "Wide net",
+          team: panel(2, 1, 1),
+          email_everyone: panel(300, 40, 30),
+          seats_empty: 51,
+          event_seats: 60,
+          existing_signups: 8,
+          round_one: null,
+          created_at: "2026-09-21T10:00:00Z",
+        },
+      },
+      [LIST]: NO_LIST,
+      [ASKING]: NO_CHOICE,
+      [SETTINGS]: TWO_SAVED,
+    });
+    renderResults();
+    await waitFor(() =>
+      expect(document.querySelector('[data-slot="exercise-seats"]')).not.toBeNull(),
+    );
+    expect(calls.some((call) => call.url === SETTINGS)).toBe(false);
+    expect(screen.queryByLabelText(/final setting/i)).toBeNull();
+  });
+
   it("names the people from the list the final setting built", async () => {
     stub({
       [`GET ${RESULTS}`]: {
