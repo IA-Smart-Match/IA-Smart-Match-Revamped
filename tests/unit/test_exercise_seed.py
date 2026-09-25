@@ -1,7 +1,7 @@
 """The exercise seed's start-up guard and its failure handling (CE-SEED).
 
 The seed itself writes to PostgreSQL and is proven in
-``tests/integration/test_exercise_seed.py``. What is proven here needs no
+``tests/integration/test_exercise_seed_persistence.py``. What is proven here needs no
 database, and is the half that protects the pilot VM:
 
 * the auto-seed is **off** unless ``SMARTMATCH_EXERCISE_SEED_ON_START`` is set;
