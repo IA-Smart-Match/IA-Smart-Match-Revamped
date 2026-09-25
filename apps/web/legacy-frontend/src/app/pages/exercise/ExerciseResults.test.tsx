@@ -36,6 +36,27 @@ function stub(answers: Record<string, { body: unknown; status?: number }>): void
 const RESULTS = "/v1/exercise/workspaces/current/events/northline/results";
 const LIST = "/v1/exercise/workspaces/current/events/northline/list";
 const ASKING = "/v1/exercise/workspaces/current/asking-choice";
+const SETTINGS = "/v1/exercise/workspaces/current/events/northline/settings";
+
+/** Ann to Chau, Discord, 2026-09-24: the team chooses one final setting. */
+const TWO_SAVED = {
+  body: {
+    event_key: "northline",
+    settings: [
+      { name: "Wide net", weights: {}, created_at: "2026-09-20T10:00:00Z" },
+      { name: "Only majors", weights: {}, created_at: "2026-09-20T10:05:00Z" },
+    ],
+    max_settings: 3,
+  },
+};
+
+const NONE_SAVED = { body: { event_key: "northline", settings: [], max_settings: 3 } };
+
+/** Pick the final setting, then press run — the one path to a run now. */
+async function runWith(name: string): Promise<void> {
+  fireEvent.change(await screen.findByLabelText(/final setting/i), { target: { value: name } });
+  fireEvent.click(screen.getByRole("button", { name: /run results/i }));
+}
 
 const NOT_RUN = {
   body: { error: { code: "exercise_results_not_run", message: "No results yet." } },
@@ -90,13 +111,14 @@ describe("<ExerciseResults />", () => {
       [`GET ${RESULTS}`]: NOT_RUN,
       [LIST]: NO_LIST,
       [ASKING]: NO_CHOICE,
+      [SETTINGS]: TWO_SAVED,
       [`POST ${RESULTS}`]: {
         body: { error: { code: "exercise_results_rule_not_confirmed", message: sentence } },
         status: 409,
       },
     });
     renderResults();
-    fireEvent.click(await screen.findByRole("button", { name: /run results/i }));
+    await runWith("Wide net");
     await waitFor(() => expect(screen.getByText(sentence)).toBeDefined());
     // A state, not an alert: the calm notice, and the screen still stands.
     expect(document.querySelectorAll('[data-slot="exercise-notice"]').length).toBeGreaterThan(0);
@@ -109,13 +131,14 @@ describe("<ExerciseResults />", () => {
       [`GET ${RESULTS}`]: NOT_RUN,
       [LIST]: NO_LIST,
       [ASKING]: NO_CHOICE,
+      [SETTINGS]: TWO_SAVED,
       [`POST ${RESULTS}`]: {
         body: { error: { code: "exercise_results_locked", message: sentence } },
         status: 409,
       },
     });
     renderResults();
-    fireEvent.click(await screen.findByRole("button", { name: /run results/i }));
+    await runWith("Wide net");
     await waitFor(() => expect(screen.getByText(sentence)).toBeDefined());
   });
 
@@ -125,18 +148,24 @@ describe("<ExerciseResults />", () => {
       [`GET ${RESULTS}`]: NOT_RUN,
       [LIST]: NO_LIST,
       [ASKING]: NO_CHOICE,
+      [SETTINGS]: TWO_SAVED,
       [`POST ${RESULTS}`]: {
         body: { error: { code: "exercise_results_already_run", message: sentence } },
         status: 409,
       },
     });
     renderResults();
-    fireEvent.click(await screen.findByRole("button", { name: /run results/i }));
+    await runWith("Wide net");
     await waitFor(() => expect(screen.getByText(sentence)).toBeDefined());
   });
 
   it("marks the screen as synthetic and asks the literal paths", async () => {
-    stub({ [`GET ${RESULTS}`]: NOT_RUN, [LIST]: NO_LIST, [ASKING]: NO_CHOICE });
+    stub({
+      [`GET ${RESULTS}`]: NOT_RUN,
+      [LIST]: NO_LIST,
+      [ASKING]: NO_CHOICE,
+      [SETTINGS]: TWO_SAVED,
+    });
     renderResults();
     await waitFor(() => expect(screen.getByRole("button", { name: /run results/i })).toBeDefined());
     expect(document.querySelector('[data-slot="synthetic-data-banner"]')).not.toBeNull();
@@ -212,9 +241,101 @@ describe("<ExerciseResults />", () => {
   });
 
   it("offers no way to clear this team's work", async () => {
-    stub({ [`GET ${RESULTS}`]: NOT_RUN, [LIST]: NO_LIST, [ASKING]: NO_CHOICE });
+    stub({
+      [`GET ${RESULTS}`]: NOT_RUN,
+      [LIST]: NO_LIST,
+      [ASKING]: NO_CHOICE,
+      [SETTINGS]: TWO_SAVED,
+    });
     renderResults();
     await waitFor(() => expect(screen.getByRole("button", { name: /run results/i })).toBeDefined());
     expect(document.body.textContent?.toLowerCase()).not.toContain("reset");
+  });
+
+  it("keeps the run button off until the team chooses its final setting", async () => {
+    stub({
+      [`GET ${RESULTS}`]: NOT_RUN,
+      [LIST]: NO_LIST,
+      [ASKING]: NO_CHOICE,
+      [SETTINGS]: TWO_SAVED,
+      [`POST ${RESULTS}`]: {
+        body: { error: { code: "exercise_results_locked", message: "Not open yet." } },
+        status: 409,
+      },
+    });
+    renderResults();
+    const run = await screen.findByRole("button", { name: /run results/i });
+    expect((run as HTMLButtonElement).disabled).toBe(true);
+    // Every saved setting is offered, and nothing is chosen for the team.
+    const picker = screen.getByLabelText(/final setting/i) as HTMLSelectElement;
+    expect(Array.from(picker.options).map((option) => option.textContent)).toEqual([
+      "Choose a setting",
+      "Wide net",
+      "Only majors",
+    ]);
+    expect(picker.value).toBe("");
+
+    await runWith("Only majors");
+
+    await waitFor(() => expect(screen.getByText("Not open yet.")).toBeDefined());
+    const posted = calls.find((call) => call.init.method === "POST");
+    expect(JSON.parse(String(posted?.init.body))).toEqual({ setting_name: "Only majors" });
+  });
+
+  it("with no saved settings, tells the team to save one first", async () => {
+    stub({
+      [`GET ${RESULTS}`]: NOT_RUN,
+      [LIST]: NO_LIST,
+      [ASKING]: NO_CHOICE,
+      [SETTINGS]: NONE_SAVED,
+    });
+    renderResults();
+    await waitFor(() =>
+      expect(
+        screen.getByText(/save one on your team's list first, then choose it here/i),
+      ).toBeDefined(),
+    );
+    expect(
+      (screen.getByRole("button", { name: /run results/i }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+    expect(screen.queryByLabelText(/final setting/i)).toBeNull();
+    expect(calls.some((call) => call.init.method === "POST")).toBe(false);
+  });
+
+  it("names the people from the list the final setting built", async () => {
+    stub({
+      [`GET ${RESULTS}`]: {
+        body: {
+          event_key: "northline",
+          event_name: "Northline Analytics",
+          round: 1,
+          setting_name: "Wide net",
+          team: panel(2, 1, 1),
+          email_everyone: panel(300, 40, 30),
+          seats_empty: 51,
+          event_seats: 60,
+          existing_signups: 8,
+          round_one: null,
+          created_at: "2026-09-21T10:00:00Z",
+        },
+      },
+      [LIST]: {
+        body: {
+          entries: [
+            { profile_no: 1, display_name: "Avery Example" },
+            { profile_no: 2, display_name: "Blake Example" },
+          ],
+        },
+      },
+      [ASKING]: NO_CHOICE,
+    });
+    renderResults();
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-slot="exercise-team-people"]')?.textContent,
+      ).toContain("Avery Example"),
+    );
+    const listCall = calls.find((call) => call.url.startsWith(LIST));
+    expect(listCall?.url).toBe(`${LIST}?setting=Wide+net`);
   });
 });
