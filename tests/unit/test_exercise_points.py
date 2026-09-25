@@ -122,3 +122,14 @@ class TestSurfaceStaysWithinTheExerciseInvariants:
             "total",
             "card_completion",
         }
+
+
+def test_the_point_values_are_no_longer_marked_placeholders() -> None:
+    """OQ-CE-10 closed 2026-09-25: one point each, confirmed by Ann."""
+    from pathlib import Path
+
+    from smartmatch_domain import exercise_points
+
+    source = Path(exercise_points.__file__).read_text(encoding="utf-8")
+    assert "PLACEHOLDER" not in source
+    assert "OQ-CE-10 closed 2026-09-25" in source

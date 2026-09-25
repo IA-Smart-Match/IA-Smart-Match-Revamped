@@ -60,8 +60,8 @@ GOLDEN_YEAR_RANK = {"Senior": 4, "Junior": 3, "Sophomore": 2, "First year": 1}
 # ---------------------------------------------------------------------------
 
 #: ``(case id, profile, composite, unknown keys)``. Every value is the exercise
-#: default weighting — 0.25 each, PLACEHOLDER (OQ-CE-02) — so a change to the
-#: placeholder is visible here rather than silent.
+#: default weighting — 0.25 each (OQ-CE-02, closed 2026-09-25) — so a change to the
+#: defaults is visible here rather than silent.
 FACTOR_CASES = [
     (
         "G-CE-01 major only",

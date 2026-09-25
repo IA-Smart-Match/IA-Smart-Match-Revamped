@@ -18,8 +18,9 @@
  * *"promise better recommendations; small reward; required"*.
  *
  * **No percentages.** Ann's build table gives each choice an illustrative
- * share, and those are OQ-CE-04 placeholders that the API does not return and
- * that ADR-0025 D8 would keep off a participant's screen in any case. The
+ * share, confirmed under OQ-CE-04 (closed 2026-09-25). The API does not
+ * return them, and ADR-0025 D8 would keep them off a participant's screen in
+ * any case. The
  * outcome a team sees is the count the refresh actually produced.
  */
 

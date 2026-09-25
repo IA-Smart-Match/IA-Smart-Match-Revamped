@@ -22,7 +22,7 @@
  * The refresh reports counts — cards completed, non-responding, topics added.
  * Counts are what ADR-0025 D8 allows and what the requirements ask for; there
  * is no percentage on this screen, and the illustrative shares in Ann's build
- * table are OQ-CE-04 placeholders the API does not return.
+ * table (OQ-CE-04, confirmed 2026-09-25) are not returned by the API.
  */
 import * as React from "react";
 import { Link } from "react-router";

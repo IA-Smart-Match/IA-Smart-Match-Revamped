@@ -222,8 +222,8 @@ class ExerciseWorkspaceRepository:
         second row for team 3 to exist in.
 
         The token is derived from the row that won (see
-        :mod:`smartmatch_domain.exercise.workspace_token` — PLACEHOLDER,
-        OQ-CE-08), which is why the loser's discarded hash costs nothing: the
+        :mod:`smartmatch_domain.exercise.workspace_token` — OQ-CE-08,
+        closed), which is why the loser's discarded hash costs nothing: the
         hash stored is a function of the winning id, and every caller that
         re-derives from the id it read back gets exactly that value.
 

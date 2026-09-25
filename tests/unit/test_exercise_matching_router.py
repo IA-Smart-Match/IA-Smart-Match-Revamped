@@ -1324,7 +1324,7 @@ def test_a_class_year_anns_order_does_not_name_is_still_reported(client: TestCli
 
 
 def test_the_open_question_markers_are_the_right_ones() -> None:
-    """OQ-CE-01 is closed and must not be claimed; OQ-CE-02 (weights) is still open."""
+    """OQ-CE-01 is closed and must not be claimed; OQ-CE-02 (weights) is still named."""
     source = _MODELS_SOURCE.read_text(encoding="utf-8")
     assert "PLACEHOLDER (OQ-CE-01)" not in source
     assert "OQ-CE-02" in source

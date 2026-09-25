@@ -81,9 +81,7 @@ from smartmatch_api.routers.exercise_results_refresh import (
 )
 from smartmatch_domain.exercise import EXERCISE_WITHHELD_FIELDS
 from smartmatch_domain.exercise.asking import (
-    CARD_COMPLETION_SHARE,
     COPIED_CARD_CAREER_GOAL,
-    REQUIRED_NON_RESPONDING_SHARE,
     AskingChoice,
     CopiedCardCareerGoal,
     copied_card_career_goal,
@@ -749,7 +747,9 @@ def test_no_module_in_this_track_writes_down_a_class_year_or_a_major() -> None:
 
 def test_the_placeholder_markers_are_literally_present_in_the_source() -> None:
     assert "PLACEHOLDER (OQ-CE-03)" in _MODELS_SOURCE.read_text(encoding="utf-8")
-    assert "PLACEHOLDER (OQ-CE-04)" in _REFRESH_SOURCE.read_text(encoding="utf-8")
+    refresh_source = _REFRESH_SOURCE.read_text(encoding="utf-8")
+    assert "PLACEHOLDER (OQ-CE-04)" not in refresh_source, "OQ-CE-04 closed 2026-09-25"
+    assert "round half up" in refresh_source
     assert "OQ-CE-03" in _ROUTER_SOURCE.read_text(encoding="utf-8")
 
 
@@ -1473,10 +1473,9 @@ def test_the_two_draws_are_independent() -> None:
     )
 
     assert set(plan.card_completers) != set(plan.non_responding)
-    assert len(plan.card_completers) == round(
-        CARD_COMPLETION_SHARE[AskingChoice.REQUIRED] * len(no_card)
-    )
-    assert len(plan.non_responding) == round(REQUIRED_NON_RESPONDING_SHARE * len(no_card))
+    # 80 percent and 15 percent of twenty: 16 and 3, no half to round.
+    assert len(plan.card_completers) == 16
+    assert len(plan.non_responding) == 3
 
 
 def test_the_plan_does_not_depend_on_the_order_it_was_given() -> None:

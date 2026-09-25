@@ -118,10 +118,12 @@ so a trailing newline pasted into a deploy
 console does not become a permanent lockout — but a value that is long enough
 only *before* stripping is refused.
 
-### Sharing and rotating the passcode — OQ-CE-07, OPEN
+### Sharing and rotating the passcode — OQ-CE-07, CLOSED
 
-The register's safe default, restated at `config.py:146-148`: **one environment
-variable per deployment, shared out of band and rotated after the spring run.**
+OQ-CE-07 closed 2026-09-25 (Danny, owner, recording Ann's answers to the
+team's question list of 2026-09-22), restated at `config.py`: **one environment
+variable, set per deployment, shared out of band, and rotated by changing the
+value.**
 Out of band means not in this repository, not in a ticket, not in a chat
 channel that outlives the class. Rotation is: change the variable, restart the
 exercise API process. Live instructor sessions are **not** ended by a passcode
@@ -928,9 +930,9 @@ to be live. All are **VERIFY ON VM** until then.
     **not** rotate it between class sessions on the same day; a team that
     re-enters expects its same workspace back.
 
-21. **Rotate `SMARTMATCH_EXERCISE_INSTRUCTOR_PASSCODE` after the spring run**,
-    per OQ-CE-07's recorded safe default ([§2](#2-environment-variables),
-    "Sharing and rotating the passcode"). Restart the exercise process after
+21. **Rotate `SMARTMATCH_EXERCISE_INSTRUCTOR_PASSCODE` after the spring run**
+    by changing the value, per OQ-CE-07 (closed 2026-09-25;
+    [§2](#2-environment-variables), "Sharing and rotating the passcode"). Restart the exercise process after
     changing it; this does not end live instructor sessions (they are signed
     with the workspace secret, not the passcode).
 
@@ -1015,8 +1017,8 @@ check result, and the date/SHA — in the evidence table above.
 | ID | Question | Status | Where it bites here |
 |---|---|---|---|
 | **OQ-CE-06** | "Where does the site live and what is its stable address?" — owner Danny. `exercise_rate_limit.py` carries the same id for the edge-limiting half | **Address decided 2026-09-21** (`exercise.plated.blog`, second hostname on the existing tunnel, no Access policy); **rate-limit rule still to be applied at the proxy** | The rule in [§5](#5-rate-limiting-belongs-at-the-proxy-oq-ce-06) is specified here but lives in the Cloudflare dashboard, not in git. This file does not edit the register; the dated OQ-CE-06 line is another agent's change. |
-| **OQ-CE-07** | "How is the instructor passcode set and shared with Ann and Dr. Lin?" — owner Danny + Ann | **OPEN** | [§2](#2-environment-variables) documents the register's safe default — one env var, out of band, rotated after the spring run — and closes nothing |
-| **OQ-CE-09** | "What license line goes on the opening screen?" — owner Ann; none shown until she provides the sentence | **OPEN — by Nov 20** | Nothing in this document adds or removes a license line; the opening screen ships without one |
+| **OQ-CE-07** | "How is the instructor passcode set and shared with Ann and Dr. Lin?" — owner Danny + Ann | **CLOSED 2026-09-25** — set per deployment, shared out of band, rotated by changing the value | [§2](#2-environment-variables) documents it |
+| **OQ-CE-09** | "What license line goes on the opening screen?" — owner Ann | **CLOSED 2026-09-25** (Ann Wang, email reply) — "For California State Polytechnic University, Pomona — College of Business Administration instructional use only. All student profiles are fictional." | The opening screen renders it from a constant (`ExerciseEntry.tsx`); nothing to configure at deploy time |
 | **B-11** | "Error text never carries bound values" as a repository-wide invariant. PostgreSQL's `DETAIL: Failing row contains (…)` sits below the layer `hide_parameters` operates on | **RECORDED 2026-09-19, unresolved** — [`docs/architecture/decisions/adr-backlog.md:250`](../architecture/decisions/adr-backlog.md) | [§8](#8-known-limits) item 3 |
 
 Also open and load-bearing for the runbook: **OQ-CE-03** (the simulation

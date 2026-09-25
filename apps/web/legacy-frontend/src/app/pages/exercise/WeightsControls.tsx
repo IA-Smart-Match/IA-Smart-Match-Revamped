@@ -14,10 +14,10 @@
  * calculated about a person. A weight is the team's own input, and the whole
  * lesson turns on the team seeing what it chose.
  *
- * The starting values are the server's (OQ-CE-02 is open: what the four
- * factors weigh when a team opens an event is not settled). This screen sends
- * no weights at all until a team changes one, which is what makes the server's
- * placeholder defaults the defaults.
+ * The starting values are the server's: equal weights (OQ-CE-02, closed
+ * 2026-09-25 — "Teams should decide for themselves which factors matter
+ * most"). This screen sends no weights at all until a team changes one, which
+ * is what makes the server's equal defaults the defaults.
  */
 import * as React from "react";
 

@@ -235,3 +235,78 @@ def test_no_branch_claims_a_major_tie_that_was_not_one(
         tied_on_major=False,
     )
     assert "Tied on major" not in reason
+
+
+# --- OQ-CE-12 closed 2026-09-25 ------------------------------------------------
+
+
+def test_the_approved_wording_is_no_longer_marked_pending():
+    """Ann's answers approved every line as written; a marker left would be untrue."""
+    from pathlib import Path
+
+    from smartmatch_domain.exercise import reasons
+
+    source = Path(reasons.__file__).read_text(encoding="utf-8")
+    assert "PLACEHOLDER" not in source
+    assert "wording pending Ann" not in source
+    assert "OQ-CE-12 closed" in source
+
+
+@pytest.mark.parametrize(
+    ("tie_break_key", "contributing", "tied_on_major", "expected"),
+    [
+        (
+            TieBreakKey.YEAR,
+            ("same_major", "stated_interest_overlap"),
+            False,
+            "Tied on what counted; ordered by year.",
+        ),
+        (
+            TieBreakKey.INFORMATION,
+            ("stated_interest_overlap",),
+            False,
+            "Tied; more information on file first.",
+        ),
+        (
+            TieBreakKey.FIXED_ORDER,
+            ("stated_interest_overlap",),
+            False,
+            "Tied; placed in a fixed order that never changes.",
+        ),
+    ],
+)
+def test_the_three_approved_tie_sentences_render_exactly(
+    tie_break_key: TieBreakKey,
+    contributing: tuple[str, ...],
+    tied_on_major: bool,
+    expected: str,
+):
+    assert (
+        exercise_reason(
+            marker=InformationMarker.COMPLETED_CARD,
+            contributing_keys=contributing,
+            tie_break_key=tie_break_key,
+            tied_on_major=tied_on_major,
+        )
+        == expected
+    )
+
+
+def test_the_approved_renderings_of_anns_phrases():
+    assert phrase_as_sentence(ANN_MAJOR_ONLY_PHRASE) == "Same major; nothing else on file."
+    assert phrase_as_sentence(ANN_TIED_ON_YEAR_PHRASE) == "Tied on major; ordered by year."
+
+
+def test_the_approved_single_factor_rendering():
+    assert (
+        exercise_reason(
+            marker=InformationMarker.COMPLETED_CARD,
+            contributing_keys=("same_major",),
+        )
+        == "What counted: same major."
+    )
+
+
+def test_the_tie_line_still_wins_over_the_major_only_line():
+    """Approved as built: the tie line wins when both lines fit."""
+    assert TIE_LINE_WINS_OVER_MAJOR_ONLY_LINE is True

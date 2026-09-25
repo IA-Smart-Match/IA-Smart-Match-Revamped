@@ -1,10 +1,10 @@
 """Workspace token arithmetic for the class exercise (design spec §15).
 
-PLACEHOLDER (OQ-CE-08). The whole mechanism below exists to answer one open
+OQ-CE-08 (closed 2026-09-25). The whole mechanism below exists to answer one
 question — "do two browser tabs that enter the same team number share one
-workspace, or is each tab its own workspace?" — in the direction the register
-records as the safe default: **shared per team number**. If Ann answers "per
-tab", this module is what changes, and nothing else has to.
+workspace, or is each tab its own workspace?" — and the answer is the one it
+was built to: **shared per team number** (Danny, owner, recording Ann's
+answers to the team's question list of 2026-09-22).
 
 Why the token is *derived* rather than random
 =============================================

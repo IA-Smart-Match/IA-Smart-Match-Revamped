@@ -219,7 +219,11 @@ export interface DatasetView {
   readonly event_count: number;
   readonly checksum: string;
   readonly invite_limit: number;
-  /** OQ-CE-09: `null` until Ann provides a sentence. Rendered only when present. */
+  /**
+   * A per-upload license line; the ingest does not fill it, so `null`.
+   * Rendered only when present. The exercise's own license line (OQ-CE-09,
+   * closed 2026-09-25) is `EXERCISE_LICENSE_LINE` on the opening screen.
+   */
   readonly license_line: string | null;
 }
 
