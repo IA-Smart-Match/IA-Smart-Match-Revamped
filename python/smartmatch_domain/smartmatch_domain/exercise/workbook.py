@@ -47,12 +47,15 @@ import datetime as dt
 import io
 import itertools
 import logging
+import warnings
 import zipfile
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Final
 
 import openpyxl
+from openpyxl.reader.excel import ExcelReader
+from openpyxl.styles.stylesheet import apply_stylesheet
 from openpyxl.worksheet._read_only import ReadOnlyWorksheet
 
 from smartmatch_domain.exercise.layout import IngestRefusal
@@ -63,6 +66,7 @@ __all__ = [
     "MAX_COLUMN_COUNT",
     "MAX_DATA_ROW_COUNT",
     "MAX_ENTRY_UNCOMPRESSED_BYTES",
+    "MAX_SHEET_COUNT",
     "MAX_TOTAL_UNCOMPRESSED_BYTES",
     "MAX_UPLOAD_BYTES",
     "MAX_ZIP_ENTRIES",
@@ -74,6 +78,15 @@ __all__ = [
 
 _LOGGER = logging.getLogger(__name__)
 
+# openpyxl reports odd workbook parts through ``warnings.warn``, and its
+# messages quote the file (a defined name, a property name, a part path). That
+# would reach stderr around the "class name only" logging rule, and every
+# distinct message is kept forever in the module's ``__warningregistry__``.
+# Silenced once, at import: ``warnings.catch_warnings`` is process-global and
+# not safe in the threadpool the upload route runs in. Security review of
+# PR #228, finding 3.
+warnings.filterwarnings("ignore", module=r"openpyxl(\..*)?$")
+
 #: The largest upload this will look at, in bytes. Ann's 300-profile workbook
 #: is about 40 KB; two mebibytes leaves room without leaving room for a file
 #: that is not a class roster at all. Checked before anything is read.
@@ -82,11 +95,20 @@ MAX_UPLOAD_BYTES: Final[int] = 2 * 1024 * 1024
 #: The most parts the ZIP may hold. Ann's workbook has 18.
 MAX_ZIP_ENTRIES: Final[int] = 100
 
-#: The most one part may decompress to. Ann's largest part is about 180 KB.
-MAX_ENTRY_UNCOMPRESSED_BYTES: Final[int] = 8 * 1024 * 1024
+#: The most one part may decompress to. Ann's largest part is about 180 KB and
+#: a 1000-profile sheet about 0.6 MB. Kept tight because openpyxl's style and
+#: property parsers build an object per element: 8 MB of styles cost a
+#: gigabyte of memory in the security review of PR #228.
+MAX_ENTRY_UNCOMPRESSED_BYTES: Final[int] = 1024 * 1024
 
 #: The most all parts together may decompress to. Ann's workbook is ~300 KB.
-MAX_TOTAL_UNCOMPRESSED_BYTES: Final[int] = 16 * 1024 * 1024
+MAX_TOTAL_UNCOMPRESSED_BYTES: Final[int] = 4 * 1024 * 1024
+
+#: The most sheets the workbook may list. Ann's have 3 and 4. openpyxl sizes
+#: every listed sheet by parsing it, and many ``<sheet>`` entries can point at
+#: one part — so this cap, and the distinct-part rule beside it, bound how many
+#: times the same bytes are parsed.
+MAX_SHEET_COUNT: Final[int] = 16
 
 #: The longest a single cell may be, in characters.
 MAX_CELL_CHARACTERS: Final[int] = 500
@@ -173,12 +195,12 @@ def read_sheets(raw: bytes, sheet_names: Sequence[str]) -> tuple[SheetRows, ...]
             "person who runs it.",
         )
     try:
-        workbook = openpyxl.load_workbook(
-            io.BytesIO(raw), read_only=True, data_only=True, keep_links=False
-        )
+        workbook = _open_workbook(raw)
     except Exception as error:  # untrusted-parser boundary; see the module docstring
         _LOGGER.info("exercise workbook unreadable: %s", type(error).__name__)
         return IngestRefusal("unreadable_workbook", _UNREADABLE)
+    if isinstance(workbook, IngestRefusal):
+        return workbook
     try:
         return _read_named(workbook, sheet_names)
     except Exception as error:  # untrusted-parser boundary; see the module docstring
@@ -189,8 +211,46 @@ def read_sheets(raw: bytes, sheet_names: Sequence[str]) -> tuple[SheetRows, ...]
 
 
 def _xml_is_defused() -> bool:
-    """Whether openpyxl will parse this workbook's XML with ``defusedxml``."""
-    return getattr(openpyxl, "DEFUSEDXML", False) is True
+    """Whether openpyxl will parse all of this workbook's XML with ``defusedxml``.
+
+    With lxml installed, openpyxl routes ``fromstring`` through lxml instead of
+    defusedxml, so lxml's presence refuses too: the claim is "defusedxml
+    everywhere", and it is checked rather than assumed.
+    """
+    return getattr(openpyxl, "DEFUSEDXML", False) is True and not getattr(openpyxl, "LXML", False)
+
+
+def _open_workbook(raw: bytes) -> openpyxl.Workbook | IngestRefusal:
+    """``openpyxl.load_workbook(read_only=True, data_only=True)``, one step at a time.
+
+    The same steps as ``ExcelReader.read``, with one check between reading the
+    workbook part and sizing its sheets: at most :data:`MAX_SHEET_COUNT`
+    sheets, each on a part of its own. Without it, one sheet part listed a
+    hundred thousand times is parsed a hundred thousand times — a 1.5 MB upload
+    that passed every size guard and kept a CPU busy for hours in the security
+    review of PR #228 (finding 1). Checked on openpyxl's own parse of the
+    package rather than on a pre-read of ``xl/workbook.xml``, because
+    ``[Content_Types].xml`` decides which part is the workbook.
+    """
+    reader = ExcelReader(io.BytesIO(raw), read_only=True, data_only=True, keep_links=False)
+    reader.read_manifest()
+    reader.read_strings()
+    reader.read_workbook()
+    targets = [rel.target for _, rel in reader.parser.find_sheets()]
+    if len(targets) > MAX_SHEET_COUNT or len(set(targets)) != len(targets):
+        reader.archive.close()
+        return IngestRefusal(
+            "too_many_sheets",
+            f"The workbook has more than {MAX_SHEET_COUNT} sheets or sheets that "
+            "share their contents; please upload the class data file itself.",
+        )
+    reader.read_properties()
+    reader.read_custom()
+    reader.read_theme()
+    apply_stylesheet(reader.archive, reader.wb)
+    reader.read_worksheets()
+    reader.parser.assign_names()
+    return reader.wb
 
 
 # ---------------------------------------------------------------------------
@@ -229,7 +289,7 @@ def _guard_zip(raw: bytes) -> IngestRefusal | None:
     try:
         with zipfile.ZipFile(io.BytesIO(raw)) as archive:
             entries = archive.infolist()
-    except (zipfile.BadZipFile, zipfile.LargeZipFile, ValueError, OSError) as error:
+    except Exception as error:  # untrusted-parser boundary; zipfile raises NotImplementedError too
         _LOGGER.info("exercise workbook unreadable: %s", type(error).__name__)
         return IngestRefusal("unreadable_workbook", _UNREADABLE)
     too_big = IngestRefusal(
@@ -283,7 +343,10 @@ def _read_named(
             return IngestRefusal(
                 "missing_sheet", f"The workbook's `{wanted}` sheet is not a table of cells."
             )
-        sheet = _read_sheet(title, worksheet)
+        # Sentences name the sheet the layout asked for, not the workbook's own
+        # title: a title only has to *normalize* to ``profiles``, so it can carry
+        # backticks, newlines or two million characters (security review, 4).
+        sheet = _read_sheet(wanted, worksheet)
         if isinstance(sheet, IngestRefusal):
             return sheet
         read.append(sheet)

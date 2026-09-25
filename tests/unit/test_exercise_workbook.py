@@ -12,6 +12,7 @@ import io
 import logging
 import struct
 import zipfile
+from pathlib import Path
 
 import openpyxl
 import pytest
@@ -21,6 +22,8 @@ from smartmatch_domain.exercise.workbook import (
     MAX_CELL_CHARACTERS,
     MAX_COLUMN_COUNT,
     MAX_DATA_ROW_COUNT,
+    MAX_ENTRY_UNCOMPRESSED_BYTES,
+    MAX_SHEET_COUNT,
     MAX_TOTAL_UNCOMPRESSED_BYTES,
     MAX_UPLOAD_BYTES,
     MAX_ZIP_ENTRIES,
@@ -224,8 +227,13 @@ def test_a_part_that_inflates_past_the_cap_is_refused_before_openpyxl() -> None:
 
 @pytest.mark.usefixtures("openpyxl_must_not_open")
 def test_many_parts_that_together_inflate_past_the_cap_are_refused() -> None:
-    chunk = b"\x00" * (MAX_TOTAL_UNCOMPRESSED_BYTES // 3)
-    bomb = _zip({f"xl/part{index}.xml": chunk for index in range(4)})
+    chunk = b"\x00" * MAX_ENTRY_UNCOMPRESSED_BYTES  # each part is within its own cap
+    bomb = _zip(
+        {
+            f"xl/part{index}.xml": chunk
+            for index in range(MAX_TOTAL_UNCOMPRESSED_BYTES // MAX_ENTRY_UNCOMPRESSED_BYTES + 1)
+        }
+    )
 
     assert _refused(bomb).code == "workbook_too_large"
 
@@ -346,3 +354,105 @@ def test_two_sheets_that_share_a_name_are_refused_rather_than_guessed() -> None:
     refusal = _refused(buffer.getvalue())
     assert refusal.code == "duplicate_sheet"
     assert "`Profiles`" in refusal.message
+
+
+# ---------------------------------------------------------------------------
+# Security review of PR #228
+# ---------------------------------------------------------------------------
+
+_R_NS = 'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"'
+
+
+def _with_extra_sheets(raw: bytes, count: int, *, shared: bool) -> bytes:
+    """``count`` more ``<sheet>`` entries, all on one new part or each on its own."""
+    source = zipfile.ZipFile(io.BytesIO(raw))
+    parts = {info.filename: source.read(info) for info in source.infolist()}
+    body = b'<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData/></worksheet>'
+    sheets, rels = [], []
+    for index in range(count):
+        rel_id = "rIdExtra" if shared else f"rIdExtra{index}"
+        sheets.append(f'<sheet {_R_NS} name="x{index}" sheetId="{index + 50}" r:id="{rel_id}"/>')
+        if not shared or index == 0:
+            target = "extra.xml" if shared else f"extra{index}.xml"
+            rels.append(
+                '<Relationship Type="http://schemas.openxmlformats.org/officeDocument/2006/'
+                f'relationships/worksheet" Target="/xl/worksheets/{target}" Id="{rel_id}"/>'
+            )
+            parts[f"xl/worksheets/{target}"] = body
+    workbook_xml = parts["xl/workbook.xml"].decode()
+    parts["xl/workbook.xml"] = workbook_xml.replace(
+        "</sheets>", "".join(sheets) + "</sheets>"
+    ).encode()
+    rels_xml = parts["xl/_rels/workbook.xml.rels"].decode()
+    parts["xl/_rels/workbook.xml.rels"] = rels_xml.replace(
+        "</Relationships>", "".join(rels) + "</Relationships>"
+    ).encode()
+    return _zip(parts)
+
+
+def test_many_sheets_on_one_part_are_refused_before_any_is_sized() -> None:
+    """Finding 1: one part listed many times was parsed once per listing."""
+    raw = _with_extra_sheets(_sheet_bytes(("id",), ("P001",)), 2, shared=True)
+
+    assert _refused(raw).code == "too_many_sheets"
+
+
+def test_more_sheets_than_the_cap_are_refused() -> None:
+    raw = _with_extra_sheets(_sheet_bytes(("id",), ("P001",)), MAX_SHEET_COUNT, shared=False)
+
+    assert _refused(raw).code == "too_many_sheets"
+
+
+def test_a_few_extra_sheets_of_their_own_are_fine() -> None:
+    raw = _with_extra_sheets(_sheet_bytes(("id",), ("P001",)), 3, shared=False)
+
+    assert isinstance(_read(raw), tuple)
+
+
+def test_openpyxl_warnings_are_silenced_so_they_cannot_quote_the_file() -> None:
+    """Finding 3: a warning's text quotes the file and is kept in a registry."""
+    import warnings
+
+    import openpyxl.reader.workbook as openpyxl_workbook_reader
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("default")
+        # Re-apply the module's own filter inside this block, as it applies at import.
+        warnings.filterwarnings("ignore", module=r"openpyxl(\..*)?$")
+        warnings.warn_explicit(
+            "quoted file content",
+            UserWarning,
+            "workbook.py",
+            1,
+            module=openpyxl_workbook_reader.__name__,
+        )
+    assert caught == []
+    source = Path(workbook.__file__).read_text(encoding="utf-8")
+    assert 'warnings.filterwarnings("ignore", module=r"openpyxl' in source
+
+
+def test_every_upload_is_refused_when_openpyxl_would_parse_with_lxml(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Finding 6: with lxml, ``fromstring`` is lxml's, not defusedxml's."""
+    monkeypatch.setattr(workbook.openpyxl, "LXML", True)
+
+    assert _refused(good_workbook(), "Profiles").code == "workbook_reader_unavailable"
+
+
+def test_a_zip_error_of_any_kind_is_one_sentence(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Finding 5: ``zipfile`` raises ``NotImplementedError`` for an odd version field."""
+
+    def unsupported(*args: object, **kwargs: object) -> None:
+        raise NotImplementedError("zip file version 19.0")
+
+    monkeypatch.setattr(workbook.zipfile, "ZipFile", unsupported)
+
+    assert _refused(good_workbook()).code == "unreadable_workbook"
+
+
+def test_a_sheet_title_is_never_quoted_from_the_file() -> None:
+    """Finding 4: the sentence names the layout's sheet, not the workbook's title."""
+    refusal = _refused(_sheet_bytes(title="profiles`\n"), "Profiles")
+
+    assert refusal.message == "The `Profiles` sheet has no heading row naming its columns."
