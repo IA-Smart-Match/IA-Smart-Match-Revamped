@@ -359,14 +359,14 @@ Cards #15–#21 below: rate limiting, `unlock` scope, passcode delivery,
 | 7 | Points per attendance / card | Ann + Chau | Nov 9 | Ask in the Chau message | OPEN |
 | 8 | File layout and column names | Ann | Sept 25 file, Oct 2 | Ask Ann; chase the sample | WAITING ON ANN |
 | 9 | CSV or XLSX | Danny + Ann | Sept 25 file | Ask for CSV | WAITING ON ANN |
-| 10 | Reason-line wording and precedence | Ann | Oct 2 reason lines | Ask Ann; never write her words | WAITING ON ANN |
-| 11 | Three percentages + half-rounding | Ann | Nov 9 | Ask Ann; half-up if she declines | WAITING ON ANN |
-| 12 | Two tabs, one team number | Ann | Nothing hard | Confirm shared | WAITING ON ANN |
-| 13 | The five quick questions | Ann | Nov 9 | Ask Ann | WAITING ON ANN |
-| 14 | License line | Ann | Nov 20 | Ask now, ship when it arrives | WAITING ON ANN |
+| 10 | Reason-line wording and precedence | Ann | Oct 2 reason lines | Ask Ann; never write her words | CLOSED 2026-09-25 (OQ-CE-12): all lines approved as written; tie line wins |
+| 11 | Three percentages + half-rounding | Ann | Nov 9 | Ask Ann; half-up if she declines | CLOSED 2026-09-25 (OQ-CE-04): 30/55/80 + 15 confirmed; round half up (Danny) |
+| 12 | Two tabs, one team number | Ann | Nothing hard | Confirm shared | CLOSED 2026-09-25 (OQ-CE-08): shared per team number |
+| 13 | The five quick questions | Ann | Nov 9 | Ask Ann | CLOSED 2026-09-25 (OQ-CE-11): major, year, stated interests, career goal, past events |
+| 14 | License line | Ann | Nov 20 | Ask now, ship when it arrives | CLOSED 2026-09-25 (OQ-CE-09): sentence on the opening screen |
 | 15 | Rate limiting for no-login routes | Danny | Oct 2 public URL | Proxy on the VM, alongside #2 | OPEN |
 | 16 | `unlock` on a non-active file | Danny | Oct 16 results | No — teams' file only | OPEN |
-| 17 | Passcode delivery | Danny + Ann | Oct 16 session | DM, rotate after spring | OPEN |
+| 17 | Passcode delivery | Danny + Ann | Oct 16 session | DM, rotate after spring | CLOSED 2026-09-25 (OQ-CE-07): per deployment, out of band, rotate by changing the value |
 | 18 | `registry_hash` naming clash | Danny | Nothing yet | Column keeps the name | OPEN |
 | 19 | ADR-0026 status | Danny | Nothing | Stays Proposed until after Nov 20 | OPEN |
 | 20 | CBA funnel percentages | Danny | Nothing | Keep them | OPEN |
