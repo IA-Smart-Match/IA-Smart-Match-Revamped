@@ -18,12 +18,15 @@
  * after the instructor uploads a file, this screen may legitimately show the
  * previous file's label. Nothing here warns about that, deliberately.
  *
- * **No license line.** OQ-CE-09 is open: Ann has not provided the sentence
- * that goes on the opening screen. The register's placeholder is "None shown
- * until Ann provides the sentence", so this screen renders nothing at all in
- * that slot — not a placeholder, not "License: TBD". `DatasetView.license_line`
- * is `null` until she does, and the instructor screen renders it only when it
- * is not.
+ * **The license line is a constant of the exercise, not of a data file.**
+ * OQ-CE-09 closed 2026-09-25 (Danny, owner, recording Ann's answers to the
+ * team's question list of 2026-09-22): {@link EXERCISE_LICENSE_LINE}. It is
+ * rendered here, in every state of the screen — loading, refused, unreachable
+ * and ready — because this is the opening screen and no team has picked a
+ * workspace yet, so no data file is in play. It is not read from
+ * `DatasetView.license_line`: that column is per upload, the ingest never
+ * fills it, and a team that has not entered a number has no dataset to read
+ * it from.
  */
 import * as React from "react";
 import { useNavigate } from "react-router";
@@ -39,6 +42,13 @@ import {
 import { ExerciseLoading, ExerciseNotice, ExerciseScreen } from "./ExerciseScreen";
 import { useExerciseResource } from "./useExerciseResource";
 import { clearWorkspacePointer, readWorkspacePointer, writeWorkspacePointer } from "./workspacePointer";
+
+/**
+ * The opening screen's license line (OQ-CE-09, closed 2026-09-25). Ann's
+ * sentence, verbatim.
+ */
+export const EXERCISE_LICENSE_LINE =
+  "For California State Polytechnic University, Pomona — College of Business Administration instructional use only.";
 
 /** Where a team goes once it is in. */
 export const EVENT_PICKER_PATH = "/exercise/events";
@@ -91,6 +101,12 @@ export function ExerciseEntry(): React.JSX.Element {
         </ExerciseNotice>
       ) : null}
       {state.status === "ready" ? <EntryForm data={state.data} /> : null}
+      <p
+        className="text-lg text-slate-700 dark:text-slate-200"
+        data-slot="exercise-license-line"
+      >
+        {EXERCISE_LICENSE_LINE}
+      </p>
     </ExerciseScreen>
   );
 }
@@ -186,11 +202,6 @@ function EntryForm({ data }: { readonly data: EntryData }): React.JSX.Element {
           {pending ? "Opening your team's work…" : "Open this team's work"}
         </button>
       </div>
-      {/*
-        PLACEHOLDER (OQ-CE-09): the opening screen's license line goes here
-        once Ann provides the sentence. Nothing is rendered until then — not a
-        placeholder and not "License: TBD", per the register's ruling.
-      */}
     </form>
   );
 }

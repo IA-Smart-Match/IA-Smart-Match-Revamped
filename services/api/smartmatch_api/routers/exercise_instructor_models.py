@@ -132,8 +132,9 @@ class DatasetView(BaseModel):
     invite_limit: int = Field(description="Design spec §5's cap for this file.")
     license_line: str | None = Field(
         description=(
-            "OQ-CE-09's sentence, or null while Ann has not provided one. Null "
-            "is 'she has not said', not 'there is none'."
+            "A per-upload license line, or null; the ingest does not fill it. "
+            "The exercise's own license line (OQ-CE-09) is a constant on the "
+            "opening screen."
         ),
     )
 

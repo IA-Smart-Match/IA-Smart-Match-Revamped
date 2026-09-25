@@ -23,9 +23,11 @@
  * shape lives in `exerciseClient.uploadDataset`, so a later change to it is
  * one function and this one form.
  *
- * **The license line is rendered only when the server has one.** OQ-CE-09 is
- * open and `license_line` is `null` until Ann provides the sentence; nothing
- * stands in for it.
+ * **A dataset's license line is rendered only when the server has one.**
+ * OQ-CE-09 closed 2026-09-25: the exercise's license line is a constant shown
+ * on the opening screen (`EXERCISE_LICENSE_LINE` in `ExerciseEntry.tsx`), not
+ * a per-upload value. The ingest does not fill `license_line`, so it is `null`
+ * here and nothing stands in for it.
  */
 import * as React from "react";
 
@@ -279,7 +281,7 @@ function DatasetRow({
       <p className="text-xl text-slate-600 dark:text-slate-300">
         {dataset.source_filename} — {dataset.row_count} profiles, {dataset.event_count} events
       </p>
-      {/* OQ-CE-09: rendered only when Ann's sentence is actually there. */}
+      {/* A per-upload line, rendered only when one is stored (see OQ-CE-09 above). */}
       {dataset.license_line === null ? null : (
         <p className="text-xl text-slate-700 dark:text-slate-200">{dataset.license_line}</p>
       )}

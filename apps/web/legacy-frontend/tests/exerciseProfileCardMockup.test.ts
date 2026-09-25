@@ -76,6 +76,14 @@ test("is sized for a projector", () => {
   assert.equal(/text-(xs|sm)\b/.test(mockup), false);
 });
 
+test("the five questions are confirmed, and the screen is still a mock-up (OQ-CE-11)", () => {
+  // OQ-CE-11 closed 2026-09-25: major, year, stated interests, career goal,
+  // past events. A "stand-in until Ann confirms" left behind would be untrue.
+  assert.equal(/stand-in|until Ann confirms|is open too/i.test(mockup), false);
+  assert.match(mockup, /OQ-CE-11 closed 2026-09-25/);
+  assert.match(mockup, /Mock-up only/);
+});
+
 test("one route opens it, and it sits behind no authentication", () => {
   assert.match(routes, /ProfileCardMockup/);
   assert.match(routes, /path: "exercise\/profile-card"/);

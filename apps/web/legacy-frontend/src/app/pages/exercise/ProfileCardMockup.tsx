@@ -8,14 +8,13 @@
  * invited to complete a card, so the class can see the thing being asked for
  * before arguing about how to ask for it.
  *
- * **Where the five come from.** The requirements describe a completed card as
- * "stated interests and career goals" and never list five questions. Rather
- * than invent three more, the five here are the five fields the documents
- * already name as a profile's own: design spec §2's `exercise_profile`
- * columns `major`, `class_year`, `stated_interests`, `career_goal` and
+ * **Where the five come from.** The five are the five fields the documents
+ * name as a profile's own: design spec §2's `exercise_profile` columns
+ * `major`, `class_year`, `stated_interests`, `career_goal` and
  * `past_event_keys` — which are exactly what the four adjustable factors and
- * the tie-break read. If Ann's card turns out to ask something else, this
- * screen changes and nothing else does.
+ * the tie-break read. OQ-CE-11 closed 2026-09-25 (Danny, owner, recording
+ * Ann's answers to the team's question list of 2026-09-22): major, year,
+ * stated interests, career goal, past events are confirmed as the five.
  *
  * **What it is not.** It is a mock-up, and says so in as many words. There is
  * no form, no request, nothing is stored, and the one button is inert and
@@ -54,9 +53,8 @@ interface CardQuestion {
  * vocabulary of answers. The data file's columns and the values they may take
  * are settled by Ann's workbook of 2026-09-24, but they live on the server, so
  * this screen shows the shape of a card and never a fixed list of majors or
- * years. OQ-CE-11 — what
- * the five questions actually are — is open too, so the five below are a
- * mock-up's stand-in until Ann confirms them.
+ * years. The five fields themselves are confirmed (OQ-CE-11 closed
+ * 2026-09-25); the screen stays a mock-up of the card, not the card.
  */
 const CARD_QUESTIONS: readonly CardQuestion[] = [
   {

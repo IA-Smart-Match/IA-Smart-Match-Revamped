@@ -10,7 +10,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ExerciseEntry } from "./ExerciseEntry";
+import { EXERCISE_LICENSE_LINE, ExerciseEntry } from "./ExerciseEntry";
 import { WORKSPACE_POINTER_KEY } from "./workspacePointer";
 
 interface Recorded {
@@ -66,6 +66,31 @@ afterEach(() => {
 });
 
 describe("<ExerciseEntry />", () => {
+  it("shows the license line on the opening screen (OQ-CE-09)", async () => {
+    stubFetch({
+      "/v1/exercise": { body: SCOPE },
+      "/v1/exercise/workspaces/current": {
+        body: { error: { code: "exercise_workspace_required", message: "Enter your team number." } },
+        status: 401,
+      },
+    });
+    renderEntry();
+    await waitFor(() => expect(screen.getByRole("radio", { name: /team 1/i })).toBeDefined());
+    const sentence =
+      "For California State Polytechnic University, Pomona — College of Business Administration instructional use only.";
+    expect(screen.getByText(sentence)).toBeDefined();
+    expect(EXERCISE_LICENSE_LINE).toBe(sentence);
+  });
+
+  it("shows the license line even when the exercise cannot be reached", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.reject(new TypeError("offline"))),
+    );
+    renderEntry();
+    expect(screen.getByText(EXERCISE_LICENSE_LINE)).toBeDefined();
+  });
+
   it("marks the screen as synthetic, as every exercise screen must", async () => {
     stubFetch({
       "/v1/exercise": { body: SCOPE },
