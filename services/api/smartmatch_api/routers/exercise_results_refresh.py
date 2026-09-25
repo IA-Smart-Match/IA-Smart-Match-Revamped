@@ -9,7 +9,7 @@ What is decided here and what is not
 ====================================
 Here: *which* profiles a share falls on, assembled from the domain's own
 constants and the domain's own deterministic selector. Not here: what the shares
-are (``smartmatch_domain.exercise.asking``, PLACEHOLDER OQ-CE-04), how a card is
+are (``smartmatch_domain.exercise.asking``, OQ-CE-04 closed), how a card is
 copied (``results_repository.apply_refresh``, which is also the only code that
 touches the withheld column on this path), and what HTTP any of it is (the two
 routers).
@@ -20,20 +20,17 @@ Nothing in this module reads a profile's hidden true interests. It passes
 **profile numbers** to the repository and gets **counts** back; there is no
 parameter and no return field here with a place to put an interest term.
 
-PLACEHOLDER (OQ-CE-04) — the half-round in ``select_share``
-===========================================================
-``asking.select_share`` takes ``round(share * n)``, which is Python's banker's
-rounding: a group of ten at a share of exactly ``0.5`` picks five, and a group of
-*eleven* at ``0.5`` picks six, but a group of ten at ``0.05`` picks **none**
-rather than one. Whether "about 30 percent of invited profiles without a card"
-should round a half up, to nearest-even, or always up is Ann's question and is
-part of OQ-CE-04.
+OQ-CE-04 — the shares and the half-round in ``select_share``
+============================================================
+Closed 2026-09-25 (Danny, owner, recording Ann's answers to the team's question
+list of 2026-09-22): 30 / 55 / 80 percent, plus 15 percent non-responding under
+"required". Ann gave no view on halves, so Danny settled the half-rounding per
+the owner-doc recommendation: **round half up**. ``asking.select_share`` rounds
+``share * n`` half up in decimal arithmetic, so a group of ten at a share of
+exactly ``0.05`` picks one, and a group of fifteen at thirty percent picks five.
 
-**This track keeps the current behaviour unchanged** and marks it rather than
-choosing: the selector is the merged domain's, the shares are the merged
-domain's, and picking a rounding here would answer a register row in a router.
-When Ann answers, the change is one call inside ``select_share`` and nothing in
-this module moves.
+The rounding lives in the domain's selector, not here: this module reads the
+shares and calls the selector, and restates neither.
 """
 
 from __future__ import annotations
@@ -141,8 +138,8 @@ def refresh_plan(
     same profiles in any process (design spec §11's behaviour (4), applied to
     §13).
 
-    See this module's docstring for the half-rounding inside ``select_share``,
-    which is OQ-CE-04 and is deliberately left as it is.
+    See this module's docstring for the half-rounding inside ``select_share``
+    (OQ-CE-04: round half up).
     """
     card_completers = select_share(
         no_card_profile_nos,

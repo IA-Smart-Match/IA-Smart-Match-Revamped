@@ -53,7 +53,7 @@ def test_a_choice_is_usable_as_a_string():
     assert f"{AskingChoice.REQUIRED}" == "required"
 
 
-# --- The placeholder shares ------------------------------------------------
+# --- The confirmed shares (OQ-CE-04) ----------------------------------------
 
 
 def test_the_completion_shares_are_anns_build_table_numbers():
@@ -217,6 +217,55 @@ def test_an_empty_group_picks_nobody():
 @pytest.mark.parametrize(("share", "expected"), [(0.30, 30), (0.55, 55), (0.80, 80), (0.15, 15)])
 def test_the_count_is_the_rounded_share_of_the_group(share: float, expected: int):
     assert len(select_share(range(1, 101), share, seed=2, salt="x")) == expected
+
+
+# OQ-CE-04 closed 2026-09-25: a half rounds up (Danny, per the owner-doc
+# recommendation). Every case below is one where banker's rounding would pick
+# one fewer, or where the float product lands a hair under the half.
+@pytest.mark.parametrize(
+    ("share", "size", "expected"),
+    [
+        (0.05, 10, 1),  # 0.5 -> 1; banker's gave 0
+        (0.5, 9, 5),  # 4.5 -> 5; banker's gave 4
+        (0.30, 15, 5),  # 4.5 -> 5; banker's gave 4
+        (0.15, 30, 5),  # 4.5 -> 5; banker's gave 4
+        (0.55, 30, 17),  # 16.5 -> 17; banker's gave 16
+        (0.55, 10, 6),  # 5.5 -> 6
+        (0.5, 11, 6),  # 5.5 -> 6
+    ],
+)
+def test_a_half_rounds_up(share: float, size: int, expected: int):
+    assert len(select_share(range(1, size + 1), share, seed=2, salt="x")) == expected
+
+
+@pytest.mark.parametrize(
+    ("share", "size", "expected"),
+    [
+        (0.29, 50, 15),  # float product 14.499999999999998
+        (0.7, 45, 32),  # float product 31.499999999999996
+        (0.58, 25, 15),  # float product 14.499999999999998
+    ],
+)
+def test_a_half_rounds_up_even_where_float_multiplication_falls_short(
+    share: float, size: int, expected: int
+):
+    assert len(select_share(range(1, size + 1), share, seed=2, salt="x")) == expected
+
+
+@pytest.mark.parametrize(
+    ("share", "size", "expected"),
+    [(0.30, 7, 2), (0.55, 7, 4), (0.80, 7, 6), (0.15, 7, 1)],
+)
+def test_below_and_above_the_half_round_to_nearest(share: float, size: int, expected: int):
+    """2.1 -> 2, 3.85 -> 4, 5.6 -> 6, 1.05 -> 1: only the exact half is special."""
+    assert len(select_share(range(1, size + 1), share, seed=2, salt="x")) == expected
+
+
+def test_the_shares_are_no_longer_placeholders():
+    """OQ-CE-04 closed 2026-09-25; a marker left behind would be untrue."""
+    source = Path(asking.__file__).read_text(encoding="utf-8")
+    assert "PLACEHOLDER (OQ-CE-04)" not in source
+    assert "OQ-CE-04 closed" in source
 
 
 def test_the_result_is_sorted():

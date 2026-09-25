@@ -8,12 +8,11 @@ invited to complete a card. Ann's build table fixes what each one produces:
     (about 80 percent, but about 15 percent of those without a card stop
     opening messages and never sign up in round two).
 
-Those four numbers are **PLACEHOLDER (OQ-CE-04)** — the register's row says
-"30 percent / 55 percent / 80 percent with 15 percent non-responding, as named
-constants", and Ann confirms them before the November practice run. Unlike the
-simulation's coefficients (OQ-CE-03, which has no proposed value at all), these
-*are* stated values in Ann's own table, so they live here as named constants
-rather than as ``None``.
+Those four numbers are confirmed: OQ-CE-04 closed 2026-09-25 (Danny, owner,
+recording Ann's answers to the team's question list of 2026-09-22) — 30 percent
+/ 55 percent / 80 percent, plus 15 percent non-responding under "required".
+Ann gave no view on how a half rounds; Danny settled it per the owner-doc
+recommendation: **round half up** (see :func:`select_share`).
 
 The three choice names are not placeholders. They are fixed by design spec §12
 and again by the database: the ``ck_exercise_team_workspace_asking_choice``
@@ -42,6 +41,7 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Iterable, Mapping
+from decimal import ROUND_HALF_UP, Decimal
 from enum import StrEnum
 from types import MappingProxyType
 from typing import Final, assert_never
@@ -73,10 +73,10 @@ class AskingChoice(StrEnum):
     REQUIRED = "required"
 
 
-#: PLACEHOLDER (OQ-CE-04): the share of *invited profiles without a card* that
-#: complete one, per choice. Ann's build table's own numbers; she confirms them
-#: before the November practice run. A read-only mapping so a caller cannot
-#: quietly re-tune the exercise at runtime.
+#: The share of *invited profiles without a card* that complete one, per
+#: choice. Ann's build table's own numbers, confirmed (OQ-CE-04 closed
+#: 2026-09-25). A read-only mapping so a caller cannot quietly re-tune the
+#: exercise at runtime.
 CARD_COMPLETION_SHARE: Final[Mapping[AskingChoice, float]] = MappingProxyType(
     {
         AskingChoice.BETTER_RECOMMENDATIONS: 0.30,
@@ -85,7 +85,7 @@ CARD_COMPLETION_SHARE: Final[Mapping[AskingChoice, float]] = MappingProxyType(
     }
 )
 
-#: PLACEHOLDER (OQ-CE-04): under :attr:`AskingChoice.REQUIRED` only, the share
+#: Confirmed (OQ-CE-04): under :attr:`AskingChoice.REQUIRED` only, the share
 #: of invited profiles without a card that stop opening messages and never sign
 #: up in round two. This is the cost the "required" choice carries, and the
 #: point of the exercise's third option.
@@ -188,6 +188,21 @@ def _rank_key(seed: int, salt: str, profile_no: int) -> tuple[bytes, int]:
     return hasher.digest(), profile_no
 
 
+def _half_up_count(share: float, size: int) -> int:
+    """``share * size`` rounded to a whole count, a half rounding up.
+
+    OQ-CE-04's half-rounding, settled 2026-09-25 by Danny per the owner-doc
+    recommendation (round half up). Python's ``round`` is banker's rounding,
+    which sends ``4.5`` to ``4``; and ``share * size`` in floats can land a hair
+    under the half (``0.29 * 50`` is ``14.499999999999998``). So the product is
+    taken in :class:`~decimal.Decimal` from the share's shortest repr — the
+    number as written, ``0.29`` rather than its binary neighbour — and rounded
+    with :data:`~decimal.ROUND_HALF_UP`.
+    """
+    exact = Decimal(repr(share)) * size
+    return int(exact.quantize(Decimal(1), rounding=ROUND_HALF_UP))
+
+
 def select_share(
     profile_nos: Iterable[int],
     share: float,
@@ -207,8 +222,8 @@ def select_share(
     Args:
         profile_nos: The profiles to pick from. Repeats are folded into one.
         share: How many to pick, as a fraction in ``[0, 1]``. The count is
-            ``round(share * n)`` — Python's banker's rounding, so a group of
-            ten at a share of exactly ``0.05`` picks none rather than one.
+            ``share * n`` rounded half up (OQ-CE-04), so a group of ten at a
+            share of exactly ``0.05`` picks one. See :func:`_half_up_count`.
         seed: The team's seed, so one team's refresh is another team's
             business.
         salt: What is being picked, e.g. ``"card_completion"``. Two calls with
@@ -223,6 +238,6 @@ def select_share(
     if not 0.0 <= share <= 1.0:
         raise ValueError(f"share must be between 0 and 1 inclusive; got {share}.")
     distinct = sorted(set(profile_nos))
-    count = round(share * len(distinct))
+    count = _half_up_count(share, len(distinct))
     ordered = sorted(distinct, key=lambda profile_no: _rank_key(seed, salt, profile_no))
     return tuple(sorted(ordered[:count]))
