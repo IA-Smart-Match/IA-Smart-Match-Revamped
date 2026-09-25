@@ -717,7 +717,8 @@ def test_a_run_refuses_while_the_rule_has_no_confirmed_coefficients(
     assert response.status_code == 409
     body = response.json()["error"]
     assert body["code"] == "exercise_results_rule_not_confirmed"
-    assert body["message"] == "The results rule has no confirmed coefficients yet (OQ-CE-03)."
+    assert body["message"] == "The results rule has no confirmed coefficients yet."
+    assert "OQ-CE-" not in body["message"], "a register ID is not a sentence for a team"
     assert fakes.results.runs == {}, "a refused run must store nothing"
 
 
@@ -745,6 +746,26 @@ def test_no_module_in_this_track_writes_down_a_class_year_or_a_major() -> None:
         source = source_file.read_text(encoding="utf-8")
         for guess in ("Senior", "Junior", "Sophomore", "Freshman", "Finance", "Marketing"):
             assert guess not in source, f"{source_file.name} writes down {guess!r}"
+
+
+def test_no_exercise_router_puts_a_register_id_in_a_refusal() -> None:
+    """CE-INSTRUCTOR-UNLOCK: "(OQ-CE-03)" reached students in a refusal.
+
+    Register IDs belong in comments and docstrings, where the next engineer
+    reads them, and never in a sentence a team or the instructor reads. Every
+    literal passed as ``message=`` in an exercise router is checked.
+    """
+    routers = Path(exercise_results.__file__).parent
+    offenders: list[str] = []
+    for source_file in sorted(routers.glob("exercise_*.py")):
+        tree = ast.parse(source_file.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.keyword) or node.arg != "message":
+                continue
+            for part in ast.walk(node.value):
+                if isinstance(part, ast.Constant) and "OQ-CE-" in str(part.value):
+                    offenders.append(f"{source_file.name}:{part.lineno}")
+    assert offenders == []
 
 
 def test_the_placeholder_markers_are_literally_present_in_the_source() -> None:

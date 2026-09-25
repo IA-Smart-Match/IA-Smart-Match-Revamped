@@ -587,6 +587,9 @@ session (the passcode) and sends `X-Exercise-Request`. Step 0 needs neither.
 3. **Unlock each event as it happens.** `POST
    /v1/exercise/instructor/events/{event_key}/unlock`
    (`exercise_instructor.py:557-558`), one per event, when the class reaches it.
+   The instructor page lists the events with `GET
+   /v1/exercise/instructor/events`, which also says which are already open,
+   so a reload of the page shows the unlocks the database holds.
    Unlocking twice is not an error — the insert is
    `on_conflict_do_nothing` and the route says the same sentence either way
    (`instructor_repository.py:459-466`).
@@ -610,7 +613,7 @@ session (the passcode) and sends `X-Exercise-Request`. Step 0 needs neither.
    /v1/exercise/workspaces/current/events/{event_key}/results` answers **409**
    with one plain sentence:
 
-   > The results rule has no confirmed coefficients yet (OQ-CE-03).
+   > The results rule has no confirmed coefficients yet.
 
    (`simulation.py:421-422`, surfaced by `exercise_results_run.py:122-129`.)
    **This is expected, not a fault of the deployment.** Say so before the class
