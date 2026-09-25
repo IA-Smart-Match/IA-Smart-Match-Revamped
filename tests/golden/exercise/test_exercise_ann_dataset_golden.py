@@ -41,16 +41,15 @@ owner as a question for Ann on 2026-09-24.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from functools import cache
 
 import pytest
 from smartmatch_api.exercise_dependencies import ExerciseEventRow, TeamProfileRow
 from smartmatch_api.routers.exercise_matching_models import event_evidence, rankable_set
-from smartmatch_domain.exercise.ingest import ParsedDataset, parse_exercise_file
+from smartmatch_domain.exercise.ingest import ParsedDataset
 from smartmatch_domain.exercise.matching import ExerciseList, exercise_ranked_list
 from smartmatch_domain.exercise.reasons import phrase_as_sentence
 
-from tests.unit.exercise_workbooks import ANN_FULL_FILE
+from tests.unit.exercise_workbooks import ann_full_parsed
 
 #: The 20 profile numbers of Ann's sample file.
 SAMPLE_PROFILE_NOS = frozenset(
@@ -70,11 +69,9 @@ _TURNED_OFF = {**_TURNED_UP, "stated_interest_overlap": 0.0}
 _INTEREST_AND_GOAL_OFF = {**_TURNED_OFF, "career_goal_fit": 0.0}
 
 
-@cache
 def _dataset() -> ParsedDataset:
-    parsed = parse_exercise_file(ANN_FULL_FILE.read_bytes())
-    assert isinstance(parsed, ParsedDataset), parsed
-    return parsed
+    """Ann's file, parsed once per session — the object ``ann_full_dataset`` serves."""
+    return ann_full_parsed()
 
 
 def _rows(profile_nos: frozenset[int] | None = None) -> tuple[TeamProfileRow, ...]:

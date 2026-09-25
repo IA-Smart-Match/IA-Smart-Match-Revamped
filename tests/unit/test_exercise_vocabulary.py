@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 from openpyxl import load_workbook
 from smartmatch_domain.exercise import vocabulary
+from smartmatch_domain.exercise.ingest import ParsedDataset
 from smartmatch_domain.exercise.vocabulary import (
     ALL_MAJORS_LABEL,
     CAREER_GOAL_TOPICS,
@@ -34,6 +35,12 @@ from tests.unit.exercise_workbooks import ANN_FULL_FILE
 
 @cache
 def _anns_profiles() -> tuple[dict[str, object], ...]:
+    """Ann's Profiles sheet as raw cells, for the one test that must see her spelling.
+
+    Deliberately not the session's parsed copy (``ann_full_dataset``): the
+    parser folds every cell onto the vocabulary, so a spelling test run on its
+    output would compare the vocabulary with itself.
+    """
     book = load_workbook(ANN_FULL_FILE, read_only=True, data_only=True)
     try:
         rows = list(book["Profiles"].iter_rows(values_only=True))
@@ -110,13 +117,23 @@ def test_the_role_table_is_marked_as_a_placeholder_for_ann() -> None:
     assert "PLACEHOLDER (Ann to confirm role→topic table)" in source
 
 
-def test_every_role_maps_to_the_first_true_interest_of_every_profile_with_it() -> None:
-    """The owner's reading of the file, checked against every one of the 300 rows."""
-    for profile in _anns_profiles():
-        goal = str(profile["hidden_true_career_goal"])
+def test_every_role_maps_to_the_first_true_interest_of_every_profile_with_it(
+    ann_full_dataset: ParsedDataset,
+) -> None:
+    """The owner's reading of the file, checked against every one of the 300 rows.
+
+    Read through the session's one parse of Ann's file rather than the raw
+    cells: the parser keeps each cell's terms in order, and the test above
+    already pins that her spelling *is* the vocabulary's, so the canonical term
+    and her cell are the same string.
+    """
+    for profile in ann_full_dataset.profiles:
+        goal = profile.hidden_true_career_goal
         if goal in {"Undecided", "Graduate school", "Start my own business"}:
             continue
-        assert CAREER_GOAL_TOPICS[goal] == _split(profile["hidden_true_interests"])[0], goal
+        assert goal is not None
+        assert profile.hidden_true_interests
+        assert CAREER_GOAL_TOPICS[goal] == profile.hidden_true_interests[0], goal
 
 
 def test_the_three_goals_that_are_not_roles_follow_the_owners_ruling() -> None:
