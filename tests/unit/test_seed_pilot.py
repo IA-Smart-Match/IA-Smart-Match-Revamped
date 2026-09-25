@@ -312,3 +312,91 @@ def test_a_validity_window_this_seed_did_not_write_is_a_conflict():
             path="pilot",
             roles=("admin",),
         )
+
+
+# ---------------------------------------------------------------------------
+# B26 T6b-5: invitation-only roles are activation's, not the seed's
+# ---------------------------------------------------------------------------
+#
+# `seed-logins` runs on every VM deploy and its exit code gates the release
+# (`scripts/vm/deploy.sh`). An Event Host login that accepted a Speaker
+# invitation holds a `speaker` row the seed never asked for — active, or
+# expired by an unbind. Treating that row as a foreign grant would fail the
+# next deploy, so the check ignores invitation-only roles (plan §3.4).
+
+
+def _speaker_rows(**window: object) -> list[SimpleNamespace]:
+    return [
+        SimpleNamespace(granted_path="pilot", role="volunteer", valid_from=None, valid_until=None),
+        SimpleNamespace(
+            granted_path="iawest.portal",
+            role="speaker",
+            valid_from=window.get("valid_from"),
+            valid_until=window.get("valid_until"),
+        ),
+    ]
+
+
+@pytest.mark.parametrize(
+    "window",
+    [{}, {"valid_from": "2026-09-01T00:00:00Z"}, {"valid_until": "2026-09-20T00:00:00Z"}],
+    ids=["active", "t6b1_valid_from", "unbound"],
+)
+def test_membership_set_ignores_invitation_only_roles(window: dict[str, object]) -> None:
+    connection = _Connection([_Result(all_rows=_speaker_rows(**window))])
+
+    seed_pilot._ensure_membership_set(
+        connection,  # type: ignore[arg-type]
+        tenant_id=uuid.uuid4(),
+        account_id=uuid.uuid4(),
+        path="pilot",
+        roles=("volunteer",),
+    )
+
+    assert _inserted_roles(connection) == []
+
+
+def test_verify_membership_set_is_read_only_and_reports_held_roles() -> None:
+    connection = _Connection([_Result(all_rows=_speaker_rows())])
+
+    held = seed_pilot.verify_membership_set(
+        connection,  # type: ignore[arg-type]
+        tenant_id=uuid.uuid4(),
+        account_id=uuid.uuid4(),
+        path="pilot",
+        roles=("volunteer", "coordinator"),
+    )
+
+    assert held == frozenset({"volunteer"})
+    assert _inserted_roles(connection) == []
+    assert len(connection.calls) == 1
+
+
+def test_a_foreign_non_invitation_role_is_still_a_conflict() -> None:
+    rows = [
+        *_speaker_rows(),
+        SimpleNamespace(granted_path="pilot", role="student", valid_from=None, valid_until=None),
+    ]
+    connection = _Connection([_Result(all_rows=rows)])
+
+    with pytest.raises(seed_pilot.SeedConflictError, match="different membership"):
+        seed_pilot.verify_membership_set(
+            connection,  # type: ignore[arg-type]
+            tenant_id=uuid.uuid4(),
+            account_id=uuid.uuid4(),
+            path="pilot",
+            roles=("volunteer",),
+        )
+
+
+def test_the_seed_never_asks_for_an_invitation_only_role() -> None:
+    from smartmatch_api.routers.portals import INVITATION_ONLY_ROLES
+
+    with pytest.raises(seed_pilot.SeedConflictError, match="invitation"):
+        seed_pilot.verify_membership_set(
+            _Connection([]),  # type: ignore[arg-type]
+            tenant_id=uuid.uuid4(),
+            account_id=uuid.uuid4(),
+            path="pilot",
+            roles=tuple(INVITATION_ONLY_ROLES),
+        )

@@ -4,10 +4,14 @@ Rules every method here keeps (plan §3.2, §4.6, §5):
 
 * **Never commits.** The route, or the command it submits, owns the transaction.
 * **Every timestamp is a parameter** (R6). No statement here calls ``now()``.
-* **Lock order is profile → invitation → address**, in invite and activation
-  alike. :meth:`SpeakerPortalRepository.lock_profile` is the first lock in
-  both; :meth:`~SpeakerPortalRepository.find_invitation_by_token_hash` takes
-  none, so activation can find the profile before locking anything.
+* **Lock order is profile → invitation → address → credential rows**, in
+  invite, activation and unbind alike (B26 T6b-5 plan §4.5).
+  :meth:`SpeakerPortalRepository.lock_profile` is the first lock in all three;
+  :meth:`~SpeakerPortalRepository.find_invitation_by_token_hash` takes none, so
+  activation can find the profile before locking anything. The address and
+  credential locks are :mod:`smartmatch_persistence.login_accounts`'s, which is
+  also the only writer of ``pilot_credential``, of a login's email, and of the
+  ``speaker`` membership.
 """
 
 from __future__ import annotations
@@ -22,6 +26,7 @@ from sqlalchemy.orm import Session
 from smartmatch_persistence import schema
 
 __all__ = [
+    "BoundInvitation",
     "BoundSpeakerProfile",
     "CurrentInvitation",
     "InvitationForActivation",
@@ -32,11 +37,6 @@ __all__ = [
 ]
 
 _INV = schema.speaker_portal_invitation
-
-#: What Python's ``str.strip()`` removes from an email address, for the SQL
-#: side of the comparison: ``btrim`` with no second argument trims spaces only,
-#: so a stored address ending in a tab or newline would otherwise not fold.
-_WHITESPACE = " \t\n\r\f\v"
 _PROFILE = schema.speaker_profile
 
 
@@ -106,6 +106,14 @@ class CurrentInvitation:
     contact_channel_id: uuid.UUID
     issued_at: datetime
     expires_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class BoundInvitation:
+    """The accepted invitation that made a profile's current binding (T6b-5 §4.4)."""
+
+    id: uuid.UUID
+    binding_mode: str
 
 
 def _live() -> sa.ColumnElement[bool]:
@@ -299,13 +307,21 @@ class SpeakerPortalRepository:
         )
 
     def lock_invitation(
-        self, session: Session, *, tenant_id: uuid.UUID, invitation_id: uuid.UUID
+        self,
+        session: Session,
+        *,
+        tenant_id: uuid.UUID,
+        invitation_id: uuid.UUID,
+        lock: bool = True,
     ) -> InvitationForActivation | None:
-        """The invitation, ``FOR UPDATE OF speaker_portal_invitation``, with its joins."""
+        """The invitation, ``FOR UPDATE OF speaker_portal_invitation``, with its joins.
+
+        ``lock=False`` is the read-only ``GET /s/{token}`` page's read (T6b-5 §4.2).
+        """
         channel = schema.contact_channel
         unit = schema.org_unit
         account = schema.user_account
-        row = session.execute(
+        statement = (
             sa.select(
                 _INV.c.id,
                 _INV.c.tenant_id,
@@ -351,8 +367,10 @@ class SpeakerPortalRepository:
                 )
             )
             .where(_INV.c.tenant_id == tenant_id, _INV.c.id == invitation_id)
-            .with_for_update(of=_INV)
-        ).one_or_none()
+        )
+        if lock:
+            statement = statement.with_for_update(of=_INV)
+        row = session.execute(statement).one_or_none()
         return None if row is None else InvitationForActivation(**row._mapping)
 
     def get_for_send(
@@ -388,103 +406,6 @@ class SpeakerPortalRepository:
 
     # -- activation --------------------------------------------------------
 
-    def account_has_credential(
-        self, session: Session, *, tenant_id: uuid.UUID, user_id: uuid.UUID
-    ) -> bool:
-        credential = schema.pilot_credential
-        return (
-            session.execute(
-                sa.select(sa.literal(1)).where(
-                    credential.c.tenant_id == tenant_id, credential.c.user_id == user_id
-                )
-            ).first()
-            is not None
-        )
-
-    def lock_address(self, session: Session, *, folded_address: str) -> None:
-        """Transaction-scoped advisory lock on the address (plan §5 step 8).
-
-        ``folded_address`` is already ``address.strip().lower()``: the caller
-        normalises once and passes the same value here, to the duplicate check
-        and to the stored email.
-        """
-        session.execute(
-            sa.text(
-                "SELECT pg_advisory_xact_lock("
-                "hashtextextended('speaker-portal-email:' || :address, 0))"
-            ),
-            {"address": folded_address},
-        )
-
-    def other_credentialed_account_exists(
-        self, session: Session, *, folded_address: str, excluding_user_id: uuid.UUID
-    ) -> bool:
-        """Any credentialed account but ``excluding_user_id`` holds the address, in any tenant.
-
-        ``folded_address`` is ``address.strip().lower()``; stored emails are
-        folded the same way in SQL, trimming all ASCII whitespace (R5).
-        """
-        account = schema.user_account
-        credential = schema.pilot_credential
-        return (
-            session.execute(
-                sa.select(sa.literal(1))
-                .select_from(
-                    account.join(
-                        credential,
-                        sa.and_(
-                            credential.c.tenant_id == account.c.tenant_id,
-                            credential.c.user_id == account.c.id,
-                        ),
-                    )
-                )
-                .where(
-                    sa.func.lower(sa.func.btrim(account.c.email, _WHITESPACE)) == folded_address,
-                    account.c.id != excluding_user_id,
-                )
-                .limit(1)
-            ).first()
-            is not None
-        )
-
-    def set_account_email(
-        self,
-        session: Session,
-        *,
-        tenant_id: uuid.UUID,
-        user_id: uuid.UUID,
-        folded_address: str,
-    ) -> None:
-        """Store the normalised address, so ``load_by_email``'s folded match finds it."""
-        account = schema.user_account
-        session.execute(
-            sa.update(account)
-            .where(account.c.tenant_id == tenant_id, account.c.id == user_id)
-            .values(email=folded_address, version=account.c.version + 1)
-        )
-
-    def grant_speaker_membership(
-        self,
-        session: Session,
-        *,
-        tenant_id: uuid.UUID,
-        user_id: uuid.UUID,
-        granted_path: str,
-        now: datetime,
-    ) -> None:
-        membership = schema.membership
-        session.execute(
-            sa.insert(membership).values(
-                id=uuid.uuid4(),
-                tenant_id=tenant_id,
-                user_id=user_id,
-                granted_path=sa.cast(granted_path, schema.LTree()),
-                role="speaker",
-                valid_from=now,
-                created_at=now,
-            )
-        )
-
     def bind_profile(
         self,
         session: Session,
@@ -513,16 +434,155 @@ class SpeakerPortalRepository:
         tenant_id: uuid.UUID,
         invitation_id: uuid.UUID,
         bound_account_user_id: uuid.UUID,
+        binding_mode: str,
         now: datetime,
     ) -> bool:
+        """Mark the live invitation accepted by ``bound_account_user_id``.
+
+        ``binding_mode`` is ``new_login`` (the contact account became the login)
+        or ``existing_login`` (an Event Host's login gained ``speaker``, T6b-5).
+        """
         result = session.execute(
             sa.update(_INV)
             .where(_INV.c.tenant_id == tenant_id, _INV.c.id == invitation_id, _live())
             .values(
                 accepted_at=now,
                 bound_account_user_id=bound_account_user_id,
-                binding_mode="new_login",
+                binding_mode=binding_mode,
             )
             .returning(_INV.c.id)
         ).all()
         return bool(result)
+
+    # -- one login, two roles (B26 T6b-5) ------------------------------------
+
+    def login_bound_elsewhere(
+        self,
+        session: Session,
+        *,
+        tenant_id: uuid.UUID,
+        account_user_id: uuid.UUID,
+        excluding_professional_id: uuid.UUID,
+    ) -> bool:
+        """Whether ``account_user_id`` already speaks for another profile.
+
+        One login speaks for at most one Speaker (``uq_speaker_profile_account``);
+        activation refuses before the bind rather than relying on the violation.
+        """
+        return (
+            session.execute(
+                sa.select(sa.literal(1))
+                .where(
+                    _PROFILE.c.tenant_id == tenant_id,
+                    _PROFILE.c.account_user_id == account_user_id,
+                    _PROFILE.c.professional_id != excluding_professional_id,
+                )
+                .limit(1)
+            ).first()
+            is not None
+        )
+
+    def active_roles(
+        self, session: Session, *, tenant_id: uuid.UUID, user_id: uuid.UUID, now: datetime
+    ) -> frozenset[str]:
+        """The roles ``user_id`` holds at ``now``, at any path (``valid_until`` exclusive)."""
+        membership = schema.membership
+        rows = session.execute(
+            sa.select(membership.c.role)
+            .where(
+                membership.c.tenant_id == tenant_id,
+                membership.c.user_id == user_id,
+                sa.or_(membership.c.valid_from.is_(None), membership.c.valid_from <= now),
+                sa.or_(membership.c.valid_until.is_(None), membership.c.valid_until > now),
+            )
+            .distinct()
+        ).all()
+        return frozenset(row.role for row in rows)
+
+    def lock_bound_profile_invitation(
+        self,
+        session: Session,
+        *,
+        tenant_id: uuid.UUID,
+        professional_id: uuid.UUID,
+        account_user_id: uuid.UUID,
+        lock: bool = True,
+    ) -> BoundInvitation | None:
+        """The accepted, not-unbound invitation that bound ``account_user_id``.
+
+        ``FOR UPDATE`` by default: unbind's second lock, after the profile's.
+        ``lock=False`` is ``GET …/portal-access``'s read of ``binding_mode``.
+        """
+        statement = (
+            sa.select(_INV.c.id, _INV.c.binding_mode)
+            .where(
+                _INV.c.tenant_id == tenant_id,
+                _INV.c.professional_id == professional_id,
+                _INV.c.accepted_at.is_not(None),
+                _INV.c.bound_account_user_id == account_user_id,
+                _INV.c.unbound_at.is_(None),
+            )
+            .order_by(_INV.c.accepted_at.desc())
+            .limit(1)
+        )
+        if lock:
+            statement = statement.with_for_update(of=_INV)
+        row = session.execute(statement).one_or_none()
+        return None if row is None else BoundInvitation(id=row.id, binding_mode=row.binding_mode)
+
+    def account_email(
+        self, session: Session, *, tenant_id: uuid.UUID, user_id: uuid.UUID
+    ) -> str | None:
+        account = schema.user_account
+        return session.execute(
+            sa.select(account.c.email).where(
+                account.c.tenant_id == tenant_id, account.c.id == user_id
+            )
+        ).scalar_one_or_none()
+
+    def unbind(
+        self,
+        session: Session,
+        *,
+        tenant_id: uuid.UUID,
+        professional_id: uuid.UUID,
+        login_user_id: uuid.UUID,
+        invitation_id: uuid.UUID | None,
+        unbound_by_user_id: uuid.UUID,
+        now: datetime,
+    ) -> None:
+        """Unbind steps 5–7 (T6b-5 §4.4). The caller holds the profile and invitation locks.
+
+        * Every active ``speaker`` row on the login ends at ``now``
+          (``valid_until`` is exclusive). Only activation grants ``speaker`` and
+          one login speaks for at most one profile, so these are this profile's.
+          **No other role is touched** (R-I): the Event Host keeps hosting.
+        * The profile's binding is cleared.
+        * The invitation records who unbound it and when.
+        """
+        membership = schema.membership
+        session.execute(
+            sa.update(membership)
+            .where(
+                membership.c.tenant_id == tenant_id,
+                membership.c.user_id == login_user_id,
+                membership.c.role == "speaker",
+                sa.or_(membership.c.valid_until.is_(None), membership.c.valid_until > now),
+            )
+            .values(valid_until=now)
+        )
+        session.execute(
+            sa.update(_PROFILE)
+            .where(
+                _PROFILE.c.tenant_id == tenant_id,
+                _PROFILE.c.professional_id == professional_id,
+                _PROFILE.c.account_user_id == login_user_id,
+            )
+            .values(account_user_id=None, account_bound_at=None)
+        )
+        if invitation_id is not None:
+            session.execute(
+                sa.update(_INV)
+                .where(_INV.c.tenant_id == tenant_id, _INV.c.id == invitation_id)
+                .values(unbound_at=now, unbound_by_user_id=unbound_by_user_id)
+            )

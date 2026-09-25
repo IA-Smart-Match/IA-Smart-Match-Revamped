@@ -2239,6 +2239,20 @@ OPERATIONS: tuple[Operation, ...] = (
         resource_type="org_unit",
         unit_scoped=True,
     ),
+    # B26 T6b-5: remove portal access (unbind). The Speaker Connector persona,
+    # through the identical ``_authorize_speaker_portal`` — never ``speaker``.
+    Operation(
+        key="speaker_portal.unbind",
+        method="DELETE",
+        path="/v1/units/{unit_id}/speaker-contacts/{professional_id}/portal-access",
+        module="smartmatch_api.routers.speaker_portal",
+        authorizer="_authorize_speaker_portal",
+        roles_constant="_SPEAKER_PORTAL_ROLES",
+        authorizer_module=None,
+        required_roles=frozenset({"admin", "coordinator"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
     Operation(
         key="speaker_contact.update",
         method="PATCH",
@@ -2915,6 +2929,16 @@ SHAPES: tuple[Shape, ...] = (
         description="the person who submitted the job, explicitly denied on it",
         grant=Effect.DENY,
         is_job_actor=True,
+    ),
+    Shape(
+        name="host_and_speaker_at_owning_unit",
+        description=(
+            "one login holding the Event Host and Speaker roles (T6b-5): an active "
+            "`volunteer` and an active `speaker` membership at the owning unit. "
+            "Its column is derived from the two single-membership columns and "
+            "then pinned by HOST_AND_SPEAKER_PERMITS"
+        ),
+        memberships=(_member(OWNING_UNIT, "volunteer"), _member(OWNING_UNIT, "speaker")),
     ),
 )
 
@@ -9153,6 +9177,23 @@ MATRIX: dict[str, dict[str, Cell]] = {
 #: Every test below reads ``MATRIX[operation.key]`` and runs the *real*
 #: authorizer for each shape, so this alias asserts nothing by itself. It says
 #: which outcomes are expected, and the runner still has to produce them.
+#: B26 T6b-5: the two-membership column (one login, Event Host + Speaker) is
+#: *derived* — a cell permits iff the ``volunteer`` or the ``speaker`` column
+#: permits — because "neither widens the other" is exactly that statement.
+#: The derivation asserts nothing by itself: every cell still runs through the
+#: real authorizer in :func:`test_the_matrix_describes_what_the_code_does`, and
+#: :data:`HOST_AND_SPEAKER_PERMITS` pins the resulting permit set literally.
+_TWO_MEMBERSHIP_SHAPE = "host_and_speaker_at_owning_unit"
+for _row in MATRIX.values():
+    _row[_TWO_MEMBERSHIP_SHAPE] = (
+        permit(why="T6b-5: permitted through the Event Host row or the Speaker row")
+        if _row["volunteer_at_owning_unit"].permit or _row["speaker_at_owning_unit"].permit
+        else deny(
+            "no_grant",
+            why="T6b-5: neither the Event Host row nor the Speaker row reaches it",
+        )
+    )
+
 MATRIX["metrics.speaker_pipeline"] = MATRIX["metrics.read"]
 
 #: The availability read and write are ``speaker_contact.read`` and
@@ -9173,6 +9214,32 @@ MATRIX["speaker_self.engagement.list"] = MATRIX["speaker_self.availability.read"
 MATRIX["me.contact_channels.read"] = MATRIX["speaker_self.availability.read"]
 MATRIX["me.contact_channels.opt_in"] = MATRIX["speaker_self.availability.read"]
 MATRIX["me.contact_channels.opt_out"] = MATRIX["speaker_self.availability.read"]
+#: B26 T6b-5: unbind calls the identical ``_authorize_speaker_portal`` with the
+#: identical ``_SPEAKER_PORTAL_ROLES`` as the revoke, so it shares the row
+#: object (both new columns included) for the reason given above.
+MATRIX["speaker_portal.unbind"] = MATRIX["speaker_portal.revoke"]
+
+#: The two-membership shape's permits, literally (T6b-5 §5 item 3): the six
+#: Event Host operations, the five ``speaker_self.*`` ones, and T6b-3's three
+#: ``me.contact_channels.*`` ones (merged in through T6b-4) — 14.
+HOST_AND_SPEAKER_PERMITS: frozenset[str] = frozenset(
+    {
+        "metrics.read",
+        "metrics.speaker_pipeline",
+        "speaker_request.create",
+        "speaker_request.list_own",
+        "host_organization.read_own",
+        "host_organization.upsert_own",
+        "speaker_self.availability.read",
+        "speaker_self.availability.update",
+        "speaker_self.invitation.list",
+        "speaker_self.invitation.respond",
+        "speaker_self.engagement.list",
+        "me.contact_channels.read",
+        "me.contact_channels.opt_in",
+        "me.contact_channels.opt_out",
+    }
+)
 
 #: B26 T8a: ``pipeline.booking.cancel`` calls the identical ``_authorize_pipeline``
 #: with the identical ``_PIPELINE_ROLES`` as the advance, so it shares the row
@@ -10367,6 +10434,36 @@ def test_every_speaker_self_operation_names_only_the_speaker_role() -> None:
     for key in SPEAKER_SELF_OPERATIONS:
         assert by_key[key].required_roles == frozenset({"speaker"}), key
         assert by_key[key].authorizer == "_authorize_speaker_self", key
+
+
+def test_the_two_membership_shape_permits_exactly_host_and_speaker_operations() -> None:
+    """On the real authorizer, one login holding both roles reaches exactly these."""
+    shape = SHAPES_BY_NAME["host_and_speaker_at_owning_unit"]
+    observed = {op.key for op in OPERATIONS if _observe(op, shape).permit}
+    assert observed == HOST_AND_SPEAKER_PERMITS
+    assert {key for key, row in MATRIX.items() if row[shape.name].permit} == (
+        HOST_AND_SPEAKER_PERMITS
+    )
+
+
+@pytest.mark.parametrize("operation", OPERATIONS, ids=lambda op: op.key)
+def test_neither_membership_widens_the_other(operation: Operation) -> None:
+    """Parent §4.5: the two-membership cell permits iff one single-membership cell does."""
+    both = _observe(operation, SHAPES_BY_NAME["host_and_speaker_at_owning_unit"])
+    host = _observe(operation, SHAPES_BY_NAME["volunteer_at_owning_unit"])
+    speaker = _observe(operation, SHAPES_BY_NAME["speaker_at_owning_unit"])
+    assert both.permit == (host.permit or speaker.permit), operation.key
+
+
+def test_the_speaker_exclusion_does_not_knock_out_the_host_on_metrics() -> None:
+    """Rule 8 skips the ``speaker`` row (R8); the ``volunteer`` row still permits."""
+    for key in ("metrics.read", "metrics.speaker_pipeline"):
+        operation = OPERATIONS_BY_KEY[key]
+        assert _observe(operation, SHAPES_BY_NAME["host_and_speaker_at_owning_unit"]).permit
+        assert (
+            _observe(operation, SHAPES_BY_NAME["speaker_at_owning_unit"]).reason
+            == "membership_role_excluded"
+        )
 
 
 def test_the_matrix_is_a_full_rectangle() -> None:

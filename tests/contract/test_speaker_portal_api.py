@@ -25,8 +25,13 @@ from fastapi.testclient import TestClient
 from smartmatch_api.errors import EXCEPTION_HANDLERS
 from smartmatch_api.routers import auth as auth_router
 from smartmatch_api.routers import me as me_router
+from smartmatch_api.routers import portals as portals_router
 from smartmatch_api.routers import speaker_portal as portal_router
-from smartmatch_domain.pilot_credentials import derive_password_hash, new_salt
+from smartmatch_domain.pilot_credentials import (
+    MINIMUM_ITERATIONS,
+    derive_password_hash,
+    new_salt,
+)
 from smartmatch_domain.speaker_portal import ACTIVATION_URL_SENTINEL, derive_token
 from smartmatch_persistence.engine import create_session_factory
 from smartmatch_providers import FixtureTokenVerifier
@@ -82,6 +87,7 @@ def build_app(session_factory: Any, verifier: FixtureTokenVerifier, secret: str)
         portal_router.public_router,
         portal_router.pages_router,
         me_router.router,
+        portals_router.router,
         auth_router.router,
     ):
         app.include_router(router)
@@ -210,6 +216,70 @@ class _Ctx:
             h=stored.digest,
         )
 
+    def host_login(
+        self,
+        address: str | None = None,
+        *,
+        roles: tuple[str, ...] = ("volunteer",),
+        tenant_id: uuid.UUID | None = None,
+        path: str = UNIT_PATH,
+    ) -> tuple[uuid.UUID, str, str]:
+        """An existing login (an Event Host by default): ``(user_id, address, password)``."""
+        user_id = uuid.uuid4()
+        tid = tenant_id or self.tenant_id
+        address = address or f"Host-{user_id.hex[:8]}@Synthetic.invalid"
+        pw = _new_pw()
+        stored = derive_password_hash(pw, salt=new_salt(), iterations=MINIMUM_ITERATIONS)
+        self.execute(
+            "INSERT INTO user_account (id, tenant_id, external_subject, email) "
+            "VALUES (:id, :t, :s, :e)",
+            id=user_id,
+            t=tid,
+            s=f"sub-host-{user_id.hex}",
+            e=address,
+        )
+        self.execute(
+            "INSERT INTO pilot_credential (id, tenant_id, user_id, algorithm, iterations, "
+            "salt, password_hash) VALUES (:id, :t, :u, :alg, :it, :salt, :h)",
+            id=uuid.uuid4(),
+            t=tid,
+            u=user_id,
+            alg=stored.algorithm,
+            it=stored.iterations,
+            salt=stored.salt,
+            h=stored.digest,
+        )
+        for role in roles:
+            self.execute(
+                "INSERT INTO membership (id, tenant_id, user_id, granted_path, role) "
+                "VALUES (:id, :t, :u, CAST(:p AS ltree), :r)",
+                id=uuid.uuid4(),
+                t=tid,
+                u=user_id,
+                p=path,
+                r=role,
+            )
+        return user_id, address, pw
+
+    def snapshot(self, user_id: uuid.UUID) -> tuple:
+        """Everything existing-login mode must leave alone on a login."""
+        return tuple(
+            tuple(row)
+            for row in self.rows(
+                "SELECT u.email, u.version, u.suspended, c.id, c.salt, c.password_hash, "
+                "c.updated_at FROM user_account u LEFT JOIN pilot_credential c "
+                "ON c.tenant_id = u.tenant_id AND c.user_id = u.id WHERE u.id = :u",
+                u=user_id,
+            )
+        ) + tuple(
+            tuple(row)
+            for row in self.rows(
+                "SELECT id, role, granted_path::text, valid_from, valid_until, created_at "
+                "FROM membership WHERE user_id = :u AND role <> 'speaker' ORDER BY id",
+                u=user_id,
+            )
+        )
+
     # -- requests ----------------------------------------------------------
 
     def base(self, professional_id: uuid.UUID, unit_id: uuid.UUID | None = None) -> str:
@@ -230,10 +300,26 @@ class _Ctx:
     def access(self, professional_id):
         return self.client.get(f"{self.base(professional_id)}/portal-access", headers=self.headers)
 
+    def unbind(self, professional_id, *, unit_id=None):
+        return self.client.delete(
+            f"{self.base(professional_id, unit_id)}/portal-access", headers=self.headers
+        )
+
+    def channel_of(self, professional_id: uuid.UUID) -> uuid.UUID:
+        return self.scalar(
+            "SELECT id FROM contact_channel WHERE professional_id = :p ORDER BY created_at LIMIT 1",
+            p=professional_id,
+        )
+
     def activate(self, token: str, pw: str | None = None):
         return self.client.post(
             "/v1/speaker-portal/activate",
             json={"token": token, "new_password": pw or _new_pw()},
+        )
+
+    def activate_existing(self, token: str, pw: str):
+        return self.client.post(
+            "/v1/speaker-portal/activate", json={"token": token, "existing_password": pw}
         )
 
     def invited(self, **contact_kwargs: Any) -> tuple[uuid.UUID, uuid.UUID, str, str]:
@@ -601,7 +687,9 @@ def _refusal_setup(ctx: _Ctx, case: str, other_tenant: uuid.UUID) -> tuple[str, 
     elif case == "address_held":
         ctx.other_credentialed_account(address, tenant_id=other_tenant)
     elif case == "address_held_case":
-        ctx.other_credentialed_account(f"  {address.upper()}  ")
+        # Another tenant, so still a refusal after T6b-5: a same-tenant holder
+        # is now existing-login mode (TestExistingLogin).
+        ctx.other_credentialed_account(f"  {address.upper()}  ", tenant_id=other_tenant)
     elif case == "suspended":
         ctx.execute("UPDATE user_account SET suspended = true WHERE id = :p", p=professional_id)
     elif case == "already_credentialed":
@@ -678,28 +766,6 @@ def test_weak_password_is_422_for_any_token(ctx: _Ctx, pw: str) -> None:
         assert response.json()["error"]["code"] == "password_too_weak"
 
 
-def test_activate_refuses_address_held_by_a_credentialed_account(ctx: _Ctx) -> None:
-    professional_id, invitation_id, token, address = ctx.invited()
-    ctx.other_credentialed_account(address)
-    before_email = ctx.scalar("SELECT email FROM user_account WHERE id = :p", p=professional_id)
-
-    assert ctx.activate(token).status_code == 400
-    assert ctx.scalar("SELECT email FROM user_account WHERE id = :p", p=professional_id) == (
-        before_email
-    )
-    assert (
-        ctx.scalar("SELECT count(*) FROM pilot_credential WHERE user_id = :p", p=professional_id)
-        == 0
-    )
-    assert ctx.scalar("SELECT count(*) FROM membership WHERE user_id = :p", p=professional_id) == 0
-    assert (
-        ctx.scalar(
-            "SELECT accepted_at FROM speaker_portal_invitation WHERE id = :i", i=invitation_id
-        )
-        is None
-    )
-
-
 def test_activate_never_echoes_the_token(ctx: _Ctx) -> None:
     _, _, token, _ = ctx.invited()
     ok = ctx.activate(token)
@@ -743,17 +809,121 @@ def _form(ctx: _Ctx, token: str, fields: dict[str, str] | str):
     )
 
 
-def test_s_page_is_identical_for_every_token(ctx: _Ctx) -> None:
+def test_s_page_is_identical_for_every_other_token(ctx: _Ctx) -> None:
+    """Every token but a live existing-login one gets T6b-1's bytes (T6b-5 C1)."""
     _, _, token, _ = ctx.invited()
-    pages = [ctx.client.get(f"/s/{t}") for t in (token, "x" * 43, "nope")]
+    host_id, host_address, _ = ctx.host_login()
+    _, expired_id, expired_existing, _ = ctx.invited(address=host_address)
+    ctx.execute(
+        "UPDATE speaker_portal_invitation SET issued_at = issued_at - interval '8 days', "
+        "expires_at = expires_at - interval '8 days' WHERE id = :i",
+        i=expired_id,
+    )
+    pages = [
+        ctx.client.get(f"/s/{t}")
+        for t in (token, "x" * 43, "nope", derive_token(ctx.secret, uuid.uuid4()), expired_existing)
+    ]
     assert {p.status_code for p in pages} == {200}
     assert len({p.content for p in pages}) == 1
     page = pages[0]
     assert token not in page.text
     assert 'method="post"' in page.text and "action=" not in page.text
     assert 'autocomplete="new-password"' in page.text
+    assert "existing_password" not in page.text
     assert page.headers["cache-control"] == "no-store"
     assert page.headers["referrer-policy"] == "no-referrer"
+    assert host_id  # the host exists; only its live invitation changes the page
+
+
+def test_s_page_asks_for_the_existing_password_only_for_a_live_existing_login_token(
+    ctx: _Ctx,
+) -> None:
+    _, host_address, _ = ctx.host_login()
+    _, _, token, _ = ctx.invited(address=host_address)
+    _, _, new_token, _ = ctx.invited()
+
+    existing = ctx.client.get(f"/s/{token}")
+    fresh = ctx.client.get(f"/s/{new_token}")
+
+    assert existing.status_code == 200
+    assert 'name="existing_password"' in existing.text
+    assert 'autocomplete="current-password"' in existing.text
+    assert "already signs in to SmartMatch" in existing.text
+    assert "new_password" not in existing.text and token not in existing.text
+    assert existing.headers["cache-control"] == "no-store"
+    assert 'autocomplete="new-password"' in fresh.text
+    # GET writes nothing and charges no attempt.
+    assert (
+        ctx.scalar(
+            "SELECT count(*) FROM speaker_portal_invitation "
+            "WHERE tenant_id = :t AND accepted_at IS NOT NULL",
+            t=ctx.tenant_id,
+        )
+        == 0
+    )
+    assert (
+        ctx.scalar(
+            "SELECT count(*) FROM pilot_login_attempt WHERE caller_key = :k",
+            k=f"speaker_portal.activate:test-{ctx.tenant_id.hex}",
+        )
+        == 0
+    )
+
+
+def test_s_form_existing_password_activates_without_a_session(ctx: _Ctx) -> None:
+    host_id, host_address, pw = ctx.host_login()
+    professional_id, _, token, _ = ctx.invited(address=host_address)
+
+    response = _form(ctx, token, {"existing_password": pw})
+
+    assert response.status_code == 200, response.text
+    assert "Speaker access is added to your SmartMatch login" in response.text
+    assert "Switch portal" in response.text
+    assert pw not in response.text
+    assert ctx.scalar("SELECT count(*) FROM pilot_session WHERE user_id = :u", u=host_id) == 0
+    assert (
+        ctx.scalar(
+            "SELECT account_user_id FROM speaker_profile WHERE professional_id = :p",
+            p=professional_id,
+        )
+        == host_id
+    )
+
+
+def test_s_form_wrong_existing_password_is_the_401_page_and_keeps_the_token(ctx: _Ctx) -> None:
+    host_id, host_address, pw = ctx.host_login()
+    professional_id, invitation_id, token, _ = ctx.invited(address=host_address)
+
+    wrong = _form(ctx, token, {"existing_password": _new_pw()})
+
+    assert wrong.status_code == 401
+    assert "That password does not match." in wrong.text
+    assert 'name="existing_password"' in wrong.text
+    assert (
+        ctx.scalar(
+            "SELECT accepted_at FROM speaker_portal_invitation WHERE id = :i", i=invitation_id
+        )
+        is None
+    )
+    assert _form(ctx, token, {"existing_password": pw}).status_code == 200
+    assert host_id and professional_id
+
+
+def test_s_form_mode_mismatch_is_409_with_the_other_form(ctx: _Ctx) -> None:
+    _, host_address, _ = ctx.host_login()
+    _, invitation_id, token, _ = ctx.invited(address=host_address)
+    pw = _new_pw()
+
+    response = _form(ctx, token, {"new_password": pw, "confirm_password": pw})
+
+    assert response.status_code == 409
+    assert 'name="existing_password"' in response.text
+    assert (
+        ctx.scalar(
+            "SELECT accepted_at FROM speaker_portal_invitation WHERE id = :i", i=invitation_id
+        )
+        is None
+    )
 
 
 def test_s_form_activates_without_issuing_a_session(ctx: _Ctx) -> None:
@@ -834,10 +1004,17 @@ def test_activation_normalises_a_trailing_tab_or_newline(ctx: _Ctx, trailing: st
 def test_a_trailing_tab_or_newline_does_not_escape_the_duplicate_check(
     ctx: _Ctx, trailing: str
 ) -> None:
+    """T6b-1 LOW 1 under T6b-5: the held address is still seen, so a new
+    password is the mode mismatch (existing-login mode), never a second login.
+    The holder is an Event Host: under Q1 any other holder is the generic 400."""
     base = f"Held-{uuid.uuid4().hex[:8]}@Example.invalid"
-    _, _, token, _ = ctx.invited(address=base + trailing)
-    ctx.other_credentialed_account(base)
-    assert ctx.activate(token).status_code == 400
+    professional_id, _, token, _ = ctx.invited(address=base + trailing)
+    ctx.host_login(base)
+    before = _account_state(ctx, professional_id)
+    response = ctx.activate(token)
+    assert response.status_code == 409, response.text
+    assert response.json()["error"]["details"] == {"expected": "existing_password"}
+    assert _account_state(ctx, professional_id) == before
 
 
 @pytest.mark.parametrize("route", ["json", "form"])
@@ -877,3 +1054,605 @@ def test_s_form_accepts_two_256_char_ascii_passwords(ctx: _Ctx) -> None:
     response = _form(ctx, token, encoded)
     assert response.status_code == 200, response.text
     assert pw not in response.text
+
+
+# ---------------------------------------------------------------------------
+# B26 T6b-5: existing-login activation (plan §4.1, §4.2, §8.1 items 1-4)
+# ---------------------------------------------------------------------------
+
+
+def _speaker_rows(ctx: _Ctx, user_id: uuid.UUID) -> list:
+    return ctx.rows(
+        "SELECT granted_path::text AS path, valid_from, valid_until FROM membership "
+        "WHERE user_id = :u AND role = 'speaker'",
+        u=user_id,
+    )
+
+
+def _contact_state(ctx: _Ctx, professional_id: uuid.UUID) -> tuple:
+    return tuple(
+        ctx.rows(
+            "SELECT email, (SELECT count(*) FROM pilot_credential WHERE user_id = :p) AS creds, "
+            "(SELECT count(*) FROM membership WHERE user_id = :p) AS roles "
+            "FROM user_account WHERE id = :p",
+            p=professional_id,
+        )[0]
+    )
+
+
+#: Q1: existing-login mode binds a login only when its active roles,
+#: ``speaker`` aside, are exactly ``{volunteer}`` (a true allow-list).
+#: Each refused holder, as ``(active roles, expired roles)``.
+_REFUSED_ROLE_CASES: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
+    "coordinator": (("coordinator",), ()),
+    "admin": (("admin",), ()),
+    "student": (("student",), ()),
+    "volunteer_and_coordinator": (("volunteer", "coordinator"), ()),
+    "volunteer_and_student": (("volunteer", "student"), ()),
+    "no_role": ((), ()),
+    "expired_staff_only": ((), ("coordinator",)),
+    "expired_volunteer_only": ((), ("volunteer",)),
+    "speaker_only": (("speaker",), ()),
+    # Owner ruling 2026-09-24 (#224 LOW row 10): a true allow-list, so a role
+    # this code does not know (a future one) refuses like a staff role does.
+    "volunteer_and_unknown_role": (("volunteer", "sponsor"), ()),
+    "volunteer_speaker_and_unknown_role": (("volunteer", "speaker", "sponsor"), ()),
+}
+
+#: Q1: the holders existing-login mode binds. ``speaker`` alongside
+#: ``volunteer`` neither helps nor hurts; an expired staff role is not held.
+_ACCEPTED_ROLE_CASES: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
+    "volunteer": (("volunteer",), ()),
+    "volunteer_and_speaker": (("volunteer", "speaker"), ()),
+    "volunteer_and_expired_coordinator": (("volunteer",), ("coordinator",)),
+}
+
+
+def _holder(
+    ctx: _Ctx, address: str, case: str, *, tenant_id: uuid.UUID | None = None
+) -> tuple[uuid.UUID, str]:
+    """A login at ``address`` shaped by one role case above: ``(user_id, pw)``."""
+    active, expired = (_REFUSED_ROLE_CASES | _ACCEPTED_ROLE_CASES)[case]
+    host_id, _, pw = ctx.host_login(address, roles=active, tenant_id=tenant_id)
+    for role in expired:
+        ctx.execute(
+            "INSERT INTO membership (id, tenant_id, user_id, granted_path, role, valid_until) "
+            "VALUES (:id, :t, :u, CAST(:p AS ltree), :r, now() - interval '1 day')",
+            id=uuid.uuid4(),
+            t=tenant_id or ctx.tenant_id,
+            u=host_id,
+            p=UNIT_PATH,
+            r=role,
+        )
+    return host_id, pw
+
+
+class TestExistingLogin:
+    def test_right_password_binds_the_host_login_and_adds_speaker(self, ctx: _Ctx) -> None:
+        host_id, host_address, pw = ctx.host_login()
+        professional_id, invitation_id, token, _ = ctx.invited(address=f"  {host_address.upper()} ")
+        host_before = ctx.snapshot(host_id)
+        contact_before = _contact_state(ctx, professional_id)
+
+        response = ctx.activate_existing(token, pw)
+
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert set(body) == {"access_token", "token_type", "expires_at"}
+        me = ctx.client.get("/v1/me", headers={"Authorization": f"Bearer {body['access_token']}"})
+        assert me.status_code == 200
+        assert sorted(m["role"] for m in me.json()["memberships"]) == ["speaker", "volunteer"]
+
+        row = ctx.rows(
+            "SELECT accepted_at, bound_account_user_id, binding_mode FROM "
+            "speaker_portal_invitation WHERE id = :i",
+            i=invitation_id,
+        )[0]
+        assert row.accepted_at is not None
+        assert (row.bound_account_user_id, row.binding_mode) == (host_id, "existing_login")
+        assert (
+            ctx.scalar(
+                "SELECT account_user_id FROM speaker_profile WHERE professional_id = :p",
+                p=professional_id,
+            )
+            == host_id
+        )
+        assert [(r.path, r.valid_from, r.valid_until) for r in _speaker_rows(ctx, host_id)] == [
+            (UNIT_PATH, None, None)
+        ]
+        assert ctx.snapshot(host_id) == host_before
+        assert _contact_state(ctx, professional_id) == contact_before
+        assert contact_before[0].endswith("@placeholder.invalid") and contact_before[1:] == (0, 0)
+
+    def test_the_session_belongs_to_the_host_login(self, ctx: _Ctx) -> None:
+        host_id, host_address, pw = ctx.host_login()
+        _, _, token, _ = ctx.invited(address=host_address)
+        assert ctx.activate_existing(token, pw).status_code == 200
+        assert ctx.scalar("SELECT count(*) FROM pilot_session WHERE user_id = :u", u=host_id) == 1
+
+    def test_wrong_password_is_401_and_the_token_stays_live(self, ctx: _Ctx) -> None:
+        host_id, host_address, pw = ctx.host_login()
+        professional_id, invitation_id, token, _ = ctx.invited(address=host_address)
+        before = ctx.snapshot(host_id)
+
+        wrong = ctx.activate_existing(token, _new_pw())
+
+        assert wrong.status_code == 401
+        assert wrong.json()["error"]["code"] == "speaker_portal_credentials_invalid"
+        assert wrong.headers["www-authenticate"] == "Bearer"
+        assert (
+            ctx.scalar(
+                "SELECT accepted_at FROM speaker_portal_invitation WHERE id = :i",
+                i=invitation_id,
+            )
+            is None
+        )
+        assert _speaker_rows(ctx, host_id) == [] and ctx.snapshot(host_id) == before
+        assert ctx.activate_existing(token, pw).status_code == 200
+        assert professional_id
+
+    def test_wrong_password_attempts_are_counted_by_the_activation_limiter(
+        self, ctx: _Ctx, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        caller = f"rl-existing-{uuid.uuid4().hex}"
+        monkeypatch.setattr(portal_router, "_activation_caller_key", lambda request: caller)
+        _, host_address, pw = ctx.host_login()
+        _, _, token, _ = ctx.invited(address=host_address)
+
+        statuses = [ctx.activate_existing(token, _new_pw()).status_code for _ in range(10)]
+        final = ctx.activate_existing(token, pw)
+
+        assert statuses == [401] * 10
+        assert final.status_code == 429
+        assert (
+            ctx.scalar("SELECT count(*) FROM pilot_login_attempt WHERE caller_key = :k", k=caller)
+            == 0
+        )
+        ctx.execute(
+            "DELETE FROM pilot_login_attempt WHERE caller_key = :k",
+            k=f"speaker_portal.activate:{caller}",
+        )
+
+    def test_new_password_for_a_held_address_is_409_and_writes_nothing(self, ctx: _Ctx) -> None:
+        host_id, host_address, _ = ctx.host_login()
+        professional_id, invitation_id, token, _ = ctx.invited(address=host_address)
+        host_before = ctx.snapshot(host_id)
+        contact_before = _contact_state(ctx, professional_id)
+
+        response = ctx.activate(token)
+
+        assert response.status_code == 409
+        error = response.json()["error"]
+        assert error["code"] == "speaker_portal_activation_mode_mismatch"
+        assert error["details"] == {"expected": "existing_password"}
+        assert ctx.snapshot(host_id) == host_before
+        assert _contact_state(ctx, professional_id) == contact_before
+        assert _speaker_rows(ctx, host_id) == []
+        assert (
+            ctx.scalar(
+                "SELECT accepted_at FROM speaker_portal_invitation WHERE id = :i",
+                i=invitation_id,
+            )
+            is None
+        )
+
+    def test_existing_password_for_a_free_address_is_409(self, ctx: _Ctx) -> None:
+        professional_id, _, token, _ = ctx.invited()
+        before = _contact_state(ctx, professional_id)
+
+        response = ctx.activate_existing(token, _new_pw())
+
+        assert response.status_code == 409
+        error = response.json()["error"]
+        assert error["code"] == "speaker_portal_activation_mode_mismatch"
+        assert error["details"] == {"expected": "new_password"}
+        assert _contact_state(ctx, professional_id) == before
+        assert ctx.activate(token).status_code == 200
+
+    def test_a_mode_mismatch_needs_a_verified_token(self, ctx: _Ctx) -> None:
+        """Q5: only the invitee learns the mode; an unknown token is the generic 400."""
+        _, host_address, _ = ctx.host_login()
+        _, _, token, _ = ctx.invited(address=host_address)
+        reference = ctx.activate(derive_token(ctx.secret, uuid.uuid4()))
+        ctx.rebuild(_new_secret())
+
+        response = ctx.activate(token)
+
+        assert response.status_code == 400 and response.content == reference.content
+
+    @pytest.mark.parametrize("fields", [{}, {"both": True}])
+    def test_exactly_one_password_field_is_required(self, ctx: _Ctx, fields: dict) -> None:
+        _, _, token, _ = ctx.invited()
+        body: dict[str, str] = {"token": token}
+        if fields:
+            body |= {"new_password": _new_pw(), "existing_password": _new_pw()}
+        response = ctx.client.post("/v1/speaker-portal/activate", json=body)
+        assert response.status_code == 422
+        assert response.json()["error"]["code"] == "invalid_request"
+
+    @pytest.mark.parametrize(
+        "case",
+        [
+            "ambiguous",
+            "other_tenant",
+            *_REFUSED_ROLE_CASES,
+            "bound_elsewhere",
+            "merged_contact_credentialed",
+            "suspended_holder",
+        ],
+    )
+    def test_refused_holders_are_the_generic_400(
+        self, ctx: _Ctx, other_tenant: uuid.UUID, case: str
+    ) -> None:
+        """R-E, R-F, Q1, one-login-one-Speaker, R-B: byte-identical to an unknown token."""
+        host_address = f"Host-{uuid.uuid4().hex[:8]}@Synthetic.invalid"
+        # Invite first: the invite pre-check would refuse these addresses (§4.3),
+        # and it is advisory — a holder that appears afterwards meets activation.
+        professional_id, invitation_id, token, _ = ctx.invited(address=host_address)
+        tenant = other_tenant if case == "other_tenant" else None
+        if case in _REFUSED_ROLE_CASES:
+            host_id, pw = _holder(ctx, host_address.lower(), case)
+        else:
+            host_id, _, pw = ctx.host_login(host_address.lower(), tenant_id=tenant)
+        if case == "ambiguous":
+            ctx.other_credentialed_account(host_address.lower(), tenant_id=other_tenant)
+        elif case == "bound_elsewhere":
+            # uq_contact_channel_address is exact; the address lock folds case.
+            _, _, other_token, _ = ctx.invited(address=host_address.upper())
+            assert ctx.activate_existing(other_token, pw).status_code == 200
+        elif case == "merged_contact_credentialed":
+            ctx.credential_for(professional_id)
+        elif case == "suspended_holder":
+            ctx.execute("UPDATE user_account SET suspended = true WHERE id = :u", u=host_id)
+        reference = ctx.client.post(
+            "/v1/speaker-portal/activate",
+            json={"token": derive_token(ctx.secret, uuid.uuid4()), "existing_password": pw},
+        )
+        speaker_before = _speaker_rows(ctx, host_id)
+
+        response = ctx.activate_existing(token, pw)
+
+        assert response.status_code == 400, response.text
+        assert response.content == reference.content
+        assert _speaker_rows(ctx, host_id) == speaker_before
+        assert (
+            ctx.scalar(
+                "SELECT accepted_at FROM speaker_portal_invitation WHERE id = :i",
+                i=invitation_id,
+            )
+            is None
+        )
+
+    def test_a_suspended_holder_with_a_wrong_password_is_still_401(self, ctx: _Ctx) -> None:
+        """Suspension is checked only after the password, so it leaks to nobody else."""
+        host_id, host_address, _ = ctx.host_login()
+        ctx.execute("UPDATE user_account SET suspended = true WHERE id = :u", u=host_id)
+        _, _, token, _ = ctx.invited(address=host_address)
+        assert ctx.activate_existing(token, _new_pw()).status_code == 401
+
+    def test_the_host_can_sign_in_with_the_same_password_afterwards(self, ctx: _Ctx) -> None:
+        _, host_address, pw = ctx.host_login()
+        _, _, token, _ = ctx.invited(address=host_address)
+        assert ctx.activate_existing(token, pw).status_code == 200
+        login = ctx.client.post("/v1/auth/login", json={"email": host_address, "password": pw})
+        assert login.status_code == 200, login.text
+
+    @pytest.mark.parametrize("case", list(_ACCEPTED_ROLE_CASES))
+    def test_an_active_volunteer_login_binds(self, ctx: _Ctx, case: str) -> None:
+        """Q1 allow-list: active roles, ``speaker`` aside, exactly ``{volunteer}``."""
+        host_address = f"Host-{uuid.uuid4().hex[:8]}@Synthetic.invalid"
+        host_id, pw = _holder(ctx, host_address, case)
+        professional_id, _, token, _ = ctx.invited(address=host_address)
+
+        assert 'name="existing_password"' in ctx.client.get(f"/s/{token}").text
+        response = ctx.activate_existing(token, pw)
+
+        assert response.status_code == 200, response.text
+        assert (
+            ctx.scalar(
+                "SELECT account_user_id FROM speaker_profile WHERE professional_id = :p",
+                p=professional_id,
+            )
+            == host_id
+        )
+        assert len(_speaker_rows(ctx, host_id)) == 1
+
+    @pytest.mark.parametrize("case", list(_REFUSED_ROLE_CASES))
+    def test_a_refused_holder_gets_the_generic_page(self, ctx: _Ctx, case: str) -> None:
+        """``GET /s/{token}`` for an Q1 refusal is T6b-1's bytes, and asks for no password."""
+        host_address = f"Host-{uuid.uuid4().hex[:8]}@Synthetic.invalid"
+        _, _, token, _ = ctx.invited(address=host_address)
+        _holder(ctx, host_address.lower(), case)
+        reference = ctx.client.get(f"/s/{derive_token(ctx.secret, uuid.uuid4())}")
+
+        page = ctx.client.get(f"/s/{token}")
+
+        assert page.status_code == 200
+        assert page.content == reference.content
+        assert "existing_password" not in page.text
+
+
+# ---------------------------------------------------------------------------
+# B26 T6b-5: invite pre-check (plan §4.3, R-F, Q1, Q5)
+# ---------------------------------------------------------------------------
+
+
+def _no_invitations(ctx: _Ctx) -> bool:
+    return (
+        ctx.scalar(
+            "SELECT count(*) FROM speaker_portal_invitation WHERE tenant_id = :t", t=ctx.tenant_id
+        )
+        == 0
+    )
+
+
+def test_invite_precheck_other_tenant_is_409(ctx: _Ctx, other_tenant: uuid.UUID) -> None:
+    professional_id, channel_id, address = ctx.contact()
+    ctx.other_credentialed_account(f" {address.lower()} ", tenant_id=other_tenant)
+
+    response = ctx.invite(professional_id, channel_id)
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "speaker_portal_address_in_other_tenant"
+    assert str(other_tenant) not in response.text
+    assert _no_invitations(ctx)
+
+
+def test_invite_precheck_ambiguous_is_409(ctx: _Ctx, other_tenant: uuid.UUID) -> None:
+    professional_id, channel_id, address = ctx.contact()
+    ctx.host_login(address.upper())
+    ctx.other_credentialed_account(address, tenant_id=other_tenant)
+
+    response = ctx.invite(professional_id, channel_id)
+
+    assert response.status_code == 409
+    error = response.json()["error"]
+    assert error["code"] == "speaker_portal_address_ambiguous"
+    assert error["message"] == "This address matches more than one login. Fix that before inviting."
+    assert _no_invitations(ctx)
+
+
+#: Q1: every holder the pre-check refuses gets this one body, whatever it holds.
+_NOT_HOST_LOGIN_CODE = "speaker_portal_address_not_host_login"
+_NOT_HOST_LOGIN_MESSAGE = (
+    "This address already signs in to SmartMatch and cannot also be a Speaker login. "
+    "Choose a different address."
+)
+
+
+@pytest.mark.parametrize(
+    ("held", "binds"),
+    [
+        (frozenset({"volunteer"}), True),
+        (frozenset({"volunteer", "speaker"}), True),
+        (frozenset(), False),
+        (frozenset({"speaker"}), False),
+        (frozenset({"volunteer", "coordinator"}), False),
+        (frozenset({"volunteer", "admin"}), False),
+        (frozenset({"volunteer", "student"}), False),
+        (frozenset({"coordinator"}), False),
+        (frozenset({"volunteer", "sponsor"}), False),
+        (frozenset({"volunteer", "speaker", "sponsor"}), False),
+        (frozenset({"sponsor"}), False),
+    ],
+    ids=[
+        "volunteer",
+        "volunteer_and_speaker",
+        "no_role",
+        "speaker_only",
+        "volunteer_and_coordinator",
+        "volunteer_and_admin",
+        "volunteer_and_student",
+        "coordinator",
+        "volunteer_and_unknown_role",
+        "volunteer_speaker_and_unknown_role",
+        "unknown_role_only",
+    ],
+)
+def test_existing_login_may_bind_is_an_allow_list(held: frozenset[str], binds: bool) -> None:
+    """Q1 in one place: the pre-check and activation both call this."""
+    from smartmatch_api.speaker_portal_activation import (
+        EXISTING_LOGIN_ALLOWED_ROLES,
+        existing_login_may_bind,
+    )
+
+    assert set(EXISTING_LOGIN_ALLOWED_ROLES) == {"volunteer"}
+    assert existing_login_may_bind(held) is binds
+
+
+@pytest.mark.parametrize("case", list(_REFUSED_ROLE_CASES))
+def test_invite_precheck_refuses_every_holder_but_an_event_host(ctx: _Ctx, case: str) -> None:
+    professional_id, channel_id, address = ctx.contact()
+    host_id, _ = _holder(ctx, address.lower(), case)
+
+    response = ctx.invite(professional_id, channel_id)
+
+    assert response.status_code == 409
+    error = response.json()["error"]
+    assert (error["code"], error["message"]) == (_NOT_HOST_LOGIN_CODE, _NOT_HOST_LOGIN_MESSAGE)
+    assert str(host_id) not in response.text
+    assert _no_invitations(ctx)
+
+
+def test_invite_precheck_refusals_are_byte_identical(ctx: _Ctx) -> None:
+    """No enumeration: staff, student, no-role, expired-only and speaker-only read alike."""
+    bodies = set()
+    for case in _REFUSED_ROLE_CASES:
+        professional_id, channel_id, address = ctx.contact()
+        _holder(ctx, address.lower(), case)
+        response = ctx.invite(professional_id, channel_id)
+        assert response.status_code == 409, case
+        bodies.add(response.content)
+    assert len(bodies) == 1
+    assert _no_invitations(ctx)
+
+
+def test_invite_to_an_expired_staff_role_only_is_409(ctx: _Ctx) -> None:
+    """Q1: an expired coordinator role and no active volunteer is not an Event Host."""
+    professional_id, channel_id, address = ctx.contact()
+    host_id, _, _ = ctx.host_login(address.lower(), roles=())
+    ctx.execute(
+        "INSERT INTO membership (id, tenant_id, user_id, granted_path, role, valid_until) "
+        "VALUES (:id, :t, :u, CAST(:p AS ltree), 'coordinator', now() - interval '1 day')",
+        id=uuid.uuid4(),
+        t=ctx.tenant_id,
+        u=host_id,
+        p=UNIT_PATH,
+    )
+
+    response = ctx.invite(professional_id, channel_id)
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == _NOT_HOST_LOGIN_CODE
+    assert _no_invitations(ctx)
+
+
+@pytest.mark.parametrize("case", list(_ACCEPTED_ROLE_CASES))
+def test_invite_to_an_event_host_address_is_accepted(ctx: _Ctx, case: str) -> None:
+    professional_id, channel_id, address = ctx.contact()
+    _holder(ctx, address.lower(), case)
+    assert ctx.invite(professional_id, channel_id).status_code == 202
+
+
+# ---------------------------------------------------------------------------
+# B26 T6b-5: unbind — DELETE …/portal-access (plan §4.4, R-I, Q3)
+# ---------------------------------------------------------------------------
+
+
+def _bound_existing(ctx: _Ctx) -> tuple[uuid.UUID, uuid.UUID, uuid.UUID, str, str]:
+    """``(host_id, professional_id, invitation_id, host_address, pw)``, bound."""
+    host_id, host_address, pw = ctx.host_login()
+    professional_id, invitation_id, token, _ = ctx.invited(address=host_address)
+    assert ctx.activate_existing(token, pw).status_code == 200
+    return host_id, professional_id, invitation_id, host_address, pw
+
+
+class TestUnbind:
+    def test_unbind_expires_only_the_speaker_row_and_clears_the_binding(
+        self, ctx: _Ctx, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        host_id, professional_id, invitation_id, _, _ = _bound_existing(ctx)
+        host_before = ctx.snapshot(host_id)
+        monkeypatch.setattr(portal_router, "utc_now", lambda: FROZEN_NOW)
+
+        response = ctx.unbind(professional_id)
+
+        assert response.status_code == 200, response.text
+        assert response.json() == {"unbound": True}
+        assert [(r.valid_until) for r in _speaker_rows(ctx, host_id)] == [FROZEN_NOW]
+        assert ctx.snapshot(host_id) == host_before
+        profile = ctx.rows(
+            "SELECT account_user_id, account_bound_at FROM speaker_profile "
+            "WHERE professional_id = :p",
+            p=professional_id,
+        )[0]
+        assert tuple(profile) == (None, None)
+        invitation = ctx.rows(
+            "SELECT unbound_at, unbound_by_user_id, accepted_at IS NOT NULL AS accepted "
+            "FROM speaker_portal_invitation WHERE id = :i",
+            i=invitation_id,
+        )[0]
+        assert tuple(invitation) == (FROZEN_NOW, ctx.coordinator_id, True)
+
+    def test_next_request_loses_speaker_routes_and_portal(self, ctx: _Ctx) -> None:
+        host_id, host_address, pw = ctx.host_login()
+        professional_id, _, token, _ = ctx.invited(address=host_address)
+        bearer = ctx.activate_existing(token, pw).json()["access_token"]
+        auth = {"Authorization": f"Bearer {bearer}"}
+        before = ctx.client.get("/v1/me/portals", headers=auth).json()
+        assert [p["portal"] for p in before["portals"]] == ["volunteer", "speaker"]
+
+        assert ctx.unbind(professional_id).json() == {"unbound": True}
+
+        me = ctx.client.get("/v1/me", headers=auth)
+        assert me.status_code == 200
+        # /v1/me lists every row with its window; the speaker row has ended.
+        windows = {m["role"]: m["valid_until"] for m in me.json()["memberships"]}
+        assert windows["volunteer"] is None and windows["speaker"] is not None
+        after = ctx.client.get("/v1/me/portals", headers=auth).json()
+        assert [p["portal"] for p in after["portals"]] == ["volunteer"]
+        assert after["default_portal"] == "volunteer"
+        assert ctx.access(professional_id).json() == {"status": "none"}
+        assert host_id
+
+    def test_new_login_unbind_retires_the_contact_login(self, ctx: _Ctx) -> None:
+        professional_id, _, token, address = ctx.invited()
+        pw = _new_pw()
+        bearer = ctx.activate(token, pw).json()["access_token"]
+        auth = {"Authorization": f"Bearer {bearer}"}
+        assert ctx.client.get("/v1/me", headers=auth).status_code == 200
+
+        assert ctx.unbind(professional_id).json() == {"unbound": True}
+
+        assert ctx.client.get("/v1/me", headers=auth).status_code == 401
+        assert (
+            ctx.scalar(
+                "SELECT count(*) FROM pilot_credential WHERE user_id = :p", p=professional_id
+            )
+            == 0
+        )
+        assert (
+            ctx.scalar(
+                "SELECT count(*) FROM pilot_session WHERE user_id = :p AND revoked_at IS NULL",
+                p=professional_id,
+            )
+            == 0
+        )
+        login = ctx.client.post("/v1/auth/login", json={"email": address, "password": pw})
+        assert login.status_code == 401
+
+    def test_reinvite_after_unbind_works_in_both_modes(self, ctx: _Ctx) -> None:
+        host_id, host_prof, _, _, pw = _bound_existing(ctx)
+        assert ctx.unbind(host_prof).json() == {"unbound": True}
+        again = ctx.invite(host_prof, ctx.channel_of(host_prof))
+        assert again.status_code == 202, again.text
+        token = ctx.token_for(again.json()["invitation_id"])
+        assert ctx.activate_existing(token, pw).status_code == 200
+        assert [r.valid_until for r in _speaker_rows(ctx, host_id)].count(None) == 1
+
+        new_prof, _, new_token, _ = ctx.invited()
+        assert ctx.activate(new_token).status_code == 200
+        assert ctx.unbind(new_prof).json() == {"unbound": True}
+        again = ctx.invite(new_prof, ctx.channel_of(new_prof))
+        assert again.status_code == 202, again.text
+        pw2 = _new_pw()
+        new_again = ctx.token_for(again.json()["invitation_id"])
+        assert ctx.activate(new_again, pw2).status_code == 200
+        assert (
+            ctx.scalar(
+                "SELECT account_user_id FROM speaker_profile WHERE professional_id = :p",
+                p=new_prof,
+            )
+            == new_prof
+        )
+
+    def test_unbind_is_idempotent(self, ctx: _Ctx) -> None:
+        _, professional_id, _, _, _ = _bound_existing(ctx)
+        assert ctx.unbind(professional_id).json() == {"unbound": True}
+        assert ctx.unbind(professional_id).json() == {"unbound": False}
+        never, _, _ = ctx.contact()
+        assert ctx.unbind(never).json() == {"unbound": False}
+
+    def test_unbind_other_unit_is_404(self, ctx: _Ctx) -> None:
+        other, _, _ = ctx.contact(unit_id=ctx.sibling_unit_id)
+        response = ctx.unbind(other, unit_id=ctx.sibling_unit_id)
+        assert response.status_code in {403, 404}
+        response = ctx.unbind(other)
+        assert response.status_code == 404
+        assert response.json()["error"]["code"] == "speaker_contact_not_found"
+
+    def test_portal_access_reports_login_shared(self, ctx: _Ctx) -> None:
+        _, shared_prof, _, _, _ = _bound_existing(ctx)
+        own_prof, _, own_token, _ = ctx.invited()
+        assert ctx.activate(own_token).status_code == 200
+        invited_prof, _, _, _ = ctx.invited()
+
+        shared = ctx.access(shared_prof).json()
+        own = ctx.access(own_prof).json()
+        invited = ctx.access(invited_prof).json()
+
+        assert shared["status"] == "active" and shared["login_shared"] is True
+        assert own["status"] == "active" and own["login_shared"] is False
+        assert invited["status"] == "invited" and "login_shared" not in invited
+        for body in (shared, own):
+            assert set(body) == {"status", "bound_at", "login_shared"}

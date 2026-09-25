@@ -13,6 +13,7 @@ import { useState } from "react";
 import { ScrollToTop } from "./ScrollToTop";
 import { SessionGate } from "./SessionGate";
 import { PortalGate, grantedPortal } from "./PortalGate";
+import { PortalSwitcher } from "./PortalSwitcher";
 import { useSession, useSignOut } from "../hooks/useSession";
 import { usePortalAccess } from "../hooks/usePortalAccess";
 import { prefetchPortalRoute } from "../navPrefetch";
@@ -157,6 +158,12 @@ export function VolunteerPortalLayout() {
 
           {/* Footer */}
           <div className="border-t border-sidebar-border p-4">
+            {/* B26 T6b-5: for a login that also holds the Speaker role. Above
+                the profile, so Sign out stays directly beneath it (DESIGN.md);
+                the mobile header carries the other instance. */}
+            <div className="hidden lg:block">
+              <PortalSwitcher current="volunteer" placement="sidebar" />
+            </div>
             <div className="flex items-center gap-3 px-3 py-2">
               <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-sm font-medium text-primary-foreground">
                 {initials}
@@ -190,7 +197,9 @@ export function VolunteerPortalLayout() {
               <Menu className="h-6 w-6" />
             </button>
             <BrandLogo compact className="w-[145px]" />
-            <div className="w-6" />
+            <div className="flex min-w-6 justify-end">
+              <PortalSwitcher current="volunteer" placement="header" />
+            </div>
           </div>
         </header>
 

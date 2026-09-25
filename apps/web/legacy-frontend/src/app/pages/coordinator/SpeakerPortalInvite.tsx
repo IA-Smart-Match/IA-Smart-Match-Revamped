@@ -19,6 +19,7 @@ import {
   fetchSpeakerPortalAccess,
   inviteSpeakerToPortal,
   revokeSpeakerPortalInvitation,
+  unbindSpeakerPortal,
   type SpeakerPortalAccess,
   type SpeakerPortalInvitation,
 } from "../../../lib/api";
@@ -36,7 +37,32 @@ const ERROR_MESSAGES: Record<string, string> = {
   speaker_contact_not_found: "This contact is no longer in your roster",
   rate_limited: "Too many requests. Wait a minute and try again",
   forbidden: "You do not have permission to invite this Speaker",
+  speaker_portal_address_in_other_tenant:
+    "This address signs in to another SmartMatch organization. Choose a different address",
+  speaker_portal_address_ambiguous:
+    "This address matches more than one login. Fix that before inviting",
+  speaker_portal_address_not_host_login:
+    "This address already signs in to SmartMatch and cannot also be a Speaker login. Choose a different address",
 };
+
+/**
+ * R-L (B26 T6b-5): suspension is per login, so a Speaker who signs in with
+ * their Event Host login loses both roles with it. No route suspends an
+ * account today; this sentence is where the Connector learns it.
+ */
+function activeSentence(access: SpeakerPortalAccess): string {
+  const since = `Portal active since ${formatDate(access.bound_at)}.`;
+  if (access.login_shared === true) {
+    return (
+      `${since} This Speaker signs in with the login they also use as an Event Host. ` +
+      "Suspending that login suspends both."
+    );
+  }
+  if (access.login_shared === false) {
+    return `${since} Suspending this login suspends the Speaker's portal access.`;
+  }
+  return `Portal active since ${formatDate(access.bound_at)}`;
+}
 
 function messageFor(error: unknown): string {
   if (error instanceof ApiRequestError) {
@@ -117,6 +143,13 @@ function SpeakerPortalInvitePanel({
       void invalidateAccess();
     },
   });
+  const unbind = useMutation({
+    mutationFn: () => unbindSpeakerPortal(unitId, professionalId),
+    onSuccess: () => {
+      invite.reset();
+      void invalidateAccess();
+    },
+  });
 
   const eligible = (channels.data?.channels ?? [])
     .map((item) => item.channel)
@@ -127,11 +160,21 @@ function SpeakerPortalInvitePanel({
   const shown: SpeakerPortalAccess | undefined = invite.data
     ? { status: "invited", expires_at: invite.data.expires_at }
     : access.data;
-  const error = invite.error ?? revoke.error ?? null;
+  const error = invite.error ?? revoke.error ?? unbind.error ?? null;
 
   const onRevoke = () => {
     if (!window.confirm("Revoke this Speaker's portal link? It will stop working.")) return;
     revoke.mutate();
+  };
+
+  const onUnbind = () => {
+    if (
+      !window.confirm(
+        "Remove this Speaker's portal access? Their Event Host access, if any, stays.",
+      )
+    )
+      return;
+    unbind.mutate();
   };
 
   let status: string;
@@ -141,7 +184,12 @@ function SpeakerPortalInvitePanel({
   } else if (access.isError && !invite.data) {
     status = messageFor(access.error);
   } else if (shown?.status === "active") {
-    status = `Portal active since ${formatDate(shown.bound_at)}`;
+    status = activeSentence(shown);
+    actions = (
+      <button type="button" className={BUTTON} onClick={onUnbind} disabled={unbind.isPending}>
+        Remove portal access
+      </button>
+    );
   } else if (shown?.status === "invited") {
     status = `Invited · link expires ${formatDate(shown.expires_at)}`;
     actions = (

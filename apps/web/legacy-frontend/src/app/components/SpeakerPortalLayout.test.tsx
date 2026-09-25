@@ -38,6 +38,16 @@ const SPEAKER_GRANT = {
   org_unit_path: "/cba/accounting",
 };
 
+const HOST_GRANT = {
+  portal: "volunteer",
+  display_name: "Event Host Portal",
+  home_path: "/volunteer-portal",
+  role: "volunteer",
+  roles: ["volunteer"],
+  default_unit_id: UNIT,
+  org_unit_path: "/cba/accounting",
+};
+
 vi.mock("../hooks/useSession", () => ({
   useSession: () => state.session,
   useSignOut: () => () => undefined,
@@ -277,5 +287,40 @@ describe("<SpeakerPortalLayout />", () => {
     expect(previous).not.toBeNull();
     expect(previous?.textContent).toContain("dana.speaker@example.edu");
     expect(previous?.textContent).toContain("/cba/accounting");
+  });
+  it("with one portal there is no portal switcher", () => {
+    renderShell();
+    expect(screen.queryByRole("button", { name: "Switch portal" })).toBeNull();
+  });
+
+  it("with a second portal the sidebar switcher sits above the profile block (DESIGN.md), and Sign out still directly follows the profile", () => {
+    state.portals = [HOST_GRANT, SPEAKER_GRANT];
+    renderShell();
+    const sidebar = document.getElementById("speaker-portal-sidebar") as HTMLElement;
+    const inSidebar = within(sidebar).getByRole("button", {
+      name: "Switch portal",
+    });
+    const signOut = within(sidebar).getByRole("button", { name: "Sign out" });
+    const profile = signOut.previousElementSibling as HTMLElement;
+    expect(profile.textContent).toContain("dana.speaker@example.edu");
+    // The switcher precedes the profile block in document order.
+    expect(
+      inSidebar.compareDocumentPosition(profile) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(profile.contains(inSidebar)).toBe(false);
+  });
+
+  it("with a second portal the mobile header carries the switcher too", () => {
+    state.portals = [HOST_GRANT, SPEAKER_GRANT];
+    renderShell();
+    const header = screen.getByRole("banner");
+    expect(within(header).getByRole("button", { name: "Switch portal" })).toBeTruthy();
+    fireEvent.click(within(header).getByRole("button", { name: "Switch portal" }));
+    expect(
+      within(header).getByRole("link", { name: "Speaker Portal" }).getAttribute("aria-current"),
+    ).toBe("true");
+    expect(
+      within(header).getByRole("link", { name: "Event Host Portal" }).getAttribute("href"),
+    ).toBe("/volunteer-portal");
   });
 });
