@@ -462,18 +462,32 @@ def test_the_shipped_set_is_still_marked_as_the_teams_translation():
 def test_the_plain_words_paragraph_states_every_shipped_number():
     """Ann and Dr. Lin receive the paragraph; it must say what the code does."""
     from smartmatch_domain.exercise import simulation
+    from smartmatch_domain.student_factors import UNDECIDED_EXPLORATORY_GOAL_FIT
 
     shipped = _shipped()
     text = " ".join((simulation.__doc__ or "").split())
-    for value in (
-        shipped.base_signup_rate,
-        shipped.true_fit_lift,
-        shipped.frequent_attender_lift,
-        shipped.same_major_lift,
-        shipped.chance_spread / 2,
-        shipped.attend_given_signup,
+
+    def per_100(value: float) -> int:
+        return round(value * 100)
+
+    # Each number is checked in the sentence that names it, so two numbers
+    # that happen to be equal cannot stand in for each other.
+    for sentence in (
+        f"Everyone starts with a {per_100(shipped.base_signup_rate)} in 100 chance",
+        f"The biggest boost, {per_100(shipped.true_fit_lift)} in 100",
+        f"medium boost of {per_100(shipped.frequent_attender_lift)} in 100",
+        f"small boost of {per_100(shipped.same_major_lift)} in 100",
+        f"up to {per_100(shipped.chance_spread / 2)} in 100 either way",
+        f"a {per_100(shipped.attend_given_signup)} in 100 chance of attending",
+        "never goes below 0 or above 100 in 100",
     ):
-        assert f"{round(value * 100)} in 100" in text, value
+        assert sentence in text, sentence
+    assert shipped.frequent_attender_events == 1
+    assert "been to at least one past event" in text
+    assert shipped.true_interest_share_of_fit == 0.5
+    assert "half of it when one of their true interests" in text
+    assert UNDECIDED_EXPLORATORY_GOAL_FIT == 0.5
+    assert "gets half of that career-goal half" in text
 
 
 def test_require_coefficients_refuses_while_the_set_is_none(monkeypatch):

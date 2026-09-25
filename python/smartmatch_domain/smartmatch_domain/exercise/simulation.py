@@ -21,9 +21,10 @@ checks that every number in it is the number the code uses.
     medium boost of 10 in 100. Being in the major the event is aimed at gives a
     small boost of 4 in 100. Then some chance is added, up to 10 in 100 either
     way, and that chance is fixed for each team, so running the same list twice
-    gives the same answer. Of the people who sign up, 75 in 100 attend. The app
-    uses each profile's true interests for this, not what the profile has told
-    the app, which is why a list built on what the app knows can miss people.
+    gives the same answer. The total never goes below 0 or above 100 in 100.
+    Each person who signs up has a 75 in 100 chance of attending. The app uses
+    each profile's true interests for this, not what the profile has told the
+    app, which is why a list built on what the app knows can miss people.
 
 Ann's words were: the event matches what the student genuinely cares about,
 **a lot**; the student has attended events before, **some**; the event is

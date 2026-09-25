@@ -82,6 +82,7 @@ from smartmatch_domain.student_factors import (
     PAST_EVENT_TOPIC_OVERLAP_FACTOR_KEY,
     SAME_MAJOR_FACTOR_KEY,
     STATED_INTEREST_OVERLAP_FACTOR_KEY,
+    UNDECIDED_EXPLORATORY_GOAL_FIT,
     EventEvidence,
     ProfileEvidence,
     career_goal_fit,
@@ -409,6 +410,21 @@ def _contributing_keys(score: StageBScore) -> tuple[str, ...]:
     )
 
 
+def _goal_fit_is_undecided_half(score: StageBScore) -> bool:
+    """Whether "career goal fits this event" counted only as an undecided half.
+
+    OQ-CE-14: an undecided goal earns
+    :data:`~smartmatch_domain.student_factors.UNDECIDED_EXPLORATORY_GOAL_FIT` on
+    an exploratory event. The reason line must not tell a class participant
+    that an "Undecided" card's goal *fits*, so it names the half differently.
+    """
+    return any(
+        factor.factor_key == CAREER_GOAL_FIT_FACTOR_KEY
+        and factor.value == UNDECIDED_EXPLORATORY_GOAL_FIT
+        for factor in score.factor_scores
+    )
+
+
 def _fixed_order(profiles: Sequence[ExerciseProfile], dataset_checksum: str) -> Mapping[int, int]:
     """``{profile_no: position}`` for the last step of the tie-break.
 
@@ -562,6 +578,7 @@ def exercise_ranked_list(
                     contributing_keys=contributing,
                     tie_break_key=tie.key,
                     tied_on_major=tie.on_major,
+                    undecided_goal=_goal_fit_is_undecided_half(entry.score),
                 ),
                 contributing_factor_keys=contributing,
             )

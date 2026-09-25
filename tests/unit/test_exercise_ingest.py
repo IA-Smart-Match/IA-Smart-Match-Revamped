@@ -287,7 +287,7 @@ def test_an_unknown_event_type_is_refused_and_named() -> None:
 
     assert refusal.code == "unknown_value"
     assert refusal.message.startswith("Row 2 of the `Events` sheet has `Hackathon`")
-    assert refusal.message.endswith("which is not one of the 9 event types.")
+    assert refusal.message.endswith("which is not one of the 7 kinds of event.")
 
 
 def test_an_event_with_no_event_type_is_refused() -> None:

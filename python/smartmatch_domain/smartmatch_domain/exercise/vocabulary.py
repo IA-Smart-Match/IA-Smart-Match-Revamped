@@ -257,9 +257,10 @@ def goal_is_undecided(career_goal: str | None) -> bool:
     """Whether a stored career goal is Ann's ``Undecided`` (OQ-CE-14).
 
     The flag the matching factor and the results rule read beside
-    :func:`goal_topic_for_matching`, so the two agree on who is undecided. A
-    goal stored before the vocabulary closed is compared as written and is
-    never undecided, which is how it ranked when it was stored.
+    :func:`goal_topic_for_matching`, so the two agree on who is undecided. The
+    label is matched through the same fold as every other term, so any stored
+    spelling of ``Undecided`` counts. A dataset stored before revision 0043 has
+    no exploratory event, so the flag changes nothing for it.
     """
     if career_goal is None:
         return False

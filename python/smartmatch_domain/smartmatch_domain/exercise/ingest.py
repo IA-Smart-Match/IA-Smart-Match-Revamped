@@ -304,7 +304,11 @@ _A_MAJOR: Final[str] = f"one of the {len(EXERCISE_MAJORS)} majors"
 _A_YEAR: Final[str] = ", ".join(EXERCISE_CLASS_YEARS[:-1]) + f" or {EXERCISE_CLASS_YEARS[-1]}"
 _A_TOPIC: Final[str] = f"one of the {len(EXERCISE_TOPICS)} topics"
 _A_GOAL: Final[str] = f"one of the {len(EXERCISE_CAREER_GOALS)} career goals"
-_AN_EVENT_TYPE: Final[str] = f"one of the {len(EXERCISE_EVENT_TYPES)} event types"
+#: Counted as kinds of event: Ann's two bracketed "Employer talk (exercise
+#: event N)" spellings name the same kind as "Employer talk".
+_AN_EVENT_TYPE: Final[str] = (
+    f"one of the {len({label.split(' (')[0] for label in EXERCISE_EVENT_TYPES})} kinds of event"
+)
 
 
 # ---------------------------------------------------------------------------

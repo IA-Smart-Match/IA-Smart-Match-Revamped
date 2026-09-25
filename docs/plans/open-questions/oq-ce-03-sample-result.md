@@ -39,7 +39,8 @@ their career goal fits the event. A student whose career goal is undecided gets
 half of that second half from an exploratory event, so a student whose goal
 clearly fits still does better.
 
-Of the students who sign up, 75 in 100 attend. That matches Ann's own example,
+A student's chance never goes below 0 or above 100 in 100. Each student who
+signs up has a 75 in 100 chance of attending. That matches Ann's own example,
 where 6 of 8 attended.
 
 The rule uses each student's true interests and true career goal, not what the

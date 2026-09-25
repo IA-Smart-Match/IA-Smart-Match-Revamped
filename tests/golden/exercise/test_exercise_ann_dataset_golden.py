@@ -331,12 +331,12 @@ def test_on_the_goal_alone_every_fitting_goal_outranks_every_undecided_one(
 
 
 @pytest.mark.golden
-def test_an_undecided_card_on_northline_reads_as_its_goal_fitting() -> None:
-    """How a half contribution reads: the factor counted, named in Ann's words.
+def test_an_undecided_card_on_northline_is_never_told_its_goal_fits() -> None:
+    """How a half contribution reads: the factor counted, with no number.
 
-    ``reasons.py`` names contributing factors and never a number (ADR-0025 D8),
-    so half a fit and a whole fit share the line "career goal fits this event" —
-    Ann's own framing ("Undecided → should match broad exploratory events").
+    "Career goal fits this event" would be false beside a card that says
+    "Undecided", so the half is named "undecided goal suits a broad event"
+    (ADR-0025 D8: still no number).
 
     P197 is the undecided card the default list reaches: 30th of 30 on
     Northline, on its half goal fit and its past events.
@@ -350,7 +350,7 @@ def test_an_undecided_card_on_northline_reads_as_its_goal_fitting() -> None:
         "past_event_topic_overlap",
     )
     assert p197.reason == phrase_as_sentence(  # type: ignore[attr-defined]
-        "what counted: career goal fits this event and went to similar events before"
+        "what counted: undecided goal suits a broad event and went to similar events before"
     )
     for number in UNDECIDED_CARDS:
         entry = _entry(_ranked("E11", None, invite_limit=300), number)

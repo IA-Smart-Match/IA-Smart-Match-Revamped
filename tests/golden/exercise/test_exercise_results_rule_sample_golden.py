@@ -19,6 +19,7 @@ import statistics
 from collections.abc import Mapping
 from dataclasses import dataclass
 from functools import cache
+from pathlib import Path
 
 import pytest
 from smartmatch_api.exercise_dependencies import SimulationProfileRow
@@ -157,6 +158,50 @@ def test_the_sample_result_in_the_document_is_what_the_rule_gives(
         row.average_signed_up,
         row.average_attended,
     ) == PINNED[(event_key, weighting)]
+
+
+#: The document Chau forwards, and the words it uses for each event and list.
+SAMPLE_DOCUMENT = (
+    Path(__file__).resolve().parents[3]
+    / "docs"
+    / "plans"
+    / "open-questions"
+    / "oq-ce-03-sample-result.md"
+)
+_DOCUMENT_EVENTS = {"### Northline": "E11", "### Harbor": "E12"}
+_DOCUMENT_LISTS = {
+    "Equal weights": "equal weights",
+    "Said they are interested": "said they are interested",
+    "Same major": "same major",
+}
+
+
+def _document_tables() -> dict[tuple[str, str], tuple[int, int, int, float, float]]:
+    """Every result row of the document, keyed like :data:`PINNED`."""
+    found: dict[tuple[str, str], tuple[int, int, int, float, float]] = {}
+    event_key: str | None = None
+    for line in SAMPLE_DOCUMENT.read_text(encoding="utf-8").splitlines():
+        if line.startswith("#"):
+            event_key = _DOCUMENT_EVENTS.get(line.strip())
+            continue
+        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+        if event_key is None or not cells or cells[0] not in _DOCUMENT_LISTS:
+            continue
+        signed, attended, empty = (int(cell) for cell in cells[1:4])
+        found[(event_key, _DOCUMENT_LISTS[cells[0]])] = (
+            signed,
+            attended,
+            empty,
+            float(cells[4]),
+            float(cells[5]),
+        )
+    return found
+
+
+@pytest.mark.golden
+def test_the_document_shows_exactly_the_pinned_numbers() -> None:
+    """The document is what Ann and Chau see; it may not drift from the rule."""
+    assert _document_tables() == dict(PINNED)
 
 
 @pytest.mark.golden
