@@ -66,7 +66,9 @@ __all__ = [
     "MAX_TOTAL_UNCOMPRESSED_BYTES",
     "MAX_UPLOAD_BYTES",
     "MAX_ZIP_ENTRIES",
+    "XLSX_MEDIA_TYPE",
     "SheetRows",
+    "quote",
     "read_sheets",
 ]
 
@@ -94,6 +96,9 @@ MAX_COLUMN_COUNT: Final[int] = 64
 
 #: The most data rows one sheet may carry. Ann's file has 300 and 12.
 MAX_DATA_ROW_COUNT: Final[int] = 4_000
+
+#: The media type of an ``.xlsx`` upload, as the browser and the route name it.
+XLSX_MEDIA_TYPE: Final[str] = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 #: What every ZIP starts with, and what an old binary ``.xls`` starts with.
 _ZIP_MAGIC: Final[bytes] = b"PK\x03\x04"

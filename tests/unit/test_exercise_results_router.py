@@ -227,8 +227,9 @@ class _Row:
     schema prevents by storing one row and projecting it two ways.
 
     ``major`` and ``class_year`` are deliberately ``"Alpha"``/``"One"`` rather
-    than any real vocabulary: OQ-CE-01 is open and this file names no year and no
-    major a data file might actually carry.
+    than Ann's vocabulary: the route's arithmetic is under test here, not the
+    list of majors, and a stored row from before the vocabularies closed is
+    still read.
     """
 
     profile_no: int
@@ -239,6 +240,7 @@ class _Row:
     stated_interests: tuple[str, ...] | None = None
     career_goal: str | None = None
     hidden_true_interests: tuple[str, ...] = ()
+    hidden_true_career_goal: str | None = None
 
     def team_row(self) -> TeamProfileRow:
         return TeamProfileRow(
@@ -265,6 +267,7 @@ class _Row:
             stated_interests=self.stated_interests,
             career_goal=self.career_goal,
             hidden_true_interests=self.hidden_true_interests,
+            hidden_true_career_goal=self.hidden_true_career_goal,
         )
 
 
@@ -275,10 +278,18 @@ class _Row:
 _ROWS: tuple[_Row, ...] = (
     _Row(1, "Avery Brooks", stated_interests=("analytics",), hidden_true_interests=("analytics",)),
     _Row(2, "Bao Nguyen", stated_interests=("brand",), hidden_true_interests=("brand",)),
-    _Row(3, "Cam Ellis", past_event_keys=("past-analytics",), hidden_true_interests=("analytics",)),
+    _Row(
+        3,
+        "Cam Ellis",
+        past_event_keys=("past-analytics",),
+        hidden_true_interests=("analytics",),
+        hidden_true_career_goal="analytics",
+    ),
     _Row(4, "Devi Rao", hidden_true_interests=("brand",), career_goal="analytics"),
     _Row(5, "Emery Vale", past_event_keys=("past-analytics",), hidden_true_interests=("outreach",)),
-    _Row(6, "Fen Liu", hidden_true_interests=("analytics", "brand")),
+    _Row(
+        6, "Fen Liu", hidden_true_interests=("analytics", "brand"), hidden_true_career_goal="brand"
+    ),
     _Row(7, "Gita Shah", hidden_true_interests=()),
     _Row(8, "Hal Ortiz", hidden_true_interests=("brand",)),
     _Row(9, "Ivy Chen", past_event_keys=("past-analytics",), hidden_true_interests=("analytics",)),
@@ -527,7 +538,14 @@ class _FakeResultsRepository:
         goals = {
             row.profile_no: goal
             for row in chosen
-            if (goal := copied_card_career_goal(row.career_goal, career_goal_policy)) is not None
+            if (
+                goal := copied_card_career_goal(
+                    row.career_goal,
+                    career_goal_policy,
+                    hidden_true_career_goal=row.hidden_true_career_goal,
+                )
+            )
+            is not None
         }
         for profile_no in sorted(set(topic_gainers)):
             self._patch(workspace_id, profile_no, overlay_added_event_topics=tuple(added_topics))
@@ -695,7 +713,8 @@ def test_no_module_in_this_track_writes_down_a_coefficient_or_a_share() -> None:
 
 
 def test_no_module_in_this_track_writes_down_a_class_year_or_a_major() -> None:
-    """The vocabularies are Ann's; this track names none of them (OQ-CE-01)."""
+    """The vocabularies live in ``smartmatch_domain.exercise.vocabulary``; the
+    routers restate none of them, so there is one list to change."""
     for source_file in _TRACK_SOURCES:
         source = source_file.read_text(encoding="utf-8")
         for guess in ("Senior", "Junior", "Sophomore", "Freshman", "Finance", "Marketing"):
@@ -1216,15 +1235,15 @@ def test_a_card_exists_when_either_side_recorded_interests() -> None:
     assert 3 not in invited_without_a_card((given,), invited)
 
 
-def test_a_refresh_writes_the_base_goal_onto_every_copied_card(
+def test_a_refresh_writes_the_hidden_goal_onto_every_copied_card(
     fakes: _Fakes, client: TestClient, confirmed: SimulationCoefficients
 ) -> None:
-    """The ruling of 2026-09-21, through the route (OQ-CE-13).
+    """Ann's Read Me of 2026-09-24, through the route (OQ-CE-13).
 
-    Every overlay row this refresh gave a card to carries its **base row's**
-    ``career_goal``, and carries ``None`` exactly where the base row has none.
-    Asserted against ``_ROWS`` rather than against a written-out list, so a
-    fixture row that gains a goal cannot quietly stop being checked.
+    "A new card copies these": every overlay row this refresh gave a card to
+    carries its file row's **hidden true** career goal, and ``None`` exactly
+    where the file has none. Asserted against ``_ROWS`` rather than a written-out
+    list, so a fixture row that gains a goal cannot quietly stop being checked.
     """
     _prepare_refresh(fakes, client)
     client.post(_REFRESH, json={}, headers=_HEADER)
@@ -1236,22 +1255,19 @@ def test_a_refresh_writes_the_base_goal_onto_every_copied_card(
     }
     assert given_a_card, "no card was copied, so the policy was never exercised"
     for profile_no, row in given_a_card.items():
-        assert row.overlay_card_career_goal == _ROWS[profile_no - 1].career_goal
+        assert row.overlay_card_career_goal == _ROWS[profile_no - 1].hidden_true_career_goal
+    assert any(row.overlay_card_career_goal is not None for row in given_a_card.values()), (
+        "no copied card carried a hidden goal, so the new reading was never exercised"
+    )
 
 
-def test_a_copied_card_already_reads_the_base_rows_career_goal() -> None:
-    """**The step-1 characterisation.** What a team sees *today*, before OQ-CE-13.
+def test_an_overlay_card_with_no_goal_of_its_own_reads_the_base_rows() -> None:
+    """How ``_profile_evidence`` resolves a copied card: overlay over base.
 
-    A profile whose base row carries a career goal and whose overlay now carries
-    a copied card, with ``card_career_goal`` left ``NULL`` as PR #190 shipped it:
-    ``_profile_evidence`` resolves the overlay **over** the base, so the goal it
-    finds is the base row's. The card exists — the overlay recorded interests —
-    so a :class:`ProfileCard` is built, and ``career_goal_fit`` can already earn
-    on it.
-
-    So writing the goal onto the copied row **changes no ranking**: it makes an
-    implicit resolution explicit at the row. If this test ever goes red, the two
-    readings have stopped agreeing and OQ-CE-13 has become a behaviour change.
+    A copied card whose ``card_career_goal`` is ``NULL`` — a file row with no
+    hidden goal — finds the base row's goal through the overlay. The card
+    exists, because the overlay recorded interests, so a :class:`ProfileCard`
+    is built and ``career_goal_fit`` can earn on it.
     """
     base = _Row(4, "Devi Rao", career_goal="analytics").team_row()
     copied = replace(base, overlay_card_interests=("brand",), overlay_card_career_goal=None)
@@ -1263,16 +1279,25 @@ def test_a_copied_card_already_reads_the_base_rows_career_goal() -> None:
     assert card is not None, "the copied interests are a card"
     assert card.career_goal == "analytics", "the base row's goal is read through the overlay"
     fit = career_goal_fit(rankable.profiles[0].evidence, event_evidence(_ROUND_ONE))
-    assert fit.value == 1.0, "the factor already earns on a goal the copied row does not carry"
+    assert fit.value == 1.0
 
 
-def test_writing_the_base_goal_onto_the_copied_card_reads_the_same() -> None:
-    """The ruling's row and today's row resolve identically (OQ-CE-13)."""
-    base = _Row(4, "Devi Rao", career_goal="analytics").team_row()
-    today = replace(base, overlay_card_interests=("brand",), overlay_card_career_goal=None)
-    ruled = replace(today, overlay_card_career_goal="analytics")
+def test_a_copied_hidden_goal_is_read_as_the_topic_it_points_at() -> None:
+    """The copied goal is one of Ann's labels; the ranker compares its topic."""
+    base = _Row(4, "Devi Rao").team_row()
+    copied = replace(
+        base,
+        overlay_card_interests=("Consulting",),
+        overlay_card_career_goal="Data, analytics or IT role",
+    )
+    northline = replace(_ROUND_ONE, topic_tags=("Technology / information systems",))
 
-    assert rankable_set((today,), _EVENTS).profiles == rankable_set((ruled,), _EVENTS).profiles
+    rankable = rankable_set((copied,), (_PAST, northline, _ROUND_TWO))
+
+    card = rankable.profiles[0].evidence.card
+    assert card is not None
+    assert card.career_goal == "Technology / information systems"
+    assert career_goal_fit(rankable.profiles[0].evidence, event_evidence(northline)).value == 1.0
 
 
 def test_the_two_draws_are_independent() -> None:

@@ -1,8 +1,8 @@
 """What the matching routes return, and the arithmetic that has no HTTP in it.
 
 Split out of ``exercise_matching.py`` so the router is routes: this module holds
-the response contract, the one place a repository row becomes a domain value,
-and the placeholder class-year ordering (OQ-CE-01). Nothing here imports
+the response contract, and the one place a repository row becomes a domain
+value. Nothing here imports
 FastAPI and nothing here declares a route.
 
 It does hold **one** refusal, :func:`event_or_refusal`, moved here in review
@@ -35,15 +35,19 @@ D8 permits by name — and it is echoed back *as the team stated it*, never as
 ``normalize_weights`` resolved it, because a normalized weight is derived from
 the composition and reads as an output.
 
-PLACEHOLDER (OQ-CE-01) — the class-year order
-=============================================
-Design spec §4.4's tie-break reads a ``year_rank`` mapping, "seniors first". No
-such vocabulary exists: OQ-CE-01 is open, Ann's sample has not arrived, and
-``smartmatch_domain.exercise.matching`` deliberately declares no default. This
-module supplies an **empty** one — :data:`PLACEHOLDER_CLASS_YEAR_RANK`, which is
-the seam Ann's order plugs into — so that the year settles no tie and no reason
-line claims it did. The constant's own comment says why an order derived from
-file order was withdrawn.
+Ann's data file — the class-year order and the career-goal table
+================================================================
+Design spec §4.4's tie-break reads a ``year_rank`` mapping, "seniors first".
+Ann's file (2026-09-24) names the four years and the owner ruled the order:
+:data:`~smartmatch_domain.exercise.vocabulary.EXERCISE_CLASS_YEAR_RANK`,
+seniors first and first-years last, which every ranked set carries. The
+year now settles ties, and Ann's "Tied on major; ordered by year." appears.
+
+A card's career goal is one of Ann's sixteen labels; "career goal fits this
+event" compares the **topic** that label points at, through
+:func:`~smartmatch_domain.exercise.vocabulary.goal_topic_for_matching` — the
+one place that mapping is applied for the ranker. The stored and displayed
+goal stays Ann's label.
 """
 
 from __future__ import annotations
@@ -52,7 +56,6 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from http import HTTPStatus
-from types import MappingProxyType
 from typing import Final
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -65,6 +68,10 @@ from smartmatch_domain.exercise.markers import (
 )
 from smartmatch_domain.exercise.matching import ExerciseList, ExerciseProfile
 from smartmatch_domain.exercise.registry import EXERCISE_FACTOR_LABELS
+from smartmatch_domain.exercise.vocabulary import (
+    EXERCISE_CLASS_YEAR_RANK,
+    goal_topic_for_matching,
+)
 from smartmatch_domain.exercise_list_coverage import ListCoverage
 from smartmatch_domain.student_factors import EventEvidence, ProfileCard, ProfileEvidence
 
@@ -79,7 +86,6 @@ __all__ = [
     "MAX_WEIGHT_KEYS",
     "MAX_WEIGHT_KEY_CHARACTERS",
     "MAX_WEIGHT_REFUSAL_CHARACTERS",
-    "PLACEHOLDER_CLASS_YEAR_RANK",
     "CompareView",
     "EventView",
     "EventsView",
@@ -110,9 +116,10 @@ def _text(value: str | None) -> str | None:
     """A stored text cell as a value, with blank read as absent.
 
     ``exercise_profile.major``, ``class_year`` and ``career_goal`` are ``TEXT``
-    with no ``CHECK`` — deliberately, because OQ-CE-01 is open and a vocabulary
-    written as DDL costs a migration to change. So a cell can be present and
-    empty, and the domain's evidence types refuse a blank outright
+    with no ``CHECK`` — deliberately: the vocabularies are closed in code at
+    ingest, and a vocabulary written as DDL costs a migration to change. So a
+    cell can be present and empty, and the domain's evidence types refuse a
+    blank outright
     (``ProfileEvidence`` and ``ProfileCard`` both raise on one). Collapsing the
     two here is the *only* place the distinction is dropped, and it is dropped
     towards "not on file", which is ADR-0011's reading of an empty statement.
@@ -149,9 +156,7 @@ class RankableSet:
         profiles: One :class:`ExerciseProfile` per rankable profile, in data
             file order.
         facts: ``{profile_no: ProfileFacts}`` for the same set.
-        year_rank: :data:`PLACEHOLDER_CLASS_YEAR_RANK` — empty while OQ-CE-01
-            is open, so the year never settles a tie and no sentence claims it
-            did.
+        year_rank: ``vocabulary.EXERCISE_CLASS_YEAR_RANK`` — seniors first.
         unrankable_profile_count: How many profiles were left out because the
             data file records no major or no year for them. A count, not a
             score: it tells a team that the list is drawn from fewer than the
@@ -162,44 +167,6 @@ class RankableSet:
     facts: Mapping[int, ProfileFacts]
     year_rank: Mapping[str, int]
     unrankable_profile_count: int
-
-
-#: **PLACEHOLDER (OQ-CE-01) — the seam where Ann's class-year order plugs in.**
-#:
-#: Design spec §4.4's tie-break reads a ``year_rank`` mapping and wants "seniors
-#: first". **Nobody has said which years exist or which of them is senior.**
-#: OQ-CE-01 is open, Ann's sample has not arrived, and the owner's standing
-#: ruling is to close no vocabulary in code and to invent nothing.
-#:
-#: So this is **empty**, and empty is a decision rather than an omission. Three
-#: shapes were available:
-#:
-#: * *A written-down list of year names, ranked.* The one the spec sketches and
-#:   the one this track may not write: it answers OQ-CE-01 in code, in a file a
-#:   later reader would take for a settled decision.
-#: * *An order derived from the data file* — years ranked by first appearance.
-#:   This shipped first and was **withdrawn in review round 1**, and the reason
-#:   is worth keeping: it is deterministic, but file order is not seniority, so
-#:   the list would print Ann's verbatim sentence *"Tied on major; ordered by
-#:   year."* about an order that is arbitrary. Telling a class participant that
-#:   the year decided, when what decided was which row the spreadsheet happened
-#:   to list first, is an untrue statement to the reader — the same class of
-#:   defect review rejected on PR #180.
-#: * *No order at all*, which is this.
-#:
-#: What the merged domain does with an empty mapping, with no edit to it:
-#: ``matching._unlisted_year_rank`` gives every year the same rank, so the year
-#: column of the key never separates two names; ``matching._key_against``
-#: therefore never returns :attr:`~smartmatch_domain.exercise.reasons.TieBreakKey.YEAR`,
-#: so **neither year sentence can be emitted at all**; a tie that the year would
-#: have settled falls through to the fixed order, which has its own honest
-#: sentence; and ``matching.unlisted_class_years`` reports every year present in
-#: the file, which this module surfaces on the response as
-#: ``unlisted_class_years`` so the gap is visible rather than silent.
-#:
-#: Closing OQ-CE-01 is replacing this one object with Ann's order. Nothing else
-#: in this track changes, and the sentences start appearing on their own.
-PLACEHOLDER_CLASS_YEAR_RANK: Final[Mapping[str, int]] = MappingProxyType({})
 
 
 def event_or_refusal(events: Sequence[ExerciseEventRow], event_key: str) -> ExerciseEventRow:
@@ -265,9 +232,9 @@ def _profile_evidence(
     is empty". Both read as unknown for ``past_event_topic_overlap`` and both
     derive the ``major only`` marker, so nothing downstream is misled.
 
-    Returns ``None`` when the data file recorded no major or no year. Neither is
-    a failure of the file — both columns are nullable on purpose while OQ-CE-01
-    is open — but ``same_major`` is the one factor every profile can earn and
+    Returns ``None`` when the stored row has no major or no year. Ingest now
+    refuses such a file, so only a dataset stored before the vocabularies
+    closed can hold one — but ``same_major`` is the one factor every profile can earn and
     the tie-break reads the year, so a profile missing either cannot take a
     place on a ranked list. They are counted instead. The year is returned
     beside the evidence rather than read a second time by the caller, so that
@@ -289,7 +256,7 @@ def _profile_evidence(
         else profile.career_goal
     )
     card = (
-        ProfileCard(stated_interests=interests, career_goal=career_goal)
+        ProfileCard(stated_interests=interests, career_goal=goal_topic_for_matching(career_goal))
         if interests is not None
         else None
     )
@@ -333,6 +300,7 @@ def rankable_set(
                 profile_no=profile.profile_no,
                 class_year=class_year,
                 evidence=evidence,
+                tiebreak_order=profile.tiebreak_order,
             )
         )
         facts[profile.profile_no] = ProfileFacts(
@@ -344,7 +312,7 @@ def rankable_set(
     return RankableSet(
         profiles=tuple(ranked),
         facts=facts,
-        year_rank=PLACEHOLDER_CLASS_YEAR_RANK,
+        year_rank=EXERCISE_CLASS_YEAR_RANK,
         unrankable_profile_count=unrankable,
     )
 

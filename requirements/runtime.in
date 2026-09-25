@@ -17,3 +17,9 @@ cryptography>=45,<51
 # behind smartmatch_providers.topic_semantics. Already locked transitively via
 # ortools; declared directly because smartmatch_providers now imports it.
 numpy>=2.0,<3
+# OQ-CE-05 (owner ruling 2026-09-24): the class exercise reads the instructor's
+# .xlsx upload in smartmatch_domain.exercise.workbook, read_only and data_only.
+# defusedxml is what openpyxl parses the workbook's XML with; the reader refuses
+# every upload when openpyxl reports it is not in use.
+openpyxl>=3.1,<3.2
+defusedxml>=0.7,<0.8

@@ -39,9 +39,10 @@ it is a new runtime dependency and a regeneration of the hash-pinned
 requirement locks (``requirements/runtime.txt``, compiled ``--no-index``) for
 one route on one screen.
 
-So the upload is the same bytes by a simpler road: the CSV **is** the request
-body, with the instructor's label and the browser's file name as query
-parameters. The ingest core takes bytes and a file name and neither knows nor
+So the upload is the same bytes by a simpler road: Ann's ``.xlsx`` **is** the
+request body (OQ-CE-05, closed 2026-09-24), with the instructor's label and the
+browser's file name as query parameters. The owner confirmed on 2026-09-21
+that the body stays raw bytes. The ingest core takes bytes and a file name and neither knows nor
 cares how they arrived, so switching to multipart later is a change to this
 handler's signature and to nothing else. Recorded on this track's pull request
 as an owner decision rather than made quietly: if the answer is "take the
@@ -90,6 +91,7 @@ from typing import Annotated, Final
 from fastapi import APIRouter, Body, Depends, Query, status
 from smartmatch_domain.exercise import EXERCISE_TEAM_NUMBERS
 from smartmatch_domain.exercise.ingest import IngestRefusal, parse_exercise_file
+from smartmatch_domain.exercise.workbook import XLSX_MEDIA_TYPE
 
 from smartmatch_api.exercise_dependencies import (
     MAX_INVITE_LIMIT,
@@ -185,25 +187,24 @@ def list_datasets(
 def upload_dataset(
     session: ExerciseSession,
     repository: DatasetRepository,
-    content: Annotated[bytes, Body(media_type="text/csv")],
+    content: Annotated[bytes, Body(media_type=XLSX_MEDIA_TYPE)],
     label: Annotated[str, Query(description="What to call this upload on the instructor page.")],
     source_filename: Annotated[
         str | None,
         Query(description="The browser's file name. Stored as a label; never opened as a path."),
     ] = None,
 ) -> UploadedDatasetView:
-    """Read one CSV, validate it, store it — synchronously, in one transaction.
+    """Read one workbook, validate it, store it — synchronously, in one transaction.
 
     Design spec §3: the instructor needs an answer on the spot, so the job and
     review pipeline behind ``routers/imports.py`` is not used and neither is
     its principal. See the module docstring for why the bytes arrive as a body
     rather than as a multipart part.
 
-    Every refusal is one plain sentence from
-    :func:`~smartmatch_domain.exercise.ingest.parse_exercise_file`, in §3's
-    order, and the first failure is the whole answer. PLACEHOLDER (OQ-CE-01):
-    the column names and the list separator are
-    ``ingest.PLACEHOLDER_LAYOUT``'s, and nothing here closes a vocabulary.
+    The body is Ann's ``.xlsx`` as she sent it. Every refusal is one plain
+    sentence from :func:`~smartmatch_domain.exercise.ingest.parse_exercise_file`,
+    in §3's order, and the first failure is the whole answer; a missing sheet
+    or column names the sheet and the column.
 
     **Touches no workspace row.** Design spec §3: existing workspaces keep
     pointing at their old dataset until the instructor re-points them. Uploading
@@ -214,7 +215,7 @@ def upload_dataset(
             409 when the database refuses the write, 403 without the
             ``X-Exercise-Request`` header, 401 without a session.
     """
-    parsed = parse_exercise_file(content, filename=source_filename)
+    parsed = parse_exercise_file(content)
     if isinstance(parsed, IngestRefusal):
         raise ExerciseError(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,

@@ -70,7 +70,6 @@ from smartmatch_api.routers.exercise_matching_models import (
     MAX_WEIGHT_KEY_CHARACTERS,
     MAX_WEIGHT_KEYS,
     MAX_WEIGHT_REFUSAL_CHARACTERS,
-    PLACEHOLDER_CLASS_YEAR_RANK,
     event_evidence,
     rankable_set,
 )
@@ -1265,58 +1264,49 @@ def test_every_refusal_code_is_the_exercises_own(client: TestClient) -> None:
 
 
 # ---------------------------------------------------------------------------
-# PLACEHOLDER (OQ-CE-01) — the class-year order closes nothing
+# Ann's class-year order (owner ruling 4, 2026-09-24) — the year rung is awake
 # ---------------------------------------------------------------------------
 
 
-def test_the_class_year_order_is_empty_while_ann_has_not_stated_one() -> None:
-    """(d) The seam, and the fact that nothing is plugged into it yet.
+def test_every_ranked_set_carries_anns_seniors_first_order() -> None:
+    """(d) The seam is filled from the domain, not restated here."""
+    from smartmatch_domain.exercise.vocabulary import EXERCISE_CLASS_YEAR_RANK
 
-    Review round 1 withdrew an order derived from the data file. It was
-    deterministic, but file order is not seniority, so the list would print
-    Ann's verbatim "Tied on major; ordered by year." about an order that is
-    arbitrary — an untrue statement to a class participant, which is the class
-    of defect review rejected on PR #180. Empty is what closes nothing.
-    """
-    assert PLACEHOLDER_CLASS_YEAR_RANK == {}
-    assert rankable_set(_PROFILES, _EVENTS).year_rank == PLACEHOLDER_CLASS_YEAR_RANK
+    year_rank = rankable_set(_PROFILES, _EVENTS).year_rank
+    assert year_rank is EXERCISE_CLASS_YEAR_RANK
+    assert sorted(year_rank, key=year_rank.__getitem__, reverse=True) == [
+        "Senior",
+        "Junior",
+        "Sophomore",
+        "Freshman",
+    ]
 
 
-def test_the_year_sentences_are_never_emitted_by_the_api_today() -> None:
-    """(a) Neither year line can reach a screen while the order is empty.
+def test_a_tie_on_major_alone_is_now_settled_by_the_year_and_says_so() -> None:
+    """(a) Ann's "Tied on major; ordered by year." reaches a list through the API's
+    own row-to-domain step, and the senior is placed first."""
+    rows = (
+        _profile(1, display_name="First Year", class_year="Freshman"),
+        _profile(2, display_name="Final Year", class_year="Senior"),
+    )
+    rankable = rankable_set(rows, _EVENTS)
+    listing = exercise_ranked_list(
+        event_evidence(_NORTHLINE),
+        rankable.profiles,
+        invite_limit=30,
+        year_rank=rankable.year_rank,
+        dataset_checksum="sha256:" + "0" * 64,
+    )
 
-    Asserted over every name on every list the four weightings below produce,
-    and against the domain's own constant rather than against a copy of the
-    wording here — ``reasons.py`` owns the words (OQ-CE-12) and this file must
-    not restate them.
-    """
-    forbidden = {
-        phrase_as_sentence(ANN_TIED_ON_YEAR_PHRASE),
-        phrase_as_sentence("tied on what counted; ordered by year"),
+    assert [entry.profile_id for entry in listing.entries] == ["2", "1"]
+    assert {entry.reason for entry in listing.entries} == {
+        phrase_as_sentence(ANN_TIED_ON_YEAR_PHRASE)
     }
-    fakes = _Fakes()
-    with _entered(fakes, 1) as client:
-        for params in (
-            {},
-            {"same_major": 1.0, "stated_interest_overlap": 0.0},
-            {"same_major": 0.0, "stated_interest_overlap": 1.0},
-            {"career_goal_fit": 1.0},
-        ):
-            body = client.get(_LIST, params=params).json()
-            reasons = {entry["reason"] for entry in body["entries"]}
-            assert reasons.isdisjoint(forbidden), f"a year sentence reached the list for {params}"
 
 
-def test_a_tie_the_year_would_have_settled_falls_to_the_fixed_order(
-    client: TestClient,
-) -> None:
-    """(b) The honest sentence for a tie nothing in the data separates.
-
-    Several profiles in the fixture share a major and a marker and have nothing
-    else on file, and differ only in a column the order no longer reads. With a
-    year order they would have been separated by it; with none, the fixed order
-    seeded from the data file's checksum decides, and the line says so.
-    """
+def test_a_tie_the_year_cannot_settle_falls_to_the_fixed_order(client: TestClient) -> None:
+    """(b) Two profiles of one major, one marker and one year are separated by the
+    fixed order, and the line says so."""
     fixed_order_sentence = phrase_as_sentence("tied; placed in a fixed order that never changes")
     reasons = [entry["reason"] for entry in client.get(_LIST).json()["entries"]]
     assert fixed_order_sentence in reasons, (
@@ -1324,32 +1314,25 @@ def test_a_tie_the_year_would_have_settled_falls_to_the_fixed_order(
     )
 
 
-def test_every_class_year_in_the_file_is_reported_as_unlisted(client: TestClient) -> None:
-    """(c) The gap is visible on the response rather than silent.
+def test_a_class_year_anns_order_does_not_name_is_still_reported(client: TestClient) -> None:
+    """(c) Every year in this fixture is one of Ann's four, so none is unlisted.
 
-    ``unlisted_class_years`` is the domain's own report of years the ordering
-    does not name. With an empty ordering that is every year in the file, which
-    is exactly the fact a screen should be able to show while OQ-CE-01 is open.
+    A dataset stored before the vocabulary closed can carry another spelling;
+    the domain still ranks it last and reports it rather than guessing.
     """
-    body = client.get(_LIST).json()
-    expected: list[str] = []
-    for profile in _PROFILES:
-        year = profile.class_year
-        if year is not None and profile.major is not None and year not in expected:
-            expected.append(year)
-    assert body["unlisted_class_years"] == expected
-    assert expected, "the fixture must carry a class year for this to mean anything"
+    assert client.get(_LIST).json()["unlisted_class_years"] == []
 
 
-def test_the_placeholder_marker_is_literally_present_in_the_source() -> None:
-    """A placeholder nobody can grep for is a decision that has quietly closed."""
+def test_the_open_question_markers_are_the_right_ones() -> None:
+    """OQ-CE-01 is closed and must not be claimed; OQ-CE-02 (weights) is still open."""
     source = _MODELS_SOURCE.read_text(encoding="utf-8")
-    assert "PLACEHOLDER (OQ-CE-01)" in source
+    assert "PLACEHOLDER (OQ-CE-01)" not in source
     assert "OQ-CE-02" in source
 
 
 def test_no_module_here_writes_down_a_class_year_or_a_major() -> None:
-    """The vocabularies are Ann's; this track names none of them (OQ-CE-01)."""
+    """The vocabularies live in ``smartmatch_domain.exercise.vocabulary``; the
+    routers restate none of them, so there is one list to change."""
     for source_file in _TRACK_SOURCES:
         source = source_file.read_text(encoding="utf-8")
         for guess in ("Senior", "Junior", "Sophomore", "Freshman", "Finance", "Marketing"):

@@ -394,13 +394,18 @@ def _tie_context(entries: Sequence[_Ranked], index: int) -> _TieContext:
 def _contributing_keys(score: StageBScore) -> tuple[str, ...]:
     """The factor keys that actually added to the composite, in registry order.
 
-    Known and above zero. A measured zero added nothing, and naming it would
-    tell a class participant that something counted when it did not.
+    Known, above zero, **and weighted above zero**. A measured zero added
+    nothing, and neither did a factor the team turned off: naming either would
+    tell a class participant that something counted when it did not. The
+    weight half is what Ann's Read Me test case turns on — with "said they are
+    interested" turned off, P004's line must not cite it.
     """
     return tuple(
         factor.factor_key
         for factor in score.factor_scores
-        if factor.value is not None and factor.value > 0.0
+        if factor.value is not None
+        and factor.value > 0.0
+        and score.applied_weights.get(factor.factor_key, 0.0) > 0.0
     )
 
 

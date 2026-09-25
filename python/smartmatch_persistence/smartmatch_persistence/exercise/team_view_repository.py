@@ -96,6 +96,8 @@ class TeamProfileRow:
         overlay_card_career_goal: That card's career goal, or ``None``.
         non_responding: Whether this team's refresh marked the profile as asked
             and not answering. False when there is no overlay row.
+        tiebreak_order: Ann's fixed order for the last tie-break step, or
+            ``None`` for a dataset stored before revision 0042.
     """
 
     profile_no: int
@@ -109,6 +111,7 @@ class TeamProfileRow:
     overlay_card_interests: tuple[str, ...] | None
     overlay_card_career_goal: str | None
     non_responding: bool
+    tiebreak_order: int | None = None
 
 
 class ExerciseTeamViewRepository:
@@ -180,6 +183,7 @@ class ExerciseTeamViewRepository:
                 overlay_card_interests=_optional_tuple(row.card_interests),
                 overlay_card_career_goal=row.card_career_goal,
                 non_responding=bool(row.non_responding),
+                tiebreak_order=row.tiebreak_order,
             )
             for row in session.execute(statement).all()
         )

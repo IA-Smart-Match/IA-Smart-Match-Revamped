@@ -141,9 +141,8 @@ class DatasetView(BaseModel):
 class IngestReportView(BaseModel):
     """What an accepted file turned out to contain (design spec §3).
 
-    Counts and the year values found, so the vocabulary can be read off the
-    file rather than guessed at (OQ-CE-01 stays open — nothing here closes a
-    vocabulary). No cell of the withheld column appears in any form.
+    Counts, and which of the four years the file used. No cell of either
+    withheld column appears in any form.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -152,20 +151,12 @@ class IngestReportView(BaseModel):
     event_count: int
     exercise_event_count: int
     distinct_class_years: tuple[str, ...] = Field(
-        description="The year values this file used, sorted. Reported, never validated."
+        description="Which of the four years this file used, youngest first."
     )
-    profiles_missing_major: int
-    profiles_missing_class_year: int
     profiles_without_card: int
     distinct_stated_interest_terms: int
     distinct_topic_tag_terms: int
     events_without_topic_tags: int
-    discarded_list_entries: int = Field(
-        description=(
-            "List-cell entries that were punctuation only and could not become "
-            "a term. Counted rather than silently dropped (ADR-0011)."
-        )
-    )
     major_only: int
     major_plus_events: int
     completed_card: int
@@ -344,13 +335,10 @@ def report_view(parsed: ParsedDataset) -> IngestReportView:
         event_count=report.event_count,
         exercise_event_count=report.exercise_event_count,
         distinct_class_years=report.distinct_class_years,
-        profiles_missing_major=report.profiles_missing_major,
-        profiles_missing_class_year=report.profiles_missing_class_year,
         profiles_without_card=report.profiles_without_card,
         distinct_stated_interest_terms=report.distinct_stated_interest_terms,
         distinct_topic_tag_terms=report.distinct_topic_tag_terms,
         events_without_topic_tags=report.events_without_topic_tags,
-        discarded_list_entries=report.discarded_list_entries,
         major_only=report.markers.major_only,
         major_plus_events=report.markers.major_plus_events,
         completed_card=report.markers.completed_card,

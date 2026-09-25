@@ -95,7 +95,11 @@ REVISION = "0036_host_organization"
 #: ``0040_booking_cancellation`` and is the head. It adds one nullable
 #: ``cba_invitation_batch`` column and backfills only that column, so this
 #: file's claims still hold through it.
-HEAD_REVISION = "0041_batch_speaker_request"
+#: Moved again by CE-DATASET: ``0042_exercise_ann_dataset`` chains to
+#: ``0041_batch_speaker_request`` and is the head. It adds two nullable
+#: ``exercise_profile`` columns and writes no rows, so this file's claims still
+#: hold through it.
+HEAD_REVISION = "0042_exercise_ann_dataset"
 
 ON_DATE = "2026-10-14"
 ZONE = "America/Los_Angeles"

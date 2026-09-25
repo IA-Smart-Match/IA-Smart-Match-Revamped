@@ -401,7 +401,9 @@ def test_the_schema_module_declares_every_table_it_exports() -> None:
 # attribute access and at string constants which are not docstrings, so the many
 # places that discuss the column in a docstring stay invisible.
 
-#: The column ADR-0025 D6 withholds, and the one module that may *select* it.
+#: The columns ADR-0025 D6 withholds, and the one module that may *select* them.
+#: ``_WITHHELD_COLUMN`` is kept as a name because the messages below use it.
+_WITHHELD_COLUMNS = frozenset({"hidden_true_interests", "hidden_true_career_goal"})
 _WITHHELD_COLUMN = "hidden_true_interests"
 _WITHHELD_READER = "dataset_repository.py"
 
@@ -454,12 +456,12 @@ def _names_the_withheld_column(tree: ast.AST) -> bool:
     """
     docstrings = _docstring_nodes(tree)
     for node in ast.walk(tree):
-        if isinstance(node, ast.Attribute) and node.attr == _WITHHELD_COLUMN:
+        if isinstance(node, ast.Attribute) and node.attr in _WITHHELD_COLUMNS:
             return True
         if (
             isinstance(node, ast.Constant)
             and isinstance(node.value, str)
-            and node.value == _WITHHELD_COLUMN
+            and node.value in _WITHHELD_COLUMNS
             and node not in docstrings
         ):
             return True
@@ -515,6 +517,9 @@ def test_the_withheld_walk_is_capable_of_failing() -> None:
 
     literal = ast.parse(f'column = getattr(row, "{_WITHHELD_COLUMN}")')
     assert _names_the_withheld_column(literal)
+
+    second = ast.parse("goal = row.hidden_true_career_goal")
+    assert _names_the_withheld_column(second)
 
 
 def test_load_simulation_profiles_has_exactly_the_known_callers() -> None:

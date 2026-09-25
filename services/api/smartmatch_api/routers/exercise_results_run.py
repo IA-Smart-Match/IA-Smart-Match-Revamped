@@ -94,7 +94,7 @@ def round_or_refusal(events: Sequence[ExerciseEventRow], event_key: str) -> int:
 
     Read off the data file's own rows by ``round_of`` — the exercise events in
     sequence order — rather than matched against a name, because the two names
-    are Ann's and OQ-CE-01 is open.
+    are Ann's data and may change from one file to the next.
 
     A past event has no round, and ``exercise_result_run.round`` admits 1 and 2,
     so a run for one has nothing to store. Refusing it here makes that a sentence
@@ -182,8 +182,8 @@ def _invited_profile_nos(
     here would be a second ranker, and the failure mode of two rankers is a team
     told it invited somebody it did not.
 
-    The year rank is ``rankable_set``'s ``PLACEHOLDER_CLASS_YEAR_RANK`` (empty
-    while OQ-CE-01 is open); this module does not touch it.
+    The year rank is ``rankable_set``'s — ``EXERCISE_CLASS_YEAR_RANK``, seniors
+    first; this module does not touch it.
     """
     summary = datasets.get_dataset_summary(session, dataset_id=workspace.dataset_id)
     if summary is None:  # pragma: no cover - the cookie resolved a workspace on it

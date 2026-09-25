@@ -519,3 +519,31 @@ def test_anns_year_order_wakes_the_year_sentence() -> None:
     ]
     assert {entry.reason for entry in listing.entries} == {"Tied on major; ordered by year."}
     assert listing.unlisted_class_years == ()
+
+
+def test_a_factor_the_team_turned_off_is_never_named_as_contributing() -> None:
+    """A full card scores on every factor; a zero weight must still silence one.
+
+    Found on Ann's Read Me test case: with "said they are interested" turned
+    off, P004's line went on citing it, because the factor's *value* was above
+    zero even though its weight was not.
+    """
+    listing = exercise_ranked_list(
+        EVENT,
+        [ExerciseProfile(1, "Senior", _full_card("full"))],
+        weights={
+            "same_major": 1.0,
+            "stated_interest_overlap": 0.0,
+            "career_goal_fit": 1.0,
+            "past_event_topic_overlap": 1.0,
+        },
+        invite_limit=30,
+        year_rank=TEST_ONLY_YEAR_RANK,
+        dataset_checksum=CHECKSUM,
+    )
+
+    assert listing.entries[0].contributing_factor_keys == (
+        "same_major",
+        "career_goal_fit",
+        "past_event_topic_overlap",
+    )

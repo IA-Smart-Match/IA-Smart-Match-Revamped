@@ -30,9 +30,10 @@ package — and the values it hands back never leave this method: they are writt
 straight into ``exercise_profile_overlay.card_interests``, where they are an
 ordinary card that the team was given and every later reader treats as one.
 
-What the *same* copied card says about a career goal is a separate, **public**
-question and follows a named policy — ``asking.COPIED_CARD_CAREER_GOAL``,
-PLACEHOLDER (OQ-CE-13). See :meth:`ExerciseResultsRepository.apply_refresh`.
+What the *same* copied card says about a career goal follows a named policy —
+``asking.COPIED_CARD_CAREER_GOAL``, which since Ann's Read Me of 2026-09-24
+(OQ-CE-13) copies the hidden true career goal, by the same road as the
+interests. See :meth:`ExerciseResultsRepository.apply_refresh`.
 
 No caller of this module ever holds a withheld value. The router side passes
 **profile numbers and a share** and gets **counts** back; there is no parameter
@@ -524,14 +525,14 @@ class ExerciseResultsRepository:
         written they are an ordinary card the team was given, which is what
         design spec §13 describes and what every later reader treats them as.
 
-        **``card_career_goal`` follows a named policy, not this method.** The
-        owner ruled on 2026-09-21 that a copied card carries the base row's
-        ``career_goal``, ``NULL`` only when the base has none;
+        **``card_career_goal`` follows a named policy, not this method.** Ann's
+        Read Me of 2026-09-24 (OQ-CE-13): a new card copies the hidden true
+        career goal as well as the hidden true interests.
         ``asking.copied_card_career_goal`` is where that is written and
-        ``career_goal_policy`` is how it is switched. The base goal is a
-        **public** column and is read off rows this method has already loaded for
-        the card copy, so nothing new queries anything and
-        ``load_simulation_profiles`` stays the one reader of the withheld column.
+        ``career_goal_policy`` is how it is switched. The goal is read off rows
+        this method has already loaded for the card copy, so nothing new queries
+        anything and ``load_simulation_profiles`` stays the one reader of the
+        withheld columns.
 
         Every statement is keyed on ``workspace_id``, so no other team's rows are
         reachable from here — the isolation is a key, not a discipline.
@@ -551,10 +552,9 @@ class ExerciseResultsRepository:
                 share that stops answering.
             now: The refresh timestamp, passed rather than read from the clock so
                 that a caller refreshing six teams stamps them identically.
-            career_goal_policy: PLACEHOLDER (OQ-CE-13) — which reading the copied
-                card's career goal takes. Defaults to
-                ``asking.COPIED_CARD_CAREER_GOAL``, so a caller never states it
-                and Ann's answer is one constant in the domain.
+            career_goal_policy: Which reading the copied card's career goal
+                takes. Defaults to ``asking.COPIED_CARD_CAREER_GOAL``, so a caller
+                never states it and Ann's answer is one constant in the domain.
 
         Returns:
             :class:`RefreshCounts`, or ``None`` when the team may not refresh.

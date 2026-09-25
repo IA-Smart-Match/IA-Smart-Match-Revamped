@@ -200,7 +200,11 @@ _PREVIOUS_REVISION = "0026_event_registration"
 #: ``0040_booking_cancellation`` and is the head. It adds one nullable
 #: ``cba_invitation_batch`` column and backfills only that column, so this
 #: file's claims still hold through it.
-_HEAD_REVISION = "0041_batch_speaker_request"
+#: Moved again by CE-DATASET: ``0042_exercise_ann_dataset`` chains to
+#: ``0041_batch_speaker_request`` and is the head. It adds two nullable
+#: ``exercise_profile`` columns and writes no rows, so this file's claims still
+#: hold through it.
+_HEAD_REVISION = "0042_exercise_ann_dataset"
 
 NEED = "need-weight-settings-1"
 

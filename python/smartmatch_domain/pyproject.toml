@@ -3,7 +3,12 @@ name = "smartmatch-domain"
 version = "0.1.0"
 description = "Pure SmartMatch domain logic — no frameworks, storage, providers, or IO"
 requires-python = ">=3.11,<3.13"
-dependencies = ["ortools>=9.14,<10"]
+dependencies = [
+    "ortools>=9.14,<10",
+    # OQ-CE-05: the class exercise reads Ann's .xlsx (exercise/workbook.py).
+    "openpyxl>=3.1,<3.2",
+    "defusedxml>=0.7,<0.8",
+]
 
 [build-system]
 requires = ["hatchling"]

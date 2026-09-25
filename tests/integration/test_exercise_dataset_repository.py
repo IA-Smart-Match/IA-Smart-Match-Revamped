@@ -59,7 +59,7 @@ REPOSITORY = ExerciseDatasetRepository()
 
 
 def _profile(number: int, **overrides: object) -> ParsedProfile:
-    """One fictional profile. The withheld cell carries a distinctive marker."""
+    """One fictional profile. Each withheld cell carries a distinctive marker."""
     values: dict[str, object] = {
         "profile_no": number,
         "display_name": f"Fictional Profile {number:03d}",
@@ -68,7 +68,9 @@ def _profile(number: int, **overrides: object) -> ParsedProfile:
         "past_event_keys": ("past-01",),
         "stated_interests": ("data analytics",),
         "career_goal": "Brand manager",
+        "tiebreak_order": 100 + number,
         "hidden_true_interests": (f"secret-interest-{number:03d}",),
+        "hidden_true_career_goal": f"secret-goal-{number:03d}",
     }
     values.update(overrides)
     return ParsedProfile(**values)  # type: ignore[arg-type]
@@ -114,13 +116,10 @@ def _dataset(profiles: tuple[ParsedProfile, ...] | None = None) -> ParsedDataset
             event_count=12,
             exercise_event_count=2,
             distinct_class_years=("Junior",),
-            profiles_missing_major=0,
-            profiles_missing_class_year=0,
             profiles_without_card=0,
             distinct_stated_interest_terms=1,
             distinct_topic_tag_terms=2,
             events_without_topic_tags=0,
-            discarded_list_entries=0,
             markers=MarkerDistribution(major_only=0, major_plus_events=0, completed_card=len(rows)),
         ),
     )
@@ -282,7 +281,9 @@ def test_a_write_failure_never_carries_the_withheld_column_out_of_the_driver(
     assert error.__cause__ is None
     for text in (str(error), repr(error), rendered):
         assert "secret-interest" not in text
+        assert "secret-goal" not in text
         assert "hidden_true_interests" not in text
+        assert "hidden_true_career_goal" not in text
     assert _counts(session) == (0, 0, 0)
 
 
@@ -420,8 +421,11 @@ def test_the_public_profile_read_cannot_carry_the_withheld_column(session: Sessi
 
     assert len(rows) == 12
     assert all(not hasattr(row, "hidden_true_interests") for row in rows)
+    assert all(not hasattr(row, "hidden_true_career_goal") for row in rows)
     assert "secret-interest" not in repr(rows)
+    assert "secret-goal" not in repr(rows)
     assert "secret-interest" not in repr(summary)
+    assert [row.tiebreak_order for row in rows] == [100 + n for n in range(1, 13)]
 
 
 def test_the_simulation_loader_is_the_one_read_that_sees_it(session: Session) -> None:
@@ -434,6 +438,7 @@ def test_the_simulation_loader_is_the_one_read_that_sees_it(session: Session) ->
 
     assert [row.profile_no for row in rows] == list(range(1, 13))
     assert rows[0].hidden_true_interests == ("secret-interest-001",)
+    assert rows[0].hidden_true_career_goal == "secret-goal-001"
 
 
 def test_the_simulation_row_keeps_the_withheld_column_out_of_its_repr(
@@ -452,8 +457,10 @@ def test_the_simulation_row_keeps_the_withheld_column_out_of_its_repr(
     rows = REPOSITORY.load_simulation_profiles(session, dataset_id=summary.dataset_id)
 
     assert rows[0].hidden_true_interests == ("secret-interest-001",)
+    assert rows[0].hidden_true_career_goal == "secret-goal-001"
     assert "secret-interest" not in repr(rows[0])
     assert "secret-interest" not in repr(rows)
+    assert "secret-goal" not in repr(rows)
     assert "Fictional Profile 001" in repr(rows[0])
 
 

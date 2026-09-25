@@ -703,17 +703,18 @@ checklist for real:
    diverged; resolve before promoting, per
    [`vm-deploy.md`](vm-deploy.md#promoting-a-commit-to-the-vm).
 
-2. **Confirm the migration head is `0041_batch_speaker_request`.**
+2. **Confirm the migration head is `0042_exercise_ann_dataset`.**
    ```bash
-   grep -L 'down_revision = "0041_batch_speaker_request"' /dev/null; \
-   grep -rl 'down_revision = "0041_batch_speaker_request"' db/migrations/versions/*.py
+   grep -L 'down_revision = "0042_exercise_ann_dataset"' /dev/null; \
+   grep -rl 'down_revision = "0042_exercise_ann_dataset"' db/migrations/versions/*.py
    ```
    Pass: the second command prints **nothing** — no later revision points back
-   at `0041_batch_speaker_request`, so it is the head
-   (`db/migrations/versions/0041_invitation_batch_speaker_request.py` sets its own
-   `down_revision = "0040_booking_cancellation"`; the file name is longer than the
-   revision id because `alembic_version` is `varchar(32)`). Fail: a revision is
-   printed — the head has moved past `0041`; re-derive this step against the new file
+   at `0042_exercise_ann_dataset`, so it is the head
+   (`db/migrations/versions/0042_exercise_ann_dataset.py` sets its own
+   `down_revision = "0041_batch_speaker_request"`; it adds Ann's
+   `tiebreak_order` and the withheld `hidden_true_career_goal` to
+   `exercise_profile`). Fail: a revision is
+   printed — the head has moved past `0042`; re-derive this step against the new file
    before continuing, since the tables the grant in [§3](#3-the-database-role)
    depends on may have changed shape.
 
