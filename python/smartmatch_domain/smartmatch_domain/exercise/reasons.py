@@ -17,8 +17,9 @@ constant — :data:`ANN_MAJOR_ONLY_PHRASE` and :data:`ANN_TIED_ON_YEAR_PHRASE`,
 byte for byte — and the rendered line is that same phrase as a sentence:
 capitalised, full-stopped, and checked. ``tests/unit/test_exercise_reasons.py``
 asserts both halves, so neither can drift from the other. **This is the only
-liberty taken with Ann's wording, and it is noted on this track's pull
-request.**
+liberty taken with Ann's wording, and it is approved** (OQ-CE-12 closed
+2026-09-25: "Same major; nothing else on file." and "Tied on major; ordered by
+year.").
 
 **A tie sentence must describe the tie it names.** Ann's second phrase says
 *tied on major*, and that is a claim about the evidence, not a label for "the
@@ -48,9 +49,15 @@ other tie gets a sentence that names what actually happened.
 Rules 1 and 2 can both be true of one name: a major-only profile whose place
 was decided by the year. The requirements list both lines as things "the
 reason line says" and do not say which wins, so the choice is
-:data:`TIE_LINE_WINS_OVER_MAJOR_ONLY_LINE` — one flag, one line to flip, and
-a question recorded for Ann on PR #180 rather than a precedence buried in an
-``if``.
+:data:`TIE_LINE_WINS_OVER_MAJOR_ONLY_LINE` — one flag, one line to flip,
+rather than a precedence buried in an ``if``. The tie line wins, as approved
+(OQ-CE-12 closed 2026-09-25).
+
+**OQ-CE-12 closed 2026-09-25.** Decided by Danny (owner), recording Ann's
+answers to the team's question list (2026-09-22): every reason line is approved
+as written — Ann's two phrases in their rendered form, the three tie sentences
+drafted beside them, the "What counted: same major." framing, and the tie line
+winning over the major-only line.
 
 A factor "contributes" when its value is known and above zero. A measured zero
 adds nothing to the composition, and naming it would tell a class participant
@@ -85,26 +92,25 @@ ANN_MAJOR_ONLY_PHRASE: Final[str] = "same major; nothing else on file"
 #: Ann's words for a name the year key placed, verbatim from the same row.
 ANN_TIED_ON_YEAR_PHRASE: Final[str] = "tied on major; ordered by year"
 
-#: **PLACEHOLDER (wording pending Ann; see PR #180).** Ann wrote a line for a
-#: tie on major and for nothing else. This is the same sentence with the claim
-#: it cannot make removed: the year still decided the order, but what the two
-#: names were tied on was everything that counted, not the major. No open-question
-#: row governs it yet, so it is marked rather than treated as settled.
+#: Ann wrote a line for a tie on major and for nothing else. This is the same
+#: sentence with the claim it cannot make removed: the year still decided the
+#: order, but what the two names were tied on was everything that counted, not
+#: the major. Approved as written (OQ-CE-12 closed 2026-09-25).
 _TIED_ON_WHAT_COUNTED_YEAR_PHRASE: Final[str] = "tied on what counted; ordered by year"
 
-#: **PLACEHOLDER (wording pending Ann; see PR #180).** The other two tie-break
-#: keys, each naming the key that actually decided and claiming nothing about
-#: the major. Phrases, not sentences, so they go through the same rendering
-#: Ann's two do.
+#: The other two tie-break keys, each naming the key that actually decided and
+#: claiming nothing about the major. Phrases, not sentences, so they go through
+#: the same rendering Ann's two do. Approved as written (OQ-CE-12 closed
+#: 2026-09-25).
 _TIED_ON_INFORMATION_PHRASE: Final[str] = "tied; more information on file first"
 _TIED_ON_FIXED_ORDER_PHRASE: Final[str] = "tied; placed in a fixed order that never changes"
 
 #: Whether a tie line replaces Ann's major-only line when both apply — a
 #: major-only profile whose place the tie-break decided. The requirements name
-#: both lines and rank neither, so the choice is stated here, in one place, and
-#: is a question for Ann (PR #180). ``True`` keeps the behaviour the list
-#: shipped with: the tie line wins, because it is the more specific account of
-#: *why this name is here rather than one row lower*.
+#: both lines and rank neither, so the choice is stated here, in one place.
+#: ``True``, approved (OQ-CE-12 closed 2026-09-25): the tie line wins, because
+#: it is the more specific account of *why this name is here rather than one
+#: row lower*.
 TIE_LINE_WINS_OVER_MAJOR_ONLY_LINE: Final[bool] = True
 
 #: Said when a profile has a card or past events on file and none of it
@@ -155,7 +161,9 @@ def phrase_as_sentence(phrase: str, *, field: str = "reason") -> str:
 #: rather than the bare label: "same major" alone is a two-word fragment, which
 #: :func:`~smartmatch_domain.one_sentence.assert_one_sentence` refuses — and
 #: rightly, because a class participant cannot tell a deliberate fragment from
-#: a truncated line. The frame is four plain words and adds no number.
+#: a truncated line. The frame is four plain words and adds no number. The
+#: rendering "What counted: same major." is approved (OQ-CE-12 closed
+#: 2026-09-25).
 _CONTRIBUTION_OPENER: Final[str] = "what counted"
 
 
