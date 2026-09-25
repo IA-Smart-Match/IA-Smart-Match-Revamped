@@ -49,7 +49,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import datetime
-from typing import Final
+from typing import Any, Final
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from smartmatch_domain.exercise.asking import AskingChoice
@@ -204,18 +204,48 @@ def simulation_profiles(
 # ---------------------------------------------------------------------------
 
 
+_FINAL_SETTING_DESCRIPTION = (
+    "Your team's final setting: the name of one of your saved settings for this "
+    "event. The invited list is built from it. Required."
+)
+
+
+def _publish_the_final_setting_as_required(schema: dict[str, Any]) -> None:
+    """Publish ``setting_name`` as the required, non-blank string it is.
+
+    The field is **optional to pydantic on purpose**. A body without it has to
+    reach the handler, so that the refusal is one plain sentence in the
+    exercise's own shape *and* comes after the event's own refusals (locked,
+    already run) — see ``exercise_results_run.final_setting_or_refusal``. A
+    pydantic-required field would be refused by FastAPI's validation envelope
+    before the handler ran, ahead of every other sentence.
+
+    The published contract is still the rule: a run without a final setting
+    never succeeds, so a client is told it must send one.
+    """
+    schema["properties"]["setting_name"] = {
+        "type": "string",
+        "minLength": 1,
+        "title": "Setting Name",
+        "description": _FINAL_SETTING_DESCRIPTION,
+    }
+    schema["required"] = ["setting_name"]
+
+
 class RunResultsRequest(BaseModel):
-    """The body of a run: which saved weighting to build the list from, if any."""
+    """The body of a run: the team's final setting (Ann to Chau, Discord, 2026-09-24).
 
-    model_config = ConfigDict(extra="forbid")
+    The owner's flow is: set weights, save up to three settings and compare two,
+    **choose one final setting**, then run once after the instructor unlocks the
+    event. There is no run on the course's starting values; a team that wants
+    them saves them under a name like any other setting.
+    """
 
-    setting_name: str | None = Field(
-        default=None,
-        description=(
-            "The name of one of your team's saved settings to build the invited "
-            "list from. Leave it out to use the course's starting values."
-        ),
+    model_config = ConfigDict(
+        extra="forbid", json_schema_extra=_publish_the_final_setting_as_required
     )
+
+    setting_name: str | None = Field(default=None, description=_FINAL_SETTING_DESCRIPTION)
 
 
 class AskingChoiceRequest(BaseModel):

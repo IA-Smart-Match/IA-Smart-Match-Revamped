@@ -78,8 +78,10 @@ from smartmatch_api.routers.exercise_results_models import (
 )
 
 __all__ = [
+    "FINAL_SETTING_SENTENCE",
     "already_run",
     "coefficients_or_refusal",
+    "final_setting_or_refusal",
     "invited_list",
     "round_or_refusal",
     "run_the_rule",
@@ -129,27 +131,58 @@ def coefficients_or_refusal() -> SimulationCoefficients:
         ) from None
 
 
+#: The owner's rule in a team's words (Ann to Chau, Discord, 2026-09-24).
+FINAL_SETTING_SENTENCE = (
+    "Choose one of your saved settings as your final setting before running results."
+)
+
+
+def final_setting_or_refusal(setting_name: str | None) -> str:
+    """The team's final setting, trimmed, or one plain sentence.
+
+    Step three of the owner's flow (Ann to Chau, Discord, 2026-09-24): the team
+    chooses **one final setting** and the run is built from it. There is no run
+    on the course's starting values any more; a team that wants them saves them
+    under a name like any other setting.
+
+    422 with an ``exercise_``-prefixed code, the status the neighbouring body
+    refusals use (``exercise_setting_name_unusable``,
+    ``exercise_asking_choice_unknown``): the request is well-formed and the
+    event may be runnable, but the body does not say what to run. Whether the
+    name is one this team saved is :func:`weights_or_refusal`'s 404, unchanged.
+
+    Called from the handler rather than from a pydantic validator so that it
+    comes **after** the event's own refusals — see ``run_results`` for the order.
+    """
+    name = (setting_name or "").strip()
+    if not name:
+        raise ExerciseError(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            code="exercise_final_setting_required",
+            message=FINAL_SETTING_SENTENCE,
+        )
+    return name
+
+
 def weights_or_refusal(
     session: ExerciseSession,
     settings: SettingsRepository,
     *,
     workspace: ExerciseWorkspace,
     event_key: str,
-    setting_name: str | None,
-) -> tuple[Mapping[str, float] | None, str | None]:
+    setting_name: str,
+) -> tuple[Mapping[str, float], str]:
     """The weighting a run's list is built from, and the name to store for it.
 
-    ``None`` weights mean the course's starting values (OQ-CE-02), which
-    ``exercise_ranked_list`` resolves through the exercise rulebook — not
-    restated here, so there is one answer to what the defaults are.
+    ``setting_name`` is the team's final setting, already through
+    :func:`final_setting_or_refusal`; it is trimmed again here so the lookup and
+    the stored name cannot disagree if a caller skips that step.
 
     Re-validated on the way out rather than trusted because it was validated on
     the way in, for ``exercise_matching._saved_weights_or_refusal``'s reason: the
     rulebook is a value object and a later version could name different factors,
     at which point a stored weighting is input again.
     """
-    if setting_name is None:
-        return None, None
     name = setting_name.strip()
     stored = settings.get_setting(
         session, workspace_id=workspace.id, event_key=event_key, name=name
@@ -171,7 +204,7 @@ def _invited_profile_nos(
     events: Sequence[ExerciseEventRow],
     event: ExerciseEventRow,
     workspace: ExerciseWorkspace,
-    weights: Mapping[str, float] | None,
+    weights: Mapping[str, float],
 ) -> tuple[int, ...]:
     """The ranked list's profile numbers, in order — the team's invited set.
 
@@ -268,7 +301,7 @@ def store(
     workspace: ExerciseWorkspace,
     event: ExerciseEventRow,
     round_number: int,
-    setting_name: str | None,
+    setting_name: str,
     team: ResultPanel,
     everyone: ResultPanel,
 ) -> StoredResultRun:
@@ -372,8 +405,8 @@ def invited_list(
     workspace: ExerciseWorkspace,
     events: Sequence[ExerciseEventRow],
     event: ExerciseEventRow,
-    requested_setting: str | None,
-) -> tuple[Sequence[TeamProfileRow], Sequence[int], str | None]:
+    requested_setting: str,
+) -> tuple[Sequence[TeamProfileRow], Sequence[int], str]:
     """Who this team invited, and the name of the weighting it was built from.
 
     The second half of ``run_results``'s preamble, extracted for the same reason

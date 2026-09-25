@@ -183,7 +183,8 @@ export function SavedSettingsPanel({
   );
 }
 
-function SettingPicker({
+/** One saved setting chosen from a list; shared with the results screen's final-setting picker. */
+export function SettingPicker({
   id,
   label,
   value,
