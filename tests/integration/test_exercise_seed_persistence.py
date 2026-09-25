@@ -20,6 +20,7 @@ Skipped where no PostgreSQL is reachable.
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -32,7 +33,7 @@ from migration_harness import alembic, connected, scratch_database
 from smartmatch_api.config import Settings
 from smartmatch_api.exercise_seed import main, seed_exercise_dataset, seed_on_start
 from smartmatch_domain.exercise import EXERCISE_WITHHELD_FIELDS
-from smartmatch_domain.exercise.ingest import ParsedDataset
+from smartmatch_domain.exercise.ingest import IngestRefusal, ParsedDataset
 from smartmatch_persistence.exercise import schema
 from smartmatch_persistence.exercise.dataset_repository import ExerciseDatasetRepository
 from smartmatch_persistence.exercise.workspace_repository import active_dataset
@@ -132,18 +133,54 @@ def test_an_instructor_upload_is_left_untouched(
     assert active.id == uploaded.dataset_id
 
 
+def _dataset_ids(sessions: sessionmaker[Session]) -> set[object]:
+    with sessions() as session:
+        return set(session.execute(sa.select(schema.exercise_dataset.c.id)).scalars())
+
+
 def test_force_adds_a_dataset_and_deletes_none(sessions: sessionmaker[Session]) -> None:
     _seed(sessions)
+    (first,) = _dataset_ids(sessions)
 
     outcome = _seed(sessions, force=True)
 
     assert getattr(outcome, "seeded", None) is True
-    labels = _dataset_labels(sessions)
-    assert len(labels) == 2
+    ids = _dataset_ids(sessions)
+    assert len(ids) == 2
+    assert first in ids
+    (forced,) = ids - {first}
     with sessions() as session:
         active = active_dataset(session)
     assert active is not None
-    assert active.label == labels[-1]
+    assert active.id == forced
+
+
+def test_two_seeds_at_once_store_one_dataset(sessions: sessionmaker[Session]) -> None:
+    """The advisory lock: two processes starting together cannot both see empty."""
+    content = ANN_FULL_FILE.read_bytes()
+    barrier = threading.Barrier(2)
+    outcomes: list[object] = []
+    errors: list[BaseException] = []
+
+    def seed_once() -> None:
+        try:
+            with sessions() as session:
+                barrier.wait(timeout=30)
+                outcomes.append(
+                    seed_exercise_dataset(session, content, source_filename=ANN_FULL_FILE.name)
+                )
+        except BaseException as error:  # surfaced below, on the test's thread
+            errors.append(error)
+
+    threads = [threading.Thread(target=seed_once) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=120)
+
+    assert errors == []
+    assert sorted(getattr(o, "seeded", None) for o in outcomes) == [False, True]
+    assert _count(sessions, schema.exercise_dataset) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -200,14 +237,17 @@ def test_the_command_force_flag_adds_a_dataset(
 def test_the_command_file_flag_reads_another_file_and_a_refusal_stores_nothing(
     sessions: sessionmaker[Session],
     scratch_url: sa.engine.URL,
+    ann_sample_dataset: ParsedDataset | IngestRefusal,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Ann's 20-row sample is below design spec §3's 50-profile floor."""
+    assert isinstance(ann_sample_dataset, IngestRefusal)
+
     code = main(["--file", str(ANN_SAMPLE_FILE)], database_url=_url(scratch_url))
     _, err = capsys.readouterr()
 
     assert code == 1
-    assert "profiles" in err
+    assert ann_sample_dataset.message in err
     assert _count(sessions, schema.exercise_dataset) == 0
 
 

@@ -60,7 +60,7 @@ from typing import Final
 import sqlalchemy as sa
 from smartmatch_domain.exercise.ingest import IngestRefusal, parse_exercise_file
 from smartmatch_domain.product_scope import Capability
-from smartmatch_persistence.engine import create_session_factory
+from smartmatch_persistence.engine import create_db_engine
 from smartmatch_persistence.exercise.dataset_repository import (
     ExerciseDatasetRepository,
     ExerciseDatasetWriteError,
@@ -68,7 +68,7 @@ from smartmatch_persistence.exercise.dataset_repository import (
 from smartmatch_persistence.exercise.workspace_repository import active_dataset
 from smartmatch_providers import Edition
 from sqlalchemy.engine import make_url
-from sqlalchemy.exc import ArgumentError
+from sqlalchemy.exc import ArgumentError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from smartmatch_api.config import Settings, get_settings
@@ -221,12 +221,24 @@ def auto_seed_refusal(settings: Settings) -> str | None:
 
 
 def _database_is_local(database_url: str) -> bool:
-    """Whether the URL's host is loopback, or absent (a local socket)."""
+    """Whether every host the URL names is loopback or a local socket directory.
+
+    libpq also takes the host from the query string (``?host=db``,
+    ``?hostaddr=10.0.0.5``), where ``URL.host`` does not see it, so those are
+    read too. A value there may be a tuple when the key repeats.
+    """
     try:
-        host = make_url(database_url).host
+        url = make_url(database_url)
     except ArgumentError:
         return False
-    return host is None or host in _LOOPBACK_HOSTS
+    hosts: list[str] = [url.host] if url.host else []
+    for key in ("host", "hostaddr"):
+        value = url.query.get(key)
+        if isinstance(value, str):
+            hosts.extend(value.split(","))
+        elif value is not None:
+            hosts.extend(part for item in value for part in item.split(","))
+    return all(host in _LOOPBACK_HOSTS or host.startswith("/") for host in hosts)
 
 
 def seed_on_start(
@@ -299,17 +311,21 @@ def main(argv: Sequence[str] | None = None, *, database_url: str | None = None) 
     except OSError as error:
         print(f"exercise-seed: cannot read {path}: {error.strerror}", file=sys.stderr)
         return 1
-    factory = create_session_factory(database_url or get_settings().database_url)
+    engine = create_db_engine(database_url or get_settings().database_url)
     try:
-        with factory() as session:
+        with Session(engine, expire_on_commit=False) as session:
             outcome = seed_exercise_dataset(
                 session, content, source_filename=path.name, force=args.force
             )
     except ExerciseDatasetWriteError as error:
         print(f"exercise-seed: {error}", file=sys.stderr)
         return 1
+    except SQLAlchemyError as error:
+        # The type only: a driver message can carry row values (ADR-0025 D6).
+        print(f"exercise-seed: database error ({type(error).__name__})", file=sys.stderr)
+        return 1
     finally:
-        factory.kw["bind"].dispose()
+        engine.dispose()
     if isinstance(outcome, IngestRefusal):
         print(f"exercise-seed: {path.name} was refused: {outcome.message}", file=sys.stderr)
         return 1

@@ -83,6 +83,7 @@ def test_the_default_seed_file_is_anns_fixture() -> None:
         "postgresql+psycopg://smartmatch:smartmatch@127.0.0.1:5432/smartmatch",
         "postgresql+psycopg://smartmatch:smartmatch@[::1]:5432/smartmatch",
         "postgresql+psycopg://smartmatch@/smartmatch",
+        "postgresql+psycopg://smartmatch@/smartmatch?host=/var/run/postgresql",
     ],
 )
 def test_a_host_run_developer_api_may_seed(database_url: str) -> None:
@@ -107,6 +108,14 @@ def test_a_host_run_developer_api_may_seed(database_url: str) -> None:
         ),
         (
             {"database_url": "postgresql+psycopg://u:p@10.0.0.5:5432/smartmatch"},
+            "SMARTMATCH_DATABASE_URL",
+        ),
+        (
+            {"database_url": "postgresql+psycopg://u:p@/smartmatch?host=db"},
+            "SMARTMATCH_DATABASE_URL",
+        ),
+        (
+            {"database_url": "postgresql+psycopg://u:p@localhost/smartmatch?hostaddr=10.0.0.5"},
             "SMARTMATCH_DATABASE_URL",
         ),
         ({"product_scope": "cba"}, "SMARTMATCH_PRODUCT_SCOPE"),

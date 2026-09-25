@@ -112,7 +112,7 @@ upload is the only way a data file gets in.
 It must never be set here, and it would not run if it were. The VM pins
 `SMARTMATCH_EDITION=dev`, so an edition check could not be the guard;
 `smartmatch_api.exercise_seed.auto_seed_refusal` instead refuses unless
-**every** one of these holds, and the VM breaks four of them independently:
+**every** one of these holds, and the VM breaks three of them independently:
 
 | Condition for seeding | On the VM |
 |---|---|
