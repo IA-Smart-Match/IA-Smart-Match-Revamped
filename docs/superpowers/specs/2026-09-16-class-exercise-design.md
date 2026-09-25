@@ -1,9 +1,9 @@
 # Class exercise design
 
 **Date:** 2026-09-16
-**Status:** Approved for implementation, with placeholders that close when Ann's
-20-row sample arrives (Fri Sept 18). Every placeholder is marked
-`PLACEHOLDER until 9/18`.
+**Status:** Approved for implementation. Ann's final data file arrived on
+2026-09-24 and closed the `PLACEHOLDER until 9/18` items of §2 and §3
+(OQ-CE-01, OQ-CE-05); the placeholders still marked below are other rows.
 **Scope:** `ProductScope.CLASS_EXERCISE` only. The CBA platform track continues
 unchanged; this spec touches shared code in exactly two places (§4.1, §4.2).
 **Requirements:** [`docs/product/class-exercise-requirements.md`](../../product/class-exercise-requirements.md)
@@ -52,47 +52,75 @@ readiness.
 | Table | Columns (key ones) | Notes |
 |---|---|---|
 | `exercise_dataset` | id, label, source_filename, uploaded_at, row_count, checksum, invite_limit (default 30), license_line (nullable) | One row per uploaded data file. The instructor's "replace the data file" creates a new row and points active workspaces at it after validation. |
-| `exercise_profile` | dataset_id, profile_no, display_name, major, class_year, past_event_keys[], stated_interests[] (G3 terms), career_goal, **hidden_true_interests[]** | The 300. `hidden_true_interests` is in `EXERCISE_WITHHELD_FIELDS`. |
-| `exercise_event` | dataset_id, event_key, name, topic_tags[] (G3 terms), target_majors[], is_exercise_event, sequence | 12 rows: 10 past, then Northline (round 1) and Harbor (round 2). |
+| `exercise_profile` | dataset_id, profile_no, display_name, major, class_year, past_event_keys[], stated_interests[] (topics), career_goal, tiebreak_order, **hidden_true_interests[]**, **hidden_true_career_goal** | The 300. Both hidden columns are in `EXERCISE_WITHHELD_FIELDS`. `tiebreak_order` and `hidden_true_career_goal` arrived with revision 0042. |
+| `exercise_event` | dataset_id, event_key, name, topic_tags[] (topics), target_majors[], is_exercise_event, sequence | 12 rows: 10 past, then Northline (round 1) and Harbor (round 2). |
 | `exercise_team_workspace` | dataset_id, team_number (1–6), workspace_token_hash, seed, created_at, asking_choice (nullable), refreshed_at (nullable) | One per team per dataset. `seed` drives §11's chance element. |
 | `exercise_profile_overlay` | workspace_id, profile_no, added_event_topics[], card_interests[] (nullable), card_career_goal (nullable), non_responding (bool) | Per-team mutations only. A team's view of a profile is base row ⟕ overlay. "Reset team" deletes this team's overlay, runs, and settings. Cheaper than six copies of 300 rows and makes isolation a key, not a discipline. |
 | `exercise_saved_setting` | workspace_id, event_key, name, weights (jsonb, four keys), created_at | UNIQUE (workspace_id, event_key, name); at most three per (workspace, event), enforced in the repository and by a partial check. |
 | `exercise_result_run` | workspace_id, event_key, round, setting_name, invited_profile_nos[], signed_up_profile_nos[], attended_profile_nos[], email_everyone (jsonb), seats_empty, created_at | UNIQUE (workspace_id, event_key) — the one-run rule as a constraint, not a check in code. |
 | `exercise_result_unlock` | dataset_id, event_key, unlocked_at | Instructor action. Absent row = locked. |
 
-**PLACEHOLDER until 9/18:** the mapping from Ann's column names to
-`exercise_profile` and `exercise_event`; the `class_year` vocabulary; whether
-past events are named by key or by title; whether career goal is a G3 term or
-a small fixed list.
+**Ann's data file (2026-09-24, OQ-CE-01 closed).** The workbook has a
+`Profiles` sheet and an `Events` sheet; `Read Me` and `Benchmark` are never
+read. The mapping (`smartmatch_domain/exercise/layout.py`, `EXERCISE_LAYOUT`):
+
+| Ann's column | Stored as |
+|---|---|
+| `profile_id` (P001–P300) | `profile_no` — the digits; anything but `P` and digits is refused |
+| `first_name`, `last_name` | `display_name` = first, space, last |
+| `major` (6 values) | `major` |
+| `year` (Freshman, Sophomore, Junior, Senior) | `class_year` |
+| `events_attended` (`;`-separated event ids, E01–E10) | `past_event_keys` — past events are named by **id** |
+| `card_completed` (Yes/No) | whether `stated_interests` is `NULL` (no card) or an array |
+| `stated_interests` (`;`-separated, 13 topics) | `stated_interests` |
+| `stated_career_goal` (16 labels) | `career_goal` |
+| `tiebreak_order` | `tiebreak_order` — §4.4's last step |
+| `hidden_true_interests`, `hidden_true_career_goal` | the two withheld columns |
+| `event_id`, `event_name`, `event_topics`, `target_major` | `event_key`, `name`, `topic_tags`, `target_majors` (`All majors` → all six) |
+| `exercise_event` (Yes/No), `seats` | `is_exercise_event`; `seats` must be 60 on the two exercise events |
+| Row position on `Events` | `sequence` |
+| `events_attended_count`, `info_level`, `event_type`, `event_date` | not read — derivable or shown nowhere |
+
+The vocabularies are closed in code (`smartmatch_domain/exercise/vocabulary.py`,
+owner ruling 2026-09-24): six majors, four years, thirteen topics and sixteen
+career-goal labels, stored in Ann's spelling. A career goal is a **small fixed
+list**, not a topic; "career goal fits this event" compares the topic the label
+points at through the role→topic table (OQ-CE-14, `PLACEHOLDER (Ann to confirm
+role→topic table)`).
 
 ## 3. Spreadsheet ingest
 
-- Route: `POST /v1/exercise/instructor/datasets` (multipart, one file),
-  synchronous. The instructor needs an answer on the spot, so the job and
-  review pipeline behind `routers/imports.py` is not used.
-- Format: **CSV** read with `csv.DictReader` (stdlib). If Ann's file is XLSX
-  (OQ-CE-05), ask for a CSV export first; `openpyxl` is the fallback and is a
-  new runtime dependency.
-- Validation, in order, each producing one plain sentence on failure:
-  required columns present ("The file is missing the column `major`."); row
-  count within 50–1000; every `class_year` in the vocabulary; every interest
-  term mapped to G3, with the count of unmapped terms reported and the rows
-  kept (ADR-0011: counted, never silently dropped); exactly two rows flagged
-  as exercise events; no duplicate `profile_no`.
+- Route: `POST /v1/exercise/instructor/datasets`, synchronous, with Ann's
+  `.xlsx` as the raw request body
+  (`application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`) and
+  `label` / `source_filename` as query parameters. The instructor needs an
+  answer on the spot, so the job and review pipeline behind
+  `routers/imports.py` is not used.
+- Format: **XLSX** (OQ-CE-05, closed 2026-09-24), read by `openpyxl` in
+  `read_only` and `data_only` mode with `defusedxml`
+  (`smartmatch_domain/exercise/workbook.py`). Before openpyxl opens anything:
+  a 2 MiB byte cap, ZIP magic, and a zip-bomb guard on the central directory
+  (at most 100 parts, 8 MiB per part, 16 MiB in all; no encryption; stored or
+  deflate only). Row, column and cell caps as before. A CSV or an old `.xls`
+  is refused with its own sentence.
+- Validation, in order, each producing one plain sentence on failure: both
+  sheets present ("The workbook has no sheet named `Events`."); required
+  columns present, naming the sheet ("The `Profiles` sheet is missing the
+  column `tiebreak_order`."); profile count within 50–1000; every event and
+  profile cell valid and in its vocabulary (a withheld cell is never quoted);
+  exactly two exercise events, each with 60 seats; no duplicate profile id,
+  event id or `tiebreak_order`; every attended event a past event of the
+  file.
 - On success: dataset row, profile rows, event rows, checksum. Existing
   workspaces keep pointing at their old dataset until the instructor
   re-points them; a re-point resets every team.
 
-**PLACEHOLDER until 9/18:** the required-column list.
+The required columns are every column of `EXERCISE_LAYOUT`: twelve on
+`Profiles`, six on `Events`.
 
-**As shipped (PR #184, 2026-09-19) — owner decision pending.** The route is not
-multipart. FastAPI's multipart parsing needs `python-multipart`, which this
-repository does not have, and adding it is a new runtime dependency plus a
-re-lock of hash-pinned requirements for one route. It shipped instead as a raw
-`text/csv` request body with `label` and `source_filename` as query parameters;
-the ingest core takes bytes either way, so switching back is a change to one
-handler's signature. This paragraph records what runs today, **not** a decision
-— see PR #184 "owner decision 2", still open.
+**Not multipart (owner ruling 2026-09-21).** FastAPI's multipart parsing needs
+`python-multipart`, which this repository does not carry. The body is the file's
+bytes; the ingest core takes bytes either way.
 
 ## 4. Factors, weights, tie-break, reasons
 
@@ -141,6 +169,13 @@ major plus events, 0 for major only; `year_rank` puts seniors first; and
 checksum, so it never changes between runs, teams, or processes. The list is
 cut at the dataset's `invite_limit`.
 
+**Ann's data file (2026-09-24).** `year_rank` is
+`EXERCISE_CLASS_YEAR_RANK` (Senior > Junior > Sophomore > Freshman, owner
+ruling 4), so Ann's "Tied on major; ordered by year." now appears. The last
+step reads Ann's `tiebreak_order` ("Fixed random order 1–300 … Never changes
+between runs.") instead of the checksum shuffle; a dataset stored before
+revision 0042 has none and keeps the shuffle.
+
 ### 4.5 Reasons
 
 One sentence per name, from an explanation spec table in the exercise module,
@@ -155,6 +190,14 @@ The response carries `rank`, `reason`, `marker`, and the factor keys that
 contributed. No number named like a score.
 
 ## 5. Invite limit
+
+*Ann confirmed the flow of §5–§11 to Chau on 2026-09-24 (Discord): the team
+sets weights and the app picks the top 30 with a reason line per name, nobody
+hand-picks; the team saves up to three settings and compares any two side by
+side with names on both lists highlighted; the team chooses one final setting;
+the instructor unlocks results and the team runs them once. No change was
+needed.*
+
 
 `exercise_dataset.invite_limit`, default 30. Instructor route
 `PATCH /v1/exercise/instructor/datasets/{id}` changes it. The ranked list and
@@ -254,20 +297,15 @@ markers recompute from base ⟕ overlay. Instructor `POST
 /v1/exercise/instructor/refresh-all` runs it for every workspace that has
 chosen and not yet refreshed.
 
-**As shipped (2026-09-21) — what the copied card says about a career goal.**
-PR #190 left `exercise_profile_overlay.card_career_goal` `NULL` on a copied
-card. The owner ruled: *copied cards carry the base `career_goal`; `NULL` only
-when the base has none.* That rule is now written down rather than inferred, as
-`CopiedCardCareerGoal` and `copied_card_career_goal` in
-`smartmatch_domain/exercise/asking.py`. **The switch is one line** —
-`COPIED_CARD_CAREER_GOAL`, marked `PLACEHOLDER (OQ-CE-13)`; every caller takes
-it as a default, and a third reading is one enum member plus one branch.
-
-The ruling **changes no ranked list today**. A reader resolves a team's view as
-overlay-over-base (`exercise_matching_models._profile_evidence`), so a copied
-card with no goal of its own already read the base row's, and `career_goal_fit`
-already earned on it. Writing the goal makes that resolution explicit at the
-row. **OQ-CE-13 stays OPEN** pending Ann, alongside OQ-CE-01.
+**What the copied card says about a career goal (OQ-CE-13, closed
+2026-09-24).** Ann's Read Me: the hidden columns are "used only by the results
+rule and by the refresh (a new card copies these)". A copied card carries the
+profile's `hidden_true_interests` **and** `hidden_true_career_goal`
+(`COPIED_CARD_CAREER_GOAL = CopiedCardCareerGoal.HIDDEN_GOAL` in
+`smartmatch_domain/exercise/asking.py`). The earlier readings — PR #190's
+`NONE` and the 2026-09-21 ruling's `BASE_GOAL` — stay as enum members. Unlike
+the base-goal reading, this one **can move a name**: the copied goal is the
+profile's true goal, which the card makes known.
 
 ## 14. Instructor page
 
