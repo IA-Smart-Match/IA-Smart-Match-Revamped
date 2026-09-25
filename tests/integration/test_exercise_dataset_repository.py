@@ -96,6 +96,7 @@ def _events() -> tuple[ParsedEvent, ...]:
             target_majors=("Marketing",),
             is_exercise_event=True,
             sequence=11 + index,
+            is_exploratory=True,
         )
         for index, (key, name) in enumerate(
             (("northline", "Northline Analytics"), ("harbor", "Harbor Consumer Brands"))
@@ -387,6 +388,21 @@ def test_the_events_come_back_in_file_order(session: Session) -> None:
     assert [event.sequence for event in events] == list(range(1, 13))
     assert [event.event_key for event in events][-2:] == ["northline", "harbor"]
     assert sum(1 for event in events if event.is_exercise_event) == 2
+
+
+def test_whether_an_event_is_exploratory_round_trips(session: Session) -> None:
+    """OQ-CE-14: the flag ingest derives from ``event_type`` is what a read returns."""
+    summary = REPOSITORY.create_dataset(
+        session, _dataset(), label="Exploratory", source_filename="d.csv"
+    )
+    session.commit()
+
+    events = REPOSITORY.list_events(session, dataset_id=summary.dataset_id)
+
+    assert {event.event_key for event in events if event.is_exploratory} == {
+        "northline",
+        "harbor",
+    }
 
 
 def test_no_card_on_file_stays_different_from_an_empty_card(session: Session) -> None:
