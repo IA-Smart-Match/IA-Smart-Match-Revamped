@@ -104,6 +104,7 @@ from smartmatch_api.routers.exercise_results_models import (
 from smartmatch_api.routers.exercise_results_refresh import refresh_one_team
 from smartmatch_api.routers.exercise_results_run import (
     coefficients_or_refusal,
+    final_setting_or_refusal,
     invited_list,
     run_the_rule,
     runnable_or_refusal,
@@ -195,27 +196,43 @@ def run_results(
     it — a read alone would not be enough. Allowed at all only after the
     instructor has unlocked this event.
 
-    The invited list is the ranked list this team's screen shows, built from a
-    saved weighting when ``setting_name`` names one and from the course's
-    starting values otherwise. The answer carries three panels: your team's list,
-    everybody in the data file through the same rule with the same seed, and — in
-    round two — your team's stored round-one result.
+    The invited list is the ranked list this team's screen shows, built from the
+    team's **final setting**: ``setting_name`` is required and names one of the
+    team's saved settings for this event (Ann to Chau, Discord, 2026-09-24).
+    There is no run on the course's starting values.
+
+    The answer carries three panels: your team's list, everybody in the data
+    file through the same rule with the same seed, and — in round two — your
+    team's stored round-one result.
 
     The rule the answer comes from is written in plain words in
     ``smartmatch_domain/exercise/simulation.py`` and is the statement the course
     owner receives. Its coefficients are **not decided yet** (OQ-CE-03), so this
     route refuses with one sentence naming that question until they are.
 
+    The refusals come in this order, so the most useful sentence wins:
+
+    1. The event — unknown (404), not a round, locked, already run (409). These
+       say whether this event can be run at all, whatever the body says; telling
+       a team that has already run to choose a setting would invite a second try.
+    2. The final setting — left out or blank (422). The team's own step, so it
+       is answered before anything the team cannot fix.
+    3. The rule — no confirmed coefficients (409, OQ-CE-03). The owner's to
+       close; it refuses every run on this deployment today, so a check after it
+       would never be reached.
+    4. The saved setting itself — not one this team saved (404).
+
     Raises:
         ExerciseError: 401 without a workspace cookie, 403 without the
             ``X-Exercise-Request`` header, 404 for an event or a saved setting
             this team does not have, 409 when the event is locked, is not one of
             the two rounds, has already been run, has no confirmed rule, or the
-            write is refused.
+            write is refused, 422 without a final setting.
     """
     events, event, round_number = runnable_or_refusal(
         session, results, datasets=datasets, workspace=workspace, event_key=event_key
     )
+    final_setting = final_setting_or_refusal(payload.setting_name)
     coefficients = coefficients_or_refusal()
     team_state = _team_state_or_refusal(session, results, workspace)
     profiles, invited, setting_name = invited_list(
@@ -226,7 +243,7 @@ def run_results(
         workspace=workspace,
         events=events,
         event=event,
-        requested_setting=payload.setting_name,
+        requested_setting=final_setting,
     )
     team, everyone = run_the_rule(
         session,
