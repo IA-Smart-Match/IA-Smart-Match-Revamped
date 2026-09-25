@@ -11,8 +11,8 @@
  * rendering anything.
  *
  * No vocabulary of majors or class years appears in this file. Labels arrive
- * as data, because OQ-CE-01 (the data file's column names and value
- * vocabularies) is open; even the "a"/"an" choice is made from the label's
+ * as data: the vocabularies are closed by Ann's workbook of 2026-09-24, but
+ * the server owns them, not this module; even the "a"/"an" choice is made from the label's
  * own first letter rather than from a list this module would have to learn.
  *
  * Unknown never reaches here. A profile with no major on file is not a group

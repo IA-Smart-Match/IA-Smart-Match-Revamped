@@ -168,7 +168,7 @@ function refusalFrom(status: number, payload: unknown): ExerciseRefusal {
 
 export interface ExerciseRequestOptions {
   readonly method?: string;
-  /** Sent as JSON. Use `rawBody` for the instructor upload's `text/csv`. */
+  /** Sent as JSON. Use `rawBody` for the instructor upload's .xlsx bytes. */
   readonly json?: unknown;
   /** A non-JSON body with its own content type — see `uploadDataset`. */
   readonly rawBody?: { readonly body: BodyInit; readonly contentType: string };
