@@ -27,8 +27,8 @@ import { isRefusal } from "../../../lib/exerciseApi";
 import {
   instructorLogin,
   instructorLogout,
+  listInstructorEvents,
   listTeamWorkspaces,
-  readEvents,
   refreshAllWorkspaces,
   unlockResults,
   type RefreshAllView,
@@ -37,6 +37,7 @@ import { ExerciseLoading, ExerciseNotice, ExerciseScreen } from "./ExerciseScree
 import { InstructorDatasets } from "./InstructorDatasets";
 import { InstructorTeams } from "./InstructorTeams";
 import { INSTRUCTOR_SESSION_REQUIRED } from "./refusals";
+import { useExerciseResource } from "./useExerciseResource";
 
 const BUTTON =
   "rounded-lg border-2 border-slate-400 px-5 py-3 text-xl font-semibold text-slate-800 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 dark:border-slate-500 dark:text-slate-100 dark:hover:bg-slate-800";
@@ -152,6 +153,13 @@ function PasscodeForm({ onSignedIn }: { readonly onSignedIn: () => void }): Reac
 
 function SignedIn({ onSignedOut }: { readonly onSignedOut: () => void }): React.JSX.Element {
   const [refusal, setRefusal] = React.useState<string | null>(null);
+  /**
+   * Bumped when an upload or a re-point lands. The teams list and the unlock
+   * panel read facts those two change, and each used to keep its first answer
+   * until the page was reloaded.
+   */
+  const [dataVersion, setDataVersion] = React.useState(0);
+  const dataChanged = React.useCallback(() => setDataVersion((version) => version + 1), []);
 
   /**
    * Any instructor action, with the session's own 401 handled once.
@@ -196,96 +204,87 @@ function SignedIn({ onSignedOut }: { readonly onSignedOut: () => void }): React.
 
       {refusal === null ? null : <ExerciseNotice message={refusal} />}
 
-      <InstructorDatasets />
-      <UnlockPanel onRefusal={setRefusal} />
+      <InstructorDatasets onDataChanged={dataChanged} />
+      <UnlockPanel onRefusal={setRefusal} reloadKey={dataVersion} />
       <RefreshAllPanel />
-      <InstructorTeams />
+      <InstructorTeams reloadKey={dataVersion} />
     </div>
   );
 }
 
-/** Open results for one event. Idempotent: a second press says the same thing. */
+/**
+ * Open results for one event. Idempotent: a second press says the same thing.
+ *
+ * The list is `GET …/instructor/events`, behind the passcode session alone. It
+ * used to be the team route, which needs a workspace cookie, so an instructor
+ * who had not entered as a team saw no events at all. "Results are open." is
+ * the server's `unlocked` flag rather than local state, so it survives a
+ * reload, and the list is re-read after every unlock.
+ *
+ * The server resolves the list exactly as it resolves the unlock — the file
+ * the teams are on — and its `dataset_id` is passed back on every press, so
+ * the list and the button cannot address two different files. When no file
+ * can be resolved the server's own sentence is shown.
+ */
 function UnlockPanel({
   onRefusal,
+  reloadKey,
 }: {
   readonly onRefusal: (message: string | null) => void;
+  readonly reloadKey: number;
 }): React.JSX.Element {
-  const [events, setEvents] = React.useState<{ key: string; name: string }[]>([]);
-  const [unlocked, setUnlocked] = React.useState<readonly string[]>([]);
+  const { state, reload } = useExerciseResource(listInstructorEvents, [reloadKey]);
   const [pending, setPending] = React.useState(false);
 
-  React.useEffect(() => {
-    const controller = new AbortController();
-    readEvents(controller.signal)
-      .then((view) => {
-        // The abort check is on both paths: a panel unmounted while this was
-        // in flight must not set state, and an aborted request rejects, so
-        // without the guard the `catch` below would run on every unmount.
-        if (controller.signal.aborted) {
-          return;
-        }
-        setEvents(
-          view.events
-            .filter((event) => event.is_exercise_event)
-            .sort((a, b) => a.sequence - b.sequence)
-            .map((event) => ({ key: event.event_key, name: event.name })),
-        );
-      })
-      .catch(() => {
-        if (controller.signal.aborted) {
-          return;
-        }
-        // The instructor's own event list comes from a team route, which needs
-        // a workspace cookie this browser may not have. An empty list and the
-        // sentence below is the honest state, not an error worth shouting.
-        setEvents([]);
-      });
-    return () => controller.abort();
-  }, []);
-
   return (
-    <section className="flex flex-col gap-3">
+    <section className="flex flex-col gap-3" data-slot="exercise-instructor-unlock">
       <h2 className="text-3xl font-semibold text-slate-900 dark:text-slate-50">
         Open results for an event
       </h2>
-      {events.length === 0 ? (
+      {state.status === "loading" ? <ExerciseLoading what="the events" /> : null}
+      {state.status === "refused" ? <ExerciseNotice message={state.refusal.message} /> : null}
+      {state.status === "unreachable" ? (
+        <ExerciseNotice message={state.message} tone="problem" />
+      ) : null}
+      {state.status === "ready" && state.data.events.length === 0 ? (
         <p className="text-xl text-slate-700 dark:text-slate-200">
-          The events cannot be listed from this browser. Enter a team number in another tab, or open
-          results by pressing a team's event once it appears here.
+          {state.data.dataset_label} has no events for the teams to run.
         </p>
-      ) : (
+      ) : null}
+      {state.status === "ready" && state.data.events.length > 0 ? (
         <ul className="flex flex-col gap-2">
-          {events.map((event) => (
-            <li key={event.key} className="flex flex-wrap items-center gap-3 text-xl">
+          {state.data.events.map((event) => (
+            <li key={event.event_key} className="flex flex-wrap items-center gap-3 text-xl">
               <span className="font-semibold">{event.name}</span>
-              <button
-                type="button"
-                disabled={pending}
-                className={BUTTON}
-                onClick={() => {
-                  setPending(true);
-                  onRefusal(null);
-                  unlockResults(event.key)
-                    .then((view) => setUnlocked((open) => [...open, view.event_key]))
-                    .catch((error: unknown) =>
-                      onRefusal(
-                        isRefusal(error)
-                          ? error.message
-                          : "The exercise could not be reached. Check the connection and try again.",
-                      ),
-                    )
-                    .finally(() => setPending(false));
-                }}
-              >
-                Open results
-              </button>
-              {unlocked.includes(event.key) ? (
+              {event.unlocked ? (
                 <span className="text-slate-700 dark:text-slate-200">Results are open.</span>
-              ) : null}
+              ) : (
+                <button
+                  type="button"
+                  disabled={pending}
+                  className={BUTTON}
+                  onClick={() => {
+                    setPending(true);
+                    onRefusal(null);
+                    unlockResults(event.event_key, state.data.dataset_id)
+                      .then(() => reload())
+                      .catch((error: unknown) =>
+                        onRefusal(
+                          isRefusal(error)
+                            ? error.message
+                            : "The exercise could not be reached. Check the connection and try again.",
+                        ),
+                      )
+                      .finally(() => setPending(false));
+                  }}
+                >
+                  Open results
+                </button>
+              )}
             </li>
           ))}
         </ul>
-      )}
+      ) : null}
     </section>
   );
 }

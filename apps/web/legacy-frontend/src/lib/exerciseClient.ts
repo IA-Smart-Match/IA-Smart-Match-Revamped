@@ -283,6 +283,21 @@ export interface TeamDetailView {
   readonly result_runs: ResultRunView[];
 }
 
+/** One event the teams run, and whether its results are already open. */
+export interface InstructorEventView {
+  readonly event_key: string;
+  readonly name: string;
+  readonly unlocked: boolean;
+}
+
+/** `GET /v1/exercise/instructor/events`: the teams' data file and its events. */
+export interface InstructorEventsView {
+  /** The file the unlock writes to. Passed back on every unlock. */
+  readonly dataset_id: string;
+  readonly dataset_label: string;
+  readonly events: InstructorEventView[];
+}
+
 export interface UnlockView {
   readonly event_key: string;
   readonly unlocked: boolean;
@@ -529,6 +544,15 @@ export function repointWorkspaces(datasetId: string, signal?: AbortSignal) {
     `/instructor/datasets/${encodeURIComponent(datasetId)}/repoint`,
     { method: "POST", signal },
   );
+}
+
+/**
+ * `GET /v1/exercise/instructor/events` — the unlock panel's list, behind the
+ * passcode session alone. Resolved on the server exactly as the unlock is, so
+ * `unlocked` is the lock state of the file the button writes to.
+ */
+export function listInstructorEvents(signal?: AbortSignal) {
+  return exerciseRequest<InstructorEventsView>("/instructor/events", { signal });
 }
 
 export function unlockResults(eventKey: string, datasetId?: string, signal?: AbortSignal) {

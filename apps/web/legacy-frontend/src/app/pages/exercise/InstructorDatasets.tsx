@@ -48,7 +48,15 @@ const BUTTON =
 const INPUT =
   "rounded-lg border-2 border-slate-400 px-3 py-2 text-xl focus-visible:outline-2 focus-visible:outline-offset-2 dark:border-slate-500 dark:bg-slate-900 dark:text-slate-50";
 
-export function InstructorDatasets(): React.JSX.Element {
+export function InstructorDatasets({
+  onDataChanged,
+}: {
+  /**
+   * Called after an upload or a re-point lands, so the page can reload the
+   * panels that read the same facts: the teams list and the unlock panel.
+   */
+  readonly onDataChanged?: () => void;
+} = {}): React.JSX.Element {
   const { state, reload } = useExerciseResource(listDatasets, []);
   const [refusal, setRefusal] = React.useState<string | null>(null);
   /**
@@ -111,6 +119,7 @@ export function InstructorDatasets(): React.JSX.Element {
             const workbook = await readFileAsBytes(file);
             setUploaded(await uploadDataset(workbook, label, file.name));
             reload();
+            onDataChanged?.();
           })
         }
       />
@@ -167,6 +176,7 @@ export function InstructorDatasets(): React.JSX.Element {
                       } of them.`,
                     );
                     reload();
+                    onDataChanged?.();
                   })
                 }
               />
