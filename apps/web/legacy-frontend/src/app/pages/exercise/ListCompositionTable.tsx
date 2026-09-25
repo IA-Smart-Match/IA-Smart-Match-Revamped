@@ -20,7 +20,8 @@
  *   about why.
  *
  * No vocabulary is written here. Majors and years are keys of the maps the
- * server sent, rendered as the file spells them (OQ-CE-01 is open).
+ * server sent, rendered as the file spells them. The vocabularies are closed
+ * by Ann's workbook of 2026-09-24, but the server owns them, not this screen.
  */
 import * as React from "react";
 

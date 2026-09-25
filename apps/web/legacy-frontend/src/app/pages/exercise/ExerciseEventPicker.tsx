@@ -14,8 +14,9 @@
  * from an event's name. The names are Ann's data file's and may change.
  *
  * No vocabulary is written into this screen. Topics and majors render as the
- * strings the file carries (OQ-CE-01 is open — the column names and value
- * vocabularies are not settled), and nothing here compares them to a list.
+ * strings the server sends. Ann's workbook of 2026-09-24 closed the columns
+ * and vocabularies, but the server owns them, so nothing here compares them to
+ * a list.
  */
 import * as React from "react";
 import { Link } from "react-router";

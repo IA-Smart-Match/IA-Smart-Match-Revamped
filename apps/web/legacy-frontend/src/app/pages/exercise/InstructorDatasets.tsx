@@ -15,11 +15,13 @@
  * `teams_discarded` come back and are shown — the instructor should see what
  * the button did rather than infer it.
  *
- * **The upload is a raw `text/csv` body.** Settled by the owner on
- * 2026-09-21. The file is read in the browser and its bytes are the request
- * body, with the label and the file name as query parameters — there is no
- * `FormData` here. The shape lives in `exerciseClient.uploadDataset`, so a
- * later move to multipart is one function and this one form.
+ * **The upload is Ann's Excel workbook as a raw .xlsx body.** OQ-CE-05 closed
+ * on 2026-09-24: the instructor uploads Ann's .xlsx as-is, not a CSV exported
+ * from it. The owner's 2026-09-21 ruling still stands — no multipart. The file
+ * is read in the browser and its bytes are the request body, with the label
+ * and the file name as query parameters; there is no `FormData` here. The
+ * shape lives in `exerciseClient.uploadDataset`, so a later change to it is
+ * one function and this one form.
  *
  * **The license line is rendered only when the server has one.** OQ-CE-09 is
  * open and `license_line` is `null` until Ann provides the sentence; nothing
@@ -29,6 +31,7 @@ import * as React from "react";
 
 import { isRefusal } from "../../../lib/exerciseApi";
 import {
+  XLSX_CONTENT_TYPE,
   listDatasets,
   repointWorkspaces,
   setInviteLimit,
@@ -105,8 +108,8 @@ export function InstructorDatasets(): React.JSX.Element {
             // becomes a sentence on screen rather than an exception nobody
             // sees. It used to be `file.text()` outside it, which threw where
             // `Blob.prototype.text` is missing and killed the upload silently.
-            const csv = await readFileAsText(file);
-            setUploaded(await uploadDataset(csv, label, file.name));
+            const workbook = await readFileAsBytes(file);
+            setUploaded(await uploadDataset(workbook, label, file.name));
             reload();
           })
         }
@@ -120,18 +123,12 @@ export function InstructorDatasets(): React.JSX.Element {
             <Pair label="Profiles" value={uploaded.report.profile_count} />
             <Pair label="Events" value={uploaded.report.event_count} />
             <Pair label="Events in the exercise" value={uploaded.report.exercise_event_count} />
-            <Pair label="Profiles with no major" value={uploaded.report.profiles_missing_major} />
-            <Pair label="Profiles with no year" value={uploaded.report.profiles_missing_class_year} />
             <Pair label="Profiles with no card" value={uploaded.report.profiles_without_card} />
             <Pair
               label="Different interest words"
               value={uploaded.report.distinct_stated_interest_terms}
             />
             <Pair label="Different topic words" value={uploaded.report.distinct_topic_tag_terms} />
-            <Pair
-              label="Rows in a list that were discarded"
-              value={uploaded.report.discarded_list_entries}
-            />
           </dl>
         </div>
       )}
@@ -182,22 +179,24 @@ export function InstructorDatasets(): React.JSX.Element {
 }
 
 /**
- * The chosen file's bytes, as text.
+ * The chosen file's bytes, as an `ArrayBuffer`.
  *
- * `FileReader` rather than `Blob.prototype.text()`: the latter is absent in
+ * `FileReader` rather than `Blob.prototype.arrayBuffer()`: the latter is absent in
  * some environments — jsdom among them — and when it is, calling it throws
  * inside a submit handler, where the exception goes nowhere and the upload
  * simply never happens. `FileReader` has been in every browser since long
  * before any machine in this classroom, and its failure arrives as a rejection
  * this screen can show as a sentence.
  */
-function readFileAsText(file: File): Promise<string> {
+function readFileAsBytes(file: File): Promise<ArrayBuffer> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : "");
-    reader.onerror = () =>
+    const unreadable = () =>
       reject(new Error("That file could not be read. Try choosing it again."));
-    reader.readAsText(file);
+    reader.onload = () =>
+      reader.result instanceof ArrayBuffer ? resolve(reader.result) : unreadable();
+    reader.onerror = unreadable;
+    reader.readAsArrayBuffer(file);
   });
 }
 
@@ -219,7 +218,7 @@ function UploadForm({
         if (file === null || label.trim() === "") {
           return;
         }
-        // The route takes a raw `text/csv` body, not a multipart part, so
+        // The route takes the workbook as a raw .xlsx body, not a multipart part, so
         // there is no `FormData` in this path. The caller reads the bytes.
         void onUpload(file, label.trim());
       }}
@@ -238,15 +237,19 @@ function UploadForm({
       </div>
       <div className="flex flex-col gap-1">
         <label htmlFor="exercise-upload-file" className="text-xl">
-          Spreadsheet file
+          Ann&apos;s Excel workbook (.xlsx)
         </label>
         <input
           id="exercise-upload-file"
           type="file"
-          accept=".csv,text/csv"
+          accept={`.xlsx,${XLSX_CONTENT_TYPE}`}
+          aria-describedby="exercise-upload-file-help"
           onChange={(event) => setFile(event.target.files?.[0] ?? null)}
           className={INPUT}
         />
+        <p id="exercise-upload-file-help" className="text-lg text-slate-600 dark:text-slate-300">
+          Choose Ann&apos;s workbook exactly as she sent it. Do not save it as a CSV first.
+        </p>
       </div>
       <button type="submit" disabled={pending || file === null || label.trim() === ""} className={BUTTON}>
         Upload this file
