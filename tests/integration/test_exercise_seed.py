@@ -129,7 +129,7 @@ def test_an_instructor_upload_is_left_untouched(
     with sessions() as session:
         active = active_dataset(session)
     assert active is not None
-    assert active.id == uploaded.id
+    assert active.id == uploaded.dataset_id
 
 
 def test_force_adds_a_dataset_and_deletes_none(sessions: sessionmaker[Session]) -> None:

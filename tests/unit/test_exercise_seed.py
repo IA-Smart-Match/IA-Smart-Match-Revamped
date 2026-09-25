@@ -188,9 +188,7 @@ def test_a_failure_is_one_line_without_the_exception_text(
     assert lines[0].exc_info is None
 
 
-def test_a_missing_seed_file_is_one_line(
-    caplog: pytest.LogCaptureFixture, tmp_path: Path
-) -> None:
+def test_a_missing_seed_file_is_one_line(caplog: pytest.LogCaptureFixture, tmp_path: Path) -> None:
     caplog.set_level(logging.DEBUG, logger=exercise_seed.__name__)
 
     seed_on_start(_settings(), _NeverCalled(), seed_file=tmp_path / "absent.xlsx")  # type: ignore[arg-type]

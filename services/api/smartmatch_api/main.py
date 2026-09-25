@@ -53,6 +53,7 @@ from smartmatch_api.config import (
 )
 from smartmatch_api.dependencies import DbSession
 from smartmatch_api.errors import EXCEPTION_HANDLERS, ErrorEnvelope, error_response
+from smartmatch_api.exercise_seed import seed_on_start
 from smartmatch_api.routers import (
     attendance,
     auth,
@@ -232,7 +233,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     The session factory is built in every scope. The exercise has its own
     ``exercise_`` tables and will need it; what it must not have is a principal.
-    Nothing here issues a query in any scope.
+    Nothing here issues a query in any scope, with one opt-in exception: a
+    developer who sets ``SMARTMATCH_EXERCISE_SEED_ON_START`` gets an empty
+    exercise database filled from Ann's fixture file once, by
+    :func:`~smartmatch_api.exercise_seed.seed_on_start`, which refuses under
+    every production signal and never stops the process.
     """
     settings = get_settings()
 
@@ -252,6 +257,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         if settings.capability_enabled(Capability.AUTHENTICATED_LOGIN)
         else None
     )
+    seed_on_start(settings, app.state.session_factory)
 
     yield
 

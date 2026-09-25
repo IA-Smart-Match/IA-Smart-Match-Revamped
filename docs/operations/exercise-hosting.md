@@ -98,6 +98,40 @@ misused. Every CBA route answers 404 in this process.
 | `SMARTMATCH_EXERCISE_INSTRUCTOR_PASSCODE` | No — but the instructor page is shut without it | 16+ characters, owner-supplied | Unset (or unusable) means every instructor login attempt is refused with the same sentence a wrong passcode gets (`exercise_dependencies.py:498-516`). Team routes keep working — deliberately, so a missing passcode cannot take a classroom down. |
 | `SMARTMATCH_DATABASE_URL` | **Yes** | `postgresql+psycopg://<EXERCISE_DB_ROLE>:<EXERCISE_DB_PASSWORD>@db:5432/smartmatch` | No database. Point it at the **restricted role** from [§3](#3-the-database-role), not at the owner role. |
 | `SMARTMATCH_DB_HIDE_PARAMETERS` | Leave **empty** | *(empty)* | Empty means hidden, which is the default and the only correct value on a shared host. Setting `false` puts every bound value of every failed statement — including the withheld "true interests" column, ADR-0025 D6 — into the server log (`engine.py:236`, `.env.example:82-104`). |
+| `SMARTMATCH_EXERCISE_SEED_ON_START` | **Never set on the VM** | *(absent)* | Nothing — absent is correct here. It is a developer convenience that fills an empty exercise database from Ann's fixture file at API start. See [below](#never-set-smartmatch_exercise_seed_on_start-on-the-vm). |
+
+### Never set `SMARTMATCH_EXERCISE_SEED_ON_START` on the VM
+
+`SMARTMATCH_EXERCISE_SEED_ON_START=true` makes the API store Ann's fixture file
+(`tests/fixtures/exercise/SmartMatch_Student_Body_300.xlsx`) as the active
+dataset at start-up when the database has none (CE-SEED, owner design "A",
+2026-09-25). It exists for developer machines, where every fresh database
+otherwise starts empty until someone uploads by hand. On the VM the instructor
+upload is the only way a data file gets in.
+
+It must never be set here, and it would not run if it were. The VM pins
+`SMARTMATCH_EDITION=dev`, so an edition check could not be the guard;
+`smartmatch_api.exercise_seed.auto_seed_refusal` instead refuses unless
+**every** one of these holds, and the VM breaks four of them independently:
+
+| Condition for seeding | On the VM |
+|---|---|
+| `SMARTMATCH_EXERCISE_COOKIE_SECURE` is not `true` | `true`, hard-set by `docker-compose.exercise.yml` |
+| `SMARTMATCH_EDITION` is `dev` | `dev` — this is the check that could not stand alone |
+| `SMARTMATCH_RELEASE` is its default, `dev` | `vm-unknown` or a commit |
+| fixture providers on, no provider credential | holds |
+| `SMARTMATCH_DATABASE_URL` host is loopback or a local socket | `db` |
+| the process runs the class exercise | holds |
+
+Two more layers sit under that: `docker-compose.exercise.yml` does not pass the
+variable into `api-exercise` at all, and `Dockerfile.api` does not copy
+`tests/`, so the fixture file is not in the image. A refused or failed seed is
+one log line and the API starts anyway.
+
+To fill a developer database on demand instead, run `make exercise-seed`: a
+no-op when a dataset is already active, `EXERCISE_SEED_ARGS="--force"` to add
+one more (it never deletes one), `EXERCISE_SEED_ARGS="--file other.xlsx"` for a
+different file. It prints counts only.
 
 ### Generating the two secrets
 
@@ -761,7 +795,11 @@ checklist for real:
    per [§4](#4-https-and-cookies) and the owner decision, 2026-09-21. Nothing
    to set by hand. Pass: the workspace cookie (`exercise_workspace`) carries
    `Secure` on a response from `https://exercise.plated.blog`. **VERIFY ON
-   VM** — cannot be checked before the process exists.
+   VM** — cannot be checked before the process exists. Also confirm
+   `SMARTMATCH_EXERCISE_SEED_ON_START` appears nowhere in the VM's `.env`
+   ([§2](#never-set-smartmatch_exercise_seed_on_start-on-the-vm)). Pass:
+   `grep -c SMARTMATCH_EXERCISE_SEED_ON_START /opt/smartmatch/app/.env`
+   prints `0`.
 
 ### Compose up
 

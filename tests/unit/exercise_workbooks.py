@@ -52,7 +52,6 @@ ANN_FULL_FILE: Final[Path] = _FIXTURES / "SmartMatch_Student_Body_300.xlsx"
 ANN_SAMPLE_FILE: Final[Path] = _FIXTURES / "SmartMatch_Student_Body_Sample_20.xlsx"
 
 
-
 @cache
 def ann_full_parsed() -> ParsedDataset:
     """Ann's full file through the real parser, once per test process.

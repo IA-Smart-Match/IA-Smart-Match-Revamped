@@ -187,6 +187,16 @@ class Settings(BaseSettings):
     #: pinning it on would break local development rather than protect it.
     exercise_cookie_secure: bool | None = None
 
+    #: Fill an *empty* class-exercise database from Ann's fixture file once at
+    #: start-up (CE-SEED). Read from ``SMARTMATCH_EXERCISE_SEED_ON_START``.
+    #:
+    #: Off by default, and a developer convenience only: it must never be set
+    #: on the pilot VM. Setting it is not enough to make it run —
+    #: :func:`smartmatch_api.exercise_seed.auto_seed_refusal` refuses under
+    #: every production signal, because the VM pins ``SMARTMATCH_EDITION=dev``
+    #: and an edition check alone would let it through there.
+    exercise_seed_on_start: bool = False
+
     #: Included in the health response so a deployment can be identified without
     #: exposing topology.
     release: str = Field(default="dev", description="Release identifier")
