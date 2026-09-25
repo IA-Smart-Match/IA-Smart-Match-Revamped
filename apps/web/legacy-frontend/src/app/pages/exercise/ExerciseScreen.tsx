@@ -35,9 +35,13 @@ import { SyntheticDataBanner } from "../../components/provenance/SyntheticDataMa
  * One constant rather than a sentence per screen: it is the same fact on all
  * of them, and `GET /v1/exercise` reports `synthetic_data: true` as a constant
  * of the scope rather than a property of a dataset.
+ *
+ * Ann's wording rule (2026-09-25, email reply): describe the data only as
+ * fictional profiles shaped by overall survey percentages, and never mention
+ * real student data or individual responses.
  */
 export const EXERCISE_SYNTHETIC_REASON =
-  "Every profile and event in this exercise is made up. No real student appears, and nothing here is connected to university records.";
+  "All student profiles are fictional, shaped by overall survey percentages.";
 
 export interface ExerciseScreenProps {
   /** The page name, as the one `h1`. */

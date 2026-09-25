@@ -490,9 +490,9 @@ def require_coefficients() -> SimulationCoefficients:
         CoefficientsNotConfirmedError: While OQ-CE-03 is open.
     """
     if EXERCISE_SIMULATION_COEFFICIENTS is None:
-        raise CoefficientsNotConfirmedError(
-            "The results rule has no confirmed coefficients yet (OQ-CE-03)."
-        )
+        # OQ-CE-03 is open. The register ID stays here, not in the sentence:
+        # the route passes this message to a team verbatim.
+        raise CoefficientsNotConfirmedError("The results rule has no confirmed coefficients yet.")
     return EXERCISE_SIMULATION_COEFFICIENTS
 
 

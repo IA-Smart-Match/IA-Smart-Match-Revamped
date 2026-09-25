@@ -675,6 +675,15 @@ UNAUTHENTICATED_ROUTES: dict[tuple[str, str], str] = {
         "`uq_exercise_team_workspace_dataset_team` admits one row per team per "
         "file. Requires `X-Exercise-Request`."
     ),
+    ("GET", "/v1/exercise/instructor/events"): (
+        "Lists the exercise events of the data file the teams are on, and "
+        "whether each is already unlocked (design spec §9), behind the "
+        "instructor passcode session. Resolved exactly as the unlock is — the "
+        "teams' file, never the newest upload — so the panel cannot report a "
+        "lock the unlock would not write. Event key, name and an unlocked "
+        "flag only: no profile, no workspace, no seed. Read-only, so no "
+        "`X-Exercise-Request`."
+    ),
     ("POST", "/v1/exercise/instructor/events/{event_key}/unlock"): (
         "Opens results for one event (design spec §9), behind the instructor "
         "passcode session. Idempotent by the primary key rather than by a "

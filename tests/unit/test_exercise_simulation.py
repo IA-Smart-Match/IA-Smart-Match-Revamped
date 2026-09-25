@@ -496,7 +496,7 @@ def test_require_coefficients_refuses_while_the_set_is_none(monkeypatch):
     monkeypatch.setattr(simulation, "EXERCISE_SIMULATION_COEFFICIENTS", None)
     with pytest.raises(CoefficientsNotConfirmedError) as excinfo:
         require_coefficients()
-    assert str(excinfo.value) == ("The results rule has no confirmed coefficients yet (OQ-CE-03).")
+    assert str(excinfo.value) == "The results rule has no confirmed coefficients yet."
 
 
 # --- OQ-CE-14: an undecided goal is half a fit for an exploratory event ----

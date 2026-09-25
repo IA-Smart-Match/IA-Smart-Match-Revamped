@@ -18,7 +18,7 @@
  *
  * Weights reach the list one of three ways and naming two is refused: a saved
  * setting's name, the four query parameters, or neither — which is what makes
- * the server's OQ-CE-02 placeholder defaults the defaults. This screen starts
+ * the server's OQ-CE-02 equal defaults the defaults. This screen starts
  * with neither and switches to explicit weights the moment a team changes one.
  *
  * The CSV is an ordinary link (design spec §8's columns, served as `text/csv`

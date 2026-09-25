@@ -160,7 +160,7 @@ an unknown factor contributes nothing and its weight is **not** re-spread
 (ADR-0016). A profile with only major on file gets exactly the major
 contribution.
 
-**PLACEHOLDER until 9/18:** default weights (OQ-CE-02; placeholder equal).
+**Default weights:** equal, 0.25 each (OQ-CE-02, closed 2026-09-25: "Teams should decide for themselves which factors matter most").
 
 ### 4.4 Exercise-only: `_exercise_ranked`
 
@@ -315,16 +315,17 @@ behind the instructor passcode session, is the only reset. *What* a reset
 deletes is unchanged — the instructor handler runs the same
 `ExerciseWorkspaceRepository.reset_team`, so the paragraph above and §2's
 overlay note still hold word for word. The ruling removes the destructive
-consequence of the shared-per-team number (OQ-CE-08), not the default itself;
-that row stays open.
+consequence of the shared-per-team number (OQ-CE-08), not the default itself.
+OQ-CE-08 closed 2026-09-25: shared per team number, as built.
 
 ## 12. Asking for more
 
 `POST .../asking-choice` with one of `better_recommendations`,
 `small_reward`, `required`. Outcomes as named constants:
 `CARD_COMPLETION_SHARE = {better_recommendations: 0.30, small_reward: 0.55,
-required: 0.80}` and `REQUIRED_NON_RESPONDING_SHARE = 0.15`. The choice is
-stored on the workspace and unlocks §13.
+required: 0.80}` and `REQUIRED_NON_RESPONDING_SHARE = 0.15` (OQ-CE-04,
+closed 2026-09-25). A share that lands on an exact half rounds up. The choice
+is stored on the workspace and unlocks §13.
 
 ## 13. Profile refresh
 
@@ -411,7 +412,7 @@ Entry screen asks for a team number 1–6. The server creates or returns the
 workspace for `(active dataset, team_number)` and sets an opaque workspace
 token in an httpOnly cookie, mirrored to `localStorage` so a reload restores
 it. The server row is the truth; the cookie is a pointer. Two tabs on one
-team share the workspace (OQ-CE-08, confirm on 9/18).
+team share the workspace (OQ-CE-08, closed 2026-09-25).
 
 **As shipped (PR #186, 2026-09-19) — an existing workspace wins over the newest
 data file.** Owner ruling of 2026-09-19. The pair is no longer

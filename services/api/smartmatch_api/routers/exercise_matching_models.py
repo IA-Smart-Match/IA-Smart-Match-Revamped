@@ -30,7 +30,7 @@ ADR-0025 D8 — no numeric score
 ``rank`` is an integer position and the counts are integers. Neither is a score,
 a share or a confidence, and nothing else numeric appears: no value, no
 percentage, no normalized weight. The **one** number a team is shown is the
-weighting it set itself (or the OQ-CE-02 placeholder it has not changed), which
+weighting it set itself (or the OQ-CE-02 defaults it has not changed), which
 D8 permits by name — and it is echoed back *as the team stated it*, never as
 ``normalize_weights`` resolved it, because a normalized weight is derived from
 the composition and reads as an output.

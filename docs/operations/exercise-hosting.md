@@ -118,10 +118,12 @@ so a trailing newline pasted into a deploy
 console does not become a permanent lockout — but a value that is long enough
 only *before* stripping is refused.
 
-### Sharing and rotating the passcode — OQ-CE-07, OPEN
+### Sharing and rotating the passcode — OQ-CE-07, CLOSED
 
-The register's safe default, restated at `config.py:146-148`: **one environment
-variable per deployment, shared out of band and rotated after the spring run.**
+OQ-CE-07 closed 2026-09-25 (Danny, owner, recording Ann's answers to the
+team's question list of 2026-09-22), restated at `config.py`: **one environment
+variable, set per deployment, shared out of band, and rotated by changing the
+value.**
 Out of band means not in this repository, not in a ticket, not in a chat
 channel that outlives the class. Rotation is: change the variable, restart the
 exercise API process. Live instructor sessions are **not** ended by a passcode
@@ -212,13 +214,13 @@ per statement, so the grant above can be rebuilt rather than trusted.
 | `dataset_repository.py:391` `sa.insert(exercise_dataset)` | `exercise_dataset` | INSERT |
 | `dataset_repository.py:401` `sa.insert(exercise_profile)` | `exercise_profile` | INSERT |
 | `dataset_repository.py:406` `sa.insert(exercise_event)` | `exercise_event` | INSERT |
-| `instructor_repository.py:436` `sa.update(exercise_dataset)` | `exercise_dataset` | UPDATE |
-| `instructor_repository.py:460-462` `pg_insert(...).on_conflict_do_nothing` | `exercise_result_unlock` | INSERT |
-| `instructor_repository.py:531-535` `sa.delete(child)`, three children | `exercise_profile_overlay`, `exercise_saved_setting`, `exercise_result_run` | DELETE |
-| `instructor_repository.py:675-677` `sa.select(...).with_for_update()` | `exercise_team_workspace` | SELECT **+ UPDATE** (a row lock needs `UPDATE` beside `SELECT`) |
-| `instructor_repository.py:681-686` `sa.select(...).with_for_update()` | `exercise_team_workspace` | SELECT + UPDATE |
-| `instructor_repository.py:699-702` `sa.delete(exercise_team_workspace)` | `exercise_team_workspace` | DELETE |
-| `instructor_repository.py:709` `sa.update(exercise_team_workspace)` | `exercise_team_workspace` | UPDATE |
+| `instructor_repository.py:445` `sa.update(exercise_dataset)` | `exercise_dataset` | UPDATE |
+| `instructor_repository.py:469-471` `pg_insert(...).on_conflict_do_nothing` | `exercise_result_unlock` | INSERT |
+| `instructor_repository.py:540-544` `sa.delete(child)`, three children | `exercise_profile_overlay`, `exercise_saved_setting`, `exercise_result_run` | DELETE |
+| `instructor_repository.py:684-686` `sa.select(...).with_for_update()` | `exercise_team_workspace` | SELECT **+ UPDATE** (a row lock needs `UPDATE` beside `SELECT`) |
+| `instructor_repository.py:690-695` `sa.select(...).with_for_update()` | `exercise_team_workspace` | SELECT + UPDATE |
+| `instructor_repository.py:708-711` `sa.delete(exercise_team_workspace)` | `exercise_team_workspace` | DELETE |
+| `instructor_repository.py:718` `sa.update(exercise_team_workspace)` | `exercise_team_workspace` | UPDATE |
 | `results_repository.py:432` `sa.insert(exercise_result_run)` | `exercise_result_run` | INSERT |
 | `results_repository.py:473` `sa.update(exercise_team_workspace)` | `exercise_team_workspace` | UPDATE |
 | `results_repository.py:553` `sa.update(exercise_team_workspace)` | `exercise_team_workspace` | UPDATE |
@@ -230,7 +232,7 @@ per statement, so the grant above can be rebuilt rather than trusted.
 | `workspace_repository.py:535-540` `sa.delete(child)`, three children | `exercise_profile_overlay`, `exercise_saved_setting`, `exercise_result_run` | DELETE |
 | `workspace_repository.py:543` `sa.update(table)` — reset regenerates the seed | `exercise_team_workspace` | UPDATE |
 | every repository read (`sa.select`) | all eight | SELECT |
-| `sa.select(sa.func.pg_advisory_xact_lock(...))` (e.g. `instructor_repository.py:668`) | none | none — see below |
+| `sa.select(sa.func.pg_advisory_xact_lock(...))` (e.g. `instructor_repository.py:677`) | none | none — see below |
 
 **Advisory locks need no grant.** The exercise repositories serialize with
 `pg_advisory_xact_lock`, which is a function, not a table: `EXECUTE` on it is
@@ -580,16 +582,19 @@ session (the passcode) and sends `X-Exercise-Request`. Step 0 needs neither.
    2026-09-21 and 2026-09-24; OQ-CE-05). The instructor page does this for you. Do this before the room fills; it creates the dataset every
    later step is keyed on.
 2. **Confirm the teams.** `GET /v1/exercise/instructor/workspaces`
-   (`exercise_instructor.py:615-616`) lists the teams that have entered. Teams
+   (`exercise_instructor.py:457-458`) lists the teams that have entered. Teams
    are **1-6** — a CHECK constraint, not a convention
    (`ck_exercise_team_workspace_team_number`). A team appears only after it has
    entered its number at `POST /v1/exercise/workspaces`.
 3. **Unlock each event as it happens.** `POST
    /v1/exercise/instructor/events/{event_key}/unlock`
-   (`exercise_instructor.py:557-558`), one per event, when the class reaches it.
+   (`exercise_instructor.py:399-400`), one per event, when the class reaches it.
+   The instructor page lists the events with `GET
+   /v1/exercise/instructor/events`, which also says which are already open,
+   so a reload of the page shows the unlocks the database holds.
    Unlocking twice is not an error — the insert is
    `on_conflict_do_nothing` and the route says the same sentence either way
-   (`instructor_repository.py:459-466`).
+   (`instructor_repository.py:468-476`).
 4. **Refresh all, once, after the first round.** `POST
    /v1/exercise/instructor/refresh-all`
    (`exercise_instructor_refresh.py:90-91`). **All or nothing**: every team is
@@ -600,7 +605,7 @@ session (the passcode) and sends `X-Exercise-Request`. Step 0 needs neither.
    one refresh. Pressing it again after a refusal starts from where it started.
 5. **Reset one team if it needs it.** `POST
    /v1/exercise/instructor/workspaces/{team_number}/reset`
-   (`exercise_instructor.py:690-691`). It deletes that workspace's overlay,
+   (`exercise_instructor.py:532-533`). It deletes that workspace's overlay,
    saved settings and result runs and regenerates its seed
    (`workspace_repository.py:526-545`). **One team, and nothing else** — there
    is no team-facing reset; PR #186 removed it on the owner's ruling of
@@ -614,10 +619,13 @@ session (the passcode) and sends `X-Exercise-Request`. Step 0 needs neither.
    numbers from
    [the sample result](../plans/open-questions/oq-ce-03-sample-result.md); a
    change to them is a code change and a redeploy. The `409
-   exercise_results_rule_not_confirmed` refusal is still in the code and
-   answers only if the coefficient set is ever removed.
+   exercise_results_rule_not_confirmed` refusal is still in the code
+   (`simulation.py:483-495`, surfaced by `exercise_results_run.py:116-133`) and
+   answers only if the coefficient set is ever removed, with one plain sentence:
+
+   > The results rule has no confirmed coefficients yet.
 7. **Log out.** `POST /v1/exercise/instructor/logout`
-   (`exercise_instructor.py:293-294`) clears the instructor cookie on that
+   (`exercise_instructor_session.py:224-225`) clears the instructor cookie on that
    browser. It is the only clean end to a session — see the next section for
    what it is not.
 
@@ -930,9 +938,9 @@ to be live. All are **VERIFY ON VM** until then.
     **not** rotate it between class sessions on the same day; a team that
     re-enters expects its same workspace back.
 
-21. **Rotate `SMARTMATCH_EXERCISE_INSTRUCTOR_PASSCODE` after the spring run**,
-    per OQ-CE-07's recorded safe default ([§2](#2-environment-variables),
-    "Sharing and rotating the passcode"). Restart the exercise process after
+21. **Rotate `SMARTMATCH_EXERCISE_INSTRUCTOR_PASSCODE` after the spring run**
+    by changing the value, per OQ-CE-07 (closed 2026-09-25;
+    [§2](#2-environment-variables), "Sharing and rotating the passcode"). Restart the exercise process after
     changing it; this does not end live instructor sessions (they are signed
     with the workspace secret, not the passcode).
 
@@ -1017,8 +1025,8 @@ check result, and the date/SHA — in the evidence table above.
 | ID | Question | Status | Where it bites here |
 |---|---|---|---|
 | **OQ-CE-06** | "Where does the site live and what is its stable address?" — owner Danny. `exercise_rate_limit.py` carries the same id for the edge-limiting half | **Address decided 2026-09-21** (`exercise.plated.blog`, second hostname on the existing tunnel, no Access policy); **rate-limit rule still to be applied at the proxy** | The rule in [§5](#5-rate-limiting-belongs-at-the-proxy-oq-ce-06) is specified here but lives in the Cloudflare dashboard, not in git. This file does not edit the register; the dated OQ-CE-06 line is another agent's change. |
-| **OQ-CE-07** | "How is the instructor passcode set and shared with Ann and Dr. Lin?" — owner Danny + Ann | **OPEN** | [§2](#2-environment-variables) documents the register's safe default — one env var, out of band, rotated after the spring run — and closes nothing |
-| **OQ-CE-09** | "What license line goes on the opening screen?" — owner Ann; none shown until she provides the sentence | **OPEN — by Nov 20** | Nothing in this document adds or removes a license line; the opening screen ships without one |
+| **OQ-CE-07** | "How is the instructor passcode set and shared with Ann and Dr. Lin?" — owner Danny + Ann | **CLOSED 2026-09-25** — set per deployment, shared out of band, rotated by changing the value | [§2](#2-environment-variables) documents it |
+| **OQ-CE-09** | "What license line goes on the opening screen?" — owner Ann | **CLOSED 2026-09-25** (Ann Wang, email reply) — "For California State Polytechnic University, Pomona — College of Business Administration instructional use only. All student profiles are fictional." | The opening screen renders it from a constant (`ExerciseEntry.tsx`); nothing to configure at deploy time |
 | **B-11** | "Error text never carries bound values" as a repository-wide invariant. PostgreSQL's `DETAIL: Failing row contains (…)` sits below the layer `hide_parameters` operates on | **RECORDED 2026-09-19, unresolved** — [`docs/architecture/decisions/adr-backlog.md:250`](../architecture/decisions/adr-backlog.md) | [§8](#8-known-limits) item 3 |
 
 Also open and load-bearing for the runbook: **OQ-CE-03** (the simulation

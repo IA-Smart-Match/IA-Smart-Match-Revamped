@@ -1,4 +1,4 @@
-"""What the instructor page's reads hand back: six value types, no statements.
+"""What the instructor page's reads hand back: seven value types, no statements.
 
 Split out of ``instructor_repository.py`` in review round 2 (F4), which had
 grown past this repository's 800-line ceiling. The cut is along the seam the
@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 __all__ = [
+    "InstructorEventRow",
     "InstructorResultRun",
     "InstructorSavedSetting",
     "InstructorWorkspaceRow",
@@ -79,6 +80,23 @@ class WorkingDataset:
     dataset_id: uuid.UUID
     label: str
     team_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class InstructorEventRow:
+    """One exercise event of a data file, and whether its results are open.
+
+    CE-INSTRUCTOR-UNLOCK: the unlock panel used to read its events from the
+    team route and keep "open" as local state, so it was empty without a team
+    cookie and forgot every unlock on reload. ``unlocked`` is the existence of
+    the ``exercise_result_unlock`` row design spec §9 reads, so what the panel
+    shows is what the teams' results route will answer.
+    """
+
+    event_key: str
+    name: str
+    sequence: int
+    unlocked: bool
 
 
 @dataclass(frozen=True, slots=True)

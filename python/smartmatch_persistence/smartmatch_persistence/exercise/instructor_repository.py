@@ -51,7 +51,9 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from smartmatch_persistence.exercise.instructor_events import select_exercise_events
 from smartmatch_persistence.exercise.instructor_rows import (
+    InstructorEventRow,
     InstructorResultRun,
     InstructorSavedSetting,
     InstructorWorkspaceRow,
@@ -81,6 +83,7 @@ __all__ = [
     "MIN_INVITE_LIMIT",
     "ExerciseInstructorRepository",
     "ExerciseWriteRefused",
+    "InstructorEventRow",
     "InstructorResultRun",
     "InstructorSavedSetting",
     "InstructorWorkspaceRow",
@@ -382,6 +385,12 @@ class ExerciseInstructorRepository:
             )
             for row in session.execute(statement).all()
         )
+
+    def list_exercise_events(
+        self, session: Session, *, dataset_id: uuid.UUID
+    ) -> tuple[InstructorEventRow, ...]:
+        """The unlock panel's list; see :mod:`.instructor_events`."""
+        return select_exercise_events(session, dataset_id=dataset_id)
 
     def event_exists(self, session: Session, *, dataset_id: uuid.UUID, event_key: str) -> bool:
         """Whether ``event_key`` is one of this dataset's events.

@@ -164,7 +164,7 @@ def capped(detail: str) -> str:
 def effective_weights(overrides: Mapping[str, float] | None) -> Mapping[str, float]:
     """What a screen is told the list was built with.
 
-    The placeholder defaults (OQ-CE-02) with the team's own values written over
+    The equal defaults (OQ-CE-02) with the team's own values written over
     them, so a team that moved one slider sees four numbers rather than one.
     These are the *stated* weights and not the normalized ones: normalizing is
     the composition's business, and a normalized weight is an output (ADR-0025

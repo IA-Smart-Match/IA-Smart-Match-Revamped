@@ -195,8 +195,10 @@ class DatasetSummary:
             which is what ``exercise_dataset.row_count`` holds.
         checksum: SHA-256 of the uploaded bytes, hex.
         invite_limit: §5's cap, 30 unless the instructor changed it.
-        license_line: OQ-CE-09's sentence, or ``None`` while Ann has not
-            provided one. ``None`` is "she has not said", not "there is none".
+        license_line: A per-upload license line, or ``None``. The ingest
+            does not fill it. The exercise's own license line (OQ-CE-09,
+            closed 2026-09-25) is a constant on the opening screen
+            (``EXERCISE_LICENSE_LINE`` in ``ExerciseEntry.tsx``).
         event_count: How many events the file carried. Counted rather than
             stored, because a count with two homes is a count that can
             disagree with itself.

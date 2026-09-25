@@ -84,7 +84,7 @@ The cookie
 
 Design spec §15: "the server row is the truth; the cookie is a pointer". The
 value is an opaque token derived in
-:mod:`smartmatch_domain.exercise.workspace_token` (PLACEHOLDER, OQ-CE-08); the
+:mod:`smartmatch_domain.exercise.workspace_token` (OQ-CE-08, closed); the
 server stores only its SHA-256. This module owns the cookie's *flags*, in one
 place, because a cookie set with the right flags on one route and the wrong
 ones on another is a cookie with the wrong flags.
@@ -120,6 +120,7 @@ from smartmatch_persistence.exercise.instructor_repository import (
     ExerciseWriteRefused,
 )
 from smartmatch_persistence.exercise.instructor_rows import (
+    InstructorEventRow,
     InstructorResultRun,
     InstructorSavedSetting,
     InstructorWorkspaceRow,
@@ -189,6 +190,7 @@ __all__ = [
     "ExerciseWorkspace",
     "ExerciseWriteRefused",
     "InstructorCookiePolicy",
+    "InstructorEventRow",
     "InstructorPasscode",
     "InstructorRepository",
     "InstructorResultRun",
@@ -484,9 +486,9 @@ def get_instructor_passcode(
 ) -> ConfiguredPasscode:
     """This deployment's instructor passcode, or ``None`` if it has none.
 
-    PLACEHOLDER (OQ-CE-07): one environment variable per deployment,
-    ``SMARTMATCH_EXERCISE_INSTRUCTOR_PASSCODE``, shared out of band and rotated
-    after the spring run. Nothing here closes that row.
+    OQ-CE-07 (closed 2026-09-25): one environment variable, set per
+    deployment, ``SMARTMATCH_EXERCISE_INSTRUCTOR_PASSCODE``, shared out of band
+    and rotated by changing the value.
 
     ``None`` covers both *unset* and *set to something unusable* — blank, or
     shorter than
@@ -629,8 +631,8 @@ def workspace_token_for(*, secret: str, workspace: ExerciseWorkspace) -> str:
     """The cookie value addressing ``workspace``.
 
     A one-line wrapper so that a router never imports the token arithmetic and
-    never sees a workspace id and a secret in the same expression. PLACEHOLDER
-    (OQ-CE-08): the derivation is what changes if Ann answers "per tab".
+    never sees a workspace id and a secret in the same expression. OQ-CE-08
+    (closed 2026-09-25): one shared workspace per team number, as built.
     """
     return derive_workspace_token(secret=secret, workspace_id=workspace.id)
 

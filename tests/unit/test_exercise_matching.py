@@ -524,9 +524,9 @@ def test_anns_year_order_wakes_the_year_sentence() -> None:
 def test_a_factor_the_team_turned_off_is_never_named_as_contributing() -> None:
     """A full card scores on every factor; a zero weight must still silence one.
 
-    Found on Ann's Read Me test case: with "said they are interested" turned
-    off, P004's line went on citing it, because the factor's *value* was above
-    zero even though its weight was not.
+    Found on Ann's P004 test case (Ann's data file, 2026-09-24): with "said they
+    are interested" turned off, P004's line went on citing it, because the
+    factor's *value* was above zero even though its weight was not.
     """
     listing = exercise_ranked_list(
         EVENT,

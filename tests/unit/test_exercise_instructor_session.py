@@ -19,6 +19,7 @@ refusal sentences — is in ``tests/unit/test_exercise_instructor_router.py``.
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import pytest
 from smartmatch_domain.exercise.instructor_session import (
@@ -259,3 +260,36 @@ def test_a_team_workspace_token_is_not_an_instructor_session() -> None:
 )
 def test_a_malformed_session_is_refused_without_raising(token: str) -> None:
     assert instructor_session_is_live(token, secret=SECRET, now=NOW) is False
+
+
+# ---------------------------------------------------------------------------
+# OQ-CE-07 closed 2026-09-25: set per deployment, shared out of band, rotated
+# by changing the env value.
+# ---------------------------------------------------------------------------
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+_OQ_CE_07_SOURCES = (
+    _REPO_ROOT / "python/smartmatch_domain/smartmatch_domain/exercise/instructor_session.py",
+    _REPO_ROOT / "services/api/smartmatch_api/config.py",
+    _REPO_ROOT / "services/api/smartmatch_api/exercise_dependencies.py",
+    _REPO_ROOT / ".env.example",
+)
+
+
+@pytest.mark.parametrize("source", _OQ_CE_07_SOURCES, ids=lambda path: path.name)
+def test_the_passcode_is_no_longer_marked_a_placeholder(source: Path) -> None:
+    text = source.read_text(encoding="utf-8")
+    assert "PLACEHOLDER (OQ-CE-07)" not in text
+    assert "PLACEHOLDER,\n# OQ-CE-07" not in text
+    assert "OQ-CE-07" in text
+
+
+def test_the_env_example_keeps_the_passcode_commented_out_and_empty() -> None:
+    """The real value is per deployment; the example must never carry one."""
+    text = (_REPO_ROOT / ".env.example").read_text(encoding="utf-8")
+    lines = [
+        line for line in text.splitlines() if "SMARTMATCH_EXERCISE_INSTRUCTOR_PASSCODE=" in line
+    ]
+    assert lines == ["# SMARTMATCH_EXERCISE_INSTRUCTOR_PASSCODE="]
+    assert "set per deployment" in text
+    assert "rotated by changing the value" in text

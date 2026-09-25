@@ -117,10 +117,11 @@ def coefficients_or_refusal() -> SimulationCoefficients:
     """The results rule's coefficients, or **OQ-CE-03's own sentence**.
 
     The register's answer is "Chau proposes; Ann confirms". The domain ships the
-    team's proposal, and refuses only if it is ever removed. The sentence a team reads
-    is the domain's, passed through unchanged rather than rewritten here: the
-    open question's identifier belongs in it, and two wordings of "this is not
-    decided yet" would be one more than the question has.
+    team's proposal, and refuses only if it is ever removed. The sentence a team
+    reads is the domain's, passed through unchanged rather than rewritten here: two
+    wordings of "this is not decided yet" would be one more than the question
+    has. The register ID (OQ-CE-03) is kept out of that sentence and in the
+    comments: a student has no use for an internal identifier.
     """
     try:
         return require_coefficients()
