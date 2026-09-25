@@ -233,23 +233,27 @@ def _open_workbook(raw: bytes) -> openpyxl.Workbook | IngestRefusal:
     ``[Content_Types].xml`` decides which part is the workbook.
     """
     reader = ExcelReader(io.BytesIO(raw), read_only=True, data_only=True, keep_links=False)
-    reader.read_manifest()
-    reader.read_strings()
-    reader.read_workbook()
-    targets = [rel.target for _, rel in reader.parser.find_sheets()]
-    if len(targets) > MAX_SHEET_COUNT or len(set(targets)) != len(targets):
+    try:
+        reader.read_manifest()
+        reader.read_strings()
+        reader.read_workbook()
+        targets = [rel.target for _, rel in reader.parser.find_sheets()]
+        if len(targets) > MAX_SHEET_COUNT or len(set(targets)) != len(targets):
+            reader.archive.close()
+            return IngestRefusal(
+                "too_many_sheets",
+                f"The workbook has more than {MAX_SHEET_COUNT} sheets or sheets that "
+                "share their contents; please upload the class data file itself.",
+            )
+        reader.read_properties()
+        reader.read_custom()
+        reader.read_theme()
+        apply_stylesheet(reader.archive, reader.wb)
+        reader.read_worksheets()
+        reader.parser.assign_names()
+    except BaseException:
         reader.archive.close()
-        return IngestRefusal(
-            "too_many_sheets",
-            f"The workbook has more than {MAX_SHEET_COUNT} sheets or sheets that "
-            "share their contents; please upload the class data file itself.",
-        )
-    reader.read_properties()
-    reader.read_custom()
-    reader.read_theme()
-    apply_stylesheet(reader.archive, reader.wb)
-    reader.read_worksheets()
-    reader.parser.assign_names()
+        raise
     return reader.wb
 
 

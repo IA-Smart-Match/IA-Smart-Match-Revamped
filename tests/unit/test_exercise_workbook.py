@@ -456,3 +456,46 @@ def test_a_sheet_title_is_never_quoted_from_the_file() -> None:
     refusal = _refused(_sheet_bytes(title="profiles`\n"), "Profiles")
 
     assert refusal.message == "The `Profiles` sheet has no heading row naming its columns."
+
+
+def test_the_zip_caps_stay_where_the_security_review_put_them() -> None:
+    """1 MiB a part, 4 MiB in all: 8 MB of styles cost ~1 GB under the old caps."""
+    assert MAX_ENTRY_UNCOMPRESSED_BYTES <= 1024 * 1024
+    assert MAX_TOTAL_UNCOMPRESSED_BYTES <= 4 * 1024 * 1024
+
+
+def test_an_openpyxl_warning_does_not_escape_in_a_fresh_process() -> None:
+    """Under ``-W error`` an unsilenced openpyxl warning would become a refusal.
+
+    Run in a subprocess because pytest resets warning filters per test, which
+    would undo the module's import-time filter and prove nothing.
+    """
+    import subprocess
+    import sys
+
+    workbook_bytes = _sheet_bytes(("id",), ("P001",))
+    source = zipfile.ZipFile(io.BytesIO(workbook_bytes))
+    parts = {info.filename: source.read(info) for info in source.infolist()}
+    # A <sheet> with no r:id makes openpyxl warn ("invalid specification").
+    workbook_xml = parts["xl/workbook.xml"].decode()
+    parts["xl/workbook.xml"] = workbook_xml.replace(
+        "</sheets>", '<sheet name="Stray" sheetId="99"/></sheets>'
+    ).encode()
+    script = (
+        "import sys\n"
+        "from smartmatch_domain.exercise.workbook import read_sheets\n"
+        "result = read_sheets(sys.stdin.buffer.read(), ('Profiles',))\n"
+        "print(type(result).__name__)\n"
+    )
+    domain = Path(workbook.__file__).resolve().parents[2]
+    completed = subprocess.run(
+        [sys.executable, "-W", "error", "-c", script],
+        input=_zip(parts),
+        capture_output=True,
+        check=False,
+        env={"PYTHONPATH": str(domain), "PATH": ""},
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert completed.stdout.decode().strip() == "tuple"
+    assert completed.stderr == b""
