@@ -342,6 +342,39 @@ def test_unlocking_twice_writes_one_row_and_moves_no_timestamp(
     assert stamp == after
 
 
+def test_the_event_list_carries_the_unlock_row_and_only_exercise_events(
+    exercise_sessions: sessionmaker[Session],
+) -> None:
+    """CE-INSTRUCTOR-UNLOCK: the panel's state after a reload is this read."""
+    with exercise_sessions() as session:
+        dataset_id = _insert_dataset(session, label="event-list")
+        other_id = _insert_dataset(session, label="event-list-other")
+        session.execute(
+            sa.insert(schema.exercise_event).values(
+                dataset_id=dataset_id,
+                event_key="past-one",
+                name="A past event",
+                sequence=0,
+                is_exercise_event=False,
+            )
+        )
+        session.commit()
+
+        before = REPOSITORY.list_exercise_events(session, dataset_id=dataset_id)
+        REPOSITORY.unlock_results(session, dataset_id=other_id, event_key=_EVENT_KEY)
+        session.commit()
+        other_file_only = REPOSITORY.list_exercise_events(session, dataset_id=dataset_id)
+        REPOSITORY.unlock_results(session, dataset_id=dataset_id, event_key=_EVENT_KEY)
+        session.commit()
+        after = REPOSITORY.list_exercise_events(session, dataset_id=dataset_id)
+
+    assert [(row.event_key, row.unlocked) for row in before] == [(_EVENT_KEY, False)]
+    assert [row.unlocked for row in other_file_only] == [False]
+    assert [(row.event_key, row.name, row.unlocked) for row in after] == [
+        (_EVENT_KEY, "Northline Analytics", True)
+    ]
+
+
 def test_an_event_that_is_not_in_the_file_is_recognised_before_the_write(
     exercise_sessions: sessionmaker[Session],
 ) -> None:

@@ -52,6 +52,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from smartmatch_persistence.exercise.instructor_rows import (
+    InstructorEventRow,
     InstructorResultRun,
     InstructorSavedSetting,
     InstructorWorkspaceRow,
@@ -81,6 +82,7 @@ __all__ = [
     "MIN_INVITE_LIMIT",
     "ExerciseInstructorRepository",
     "ExerciseWriteRefused",
+    "InstructorEventRow",
     "InstructorResultRun",
     "InstructorSavedSetting",
     "InstructorWorkspaceRow",
@@ -379,6 +381,50 @@ class ExerciseInstructorRepository:
                 attended_count=row.attended,
                 seats_empty=row.seats_empty,
                 created_at=row.created_at,
+            )
+            for row in session.execute(statement).all()
+        )
+
+    def list_exercise_events(
+        self, session: Session, *, dataset_id: uuid.UUID
+    ) -> tuple[InstructorEventRow, ...]:
+        """The events the teams run in one data file, each with its lock state.
+
+        Only ``is_exercise_event`` rows: the ten past events are history a
+        profile may have attended, and unlocking one would open nothing a team
+        can run. ``unlocked`` is an ``EXISTS`` on ``exercise_result_unlock`` for
+        the same ``(dataset_id, event_key)`` — the row
+        :meth:`unlock_results` writes — so a reload of the instructor page shows
+        what the database holds rather than what a button last said.
+        """
+        unlock = exercise_result_unlock
+        is_unlocked = (
+            sa.exists()
+            .where(
+                unlock.c.dataset_id == exercise_event.c.dataset_id,
+                unlock.c.event_key == exercise_event.c.event_key,
+            )
+            .label("unlocked")
+        )
+        statement = (
+            sa.select(
+                exercise_event.c.event_key,
+                exercise_event.c.name,
+                exercise_event.c.sequence,
+                is_unlocked,
+            )
+            .where(
+                exercise_event.c.dataset_id == dataset_id,
+                exercise_event.c.is_exercise_event.is_(True),
+            )
+            .order_by(exercise_event.c.sequence)
+        )
+        return tuple(
+            InstructorEventRow(
+                event_key=row.event_key,
+                name=row.name,
+                sequence=row.sequence,
+                unlocked=bool(row.unlocked),
             )
             for row in session.execute(statement).all()
         )
