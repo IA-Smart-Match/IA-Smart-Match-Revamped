@@ -6,17 +6,17 @@ repositories return, turned into ranker input by the API's own
 ranked by the domain. Nothing here builds evidence by hand, so a regression in
 any of those steps moves a pinned name.
 
-Ann's Read Me test case
-=======================
-    "P004 is an Accounting major whose card states an interest in Technology /
-    information systems. For the Northline event (E11), with 'said they are
-    interested' turned up, it should rank above a plain Accounting major; with
-    it turned off, it should not."
+Ann's test case (Ann's data file, 2026-09-24)
+=============================================
+    P004 is an Accounting major whose card names Technology / information
+    systems as an interest. For the Northline event (E11), with "said they are
+    interested" turned up, P004 should rank above a plain Accounting major;
+    with that factor turned off, it should not.
 
 The 20-row sample is refused on upload by design spec §3's 50-profile floor,
-so the case runs on the full file restricted to the sample's 20 ids — Ann:
-"the sample is 20 rows taken from the full file (same IDs, same values)", which
-``test_exercise_ingest`` asserts.
+so the case runs on the full file restricted to the sample's 20 ids. The
+sample's rows are the full file's rows with the same ids and values (Ann's
+data file, 2026-09-24), which ``test_exercise_ingest`` asserts.
 
 **The first half holds.** Turned up, P004 ranks above every plain Accounting
 major, and "said they are interested" is one of the factors that counted.
@@ -141,12 +141,12 @@ def _entry(listing: ExerciseList, profile_no: int) -> object:
 
 
 # ---------------------------------------------------------------------------
-# Ann's Read Me test case
+# Ann's test case (Ann's data file, 2026-09-24)
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.golden
-def test_the_plain_accounting_majors_are_what_the_read_me_describes() -> None:
+def test_the_plain_accounting_majors_are_what_anns_test_case_describes() -> None:
     by_no = {p.profile_no: p for p in _dataset().profiles}
     for number in PLAIN_ACCOUNTING_MAJORS:
         profile = by_no[number]

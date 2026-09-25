@@ -94,13 +94,14 @@ def test_anns_full_workbook_is_accepted_as_she_sent_it() -> None:
 
 
 def test_the_markers_agree_with_anns_info_level_column() -> None:
-    """Ann: info_level "can also be computed by the app". It is, and it agrees."""
+    """Ann's info_level column can be derived from the other columns (Ann's data
+    file, 2026-09-24). The app derives it, and it agrees."""
     markers = _accepted(ANN_FULL_FILE.read_bytes()).report.markers
 
     assert (markers.major_only, markers.major_plus_events, markers.completed_card) == (166, 64, 70)
 
 
-def test_p004_is_read_the_way_anns_read_me_describes_it() -> None:
+def test_p004_is_read_the_way_anns_data_file_describes_it() -> None:
     dataset = _accepted(ANN_FULL_FILE.read_bytes())
     p004 = next(profile for profile in dataset.profiles if profile.profile_no == 4)
 
@@ -123,7 +124,10 @@ def test_the_twenty_row_sample_is_refused_by_the_specs_row_count_floor() -> None
 
 
 def test_the_sample_is_an_exact_subset_of_the_full_file() -> None:
-    """Ann: "The sample is 20 rows taken from the full file (same IDs, same values)"."""
+    """The sample's 20 rows are full-file rows with the same ids and values.
+
+    Ann's data file, 2026-09-24.
+    """
     from openpyxl import load_workbook
 
     def rows(path: object) -> dict[object, tuple[object, ...]]:

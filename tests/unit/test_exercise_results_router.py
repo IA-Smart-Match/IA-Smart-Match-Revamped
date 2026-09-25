@@ -1399,9 +1399,9 @@ def test_a_card_exists_when_either_side_recorded_interests() -> None:
 def test_a_refresh_writes_the_hidden_goal_onto_every_copied_card(
     fakes: _Fakes, client: TestClient, confirmed: SimulationCoefficients
 ) -> None:
-    """Ann's Read Me of 2026-09-24, through the route (OQ-CE-13).
+    """Ann's data file, 2026-09-24, through the route (OQ-CE-13).
 
-    "A new card copies these": every overlay row this refresh gave a card to
+    A new card copies the hidden columns: every overlay row this refresh gave a card to
     carries its file row's **hidden true** career goal, and ``None`` exactly
     where the file has none. Asserted against ``_ROWS`` rather than a written-out
     list, so a fixture row that gains a goal cannot quietly stop being checked.
