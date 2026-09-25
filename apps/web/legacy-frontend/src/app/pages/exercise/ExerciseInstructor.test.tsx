@@ -13,6 +13,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ExerciseInstructor } from "./ExerciseInstructor";
 
+/** Written out rather than imported, so a typo in the client's constant fails here. */
+const XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
 let calls: { url: string; init: RequestInit }[] = [];
 
 /**
@@ -236,7 +239,7 @@ describe("<ExerciseInstructor />", () => {
             {
               dataset_id: "11111111-1111-1111-1111-111111111111",
               label: "Autumn draft",
-              source_filename: "autumn.csv",
+              source_filename: "autumn.xlsx",
               uploaded_at: "2026-09-21T10:00:00Z",
               row_count: 300,
               event_count: 12,
@@ -269,7 +272,7 @@ describe("<ExerciseInstructor />", () => {
     expect(notices.some((notice) => notice.textContent?.includes("Moved 1 team"))).toBe(false);
   });
 
-  it("uploads a data file as a raw text/csv body, not multipart", async () => {
+  it("uploads Ann's workbook as a raw .xlsx body, not multipart", async () => {
     stub(
       signedInStubs({
         [`POST ${DATASETS}`]: {
@@ -277,7 +280,7 @@ describe("<ExerciseInstructor />", () => {
             dataset: {
               dataset_id: "22222222-2222-2222-2222-222222222222",
               label: "Autumn final",
-              source_filename: "autumn.csv",
+              source_filename: "autumn.xlsx",
               uploaded_at: "2026-09-21T10:00:00Z",
               row_count: 300,
               event_count: 12,
@@ -290,13 +293,10 @@ describe("<ExerciseInstructor />", () => {
               event_count: 12,
               exercise_event_count: 2,
               distinct_class_years: ["third"],
-              profiles_missing_major: 0,
-              profiles_missing_class_year: 0,
               profiles_without_card: 230,
               distinct_stated_interest_terms: 40,
               distinct_topic_tag_terms: 18,
               events_without_topic_tags: 0,
-              discarded_list_entries: 0,
               major_only: 230,
               major_plus_events: 0,
               completed_card: 70,
@@ -312,17 +312,27 @@ describe("<ExerciseInstructor />", () => {
     fireEvent.change(screen.getByLabelText(/call this file/i), {
       target: { value: "Autumn final" },
     });
-    const file = new File(["profile_no\n1\n"], "autumn.csv", { type: "text/csv" });
-    fireEvent.change(screen.getByLabelText(/spreadsheet file/i), { target: { files: [file] } });
+    // A zip's local-file-header signature, which every .xlsx starts with.
+    const bytes = new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0x14, 0x00, 0x06, 0x00]);
+    const file = new File([bytes], "autumn.xlsx", { type: XLSX });
+    const input = screen.getByLabelText(/excel workbook/i);
+    expect(input.getAttribute("accept")).toBe(`.xlsx,${XLSX}`);
+    fireEvent.change(input, { target: { files: [file] } });
     fireEvent.click(screen.getByRole("button", { name: /upload this file/i }));
 
     await waitFor(() => {
       const upload = calls.find((call) => call.url.startsWith(DATASETS + "?"));
       expect(upload).toBeDefined();
-      expect(new Headers(upload?.init.headers).get("Content-Type")).toBe("text/csv");
-      expect(upload?.init.body).toBe("profile_no\n1\n");
+      expect(new Headers(upload?.init.headers).get("Content-Type")).toBe(XLSX);
+      const body = upload?.init.body;
+      expect(typeof body).not.toBe("string");
+      expect(body).not.toBeInstanceOf(FormData);
+      // Compared by tag rather than `instanceof`: jsdom's FileReader may hand
+      // back an ArrayBuffer from another realm.
+      expect(Object.prototype.toString.call(body)).toBe("[object ArrayBuffer]");
+      expect([...new Uint8Array(body as ArrayBuffer)]).toEqual([...bytes]);
       expect(upload?.url).toContain("label=Autumn+final");
-      expect(upload?.url).toContain("source_filename=autumn.csv");
+      expect(upload?.url).toContain("source_filename=autumn.xlsx");
     });
     // The server's own sentence about what an upload did not do.
     await waitFor(() =>
