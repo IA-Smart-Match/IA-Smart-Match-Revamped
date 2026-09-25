@@ -212,13 +212,13 @@ per statement, so the grant above can be rebuilt rather than trusted.
 | `dataset_repository.py:391` `sa.insert(exercise_dataset)` | `exercise_dataset` | INSERT |
 | `dataset_repository.py:401` `sa.insert(exercise_profile)` | `exercise_profile` | INSERT |
 | `dataset_repository.py:406` `sa.insert(exercise_event)` | `exercise_event` | INSERT |
-| `instructor_repository.py:436` `sa.update(exercise_dataset)` | `exercise_dataset` | UPDATE |
-| `instructor_repository.py:460-462` `pg_insert(...).on_conflict_do_nothing` | `exercise_result_unlock` | INSERT |
-| `instructor_repository.py:531-535` `sa.delete(child)`, three children | `exercise_profile_overlay`, `exercise_saved_setting`, `exercise_result_run` | DELETE |
-| `instructor_repository.py:675-677` `sa.select(...).with_for_update()` | `exercise_team_workspace` | SELECT **+ UPDATE** (a row lock needs `UPDATE` beside `SELECT`) |
-| `instructor_repository.py:681-686` `sa.select(...).with_for_update()` | `exercise_team_workspace` | SELECT + UPDATE |
-| `instructor_repository.py:699-702` `sa.delete(exercise_team_workspace)` | `exercise_team_workspace` | DELETE |
-| `instructor_repository.py:709` `sa.update(exercise_team_workspace)` | `exercise_team_workspace` | UPDATE |
+| `instructor_repository.py:445` `sa.update(exercise_dataset)` | `exercise_dataset` | UPDATE |
+| `instructor_repository.py:469-471` `pg_insert(...).on_conflict_do_nothing` | `exercise_result_unlock` | INSERT |
+| `instructor_repository.py:540-544` `sa.delete(child)`, three children | `exercise_profile_overlay`, `exercise_saved_setting`, `exercise_result_run` | DELETE |
+| `instructor_repository.py:684-686` `sa.select(...).with_for_update()` | `exercise_team_workspace` | SELECT **+ UPDATE** (a row lock needs `UPDATE` beside `SELECT`) |
+| `instructor_repository.py:690-695` `sa.select(...).with_for_update()` | `exercise_team_workspace` | SELECT + UPDATE |
+| `instructor_repository.py:708-711` `sa.delete(exercise_team_workspace)` | `exercise_team_workspace` | DELETE |
+| `instructor_repository.py:718` `sa.update(exercise_team_workspace)` | `exercise_team_workspace` | UPDATE |
 | `results_repository.py:432` `sa.insert(exercise_result_run)` | `exercise_result_run` | INSERT |
 | `results_repository.py:473` `sa.update(exercise_team_workspace)` | `exercise_team_workspace` | UPDATE |
 | `results_repository.py:553` `sa.update(exercise_team_workspace)` | `exercise_team_workspace` | UPDATE |
@@ -230,7 +230,7 @@ per statement, so the grant above can be rebuilt rather than trusted.
 | `workspace_repository.py:535-540` `sa.delete(child)`, three children | `exercise_profile_overlay`, `exercise_saved_setting`, `exercise_result_run` | DELETE |
 | `workspace_repository.py:543` `sa.update(table)` — reset regenerates the seed | `exercise_team_workspace` | UPDATE |
 | every repository read (`sa.select`) | all eight | SELECT |
-| `sa.select(sa.func.pg_advisory_xact_lock(...))` (e.g. `instructor_repository.py:668`) | none | none — see below |
+| `sa.select(sa.func.pg_advisory_xact_lock(...))` (e.g. `instructor_repository.py:677`) | none | none — see below |
 
 **Advisory locks need no grant.** The exercise repositories serialize with
 `pg_advisory_xact_lock`, which is a function, not a table: `EXECUTE` on it is
@@ -580,19 +580,19 @@ session (the passcode) and sends `X-Exercise-Request`. Step 0 needs neither.
    2026-09-21 and 2026-09-24; OQ-CE-05). The instructor page does this for you. Do this before the room fills; it creates the dataset every
    later step is keyed on.
 2. **Confirm the teams.** `GET /v1/exercise/instructor/workspaces`
-   (`exercise_instructor.py:615-616`) lists the teams that have entered. Teams
+   (`exercise_instructor.py:457-458`) lists the teams that have entered. Teams
    are **1-6** — a CHECK constraint, not a convention
    (`ck_exercise_team_workspace_team_number`). A team appears only after it has
    entered its number at `POST /v1/exercise/workspaces`.
 3. **Unlock each event as it happens.** `POST
    /v1/exercise/instructor/events/{event_key}/unlock`
-   (`exercise_instructor.py:557-558`), one per event, when the class reaches it.
+   (`exercise_instructor.py:399-400`), one per event, when the class reaches it.
    The instructor page lists the events with `GET
    /v1/exercise/instructor/events`, which also says which are already open,
    so a reload of the page shows the unlocks the database holds.
    Unlocking twice is not an error — the insert is
    `on_conflict_do_nothing` and the route says the same sentence either way
-   (`instructor_repository.py:459-466`).
+   (`instructor_repository.py:468-476`).
 4. **Refresh all, once, after the first round.** `POST
    /v1/exercise/instructor/refresh-all`
    (`exercise_instructor_refresh.py:90-91`). **All or nothing**: every team is
@@ -603,7 +603,7 @@ session (the passcode) and sends `X-Exercise-Request`. Step 0 needs neither.
    one refresh. Pressing it again after a refusal starts from where it started.
 5. **Reset one team if it needs it.** `POST
    /v1/exercise/instructor/workspaces/{team_number}/reset`
-   (`exercise_instructor.py:690-691`). It deletes that workspace's overlay,
+   (`exercise_instructor.py:532-533`). It deletes that workspace's overlay,
    saved settings and result runs and regenerates its seed
    (`workspace_repository.py:526-545`). **One team, and nothing else** — there
    is no team-facing reset; PR #186 removed it on the owner's ruling of
@@ -615,12 +615,12 @@ session (the passcode) and sends `X-Exercise-Request`. Step 0 needs neither.
 
    > The results rule has no confirmed coefficients yet.
 
-   (`simulation.py:421-422`, surfaced by `exercise_results_run.py:122-129`.)
+   (`simulation.py:423-426`, surfaced by `exercise_results_run.py:125-132`.)
    **This is expected, not a fault of the deployment.** Say so before the class
    presses the button. Everything upstream of results — entry, lists, saved
    settings, comparison, CSV export — works.
 7. **Log out.** `POST /v1/exercise/instructor/logout`
-   (`exercise_instructor.py:293-294`) clears the instructor cookie on that
+   (`exercise_instructor_session.py:224-225`) clears the instructor cookie on that
    browser. It is the only clean end to a session — see the next section for
    what it is not.
 

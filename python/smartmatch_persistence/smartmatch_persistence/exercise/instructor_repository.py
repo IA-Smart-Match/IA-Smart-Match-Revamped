@@ -51,6 +51,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from smartmatch_persistence.exercise.instructor_events import select_exercise_events
 from smartmatch_persistence.exercise.instructor_rows import (
     InstructorEventRow,
     InstructorResultRun,
@@ -388,46 +389,8 @@ class ExerciseInstructorRepository:
     def list_exercise_events(
         self, session: Session, *, dataset_id: uuid.UUID
     ) -> tuple[InstructorEventRow, ...]:
-        """The events the teams run in one data file, each with its lock state.
-
-        Only ``is_exercise_event`` rows: the ten past events are history a
-        profile may have attended, and unlocking one would open nothing a team
-        can run. ``unlocked`` is an ``EXISTS`` on ``exercise_result_unlock`` for
-        the same ``(dataset_id, event_key)`` — the row
-        :meth:`unlock_results` writes — so a reload of the instructor page shows
-        what the database holds rather than what a button last said.
-        """
-        unlock = exercise_result_unlock
-        is_unlocked = (
-            sa.exists()
-            .where(
-                unlock.c.dataset_id == exercise_event.c.dataset_id,
-                unlock.c.event_key == exercise_event.c.event_key,
-            )
-            .label("unlocked")
-        )
-        statement = (
-            sa.select(
-                exercise_event.c.event_key,
-                exercise_event.c.name,
-                exercise_event.c.sequence,
-                is_unlocked,
-            )
-            .where(
-                exercise_event.c.dataset_id == dataset_id,
-                exercise_event.c.is_exercise_event.is_(True),
-            )
-            .order_by(exercise_event.c.sequence)
-        )
-        return tuple(
-            InstructorEventRow(
-                event_key=row.event_key,
-                name=row.name,
-                sequence=row.sequence,
-                unlocked=bool(row.unlocked),
-            )
-            for row in session.execute(statement).all()
-        )
+        """The unlock panel's list; see :mod:`.instructor_events`."""
+        return select_exercise_events(session, dataset_id=dataset_id)
 
     def event_exists(self, session: Session, *, dataset_id: uuid.UUID, event_key: str) -> bool:
         """Whether ``event_key`` is one of this dataset's events.

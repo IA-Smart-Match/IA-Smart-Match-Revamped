@@ -224,7 +224,10 @@ function SignedIn({ onSignedOut }: { readonly onSignedOut: () => void }): React.
  * The server resolves the list exactly as it resolves the unlock — the file
  * the teams are on — and its `dataset_id` is passed back on every press, so
  * the list and the button cannot address two different files. When no file
- * can be resolved the server's own sentence is shown.
+ * can be resolved the server's own sentence is shown, with "Check again": the
+ * instructor usually signs in before any team has entered, and nothing else
+ * on the page would re-read this list once one has. A refused unlock re-reads
+ * too, because the likeliest cause is a re-point made somewhere else.
  */
 function UnlockPanel({
   onRefusal,
@@ -235,6 +238,18 @@ function UnlockPanel({
 }): React.JSX.Element {
   const { state, reload } = useExerciseResource(listInstructorEvents, [reloadKey]);
   const [pending, setPending] = React.useState(false);
+  const checkAgain = (
+    <div>
+      <button
+        type="button"
+        className={BUTTON}
+        disabled={pending || state.status === "loading"}
+        onClick={() => void reload()}
+      >
+        Check again
+      </button>
+    </div>
+  );
 
   return (
     <section className="flex flex-col gap-3" data-slot="exercise-instructor-unlock">
@@ -242,14 +257,25 @@ function UnlockPanel({
         Open results for an event
       </h2>
       {state.status === "loading" ? <ExerciseLoading what="the events" /> : null}
-      {state.status === "refused" ? <ExerciseNotice message={state.refusal.message} /> : null}
+      {state.status === "refused" ? (
+        <>
+          <ExerciseNotice message={state.refusal.message} />
+          {checkAgain}
+        </>
+      ) : null}
       {state.status === "unreachable" ? (
-        <ExerciseNotice message={state.message} tone="problem" />
+        <>
+          <ExerciseNotice message={state.message} tone="problem" />
+          {checkAgain}
+        </>
       ) : null}
       {state.status === "ready" && state.data.events.length === 0 ? (
-        <p className="text-xl text-slate-700 dark:text-slate-200">
-          {state.data.dataset_label} has no events for the teams to run.
-        </p>
+        <>
+          <p className="text-xl text-slate-700 dark:text-slate-200">
+            {state.data.dataset_label} has no events for the teams to run.
+          </p>
+          {checkAgain}
+        </>
       ) : null}
       {state.status === "ready" && state.data.events.length > 0 ? (
         <ul className="flex flex-col gap-2">
@@ -261,20 +287,23 @@ function UnlockPanel({
               ) : (
                 <button
                   type="button"
-                  disabled={pending}
+                  // A refresh in flight may be about to change `dataset_id`
+                  // (an upload or re-point just landed), so wait for it.
+                  disabled={pending || state.refreshing}
                   className={BUTTON}
                   onClick={() => {
                     setPending(true);
                     onRefusal(null);
                     unlockResults(event.event_key, state.data.dataset_id)
                       .then(() => reload())
-                      .catch((error: unknown) =>
+                      .catch((error: unknown) => {
                         onRefusal(
                           isRefusal(error)
                             ? error.message
                             : "The exercise could not be reached. Check the connection and try again.",
-                        ),
-                      )
+                        );
+                        return reload();
+                      })
                       .finally(() => setPending(false));
                   }}
                 >

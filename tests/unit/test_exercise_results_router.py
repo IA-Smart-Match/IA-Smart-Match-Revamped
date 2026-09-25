@@ -768,6 +768,29 @@ def test_no_exercise_router_puts_a_register_id_in_a_refusal() -> None:
     assert offenders == []
 
 
+def test_no_exercise_exception_raised_below_the_routers_carries_a_register_id() -> None:
+    """The leak that happened: a domain exception's text passed on as ``str(error)``.
+
+    The routers pass domain and persistence refusal text through verbatim, so
+    every string literal inside a ``raise`` in those two packages is a sentence
+    somebody may read.
+    """
+    from smartmatch_domain.exercise import simulation
+    from smartmatch_persistence.exercise import instructor_repository
+
+    offenders: list[str] = []
+    for package in (Path(simulation.__file__).parent, Path(instructor_repository.__file__).parent):
+        for source_file in sorted(package.glob("*.py")):
+            tree = ast.parse(source_file.read_text(encoding="utf-8"))
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Raise) or node.exc is None:
+                    continue
+                for part in ast.walk(node.exc):
+                    if isinstance(part, ast.Constant) and "OQ-CE-" in str(part.value):
+                        offenders.append(f"{package.name}/{source_file.name}:{part.lineno}")
+    assert offenders == []
+
+
 def test_the_placeholder_markers_are_literally_present_in_the_source() -> None:
     assert "PLACEHOLDER (OQ-CE-03)" in _MODELS_SOURCE.read_text(encoding="utf-8")
     assert "PLACEHOLDER (OQ-CE-04)" in _REFRESH_SOURCE.read_text(encoding="utf-8")

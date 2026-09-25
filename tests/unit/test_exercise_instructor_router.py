@@ -965,6 +965,7 @@ def test_the_instructor_lists_the_teams_events_without_a_team_cookie(
     It used to come from the team route, which answers 401 without a workspace
     cookie, so the instructor saw an empty panel until she entered as a team.
     """
+    assert set(signed_in.cookies.keys()) == {INSTRUCTOR_COOKIE_NAME}
     response = signed_in.get("/v1/exercise/instructor/events")
 
     assert response.status_code == 200

@@ -319,6 +319,29 @@ describe("<ExerciseInstructor />", () => {
     );
   });
 
+  it("checks again once a team has entered, without a page reload", async () => {
+    // Review finding: the instructor signs in before any team enters, and the
+    // 409 used to be the panel's last word until the page was reloaded.
+    const answers = signedInStubs({
+      [`GET ${INSTRUCTOR_EVENTS}`]: {
+        body: {
+          error: { code: "exercise_no_teams_yet", message: "No team has entered a number yet." },
+        },
+        status: 409,
+      },
+    });
+    stub(answers);
+    renderInstructor();
+    await signIn();
+
+    const again = await screen.findByRole("button", { name: /check again/i });
+    answers[`GET ${INSTRUCTOR_EVENTS}`] = { body: eventsView(false) };
+    fireEvent.click(again);
+
+    await screen.findByText("Round one");
+    expect(screen.queryByText("No team has entered a number yet.")).toBeNull();
+  });
+
   it("reloads the teams panel after an upload", async () => {
     // Fails on the merged code: only the data-files panel reloaded, so Teams
     // kept saying "No data file has been uploaded yet." until a page reload.

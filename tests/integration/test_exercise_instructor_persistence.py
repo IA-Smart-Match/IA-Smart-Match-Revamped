@@ -349,15 +349,23 @@ def test_the_event_list_carries_the_unlock_row_and_only_exercise_events(
     with exercise_sessions() as session:
         dataset_id = _insert_dataset(session, label="event-list")
         other_id = _insert_dataset(session, label="event-list-other")
-        session.execute(
-            sa.insert(schema.exercise_event).values(
-                dataset_id=dataset_id,
-                event_key="past-one",
-                name="A past event",
-                sequence=0,
-                is_exercise_event=False,
+        # Inserted out of file order, so the ORDER BY is what is asserted.
+        # `ck_exercise_event_sequence` needs sequence >= 1; the fixture's
+        # event holds 1.
+        for key, name, sequence, is_round in (
+            ("round-late", "A later round", 5, True),
+            ("past-one", "A past event", 2, False),
+            ("round-mid", "A middle round", 3, True),
+        ):
+            session.execute(
+                sa.insert(schema.exercise_event).values(
+                    dataset_id=dataset_id,
+                    event_key=key,
+                    name=name,
+                    sequence=sequence,
+                    is_exercise_event=is_round,
+                )
             )
-        )
         session.commit()
 
         before = REPOSITORY.list_exercise_events(session, dataset_id=dataset_id)
@@ -368,10 +376,16 @@ def test_the_event_list_carries_the_unlock_row_and_only_exercise_events(
         session.commit()
         after = REPOSITORY.list_exercise_events(session, dataset_id=dataset_id)
 
-    assert [(row.event_key, row.unlocked) for row in before] == [(_EVENT_KEY, False)]
-    assert [row.unlocked for row in other_file_only] == [False]
+    assert [(row.event_key, row.unlocked) for row in before] == [
+        (_EVENT_KEY, False),
+        ("round-mid", False),
+        ("round-late", False),
+    ]
+    assert [row.unlocked for row in other_file_only] == [False, False, False]
     assert [(row.event_key, row.name, row.unlocked) for row in after] == [
-        (_EVENT_KEY, "Northline Analytics", True)
+        (_EVENT_KEY, "Northline Analytics", True),
+        ("round-mid", "A middle round", False),
+        ("round-late", "A later round", False),
     ]
 
 
