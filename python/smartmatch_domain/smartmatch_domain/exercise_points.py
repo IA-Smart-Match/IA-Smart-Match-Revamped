@@ -40,16 +40,16 @@ and — by this module — points. There is no percentage, no rate, no match
 score, and no confidence on :class:`ProfilePoints`, and a field for one must
 not be added.
 
-## The values are placeholders
+## The values are confirmed
 
-``POINTS_PER_ATTENDANCE`` and ``POINTS_PER_COMPLETED_CARD`` are **PLACEHOLDER**
-values. No requirement, ADR, or design section fixes them; the requirements row
-only says the counter *rises* with each. The simplest defaults that satisfy
-"rises" are used, deliberately equal so neither behaviour is implicitly
-declared the more valuable one. Confirming them is register row OQ-CE-10 in
-``docs/plans/open-questions/class-exercise-open-questions.md`` (ADR-0025's
-amendment discipline: "changing a coefficient ... is a register row, not an
-amendment"), not a change to this module's shape.
+``POINTS_PER_ATTENDANCE`` and ``POINTS_PER_COMPLETED_CARD`` are one point each,
+deliberately equal so neither behaviour is implicitly declared the more
+valuable one. OQ-CE-10 closed 2026-09-25 (Ann Wang, email reply to the team's
+question list: "all good"), recorded in
+``docs/plans/open-questions/class-exercise-open-questions.md``. Changing them
+later is a register row (ADR-0025's amendment discipline: "changing a
+coefficient ... is a register row, not an amendment"), not a change to this
+module's shape.
 """
 
 from __future__ import annotations
@@ -67,13 +67,13 @@ __all__ = [
 ]
 
 
-#: PLACEHOLDER (OQ-CE-10): points earned for each past event a
+#: Confirmed (OQ-CE-10): points earned for each past event a
 #: profile attended. One point per event is the simplest value that satisfies
 #: "rises with attendance" and keeps the counter readable from a projector.
 POINTS_PER_ATTENDANCE: int = 1
 
-#: PLACEHOLDER (OQ-CE-10): points earned once, when a profile has
-#: completed its five-questions card. Equal to :data:`POINTS_PER_ATTENDANCE`
+#: Confirmed (OQ-CE-10): points earned once, when a profile has
+#: completed its card. Equal to :data:`POINTS_PER_ATTENDANCE`
 #: so this module does not quietly decide that one behaviour is worth more
 #: than the other; that ranking is Ann's to make.
 POINTS_PER_COMPLETED_CARD: int = 1

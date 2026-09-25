@@ -219,7 +219,11 @@ export interface DatasetView {
   readonly event_count: number;
   readonly checksum: string;
   readonly invite_limit: number;
-  /** OQ-CE-09: `null` until Ann provides a sentence. Rendered only when present. */
+  /**
+   * A per-upload license line; the ingest does not fill it, so `null`.
+   * Rendered only when present. The exercise's own license line (OQ-CE-09,
+   * closed 2026-09-25) is `EXERCISE_LICENSE_LINE` on the opening screen.
+   */
   readonly license_line: string | null;
 }
 
@@ -281,6 +285,21 @@ export interface TeamDetailView {
   readonly team_number: number;
   readonly saved_settings: InstructorSavedSettingView[];
   readonly result_runs: ResultRunView[];
+}
+
+/** One event the teams run, and whether its results are already open. */
+export interface InstructorEventView {
+  readonly event_key: string;
+  readonly name: string;
+  readonly unlocked: boolean;
+}
+
+/** `GET /v1/exercise/instructor/events`: the teams' data file and its events. */
+export interface InstructorEventsView {
+  /** The file the unlock writes to. Passed back on every unlock. */
+  readonly dataset_id: string;
+  readonly dataset_label: string;
+  readonly events: InstructorEventView[];
 }
 
 export interface UnlockView {
@@ -529,6 +548,15 @@ export function repointWorkspaces(datasetId: string, signal?: AbortSignal) {
     `/instructor/datasets/${encodeURIComponent(datasetId)}/repoint`,
     { method: "POST", signal },
   );
+}
+
+/**
+ * `GET /v1/exercise/instructor/events` — the unlock panel's list, behind the
+ * passcode session alone. Resolved on the server exactly as the unlock is, so
+ * `unlocked` is the lock state of the file the button writes to.
+ */
+export function listInstructorEvents(signal?: AbortSignal) {
+  return exerciseRequest<InstructorEventsView>("/instructor/events", { signal });
 }
 
 export function unlockResults(eventKey: string, datasetId?: string, signal?: AbortSignal) {

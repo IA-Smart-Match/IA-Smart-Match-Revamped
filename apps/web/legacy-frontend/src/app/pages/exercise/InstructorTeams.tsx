@@ -36,8 +36,17 @@ import { useExerciseResource } from "./useExerciseResource";
 const BUTTON =
   "rounded-lg border-2 border-slate-400 px-4 py-2 text-xl font-semibold text-slate-800 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 dark:border-slate-500 dark:text-slate-100 dark:hover:bg-slate-800";
 
-export function InstructorTeams(): React.JSX.Element {
-  const { state, reload } = useExerciseResource(listTeamWorkspaces, []);
+export function InstructorTeams({
+  reloadKey = 0,
+}: {
+  /**
+   * Bumped by the page when a data file is uploaded or the teams are
+   * re-pointed. Both change what this panel says, and it used to keep saying
+   * "No data file has been uploaded yet." until the page was reloaded.
+   */
+  readonly reloadKey?: number;
+} = {}): React.JSX.Element {
+  const { state, reload } = useExerciseResource(listTeamWorkspaces, [reloadKey]);
   const [refusal, setRefusal] = React.useState<string | null>(null);
   const [pending, setPending] = React.useState(false);
 

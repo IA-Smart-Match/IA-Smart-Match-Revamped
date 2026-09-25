@@ -342,6 +342,53 @@ def test_unlocking_twice_writes_one_row_and_moves_no_timestamp(
     assert stamp == after
 
 
+def test_the_event_list_carries_the_unlock_row_and_only_exercise_events(
+    exercise_sessions: sessionmaker[Session],
+) -> None:
+    """CE-INSTRUCTOR-UNLOCK: the panel's state after a reload is this read."""
+    with exercise_sessions() as session:
+        dataset_id = _insert_dataset(session, label="event-list")
+        other_id = _insert_dataset(session, label="event-list-other")
+        # Inserted out of file order, so the ORDER BY is what is asserted.
+        # `ck_exercise_event_sequence` needs sequence >= 1; the fixture's
+        # event holds 1.
+        for key, name, sequence, is_round in (
+            ("round-late", "A later round", 5, True),
+            ("past-one", "A past event", 2, False),
+            ("round-mid", "A middle round", 3, True),
+        ):
+            session.execute(
+                sa.insert(schema.exercise_event).values(
+                    dataset_id=dataset_id,
+                    event_key=key,
+                    name=name,
+                    sequence=sequence,
+                    is_exercise_event=is_round,
+                )
+            )
+        session.commit()
+
+        before = REPOSITORY.list_exercise_events(session, dataset_id=dataset_id)
+        REPOSITORY.unlock_results(session, dataset_id=other_id, event_key=_EVENT_KEY)
+        session.commit()
+        other_file_only = REPOSITORY.list_exercise_events(session, dataset_id=dataset_id)
+        REPOSITORY.unlock_results(session, dataset_id=dataset_id, event_key=_EVENT_KEY)
+        session.commit()
+        after = REPOSITORY.list_exercise_events(session, dataset_id=dataset_id)
+
+    assert [(row.event_key, row.unlocked) for row in before] == [
+        (_EVENT_KEY, False),
+        ("round-mid", False),
+        ("round-late", False),
+    ]
+    assert [row.unlocked for row in other_file_only] == [False, False, False]
+    assert [(row.event_key, row.name, row.unlocked) for row in after] == [
+        (_EVENT_KEY, "Northline Analytics", True),
+        ("round-mid", "A middle round", False),
+        ("round-late", "A later round", False),
+    ]
+
+
 def test_an_event_that_is_not_in_the_file_is_recognised_before_the_write(
     exercise_sessions: sessionmaker[Session],
 ) -> None:

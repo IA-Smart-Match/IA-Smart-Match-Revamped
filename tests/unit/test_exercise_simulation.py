@@ -429,7 +429,7 @@ def test_the_shipped_coefficients_are_still_a_placeholder():
 def test_require_coefficients_refuses_while_the_placeholder_is_none():
     with pytest.raises(CoefficientsNotConfirmedError) as excinfo:
         require_coefficients()
-    assert str(excinfo.value) == ("The results rule has no confirmed coefficients yet (OQ-CE-03).")
+    assert str(excinfo.value) == "The results rule has no confirmed coefficients yet."
 
 
 # --- Seats -----------------------------------------------------------------

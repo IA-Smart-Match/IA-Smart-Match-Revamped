@@ -116,7 +116,7 @@ class Settings(BaseSettings):
     )
 
     #: The HMAC key the class exercise derives its workspace cookie tokens from
-    #: (design spec §15; PLACEHOLDER, OQ-CE-08). Read from
+    #: (design spec §15; OQ-CE-08, closed 2026-09-25). Read from
     #: ``SMARTMATCH_EXERCISE_WORKSPACE_SECRET``.
     #:
     #: ``None`` by default and required *only* in
@@ -144,9 +144,8 @@ class Settings(BaseSettings):
     #: The class exercise's instructor passcode (design spec §14). Read from
     #: ``SMARTMATCH_EXERCISE_INSTRUCTOR_PASSCODE``.
     #:
-    #: PLACEHOLDER (OQ-CE-07): the register's safe default is one environment
-    #: variable per deployment, shared out of band and rotated after the spring
-    #: run. Nothing about that row is closed by this field existing.
+    #: OQ-CE-07 (closed 2026-09-25): one environment variable, set per
+    #: deployment, shared out of band, and rotated by changing the value.
     #:
     #: ``None`` — the default — means **the instructor page cannot be entered**.
     #: It is deliberately not part of the boot guard that

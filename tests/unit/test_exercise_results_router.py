@@ -81,9 +81,7 @@ from smartmatch_api.routers.exercise_results_refresh import (
 )
 from smartmatch_domain.exercise import EXERCISE_WITHHELD_FIELDS
 from smartmatch_domain.exercise.asking import (
-    CARD_COMPLETION_SHARE,
     COPIED_CARD_CAREER_GOAL,
-    REQUIRED_NON_RESPONDING_SHARE,
     AskingChoice,
     CopiedCardCareerGoal,
     copied_card_career_goal,
@@ -717,7 +715,8 @@ def test_a_run_refuses_while_the_rule_has_no_confirmed_coefficients(
     assert response.status_code == 409
     body = response.json()["error"]
     assert body["code"] == "exercise_results_rule_not_confirmed"
-    assert body["message"] == "The results rule has no confirmed coefficients yet (OQ-CE-03)."
+    assert body["message"] == "The results rule has no confirmed coefficients yet."
+    assert "OQ-CE-" not in body["message"], "a register ID is not a sentence for a team"
     assert fakes.results.runs == {}, "a refused run must store nothing"
 
 
@@ -747,9 +746,54 @@ def test_no_module_in_this_track_writes_down_a_class_year_or_a_major() -> None:
             assert guess not in source, f"{source_file.name} writes down {guess!r}"
 
 
+def test_no_exercise_router_puts_a_register_id_in_a_refusal() -> None:
+    """CE-INSTRUCTOR-UNLOCK: "(OQ-CE-03)" reached students in a refusal.
+
+    Register IDs belong in comments and docstrings, where the next engineer
+    reads them, and never in a sentence a team or the instructor reads. Every
+    literal passed as ``message=`` in an exercise router is checked.
+    """
+    routers = Path(exercise_results.__file__).parent
+    offenders: list[str] = []
+    for source_file in sorted(routers.glob("exercise_*.py")):
+        tree = ast.parse(source_file.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.keyword) or node.arg != "message":
+                continue
+            for part in ast.walk(node.value):
+                if isinstance(part, ast.Constant) and "OQ-CE-" in str(part.value):
+                    offenders.append(f"{source_file.name}:{part.lineno}")
+    assert offenders == []
+
+
+def test_no_exercise_exception_raised_below_the_routers_carries_a_register_id() -> None:
+    """The leak that happened: a domain exception's text passed on as ``str(error)``.
+
+    The routers pass domain and persistence refusal text through verbatim, so
+    every string literal inside a ``raise`` in those two packages is a sentence
+    somebody may read.
+    """
+    from smartmatch_domain.exercise import simulation
+    from smartmatch_persistence.exercise import instructor_repository
+
+    offenders: list[str] = []
+    for package in (Path(simulation.__file__).parent, Path(instructor_repository.__file__).parent):
+        for source_file in sorted(package.glob("*.py")):
+            tree = ast.parse(source_file.read_text(encoding="utf-8"))
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Raise) or node.exc is None:
+                    continue
+                for part in ast.walk(node.exc):
+                    if isinstance(part, ast.Constant) and "OQ-CE-" in str(part.value):
+                        offenders.append(f"{package.name}/{source_file.name}:{part.lineno}")
+    assert offenders == []
+
+
 def test_the_placeholder_markers_are_literally_present_in_the_source() -> None:
     assert "PLACEHOLDER (OQ-CE-03)" in _MODELS_SOURCE.read_text(encoding="utf-8")
-    assert "PLACEHOLDER (OQ-CE-04)" in _REFRESH_SOURCE.read_text(encoding="utf-8")
+    refresh_source = _REFRESH_SOURCE.read_text(encoding="utf-8")
+    assert "PLACEHOLDER (OQ-CE-04)" not in refresh_source, "OQ-CE-04 closed 2026-09-25"
+    assert "round half up" in refresh_source
     assert "OQ-CE-03" in _ROUTER_SOURCE.read_text(encoding="utf-8")
 
 
@@ -1473,10 +1517,9 @@ def test_the_two_draws_are_independent() -> None:
     )
 
     assert set(plan.card_completers) != set(plan.non_responding)
-    assert len(plan.card_completers) == round(
-        CARD_COMPLETION_SHARE[AskingChoice.REQUIRED] * len(no_card)
-    )
-    assert len(plan.non_responding) == round(REQUIRED_NON_RESPONDING_SHARE * len(no_card))
+    # 80 percent and 15 percent of twenty: 16 and 3, no half to round.
+    assert len(plan.card_completers) == 16
+    assert len(plan.non_responding) == 3
 
 
 def test_the_plan_does_not_depend_on_the_order_it_was_given() -> None:
