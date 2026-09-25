@@ -81,7 +81,7 @@ def test_the_completion_shares_cannot_be_retuned_at_runtime():
 
 
 def test_the_shipped_policy_is_anns_answer():
-    """Ann's Read Me, 2026-09-24: the hidden true career goal — "a new card copies these"."""
+    """A new card copies the hidden true career goal (Ann's data file, 2026-09-24)."""
     assert COPIED_CARD_CAREER_GOAL is CopiedCardCareerGoal.HIDDEN_GOAL
 
 

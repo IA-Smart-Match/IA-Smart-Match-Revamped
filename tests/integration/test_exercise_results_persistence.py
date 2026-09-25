@@ -83,9 +83,9 @@ _WITHHELD = {
 _BASE_GOALS: dict[int, str | None] = {1: "analytics", 2: "brand", 3: None}
 
 #: The **withheld** ``hidden_true_career_goal`` of each profile — deliberately
-#: not its base goal, so a test can tell which one a copied card carries. Ann's
-#: Read Me of 2026-09-24 (OQ-CE-13): "a new card copies these". Profile 3 has
-#: none, so its copied card carries ``NULL``.
+#: not its base goal, so a test can tell which one a copied card carries. A new
+#: card copies the hidden columns (Ann's data file, 2026-09-24; OQ-CE-13).
+#: Profile 3 has none, so its copied card carries ``NULL``.
 _HIDDEN_GOALS: dict[int, str | None] = {1: "true-goal-one", 2: "true-goal-two", 3: None}
 
 _TEAM = ResultPanel(
@@ -566,7 +566,7 @@ def test_a_refresh_writes_the_overlay_and_may_not_run_twice(
 def test_a_copied_card_carries_the_hidden_true_career_goal(
     exercise_sessions: sessionmaker[Session],
 ) -> None:
-    """Ann's Read Me of 2026-09-24, as rows (OQ-CE-13).
+    """Ann's data file, 2026-09-24, as rows (OQ-CE-13).
 
     Profiles 1 and 2 have a hidden goal and get it on the copied card; profile 3
     has none and its copied card carries ``NULL``. Nothing is passed in: the

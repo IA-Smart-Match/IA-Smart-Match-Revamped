@@ -42,7 +42,8 @@ __all__ = [
 
 _FIXTURES: Final[Path] = Path(__file__).resolve().parents[1] / "fixtures" / "exercise"
 
-#: Ann's full file and her 20-row sample, as she sent them on 2026-09-24.
+#: Ann's full file and her 20-row sample of 2026-09-24, cut to the Profiles and
+#: Events sheets on 2026-09-25; every cell of those two sheets is as she sent it.
 ANN_FULL_FILE: Final[Path] = _FIXTURES / "SmartMatch_Student_Body_300.xlsx"
 ANN_SAMPLE_FILE: Final[Path] = _FIXTURES / "SmartMatch_Student_Body_Sample_20.xlsx"
 

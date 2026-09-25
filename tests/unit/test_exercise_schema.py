@@ -175,8 +175,8 @@ def test_no_table_outside_the_exercise_family_references_one():
 def test_both_hidden_columns_are_the_withheld_fields():
     """ADR-0025 D6, pinned as names rather than as a convention.
 
-    Ann's Read Me: "Pink columns are HIDDEN: the app must never show them and
-    never use them for matching." Her file has two pink columns.
+    Ann's data file, 2026-09-24, marks two columns as hidden: never shown and
+    never used for matching.
     """
     assert {
         "hidden_true_interests",
