@@ -3,27 +3,44 @@
 **This docstring is the statement Ann Wang and Dr. Lin receive** (requirements,
 "Simulated results": *The rule is written in plain words in the code and shared
 with Ann and Dr. Lin before the practice run*; ADR-0025 D7). The paragraph
-below is the draft from design spec §11, kept verbatim, followed by the detail
-the code adds. When the code changes, this paragraph changes with it.
+below states the rule with the numbers the code runs today. Its first and last
+sentences are design spec §11's draft; the middle is Ann's answer of 2026-09-25
+to OQ-CE-03 and OQ-CE-14, with the team's translation of her words into
+numbers. When the code changes, this paragraph changes with it, and a test
+checks that every number in it is the number the code uses.
 
     For each invited profile the app decides whether the person signs up, then
-    whether they attend. A person is much more likely to sign up when the
-    event's topics match what they truly care about and their career goal fits
-    the event. Someone who has been to many past events is only a little more
-    likely to sign up than someone who has not. Being in the same major as the
-    event's audience gives only a small lift on its own. A small amount of
-    chance is added, and that chance is fixed for each team, so running the
-    same list twice gives the same answer. Most people who sign up attend. The
-    app uses each profile's true interests for this, not what the profile has
-    told the app, which is why a list built on what the app knows can miss
-    people.
+    whether they attend. Everyone starts with a 4 in 100 chance of signing up.
+    The biggest boost, 40 in 100, goes to a person when the event matches what
+    they truly care about: half of it when one of their true interests is a
+    topic of the event, and the other half when their career goal fits the
+    event. A person whose career goal is undecided gets half of that
+    career-goal half from a broad exploratory event (a company talk, an
+    industry panel or a career fair), so a person whose goal clearly fits still
+    does better. A person who has been to at least one past event gets a
+    medium boost of 10 in 100. Being in the major the event is aimed at gives a
+    small boost of 4 in 100. Then some chance is added, up to 10 in 100 either
+    way, and that chance is fixed for each team, so running the same list twice
+    gives the same answer. Of the people who sign up, 75 in 100 attend. The app
+    uses each profile's true interests for this, not what the profile has told
+    the app, which is why a list built on what the app knows can miss people.
+
+Ann's words were: the event matches what the student genuinely cares about,
+**a lot**; the student has attended events before, **some**; the event is
+targeted toward the student's major, **a little**; random chance, **some
+randomness**. "A lot", "some" and "a little" became 40, 10 and 4 in 100, and
+"some randomness" became up to 10 in 100 either way — the same size as "some".
+Those numbers are the team's, not hers: OQ-CE-03 stays OPEN until Chau and Ann
+confirm them from a sample result
+(``docs/plans/open-questions/oq-ce-03-sample-result.md``).
 
 ## The five behaviours the requirements ask for
 
 (1) **True fit lifts sign-up the most.** A profile is more likely to sign up
     when its hidden true interests and its career goal match the event.
-(2) **Frequent attenders get only a little more.** A profile that has been to
-    many past events gets a lift that is smaller than the true-fit lift.
+(2) **Past attenders get some more.** A profile that has been to at least
+    ``frequent_attender_events`` past events gets a lift that is
+    smaller than the true-fit lift.
 (3) **Same major alone gives only a small lift.** Being in the event's target
     majors, and nothing else, moves the number a little.
 (4) **A small element of chance, fixed for each team.** The chance is drawn
@@ -36,7 +53,10 @@ the code adds. When the code changes, this paragraph changes with it.
 That (1) outranks (2) and (3) is not a matter of which numbers are chosen: it
 is checked when the coefficients are constructed. :class:`SimulationCoefficients`
 refuses any set where ``true_fit_lift`` does not exceed both
-``frequent_attender_lift`` and ``same_major_lift``.
+``frequent_attender_lift`` and ``same_major_lift``. Ann's further ordering —
+attended before ("some") above same major ("a little") — is checked on the
+shipped set by ``tests/unit/test_exercise_simulation.py`` rather than refused
+here, so a test-only set may still isolate one lift at a time.
 
 ## The exact formula
 
@@ -45,10 +65,15 @@ For one profile and one event, with coefficients ``c``:
 * ``fit_share`` is ``c.true_interest_share_of_fit`` for a true-interest overlap
   with the event's topics, plus ``1.0 - c.true_interest_share_of_fit`` for a
   career goal that is one of the event's topics — so ``1.0`` when both hold and
-  ``0.0`` when neither does. How the true-fit lift divides between the two
-  halves is **not** a constant in this module: it is a coefficient, because
+  ``0.0`` when neither does. An **undecided** career goal on an **exploratory**
+  event earns ``UNDECIDED_EXPLORATORY_GOAL_FIT`` (one half) of the career-goal
+  part instead (OQ-CE-14, Ann 2026-09-25: "the results step should treat
+  undecided students the same way"); that half is imported from
+  :mod:`smartmatch_domain.student_factors.factors`, so the rule and the
+  matching factor read one number. How the true-fit lift divides between the
+  two parts is **not** a constant in this module: it is a coefficient, because
   choosing it decides whether Ann's "true interests and career goal" leans on
-  interests or on goals, and that is hers to decide (OQ-CE-03).
+  interests or on goals (OQ-CE-03).
 * ``lift = c.true_fit_lift * fit_share``
   ``+ c.frequent_attender_lift`` if the profile attended at least
   ``c.frequent_attender_events`` past events,
@@ -118,29 +143,37 @@ reader of a profile's hidden true interests (ADR-0025 D6), and nothing it
 returns carries them: :class:`SimulationResult` holds profile numbers, and
 :func:`seats_empty` holds a count of chairs.
 
-## The coefficients are not decided
+## The coefficients: Ann's words, the team's numbers
 
-OQ-CE-03 is OPEN: "Chau proposes; Ann confirms". This module therefore ships
-**no coefficient values**. :data:`EXERCISE_SIMULATION_COEFFICIENTS` is ``None``
-and :func:`require_coefficients` refuses until it is not. Tests construct their
-own, clearly labelled as test-only.
+OQ-CE-03 is still OPEN. Ann answered in words on 2026-09-25 (a lot / some / a
+little / some randomness) and was told "Chau can then translate those choices
+into exact numbers and show you a sample result before class".
+:data:`EXERCISE_SIMULATION_COEFFICIENTS` is that translation, marked
+``PLACEHOLDER``, so a results run stops refusing; it closes nothing.
+:func:`require_coefficients` still refuses if the value is ever ``None``.
+Tests construct their own sets, clearly labelled as test-only.
 
 The register names four quantities. The rule needs **eight**, and the four it
-adds are named here rather than invented as constants:
+adds are named here rather than invented as constants. The shipped value and
+where it comes from:
 
-1. ``true_fit_lift`` — as registered.
-2. ``frequent_attender_lift`` — as registered.
-3. ``same_major_lift`` — as registered.
-4. ``chance_spread`` — as registered ("chance size").
-5. ``attend_given_signup`` — named in design spec §11's constant list, but not
-   in the register row.
-6. ``base_signup_rate`` — the rule cannot say "more likely to sign up" without
-   something to be more likely *than*.
-7. ``frequent_attender_events`` — the requirements say "many past events"
-   without saying how many.
-8. ``true_interest_share_of_fit`` — how the true-fit lift divides between the
-   interest overlap and the career goal, and so the ceiling for a profile with
-   no career goal on file.
+1. ``true_fit_lift`` — 0.40. Ann's "a lot".
+2. ``frequent_attender_lift`` — 0.10. Ann's "some".
+3. ``same_major_lift`` — 0.04. Ann's "a little".
+4. ``chance_spread`` — 0.20, so up to 0.10 either way. Ann's "some
+   randomness", the same size as her "some".
+5. ``attend_given_signup`` — 0.75. Named in design spec §11's constant list,
+   but not in the register row; Ann's example result ("8 of your 30 invited
+   students signed up, 6 attended") is three in four.
+6. ``base_signup_rate`` — 0.04. The rule cannot say "more likely to sign up"
+   without something to be more likely *than*; chosen so a top-30 list on
+   equal weights lands near Ann's example of 8 sign-ups.
+7. ``frequent_attender_events`` — 1. Ann's (b) is "has attended events
+   before", so one past event is enough.
+8. ``true_interest_share_of_fit`` — 0.5. How the true-fit lift divides between
+   the interest overlap and the career goal, and so the ceiling for a profile
+   with no career goal on file. Ann named the two together as one thing ("what
+   the student genuinely cares about"), so they share it equally.
 """
 
 from __future__ import annotations
@@ -154,6 +187,7 @@ from typing import Final
 # same digest for the fixed order and the same term rule for the four factors.
 # Two copies of "how a term is compared" is one more than the question has.
 from smartmatch_domain.exercise.determinism import stable_digest as _digest
+from smartmatch_domain.student_factors.factors import UNDECIDED_EXPLORATORY_GOAL_FIT
 from smartmatch_domain.student_factors.terms import normalized_term as _normalized
 
 __all__ = [
@@ -248,6 +282,12 @@ class SimulationProfile:
             (``Undecided``, ``Graduate school``). ``None`` contributes no fit
             and costs nothing. ``repr=False`` for the same reason as
             ``true_interests``: it is derived from a withheld column.
+        career_goal_undecided: ``True`` when the hidden true career goal is
+            ``Undecided`` (through
+            :func:`~smartmatch_domain.exercise.vocabulary.goal_is_undecided`,
+            the flag the matching factor reads too). Such a goal half-fits an
+            exploratory event (OQ-CE-14). ``career_goal`` is then ``None``.
+            ``repr=False``: it too is derived from a withheld column.
         past_event_count: How many past events this profile attended.
         non_responding: ``True`` for a profile that stopped opening messages
             after the ``required`` asking choice (design spec §13). Such a
@@ -260,6 +300,19 @@ class SimulationProfile:
     career_goal: str | None = field(default=None, repr=False)
     past_event_count: int = 0
     non_responding: bool = False
+    career_goal_undecided: bool = field(default=False, repr=False)
+
+    def __post_init__(self) -> None:
+        """Refuse an undecided goal that also names a topic.
+
+        The message names the field and never the value, since both are
+        derived from a withheld column.
+        """
+        if self.career_goal_undecided and self.career_goal is not None:
+            raise ValueError(
+                "career_goal_undecided: an undecided goal names no topic, so "
+                "career_goal must be None"
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -273,11 +326,15 @@ class SimulationEvent:
             team's seed give two different sets of results.
         topic_tags: The event's topics.
         target_majors: The majors the event is aimed at.
+        exploratory: ``True`` for a broad exploratory event (a company talk, an
+            industry panel, a career fair), which an undecided career goal
+            half-fits (OQ-CE-14). Northline and Harbor are both exploratory.
     """
 
     event_key: str
     topic_tags: frozenset[str] = frozenset()
     target_majors: frozenset[str] = frozenset()
+    exploratory: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -301,13 +358,13 @@ class SimulationResult:
 
 @dataclass(frozen=True, slots=True)
 class SimulationCoefficients:
-    """The numbers the rule is drawn against — none of which are decided yet.
+    """The numbers the rule is drawn against.
 
     **PLACEHOLDER (OQ-CE-03).** The register says "Chau proposes; Ann
-    confirms". There is therefore no default: every caller supplies a set, and
-    the only set the exercise itself will ship is
-    :data:`EXERCISE_SIMULATION_COEFFICIENTS`, which is ``None`` until Ann
-    confirms. Tests construct their own and label them test-only.
+    confirms". There is no default: every caller supplies a set, and the only
+    set the exercise itself ships is :data:`EXERCISE_SIMULATION_COEFFICIENTS`,
+    the team's translation of Ann's words, still to be confirmed. Tests
+    construct their own and label them test-only.
 
     What the requirements fix is the *ordering*, not the values, so the
     ordering is enforced here rather than left to whichever numbers arrive:
@@ -404,11 +461,22 @@ def _check_attender_threshold(value: object) -> None:
         )
 
 
-#: PLACEHOLDER (OQ-CE-03): the coefficients the exercise runs with. ``None``
-#: because the register's answer is "Chau proposes; Ann confirms" and no value
-#: has been confirmed. Inventing one here would put an unreviewed number on the
-#: projector under Ann's name. Read it through :func:`require_coefficients`.
-EXERCISE_SIMULATION_COEFFICIENTS: SimulationCoefficients | None = None
+#: PLACEHOLDER (OQ-CE-03: Ann's a lot/some/a little/some; numbers are the
+#: team's translation, Chau to confirm with a sample result). The coefficients
+#: the exercise runs with. Ann answered in words on 2026-09-25; each number and
+#: its reason is listed in this module's docstring, and the plain-words
+#: paragraph at the top states every one of them. Read it through
+#: :func:`require_coefficients`.
+EXERCISE_SIMULATION_COEFFICIENTS: SimulationCoefficients | None = SimulationCoefficients(
+    base_signup_rate=0.04,
+    true_fit_lift=0.40,
+    frequent_attender_lift=0.10,
+    same_major_lift=0.04,
+    chance_spread=0.20,
+    attend_given_signup=0.75,
+    frequent_attender_events=1,
+    true_interest_share_of_fit=0.5,
+)
 
 
 def require_coefficients() -> SimulationCoefficients:
@@ -457,11 +525,14 @@ def _fit_share(
     simply cannot reach past ``coefficients.true_interest_share_of_fit``.
     """
     topics = {_normalized(tag) for tag in event.topic_tags}
+    goal_share = 1.0 - coefficients.true_interest_share_of_fit
     share = 0.0
     if topics & {_normalized(term) for term in profile.true_interests}:
         share += coefficients.true_interest_share_of_fit
     if profile.career_goal is not None and _normalized(profile.career_goal) in topics:
-        share += 1.0 - coefficients.true_interest_share_of_fit
+        share += goal_share
+    elif profile.career_goal_undecided and event.exploratory:
+        share += goal_share * UNDECIDED_EXPLORATORY_GOAL_FIT
     return share
 
 

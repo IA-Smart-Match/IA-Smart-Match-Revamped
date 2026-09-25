@@ -13,7 +13,8 @@ profile's hidden true interests and hidden true career goal, and it reads them
 **into** :class:`~smartmatch_domain.exercise.simulation.SimulationProfile` — the
 input of design spec §11's rule, which is what the columns exist for. The goal
 goes in as the topic it points at (``vocabulary.goal_topic_for_matching``, the
-same table the ranker reads). From there the values go nowhere: the rule
+same table the ranker reads), plus whether it is ``Undecided``
+(``vocabulary.goal_is_undecided``, OQ-CE-14). From there the values go nowhere: the rule
 returns profile numbers, the panels below carry profile numbers, and no model in
 this module has a field with a place to put an interest term or a goal.
 
@@ -37,13 +38,14 @@ fraction*.
 
 PLACEHOLDER (OQ-CE-03)
 ======================
-The simulated-results rule ships no coefficients: the register says "Chau
-proposes; Ann confirms" and nothing has been confirmed.
-``simulation.require_coefficients`` refuses until that changes, and
-:func:`~smartmatch_api.routers.exercise_results.run_results` turns that refusal
-into one plain sentence. That is the correct behaviour of this route today, not
-a gap in it — a number invented here would be an unreviewed coefficient on a
-projector under Ann's name.
+The simulated-results rule's coefficients live in the domain, in
+``simulation.EXERCISE_SIMULATION_COEFFICIENTS``: the team's translation of Ann's
+answer of 2026-09-25 (a lot / some / a little / some randomness), shipped so a
+run stops refusing, and still OPEN until Chau and Ann confirm the numbers from a
+sample result. None of them is written here. ``simulation.require_coefficients``
+still refuses if that value is ``None``, and
+:func:`~smartmatch_api.routers.exercise_results.run_results` still turns that
+refusal into one plain sentence.
 """
 
 from __future__ import annotations
@@ -60,7 +62,7 @@ from smartmatch_domain.exercise.simulation import (
     SimulationEvent,
     SimulationProfile,
 )
-from smartmatch_domain.exercise.vocabulary import goal_topic_for_matching
+from smartmatch_domain.exercise.vocabulary import goal_is_undecided, goal_topic_for_matching
 
 from smartmatch_api.exercise_dependencies import (
     ExerciseEventRow,
@@ -152,6 +154,7 @@ def simulation_event(event: ExerciseEventRow) -> SimulationEvent:
         event_key=event.event_key,
         topic_tags=frozenset(event.topic_tags),
         target_majors=frozenset(event.target_majors),
+        exploratory=event.is_exploratory,
     )
 
 
@@ -194,6 +197,7 @@ def simulation_profiles(
             major=row.major or "",
             true_interests=frozenset(row.hidden_true_interests),
             career_goal=goal_topic_for_matching(row.hidden_true_career_goal),
+            career_goal_undecided=goal_is_undecided(row.hidden_true_career_goal),
             past_event_count=len(row.past_event_keys),
             non_responding=row.profile_no in non_responding_profile_nos,
         )

@@ -1,8 +1,9 @@
 """Unit tests for the class exercise's simulated-results rule (ADR-0025 D7).
 
-Every coefficient set in this file is **test-only**. OQ-CE-03 is open and the
-module ships none; these exist to exercise the shape of the rule, and none of
-them is a proposal for Ann.
+Every coefficient set constructed in this file is **test-only**; these exist to
+exercise the shape of the rule, and none of them is a proposal for Ann. The set
+the module ships (OQ-CE-03, still OPEN) is read, never constructed, by the
+tests under "the shipped set".
 """
 
 from __future__ import annotations
@@ -419,17 +420,121 @@ def test_coefficients_are_frozen():
         TEST_ONLY_COEFFICIENTS.chance_spread = 0.5  # type: ignore[misc]
 
 
-# --- OQ-CE-03 is open ------------------------------------------------------
+# --- OQ-CE-03: the shipped set (the team's translation, still OPEN) -------
 
 
-def test_the_shipped_coefficients_are_still_a_placeholder():
-    assert EXERCISE_SIMULATION_COEFFICIENTS is None
+def _shipped() -> SimulationCoefficients:
+    assert EXERCISE_SIMULATION_COEFFICIENTS is not None
+    return EXERCISE_SIMULATION_COEFFICIENTS
 
 
-def test_require_coefficients_refuses_while_the_placeholder_is_none():
+def test_the_exercise_now_ships_a_set_so_a_results_run_stops_refusing():
+    assert require_coefficients() is _shipped()
+
+
+def test_the_shipped_set_honours_anns_a_lot_some_a_little():
+    """OQ-CE-03, Ann 2026-09-25: true fit "a lot", attended before "some",
+    same major "a little", and "some randomness"."""
+    shipped = _shipped()
+    assert shipped.true_fit_lift > shipped.frequent_attender_lift > shipped.same_major_lift > 0
+    assert shipped.chance_spread > 0
+
+
+def test_the_shipped_set_counts_any_past_event_as_having_attended_before():
+    """Ann's (b) is "has attended events before", so one past event is enough."""
+    assert _shipped().frequent_attender_events == 1
+
+
+def test_the_shipped_set_is_still_marked_as_the_teams_translation():
+    """OQ-CE-03 stays OPEN until Chau and Ann confirm the numbers from a sample."""
+    from pathlib import Path
+
+    from smartmatch_domain.exercise import simulation
+
+    raw = Path(simulation.__file__).read_text(encoding="utf-8").replace("#: ", "")
+    source = " ".join(raw.split())
+    assert (
+        "PLACEHOLDER (OQ-CE-03: Ann's a lot/some/a little/some; numbers are the team's "
+        "translation, Chau to confirm with a sample result)"
+    ) in source
+
+
+def test_the_plain_words_paragraph_states_every_shipped_number():
+    """Ann and Dr. Lin receive the paragraph; it must say what the code does."""
+    from smartmatch_domain.exercise import simulation
+
+    shipped = _shipped()
+    text = " ".join((simulation.__doc__ or "").split())
+    for value in (
+        shipped.base_signup_rate,
+        shipped.true_fit_lift,
+        shipped.frequent_attender_lift,
+        shipped.same_major_lift,
+        shipped.chance_spread / 2,
+        shipped.attend_given_signup,
+    ):
+        assert f"{round(value * 100)} in 100" in text, value
+
+
+def test_require_coefficients_refuses_while_the_set_is_none(monkeypatch):
+    from smartmatch_domain.exercise import simulation
+
+    monkeypatch.setattr(simulation, "EXERCISE_SIMULATION_COEFFICIENTS", None)
     with pytest.raises(CoefficientsNotConfirmedError) as excinfo:
         require_coefficients()
     assert str(excinfo.value) == ("The results rule has no confirmed coefficients yet (OQ-CE-03).")
+
+
+# --- OQ-CE-14: an undecided goal is half a fit for an exploratory event ----
+
+EXPLORATORY_EVENT = dataclasses.replace(EVENT, exploratory=True)
+
+
+def _undecided(profile_no: int = 1) -> SimulationProfile:
+    return SimulationProfile(profile_no=profile_no, major="history", career_goal_undecided=True)
+
+
+def test_an_undecided_goal_earns_half_the_goal_part_on_an_exploratory_event():
+    all_on_goal = _with(true_interest_share_of_fit=0.0)
+    assert _fit_share(_undecided(), EXPLORATORY_EVENT, all_on_goal) == 0.5
+    assert _fit_share(_undecided(), EVENT, all_on_goal) == 0.0
+
+
+def test_the_half_is_the_same_half_the_matching_factor_gives():
+    """The rule and the factor must not disagree about what "undecided" earns."""
+    from smartmatch_domain.student_factors import UNDECIDED_EXPLORATORY_GOAL_FIT
+
+    split = _with(true_interest_share_of_fit=0.4)
+    assert _fit_share(_undecided(), EXPLORATORY_EVENT, split) == pytest.approx(
+        0.6 * UNDECIDED_EXPLORATORY_GOAL_FIT
+    )
+
+
+def test_a_goal_that_fits_outranks_undecided_on_an_exploratory_event():
+    fits = SimulationProfile(profile_no=1, major="history", career_goal="data_career")
+    split = _with(true_interest_share_of_fit=0.5)
+    assert _fit_share(fits, EXPLORATORY_EVENT, split) > _fit_share(
+        _undecided(), EXPLORATORY_EVENT, split
+    )
+
+
+def test_a_goal_with_no_topic_that_is_not_undecided_earns_nothing_on_an_exploratory_event():
+    """Graduate school: "no specific event topic" (Ann, 2026-09-25)."""
+    graduate = SimulationProfile(profile_no=1, major="history")
+    assert _fit_share(graduate, EXPLORATORY_EVENT, _with(true_interest_share_of_fit=0.0)) == 0.0
+
+
+def test_an_undecided_profile_has_no_goal_topic():
+    with pytest.raises(ValueError, match="career_goal_undecided"):
+        SimulationProfile(
+            profile_no=1, major="history", career_goal="data_career", career_goal_undecided=True
+        )
+
+
+def test_a_simulation_profile_never_prints_whether_its_hidden_goal_is_undecided():
+    """ADR-0025 D6: the flag is derived from ``hidden_true_career_goal``."""
+    assert "career_goal_undecided" not in repr(_undecided())
+    assert "True" not in repr(_undecided())
 
 
 # --- Seats -----------------------------------------------------------------

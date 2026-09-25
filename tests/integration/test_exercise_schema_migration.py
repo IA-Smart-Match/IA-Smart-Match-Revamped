@@ -65,7 +65,11 @@ REVISION = "0037_exercise_tables"
 #: ``0041_batch_speaker_request`` and is the head. It adds two nullable
 #: ``exercise_profile`` columns and writes no rows, so this file's claims still
 #: hold through it.
-HEAD_REVISION = "0042_exercise_ann_dataset"
+#: Moved again by CE-RESULTS-RULE: ``0043_exercise_event_exploratory`` chains to
+#: ``0042_exercise_ann_dataset`` and is the head. It adds one boolean
+#: ``exercise_event`` column defaulting to false and writes no rows, so this
+#: file's claims still hold through it.
+HEAD_REVISION = "0043_exercise_event_exploratory"
 
 #: Design spec §2's eight tables.
 EXERCISE_TABLES = (

@@ -93,6 +93,19 @@ def test_anns_full_workbook_is_accepted_as_she_sent_it() -> None:
     assert dataset.report.distinct_stated_interest_terms == 13
 
 
+def test_northline_and_harbor_are_exploratory_events_in_anns_file() -> None:
+    """OQ-CE-14 (Ann, 2026-09-25): both are company events, so both are exploratory.
+
+    Of the ten past events, the career fair, the three employer info sessions and
+    the three industry panels are exploratory; the workshop, the competition and
+    the networking mixer are not.
+    """
+    dataset = _accepted(ANN_FULL_FILE.read_bytes())
+    exploratory = {event.event_key for event in dataset.events if event.is_exploratory}
+
+    assert exploratory == {"E02", "E03", "E04", "E05", "E07", "E08", "E09", "E11", "E12"}
+
+
 def test_the_markers_agree_with_anns_info_level_column() -> None:
     """Ann: info_level "can also be computed by the app". It is, and it agrees."""
     markers = _accepted(ANN_FULL_FILE.read_bytes()).report.markers
@@ -269,6 +282,26 @@ def test_an_unknown_event_topic_or_target_major_is_refused() -> None:
     assert major.message.endswith('which is not one of the 6 majors or "All majors".')
 
 
+def test_an_unknown_event_type_is_refused_and_named() -> None:
+    refusal = _refusal(_with_event(0, event_type="Hackathon"))
+
+    assert refusal.code == "unknown_value"
+    assert refusal.message.startswith("Row 2 of the `Events` sheet has `Hackathon`")
+    assert refusal.message.endswith("which is not one of the 9 event types.")
+
+
+def test_an_event_with_no_event_type_is_refused() -> None:
+    refusal = _refusal(_with_event(10, event_type=None))
+
+    assert refusal.message == "Row 12 of the `Events` sheet has nothing in the column `event_type`."
+
+
+def test_an_event_type_is_read_through_the_fold() -> None:
+    dataset = _accepted(_with_event(0, event_type="  career FAIR "))
+
+    assert dataset.events[0].is_exploratory is True
+
+
 @pytest.mark.parametrize("column", ["major", "year", "first_name", "last_name"])
 def test_a_profile_missing_a_required_value_is_refused(column: str) -> None:
     refusal = _refusal(_with_profile(0, **{column: None}))
@@ -309,7 +342,7 @@ def test_the_columns_the_parser_does_not_read_are_not_required() -> None:
     profile_headings = [
         h for h in PROFILE_HEADINGS if h not in {"events_attended_count", "info_level"}
     ]
-    event_headings = [h for h in EVENT_HEADINGS if h not in {"event_type", "event_date"}]
+    event_headings = [h for h in EVENT_HEADINGS if h != "event_date"]
     content = workbook_bytes(
         good_profile_rows(),
         event_rows(),

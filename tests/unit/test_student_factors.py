@@ -17,6 +17,7 @@ from smartmatch_domain.factor_registry import PROHIBITED_INPUTS
 from smartmatch_domain.factors import FactorState, ZeroClassification
 from smartmatch_domain.student_factors import (
     STUDENT_FACTOR_KEYS,
+    UNDECIDED_EXPLORATORY_GOAL_FIT,
     EventEvidence,
     ProfileCard,
     ProfileEvidence,
@@ -123,6 +124,52 @@ def test_a_card_with_a_blank_career_goal_is_measured_not_unknown() -> None:
 def test_a_blank_string_career_goal_is_refused_rather_than_read_as_absent() -> None:
     with pytest.raises(ValueError, match="career_goal"):
         ProfileCard(career_goal="   ")
+
+
+# OQ-CE-14, decided 2026-09-25 (Ann Wang): an undecided goal matches broad
+# exploratory events at half credit, so a goal that clearly fits ranks higher.
+
+EXPLORATORY_EVENT = dataclasses.replace(EVENT, exploratory=True)
+
+
+def _undecided() -> ProfileEvidence:
+    return ProfileEvidence("p1", "Marketing", card=ProfileCard(career_goal_undecided=True))
+
+
+def test_an_undecided_goal_is_half_a_fit_for_an_exploratory_event() -> None:
+    score = career_goal_fit(_undecided(), EXPLORATORY_EVENT)
+    assert score.value == UNDECIDED_EXPLORATORY_GOAL_FIT == 0.5
+    assert "undecided" in score.basis
+
+
+def test_an_undecided_goal_is_a_measured_zero_for_an_event_that_is_not_exploratory() -> None:
+    score = career_goal_fit(_undecided(), EVENT)
+    assert score.value == 0.0
+    assert score.zero_classification is ZeroClassification.MEASURED_ZERO
+
+
+def test_a_goal_that_clearly_fits_an_exploratory_event_still_scores_the_whole_fit() -> None:
+    card = ProfileCard(career_goal="Analytics")
+    fit = career_goal_fit(ProfileEvidence("p1", "Marketing", card=card), EXPLORATORY_EVENT)
+    assert fit.value == 1.0
+    assert fit.value > career_goal_fit(_undecided(), EXPLORATORY_EVENT).value  # type: ignore[operator]
+
+
+def test_a_goal_that_misses_an_exploratory_event_earns_nothing_from_it() -> None:
+    """Only "undecided" is a half fit; an exploratory event is not a fit for every goal."""
+    card = ProfileCard(career_goal="Law")
+    fit = career_goal_fit(ProfileEvidence("p1", "Marketing", card=card), EXPLORATORY_EVENT)
+    assert fit.value == 0.0
+
+
+def test_an_undecided_card_names_no_goal_topic() -> None:
+    with pytest.raises(ValueError, match="career_goal_undecided"):
+        ProfileCard(career_goal="Analytics", career_goal_undecided=True)
+
+
+def test_an_event_is_not_exploratory_unless_it_says_so() -> None:
+    assert EventEvidence(event_key="e1").exploratory is False
+    assert ProfileCard().career_goal_undecided is False
 
 
 # ---------------------------------------------------------------------------

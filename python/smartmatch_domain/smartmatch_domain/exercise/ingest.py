@@ -36,6 +36,8 @@ What the file says, and what is decided here
   of the tie-break (owner ruling 3).
 * An event's ``target_major`` of ``All majors`` is stored as all six majors.
 * An event's ``sequence`` is its row position on the ``Events`` sheet.
+* An event's ``event_type`` is one of Ann's event types and decides whether
+  the event is exploratory (OQ-CE-14); the type itself is not stored.
 * ``seats`` is read on the two exercise events and must be
   :data:`~smartmatch_domain.exercise.simulation.EVENT_SEATS`: the simulated
   results run with that many seats, and a file saying otherwise is refused
@@ -73,10 +75,12 @@ from smartmatch_domain.exercise.simulation import EVENT_SEATS
 from smartmatch_domain.exercise.vocabulary import (
     EXERCISE_CAREER_GOALS,
     EXERCISE_CLASS_YEARS,
+    EXERCISE_EVENT_TYPES,
     EXERCISE_MAJORS,
     EXERCISE_TOPICS,
     canonical_career_goal,
     canonical_class_year,
+    canonical_event_type,
     canonical_major,
     canonical_topic,
     is_all_majors,
@@ -300,6 +304,7 @@ _A_MAJOR: Final[str] = f"one of the {len(EXERCISE_MAJORS)} majors"
 _A_YEAR: Final[str] = ", ".join(EXERCISE_CLASS_YEARS[:-1]) + f" or {EXERCISE_CLASS_YEARS[-1]}"
 _A_TOPIC: Final[str] = f"one of the {len(EXERCISE_TOPICS)} topics"
 _A_GOAL: Final[str] = f"one of the {len(EXERCISE_CAREER_GOALS)} career goals"
+_AN_EVENT_TYPE: Final[str] = f"one of the {len(EXERCISE_EVENT_TYPES)} event types"
 
 
 # ---------------------------------------------------------------------------
@@ -329,6 +334,9 @@ def _parse_event(
     name = cells.required(layout.event_name_column)
     if isinstance(name, IngestRefusal):
         return name
+    event_type = cells.required_term(layout.event_type_column, canonical_event_type, _AN_EVENT_TYPE)
+    if isinstance(event_type, IngestRefusal):
+        return event_type
     flag = cells.yes_no(layout.is_exercise_event_column)
     if isinstance(flag, IngestRefusal):
         return flag
@@ -352,6 +360,7 @@ def _parse_event(
         target_majors=majors,
         is_exercise_event=flag,
         sequence=position,
+        is_exploratory=EXERCISE_EVENT_TYPES[event_type],
     )
 
 

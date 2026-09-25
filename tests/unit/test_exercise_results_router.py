@@ -169,10 +169,9 @@ _SUMMARY = DatasetSummary(
 )
 
 #: **Test-only coefficients (OQ-CE-03 is OPEN).** Not a proposal, not a default,
-#: and never read from source: the exercise ships ``None`` and
-#: ``require_coefficients`` refuses, which is the behaviour
-#: ``test_a_run_refuses_while_the_rule_has_no_confirmed_coefficients`` pins.
-#: These exist so the *rest* of the path can be exercised, and every test that
+#: and never read from source. They keep this file's pinned outcomes
+#: independent of the shipped set, which is the team's translation of Ann's
+#: answer and may still change when Chau and Ann confirm it. Every test that
 #: uses them injects them through ``monkeypatch`` onto the domain module.
 #:
 #: The values are chosen to make the rule produce a mixture rather than all or
@@ -632,11 +631,11 @@ def fakes() -> _Fakes:
 
 @pytest.fixture
 def confirmed(monkeypatch: pytest.MonkeyPatch) -> SimulationCoefficients:
-    """Inject **test-only** coefficients, because OQ-CE-03 has no answer.
+    """Inject **test-only** coefficients, so no outcome here moves with OQ-CE-03.
 
     Patched onto the domain module rather than written into it: the shipped
-    value is ``None`` and must stay ``None`` until Ann confirms, which
-    ``test_the_exercise_still_ships_no_coefficients`` asserts on the source.
+    value is the team's translation, still marked as a placeholder, which
+    ``test_the_shipped_coefficients_are_still_marked_as_a_placeholder`` asserts.
     """
     monkeypatch.setattr(
         "smartmatch_domain.exercise.simulation.EXERCISE_SIMULATION_COEFFICIENTS",
@@ -702,14 +701,21 @@ def _run(client: TestClient, path: str = _RESULTS, **body: object) -> object:
 
 
 # ---------------------------------------------------------------------------
-# OQ-CE-03 — the coefficients are not decided, and that is the behaviour
+# OQ-CE-03 — the shipped set is still a placeholder; the refusal still works
 # ---------------------------------------------------------------------------
 
 
 def test_a_run_refuses_while_the_rule_has_no_confirmed_coefficients(
-    fakes: _Fakes, client: TestClient
+    fakes: _Fakes, client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """No ``confirmed`` fixture here, deliberately: this is what ships today."""
+    """The refusal path, kept working: with no coefficient set the route refuses.
+
+    The exercise now ships the team's translation of Ann's answer (OQ-CE-03),
+    so ``None`` is patched in here rather than being what ships.
+    """
+    monkeypatch.setattr(
+        "smartmatch_domain.exercise.simulation.EXERCISE_SIMULATION_COEFFICIENTS", None
+    )
     fakes.unlock("round-one")
 
     response = client.post(_RESULTS, json=_FINAL_BODY, headers=_HEADER)
@@ -721,11 +727,11 @@ def test_a_run_refuses_while_the_rule_has_no_confirmed_coefficients(
     assert fakes.results.runs == {}, "a refused run must store nothing"
 
 
-def test_the_exercise_still_ships_no_coefficients() -> None:
+def test_the_shipped_coefficients_are_still_marked_as_a_placeholder() -> None:
     """A placeholder nobody can grep for is a decision that has quietly closed."""
     from smartmatch_domain.exercise import simulation
 
-    assert simulation.EXERCISE_SIMULATION_COEFFICIENTS is None
+    assert simulation.EXERCISE_SIMULATION_COEFFICIENTS is not None
     source = Path(simulation.__file__).read_text(encoding="utf-8")
     assert "PLACEHOLDER (OQ-CE-03)" in source
 

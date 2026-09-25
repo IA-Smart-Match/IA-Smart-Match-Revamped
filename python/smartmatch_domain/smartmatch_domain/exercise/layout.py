@@ -18,9 +18,11 @@ proves it by parsing a workbook with renamed columns through a
 ``dataclasses.replace`` of the layout.
 
 Columns the parser does not read — ``events_attended_count`` and
-``info_level`` (Ann: "can also be computed by the app"), ``event_type`` and
-``event_date`` (nothing shows them) — are not on the layout, so a file without
-them is still accepted.
+``info_level`` (Ann: "can also be computed by the app"), and ``event_date``
+(nothing shows it) — are not on the layout, so a file without them is still
+accepted. ``event_type`` **is** read, since OQ-CE-14 was decided on 2026-09-25:
+it says whether an event is broad and exploratory, which an undecided career
+goal half-fits (:mod:`smartmatch_domain.exercise.vocabulary`).
 
 ADR-0025 D6
 ===========
@@ -71,6 +73,8 @@ class ExerciseFileLayout:
         hidden_career_goal_column: ADR-0025 D6's withheld career goal.
         event_key_column: The event's identifier.
         event_name_column: The event's label.
+        event_type_column: The kind of event; decides whether it is
+            exploratory (OQ-CE-14).
         topic_tags_column: A list cell of the event's topics.
         target_majors_column: One major, or "All majors".
         is_exercise_event_column: Yes on the two rounds, No on the past events.
@@ -99,6 +103,7 @@ class ExerciseFileLayout:
     hidden_career_goal_column: str
     event_key_column: str
     event_name_column: str
+    event_type_column: str
     topic_tags_column: str
     target_majors_column: str
     is_exercise_event_column: str
@@ -131,6 +136,7 @@ class ExerciseFileLayout:
         return (
             self.event_key_column,
             self.event_name_column,
+            self.event_type_column,
             self.topic_tags_column,
             self.target_majors_column,
             self.is_exercise_event_column,
@@ -163,6 +169,7 @@ EXERCISE_LAYOUT: Final[ExerciseFileLayout] = ExerciseFileLayout(
     hidden_career_goal_column="hidden_true_career_goal",
     event_key_column="event_id",
     event_name_column="event_name",
+    event_type_column="event_type",
     topic_tags_column="event_topics",
     target_majors_column="target_major",
     is_exercise_event_column="exercise_event",
@@ -226,6 +233,9 @@ class ParsedEvent:
     ``sequence`` is the event's row position on the ``Events`` sheet, from 1.
     ``target_majors`` holds all six majors for an event whose file cell says
     "All majors", so "same major" is a plain membership test for every event.
+    ``is_exploratory`` is read off the ``event_type`` cell through
+    :func:`~smartmatch_domain.exercise.vocabulary.event_type_is_exploratory`;
+    the type itself is not kept, because nothing shows it (OQ-CE-14).
     """
 
     event_key: str
@@ -234,6 +244,7 @@ class ParsedEvent:
     target_majors: tuple[str, ...]
     is_exercise_event: bool
     sequence: int
+    is_exploratory: bool = False
 
 
 @dataclass(frozen=True, slots=True)

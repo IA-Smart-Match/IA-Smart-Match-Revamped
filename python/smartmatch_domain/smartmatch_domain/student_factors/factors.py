@@ -11,8 +11,11 @@ module that grew them would be building a deferred feature by accident.
 |---|---|---|
 | :func:`same_major` | 1.0 if the major is a target major, else 0.0 | never |
 | :func:`stated_interest_overlap` | Jaccard of card interests and event topics | no card |
-| :func:`career_goal_fit` | 1.0 if the career goal is a topic of the event, else 0.0 | no card |
+| :func:`career_goal_fit` | 1.0 if the career goal is a topic of the event, else 0.0 (*) | no card |
 | :func:`past_event_topic_overlap` | Jaccard of past topics and this event's | no past events |
+
+(*) An undecided career goal scores :data:`UNDECIDED_EXPLORATORY_GOAL_FIT`
+(0.5) on an exploratory event instead (OQ-CE-14).
 
 **Unknown is ``None``, never ``0.0`` (ADR-0011).** A profile with no card is
 not a profile whose interests verifiably miss this event, and the two must stay
@@ -43,6 +46,7 @@ __all__ = [
     "SAME_MAJOR_FACTOR_KEY",
     "STATED_INTEREST_OVERLAP_FACTOR_KEY",
     "STUDENT_FACTOR_KEYS",
+    "UNDECIDED_EXPLORATORY_GOAL_FIT",
     "career_goal_fit",
     "past_event_topic_overlap",
     "same_major",
@@ -66,6 +70,15 @@ STUDENT_FACTOR_KEYS: Final[tuple[str, ...]] = (
     CAREER_GOAL_FIT_FACTOR_KEY,
     PAST_EVENT_TOPIC_OVERLAP_FACTOR_KEY,
 )
+
+#: What an undecided career goal earns on a broad exploratory event: half of a
+#: goal that is one of the event's topics. OQ-CE-14, decided 2026-09-25, Ann
+#: Wang, email reply to the team's question list: undecided "should match broad
+#: exploratory events (company talks, industry panels, career fairs), at half
+#: credit, so a student whose goal clearly fits still ranks higher". The
+#: simulated-results rule reads this same number ("the results step should
+#: treat undecided students the same way").
+UNDECIDED_EXPLORATORY_GOAL_FIT: Final[float] = 0.5
 
 # ADR-0025 D3: the prohibited-input set is *imported* from the registry, never
 # restated here, and it is used rather than merely referenced — a key that
@@ -149,15 +162,27 @@ def career_goal_fit(profile: ProfileEvidence, event: EventEvidence) -> FactorSco
         event: The event's evidence.
 
     Returns:
-        ``1.0`` when the card's career goal is one of the event's topics,
-        ``0.0`` when it is not or when the card exists with that field blank,
-        and ``None`` when no card exists at all.
+        ``1.0`` when the card's career goal is one of the event's topics;
+        :data:`UNDECIDED_EXPLORATORY_GOAL_FIT` when the card's goal is
+        undecided and the event is exploratory; ``0.0`` otherwise, including
+        when the card exists with that field blank; and ``None`` when no card
+        exists at all.
     """
     if profile.card is None:
         return FactorScore(
             CAREER_GOAL_FIT_FACTOR_KEY,
             None,
             basis="no profile card on file, so no career goal to compare",
+        )
+    if profile.card.career_goal_undecided:
+        return FactorScore(
+            CAREER_GOAL_FIT_FACTOR_KEY,
+            UNDECIDED_EXPLORATORY_GOAL_FIT if event.exploratory else 0.0,
+            basis=(
+                "career goal on the card is undecided, and this is a broad exploratory event"
+                if event.exploratory
+                else "career goal on the card is undecided, and this event is not exploratory"
+            ),
         )
     goal = profile.card.normalized_career_goal
     if goal is None:
