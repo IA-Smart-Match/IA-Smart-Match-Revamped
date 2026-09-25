@@ -79,14 +79,16 @@ read. The mapping (`smartmatch_domain/exercise/layout.py`, `EXERCISE_LAYOUT`):
 | `event_id`, `event_name`, `event_topics`, `target_major` | `event_key`, `name`, `topic_tags`, `target_majors` (`All majors` → all six) |
 | `exercise_event` (Yes/No), `seats` | `is_exercise_event`; `seats` must be 60 on the two exercise events |
 | Row position on `Events` | `sequence` |
-| `events_attended_count`, `info_level`, `event_type`, `event_date` | not read — derivable or shown nowhere |
+| `event_type` | `is_exploratory` — true for Career fair, Employer info session, Industry panel and Employer talk (OQ-CE-14, Ann 2026-09-25); the type itself is not stored |
+| `events_attended_count`, `info_level`, `event_date` | not read — derivable or shown nowhere |
 
 The vocabularies are closed in code (`smartmatch_domain/exercise/vocabulary.py`,
 owner ruling 2026-09-24): six majors, four years, thirteen topics and sixteen
 career-goal labels, stored in Ann's spelling. A career goal is a **small fixed
 list**, not a topic; "career goal fits this event" compares the topic the label
-points at through the role→topic table (OQ-CE-14, `PLACEHOLDER (Ann to confirm
-role→topic table)`).
+points at through the role→topic table (OQ-CE-14, decided 2026-09-25 by Ann).
+`Undecided` points at no topic but earns half of "career goal fits this event"
+on an exploratory event, and the simulated-results rule treats it the same way.
 
 ## 3. Spreadsheet ingest
 
@@ -294,6 +296,16 @@ Coefficients as named constants: `TRUE_FIT_LIFT`, `FREQUENT_ATTENDER_LIFT`,
 overlay, runs, and settings and regenerates its seed.
 
 **PLACEHOLDER:** the four coefficient values (OQ-CE-03).
+
+**As shipped (CE-RESULTS-RULE, 2026-09-25).** Ann answered OQ-CE-03 in words
+(true fit "a lot", attended before "some", same major "a little", "some
+randomness"). The team's translation ships as
+`EXERCISE_SIMULATION_COEFFICIENTS`, still marked `PLACEHOLDER` and OPEN until
+Chau and Ann confirm it from
+[the sample result](../../plans/open-questions/oq-ce-03-sample-result.md). The
+module docstring's plain-words paragraph now supersedes the draft above and
+states every number. An undecided career goal half-fits an exploratory event
+here too (OQ-CE-14).
 
 **As shipped (PR #186, 2026-09-19) — who may reset.** Owner ruling of
 2026-09-19: the per-team reset is an **instructor action only**. The

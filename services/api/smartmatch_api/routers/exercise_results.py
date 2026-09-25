@@ -32,17 +32,16 @@ The three rules this module exists to enforce
    written. Both live in the repository, where a concurrent second press meets a
    predicate rather than a read-then-write.
 
-PLACEHOLDER (OQ-CE-03) — and why this route refuses today
-=========================================================
-The simulated-results rule ships **no coefficients**: the register says "Chau
-proposes; Ann confirms" and nothing has been confirmed, so
-``simulation.EXERCISE_SIMULATION_COEFFICIENTS`` is ``None`` and
-``require_coefficients`` refuses. ``POST …/results`` therefore answers one plain
-sentence naming the open question. **That is this route working**, not this
-route unfinished: a number invented here would be an unreviewed coefficient on a
-classroom projector under Ann's name. The tests exercise the full path by
-injecting a clearly-labelled test-only coefficient set; no value is written into
-any source file.
+PLACEHOLDER (OQ-CE-03) — what this route runs on
+================================================
+The simulated-results rule's coefficients are the domain's, not this route's:
+``simulation.EXERCISE_SIMULATION_COEFFICIENTS`` holds the team's translation of
+Ann's answer of 2026-09-25, marked ``PLACEHOLDER`` and still OPEN until Chau and
+Ann confirm it from a sample result. If that value is ever ``None``,
+``require_coefficients`` refuses and ``POST …/results`` answers one plain
+sentence naming the open question. The tests exercise the full path by
+injecting a clearly-labelled test-only coefficient set, so no pinned outcome
+here moves when the shipped numbers do; no value is written into this file.
 
 ADR-0025 D6, and why the docstrings are part of it
 ==================================================
