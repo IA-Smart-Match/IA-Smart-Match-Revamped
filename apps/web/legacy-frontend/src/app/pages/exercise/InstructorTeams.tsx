@@ -18,6 +18,14 @@
  * file the teams are actually on, not the newest upload, and several files in
  * use is refused with a sentence asking which — passing the id the team list
  * gave is what answers that question before it is asked.
+ *
+ * **The list stays current on its own.** Teams enter their numbers and press
+ * their own buttons while the instructor watches this page, and nothing on it
+ * hears about that. So it re-reads when the page's own actions land (the
+ * `reloadKey`), on "Check the teams again", when the tab comes back into view, and every
+ * {@link TEAMS_POLL_MS} while the tab is visible. A re-read keeps the rows on
+ * screen (the hook's `refreshing`), so an open team or a pending "clear" is not
+ * thrown away by a poll.
  */
 import * as React from "react";
 
@@ -33,6 +41,9 @@ import { askingChoiceLabel } from "./askingChoices";
 import { ExerciseLoading, ExerciseNotice } from "./ExerciseScreen";
 import { useExerciseResource } from "./useExerciseResource";
 
+/** How often the list is re-read while the tab is visible. Gentle: one small GET. */
+export const TEAMS_POLL_MS = 15_000;
+
 const BUTTON =
   "rounded-lg border-2 border-slate-400 px-4 py-2 text-xl font-semibold text-slate-800 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 dark:border-slate-500 dark:text-slate-100 dark:hover:bg-slate-800";
 
@@ -40,15 +51,43 @@ export function InstructorTeams({
   reloadKey = 0,
 }: {
   /**
-   * Bumped by the page when a data file is uploaded or the teams are
-   * re-pointed. Both change what this panel says, and it used to keep saying
-   * "No data file has been uploaded yet." until the page was reloaded.
+   * Bumped by the page when something it did changes what this panel says: an
+   * upload, a re-point, "Ask for every team", an unlock.
    */
   readonly reloadKey?: number;
 } = {}): React.JSX.Element {
   const { state, reload } = useExerciseResource(listTeamWorkspaces, [reloadKey]);
   const [refusal, setRefusal] = React.useState<string | null>(null);
   const [pending, setPending] = React.useState(false);
+  const busy = state.status === "loading" || (state.status === "ready" && state.refreshing);
+
+  /**
+   * The poll only re-reads a list it has. A refused read (the twelve-hour
+   * cookie ran out) or an unreachable one would otherwise be re-sent every
+   * 15 s, flickering "Loading the teams" each time. Coming back to the tab and
+   * the button still re-read.
+   */
+  const hasList = React.useRef(false);
+  hasList.current = state.status === "ready";
+
+  React.useEffect(() => {
+    const whenVisible = (): void => {
+      if (document.visibilityState === "visible") {
+        void reload();
+      }
+    };
+    const tick = (): void => {
+      if (hasList.current) {
+        whenVisible();
+      }
+    };
+    document.addEventListener("visibilitychange", whenVisible);
+    const timer = window.setInterval(tick, TEAMS_POLL_MS);
+    return () => {
+      document.removeEventListener("visibilitychange", whenVisible);
+      window.clearInterval(timer);
+    };
+  }, [reload]);
 
   async function run(action: () => Promise<void>): Promise<void> {
     if (pending) {
@@ -71,7 +110,12 @@ export function InstructorTeams({
 
   return (
     <section className="flex flex-col gap-4" data-slot="exercise-instructor-teams">
-      <h2 className="text-3xl font-semibold text-slate-900 dark:text-slate-50">Teams</h2>
+      <div className="flex flex-wrap items-center gap-3">
+        <h2 className="text-3xl font-semibold text-slate-900 dark:text-slate-50">Teams</h2>
+        <button type="button" className={BUTTON} disabled={busy} onClick={() => void reload()}>
+          Check the teams again
+        </button>
+      </div>
       {refusal === null ? null : <ExerciseNotice message={refusal} />}
 
       {state.status === "loading" ? <ExerciseLoading what="the teams" /> : null}
@@ -224,8 +268,10 @@ function TeamDetail({ detail }: { readonly detail: TeamDetailView }): React.JSX.
           <ul>
             {detail.result_runs.map((run) => (
               <li key={`${run.event_key}-${run.round}`}>
+                {/* D8: open seats in words, not "N seats empty". */}
                 Round {run.round} for {run.event_key}: invited {run.invited_count}, signed up{" "}
-                {run.signed_up_count}, attended {run.attended_count}, {run.seats_empty} seats empty.
+                {run.signed_up_count}, attended {run.attended_count}. {run.seats_empty}{" "}
+                {run.seats_empty === 1 ? "seat is" : "seats are"} still open.
               </li>
             ))}
           </ul>

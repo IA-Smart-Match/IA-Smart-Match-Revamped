@@ -31,6 +31,15 @@ import * as React from "react";
 import type { ListEntryView } from "../../../lib/exerciseClient";
 import { markerLabel } from "./markers";
 
+/** The rulebook key for "career goal fits this event". Never rendered. */
+const CAREER_GOAL_FIT = "career_goal_fit";
+
+/**
+ * The Undecided half's name, matching the server's reason phrase
+ * (`_UNDECIDED_GOAL_PHRASE` in `smartmatch_domain/exercise/reasons.py`).
+ */
+const UNDECIDED_GOAL_HALF_LABEL = "undecided goal suits a broad event";
+
 export interface RankedListProps {
   readonly entries: readonly ListEntryView[];
   /** Ann's plain words per factor key, from the same response. */
@@ -58,66 +67,74 @@ export function RankedList({
     );
   }
 
+  // The table scrolls inside its own box. Six columns do not fit a phone, and
+  // a table wider than the page pushed "Why" off-screen with no way to reach it.
   return (
-    <table className="w-full border-collapse text-left text-xl" data-slot="exercise-ranked-list">
-      <caption className="pb-2 text-left text-xl text-slate-600 dark:text-slate-300">
-        {caption}
-      </caption>
-      <thead>
-        <tr className="border-b-2 border-slate-400 text-lg tracking-wide uppercase">
-          <th scope="col" className="py-2 pr-4">
-            Rank
-          </th>
-          <th scope="col" className="py-2 pr-4">
-            Name
-          </th>
-          <th scope="col" className="py-2 pr-4">
-            Major
-          </th>
-          <th scope="col" className="py-2 pr-4">
-            Year
-          </th>
-          <th scope="col" className="py-2 pr-4">
-            How much we know
-          </th>
-          <th scope="col" className="py-2">
-            Why
-          </th>
-        </tr>
-      </thead>
-      <tbody>
-        {entries.map((entry) => {
-          const onBoth = highlighted.has(entry.profile_no);
-          return (
-            <tr
-              key={entry.profile_no}
-              data-on-both={onBoth ? "true" : undefined}
-              className={`border-b border-slate-200 dark:border-slate-700 ${
-                onBoth ? "bg-amber-100 dark:bg-amber-950" : ""
-              }`}
-            >
-              <td className="py-2 pr-4 font-bold">{entry.rank}</td>
-              <td className="py-2 pr-4">
-                {entry.display_name}
-                {onBoth ? (
-                  <span className="ml-2 rounded bg-amber-300 px-2 py-0.5 text-base font-semibold text-amber-950">
-                    on both lists
-                  </span>
-                ) : null}
-              </td>
-              <td className="py-2 pr-4">{entry.major}</td>
-              <td className="py-2 pr-4">{entry.class_year}</td>
-              <td className="py-2 pr-4">{markerLabel(entry.marker)}</td>
-              <td className="py-2">
-                {/* The server's sentence, verbatim (OQ-CE-12). */}
-                {entry.reason}
-                <FactorNames keys={entry.contributing_factor_keys} labels={factorLabels} />
-              </td>
-            </tr>
-          );
-        })}
-      </tbody>
-    </table>
+    <div className="overflow-x-auto">
+      <table className="w-full border-collapse text-left text-xl" data-slot="exercise-ranked-list">
+        <caption className="pb-2 text-left text-xl text-slate-600 dark:text-slate-300">
+          {caption}
+        </caption>
+        <thead>
+          <tr className="border-b-2 border-slate-400 text-lg tracking-wide uppercase">
+            <th scope="col" className="py-2 pr-4">
+              Rank
+            </th>
+            <th scope="col" className="py-2 pr-4">
+              Name
+            </th>
+            <th scope="col" className="py-2 pr-4">
+              Major
+            </th>
+            <th scope="col" className="py-2 pr-4">
+              Year
+            </th>
+            <th scope="col" className="py-2 pr-4">
+              How much we know
+            </th>
+            <th scope="col" className="py-2">
+              Why
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {entries.map((entry) => {
+            const onBoth = highlighted.has(entry.profile_no);
+            return (
+              <tr
+                key={entry.profile_no}
+                data-on-both={onBoth ? "true" : undefined}
+                className={`border-b border-slate-200 dark:border-slate-700 ${
+                  onBoth ? "bg-amber-100 dark:bg-amber-950" : ""
+                }`}
+              >
+                <td className="py-2 pr-4 font-bold">{entry.rank}</td>
+                <td className="py-2 pr-4">
+                  {entry.display_name}
+                  {onBoth ? (
+                    <span className="ml-2 rounded bg-amber-300 px-2 py-0.5 text-base font-semibold text-amber-950">
+                      on both lists
+                    </span>
+                  ) : null}
+                </td>
+                <td className="py-2 pr-4">{entry.major}</td>
+                <td className="py-2 pr-4">{entry.class_year}</td>
+                <td className="py-2 pr-4">{markerLabel(entry.marker)}</td>
+                <td className="py-2">
+                  {/* The server's sentence, verbatim (OQ-CE-12). */}
+                  {entry.reason}
+                  <FactorNames
+                    keys={entry.contributing_factor_keys}
+                    labels={factorLabels}
+                    undecidedGoalHalf={entry.undecided_goal_half}
+                  />
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -127,15 +144,28 @@ export function RankedList({
  * A key with no label in `factor_labels` is dropped rather than printed raw:
  * showing `past_event_topic_overlap` to a marketing class would be showing a
  * column name, which is the thing §16 is asking not to happen.
+ *
+ * **The Undecided half (D2).** When `undecided_goal_half` is set, the
+ * career-goal factor counted only because an undecided goal suits a broad
+ * event. Printing "career goal fits this event" next to an "Undecided" card
+ * would say the opposite, so that one factor takes the server's reason wording
+ * instead. The weight slider's label is unchanged: it names the factor, not
+ * this person.
  */
 function FactorNames({
   keys,
   labels,
+  undecidedGoalHalf,
 }: {
   readonly keys: readonly string[];
   readonly labels: Readonly<Record<string, string>>;
+  readonly undecidedGoalHalf: boolean;
 }): React.JSX.Element | null {
-  const named = keys.map((key) => labels[key]).filter((label): label is string => label !== undefined);
+  const named = keys
+    .map((key) =>
+      undecidedGoalHalf && key === CAREER_GOAL_FIT ? UNDECIDED_GOAL_HALF_LABEL : labels[key],
+    )
+    .filter((label): label is string => label !== undefined);
   if (named.length === 0) {
     return null;
   }

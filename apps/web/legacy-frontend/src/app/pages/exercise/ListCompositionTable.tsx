@@ -98,34 +98,36 @@ function GroupTable({
   ].sort((a, b) => a.localeCompare(b));
 
   return (
-    <table className="w-full border-collapse text-left text-xl">
-      <caption className="pb-2 text-left text-2xl font-semibold text-slate-900 dark:text-slate-50">
-        By {dimensionLabel(counts.dimension)}
-      </caption>
-      <thead>
-        <tr className="border-b-2 border-slate-400 text-lg tracking-wide uppercase">
-          <th scope="col" className="py-2 pr-4">
-            {dimensionLabel(counts.dimension)}
-          </th>
-          <th scope="col" className="py-2 pr-4">
-            On this list
-          </th>
-          <th scope="col" className="py-2">
-            In the whole data file
-          </th>
-        </tr>
-      </thead>
-      <tbody>
-        {groups.map((group) => (
-          <tr key={group} className="border-b border-slate-200 dark:border-slate-700">
-            <th scope="row" className="py-2 pr-4 font-normal">
-              {label(group)}
+    <div className="overflow-x-auto">
+      <table className="w-full border-collapse text-left text-xl">
+        <caption className="pb-2 text-left text-2xl font-semibold text-slate-900 dark:text-slate-50">
+          By {dimensionLabel(counts.dimension)}
+        </caption>
+        <thead>
+          <tr className="border-b-2 border-slate-400 text-lg tracking-wide uppercase">
+            <th scope="col" className="py-2 pr-4">
+              {dimensionLabel(counts.dimension)}
             </th>
-            <td className="py-2 pr-4">{counts.on_list[group] ?? 0}</td>
-            <td className="py-2">{counts.all_profiles[group] ?? 0}</td>
+            <th scope="col" className="py-2 pr-4">
+              On this list
+            </th>
+            <th scope="col" className="py-2">
+              In the whole data file
+            </th>
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {groups.map((group) => (
+            <tr key={group} className="border-b border-slate-200 dark:border-slate-700">
+              <th scope="row" className="py-2 pr-4 font-normal">
+                {label(group)}
+              </th>
+              <td className="py-2 pr-4">{counts.on_list[group] ?? 0}</td>
+              <td className="py-2">{counts.all_profiles[group] ?? 0}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
