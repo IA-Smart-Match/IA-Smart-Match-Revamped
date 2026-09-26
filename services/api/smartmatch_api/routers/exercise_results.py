@@ -400,7 +400,7 @@ def _choice_or_refusal(raw: str) -> AskingChoice:
         return AskingChoice(raw.strip())
     except ValueError:
         raise ExerciseError(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             code="exercise_asking_choice_unknown",
             message="Pick one of the three ways of asking.",
         ) from None

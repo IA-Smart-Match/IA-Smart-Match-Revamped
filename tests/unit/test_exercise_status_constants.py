@@ -15,9 +15,13 @@ from pathlib import Path
 from fastapi import status
 
 _API = Path(__file__).resolve().parents[2] / "services/api/smartmatch_api"
+#: The exercise modules, plus ``errors.py``: its request-validation handler is
+#: what answers every exercise body pydantic refuses, so it logged the same
+#: warning on the same class run.
 _EXERCISE_MODULES: tuple[Path, ...] = (
     *sorted(_API.glob("exercise_*.py")),
     *sorted((_API / "routers").glob("exercise_*.py")),
+    _API / "errors.py",
 )
 
 

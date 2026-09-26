@@ -253,7 +253,7 @@ def enter_team_workspace(
     """
     if payload.team_number not in EXERCISE_TEAM_NUMBERS:
         raise ExerciseError(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             code="exercise_team_number_unknown",
             message="Pick a team number from 1 to 6.",
         )

@@ -158,7 +158,7 @@ def final_setting_or_refusal(setting_name: str | None) -> str:
     name = (setting_name or "").strip()
     if not name:
         raise ExerciseError(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             code="exercise_final_setting_required",
             message=FINAL_SETTING_SENTENCE,
         )

@@ -110,13 +110,13 @@ def within_bounds_or_refusal(raw: Mapping[str, object]) -> None:
     """
     if len(raw) > MAX_WEIGHT_KEYS:
         raise ExerciseError(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             code="exercise_weights_too_many",
             message=f"Send at most {MAX_WEIGHT_KEYS} weights.",
         )
     if any(len(key) > MAX_WEIGHT_KEY_CHARACTERS for key in raw):
         raise ExerciseError(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             code="exercise_weights_key_too_long",
             message="One of those weights is not named like a factor.",
         )
@@ -148,7 +148,7 @@ def validated(raw: Mapping[str, object]) -> Mapping[str, float]:
         return validate_exercise_weight_overrides(raw)
     except InvalidExerciseWeightError as error:
         raise ExerciseError(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             code="exercise_weights_invalid",
             message=f"Those weights were not accepted. {capped(str(error))}",
         ) from None

@@ -220,7 +220,7 @@ def upload_dataset(
     parsed = parse_exercise_file(content)
     if isinstance(parsed, IngestRefusal):
         raise ExerciseError(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             code=f"exercise_ingest_{parsed.code}",
             message=parsed.message,
         )
@@ -230,7 +230,7 @@ def upload_dataset(
         )
     except ExerciseDatasetLabelError as error:
         raise ExerciseError(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             code="exercise_dataset_label_refused",
             message=str(error),
         ) from error
@@ -275,7 +275,7 @@ def set_invite_limit(
     """
     if not MIN_INVITE_LIMIT <= payload.invite_limit <= MAX_INVITE_LIMIT:
         raise ExerciseError(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             code="exercise_invite_limit_out_of_range",
             message=(f"Pick an invite limit between {MIN_INVITE_LIMIT} and {MAX_INVITE_LIMIT}."),
         )
@@ -679,7 +679,7 @@ def _require_team(
     """
     if team_number not in EXERCISE_TEAM_NUMBERS:
         raise ExerciseError(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             code="exercise_team_number_unknown",
             message="Pick a team number from 1 to 6.",
         )
