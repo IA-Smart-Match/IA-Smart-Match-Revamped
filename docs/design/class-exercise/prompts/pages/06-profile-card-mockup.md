@@ -13,7 +13,7 @@ nothing is stored and every button is inert.
 ## Google Stitch prompt
 
 ```text
-Desktop web, 1280px, eggwhite #F8F6F1 page, gold-wash ribbon on top reading
+Desktop web, 1280px, eggwhite #F8F6F1 page, gold-wash ribbon on top reading, after a bold "Fictional data —",
 "This is a mock-up of the card, shown to the class. It asks nobody
 anything, keeps no answers, and is not connected to any list."
 
@@ -50,7 +50,7 @@ below it."
 
 ```text
 Build /exercise/profile-card for the Smart Match class exercise with the
-preamble tokens. This page uses the ribbon with a different sentence: "This
+preamble tokens. This page uses the ribbon with the "Fictional data —" prefix and a different sentence: "This
 is a mock-up of the card, shown to the class. It asks nobody anything,
 keeps no answers, and is not connected to any list."
 

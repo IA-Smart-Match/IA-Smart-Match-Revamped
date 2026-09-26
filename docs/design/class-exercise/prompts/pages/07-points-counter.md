@@ -1,4 +1,8 @@
-# Page 7 — points counter
+# Page 7 — points counter (deferred)
+
+> **Deferred, 2026-09-26 (orchestrator call).** Not generated this round.
+> The page waits until an endpoint returns `ProfilePoints`. The prompts
+> below stay so the later round starts from them; do not run them yet.
 
 A per-profile counter that rises with attendance and card completion. It is
 a nice-to-have in Ann's build table and is **not routed today**:

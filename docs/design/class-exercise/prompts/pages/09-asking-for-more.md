@@ -8,7 +8,7 @@ invited to fill in a card, then asks once. The refresh reports three counts.
 - **Component:** [asking choice cards](../components/asking-choice-cards.md).
 - **Asset:** [`partly-known-card.svg`](../../assets/svg/partly-known-card.svg).
 - **Content:** Team 4 chose "A small reward."; counts 9 / 0 / 34.
-- **States:** nothing chosen, confirm pending, chosen and not asked, asking, asked (counts shown), already asked (counts not re-shown), before round one run (refusal), unreachable.
+- **States:** nothing chosen, confirm window (5 s), confirm lapsed, chosen and not asked, asking, asked (counts shown), already asked (counts not re-shown), before round one run (refusal), unreachable.
 
 ## Google Stitch prompt
 
@@ -50,7 +50,9 @@ tokens, reusing the asking-choice-cards component.
 
 Order: h1 "Asking for more"; aside secondary "Back to the events"; lead;
 partly-known-card.svg 96px beside the lead at 1280 (decorative, hidden at
-390). Section 1: the choice cards (radiogroup, inline confirm, once-only).
+390). Section 1: the choice cards (radiogroup, once-only; owner ruling 2026-09-26: the
+card's "Choose this way" button turns into "Confirm: A small reward?" for
+about 5 s, a second press commits, no pop-up).
 Section 2: h2 "Ask the people your team invited", explanation line, primary
 "Ask them now" — disabled until a way is chosen (helper "Pick a way of
 asking first."), "Asking…" while pending, then replaced by the line "Your
@@ -61,7 +63,7 @@ added from the first event 34", with ce-count-up once (reduced: final
 numbers). The counts come back from the one request and are kept on screen;
 a later visit shows "Your team has already asked." without them.
 
-States for the switcher: Nothing chosen · Confirm pending · Chosen, not
+States for the switcher: Nothing chosen · Confirm window · Confirm lapsed · Chosen, not
 asked · Asking · Asked (counts) · Revisit after asking (no counts, the line
 only) · Refused before round one (calm notice with the server's sentence;
 illustrative "Run results for the first event before asking.") · Already

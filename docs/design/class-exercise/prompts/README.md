@@ -29,7 +29,7 @@ Run the components first, so the page prompts can reuse what they produce.
 | 12 | [`pages/04-ranked-list-and-sliders.md`](pages/04-ranked-list-and-sliders.md) | Ranked top 30 and four sliders |
 | 13 | [`pages/05-save-and-compare.md`](pages/05-save-and-compare.md) | Save up to 3 settings; compare 2 |
 | 14 | [`pages/06-profile-card-mockup.md`](pages/06-profile-card-mockup.md) | Profile-card mock-up |
-| 15 | [`pages/07-points-counter.md`](pages/07-points-counter.md) | Points counter |
+| 15 | [`pages/07-points-counter.md`](pages/07-points-counter.md) | Points counter — **deferred this round; do not run** |
 | 16 | [`pages/08-final-setting-and-results.md`](pages/08-final-setting-and-results.md) | Final setting, locked and unlocked results |
 | 17 | [`pages/09-asking-for-more.md`](pages/09-asking-for-more.md) | Asking for more |
 | 18 | [`pages/10-round-two-comparison.md`](pages/10-round-two-comparison.md) | Round-two results |
@@ -119,7 +119,7 @@ Inputs and buttons 10px radius. Pills only for small chips. 4px spacing grid;
 
 Icons: Lucide, 2px stroke. No emoji. No photos. No illustrations of people.
 
-Always show a slim gold-wash ribbon at the top: an info icon and the text
+Always show a slim gold-wash ribbon at the top: an info icon, the bold prefix "Fictional data —" and the text
 "All student profiles are fictional, shaped by overall survey percentages."
 
 Never show a percentage, a score, a match strength, a confidence, a star
@@ -181,7 +181,7 @@ Rules that override anything you would do by habit:
 - Focus ring: 3px solid var(--ce-primary), offset 3px, on every focusable element.
 - Touch targets at least 44x44px.
 - Top of every screen: a slim ribbon in --ce-gold-tint with a Lucide Info
-  icon in --ce-gold-ink and "All student profiles are fictional, shaped by
+  icon in --ce-gold-ink, a bold "Fictional data —" prefix, and "All student profiles are fictional, shaped by
   overall survey percentages."
 - Show both a 1280px frame and a 390px frame, side by side, unless the prompt
   says otherwise.

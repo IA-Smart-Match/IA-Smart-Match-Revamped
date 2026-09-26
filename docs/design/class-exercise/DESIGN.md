@@ -298,6 +298,7 @@ Named motions:
 | `ce-list-rebuilding` | List dims to 0.6 while a new list is fetched; "Rebuilding the list…" status | 150ms in, 150ms out | linear | Same (opacity is not movement) |
 | `ce-card-save` | New saved-setting card: scale 0.96→1, opacity 0→1 | 220ms | `--ce-ease-out` | Opacity 150ms |
 | `ce-overlap-pulse` | On opening a comparison, each "on both lists" row pulses its gold wash once, 30ms stagger, total ≤600ms | 600ms | `--ce-ease-in-out` | Static gold wash, no pulse |
+| `ce-confirm-window` | Asking card's button label swaps to "Confirm: …?"; a 2px underline shrinks from full width to 0 over the 5s window | 150ms swap, 5000ms linear underline | `--ce-ease-out` / linear | Label swap only; static "5 seconds" helper |
 | `ce-choice-commit` | Chosen asking card fills `primary-tint` and shows the seal; others fade to 0.55 | 240ms | `--ce-ease-out` | Same end state, 150ms opacity |
 | `ce-unlock` | Lock glyph shackle lifts 4px and swaps to `LockOpen`; panel background crossfades | 300ms | `--ce-ease-out` | Icon swap, no movement |
 | `ce-seat-fill` | **The focal moment.** See 5.1 | ≤1.8s total | see 5.1 | Final state at once |
@@ -355,10 +356,12 @@ line, optional aside (team and event). Max content 1152px.
 
 A slim full-width ribbon above the title: `Info` icon in `--ce-gold-ink`,
 sentence in `--ce-type-meta`, background `--ce-gold-tint`, radius card, no
-border. Text is the existing constant: "All student profiles are fictional,
-shaped by overall survey percentages." This replaces the loud amber banner on
-exercise screens only (needs a `tone="quiet"` variant of `SyntheticDataBanner`;
-the CBA banner is unchanged).
+border. Text: the bold prefix **"Fictional data —"** (owner ruling
+2026-09-26, replacing "Synthetic / demo data —" on exercise screens), then the
+existing constant "All student profiles are fictional, shaped by overall
+survey percentages." This replaces the loud amber banner on exercise screens
+only, as a new `tone="quiet"` variant of `SyntheticDataBanner` with a `label`
+prop; the CBA banner is unchanged and the component is not copied.
 
 States: D is always visible and never dismissible. H, F, L, E, X and Dis are
 n/a: the ribbon is not interactive and renders before any data loads.
@@ -532,7 +535,7 @@ coming 8", "Still open 46". The "added" figure is the server's
 
 ### 6.16 Results chart
 
-Recharts bar chart restyled to section 3.3; panels in order: "Your team's
+Recharts bar chart restyled to section 3.3 through a new `variant="exercise"` on `ExerciseResultsChart` (a variant, not a copy); panels in order: "Your team's
 list", "If you emailed everyone", and in round two "Your team, round one".
 Table fallback stays, visually as a quiet data table under a disclosure
 "Show these counts as a table" (open by default on 390).
@@ -546,6 +549,17 @@ radius pill). Heading shows the count. "Nobody." when empty.
 
 Three full-width radio cards in a `radiogroup`. Label in Proxima Sera 24 (the
 wording from `askingChoices.ts`), one supporting line, no percentages.
+
+Each card carries a button "Choose this way". **Inline confirm (owner ruling
+2026-09-26):** the first press turns that same button into "Confirm: A small
+reward?" (the choice label without its final full stop) in `--ce-primary`
+fill for about 5 seconds, with a thin countdown underline shrinking under
+the label. A second press within the window commits; letting it lapse, or
+pressing Escape, or choosing another card, reverts the button to "Choose this
+way". No pop-up, no modal, no second button. Screen readers hear "Press again
+to confirm A small reward. Your team picks once." via `aria-live="polite"`.
+Reduced motion: no underline animation; the label change and a static
+"5 seconds" helper carry it.
 
 ### 6.19 Refresh counts
 
@@ -580,7 +594,9 @@ answer lines, inert buttons labelled as inert.
 Ticket-stub card: profile name (Proxima Sera 24), total in
 `--ce-type-display`, "points" in lead size, two rows "From attending events"
 and "From completing a card", card-state chip. "not available" in words when a
-figure is null. Not routed today; see its prompt.
+figure is null. **Deferred (orchestrator call, 2026-09-26):** no page and no
+mock-ups this round; it waits until an endpoint returns `ProfilePoints`. The
+spec stays so the later build starts from it.
 
 ### 6.24 Instructor components
 
@@ -672,6 +688,8 @@ Routes and file names are the current ones. Wireframes are schematic.
 - **390:** card fills the width; caption above.
 
 ### 7.7 Points counter (component frame; not routed)
+
+Deferred this round (see 6.23).
 
 - **1280:** a row of three ticket stubs for three fictional profiles.
 - **390:** stubs stack.
@@ -788,18 +806,46 @@ Before a run: lock panel (6.14) in the seating-chart position.
 
 ## 11. Open items for the owner
 
-1. The ribbon prefix: keep the shared "Synthetic / demo data —" or use
-   "Fictional data —" on exercise screens (parent contract discourages "demo"
-   on public pages).
-2. Weights range: this system proposes a 0–1 slider with step 0.05 plus a
-   free numeric field. Confirm the server's accepted range.
-3. Asking-for-more confirm step: the refresh adds an inline "Choose this way?"
-   confirm before a once-only choice. Today one click commits.
-4. Points counter: not routed. Confirm whether an endpoint will expose
-   `ProfilePoints` before a screen is built.
-5. `SyntheticDataBanner` quiet variant and the chart restyle touch shared
-   components; the implementing track should add variants, not fork.
-6. New copy proposed by this refresh needs owner approval before build: the
-   opening `h1` "Who should we invite?" and lead, the one-line supporting
-   text under each asking choice, the profile-card page `h1` "What a
-   profile would be asked" and caption, and "Front of the room".
+All six items were ruled on 2026-09-26. The heading keeps its name so
+existing links still land here.
+
+| # | Item | Ruling | Ruled by | Where it now lives |
+|---|---|---|---|---|
+| 1 | Ribbon prefix | **"Fictional data —"** on exercise screens | Owner | 6.2; prompts README preambles |
+| 2 | Weights input | **Slider 0–1, step 0.05, plus a number box** for exact values | Owner | 6.6; `prompts/components/weight-slider.md` |
+| 3 | Asking-for-more confirm | **Inline confirm:** the button becomes "Confirm: <choice>?" for about 5 s; no pop-up | Owner | 6.18, motion `ce-confirm-window`; `prompts/components/asking-choice-cards.md`, `prompts/pages/09-asking-for-more.md` |
+| 4 | Points counter | **Deferred.** No page or mock-ups until an endpoint exists | Orchestrator | 6.23, 7.7; `prompts/pages/07-points-counter.md` marked deferred |
+| 5 | Shared components | **New variants, not copies** (`SyntheticDataBanner` `tone="quiet"` + `label`; a chart `variant="exercise"`) | Orchestrator | 6.2, 6.16 |
+| 6 | New wording | **Use as drafted**; listed below for Ann to see | Orchestrator | 11.1 |
+
+### 11.1 New wording for Ann to see
+
+Every string this refresh adds. Server sentences, factor labels, choice
+labels and the license line are unchanged and not listed.
+
+| Where | New text |
+|---|---|
+| Ribbon prefix (every screen) | "Fictional data —" |
+| Opening `h1` | "Who should we invite?" |
+| Opening lead | "Your team is promoting a campus career event with 60 seats. Choose whom to invite, see what happened, then try again." |
+| Matching, slider note | "The list is rebuilt when you let go of a slider or press Enter." |
+| Matching, 390 sticky bar | "Weights 0.40 · 0.25 · 0.25 · 0.10" and "Edit weights" |
+| Saved settings, field label | "Name these weights" (was "Call these weights") |
+| Saved settings, empty slot | "Slot 3 of 3 is free. Save the weights on screen to fill it." |
+| Saved settings, compare limit | "Two are chosen. Untick one to swap." |
+| Saved settings, delete confirm | "Delete Balanced? It cannot be brought back." / "Delete it" / "Keep it" |
+| Compare, 390 | "Showing 10 of 30. Show all 30" |
+| Results, room | "The room", "Front of the room", legend "Already coming", "Your invitations", "Still open" |
+| Results, seat headline | "8 were already coming. Your invitations added 6. 46 seats are still open." (pattern from the brief) |
+| Results, figures band | "Seats in the room", "Already coming", "Still open" |
+| Results, lock chips | "Results are closed" / "Results are open" |
+| Results, table disclosure | "Show these counts as a table" |
+| Round two | "In round one your team's list left 46 seats empty." |
+| Asking, supporting lines | "Tell them a card helps us suggest events worth their evening." / "Offer something small for a completed card." / "Make the card a condition of hearing about events." |
+| Asking, buttons | "Choose this way" → "Confirm: A small reward?" |
+| Asking, spoken hint | "Press again to confirm A small reward. Your team picks once." |
+| Profile-card page `h1` | "What a profile would be asked" |
+| Profile-card caption | "Major and year are already on file, and past events are recorded when someone attends. So the card asks only two things, and asks the person to confirm their major." |
+| Instructor, passcode helper | "The passcode is shared by the course team. It is not your university login." |
+| Instructor, unlock confirm | "Open results for Harbor Consumer Brands? Every team can then run results once for this event." / "Open results now" / "Not yet" |
+| Instructor, dropzone | "Drop Ann's workbook here, or choose a file" |

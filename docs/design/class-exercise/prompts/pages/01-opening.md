@@ -17,7 +17,7 @@ Desktop web, 1280px. The opening screen of "Smart Match class exercise" for
 a university business course. Warm eggwhite page #F8F6F1.
 
 Top: a slim full-width ribbon, #FFF1CC background, 14px corners, info icon
-in #7A5200, text 16px #163229: "All student profiles are fictional, shaped
+in #7A5200, text 16px #163229: a bold "Fictional data —" then "All student profiles are fictional, shaped
 by overall survey percentages."
 
 Below, a small horizontal Cal Poly Pomona wordmark placeholder at top-left
