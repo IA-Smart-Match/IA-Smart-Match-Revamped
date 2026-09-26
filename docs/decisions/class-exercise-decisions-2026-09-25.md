@@ -35,7 +35,7 @@ amendment" at the end).
 | D12 | "Asking for more" lands on a half (16.5 of 30). Round up or down? | Up. | Danny, 2026-09-25; Ann gave no view |
 | D13 | What license line goes on the opening screen, and where does it live? | Ann's wording, fixed in the app: "For California State Polytechnic University, Pomona — College of Business Administration instructional use only. All student profiles are fictional." | Ann's wording, 2026-09-25; fixed in the app in PR #230 |
 | D14 | What does the profile card ask? | Only interests and career goal. The student confirms the major on file. | Ann, 2026-09-25 |
-| D15 | How do we describe the data? | "Fictional profiles shaped by overall survey percentages." If a count is ever needed: 1,370 surveys. Nothing about individual people or their answers. | Ann, 2026-09-25 |
+| D15 | How do we describe the data? | "Fictional profiles shaped by overall survey percentages." If a count is ever needed: 1,370 surveys. Describe the data only with this sentence. | Ann, 2026-09-25 |
 | D16 | If a run is refused for several reasons, which reason does the team see first? | "Locked" and "already run" first, then "choose a final setting", then the rule's own check. | Implementer ruling in PR #227, accepted |
 
 ## What changes in the app
@@ -259,8 +259,8 @@ Every `file:line` below is on `origin/main` at `9339d5a4`. Paths are shortened:
   P004 falls below.
 - **Decision.** (A). On the full 300-profile file, with the other three
   factors at 0.25, turning the interest factor off moves P004 from 4th to
-  6th for Northline. The two plain Accounting majors the test uses (P231, P257)
-  are 161st and 295th, so P004 stays above them. (On the 20-profile sample: 1st → 2nd.)
+  6th for Northline. The two plain Accounting majors the test uses are P257 (161st) and
+  P231 (295th), so P004 stays above them. (On the 20-profile sample: 1st → 2nd.)
 - **Approved.** Team recommendation A; **Chau approved**, 2026-09-25. Ann may
   revisit.
 - **Why.** P004's career goal ("Data, analytics or IT role") still fits
@@ -347,9 +347,8 @@ Every `file:line` below is on `origin/main` at `9339d5a4`. Paths are shortened:
 
 - **Question.** How do documents and screens describe where Ann's profiles come
   from?
-- **Decision.** "Fictional profiles shaped by overall survey percentages." If a
-  count is ever needed, the survey count is 1,370. Never describe the profiles
-  as, or as drawn from, actual people or anyone's individual answers.
+- **Decision.** "Fictional profiles shaped by overall survey percentages." If a count is ever needed, the survey count is 1,370. Describe the data
+  only with this sentence and that count.
 - **Approved.** Ann, 2026-09-25, as an explicit instruction.
 - **Affects.** Every document and screen that describes the data.
 - **Where.** The license line (D13) says "All student profiles are
@@ -369,7 +368,7 @@ Every `file:line` below is on `origin/main` at `9339d5a4`. Paths are shortened:
   try. And the new check must stay reachable: the coefficient check used to
   refuse every run.
 - **Affects.** Which one sentence a team sees.
-- **Code.** `api/routers/exercise_results.py:236-241` (call order) and
+- **Code.** `api/routers/exercise_results.py:236-242` (call order) and
   `:217-227` (the order in words); `api/routers/exercise_results_run.py:347`
   `runnable_or_refusal`, `:142`, `:116` `coefficients_or_refusal`, `:169`
   `weights_or_refusal`.

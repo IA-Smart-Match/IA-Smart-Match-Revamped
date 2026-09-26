@@ -292,8 +292,8 @@ seed), and, for round two, the team's stored round-one result. `seats_empty =
 D8).** Chau approved the team's recommendation A: the screen shows the 8 who
 were already coming and the team's attendees as two groups, for example "8
 were already coming. Your invitations added 6. 46 seats are still open." The
-count above is unchanged. The sentences are added to `ResultPanels.tsx` on
-`feat/ce-results-integration`.
+count above is unchanged. The sentences are being added to `ResultPanels.tsx` on
+`feat/ce-results-integration` (not yet merged).
 
 ## 11. Simulated results rule
 
@@ -330,8 +330,8 @@ one past event +0.10; same major +0.04; chance up to 0.10 either way (spread
 0.20); 0.75 of sign-ups attend. **Chau approved it on 2026-09-25** from
 [the sample result](../../plans/open-questions/oq-ce-03-sample-result.md),
 which Ann receives for information; a change is one line. The
-`PLACEHOLDER` comment above the constant is removed on
-`feat/ce-results-integration`. The module docstring's plain-words paragraph
+`PLACEHOLDER` comment above the constant is being removed on
+`feat/ce-results-integration` (not yet merged). The module docstring's plain-words paragraph
 supersedes the draft above and states every number. An undecided career goal
 half-fits an exploratory event here too (OQ-CE-14, decision record D2).
 
