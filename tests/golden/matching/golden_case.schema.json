@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://smartmatch.local/schemas/g1-golden-case-input-v1.json",
   "title": "G1 golden case input (no expected scores)",
-  "description": "Structure-only schema for gate G1 golden cases. Expected scores are intentionally absent until the program owner approves the registry. See docs/plans/workshops/g1-factor-registry-workshop-packet.md.",
+  "description": "Structure-only schema for gate G1 golden cases. Expected scores are intentionally absent until the program owner approves the registry. See docs/archive/plans/workshops/g1-factor-registry-workshop-packet.md.",
   "type": "object",
   "additionalProperties": false,
   "required": ["id", "symptom_class", "description", "inputs"],

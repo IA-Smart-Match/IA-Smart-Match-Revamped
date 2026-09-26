@@ -5,7 +5,7 @@ availability verdicts for a set of Speakers. The pure half — the verdict, its
 payload, "changed since" — is :mod:`smartmatch_domain.availability_verdict`.
 
 Every read is scoped by tenant **and** unit in the query itself, the discipline
-``load_speaker_request`` states. Plan ``docs/plans/b26-tracks/T4-plan.md`` §3-§4.
+``load_speaker_request`` states. Plan ``docs/archive/plans/b26-tracks/T4-plan.md`` §3-§4.
 """
 
 from __future__ import annotations

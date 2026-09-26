@@ -31,7 +31,7 @@ Every method returns counts. ``subject_id`` and ``event_id`` are counted with
 ``count(distinct ...)`` inside the database and never selected, so there is no
 projection through which a student identifier could reach a caller — which is
 the property that lets this surface exist while **D8**, the disclosure-consent
-policy, is still open (``docs/architecture/engagement-model.md`` §8). It is a
+policy, is still open (``docs/archive/architecture/engagement-model.md`` §8). It is a
 structural guarantee rather than a filter the router is trusted to apply.
 
 ## Scoped by ``owning_unit_id``, and by tenant, in the query itself

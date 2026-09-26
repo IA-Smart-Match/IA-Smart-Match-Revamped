@@ -4,7 +4,7 @@
 **Date:** 23 September 2026
 **Owner of record:** Danny Tran, Development Lead / program owner of record
 **Decides:** how registry `3.0.0-approved-b26-eli` applies the Engagement Load Index (ELI 2.0.0): the Q7 band table and who owns it, a multiplier on the CBA composite, removal of a Full pair before the solve, what `registry_hash` covers for a 3.x run, and the one-line procedure that later makes 3.0.0 current.
-**Plan:** `docs/plans/2026-09-22-b26-self-service-availability-plan.md` §5.2 (registry items 1–7), §9 Q7; `docs/plans/b26-tracks/T8c-plan.md`
+**Plan:** `docs/plans/2026-09-22-b26-self-service-availability-plan.md` §5.2 (registry items 1–7), §9 Q7; `docs/archive/plans/b26-tracks/T8c-plan.md`
 **Relates to:** ADR-0011 (unknown is not zero), ADR-0016 (CBA scoring policy). **Amends ADR-0016 for 3.x runs only:** its "`registry_hash` continues to be `weights_fingerprint`" holds for 1.1.1 and 2.0.0 runs and does not hold for 3.x.
 
 > **Proposed, and not current.** B26 T8c *declares* registry 3.0.0 with status

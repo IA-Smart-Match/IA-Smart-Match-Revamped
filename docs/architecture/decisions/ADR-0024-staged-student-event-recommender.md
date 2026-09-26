@@ -7,7 +7,7 @@
 **Decides:** the *architecture* of the student→event recommender and the order in which recommender families may be admitted into it. It closes no register row. OQ-SC-02, OQ-SE-01 and OQ-SE-02 still need their named owners; this ADR adds OQ-SE-19 through OQ-SE-22 to the canonical register for the learned stages.
 **Contract:** `docs/architecture/student-recommender-contracts.md`; `docs/decisions/student-recommender-decision-record.md`; ADR-0011; ADR-0012; ADR-0016
 **Register:** `docs/plans/open-questions/student-engagement-deferred.md`
-**Evidence:** `docs/plans/2026-09-13-w2-student-event-ranking-plan.md` (superseded, retained as ranking-design evidence); `docs/plans/research/2026-09-13-engagement-feed-research.md`; `docs/plans/research/2026-09-07-matching-expansion-options.md` §3.3 ("no outcome loop")
+**Evidence:** `docs/archive/plans/2026-09-13-w2-student-event-ranking-plan.md` (superseded, retained as ranking-design evidence); `docs/archive/plans/research/2026-09-13-engagement-feed-research.md`; `docs/plans/research/2026-09-07-matching-expansion-options.md` §3.3 ("no outcome loop")
 
 > **Accepted.** Nothing in this ADR licenses a route, a table, a model artifact,
 > or a scoring path. What it fixes is the *shape* the student recommender must

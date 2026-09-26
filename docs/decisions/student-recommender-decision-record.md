@@ -1,6 +1,6 @@
 # Student→event recommender: product decision record (draft)
 
-**Status:** **DRAFT — 2026-09-14. Closes nothing.** Every decision below is a
+**Status:** draft superseded in part — owner dispositions recorded 2026-09-16 below; ADR-0024 ratified. Closes only what those rows say; unclosed questions remain with the OQ-SE/SC register. Every decision below is a
 proposal put to a named owner; until the owner's dated, attributed decision lands
 in the canonical register, the register's safe default stays in force.
 **Gate:** Student-engagement program slice 6 ("Supporting interest profile and
@@ -29,7 +29,7 @@ plan's momentum.
 nothing attention-shaped. Time in feed, scroll depth, session count, and any
 engagement proxy are not objectives, not tie-breaks, and not model labels.
 
-- Source: `docs/plans/research/2026-09-13-engagement-feed-research.md` ("Not
+- Source: `docs/archive/plans/research/2026-09-13-engagement-feed-research.md` ("Not
   time in feed, not scroll depth, not sessions"); program plan §1 ("Interest-based
   recommendation supports that journey; it is not the program spine").
 - Consequence for the five families (§2): a family is judged by whether it can

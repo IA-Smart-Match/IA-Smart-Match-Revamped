@@ -259,11 +259,11 @@ checkable rather than asserted.
 | `Makefile:97` | Comment: each e2e skip names its reason and `-ra` prints every one |
 | `docs/architecture/IMPLEMENTATION_ROADMAP.md:1489` | Rule text: never `pytest.skip`, never an `xfail` |
 | `docs/architecture/MIGRATION_ROADMAP.md:1684` | Same rule text |
-| `docs/plans/2026-09-03-m2-m7-implementation-plan.md:888` | Plan prose |
-| `docs/plans/2026-09-03-pilot-parallel-goal-prompts.md:606` | Plan prose |
-| `docs/plans/2026-09-07-remaining-pilot-gaps-plan.md:769` | Plan prose |
-| `docs/superpowers/plans/2026-09-14-student-recommender-v1-plan.md:888` | Code sample inside a plan |
-| `docs/superpowers/plans/2026-09-14-student-recommender-v1-plan.md:2804` | Code sample inside a plan |
+| `docs/archive/plans/2026-09-03-m2-m7-implementation-plan.md:888` | Plan prose |
+| `docs/archive/plans/2026-09-03-pilot-parallel-goal-prompts.md:606` | Plan prose |
+| `docs/archive/plans/2026-09-07-remaining-pilot-gaps-plan.md:769` | Plan prose |
+| `docs/archive/superpowers/plans/2026-09-14-student-recommender-v1-plan.md:888` | Code sample inside a plan |
+| `docs/archive/superpowers/plans/2026-09-14-student-recommender-v1-plan.md:2804` | Code sample inside a plan |
 | `tests/e2e/conftest.py:16` | Module docstring |
 | `tests/e2e/test_pilot_clickthrough.py:62` | Module docstring |
 | `tests/integration/migration_harness.py:107` | Comment explaining that `pytest.skip` raises a `BaseException` |

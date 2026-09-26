@@ -205,7 +205,7 @@ still needed" column is satisfied and its owner has answered.
 
 - **Candidate title:** (unwritten) Agent-memory Slice 1
 - **Would decide:** whatever
-  `docs/superpowers/plans/2026-08-24-agent-memory-slice-0.md` and its design spec
+  `docs/archive/superpowers/plans/2026-08-24-agent-memory-slice-0.md` and its design spec
   propose, subject to ADR-0003 — no agent orchestration, adapter, or tool layer
   in Foundation. That constraint is what has kept it unwritten, not neglect.
 - **Why not now:** no file, no author, and a standing decision it must argue
@@ -259,7 +259,7 @@ still needed" column is satisfied and its owner has answered.
   `SMARTMATCH_DB_HIDE_PARAMETERS`, default on), under an owner decision scoped
   to exactly that — "yes, env-switchable" (Danny Tran, 19 September 2026). The
   plan and full inventory are
-  `docs/superpowers/plans/2026-09-19-engine-hide-parameters-plan.md`. **That
+  `docs/archive/superpowers/plans/2026-09-19-engine-hide-parameters-plan.md`. **That
   decision is made and is not reopened here.**
 - **Why an entry remains:** the flag is a default, not a guarantee, and the
   three gaps are each wider than the decision that was taken.
@@ -297,7 +297,7 @@ still needed" column is satisfied and its owner has answered.
 - **Owner:** program owner of record (Danny Tran), as the CBA side is a
   data-handling question, with engineering to supply the survey.
 - **Related:** ADR-0025 D6 and its 19 September 2026 implementation note;
-  `docs/superpowers/plans/2026-09-19-engine-hide-parameters-plan.md`;
+  `docs/archive/superpowers/plans/2026-09-19-engine-hide-parameters-plan.md`;
   B-03 (structured logging shape), which would be the natural place for the
   rule to live if it becomes one.
 

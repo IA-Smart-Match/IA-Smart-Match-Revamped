@@ -123,9 +123,9 @@ verbatim from the source line.
 | `docs/architecture/CURRENT_ARCHITECTURE_AUDIT.md:485` | ``Zero `TODO`/`FIXME`/`HACK`/`XXX`/`NotImplementedError` in the codebase. WIP is`` | **not-a-defect** |
 | `docs/architecture/GLOSSARY.md:154` | ``## 4. Gates — the WIP vocabulary that replaces `TODO` `` | **not-a-defect** |
 | `docs/architecture/GLOSSARY.md:156` | ``There are **zero** `TODO`, `FIXME`, `HACK`, `XXX` markers and zero`` | **not-a-defect** |
-| `docs/architecture/OPUS_AUDIT_HANDOFF.md:24` | ``… §0 explains why the usual `TODO` search returns nothing here`` | **not-a-defect** |
-| `docs/architecture/OPUS_AUDIT_HANDOFF.md:40` | ``**2. There are no `TODO`s — zero, repository-wide — and that is not because`` | **not-a-defect** |
-| `docs/architecture/OPUS_AUDIT_HANDOFF.md:45` | ``discipline than TODO comments and you should preserve it. Its one cost is that`` | **not-a-defect** |
+| `docs/archive/architecture/OPUS_AUDIT_HANDOFF.md:24` | ``… §0 explains why the usual `TODO` search returns nothing here`` | **not-a-defect** |
+| `docs/archive/architecture/OPUS_AUDIT_HANDOFF.md:40` | ``**2. There are no `TODO`s — zero, repository-wide — and that is not because`` | **not-a-defect** |
+| `docs/archive/architecture/OPUS_AUDIT_HANDOFF.md:45` | ``discipline than TODO comments and you should preserve it. Its one cost is that`` | **not-a-defect** |
 | `docs/architecture/wip-analysis.md:15` | ``\| `TODO` \| **0** \|`` | **not-a-defect** |
 | `docs/architecture/wip-analysis.md:16` | ``\| `FIXME` \| **0** \|`` | **not-a-defect** |
 | `docs/architecture/wip-analysis.md:17` | ``\| `HACK` \| **0** \|`` | **not-a-defect** |
@@ -243,17 +243,17 @@ Matched by definition C, excluded from disposition, with the reason.
 | File:line | Text | Reason excluded |
 |---|---|---|
 | `python/smartmatch_providers/smartmatch_providers/data/glove_vocab.txt:12894` | `xxx` | Not a marker. A GloVe embedding vocabulary word in a generated data file, one token per line, between `ballpark` and `uphold`. Case-insensitive `\bXXX\b` cannot distinguish it; reading the file makes it unambiguous. |
-| `docs/plans/prep/g3-eval-and-vocabulary-candidates.md:68` | ``approves `"Case Competition"`, `"Guest Lecture"`, or `"Hack-a-thon"` produces a`` | Not a marker. Product vocabulary — an event-type term under G3 evaluation. `Hack-a-thon` matches `\bHACK\b` only by hyphen splitting. |
-| `docs/plans/prep/g3-eval-and-vocabulary-candidates.md:78` | ``term set. Approving `hackathon` does **not** map `hack a thon`, `hackfest`, or`` | Not a marker. Same G3 vocabulary discussion; `hack a thon` is an example of a *non*-matching spelling. |
-| `docs/plans/prompts/architecture-stage-2-fable-goal.md:80` | ``5.  docs/architecture/wip-analysis.md  ← unfinished work; §0 explains why grep TODO finds nothing`` | Agent prompt. `docs/plans/prompts/*` is excluded wholesale: these are instructions to agents, not repository state. |
-| `docs/plans/prompts/architecture-stage-2-fable-goal.md:192` | ``- WIP here is marked by ABSENCE, not TODOs. Never add a TODO.`` | Agent prompt; same reason. |
+| `docs/archive/plans/prep/g3-eval-and-vocabulary-candidates.md:68` | ``approves `"Case Competition"`, `"Guest Lecture"`, or `"Hack-a-thon"` produces a`` | Not a marker. Product vocabulary — an event-type term under G3 evaluation. `Hack-a-thon` matches `\bHACK\b` only by hyphen splitting. |
+| `docs/archive/plans/prep/g3-eval-and-vocabulary-candidates.md:78` | ``term set. Approving `hackathon` does **not** map `hack a thon`, `hackfest`, or`` | Not a marker. Same G3 vocabulary discussion; `hack a thon` is an example of a *non*-matching spelling. |
+| `docs/archive/plans/prompts/architecture-stage-2-fable-goal.md:80` | ``5.  docs/architecture/wip-analysis.md  ← unfinished work; §0 explains why grep TODO finds nothing`` | Agent prompt. `docs/plans/prompts/*` is excluded wholesale: these are instructions to agents, not repository state. |
+| `docs/archive/plans/prompts/architecture-stage-2-fable-goal.md:192` | ``- WIP here is marked by ABSENCE, not TODOs. Never add a TODO.`` | Agent prompt; same reason. |
 
 Also excluded without individual listing, because they are matched only by the
 **non-adopted** substring definition (row G) and are not marker-shaped: eleven
-lines across `docs/migration/port-verification.md`,
-`docs/plans/critical-path-*.md`, `docs/plans/pr1-blockers-handoff.md`,
-`docs/plans/pr3-verification-evidence.md` and
-`docs/plans/status-report-830.md` that contain the git branch name
+lines across `docs/archive/migration/port-verification.md`,
+`docs/plans/critical-path-*.md`, `docs/archive/plans/pr1-blockers-handoff.md`,
+`docs/archive/plans/pr3-verification-evidence.md` and
+`docs/archive/plans/status-report-830.md` that contain the git branch name
 `claude/pr1-blockers-todos-er5heu`.
 
 ## Appendix B — reproducing this survey

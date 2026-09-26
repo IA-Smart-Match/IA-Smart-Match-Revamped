@@ -1,6 +1,6 @@
 """HTTP contracts for the coordinator-driven pipeline stage writers (S12).
 
-``docs/plans/2026-09-05-pipeline-stage-writers-plan.md`` §4. What this file
+``docs/archive/plans/2026-09-05-pipeline-stage-writers-plan.md`` §4. What this file
 asserts that nothing else can:
 
 * **A coordinator cannot hand-write Contacted or Matched.** The request schema

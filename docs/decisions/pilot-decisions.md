@@ -39,8 +39,8 @@ that file, and CONTRIBUTING.md, "Documentation is not a control".
   to reverse if IA West decides otherwise.
 
 These decisions correspond to the items listed as blocked in
-[`../plans/pr1-blockers-handoff.md`](../plans/pr1-blockers-handoff.md) §3.3 and
-in [`../plans/remaining-foundation-r1-work.md`](../plans/remaining-foundation-r1-work.md).
+[`../plans/pr1-blockers-handoff.md`](../archive/plans/pr1-blockers-handoff.md) §3.3 and
+in [`../plans/remaining-foundation-r1-work.md`](../archive/plans/remaining-foundation-r1-work.md).
 Those documents remain the record of *why* each item was blocked; this one
 records the interim position taken while the block stands.
 
@@ -204,7 +204,7 @@ remains operational administrator. D7 remains tentative.
 following the same structure as the closed P8/P9 Gate A records. Deliverable
 2 of that slice (V6) — schema/append-only verification of the rewards tables
 already authorized by migration `0009` — is recorded in
-[`../testing/d6-p7-rewards-schema-verification.md`](../testing/d6-p7-rewards-schema-verification.md),
+[`../testing/d6-p7-rewards-schema-verification.md`](../archive/testing/d6-p7-rewards-schema-verification.md),
 including a database append-only gap on `point_ledger_entry` found and
 reported, not closed, under that record's boundary.
 
@@ -234,7 +234,7 @@ values below are not promoted to ratified figures.
 | Calibration N | **3** — the cheapest reward is reachable in three events |
 
 The calibration property from
-[`../architecture/engagement-model.md`](../architecture/engagement-model.md) §3
+[`../architecture/engagement-model.md`](../archive/architecture/engagement-model.md) §3
 is `min(points_cost over listed items) ≤ N × points_per_event`. It holds here by
 construction: **3 × 100 = 300**, which is the cheapest band exactly.
 
@@ -348,7 +348,7 @@ eleven open decisions (D-1..D-11) are ratified. This document does not answer
 any of D-1..D-11.
 
 Nothing in this file, and nothing in
-[`../ui/pilot-prototype-prompts.md`](../ui/pilot-prototype-prompts.md), fully
+[`../ui/pilot-prototype-prompts.md`](../archive/ui/pilot-prototype-prompts.md), fully
 closes D-0 or closes any of D-1..D-11. The prompt pack is input for that
 conversation; it is not a design decision and it is not authoritative.
 
@@ -362,7 +362,7 @@ conversation; it is not a design decision and it is not authoritative.
   contract wins and the frontend is wrong.
 
 The W-series sequencing in
-[`../plans/remaining-foundation-r1-work.md`](../plans/remaining-foundation-r1-work.md)
+[`../plans/remaining-foundation-r1-work.md`](../archive/plans/remaining-foundation-r1-work.md)
 is unchanged: W1 → W2 → W4 (provenance and truthful-state components) before W3
 and W5.
 

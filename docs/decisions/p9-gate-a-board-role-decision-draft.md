@@ -3,7 +3,7 @@
 **Status:** **CLOSED — 2026-09-02 (pilot scope).** Relationship-scoped model
 ratified; multiplicity and pilot date semantics decided. Schema migration
 remains a separate engineering card after `columns.yaml` update.
-**Gate:** P9 Gate A (`docs/plans/2026-08-28-pilot-columns-plan.md` §Stop-gates
+**Gate:** P9 Gate A (`docs/archive/plans/2026-08-28-pilot-columns-plan.md` §Stop-gates
 §Gate A).
 **Formal decider:** Danny Tran (@BrooklynD23), program owner — named 2026-09-02.
 (Supersedes prior "Dr. Wang" placeholder in plan text where program owner was
@@ -70,7 +70,7 @@ Date:                            2026-09-02
 
 ## 6. References
 
-- `docs/plans/2026-08-28-pilot-columns-plan.md` — Gate A text
-- `docs/pilot-data/board-role-decision-prep.md`
+- `docs/archive/plans/2026-08-28-pilot-columns-plan.md` — Gate A text
+- `docs/archive/pilot-data/board-role-decision-prep.md`
 - `docs/pilot-data/columns.yaml`
 - `docs/decisions/2026-08-31-session-ratification.md`

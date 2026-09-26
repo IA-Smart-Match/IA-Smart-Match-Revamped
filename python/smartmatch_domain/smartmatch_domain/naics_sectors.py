@@ -59,7 +59,7 @@ Sources
 
 * ``docs/product/cba-smart-match-customer-requirements.md`` §7
 * ``docs/product/cba-taxonomies.md`` (this table, in prose)
-* ``docs/plans/2026-09-05-cba-pivot-waves.md`` (CBA-TAXONOMY)
+* ``docs/archive/plans/2026-09-05-cba-pivot-waves.md`` (CBA-TAXONOMY)
 """
 
 from __future__ import annotations

@@ -3,7 +3,7 @@
 ``run_once`` and ``lag`` existed long before J8; what J8 added is the thing that
 calls them on a timer, the J9 sweep beside them, and the heartbeat an operator's
 "the schedule stopped firing" alert is built from. The handoff
-(``docs/plans/pr1-blockers-handoff.md`` §2.2) found none of it tested: the
+(``docs/archive/plans/pr1-blockers-handoff.md`` §2.2) found none of it tested: the
 dispatcher module's lease assertions are all about ``outbox_record``, and no
 test touched ``ScheduledPass``, the sweep's place in it, or either
 ``/operations/dispatch`` route.
@@ -15,7 +15,7 @@ silent:
   reason J8's own backlog row gives about the reclaim, turned on J9: a database
   refusing claims is the same database whose workers are dying mid-job, so a
   sweep placed after the dispatch would never run in exactly the incident that
-  needs it (``docs/plans/transaction-boundary-defects.md`` §3.3).
+  needs it (``docs/archive/plans/transaction-boundary-defects.md`` §3.3).
 * **What may abort a pass.** Only a failed claim. The sweep and the lag read are
   janitorial and observational; neither may cost a healthy row its dispatch, and
   a guarded failure is reported in the outcome rather than turned into a zero.

@@ -29,7 +29,7 @@ attendance**, initial bands of **300 / 600 / 1,000**, and calibration
 constants below therefore carry the D7 values verbatim rather than inventing an
 economy of their own, and :data:`EARN_POLICY_RATIFIED` states in code that they
 are not ratified. The calibration property from
-``docs/architecture/engagement-model.md`` §3 —
+``docs/archive/architecture/engagement-model.md`` §3 —
 ``min(points_cost over listed items) <= N * points_per_event`` — is exposed as
 :func:`satisfies_calibration` so a catalog can be *checked* against N rather
 than assumed to satisfy it.
@@ -417,7 +417,7 @@ def events_still_needed(
     """Verified attendances remaining before ``balance`` reaches ``item``'s cost.
 
     ``0`` when the item is already affordable. This is the "progress only toward
-    reachable items" rule from ``docs/architecture/engagement-model.md`` §4: the
+    reachable items" rule from ``docs/archive/architecture/engagement-model.md`` §4: the
     number is meaningful only for an item the student could actually receive.
 
     Raises:

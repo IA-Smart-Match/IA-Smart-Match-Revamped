@@ -92,7 +92,7 @@ A3_PRICE_PER_PROSE_PAGE: Final[Decimal] = Decimal("0.035")
 provider bill.**
 
 :Identifier: A3
-:Source: ``docs/plans/prep/g3-limits-and-policy-options.md:221``
+:Source: ``docs/archive/plans/prep/g3-limits-and-policy-options.md:221``
 :Recorded: 2026-08-29 (that document's own ``Date:`` header; committed
     2026-08-30)
 :Status: **unverified**
@@ -130,7 +130,7 @@ a ceiling — which is the defect A1 exists to close.
 #: The source document and line the assumption above was read from, kept as a
 #: value as well as prose so a spend log or an operator view can print its
 #: provenance beside the figure instead of asking a reader to trust it.
-A3_SOURCE: Final[str] = "docs/plans/prep/g3-limits-and-policy-options.md:221"
+A3_SOURCE: Final[str] = "docs/archive/plans/prep/g3-limits-and-policy-options.md:221"
 
 #: The date :data:`A3_PRICE_PER_PROSE_PAGE` was recorded in that source. Not
 #: the date it was verified — it has not been.

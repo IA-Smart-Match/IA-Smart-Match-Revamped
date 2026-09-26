@@ -405,6 +405,6 @@ path.
 
 - The live VM's real deployment path, and the open decision about it:
   [`vm-deploy.md`](vm-deploy.md)
-- Stakeholder vs Cloud Run: [`hosted-synthetic-pilot-guide.md`](hosted-synthetic-pilot-guide.md)
+- Stakeholder vs Cloud Run: [`hosted-synthetic-pilot-guide.md`](../archive/operations/hosted-synthetic-pilot-guide.md)
 - Classroom vs `dev`: [`../decisions/f5-deploy-target-note-2026-09-03.md`](../decisions/f5-deploy-target-note-2026-09-03.md)
 - Compose appliance: [`containers.md`](containers.md), `docker-compose.yml`

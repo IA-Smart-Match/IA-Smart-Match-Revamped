@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Class Exercise Process — SmartMatch Prototype</title>
+<!--
+  Static process visualization for the Spring 2027 "AI in Marketing"
+  class exercise (for Dr. Ann Wang / Dr. Lin). Self-contained: no build,
+  no backend, no external assets. Open directly in a browser.
+  Doubles as a build-status board — every node carries a status badge.
+-->
+<style>
+  :root {
+    --bg: #faf7f5;
+    --card: #ffffff;
+    --border: #e7ded8;
+    --accent-border: #cfbab0;
+    --text: #2b2320;
+    --muted: #8a7a72;
+    --muted-bg: #f3ede9;
+    --primary: #8c4a32;
+    --primary-fg: #ffffff;
+    --primary-soft: rgba(140, 74, 50, 0.06);
+    --destructive: #b3352b;
+    --radius: 16px;
+
+    --built: #2f7a4d;
+    --built-bg: rgba(47, 122, 77, 0.10);
+    --blocked: #a06a00;
+    --blocked-bg: rgba(160, 106, 0, 0.12);
+    --pending: #8a7a72;
+    --pending-bg: #f3ede9;
+
+    --lane-p: #8c4a32;
+    --lane-i: #6d7f57;
+    --lane-a: #5a6b78;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+    line-height: 1.45;
+  }
+  .page { max-width: 1180px; margin: 0 auto; padding: 32px 24px 64px; }
+  .prototype-banner {
+    background: var(--muted-bg);
+    border: 1px dashed var(--accent-border);
+    border-radius: 12px;
+    padding: 10px 14px;
+    font-size: 13px;
+    color: var(--muted);
+    margin-bottom: 24px;
+  }
+  header.top { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 16px; }
+  h1 { font-size: 30px; font-weight: 600; margin: 0; }
+  .subtitle { margin: 8px 0 0; color: var(--muted); max-width: 680px; }
+
+  /* ---------- status badges + legend ---------- */
+  .badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    border-radius: 999px; padding: 3px 10px;
+    font-size: 11px; font-weight: 700; letter-spacing: 0.4px;
+    text-transform: uppercase; white-space: nowrap;
+  }
+  .badge .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+  .badge.built   { background: var(--built-bg);   color: var(--built); }
+  .badge.blocked { background: var(--blocked-bg); color: var(--blocked); }
+  .badge.pending { background: var(--pending-bg); color: var(--pending); }
+  .legend {
+    display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center;
+    margin-top: 14px; font-size: 12px; color: var(--muted);
+  }
+  .legend span.lbl { font-weight: 600; color: var(--text); }
+
+  /* ---------- swimlane flow ---------- */
+  .flow {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    column-gap: 20px;
+    margin-top: 28px;
+  }
+  .lane-head {
+    border: 1px solid var(--border);
+    border-top: 3px solid var(--lane-color, var(--primary));
+    border-radius: 12px;
+    background: var(--card);
+    padding: 12px 16px;
+    margin-bottom: 18px;
+    box-shadow: 0 1px 2px rgba(43, 35, 32, 0.05);
+  }
+  .lane-head .who { font-weight: 700; font-size: 15px; margin: 0; }
+  .lane-head .desc { font-size: 12px; color: var(--muted); margin: 2px 0 0; }
+  .lane-p { --lane-color: var(--lane-p); }
+  .lane-i { --lane-color: var(--lane-i); }
+  .lane-a { --lane-color: var(--lane-a); }
+
+  .step {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px 18px;
+    box-shadow: 0 1px 2px rgba(43, 35, 32, 0.05);
+    margin-bottom: 6px;
+  }
+  .step .step-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+  .step .num {
+    flex: 0 0 auto;
+    width: 26px; height: 26px; border-radius: 50%;
+    background: var(--primary); color: var(--primary-fg);
+    font-size: 13px; font-weight: 700;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  .step h3 { font-size: 16px; margin: 0; flex: 1; }
+  .step .lane-tag {
+    display: block; font-size: 10px; font-weight: 700; letter-spacing: 0.6px;
+    text-transform: uppercase; color: var(--muted); margin-bottom: 6px;
+  }
+  .step p { font-size: 13px; color: var(--muted); margin: 8px 0 0; }
+  .step ul { margin: 10px 0 0; padding-left: 18px; font-size: 13px; color: var(--text); }
+  .step ul li { margin-top: 4px; }
+  .step .badges { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .step .flag {
+    margin-top: 10px; border-radius: 10px; padding: 8px 10px;
+    font-size: 12px; line-height: 1.4;
+  }
+  .step .flag.blocked { background: var(--blocked-bg); color: var(--blocked); }
+  .step .flag.pending { background: var(--pending-bg); color: var(--pending); }
+  .step .flag b { font-weight: 700; }
+
+  .step.is-blocked { border-color: var(--blocked); }
+
+  .arrow {
+    text-align: center; color: var(--accent-border);
+    font-size: 18px; line-height: 1; padding: 2px 0 8px;
+    user-select: none;
+  }
+  .span-all { grid-column: 1 / -1; }
+
+  .wide-step {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 18px 20px;
+    box-shadow: 0 1px 2px rgba(43, 35, 32, 0.05);
+    margin-bottom: 6px;
+  }
+  .wide-step .step-top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .wide-step .num {
+    width: 26px; height: 26px; border-radius: 50%;
+    background: var(--primary); color: var(--primary-fg);
+    font-size: 13px; font-weight: 700;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  .wide-step h3 { font-size: 17px; margin: 0; }
+  .wide-step p { font-size: 13px; color: var(--muted); margin: 8px 0 0; }
+  .wide-step .badges { display: flex; flex-wrap: wrap; gap: 6px; margin-left: auto; }
+
+  .teaching {
+    background: var(--primary-soft);
+    border: 1px solid var(--accent-border);
+    border-radius: var(--radius);
+    padding: 20px 24px;
+    margin-top: 10px;
+  }
+  .teaching .kicker {
+    font-size: 11px; font-weight: 700; letter-spacing: 0.8px;
+    text-transform: uppercase; color: var(--primary); margin: 0;
+  }
+  .teaching .quote { font-size: 17px; font-weight: 600; margin: 8px 0 0; line-height: 1.5; }
+
+  /* ---------- bottom panels ---------- */
+  .panels { display: grid; gap: 20px; margin-top: 36px; }
+  @media (min-width: 860px) { .panels { grid-template-columns: 1fr 1fr; } }
+  .card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 20px 24px;
+    box-shadow: 0 1px 2px rgba(43, 35, 32, 0.05);
+  }
+  .card h2 { font-size: 18px; margin: 0; }
+  .card ul { margin: 12px 0 0; padding-left: 18px; font-size: 14px; }
+  .card ul li { margin-top: 6px; }
+  .card .hint { font-size: 12px; color: var(--muted); margin: 10px 0 0; }
+
+  .timeline { margin-top: 16px; display: flex; flex-wrap: wrap; gap: 8px; }
+  .tl-item {
+    display: inline-flex; align-items: center; gap: 8px;
+    border: 1px solid var(--border); border-radius: 999px;
+    padding: 6px 12px; font-size: 13px; background: #fbf9f8;
+  }
+  .tl-item .when { font-weight: 700; color: var(--primary); }
+  .tl-item.future { border-style: dashed; color: var(--muted); }
+  .tl-item.future .when { color: var(--muted); }
+
+  .data-note {
+    margin-top: 24px; font-size: 12px; color: var(--muted); text-align: center;
+  }
+
+  /* ---------- small screens: stack lanes ---------- */
+  @media (max-width: 720px) {
+    .flow { grid-template-columns: 1fr; }
+    .lane-head { display: none; }
+    .span-all { grid-column: 1; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="prototype-banner">
+    Process mockup — Spring 2027 "AI in Marketing" class exercise.
+    All data fictional; nothing here is wired to a backend. Status badges mirror the build board.
+  </div>
+
+  <header class="top">
+    <div>
+      <h1>SmartMatch class exercise — how it runs</h1>
+      <p class="subtitle">
+        One exercise, two rounds. A marketing student tunes a simple matching
+        engine, invites guests to a fictional speaker event, then sees what the
+        match actually did. For review by Dr. Ann Wang / Dr. Lin.
+      </p>
+      <div class="legend" aria-label="Status legend">
+        <span class="lbl">Build status:</span>
+        <span class="badge built"><span class="dot"></span>Built</span> working today
+        <span class="badge blocked"><span class="dot"></span>Blocked</span> needs a decision
+        <span class="badge pending"><span class="dot"></span>Pending</span> decided, not done
+      </div>
+    </div>
+  </header>
+
+  <div class="flow">
+    <!-- lane headers -->
+    <div class="lane-head lane-p" style="grid-column:1">
+      <p class="who">Class participant</p>
+      <p class="desc">the marketing student · no account, no login</p>
+    </div>
+    <div class="lane-head lane-i" style="grid-column:2">
+      <p class="who">Instructor</p>
+      <p class="desc">Dr. Ann Wang / Dr. Lin · passcode-gated</p>
+    </div>
+    <div class="lane-head lane-a" style="grid-column:3">
+      <p class="who">The app</p>
+      <p class="desc">matching engine + classroom simulation</p>
+    </div>
+
+    <!-- 1 -->
+    <div class="step" style="grid-column:1">
+      <span class="lane-tag">Class participant</span>
+      <div class="step-top"><span class="num">1</span><h3>Open the site, enter a team number</h3></div>
+      <p>Public page. The student picks team <b>1–6</b>. No login, no account, no email collected.</p>
+      <div class="badges"><span class="badge built"><span class="dot"></span>Built</span></div>
+      <div class="flag pending"><b>Pending:</b> public hosting — <code>exercise.plated.blog</code> decided but never deployed (OQ-CE-06).</div>
+    </div>
+    <div class="arrow" style="grid-column:1">↓</div>
+
+    <!-- 2 -->
+    <div class="step" style="grid-column:1">
+      <span class="lane-tag">Class participant</span>
+      <div class="step-top"><span class="num">2</span><h3>Pick the exercise event</h3></div>
+      <p><b>Round 1 · "Northline Analytics"</b> — 60 seats, the team may invite 30.</p>
+      <div class="badges"><span class="badge built"><span class="dot"></span>Built</span></div>
+    </div>
+    <div class="arrow" style="grid-column:1">↓</div>
+
+    <!-- 3 -->
+    <div class="step" style="grid-column:1">
+      <span class="lane-tag">Class participant</span>
+      <div class="step-top"><span class="num">3</span><h3>Set what matters — 4 plain-language factors</h3></div>
+      <ul>
+        <li>same major</li>
+        <li>said they are interested in this topic</li>
+        <li>career goal fits this event</li>
+        <li>went to similar events before</li>
+      </ul>
+      <p>Save up to <b>3 named settings</b> per event; compare any two side-by-side — shared names are highlighted.</p>
+      <div class="badges"><span class="badge built"><span class="dot"></span>Built</span></div>
+    </div>
+    <div class="arrow" style="grid-column:3">↓</div>
+
+    <!-- 4 -->
+    <div class="step" style="grid-column:3">
+      <span class="lane-tag">The app</span>
+      <div class="step-top"><span class="num">4</span><h3>Ranked top-30 invite list</h3></div>
+      <p>From all <b>300 fictional profiles</b>. Each name carries a one-sentence reason —
+        <i>"Same major; nothing else on file."</i> / <i>"Tied on major; ordered by year."</i> —
+        a "how much we know" marker, a list-composition table, and a CSV download.</p>
+      <div class="badges"><span class="badge built"><span class="dot"></span>Built</span></div>
+      <div class="flag pending"><b>Pending:</b> Ann's real 300-profile dataset arrived 9/24 as .xlsx with a different schema — loaded via CSV conversion for now; native .xlsx ingest pending (OQ-CE-01).</div>
+    </div>
+    <div class="arrow" style="grid-column:2">↓</div>
+
+    <!-- 5 -->
+    <div class="step" style="grid-column:2">
+      <span class="lane-tag">Instructor</span>
+      <div class="step-top"><span class="num">5</span><h3>Unlock results for that event</h3></div>
+      <p>Passcode-gated page. Also: set the invite limit, replace the data file, refresh all teams, reset one team.</p>
+      <div class="badges"><span class="badge built"><span class="dot"></span>Built</span></div>
+    </div>
+    <div class="arrow" style="grid-column:1">↓</div>
+
+    <!-- 6 -->
+    <div class="step is-blocked" style="grid-column:1">
+      <span class="lane-tag">Class participant</span>
+      <div class="step-top"><span class="num">6</span><h3>One results run</h3></div>
+      <p><b>Invited → signed up → attended</b>, always beside the "email everyone" (all 300)
+        baseline and the seats still empty. Bar chart sized for a classroom projector.</p>
+      <div class="badges"><span class="badge blocked"><span class="dot"></span>Blocked</span></div>
+      <div class="flag blocked"><b>Blocked:</b> <code>EXERCISE_SIMULATION_COEFFICIENTS</code> unset —
+        POST results returns 409 until Chau proposes the 8 numbers and Ann confirms (OQ-CE-03).</div>
+    </div>
+    <div class="arrow" style="grid-column:1">↓</div>
+
+    <!-- 7 -->
+    <div class="step" style="grid-column:1">
+      <span class="lane-tag">Class participant</span>
+      <div class="step-top"><span class="num">7</span><h3>Pick an "asking for more" method</h3></div>
+      <ul>
+        <li>promise better recommendations — <b>~30%</b> share more</li>
+        <li>small reward — <b>~55%</b></li>
+        <li>required — <b>~80%</b>, but ~15% tune out</li>
+      </ul>
+      <div class="badges"><span class="badge built"><span class="dot"></span>Built</span></div>
+    </div>
+    <div class="arrow" style="grid-column:3">↓</div>
+
+    <!-- 8 -->
+    <div class="step" style="grid-column:3">
+      <span class="lane-tag">The app</span>
+      <div class="step-top"><span class="num">8</span><h3>Refresh that team's data only</h3></div>
+      <p>Northline attendees gain "went to similar events"; a share complete profile cards;
+        "how much we know" markers update. Other teams are untouched.</p>
+      <div class="badges"><span class="badge built"><span class="dot"></span>Built</span></div>
+    </div>
+    <div class="arrow" style="grid-column:3">↓</div>
+
+    <!-- 9 -->
+    <div class="wide-step span-all">
+      <div class="step-top">
+        <span class="num">9</span>
+        <h3>Round 2 · "Harbor Consumer Brands" — same flow</h3>
+        <span class="badges"><span class="badge built"><span class="dot"></span>Built</span></span>
+      </div>
+      <p>Steps 2–8 repeat with a new event and a new audience mix. The results screen now shows
+        the team's <b>own Round-1 result</b> beside Round 2 and the email-everyone baseline —
+        so students see what their Round-1 data sharing bought them.
+        <i>(Comparison panels and chart are built; a live run inherits the step-6 dependency.)</i></p>
+    </div>
+
+    <!-- 10 -->
+    <div class="span-all teaching">
+      <p class="kicker">Teaching point — shown at the end</p>
+      <p class="quote">"AI helps a marketer use customer information to decide whom to reach —
+        the marketer still decides what information matters, what message fits, and who is being overlooked."</p>
+    </div>
+  </div>
+
+  <div class="panels">
+    <section class="card">
+      <h2>What this tool is not</h2>
+      <ul>
+        <li>No real student data, no real emails, no accounts.</li>
+        <li>No machine learning — a transparent weighted sort, tuned by the student.</li>
+        <li>All 300 profiles are fictional.</li>
+        <li>The invite-only speaker workflow is a separate phase-two item.</li>
+      </ul>
+    </section>
+
+    <section class="card">
+      <h2>Timeline</h2>
+      <div class="timeline">
+        <span class="tl-item"><span class="when">Oct 2</span> matching live w/ data</span>
+        <span class="tl-item"><span class="when">Oct 16</span> results working — Ann runs sessions</span>
+        <span class="tl-item"><span class="when">Oct 30</span> fixes</span>
+        <span class="tl-item"><span class="when">Nov 9</span> practice run</span>
+        <span class="tl-item"><span class="when">Nov 20</span> fall deliverable</span>
+        <span class="tl-item future"><span class="when">Spring 2027</span> class run</span>
+      </div>
+      <p class="hint">Milestones from the class-exercise plan; dates mark the fall 2025 build toward the Spring 2027 run.</p>
+    </section>
+  </div>
+
+  <p class="data-note">Data note: every name, major, and attendance row in this demo is fictional.</p>
+</div>
+</body>
+</html>

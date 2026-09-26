@@ -1,7 +1,7 @@
 # Critical path: F9 port re-review, F-28, and leftover copies
 
 **IDs:** CP-REREVIEW, CP-V11
-**Parent:** [critical-path-plans.md](critical-path-plans.md)
+**Parent:** [critical-path-plans.md](../archive/plans/critical-path-plans.md)
 
 The Foundation ports gate is not "fix the code". It is "an independent reader
 can trust the manifest". Code and most YAML corrections are on
@@ -21,10 +21,10 @@ Planning only.
 | MM-004 ingest | rejected (F-13, F-15, …) | Code fixed; YAML `characterization_tests: n/a` | Re-review. Route (a) still better. `ingest.py` F-12 copy OPEN. F-11 decision OPEN. |
 | MM-005 feedback | rejected (F-18, F-19, F-21, …) | Code fixed except **F-25** | Re-review. Must not promote while F-25 unspecified. Docstring copies OPEN. F-21 re-derive from `bdce024`. |
 
-Sources: `docs/migration/port-verification.md` (on PR1: additive 26 Aug
-amendment + F-30); `docs/plans/defect-remediation.md`;
+Sources: `docs/archive/migration/port-verification.md` (on PR1: additive 26 Aug
+amendment + F-30); `docs/archive/plans/defect-remediation.md`;
 `docs/migration/migration-manifest.yaml`; orchestrator contract §6;
-`docs/plans/pr1-blockers-handoff.md` §3.2.
+`docs/archive/plans/pr1-blockers-handoff.md` §3.2.
 
 **F-29** is superseded (dispatcher failures were a mid-edit artifact). Closing
 it fully means running the integration lane and saying so, not deleting the
@@ -223,8 +223,8 @@ Do not leave these for the reviewer to trip over. File set from
 | `python/smartmatch_domain/smartmatch_domain/eli.py` | F-4, F-10 (partially addressed in `a48408a`) |
 | `python/smartmatch_domain/smartmatch_domain/ingest.py` | F-12 |
 | `python/smartmatch_domain/smartmatch_domain/feedback.py` | F-18, F-19, F-22, F-21 |
-| `docs/plans/defect-remediation.md` §4.6 | F-30 table |
-| `docs/plans/remaining-foundation-r1-work.md` F9 row | still says "F-1..F-27" in places; there are 30 findings now |
+| `docs/archive/plans/defect-remediation.md` §4.6 | F-30 table |
+| `docs/archive/plans/remaining-foundation-r1-work.md` F9 row | still says "F-1..F-27" in places; there are 30 findings now |
 
 Stage **per module** with any remaining code nits so two agents do not contend
 for `eli.py` (`defect-remediation.md` §1).

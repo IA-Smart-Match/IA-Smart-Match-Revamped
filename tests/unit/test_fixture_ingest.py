@@ -1,7 +1,7 @@
 """The fixture-only crawl/ingest scaffold (`smartmatch_providers.fixture_ingest`).
 
 These tests are the specification for the reading-and-assembly half of card S6
-(`docs/plans/2026-08-28-g3-events-s3-s5-plan.md`), written while the fetching
+(`docs/archive/plans/2026-08-28-g3-events-s3-s5-plan.md`), written while the fetching
 half is unauthorized: the signed threat model
 (`docs/security/crawler-threat-model-draft.md` revision 4, ratified 2026-09-03,
 recorded in `docs/decisions/r3-signing-decisions-2026-09-03.md`) states plainly

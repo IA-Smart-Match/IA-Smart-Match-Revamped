@@ -28,7 +28,7 @@ through.
 
 That is what lets this route exist while **D8** — the disclosure-consent policy,
 and what "FERPA-aware" asserts — is still open
-(``docs/architecture/engagement-model.md`` §8, ADR-0014). A roster of who
+(``docs/archive/architecture/engagement-model.md`` §8, ADR-0014). A roster of who
 attended is a disclosure about people and waits for D8. A count of how much
 evidence a unit holds is a fact about the unit's own record-keeping, which is
 what a coordinator needs to answer "is check-in actually being used here".

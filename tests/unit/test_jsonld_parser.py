@@ -4,7 +4,7 @@ These tests are the specification for `smartmatch_domain.jsonld_parser`. They
 are the sibling of `test_ical_parser.py` and hold the same line: every case runs
 against a committed synthetic fixture — no network, no live provider, no
 recorded third-party content. Stage 0 of the discovery roadmap
-(`docs/plans/prep/campus-event-discovery-capability.md` §7) authorizes exactly
+(`docs/archive/plans/prep/campus-event-discovery-capability.md` §7) authorizes exactly
 this: deterministic parser work against fixtures, with no transport, no
 migration, and no route.
 

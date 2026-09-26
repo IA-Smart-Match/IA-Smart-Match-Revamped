@@ -53,13 +53,13 @@ people's availability and willingness that nobody agreed to share".
 
 The governing standing rule is
 [ADR-0014](../architecture/decisions/ADR-0014-disclosure-consent.md), restated in
-[`../plans/remaining-engineering-implementation-plan.md`](../plans/remaining-engineering-implementation-plan.md)
+[`../plans/remaining-engineering-implementation-plan.md`](../archive/plans/remaining-engineering-implementation-plan.md)
 §1:
 
 > ADR-0014 minimum disclosure applies to underlying rows and contact data.
 > Aggregate access does not automatically authorize row-level payload access.
 
-**Conflict flagged.** [`../plans/remaining-engineering-implementation-plan.md`](../plans/remaining-engineering-implementation-plan.md)
+**Conflict flagged.** [`../plans/remaining-engineering-implementation-plan.md`](../archive/plans/remaining-engineering-implementation-plan.md)
 §2 row 4 still classifies "Metrics role-gating vs ungated" as
 **human-decision-required**, and §5.4 says "current intentional ungating remains
 until the explicit product/security decision". That decision is recorded as
@@ -110,7 +110,7 @@ From [`../plans/open-questions/student-engagement-deferred.md`](../plans/open-qu
   until closure evidence lands. A plan, prototype, feature flag, or unwired
   implementation is not closure evidence."
 
-From [`../plans/remaining-engineering-implementation-plan.md`](../plans/remaining-engineering-implementation-plan.md)
+From [`../plans/remaining-engineering-implementation-plan.md`](../archive/plans/remaining-engineering-implementation-plan.md)
 §5.4, the four questions any metrics-authorization decision record must answer:
 
 > 1. May any active unit membership read aggregates?
@@ -131,7 +131,7 @@ the closed 2026-09-02 record and the code that implements it.
 - **W4 and engagement reporting** — the "Blocked slices" column for OQ-SE-04
   through OQ-SE-08.
 - **Wider demand visibility** — OQ-SC-13's blocked slice.
-- Per [`../plans/remaining-engineering-implementation-plan.md`](../plans/remaining-engineering-implementation-plan.md)
+- Per [`../plans/remaining-engineering-implementation-plan.md`](../archive/plans/remaining-engineering-implementation-plan.md)
   §5.4: "Do not silently mirror imports or silently bless the status quo."
 - Per OQ-CBA-042: "An Event Host-facing view of their request's outcome; and any
   status on a Speaker Request that reflects invitation responses."
@@ -140,9 +140,9 @@ the closed 2026-09-02 record and the code that implements it.
 
 - [`../plans/open-questions/student-engagement-deferred.md`](../plans/open-questions/student-engagement-deferred.md) — OQ-SE-04 to OQ-SE-08, OQ-SC-13, closure discipline
 - [`../plans/open-questions/cba-phase-deferred.md`](../plans/open-questions/cba-phase-deferred.md) — OQ-CBA-042
-- [`../plans/remaining-engineering-implementation-plan.md`](../plans/remaining-engineering-implementation-plan.md) — §1, §2 row 4, §5.4
-- [`../plans/2026-08-28-metrics-authz-plan.md`](../plans/2026-08-28-metrics-authz-plan.md) — stop-gate, current state, branch selection
-- [`../plans/workshops/p1-metrics-authorization-workshop-packet.md`](../plans/workshops/p1-metrics-authorization-workshop-packet.md) — preparation input
+- [`../plans/remaining-engineering-implementation-plan.md`](../archive/plans/remaining-engineering-implementation-plan.md) — §1, §2 row 4, §5.4
+- [`../plans/2026-08-28-metrics-authz-plan.md`](../archive/plans/2026-08-28-metrics-authz-plan.md) — stop-gate, current state, branch selection
+- [`../plans/workshops/p1-metrics-authorization-workshop-packet.md`](../archive/plans/workshops/p1-metrics-authorization-workshop-packet.md) — preparation input
 - [`../decisions/metrics-authorization-decision-draft.md`](../decisions/metrics-authorization-decision-draft.md) — closed 2026-09-02, Option B
 - [`../architecture/decisions/ADR-0014-disclosure-consent.md`](../architecture/decisions/ADR-0014-disclosure-consent.md) — disclosure consent, audience scope
 - [`../architecture/decisions/ADR-0011-accountable-numbers.md`](../architecture/decisions/ADR-0011-accountable-numbers.md) — one owning query, drill-down equals aggregate

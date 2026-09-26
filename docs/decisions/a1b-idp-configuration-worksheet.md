@@ -6,7 +6,7 @@ below remain blank until the provisioner commits values.
 **Ratification status (31 August 2026):** **EXTERNAL DEPENDENCY** until Part 1
 is complete. Session approver Danny Tran (@BrooklynD23) recorded P2 as **in scope;
 proceed** — see `docs/decisions/2026-08-31-session-ratification.md`.
-**Created by:** plan P2 card A0 (`docs/plans/2026-08-28-a1b-institutional-sign-in-plan.md`).
+**Created by:** plan P2 card A0 (`docs/archive/plans/2026-08-28-a1b-institutional-sign-in-plan.md`).
 **Date:** 2026-08-28 · **Branch:** `plan/a1b-sign-in`
 
 > This file exists so a human owner can record the identity-provider
@@ -37,7 +37,7 @@ prevent. They stay blank until the provisioner commits them.
 
 | Field | Value |
 |---|---|
-| IdP product / vendor | **Google Cloud IdP (Google Identity Platform).** Transcribed, not decided: `docs/decisions/2026-08-31-session-ratification.md` line 63 ("Google Cloud IdP dev/test **tenant exists** (2026-09-02)"), corroborated by `docs/plans/remaining-foundation-r1-work.md` line 100 ("Live Google Identity Platform verifier") and `python/smartmatch_providers/smartmatch_providers/identity.py` lines 3–4. This is the product name only; it configures nothing. |
+| IdP product / vendor | **Google Cloud IdP (Google Identity Platform).** Transcribed, not decided: `docs/decisions/2026-08-31-session-ratification.md` line 63 ("Google Cloud IdP dev/test **tenant exists** (2026-09-02)"), corroborated by `docs/archive/plans/remaining-foundation-r1-work.md` line 100 ("Live Google Identity Platform verifier") and `python/smartmatch_providers/smartmatch_providers/identity.py` lines 3–4. This is the product name only; it configures nothing. |
 | Environment (development / test tenant) | **Development / test tenant; confirmed to exist 2026-09-02.** Transcribed from this file's status header (lines 3–5) and `docs/decisions/2026-08-31-session-ratification.md` line 63. Live production SSO stays out of scope per the standing constraints above. |
 | Tenant or directory identifier | **OUTSTANDING — EXTERNAL DEPENDENCY.** No committed material in this repository names the project, tenant, or directory. |
 

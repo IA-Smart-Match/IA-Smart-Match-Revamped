@@ -2,7 +2,7 @@
   "id": "G1-GC-005",
   "symptom_class": "zero_or_unknown",
   "description": "DRAFT PROPOSAL — NOT RATIFIED. ADR-0011 discriminating case A for the G1-GC-002 symptom: the professional record carries NO expertise topics at all, so topic relevance is not computable. Paired with G1-GC-006 (topics present, none overlapping) so the workshop can decide measured_zero vs unknown against two cases that the legacy rendered identically as '0%'. zero_classification is deliberately ABSENT — the packet does not determine it (packet line 75). No expected scores until G1 closes.",
-  "stakeholder_reference": "docs/plans/workshops/g1-factor-registry-workshop-packet.md line 75; ADR-0011 Fix #8; MM-002 golden case",
+  "stakeholder_reference": "docs/archive/plans/workshops/g1-factor-registry-workshop-packet.md line 75; ADR-0011 Fix #8; MM-002 golden case",
   "inputs": {
     "_draft_status": "proposed_pending_ratification_by_danny_tran",
     "_data_provenance": "synthetic; no real professional or event data",

@@ -39,7 +39,7 @@ No migration. No change to the rewards surface. No frontend. No crawler.
 and what does the phrase "FERPA-aware" commit this system to?
 
 **Why engineering cannot answer it.** It is a privacy, legal, and records
-decision with a named owner — `docs/architecture/engagement-model.md` §8 puts D8
+decision with a named owner — `docs/archive/architecture/engagement-model.md` §8 puts D8
 with "Privacy / legal / records", and ADR-0014 is the contract that would carry
 the answer. An engineer choosing a disclosure rule would be choosing, on behalf
 of an institution, which student records leave which room.

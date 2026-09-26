@@ -61,7 +61,7 @@ records a scoped deviation, not a closure:
 > … Production SSO is **explicitly deferred until after the pilot**. … recorded
 > here because it is a deviation and not a completion.
 
-**Conflict flagged.** [`../plans/remaining-engineering-implementation-plan.md`](../plans/remaining-engineering-implementation-plan.md)
+**Conflict flagged.** [`../plans/remaining-engineering-implementation-plan.md`](../archive/plans/remaining-engineering-implementation-plan.md)
 §3 Wave C item 4 sequences "Configure A1b and replace the truthful
 unavailable-login state with the real institutional sign-in flow", and §4 step 1
 requires the login page to "render a non-interactive unavailable state that
@@ -96,7 +96,7 @@ issuer, audience, endpoint, scope, or client identifier.
 ## Evidence needed to close
 
 From
-[`../plans/2026-08-28-a1b-institutional-sign-in-plan.md`](../plans/2026-08-28-a1b-institutional-sign-in-plan.md)
+[`../plans/2026-08-28-a1b-institutional-sign-in-plan.md`](../archive/plans/2026-08-28-a1b-institutional-sign-in-plan.md)
 (stop-gate), a committed decision artifact naming:
 
 > 1. the IdP and environment (a development/test tenant is acceptable and
@@ -130,7 +130,7 @@ failure the worksheet exists to prevent."
   `smartmatch_providers.jwks`, the module is not re-exported from
   `smartmatch_providers.__init__`, `Settings` carries no `SMARTMATCH_JWKS_*`,
   issuer, or audience field, and no JWKS route exists".
-- Per [`../plans/remaining-engineering-implementation-plan.md`](../plans/remaining-engineering-implementation-plan.md)
+- Per [`../plans/remaining-engineering-implementation-plan.md`](../archive/plans/remaining-engineering-implementation-plan.md)
   §4 follow-up list: attaching a bearer obtained from a live IdP, route guards
   as UX, and removal of `sessionStorage["iaw_session"]` fallback identities are
   sequenced after A1b, "not part of Fix #7A".
@@ -143,6 +143,6 @@ failure the worksheet exists to prevent."
 - [`../decisions/a1b-idp-configuration-worksheet.md`](../decisions/a1b-idp-configuration-worksheet.md) — Part 1 status, fill rule
 - [`../decisions/a1b-gcp-console-guide.md`](../decisions/a1b-gcp-console-guide.md) — provisioning guide
 - [`../decisions/pilot-login-decision-2026-09-04.md`](../decisions/pilot-login-decision-2026-09-04.md) — pilot deviation, production SSO deferred
-- [`../plans/2026-08-28-a1b-institutional-sign-in-plan.md`](../plans/2026-08-28-a1b-institutional-sign-in-plan.md) — stop-gate, current state
-- [`../plans/remaining-engineering-implementation-plan.md`](../plans/remaining-engineering-implementation-plan.md) — §2 row 7, §3 Wave C, §4
+- [`../plans/2026-08-28-a1b-institutional-sign-in-plan.md`](../archive/plans/2026-08-28-a1b-institutional-sign-in-plan.md) — stop-gate, current state
+- [`../plans/remaining-engineering-implementation-plan.md`](../archive/plans/remaining-engineering-implementation-plan.md) — §2 row 7, §3 Wave C, §4
 - [`../decisions/owner-roster.md`](../decisions/owner-roster.md) — row 6, provisioner

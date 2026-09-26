@@ -1,6 +1,6 @@
 """The OQ-CE-03 sample result, pinned so the document Chau forwards stays true.
 
-``docs/plans/open-questions/oq-ce-03-sample-result.md`` reports what the
+``docs/archive/plans/open-questions/oq-ce-03-sample-result.md`` reports what the
 shipped coefficient set does on Ann's 300-row file: for Northline (E11) and
 Harbor (E12), three invited lists of thirty — the default equal weights, "said
 they are interested" alone, and "same major" alone — each run through the

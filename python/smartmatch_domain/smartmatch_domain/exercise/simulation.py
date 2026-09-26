@@ -34,7 +34,7 @@ randomness**. "A lot", "some" and "a little" became 40, 10 and 4 in 100, and
 Ann left the numbers to Chau. The team translated her words, Chau approved the
 translation (wave-2 decision D7), and that closed OQ-CE-03. The sample result
 the numbers were checked against is
-``docs/plans/open-questions/oq-ce-03-sample-result.md``. If Ann reacts to it,
+``docs/archive/plans/open-questions/oq-ce-03-sample-result.md``. If Ann reacts to it,
 changing a number is a one-line edit to :data:`EXERCISE_SIMULATION_COEFFICIENTS`.
 
 ## The five behaviours the requirements ask for

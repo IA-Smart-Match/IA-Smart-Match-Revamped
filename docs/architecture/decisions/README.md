@@ -70,7 +70,7 @@ hard to locate:
 ## ADR numbering
 
 **There is no reserved number.** Agent-memory Slice 1
-(`docs/superpowers/plans/2026-08-24-agent-memory-slice-0.md` and the design spec
+(`docs/archive/superpowers/plans/2026-08-24-agent-memory-slice-0.md` and the design spec
 beside it) still has no file, and it now holds no number either. When it is
 written it takes the next free one.
 

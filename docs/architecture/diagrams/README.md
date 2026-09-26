@@ -4,5 +4,5 @@ Point-in-time diagrams describe the repository state on their stated date. They 
 
 | Date | Diagram set | Scope |
 |---|---|---|
-| 2026-09-04 | [System Process & Architecture Diagrams](2026-09-04-system-process-architecture-diagrams.md) | Grand system map, data lineage, release gates, eight activity workflows, four persona interactions, local/cloud topology, and component status matrix. |
+| 2026-09-04 | [System Process & Architecture Diagrams](../../archive/architecture/diagrams/2026-09-04-system-process-architecture-diagrams.md) | Grand system map, data lineage, release gates, eight activity workflows, four persona interactions, local/cloud topology, and component status matrix. |
 

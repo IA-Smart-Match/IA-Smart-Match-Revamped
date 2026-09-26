@@ -6,7 +6,7 @@
 **Decides:** that the student is the subject of the next phase of work — that the eight-slice engagement program is the CBA platform's shape for it, that every slice fails closed on a named register row, and that the Spring 2027 class exercise is the student-centric classroom where the shared matching mechanism is exercised over fictional rows. It closes no register row and licenses no route, table, or model artifact.
 **Program:** `docs/plans/2026-09-14-student-engagement-program-plan.md`
 **Register:** `docs/plans/open-questions/student-engagement-deferred.md`
-**Evidence:** `docs/plans/2026-09-12-student-centric-prioritization-brief.md` (historical, superseded 2026-09-14); `docs/plans/2026-09-13-student-recommendation-program-plan.md` (historical)
+**Evidence:** `docs/archive/plans/2026-09-12-student-centric-prioritization-brief.md` (historical, superseded 2026-09-14); `docs/archive/plans/2026-09-13-student-recommendation-program-plan.md` (historical)
 **Relates to:** ADR-0013 (attendance-derived engagement), ADR-0016 (CBA scoring policy), ADR-0024 (staged student→event recommender), ADR-0025 (class-exercise scope shares the matching mechanism). Amends none of them.
 
 > **Proposed.** This ADR adds no capability and removes none. Both stakeholder
@@ -22,7 +22,7 @@
 **The direction is recorded, and its source is a relayed meeting.** The
 stakeholder session of 12 September 2026 (Dr. Ann Wang, Yuka, Lisa), relayed by
 Danny Tran as program owner of record, is quoted in
-[`2026-09-12-student-centric-prioritization-brief.md`](../../plans/2026-09-12-student-centric-prioritization-brief.md)
+[`2026-09-12-student-centric-prioritization-brief.md`](../../archive/plans/2026-09-12-student-centric-prioritization-brief.md)
 §1: the next-phase MVP is **student-to-event matching plus push
 notifications/reminders that drive registrations**, with **speaker matching, AI
 features, and mobile deferred**; the reward/points system is the **strong second

@@ -15,11 +15,11 @@ shade of an existing CPP hue. No new brand colour is introduced.
 
 Companion files:
 
-- [`prompts/README.md`](prompts/README.md): how to generate screens from this system.
+- [`prompts/README.md`](../../archive/design/class-exercise/prompts/README.md): how to generate screens from this system.
 - [`experiments.md`](experiments.md): directions explored and why this one won.
-- [`generated.md`](generated.md): contact sheet of the 2026-09-26 mock-ups (24 images and a private Claude Design canvas).
-- [`assets/svg/`](assets/svg/): the spot art this system allows.
-- [`assets/mockups/`](assets/mockups/): 8 reference PNGs from the Fable
+- [`generated.md`](../../archive/design/class-exercise/generated.md): contact sheet of the 2026-09-26 mock-ups (24 images and a private Claude Design canvas).
+- [`assets/svg/`](assets/svg): the spot art this system allows.
+- [`assets/mockups/`](../../archive/design/class-exercise/assets/mockups): 8 reference PNGs from the Fable
   experimental track ("The Room" and "The Ledger"). They show layout and
   motion intent; their teal palette and Fraunces/Newsreader type are **not**
   this system's. Where they differ, this file wins.
@@ -250,7 +250,7 @@ No horizontal page scroll at any width. Touch targets are at least 44×44px.
   (results lock), `Armchair` (seats), `Mail` (invite), `MessageSquareText`
   (asking), `Info` (notice), `TriangleAlert` (transport error), `Upload`,
   `FileSpreadsheet`, `KeyRound` (passcode), `RotateCcw` (reset), `Download`.
-- **Spot art:** the geometric SVGs in [`assets/svg/`](assets/svg/). They are
+- **Spot art:** the geometric SVGs in [`assets/svg/`](assets/svg). They are
   shapes, not pictures, coloured by `currentColor` and drawn at 96–160px.
   Only in empty, locked and first-visit states; at most one per screen; never
   in a data row or next to a heading.
@@ -409,7 +409,7 @@ event name in Proxima Sera 32, "Topics:" and "Aimed at:" lines, trailing
 | X | notice with the server sentence |
 | Dis | n/a (a round card is a link) |
 
-### 6.6 Weight slider (see [prompt](prompts/components/weight-slider.md))
+### 6.6 Weight slider (see [prompt](../../archive/design/class-exercise/prompts/components/weight-slider.md))
 
 Label (Ann's words, from `factor_labels`), track, thumb, and a paired 88px
 numeric field showing the value to two decimals. Range 0–1, step 0.05 on the
@@ -427,7 +427,7 @@ Commit on pointer-up, on Enter, or on field blur; never per drag tick.
 | X | field outline `--ce-danger`, message under field from the component ("Type a number for this weight.") or the server's refusal sentence |
 | Dis | 45% opacity; never disabled during a refetch |
 
-### 6.7 Ranked row with reason line (see [prompt](prompts/components/ranked-row.md))
+### 6.7 Ranked row with reason line (see [prompt](../../archive/design/class-exercise/prompts/components/ranked-row.md))
 
 Desktop: table row. Columns: rank (Transducer 28, primary), name (Usual 600
 20) with the reason line beneath (Proxima Sera 18, muted), major, year, marker
@@ -477,7 +477,7 @@ Three small tables (by major, by year, by how much we know), each with columns
 One line with `Users` icon, `--ce-gold-tint` background: "Nobody on this list
 is a Senior or an Accounting major." Hidden when nothing is missing.
 
-### 6.11 Saved-setting card (see [prompt](prompts/components/saved-setting-card.md))
+### 6.11 Saved-setting card (see [prompt](../../archive/design/class-exercise/prompts/components/saved-setting-card.md))
 
 Index-card style, three slots (the count is `max_settings` from the server).
 Filled card: name (Proxima Sera 24), four weight rows (label + value in tabular
@@ -497,14 +497,14 @@ weights on screen to fill it."
 | X | notice above the row with the server sentence; the typed name stays in the field |
 | Dis | once two cards are ticked, the third "Compare" toggle disables with the line "Two are chosen. Untick one to swap." |
 
-### 6.12 Compare view (see [prompt](prompts/components/compare-view.md))
+### 6.12 Compare view (see [prompt](../../archive/design/class-exercise/prompts/components/compare-view.md))
 
 Two ranked lists side by side (1280) or a segmented control A | B (390),
 summary sentence "12 names are on both lists, highlighted in each.", overlap
 rows gold-washed with an "on both lists" chip, close action. On 390 each list
 shows 10 rows and "Showing 10 of 30. Show all 30" (from Fable's Room
-mock-up). Reference: [`room/compare-1280.png`](assets/mockups/room/compare-1280.png),
-[`room/compare-390.png`](assets/mockups/room/compare-390.png).
+mock-up). Reference: [`room/compare-1280.png`](../../archive/design/class-exercise/assets/mockups/room/compare-1280.png),
+[`room/compare-390.png`](../../archive/design/class-exercise/assets/mockups/room/compare-390.png).
 
 ### 6.13 Final-setting picker
 
@@ -521,7 +521,7 @@ disabled until chosen, with that line as its description.
 | Unlocked, not run | `LockOpen` chip "Results are open", final-setting picker, primary "Run results for this event" |
 | Already run | results render; the run button is gone and a line says "A team runs results once per event." |
 
-### 6.15 Results reveal and seat figures (see [prompt](prompts/components/results-reveal.md))
+### 6.15 Results reveal and seat figures (see [prompt](../../archive/design/class-exercise/prompts/components/results-reveal.md))
 
 Seating chart (grid of `event_seats` squares, 10 per row → 6 rows for 60;
 any other count fills rows of 10 and leaves the last row short), a small
@@ -546,7 +546,7 @@ Table fallback stays, visually as a quiet data table under a disclosure
 Invited, Signed up, Attended as three lists of name chips (`--ce-surface-sunk`,
 radius pill). Heading shows the count. "Nobody." when empty.
 
-### 6.18 Asking choice card (see [prompt](prompts/components/asking-choice-cards.md))
+### 6.18 Asking choice card (see [prompt](../../archive/design/class-exercise/prompts/components/asking-choice-cards.md))
 
 Three full-width radio cards in a `radiogroup`. Label in Proxima Sera 24 (the
 wording from `askingChoices.ts`), one supporting line, no percentages.
@@ -577,7 +577,7 @@ messages", "Topics added from the first event". Values count up once.
 
 No left border stripe. `ce-notice-in` on appear.
 
-### 6.21 Loading skeletons (see [prompt](prompts/components/empty-and-loading-states.md))
+### 6.21 Loading skeletons (see [prompt](../../archive/design/class-exercise/prompts/components/empty-and-loading-states.md))
 
 Content-shaped blocks in `--ce-surface-sunk`, `ce-skeleton`. Each skeleton has
 a visually hidden `role="status"` "Loading the list…" so the stated-loading
@@ -603,8 +603,8 @@ spec stays so the later build starts from it.
 
 Passcode field (with show/hide toggle), dropzone for `.xlsx`, dataset row,
 invite-limit stepper, team row (6), unlock row, ask-for-every-team panel. See
-[instructor prompt](prompts/pages/11-instructor.md) and
-[unlock panel prompt](prompts/components/instructor-unlock-panel.md).
+[instructor prompt](../../archive/design/class-exercise/prompts/pages/11-instructor.md) and
+[unlock panel prompt](../../archive/design/class-exercise/prompts/components/instructor-unlock-panel.md).
 
 | State | Dropzone | Unlock row | Team row |
 |---|---|---|---|
@@ -777,7 +777,7 @@ Before a run: lock panel (6.14) in the seating-chart position.
   who answered. Every generated mock-up must follow this.
 - **Names in mock-ups:** fictional, diverse, plausible for a Southern
   California business school. Use the set in
-  [`prompts/README.md`](prompts/README.md#7-shared-fictional-data) so screens agree.
+  [`prompts/README.md`](../../archive/design/class-exercise/prompts/README.md#7-shared-fictional-data) so screens agree.
 - **Sentence case** everywhere; direct verbs on buttons ("Save these
   weights", "Run results for this event", "Open results").
 - **Seat sentences:** exactly the pattern "{existing} were already coming.

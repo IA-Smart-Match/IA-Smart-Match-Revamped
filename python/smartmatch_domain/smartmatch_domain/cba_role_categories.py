@@ -18,7 +18,7 @@ person performs at an event*. A CBA role category is the *career discipline a
 speaker works in*: `Finance`, `Human Resources`. The two use the word "role"
 for unrelated things.
 
-`docs/plans/2026-09-05-cba-pivot-waves.md` states the rule directly —
+`docs/archive/plans/2026-09-05-cba-pivot-waves.md` states the rule directly —
 "ADR-0012's event type/speaker-function tag vocabulary is not the CBA
 career-role taxonomy. They remain separate versioned vocabularies." Separation
 is held structurally, not by discipline: distinct version tokens, and
@@ -66,7 +66,7 @@ Sources
 
 * ``docs/product/cba-smart-match-customer-requirements.md`` §8
 * ``docs/product/cba-taxonomies.md`` (this list, in prose)
-* ``docs/plans/2026-09-05-cba-pivot-waves.md`` (CBA-TAXONOMY)
+* ``docs/archive/plans/2026-09-05-cba-pivot-waves.md`` (CBA-TAXONOMY)
 """
 
 from __future__ import annotations

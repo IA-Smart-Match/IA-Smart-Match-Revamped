@@ -29,7 +29,7 @@ committed artifacts and no judgement of this file's own:
   ratified 2026-09-03 by the named program owner, fixing the factor list, the
   weights, the golden-case ADR-0011 classifications, and the presentation rules
   (2-3 speakers, no percentage display).
-* ``docs/plans/2026-08-28-g1-matching-m1-m10-plan.md`` card **M8b** — the card
+* ``docs/archive/plans/2026-08-28-g1-matching-m1-m10-plan.md`` card **M8b** — the card
   that authorizes routes at all, and which states the rule this file is being
   changed under: "Update the fail-closed OpenAPI scan in the same commit the
   routes land — that is its deliberate flip."

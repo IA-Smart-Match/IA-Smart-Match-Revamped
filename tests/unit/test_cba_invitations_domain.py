@@ -1,6 +1,6 @@
 """B26 T4: an availability verdict becomes a compose / dispatch skip reason.
 
-Plan ``docs/plans/b26-tracks/T4-plan.md`` §4.3-§4.4, §8 test 11.
+Plan ``docs/archive/plans/b26-tracks/T4-plan.md`` §4.3-§4.4, §8 test 11.
 """
 
 from __future__ import annotations

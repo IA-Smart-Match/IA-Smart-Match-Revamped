@@ -429,7 +429,7 @@ one guard for all three would leave the other two open:**
 **What this command does not guard, named rather than papered over.**
 Authorization here cannot call `smartmatch_authz.assert_allowed`, because a
 `job` row has no owning org unit for the inherited-grant path to match against
-— the same gap `docs/security/scaffold-security-review.md` records against
+— the same gap `docs/archive/security/scaffold-security-review.md` records against
 job *reads* (S-006) now also applies to re-driving and abandoning them: a
 coordinator in one department can re-run, or permanently close, another
 department's failed work. Closing it needs `job.owning_unit_id` (backlog item

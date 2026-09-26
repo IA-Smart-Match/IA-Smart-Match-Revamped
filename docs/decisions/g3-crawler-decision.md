@@ -2,7 +2,7 @@
 
 **Status:** **SIGNED** 2026-08-29 by Danny Tran, Development Lead. No required
 field is blank. This artifact passes P6's G3 stop-gate.
-**Gate:** P6 (`docs/plans/2026-08-28-g3-events-s3-s5-plan.md`).
+**Gate:** P6 (`docs/archive/plans/2026-08-28-g3-events-s3-s5-plan.md`).
 **Decisions taken:** 2026-08-29, in session.
 **Owner of record:** **Danny Tran, Development Lead** (@BrooklynD23)
 **Changes no code.**
@@ -248,7 +248,7 @@ Consequences accepted:
 
 **The threat model is not signed and must not be signed as drafted.** Findings —
 two defective controls, five missing threats — are at
-`docs/security/r3-technical-review-findings.md`.
+`docs/archive/security/r3-technical-review-findings.md`.
 
 **T-13 (egress policy) accepted as an open risk.** Risk owner: **Danny Tran,
 Development Lead**. No network-level egress control exists and nothing is
@@ -307,9 +307,9 @@ reviewed separately and remains unsigned. It does NOT authorize live targets.
 
 ## References
 
-- `docs/plans/2026-08-28-g3-events-s3-s5-plan.md` — the stop-gate this answers
-- `docs/plans/prep/campus-event-discovery-capability.md` — architecture research
-- `docs/plans/prep/g3-allowlist-candidates.md` — allowlist schema; CPP survey §8
-- `docs/plans/prep/g3-limits-and-policy-options.md` — limits, cost, escalation
-- `docs/plans/prep/g3-eval-and-vocabulary-candidates.md` — eval set, term definitions
-- `docs/security/r3-technical-review-findings.md` — R3 review (unsigned)
+- `docs/archive/plans/2026-08-28-g3-events-s3-s5-plan.md` — the stop-gate this answers
+- `docs/archive/plans/prep/campus-event-discovery-capability.md` — architecture research
+- `docs/archive/plans/prep/g3-allowlist-candidates.md` — allowlist schema; CPP survey §8
+- `docs/archive/plans/prep/g3-limits-and-policy-options.md` — limits, cost, escalation
+- `docs/archive/plans/prep/g3-eval-and-vocabulary-candidates.md` — eval set, term definitions
+- `docs/archive/security/r3-technical-review-findings.md` — R3 review (unsigned)

@@ -134,7 +134,7 @@ bytes; the ingest core takes bytes either way.
 ### 4.1 Shared: the `FactorRegistry` parameterisation (ADR-0024 D2)
 
 Executed once, first, exactly as Task 1 of
-`docs/superpowers/plans/2026-09-14-student-recommender-v1-plan.md`: a frozen
+`docs/archive/superpowers/plans/2026-09-14-student-recommender-v1-plan.md`: a frozen
 `FactorRegistry` value object threaded through `assert_registry_approved`,
 `assert_scoring_ready`, `factor_keys`, `implemented_scoring_keys`,
 `resolve_scoring_model`, `normalize_weights`, `scoring._FACTOR_KIND`, and
@@ -328,7 +328,7 @@ randomness"). The team's translation ships as
 fit +0.40, split half true interests and half career goal; attended at least
 one past event +0.10; same major +0.04; chance up to 0.10 either way (spread
 0.20); 0.75 of sign-ups attend. **Chau approved it on 2026-09-25** from
-[the sample result](../../plans/open-questions/oq-ce-03-sample-result.md),
+[the sample result](../../archive/plans/open-questions/oq-ce-03-sample-result.md),
 which Ann receives for information; a change is one line. The
 `PLACEHOLDER` comment above the constant is being removed on
 `feat/ce-results-integration` (not yet merged). The module docstring's plain-words paragraph

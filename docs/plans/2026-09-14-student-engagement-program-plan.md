@@ -174,11 +174,11 @@ calendar time, not total engineering hours.
 The following documents preserve useful research and the superseded recommendation
 sequence. They do not authorize implementation:
 
-- [`2026-09-12-student-centric-prioritization-brief.md`](2026-09-12-student-centric-prioritization-brief.md)
-- [`2026-09-13-student-recommendation-program-plan.md`](2026-09-13-student-recommendation-program-plan.md)
-- [`research/2026-09-12-flyer-intake-research.md`](research/2026-09-12-flyer-intake-research.md)
-- [`research/2026-09-13-engagement-feed-research.md`](research/2026-09-13-engagement-feed-research.md)
-- [`../ui/pilot-prototype-prompts.md`](../ui/pilot-prototype-prompts.md)
+- [`2026-09-12-student-centric-prioritization-brief.md`](../archive/plans/2026-09-12-student-centric-prioritization-brief.md)
+- [`2026-09-13-student-recommendation-program-plan.md`](../archive/plans/2026-09-13-student-recommendation-program-plan.md)
+- [`research/2026-09-12-flyer-intake-research.md`](../archive/plans/research/2026-09-12-flyer-intake-research.md)
+- [`research/2026-09-13-engagement-feed-research.md`](../archive/plans/research/2026-09-13-engagement-feed-research.md)
+- [`../ui/pilot-prototype-prompts.md`](../archive/ui/pilot-prototype-prompts.md)
 
 An executor starts from this plan and the canonical register, then verifies current
 README authority, current code, current migration head, and accepted ADRs. This

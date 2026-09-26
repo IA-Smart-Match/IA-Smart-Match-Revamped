@@ -1,3 +1,5 @@
+> **Drift note (2026-09-26):** counts below are pinned to the Stage-1 baseline. Current reality: ~55 tables, 43 migrations (head `0043`), ~50 router modules, **7 import-linter contracts over 5 root packages**. Verify against the tree before trusting a number.
+
 # Architecture Principles
 
 **Stage 2.** Thirteen principles, AP-01…AP-13. Commit base `c72dced`, 8 September 2026.

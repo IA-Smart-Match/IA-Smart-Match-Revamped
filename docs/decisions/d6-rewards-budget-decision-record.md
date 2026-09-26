@@ -5,8 +5,8 @@ institutional budget owner. **$5,000** placeholder ceiling ratified pending
 institutional funding confirmation — **not** a ratified figure. IA West
 Coordinator remains operational administrator. D7 remains tentative and is
 **not** promoted by this record.
-**Gate:** P7 — D6/D7 rewards (`docs/plans/prep/blocked-work-register-830.md`
-§"P7 — D6/D7 rewards"; `docs/plans/2026-08-28-d6-rewards-s8-s9-plan.md`
+**Gate:** P7 — D6/D7 rewards (`docs/archive/plans/prep/blocked-work-register-830.md`
+§"P7 — D6/D7 rewards"; `docs/archive/plans/2026-08-28-d6-rewards-s8-s9-plan.md`
 Stop-gate item 1).
 **Formal decider:** Danny Tran (@BrooklynD23), rewards budget owner — named
 2026-09-02.
@@ -20,7 +20,7 @@ already recorded in `docs/decisions/pilot-decisions.md` §D6, and it is the
 `docs/decisions/2026-08-31-session-ratification.md` (row "P7 D6/D7") both
 point to. Deliverable 2 — schema/append-only verification of the rewards
 tables already authorized by migration `0009` — is recorded separately in
-`docs/testing/d6-p7-rewards-schema-verification.md`.
+`docs/archive/testing/d6-p7-rewards-schema-verification.md`.
 
 ---
 
@@ -36,7 +36,7 @@ for the rewards program, effective 2026-09-02.
   "P7 D6/D7": "Danny Tran (@BrooklynD23), budget owner — D6 closed 2026-09-02" /
   "Institutional budget owner: Danny Tran; operational control with IA West
   Coordinator."
-- Confirmed by `docs/plans/prep/blocked-work-register-830.md` §0 row 5:
+- Confirmed by `docs/archive/plans/prep/blocked-work-register-830.md` §0 row 5:
   "**Rewards budget owner (D6)** … **Named 2026-09-02** — Danny Tran (@BrooklynD23);
   $5k placeholder. D6 **closed** for pilot scope."
 
@@ -70,7 +70,7 @@ it yet.
 - Source: `docs/decisions/pilot-decisions.md` §D6 permitted implementation
   boundary: "The $5,000 placeholder and the tentative D7 values below are
   **not promoted to ratified figures**."
-- Source: `docs/plans/prep/blocked-work-register-830.md` §2 "P7":
+- Source: `docs/archive/plans/prep/blocked-work-register-830.md` §2 "P7":
   "$5,000 placeholder ceiling ratified pending institutional funding
   confirmation."
 - Consistent with the file-wide status line every entry in
@@ -93,7 +93,7 @@ calibration N) **remains tentative**. Closing D6 does **not** promote D7.
   figures."
 - Source: `docs/decisions/2026-08-31-session-ratification.md` row "P7 D6/D7":
   "D7 remains tentative."
-- Source: `docs/plans/prep/blocked-work-register-830.md` §2 "P7": "**Waiting
+- Source: `docs/archive/plans/prep/blocked-work-register-830.md` §2 "P7": "**Waiting
   on:** D7 calibration review; cards L1–L4+ remain gated per plan."
 
 D7's tentative numbers (100 points per verified attendance; 300/600/1,000
@@ -140,7 +140,7 @@ This document — the "formal D6 record" the boundary text refers to — and the
 schema verification performed under it are exactly what this slice (V6)
 delivers. Nothing else was built. In particular, and consistent with
 `docs/decisions/2026-08-31-session-ratification.md`'s "Superseded plans"
-table (row for `docs/plans/2026-08-28-d6-rewards-s8-s9-plan.md`, P7): cards
+table (row for `docs/archive/plans/2026-08-28-d6-rewards-s8-s9-plan.md`, P7): cards
 L1–L4, C1, R3, and U1 of that plan (ledger fold, catalog listing, redemption,
 frontend retirement) **remain gated** on D6/D7/role artifacts and do not
 start early under this record.
@@ -154,7 +154,7 @@ against `python/smartmatch_persistence/smartmatch_persistence/schema.py`,
 `tests/unit/test_engagement_schema.py`, and
 `tests/integration/test_engagement_schema_constraints.py`. Full evidence,
 file:line citations, and command output are in
-`docs/testing/d6-p7-rewards-schema-verification.md`. Summary:
+`docs/archive/testing/d6-p7-rewards-schema-verification.md`. Summary:
 
 | # | Check | Verdict |
 |---|---|---|
@@ -186,13 +186,13 @@ Date:                  2026-09-02
 - `docs/decisions/pilot-decisions.md` §D6 and §D7
 - `docs/decisions/2026-08-31-session-ratification.md` — matrix row "P7 D6/D7";
   "Superseded plans" table row for
-  `docs/plans/2026-08-28-d6-rewards-s8-s9-plan.md`
-- `docs/plans/prep/blocked-work-register-830.md` §0 row 5, §2 "P7 — D6/D7
+  `docs/archive/plans/2026-08-28-d6-rewards-s8-s9-plan.md`
+- `docs/archive/plans/prep/blocked-work-register-830.md` §0 row 5, §2 "P7 — D6/D7
   rewards"
-- `docs/plans/2026-08-28-d6-rewards-s8-s9-plan.md` (context only; cards
+- `docs/archive/plans/2026-08-28-d6-rewards-s8-s9-plan.md` (context only; cards
   L1–L4, C1, R3, U1 remain gated)
 - `docs/architecture/decisions/ADR-0011-accountable-numbers.md`
-- `docs/testing/d6-p7-rewards-schema-verification.md` (Deliverable 2, full
+- `docs/archive/testing/d6-p7-rewards-schema-verification.md` (Deliverable 2, full
   evidence)
 - `python/smartmatch_persistence/smartmatch_persistence/schema.py`
 - `db/migrations/versions/0009_engagement_schema.py`

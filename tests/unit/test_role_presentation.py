@@ -9,7 +9,7 @@ separate concerns on purpose, and these tests are what keep them separate:
    default persona.
 2. Stored ``membership.role`` strings are unchanged. A permanent database
    rename is a separate, deferred decision
-   (``docs/plans/2026-09-05-cba-pivot-waves.md``), so the storage vocabulary is
+   (``docs/archive/plans/2026-09-05-cba-pivot-waves.md``), so the storage vocabulary is
    pinned here and a rename has to come through this test on purpose.
 3. A visible label is not a role. No persona label may appear in an
    authorization role set — which is what makes "editing a label cannot widen

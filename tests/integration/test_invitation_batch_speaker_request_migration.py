@@ -10,7 +10,7 @@
 * ``fk_cba_invitation_batch_speaker_request`` — composite ``(tenant_id,
   speaker_request_id)`` → ``event (tenant_id, id)``, ``ON DELETE RESTRICT``.
 
-Plan: ``docs/plans/b26-tracks/T4-plan.md`` §4.1, tests M1–M7. The upgrade and
+Plan: ``docs/archive/plans/b26-tracks/T4-plan.md`` §4.1, tests M1–M7. The upgrade and
 downgrade run for real against a scratch database seeded at ``0040``.
 
 Requires a live database and the privilege to create one; skipped otherwise.

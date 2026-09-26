@@ -13,10 +13,10 @@ first, and the database's own CHECK/constraint machinery is what still holds
 the line if that call were ever skipped or wrong.
 
 **Nothing in this repository calls the persistence writer this module backs
-yet.** Plan `docs/plans/2026-08-28-opportunities-s12-plan.md` states a
+yet.** Plan `docs/archive/plans/2026-08-28-opportunities-s12-plan.md` states a
 standing constraint that applies to this exact table: "No matcher actions
 before G1." G1 (plan P5, M1–M10 matching) has not closed
-(`docs/status-report/2026-09-02-audit-status-report.md` §5), so nothing in
+(`docs/archive/status-report/2026-09-02-audit-status-report.md` §5), so nothing in
 this codebase originates a genuine "subject X matched to opportunity Y"
 event yet — professionals additionally have no persisted identity of their
 own to be that subject (`professional_unit_relationship`'s own column

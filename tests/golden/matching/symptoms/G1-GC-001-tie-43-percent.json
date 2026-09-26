@@ -2,7 +2,7 @@
   "id": "G1-GC-001",
   "symptom_class": "tie",
   "description": "Exact 43% tie between candidates — stakeholder test log symptom. Workshop must supply the reproducing inputs and the approved tie-break rule. No expected scores until G1 closes.",
-  "stakeholder_reference": "docs/plans/stakeholder-audit-integration.md — 43% tie; MM-002 golden case",
+  "stakeholder_reference": "docs/archive/plans/stakeholder-audit-integration.md — 43% tie; MM-002 golden case",
   "inputs": {
     "candidates": [],
     "event_need": {

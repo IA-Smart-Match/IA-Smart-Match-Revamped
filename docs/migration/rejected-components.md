@@ -8,7 +8,7 @@ Legacy baseline: `BrooklynD23/Nebiux-Team-IA-West-SmartMatch` @ `bdce024`.
 
 **Corrected 26 August 2026.** Four rows in the MM-005 and MM-004 tables below
 asserted things the independent port review
-(`docs/migration/port-verification.md`) disproved — findings F-21, F-22, F-12
+(`docs/archive/migration/port-verification.md`) disproved — findings F-21, F-22, F-12
 and the description half of F-23. Corrections are marked inline and the
 withdrawn claim is shown struck through rather than deleted, because a rejection
 rationale that quietly changes its reason is not a record of a decision. The

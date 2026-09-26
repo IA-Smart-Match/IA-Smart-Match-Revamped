@@ -148,7 +148,7 @@ in the exported OpenAPI document nowhere.
 > switchable off by `SMARTMATCH_DB_HIDE_PARAMETERS` for a local debugging
 > session only (owner decision, Danny Tran, 19 September 2026: "yes,
 > env-switchable"). The plan and the inventory behind it are
-> `docs/superpowers/plans/2026-09-19-engine-hide-parameters-plan.md`.
+> `docs/archive/superpowers/plans/2026-09-19-engine-hide-parameters-plan.md`.
 >
 > Two limits belong in the record rather than in a commit message. The flag
 > governs SQLAlchemy's rendering only: PostgreSQL's own `DETAIL: Failing row

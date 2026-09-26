@@ -12,7 +12,7 @@ the placement is asserted here, mechanically, against the source.
    strictly last. Asserted as positions in the file rather than as "the calendar
    exists", because a page that rendered the grid first would pass every other
    test in this repository.
-2. **The grid is not a replacement.** ``docs/architecture/engagement-model.md``
+2. **The grid is not a replacement.** ``docs/archive/architecture/engagement-model.md``
    §5 (D-11) argues against a month grid as the primary surface; the customer
    asked for one on the page. The resolution is *both, in an order*, which only
    holds while the two lists are actually there — so their presence is asserted

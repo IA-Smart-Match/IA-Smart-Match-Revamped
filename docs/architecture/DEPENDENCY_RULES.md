@@ -1,3 +1,5 @@
+> **Drift note (2026-09-26):** counts below are pinned to the Stage-1 baseline. Current reality: ~55 tables, 43 migrations (head `0043`), ~50 router modules, **7 import-linter contracts over 5 root packages**. Verify against the tree before trusting a number.
+
 # Dependency Rules
 
 **Stage 2.** The target import boundaries, written so they can be implemented as

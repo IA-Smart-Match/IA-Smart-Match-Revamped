@@ -553,6 +553,6 @@ alternatives ADR-0017 rejected.
 - `tools/pilot_dataset_plan.py` — every deliberately-unmeasured fraction
 - `tests/unit/test_pilot_dataset_plan.py` — the pure assertions over that plan
 - [`local-dev-walkthrough.md`](local-dev-walkthrough.md) — the by-hand path
-- [`hosted-synthetic-pilot-guide.md`](hosted-synthetic-pilot-guide.md) — the
+- [`hosted-synthetic-pilot-guide.md`](../archive/operations/hosted-synthetic-pilot-guide.md) — the
   `docker compose` path, where the `scheduler` sidecar drives dispatch for you
 - `docs/pilot-data/rewards-catalog-worksheet.md` — the owner-supplied catalog

@@ -16,7 +16,7 @@ asserting it succeeds. The second half is what catches inversion: an inverted
 the wrong reason, and would refuse `spent = 0`, which is where it fails.
 
 **The `NOT VALID` half of the gap needs a different instrument, and this is the
-correction to the record.** `docs/plans/remaining-foundation-r1-work.md` (F10)
+correction to the record.** `docs/archive/plans/remaining-foundation-r1-work.md` (F10)
 and the docstring of `test_check_constraint_names_match` both say a constraint
 re-added as `NOT VALID` "stays green". That is true of the name-only test and it
 is *equally true of a write test*: verified against PostgreSQL 16.15, a

@@ -4,7 +4,7 @@ This directory is the **approved memory ledger**: what agents working in this
 repository have learned and a human has confirmed. It is plain committed
 Markdown, validated by `tools/agent_memory_check.py` on every `make check`.
 
-Design and rationale: `docs/superpowers/specs/2026-08-24-agent-memory-design.md`.
+Design and rationale: `docs/archive/superpowers/specs/2026-08-24-agent-memory-design.md`.
 
 ## The one rule that matters
 

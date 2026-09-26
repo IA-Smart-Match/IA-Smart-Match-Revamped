@@ -27,7 +27,7 @@ live fetch, and who signs each off.
 **Two sources conflict. Both are quoted; this packet resolves neither.**
 
 Source A —
-[`../plans/remaining-engineering-implementation-plan.md`](../plans/remaining-engineering-implementation-plan.md)
+[`../plans/remaining-engineering-implementation-plan.md`](../archive/plans/remaining-engineering-implementation-plan.md)
 §2, row 2, classifies the crawler/event pipeline as **blocked-on-stakeholder**:
 
 > G3, the crawler threat model, the tool allowlist/eval set/cost controls, and
@@ -91,14 +91,14 @@ Neutral; each has consequences. This packet selects none.
    *Consequence:* the allowlist, eval set, cost ceilings, and vocabulary return
    to unapproved status, and the fixture-based work already scoped by the
    31 August ratification (see
-   [`../plans/2026-08-28-g3-events-s3-s5-plan.md`](../plans/2026-08-28-g3-events-s3-s5-plan.md)'s
+   [`../plans/2026-08-28-g3-events-s3-s5-plan.md`](../archive/plans/2026-08-28-g3-events-s3-s5-plan.md)'s
    amendment header) would need its own restatement; this packet does not say
    what happens to work already landed under it.
 
 ## Evidence needed to close
 
 From
-[`../plans/2026-08-28-g3-events-s3-s5-plan.md`](../plans/2026-08-28-g3-events-s3-s5-plan.md)
+[`../plans/2026-08-28-g3-events-s3-s5-plan.md`](../archive/plans/2026-08-28-g3-events-s3-s5-plan.md)
 (stop-gate), two committed artifacts are required:
 
 1. a **G3 decision** containing non-blank "approved agent evaluation set and
@@ -118,7 +118,7 @@ the fetch boundary (§8); and the S6a evidence pass (threat-model header).
 
 ## What stays blocked until closure
 
-- Per [`../plans/remaining-engineering-implementation-plan.md`](../plans/remaining-engineering-implementation-plan.md)
+- Per [`../plans/remaining-engineering-implementation-plan.md`](../archive/plans/remaining-engineering-implementation-plan.md)
   §5.2 under option 3: "no crawler route, crawl worker, crawl UI, network call,
   or actual tag vocabulary".
 - Per [`../decisions/g3-crawler-decision.md`](../decisions/g3-crawler-decision.md)
@@ -129,10 +129,10 @@ the fetch boundary (§8); and the S6a evidence pass (threat-model header).
 
 ## Source links
 
-- [`../plans/remaining-engineering-implementation-plan.md`](../plans/remaining-engineering-implementation-plan.md) — §2 row 2, §5.2
-- [`../plans/2026-08-28-g3-events-s3-s5-plan.md`](../plans/2026-08-28-g3-events-s3-s5-plan.md) — 31 August scope amendment, stop-gate
+- [`../plans/remaining-engineering-implementation-plan.md`](../archive/plans/remaining-engineering-implementation-plan.md) — §2 row 2, §5.2
+- [`../plans/2026-08-28-g3-events-s3-s5-plan.md`](../archive/plans/2026-08-28-g3-events-s3-s5-plan.md) — 31 August scope amendment, stop-gate
 - [`../decisions/g3-crawler-decision.md`](../decisions/g3-crawler-decision.md) — §0–§11
 - [`../security/crawler-threat-model-draft.md`](../security/crawler-threat-model-draft.md) — revision 4, signed status
-- [`../plans/prep/g3-allowlist-candidates.md`](../plans/prep/g3-allowlist-candidates.md), [`../plans/prep/g3-eval-and-vocabulary-candidates.md`](../plans/prep/g3-eval-and-vocabulary-candidates.md), [`../plans/prep/g3-limits-and-policy-options.md`](../plans/prep/g3-limits-and-policy-options.md) — preparation inputs
+- [`../plans/prep/g3-allowlist-candidates.md`](../archive/plans/prep/g3-allowlist-candidates.md), [`../plans/prep/g3-eval-and-vocabulary-candidates.md`](../archive/plans/prep/g3-eval-and-vocabulary-candidates.md), [`../plans/prep/g3-limits-and-policy-options.md`](../archive/plans/prep/g3-limits-and-policy-options.md) — preparation inputs
 - [`../decisions/owner-roster.md`](../decisions/owner-roster.md) — row 5, R3 signature authority
 - [`../architecture/decisions/ADR-0012-event-identity-and-tag-vocabulary.md`](../architecture/decisions/ADR-0012-event-identity-and-tag-vocabulary.md), [`../architecture/decisions/ADR-0010-event-temporal-model.md`](../architecture/decisions/ADR-0010-event-temporal-model.md), [`../architecture/decisions/ADR-0015-charge-quota-before-refusal.md`](../architecture/decisions/ADR-0015-charge-quota-before-refusal.md)

@@ -1,0 +1,6 @@
+<svg viewBox="0 0 80 90" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Team badge">
+  <path d="M40 4 L70 16 V42 C70 62 58 76 40 86 C22 76 10 62 10 42 V16 Z" fill="currentColor" opacity="0.12" stroke="currentColor" stroke-width="3" stroke-linejoin="round"/>
+  <circle cx="40" cy="38" r="14" fill="none" stroke="currentColor" stroke-width="3"/>
+  <path d="M33 38 L38 43 L48 31" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <rect x="26" y="60" width="28" height="6" rx="3" fill="currentColor" opacity="0.5"/>
+</svg>

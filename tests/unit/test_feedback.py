@@ -185,7 +185,7 @@ def test_aggregate_movement_is_deliberately_unbounded():
     aggregate bound is unchanged, which is what this test pins.
 
     This is left as it is on purpose. The real defect (review finding F-25,
-    ``docs/plans/defect-remediation.md`` §4.5) is that the number a human
+    ``docs/archive/plans/defect-remediation.md`` §4.5) is that the number a human
     approves is not the number that gets applied, because normalization happens
     outside this module. Fixing that means choosing between normalizing on
     apply and bounding the sum at proposal time, and that choice belongs with

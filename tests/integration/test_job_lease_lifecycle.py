@@ -3,7 +3,7 @@
 Backlog J9 is the recovery path for a worker that dies after its claim commits
 and before the terminal transition does. Migration ``0004`` gave it a column;
 ``jobs.py``, ``execution.py`` and the scheduled pass gave it a lifecycle. What
-the handoff (``docs/plans/pr1-blockers-handoff.md`` §2.2) established is that
+the handoff (``docs/archive/plans/pr1-blockers-handoff.md`` §2.2) established is that
 **none of it was tested** — the 27 lease assertions in
 ``test_outbox_dispatcher.py`` are every one of them about
 ``outbox_record.lease_expires_at``, the dispatcher's lease, which predates J9

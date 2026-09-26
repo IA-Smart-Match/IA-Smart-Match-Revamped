@@ -1,6 +1,6 @@
 """Speaker portal accounts: the invitation token, its TTL, and the activation rules.
 
-B26 T6b-1 (``docs/plans/b26-tracks/T6b-1-plan.md`` §4, §5). The API (invite,
+B26 T6b-1 (``docs/archive/plans/b26-tracks/T6b-1-plan.md`` §4, §5). The API (invite,
 activation) and the worker (late-bound link) both import this module, so there
 is exactly one derivation label and one token shape.
 
