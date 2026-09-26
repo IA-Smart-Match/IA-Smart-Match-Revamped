@@ -73,7 +73,10 @@ from enum import StrEnum
 from typing import Final
 
 from smartmatch_domain.exercise.markers import InformationMarker
-from smartmatch_domain.exercise.registry import EXERCISE_FACTOR_LABELS
+from smartmatch_domain.exercise.registry import (
+    EXERCISE_FACTOR_LABELS,
+    UNDECIDED_GOAL_HALF_LABEL,
+)
 from smartmatch_domain.one_sentence import assert_one_sentence
 from smartmatch_domain.student_factors import CAREER_GOAL_FIT_FACTOR_KEY
 
@@ -169,9 +172,9 @@ _CONTRIBUTION_OPENER: Final[str] = "what counted"
 
 
 #: What an undecided career goal's half fit on an exploratory event is called
-#: in the reason line (OQ-CE-14). "Career goal fits this event" would be false
-#: next to a card that says "Undecided". The team's wording, not Ann's; no number.
-_UNDECIDED_GOAL_PHRASE: Final[str] = "undecided goal suits a broad event"
+#: in the reason line (OQ-CE-14). Defined once in the registry, because the list
+#: response sends the same words as a ``factor_labels`` entry.
+_UNDECIDED_GOAL_PHRASE: Final[str] = UNDECIDED_GOAL_HALF_LABEL
 
 
 def _factor_phrase(contributing_keys: Sequence[str], *, undecided_goal: bool = False) -> str:

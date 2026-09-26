@@ -28,17 +28,11 @@
  */
 import * as React from "react";
 
-import type { ListEntryView } from "../../../lib/exerciseClient";
+import { type ListEntryView, UNDECIDED_GOAL_HALF_LABEL_KEY } from "../../../lib/exerciseClient";
 import { markerLabel } from "./markers";
 
 /** The rulebook key for "career goal fits this event". Never rendered. */
 const CAREER_GOAL_FIT = "career_goal_fit";
-
-/**
- * The Undecided half's name, matching the server's reason phrase
- * (`_UNDECIDED_GOAL_PHRASE` in `smartmatch_domain/exercise/reasons.py`).
- */
-const UNDECIDED_GOAL_HALF_LABEL = "undecided goal suits a broad event";
 
 export interface RankedListProps {
   readonly entries: readonly ListEntryView[];
@@ -148,9 +142,11 @@ export function RankedList({
  * **The Undecided half (D2).** When `undecided_goal_half` is set, the
  * career-goal factor counted only because an undecided goal suits a broad
  * event. Printing "career goal fits this event" next to an "Undecided" card
- * would say the opposite, so that one factor takes the server's reason wording
- * instead. The weight slider's label is unchanged: it names the factor, not
- * this person.
+ * would say the opposite, so that one factor takes the server's own words for
+ * the half instead: the `factor_labels` entry under
+ * `UNDECIDED_GOAL_HALF_LABEL_KEY`. Like any key without a label, it is dropped
+ * if the server sends none — never replaced by the goal-fit label. The weight
+ * slider's label is unchanged: it names the factor, not this person.
  */
 function FactorNames({
   keys,
@@ -163,7 +159,9 @@ function FactorNames({
 }): React.JSX.Element | null {
   const named = keys
     .map((key) =>
-      undecidedGoalHalf && key === CAREER_GOAL_FIT ? UNDECIDED_GOAL_HALF_LABEL : labels[key],
+      undecidedGoalHalf && key === CAREER_GOAL_FIT
+        ? labels[UNDECIDED_GOAL_HALF_LABEL_KEY]
+        : labels[key],
     )
     .filter((label): label is string => label !== undefined);
   if (named.length === 0) {

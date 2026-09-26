@@ -89,6 +89,8 @@ __all__ = [
     "PAST_EVENT_TOPIC_OVERLAP_DEFAULT_WEIGHT",
     "SAME_MAJOR_DEFAULT_WEIGHT",
     "STATED_INTEREST_OVERLAP_DEFAULT_WEIGHT",
+    "UNDECIDED_GOAL_HALF_LABEL",
+    "UNDECIDED_GOAL_HALF_LABEL_KEY",
     "AllZeroExerciseWeightsError",
     "InvalidExerciseWeightError",
     "exercise_applied_weights",
@@ -143,6 +145,18 @@ EXERCISE_FACTOR_LABELS: Final[Mapping[str, str]] = MappingProxyType(
         PAST_EVENT_TOPIC_OVERLAP_FACTOR_KEY: "went to similar events before",
     }
 )
+
+#: What an undecided career goal's half fit on an exploratory event is called
+#: (OQ-CE-14). "Career goal fits this event" would be false next to a card that
+#: says "Undecided". The team's wording, not Ann's; no number. The reason line
+#: uses it, and the list response sends it as a ``factor_labels`` entry under
+#: :data:`UNDECIDED_GOAL_HALF_LABEL_KEY` so a screen never keeps its own copy.
+UNDECIDED_GOAL_HALF_LABEL: Final[str] = "undecided goal suits a broad event"
+
+#: The ``factor_labels`` key for :data:`UNDECIDED_GOAL_HALF_LABEL`: the same
+#: name as the list entry's flag that says when to use it. Not a factor and not
+#: a weight, so it is deliberately absent from :data:`EXERCISE_FACTOR_LABELS`.
+UNDECIDED_GOAL_HALF_LABEL_KEY: Final[str] = "undecided_goal_half"
 
 #: The default weights by key (OQ-CE-02), bound to the four constants above
 #: rather than restating them.

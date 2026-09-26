@@ -16,6 +16,8 @@ import { RankedList } from "./RankedList";
 const FACTOR_LABELS = {
   same_major: "same major",
   career_goal_fit: "career goal fits this event",
+  // Sent by the server beside the factor labels (OQ-CE-14).
+  undecided_goal_half: "undecided goal suits a broad event",
 };
 
 function entry(undecidedGoalHalf: boolean): ListEntryView {
