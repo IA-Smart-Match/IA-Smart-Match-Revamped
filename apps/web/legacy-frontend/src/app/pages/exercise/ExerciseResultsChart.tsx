@@ -176,57 +176,70 @@ export function ExerciseResultsChart({
   );
 
   return (
-    <section data-testid="exercise-results-chart">
+    <section data-testid="exercise-results-chart" className="min-w-0 max-w-full">
       <h2 id={headingId} style={{ fontSize: 30, margin: "0 0 12px" }}>
         {title}
       </h2>
 
-      <BarChart
-        width={880}
-        height={460}
-        data={rows}
-        role="img"
-        aria-labelledby={headingId}
-        margin={{ top: 32, right: 24, bottom: 16, left: 16 }}
+      {/* M2 B2: the chart is drawn at a fixed width for the projector. On a
+          phone it scrolls inside this box instead of widening the page; the
+          table below repeats every count. Focusable and named so a keyboard
+          can scroll it (axe scrollable-region-focusable). Its name is not the
+          title: the chart graphic already carries that, once. */}
+      <div
+        className="max-w-full overflow-x-auto"
+        data-testid="exercise-results-chart-scroll"
+        tabIndex={0}
+        role="region"
+        aria-label="Results chart. Scroll sideways to see all of it."
       >
-        <defs>
+        <BarChart
+          width={880}
+          height={460}
+          data={rows}
+          role="img"
+          aria-labelledby={headingId}
+          margin={{ top: 32, right: 24, bottom: 16, left: 16 }}
+        >
+          <defs>
+            {STAGES.map((stage) => (
+              <pattern
+                key={stage.pattern}
+                id={stage.pattern}
+                patternUnits="userSpaceOnUse"
+                width={8}
+                height={8}
+                patternTransform={`rotate(${STAGES.indexOf(stage) * 45})`}
+              >
+                <rect width={8} height={8} fill={stage.fill} />
+                <line x1={0} y1={0} x2={0} y2={8} stroke="#ffffff" strokeWidth={3} />
+              </pattern>
+            ))}
+          </defs>
+          <CartesianGrid strokeDasharray="3 3" vertical={false} />
+          <XAxis dataKey="label" tick={{ fontSize: AXIS_FONT_SIZE }} interval={0} />
+          <YAxis tick={{ fontSize: AXIS_FONT_SIZE }} allowDecimals={false} />
+          <Legend wrapperStyle={{ fontSize: LEGEND_FONT_SIZE }} />
           {STAGES.map((stage) => (
-            <pattern
-              key={stage.pattern}
-              id={stage.pattern}
-              patternUnits="userSpaceOnUse"
-              width={8}
-              height={8}
-              patternTransform={`rotate(${STAGES.indexOf(stage) * 45})`}
-            >
-              <rect width={8} height={8} fill={stage.fill} />
-              <line x1={0} y1={0} x2={0} y2={8} stroke="#ffffff" strokeWidth={3} />
-            </pattern>
-          ))}
-        </defs>
-        <CartesianGrid strokeDasharray="3 3" vertical={false} />
-        <XAxis dataKey="label" tick={{ fontSize: AXIS_FONT_SIZE }} interval={0} />
-        <YAxis tick={{ fontSize: AXIS_FONT_SIZE }} allowDecimals={false} />
-        <Legend wrapperStyle={{ fontSize: LEGEND_FONT_SIZE }} />
-        {STAGES.map((stage) => (
-          <Bar
-            key={stage.key}
-            dataKey={stage.key}
-            name={stage.label}
-            fill={`url(#${stage.pattern})`}
-            stroke={stage.fill}
-            strokeWidth={2}
-            isAnimationActive={false}
-          >
-            <LabelList
+            <Bar
+              key={stage.key}
               dataKey={stage.key}
-              position="top"
-              formatter={renderValueLabel}
-              style={{ fontSize: VALUE_FONT_SIZE, fontWeight: 700, fill: "#111111" }}
-            />
-          </Bar>
-        ))}
-      </BarChart>
+              name={stage.label}
+              fill={`url(#${stage.pattern})`}
+              stroke={stage.fill}
+              strokeWidth={2}
+              isAnimationActive={false}
+            >
+              <LabelList
+                dataKey={stage.key}
+                position="top"
+                formatter={renderValueLabel}
+                style={{ fontSize: VALUE_FONT_SIZE, fontWeight: 700, fill: "#111111" }}
+              />
+            </Bar>
+          ))}
+        </BarChart>
+      </div>
 
       {caption ? <p style={{ fontSize: 22, lineHeight: 1.4 }}>{caption}</p> : null}
 
@@ -236,33 +249,44 @@ export function ExerciseResultsChart({
         </p>
       ) : null}
 
-      <table data-testid="exercise-results-table" style={{ fontSize: 22, borderCollapse: "collapse" }}>
-        <caption style={{ fontSize: 22, textAlign: "left" }}>
-          The same counts as a table.
-        </caption>
-        <thead>
-          <tr>
-            <th scope="col">Panel</th>
-            {STAGES.map((stage) => (
-              <th key={stage.key} scope="col">
-                {stage.label}
+      <div className="max-w-full overflow-x-auto">
+        <table data-testid="exercise-results-table" style={{ fontSize: 22, borderCollapse: "collapse" }}>
+          <caption style={{ fontSize: 22, textAlign: "left" }}>
+            The same counts as a table.
+          </caption>
+          <thead>
+            <tr>
+              <th scope="col" className={CELL}>
+                Panel
               </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {series.map((panel) => (
-            <tr key={panel.label}>
-              <th scope="row">{panel.label}</th>
               {STAGES.map((stage) => (
-                <td key={stage.key}>{formatHeadCount(panel[stage.key as StageKey])}</td>
+                <th key={stage.key} scope="col" className={CELL}>
+                  {stage.label}
+                </th>
               ))}
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {series.map((panel) => (
+              <tr key={panel.label}>
+                <th scope="row" className={CELL}>
+                  {panel.label}
+                </th>
+                {STAGES.map((stage) => (
+                  <td key={stage.key} className={CELL}>
+                    {formatHeadCount(panel[stage.key as StageKey])}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </section>
   );
 }
+
+/** M2 B6: room around every number, read from the left like the labels. */
+const CELL = "px-3 py-1 text-left";
 
 export default ExerciseResultsChart;

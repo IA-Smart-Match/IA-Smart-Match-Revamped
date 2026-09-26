@@ -1515,7 +1515,7 @@ def test_the_two_draws_are_independent() -> None:
         no_card_profile_nos=no_card,
     )
 
-    assert set(plan.card_completers) != set(plan.non_responding)
+    assert set(plan.card_completers).isdisjoint(plan.non_responding)
     # 80 percent and 15 percent of twenty: 16 and 3, no half to round.
     assert len(plan.card_completers) == 16
     assert len(plan.non_responding) == 3

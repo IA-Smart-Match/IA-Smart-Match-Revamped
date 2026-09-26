@@ -99,7 +99,10 @@ from smartmatch_api.routers.exercise_results_models import (
     asking_state_view,
     stored_results_view,
 )
-from smartmatch_api.routers.exercise_results_refresh import refresh_one_team
+from smartmatch_api.routers.exercise_results_refresh import (
+    refresh_counts_from_view,
+    refresh_one_team,
+)
 from smartmatch_api.routers.exercise_results_run import (
     coefficients_or_refusal,
     final_setting_or_refusal,
@@ -331,6 +334,7 @@ def read_asking_choice(
     session: ExerciseSession,
     workspace: CurrentWorkspace,
     results: ResultsRepository,
+    team_view: TeamViewRepository,
 ) -> AskingStateView:
     """What your team chose, the three choices it may make, and its refresh state.
 
@@ -338,13 +342,24 @@ def read_asking_choice(
     offered rather than writing them into a component, which is the same reason
     the settings route returns ``max_settings``.
 
+    ``refresh_counts`` is what the refresh changed, read back from the team's
+    view, so it survives a reload and reaches a team the instructor refreshed.
+
     Raises:
         ExerciseError: 401 when the cookie is absent or names no workspace.
     """
     team_state = _team_state_or_refusal(session, results, workspace)
-    return asking_state_view(
-        team_state.asking_choice, refreshed=team_state.refreshed_at is not None
+    refreshed = team_state.refreshed_at is not None
+    counts = (
+        refresh_counts_from_view(
+            team_view.list_team_profiles(
+                session, dataset_id=workspace.dataset_id, workspace_id=workspace.id
+            )
+        )
+        if refreshed
+        else None
     )
+    return asking_state_view(team_state.asking_choice, refreshed=refreshed, counts=counts)
 
 
 @router.post(

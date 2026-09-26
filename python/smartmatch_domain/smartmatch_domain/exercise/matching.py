@@ -152,6 +152,10 @@ class ExerciseListEntry:
         contributing_factor_keys: The factors that counted for this name, in
             registry order. Keys, not numbers: the screen renders them through
             :data:`~smartmatch_domain.exercise.registry.EXERCISE_FACTOR_LABELS`.
+        undecided_goal_half: ``True`` when "career goal fits this event"
+            counted, and counted only as an undecided goal's half on an
+            exploratory event (OQ-CE-14). A flag, not a number (ADR-0025 D8),
+            so the screen can mark the name.
     """
 
     rank: int
@@ -159,6 +163,7 @@ class ExerciseListEntry:
     marker: InformationMarker
     reason: str
     contributing_factor_keys: tuple[str, ...]
+    undecided_goal_half: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -568,6 +573,11 @@ def exercise_ranked_list(
     for position, entry in enumerate(entries[:invite_limit]):
         contributing = _contributing_keys(entry.score)
         tie = _tie_context(entries, position)
+        # Only when the goal factor actually counted: a weight of zero means
+        # the half added nothing, and a chip must not say it did.
+        undecided_half = CAREER_GOAL_FIT_FACTOR_KEY in contributing and (
+            _goal_fit_is_undecided_half(entry.score)
+        )
         listed.append(
             ExerciseListEntry(
                 rank=position + 1,
@@ -581,6 +591,7 @@ def exercise_ranked_list(
                     undecided_goal=_goal_fit_is_undecided_half(entry.score),
                 ),
                 contributing_factor_keys=contributing,
+                undecided_goal_half=undecided_half,
             )
         )
     return ExerciseList(

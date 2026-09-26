@@ -75,6 +75,8 @@ export interface ListEntryView {
   readonly marker: string;
   readonly reason: string;
   readonly contributing_factor_keys: string[];
+  /** The career goal counted only as an undecided goal's half (OQ-CE-14). A flag, not a number. */
+  readonly undecided_goal_half: boolean;
 }
 
 export interface GroupCountsView {
@@ -187,6 +189,18 @@ export interface AskingStateView {
   /** The three ways of asking, as the course names them. Never hard-coded. */
   readonly choices: string[];
   readonly refreshed: boolean;
+  /**
+   * What the team's refresh changed, read back from the server: `null` until
+   * the team is refreshed (by itself or by the instructor). Optional so older
+   * fixtures without it still type-check.
+   */
+  readonly refresh_counts?: RefreshCountsView | null;
+}
+
+export interface RefreshCountsView {
+  readonly cards_completed: number;
+  readonly non_responding: number;
+  readonly topics_added: number;
 }
 
 export interface RefreshView {

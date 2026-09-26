@@ -59,15 +59,16 @@ __all__ = [
     "NON_RESPONDING_SALT",
     "RefreshPlan",
     "invited_without_a_card",
+    "refresh_counts_from_view",
     "refresh_one_team",
     "refresh_plan",
 ]
 
 #: What is being drawn, as the salt design spec §13's two draws are separated
-#: by. Two salts over one seed draw independently, so the profiles that complete
-#: a card and the profiles that stop answering are not the same people picked
-#: twice — which they would be under one salt, making "required" a choice whose
-#: cost fell exactly on the profiles it had just helped.
+#: by. The card draw comes first; the non-responder draw then ranks only the
+#: no-card profiles the card draw did not pick (owner ruling, 2026-09-25), so
+#: the two groups never share a profile. Its own salt keeps its order unrelated
+#: to the card draw's, so who stops answering is not simply "the next in line".
 CARD_COMPLETION_SALT = "card_completion"
 NON_RESPONDING_SALT = "non_responding"
 
@@ -140,6 +141,12 @@ def refresh_plan(
 
     See this module's docstring for the half-rounding inside ``select_share``
     (OQ-CE-04: round half up).
+
+    **The two groups never overlap** (owner ruling, 2026-09-25). Under
+    "required" the non-responders are drawn only from the no-card profiles that
+    did *not* complete a card; their count is still the share of *every* no-card
+    profile. A profile that filled in a card and also stopped answering was a
+    contradiction the M1 class run found four times.
     """
     card_completers = select_share(
         no_card_profile_nos,
@@ -147,12 +154,15 @@ def refresh_plan(
         seed=seed,
         salt=CARD_COMPLETION_SALT,
     )
+    completed = set(card_completers)
+    still_without_a_card = [n for n in set(no_card_profile_nos) if n not in completed]
     non_responding = (
         select_share(
-            no_card_profile_nos,
+            still_without_a_card,
             REQUIRED_NON_RESPONDING_SHARE,
             seed=seed,
             salt=NON_RESPONDING_SALT,
+            of_size=len(set(no_card_profile_nos)),
         )
         if choice is AskingChoice.REQUIRED
         else ()
@@ -161,6 +171,25 @@ def refresh_plan(
         topic_gainers=tuple(sorted(set(attended_profile_nos))),
         card_completers=card_completers,
         non_responding=non_responding,
+    )
+
+
+def refresh_counts_from_view(profiles: Sequence[TeamProfileRow]) -> RefreshCounts:
+    """The three refresh counts, read back from one team's view (M2 B4).
+
+    The refresh is the only writer of these overlay columns, and a reset clears
+    them, so the view *is* the stored record of what the refresh changed —
+    whether the team pressed the button or the instructor refreshed every team.
+    Reading it here means no new column and no second copy to drift:
+
+    * a completed card is an overlay card (``overlay_card_interests`` set);
+    * a non-responder is ``non_responding``;
+    * a topic gainer is a profile whose overlay added any event topics.
+    """
+    return RefreshCounts(
+        cards_completed=sum(1 for p in profiles if p.overlay_card_interests is not None),
+        non_responding=sum(1 for p in profiles if p.non_responding),
+        topics_added=sum(1 for p in profiles if p.overlay_added_event_topics),
     )
 
 
@@ -203,7 +232,9 @@ def refresh_one_team(
         dataset_id=dataset_id,
         workspace_id=workspace_id,
         added_topics=added_topics,
-        topic_gainers=plan.topic_gainers,
+        # An event with no topics gives nobody a topic; counting its attenders
+        # as gainers made POST report N where the stored view (and GET) said 0.
+        topic_gainers=plan.topic_gainers if added_topics else (),
         card_profile_nos=plan.card_completers,
         non_responding_profile_nos=plan.non_responding,
         now=now,

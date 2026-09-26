@@ -394,6 +394,12 @@ class ListEntryView(BaseModel):
             "not numbers — render them through `factor_labels`."
         ),
     )
+    undecided_goal_half: bool = Field(
+        description=(
+            "True when the career goal counted only as an undecided goal's half "
+            "on a broad exploratory event. A flag, not a number."
+        ),
+    )
 
 
 class GroupCountsView(BaseModel):
@@ -656,6 +662,7 @@ def ranked_list_view(
                 marker=str(entry.marker),
                 reason=entry.reason,
                 contributing_factor_keys=list(entry.contributing_factor_keys),
+                undecided_goal_half=entry.undecided_goal_half,
             )
         )
     return RankedListView(

@@ -141,10 +141,12 @@ would be the wrong tool: it is unseedable by design.
 
 It is not a matching factor and must not become one. It does not import
 ``factor_registry``, ``scoring``, or ``explanation``; it produces no ranking
-and no number that a class participant sees (ADR-0025 D8). It is the only
-reader of a profile's hidden true interests (ADR-0025 D6), and nothing it
-returns carries them: :class:`SimulationResult` holds profile numbers, and
-:func:`seats_empty` holds a count of chairs.
+and no number that a class participant sees (ADR-0025 D8). It is one of the
+two readers of a profile's hidden true interests (ADR-0025 D6). The other is
+the refresh (design spec §13), which copies them onto a team's card overlay
+(``results_cards.copied_cards``). Nothing this module returns carries them:
+:class:`SimulationResult` holds profile numbers, and :func:`seats_empty` holds
+a count of chairs.
 
 ## The coefficients: Ann's words, the team's numbers
 
@@ -267,7 +269,8 @@ class SimulationProfile:
             reaches an output, and the only per-profile input to the draws.
         major: The profile's major, compared against the event's target majors.
         true_interests: The hidden "true" interests (ADR-0025 D6). This module
-            is the only reader of this field in the whole system. An empty set
+            is the only reader of this field. The refresh's card copy reads
+            the stored column separately and never this type. An empty set
             is "nothing true recorded", which earns no lift and is not a
             mismatch (ADR-0011).
 

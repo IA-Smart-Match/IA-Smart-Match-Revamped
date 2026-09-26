@@ -120,9 +120,26 @@ def test_a_constructed_list_carries_no_percentage_in_any_sentence() -> None:
         assert not any(character.isdigit() for character in entry.reason)
 
 
-def test_the_outward_entry_carries_exactly_the_four_things_section_4_6_names() -> None:
+def test_the_outward_entry_carries_section_4_6s_things_plus_one_display_flag() -> None:
+    """Section 4.6's fields, plus ``undecided_goal_half`` (wave 3, CE chip).
+
+    The extra field is a display hint for the reason chip: a boolean saying the
+    career goal counted only as an undecided goal's half. It is not a score, a
+    share or a rank (ADR-0025 D8), and it carries no hidden value (D6) — it is
+    derived from the card the team can already see. Anything else added here
+    has to make the same case.
+    """
     names = {field.name for field in dataclasses.fields(ExerciseListEntry)}
-    assert names == {"rank", "profile_id", "marker", "reason", "contributing_factor_keys"}
+    assert names == {
+        "rank",
+        "profile_id",
+        "marker",
+        "reason",
+        "contributing_factor_keys",
+        "undecided_goal_half",
+    }
+    for entry in _listing().entries:
+        assert isinstance(entry.undecided_goal_half, bool)
 
 
 def test_the_marker_leaves_as_one_of_the_three_words() -> None:

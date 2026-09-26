@@ -116,6 +116,7 @@ class _ClassRun:
     seeds_after_reset: dict[int, int] = field(default_factory=dict)
     reset_seed_everyone: Any = None
     refresh: dict[int, dict[str, Any]] = field(default_factory=dict)
+    asking_after_refresh: dict[int, dict[str, Any]] = field(default_factory=dict)
     recomputed: dict[tuple[int, str], tuple[Any, Any]] = field(default_factory=dict)
     seeds: dict[int, int] = field(default_factory=dict)
     before_reset: dict[int, dict[str, tuple[int, Any]]] = field(default_factory=dict)
@@ -211,6 +212,7 @@ def _ask_and_refresh(record: _ClassRun, teams: dict[int, RecordingClient]) -> No
         refreshed = client.post(f"{TEAM_BASE}/refresh", headers=HEADER)
         assert refreshed.status_code == 200, refreshed.text
         record.refresh[number] = _body(refreshed)
+        record.asking_after_refresh[number] = _body(client.get(f"{TEAM_BASE}/asking-choice"))
 
 
 def _round_two(
@@ -362,6 +364,17 @@ def test_round_two_carries_the_teams_own_round_one(class_run: _ClassRun) -> None
         assert carried is not None
         assert carried["team"] == class_run.round_one[number]["team"]
         assert carried["seats_empty"] == class_run.round_one[number]["seats_empty"]
+
+
+def test_the_asking_route_reports_the_same_counts_the_refresh_did(
+    class_run: _ClassRun,
+) -> None:
+    """M2 B4: the counts survive a reload, read back from the stored overlay."""
+    for number in EXERCISE_TEAM_NUMBERS:
+        posted = class_run.refresh[number]
+        assert class_run.asking_after_refresh[number]["refresh_counts"] == {
+            key: posted[key] for key in ("cards_completed", "non_responding", "topics_added")
+        }, number
 
 
 def test_each_team_used_its_own_way_of_asking(class_run: _ClassRun) -> None:
