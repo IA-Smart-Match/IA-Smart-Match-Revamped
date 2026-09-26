@@ -456,7 +456,7 @@ def refresh_profiles(
         raise ExerciseError(
             status_code=status.HTTP_409_CONFLICT,
             code="exercise_asking_not_chosen",
-            message="Choose how your team asks before refreshing.",
+            message="Pick a way of asking before your team asks.",
         )
     if team_state.refreshed_at is not None:
         raise _already_refreshed()
@@ -467,7 +467,7 @@ def refresh_profiles(
         raise ExerciseError(
             status_code=status.HTTP_409_CONFLICT,
             code="exercise_no_first_round_results",
-            message="Run the first round's results before refreshing.",
+            message="Run the first round's results before asking.",
         )
     events = datasets.list_events(session, dataset_id=workspace.dataset_id)
     event = event_or_refusal(events, first_round.event_key)
