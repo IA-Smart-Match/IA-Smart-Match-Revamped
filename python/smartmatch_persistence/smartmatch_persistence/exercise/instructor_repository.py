@@ -16,9 +16,10 @@ operations below atomic.
 
 ADR-0025 D6 and D8
 ==================
-No read here selects ``hidden_true_interests`` — the only reader of that column
-in this package is ``dataset_repository.load_simulation_profiles`` and this
-module does not call it. No row returned carries a score, a percentage or a
+No read here selects ``hidden_true_interests`` — the readers of that column in
+this package are ``dataset_repository.load_simulation_profiles`` (the results
+rule) and ``results_cards.copied_cards`` (the refresh), and this module calls
+neither. No row returned carries a score, a percentage or a
 confidence: a result run is summarised by **counts**, which is what the
 instructor's screen shows, and the profile numbers behind them stay in the
 table. The sentence "no numeric score reaches a class participant" is not
