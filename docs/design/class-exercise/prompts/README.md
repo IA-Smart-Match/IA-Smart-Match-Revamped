@@ -294,3 +294,4 @@ student profiles are fictional."
 | Fable "The Room" mock-ups | `../assets/mockups/room/` |
 | Fable "The Ledger" mock-ups | `../assets/mockups/ledger/` |
 | Library picks | DESIGN.md section 5 (motion) and [`../experiments.md`](../experiments.md#library-picks) |
+| Generated mock-ups (2026-09-26) | [`../generated.md`](../generated.md), images in `../assets/generated/` |

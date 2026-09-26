@@ -17,6 +17,7 @@ Companion files:
 
 - [`prompts/README.md`](prompts/README.md): how to generate screens from this system.
 - [`experiments.md`](experiments.md): directions explored and why this one won.
+- [`generated.md`](generated.md): contact sheet of the 2026-09-26 mock-ups (24 images and a private Claude Design canvas).
 - [`assets/svg/`](assets/svg/): the spot art this system allows.
 - [`assets/mockups/`](assets/mockups/): 8 reference PNGs from the Fable
   experimental track ("The Room" and "The Ledger"). They show layout and
