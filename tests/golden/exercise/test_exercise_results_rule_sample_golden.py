@@ -164,6 +164,7 @@ def test_the_sample_result_in_the_document_is_what_the_rule_gives(
 SAMPLE_DOCUMENT = (
     Path(__file__).resolve().parents[3]
     / "docs"
+    / "archive"
     / "plans"
     / "open-questions"
     / "oq-ce-03-sample-result.md"

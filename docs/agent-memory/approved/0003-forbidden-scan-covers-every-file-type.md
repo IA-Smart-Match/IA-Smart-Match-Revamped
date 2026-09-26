@@ -8,7 +8,7 @@ authority: observation
 privacy_class: repo-public
 claim: The forbidden-behaviour scanner walks every file in the tree, not only Python, so committed Markdown is already covered by the credential gate.
 sources:
-  - tools/scan_forbidden.py@a4a0d883d584c5ac9e8dbbf0d5677c7fbdb104a3
+  - tools/scan_forbidden.py@725b29715b534a00c062503cba27d96794034c5d
 produced_by_tool: claude-code
 produced_by_session: 57e35539-b0e2-4365-9a0f-3f8d01a25be9
 produced_by_commit: ba5f9df
