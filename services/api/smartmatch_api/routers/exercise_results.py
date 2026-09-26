@@ -425,8 +425,7 @@ def refresh_profiles(
     attended list gains that event's topics; a share of the people you invited
     who had no card complete one; and under the third way of asking a further
     share stops answering and will not sign up in round two. How large each share
-    is comes from the course's own numbers, which are not confirmed yet
-    (OQ-CE-04).
+    is comes from the course's own numbers, rounded half up.
 
     Allowed once, and only after the choice. Both are the database's own
     predicates rather than checks in code, so a second press cannot land while
