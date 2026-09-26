@@ -75,6 +75,11 @@ export interface ListEntryView {
   readonly marker: string;
   readonly reason: string;
   readonly contributing_factor_keys: string[];
+  /**
+   * `career_goal_fit` counted only as an undecided goal's half on an
+   * exploratory event (D2). The factor is then named differently on screen.
+   */
+  readonly undecided_goal_half: boolean;
 }
 
 export interface GroupCountsView {

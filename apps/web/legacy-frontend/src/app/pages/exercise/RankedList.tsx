@@ -31,6 +31,15 @@ import * as React from "react";
 import type { ListEntryView } from "../../../lib/exerciseClient";
 import { markerLabel } from "./markers";
 
+/** The rulebook key for "career goal fits this event". Never rendered. */
+const CAREER_GOAL_FIT = "career_goal_fit";
+
+/**
+ * The Undecided half's name, matching the server's reason phrase
+ * (`_UNDECIDED_GOAL_PHRASE` in `smartmatch_domain/exercise/reasons.py`).
+ */
+const UNDECIDED_GOAL_HALF_LABEL = "undecided goal suits a broad event";
+
 export interface RankedListProps {
   readonly entries: readonly ListEntryView[];
   /** Ann's plain words per factor key, from the same response. */
@@ -114,7 +123,11 @@ export function RankedList({
                 <td className="py-2">
                   {/* The server's sentence, verbatim (OQ-CE-12). */}
                   {entry.reason}
-                  <FactorNames keys={entry.contributing_factor_keys} labels={factorLabels} />
+                  <FactorNames
+                  keys={entry.contributing_factor_keys}
+                  labels={factorLabels}
+                  undecidedGoalHalf={entry.undecided_goal_half}
+                />
                 </td>
               </tr>
             );
@@ -131,15 +144,28 @@ export function RankedList({
  * A key with no label in `factor_labels` is dropped rather than printed raw:
  * showing `past_event_topic_overlap` to a marketing class would be showing a
  * column name, which is the thing §16 is asking not to happen.
+ *
+ * **The Undecided half (D2).** When `undecided_goal_half` is set, the
+ * career-goal factor counted only because an undecided goal suits a broad
+ * event. Printing "career goal fits this event" next to an "Undecided" card
+ * would say the opposite, so that one factor takes the server's reason wording
+ * instead. The weight slider's label is unchanged: it names the factor, not
+ * this person.
  */
 function FactorNames({
   keys,
   labels,
+  undecidedGoalHalf,
 }: {
   readonly keys: readonly string[];
   readonly labels: Readonly<Record<string, string>>;
+  readonly undecidedGoalHalf: boolean;
 }): React.JSX.Element | null {
-  const named = keys.map((key) => labels[key]).filter((label): label is string => label !== undefined);
+  const named = keys
+    .map((key) =>
+      undecidedGoalHalf && key === CAREER_GOAL_FIT ? UNDECIDED_GOAL_HALF_LABEL : labels[key],
+    )
+    .filter((label): label is string => label !== undefined);
   if (named.length === 0) {
     return null;
   }
