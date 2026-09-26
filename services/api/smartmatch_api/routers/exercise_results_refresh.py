@@ -140,6 +140,12 @@ def refresh_plan(
 
     See this module's docstring for the half-rounding inside ``select_share``
     (OQ-CE-04: round half up).
+
+    **The two groups never overlap** (owner ruling, 2026-09-25). Under
+    "required" the non-responders are drawn only from the no-card profiles that
+    did *not* complete a card; their count is still the share of *every* no-card
+    profile. A profile that filled in a card and also stopped answering was a
+    contradiction the M1 class run found four times.
     """
     card_completers = select_share(
         no_card_profile_nos,
@@ -147,12 +153,15 @@ def refresh_plan(
         seed=seed,
         salt=CARD_COMPLETION_SALT,
     )
+    completed = set(card_completers)
+    still_without_a_card = [n for n in set(no_card_profile_nos) if n not in completed]
     non_responding = (
         select_share(
-            no_card_profile_nos,
+            still_without_a_card,
             REQUIRED_NON_RESPONDING_SHARE,
             seed=seed,
             salt=NON_RESPONDING_SALT,
+            of_size=len(set(no_card_profile_nos)),
         )
         if choice is AskingChoice.REQUIRED
         else ()

@@ -79,9 +79,7 @@ def test_the_non_responders_depend_on_the_seed() -> None:
     assert len(picks) > 1
 
 
-@pytest.mark.parametrize(
-    "choice", [AskingChoice.BETTER_RECOMMENDATIONS, AskingChoice.SMALL_REWARD]
-)
+@pytest.mark.parametrize("choice", [AskingChoice.BETTER_RECOMMENDATIONS, AskingChoice.SMALL_REWARD])
 def test_only_required_has_non_responders(choice: AskingChoice) -> None:
     assert _plan(30, 3, choice).non_responding == ()  # type: ignore[attr-defined]
 
