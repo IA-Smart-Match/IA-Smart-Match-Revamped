@@ -14,7 +14,15 @@ import { ExerciseAskingForMore } from "./ExerciseAskingForMore";
 
 let calls: { url: string; init: RequestInit }[] = [];
 
-function stub(answers: Record<string, { body: unknown; status?: number }>): void {
+/**
+ * Answer the routes a test names. Unless it says otherwise, the team has run
+ * its first round, so the refresh button is judged on what the test is about.
+ */
+function stub(named: Record<string, { body: unknown; status?: number }>): void {
+  const answers: Record<string, { body: unknown; status?: number }> = {
+    ...ROUND_ONE_RUN,
+    ...named,
+  };
   vi.stubGlobal(
     "fetch",
     vi.fn((url: string, init: RequestInit) => {
@@ -34,6 +42,48 @@ function stub(answers: Record<string, { body: unknown; status?: number }>): void
 
 const ASKING = "/v1/exercise/workspaces/current/asking-choice";
 const REFRESH = "/v1/exercise/workspaces/current/refresh";
+const EVENTS = "/v1/exercise/workspaces/current/events";
+const ROUND_ONE_RESULTS = "/v1/exercise/workspaces/current/events/round-one/results";
+
+function event(key: string, name: string, isExerciseEvent: boolean, sequence: number) {
+  return {
+    event_key: key,
+    name,
+    topic_tags: [],
+    target_majors: [],
+    is_exercise_event: isExerciseEvent,
+    sequence,
+  };
+}
+
+/** A past event and the two rounds, deliberately out of file order. */
+const EVENTS_VIEW = {
+  events: [
+    event("round-two", "Harbor Industry Panel", true, 12),
+    event("past-one", "A past event", false, 1),
+    event("round-one", "Northline Career Fair", true, 11),
+  ],
+};
+
+/** The stubs for a team that has already run its first round. */
+const ROUND_ONE_RUN = {
+  [`GET ${EVENTS}`]: { body: EVENTS_VIEW },
+  [`GET ${ROUND_ONE_RESULTS}`]: { body: { event_key: "round-one", round: 1 } },
+};
+
+/** The stubs for a team that has not run its first round yet. */
+const ROUND_ONE_NOT_RUN = {
+  [`GET ${EVENTS}`]: { body: EVENTS_VIEW },
+  [`GET ${ROUND_ONE_RESULTS}`]: {
+    body: {
+      error: {
+        code: "exercise_results_not_run",
+        message: "Your team has not run results for this event yet.",
+      },
+    },
+    status: 404,
+  },
+};
 
 function renderAsking() {
   const router = createMemoryRouter(
@@ -164,6 +214,7 @@ describe("<ExerciseAskingForMore />", () => {
       [`POST ${REFRESH}`]: {
         body: { choice: "required", cards_completed: 14, non_responding: 3, topics_added: 22 },
       },
+      ...ROUND_ONE_RUN,
     });
     renderAsking();
     fireEvent.click(await screen.findByRole("button", { name: /ask them now/i }));
@@ -218,6 +269,10 @@ describe("<ExerciseAskingForMore />", () => {
               );
           });
         }
+        const roundOne = ROUND_ONE_RUN[`${method} ${url}`];
+        if (roundOne !== undefined) {
+          return Promise.resolve(new Response(JSON.stringify(roundOne.body), { status: 200 }));
+        }
         if (url === REFRESH && method === "POST") {
           return Promise.resolve(
             new Response(
@@ -266,6 +321,9 @@ describe("<ExerciseAskingForMore />", () => {
         },
         status: 409,
       },
+      // The screen saw a first-round run; the server disagrees by the time
+      // the press lands. Its sentence is still the answer.
+      ...ROUND_ONE_RUN,
     });
     renderAsking();
     fireEvent.click(await screen.findByRole("button", { name: /ask them now/i }));
@@ -274,6 +332,49 @@ describe("<ExerciseAskingForMore />", () => {
         screen.getByText("Run the first event's results before asking anyone for more."),
       ).toBeDefined(),
     );
+  });
+
+  it("keeps the refresh shut until the team has run its first round, and says why", async () => {
+    stub({
+      [`GET ${ASKING}`]: { body: { choice: "required", choices: ["required"], refreshed: false } },
+      ...ROUND_ONE_NOT_RUN,
+    });
+    renderAsking();
+    const ask = (await screen.findByRole("button", {
+      name: /ask them now/i,
+    })) as HTMLButtonElement;
+    await waitFor(() =>
+      expect(
+        screen.getByText("Run your team's results for Northline Career Fair before asking."),
+      ).toBeDefined(),
+    );
+    expect(ask.disabled).toBe(true);
+    expect(calls.some((call) => call.url === ROUND_ONE_RESULTS)).toBe(true);
+  });
+
+  it("opens the refresh once the first round's results exist", async () => {
+    stub({
+      [`GET ${ASKING}`]: { body: { choice: "required", choices: ["required"], refreshed: false } },
+      ...ROUND_ONE_RUN,
+    });
+    renderAsking();
+    const ask = (await screen.findByRole("button", {
+      name: /ask them now/i,
+    })) as HTMLButtonElement;
+    await waitFor(() => expect(ask.disabled).toBe(false));
+    expect(screen.queryByText(/before asking\./i)).toBeNull();
+    // The round is read off the file by `is_exercise_event` and `sequence`,
+    // never by name, so the second round's results are never asked for.
+    expect(calls.some((call) => call.url.includes("/round-two/"))).toBe(false);
+  });
+
+  it("does not look for first-round results once the team has asked", async () => {
+    stub({
+      [`GET ${ASKING}`]: { body: { choice: "required", choices: ["required"], refreshed: true } },
+    });
+    renderAsking();
+    await screen.findByRole("button", { name: /your team has already asked/i });
+    expect(calls.map((call) => call.url)).toEqual([ASKING]);
   });
 
   it("offers no way to clear this team's work", async () => {
