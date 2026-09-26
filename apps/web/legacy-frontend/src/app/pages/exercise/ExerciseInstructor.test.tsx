@@ -7,7 +7,7 @@
  * screen to explain it. And the per-team reset must be *present* on this page,
  * because it is absent everywhere else by design (PR #186).
  */
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -38,7 +38,26 @@ const SESSION_REFUSAL = {
   status: 401,
 };
 
-function stub(answers: Record<string, { body: unknown; status?: number }>): void {
+/**
+ * One stubbed answer. `gate`, when set, holds the response open until the test
+ * resolves it, so a test can look at the screen while a request is in flight.
+ */
+interface Answer {
+  readonly body: unknown;
+  readonly status?: number;
+  readonly gate?: Promise<void>;
+}
+
+/** A promise and the function that resolves it. */
+function gate(): { readonly promise: Promise<void>; readonly open: () => void } {
+  let open: () => void = () => undefined;
+  const promise = new Promise<void>((resolve) => {
+    open = resolve;
+  });
+  return { promise, open };
+}
+
+function stub(answers: Record<string, Answer>): void {
   vi.stubGlobal(
     "fetch",
     vi.fn((url: string, init: RequestInit) => {
@@ -63,9 +82,9 @@ function stub(answers: Record<string, { body: unknown; status?: number }>): void
           body: { error: { code: "test_unstubbed", message: path } },
           status: 404,
         };
-      return Promise.resolve(
-        new Response(JSON.stringify(answer.body), { status: answer.status ?? 200 }),
-      );
+      const respond = () =>
+        new Response(JSON.stringify(answer.body), { status: answer.status ?? 200 });
+      return answer.gate === undefined ? Promise.resolve(respond()) : answer.gate.then(respond);
     }),
   );
 }
@@ -101,7 +120,7 @@ const TEAM = {
   refreshed_at: null,
 };
 
-function signedInStubs(extra: Record<string, { body: unknown; status?: number }> = {}) {
+function signedInStubs(extra: Record<string, Answer> = {}): Record<string, Answer> {
   return {
     [`POST ${LOGIN}`]: { body: { signed_in: true } },
     [`GET ${DATASETS}`]: { body: [] },
@@ -515,5 +534,138 @@ describe("<ExerciseInstructor />", () => {
         screen.getByText("The teams are still working in the data file they entered on."),
       ).toBeDefined(),
     );
+  });
+
+  it("points at re-pointing the teams when they are split across two files", async () => {
+    // #232 L1. The server's sentence asks the instructor to "choose which one
+    // this applies to", and the panel offered nothing to choose with — only
+    // "Check again", which asks the same question again.
+    stub(
+      signedInStubs({
+        [`GET ${INSTRUCTOR_EVENTS}`]: {
+          body: {
+            error: {
+              code: "exercise_teams_span_datasets",
+              message:
+                "The teams are split across more than one data file; " +
+                "choose which one this applies to.",
+            },
+          },
+          status: 409,
+        },
+      }),
+    );
+    renderInstructor();
+    await signIn();
+
+    const panel = document.querySelector('[data-slot="exercise-instructor-unlock"]');
+    await waitFor(() => expect(panel?.textContent).toContain("Move every team to this file"));
+    expect(panel?.textContent).toContain("Data files");
+    expect(panel?.textContent).not.toContain("choose which one this applies to");
+    expect(within(panel as HTMLElement).getByRole("button", { name: /check again/i })).toBeDefined();
+  });
+
+  it("re-reads after a refused unlock, then clears the page's sentence", async () => {
+    // #232 L2 and L3. The re-read after a refused unlock already happened; the
+    // sentence at the top of the page outlived it, still saying "No team is
+    // working in that data file." beside a list that now names the right one.
+    const answers = signedInStubs({
+      [`POST ${INSTRUCTOR_EVENTS}/round-one/unlock`]: {
+        body: {
+          error: {
+            code: "exercise_dataset_has_no_teams",
+            message: "No team is working in that data file.",
+          },
+        },
+        status: 409,
+      },
+    });
+    stub(answers);
+    renderInstructor();
+    await signIn();
+
+    const roundOne = (await screen.findByText("Round one")).closest("li");
+    const reRead = gate();
+    answers[`GET ${INSTRUCTOR_EVENTS}`] = {
+      body: { ...eventsView(false), dataset_id: "22222222-2222-2222-2222-222222222222" },
+      gate: reRead.promise,
+    };
+    const readsBefore = calls.filter((call) => call.url === INSTRUCTOR_EVENTS).length;
+    fireEvent.click(roundOne?.querySelector("button") as HTMLButtonElement);
+
+    // Refused, and the re-read is in flight: the sentence is up and every
+    // unlock button waits, because the file it would address may be changing.
+    await screen.findByText("No team is working in that data file.");
+    await waitFor(() =>
+      expect(calls.filter((call) => call.url === INSTRUCTOR_EVENTS).length).toBe(readsBefore + 1),
+    );
+    const unlockButtons = within(
+      document.querySelector('[data-slot="exercise-instructor-unlock"]') as HTMLElement,
+    ).getAllByRole("button", { name: /open results/i }) as HTMLButtonElement[];
+    expect(unlockButtons.length).toBe(2);
+    expect(unlockButtons.every((button) => button.disabled)).toBe(true);
+
+    reRead.open();
+    await waitFor(() =>
+      expect(screen.queryByText("No team is working in that data file.")).toBeNull(),
+    );
+    const again = within(
+      document.querySelector('[data-slot="exercise-instructor-unlock"]') as HTMLElement,
+    ).getAllByRole("button", { name: /open results/i }) as HTMLButtonElement[];
+    expect(again.every((button) => !button.disabled)).toBe(true);
+  });
+
+  it("keeps the page's sentence when the re-read is refused too", async () => {
+    const answers = signedInStubs({
+      [`POST ${INSTRUCTOR_EVENTS}/round-one/unlock`]: {
+        body: {
+          error: {
+            code: "exercise_dataset_has_no_teams",
+            message: "No team is working in that data file.",
+          },
+        },
+        status: 409,
+      },
+    });
+    stub(answers);
+    renderInstructor();
+    await signIn();
+
+    const roundOne = (await screen.findByText("Round one")).closest("li");
+    answers[`GET ${INSTRUCTOR_EVENTS}`] = {
+      body: {
+        error: { code: "exercise_no_teams_yet", message: "No team has entered a number yet." },
+      },
+      status: 409,
+    };
+    fireEvent.click(roundOne?.querySelector("button") as HTMLButtonElement);
+
+    await screen.findByText("No team has entered a number yet.");
+    expect(screen.getByText("No team is working in that data file.")).toBeDefined();
+  });
+
+  it("disables Check again while its own re-read is in flight", async () => {
+    // #232 L3. With a file that has no rounds the list is "ready" but empty,
+    // so a second press during the re-read used to start a second one.
+    const answers = signedInStubs({
+      [`GET ${INSTRUCTOR_EVENTS}`]: {
+        body: { dataset_id: TEAMS_FILE, dataset_label: "Autumn draft", events: [] },
+      },
+    });
+    stub(answers);
+    renderInstructor();
+    await signIn();
+
+    const again = (await screen.findByRole("button", { name: /check again/i })) as HTMLButtonElement;
+    const reRead = gate();
+    answers[`GET ${INSTRUCTOR_EVENTS}`] = {
+      body: { dataset_id: TEAMS_FILE, dataset_label: "Autumn draft", events: [] },
+      gate: reRead.promise,
+    };
+    fireEvent.click(again);
+    await waitFor(() => expect(again.disabled).toBe(true));
+
+    reRead.open();
+    await waitFor(() => expect(again.disabled).toBe(false));
   });
 });

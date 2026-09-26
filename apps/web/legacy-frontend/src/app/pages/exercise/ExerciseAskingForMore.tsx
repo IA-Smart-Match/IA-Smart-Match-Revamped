@@ -19,6 +19,14 @@
  * a choice is made, showing which one the team took, rather than vanishing: a
  * class arguing about the choice needs to see what was chosen.
  *
+ * **The refresh waits for a first-round run.** The server refuses a refresh
+ * before one, and did so cleanly, but the button used to be offered anyway.
+ * The asking response does not say whether that run exists, so the screen
+ * reads it the way the results screen does: the first round is the first
+ * exercise event by `sequence` (never by name), and its stored results either
+ * come back or are refused as not run. The server stays the judge; this only
+ * stops the screen offering a press it already knows will be refused.
+ *
  * The refresh reports counts — cards completed, non-responding, topics added.
  * Counts are what ADR-0025 D8 allows and what the requirements ask for; there
  * is no percentage on this screen, and the illustrative shares in Ann's build
@@ -31,6 +39,8 @@ import { isRefusal } from "../../../lib/exerciseApi";
 import {
   chooseAsking,
   readAskingChoice,
+  readEvents,
+  readResults,
   refreshProfiles,
   type AskingStateView,
   type RefreshView,
@@ -40,11 +50,53 @@ import { ExerciseLoading, ExerciseNotice, ExerciseScreen } from "./ExerciseScree
 import { useExerciseResource } from "./useExerciseResource";
 import { workspaceRequiredNotice } from "./refusals";
 
+/** The refusal `GET …/events/{key}/results` gives for an event not yet run. */
+const RESULTS_NOT_RUN = "exercise_results_not_run";
+
+/** What this screen reads: the asking state, and whether round one has run. */
+interface AskingScreenView {
+  readonly asking: AskingStateView;
+  /** Whether this team has stored results for its first round. */
+  readonly roundOneRun: boolean;
+  /** The first round's event name, or `null` when the file has no rounds. */
+  readonly roundOneName: string | null;
+}
+
+/**
+ * The asking state, plus whether this team's first round has results.
+ *
+ * Skipped once the team has refreshed: a refresh is only ever allowed after a
+ * first-round run, so the answer is already known. Any refusal other than
+ * "not run yet" (the workspace cookie gone, say) is the screen's refusal.
+ */
+async function readAskingScreen(signal: AbortSignal): Promise<AskingScreenView> {
+  const asking = await readAskingChoice(signal);
+  if (asking.refreshed) {
+    return { asking, roundOneRun: true, roundOneName: null };
+  }
+  const { events } = await readEvents(signal);
+  const roundOne = events
+    .filter((event) => event.is_exercise_event)
+    .sort((a, b) => a.sequence - b.sequence)[0];
+  if (roundOne === undefined) {
+    return { asking, roundOneRun: false, roundOneName: null };
+  }
+  try {
+    await readResults(roundOne.event_key, signal);
+    return { asking, roundOneRun: true, roundOneName: roundOne.name };
+  } catch (error) {
+    if (isRefusal(error) && error.code === RESULTS_NOT_RUN) {
+      return { asking, roundOneRun: false, roundOneName: roundOne.name };
+    }
+    throw error;
+  }
+}
+
 const BUTTON =
   "rounded-lg border-2 border-slate-400 px-5 py-3 text-xl font-semibold text-slate-800 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 dark:border-slate-500 dark:text-slate-100 dark:hover:bg-slate-800";
 
 export function ExerciseAskingForMore(): React.JSX.Element {
-  const { state, reload } = useExerciseResource(readAskingChoice, []);
+  const { state, reload } = useExerciseResource(readAskingScreen, []);
 
   /**
    * What the one refresh reported, held by the screen rather than the panel.
@@ -85,7 +137,9 @@ export function ExerciseAskingForMore(): React.JSX.Element {
       ) : null}
       {state.status === "ready" ? (
         <AskingPanels
-          asking={state.data}
+          asking={state.data.asking}
+          roundOneRun={state.data.roundOneRun}
+          roundOneName={state.data.roundOneName}
           onChanged={reload}
           refreshed={refreshed}
           onRefreshed={setRefreshed}
@@ -97,11 +151,16 @@ export function ExerciseAskingForMore(): React.JSX.Element {
 
 function AskingPanels({
   asking,
+  roundOneRun,
+  roundOneName,
   onChanged,
   refreshed,
   onRefreshed,
 }: {
   readonly asking: AskingStateView;
+  /** Whether this team has results for its first round (see the module note). */
+  readonly roundOneRun: boolean;
+  readonly roundOneName: string | null;
   readonly onChanged: () => Promise<void>;
   /** The once-only refresh result, owned by the screen. */
   readonly refreshed: RefreshView | null;
@@ -197,7 +256,7 @@ function AskingPanels({
         <div>
           <button
             type="button"
-            disabled={pending || asking.choice === null || asking.refreshed}
+            disabled={pending || asking.choice === null || asking.refreshed || !roundOneRun}
             onClick={() =>
               void run(async () => {
                 onRefreshed(await refreshProfiles());
@@ -214,6 +273,11 @@ function AskingPanels({
             Pick a way of asking first.
           </p>
         ) : null}
+        {roundOneRun ? null : (
+          <p className="text-xl text-slate-600 dark:text-slate-300">
+            {`Run your team's results for ${roundOneName ?? "the first event"} before asking.`}
+          </p>
+        )}
         {refreshed === null ? null : (
           <dl
             className="grid gap-3 text-xl sm:grid-cols-3"

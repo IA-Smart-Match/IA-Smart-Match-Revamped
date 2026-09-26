@@ -28,6 +28,9 @@ export const WORKSPACE_REQUIRED = "exercise_workspace_required";
 /** The 401 that means the instructor's passcode session has gone. */
 export const INSTRUCTOR_SESSION_REQUIRED = "exercise_instructor_session_required";
 
+/** The 409 that means the teams are working in more than one data file. */
+export const TEAMS_SPAN_DATASETS = "exercise_teams_span_datasets";
+
 /**
  * Any team-screen refusal, with a way back to the entry screen when the
  * refusal is that there is no workspace.
