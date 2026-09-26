@@ -178,8 +178,12 @@ def asking_choice(team_number: int) -> AskingChoice:
     return choices[(team_number - 1) % len(choices)]
 
 
-def prepare_round(client: RecordingClient, event_key: str, team_number: int) -> None:
-    """Set weights, save three settings, compare two, and read the final list."""
+def prepare_round(client: RecordingClient, event_key: str, team_number: int) -> list[int]:
+    """Set weights, save three settings, compare two, and read the final list.
+
+    Returns the profile numbers the final setting's list shows, in order — the
+    people the team is about to invite.
+    """
     named = weightings(team_number)
     first = client.get(f"{TEAM_BASE}/events/{event_key}/list", params=named["balanced"])
     assert first.status_code == 200, first.text
@@ -199,6 +203,7 @@ def prepare_round(client: RecordingClient, event_key: str, team_number: int) -> 
         f"{TEAM_BASE}/events/{event_key}/list", params={"setting": final_setting(team_number)}
     )
     assert final.status_code == 200, final.text
+    return [int(entry["profile_no"]) for entry in final.json()["entries"]]
 
 
 def run(client: RecordingClient, event_key: str, team_number: int) -> Response:
@@ -328,4 +333,37 @@ def team_snapshot(
     for label, (client, path) in paths.items():
         response = client.get(path)
         snapshot[label] = (response.status_code, response.json())
+        if label.startswith("list "):
+            csv = client.get(f"{path}.csv")
+            snapshot[f"{label}.csv"] = (csv.status_code, csv.text)
+    overview = teacher.get(f"{INSTRUCTOR_BASE}/workspaces")
+    rows = [row for row in overview.json()["teams"] if row["team_number"] == team_number]
+    snapshot["overview row"] = (overview.status_code, rows)
     return snapshot
+
+
+#: Read-only routes a class's screens call that the walk above does not
+#: otherwise reach. Fetched once each so the whole-class leak scan covers them,
+#: along with the published OpenAPI description (FastAPI publishes handler
+#: docstrings and field descriptions there).
+TEAM_READS: Final[tuple[str, ...]] = (
+    f"{TEAM_BASE}/events",
+    f"{TEAM_BASE}/events/{ROUND_ONE}/list.csv",
+    f"{TEAM_BASE}/events/{ROUND_TWO}/list.csv",
+)
+INSTRUCTOR_READS: Final[tuple[str, ...]] = (
+    f"{INSTRUCTOR_BASE}/workspaces",
+    f"{INSTRUCTOR_BASE}/events",
+    f"{INSTRUCTOR_BASE}/datasets",
+    "/openapi.json",
+)
+
+
+def read_everything(team: RecordingClient, teacher: RecordingClient) -> None:
+    """GET every read-only route in :data:`TEAM_READS` and :data:`INSTRUCTOR_READS`."""
+    for path in TEAM_READS:
+        response = team.get(path)
+        assert response.status_code == 200, (path, response.text)
+    for path in INSTRUCTOR_READS:
+        response = teacher.get(path)
+        assert response.status_code == 200, (path, response.text)

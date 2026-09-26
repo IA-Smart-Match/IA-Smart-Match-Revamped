@@ -61,6 +61,7 @@ from exercise_class_driver import (
     numbers_of,
     panel_of,
     prepare_round,
+    read_everything,
     recompute,
     rule_event,
     rule_inputs,
@@ -111,6 +112,9 @@ class _ClassRun:
     second_run: dict[int, tuple[int, dict[str, Any]]] = field(default_factory=dict)
     locked_run: dict[int, tuple[int, dict[str, Any]]] = field(default_factory=dict)
     fourth_setting: tuple[int, dict[str, Any]] = (0, {})
+    final_lists: dict[tuple[int, str], list[int]] = field(default_factory=dict)
+    seeds_after_reset: dict[int, int] = field(default_factory=dict)
+    reset_seed_everyone: Any = None
     refresh: dict[int, dict[str, Any]] = field(default_factory=dict)
     recomputed: dict[tuple[int, str], tuple[Any, Any]] = field(default_factory=dict)
     seeds: dict[int, int] = field(default_factory=dict)
@@ -215,7 +219,7 @@ def _round_two(
     teams: dict[int, RecordingClient],
 ) -> None:
     for number, client in teams.items():
-        prepare_round(client, ROUND_TWO, number)
+        record.final_lists[(number, ROUND_TWO)] = prepare_round(client, ROUND_TWO, number)
         response = run(client, ROUND_TWO, number)
         assert response.status_code == 201, response.text
         record.round_two[number] = _body(response)
@@ -235,7 +239,14 @@ def _reset_and_repeat(
     reset = teacher.post(f"{INSTRUCTOR_BASE}/workspaces/{_RESET_TEAM}/reset", headers=HEADER)
     assert reset.status_code == 200, reset.text
     record.after_reset = {n: team_snapshot(c, teacher, n) for n, c in teams.items()}
-    record.reset_seed = workspace_row(sessions, _RESET_TEAM).seed
+    record.seeds_after_reset = {n: workspace_row(sessions, n).seed for n in teams}
+    record.reset_seed = record.seeds_after_reset[_RESET_TEAM]
+    # The rule on the new seed, same list, with the overlay cleared as it was
+    # before round one: the seed has to matter, or the rerun below proves nothing.
+    invited = record.round_one[_RESET_TEAM]["team"]["invited_profile_nos"]
+    _, record.reset_seed_everyone = recompute(
+        sessions, _RESET_TEAM, ROUND_ONE, invited, seed=record.reset_seed
+    )
 
     set_seed(sessions, old.id, old.seed)
     client = teams[_RESET_TEAM]
@@ -274,7 +285,7 @@ def class_run(sessions: sessionmaker[Session]) -> _ClassRun:
     record.undecided_count = sum(1 for profile in everybody if profile.career_goal_undecided)
 
     for number, client in teams.items():
-        prepare_round(client, ROUND_ONE, number)
+        record.final_lists[(number, ROUND_ONE)] = prepare_round(client, ROUND_ONE, number)
         locked = run(client, ROUND_ONE, number)
         record.locked_run[number] = (locked.status_code, _body(locked))
     fourth = teams[6].put(
@@ -289,6 +300,8 @@ def class_run(sessions: sessionmaker[Session]) -> _ClassRun:
     _ask_and_refresh(record, teams)
     unlock(teacher, ROUND_TWO)
     _round_two(record, sessions, teams)
+    for client in teams.values():
+        read_everything(client, teacher)
     record.seeds = {n: workspace_row(sessions, n).seed for n in EXERCISE_TEAM_NUMBERS}
     _reset_and_repeat(record, sessions, teams, teacher)
     return record
@@ -372,6 +385,24 @@ def test_a_stored_result_is_the_rule_on_the_teams_seed_and_list(
         assert numbers_of(answered[number]["email_everyone"]) == panel_of(everyone), number
 
 
+@pytest.mark.parametrize("event_key", [ROUND_ONE, ROUND_TWO])
+def test_each_team_invited_exactly_its_final_settings_list(
+    class_run: _ClassRun, event_key: str
+) -> None:
+    """The run invites the list the final setting showed — no more, no other."""
+    answered = class_run.round_one if event_key == ROUND_ONE else class_run.round_two
+    for number in EXERCISE_TEAM_NUMBERS:
+        shown = class_run.final_lists[(number, event_key)]
+        assert len(shown) == 30, number
+        assert answered[number]["team"]["invited_profile_nos"] == sorted(shown), number
+
+
+def test_the_seed_changes_the_result(class_run: _ClassRun) -> None:
+    """Same list, new seed, different outcome — so the same-seed rerun means something."""
+    original = numbers_of(class_run.round_one[_RESET_TEAM]["email_everyone"])
+    assert panel_of(class_run.reset_seed_everyone) != original
+
+
 def test_after_a_reset_the_same_seed_and_list_give_the_same_round_one(
     class_run: _ClassRun,
 ) -> None:
@@ -406,6 +437,12 @@ def test_resetting_team_3_changes_nothing_about_any_other_team(class_run: _Class
         before, after = class_run.before_reset[number], class_run.after_reset[number]
         changed = sorted(label for label in before if before[label] != after[label])
         assert changed == [], f"team {number}: {changed}"
+
+
+def test_resetting_team_3_changes_no_other_teams_seed(class_run: _ClassRun) -> None:
+    for number in EXERCISE_TEAM_NUMBERS:
+        if number != _RESET_TEAM:
+            assert class_run.seeds_after_reset[number] == class_run.seeds[number], number
 
 
 def test_the_reset_cleared_team_3_and_gave_it_a_new_seed(class_run: _ClassRun) -> None:
@@ -489,6 +526,9 @@ def test_the_figures_are_plausible(class_run: _ClassRun) -> None:
         assert 0 <= team["signed_up_count"] <= 30, label
         assert 0 <= team["attended_count"] <= team["signed_up_count"], label
         assert everyone["invited_count"] == 300, label
+        # The shipped rule tops out near 0.68 per profile, so a panel where
+        # most of the 300 sign up means the rule has stopped discriminating.
+        assert everyone["signed_up_count"] < 250, label
         for panel in (team, everyone):
             invited = set(panel["invited_profile_nos"])
             signed = set(panel["signed_up_profile_nos"])
@@ -500,7 +540,10 @@ def test_the_figures_are_plausible(class_run: _ClassRun) -> None:
                 panel["attended_count"],
             ), label
         assert set(team["invited_profile_nos"]) <= set(everyone["invited_profile_nos"]), label
-        assert (body["event_seats"], body["existing_signups"]) == (EVENT_SEATS, EXISTING_SIGNUPS)
+        assert (body["event_seats"], body["existing_signups"]) == (
+            EVENT_SEATS,
+            EXISTING_SIGNUPS,
+        ), label
         assert body["seats_empty"] == max(
             0, EVENT_SEATS - EXISTING_SIGNUPS - team["attended_count"]
         ), label
