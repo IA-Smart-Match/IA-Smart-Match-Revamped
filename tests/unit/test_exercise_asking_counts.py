@@ -13,21 +13,44 @@ second copy; that file is past the length limit, so new tests live here.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+
+import pytest
 from fastapi.testclient import TestClient
 from smartmatch_api.routers.exercise_results_refresh import refresh_counts_from_view
 from smartmatch_domain.exercise.simulation import SimulationCoefficients
 
-from tests.unit.test_exercise_results_router import (  # noqa: F401 - fixtures
+from tests.unit.test_exercise_results_router import (
     _ASKING,
     _HEADER,
     _PROFILES,
     _REFRESH,
+    _TEST_ONLY_COEFFICIENTS,
+    _entered,
     _Fakes,
     _prepare_refresh,
-    client,
-    confirmed,
-    fakes,
 )
+
+
+@pytest.fixture
+def fakes() -> _Fakes:
+    return _Fakes()
+
+
+@pytest.fixture
+def client(fakes: _Fakes) -> Iterator[TestClient]:
+    with _entered(fakes, 1) as entered:
+        yield entered
+
+
+@pytest.fixture
+def confirmed(monkeypatch: pytest.MonkeyPatch) -> SimulationCoefficients:
+    """Test-only coefficients, as the router tests inject them."""
+    monkeypatch.setattr(
+        "smartmatch_domain.exercise.simulation.EXERCISE_SIMULATION_COEFFICIENTS",
+        _TEST_ONLY_COEFFICIENTS,
+    )
+    return _TEST_ONLY_COEFFICIENTS
 
 
 def test_there_are_no_counts_before_the_refresh(

@@ -59,6 +59,7 @@ __all__ = [
     "NON_RESPONDING_SALT",
     "RefreshPlan",
     "invited_without_a_card",
+    "refresh_counts_from_view",
     "refresh_one_team",
     "refresh_plan",
 ]
@@ -170,6 +171,25 @@ def refresh_plan(
         topic_gainers=tuple(sorted(set(attended_profile_nos))),
         card_completers=card_completers,
         non_responding=non_responding,
+    )
+
+
+def refresh_counts_from_view(profiles: Sequence[TeamProfileRow]) -> RefreshCounts:
+    """The three refresh counts, read back from one team's view (M2 B4).
+
+    The refresh is the only writer of these overlay columns, and a reset clears
+    them, so the view *is* the stored record of what the refresh changed —
+    whether the team pressed the button or the instructor refreshed every team.
+    Reading it here means no new column and no second copy to drift:
+
+    * a completed card is an overlay card (``overlay_card_interests`` set);
+    * a non-responder is ``non_responding``;
+    * a topic gainer is a profile whose overlay added any event topics.
+    """
+    return RefreshCounts(
+        cards_completed=sum(1 for p in profiles if p.overlay_card_interests is not None),
+        non_responding=sum(1 for p in profiles if p.non_responding),
+        topics_added=sum(1 for p in profiles if p.overlay_added_event_topics),
     )
 
 
