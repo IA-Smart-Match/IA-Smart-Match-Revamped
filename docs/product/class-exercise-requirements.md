@@ -21,8 +21,8 @@ Ann's document avoids the bare word "students". This document keeps her terms:
 - **The team** — Chau, Danny, Janice, Justin.
 - **Class participants** — students in Dr. Lin's AI in Marketing course who use
   the app in Spring 2027.
-- **The 300 profiles** — the made-up records inside the app. Every row is
-  fictional; no real student appears.
+- **The 300 profiles** — the made-up records inside the app: fictional
+  profiles shaped by overall survey percentages.
 - **Exercise events** — "Northline Analytics" (round one) and "Harbor Consumer
   Brands" (round two), a few weeks apart in the story.
 
