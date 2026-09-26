@@ -1,6 +1,6 @@
 # ADR-0025 — The class exercise is a second product scope that shares the matching mechanism
 
-**Status:** Accepted
+**Status:** Accepted — amended 25 September 2026, see [Amendment — 25 September 2026](#amendment--25-september-2026-the-tie-break-ends-on-anns-order-and-two-columns-are-withheld) below
 **Date:** 16 September 2026
 **Owner of record:** Ann Wang (class-exercise scope), with the team (Chau, Danny, Janice, Justin)
 **Decides:** how the Spring 2027 class exercise is built on this platform without touching the CBA platform scope: a second `ProductScope`, its own tables and routers, one shared domain matching mechanism, and one shared student-factor module that both `STUDENT_REGISTRY` (ADR-0024) and the new `EXERCISE_REGISTRY` compose from.
@@ -207,6 +207,38 @@ hosting target that exist for one course.
 schema walk enforces D6; golden cases under `tests/golden/exercise/` cover
 every factor known and unknown, every tie-break branch, and the simulation's
 per-team determinism.
+
+## Amendment — 25 September 2026: the tie-break ends on Ann's order, and two columns are withheld
+
+Recorded with the class-exercise decision record,
+[`docs/decisions/class-exercise-decisions-2026-09-25.md`](../../decisions/class-exercise-decisions-2026-09-25.md)
+(D3 and D6 there). Both refine this ADR; neither replaces a decision above, so
+the rest of the text stands. Code references are on `origin/main` at
+`9339d5a4`.
+
+**D5's last step is Ann's `tiebreak_order`.** Owner ruling, Danny, 24
+September 2026, shipped in PR #228. Ann's data file carries a column
+`tiebreak_order`, "Fixed random order 1–300 … Never changes between runs." The
+tie-break's last step now reads it instead of the permutation seeded from the
+dataset checksum. The earlier steps and their order are unchanged: known first,
+value descending, more information on file first, then seniors first. A dataset
+stored before revision `0042` has no `tiebreak_order`, and for it the checksum
+permutation still applies. See `_fixed_order` in
+`smartmatch_domain/exercise/matching.py:428`, pinned by
+`tests/golden/exercise/test_exercise_ann_dataset_golden.py:233`. This is an
+amendment, not a correction, because "Amendment discipline" below names a
+change to the tie-break order as one.
+
+**D6 covers two columns, and the refresh reads them.** Ann's data file has two
+hidden columns, `hidden_true_interests` and `hidden_true_career_goal`. Both are
+in `EXERCISE_WITHHELD_FIELDS`, and everything D6 says of the first holds for
+the second. D6 said only the simulated-results rule reads the hidden column.
+Since OQ-CE-13 closed (Ann's data file Read Me, 24 September 2026: "a new card
+copies these"), the per-team refresh reads both too: a card it copies onto a
+profile carries the hidden true interests and the hidden true career goal
+(`COPIED_CARD_CAREER_GOAL` in `smartmatch_domain/exercise/asking.py:123`). The
+copy lands in that team's overlay row only. No factor function reads either
+column, and neither appears on any response model.
 
 ## Amendment discipline
 

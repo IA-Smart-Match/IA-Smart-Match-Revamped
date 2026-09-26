@@ -644,15 +644,16 @@ session (the passcode) and sends `X-Exercise-Request`. Step 0 needs neither.
    (`workspace_repository.py:526-545`). **One team, and nothing else** — there
    is no team-facing reset; PR #186 removed it on the owner's ruling of
    2026-09-19.
-6. **Expect the results screen to answer with placeholder numbers.** Since
+6. **Expect the results screen to answer with the approved numbers.** Since
    CE-RESULTS-RULE (2026-09-25) the simulated-results rule ships the team's
    translation of Ann's answer to **OQ-CE-03** (`EXERCISE_SIMULATION_COEFFICIENTS`
-   in `simulation.py`, marked `PLACEHOLDER`), so `POST
+   in `simulation.py:471`), so `POST
    /v1/exercise/workspaces/current/events/{event_key}/results` runs once the
-   round is unlocked. OQ-CE-03 stays **OPEN** until Chau and Ann confirm the
-   numbers from
-   [the sample result](../plans/open-questions/oq-ce-03-sample-result.md); a
-   change to them is a code change and a redeploy. The `409
+   round is unlocked. Chau approved the numbers on 2026-09-25 from
+   [the sample result](../plans/open-questions/oq-ce-03-sample-result.md), and
+   OQ-CE-03 is **CLOSED** (decision record D7 in
+   [`class-exercise-decisions-2026-09-25.md`](../decisions/class-exercise-decisions-2026-09-25.md)).
+   A change to them is still a code change and a redeploy. The `409
    exercise_results_rule_not_confirmed` refusal is still in the code
    (`simulation.py:483-495`, surfaced by `exercise_results_run.py:116-133`) and
    answers only if the coefficient set is ever removed, with one plain sentence:
@@ -1030,19 +1031,20 @@ check result, and the date/SHA — in the evidence table above.
 
 ## 9b. What this checklist does not prove
 
-* **No real students ran it.** Every step above, where marked, is either
+* **No class participants ran it.** Every step above, where marked, is either
   unexecuted or executed by the documenting agent's own repo inspection, not
   by an operator on the VM against real traffic.
 * **The dataset's shape is Ann's, but its content is not graded here.**
   OQ-CE-01 closed on 2026-09-24: the upload in
   [§7](#7-day-of-class-runbook) step 1 accepts only Ann's workbook layout and
   vocabularies. Nothing here asserts that the rankings it produces are the
-  ones the class needs; OQ-CE-14 (the role→topic table) closed on
-  2026-09-25, and OQ-CE-15 (Ann's P004 test case) is open with Ann.
-* **The results coefficients are a placeholder.** OQ-CE-03/04 are **OPEN** —
-  [§7](#7-day-of-class-runbook) step 6 documents that the results endpoint
-  runs on the team's translation of Ann's words until she and Chau confirm
-  the numbers. This remains true after this checklist passes.
+  ones the class needs; OQ-CE-14 (the role→topic table) and OQ-CE-15 (Ann's
+  P004 test case, kept as built; Ann may revisit) both closed on 2026-09-25.
+* **The results coefficients are approved, not proven in class.** OQ-CE-03
+  and OQ-CE-04 closed on 2026-09-25 — [§7](#7-day-of-class-runbook) step 6.
+  Nothing here shows that the numbers feel right to a class; the practice run
+  in the week of Nov 9 is where that is reviewed. This remains true after this
+  checklist passes.
 * **Engineering did not execute this.** An operator must run it for real, on
   the VM, and record the date, the deployed SHA, and their name in the
   evidence table in [§9](#9-deploy-and-verify-checklist) before the "Deployed
@@ -1067,9 +1069,9 @@ check result, and the date/SHA — in the evidence table above.
 | **OQ-CE-09** | "What license line goes on the opening screen?" — owner Ann | **CLOSED 2026-09-25** (Ann Wang, email reply) — "For California State Polytechnic University, Pomona — College of Business Administration instructional use only. All student profiles are fictional." | The opening screen renders it from a constant (`ExerciseEntry.tsx`); nothing to configure at deploy time |
 | **B-11** | "Error text never carries bound values" as a repository-wide invariant. PostgreSQL's `DETAIL: Failing row contains (…)` sits below the layer `hide_parameters` operates on | **RECORDED 2026-09-19, unresolved** — [`docs/architecture/decisions/adr-backlog.md:250`](../architecture/decisions/adr-backlog.md) | [§8](#8-known-limits) item 3 |
 
-Also open and load-bearing for the runbook: **OQ-CE-03** (the simulation
-coefficients), which is why step 6 of [§7](#7-day-of-class-runbook) calls the
-results placeholder numbers.
+**OQ-CE-03** (the simulation coefficients) closed on 2026-09-25: Chau
+approved the team's translation of Ann's words, so step 6 of
+[§7](#7-day-of-class-runbook) no longer calls the results placeholder numbers.
 
 The register at
 [`docs/plans/open-questions/class-exercise-open-questions.md`](../plans/open-questions/class-exercise-open-questions.md)

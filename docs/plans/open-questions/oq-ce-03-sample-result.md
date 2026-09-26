@@ -1,9 +1,13 @@
 # Sample result for the results rule (OQ-CE-03)
 
-**For:** Chau, to check with Ann before class.
+**For:** Ann, for information. Chau used it to approve the numbers.
 **Date:** 2026-09-25.
-**Status:** the numbers below are the team's translation of Ann's answer. They
-are not final until Chau and Ann confirm them.
+**Status:** **Approved 2026-09-25.** The numbers below were translated by the
+team from Ann's answers and approved by Chau, to whom Ann delegated the
+numbers. OQ-CE-03 is closed
+([register](class-exercise-open-questions.md); decision record D7 in
+[`class-exercise-decisions-2026-09-25.md`](../../decisions/class-exercise-decisions-2026-09-25.md)).
+If Ann would like the numbers changed, each is one line in `simulation.py`.
 
 ## What Ann asked for
 
@@ -49,8 +53,8 @@ can miss people.
 
 ## The data
 
-The run used Ann's file of 300 made-up students: fictional profiles shaped by
-overall survey percentages. Nobody in it is a real person.
+The run used Ann's file of 300 fictional profiles shaped by overall survey
+percentages.
 
 ## The three lists
 
@@ -72,7 +76,9 @@ average over 1,000 different teams, which shows what the list does apart from
 luck.
 
 Empty seats are counted as 60 seats, minus the 8 people who had already signed
-up, minus the invited students who attended.
+up, minus the invited students who attended. The results screen shows both
+groups, for example "8 were already coming. Your invitations added 6. 46 seats
+are still open." (OQ-CE-16, approved by Chau 2026-09-25).
 
 ### Northline
 
@@ -100,14 +106,18 @@ up, minus the invited students who attended.
    they are interested" on both events, although that list is the weakest of the
    three for a typical team on Northline.
 
-## Questions for Chau and Ann
+## What Chau decided
 
-1. **Are these sizes believable?** If not, say "more sign-ups" or "fewer
-   sign-ups" and we will adjust the starting chance.
-2. **Is the randomness the right size?** At this size, one team's luck can flip
-   which list looks best. Smaller randomness makes a good list win more
-   reliably. Larger randomness makes the result feel more like real life.
-3. **How should empty seats be counted?** This sample counts the 8 people who
-   had already signed up as filling seats, so 6 attendees leave 46 seats empty.
-   Ann's example ("8 of your 30 invited students signed up, 6 attended, and 54
-   seats remained open") leaves them out, which gives 54. Which one is right?
+These were the questions put to Chau with this sample. On 2026-09-25 Chau
+approved the numbers as shown and the team's recommendation for empty seats,
+which answers all three.
+
+1. **Are these sizes believable?** The numbers stand as shown.
+2. **Is the randomness the right size?** It stays at up to 10 in 100 either
+   way. At this size one team's luck can flip which list looks best, as the
+   example team shows.
+3. **How should empty seats be counted?** Show both groups: the 8 who had
+   already signed up, and the invited students who attended. So 6 attendees
+   leave 46 seats open. An earlier example of ours read "54 seats remained
+   open", which left the 8 out. That figure was the team's own example text,
+   not Ann's.
