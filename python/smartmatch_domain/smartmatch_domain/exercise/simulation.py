@@ -485,7 +485,7 @@ def require_coefficients() -> SimulationCoefficients:
     """Return the exercise's coefficients, or refuse in a plain sentence.
 
     Returns:
-        :data:`EXERCISE_SIMULATION_COEFFICIENTS`, once it is set.
+        :data:`EXERCISE_SIMULATION_COEFFICIENTS`, the approved set.
 
     Raises:
         CoefficientsNotConfirmedError: If the set is ever ``None``.

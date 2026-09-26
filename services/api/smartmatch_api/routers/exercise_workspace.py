@@ -290,8 +290,8 @@ def read_current_workspace(workspace: CurrentWorkspace) -> TeamWorkspaceView:
     """What the cookie points at, or one sentence saying to enter a team number.
 
     The reload case, and the second-tab case: both arrive here with the same
-    cookie and both get the same workspace, which is OQ-CE-08's default
-    behaviour made observable.
+    cookie and both get the same workspace: one shared workspace per team,
+    made observable.
 
     Raises:
         ExerciseError: 401 when the cookie is absent or names no workspace.

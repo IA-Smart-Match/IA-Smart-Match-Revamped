@@ -375,8 +375,7 @@ def read_ranked_list(
 
     The weights come from one of three places: a saved setting named by
     ``setting``, the four weight parameters, or — with neither given — the
-    course's starting values, which are a placeholder the course owner has not
-    yet replaced. Naming both a setting and a weight is refused.
+    course's starting values. Naming both a setting and a weight is refused.
 
     **The event is resolved before ``setting`` is looked up** (review round 2,
     F2). Resolving the name first answered an unknown event key plus an unknown

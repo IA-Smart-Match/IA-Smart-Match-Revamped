@@ -32,7 +32,7 @@ from smartmatch_domain.exercise.simulation import (
     simulate_results,
 )
 
-# --- Test-only coefficients (NOT a proposal for OQ-CE-03) ------------------
+# --- Test-only coefficients (NOT the shipped set) --------------------------
 
 TEST_ONLY_COEFFICIENTS = SimulationCoefficients(
     base_signup_rate=0.10,
