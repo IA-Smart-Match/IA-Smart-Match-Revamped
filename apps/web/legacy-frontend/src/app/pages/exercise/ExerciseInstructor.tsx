@@ -36,7 +36,7 @@ import {
 import { ExerciseLoading, ExerciseNotice, ExerciseScreen } from "./ExerciseScreen";
 import { InstructorDatasets } from "./InstructorDatasets";
 import { InstructorTeams } from "./InstructorTeams";
-import { INSTRUCTOR_SESSION_REQUIRED } from "./refusals";
+import { INSTRUCTOR_SESSION_REQUIRED, TEAMS_SPAN_DATASETS } from "./refusals";
 import { useExerciseResource } from "./useExerciseResource";
 
 const BUTTON =
@@ -227,7 +227,17 @@ function SignedIn({ onSignedOut }: { readonly onSignedOut: () => void }): React.
  * can be resolved the server's own sentence is shown, with "Check again": the
  * instructor usually signs in before any team has entered, and nothing else
  * on the page would re-read this list once one has. A refused unlock re-reads
- * too, because the likeliest cause is a re-point made somewhere else.
+ * too, because the likeliest cause is a re-point made somewhere else, and once
+ * that re-read lands the page-top sentence about the refused press is cleared:
+ * it described the list as it was, and the list on screen is now the new one.
+ *
+ * **Teams split across two files get this panel's own sentence.** The server's
+ * asks the instructor to "choose which one this applies to", which is right on
+ * routes that take a file, but this panel has nothing to choose with: the
+ * unlock is meant for the file the whole class is on (D11), and a picker would
+ * open results for half a class. The fix is a re-point, so the sentence says
+ * where that button is. Branching on the stable `code`, as the refusal rule
+ * allows; the server's wording stays untouched everywhere else.
  */
 function UnlockPanel({
   onRefusal,
@@ -238,14 +248,30 @@ function UnlockPanel({
 }): React.JSX.Element {
   const { state, reload } = useExerciseResource(listInstructorEvents, [reloadKey]);
   const [pending, setPending] = React.useState(false);
+  const busy =
+    pending || state.status === "loading" || (state.status === "ready" && state.refreshing);
+
+  /**
+   * Set when an unlock is refused and the list is being re-read because of it.
+   * The page-top sentence is cleared when that re-read lands with a list, and
+   * kept when it does not: then the sentence is still the latest thing known.
+   */
+  const refusedUnlockPending = React.useRef(false);
+  React.useEffect(() => {
+    if (!refusedUnlockPending.current) {
+      return;
+    }
+    if (state.status === "ready" && !state.refreshing) {
+      refusedUnlockPending.current = false;
+      onRefusal(null);
+    } else if (state.status === "refused" || state.status === "unreachable") {
+      refusedUnlockPending.current = false;
+    }
+  }, [state, onRefusal]);
+
   const checkAgain = (
     <div>
-      <button
-        type="button"
-        className={BUTTON}
-        disabled={pending || state.status === "loading"}
-        onClick={() => void reload()}
-      >
+      <button type="button" className={BUTTON} disabled={busy} onClick={() => void reload()}>
         Check again
       </button>
     </div>
@@ -259,7 +285,13 @@ function UnlockPanel({
       {state.status === "loading" ? <ExerciseLoading what="the events" /> : null}
       {state.status === "refused" ? (
         <>
-          <ExerciseNotice message={state.refusal.message} />
+          <ExerciseNotice
+            message={
+              state.refusal.code === TEAMS_SPAN_DATASETS
+                ? SPLIT_ACROSS_FILES
+                : state.refusal.message
+            }
+          />
           {checkAgain}
         </>
       ) : null}
@@ -302,6 +334,7 @@ function UnlockPanel({
                             ? error.message
                             : "The exercise could not be reached. Check the connection and try again.",
                         );
+                        refusedUnlockPending.current = true;
                         return reload();
                       })
                       .finally(() => setPending(false));
@@ -317,6 +350,11 @@ function UnlockPanel({
     </section>
   );
 }
+
+/** This panel's sentence for teams split across files (see `UnlockPanel`). */
+const SPLIT_ACROSS_FILES =
+  "The teams are working in more than one data file. Under Data files, press " +
+  "\u201cMove every team to this file\u201d on the file the class should use, then press Check again.";
 
 /** Refresh every team that has chosen and has not yet asked. */
 function RefreshAllPanel(): React.JSX.Element {
