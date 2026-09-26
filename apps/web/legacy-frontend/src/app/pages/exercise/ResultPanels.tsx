@@ -103,6 +103,8 @@ export function ResultPanels({ results, names }: ResultPanelsProps): React.JSX.E
               : `Built from your team's setting “${results.round_one.setting_name}”.`}{" "}
             {seatsSentence(
               {
+                // Round one carries no `existing_signups` of its own: the case's
+                // existing sign-ups are the same number for both events.
                 alreadyComing: results.existing_signups,
                 added: results.round_one.team.attended_count,
                 open: results.round_one.seats_empty,
@@ -158,9 +160,16 @@ export interface SeatCounts {
  * seat count hides. `"then"` is for a round already behind the team.
  */
 export function seatsSentence(counts: SeatCounts, tense: "now" | "then"): string {
-  const coming = `${counts.alreadyComing} ${counts.alreadyComing === 1 ? "was" : "were"} already coming.`;
+  const coming = alreadyComing(counts.alreadyComing);
   const added = `Your invitations added ${counts.added === 0 ? "nobody" : counts.added}.`;
   return `${coming} ${added} ${openSeats(counts.open, tense)}`;
+}
+
+function alreadyComing(count: number): string {
+  if (count === 0) {
+    return "Nobody was already coming.";
+  }
+  return `${count} ${count === 1 ? "was" : "were"} already coming.`;
 }
 
 function openSeats(open: number, tense: "now" | "then"): string {

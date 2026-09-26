@@ -66,6 +66,12 @@ describe("seatsSentence", () => {
     );
   });
 
+  it("says plainly when nobody was already coming", () => {
+    expect(seatsSentence({ alreadyComing: 0, added: 6, open: 54 }, "now")).toBe(
+      "Nobody was already coming. Your invitations added 6. 54 seats are still open.",
+    );
+  });
+
   it("says plainly when the invitations added nobody", () => {
     expect(seatsSentence({ alreadyComing: 8, added: 0, open: 52 }, "now")).toBe(
       "8 were already coming. Your invitations added nobody. 52 seats are still open.",
