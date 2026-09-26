@@ -247,7 +247,7 @@ function UploadForm({
           className={INPUT}
         />
       </div>
-      <div className="flex flex-col gap-1">
+      <div className="flex min-w-0 max-w-full flex-col gap-1">
         <label htmlFor="exercise-upload-file" className="text-xl">
           Ann&apos;s Excel workbook (.xlsx)
         </label>
@@ -257,7 +257,7 @@ function UploadForm({
           accept={`.xlsx,${XLSX_CONTENT_TYPE}`}
           aria-describedby="exercise-upload-file-help"
           onChange={(event) => setFile(event.target.files?.[0] ?? null)}
-          className={INPUT}
+          className={`${INPUT} w-full max-w-full`}
         />
         <p id="exercise-upload-file-help" className="text-lg text-slate-600 dark:text-slate-300">
           Choose Ann&apos;s workbook exactly as she sent it. Do not save it as a CSV first.

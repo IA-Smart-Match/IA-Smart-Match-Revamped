@@ -160,6 +160,14 @@ function SignedIn({ onSignedOut }: { readonly onSignedOut: () => void }): React.
    */
   const [dataVersion, setDataVersion] = React.useState(0);
   const dataChanged = React.useCallback(() => setDataVersion((version) => version + 1), []);
+  /**
+   * Bumped when an action changes what the Teams panel says but not the data
+   * files or the unlock list: "Ask for every team" and a successful unlock.
+   * Kept apart from `dataVersion` so an unlock does not re-read its own panel
+   * twice.
+   */
+  const [teamsVersion, setTeamsVersion] = React.useState(0);
+  const teamsChanged = React.useCallback(() => setTeamsVersion((version) => version + 1), []);
 
   /**
    * Any instructor action, with the session's own 401 handled once.
@@ -205,9 +213,10 @@ function SignedIn({ onSignedOut }: { readonly onSignedOut: () => void }): React.
       {refusal === null ? null : <ExerciseNotice message={refusal} />}
 
       <InstructorDatasets onDataChanged={dataChanged} />
-      <UnlockPanel onRefusal={setRefusal} reloadKey={dataVersion} />
-      <RefreshAllPanel />
-      <InstructorTeams reloadKey={dataVersion} />
+      <UnlockPanel onRefusal={setRefusal} onUnlocked={teamsChanged} reloadKey={dataVersion} />
+      <RefreshAllPanel onDone={teamsChanged} />
+      {/* A sum, so a bump to either re-reads the teams. */}
+      <InstructorTeams reloadKey={dataVersion + teamsVersion} />
     </div>
   );
 }
@@ -241,9 +250,12 @@ function SignedIn({ onSignedOut }: { readonly onSignedOut: () => void }): React.
  */
 function UnlockPanel({
   onRefusal,
+  onUnlocked,
   reloadKey,
 }: {
   readonly onRefusal: (message: string | null) => void;
+  /** Called after an unlock lands, so the page can re-read the teams. */
+  readonly onUnlocked: () => void;
   readonly reloadKey: number;
 }): React.JSX.Element {
   const { state, reload } = useExerciseResource(listInstructorEvents, [reloadKey]);
@@ -327,7 +339,10 @@ function UnlockPanel({
                     setPending(true);
                     onRefusal(null);
                     unlockResults(event.event_key, state.data.dataset_id)
-                      .then(() => reload())
+                      .then(() => {
+                        onUnlocked();
+                        return reload();
+                      })
                       .catch((error: unknown) => {
                         onRefusal(
                           isRefusal(error)
@@ -357,7 +372,7 @@ const SPLIT_ACROSS_FILES =
   "\u201cMove every team to this file\u201d on the file the class should use. This list reads again on its own once they move.";
 
 /** Refresh every team that has chosen and has not yet asked. */
-function RefreshAllPanel(): React.JSX.Element {
+function RefreshAllPanel({ onDone }: { readonly onDone: () => void }): React.JSX.Element {
   const [pending, setPending] = React.useState(false);
   const [done, setDone] = React.useState<RefreshAllView | null>(null);
   const [refusal, setRefusal] = React.useState<string | null>(null);
@@ -380,7 +395,10 @@ function RefreshAllPanel(): React.JSX.Element {
             setPending(true);
             setRefusal(null);
             refreshAllWorkspaces()
-              .then(setDone)
+              .then((view) => {
+                setDone(view);
+                onDone();
+              })
               .catch((error: unknown) =>
                 setRefusal(
                   isRefusal(error)
@@ -401,7 +419,17 @@ function RefreshAllPanel(): React.JSX.Element {
           {done.refreshed_team_numbers.length === 0
             ? ""
             : ` (${done.refreshed_team_numbers.join(", ")})`}
-          . Skipped {done.skipped}.
+          . Skipped {done.skipped}
+          {/*
+            A chosen team with no round-one run is what the server skips. (It
+            also skips, rarely, a team that asked by itself in the same moment;
+            that team already shows "Has already asked" below.)
+          */}
+          {done.skipped === 0
+            ? "."
+            : done.skipped === 1
+              ? ": that team has not run results for its first event yet."
+              : ": those teams have not run results for their first event yet."}
         </p>
       )}
     </section>
