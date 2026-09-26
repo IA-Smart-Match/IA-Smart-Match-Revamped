@@ -4,6 +4,9 @@
 **Status:** Approved for implementation. Ann's final data file arrived on
 2026-09-24 and closed the `PLACEHOLDER until 9/18` items of §2 and §3
 (OQ-CE-01, OQ-CE-05); the placeholders still marked below are other rows.
+The decisions of 2026-09-25 (D1–D16) are recorded, with who approved each, in
+[`class-exercise-decisions-2026-09-25.md`](../../decisions/class-exercise-decisions-2026-09-25.md);
+this spec is updated where D2, D7, D8, D9 and D14 changed behaviour.
 **Scope:** `ProductScope.CLASS_EXERCISE` only. The CBA platform track continues
 unchanged; this spec touches shared code in exactly two places (§4.1, §4.2).
 **Requirements:** [`docs/product/class-exercise-requirements.md`](../../product/class-exercise-requirements.md)
@@ -102,8 +105,10 @@ on an exploratory event, and the simulated-results rule treats it the same way.
   `read_only` and `data_only` mode with `defusedxml`
   (`smartmatch_domain/exercise/workbook.py`). Before openpyxl opens anything:
   a 2 MiB byte cap, ZIP magic, and a zip-bomb guard on the central directory
-  (at most 100 parts, 8 MiB per part, 16 MiB in all; no encryption; stored or
-  deflate only). Row, column and cell caps as before. A CSV or an old `.xls`
+  (at most 100 parts, 1 MiB per part, 4 MiB in all; no encryption; stored or
+  deflate only — `MAX_ZIP_ENTRIES`, `MAX_ENTRY_UNCOMPRESSED_BYTES` and
+  `MAX_TOTAL_UNCOMPRESSED_BYTES` in `workbook.py`, tightened in PR #228's
+  security review). Row, column and cell caps as before. A CSV or an old `.xls`
   is refused with its own sentence.
 - Validation, in order, each producing one plain sentence on failure: both
   sheets present ("The workbook has no sheet named `Events`."); required
@@ -145,7 +150,7 @@ Four pure functions over `(ProfileEvidence, EventEvidence)`, each returning a
 |---|---|---|
 | `same_major` | 1.0 if profile major ∈ event target majors else 0.0 | never (major is always on file) |
 | `stated_interest_overlap` | Jaccard of card interests and event topic tags | no card |
-| `career_goal_fit` | 1.0 if career goal maps to a topic tag of the event, else 0.0 | no card |
+| `career_goal_fit` | 1.0 if career goal maps to a topic tag of the event; 0.5 (`UNDECIDED_EXPLORATORY_GOAL_FIT`) if the goal is `Undecided` and the event is exploratory (D2); else 0.0 | no card |
 | `past_event_topic_overlap` | Jaccard of the union of attended events' topics and this event's topics | no past events |
 
 Both `STUDENT_REGISTRY` (CBA track) and `EXERCISE_REGISTRY` import these.
@@ -176,7 +181,15 @@ cut at the dataset's `invite_limit`.
 ruling 4), so Ann's "Tied on major; ordered by year." now appears. The last
 step reads Ann's `tiebreak_order` ("Fixed random order 1–300 … Never changes
 between runs.") instead of the checksum shuffle; a dataset stored before
-revision 0042 has none and keeps the shuffle.
+revision 0042 has none and keeps the shuffle. ADR-0025 is amended for this
+(25 September 2026; decision record D3).
+
+**Ann's P004 test case (OQ-CE-15, closed 2026-09-25; decision record D9).**
+Kept as built: Chau approved the team's recommendation, and Ann may revisit.
+With "said they are interested" turned off, P004 drops from 4th to 6th for
+Northline on the full file but stays above the plain Accounting majors: its
+career goal still fits Northline, and with that factor off too, more
+information on file comes first. Nothing in this section changed for it.
 
 ### 4.5 Reasons
 
@@ -258,13 +271,15 @@ The run's refusals, in the order a team meets them:
 | 3 | Results not unlocked for this event | 409 `exercise_results_locked` |
 | 4 | This team has already run this event | 409 `exercise_results_already_run` |
 | 5 | `setting_name` left out or blank: "Choose one of your saved settings as your final setting before running results." | 422 `exercise_final_setting_required` |
-| 6 | Results rule has no confirmed coefficients (OQ-CE-03) | 409 `exercise_results_rule_not_confirmed` |
+| 6 | Results rule has no coefficients (only if `EXERCISE_SIMULATION_COEFFICIENTS` is ever removed; OQ-CE-03 closed 2026-09-25) | 409 `exercise_results_rule_not_confirmed` |
 | 7 | `setting_name` is not one of this team's saved settings | 404 `exercise_setting_unknown` |
 
 Rows 1–4 say whether the event can be run at all, whatever the body says;
 asking a team that has already run to choose a setting would invite a second
-try. Row 5 is the team's own step, so it comes before row 6, which is the
-owner's to close and refuses every run until then.
+try. Row 5 is the team's own step, so it comes before row 6. Row 6 refused
+every run until OQ-CE-03 closed; it now answers only if the coefficient set
+is removed, and the order stays so the final-setting check stays reachable
+(decision record D16).
 
 ## 10. Comparison view
 
@@ -272,6 +287,13 @@ The results response always carries three panels: the team's list (invited,
 signed up, attended), "email everyone" (all 300 run through §11 with the same
 seed), and, for round two, the team's stored round-one result. `seats_empty =
 60 - 8 - attended`, with 60 and 8 as named constants from the case.
+
+**Empty seats show both groups (OQ-CE-16, decided 2026-09-25; decision record
+D8).** Chau approved the team's recommendation A: the screen shows the 8 who
+were already coming and the team's attendees as two groups, for example "8
+were already coming. Your invitations added 6. 46 seats are still open." The
+count above is unchanged. The sentences are added to `ResultPanels.tsx` on
+`feat/ce-results-integration`.
 
 ## 11. Simulated results rule
 
@@ -295,17 +317,23 @@ Coefficients as named constants: `TRUE_FIT_LIFT`, `FREQUENT_ATTENDER_LIFT`,
 `random.Random(workspace.seed ^ hash(event_key))`. A team's reset deletes its
 overlay, runs, and settings and regenerates its seed.
 
-**PLACEHOLDER:** the four coefficient values (OQ-CE-03).
+**Decided 2026-09-25 (OQ-CE-03 closed; decision record D7):** the
+coefficient values below, translated by the team from Ann's answers and
+approved by Chau, to whom Ann delegated the numbers.
 
 **As shipped (CE-RESULTS-RULE, 2026-09-25).** Ann answered OQ-CE-03 in words
 (true fit "a lot", attended before "some", same major "a little", "some
 randomness"). The team's translation ships as
-`EXERCISE_SIMULATION_COEFFICIENTS`, still marked `PLACEHOLDER` and OPEN until
-Chau and Ann confirm it from
-[the sample result](../../plans/open-questions/oq-ce-03-sample-result.md). The
-module docstring's plain-words paragraph now supersedes the draft above and
-states every number. An undecided career goal half-fits an exploratory event
-here too (OQ-CE-14).
+`EXERCISE_SIMULATION_COEFFICIENTS` (`simulation.py:471`): start 0.04; true
+fit +0.40, split half true interests and half career goal; attended at least
+one past event +0.10; same major +0.04; chance up to 0.10 either way (spread
+0.20); 0.75 of sign-ups attend. **Chau approved it on 2026-09-25** from
+[the sample result](../../plans/open-questions/oq-ce-03-sample-result.md),
+which Ann receives for information; a change is one line. The
+`PLACEHOLDER` comment above the constant is removed on
+`feat/ce-results-integration`. The module docstring's plain-words paragraph
+supersedes the draft above and states every number. An undecided career goal
+half-fits an exploratory event here too (OQ-CE-14, decision record D2).
 
 **As shipped (PR #186, 2026-09-19) — who may reset.** Owner ruling of
 2026-09-19: the per-team reset is an **instructor action only**. The
@@ -450,6 +478,13 @@ page. Reuse `AIMatching.tsx` `CandidateCard` and `FactorRow`,
 `components/MetricCard.tsx`, and `components/provenance/SyntheticDataMarker.tsx`
 on every screen. Type sizes chosen for a projector at classroom distance. No
 CBA portal shell, no `SessionGate`.
+
+**The profile-card mock-up asks two questions (OQ-CE-11, closed 2026-09-25;
+decision record D14).** Ann: "please ask only for interests and career goal."
+`ProfileCardMockup.tsx` asks for stated interests and career goal, and shows
+the major on file for the student to confirm. Year and past events are not
+asked (they are on file or recorded by the app), and the hidden true
+interests are never asked. The screen stays labelled a mock-up.
 
 ## 17. Hosting
 
