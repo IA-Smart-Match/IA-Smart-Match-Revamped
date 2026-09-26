@@ -1,6 +1,6 @@
 """The results rows against a real PostgreSQL (CE-RESULTS-API, design spec §9–§13).
 
-``tests/unit/test_exercise_results_router.py`` proves the routes over a fake
+``tests/unit/exercise_results_router/`` proves the routes over a fake
 repository. A fake cannot prove any of the five things that actually hold in a
 classroom, and all five are database properties:
 
