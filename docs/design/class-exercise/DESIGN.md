@@ -18,6 +18,10 @@ Companion files:
 - [`prompts/README.md`](prompts/README.md): how to generate screens from this system.
 - [`experiments.md`](experiments.md): directions explored and why this one won.
 - [`assets/svg/`](assets/svg/): the spot art this system allows.
+- [`assets/mockups/`](assets/mockups/): 8 reference PNGs from the Fable
+  experimental track ("The Room" and "The Ledger"). They show layout and
+  motion intent; their teal palette and Fraunces/Newsreader type are **not**
+  this system's. Where they differ, this file wins.
 
 ---
 
@@ -491,9 +495,12 @@ weights on screen to fill it."
 
 ### 6.12 Compare view (see [prompt](prompts/components/compare-view.md))
 
-Two ranked lists side by side (1280) or tabbed A | B (390), summary sentence
-"11 names are on both lists, highlighted in each.", overlap rows gold-washed,
-close action.
+Two ranked lists side by side (1280) or a segmented control A | B (390),
+summary sentence "12 names are on both lists, highlighted in each.", overlap
+rows gold-washed with an "on both lists" chip, close action. On 390 each list
+shows 10 rows and "Showing 10 of 30. Show all 30" (from Fable's Room
+mock-up). Reference: [`room/compare-1280.png`](assets/mockups/room/compare-1280.png),
+[`room/compare-390.png`](assets/mockups/room/compare-390.png).
 
 ### 6.13 Final-setting picker
 
@@ -512,10 +519,16 @@ disabled until chosen, with that line as its description.
 
 ### 6.15 Results reveal and seat figures (see [prompt](prompts/components/results-reveal.md))
 
-Seating chart (grid of `event_seats` squares, 10 per row → 6 rows for 60),
-legend, the three-sentence summary, and three figure cards: "Seats in the room
-60", "Already coming 8", "Still open 46". The "added" figure is the server's
-`team.signed_up_count`; the client never subtracts.
+Seating chart (grid of `event_seats` squares, 10 per row → 6 rows for 60;
+any other count fills rows of 10 and leaves the last row short), a small
+"Front of the room" bar above row 1, legend, and the three-sentence summary
+set as the screen's headline in Proxima Sera 40/48 (the Ledger's headline
+idea), numerals in `--ce-primary`. Under it a **ruled figures band**, not
+cards: three columns separated by 1px `--ce-line-strong` rules, each a
+`--ce-type-display` numeral over a label: "Seats in the room 60", "Already
+coming 8", "Still open 46". The "added" figure is the server's
+`team.signed_up_count`; the client never subtracts. The seating chart is
+`aria-hidden`; the sentences and the band are the accessible content.
 
 ### 6.16 Results chart
 
@@ -536,8 +549,8 @@ wording from `askingChoices.ts`), one supporting line, no percentages.
 
 ### 6.19 Refresh counts
 
-Three figure cards: "Cards filled in", "Stopped opening messages", "Topics
-added from the first event". Values count up once.
+The same ruled figures band as 6.15: "Cards filled in", "Stopped opening
+messages", "Topics added from the first event". Values count up once.
 
 ### 6.20 Notice
 
@@ -592,9 +605,10 @@ Routes and file names are the current ones. Wireframes are schematic.
 
 ### 7.1 Opening screen (`/exercise`, top zone)
 
-- **1280:** two columns 7/5. Left: `h1` "Smart Match class exercise", lead
-  "Your team is promoting a campus career event with 60 seats. Choose whom to
-  invite, see what happened, then try again.", then the license line in a
+- **1280:** two columns 7/5. Left: `h1` "Who should we invite?" (the
+  question from Fable's "The Room"), lead "Your team is promoting a campus
+  career event with 60 seats. Choose whom to invite, see what happened, then
+  try again.", then the license line in a
   quiet sunk card. Right: `lecture-hall.svg` at 160px in `--ce-primary`.
   Below: the team entry zone.
 - **390:** single column; illustration hidden; license card full width.
@@ -673,7 +687,7 @@ Routes and file names are the current ones. Wireframes are schematic.
 │ Seating chart 10×6                │ 8 were already coming.    │
 │ ▪▪▪▪▪▪▪▪■■                          │ Your invitations added 6. │
 │ ■■■■□□□□□□                          │ 46 seats are still open.  │
-│ □□□□□□□□□□ …                        │ [60] [8] [46] figure cards│
+│ □□□□□□□□□□ …                        │ 60 │ 8 │ 46  (figures band)│
 ├───────────────────────────────────┴───────────────────────────┤
 │ What happened for Northline Analytics (chart, 3 series × 2)   │
 │ The people on your team's list (chips)                        │
@@ -683,7 +697,7 @@ Routes and file names are the current ones. Wireframes are schematic.
 
 Before a run: lock panel (6.14) in the seating-chart position.
 - **390:** seating chart full width (10 per row, 26px seats), sentences below,
-  figure cards in one row of three compact tiles, chart switches to horizontal
+  the figures band stays three columns at 40px numerals, chart switches to horizontal
   bars.
 
 ### 7.9 Asking for more (`/exercise/asking`)
@@ -697,7 +711,9 @@ Before a run: lock panel (6.14) in the seating-chart position.
 
 - **1280:** `round-journey.svg` strip at the top ("Round 1 → Round 2"), the
   seat chart for round two, then the chart with three series groups, then a
-  quiet line: "In round one your team's list left 41 seats empty."
+  quiet line: "In round one your team's list left 46 seats empty." Round two
+  headline: "8 were already coming. Your invitations added 11. 41 seats are
+  still open."
 - **390:** as 7.8 with the extra panel as a third chart group.
 
 ### 7.11 Instructor (`/exercise/instructor`)
