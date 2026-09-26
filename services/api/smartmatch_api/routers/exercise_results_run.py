@@ -29,9 +29,10 @@ term.
 
 PLACEHOLDER (OQ-CE-03)
 ======================
-:func:`coefficients_or_refusal` turns the domain's refusal into one plain
-sentence naming the open row. The exercise ships no coefficients and this module
-invents none.
+:func:`coefficients_or_refusal` reads the domain's coefficient set — the team's
+translation of Ann's words, still marked as a placeholder — and turns the
+domain's refusal, should the set ever be ``None``, into one plain sentence
+naming the open row. This module invents none.
 """
 
 from __future__ import annotations
@@ -115,9 +116,9 @@ def round_or_refusal(events: Sequence[ExerciseEventRow], event_key: str) -> int:
 def coefficients_or_refusal() -> SimulationCoefficients:
     """The results rule's coefficients, or **OQ-CE-03's own sentence**.
 
-    The register's answer is "Chau proposes; Ann confirms", and nothing has been
-    confirmed — so the domain ships none and refuses. The sentence a team reads
-    is the domain's, passed through unchanged rather than rewritten here: two
+    The register's answer is "Chau proposes; Ann confirms". The domain ships the
+    team's proposal, and refuses only if it is ever removed. The sentence a team
+    reads is the domain's, passed through unchanged rather than rewritten here: two
     wordings of "this is not decided yet" would be one more than the question
     has. The register ID (OQ-CE-03) is kept out of that sentence and in the
     comments: a student has no use for an internal identifier.

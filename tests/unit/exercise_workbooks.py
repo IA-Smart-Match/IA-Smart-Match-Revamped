@@ -60,11 +60,11 @@ PROFILE_HEADINGS: Final[tuple[str, ...]] = (
     *LAYOUT.profile_columns[9:],
 )
 
-#: Ann's Events headings, including the two the parser does not read.
+#: Ann's Events headings, including the one the parser does not read.
 EVENT_HEADINGS: Final[tuple[str, ...]] = (
     LAYOUT.event_key_column,
     LAYOUT.event_name_column,
-    "event_type",
+    LAYOUT.event_type_column,
     "event_date",
     LAYOUT.topic_tags_column,
     LAYOUT.target_majors_column,

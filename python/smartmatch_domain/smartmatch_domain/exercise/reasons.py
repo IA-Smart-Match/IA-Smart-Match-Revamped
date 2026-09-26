@@ -75,6 +75,7 @@ from typing import Final
 from smartmatch_domain.exercise.markers import InformationMarker
 from smartmatch_domain.exercise.registry import EXERCISE_FACTOR_LABELS
 from smartmatch_domain.one_sentence import assert_one_sentence
+from smartmatch_domain.student_factors import CAREER_GOAL_FIT_FACTOR_KEY
 
 __all__ = [
     "ANN_MAJOR_ONLY_PHRASE",
@@ -167,9 +168,20 @@ def phrase_as_sentence(phrase: str, *, field: str = "reason") -> str:
 _CONTRIBUTION_OPENER: Final[str] = "what counted"
 
 
-def _factor_phrase(contributing_keys: Sequence[str]) -> str:
+#: What an undecided career goal's half fit on an exploratory event is called
+#: in the reason line (OQ-CE-14). "Career goal fits this event" would be false
+#: next to a card that says "Undecided". The team's wording, not Ann's; no number.
+_UNDECIDED_GOAL_PHRASE: Final[str] = "undecided goal suits a broad event"
+
+
+def _factor_phrase(contributing_keys: Sequence[str], *, undecided_goal: bool = False) -> str:
     """The contributing factors named in Ann's words, as one phrase."""
-    labels = [EXERCISE_FACTOR_LABELS[key] for key in contributing_keys]
+    labels = [
+        _UNDECIDED_GOAL_PHRASE
+        if undecided_goal and key == CAREER_GOAL_FIT_FACTOR_KEY
+        else EXERCISE_FACTOR_LABELS[key]
+        for key in contributing_keys
+    ]
     if len(labels) == 1:
         joined = labels[0]
     elif len(labels) == 2:
@@ -185,6 +197,7 @@ def exercise_reason(
     contributing_keys: Sequence[str],
     tie_break_key: TieBreakKey = TieBreakKey.NONE,
     tied_on_major: bool = False,
+    undecided_goal: bool = False,
 ) -> str:
     """The one sentence shown next to one name.
 
@@ -200,6 +213,9 @@ def exercise_reason(
             tied with. Ann's "tied on major" sentence is emitted when and only
             when this is true, because otherwise it would be a false statement
             about two names that may share no major at all.
+        undecided_goal: Whether "career goal fits this event" counted only as
+            an undecided goal's half fit on an exploratory event (OQ-CE-14).
+            The factor is then named "undecided goal suits a broad event".
 
     Returns:
         Exactly one sentence, checked by
@@ -216,5 +232,5 @@ def exercise_reason(
     if marker is InformationMarker.MAJOR_ONLY:
         return phrase_as_sentence(ANN_MAJOR_ONLY_PHRASE)
     if contributing_keys:
-        return phrase_as_sentence(_factor_phrase(contributing_keys))
+        return phrase_as_sentence(_factor_phrase(contributing_keys, undecided_goal=undecided_goal))
     return phrase_as_sentence(_NOTHING_MATCHED_PHRASE)

@@ -47,7 +47,10 @@ A card's career goal is one of Ann's sixteen labels; "career goal fits this
 event" compares the **topic** that label points at, through
 :func:`~smartmatch_domain.exercise.vocabulary.goal_topic_for_matching` — the
 one place that mapping is applied for the ranker. The stored and displayed
-goal stays Ann's label.
+goal stays Ann's label. An ``Undecided`` goal names no topic but is flagged
+(:func:`~smartmatch_domain.exercise.vocabulary.goal_is_undecided`), and the
+event carries ``is_exploratory``, so the factor gives it half a fit on a broad
+exploratory event (OQ-CE-14, decided 2026-09-25).
 """
 
 from __future__ import annotations
@@ -70,6 +73,7 @@ from smartmatch_domain.exercise.matching import ExerciseList, ExerciseProfile
 from smartmatch_domain.exercise.registry import EXERCISE_FACTOR_LABELS
 from smartmatch_domain.exercise.vocabulary import (
     EXERCISE_CLASS_YEAR_RANK,
+    goal_is_undecided,
     goal_topic_for_matching,
 )
 from smartmatch_domain.exercise_list_coverage import ListCoverage
@@ -209,6 +213,7 @@ def event_evidence(event: ExerciseEventRow) -> EventEvidence:
         event_key=event.event_key,
         topic_tags=event.topic_tags,
         target_majors=event.target_majors,
+        exploratory=event.is_exploratory,
     )
 
 
@@ -256,7 +261,11 @@ def _profile_evidence(
         else profile.career_goal
     )
     card = (
-        ProfileCard(stated_interests=interests, career_goal=goal_topic_for_matching(career_goal))
+        ProfileCard(
+            stated_interests=interests,
+            career_goal=goal_topic_for_matching(career_goal),
+            career_goal_undecided=goal_is_undecided(career_goal),
+        )
         if interests is not None
         else None
     )

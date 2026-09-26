@@ -93,7 +93,11 @@ REVISION = "0033_event_filed_by"
 #: ``0041_batch_speaker_request`` and is the head. It adds two nullable
 #: ``exercise_profile`` columns and writes no rows, so this file's claims still
 #: hold through it.
-HEAD_REVISION = "0042_exercise_ann_dataset"
+#: Moved again by CE-RESULTS-RULE: ``0043_exercise_event_exploratory`` chains to
+#: ``0042_exercise_ann_dataset`` and is the head. It adds one boolean
+#: ``exercise_event`` column defaulting to false and writes no rows, so this
+#: file's claims still hold through it.
+HEAD_REVISION = "0043_exercise_event_exploratory"
 
 ON_DATE = "2026-10-14"
 ZONE = "America/Los_Angeles"

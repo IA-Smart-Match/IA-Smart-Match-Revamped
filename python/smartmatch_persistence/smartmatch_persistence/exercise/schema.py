@@ -64,6 +64,9 @@ career goals — are closed **in code**
 
 Revision ``0042_exercise_ann_dataset`` added Ann's two columns this table did
 not have: ``hidden_true_career_goal`` (withheld) and ``tiebreak_order``.
+Revision ``0043_exercise_event_exploratory`` added ``exercise_event.is_exploratory``
+(OQ-CE-14): a boolean derived from Ann's ``event_type`` at ingest, so no
+vocabulary of event types is written as DDL either.
 """
 
 from __future__ import annotations
@@ -204,6 +207,11 @@ exercise_event = sa.Table(
     # attended. The distinction is what keeps a past event out of the picker.
     sa.Column("is_exercise_event", sa.Boolean, nullable=False, server_default=sa.text("false")),
     sa.Column("sequence", sa.Integer, nullable=False),
+    # Revision 0043 (OQ-CE-14, Ann 2026-09-25): a broad exploratory event — a
+    # company talk, an industry panel, a career fair — which an undecided
+    # career goal half-fits. Derived at ingest from Ann's ``event_type``; the
+    # type itself is not stored. False for a dataset stored before 0043.
+    sa.Column("is_exploratory", sa.Boolean, nullable=False, server_default=sa.text("false")),
     sa.PrimaryKeyConstraint("dataset_id", "event_key", name="exercise_event_pkey"),
     # One event per position. The ten past events and the two rounds are an
     # ordered list in the case; two events claiming position 11 would make

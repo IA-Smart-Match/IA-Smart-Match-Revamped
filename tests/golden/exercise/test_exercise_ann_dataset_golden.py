@@ -49,6 +49,7 @@ from smartmatch_api.routers.exercise_matching_models import event_evidence, rank
 from smartmatch_domain.exercise.ingest import ParsedDataset, parse_exercise_file
 from smartmatch_domain.exercise.matching import ExerciseList, exercise_ranked_list
 from smartmatch_domain.exercise.reasons import phrase_as_sentence
+from smartmatch_domain.student_factors import career_goal_fit
 
 from tests.unit.exercise_workbooks import ANN_FULL_FILE
 
@@ -107,6 +108,7 @@ def _events() -> tuple[ExerciseEventRow, ...]:
             target_majors=e.target_majors,
             is_exercise_event=e.is_exercise_event,
             sequence=e.sequence,
+            is_exploratory=e.is_exploratory,
         )
         for e in _dataset().events
     )
@@ -246,3 +248,110 @@ def test_the_fixed_order_is_anns_tiebreak_order_not_the_checksum() -> None:
     for members in groups.values():
         orders = [by_no[number].tiebreak_order for number in members]
         assert orders == sorted(orders)
+
+
+# ---------------------------------------------------------------------------
+# OQ-CE-14, decided 2026-09-25 (Ann Wang): undecided is half a fit for an
+# exploratory event, and a goal that clearly fits still ranks higher
+# ---------------------------------------------------------------------------
+
+#: Card holders whose card says "Undecided".
+UNDECIDED_CARDS = (16, 30, 197, 202, 233, 289)
+
+#: Card holders whose card goal points at one of the event's topics.
+FITTING_CARDS = {
+    "E11": (4, 108, 131, 178, 224),  # "Data, analytics or IT role"
+    "E12": (31, 50, 154, 168),  # "Retail or consumer goods role", "Supply chain or operations role"
+}
+
+#: Card holders whose card says "Graduate school": no event topic, even an
+#: exploratory one ("Graduate school → no specific event topic: yes").
+GRADUATE_SCHOOL_CARDS = (40, 44, 225, 239, 249)
+
+_GOAL_ONLY = {
+    "same_major": 0.0,
+    "stated_interest_overlap": 0.0,
+    "career_goal_fit": 1.0,
+    "past_event_topic_overlap": 0.0,
+}
+
+
+def _goal_fit(event_key: str, profile_no: int) -> float | None:
+    events = _events()
+    event = next(e for e in events if e.event_key == event_key)
+    profile = next(p for p in rankable_set(_rows(), events).profiles if p.profile_no == profile_no)
+    return career_goal_fit(profile.evidence, event_evidence(event)).value
+
+
+@pytest.mark.golden
+def test_the_cards_named_here_are_what_anns_file_says() -> None:
+    by_no = {p.profile_no: p for p in _dataset().profiles}
+    for number in UNDECIDED_CARDS:
+        assert by_no[number].stated_interests is not None
+        assert by_no[number].career_goal == "Undecided"
+    for number in GRADUATE_SCHOOL_CARDS:
+        assert by_no[number].career_goal == "Graduate school"
+    for numbers in FITTING_CARDS.values():
+        assert all(by_no[number].stated_interests is not None for number in numbers)
+
+
+@pytest.mark.golden
+@pytest.mark.parametrize("event_key", ["E11", "E12"])
+def test_northline_and_harbor_give_undecided_half_and_a_fitting_goal_the_whole(
+    event_key: str,
+) -> None:
+    for number in FITTING_CARDS[event_key]:
+        assert _goal_fit(event_key, number) == 1.0, number
+    for number in UNDECIDED_CARDS:
+        assert _goal_fit(event_key, number) == 0.5, number
+    for number in GRADUATE_SCHOOL_CARDS:
+        assert _goal_fit(event_key, number) == 0.0, number
+
+
+@pytest.mark.golden
+def test_undecided_earns_nothing_from_an_event_that_is_not_exploratory() -> None:
+    """E06, "Pitch Night: Student Startups", is a Competition."""
+    for number in UNDECIDED_CARDS:
+        assert _goal_fit("E06", number) == 0.0, number
+
+
+@pytest.mark.golden
+@pytest.mark.parametrize("event_key", ["E11", "E12"])
+def test_on_the_goal_alone_every_fitting_goal_outranks_every_undecided_one(
+    event_key: str,
+) -> None:
+    listing = _ranked(event_key, _GOAL_ONLY, invite_limit=300)
+    at = _positions(listing)
+
+    last_fitting = max(at[number] for number in FITTING_CARDS[event_key])
+    undecided = [at[number] for number in UNDECIDED_CARDS]
+    graduate = [at[number] for number in GRADUATE_SCHOOL_CARDS]
+    assert last_fitting < min(undecided)
+    assert max(undecided) < min(graduate)
+
+
+@pytest.mark.golden
+def test_an_undecided_card_on_northline_is_never_told_its_goal_fits() -> None:
+    """How a half contribution reads: the factor counted, with no number.
+
+    "Career goal fits this event" would be false beside a card that says
+    "Undecided", so the half is named "undecided goal suits a broad event"
+    (ADR-0025 D8: still no number).
+
+    P197 is the undecided card the default list reaches: 30th of 30 on
+    Northline, on its half goal fit and its past events.
+    """
+    listing = _ranked("E11", None)
+    p197 = _entry(listing, 197)
+
+    assert p197.rank == 30  # type: ignore[attr-defined]
+    assert p197.contributing_factor_keys == (  # type: ignore[attr-defined]
+        "career_goal_fit",
+        "past_event_topic_overlap",
+    )
+    assert p197.reason == phrase_as_sentence(  # type: ignore[attr-defined]
+        "what counted: undecided goal suits a broad event and went to similar events before"
+    )
+    for number in UNDECIDED_CARDS:
+        entry = _entry(_ranked("E11", None, invite_limit=300), number)
+        assert "career_goal_fit" in entry.contributing_factor_keys  # type: ignore[attr-defined]

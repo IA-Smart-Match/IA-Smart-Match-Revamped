@@ -237,6 +237,39 @@ def test_no_branch_claims_a_major_tie_that_was_not_one(
     assert "Tied on major" not in reason
 
 
+# ---------------------------------------------------------------------------
+# OQ-CE-14: an undecided goal's half fit is not told that its goal "fits"
+# ---------------------------------------------------------------------------
+
+
+def test_an_undecided_half_fit_is_named_as_such_and_never_as_a_fit() -> None:
+    reason = exercise_reason(
+        marker=InformationMarker.COMPLETED_CARD,
+        contributing_keys=("career_goal_fit", "past_event_topic_overlap"),
+        undecided_goal=True,
+    )
+    assert reason == (
+        "What counted: undecided goal suits a broad event and went to similar events before."
+    )
+    assert "fits" not in reason
+
+
+def test_a_goal_that_fits_still_says_it_fits() -> None:
+    reason = exercise_reason(
+        marker=InformationMarker.COMPLETED_CARD, contributing_keys=("career_goal_fit",)
+    )
+    assert reason == "What counted: career goal fits this event."
+
+
+def test_the_undecided_flag_changes_nothing_when_the_goal_did_not_count() -> None:
+    reason = exercise_reason(
+        marker=InformationMarker.COMPLETED_CARD,
+        contributing_keys=("same_major",),
+        undecided_goal=True,
+    )
+    assert reason == "What counted: same major."
+
+
 # --- OQ-CE-12 closed 2026-09-25 ------------------------------------------------
 
 

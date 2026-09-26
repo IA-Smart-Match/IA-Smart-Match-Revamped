@@ -610,17 +610,20 @@ session (the passcode) and sends `X-Exercise-Request`. Step 0 needs neither.
    (`workspace_repository.py:526-545`). **One team, and nothing else** — there
    is no team-facing reset; PR #186 removed it on the owner's ruling of
    2026-09-19.
-6. **Expect the results screen to refuse.** While **OQ-CE-03** is open the
-   simulated-results rule ships no coefficients, so `POST
-   /v1/exercise/workspaces/current/events/{event_key}/results` answers **409**
-   with one plain sentence:
+6. **Expect the results screen to answer with placeholder numbers.** Since
+   CE-RESULTS-RULE (2026-09-25) the simulated-results rule ships the team's
+   translation of Ann's answer to **OQ-CE-03** (`EXERCISE_SIMULATION_COEFFICIENTS`
+   in `simulation.py`, marked `PLACEHOLDER`), so `POST
+   /v1/exercise/workspaces/current/events/{event_key}/results` runs once the
+   round is unlocked. OQ-CE-03 stays **OPEN** until Chau and Ann confirm the
+   numbers from
+   [the sample result](../plans/open-questions/oq-ce-03-sample-result.md); a
+   change to them is a code change and a redeploy. The `409
+   exercise_results_rule_not_confirmed` refusal is still in the code
+   (`simulation.py:483-495`, surfaced by `exercise_results_run.py:116-133`) and
+   answers only if the coefficient set is ever removed, with one plain sentence:
 
    > The results rule has no confirmed coefficients yet.
-
-   (`simulation.py:423-426`, surfaced by `exercise_results_run.py:125-132`.)
-   **This is expected, not a fault of the deployment.** Say so before the class
-   presses the button. Everything upstream of results — entry, lists, saved
-   settings, comparison, CSV export — works.
 7. **Log out.** `POST /v1/exercise/instructor/logout`
    (`exercise_instructor_session.py:224-225`) clears the instructor cookie on that
    browser. It is the only clean end to a session — see the next section for
@@ -709,20 +712,22 @@ checklist for real:
    diverged; resolve before promoting, per
    [`vm-deploy.md`](vm-deploy.md#promoting-a-commit-to-the-vm).
 
-2. **Confirm the migration head is `0042_exercise_ann_dataset`.**
+2. **Confirm the migration head is `0043_exercise_event_exploratory`.**
    ```bash
-   grep -L 'down_revision = "0042_exercise_ann_dataset"' /dev/null; \
-   grep -rl 'down_revision = "0042_exercise_ann_dataset"' db/migrations/versions/*.py
+   grep -L 'down_revision = "0043_exercise_event_exploratory"' /dev/null; \
+   grep -rl 'down_revision = "0043_exercise_event_exploratory"' db/migrations/versions/*.py
    ```
    Pass: the second command prints **nothing** — no later revision points back
-   at `0042_exercise_ann_dataset`, so it is the head
-   (`db/migrations/versions/0042_exercise_ann_dataset.py` sets its own
-   `down_revision = "0041_batch_speaker_request"`; it adds Ann's
-   `tiebreak_order` and the withheld `hidden_true_career_goal` to
-   `exercise_profile`). Fail: a revision is
-   printed — the head has moved past `0042`; re-derive this step against the new file
-   before continuing, since the tables the grant in [§3](#3-the-database-role)
-   depends on may have changed shape.
+   at `0043_exercise_event_exploratory`, so it is the head
+   (`db/migrations/versions/0043_exercise_event_exploratory.py` sets its own
+   `down_revision = "0042_exercise_ann_dataset"`; it adds the boolean
+   `is_exploratory` to `exercise_event`, read from Ann's `event_type`).
+   **Re-upload Ann's file after this revision**: a dataset stored before it
+   has every event non-exploratory, so an undecided career goal earns nothing
+   on Northline or Harbor. Fail: a revision is printed — the head has moved
+   past `0043`; re-derive this step against the new file before continuing,
+   since the tables the grant in [§3](#3-the-database-role) depends on may
+   have changed shape.
 
 3. **Confirm every required env var is present — names only, never values.**
    ```bash
@@ -994,12 +999,12 @@ check result, and the date/SHA — in the evidence table above.
   OQ-CE-01 closed on 2026-09-24: the upload in
   [§7](#7-day-of-class-runbook) step 1 accepts only Ann's workbook layout and
   vocabularies. Nothing here asserts that the rankings it produces are the
-  ones the class needs; OQ-CE-14 (the role→topic table) and OQ-CE-15 (Ann's
-  P004 test case) are open with Ann.
-* **The matching coefficients are a placeholder.** OQ-CE-03/04 are **OPEN** —
+  ones the class needs; OQ-CE-14 (the role→topic table) closed on
+  2026-09-25, and OQ-CE-15 (Ann's P004 test case) is open with Ann.
+* **The results coefficients are a placeholder.** OQ-CE-03/04 are **OPEN** —
   [§7](#7-day-of-class-runbook) step 6 documents that the results endpoint
-  answers `409` by design until they are confirmed. This is expected, not a
-  deployment defect, and remains true after this checklist passes.
+  runs on the team's translation of Ann's words until she and Chau confirm
+  the numbers. This remains true after this checklist passes.
 * **Engineering did not execute this.** An operator must run it for real, on
   the VM, and record the date, the deployed SHA, and their name in the
   evidence table in [§9](#9-deploy-and-verify-checklist) before the "Deployed
@@ -1025,8 +1030,8 @@ check result, and the date/SHA — in the evidence table above.
 | **B-11** | "Error text never carries bound values" as a repository-wide invariant. PostgreSQL's `DETAIL: Failing row contains (…)` sits below the layer `hide_parameters` operates on | **RECORDED 2026-09-19, unresolved** — [`docs/architecture/decisions/adr-backlog.md:250`](../architecture/decisions/adr-backlog.md) | [§8](#8-known-limits) item 3 |
 
 Also open and load-bearing for the runbook: **OQ-CE-03** (the simulation
-coefficients), which is why step 6 of [§7](#7-day-of-class-runbook) expects a
-refusal.
+coefficients), which is why step 6 of [§7](#7-day-of-class-runbook) calls the
+results placeholder numbers.
 
 The register at
 [`docs/plans/open-questions/class-exercise-open-questions.md`](../plans/open-questions/class-exercise-open-questions.md)
