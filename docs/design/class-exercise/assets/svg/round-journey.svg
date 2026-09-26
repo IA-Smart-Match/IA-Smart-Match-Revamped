@@ -1,0 +1,8 @@
+<svg viewBox="0 0 120 60" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="From round one to round two">
+  <circle cx="20" cy="30" r="16" fill="currentColor" opacity="0.15" stroke="currentColor" stroke-width="3"/>
+  <text x="20" y="35" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="700" fill="currentColor" text-anchor="middle">1</text>
+  <path d="M40 30 H78" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-dasharray="1 8"/>
+  <path d="M72 22 L82 30 L72 38" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <circle cx="100" cy="30" r="18" fill="currentColor" opacity="0.9" stroke="currentColor" stroke-width="3"/>
+  <text x="100" y="36" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="700" fill="var(--card, #fff)" text-anchor="middle">2</text>
+</svg>
