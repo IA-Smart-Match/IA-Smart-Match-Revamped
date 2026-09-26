@@ -88,7 +88,7 @@ def test_asking_before_choosing_is_refused_in_the_products_words(
     assert response.status_code == 409
     assert response.json()["error"] == {
         "code": "exercise_asking_not_chosen",
-        "message": "Pick a way of asking before your team asks.",
+        "message": "Pick a way of asking first.",
     }
 
 

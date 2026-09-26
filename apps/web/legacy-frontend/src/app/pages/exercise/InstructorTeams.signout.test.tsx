@@ -1,10 +1,9 @@
 /**
  * The Teams panel returns the page to the passcode form on a 401.
  *
- * The other instructor actions go through the page's `guard`, which calls
- * `onSignedOut` when the twelve-hour cookie has run out. The Teams panel read
- * its own list, reset and team detail without it, so an expired session left
- * the panel's controls on screen, each failing the same way.
+ * When the twelve-hour cookie has run out, the Teams panel's list, reset and
+ * team detail each fail the same way. Before this, an expired session left the
+ * panel's controls on screen; now each 401 calls `onSignedOut`.
  */
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";

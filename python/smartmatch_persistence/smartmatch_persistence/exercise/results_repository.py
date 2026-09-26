@@ -574,7 +574,7 @@ class ExerciseResultsRepository:
             .values(refreshed_at=now)
             .returning(exercise_team_workspace.c.id),
             dataset_id=dataset_id,
-            refusal="Asking for more could not be applied.",
+            refusal="Asking for more could not be saved.",
         )
         if not claimed.all():
             return None
@@ -648,7 +648,7 @@ class ExerciseResultsRepository:
                 set_={column: statement.excluded[column]},
             ),
             dataset_id=dataset_id,
-            refusal="Asking for more could not be applied.",
+            refusal="Asking for more could not be saved.",
             parameters=[
                 {
                     "workspace_id": workspace_id,

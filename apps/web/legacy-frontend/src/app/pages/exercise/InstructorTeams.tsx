@@ -30,8 +30,9 @@
  * **An expired session signs the page out.** The instructor cookie lasts
  * twelve hours and nothing announces its end. Every read and action here that
  * is refused with `exercise_instructor_session_required` calls `onSignedOut`,
- * as the page's own `guard` does for the other panels, so the page returns to
- * the passcode form instead of leaving controls that will all fail.
+ * so the page returns to the passcode form instead of leaving controls that
+ * will all fail. (The page's `guard` covers only the Sign out button; the
+ * other panels do not yet sign out on a 401 — see docs/plans/backlog.md.)
  */
 import * as React from "react";
 

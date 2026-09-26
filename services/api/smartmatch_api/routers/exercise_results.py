@@ -456,7 +456,7 @@ def refresh_profiles(
         raise ExerciseError(
             status_code=status.HTTP_409_CONFLICT,
             code="exercise_asking_not_chosen",
-            message="Pick a way of asking before your team asks.",
+            message="Pick a way of asking first.",
         )
     if team_state.refreshed_at is not None:
         raise _already_refreshed()
