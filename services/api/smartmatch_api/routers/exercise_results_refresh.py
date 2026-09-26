@@ -65,10 +65,10 @@ __all__ = [
 ]
 
 #: What is being drawn, as the salt design spec §13's two draws are separated
-#: by. Two salts over one seed draw independently, so the profiles that complete
-#: a card and the profiles that stop answering are not the same people picked
-#: twice — which they would be under one salt, making "required" a choice whose
-#: cost fell exactly on the profiles it had just helped.
+#: by. The card draw comes first; the non-responder draw then ranks only the
+#: no-card profiles the card draw did not pick (owner ruling, 2026-09-25), so
+#: the two groups never share a profile. Its own salt keeps its order unrelated
+#: to the card draw's, so who stops answering is not simply "the next in line".
 CARD_COMPLETION_SALT = "card_completion"
 NON_RESPONDING_SALT = "non_responding"
 
@@ -232,7 +232,9 @@ def refresh_one_team(
         dataset_id=dataset_id,
         workspace_id=workspace_id,
         added_topics=added_topics,
-        topic_gainers=plan.topic_gainers,
+        # An event with no topics gives nobody a topic; counting its attenders
+        # as gainers made POST report N where the stored view (and GET) said 0.
+        topic_gainers=plan.topic_gainers if added_topics else (),
         card_profile_nos=plan.card_completers,
         non_responding_profile_nos=plan.non_responding,
         now=now,

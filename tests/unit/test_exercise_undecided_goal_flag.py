@@ -156,3 +156,11 @@ def test_the_response_carries_the_flag() -> None:
     by_no = {entry.profile_no: entry.undecided_goal_half for entry in view.entries}
     assert all(by_no[number] for number in _UNDECIDED_CARDS)
     assert not any(by_no[number] for number in _FITTING_ON_NORTHLINE)
+
+
+def test_the_flag_stays_off_the_csv_download() -> None:
+    """Design spec §8 names six columns; a screen chip is not one of them."""
+    from smartmatch_api.routers.exercise_matching_csv import CSV_LIST_COLUMNS
+
+    assert "undecided_goal_half" not in CSV_LIST_COLUMNS
+    assert len(CSV_LIST_COLUMNS) == 6

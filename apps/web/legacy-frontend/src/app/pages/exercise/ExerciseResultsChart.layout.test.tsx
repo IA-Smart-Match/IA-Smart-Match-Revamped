@@ -51,6 +51,25 @@ describe("<ExerciseResultsChart /> on a narrow screen", () => {
   });
 });
 
+const SCROLLER_NAME = "Results chart. Scroll sideways to see all of it.";
+
+describe("<ExerciseResultsChart /> scroller for keyboard users", () => {
+  it("can take focus and has its own name, so a keyboard can scroll it", () => {
+    render(<ExerciseResultsChart title="Northline results" series={series} />);
+
+    const scroller = screen.getByTestId("exercise-results-chart-scroll");
+    expect(scroller.getAttribute("tabindex")).toBe("0");
+    expect(scroller.getAttribute("role")).toBe("region");
+    expect(screen.getByRole("region", { name: SCROLLER_NAME })).toBe(scroller);
+  });
+
+  it("does not announce the title a second time through the scroller", () => {
+    render(<ExerciseResultsChart title="Northline results" series={series} />);
+
+    expect(screen.queryAllByRole("region", { name: "Northline results" })).toHaveLength(0);
+  });
+});
+
 describe("<ExerciseResultsChart /> fallback table", () => {
   it("pads and left-aligns every header and cell", () => {
     render(<ExerciseResultsChart title="Northline results" series={series} />);

@@ -14,22 +14,30 @@ second copy; that file is past the length limit, so new tests live here.
 from __future__ import annotations
 
 from collections.abc import Iterator
+from dataclasses import replace
 
 import pytest
 from fastapi.testclient import TestClient
 from smartmatch_api.routers.exercise_results_refresh import refresh_counts_from_view
 from smartmatch_domain.exercise.simulation import SimulationCoefficients
 
+import tests.unit.test_exercise_results_router as router_tests
 from tests.unit.test_exercise_results_router import (
     _ASKING,
+    _FINAL_BODY,
     _HEADER,
     _PROFILES,
     _REFRESH,
+    _REFRESH_ALL,
+    _RESULTS,
     _TEST_ONLY_COEFFICIENTS,
     _entered,
     _Fakes,
+    _instructor,
     _prepare_refresh,
 )
+
+_COUNT_KEYS = ("cards_completed", "non_responding", "topics_added")
 
 
 @pytest.fixture
@@ -77,11 +85,54 @@ def test_the_counts_survive_a_reload(
     assert read["non_responding"] >= 1
 
 
-def test_the_counts_are_read_from_the_view_whoever_refreshed() -> None:
-    """The instructor's refresh writes the same overlay; the counts come from it."""
-    assert refresh_counts_from_view(_PROFILES) is not None
+def test_a_view_nobody_refreshed_counts_nothing() -> None:
     counts = refresh_counts_from_view(_PROFILES)
     assert (counts.cards_completed, counts.non_responding, counts.topics_added) == (0, 0, 0)
+
+
+def test_a_team_the_instructor_refreshed_reads_its_counts(
+    fakes: _Fakes, confirmed: SimulationCoefficients
+) -> None:
+    """Team 2 never presses refresh; "ask for every team" does it for them.
+
+    Every fake team shares one seed, so team 2 refreshed by the instructor must
+    read exactly what team 1 was told by its own button.
+    """
+    fakes.unlock("round-one")
+    with _entered(fakes, 1) as one, _entered(fakes, 2) as two:
+        for client in (one, two):
+            client.post(_RESULTS, json=_FINAL_BODY, headers=_HEADER)
+            client.post(_ASKING, json={"choice": "required"}, headers=_HEADER)
+        by_hand = one.post(_REFRESH, json={}, headers=_HEADER).json()
+        assert two.get(_ASKING).json()["refresh_counts"] is None
+        with _instructor(fakes) as instructor:
+            refreshed = instructor.post(_REFRESH_ALL, headers=_HEADER).json()
+        read = two.get(_ASKING).json()["refresh_counts"]
+
+    assert refreshed["refreshed_team_numbers"] == [2]
+    assert read == {key: by_hand[key] for key in _COUNT_KEYS}
+    assert read["cards_completed"] >= 1
+
+
+def test_a_round_one_with_no_topics_reports_no_topics_added_both_ways(
+    fakes: _Fakes, confirmed: SimulationCoefficients, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review finding on #240: POST said N, GET said 0, for an empty-topic event.
+
+    Ingest accepts an exercise event with an empty topic cell. Nobody gains a
+    topic from it, so both answers must say 0.
+    """
+    no_topics = replace(router_tests._ROUND_ONE, topic_tags=())
+    monkeypatch.setattr(
+        router_tests, "_EVENTS", (router_tests._PAST, no_topics, router_tests._ROUND_TWO)
+    )
+    with _entered(fakes, 1) as client:
+        _prepare_refresh(fakes, client)
+        posted = client.post(_REFRESH, json={}, headers=_HEADER).json()
+        read = client.get(_ASKING).json()["refresh_counts"]
+
+    assert posted["topics_added"] == 0
+    assert read == {key: posted[key] for key in _COUNT_KEYS}
 
 
 def test_the_choice_route_answers_without_counts(

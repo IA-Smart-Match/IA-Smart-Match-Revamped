@@ -183,8 +183,16 @@ export function ExerciseResultsChart({
 
       {/* M2 B2: the chart is drawn at a fixed width for the projector. On a
           phone it scrolls inside this box instead of widening the page; the
-          table below repeats every count. */}
-      <div className="max-w-full overflow-x-auto" data-testid="exercise-results-chart-scroll">
+          table below repeats every count. Focusable and named so a keyboard
+          can scroll it (axe scrollable-region-focusable). Its name is not the
+          title: the chart graphic already carries that, once. */}
+      <div
+        className="max-w-full overflow-x-auto"
+        data-testid="exercise-results-chart-scroll"
+        tabIndex={0}
+        role="region"
+        aria-label="Results chart. Scroll sideways to see all of it."
+      >
         <BarChart
           width={880}
           height={460}
