@@ -98,3 +98,18 @@ def test_select_share_refuses_a_count_the_pool_cannot_supply() -> None:
 def test_select_share_refuses_a_group_smaller_than_its_pool() -> None:
     with pytest.raises(ValueError, match="of_size"):
         select_share((1, 2, 3), 0.5, seed=1, salt="x", of_size=2)
+
+
+@pytest.mark.parametrize("size", [0, 1, 2, 4, 5, 6, 7, 10, 11, 12, 17])
+def test_small_pools_where_the_two_roundings_both_go_up_still_fit(size: int) -> None:
+    """The sizes where 80% and 15% both round up are the ones that could overflow.
+
+    Named one by one so a change to either share shows which pool broke. Every
+    size from 0 to 300 is walked by the tests above as well.
+    """
+    for seed in range(1, 51):
+        plan = _plan(size, seed)
+        completers = set(plan.card_completers)  # type: ignore[attr-defined]
+        silent = set(plan.non_responding)  # type: ignore[attr-defined]
+        assert completers.isdisjoint(silent), (size, seed)
+        assert completers | silent <= set(range(1, size + 1)), (size, seed)
