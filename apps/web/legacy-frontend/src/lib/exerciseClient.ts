@@ -75,6 +75,8 @@ export interface ListEntryView {
   readonly marker: string;
   readonly reason: string;
   readonly contributing_factor_keys: string[];
+  /** The career goal counted only as an undecided goal's half (OQ-CE-14). A flag, not a number. */
+  readonly undecided_goal_half: boolean;
 }
 
 export interface GroupCountsView {
