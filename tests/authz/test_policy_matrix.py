@@ -846,9 +846,9 @@ UNAUTHENTICATED_ROUTES: dict[tuple[str, str], str] = {
         "The rule reads the withheld column, which is the one thing that "
         "column is for; what it returns is profile numbers, and the response "
         "carries counts of people and of chairs and no number that ranks "
-        "anybody (ADR-0025 D6, D8). While OQ-CE-03 is open the route refuses "
-        "with one sentence naming it rather than running on invented "
-        "coefficients."
+        "anybody (ADR-0025 D6, D8). It runs on the coefficients Chau "
+        "approved (D7, closing OQ-CE-03), and refuses with one sentence if "
+        "that set is ever removed."
     ),
     ("GET", "/v1/exercise/workspaces/current/events/{event_key}/results"): (
         "The caller's own stored run, read back from the row rather than "

@@ -32,14 +32,13 @@ The three rules this module exists to enforce
    written. Both live in the repository, where a concurrent second press meets a
    predicate rather than a read-then-write.
 
-PLACEHOLDER (OQ-CE-03) — what this route runs on
-================================================
+What this route runs on
+=======================
 The simulated-results rule's coefficients are the domain's, not this route's:
 ``simulation.EXERCISE_SIMULATION_COEFFICIENTS`` holds the team's translation of
-Ann's answer of 2026-09-25, marked ``PLACEHOLDER`` and still OPEN until Chau and
-Ann confirm it from a sample result. If that value is ever ``None``,
-``require_coefficients`` refuses and ``POST …/results`` answers one plain
-sentence naming the open question. The tests exercise the full path by
+Ann's answer of 2026-09-25, which Chau approved (wave-2 decision D7, closing
+OQ-CE-03). If that value is ever ``None``, ``require_coefficients`` refuses and
+``POST …/results`` answers one plain sentence. The tests exercise the full path by
 injecting a clearly-labelled test-only coefficient set, so no pinned outcome
 here moves when the shipped numbers do; no value is written into this file.
 
@@ -211,8 +210,7 @@ def run_results(
 
     The rule the answer comes from is written in plain words in
     ``smartmatch_domain/exercise/simulation.py`` and is the statement the course
-    owner receives. Its coefficients are **not decided yet** (OQ-CE-03), so this
-    route refuses with one sentence naming that question until they are.
+    owner receives. Its numbers are the ones Chau approved.
 
     The refusals come in this order, so the most useful sentence wins:
 
@@ -221,9 +219,9 @@ def run_results(
        a team that has already run to choose a setting would invite a second try.
     2. The final setting — left out or blank (422). The team's own step, so it
        is answered before anything the team cannot fix.
-    3. The rule — no confirmed coefficients (409, OQ-CE-03). The owner's to
-       close; it refuses every run on this deployment today, so a check after it
-       would never be reached.
+    3. The rule — no coefficient set (409). Only reachable if the approved set
+       is removed; it would then refuse every run, so it comes before the
+       team's own saved-setting lookup.
     4. The saved setting itself — not one this team saved (404).
 
     Raises:
