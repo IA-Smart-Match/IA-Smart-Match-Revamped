@@ -43,6 +43,7 @@ import {
   readResults,
   refreshProfiles,
   type AskingStateView,
+  type RefreshCountsView,
   type RefreshView,
 } from "../../../lib/exerciseClient";
 import { askingChoiceLabel } from "./askingChoices";
@@ -99,20 +100,13 @@ export function ExerciseAskingForMore(): React.JSX.Element {
   const { state, reload } = useExerciseResource(readAskingScreen, []);
 
   /**
-   * What the one refresh reported, held by the screen rather than the panel.
+   * What this browser's own refresh press reported, held by the screen.
    *
-   * A team may refresh once, ever. The counts came back from that single
-   * request and the server will not produce them again — `GET …/asking-choice`
-   * reports only *that* a team has refreshed, not what happened. So they
-   * cannot live in a component that a reload unmounts, which is exactly what
-   * used to happen: the refresh resolved, the counts rendered, the reload it
-   * triggered dropped the screen to `loading`, the panel unmounted, and the
-   * only record of the result was gone for good.
-   *
-   * `useExerciseResource` no longer unmounts a ready screen while it
-   * refetches, so this would survive either way now. It is lifted regardless:
-   * a once-only result should not depend on a rendering detail somewhere else
-   * to stay on the screen.
+   * `GET …/asking-choice` now carries `refresh_counts` whenever the team has
+   * been refreshed (M2 B4), read back from the team's view, so a reload, a
+   * second browser and the instructor's refresh-all all show them. This copy
+   * only bridges the moment between the POST answering and the reload after
+   * it landing; the stored counts win once they arrive.
    */
   const [refreshed, setRefreshed] = React.useState<RefreshView | null>(null);
 
@@ -278,18 +272,30 @@ function AskingPanels({
             {`Run your team's results for ${roundOneName ?? "the first event"} before asking.`}
           </p>
         )}
-        {refreshed === null ? null : (
-          <dl
-            className="grid gap-3 text-xl sm:grid-cols-3"
-            data-slot="exercise-refresh-counts"
-          >
-            <Count label="Cards filled in" value={refreshed.cards_completed} />
-            <Count label="Stopped opening messages" value={refreshed.non_responding} />
-            <Count label="Topics added from the first event" value={refreshed.topics_added} />
-          </dl>
-        )}
+        <RefreshCounts counts={asking.refresh_counts ?? refreshed} />
       </section>
     </div>
+  );
+}
+
+/**
+ * The three counts. `topics_added` counts the *people* who picked up the first
+ * event's topics, so the label says that rather than "topics added".
+ */
+function RefreshCounts({
+  counts,
+}: {
+  readonly counts: RefreshCountsView | RefreshView | null;
+}): React.JSX.Element | null {
+  if (counts === null) {
+    return null;
+  }
+  return (
+    <dl className="grid gap-3 text-xl sm:grid-cols-3" data-slot="exercise-refresh-counts">
+      <Count label="Cards filled in" value={counts.cards_completed} />
+      <Count label="Stopped opening messages" value={counts.non_responding} />
+      <Count label="Picked up the first event's topics" value={counts.topics_added} />
+    </dl>
   );
 }
 

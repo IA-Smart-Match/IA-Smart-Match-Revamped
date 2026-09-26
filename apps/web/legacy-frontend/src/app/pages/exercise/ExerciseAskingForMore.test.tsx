@@ -401,6 +401,45 @@ describe("<ExerciseAskingForMore />", () => {
     expect(screen.queryByRole("button", { name: /ask them now/i })).toBeNull();
   });
 
+  it("shows the stored counts whenever the team has asked, after any reload (B4)", async () => {
+    // M2 B4: the counts used to live only in the POST's answer, so a reload, a
+    // second browser, or the instructor's "Ask for every team" left a team
+    // with "already asked" and no idea what happened. The asking GET now
+    // carries them.
+    stub({
+      [`GET ${ASKING}`]: {
+        body: {
+          choice: "small_reward",
+          choices: ["small_reward"],
+          refreshed: true,
+          refresh_counts: { cards_completed: 9, non_responding: 0, topics_added: 17 },
+        },
+      },
+    });
+    renderAsking();
+    const counts = await waitFor(() => {
+      const found = document.querySelector('[data-slot="exercise-refresh-counts"]');
+      expect(found).not.toBeNull();
+      return found as HTMLElement;
+    });
+    expect(counts.textContent).toContain("Cards filled in9");
+    expect(counts.textContent).toContain("Stopped opening messages0");
+    // `topics_added` counts people who gained topics, not topics.
+    expect(counts.textContent).toContain("Picked up the first event's topics17");
+    expect(calls.some((call) => call.init.method === "POST")).toBe(false);
+  });
+
+  it("shows no counts for a team that has not asked", async () => {
+    stub({
+      [`GET ${ASKING}`]: {
+        body: { choice: "required", choices: ["required"], refreshed: false, refresh_counts: null },
+      },
+    });
+    renderAsking();
+    await screen.findByRole("button", { name: /ask them now/i });
+    expect(document.querySelector('[data-slot="exercise-refresh-counts"]')).toBeNull();
+  });
+
   it("does not look for first-round results once the team has asked", async () => {
     stub({
       [`GET ${ASKING}`]: { body: { choice: "required", choices: ["required"], refreshed: true } },

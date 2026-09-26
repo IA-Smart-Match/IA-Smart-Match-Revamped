@@ -187,11 +187,24 @@ export interface ResultsView {
   readonly created_at: string;
 }
 
+/** What a team's one refresh changed, as three counts. */
+export interface RefreshCountsView {
+  readonly cards_completed: number;
+  readonly non_responding: number;
+  /** How many *profiles* gained the first round's topics, not how many topics. */
+  readonly topics_added: number;
+}
+
 export interface AskingStateView {
   readonly choice: string | null;
   /** The three ways of asking, as the course names them. Never hard-coded. */
   readonly choices: string[];
   readonly refreshed: boolean;
+  /**
+   * What the refresh changed, read back from the team's view: `null` until the
+   * team has been refreshed, by itself or by the instructor's refresh-all.
+   */
+  readonly refresh_counts: RefreshCountsView | null;
 }
 
 export interface RefreshView {
