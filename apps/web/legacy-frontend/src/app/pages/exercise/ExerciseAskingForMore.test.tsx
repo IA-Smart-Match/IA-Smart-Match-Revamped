@@ -214,7 +214,6 @@ describe("<ExerciseAskingForMore />", () => {
       [`POST ${REFRESH}`]: {
         body: { choice: "required", cards_completed: 14, non_responding: 3, topics_added: 22 },
       },
-      ...ROUND_ONE_RUN,
     });
     renderAsking();
     fireEvent.click(await screen.findByRole("button", { name: /ask them now/i }));
@@ -321,9 +320,8 @@ describe("<ExerciseAskingForMore />", () => {
         },
         status: 409,
       },
-      // The screen saw a first-round run; the server disagrees by the time
-      // the press lands. Its sentence is still the answer.
-      ...ROUND_ONE_RUN,
+      // `stub` answers that round one has run; the server disagrees by the
+      // time the press lands. Its sentence is still the answer.
     });
     renderAsking();
     fireEvent.click(await screen.findByRole("button", { name: /ask them now/i }));
@@ -366,6 +364,41 @@ describe("<ExerciseAskingForMore />", () => {
     // The round is read off the file by `is_exercise_event` and `sequence`,
     // never by name, so the second round's results are never asked for.
     expect(calls.some((call) => call.url.includes("/round-two/"))).toBe(false);
+  });
+
+  it("names no event when the file has no rounds, and keeps the refresh shut", async () => {
+    stub({
+      [`GET ${ASKING}`]: { body: { choice: "required", choices: ["required"], refreshed: false } },
+      [`GET ${EVENTS}`]: { body: { events: [event("past-one", "A past event", false, 1)] } },
+    });
+    renderAsking();
+    const ask = (await screen.findByRole("button", {
+      name: /ask them now/i,
+    })) as HTMLButtonElement;
+    expect(ask.disabled).toBe(true);
+    expect(
+      screen.getByText("Run your team's results for the first event before asking."),
+    ).toBeDefined();
+    expect(calls.some((call) => call.url.endsWith("/results"))).toBe(false);
+  });
+
+  it("shows any other refusal from the first-round read as the screen's refusal", async () => {
+    stub({
+      [`GET ${ASKING}`]: { body: { choice: "required", choices: ["required"], refreshed: false } },
+      [`GET ${ROUND_ONE_RESULTS}`]: {
+        body: {
+          error: {
+            code: "exercise_workspace_required",
+            message: "Enter your team number to open your team's workspace.",
+          },
+        },
+        status: 401,
+      },
+    });
+    renderAsking();
+    await screen.findByText("Enter your team number to open your team's workspace.");
+    expect(screen.getByRole("link", { name: /enter your team number/i })).toBeDefined();
+    expect(screen.queryByRole("button", { name: /ask them now/i })).toBeNull();
   });
 
   it("does not look for first-round results once the team has asked", async () => {

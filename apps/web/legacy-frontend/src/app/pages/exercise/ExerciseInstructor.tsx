@@ -354,7 +354,7 @@ function UnlockPanel({
 /** This panel's sentence for teams split across files (see `UnlockPanel`). */
 const SPLIT_ACROSS_FILES =
   "The teams are working in more than one data file. Under Data files, press " +
-  "\u201cMove every team to this file\u201d on the file the class should use, then press Check again.";
+  "\u201cMove every team to this file\u201d on the file the class should use. This list reads again on its own once they move.";
 
 /** Refresh every team that has chosen and has not yet asked. */
 function RefreshAllPanel(): React.JSX.Element {
