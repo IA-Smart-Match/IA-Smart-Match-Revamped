@@ -272,7 +272,8 @@ function AskingPanels({
             {`Run your team's results for ${roundOneName ?? "the first event"} before asking.`}
           </p>
         )}
-        <RefreshCounts counts={asking.refresh_counts ?? refreshed} />
+        {/* Only while the server says the team has asked: a reset clears them. */}
+        <RefreshCounts counts={asking.refreshed ? (asking.refresh_counts ?? refreshed) : null} />
       </section>
     </div>
   );

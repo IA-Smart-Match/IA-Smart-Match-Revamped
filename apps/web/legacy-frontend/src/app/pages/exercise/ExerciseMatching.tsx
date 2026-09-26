@@ -287,11 +287,12 @@ function ComparisonView({
             } on both lists, highlighted in each.`}
       </p>
       {/*
-        Two six-column tables only fit side by side on the widest screens; below
-        that they stack. `min-w-0` lets a grid child shrink below its table's
-        width so the table scrolls in its own box rather than widening the page.
+        The two lists always stack: the page is capped at max-w-5xl, so two
+        six-column tables never fit side by side at any viewport. `min-w-0`
+        lets a grid child shrink below its table's width, so the table scrolls
+        in its own box rather than widening the page.
       */}
-      <div data-slot="exercise-compare-grid" className="grid gap-8 2xl:grid-cols-2">
+      <div data-slot="exercise-compare-grid" className="grid gap-8">
         {[comparison.a, comparison.b].map((list, index) => (
           <div key={index === 0 ? "a" : "b"} className="min-w-0">
             <RankedList

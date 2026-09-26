@@ -428,7 +428,7 @@ describe("<ExerciseMatching />", () => {
     }
   });
 
-  it("puts two lists side by side only on the widest screens (B3)", async () => {
+  it("stacks the two compared lists, each scrolling in its own box (B3)", async () => {
     const saved = {
       event_key: "northline",
       settings: [
@@ -455,8 +455,9 @@ describe("<ExerciseMatching />", () => {
       expect(found).not.toBeNull();
       return found as HTMLElement;
     });
-    expect(grid.className).toContain("2xl:grid-cols-2");
-    expect(grid.className).not.toContain("lg:grid-cols-2");
+    // The page is capped at max-w-5xl, so two six-column tables never fit
+    // side by side at any viewport width: they always stack.
+    expect(grid.className).not.toMatch(/grid-cols-2/);
     const children = [...grid.children];
     expect(children.length).toBe(2);
     for (const child of children) {
@@ -481,11 +482,10 @@ describe("<ExerciseMatching />", () => {
 
     fireEvent.change(box, { target: { value: "Four" } });
     expect(save.disabled).toBe(true);
-    expect(
-      screen.getByText(
-        "Your team has 3 already. Type one of their names to save over it, or delete one first.",
-      ),
-    ).toBeDefined();
+    const reason = screen.getByText(
+      "Your team has 3 saved settings for this event. Type one of those names to save over it, or delete one first.",
+    );
+    expect(save.getAttribute("aria-describedby")).toBe(reason.id);
 
     // Saving over a name the team has is always allowed and changes no count.
     fireEvent.change(box, { target: { value: " Two " } });

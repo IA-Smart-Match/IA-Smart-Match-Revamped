@@ -114,6 +114,9 @@ afterEach(() => {
   cleanup();
   vi.useRealTimers();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+  // Back to jsdom's own getter on the prototype.
+  delete (document as { visibilityState?: unknown }).visibilityState;
 });
 
 describe("the instructor page keeps the Teams panel current", () => {
@@ -149,6 +152,22 @@ describe("the instructor page keeps the Teams panel current", () => {
     );
   });
 
+  it("says why several teams were skipped", async () => {
+    stub(
+      pageStubs({
+        [`POST ${REFRESH_ALL}`]: {
+          body: { refreshed_team_numbers: [], refreshed: 0, skipped: 2 },
+        },
+      }),
+    );
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: /^ask for every team$/i }));
+    await screen.findByText(/skipped 2/i);
+    expect(screen.getByText(/skipped 2/i).textContent).toContain(
+      "those teams have not run results for their first event yet",
+    );
+  });
+
   it("re-reads the teams after an unlock lands", async () => {
     const answers = pageStubs({
       [`POST ${INSTRUCTOR_EVENTS}/round-one/unlock`]: {
@@ -162,7 +181,9 @@ describe("the instructor page keeps the Teams panel current", () => {
     const before = teamReads();
 
     fireEvent.click(within(roundOne).getByRole("button", { name: /open results/i }));
-    await waitFor(() => expect(teamReads()).toBeGreaterThan(before));
+    await waitFor(() => expect(teamReads()).toBe(before + 1));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(teamReads()).toBe(before + 1);
   });
 });
 
@@ -215,17 +236,43 @@ describe("<InstructorTeams />", () => {
 
   it("stops polling once the panel is gone", async () => {
     vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    const removed = vi.spyOn(document, "removeEventListener");
     stub(pageStubs());
     const { unmount } = render(<InstructorTeams />);
     await waitFor(() => expect(teamsPanel().textContent).toContain("Team 1"));
+    expect(vi.getTimerCount()).toBe(1);
     unmount();
-    const before = teamReads();
-    act(() => {
-      vi.advanceTimersByTime(TEAMS_POLL_MS * 2);
+    expect(vi.getTimerCount()).toBe(0);
+    expect(removed.mock.calls.some(([type]) => type === "visibilitychange")).toBe(true);
+  });
+
+  it("does not poll a refused list, but still re-reads on the button", async () => {
+    // Review finding: after the 12-hour cookie expired, the poll re-sent a
+    // refused GET every 15 seconds and flickered "Loading the teams" each time.
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    stub({
+      [`GET ${WORKSPACES}`]: {
+        body: {
+          error: {
+            code: "exercise_instructor_session_required",
+            message: "Enter the instructor passcode to open this page.",
+          },
+        },
+        status: 401,
+      },
     });
-    setVisibility("visible");
+    render(<InstructorTeams />);
+    await screen.findByText("Enter the instructor passcode to open this page.");
+    const before = teamReads();
+
+    act(() => {
+      vi.advanceTimersByTime(TEAMS_POLL_MS * 3);
+    });
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(teamReads()).toBe(before);
+
+    fireEvent.click(within(teamsPanel()).getByRole("button", { name: /check the teams again/i }));
+    await waitFor(() => expect(teamReads()).toBe(before + 1));
   });
 
   it("words a team's result run the D8 way: seats still open", async () => {

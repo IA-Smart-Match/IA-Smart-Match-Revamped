@@ -135,13 +135,14 @@ export function SavedSettingsPanel({
         <button
           type="submit"
           disabled={pending || trimmed === "" || atCapForNewName}
+          aria-describedby="exercise-save-note"
           className={BUTTON}
         >
           Save these weights
         </button>
-        <span className="text-lg text-slate-600 dark:text-slate-300">
+        <span id="exercise-save-note" className="text-lg text-slate-600 dark:text-slate-300">
           {atCapForNewName
-            ? `Your team has ${saved.max_settings} already. Type one of their names to save over it, or delete one first.`
+            ? `Your team has ${saved.max_settings} saved settings for this event. Type one of those names to save over it, or delete one first.`
             : `Saves the ${Object.keys(weights).length} numbers now on screen.`}
         </span>
       </form>

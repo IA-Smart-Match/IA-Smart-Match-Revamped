@@ -124,10 +124,10 @@ export function RankedList({
                   {/* The server's sentence, verbatim (OQ-CE-12). */}
                   {entry.reason}
                   <FactorNames
-                  keys={entry.contributing_factor_keys}
-                  labels={factorLabels}
-                  undecidedGoalHalf={entry.undecided_goal_half}
-                />
+                    keys={entry.contributing_factor_keys}
+                    labels={factorLabels}
+                    undecidedGoalHalf={entry.undecided_goal_half}
+                  />
                 </td>
               </tr>
             );

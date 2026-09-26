@@ -61,14 +61,28 @@ export function InstructorTeams({
   const [pending, setPending] = React.useState(false);
   const busy = state.status === "loading" || (state.status === "ready" && state.refreshing);
 
+  /**
+   * The poll only re-reads a list it has. A refused read (the twelve-hour
+   * cookie ran out) or an unreachable one would otherwise be re-sent every
+   * 15 s, flickering "Loading the teams" each time. Coming back to the tab and
+   * the button still re-read.
+   */
+  const hasList = React.useRef(false);
+  hasList.current = state.status === "ready";
+
   React.useEffect(() => {
     const whenVisible = (): void => {
       if (document.visibilityState === "visible") {
         void reload();
       }
     };
+    const tick = (): void => {
+      if (hasList.current) {
+        whenVisible();
+      }
+    };
     document.addEventListener("visibilitychange", whenVisible);
-    const timer = window.setInterval(whenVisible, TEAMS_POLL_MS);
+    const timer = window.setInterval(tick, TEAMS_POLL_MS);
     return () => {
       document.removeEventListener("visibilitychange", whenVisible);
       window.clearInterval(timer);

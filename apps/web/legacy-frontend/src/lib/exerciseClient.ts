@@ -75,10 +75,7 @@ export interface ListEntryView {
   readonly marker: string;
   readonly reason: string;
   readonly contributing_factor_keys: string[];
-  /**
-   * `career_goal_fit` counted only as an undecided goal's half on an
-   * exploratory event (D2). The factor is then named differently on screen.
-   */
+  /** The career goal counted only as an undecided goal's half (OQ-CE-14). A flag, not a number. */
   readonly undecided_goal_half: boolean;
 }
 
@@ -187,24 +184,23 @@ export interface ResultsView {
   readonly created_at: string;
 }
 
-/** What a team's one refresh changed, as three counts. */
-export interface RefreshCountsView {
-  readonly cards_completed: number;
-  readonly non_responding: number;
-  /** How many *profiles* gained the first round's topics, not how many topics. */
-  readonly topics_added: number;
-}
-
 export interface AskingStateView {
   readonly choice: string | null;
   /** The three ways of asking, as the course names them. Never hard-coded. */
   readonly choices: string[];
   readonly refreshed: boolean;
   /**
-   * What the refresh changed, read back from the team's view: `null` until the
-   * team has been refreshed, by itself or by the instructor's refresh-all.
+   * What the team's refresh changed, read back from the server: `null` until
+   * the team is refreshed (by itself or by the instructor). Optional so older
+   * fixtures without it still type-check.
    */
-  readonly refresh_counts: RefreshCountsView | null;
+  readonly refresh_counts?: RefreshCountsView | null;
+}
+
+export interface RefreshCountsView {
+  readonly cards_completed: number;
+  readonly non_responding: number;
+  readonly topics_added: number;
 }
 
 export interface RefreshView {

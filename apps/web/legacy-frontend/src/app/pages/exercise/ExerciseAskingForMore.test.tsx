@@ -209,12 +209,30 @@ describe("<ExerciseAskingForMore />", () => {
     // and the panel unmounted — taking them with it. Asserting *after* the
     // reload's own request has landed is what catches it; the old test looked
     // at a DOM that was about to be thrown away.
-    stub({
-      [`GET ${ASKING}`]: { body: { choice: "required", choices: ["required"], refreshed: false } },
-      [`POST ${REFRESH}`]: {
-        body: { choice: "required", cards_completed: 14, non_responding: 3, topics_added: 22 },
-      },
-    });
+    //
+    // The reload here says `refreshed: true` with no `refresh_counts`, as a
+    // server from before B4 does: this browser's copy is then the only one.
+    let refreshedOnServer = false;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string, init: RequestInit) => {
+        calls.push({ url, init });
+        const method = init.method ?? "GET";
+        const json = (body: unknown) =>
+          Promise.resolve(new Response(JSON.stringify(body), { status: 200 }));
+        if (url === ASKING && method === "GET") {
+          return json({ choice: "required", choices: ["required"], refreshed: refreshedOnServer });
+        }
+        if (url === REFRESH && method === "POST") {
+          refreshedOnServer = true;
+          return json({ choice: "required", cards_completed: 14, non_responding: 3, topics_added: 22 });
+        }
+        const roundOne = ROUND_ONE_RUN[`${method} ${url}`];
+        return roundOne === undefined
+          ? Promise.resolve(new Response("{}", { status: 404 }))
+          : json(roundOne.body);
+      }),
+    );
     renderAsking();
     fireEvent.click(await screen.findByRole("button", { name: /ask them now/i }));
 
@@ -427,6 +445,43 @@ describe("<ExerciseAskingForMore />", () => {
     // `topics_added` counts people who gained topics, not topics.
     expect(counts.textContent).toContain("Picked up the first event's topics17");
     expect(calls.some((call) => call.init.method === "POST")).toBe(false);
+  });
+
+  it("drops this browser's counts once the server says the team has not asked", async () => {
+    // An instructor reset after this browser's press: the next read says
+    // `refreshed: false`, and the counts from the old press must go with it.
+    let refreshedOnServer = false;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string, init: RequestInit) => {
+        calls.push({ url, init });
+        const method = init.method ?? "GET";
+        const json = (body: unknown) =>
+          Promise.resolve(new Response(JSON.stringify(body), { status: 200 }));
+        if (url === ASKING && method === "GET") {
+          return json({
+            choice: "required",
+            choices: ["required"],
+            refreshed: refreshedOnServer,
+            refresh_counts: null,
+          });
+        }
+        if (url === REFRESH && method === "POST") {
+          return json({ choice: "required", cards_completed: 4, non_responding: 1, topics_added: 6 });
+        }
+        const roundOne = ROUND_ONE_RUN[`${method} ${url}`];
+        return roundOne === undefined
+          ? Promise.resolve(new Response("{}", { status: 404 }))
+          : json(roundOne.body);
+      }),
+    );
+    renderAsking();
+    fireEvent.click(await screen.findByRole("button", { name: /ask them now/i }));
+    // The reload after the press still says "not refreshed": a reset landed.
+    await waitFor(() => expect(calls.filter((call) => call.url === ASKING).length).toBe(2));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(document.querySelector('[data-slot="exercise-refresh-counts"]')).toBeNull();
+    expect(refreshedOnServer).toBe(false);
   });
 
   it("shows no counts for a team that has not asked", async () => {

@@ -420,12 +420,16 @@ function RefreshAllPanel({ onDone }: { readonly onDone: () => void }): React.JSX
             ? ""
             : ` (${done.refreshed_team_numbers.join(", ")})`}
           . Skipped {done.skipped}
-          {/* The server skips exactly one kind of team: chosen, but no round-one run. */}
+          {/*
+            A chosen team with no round-one run is what the server skips. (It
+            also skips, rarely, a team that asked by itself in the same moment;
+            that team already shows "Has already asked" below.)
+          */}
           {done.skipped === 0
             ? "."
             : done.skipped === 1
               ? ": that team has not run results for its first event yet."
-              : ": each has not run results for its first event yet."}
+              : ": those teams have not run results for their first event yet."}
         </p>
       )}
     </section>
