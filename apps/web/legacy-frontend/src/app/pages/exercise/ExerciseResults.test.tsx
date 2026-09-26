@@ -1,11 +1,10 @@
 /**
- * Results: the 409 that is the current state of this deployment.
+ * Results: the server's refusals as calm states, in its own words.
  *
- * `POST …/results` answers `exercise_results_rule_not_confirmed` today,
- * because OQ-CE-03 is open and the simulation coefficients are `None`. PR #190
- * is explicit that this is the route working. The first test below is
- * therefore the most important one on this screen: that sentence has to reach
- * the projector as a calm state, in the server's own words.
+ * The results rule's coefficients are now set (D7), so a run normally
+ * succeeds. `POST …/results` still answers `exercise_results_rule_not_confirmed`
+ * if the coefficients are ever removed, and the first test below keeps that
+ * sentence reaching the projector as a state rather than an error.
  */
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
