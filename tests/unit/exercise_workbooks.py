@@ -19,10 +19,12 @@ from __future__ import annotations
 
 import io
 from collections.abc import Mapping, Sequence
+from functools import cache
 from pathlib import Path
 from typing import Final
 
 from openpyxl import Workbook
+from smartmatch_domain.exercise.ingest import IngestRefusal, ParsedDataset, parse_exercise_file
 from smartmatch_domain.exercise.layout import EXERCISE_LAYOUT as LAYOUT
 
 __all__ = [
@@ -33,6 +35,8 @@ __all__ = [
     "PROFILE_HEADINGS",
     "WITHHELD_GOAL",
     "WITHHELD_TOPIC",
+    "ann_full_parsed",
+    "ann_sample_parsed",
     "event_rows",
     "good_profile_rows",
     "good_workbook",
@@ -46,6 +50,33 @@ _FIXTURES: Final[Path] = Path(__file__).resolve().parents[1] / "fixtures" / "exe
 #: Events sheets on 2026-09-25; every cell of those two sheets is as she sent it.
 ANN_FULL_FILE: Final[Path] = _FIXTURES / "SmartMatch_Student_Body_300.xlsx"
 ANN_SAMPLE_FILE: Final[Path] = _FIXTURES / "SmartMatch_Student_Body_Sample_20.xlsx"
+
+
+@cache
+def ann_full_parsed() -> ParsedDataset:
+    """Ann's full file through the real parser, once per test process.
+
+    Cached rather than re-read because a 300-row workbook costs about a second
+    to parse on this project's ``/mnt/c`` checkouts, and every reader of it
+    wants the same answer. The ``ann_full_dataset`` fixture in
+    ``tests/conftest.py`` hands out this same object. The tests whose subject
+    is the parser itself (``test_exercise_ingest.py``,
+    ``test_exercise_workbook.py``) parse for themselves and must keep doing so.
+    """
+    parsed = parse_exercise_file(ANN_FULL_FILE.read_bytes())
+    assert isinstance(parsed, ParsedDataset), parsed
+    return parsed
+
+
+@cache
+def ann_sample_parsed() -> ParsedDataset | IngestRefusal:
+    """Ann's 20-row sample through the real parser, once per test process.
+
+    A refusal today: the sample is below design spec §3's 50-profile floor, and
+    that is the answer cached here rather than an error.
+    """
+    return parse_exercise_file(ANN_SAMPLE_FILE.read_bytes())
+
 
 #: Reserved for the withheld columns; in no other cell of a built workbook.
 WITHHELD_TOPIC: Final[str] = "Healthcare administration"

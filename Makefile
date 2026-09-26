@@ -182,6 +182,15 @@ migrate-check: ## Verify migrations apply cleanly from an empty database
 seed-pilot: ## Seed one synthetic local-pilot principal; set SEED_PILOT_ARGS="--subject ... --email ... --role ..."
 	PYTHONPATH="$(DOMAIN_PATH):services/api" $(PY) tools/seed_pilot.py $(SEED_PILOT_ARGS)
 
+.PHONY: exercise-seed
+exercise-seed: ## Fill an EMPTY class-exercise database from Ann's fixture file; EXERCISE_SEED_ARGS="--file x.xlsx" / "--force"
+	# The database comes first; Ann's file is the fallback for an empty one
+	# (owner design "A", 2026-09-25). A no-op when a dataset is already active,
+	# so it is safe to run twice. --force adds one more dataset and deletes
+	# none. Prints counts only, never a withheld column (ADR-0025 D6). See
+	# services/api/smartmatch_api/exercise_seed.py.
+	PYTHONPATH="$(DOMAIN_PATH):services/api" $(PY) -m smartmatch_api.exercise_seed $(EXERCISE_SEED_ARGS)
+
 .PHONY: seed-pilot-principals
 seed-pilot-principals: ## Seed the student, Event Host and admin principals the compose dev tokens resolve to
 	# The compose `seed-principals` one-shot runs this same script; this target
