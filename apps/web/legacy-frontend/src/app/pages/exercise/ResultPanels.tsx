@@ -70,10 +70,26 @@ export function ResultPanels({ results, names }: ResultPanelsProps): React.JSX.E
         }
       />
 
-      <section className="grid gap-4 sm:grid-cols-3" data-slot="exercise-seats">
-        <Figure label="Seats in the room" value={results.event_seats} />
-        <Figure label="Already signed up before your team" value={results.existing_signups} />
-        <Figure label="Seats still empty" value={results.seats_empty} />
+      <section className="flex flex-col gap-4">
+        <p
+          className="text-2xl font-semibold text-slate-900 dark:text-slate-50"
+          data-slot="exercise-seats-sentence"
+        >
+          {seatsSentence(
+            {
+              alreadyComing: results.existing_signups,
+              added: results.team.attended_count,
+              open: results.seats_empty,
+            },
+            "now",
+          )}
+        </p>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4" data-slot="exercise-seats">
+          <Figure label="Seats in the room" value={results.event_seats} />
+          <Figure label="Already coming" value={results.existing_signups} />
+          <Figure label="Added by your invitations" value={results.team.attended_count} />
+          <Figure label="Seats still open" value={results.seats_empty} />
+        </div>
       </section>
 
       {results.round_one === null ? null : (
@@ -85,8 +101,14 @@ export function ResultPanels({ results, names }: ResultPanelsProps): React.JSX.E
             {results.round_one.setting_name === null
               ? "Built without a saved setting."
               : `Built from your team's setting “${results.round_one.setting_name}”.`}{" "}
-            It left {results.round_one.seats_empty}{" "}
-            {results.round_one.seats_empty === 1 ? "seat" : "seats"} empty.
+            {seatsSentence(
+              {
+                alreadyComing: results.existing_signups,
+                added: results.round_one.team.attended_count,
+                open: results.round_one.seats_empty,
+              },
+              "then",
+            )}
           </p>
         </section>
       )}
@@ -116,6 +138,37 @@ export function ResultPanels({ results, names }: ResultPanelsProps): React.JSX.E
       </section>
     </div>
   );
+}
+
+/** The three numbers D8's sentence is built from, all read off the response. */
+export interface SeatCounts {
+  /** `existing_signups`: people coming before the team invited anyone. */
+  readonly alreadyComing: number;
+  /** The team panel's `attended_count`: people the team's list brought. */
+  readonly added: number;
+  /** `seats_empty`: chairs nobody fills. */
+  readonly open: number;
+}
+
+/**
+ * Empty seats as both groups, in words (wave-2 decision D8, Chau approved).
+ *
+ * "8 were already coming. Your invitations added 6. 46 seats are still open."
+ * Showing both groups makes clear what the team's list changed, which a bare
+ * seat count hides. `"then"` is for a round already behind the team.
+ */
+export function seatsSentence(counts: SeatCounts, tense: "now" | "then"): string {
+  const coming = `${counts.alreadyComing} ${counts.alreadyComing === 1 ? "was" : "were"} already coming.`;
+  const added = `Your invitations added ${counts.added === 0 ? "nobody" : counts.added}.`;
+  return `${coming} ${added} ${openSeats(counts.open, tense)}`;
+}
+
+function openSeats(open: number, tense: "now" | "then"): string {
+  if (open === 0) {
+    return tense === "now" ? "Every seat is taken." : "Every seat was taken.";
+  }
+  const verbs = tense === "now" ? { one: "is", many: "are" } : { one: "was", many: "were" };
+  return open === 1 ? `1 seat ${verbs.one} still open.` : `${open} seats ${verbs.many} still open.`;
 }
 
 function Figure({
