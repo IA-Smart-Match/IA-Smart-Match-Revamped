@@ -758,7 +758,7 @@ Before a run: lock panel (6.14) in the seating-chart position.
   who answered. Every generated mock-up must follow this.
 - **Names in mock-ups:** fictional, diverse, plausible for a Southern
   California business school. Use the set in
-  [`prompts/README.md`](prompts/README.md#shared-fictional-data) so screens agree.
+  [`prompts/README.md`](prompts/README.md#7-shared-fictional-data) so screens agree.
 - **Sentence case** everywhere; direct verbs on buttons ("Save these
   weights", "Run results for this event", "Open results").
 - **Seat sentences:** exactly the pattern "{existing} were already coming.
@@ -799,3 +799,7 @@ Before a run: lock panel (6.14) in the seating-chart position.
    `ProfilePoints` before a screen is built.
 5. `SyntheticDataBanner` quiet variant and the chart restyle touch shared
    components; the implementing track should add variants, not fork.
+6. New copy proposed by this refresh needs owner approval before build: the
+   opening `h1` "Who should we invite?" and lead, the one-line supporting
+   text under each asking choice, the profile-card page `h1` "What a
+   profile would be asked" and caption, and "Front of the room".
