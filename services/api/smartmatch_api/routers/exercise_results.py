@@ -32,14 +32,13 @@ The three rules this module exists to enforce
    written. Both live in the repository, where a concurrent second press meets a
    predicate rather than a read-then-write.
 
-PLACEHOLDER (OQ-CE-03) — what this route runs on
-================================================
+What this route runs on
+=======================
 The simulated-results rule's coefficients are the domain's, not this route's:
 ``simulation.EXERCISE_SIMULATION_COEFFICIENTS`` holds the team's translation of
-Ann's answer of 2026-09-25, marked ``PLACEHOLDER`` and still OPEN until Chau and
-Ann confirm it from a sample result. If that value is ever ``None``,
-``require_coefficients`` refuses and ``POST …/results`` answers one plain
-sentence naming the open question. The tests exercise the full path by
+Ann's answer of 2026-09-25, which Chau approved (wave-2 decision D7, closing
+OQ-CE-03). If that value is ever ``None``, ``require_coefficients`` refuses and
+``POST …/results`` answers one plain sentence. The tests exercise the full path by
 injecting a clearly-labelled test-only coefficient set, so no pinned outcome
 here moves when the shipped numbers do; no value is written into this file.
 
@@ -100,7 +99,10 @@ from smartmatch_api.routers.exercise_results_models import (
     asking_state_view,
     stored_results_view,
 )
-from smartmatch_api.routers.exercise_results_refresh import refresh_one_team
+from smartmatch_api.routers.exercise_results_refresh import (
+    refresh_counts_from_view,
+    refresh_one_team,
+)
 from smartmatch_api.routers.exercise_results_run import (
     coefficients_or_refusal,
     final_setting_or_refusal,
@@ -211,8 +213,7 @@ def run_results(
 
     The rule the answer comes from is written in plain words in
     ``smartmatch_domain/exercise/simulation.py`` and is the statement the course
-    owner receives. Its coefficients are **not decided yet** (OQ-CE-03), so this
-    route refuses with one sentence naming that question until they are.
+    owner receives. Its numbers are the ones Chau approved.
 
     The refusals come in this order, so the most useful sentence wins:
 
@@ -221,9 +222,9 @@ def run_results(
        a team that has already run to choose a setting would invite a second try.
     2. The final setting — left out or blank (422). The team's own step, so it
        is answered before anything the team cannot fix.
-    3. The rule — no confirmed coefficients (409, OQ-CE-03). The owner's to
-       close; it refuses every run on this deployment today, so a check after it
-       would never be reached.
+    3. The rule — no coefficient set (409). Only reachable if the approved set
+       is removed; it would then refuse every run, so it comes before the
+       team's own saved-setting lookup.
     4. The saved setting itself — not one this team saved (404).
 
     Raises:
@@ -333,6 +334,7 @@ def read_asking_choice(
     session: ExerciseSession,
     workspace: CurrentWorkspace,
     results: ResultsRepository,
+    team_view: TeamViewRepository,
 ) -> AskingStateView:
     """What your team chose, the three choices it may make, and its refresh state.
 
@@ -340,13 +342,24 @@ def read_asking_choice(
     offered rather than writing them into a component, which is the same reason
     the settings route returns ``max_settings``.
 
+    ``refresh_counts`` is what the refresh changed, read back from the team's
+    view, so it survives a reload and reaches a team the instructor refreshed.
+
     Raises:
         ExerciseError: 401 when the cookie is absent or names no workspace.
     """
     team_state = _team_state_or_refusal(session, results, workspace)
-    return asking_state_view(
-        team_state.asking_choice, refreshed=team_state.refreshed_at is not None
+    refreshed = team_state.refreshed_at is not None
+    counts = (
+        refresh_counts_from_view(
+            team_view.list_team_profiles(
+                session, dataset_id=workspace.dataset_id, workspace_id=workspace.id
+            )
+        )
+        if refreshed
+        else None
     )
+    return asking_state_view(team_state.asking_choice, refreshed=refreshed, counts=counts)
 
 
 @router.post(
@@ -402,7 +415,7 @@ def _choice_or_refusal(raw: str) -> AskingChoice:
         return AskingChoice(raw.strip())
     except ValueError:
         raise ExerciseError(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             code="exercise_asking_choice_unknown",
             message="Pick one of the three ways of asking.",
         ) from None
@@ -427,8 +440,7 @@ def refresh_profiles(
     attended list gains that event's topics; a share of the people you invited
     who had no card complete one; and under the third way of asking a further
     share stops answering and will not sign up in round two. How large each share
-    is comes from the course's own numbers, which are not confirmed yet
-    (OQ-CE-04).
+    is comes from the course's own numbers, rounded half up.
 
     Allowed once, and only after the choice. Both are the database's own
     predicates rather than checks in code, so a second press cannot land while

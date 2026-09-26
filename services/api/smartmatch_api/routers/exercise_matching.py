@@ -141,13 +141,13 @@ def _setting_name_or_refusal(name: str) -> str:
     trimmed = name.strip()
     if not trimmed or len(trimmed) > _MAX_SETTING_NAME_CHARACTERS:
         raise ExerciseError(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             code="exercise_setting_name_unusable",
             message="Give your settings a short name.",
         )
     if trimmed == _RESERVED_SETTING_NAME:
         raise ExerciseError(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             code="exercise_setting_name_reserved",
             message="Pick another name for your settings.",
         )
@@ -274,7 +274,7 @@ def _overrides_for(
     """
     if setting is not None and requested is not None:
         raise ExerciseError(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             code="exercise_weights_ambiguous",
             message="Choose saved settings or your own weights, not both.",
         )
@@ -375,8 +375,7 @@ def read_ranked_list(
 
     The weights come from one of three places: a saved setting named by
     ``setting``, the four weight parameters, or — with neither given — the
-    course's starting values, which are a placeholder the course owner has not
-    yet replaced. Naming both a setting and a weight is refused.
+    course's starting values. Naming both a setting and a weight is refused.
 
     **The event is resolved before ``setting`` is looked up** (review round 2,
     F2). Resolving the name first answered an unknown event key plus an unknown

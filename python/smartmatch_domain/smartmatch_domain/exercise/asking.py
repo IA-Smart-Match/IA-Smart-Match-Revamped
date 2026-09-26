@@ -209,6 +209,7 @@ def select_share(
     *,
     seed: int,
     salt: str,
+    of_size: int | None = None,
 ) -> tuple[int, ...]:
     """Pick a share of the given profiles, the same way every time.
 
@@ -228,16 +229,30 @@ def select_share(
             business.
         salt: What is being picked, e.g. ``"card_completion"``. Two calls with
             one seed and one salt agree; with different salts they do not.
+        of_size: The group the share is *of*, when it is larger than the pool
+            drawn from. "Required" takes 15% of every no-card profile but draws
+            them only from those that did not complete a card (owner ruling,
+            2026-09-25), so the count and the pool differ. ``None`` means the
+            share is of the pool itself.
 
     Returns:
         The picked profile numbers, sorted ascending and free of duplicates.
 
     Raises:
-        ValueError: If ``share`` is outside ``[0, 1]``.
+        ValueError: If ``share`` is outside ``[0, 1]``, if ``of_size`` is
+            smaller than the pool, or if the pool holds fewer profiles than the
+            share of ``of_size`` asks for.
     """
     if not 0.0 <= share <= 1.0:
         raise ValueError(f"share must be between 0 and 1 inclusive; got {share}.")
     distinct = sorted(set(profile_nos))
-    count = _half_up_count(share, len(distinct))
+    size = len(distinct) if of_size is None else of_size
+    if size < len(distinct):
+        raise ValueError(f"of_size must be at least the pool's {len(distinct)}; got {size}.")
+    count = _half_up_count(share, size)
+    if count > len(distinct):
+        raise ValueError(
+            f"the share asks for {count} profiles and the pool holds only {len(distinct)}."
+        )
     ordered = sorted(distinct, key=lambda profile_no: _rank_key(seed, salt, profile_no))
     return tuple(sorted(ordered[:count]))

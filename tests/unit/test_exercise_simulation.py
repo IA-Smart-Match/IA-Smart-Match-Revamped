@@ -2,7 +2,7 @@
 
 Every coefficient set constructed in this file is **test-only**; these exist to
 exercise the shape of the rule, and none of them is a proposal for Ann. The set
-the module ships (OQ-CE-03, still OPEN) is read, never constructed, by the
+the module ships (approved by Chau, wave-2 decision D7) is read, never constructed, by the
 tests under "the shipped set".
 """
 
@@ -32,7 +32,7 @@ from smartmatch_domain.exercise.simulation import (
     simulate_results,
 )
 
-# --- Test-only coefficients (NOT a proposal for OQ-CE-03) ------------------
+# --- Test-only coefficients (NOT the shipped set) --------------------------
 
 TEST_ONLY_COEFFICIENTS = SimulationCoefficients(
     base_signup_rate=0.10,
@@ -420,7 +420,7 @@ def test_coefficients_are_frozen():
         TEST_ONLY_COEFFICIENTS.chance_spread = 0.5  # type: ignore[misc]
 
 
-# --- OQ-CE-03: the shipped set (the team's translation, still OPEN) -------
+# --- The shipped set (the team's translation, approved as D7) -------------
 
 
 def _shipped() -> SimulationCoefficients:
@@ -443,20 +443,6 @@ def test_the_shipped_set_honours_anns_a_lot_some_a_little():
 def test_the_shipped_set_counts_any_past_event_as_having_attended_before():
     """Ann's (b) is "has attended events before", so one past event is enough."""
     assert _shipped().frequent_attender_events == 1
-
-
-def test_the_shipped_set_is_still_marked_as_the_teams_translation():
-    """OQ-CE-03 stays OPEN until Chau and Ann confirm the numbers from a sample."""
-    from pathlib import Path
-
-    from smartmatch_domain.exercise import simulation
-
-    raw = Path(simulation.__file__).read_text(encoding="utf-8").replace("#: ", "")
-    source = " ".join(raw.split())
-    assert (
-        "PLACEHOLDER (OQ-CE-03: Ann's a lot/some/a little/some; numbers are the team's "
-        "translation, Chau to confirm with a sample result)"
-    ) in source
 
 
 def test_the_plain_words_paragraph_states_every_shipped_number():
@@ -670,7 +656,7 @@ def test_the_split_is_the_ceiling_for_a_profile_with_no_career_goal():
 
 
 def test_the_module_defines_no_constant_for_the_true_fit_split():
-    """OQ-CE-03 owns the split; a module constant would decide it here."""
+    """The split is a coefficient; a module constant would decide it here."""
     from smartmatch_domain.exercise import simulation
 
     assert not hasattr(simulation, "_FIT_HALF")

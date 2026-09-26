@@ -1,14 +1,13 @@
 /**
  * The results screen: what your team's list actually did.
  *
- * **Most of what this screen shows today is a refusal, and that is correct.**
+ * **A refusal here is a state, not an error.** The results rule runs on the
+ * coefficients Chau approved (wave-2 decision D7), so a run normally succeeds.
  * `POST …/events/{event_key}/results` answers 409
- * `exercise_results_rule_not_confirmed` on this deployment, because OQ-CE-03 —
- * the coefficients of the simulated-results rule — is open and
- * `EXERCISE_SIMULATION_COEFFICIENTS` is `None`. PR #190 is explicit that this
- * is the route working. So it renders as a calm state carrying the server's
- * own sentence, not as an error toast, and the same is true of the other two
- * states a team meets here:
+ * `exercise_results_rule_not_confirmed` only if that coefficient set is ever
+ * removed. It renders as a calm state carrying the server's own sentence, not
+ * as an error toast, and the same is true of the other two states a team meets
+ * here:
  *
  * - `exercise_results_locked` — the instructor has not opened this event yet.
  * - `exercise_results_already_run` — design spec §9's one run per team per

@@ -36,14 +36,13 @@ no percentage anywhere on a response — the shares design spec §12 names are
 applied on the server and reported as *how many profiles*, never as *what
 fraction*.
 
-PLACEHOLDER (OQ-CE-03)
-======================
+The coefficients
+================
 The simulated-results rule's coefficients live in the domain, in
 ``simulation.EXERCISE_SIMULATION_COEFFICIENTS``: the team's translation of Ann's
-answer of 2026-09-25 (a lot / some / a little / some randomness), shipped so a
-run stops refusing, and still OPEN until Chau and Ann confirm the numbers from a
-sample result. None of them is written here. ``simulation.require_coefficients``
-still refuses if that value is ``None``, and
+answer of 2026-09-25 (a lot / some / a little / some randomness), which Chau
+approved (wave-2 decision D7, closing OQ-CE-03). None of them is written here.
+``simulation.require_coefficients`` still refuses if that value is ``None``, and
 :func:`~smartmatch_api.routers.exercise_results.run_results` still turns that
 refusal into one plain sentence.
 """
@@ -66,6 +65,7 @@ from smartmatch_domain.exercise.vocabulary import goal_is_undecided, goal_topic_
 
 from smartmatch_api.exercise_dependencies import (
     ExerciseEventRow,
+    RefreshCounts,
     ResultPanel,
     SimulationProfileRow,
     StoredResultRun,
@@ -79,6 +79,7 @@ __all__ = [
     "AskingStateView",
     "PreviousRoundView",
     "RefreshAllView",
+    "RefreshCountsView",
     "RefreshView",
     "ResultPanelView",
     "ResultsView",
@@ -374,6 +375,20 @@ class ResultsView(BaseModel):
     created_at: datetime = Field(description="When this run was stored.")
 
 
+class RefreshCountsView(BaseModel):
+    """What this team's one refresh changed, as three counts (ADR-0025 D8)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    cards_completed: int = Field(description="How many invited profiles completed a card.")
+    non_responding: int = Field(
+        description="How many stopped opening messages and will not sign up in round two."
+    )
+    topics_added: int = Field(
+        description="How many profiles gained the first round's topics from having attended it."
+    )
+
+
 class AskingStateView(BaseModel):
     """Design spec §12: how this team chose to ask, and whether it has refreshed."""
 
@@ -384,6 +399,13 @@ class AskingStateView(BaseModel):
     )
     choices: list[str] = Field(description="The three ways of asking, as the course names them.")
     refreshed: bool = Field(description="Whether your team has already used its one refresh.")
+    refresh_counts: RefreshCountsView | None = Field(
+        default=None,
+        description=(
+            "What the refresh changed, read back from your team's view: null "
+            "until the team has been refreshed, by itself or by the instructor."
+        ),
+    )
 
 
 class RefreshView(BaseModel):
@@ -484,7 +506,12 @@ def stored_results_view(
     )
 
 
-def asking_state_view(choice: str | None, *, refreshed: bool) -> AskingStateView:
+def asking_state_view(
+    choice: str | None,
+    *,
+    refreshed: bool,
+    counts: RefreshCounts | None = None,
+) -> AskingStateView:
     """This team's asking choice, with the three names read off the domain.
 
     ``choices`` comes from :class:`~smartmatch_domain.exercise.asking.AskingChoice`
@@ -496,4 +523,13 @@ def asking_state_view(choice: str | None, *, refreshed: bool) -> AskingStateView
         choice=choice,
         choices=[member.value for member in AskingChoice],
         refreshed=refreshed,
+        refresh_counts=(
+            None
+            if counts is None
+            else RefreshCountsView(
+                cards_completed=counts.cards_completed,
+                non_responding=counts.non_responding,
+                topics_added=counts.topics_added,
+            )
+        ),
     )

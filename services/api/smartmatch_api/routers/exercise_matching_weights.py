@@ -27,6 +27,7 @@ from typing import Any
 from fastapi import Query, status
 from smartmatch_domain.exercise.registry import (
     EXERCISE_DEFAULT_WEIGHTS,
+    AllZeroExerciseWeightsError,
     InvalidExerciseWeightError,
     validate_exercise_weight_overrides,
 )
@@ -39,6 +40,7 @@ from smartmatch_api.routers.exercise_matching_models import (
 )
 
 __all__ = [
+    "ALL_ZERO_WEIGHTS_SENTENCE",
     "capped",
     "effective_weights",
     "requested_weights",
@@ -110,16 +112,20 @@ def within_bounds_or_refusal(raw: Mapping[str, object]) -> None:
     """
     if len(raw) > MAX_WEIGHT_KEYS:
         raise ExerciseError(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             code="exercise_weights_too_many",
             message=f"Send at most {MAX_WEIGHT_KEYS} weights.",
         )
     if any(len(key) > MAX_WEIGHT_KEY_CHARACTERS for key in raw):
         raise ExerciseError(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             code="exercise_weights_key_too_long",
             message="One of those weights is not named like a factor.",
         )
+
+
+#: What a team reads when every weight is zero (M2 B5).
+ALL_ZERO_WEIGHTS_SENTENCE = "At least one number must be above 0."
 
 
 def validated(raw: Mapping[str, object]) -> Mapping[str, float]:
@@ -146,9 +152,16 @@ def validated(raw: Mapping[str, object]) -> Mapping[str, float]:
     within_bounds_or_refusal(raw)
     try:
         return validate_exercise_weight_overrides(raw)
+    except AllZeroExerciseWeightsError:
+        # M2 B5: the domain's sentence is for an engineer; a team reads this.
+        raise ExerciseError(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            code="exercise_weights_invalid",
+            message=ALL_ZERO_WEIGHTS_SENTENCE,
+        ) from None
     except InvalidExerciseWeightError as error:
         raise ExerciseError(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             code="exercise_weights_invalid",
             message=f"Those weights were not accepted. {capped(str(error))}",
         ) from None

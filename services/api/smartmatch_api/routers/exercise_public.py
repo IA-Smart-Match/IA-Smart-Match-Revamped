@@ -57,8 +57,8 @@ render its entry screen, and that no table supplies:
 It deliberately does **not** answer the invite limit, the default weights, the
 "asking for more" percentages, the simulation coefficients, or the opening
 screen's license line. Each of those belongs to a register row —
-``OQ-CE-02``/``OQ-CE-03``/``OQ-CE-04``/``OQ-CE-09``; all but ``OQ-CE-03`` closed
-2026-09-25 — or is a per-dataset stored value, and each lives with the code
+``OQ-CE-02``/``OQ-CE-03``/``OQ-CE-04``/``OQ-CE-09``, all four now closed — or is
+a per-dataset stored value, and each lives with the code
 that owns it (the domain's constants, or the opening screen's license line)
 rather than in this contract.
 

@@ -83,9 +83,9 @@ class InstructorLoginRequest(BaseModel):
     passcode: str = Field(
         max_length=MAX_PASSCODE_CHARACTERS,
         description=(
-            "The instructor passcode for this deployment (OQ-CE-07: one "
-            "environment variable, shared out of band). Never logged, never "
-            "echoed, and never compared with `==`."
+            "The instructor passcode for this deployment (one environment "
+            "variable, shared out of band). Never logged, never echoed, and "
+            "never compared with `==`."
         ),
     )
 
@@ -137,8 +137,8 @@ class DatasetView(BaseModel):
     license_line: str | None = Field(
         description=(
             "A per-upload license line, or null; the ingest does not fill it. "
-            "The exercise's own license line (OQ-CE-09) is a constant on the "
-            "opening screen."
+            "The exercise's own license line is a constant on the opening "
+            "screen."
         ),
     )
 

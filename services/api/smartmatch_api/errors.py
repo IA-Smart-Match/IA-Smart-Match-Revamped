@@ -235,7 +235,7 @@ async def request_validation_handler(_request: Request, exc: Exception) -> JSONR
     fields = [_describe_validation_error(error) for error in errors[:_MAX_REPORTED_FIELDS]]
 
     return error_response(
-        status.HTTP_422_UNPROCESSABLE_ENTITY,
+        status.HTTP_422_UNPROCESSABLE_CONTENT,
         code="invalid_request",
         message="The request could not be processed as submitted.",
         details={"fields": fields, "field_count": len(errors)},

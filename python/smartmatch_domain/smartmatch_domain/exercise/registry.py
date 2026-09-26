@@ -89,6 +89,7 @@ __all__ = [
     "PAST_EVENT_TOPIC_OVERLAP_DEFAULT_WEIGHT",
     "SAME_MAJOR_DEFAULT_WEIGHT",
     "STATED_INTEREST_OVERLAP_DEFAULT_WEIGHT",
+    "AllZeroExerciseWeightsError",
     "InvalidExerciseWeightError",
     "exercise_applied_weights",
     "validate_exercise_weight_overrides",
@@ -237,6 +238,14 @@ class InvalidExerciseWeightError(ValueError):
     """
 
 
+class AllZeroExerciseWeightsError(InvalidExerciseWeightError):
+    """Every weight is zero, so nothing would rank anyone (M2 B5).
+
+    Its own type so a route can answer a class participant in one plain
+    sentence while this message stays precise for an engineer.
+    """
+
+
 def _coerce_weight(key: str, raw: object) -> float:
     """One proposed weight as a float, or a sentence saying why it is not.
 
@@ -302,7 +311,7 @@ def validate_exercise_weight_overrides(raw: Mapping[str, object]) -> Mapping[str
         effective = dict(EXERCISE_DEFAULT_WEIGHTS)
         effective.update(weights)
         if sum(effective.values()) <= 0.0:
-            problems.append(
+            raise AllZeroExerciseWeightsError(
                 "the resulting weights sum to zero; every profile would score the same "
                 "and the list would be the tie-break alone. Refused rather than "
                 "normalized into something plausible."
