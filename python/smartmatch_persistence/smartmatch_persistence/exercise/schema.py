@@ -260,8 +260,8 @@ exercise_team_workspace = sa.Table(
     # credential at rest, so it is asserted by name in the unit test.
     sa.Column("workspace_token_hash", sa.Text, nullable=False),
     # §11's chance element, fixed per team so running the same list twice
-    # gives the same answer. The coefficients it is drawn against are
-    # OQ-CE-03 and are named constants in the domain module, not values here:
+    # gives the same answer. The coefficients it is drawn against (approved,
+    # closing OQ-CE-03) are named constants in the domain module, not values here:
     # a seed is per-team state, a coefficient is a rule.
     sa.Column("seed", sa.BigInteger, nullable=False),
     sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),

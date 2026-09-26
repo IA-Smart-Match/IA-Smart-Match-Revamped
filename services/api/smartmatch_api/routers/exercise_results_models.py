@@ -36,14 +36,13 @@ no percentage anywhere on a response — the shares design spec §12 names are
 applied on the server and reported as *how many profiles*, never as *what
 fraction*.
 
-PLACEHOLDER (OQ-CE-03)
-======================
+The coefficients
+================
 The simulated-results rule's coefficients live in the domain, in
 ``simulation.EXERCISE_SIMULATION_COEFFICIENTS``: the team's translation of Ann's
-answer of 2026-09-25 (a lot / some / a little / some randomness), shipped so a
-run stops refusing, and still OPEN until Chau and Ann confirm the numbers from a
-sample result. None of them is written here. ``simulation.require_coefficients``
-still refuses if that value is ``None``, and
+answer of 2026-09-25 (a lot / some / a little / some randomness), which Chau
+approved (wave-2 decision D7, closing OQ-CE-03). None of them is written here.
+``simulation.require_coefficients`` still refuses if that value is ``None``, and
 :func:`~smartmatch_api.routers.exercise_results.run_results` still turns that
 refusal into one plain sentence.
 """

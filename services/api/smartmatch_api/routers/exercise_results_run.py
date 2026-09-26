@@ -27,12 +27,12 @@ profile numbers. Nothing here logs, nothing here puts a value in an exception
 message, and no function here returns a value with a place to put an interest
 term.
 
-PLACEHOLDER (OQ-CE-03)
-======================
+The coefficients
+================
 :func:`coefficients_or_refusal` reads the domain's coefficient set — the team's
-translation of Ann's words, still marked as a placeholder — and turns the
-domain's refusal, should the set ever be ``None``, into one plain sentence
-naming the open row. This module invents none.
+translation of Ann's words, which Chau approved (wave-2 decision D7) — and turns
+the domain's refusal, should the set ever be ``None``, into one plain sentence.
+This module invents none.
 """
 
 from __future__ import annotations
@@ -114,14 +114,13 @@ def round_or_refusal(events: Sequence[ExerciseEventRow], event_key: str) -> int:
 
 
 def coefficients_or_refusal() -> SimulationCoefficients:
-    """The results rule's coefficients, or **OQ-CE-03's own sentence**.
+    """The results rule's coefficients, or the domain's refusal as one sentence.
 
-    The register's answer is "Chau proposes; Ann confirms". The domain ships the
-    team's proposal, and refuses only if it is ever removed. The sentence a team
-    reads is the domain's, passed through unchanged rather than rewritten here: two
-    wordings of "this is not decided yet" would be one more than the question
-    has. The register ID (OQ-CE-03) is kept out of that sentence and in the
-    comments: a student has no use for an internal identifier.
+    The domain ships the set Chau approved, and refuses only if it is ever
+    removed. The sentence a team reads is the domain's, passed through unchanged
+    rather than rewritten here: two wordings of one refusal would be one more
+    than it needs. No register ID appears in that sentence: a student has no use
+    for an internal identifier.
     """
     try:
         return require_coefficients()
@@ -159,7 +158,7 @@ def final_setting_or_refusal(setting_name: str | None) -> str:
     name = (setting_name or "").strip()
     if not name:
         raise ExerciseError(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             code="exercise_final_setting_required",
             message=FINAL_SETTING_SENTENCE,
         )

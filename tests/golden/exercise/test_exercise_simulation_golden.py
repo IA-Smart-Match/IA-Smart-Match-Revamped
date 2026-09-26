@@ -10,8 +10,8 @@ is salted per process, so the same team's list gives different results in
 tomorrow's process. The subprocess case below is the test that catches it; the
 pinned outcome above it is the value that must not drift.
 
-Every coefficient set here is **test-only**. OQ-CE-03 is open and the module
-ships none.
+Every coefficient set here is **test-only**, independent of the approved set
+the module ships (D7), so a change to that set moves nothing pinned here.
 """
 
 from __future__ import annotations
@@ -33,7 +33,7 @@ from smartmatch_domain.exercise.simulation import (
 GOLDEN_SEED = 20270333
 GOLDEN_EVENT_KEY = "northline"
 
-# Test-only. NOT a proposal for OQ-CE-03.
+# Test-only. NOT the shipped set.
 GOLDEN_COEFFICIENTS = SimulationCoefficients(
     base_signup_rate=0.20,
     true_fit_lift=0.50,

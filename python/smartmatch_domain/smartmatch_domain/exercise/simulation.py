@@ -6,7 +6,7 @@ with Ann and Dr. Lin before the practice run*; ADR-0025 D7). The paragraph
 below states the rule with the numbers the code runs today. Its first and last
 sentences are design spec §11's draft; the middle is Ann's answer of 2026-09-25
 to OQ-CE-03 and OQ-CE-14, with the team's translation of her words into
-numbers. When the code changes, this paragraph changes with it, and a test
+numbers, which Chau approved. When the code changes, this paragraph changes with it, and a test
 checks that every number in it is the number the code uses.
 
     For each invited profile the app decides whether the person signs up, then
@@ -31,9 +31,11 @@ Ann's words were: the event matches what the student genuinely cares about,
 targeted toward the student's major, **a little**; random chance, **some
 randomness**. "A lot", "some" and "a little" became 40, 10 and 4 in 100, and
 "some randomness" became up to 10 in 100 either way — the same size as "some".
-Those numbers are the team's, not hers: OQ-CE-03 stays OPEN until Chau and Ann
-confirm them from a sample result
-(``docs/plans/open-questions/oq-ce-03-sample-result.md``).
+Ann left the numbers to Chau. The team translated her words, Chau approved the
+translation (wave-2 decision D7), and that closed OQ-CE-03. The sample result
+the numbers were checked against is
+``docs/plans/open-questions/oq-ce-03-sample-result.md``. If Ann reacts to it,
+changing a number is a one-line edit to :data:`EXERCISE_SIMULATION_COEFFICIENTS`.
 
 ## The five behaviours the requirements ask for
 
@@ -74,7 +76,7 @@ For one profile and one event, with coefficients ``c``:
   matching factor read one number. How the true-fit lift divides between the
   two parts is **not** a constant in this module: it is a coefficient, because
   choosing it decides whether Ann's "true interests and career goal" leans on
-  interests or on goals (OQ-CE-03).
+  interests or on goals (``true_interest_share_of_fit``, approved at one half).
 * ``lift = c.true_fit_lift * fit_share``
   ``+ c.frequent_attender_lift`` if the profile attended at least
   ``c.frequent_attender_events`` past events,
@@ -146,11 +148,11 @@ returns carries them: :class:`SimulationResult` holds profile numbers, and
 
 ## The coefficients: Ann's words, the team's numbers
 
-OQ-CE-03 is still OPEN. Ann answered in words on 2026-09-25 (a lot / some / a
-little / some randomness) and was told "Chau can then translate those choices
-into exact numbers and show you a sample result before class".
-:data:`EXERCISE_SIMULATION_COEFFICIENTS` is that translation, marked
-``PLACEHOLDER``, so a results run stops refusing; it closes nothing.
+Ann answered in words on 2026-09-25 (a lot / some / a little / some
+randomness) and was told "Chau can then translate those choices into exact
+numbers and show you a sample result before class".
+:data:`EXERCISE_SIMULATION_COEFFICIENTS` is that translation, and Chau approved
+it (wave-2 decision D7), which closed OQ-CE-03.
 :func:`require_coefficients` still refuses if the value is ever ``None``.
 Tests construct their own sets, clearly labelled as test-only.
 
@@ -242,7 +244,7 @@ class SimulationCoefficientsError(ValueError):
 
 
 class CoefficientsNotConfirmedError(RuntimeError):
-    """Raised while the exercise has no confirmed coefficients (OQ-CE-03)."""
+    """Raised if the exercise's coefficient set is ever removed (set to ``None``)."""
 
 
 class InviteLimitExceededError(ValueError):
@@ -361,11 +363,10 @@ class SimulationResult:
 class SimulationCoefficients:
     """The numbers the rule is drawn against.
 
-    **PLACEHOLDER (OQ-CE-03).** The register says "Chau proposes; Ann
-    confirms". There is no default: every caller supplies a set, and the only
-    set the exercise itself ships is :data:`EXERCISE_SIMULATION_COEFFICIENTS`,
-    the team's translation of Ann's words, still to be confirmed. Tests
-    construct their own and label them test-only.
+    There is no default: every caller supplies a set, and the only set the
+    exercise itself ships is :data:`EXERCISE_SIMULATION_COEFFICIENTS`, the
+    team's translation of Ann's words that Chau approved (wave-2 decision D7).
+    Tests construct their own and label them test-only.
 
     What the requirements fix is the *ordering*, not the values, so the
     ordering is enforced here rather than left to whichever numbers arrive:
@@ -374,8 +375,8 @@ class SimulationCoefficients:
 
     Attributes:
         base_signup_rate: The sign-up chance of a profile with no lift at all.
-            A sixth quantity OQ-CE-03 must supply: the rule cannot express
-            "more likely" without something to be more likely than.
+            A sixth quantity the register row did not name: the rule cannot
+            express "more likely" without something to be more likely than.
         true_fit_lift: Added when the event's topics match the profile's hidden
             true interests and its career goal fits — halved when only one of
             the two holds.
@@ -388,12 +389,12 @@ class SimulationCoefficients:
             no chance at all and the rule becomes fully determined by fit.
         attend_given_signup: The chance that a profile that signed up attends.
         frequent_attender_events: How many past events count as "many". A
-            seventh quantity OQ-CE-03 must supply: the requirements say
-            "attended many past events" without saying how many, and inventing
-            a threshold here would be inventing a coefficient.
+            seventh quantity the register row did not name: the requirements
+            say "attended many past events" without saying how many, and
+            inventing a threshold here would be inventing a coefficient.
         true_interest_share_of_fit: How much of ``true_fit_lift`` a
             true-interest overlap earns; the career goal earns the rest. An
-            eighth quantity OQ-CE-03 must supply. It decides whether Ann's
+            eighth quantity the register row did not name. It decides whether Ann's
             "true interests and career goal" leans on interests or on goals,
             and it is also the ceiling on the lift a profile with no career
             goal on file can reach — which is a consequence of the split, not a
@@ -462,12 +463,12 @@ def _check_attender_threshold(value: object) -> None:
         )
 
 
-#: PLACEHOLDER (OQ-CE-03: Ann's a lot/some/a little/some; numbers are the
-#: team's translation, Chau to confirm with a sample result). The coefficients
-#: the exercise runs with. Ann answered in words on 2026-09-25; each number and
-#: its reason is listed in this module's docstring, and the plain-words
-#: paragraph at the top states every one of them. Read it through
-#: :func:`require_coefficients`.
+#: The coefficients the exercise runs with: Ann's a lot / some / a little /
+#: some randomness, translated into numbers by the team and approved by Chau
+#: (wave-2 decision D7, which closed OQ-CE-03). Ann answered in words on
+#: 2026-09-25; each number and its reason is listed in this module's docstring,
+#: and the plain-words paragraph at the top states every one of them. Read it
+#: through :func:`require_coefficients`.
 EXERCISE_SIMULATION_COEFFICIENTS: SimulationCoefficients | None = SimulationCoefficients(
     base_signup_rate=0.04,
     true_fit_lift=0.40,
@@ -484,14 +485,14 @@ def require_coefficients() -> SimulationCoefficients:
     """Return the exercise's coefficients, or refuse in a plain sentence.
 
     Returns:
-        :data:`EXERCISE_SIMULATION_COEFFICIENTS`, once it is set.
+        :data:`EXERCISE_SIMULATION_COEFFICIENTS`, the approved set.
 
     Raises:
-        CoefficientsNotConfirmedError: While OQ-CE-03 is open.
+        CoefficientsNotConfirmedError: If the set is ever ``None``.
     """
     if EXERCISE_SIMULATION_COEFFICIENTS is None:
-        # OQ-CE-03 is open. The register ID stays here, not in the sentence:
-        # the route passes this message to a team verbatim.
+        # Only reachable if the approved set is removed. No register ID in the
+        # sentence: the route passes this message to a team verbatim.
         raise CoefficientsNotConfirmedError("The results rule has no confirmed coefficients yet.")
     return EXERCISE_SIMULATION_COEFFICIENTS
 
@@ -616,8 +617,8 @@ def simulate_results(
             repeats are folded into one profile number.
         event: The event they were invited to.
         seed: The team's seed. The only per-team state the rule reads.
-        coefficients: A confirmed coefficient set. Required, never defaulted,
-            because OQ-CE-03 has no answer yet.
+        coefficients: A coefficient set. Required, never defaulted, so a test
+            can isolate one lift and the shipped set is read in one place.
         invite_limit: The dataset's invite limit (30 by default, and that
             default lives on the dataset row, not here).
 

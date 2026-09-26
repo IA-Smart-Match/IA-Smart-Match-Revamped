@@ -5,8 +5,9 @@ What is pinned here, in the order the failures would hurt:
 1. **The three rules.** A locked event refuses; a second run is refused with the
    sentence design spec §9 writes out, byte for byte; a refresh needs the choice
    and is allowed once.
-2. **OQ-CE-03 stays open.** With no confirmed coefficients the run route refuses
-   with the domain's own sentence — which is this route *working*. Every test
+2. **The refusal path survives the approval.** With no coefficient set the run
+   route refuses with the domain's own sentence (the shipped set is approved,
+   wave-2 decision D7, so this is patched in). Every test
    that needs a result injects a clearly-labelled test-only coefficient set
    through ``monkeypatch``; no value is written into any source file.
 3. **Determinism and the shared seed.** The same inputs and the same seed give
@@ -166,10 +167,10 @@ _SUMMARY = DatasetSummary(
     event_count=3,
 )
 
-#: **Test-only coefficients (OQ-CE-03 is OPEN).** Not a proposal, not a default,
-#: and never read from source. They keep this file's pinned outcomes
-#: independent of the shipped set, which is the team's translation of Ann's
-#: answer and may still change when Chau and Ann confirm it. Every test that
+#: **Test-only coefficients.** Not a proposal, not a default, and never read
+#: from source. They keep this file's pinned outcomes independent of the
+#: shipped set, which Chau approved (D7) and which stays a one-line change if
+#: Ann reacts to the sample result. Every test that
 #: uses them injects them through ``monkeypatch`` onto the domain module.
 #:
 #: The values are chosen to make the rule produce a mixture rather than all or
@@ -629,11 +630,11 @@ def fakes() -> _Fakes:
 
 @pytest.fixture
 def confirmed(monkeypatch: pytest.MonkeyPatch) -> SimulationCoefficients:
-    """Inject **test-only** coefficients, so no outcome here moves with OQ-CE-03.
+    """Inject **test-only** coefficients, so no outcome here moves with the shipped set.
 
     Patched onto the domain module rather than written into it: the shipped
-    value is the team's translation, still marked as a placeholder, which
-    ``test_the_shipped_coefficients_are_still_marked_as_a_placeholder`` asserts.
+    value is the approved set (D7), pinned in
+    ``tests/unit/test_exercise_coefficients_approved.py``.
     """
     monkeypatch.setattr(
         "smartmatch_domain.exercise.simulation.EXERCISE_SIMULATION_COEFFICIENTS",
@@ -699,7 +700,7 @@ def _run(client: TestClient, path: str = _RESULTS, **body: object) -> object:
 
 
 # ---------------------------------------------------------------------------
-# OQ-CE-03 — the shipped set is still a placeholder; the refusal still works
+# The shipped set is approved (D7); the refusal path still works
 # ---------------------------------------------------------------------------
 
 
@@ -708,8 +709,8 @@ def test_a_run_refuses_while_the_rule_has_no_confirmed_coefficients(
 ) -> None:
     """The refusal path, kept working: with no coefficient set the route refuses.
 
-    The exercise now ships the team's translation of Ann's answer (OQ-CE-03),
-    so ``None`` is patched in here rather than being what ships.
+    The exercise ships the approved set (D7, closing OQ-CE-03), so ``None`` is
+    patched in here rather than being what ships.
     """
     monkeypatch.setattr(
         "smartmatch_domain.exercise.simulation.EXERCISE_SIMULATION_COEFFICIENTS", None
@@ -724,15 +725,6 @@ def test_a_run_refuses_while_the_rule_has_no_confirmed_coefficients(
     assert body["message"] == "The results rule has no confirmed coefficients yet."
     assert "OQ-CE-" not in body["message"], "a register ID is not a sentence for a team"
     assert fakes.results.runs == {}, "a refused run must store nothing"
-
-
-def test_the_shipped_coefficients_are_still_marked_as_a_placeholder() -> None:
-    """A placeholder nobody can grep for is a decision that has quietly closed."""
-    from smartmatch_domain.exercise import simulation
-
-    assert simulation.EXERCISE_SIMULATION_COEFFICIENTS is not None
-    source = Path(simulation.__file__).read_text(encoding="utf-8")
-    assert "PLACEHOLDER (OQ-CE-03)" in source
 
 
 def test_no_module_in_this_track_writes_down_a_coefficient_or_a_share() -> None:
@@ -795,12 +787,12 @@ def test_no_exercise_exception_raised_below_the_routers_carries_a_register_id() 
     assert offenders == []
 
 
-def test_the_placeholder_markers_are_literally_present_in_the_source() -> None:
-    assert "PLACEHOLDER (OQ-CE-03)" in _MODELS_SOURCE.read_text(encoding="utf-8")
+def test_the_closed_questions_left_no_placeholder_marker() -> None:
+    for source in (_MODELS_SOURCE, _ROUTER_SOURCE):
+        assert "PLACEHOLDER (OQ-CE-03)" not in source.read_text(encoding="utf-8"), "D7"
     refresh_source = _REFRESH_SOURCE.read_text(encoding="utf-8")
     assert "PLACEHOLDER (OQ-CE-04)" not in refresh_source, "OQ-CE-04 closed 2026-09-25"
     assert "round half up" in refresh_source
-    assert "OQ-CE-03" in _ROUTER_SOURCE.read_text(encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------
@@ -951,8 +943,9 @@ def test_the_final_setting_is_trimmed_before_it_is_looked_up_and_stored(
 #
 # The event's own state is answered first, whatever the body says: a sentence
 # about the body is only useful once the event can actually be run. The body is
-# answered before OQ-CE-03, which is the owner's to close and refuses every run
-# on this deployment today — after it, the team's own step would be unreachable.
+# answered before the missing-coefficients refusal, which (if the approved set
+# were ever removed) would refuse every run — after it, the team's own step
+# would be unreachable.
 
 
 def test_an_unknown_event_is_answered_before_a_missing_final_setting(

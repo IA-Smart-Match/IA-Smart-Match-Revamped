@@ -137,7 +137,7 @@ def instructor_login(
 ) -> InstructorSessionView:
     """Design spec §14's one door.
 
-    **The two bounds are not the same bound** (OQ-CE-06 PLACEHOLDER; see
+    **The two bounds are not the same bound** (see
     :class:`~smartmatch_api.exercise_rate_limit.Allowance`).
 
     * The **per-key** bound is the caller's own budget and is charged first. If
