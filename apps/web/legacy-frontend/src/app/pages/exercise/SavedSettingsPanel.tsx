@@ -9,11 +9,13 @@
  * `3` into a screen would be a second source of truth for a number the server
  * enforces under a lock, and the two would disagree the day it moved.
  *
- * **A fourth name is refused by the server, with a sentence.** This panel does
- * not pre-empt that with a disabled button and a guess at the wording: it
- * sends the save and shows what comes back. Saving *over* a name a team
- * already has is always allowed and changes no count, so a client-side "you
- * have three already" check would wrongly block the commonest action of all.
+ * **A fourth new name is refused by the server, with a sentence.** At the cap
+ * the button is also disabled for a name the team does not already have, with
+ * the reason beside it, so a class does not press into a refusal it can see
+ * coming. Saving *over* a name the team already has is always allowed and
+ * changes no count, so that stays enabled: the check compares the trimmed name
+ * against the saved names exactly as the server does. The server still judges;
+ * its refusal still shows if another browser saved in the meantime.
  *
  * `compare` is a reserved setting name — the compare route is declared before
  * the named-setting routes so the word cannot be read as a name, and the save
@@ -79,6 +81,11 @@ export function SavedSettingsPanel({
   }
 
   const settings: readonly SavedSettingView[] = saved.settings;
+  const trimmed = name.trim();
+  const atCapForNewName =
+    settings.length >= saved.max_settings &&
+    trimmed !== "" &&
+    !settings.some((setting) => setting.name === trimmed);
 
   return (
     <section data-slot="exercise-saved-settings" className="flex flex-col gap-4">
@@ -125,11 +132,17 @@ export function SavedSettingsPanel({
             className="w-72 rounded-lg border-2 border-slate-400 px-3 py-2 text-2xl focus-visible:outline-2 focus-visible:outline-offset-2 dark:border-slate-500 dark:bg-slate-900 dark:text-slate-50"
           />
         </div>
-        <button type="submit" disabled={pending || name.trim() === ""} className={BUTTON}>
+        <button
+          type="submit"
+          disabled={pending || trimmed === "" || atCapForNewName}
+          className={BUTTON}
+        >
           Save these weights
         </button>
         <span className="text-lg text-slate-600 dark:text-slate-300">
-          Saves the {Object.keys(weights).length} numbers now on screen.
+          {atCapForNewName
+            ? `Your team has ${saved.max_settings} already. Type one of their names to save over it, or delete one first.`
+            : `Saves the ${Object.keys(weights).length} numbers now on screen.`}
         </span>
       </form>
 

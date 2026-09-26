@@ -58,66 +58,70 @@ export function RankedList({
     );
   }
 
+  // The table scrolls inside its own box. Six columns do not fit a phone, and
+  // a table wider than the page pushed "Why" off-screen with no way to reach it.
   return (
-    <table className="w-full border-collapse text-left text-xl" data-slot="exercise-ranked-list">
-      <caption className="pb-2 text-left text-xl text-slate-600 dark:text-slate-300">
-        {caption}
-      </caption>
-      <thead>
-        <tr className="border-b-2 border-slate-400 text-lg tracking-wide uppercase">
-          <th scope="col" className="py-2 pr-4">
-            Rank
-          </th>
-          <th scope="col" className="py-2 pr-4">
-            Name
-          </th>
-          <th scope="col" className="py-2 pr-4">
-            Major
-          </th>
-          <th scope="col" className="py-2 pr-4">
-            Year
-          </th>
-          <th scope="col" className="py-2 pr-4">
-            How much we know
-          </th>
-          <th scope="col" className="py-2">
-            Why
-          </th>
-        </tr>
-      </thead>
-      <tbody>
-        {entries.map((entry) => {
-          const onBoth = highlighted.has(entry.profile_no);
-          return (
-            <tr
-              key={entry.profile_no}
-              data-on-both={onBoth ? "true" : undefined}
-              className={`border-b border-slate-200 dark:border-slate-700 ${
-                onBoth ? "bg-amber-100 dark:bg-amber-950" : ""
-              }`}
-            >
-              <td className="py-2 pr-4 font-bold">{entry.rank}</td>
-              <td className="py-2 pr-4">
-                {entry.display_name}
-                {onBoth ? (
-                  <span className="ml-2 rounded bg-amber-300 px-2 py-0.5 text-base font-semibold text-amber-950">
-                    on both lists
-                  </span>
-                ) : null}
-              </td>
-              <td className="py-2 pr-4">{entry.major}</td>
-              <td className="py-2 pr-4">{entry.class_year}</td>
-              <td className="py-2 pr-4">{markerLabel(entry.marker)}</td>
-              <td className="py-2">
-                {/* The server's sentence, verbatim (OQ-CE-12). */}
-                {entry.reason}
-                <FactorNames keys={entry.contributing_factor_keys} labels={factorLabels} />
-              </td>
-            </tr>
-          );
-        })}
-      </tbody>
-    </table>
+    <div className="overflow-x-auto">
+      <table className="w-full border-collapse text-left text-xl" data-slot="exercise-ranked-list">
+        <caption className="pb-2 text-left text-xl text-slate-600 dark:text-slate-300">
+          {caption}
+        </caption>
+        <thead>
+          <tr className="border-b-2 border-slate-400 text-lg tracking-wide uppercase">
+            <th scope="col" className="py-2 pr-4">
+              Rank
+            </th>
+            <th scope="col" className="py-2 pr-4">
+              Name
+            </th>
+            <th scope="col" className="py-2 pr-4">
+              Major
+            </th>
+            <th scope="col" className="py-2 pr-4">
+              Year
+            </th>
+            <th scope="col" className="py-2 pr-4">
+              How much we know
+            </th>
+            <th scope="col" className="py-2">
+              Why
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {entries.map((entry) => {
+            const onBoth = highlighted.has(entry.profile_no);
+            return (
+              <tr
+                key={entry.profile_no}
+                data-on-both={onBoth ? "true" : undefined}
+                className={`border-b border-slate-200 dark:border-slate-700 ${
+                  onBoth ? "bg-amber-100 dark:bg-amber-950" : ""
+                }`}
+              >
+                <td className="py-2 pr-4 font-bold">{entry.rank}</td>
+                <td className="py-2 pr-4">
+                  {entry.display_name}
+                  {onBoth ? (
+                    <span className="ml-2 rounded bg-amber-300 px-2 py-0.5 text-base font-semibold text-amber-950">
+                      on both lists
+                    </span>
+                  ) : null}
+                </td>
+                <td className="py-2 pr-4">{entry.major}</td>
+                <td className="py-2 pr-4">{entry.class_year}</td>
+                <td className="py-2 pr-4">{markerLabel(entry.marker)}</td>
+                <td className="py-2">
+                  {/* The server's sentence, verbatim (OQ-CE-12). */}
+                  {entry.reason}
+                  <FactorNames keys={entry.contributing_factor_keys} labels={factorLabels} />
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
   );
 }
 

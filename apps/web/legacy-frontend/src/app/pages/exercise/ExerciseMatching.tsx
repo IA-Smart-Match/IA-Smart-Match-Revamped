@@ -286,15 +286,21 @@ function ComparisonView({
               overlap.length === 1 ? "name is" : "names are"
             } on both lists, highlighted in each.`}
       </p>
-      <div className="grid gap-8 lg:grid-cols-2">
+      {/*
+        Two six-column tables only fit side by side on the widest screens; below
+        that they stack. `min-w-0` lets a grid child shrink below its table's
+        width so the table scrolls in its own box rather than widening the page.
+      */}
+      <div data-slot="exercise-compare-grid" className="grid gap-8 2xl:grid-cols-2">
         {[comparison.a, comparison.b].map((list, index) => (
-          <RankedList
-            key={index === 0 ? "a" : "b"}
-            entries={list.entries}
-            factorLabels={list.factor_labels}
-            highlightProfileNos={overlap}
-            caption={list.setting_name ?? "This list"}
-          />
+          <div key={index === 0 ? "a" : "b"} className="min-w-0">
+            <RankedList
+              entries={list.entries}
+              factorLabels={list.factor_labels}
+              highlightProfileNos={overlap}
+              caption={list.setting_name ?? "This list"}
+            />
+          </div>
         ))}
       </div>
     </section>

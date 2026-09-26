@@ -411,4 +411,85 @@ describe("<ExerciseMatching />", () => {
       ).toBeDefined(),
     );
   });
+
+  it("lets each table scroll on its own instead of widening the page (B3)", async () => {
+    stub();
+    renderMatching();
+    const list = await waitFor(() => {
+      const found = document.querySelector('[data-slot="exercise-ranked-list"]');
+      expect(found).not.toBeNull();
+      return found as HTMLElement;
+    });
+    expect(list.parentElement?.className).toContain("overflow-x-auto");
+    const tables = [...document.querySelectorAll("table")];
+    expect(tables.length).toBeGreaterThan(1);
+    for (const table of tables) {
+      expect(table.parentElement?.className).toContain("overflow-x-auto");
+    }
+  });
+
+  it("puts two lists side by side only on the widest screens (B3)", async () => {
+    const saved = {
+      event_key: "northline",
+      settings: [
+        { name: "Wide net", weights: LIST.weights, created_at: "2026-09-25T10:00:00Z" },
+        { name: "Majors first", weights: LIST.weights, created_at: "2026-09-25T10:01:00Z" },
+      ],
+      max_settings: 3,
+    };
+    stub({
+      "/v1/exercise/workspaces/current/events/northline/settings": { body: saved },
+      "/v1/exercise/workspaces/current/events/northline/settings/compare": {
+        body: { a: LIST, b: LIST, on_both_profile_nos: [7] },
+      },
+    });
+    renderMatching();
+    fireEvent.change(await screen.findByLabelText(/^compare$/i), {
+      target: { value: "Wide net" },
+    });
+    fireEvent.change(screen.getByLabelText(/^with$/i), { target: { value: "Majors first" } });
+    fireEvent.click(screen.getByRole("button", { name: /show them side by side/i }));
+
+    const grid = await waitFor(() => {
+      const found = document.querySelector('[data-slot="exercise-compare-grid"]');
+      expect(found).not.toBeNull();
+      return found as HTMLElement;
+    });
+    expect(grid.className).toContain("2xl:grid-cols-2");
+    expect(grid.className).not.toContain("lg:grid-cols-2");
+    const children = [...grid.children];
+    expect(children.length).toBe(2);
+    for (const child of children) {
+      expect(child.className).toContain("min-w-0");
+    }
+  });
+
+  it("disables saving a fourth new name at the cap, and says why", async () => {
+    const saved = {
+      event_key: "northline",
+      settings: ["One", "Two", "Three"].map((name) => ({
+        name,
+        weights: LIST.weights,
+        created_at: "2026-09-25T10:00:00Z",
+      })),
+      max_settings: 3,
+    };
+    stub({ "/v1/exercise/workspaces/current/events/northline/settings": { body: saved } });
+    renderMatching();
+    const box = await screen.findByLabelText(/call these weights/i);
+    const save = screen.getByRole("button", { name: /save these weights/i }) as HTMLButtonElement;
+
+    fireEvent.change(box, { target: { value: "Four" } });
+    expect(save.disabled).toBe(true);
+    expect(
+      screen.getByText(
+        "Your team has 3 already. Type one of their names to save over it, or delete one first.",
+      ),
+    ).toBeDefined();
+
+    // Saving over a name the team has is always allowed and changes no count.
+    fireEvent.change(box, { target: { value: " Two " } });
+    expect(save.disabled).toBe(false);
+    expect(screen.queryByText(/type one of their names/i)).toBeNull();
+  });
 });
