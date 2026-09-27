@@ -177,12 +177,15 @@ describe("<ExerciseEntry /> layout", () => {
   });
 });
 
-/** Answer every `(max-width: …)` query as a phone would, or not. */
+/** The exact complement of Tailwind's `md` (48rem); any other query is not a phone. */
+const BELOW_MD = "(width < 48rem)";
+
+/** Answer the below-md query as a phone would, or not. */
 function stubPhoneWidth(phone: boolean): void {
   vi.stubGlobal(
     "matchMedia",
     vi.fn((query: string) => ({
-      matches: phone && query.includes("max-width"),
+      matches: phone && query === BELOW_MD,
       media: query,
       onchange: null,
       addEventListener: vi.fn(),
@@ -217,6 +220,25 @@ describe("<ExerciseEntry /> chosen tile and the phone's sticky bar", () => {
     expect(scrolled).toHaveBeenCalledWith({ block: "nearest" });
     expect(scrolled.mock.contexts.at(-1)).toBe(tile(5));
     expect(tile(5).className).toMatch(/max-md:scroll-mb-\[/);
+  });
+
+  it("scrolls a tile clear of the bar when Tab lands on it below md", async () => {
+    // Round 2 review: Tab onto an already-chosen tile fires no change, so
+    // the bar still covered it.
+    stubPhoneWidth(true);
+    stubFetch({
+      "/v1/exercise": { body: SCOPE },
+      "/v1/exercise/workspaces/current": {
+        body: { team_number: 5, dataset_label: "Autumn draft", invite_limit: 30 },
+      },
+    });
+    renderEntry();
+    const radio = await screen.findByRole("radio", { name: "Team 5" });
+    expect(scrolled).not.toHaveBeenCalled();
+
+    fireEvent.focus(radio);
+    expect(scrolled).toHaveBeenCalledWith({ block: "nearest" });
+    expect(scrolled.mock.contexts.at(-1)).toBe(tile(5));
   });
 
   it("leaves the page where it is at md and wider", async () => {
