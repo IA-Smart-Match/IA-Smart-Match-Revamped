@@ -1069,8 +1069,48 @@ def test_a_weight_the_rulebook_refuses_is_refused_with_a_sentence(client: TestCl
     assert response.json()["error"]["code"] == "exercise_weights_invalid"
 
 
-def test_a_negative_weight_never_reaches_the_handler(client: TestClient) -> None:
-    assert client.get(_LIST, params={"same_major": -1}).status_code == 422
+#: What a team reads for a negative weight. DESIGN.md §11.1 specifies no copy
+#: for this refusal, so it is a short sentence that names no column.
+_NEGATIVE_WEIGHT_SENTENCE = "A weight cannot be below 0."
+
+
+@pytest.mark.parametrize("route", ["list", "list.csv"])
+@pytest.mark.parametrize("key", sorted(EXERCISE_APPROVED_SCORING_KEYS))
+def test_a_negative_weight_on_a_query_is_refused_in_its_own_sentence(
+    client: TestClient, route: str, key: str
+) -> None:
+    """Refuse, never repair — and in the exercise's own code, not a generic one.
+
+    A ``ge=0`` bound on the query parameter used to answer this with FastAPI's
+    ``invalid_request`` before the rulebook ran, so the screen showed a generic
+    page notice and the number box never reverted. The rulebook answers now,
+    with ``exercise_weights_invalid``, which is the one code the weights
+    controls handle. The sentence names no factor key: screens never show
+    column names.
+    """
+    response = client.get(f"{_BASE}/events/northline/{route}", params={key: -0.5})
+    assert response.status_code == 422
+    assert response.json() == {
+        "error": {"code": "exercise_weights_invalid", "message": _NEGATIVE_WEIGHT_SENTENCE}
+    }
+    for factor in EXERCISE_APPROVED_SCORING_KEYS:
+        assert factor not in response.text
+
+
+def test_a_negative_weight_in_a_saved_setting_is_refused_in_the_same_sentence(
+    client: TestClient,
+) -> None:
+    """The body door says the same thing as the query door."""
+    response = client.put(
+        f"{_SETTINGS}/broad",
+        json={"weights": {"career_goal_fit": -0.5}},
+        headers=_HEADER,
+    )
+    assert response.status_code == 422
+    assert response.json() == {
+        "error": {"code": "exercise_weights_invalid", "message": _NEGATIVE_WEIGHT_SENTENCE}
+    }
+    assert "career_goal_fit" not in response.text
 
 
 # ---------------------------------------------------------------------------
