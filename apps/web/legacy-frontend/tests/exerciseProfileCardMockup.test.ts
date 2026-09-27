@@ -48,8 +48,10 @@ test("never asks for the hidden true interests (ADR-0025 D6)", () => {
 });
 
 test("is marked as synthetic on the screen itself", () => {
-  assert.match(mockup, /SyntheticDataBanner/);
-  assert.match(mockup, /components\/provenance/);
+  // Inside the shared exercise shell, which renders the quiet "Fictional
+  // data —" ribbon (DESIGN.md §6.2) — no loud banner of its own.
+  assert.match(mockup, /<ExerciseScreen\b/);
+  assert.equal(/<SyntheticDataBanner/.test(mockup), false);
 });
 
 test("has no submit that pretends to save and no success state", () => {
@@ -79,7 +81,8 @@ test("names no speaker and carries no portal shell or session gate", () => {
 });
 
 test("is sized for a projector", () => {
-  assert.match(mockup, /text-(xl|2xl|3xl|4xl)/);
+  // The desk type roles (DESIGN.md §3.4): body is 20px on desktop.
+  assert.match(mockup, /text-(xl|2xl|3xl|4xl)|ce-type-(body|lead|h2|h3)/);
   assert.equal(/text-(xs|sm)\b/.test(mockup), false);
 });
 
