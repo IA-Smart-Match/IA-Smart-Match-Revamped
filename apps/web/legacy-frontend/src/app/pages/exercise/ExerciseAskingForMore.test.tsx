@@ -606,6 +606,82 @@ describe("<ExerciseAskingForMore /> — the invitation desk (§6.18, §6.19, §7
     expect(calls.some((call) => call.init.method === "POST")).toBe(false);
   });
 
+  it("sends exactly one POST with the confirmed choice, however often it is pressed after", async () => {
+    stub({
+      ...OPEN_CHOICES,
+      [`POST ${ASKING}`]: { body: { choice: "small_reward", choices: [], refreshed: false } },
+    });
+    renderAsking();
+    const button = await chooseButton(/a small reward/);
+    await pressTwice(button);
+    fireEvent.click(button);
+    fireEvent.click(button);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const posts = calls.filter((call) => call.init.method === "POST");
+    expect(posts.length).toBe(1);
+    expect(JSON.parse(String(posts[0].init.body))).toEqual({ choice: "small_reward" });
+  });
+
+  it("sends the card the confirm was moved to, not the first one armed", async () => {
+    stub({
+      ...OPEN_CHOICES,
+      [`POST ${ASKING}`]: { body: { choice: "required", choices: [], refreshed: false } },
+    });
+    renderAsking();
+    const reward = await chooseButton(/a small reward/);
+    const required = await chooseButton(/required\./);
+    fireEvent.click(reward);
+    await new Promise((resolve) => setTimeout(resolve, CONFIRM_GUARD_MS + 20));
+    await pressTwice(required);
+    await waitFor(() =>
+      expect(calls.filter((call) => call.init.method === "POST").length).toBe(1),
+    );
+    const post = calls.find((call) => call.init.method === "POST");
+    expect(JSON.parse(String(post?.init.body))).toEqual({ choice: "required" });
+  });
+
+  it("sends nothing when the shut \"Ask them now\" is clicked", async () => {
+    // Shut for want of a choice…
+    stub(OPEN_CHOICES);
+    const first = renderAsking();
+    fireEvent.click(await screen.findByRole("button", { name: /ask them now/i }));
+    first.unmount();
+    // …and for want of a first-round run.
+    stub({
+      ...ROUND_ONE_NOT_RUN,
+      [`GET ${ASKING}`]: { body: { choice: "required", choices: ["required"], refreshed: false } },
+    });
+    renderAsking();
+    await screen.findByText(/before asking\./i);
+    fireEvent.click(screen.getByRole("button", { name: /ask them now/i }));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(calls.some((call) => call.init.method === "POST")).toBe(false);
+  });
+
+  it("lets a card be armed again after the choice is refused", async () => {
+    stub({
+      ...OPEN_CHOICES,
+      [`POST ${ASKING}`]: {
+        body: {
+          error: {
+            code: "exercise_asking_already_chosen",
+            message: "Your team has already picked how it will ask.",
+          },
+        },
+        status: 409,
+      },
+    });
+    renderAsking();
+    await pressTwice(await chooseButton(/a small reward/));
+    await screen.findByText("Your team has already picked how it will ask.");
+    const again = await chooseButton(/a small reward/);
+    expect(again.textContent).toContain("Choose this way");
+    expect(isShut(again)).toBe(false);
+    fireEvent.click(again);
+    expect(again.textContent).toContain("Confirm: A small reward?");
+    expect(calls.filter((call) => call.init.method === "POST").length).toBe(1);
+  });
+
   it("ignores a held Enter or Space: key repeat never confirms a once-only choice", async () => {
     stub(OPEN_CHOICES);
     renderAsking();
