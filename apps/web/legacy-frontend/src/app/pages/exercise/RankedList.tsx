@@ -144,7 +144,9 @@ export function RankedList({
               )}
               style={state.style}
             >
-              <span className="ce-type-rank w-10 shrink-0 text-ce-primary">{entry.rank}</span>
+              <span data-slot="exercise-rank" className="ce-type-rank min-w-12 shrink-0 text-ce-primary">
+                {entry.rank}
+              </span>
               <div className="flex min-w-0 flex-1 flex-col gap-ce-1">
                 <div className="flex flex-wrap items-center gap-ce-2">
                   <span className="ce-type-body font-semibold text-ce-ink">{entry.display_name}</span>
