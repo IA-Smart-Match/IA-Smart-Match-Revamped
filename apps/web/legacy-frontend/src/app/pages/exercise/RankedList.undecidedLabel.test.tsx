@@ -46,8 +46,11 @@ function entry(undecidedGoalHalf: boolean): ListEntryView {
 }
 
 function factorLine(): string {
-  const cell = document.querySelector('[data-slot="exercise-ranked-list"] tbody td:last-child');
-  return cell?.querySelector("span")?.textContent ?? "";
+  // The factor line sits under the name now (DESIGN.md §6.7: no "Why" column).
+  const line = document.querySelector(
+    '[data-slot="exercise-ranked-list"] [data-slot="exercise-factor-names"]',
+  );
+  return line?.textContent ?? "";
 }
 
 afterEach(cleanup);
@@ -67,6 +70,12 @@ describe("the Undecided half's label", () => {
   it("gets no weight box", () => {
     render(<WeightsControls factorLabels={LABELS} weights={WEIGHTS} onChange={vi.fn()} />);
     expect(screen.queryByLabelText(SERVER_WORDS)).toBeNull();
-    expect(document.querySelectorAll('[data-slot="exercise-weights"] input')).toHaveLength(4);
+    // One number box and one slider per weight (DESIGN.md §6.6), four of each.
+    expect(
+      document.querySelectorAll('[data-slot="exercise-weights"] input[type="text"]'),
+    ).toHaveLength(4);
+    expect(
+      document.querySelectorAll('[data-slot="exercise-weights"] input[type="range"]'),
+    ).toHaveLength(4);
   });
 });

@@ -455,9 +455,11 @@ describe("<ExerciseMatching />", () => {
       expect(found).not.toBeNull();
       return found as HTMLElement;
     });
-    // The page is capped at max-w-5xl, so two six-column tables never fit
-    // side by side at any viewport width: they always stack.
-    expect(grid.className).not.toMatch(/grid-cols-2/);
+    // DESIGN.md §6.12: the compare view's lists are compact (rank, name and
+    // reason), so they sit side by side from the 1024 layout up and stack
+    // below it. Never two columns unprefixed, which would squeeze a phone.
+    expect(grid.className).toMatch(/(^| )lg:grid-cols-2( |$)/);
+    expect(grid.className).not.toMatch(/(^| )grid-cols-2( |$)/);
     const children = [...grid.children];
     expect(children.length).toBe(2);
     for (const child of children) {

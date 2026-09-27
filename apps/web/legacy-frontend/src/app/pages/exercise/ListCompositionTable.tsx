@@ -29,38 +29,67 @@ import type { GroupCountsView, ListCompositionView } from "../../../lib/exercise
 // `listCoverageNotice.ts` differ only in casing, which an extensionless
 // specifier cannot tell apart on a case-insensitive filesystem (TS1149).
 import { ListCoverageNotice } from "./ListCoverageNotice.tsx";
+import { useIsNarrow } from "./exerciseUi";
 import { dimensionLabel, markerLabel } from "./markers";
 
 export interface ListCompositionTableProps {
   readonly composition: ListCompositionView;
   readonly unrankableProfileCount: number;
   readonly unlistedClassYears: readonly string[];
+  /**
+   * The matching screen shows the coverage notice at the top of the list
+   * card, where the Stitch mock-up puts it, so it asks this section not to
+   * repeat it. Standalone use keeps it here.
+   */
+  readonly showCoverageNotice?: boolean;
 }
 
 export function ListCompositionTable({
   composition,
   unrankableProfileCount,
   unlistedClassYears,
+  showCoverageNotice = true,
 }: ListCompositionTableProps): React.JSX.Element {
+  const narrow = useIsNarrow();
+  const groups = [
+    { counts: composition.by_major, label: undefined },
+    { counts: composition.by_class_year, label: undefined },
+    { counts: composition.by_marker, label: markerLabel },
+  ];
   return (
     <section data-slot="exercise-list-composition" className="flex flex-col gap-4">
-      <h2 className="text-3xl font-semibold text-slate-900 dark:text-slate-50">
-        Who is on the list
-      </h2>
+      <h2 className="ce-h2 text-ce-ink">Who is on the list</h2>
 
       {/* PR #161's one-line notice, wired to the coverage the list route reports. */}
-      <ListCoverageNotice
-        missingMajors={composition.coverage.missing_majors}
-        missingClassYears={composition.coverage.missing_class_years}
-      />
+      {showCoverageNotice ? (
+        <ListCoverageNotice
+          missingMajors={composition.coverage.missing_majors}
+          missingClassYears={composition.coverage.missing_class_years}
+        />
+      ) : null}
 
-      <div className="flex flex-col gap-6">
-        <GroupTable counts={composition.by_major} />
-        <GroupTable counts={composition.by_class_year} />
-        <GroupTable counts={composition.by_marker} label={markerLabel} />
+      {/*
+        Three small tables in a row on desktop (DESIGN.md §6.9), each its own
+        card. On a phone each folds behind a disclosure named for its table.
+      */}
+      <div className="grid items-start gap-4 lg:grid-cols-3 lg:gap-6">
+        {groups.map(({ counts, label }) =>
+          narrow ? (
+            <details key={counts.dimension} className="ce-card p-4">
+              <summary className="ce-h3 cursor-pointer text-ce-ink">
+                By {dimensionLabel(counts.dimension)}
+              </summary>
+              <GroupTable counts={counts} label={label} captionHidden />
+            </details>
+          ) : (
+            <div key={counts.dimension} className="ce-card min-w-0 p-5 md:p-6">
+              <GroupTable counts={counts} label={label} />
+            </div>
+          ),
+        )}
       </div>
 
-      <p className="text-xl text-slate-700 dark:text-slate-200" data-slot="exercise-unrankable">
+      <p className="ce-body text-ce-ink" data-slot="exercise-unrankable">
         {unrankableProfileCount === 0
           ? "Everyone in this data file could be ranked for this event."
           : `${unrankableProfileCount} ${
@@ -68,7 +97,7 @@ export function ListCompositionTable({
             } in this data file could not be ranked for this event, so nobody among them can be on the list.`}
       </p>
 
-      <p className="text-xl text-slate-700 dark:text-slate-200" data-slot="exercise-unlisted-years">
+      <p className="ce-body text-ce-ink" data-slot="exercise-unlisted-years">
         {unlistedClassYears.length === 0
           ? "Every year in this data file has somebody on the list."
           : `Years with nobody on the list: ${unlistedClassYears.join(", ")}.`}
@@ -85,45 +114,51 @@ export function ListCompositionTable({
  * vanishing. A group with nobody in the file at all cannot occur — the server
  * builds `all_profiles` from the file — but the union is taken anyway rather
  * than assuming it.
+ *
+ * Plain tabular numerals, right-aligned; no paired bars, which would read as a
+ * share (§6.9). A 0 on the list is in ink like any other count, not muted.
  */
 function GroupTable({
   counts,
   label = (value: string) => value,
+  captionHidden = false,
 }: {
   readonly counts: GroupCountsView;
   readonly label?: (value: string) => string;
+  readonly captionHidden?: boolean;
 }): React.JSX.Element {
   const groups = [
     ...new Set([...Object.keys(counts.all_profiles), ...Object.keys(counts.on_list)]),
   ].sort((a, b) => a.localeCompare(b));
+  const name = dimensionLabel(counts.dimension);
 
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full border-collapse text-left text-xl">
-        <caption className="pb-2 text-left text-2xl font-semibold text-slate-900 dark:text-slate-50">
-          By {dimensionLabel(counts.dimension)}
+    <div className="ce-scroll overflow-x-auto">
+      <table className="w-full border-collapse text-left">
+        <caption className={captionHidden ? "sr-only" : "ce-h3 pb-3 text-left text-ce-ink"}>
+          By {name}
         </caption>
         <thead>
-          <tr className="border-b-2 border-slate-400 text-lg tracking-wide uppercase">
-            <th scope="col" className="py-2 pr-4">
-              {dimensionLabel(counts.dimension)}
+          <tr className="ce-label bg-ce-sunk text-ce-ink">
+            <th scope="col" className="rounded-l-[10px] px-3 py-2">
+              {name.charAt(0).toUpperCase() + name.slice(1)}
             </th>
-            <th scope="col" className="py-2 pr-4">
+            <th scope="col" className="px-3 py-2 text-right">
               On this list
             </th>
-            <th scope="col" className="py-2">
+            <th scope="col" className="rounded-r-[10px] px-3 py-2 text-right">
               In the whole data file
             </th>
           </tr>
         </thead>
-        <tbody>
+        <tbody className="ce-body ce-num">
           {groups.map((group) => (
-            <tr key={group} className="border-b border-slate-200 dark:border-slate-700">
-              <th scope="row" className="py-2 pr-4 font-normal">
+            <tr key={group} className="border-b border-ce-line">
+              <th scope="row" className="px-3 py-2 font-normal text-ce-ink">
                 {label(group)}
               </th>
-              <td className="py-2 pr-4">{counts.on_list[group] ?? 0}</td>
-              <td className="py-2">{counts.all_profiles[group] ?? 0}</td>
+              <td className="px-3 py-2 text-right text-ce-ink">{counts.on_list[group] ?? 0}</td>
+              <td className="px-3 py-2 text-right text-ce-ink">{counts.all_profiles[group] ?? 0}</td>
             </tr>
           ))}
         </tbody>

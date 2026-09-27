@@ -35,8 +35,11 @@ function entry(undecidedGoalHalf: boolean): ListEntryView {
 }
 
 function factorLine(): string {
-  const cell = document.querySelector('[data-slot="exercise-ranked-list"] tbody td:last-child');
-  return cell?.querySelector("span")?.textContent ?? "";
+  // The factor line sits under the name now (DESIGN.md §6.7: no "Why" column).
+  const line = document.querySelector(
+    '[data-slot="exercise-ranked-list"] [data-slot="exercise-factor-names"]',
+  );
+  return line?.textContent ?? "";
 }
 
 afterEach(cleanup);

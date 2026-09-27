@@ -17,7 +17,7 @@
  * exercise has no login at all (ADR-0025 D1).
  */
 import * as React from "react";
-import { UsersRound } from "lucide-react";
+import { Users } from "lucide-react";
 
 import { cn } from "../../components/ui/utils";
 import { coverageNoticeLine, type ListCoverageGaps } from "./listCoverageNotice";
@@ -40,11 +40,11 @@ export function ListCoverageNotice({
       role="status"
       data-slot="exercise-list-coverage-notice"
       className={cn(
-        "flex items-start gap-3 rounded-lg border-2 border-slate-300 bg-slate-50 px-5 py-4 text-xl leading-snug font-medium text-slate-900 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-50",
+        "ce-body ce-notice-in flex items-start gap-3 rounded-[14px] bg-ce-gold-tint px-4 py-3 font-medium text-ce-ink md:px-5 md:text-xl",
         className,
       )}
     >
-      <UsersRound aria-hidden="true" className="mt-1 size-6 shrink-0" />
+      <Users aria-hidden="true" className="mt-1 size-5 shrink-0 text-ce-gold-ink" />
       <span>{line}</span>
     </p>
   );

@@ -23,6 +23,7 @@ import * as React from "react";
 
 import type { ExerciseRefusal } from "../../../lib/exerciseApi";
 import { EXERCISE_FACTOR_KEYS, UNDECIDED_GOAL_HALF_LABEL_KEY } from "../../../lib/exerciseClient";
+import { Spinner } from "./exerciseUi";
 
 export interface WeightsControlsProps {
   /** Ann's words per factor key, from the list response. */
@@ -40,6 +41,27 @@ export interface WeightsControlsProps {
    * refusal produces no change at all to notice.
    */
   readonly refusal?: ExerciseRefusal | null;
+  /**
+   * A committed weighting's list is being rebuilt. The sliders stay live and
+   * edits queue (DESIGN.md §6.6 "L"); this only shows the small spinner.
+   */
+  readonly rebuilding?: boolean;
+}
+
+/** The slider's range and step (owner ruling 2026-09-26, DESIGN.md §6.6). */
+const SLIDER_MIN = 0;
+const SLIDER_MAX = 1;
+const SLIDER_STEP = 0.05;
+/** Page Up / Page Down move a quarter (§8.4). */
+const SLIDER_PAGE = 0.25;
+
+/** A slider position as the text the box shows: two places at most, no float noise. */
+function sliderText(value: number): string {
+  return String(Math.round(value * 100) / 100);
+}
+
+function clampToSlider(value: number): number {
+  return Math.min(SLIDER_MAX, Math.max(SLIDER_MIN, value));
 }
 
 /**
@@ -51,7 +73,7 @@ export interface WeightsControlsProps {
  * {@link UNDECIDED_GOAL_HALF_LABEL_KEY} is a label for the ranked list, not a
  * weight, so it never gets a box.
  */
-function orderedKeys(factorLabels: Readonly<Record<string, string>>): string[] {
+export function orderedKeys(factorLabels: Readonly<Record<string, string>>): string[] {
   const known = EXERCISE_FACTOR_KEYS.filter((key) => key in factorLabels);
   const extra = Object.keys(factorLabels).filter(
     (key) =>
@@ -102,6 +124,7 @@ export function WeightsControls({
   onChange,
   disabled = false,
   refusal = null,
+  rebuilding = false,
 }: WeightsControlsProps): React.JSX.Element {
   const keys = orderedKeys(factorLabels);
 
@@ -253,8 +276,10 @@ export function WeightsControls({
    * rather than `Number.parseFloat` reading a prefix and sending a value the
    * team never typed.
    */
-  function commit(key: string): void {
-    const text = draft[key] ?? "";
+  function commit(key: string, typed?: string): void {
+    // A slider hands its value in directly: its `setDraft` for the same
+    // gesture has not rendered yet, so `draft` would still hold the old text.
+    const text = typed ?? draft[key] ?? "";
     const value = strictDecimal(text);
     if (value === null) {
       setErrors((previous) => ({
@@ -291,77 +316,204 @@ export function WeightsControls({
   }
 
   return (
-    <fieldset className="border-0 p-0" data-slot="exercise-weights">
-      <legend className="text-3xl font-semibold text-slate-900 dark:text-slate-50">
-        How much each thing counts
-      </legend>
-      <div className="mt-4 grid gap-4 sm:grid-cols-2">
-        {keys.map((key) => {
-          const inputId = `exercise-weight-${key}`;
-          return (
-            <div key={key} className="flex flex-col gap-1">
-              <label htmlFor={inputId} className="text-xl text-slate-800 dark:text-slate-100">
-                {/* Ann's words. The key is the input's name, never its label. */}
-                {factorLabels[key]}
-              </label>
-              <input
-                id={inputId}
-                name={key}
-                // `text`, not `number`. A number input *sanitizes its own
-                // value*: while `0.` is being typed, `input.value` reads as
-                // the empty string, in jsdom and in every browser, because
-                // `0.` is not yet a valid floating-point number. A controlled
-                // input therefore cannot hold a half-typed decimal at all —
-                // which is the exact character this whole change exists to let
-                // a team type. `inputMode="decimal"` still brings up the right
-                // keyboard, and the value is parsed on commit.
-                type="text"
-                inputMode="decimal"
-                value={draft[key] ?? ""}
-                disabled={disabled}
-                onChange={(event) => {
-                  const typed = event.target.value;
-                  setDraft((previous) => ({ ...previous, [key]: typed }));
-                  // The team is already fixing whatever was rejected.
-                  setErrors((previous) =>
-                    previous[key] === null || previous[key] === undefined
-                      ? previous
-                      : { ...previous, [key]: null },
-                  );
-                }}
-                aria-invalid={errors[key] != null}
-                aria-describedby={errors[key] == null ? undefined : `${inputId}-error`}
-                onFocus={() => {
-                  focused.current = key;
-                }}
-                onBlur={() => {
-                  focused.current = null;
-                  commit(key);
-                }}
-                onKeyDown={(event) => {
-                  // Enter in a single-input form would submit it; here it means
-                  // "I am done with this box", which is the same as blurring.
-                  if (event.key === "Enter") {
-                    event.preventDefault();
-                    commit(key);
-                  }
-                }}
-                className="w-40 rounded-lg border-2 border-slate-400 px-3 py-2 text-2xl focus-visible:outline-2 focus-visible:outline-offset-2 dark:border-slate-500 dark:bg-slate-900 dark:text-slate-50"
-              />
-              {errors[key] == null ? null : (
-                <p
-                  id={`${inputId}-error`}
-                  role="alert"
-                  data-slot="exercise-weight-error"
-                  className="text-lg text-red-800 dark:text-red-300"
-                >
-                  {errors[key]}
-                </p>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </fieldset>
+    <section data-slot="exercise-weights" className="ce-card p-5 md:p-6">
+      <fieldset className="border-0 p-0">
+        <legend className="ce-h3 flex items-center gap-3 text-ce-ink">
+          How much each thing counts
+          {rebuilding ? <Spinner className="text-ce-primary" /> : null}
+        </legend>
+        <div className="mt-5 flex flex-col gap-5">
+          {keys.map((key) => {
+            const inputId = `exercise-weight-${key}`;
+            const typed = strictDecimal(draft[key] ?? "");
+            const position = clampToSlider(typed ?? weights[key] ?? 0);
+            return (
+              <div key={key} className="flex flex-col gap-1">
+                <div className="flex items-center justify-between gap-3">
+                  <label htmlFor={inputId} className="ce-label text-ce-ink">
+                    {/* Ann's words. The key is the input's name, never its label. */}
+                    {factorLabels[key]}
+                  </label>
+                  <input
+                    id={inputId}
+                    name={key}
+                    // `text`, not `number`. A number input *sanitizes its own
+                    // value*: while `0.` is being typed, `input.value` reads as
+                    // the empty string, in jsdom and in every browser, because
+                    // `0.` is not yet a valid floating-point number. A
+                    // controlled input therefore cannot hold a half-typed
+                    // decimal at all — which is the exact character this whole
+                    // change exists to let a team type. `inputMode="decimal"`
+                    // still brings up the right keyboard, and the value is
+                    // parsed on commit.
+                    type="text"
+                    inputMode="decimal"
+                    value={draft[key] ?? ""}
+                    disabled={disabled}
+                    onChange={(event) => {
+                      const next = event.target.value;
+                      setDraft((previous) => ({ ...previous, [key]: next }));
+                      // The team is already fixing whatever was rejected.
+                      setErrors((previous) =>
+                        previous[key] === null || previous[key] === undefined
+                          ? previous
+                          : { ...previous, [key]: null },
+                      );
+                    }}
+                    aria-invalid={errors[key] != null}
+                    aria-describedby={errors[key] == null ? undefined : `${inputId}-error`}
+                    onFocus={() => {
+                      focused.current = key;
+                    }}
+                    onBlur={() => {
+                      focused.current = null;
+                      commit(key);
+                    }}
+                    onKeyDown={(event) => {
+                      // Enter in a single-input form would submit it; here it
+                      // means "I am done with this box", the same as blurring.
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        commit(key);
+                      }
+                    }}
+                    className="ce-input ce-value w-[88px] shrink-0 px-3 text-right disabled:opacity-45"
+                  />
+                </div>
+                <WeightSlider
+                  label={factorLabels[key] ?? key}
+                  value={position}
+                  disabled={disabled}
+                  onFocus={() => {
+                    focused.current = key;
+                  }}
+                  onBlur={() => {
+                    focused.current = null;
+                  }}
+                  onDrag={(value) => {
+                    const next = sliderText(value);
+                    setDraft((previous) => ({ ...previous, [key]: next }));
+                    setErrors((previous) =>
+                      previous[key] == null ? previous : { ...previous, [key]: null },
+                    );
+                  }}
+                  onCommit={(value) => commit(key, sliderText(value))}
+                />
+                {errors[key] == null ? null : (
+                  <p
+                    id={`${inputId}-error`}
+                    role="alert"
+                    data-slot="exercise-weight-error"
+                    className="ce-meta text-ce-danger"
+                  >
+                    {errors[key]}
+                  </p>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </fieldset>
+      <p className="ce-meta mt-5 border-t border-ce-line pt-4 text-ce-muted">
+        The list is rebuilt when you let go of a slider or press Enter.
+      </p>
+    </section>
+  );
+}
+
+/**
+ * One weight's slider: a native range, 0–1 in steps of 0.05.
+ *
+ * **It commits on release, never per drag tick** (owner ruling 2026-09-26).
+ * React's `onChange` on a range fires on every `input` event, so dragging
+ * only moves the draft (the box beside it shows the number live). The commit
+ * listens to the element's own `change` event, which the browser fires once
+ * when the pointer lets go, and once per key press — so arrows, Home and End
+ * each commit a step. Page Up and Page Down move a quarter (§8.4).
+ *
+ * A native range rather than Radix `Slider`: it needs no `ResizeObserver`, it
+ * is keyboard-complete and announced as a slider everywhere, and the thumb is
+ * drawn 28px inside a 44px hit area by `.ce-range` in `exercise.css`.
+ */
+function WeightSlider({
+  label,
+  value,
+  disabled,
+  onDrag,
+  onCommit,
+  onFocus,
+  onBlur,
+}: {
+  readonly label: string;
+  readonly value: number;
+  readonly disabled: boolean;
+  readonly onDrag: (value: number) => void;
+  readonly onCommit: (value: number) => void;
+  readonly onFocus: () => void;
+  readonly onBlur: () => void;
+}): React.JSX.Element {
+  const ref = React.useRef<HTMLInputElement>(null);
+  const [dragging, setDragging] = React.useState(false);
+  const commitRef = React.useRef(onCommit);
+  commitRef.current = onCommit;
+
+  React.useEffect(() => {
+    const element = ref.current;
+    if (element === null) {
+      return undefined;
+    }
+    const onChange = (): void => commitRef.current(Number(element.value));
+    element.addEventListener("change", onChange);
+    return () => element.removeEventListener("change", onChange);
+  }, []);
+
+  const percent = ((value - SLIDER_MIN) / (SLIDER_MAX - SLIDER_MIN)) * 100;
+  const shown = value.toFixed(2);
+
+  return (
+    <div className="relative">
+      {dragging ? (
+        <span
+          aria-hidden="true"
+          className="ce-meta pointer-events-none absolute -top-7 -translate-x-1/2 rounded-md bg-ce-primary px-2 py-0.5 font-bold text-ce-on-primary ce-num"
+          style={{ left: `calc(14px + ${percent / 100} * (100% - 28px))` }}
+        >
+          {shown}
+        </span>
+      ) : null}
+      <input
+        ref={ref}
+        type="range"
+        min={SLIDER_MIN}
+        max={SLIDER_MAX}
+        step={SLIDER_STEP}
+        value={value}
+        disabled={disabled}
+        // Its own name, so the number box keeps the factor's words as its
+        // label and the two controls are never confused with each other.
+        aria-label={`Slider for ${label}`}
+        aria-valuetext={shown}
+        className="ce-range"
+        style={{ "--ce-fill": `${percent}%` } as React.CSSProperties}
+        onChange={(event) => onDrag(Number(event.target.value))}
+        onPointerDown={() => setDragging(true)}
+        onPointerUp={() => setDragging(false)}
+        onPointerCancel={() => setDragging(false)}
+        onFocus={onFocus}
+        onBlur={() => {
+          setDragging(false);
+          onBlur();
+        }}
+        onKeyDown={(event) => {
+          if (event.key !== "PageUp" && event.key !== "PageDown") {
+            return;
+          }
+          event.preventDefault();
+          const next = clampToSlider(value + (event.key === "PageUp" ? SLIDER_PAGE : -SLIDER_PAGE));
+          onDrag(next);
+          onCommit(next);
+        }}
+      />
+    </div>
   );
 }

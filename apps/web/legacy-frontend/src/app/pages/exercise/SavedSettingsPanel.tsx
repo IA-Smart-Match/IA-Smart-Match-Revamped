@@ -29,6 +29,8 @@ export interface SavedSettingsPanelProps {
   readonly saved: SavedSettingsView;
   /** The weights currently on screen, which "save" stores under a name. */
   readonly weights: Readonly<Record<string, number>>;
+  /** Ann's words per factor key, to label each saved card's four weights. */
+  readonly factorLabels?: Readonly<Record<string, string>>;
   /** Saves under a name; resolves `true` only when the server accepted it. */
   readonly onSave: (name: string) => Promise<boolean>;
   /** Deletes one; resolves `true` only when the server accepted it. */
