@@ -9,7 +9,7 @@
  *   the team's, 1400–1800 open seats and figures) and when to announce.
  * - `Seat` — one square, styled by `.ce-seat` in `exercise-motion.css`.
  *
- * Counts come from the server (`team.signed_up_count` for "added"); the plan
+ * Counts come from the server (`team.attended_count` for "added"); the plan
  * never subtracts to find one.
  */
 import * as React from "react";
