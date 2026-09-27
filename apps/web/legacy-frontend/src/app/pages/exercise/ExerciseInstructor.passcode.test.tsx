@@ -52,25 +52,47 @@ afterEach(() => {
 });
 
 describe("the passcode show/hide toggle", () => {
-  it("switches the field between hidden and shown, with aria-pressed", async () => {
+  it("switches the field between hidden and shown: one fixed label, aria-pressed carries the state", async () => {
+    // A label that swaps *and* aria-pressed reads "Hide what is typed,
+    // pressed": two signals that contradict. The label stays put.
     stub();
     renderPage();
     const field = (await screen.findByLabelText("Passcode")) as HTMLInputElement;
     expect(field.type).toBe("password");
 
-    const show = screen.getByRole("button", { name: "Show what is typed" });
-    expect(show.getAttribute("aria-pressed")).toBe("false");
-    fireEvent.click(show);
+    const toggle = screen.getByRole("button", { name: "Show what is typed" });
+    expect(toggle.getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(toggle);
 
-    const hide = screen.getByRole("button", { name: "Hide what is typed" });
-    expect(hide.getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("button", { name: "Show what is typed" })).toBe(toggle);
+    expect(toggle.getAttribute("aria-pressed")).toBe("true");
+    expect(screen.queryByRole("button", { name: /hide/i })).toBeNull();
     expect(field.type).toBe("text");
 
-    fireEvent.click(hide);
+    fireEvent.click(toggle);
     expect(field.type).toBe("password");
-    expect(
-      screen.getByRole("button", { name: "Show what is typed" }).getAttribute("aria-pressed"),
-    ).toBe("false");
+    expect(toggle.getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("keeps the passcode out of storage and the address after a submit", async () => {
+    stub();
+    renderPage();
+    fireEvent.change(await screen.findByLabelText("Passcode"), { target: { value: TYPED } });
+    fireEvent.click(screen.getByRole("button", { name: "Show what is typed" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open the instructor page" }));
+    await screen.findByText("Enter the instructor passcode to open this page.");
+
+    const stored = (storage: Storage): string =>
+      JSON.stringify(
+        Array.from({ length: storage.length }, (_, index) => {
+          const key = storage.key(index) ?? "";
+          return [key, storage.getItem(key)];
+        }),
+      );
+    expect(stored(sessionStorage)).not.toContain(TYPED);
+    expect(stored(localStorage)).not.toContain(TYPED);
+    expect(decodeURIComponent(window.location.href)).not.toContain(TYPED);
+    expect(decodeURIComponent(window.location.href.replace(/\+/g, " "))).not.toContain(TYPED);
   });
 
   it("does not submit the form", async () => {
