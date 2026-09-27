@@ -214,6 +214,31 @@ describe("<ExerciseResults /> lock panel (§6.14)", () => {
     expect(within(lock).queryAllByRole("link")).toHaveLength(0);
   });
 
+  it("announces only the chip and the sentence, not the whole panel", async () => {
+    stub({
+      [`GET ${RESULTS}`]: NOT_RUN,
+      [LIST]: LABELLED_LIST,
+      [ASKING]: NO_CHOICE,
+      [SETTINGS]: SAVED,
+      [`POST ${RESULTS}`]: {
+        body: { error: { code: "exercise_results_locked", message: LOCKED } },
+        status: 409,
+      },
+    });
+    renderResults();
+    fireEvent.click(await screen.findByRole("radio", { name: "Major first" }));
+    fireEvent.click(screen.getByRole("button", { name: /run results/i }));
+    await waitFor(() =>
+      expect(document.querySelector('[data-slot="exercise-results-lock"]')).not.toBeNull(),
+    );
+
+    const lock = document.querySelector('[data-slot="exercise-results-lock"]') as HTMLElement;
+    expect(lock.getAttribute("role")).toBeNull();
+    const status = within(lock).getByRole("status");
+    expect(status.textContent).toBe(`Results are closed${LOCKED}`);
+    expect(status.querySelector("svg:not([aria-hidden='true'])")).toBeNull();
+  });
+
   it("leaves the Run button as the only control that sends the run", async () => {
     stub({
       [`GET ${RESULTS}`]: NOT_RUN,
