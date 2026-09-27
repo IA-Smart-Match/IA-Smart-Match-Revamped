@@ -31,7 +31,7 @@
  * column below in that same order.
  */
 import * as React from "react";
-import { KeyRound } from "lucide-react";
+import { Eye, EyeOff, KeyRound } from "lucide-react";
 
 import { isRefusal } from "../../../lib/exerciseApi";
 import { instructorLogin, instructorLogout, listTeamWorkspaces } from "../../../lib/exerciseClient";
@@ -104,11 +104,15 @@ export function ExerciseInstructor(): React.JSX.Element {
 }
 
 /**
- * The passcode card. The field is a plain password field: the passcode is
- * never shown, stored or logged, and it is cleared once it is accepted.
+ * The passcode card. The passcode lives only in the field's value: it is never
+ * rendered as text, stored or logged, and it is cleared once it is accepted.
+ * The show/hide toggle (DESIGN.md §6.24) switches the field between password
+ * and text so a long passcode can be checked before it is sent; it is a
+ * `type="button"`, so it never submits.
  */
 function PasscodeForm({ onSignedIn }: { readonly onSignedIn: () => void }): React.JSX.Element {
   const [passcode, setPasscode] = React.useState("");
+  const [shown, setShown] = React.useState(false);
   const [pending, setPending] = React.useState(false);
   const [refusal, setRefusal] = React.useState<string | null>(null);
 
@@ -146,15 +150,36 @@ function PasscodeForm({ onSignedIn }: { readonly onSignedIn: () => void }): Reac
         <label htmlFor="exercise-passcode" className="ce-type-label text-ce-ink">
           Passcode
         </label>
-        <input
-          id="exercise-passcode"
-          type="password"
-          autoComplete="current-password"
-          aria-describedby="exercise-passcode-help"
-          value={passcode}
-          onChange={(event) => setPasscode(event.target.value)}
-          className={`${INSTRUCTOR_INPUT} w-full`}
-        />
+        <div className="relative">
+          <input
+            id="exercise-passcode"
+            type={shown ? "text" : "password"}
+            autoComplete="current-password"
+            // A shown passcode is still a secret: no spellcheck or autocorrect
+            // sending it anywhere.
+            spellCheck={false}
+            autoCapitalize="off"
+            autoCorrect="off"
+            aria-describedby="exercise-passcode-help"
+            value={passcode}
+            onChange={(event) => setPasscode(event.target.value)}
+            className={`${INSTRUCTOR_INPUT} w-full pr-14`}
+          />
+          <Button
+            variant="quiet"
+            aria-pressed={shown}
+            // Named without the field's word, so the field keeps its one label.
+            aria-label={shown ? "Hide what is typed" : "Show what is typed"}
+            onClick={() => setShown((value) => !value)}
+            className="absolute top-1/2 right-ce-1 -translate-y-1/2 text-ce-ink-muted hover:text-ce-primary"
+          >
+            {shown ? (
+              <EyeOff aria-hidden="true" className="size-5" />
+            ) : (
+              <Eye aria-hidden="true" className="size-5" />
+            )}
+          </Button>
+        </div>
       </div>
       {refusal === null ? null : <ExerciseNotice message={refusal} />}
       <Button
