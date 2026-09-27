@@ -692,6 +692,9 @@ describe("<ExerciseAskingForMore /> — the invitation desk (§6.18, §6.19, §7
     // which is what stops the browser turning a repeat into a click.
     expect(fireEvent.keyDown(button, { key: "Enter", repeat: true })).toBe(false);
     expect(fireEvent.keyDown(button, { key: " ", repeat: true })).toBe(false);
+    // A fresh Enter or Space is left alone, so keyboard users can still press.
+    expect(fireEvent.keyDown(button, { key: "Enter" })).toBe(true);
+    expect(fireEvent.keyDown(button, { key: " " })).toBe(true);
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(calls.some((call) => call.init.method === "POST")).toBe(false);
     expect(button.textContent).toContain("Confirm: A small reward?");
