@@ -109,24 +109,61 @@ Checks on all 24 kept images:
 
 ## 4. `DESIGN.md` vs archived prompt disagreements
 
-12 found. The first 7 were sent to Stitch as overrides, where `DESIGN.md` wins. The last 5 were noted and not applied, because the `DESIGN.md` side is a schematic wireframe or an example rather than a rule.
+12 found before the build. The first 7 were sent to Stitch as overrides, where `DESIGN.md` wins. The last 5 were noted and not applied, because the `DESIGN.md` side is a schematic wireframe or an example rather than a rule. The **Build** column says what the build (#245, #247–#251) shipped. Drift found after the build is in [section 5](#5-prompt-drift-archived-prompts-vs-final-designmd); this table is not repeated there.
 
-| # | Archived prompt says | `DESIGN.md` says | Applied? |
+| # | Archived prompt says | `DESIGN.md` says | Applied? | Build |
+|---|---|---|---|---|
+| 1 | Figures-band numerals 64 px (`pages/08`, `pages/10`, `components/results-reveal`) | `--ce-type-display` 72/76 (§3.4, §6.15); 40 px on 390 (§7.8) | Yes | As `DESIGN.md`: display 72/76, 40 on 390 |
+| 2 | "Delete" is a quiet **red** text button (`pages/05`, `components/saved-setting-card`) | A quiet button is primary-colour text. Red appears only on the destructive confirm inside an inline confirm (§6.3, §6.11) | Yes | As `DESIGN.md`: quiet green, then "Delete it" / "Keep it" inline (#251) |
+| 3 | "Clear team N's work" is quiet **red** text (`pages/11`) | Same rule, §6.3 | Yes | As `DESIGN.md`: quiet green, then "Yes, clear team N" in red (#250) |
+| 4 | `pages/06` swaps the ribbon sentence for a mock-up disclaimer | The ribbon text is a fixed constant and never changes (§6.2) | Yes: the disclaimer moved to the caption | As `DESIGN.md`: the shell's ribbon; the sentence sits in the caption column (#249) |
+| 5 | `pages/06` puts an ID-card pictogram above the title | No icon or illustration beside a page title (§4, §10) | Yes | As `DESIGN.md`: no pictogram |
+| 6 | `pages/06` title 40 px; phone card 18 px corners | `h1` 48/56 (§3.4); card radius 14 px, and 18 px is for mobile sheets only (§3.6) | Yes | As `DESIGN.md`: the shell's 48/56 `h1` (#249) |
+| 7 | `pages/09` shows only the chosen state | The owner-ruled inline confirm (§6.18, §11 item 3) | Yes: `09-…-mobile` shows the confirm moment | As `DESIGN.md`, plus the guard, key-repeat and blur rules (§6.18, #249) |
+| 8 | Back button "Back to your team's list" (`pages/08`, `pages/10`) | §7.8 wireframe: "← Back to your list" | No (wireframes are schematic, §7) | Kept the prompt: "Back to your team's list" (#247) |
+| 9 | Header: secondary button "Choose a different event" (`pages/04`) | §7.4 wireframe: "Team 4 · Choose another →" | No (schematic) | Kept the prompt: "Choose a different event"; no "Team 4" (#251) |
+| 10 | Coverage notice: "…a Freshman or a Finance, Real Estate & Law major." | §6.10 example: "…a Senior or an Accounting major." | No: §9 says to use the README's shared data | n/a: the server writes the notice |
+| 11 | Empty compare: "Save two to see them side by side." (`components/empty-and-loading-states`) | §6.11: "Save two settings to see them side by side." | No: rendered as archived. Fix it in the build | As `DESIGN.md`: "Save two settings to see them side by side." (#251) |
+| 12 | Invalid-weight message: "\"1,5\" is not a plain number. Use digits and one decimal point, like 0.5." | §6.6: "Type a number for this weight." or the server's refusal sentence | No: read as the server's refusal | Both: "Type a number for this weight." for an empty box, the prompt's sentence for text that is not a plain number; server refusals verbatim, under the slider (#251, #252) |
+
+## 5. Prompt drift: archived prompts vs final `DESIGN.md`
+
+The archived prompts under
+[`docs/archive/design/class-exercise/prompts/`](../../archive/design/class-exercise/prompts/README.md)
+are read-only. A rebuild applies these corrections on top of them, and on top of
+the 12 rows in [section 4](#4-designmd-vs-archived-prompt-disagreements), which
+are not repeated here. 26 items. D1, D2 and D8 would mislead a rebuild most.
+
+| # | Where (archived prompt) | The prompt says | The build does (`DESIGN.md` §) |
 |---|---|---|---|
-| 1 | Figures-band numerals 64 px (`pages/08`, `pages/10`, `components/results-reveal`) | `--ce-type-display` 72/76 (§3.4, §6.15); 40 px on 390 (§7.8) | Yes |
-| 2 | "Delete" is a quiet **red** text button (`pages/05`, `components/saved-setting-card`) | A quiet button is primary-colour text. Red appears only on the destructive confirm inside an inline confirm (§6.3, §6.11) | Yes |
-| 3 | "Clear team N's work" is quiet **red** text (`pages/11`) | Same rule, §6.3 | Yes |
-| 4 | `pages/06` swaps the ribbon sentence for a mock-up disclaimer | The ribbon text is a fixed constant and never changes (§6.2) | Yes: the disclaimer moved to the caption |
-| 5 | `pages/06` puts an ID-card pictogram above the title | No icon or illustration beside a page title (§4, §10) | Yes |
-| 6 | `pages/06` title 40 px; phone card 18 px corners | `h1` 48/56 (§3.4); card radius 14 px, and 18 px is for mobile sheets only (§3.6) | Yes |
-| 7 | `pages/09` shows only the chosen state | The owner-ruled inline confirm (§6.18, §11 item 3) | Yes: `09-…-mobile` shows the confirm moment |
-| 8 | Back button "Back to your team's list" (`pages/08`, `pages/10`) | §7.8 wireframe: "← Back to your list" | No (wireframes are schematic, §7) |
-| 9 | Header: secondary button "Choose a different event" (`pages/04`) | §7.4 wireframe: "Team 4 · Choose another →" | No (schematic) |
-| 10 | Coverage notice: "…a Freshman or a Finance, Real Estate & Law major." | §6.10 example: "…a Senior or an Accounting major." | No: §9 says to use the README's shared data |
-| 11 | Empty compare: "Save two to see them side by side." (`components/empty-and-loading-states`) | §6.11: "Save two settings to see them side by side." | No: rendered as archived. Fix it in the build |
-| 12 | Invalid-weight message: "\"1,5\" is not a plain number. Use digits and one decimal point, like 0.5." | §6.6: "Type a number for this weight." or the server's refusal sentence | No: read as the server's refusal |
+| D1 | README §7 round one and round two; `pages/08`; `pages/10`; `components/results-reveal` | "Your invitations added 6" is the team's **signed-up** count (`team.signed_up_count`, prop `team_signed_up_count=6`), while the team attended 4. Round two: added 11, attended 8 | Added and the green seats are `team.attended_count`; the server stores `seats_empty = 60 − 8 − attended` (§6.15). The README data would show 8 / 4 / 48 and 8 / 8 / 44. For a rebuild, keep 8 / 6 / 46 and 8 / 11 / 41 and set the team's attended to 6 and 11 |
+| D2 | `pages/08` screen A (both tools); `components/empty-and-loading-states` panel 2 | The locked panel has a secondary "Check again", and `ce-unlock` plays if the check finds results open | No action. Teams cannot read the lock, so any check is the one-time run itself; the Run button is the only retry (§6.14) |
+| D3 | `pages/08` screen A and Claude Design steps 2–3 | Run is disabled while locked; an open event shows the chip "Results are open" | Run stays live once a setting is chosen. No open chip before a run; the locked panel appears only after a refused run, above the picker (§6.14, §7.8) |
+| D4 | `pages/08` Claude Design step 4 | "A team runs results once per event." under the Run button | "Your team has not run results for this event yet. A team runs them once." above the picker. The §6.14 already-run line is not rendered |
+| D5 | `pages/08` screen B | Invited chips show the first 8, then "and 22 more"; the last section's button is "Go to asking for more" | Every invited name shows. The last section keeps "Ask them now" (or "Pick one first" when no way is picked) and "Your team may ask once." |
+| D6 | `pages/08` and `pages/10` 390 follow-ups | The chart becomes horizontal bars at 390 | Deferred until Ann answers the shared-scale question: one shared-axis chart in its own scroll box (§6.16). §7.8 still says horizontal bars |
+| D7 | `pages/10` (both tools) | A quiet line under the headline: "In round one your team's list left 46 seats empty." | Not built. The "Your team's first round" section says the same numbers. §7.10 still lists the line |
+| D8 | `pages/05`; `components/compare-view` (and its Variant B); README file table | Two lists side by side: 552 px cards in a 2-column grid; optional gutter connectors | Two tables stacked full width, each in its own scroll box, at 768 and up; tabs plus cards below 768; no connectors (§6.12, §7.5) |
+| D9 | `components/results-reveal` Claude Design | A quiet "Skip" button during the seat fill | No Skip. The fill runs once, in 1.8 s at most; reduced motion shows the final state (§5.1) |
+| D10 | `pages/09`; `components/asking-choice-cards` | Visible helper "Press again within 5 seconds. Your team picks once." | The visible helper and the live region both read "Press again to confirm A small reward. Your team picks once." (§6.18, §11.1) |
+| D11 | `components/asking-choice-cards` flow | Any second press in the window commits; "Saving…" shows for 600 ms; blur and key repeat are not covered | A press within 300 ms of arming is ignored; a held Enter or Space never confirms; blur does not disarm; no "Saving…" label, a spinner keeps "Confirm: …" (§6.18) |
+| D12 | README §7; `pages/09` | Third figure "Topics added from the first event" (34) | "Picked up the first event's topics". It counts people (`len(gainers)`), not topics (§6.19) |
+| D13 | `pages/09` (both tools) | The half-filled card pictogram sits right of the lead | Beside the "How will your team ask?" `h2`, 96 px; the shell has no slot beside the lead (§7.9) |
+| D14 | `pages/09` Claude Design | "Ask them now" is disabled until a way is chosen, helper "Pick a way of asking first." | Shut until a way is chosen **and** round-one results exist; the reason line reads "Run your team's results for … before asking." |
+| D15 | `pages/11` screen B and Claude Design | The right column is sticky | It scrolls with the page. At 1280 it is 1615–2411 px tall, so a sticky column hid "Move every team" and "Sign out" (§7.11) |
+| D16 | `pages/11` screen B (Stitch); `components/instructor-unlock-panel` (Stitch) | "Open results" is a plain button | The first press opens an inline confirm: "Open results for {event}? Every team can then run results once for this event." / "Open results now" ("Opening…") / "Not yet". Escape cancels (§6.24, §11.1). The Claude Design prompts already had it |
+| D17 | `pages/11`; `components/instructor-unlock-panel` | Meta line "For Ann's file, 25 September. Teams can run results only for an event that is open."; status line "Results are open for Harbor Consumer Brands." | Neither is built (neither is in §11.1). Focus moves to the event's name when the unlock lands |
+| D18 | `pages/11` Claude Design | The upload shows three stages ("Reading the file" → "Checking the columns" → "Saved") and a determinate bar | One label, "Uploading and checking the file…": the client sends one request and has no stages. §6.24's loading row still names stages |
+| D19 | `pages/11` Claude Design | A show/hide toggle with `Eye`/`EyeOff`; its name is not given | One fixed name, "Show what is typed"; `aria-pressed` carries the state (§11.1) |
+| D20 | `components/weight-slider` Claude Design | A server refusal is a calm notice above the card, and the fields revert | The refusal shows once, under the slider, and box and thumb revert (§6.6, owner ruling 2026-09-27). Typed values go out unclamped; a negative is refused as "A weight cannot be below 0." (#252) |
+| D21 | `pages/03`; `pages/04` | Header aside "Team 4" | No team indicator: neither read returns the team (backlog row "The screen never shows which team you are") |
+| D22 | `pages/04` Stitch | The table fades after row 10 with "20 more names below" | All 30 rows render |
+| D23 | `pages/02` (both tools) | The license panel sits at the page foot (390: above the button) | One license card, in the top zone under the lead (§7.1) |
+| D24 | `pages/02` Claude Design | The `<legend>` renders as the `h2` | A visible `h2` "Which team are you?"; the legend "Team number" is screen-reader only |
+| D25 | `pages/06` Claude Design | The `h1` sits inside the left caption column | The `h1` is in the shell header above both columns; the caption column holds the §11.1 caption and the mock-up sentence (§7.6) |
+| D26 | README §4–§5 preambles; `pages/01` | A grey logo placeholder; the dark tokens have no logo rule | Dark mode sets the unchanged CPP logo on an eggwhite plate (`exercise.css`; not yet in `DESIGN.md`) |
 
-## 5. Top 3
+## 6. Top 3
 
 1. [`assets/stitch/08-final-setting-and-results-desktop.webp`](assets/stitch/08-final-setting-and-results-desktop.webp): the lesson's payoff reads at a glance. The room fills 8 / 6 / 46, the serif headline states the same numbers, and the ruled band repeats them. It is counts only, with no invented copy after the regeneration. Best evidence for the build.
 2. [`assets/stitch/05-save-and-compare-desktop.webp`](assets/stitch/05-save-and-compare-desktop.webp): the whole save-and-compare loop fits on one screen. Stitch added each setting's weights under the list title, and the quiet green Delete follows `DESIGN.md`. Gold is used for exactly one job.
