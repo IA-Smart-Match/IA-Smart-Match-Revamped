@@ -63,7 +63,7 @@ JavaScript (`motion.ts`, `confirmWindow.tsx`, `seatFill.tsx`):
 | `Notice` | `Notice.tsx` | `message` (verbatim), `tone?: "calm" \| "problem" \| "done"`, `action?`, `children?`, `id?` | §6.20 — always `role="status"`; `ExerciseNotice` delegates here |
 | `Skeleton`, `SkeletonRegion`, `SkeletonRankedRows`, `SkeletonCard` | `Skeleton.tsx` | `SkeletonRegion label="Loading the list…"` wraps blocks; `SkeletonRankedRows rows?` (8); `SkeletonCard lines?` | §6.21 |
 | `MarkerChip` | `MarkerChip.tsx` | `marker` (API wire value) | §6.8 — icon + words; unknown → raw string, neutral |
-| `WeightSlider` | `WeightSlider.tsx` | `id`, `label` (server's words), `value` (last accepted), `onCommit(value)`, `error?` (server sentence), `pending?`, `disabled?`, `name?` | §6.6, ruling 2 |
+| `WeightSlider` | `WeightSlider.tsx` | `id`, `label` (server's words), `value` (last accepted), `onCommit(value)`, `refusal?: { message } \| null` (pass the hook's `ExerciseRefusal` as is — a new object per refused attempt; the controls revert on each one and show the sentence as `role="status"`), `pending?`, `disabled?`, `name?` | §6.6, §8.6, ruling 2 |
 | weight helpers | `weightValue.ts` | `strictDecimal`, `weightFieldMessage`, `clampWeight`, `formatWeight`, `WEIGHT_*` | same rule and words as `WeightsControls.tsx` |
 
 `WeightSlider` owns one weight. The queue/in-flight logic stays in `WeightsControls.tsx`: render four sliders there and call its existing `commit` path from `onCommit`. A number typed in the box is committed exactly as typed, even outside 0–1: the server refuses a negative weight in its own sentence and accepts one above 1. Only the thumb's position (and weights the slider itself produces) stay on 0–1.

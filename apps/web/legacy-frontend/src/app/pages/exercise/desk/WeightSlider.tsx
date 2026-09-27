@@ -12,8 +12,11 @@
  *   negative weight in its own sentence and accepts one above 1 ("refuse,
  *   never repair") — and only the thumb's position is held on 0–1. Weights
  *   the slider itself produces (drag, keys) always stay on 0–1.
- * - `error` is the server's refusal sentence; the controls revert to `value`
- *   (the last accepted weight) when it arrives.
+ * - `refusal` is the server's refusal for the latest commit — a fresh object
+ *   per failed attempt, like `useExerciseResource`'s `ExerciseRefusal` — so
+ *   the controls revert to `value` (the last accepted weight) on every
+ *   refusal, even when the sentence repeats. It is shown as `role="status"`
+ *   (§8.6); only the box's own field error is `role="alert"`.
  * - The thumb is drawn at 28px inside a 44px hit area (§8.9).
  * - `ce-slider-settle` glides the thumb to a clicked point (180ms); reduced
  *   motion jumps.
@@ -37,6 +40,14 @@ import {
   weightFieldMessage,
 } from "./weightValue";
 
+/**
+ * A server refusal. Anything with the sentence works, `ExerciseRefusal`
+ * included. Identity is the trigger: pass a new object per refused attempt.
+ */
+export interface WeightRefusal {
+  readonly message: string;
+}
+
 export interface WeightSliderProps {
   /** Unique within the page; prefixes the element ids. */
   readonly id: string;
@@ -49,8 +60,8 @@ export interface WeightSliderProps {
    * (never clamped), or a slider value on 0–1.
    */
   readonly onCommit: (value: number) => void;
-  /** The server's refusal sentence for this weight, verbatim. */
-  readonly error?: string | null;
+  /** The latest commit's refusal (new object per attempt); its sentence is shown verbatim. */
+  readonly refusal?: WeightRefusal | null;
   /** A committed change is rebuilding the list: show a spinner, stay live. */
   readonly pending?: boolean;
   readonly disabled?: boolean;
@@ -64,7 +75,7 @@ export function WeightSlider({
   label,
   value,
   onCommit,
-  error = null,
+  refusal = null,
   pending = false,
   disabled = false,
   name,
@@ -103,13 +114,14 @@ export function WeightSlider({
   }, [value, showValue]);
 
   React.useEffect(() => {
-    if (error !== null) {
+    if (refusal !== null) {
       lastSent.current = value;
       showValue(value);
     }
-    // `value` is read for its current value, not watched: the trigger is a new refusal.
+    // `value` is read for its current value, not watched: the trigger is a new
+    // refusal object, which changes identity on every refused attempt.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [error]);
+  }, [refusal]);
 
   /** Send a weight. Callers clamp slider-driven values; typed ones pass as typed. */
   function commit(next: number): void {
@@ -131,7 +143,8 @@ export function WeightSlider({
     commit(parsed);
   }
 
-  const shownError = fieldError ?? error;
+  const refusalMessage = refusal?.message ?? null;
+  const shownError = fieldError ?? refusalMessage;
 
   return (
     <div
@@ -259,7 +272,8 @@ export function WeightSlider({
       {shownError === null ? null : (
         <p
           id={errorId}
-          role="alert"
+          // §8.6: the box's own field error is an alert; a server refusal is a status.
+          role={fieldError !== null ? "alert" : "status"}
           data-slot="exercise-weight-error"
           className="ce-type-meta col-span-2 text-ce-danger"
         >

@@ -159,7 +159,7 @@ describe("WeightSlider (§6.6)", () => {
     expect(screen.getByRole("alert").textContent).toBe("Type a number for this weight.");
   });
 
-  it("shows the server's refusal under the box and reverts to the accepted value", () => {
+  it("shows the server's refusal as a status, not an alert, and reverts to the accepted value", () => {
     const onCommit = vi.fn();
     const { rerender } = render(
       <WeightSlider id="interest" label={LABEL} value={0.4} onCommit={onCommit} />,
@@ -173,11 +173,36 @@ describe("WeightSlider (§6.6)", () => {
         label={LABEL}
         value={0.4}
         onCommit={onCommit}
-        error="Those weights were not accepted."
+        refusal={{ message: "Those weights were not accepted." }}
       />,
     );
-    expect(screen.getByRole("alert").textContent).toBe("Those weights were not accepted.");
+    const status = screen.getByRole("status");
+    expect(status.textContent).toBe("Those weights were not accepted.");
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(field.getAttribute("aria-describedby")).toBe(status.id);
     expect(field.value).toBe("0.40");
+  });
+
+  it("reverts on every refusal, even when the sentence repeats", () => {
+    const onCommit = vi.fn();
+    const sentence = "A weight cannot be negative.";
+    const props = { id: "interest", label: LABEL, value: 0.4, onCommit };
+    const { rerender } = render(<WeightSlider {...props} />);
+    const field = screen.getByRole("textbox", { name: LABEL }) as HTMLInputElement;
+    const slider = screen.getByRole("slider", { name: LABEL });
+
+    fireEvent.change(field, { target: { value: "-0.5" } });
+    fireEvent.keyDown(field, { key: "Enter" });
+    rerender(<WeightSlider {...props} refusal={{ message: sentence }} />);
+    expect(field.value).toBe("0.40");
+
+    fireEvent.change(field, { target: { value: "-0.3" } });
+    fireEvent.keyDown(field, { key: "Enter" });
+    expect(onCommit).toHaveBeenLastCalledWith(-0.3);
+    // A fresh refusal object per failed attempt, same words.
+    rerender(<WeightSlider {...props} refusal={{ message: sentence }} />);
+    expect(field.value).toBe("0.40");
+    expect(slider.getAttribute("aria-valuenow")).toBe("0.4");
   });
 
   it("adopts a newly confirmed value from the server", () => {

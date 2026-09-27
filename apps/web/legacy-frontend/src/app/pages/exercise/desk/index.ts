@@ -16,7 +16,7 @@ export {
   type SkeletonRegionProps,
 } from "./Skeleton";
 export { MarkerChip, type MarkerChipProps } from "./MarkerChip";
-export { WeightSlider, type WeightSliderProps } from "./WeightSlider";
+export { WeightSlider, type WeightRefusal, type WeightSliderProps } from "./WeightSlider";
 export {
   WEIGHT_MAX,
   WEIGHT_MIN,
