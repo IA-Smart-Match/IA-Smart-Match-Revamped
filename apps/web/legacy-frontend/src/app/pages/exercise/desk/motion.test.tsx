@@ -2,9 +2,9 @@ import { act, cleanup, render, renderHook, screen, waitFor } from "@testing-libr
 import * as React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ConfirmWindowUnderline, useConfirmWindow } from "./confirmWindow";
+import { CONFIRM_GUARD_MS, ConfirmWindowUnderline, useConfirmWindow } from "./confirmWindow";
 import { CE_MOTION_MS, ceMotion, useCountUp, usePrefersReducedMotion } from "./motion";
-import { seatFillPlan, useSeatFill, SEAT_FILL_STEP_MS } from "./seatFill";
+import { seatFillPlan, useSeatFill, SEAT_FILL_DONE_MS, SEAT_FILL_STEP_MS } from "./seatFill";
 import { stubReducedMotion } from "./testMatchMedia";
 
 afterEach(() => {
@@ -70,14 +70,32 @@ describe("useCountUp", () => {
 
 describe("useConfirmWindow", () => {
   it("arms on the first press and confirms on the second", () => {
+    vi.useFakeTimers();
     const onConfirm = vi.fn();
     const { result } = renderHook(() => useConfirmWindow({ onConfirm }));
     act(() => result.current.press());
     expect(result.current.armed).toBe(true);
     expect(onConfirm).not.toHaveBeenCalled();
+    act(() => {
+      vi.advanceTimersByTime(CONFIRM_GUARD_MS);
+    });
     act(() => result.current.press());
     expect(result.current.armed).toBe(false);
     expect(onConfirm).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores a second press that lands within 300ms of arming (a double-click)", () => {
+    vi.useFakeTimers();
+    const onConfirm = vi.fn();
+    const { result } = renderHook(() => useConfirmWindow({ onConfirm }));
+    expect(CONFIRM_GUARD_MS).toBe(300);
+    act(() => result.current.press());
+    act(() => {
+      vi.advanceTimersByTime(CONFIRM_GUARD_MS - 1);
+    });
+    act(() => result.current.press());
+    expect(result.current.armed).toBe(true);
+    expect(onConfirm).not.toHaveBeenCalled();
   });
 
   it("reverts when the five-second window lapses", () => {
@@ -120,6 +138,14 @@ describe("ConfirmWindowUnderline", () => {
     render(<ConfirmWindowUnderline active reduced />);
     expect(document.querySelector('[data-slot="ce-confirm-underline"]')).toBeNull();
     expect(screen.getByText("5 seconds")).toBeDefined();
+  });
+
+  it("derives the reduced-motion helper from the window length", () => {
+    render(<ConfirmWindowUnderline active reduced windowMs={3000} />);
+    expect(screen.getByText("3 seconds")).toBeDefined();
+    cleanup();
+    render(<ConfirmWindowUnderline active reduced windowMs={1000} />);
+    expect(screen.getByText("1 second")).toBeDefined();
   });
 
   it("renders nothing when the window is closed", () => {
@@ -190,6 +216,24 @@ describe("useSeatFill", () => {
     act(() => {
       vi.advanceTimersByTime(400);
     });
+    expect(result.current.announce).toBe(true);
+  });
+
+  it("replays from step 1 when play flips from false to true", () => {
+    vi.useFakeTimers();
+    const { result, rerender } = renderHook(({ play }) => useSeatFill({ play, reduced: false }), {
+      initialProps: { play: false },
+    });
+    expect(result.current.step).toBe(4);
+    expect(result.current.announce).toBe(true);
+    rerender({ play: true });
+    expect(result.current.step).toBe(1);
+    expect(result.current.announce).toBe(false);
+    expect(result.current.animating).toBe(true);
+    act(() => {
+      vi.advanceTimersByTime(SEAT_FILL_DONE_MS);
+    });
+    expect(result.current.step).toBe(4);
     expect(result.current.announce).toBe(true);
   });
 

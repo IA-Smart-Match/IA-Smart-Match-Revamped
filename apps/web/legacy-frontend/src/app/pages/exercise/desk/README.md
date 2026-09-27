@@ -47,10 +47,10 @@ JavaScript (`motion.ts`, `confirmWindow.tsx`, `seatFill.tsx`):
 | `ceMotion(name, reduced)` | Motion props for `"fade-rise" \| "notice-in" \| "card-save" \| "row-reorder" \| "row-enter" \| "row-leave" \| "choice-dim"` — `<motion.li {...ceMotion("row-reorder", reduced)} />` |
 | `CE_EASE`, `CE_SPRING_ROW`, `CE_MOTION_MS` | raw tokens |
 | `useCountUp(target, { reduced, durationMs?, delayMs? })` | `ce-count-up`; once per mount; reduced → final number |
-| `useConfirmWindow({ onConfirm, windowMs? })` → `{ armed, press, cancel, onKeyDown }` | `ce-confirm-window` (§6.18): first press arms for 5s, second commits, Escape/lapse reverts. Page supplies the words. |
-| `<ConfirmWindowUnderline active reduced />` | the shrinking 2px underline; reduced → static "5 seconds" |
+| `useConfirmWindow({ onConfirm, windowMs? })` → `{ armed, press, cancel, onKeyDown }` | `ce-confirm-window` (§6.18): first press arms for 5s, second commits, Escape/lapse reverts. A second press within `CONFIRM_GUARD_MS` (300ms) of arming is ignored (double-click). Page supplies the words. |
+| `<ConfirmWindowUnderline active reduced windowMs? />` | the shrinking 2px underline; reduced → static helper derived from `windowMs` ("5 seconds") |
 | `seatFillPlan({ total, taken, added })` | `ce-seat-fill` (§5.1): each seat's kind and start delay, front row first, stagger compressed to fit each step |
-| `useSeatFill({ play, reduced })` → `{ step, announce, animating, skip }` | the 0/240/700/1400/1800ms clock; `play` only on the first render after a run; render the `aria-live` sentences when `announce` |
+| `useSeatFill({ play, reduced })` → `{ step, announce, animating, skip }` | the 0/240/700/1400/1800ms clock; `play` only on the first render after a run (flipping it false → true replays from step 1); render the `aria-live` sentences when `announce` |
 | `<Seat kind delayMs animate />` | one `aria-hidden` seat square, styled per §3.3 |
 
 ## 3. Components (§6)
@@ -63,10 +63,10 @@ JavaScript (`motion.ts`, `confirmWindow.tsx`, `seatFill.tsx`):
 | `Notice` | `Notice.tsx` | `message` (verbatim), `tone?: "calm" \| "problem" \| "done"`, `action?`, `children?`, `id?` | §6.20 — always `role="status"`; `ExerciseNotice` delegates here |
 | `Skeleton`, `SkeletonRegion`, `SkeletonRankedRows`, `SkeletonCard` | `Skeleton.tsx` | `SkeletonRegion label="Loading the list…"` wraps blocks; `SkeletonRankedRows rows?` (8); `SkeletonCard lines?` | §6.21 |
 | `MarkerChip` | `MarkerChip.tsx` | `marker` (API wire value) | §6.8 — icon + words; unknown → raw string, neutral |
-| `WeightSlider` | `WeightSlider.tsx` | `id`, `label` (server's words), `value` (last accepted), `onCommit(value)`, `error?` (server sentence), `pending?`, `disabled?`, `name?` | §6.6, ruling 2 |
+| `WeightSlider` | `WeightSlider.tsx` | `id`, `label` (server's words), `value` (last accepted), `onCommit(value)`, `refusal?: { message } \| null` (pass the hook's `ExerciseRefusal` as is — a new object per refused attempt; the controls revert on each one and show the sentence as `role="status"`), `pending?`, `disabled?`, `name?` | §6.6, §8.6, ruling 2 |
 | weight helpers | `weightValue.ts` | `strictDecimal`, `weightFieldMessage`, `clampWeight`, `formatWeight`, `WEIGHT_*` | same rule and words as `WeightsControls.tsx` |
 
-`WeightSlider` owns one weight. The queue/in-flight logic stays in `WeightsControls.tsx`: render four sliders there and call its existing `commit` path from `onCommit`. Values outside 0–1 typed in the box are clamped to 0–1 on commit.
+`WeightSlider` owns one weight. The queue/in-flight logic stays in `WeightsControls.tsx`: render four sliders there and call its existing `commit` path from `onCommit`. A number typed in the box is committed exactly as typed, even outside 0–1: the server refuses a negative weight in its own sentence and accepts one above 1. Only the thumb's position (and weights the slider itself produces) stay on 0–1.
 
 ## 4. Rules for page tracks
 

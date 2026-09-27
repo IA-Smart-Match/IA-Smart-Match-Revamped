@@ -12,6 +12,19 @@ import * as React from "react";
 
 import { CE_MOTION_MS } from "./motion";
 
+/**
+ * A second press this soon after arming is treated as the same click (a
+ * double-click), not as the confirmation. A held Enter repeats after the OS
+ * delay (about 500ms), which is past this guard.
+ */
+export const CONFIRM_GUARD_MS = 300;
+
+/** "5 seconds" for 5000ms; "1 second" for 1000ms. */
+export function confirmWindowHelper(windowMs: number): string {
+  const seconds = Math.max(1, Math.round(windowMs / 1000));
+  return seconds === 1 ? "1 second" : `${seconds} seconds`;
+}
+
 export interface ConfirmWindowOptions {
   readonly onConfirm: () => void;
   readonly windowMs?: number;
@@ -35,6 +48,7 @@ export function useConfirmWindow({
   const [armed, setArmed] = React.useState(false);
   const timer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const armedRef = React.useRef(false);
+  const armedAt = React.useRef(0);
   const confirmRef = React.useRef(onConfirm);
   confirmRef.current = onConfirm;
 
@@ -53,11 +67,15 @@ export function useConfirmWindow({
 
   const press = React.useCallback((): void => {
     if (armedRef.current) {
+      if (Date.now() - armedAt.current < CONFIRM_GUARD_MS) {
+        return;
+      }
       cancel();
       confirmRef.current();
       return;
     }
     armedRef.current = true;
+    armedAt.current = Date.now();
     setArmed(true);
     clear();
     timer.current = setTimeout(cancel, windowMs);
@@ -81,7 +99,10 @@ export interface ConfirmWindowUnderlineProps {
   readonly active: boolean;
   readonly reduced: boolean;
   readonly windowMs?: number;
-  /** Shown instead of the underline under reduced motion (DESIGN.md §5). */
+  /**
+   * Shown instead of the underline under reduced motion (DESIGN.md §5).
+   * Defaults to the window's length in words ("5 seconds").
+   */
   readonly reducedHelper?: string;
   readonly className?: string;
 }
@@ -95,7 +116,7 @@ export function ConfirmWindowUnderline({
   active,
   reduced,
   windowMs = CE_MOTION_MS.confirmWindow,
-  reducedHelper = "5 seconds",
+  reducedHelper,
   className,
 }: ConfirmWindowUnderlineProps): React.JSX.Element | null {
   if (!active) {
@@ -104,7 +125,7 @@ export function ConfirmWindowUnderline({
   if (reduced) {
     return (
       <span data-slot="ce-confirm-helper" className={`ce-type-meta block ${className ?? ""}`}>
-        {reducedHelper}
+        {reducedHelper ?? confirmWindowHelper(windowMs)}
       </span>
     );
   }
