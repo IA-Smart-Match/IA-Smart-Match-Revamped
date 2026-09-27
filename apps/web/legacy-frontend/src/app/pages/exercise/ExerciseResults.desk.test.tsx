@@ -4,9 +4,10 @@
  * - §6.13: the final setting is chosen from radio cards, each naming the
  *   setting and its four weights in Ann's words (`factor_labels` from the list
  *   the screen already reads), never from a `<select>`.
- * - §6.14: a locked event is the lock panel — "Results are closed", the
- *   server's sentence, and "Check again", which asks the run route again with
- *   the same final setting. Nothing is red.
+ * - §6.14: a locked event is the lock panel — "Results are closed" and the
+ *   server's sentence, in the seating chart's place. It has no action: teams
+ *   have no read of the lock, and the Run button stays the only retry.
+ *   Nothing is red.
  * - The server's 422 `exercise_final_setting_required` is shown in its words.
  * - §5.1: the seats fill only on the first render after a run succeeds.
  */
@@ -186,7 +187,7 @@ describe("<ExerciseResults /> final-setting picker (§6.13)", () => {
 describe("<ExerciseResults /> lock panel (§6.14)", () => {
   const LOCKED = "Your instructor has not opened results for this event yet.";
 
-  it("shows a locked event as the calm lock panel, and 'Check again' asks again", async () => {
+  it("shows a locked event as the calm lock panel, with no action of its own", async () => {
     stub({
       [`GET ${RESULTS}`]: NOT_RUN,
       [LIST]: LABELLED_LIST,
@@ -207,14 +208,63 @@ describe("<ExerciseResults /> lock panel (§6.14)", () => {
     const lock = document.querySelector('[data-slot="exercise-results-lock"]') as HTMLElement;
     expect(lock.textContent).toContain("Results are closed");
     expect(lock.textContent).toContain(LOCKED);
-    expect(lock.getAttribute("role")).toBe("status");
+    // Teams have no read of the lock, so the panel has nothing to press: a
+    // "check" would be the one-time run under another name.
+    expect(within(lock).queryAllByRole("button")).toHaveLength(0);
+    expect(within(lock).queryAllByRole("link")).toHaveLength(0);
+  });
 
-    fireEvent.click(within(lock).getByRole("button", { name: "Check again" }));
+  it("leaves the Run button as the only control that sends the run", async () => {
+    stub({
+      [`GET ${RESULTS}`]: NOT_RUN,
+      [LIST]: LABELLED_LIST,
+      [ASKING]: NO_CHOICE,
+      [SETTINGS]: SAVED,
+      [`POST ${RESULTS}`]: {
+        body: { error: { code: "exercise_results_locked", message: LOCKED } },
+        status: 409,
+      },
+    });
+    renderResults();
+    fireEvent.click(await screen.findByRole("radio", { name: "Major first" }));
+    const run = screen.getByRole("button", { name: /run results/i });
+    fireEvent.click(run);
     await waitFor(() =>
-      expect(calls.filter((call) => call.init.method === "POST").length).toBe(2),
+      expect(document.querySelector('[data-slot="exercise-results-lock"]')).not.toBeNull(),
     );
-    const posts = calls.filter((call) => call.init.method === "POST");
-    expect(JSON.parse(String(posts[1].init.body))).toEqual({ setting_name: "Major first" });
+
+    // Press every other button on screen: none of them posts the run.
+    const others = screen.getAllByRole("button").filter((button) => button !== run);
+    for (const button of others) {
+      fireEvent.click(button);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(
+      calls.filter((call) => call.init.method === "POST" && call.url === RESULTS),
+    ).toHaveLength(1);
+  });
+
+  it("puts the lock panel in the seating chart's place, above the picker (§7.8)", async () => {
+    stub({
+      [`GET ${RESULTS}`]: NOT_RUN,
+      [LIST]: LABELLED_LIST,
+      [ASKING]: NO_CHOICE,
+      [SETTINGS]: SAVED,
+      [`POST ${RESULTS}`]: {
+        body: { error: { code: "exercise_results_locked", message: LOCKED } },
+        status: 409,
+      },
+    });
+    renderResults();
+    fireEvent.click(await screen.findByRole("radio", { name: "Major first" }));
+    fireEvent.click(screen.getByRole("button", { name: /run results/i }));
+    await waitFor(() =>
+      expect(document.querySelector('[data-slot="exercise-results-lock"]')).not.toBeNull(),
+    );
+
+    const lock = document.querySelector('[data-slot="exercise-results-lock"]') as HTMLElement;
+    const picker = document.querySelector('[data-slot="exercise-final-setting"]') as HTMLElement;
+    expect(lock.compareDocumentPosition(picker) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("shows no lock panel before the team has tried to run", async () => {
