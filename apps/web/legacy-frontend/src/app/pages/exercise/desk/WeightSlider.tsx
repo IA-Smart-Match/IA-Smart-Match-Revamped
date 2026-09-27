@@ -157,12 +157,17 @@ export function WeightSlider({
         data-dragging={dragging ? "true" : "false"}
         data-reduced-motion={reduced ? "true" : "false"}
         onPointerDown={() => setDragging(true)}
+        // Radix fires `onValueCommit` only when the value changed, so a press
+        // and release without a move would leave `dragging` stuck on. The
+        // pointer ending is what ends a drag.
+        onPointerUp={() => setDragging(false)}
+        onPointerCancel={() => setDragging(false)}
+        onLostPointerCapture={() => setDragging(false)}
         onValueChange={([next]) => {
           showValue(next);
           setFieldError(null);
         }}
         onValueCommit={([next]) => {
-          setDragging(false);
           commit(next);
         }}
         onKeyDown={(event) => {

@@ -198,6 +198,49 @@ describe("WeightSlider (§6.6)", () => {
     expect(reduced.container.querySelector(".ce-slider-settle")).toBeNull();
   });
 
+  describe("pointer", () => {
+    // jsdom has no pointer capture; Radix calls it on the thumb.
+    const proto = HTMLElement.prototype as unknown as Record<string, unknown>;
+    const saved = {
+      set: proto.setPointerCapture,
+      release: proto.releasePointerCapture,
+      has: proto.hasPointerCapture,
+    };
+    beforeEach(() => {
+      proto.setPointerCapture = vi.fn();
+      proto.releasePointerCapture = vi.fn();
+      proto.hasPointerCapture = vi.fn(() => false);
+    });
+    afterEach(() => {
+      proto.setPointerCapture = saved.set;
+      proto.releasePointerCapture = saved.release;
+      proto.hasPointerCapture = saved.has;
+    });
+
+    function root(container: HTMLElement): HTMLElement {
+      return container.querySelector("[data-dragging]") as HTMLElement;
+    }
+
+    it("stops dragging on release even when the value did not change", () => {
+      const { slider, container, onCommit } = renderSlider();
+      fireEvent.pointerDown(slider, { pointerId: 1 });
+      expect(root(container).dataset.dragging).toBe("true");
+      fireEvent.pointerUp(slider, { pointerId: 1 });
+      expect(root(container).dataset.dragging).toBe("false");
+      expect(onCommit).not.toHaveBeenCalled();
+    });
+
+    it("stops dragging when the pointer is cancelled or capture is lost", () => {
+      const { slider, container } = renderSlider();
+      fireEvent.pointerDown(slider, { pointerId: 1 });
+      fireEvent.pointerCancel(slider, { pointerId: 1 });
+      expect(root(container).dataset.dragging).toBe("false");
+      fireEvent.pointerDown(slider, { pointerId: 2 });
+      fireEvent.lostPointerCapture(slider, { pointerId: 2 });
+      expect(root(container).dataset.dragging).toBe("false");
+    });
+  });
+
   it("when disabled, neither control moves", () => {
     const { slider, field, onCommit } = renderSlider({ disabled: true });
     fireEvent.keyDown(slider, { key: "ArrowRight" });
