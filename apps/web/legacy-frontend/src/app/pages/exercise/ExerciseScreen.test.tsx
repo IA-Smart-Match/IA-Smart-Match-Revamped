@@ -43,6 +43,16 @@ describe("ExerciseScreen (§6.1)", () => {
     expect(screen.getByRole("img", { name: "Cal Poly Pomona" })).toBeDefined();
   });
 
+  it("wraps the shared logo in the exercise's own plate, so dark mode can light it", () => {
+    render(<ExerciseScreen title="Results">body</ExerciseScreen>);
+    const logo = screen.getByRole("img", { name: "Cal Poly Pomona" });
+    const plate = logo.closest('[data-slot="ce-logo"]');
+    expect(plate).not.toBeNull();
+    expect(plate?.className).toContain("ce-logo");
+    // The shared BrandLogo is untouched: the plate is the shell's wrapper.
+    expect(plate?.contains(logo)).toBe(true);
+  });
+
   it("moves focus to the h1 when nothing else holds it (route change, §8.5)", () => {
     render(<ExerciseScreen title="Results">body</ExerciseScreen>);
     expect(document.activeElement).toBe(screen.getByRole("heading", { level: 1 }));

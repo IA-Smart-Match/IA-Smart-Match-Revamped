@@ -14,7 +14,8 @@ import { CE_MOTION_MS } from "./motion";
 
 /**
  * A second press this soon after arming is treated as the same click (a
- * double-click, or a key held down), not as the confirmation.
+ * double-click), not as the confirmation. A held Enter repeats after the OS
+ * delay (about 500ms), which is past this guard.
  */
 export const CONFIRM_GUARD_MS = 300;
 

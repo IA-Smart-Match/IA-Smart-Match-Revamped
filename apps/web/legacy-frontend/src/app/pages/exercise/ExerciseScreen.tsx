@@ -85,7 +85,11 @@ export function ExerciseScreen({
       <MotionConfig reducedMotion="user">
         <main className="ce-container flex flex-col gap-ce-5 pt-ce-5 pb-ce-7 md:gap-ce-6 md:pt-ce-8">
           <div className="flex flex-col gap-ce-4">
-            <BrandLogo compact />
+            {/* The shared BrandLogo is also the CBA portals'; the plate is the
+                exercise's own wrapper, lit only in dark mode (exercise.css). */}
+            <span data-slot="ce-logo" className="ce-logo">
+              <BrandLogo compact />
+            </span>
             <SyntheticDataBanner
               tone="quiet"
               label={EXERCISE_RIBBON_LABEL}
