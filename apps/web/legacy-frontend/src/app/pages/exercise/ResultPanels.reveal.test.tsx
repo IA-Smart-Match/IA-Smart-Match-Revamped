@@ -43,7 +43,9 @@ function results(overrides: Partial<ResultsView> = {}): ResultsView {
 }
 
 function seats(kind: string): number {
-  return document.querySelectorAll(`[data-slot="ce-seat"][data-kind="${kind}"]`).length;
+  return document.querySelectorAll(
+    `[data-slot="exercise-room-seats"] [data-slot="ce-seat"][data-kind="${kind}"]`,
+  ).length;
 }
 
 afterEach(() => {

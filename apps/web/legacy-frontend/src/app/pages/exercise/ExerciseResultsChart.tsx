@@ -49,8 +49,20 @@
  * both a distinct high-contrast fill and a distinct hatch pattern; and the
  * whole chart is repeated as a real `<table>` for screen readers and for
  * anyone the colours fail.
+ *
+ * ## `variant="exercise"`: the invitation desk's look, and only its look
+ *
+ * DESIGN.md §6.16 and ruling 5: the class exercise restyles this chart through
+ * a variant, not a copy. The variant changes colour, type and framing only —
+ * the §3.3 series (Invited an open bar, Signed up a 45° hatch, Attended a solid
+ * bar) drawn from the `--ce-series-*` tokens so light and dark follow the page,
+ * the desk's heading and body type, a card, and the table behind a "Show these
+ * counts as a table" disclosure that starts open on a phone. The data, the
+ * shared axis, the fixed 880×460 drawing and its scroll box are the default's,
+ * unchanged: whether the team's bars should share a scale with the 300 bars is
+ * an open question for Ann, and a restyle must not answer it.
  */
-import { useId } from "react";
+import { useId, useState } from "react";
 import { Bar, BarChart, CartesianGrid, LabelList, Legend, XAxis, YAxis } from "recharts";
 
 /**
@@ -87,7 +99,11 @@ export interface ExerciseResultsChartProps {
   readonly caption?: string;
   /** What to say when there is nothing to draw. */
   readonly emptyMessage?: string;
+  /** `"exercise"`: the invitation desk's look (DESIGN.md §6.16). Default unchanged. */
+  readonly variant?: ExerciseResultsChartVariant;
 }
+
+export type ExerciseResultsChartVariant = "default" | "exercise";
 
 /** The three stages, in the order the case moves through them. */
 const STAGES = [
@@ -114,6 +130,42 @@ const VALUE_FONT_SIZE = 26;
 const LEGEND_FONT_SIZE = 20;
 
 const NOT_AVAILABLE = "not available";
+
+/**
+ * §3.3 series for `variant="exercise"`, as token references so dark mode
+ * follows the page. Invited is an open bar, Signed up a 45° hatch, Attended
+ * solid: three shapes, so no series depends on colour alone.
+ */
+const EXERCISE_SERIES: Readonly<
+  Record<StageKey, { readonly fill: string; readonly stroke: string; readonly hatch: boolean }>
+> = {
+  invited: {
+    fill: "var(--ce-series-invited-fill)",
+    stroke: "var(--ce-series-invited-stroke)",
+    hatch: false,
+  },
+  signedUp: {
+    fill: "var(--ce-series-signed-fill)",
+    stroke: "var(--ce-series-signed-stroke)",
+    hatch: true,
+  },
+  attended: {
+    fill: "var(--ce-series-attended-fill)",
+    stroke: "var(--ce-series-attended-stroke)",
+    hatch: false,
+  },
+};
+
+/** Below the 768 layout the table disclosure starts open (§6.16). */
+const PHONE_QUERY = "(max-width: 767.98px)";
+
+function startsOnPhone(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia(PHONE_QUERY).matches
+  );
+}
 
 /**
  * Whether anything at all can be drawn.
@@ -148,16 +200,33 @@ export function ExerciseResultsChart({
   title,
   caption,
   emptyMessage = "No results to show yet. Run the results for this event to see the counts here.",
+  variant = "default",
 }: ExerciseResultsChartProps): JSX.Element {
-  const headingId = `${useId()}-exercise-results-title`;
+  const baseId = useId();
+  const headingId = `${baseId}-exercise-results-title`;
+  const [tableOpen, setTableOpen] = useState(startsOnPhone);
+  const desk = variant === "exercise";
 
   if (!hasDrawableCounts(series)) {
     return (
-      <section data-testid="exercise-results-chart-empty">
-        <h2 id={headingId} style={{ fontSize: 30, margin: "0 0 12px" }}>
+      <section
+        data-testid="exercise-results-chart-empty"
+        data-variant={variant}
+        className={desk ? "ce-card flex flex-col gap-ce-3 p-ce-4 md:p-ce-6" : undefined}
+      >
+        <h2
+          id={headingId}
+          className={desk ? "ce-type-h2 text-ce-ink" : undefined}
+          style={desk ? undefined : { fontSize: 30, margin: "0 0 12px" }}
+        >
           {title}
         </h2>
-        <p style={{ fontSize: 24, lineHeight: 1.4 }}>{emptyMessage}</p>
+        <p
+          className={desk ? "ce-type-body ce-measure text-ce-ink-muted" : undefined}
+          style={desk ? undefined : { fontSize: 24, lineHeight: 1.4 }}
+        >
+          {emptyMessage}
+        </p>
       </section>
     );
   }
@@ -175,9 +244,74 @@ export function ExerciseResultsChart({
     ),
   );
 
+  // One hatch per chart for the exercise look; ids from useId so two charts
+  // on a page cannot share a pattern.
+  const hatchId = `ce-results-hatch-${baseId.replace(/[^\w-]/g, "")}`;
+  const barFill = (key: StageKey, pattern: string): string => {
+    if (!desk) {
+      return `url(#${pattern})`;
+    }
+    return EXERCISE_SERIES[key].hatch ? `url(#${hatchId})` : EXERCISE_SERIES[key].fill;
+  };
+  const barStroke = (key: StageKey, fill: string): string =>
+    desk ? EXERCISE_SERIES[key].stroke : fill;
+
+  const table = (
+    <table
+      data-testid="exercise-results-table"
+      className={desk ? "ce-type-body ce-tabular border-collapse text-ce-ink" : undefined}
+      style={desk ? undefined : { fontSize: 22, borderCollapse: "collapse" }}
+    >
+      <caption
+        className={desk ? "sr-only" : undefined}
+        style={desk ? undefined : { fontSize: 22, textAlign: "left" }}
+      >
+        The same counts as a table.
+      </caption>
+      <thead className={desk ? "ce-type-label bg-ce-surface-sunk" : undefined}>
+        <tr>
+          <th scope="col" className={desk ? DESK_CELL : CELL}>
+            Panel
+          </th>
+          {STAGES.map((stage) => (
+            <th key={stage.key} scope="col" className={desk ? DESK_CELL : CELL}>
+              {stage.label}
+            </th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {series.map((panel) => (
+          <tr key={panel.label}>
+            <th scope="row" className={desk ? `${DESK_CELL} font-semibold` : CELL}>
+              {panel.label}
+            </th>
+            {STAGES.map((stage) => (
+              <td key={stage.key} className={desk ? DESK_CELL : CELL}>
+                {formatHeadCount(panel[stage.key as StageKey])}
+              </td>
+            ))}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+
   return (
-    <section data-testid="exercise-results-chart" className="min-w-0 max-w-full">
-      <h2 id={headingId} style={{ fontSize: 30, margin: "0 0 12px" }}>
+    <section
+      data-testid="exercise-results-chart"
+      data-variant={variant}
+      className={
+        desk
+          ? "ce-card flex min-w-0 max-w-full flex-col gap-ce-4 p-ce-4 md:p-ce-6"
+          : "min-w-0 max-w-full"
+      }
+    >
+      <h2
+        id={headingId}
+        className={desk ? "ce-type-h2 text-ce-ink" : undefined}
+        style={desk ? undefined : { fontSize: 30, margin: "0 0 12px" }}
+      >
         {title}
       </h2>
 
@@ -187,7 +321,7 @@ export function ExerciseResultsChart({
           can scroll it (axe scrollable-region-focusable). Its name is not the
           title: the chart graphic already carries that, once. */}
       <div
-        className="max-w-full overflow-x-auto"
+        className={desk ? "ce-scroll-x max-w-full overflow-x-auto" : "max-w-full overflow-x-auto"}
         data-testid="exercise-results-chart-scroll"
         tabIndex={0}
         role="region"
@@ -202,31 +336,79 @@ export function ExerciseResultsChart({
           margin={{ top: 32, right: 24, bottom: 16, left: 16 }}
         >
           <defs>
-            {STAGES.map((stage) => (
+            {desk ? (
               <pattern
-                key={stage.pattern}
-                id={stage.pattern}
+                id={hatchId}
                 patternUnits="userSpaceOnUse"
                 width={8}
                 height={8}
-                patternTransform={`rotate(${STAGES.indexOf(stage) * 45})`}
+                patternTransform="rotate(45)"
               >
-                <rect width={8} height={8} fill={stage.fill} />
-                <line x1={0} y1={0} x2={0} y2={8} stroke="#ffffff" strokeWidth={3} />
+                <rect width={8} height={8} fill={EXERCISE_SERIES.signedUp.fill} />
+                <line
+                  x1={0}
+                  y1={0}
+                  x2={0}
+                  y2={8}
+                  stroke={EXERCISE_SERIES.signedUp.stroke}
+                  strokeWidth={2}
+                />
               </pattern>
-            ))}
+            ) : (
+              STAGES.map((stage) => (
+                <pattern
+                  key={stage.pattern}
+                  id={stage.pattern}
+                  patternUnits="userSpaceOnUse"
+                  width={8}
+                  height={8}
+                  patternTransform={`rotate(${STAGES.indexOf(stage) * 45})`}
+                >
+                  <rect width={8} height={8} fill={stage.fill} />
+                  <line x1={0} y1={0} x2={0} y2={8} stroke="#ffffff" strokeWidth={3} />
+                </pattern>
+              ))
+            )}
           </defs>
-          <CartesianGrid strokeDasharray="3 3" vertical={false} />
-          <XAxis dataKey="label" tick={{ fontSize: AXIS_FONT_SIZE }} interval={0} />
-          <YAxis tick={{ fontSize: AXIS_FONT_SIZE }} allowDecimals={false} />
-          <Legend wrapperStyle={{ fontSize: LEGEND_FONT_SIZE }} />
+          <CartesianGrid
+            strokeDasharray="3 3"
+            vertical={false}
+            stroke={desk ? "var(--ce-line)" : undefined}
+          />
+          <XAxis
+            dataKey="label"
+            tick={
+              desk
+                ? { fontSize: AXIS_FONT_SIZE, fill: "var(--ce-ink)", fontFamily: "var(--ce-font-serif)", fontWeight: 600 }
+                : { fontSize: AXIS_FONT_SIZE }
+            }
+            stroke={desk ? "var(--ce-line-strong)" : undefined}
+            interval={0}
+          />
+          <YAxis
+            tick={
+              desk
+                ? { fontSize: AXIS_FONT_SIZE, fill: "var(--ce-ink-muted)" }
+                : { fontSize: AXIS_FONT_SIZE }
+            }
+            stroke={desk ? "var(--ce-line-strong)" : undefined}
+            allowDecimals={false}
+          />
+          <Legend
+            wrapperStyle={{ fontSize: LEGEND_FONT_SIZE }}
+            formatter={
+              desk
+                ? (value: string) => <span style={{ color: "var(--ce-ink)" }}>{value}</span>
+                : undefined
+            }
+          />
           {STAGES.map((stage) => (
             <Bar
               key={stage.key}
               dataKey={stage.key}
               name={stage.label}
-              fill={`url(#${stage.pattern})`}
-              stroke={stage.fill}
+              fill={barFill(stage.key, stage.pattern)}
+              stroke={barStroke(stage.key, stage.fill)}
               strokeWidth={2}
               isAnimationActive={false}
             >
@@ -234,59 +416,57 @@ export function ExerciseResultsChart({
                 dataKey={stage.key}
                 position="top"
                 formatter={renderValueLabel}
-                style={{ fontSize: VALUE_FONT_SIZE, fontWeight: 700, fill: "#111111" }}
+                style={{
+                  fontSize: VALUE_FONT_SIZE,
+                  fontWeight: 700,
+                  fill: desk ? "var(--ce-ink)" : "#111111",
+                }}
               />
             </Bar>
           ))}
         </BarChart>
       </div>
 
-      {caption ? <p style={{ fontSize: 22, lineHeight: 1.4 }}>{caption}</p> : null}
+      {caption ? (
+        desk ? (
+          <p className="ce-type-meta text-ce-ink-muted">{caption}</p>
+        ) : (
+          <p style={{ fontSize: 22, lineHeight: 1.4 }}>{caption}</p>
+        )
+      ) : null}
 
       {unavailable.length > 0 ? (
-        <p style={{ fontSize: 22, lineHeight: 1.4 }} data-testid="exercise-results-unavailable">
+        <p
+          className={desk ? "ce-type-body text-ce-ink" : undefined}
+          style={desk ? undefined : { fontSize: 22, lineHeight: 1.4 }}
+          data-testid="exercise-results-unavailable"
+        >
           Some counts are {NOT_AVAILABLE}: {unavailable.join("; ")}.
         </p>
       ) : null}
 
-      <div className="max-w-full overflow-x-auto">
-        <table data-testid="exercise-results-table" style={{ fontSize: 22, borderCollapse: "collapse" }}>
-          <caption style={{ fontSize: 22, textAlign: "left" }}>
-            The same counts as a table.
-          </caption>
-          <thead>
-            <tr>
-              <th scope="col" className={CELL}>
-                Panel
-              </th>
-              {STAGES.map((stage) => (
-                <th key={stage.key} scope="col" className={CELL}>
-                  {stage.label}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {series.map((panel) => (
-              <tr key={panel.label}>
-                <th scope="row" className={CELL}>
-                  {panel.label}
-                </th>
-                {STAGES.map((stage) => (
-                  <td key={stage.key} className={CELL}>
-                    {formatHeadCount(panel[stage.key as StageKey])}
-                  </td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      {desk ? (
+        <details
+          open={tableOpen}
+          onToggle={(event) => setTableOpen(event.currentTarget.open)}
+          className="border-t border-ce-line pt-ce-2"
+        >
+          <summary className="ce-type-label inline-flex min-h-ce-target cursor-pointer items-center text-ce-primary underline decoration-1 underline-offset-4 hover:decoration-2">
+            Show these counts as a table
+          </summary>
+          <div className="ce-scroll-x mt-ce-2 max-w-full overflow-x-auto">{table}</div>
+        </details>
+      ) : (
+        <div className="max-w-full overflow-x-auto">{table}</div>
+      )}
     </section>
   );
 }
 
 /** M2 B6: room around every number, read from the left like the labels. */
 const CELL = "px-3 py-1 text-left";
+
+/** The exercise look's quiet table: the same padding, plus a hairline per row. */
+const DESK_CELL = `${CELL} border-b border-ce-line`;
 
 export default ExerciseResultsChart;
