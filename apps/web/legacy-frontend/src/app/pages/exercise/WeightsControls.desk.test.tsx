@@ -164,6 +164,113 @@ describe("<WeightsControls /> sliders (§6.6)", () => {
     expect(after("same major")).toBe("0.45");
   });
 
+  it("reverts an Enter commit refused while the team is still in the box, once they leave it", () => {
+    // #251 review H1: the refusal landed while focus was in the box, so the
+    // slider never heard it — box -0.50, thumb 0, confirmed 0.25, and
+    // leaving the box sent nothing.
+    const onChange = vi.fn();
+    const { rerender } = render(
+      <WeightsControls factorLabels={LABELS} weights={WEIGHTS} onChange={onChange} />,
+    );
+    const box = screen.getByRole("textbox", { name: "same major" }) as HTMLInputElement;
+    const slider = screen.getByRole("slider", { name: "same major" });
+    box.focus();
+    fireEvent.change(box, { target: { value: "-1" } });
+    fireEvent.keyDown(box, { key: "Enter" });
+    expect(onChange).toHaveBeenCalledWith({ ...WEIGHTS, same_major: -1 });
+
+    rerender(
+      <WeightsControls
+        factorLabels={LABELS}
+        weights={WEIGHTS}
+        onChange={onChange}
+        refusal={new ExerciseRefusal(422, "exercise_weights_invalid", "Those weights were not accepted.")}
+      />,
+    );
+
+    // Still in the box: its text stays, and the box names the sentence.
+    expect(box.value).toBe("-1.00");
+    const whileIn = document.querySelectorAll('[data-slot="exercise-weight-error"]');
+    expect(whileIn).toHaveLength(1);
+    expect(whileIn[0].id).not.toBe("");
+    expect(box.getAttribute("aria-invalid")).toBe("true");
+    expect(box.getAttribute("aria-describedby")).toBe(whileIn[0].id);
+
+    act(() => box.blur());
+
+    expect(box.value).toBe("0.40");
+    expect(slider.getAttribute("aria-valuenow")).toBe("0.4");
+    const after = document.querySelectorAll('[data-slot="exercise-weight-error"]');
+    expect(after).toHaveLength(1);
+    expect(after[0].textContent).toBe("Those weights were not accepted.");
+    expect(box.getAttribute("aria-invalid")).toBe("true");
+    expect(box.getAttribute("aria-describedby")).toBe(after[0].id);
+    // Leaving the box does not resend the refused number.
+    expect(onChange).toHaveBeenCalledTimes(1);
+  });
+
+  it("sends one weights request for a whole pointer drag, not one per move", () => {
+    // #251 review M5: a drag that commits on every tick must fail here. The
+    // queue would hide a per-tick commit behind the first request, so the
+    // first request is also settled and must not be followed by another.
+    const proto = Element.prototype as unknown as Record<string, unknown>;
+    const saved = {
+      set: proto.setPointerCapture,
+      release: proto.releasePointerCapture,
+      has: proto.hasPointerCapture,
+      rect: proto.getBoundingClientRect,
+    };
+    proto.setPointerCapture = vi.fn();
+    proto.releasePointerCapture = vi.fn();
+    proto.hasPointerCapture = vi.fn(() => true);
+    // jsdom has no PointerEvent, so `clientX` would be dropped from the init.
+    class TestPointerEvent extends MouseEvent {
+      readonly pointerId: number;
+      constructor(type: string, init: PointerEventInit = {}) {
+        super(type, init);
+        this.pointerId = init.pointerId ?? 0;
+      }
+    }
+    vi.stubGlobal("PointerEvent", TestPointerEvent);
+    proto.getBoundingClientRect = () =>
+      ({ left: 0, top: 0, right: 100, bottom: 44, width: 100, height: 44, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+    try {
+      const onChange = vi.fn();
+      const { rerender } = render(
+        <WeightsControls factorLabels={LABELS} weights={WEIGHTS} onChange={onChange} />,
+      );
+      const root = screen
+        .getByRole("textbox", { name: "same major" })
+        .closest('[data-slot="ce-weight-slider"]')
+        ?.querySelector("[data-dragging]") as HTMLElement;
+
+      fireEvent.pointerDown(root, { pointerId: 1, button: 0, clientX: 50 });
+      for (const clientX of [55, 60, 65, 70]) {
+        fireEvent.pointerMove(root, { pointerId: 1, clientX });
+      }
+      expect(onChange).not.toHaveBeenCalled();
+      fireEvent.pointerUp(root, { pointerId: 1, clientX: 70 });
+
+      expect(onChange).toHaveBeenCalledTimes(1);
+      expect(onChange).toHaveBeenLastCalledWith({ ...WEIGHTS, same_major: 0.7 });
+
+      rerender(
+        <WeightsControls
+          factorLabels={LABELS}
+          weights={{ ...WEIGHTS, same_major: 0.7 }}
+          onChange={onChange}
+        />,
+      );
+      expect(onChange).toHaveBeenCalledTimes(1);
+    } finally {
+      proto.setPointerCapture = saved.set;
+      proto.releasePointerCapture = saved.release;
+      proto.hasPointerCapture = saved.has;
+      proto.getBoundingClientRect = saved.rect;
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("shows a spinner beside the weight being rebuilt, and keeps every control live", () => {
     render(<WeightsControls factorLabels={LABELS} weights={WEIGHTS} onChange={vi.fn()} />);
     fireEvent.keyDown(screen.getByRole("slider", { name: "same major" }), { key: "ArrowRight" });
