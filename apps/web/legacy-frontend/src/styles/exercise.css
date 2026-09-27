@@ -1,0 +1,324 @@
+/*
+ * Class exercise design tokens — "The invitation desk".
+ *
+ * Source: docs/design/class-exercise/DESIGN.md §3 (tokens) and §3.9 (browser
+ * surfaces). Every token is scoped to `.ce-root` — the wrapper
+ * `ExerciseScreen` renders — so no CBA screen can see or inherit one. Colour
+ * values are mirrored in `src/app/pages/exercise/desk/tokens.ts`; a test keeps
+ * the two identical and proves every text pair reaches 4.5:1.
+ *
+ * Tailwind utilities (`bg-ce-page`, `text-ce-ink`, `rounded-ce-card`,
+ * `shadow-ce-1`, `p-ce-5`, `ease-ce-out`, `font-ce-serif`…) are mapped at the
+ * bottom with `@theme inline`; they resolve only inside `.ce-root`.
+ */
+
+.ce-root {
+  /* §3.1 colour, light */
+  --ce-page: #f8f6f1;
+  --ce-surface: #ffffff;
+  --ce-surface-sunk: #f2eee8;
+  --ce-ink: #163229;
+  --ce-ink-muted: #59665f;
+  --ce-primary: #005030;
+  --ce-on-primary: #ffffff;
+  --ce-primary-tint: #d9eadf;
+  --ce-on-primary-tint: #003d24;
+  --ce-gold: #ffb81c;
+  --ce-on-gold: #17352a;
+  --ce-gold-tint: #fff1cc;
+  --ce-gold-ink: #7a5200;
+  --ce-avocado: #a4d65e;
+  --ce-avocado-tint: #e8f2d8;
+  --ce-bay: #cfbab0;
+  --ce-seat-taken: #8c6d62;
+  --ce-line: #d9cbc4;
+  --ce-line-strong: #8f7a70;
+  --ce-danger: #ba1a1a;
+  --ce-on-danger: #ffffff;
+  --ce-scrim: rgba(16, 37, 29, 0.48);
+
+  /* §3.7 elevation, light */
+  --ce-elev-0: none;
+  --ce-elev-1: 0 1px 2px rgba(22, 50, 41, 0.06), 0 4px 12px rgba(22, 50, 41, 0.06);
+  --ce-elev-2: 0 2px 4px rgba(22, 50, 41, 0.06), 0 12px 28px rgba(0, 80, 48, 0.1);
+  --ce-elev-3: 0 8px 16px rgba(22, 50, 41, 0.08), 0 24px 60px rgba(0, 80, 48, 0.16);
+}
+
+.dark .ce-root,
+.ce-root.dark {
+  /* §3.2 colour, dark */
+  --ce-page: #10251d;
+  --ce-surface: #173228;
+  --ce-surface-sunk: #244237;
+  --ce-ink: #f2eee8;
+  --ce-ink-muted: #cfc5be;
+  --ce-primary: #a4d65e;
+  --ce-on-primary: #10251d;
+  --ce-primary-tint: #315343;
+  --ce-on-primary-tint: #f2eee8;
+  --ce-gold: #ffb81c;
+  --ce-on-gold: #10251d;
+  --ce-gold-tint: #3a3420;
+  --ce-gold-ink: #ffd37a;
+  --ce-avocado: #a4d65e;
+  --ce-avocado-tint: #29473b;
+  --ce-bay: #cfbab0;
+  --ce-seat-taken: #b89a8e;
+  --ce-line: #496257;
+  --ce-line-strong: #8fa89c;
+  --ce-danger: #ffb4ab;
+  --ce-on-danger: #690005;
+  --ce-scrim: rgba(0, 0, 0, 0.6);
+
+  /* §3.7: same offsets, one shadow colour */
+  --ce-elev-1: 0 1px 2px rgba(0, 0, 0, 0.35), 0 4px 12px rgba(0, 0, 0, 0.35);
+  --ce-elev-2: 0 2px 4px rgba(0, 0, 0, 0.35), 0 12px 28px rgba(0, 0, 0, 0.35);
+  --ce-elev-3: 0 8px 16px rgba(0, 0, 0, 0.35), 0 24px 60px rgba(0, 0, 0, 0.35);
+}
+
+.ce-root {
+  /* §3.3 chart and seat colours — aliases, so they follow the mode. */
+  --ce-series-invited-fill: var(--ce-primary-tint);
+  --ce-series-invited-stroke: var(--ce-primary);
+  --ce-series-signed-fill: var(--ce-gold);
+  --ce-series-signed-stroke: var(--ce-gold-ink);
+  --ce-series-attended-fill: var(--ce-primary);
+  --ce-series-attended-stroke: var(--ce-primary);
+  --ce-seat-added: var(--ce-primary);
+  --ce-seat-added-mark: var(--ce-on-primary);
+  --ce-seat-open-outline: var(--ce-line-strong);
+
+  /* §3.4 type — families from fonts.css; fallbacks declared there. */
+  --ce-font-display: var(--font-headline);
+  --ce-font-serif: var(--font-subhead);
+  --ce-font-body: var(--font-body);
+
+  /* §3.4 sizes, 390 first; the ≥768px block below swaps in desktop sizes. */
+  --ce-type-display: 700 48px/52px var(--ce-font-display);
+  --ce-type-h1: 600 32px/38px var(--ce-font-display);
+  --ce-type-h2: 600 26px/32px var(--ce-font-serif);
+  --ce-type-h3: 600 21px/28px var(--ce-font-serif);
+  --ce-type-lead: 400 18px/28px var(--ce-font-body);
+  --ce-type-body: 400 17px/26px var(--ce-font-body);
+  --ce-type-reason: 400 16px/24px var(--ce-font-serif);
+  --ce-type-label: 600 16px/22px var(--ce-font-body);
+  --ce-type-meta: 500 15px/22px var(--ce-font-body);
+  --ce-type-rank: 700 22px/26px var(--ce-font-display);
+  --ce-type-value: 700 18px/24px var(--ce-font-body);
+
+  /* §3.5 spacing, 4px base */
+  --ce-space-1: 4px;
+  --ce-space-2: 8px;
+  --ce-space-3: 12px;
+  --ce-space-4: 16px;
+  --ce-space-5: 24px;
+  --ce-space-6: 32px;
+  --ce-space-7: 48px;
+  --ce-space-8: 64px;
+  --ce-space-9: 96px;
+
+  /* §3.6 radius */
+  --ce-radius-seat: 4px;
+  --ce-radius-control: 10px;
+  --ce-radius-card: 14px;
+  --ce-radius-sheet: 18px;
+  --ce-radius-pill: 999px;
+
+  /* §3.8 layout grid, 390 first */
+  --ce-columns: 4;
+  --ce-gutter: 16px;
+  --ce-margin: 16px;
+  --ce-max-content: 1152px;
+  --ce-target: 44px;
+
+  /* §6.3 control heights */
+  --ce-control-height: 48px;
+}
+
+@media (min-width: 768px) {
+  .ce-root {
+    --ce-type-display: 700 72px/76px var(--ce-font-display);
+    --ce-type-h1: 600 48px/56px var(--ce-font-display);
+    --ce-type-h2: 600 32px/40px var(--ce-font-serif);
+    --ce-type-h3: 600 24px/32px var(--ce-font-serif);
+    --ce-type-lead: 400 22px/34px var(--ce-font-body);
+    --ce-type-body: 400 20px/30px var(--ce-font-body);
+    --ce-type-reason: 400 18px/28px var(--ce-font-serif);
+    --ce-type-label: 600 18px/24px var(--ce-font-body);
+    --ce-type-meta: 500 16px/24px var(--ce-font-body);
+    --ce-type-rank: 700 28px/32px var(--ce-font-display);
+    --ce-type-value: 700 22px/28px var(--ce-font-body);
+
+    --ce-columns: 8;
+    --ce-gutter: 20px;
+    --ce-margin: 32px;
+    --ce-control-height: 56px;
+  }
+}
+
+@media (min-width: 1024px) {
+  .ce-root {
+    --ce-columns: 12;
+    --ce-gutter: 24px;
+    --ce-margin: 40px;
+  }
+}
+
+@media (min-width: 1280px) {
+  .ce-root {
+    --ce-margin: 64px;
+  }
+}
+
+/* §3.9 focus ring. Unlayered on purpose: it beats every utility, so no page
+   class can thin or remove it. */
+.ce-root :focus-visible {
+  outline: 3px solid var(--ce-primary);
+  outline-offset: 3px;
+}
+
+/* The CPP logo. The only asset is a green wordmark on transparent, which all
+   but vanishes on the dark page, so dark mode sets it on an eggwhite plate
+   (CPP Eggwhite, the brand's own paper): the logo itself is never recoloured.
+   Wordmark #005030 on #F2EEE8 is 8.9:1; the plate on #10251D is 13.9:1. */
+.ce-root .ce-logo {
+  display: inline-flex;
+  align-self: flex-start;
+}
+
+.dark .ce-root .ce-logo {
+  background-color: var(--cpp-eggwhite);
+  border-radius: var(--ce-radius-control);
+  padding: var(--ce-space-2) var(--ce-space-3);
+}
+
+/* A heading that receives focus on a route change is not a control and is
+   not in the tab order; Chrome marks programmatic focus as :focus-visible,
+   which would ring every page title on load. */
+.ce-root h1[tabindex="-1"]:focus {
+  outline: none;
+}
+
+@layer base {
+  .ce-root {
+    background-color: var(--ce-page);
+    color: var(--ce-ink);
+    caret-color: var(--ce-primary);
+    font: var(--ce-type-body);
+  }
+
+  .ce-root ::selection {
+    background-color: var(--ce-gold-tint);
+    color: var(--ce-ink);
+  }
+
+  .ce-root a {
+    text-decoration-line: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 4px;
+    text-decoration-color: var(--ce-primary);
+  }
+
+  .ce-root a:hover {
+    text-decoration-thickness: 2px;
+  }
+}
+
+@layer components {
+  /* §3.4 type roles. `font` resets numeric variants, so tabular figures are
+     re-applied after it where numbers are the content. */
+  .ce-type-display { font: var(--ce-type-display); letter-spacing: 0; font-variant-numeric: tabular-nums; }
+  .ce-type-h1 { font: var(--ce-type-h1); letter-spacing: 0; }
+  .ce-type-h2 { font: var(--ce-type-h2); letter-spacing: -0.01em; }
+  .ce-type-h3 { font: var(--ce-type-h3); letter-spacing: -0.01em; }
+  .ce-type-lead { font: var(--ce-type-lead); letter-spacing: 0; }
+  .ce-type-body { font: var(--ce-type-body); letter-spacing: 0; }
+  .ce-type-reason { font: var(--ce-type-reason); letter-spacing: 0; }
+  .ce-type-label { font: var(--ce-type-label); letter-spacing: 0.01em; }
+  .ce-type-meta { font: var(--ce-type-meta); letter-spacing: 0.01em; }
+  .ce-type-rank { font: var(--ce-type-rank); letter-spacing: 0; font-variant-numeric: tabular-nums; }
+  .ce-type-value { font: var(--ce-type-value); letter-spacing: 0; font-variant-numeric: tabular-nums; }
+  .ce-tabular { font-variant-numeric: tabular-nums; }
+  .ce-measure { max-width: 72ch; }
+
+  /* §3.8 layout: a centred content column with the width's side margin. */
+  .ce-container {
+    box-sizing: border-box;
+    width: 100%;
+    max-width: calc(var(--ce-max-content) + 2 * var(--ce-margin));
+    margin-inline: auto;
+    padding-inline: var(--ce-margin);
+  }
+
+  .ce-grid {
+    display: grid;
+    grid-template-columns: repeat(var(--ce-columns), minmax(0, 1fr));
+    column-gap: var(--ce-gutter);
+  }
+
+  /* §3.9 scrollbars inside wide tables. */
+  .ce-scroll-x {
+    overflow-x: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--ce-line-strong) var(--ce-surface-sunk);
+  }
+
+  /* §3.7: a card has a shadow or a border, never both. */
+  .ce-card {
+    background-color: var(--ce-surface);
+    border-radius: var(--ce-radius-card);
+    box-shadow: var(--ce-elev-1);
+  }
+}
+
+@theme inline {
+  --color-ce-page: var(--ce-page);
+  --color-ce-surface: var(--ce-surface);
+  --color-ce-surface-sunk: var(--ce-surface-sunk);
+  --color-ce-ink: var(--ce-ink);
+  --color-ce-ink-muted: var(--ce-ink-muted);
+  --color-ce-primary: var(--ce-primary);
+  --color-ce-on-primary: var(--ce-on-primary);
+  --color-ce-primary-tint: var(--ce-primary-tint);
+  --color-ce-on-primary-tint: var(--ce-on-primary-tint);
+  --color-ce-gold: var(--ce-gold);
+  --color-ce-on-gold: var(--ce-on-gold);
+  --color-ce-gold-tint: var(--ce-gold-tint);
+  --color-ce-gold-ink: var(--ce-gold-ink);
+  --color-ce-avocado: var(--ce-avocado);
+  --color-ce-avocado-tint: var(--ce-avocado-tint);
+  --color-ce-bay: var(--ce-bay);
+  --color-ce-seat-taken: var(--ce-seat-taken);
+  --color-ce-line: var(--ce-line);
+  --color-ce-line-strong: var(--ce-line-strong);
+  --color-ce-danger: var(--ce-danger);
+  --color-ce-on-danger: var(--ce-on-danger);
+  --color-ce-scrim: var(--ce-scrim);
+
+  --font-ce-display: var(--ce-font-display);
+  --font-ce-serif: var(--ce-font-serif);
+  --font-ce-body: var(--ce-font-body);
+
+  --spacing-ce-1: var(--ce-space-1);
+  --spacing-ce-2: var(--ce-space-2);
+  --spacing-ce-3: var(--ce-space-3);
+  --spacing-ce-4: var(--ce-space-4);
+  --spacing-ce-5: var(--ce-space-5);
+  --spacing-ce-6: var(--ce-space-6);
+  --spacing-ce-7: var(--ce-space-7);
+  --spacing-ce-8: var(--ce-space-8);
+  --spacing-ce-9: var(--ce-space-9);
+  --spacing-ce-target: var(--ce-target);
+  --spacing-ce-control: var(--ce-control-height);
+
+  --radius-ce-seat: var(--ce-radius-seat);
+  --radius-ce-control: var(--ce-radius-control);
+  --radius-ce-card: var(--ce-radius-card);
+  --radius-ce-sheet: var(--ce-radius-sheet);
+  --radius-ce-pill: var(--ce-radius-pill);
+
+  --shadow-ce-0: var(--ce-elev-0);
+  --shadow-ce-1: var(--ce-elev-1);
+  --shadow-ce-2: var(--ce-elev-2);
+  --shadow-ce-3: var(--ce-elev-3);
+}
