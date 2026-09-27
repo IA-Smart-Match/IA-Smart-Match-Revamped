@@ -63,6 +63,19 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+describe("<UnlockPanel /> lock chips", () => {
+  it("read exactly as §11.1: no trailing full stop", async () => {
+    stub();
+    renderPanel();
+    const open = (await screen.findByText("Northline Analytics")).closest("li") as HTMLElement;
+    const closed = (await harborRow()) as HTMLElement;
+    expect(within(open).getByText("Results are open")).toBeDefined();
+    expect(within(closed).getByText("Results are closed")).toBeDefined();
+    expect(open.textContent).not.toContain("Results are open.");
+    expect(closed.textContent).not.toContain("Results are closed.");
+  });
+});
+
 describe("<UnlockPanel /> asks before it opens results", () => {
   it("sends no unlock on the first press, and asks in the §11.1 words", async () => {
     stub();
@@ -87,7 +100,11 @@ describe("<UnlockPanel /> asks before it opens results", () => {
     fireEvent.click(within(row).getByRole("button", { name: /^open results now$/i }));
 
     await waitFor(() => expect(unlockPosts()).toBe(1));
-    await waitFor(() => expect((screen.getByText("Harbor Consumer Brands").closest("li") as HTMLElement).textContent).toContain("Results are open"));
+    await waitFor(() =>
+      expect(screen.getByText("Harbor Consumer Brands").closest("li")?.textContent).toContain(
+        "Results are open",
+      ),
+    );
     expect(unlockPosts()).toBe(1);
     const unlock = calls.find((call) => call.url.includes("/unlock"));
     expect(unlock?.url).toBe(`${EVENTS}/harbor/unlock?dataset_id=${TEAMS_FILE}`);

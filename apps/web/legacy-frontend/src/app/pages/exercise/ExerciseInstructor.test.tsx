@@ -292,8 +292,8 @@ describe("<ExerciseInstructor />", () => {
 
     const roundTwo = (await screen.findByText("Round two")).closest("li");
     const roundOne = screen.getByText("Round one").closest("li");
-    expect(roundTwo?.textContent).toContain("Results are open.");
-    expect(roundOne?.textContent).not.toContain("Results are open.");
+    expect(roundTwo?.textContent).toContain("Results are open");
+    expect(roundOne?.textContent).not.toContain("Results are open");
     expect(roundOne?.querySelector("button")?.textContent).toBe("Open results");
   });
 
@@ -315,7 +315,7 @@ describe("<ExerciseInstructor />", () => {
 
     await waitFor(() =>
       expect(screen.getByText("Round two").closest("li")?.textContent).toContain(
-        "Results are open.",
+        "Results are open",
       ),
     );
     const unlock = calls.find((call) => call.url.includes("/unlock"));
