@@ -177,6 +177,21 @@
   outline-offset: 3px;
 }
 
+/* The CPP logo. The only asset is a green wordmark on transparent, which all
+   but vanishes on the dark page, so dark mode sets it on an eggwhite plate
+   (CPP Eggwhite, the brand's own paper): the logo itself is never recoloured.
+   Wordmark #005030 on #F2EEE8 is 8.9:1; the plate on #10251D is 13.9:1. */
+.ce-root .ce-logo {
+  display: inline-flex;
+  align-self: flex-start;
+}
+
+.dark .ce-root .ce-logo {
+  background-color: var(--cpp-eggwhite);
+  border-radius: var(--ce-radius-control);
+  padding: var(--ce-space-2) var(--ce-space-3);
+}
+
 /* A heading that receives focus on a route change is not a control and is
    not in the tab order; Chrome marks programmatic focus as :focus-visible,
    which would ring every page title on load. */
