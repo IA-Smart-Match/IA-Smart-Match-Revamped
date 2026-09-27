@@ -39,7 +39,10 @@ import {
   type ExerciseScopeFacts,
   type TeamWorkspaceView,
 } from "../../../lib/exerciseClient";
-import { ExerciseLoading, ExerciseNotice, ExerciseScreen } from "./ExerciseScreen";
+import { cn } from "../../components/ui/utils";
+import { Button, Skeleton, SkeletonRegion } from "./desk";
+import { LectureHallArt, TeamBadgeArt } from "./ExerciseEntryArt";
+import { ExerciseNotice, ExerciseScreen } from "./ExerciseScreen";
 import { useExerciseResource } from "./useExerciseResource";
 import { clearWorkspacePointer, readWorkspacePointer, writeWorkspacePointer } from "./workspacePointer";
 
@@ -49,6 +52,11 @@ import { clearWorkspacePointer, readWorkspacePointer, writeWorkspacePointer } fr
  */
 export const EXERCISE_LICENSE_LINE =
   "For California State Polytechnic University, Pomona — College of Business Administration instructional use only. All student profiles are fictional.";
+
+/** The room's question and the brief, as the opening title (DESIGN.md §7.1, §11.1). */
+export const OPENING_TITLE = "Who should we invite?";
+export const OPENING_LEAD =
+  "Your team is promoting a campus career event with 60 seats. Choose whom to invite, see what happened, then try again.";
 
 /** Where a team goes once it is in. */
 export const EVENT_PICKER_PATH = "/exercise/events";
@@ -81,38 +89,78 @@ async function loadEntry(signal: AbortSignal): Promise<EntryData> {
   }
 }
 
+/** The sentence under "Which team are you?"; also why the open button waits. */
+const TEAM_HELPER = "Pick your team's number. Your team's saved work is kept under that number.";
+const TEAM_HELPER_ID = "exercise-team-helper";
+const TEAM_HEADING_ID = "exercise-team-heading";
+
+/**
+ * The opening screen (DESIGN.md §7.1) above the team entry (§7.2).
+ *
+ * Top zone: the room's question as the one `h1`, the brief as the lead, then
+ * the license line in a quiet sunk card beside the lecture-hall shape (the
+ * shape is desktop only). Lower zone: "Which team are you?", the tiles, and
+ * the one primary button. The license card sits outside the state switch, so
+ * it shows while loading, refused, unreachable and ready alike.
+ */
 export function ExerciseEntry(): React.JSX.Element {
   const { state, reload } = useExerciseResource(loadEntry, []);
 
   return (
-    <ExerciseScreen
-      title="Which team are you?"
-      intro="Pick your team's number. Your team's saved work is kept under that number."
-    >
-      {state.status === "loading" ? <ExerciseLoading what="the exercise" /> : null}
-      {state.status === "refused" ? (
-        <ExerciseNotice message={state.refusal.message} />
-      ) : null}
-      {state.status === "unreachable" ? (
-        <ExerciseNotice message={state.message} tone="problem">
-          <button type="button" onClick={reload} className={RETRY_CLASS}>
-            Try again
-          </button>
-        </ExerciseNotice>
-      ) : null}
-      {state.status === "ready" ? <EntryForm data={state.data} /> : null}
-      <p
-        className="text-lg text-slate-700 dark:text-slate-200"
-        data-slot="exercise-license-line"
+    <ExerciseScreen title={OPENING_TITLE} intro={OPENING_LEAD}>
+      <div className="ce-grid items-center gap-y-ce-5">
+        <p
+          className="ce-type-body col-span-4 rounded-ce-card bg-ce-surface-sunk p-ce-4 text-ce-ink md:col-span-8 md:p-ce-5 lg:col-span-7"
+          data-slot="exercise-license-line"
+        >
+          {EXERCISE_LICENSE_LINE}
+        </p>
+        <div className="hidden justify-center lg:col-span-5 lg:flex">
+          <LectureHallArt className="h-auto w-[160px] text-ce-primary" />
+        </div>
+      </div>
+
+      <section
+        aria-labelledby={TEAM_HEADING_ID}
+        className="mt-ce-2 flex flex-col gap-ce-5 border-t border-ce-line pt-ce-6 md:mt-ce-4 md:pt-ce-7"
       >
-        {EXERCISE_LICENSE_LINE}
-      </p>
+        <div className="flex flex-col gap-ce-2">
+          <h2 id={TEAM_HEADING_ID} className="ce-type-h2 text-ce-ink">
+            Which team are you?
+          </h2>
+          <p id={TEAM_HELPER_ID} className="ce-type-body ce-measure text-ce-ink-muted">
+            {TEAM_HELPER}
+          </p>
+        </div>
+        {state.status === "loading" ? <TileSkeletons /> : null}
+        {state.status === "refused" ? <ExerciseNotice message={state.refusal.message} /> : null}
+        {state.status === "unreachable" ? (
+          <ExerciseNotice message={state.message} tone="problem">
+            <Button variant="secondary" onClick={reload}>
+              Try again
+            </Button>
+          </ExerciseNotice>
+        ) : null}
+        {state.status === "ready" ? <EntryForm data={state.data} /> : null}
+      </section>
     </ExerciseScreen>
   );
 }
 
-const RETRY_CLASS =
-  "rounded-lg border-2 border-slate-400 px-5 py-2 text-xl font-semibold text-slate-800 hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-offset-2 dark:border-slate-500 dark:text-slate-100 dark:hover:bg-slate-800";
+/** §6.4 L: six tile-shaped blocks, with the stated loading line. */
+function TileSkeletons(): React.JSX.Element {
+  return (
+    <SkeletonRegion label="Loading the exercise…">
+      <div className="grid w-fit grid-cols-3 gap-ce-4 md:flex md:flex-wrap">
+        {Array.from({ length: 6 }, (_, index) => (
+          <div key={index} data-slot="exercise-team-tile-skeleton">
+            <Skeleton className="size-24 rounded-ce-card lg:size-28" />
+          </div>
+        ))}
+      </div>
+    </SkeletonRegion>
+  );
+}
 
 function EntryForm({ data }: { readonly data: EntryData }): React.JSX.Element {
   const navigate = useNavigate();
@@ -149,59 +197,157 @@ function EntryForm({ data }: { readonly data: EntryData }): React.JSX.Element {
     }
   }
 
+  const chosen = selected !== null;
+
   return (
-    <form onSubmit={submit} className="flex flex-col gap-6">
-      <fieldset className="border-0 p-0">
-        <legend className="text-2xl font-semibold text-slate-900 dark:text-slate-50">
-          Team number
-        </legend>
-        <div className="mt-4 flex flex-wrap gap-3">
+    <form onSubmit={submit} className="flex flex-col gap-ce-5 md:w-fit">
+      {/* The h2 above is the visible question; the legend keeps the group's
+          spoken name as it was. Native radios sharing a name give the arrow
+          keys (§8.4) for free. */}
+      <fieldset className="m-0 min-w-0 border-0 p-0">
+        <legend className="sr-only">Team number</legend>
+        <div className="grid w-fit grid-cols-3 gap-ce-4 md:flex md:flex-wrap">
           {teamNumbers.map((number) => (
-            <label
+            <TeamTile
               key={number}
-              className={`flex h-20 w-20 cursor-pointer items-center justify-center rounded-lg border-4 text-3xl font-bold focus-within:outline-2 focus-within:outline-offset-2 ${
-                selected === number
-                  ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
-                  : "border-slate-400 text-slate-800 hover:bg-slate-100 dark:border-slate-500 dark:text-slate-100 dark:hover:bg-slate-800"
-              }`}
-            >
-              <input
-                type="radio"
-                name="team_number"
-                value={number}
-                checked={selected === number}
-                onChange={() => setSelected(number)}
-                // The accessible name is stated rather than inherited from the
-                // label's text. The label holds both the big projected numeral
-                // and a visually-hidden word, so an inherited name read out as
-                // "4 Team 4".
-                aria-label={`Team ${number}`}
-                className="sr-only"
-              />
-              <span aria-hidden="true">{number}</span>
-            </label>
+              number={number}
+              selected={selected === number}
+              pending={pending}
+              onSelect={setSelected}
+            />
           ))}
         </div>
       </fieldset>
 
       {data.workspace === null ? null : (
-        <p className="text-xl text-slate-700 dark:text-slate-200" data-slot="exercise-entry-current">
-          This browser is already in team {data.workspace.team_number}, working in{" "}
-          <strong>{data.workspace.dataset_label}</strong>.
-        </p>
+        // `md:w-0 md:min-w-full`: fill the tile row's width without widening
+        // it, so the button below still lines up with the last tile.
+        <div className="flex items-center gap-ce-3 md:w-0 md:min-w-full">
+          <TeamBadgeArt className="size-8 shrink-0 text-ce-primary" />
+          <p className="ce-type-body text-ce-ink" data-slot="exercise-entry-current">
+            This browser is already in team {data.workspace.team_number}, working in{" "}
+            <strong>{data.workspace.dataset_label}</strong>.
+          </p>
+        </div>
       )}
 
-      {refusal === null ? null : <ExerciseNotice message={refusal} />}
+      {refusal === null ? null : (
+        <div className="md:w-0 md:min-w-full">
+          <ExerciseNotice message={refusal} />
+        </div>
+      )}
 
-      <div>
-        <button
+      {/* §7.2: right-aligned under the tiles on desktop; on a phone, full width
+          and pinned to the bottom safe area once a tile is chosen. */}
+      <div
+        data-slot="exercise-entry-actions"
+        data-sticky={chosen ? "true" : undefined}
+        className={cn(
+          "flex md:justify-end",
+          chosen &&
+            "max-md:sticky max-md:bottom-0 max-md:z-10 max-md:-mx-ce-4 max-md:border-t max-md:border-ce-line max-md:bg-ce-page max-md:px-ce-4 max-md:pt-ce-3 max-md:pb-[max(var(--ce-space-4),env(safe-area-inset-bottom))]",
+        )}
+      >
+        <Button
           type="submit"
-          disabled={selected === null || pending}
-          className="rounded-lg border-2 border-slate-900 bg-slate-900 px-8 py-4 text-2xl font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
+          pending={pending}
+          pendingLabel="Opening your team's work…"
+          disabled={!chosen}
+          describedBy={chosen ? undefined : TEAM_HELPER_ID}
+          className="w-full md:w-auto"
         >
-          {pending ? "Opening your team's work…" : "Open this team's work"}
-        </button>
+          Open this team's work
+        </Button>
       </div>
     </form>
+  );
+}
+
+/** Below `md`: the exact complement of Tailwind's `md` (`width >= 48rem`). */
+const PHONE_QUERY = "(width < 48rem)";
+
+/**
+ * On a phone, choosing a tile pins the open bar to the bottom of the screen,
+ * which can cover the lower row of tiles. Scroll the chosen tile just far
+ * enough to clear it (its `scroll-margin-bottom` is the bar's height).
+ * Wider screens never pin the bar, so the page stays where it is.
+ */
+function revealAbovePhoneBar(tile: HTMLElement | null): void {
+  if (
+    tile === null ||
+    typeof window.matchMedia !== "function" ||
+    typeof tile.scrollIntoView !== "function" ||
+    !window.matchMedia(PHONE_QUERY).matches
+  ) {
+    return;
+  }
+  tile.scrollIntoView({ block: "nearest" });
+}
+
+/**
+ * One numbered place card (§6.4). The radio is visually hidden inside its
+ * label; the label draws the card, the ring (focus-within) and the states.
+ */
+function TeamTile({
+  number,
+  selected,
+  pending,
+  onSelect,
+}: {
+  readonly number: number;
+  readonly selected: boolean;
+  readonly pending: boolean;
+  readonly onSelect: (number: number) => void;
+}): React.JSX.Element {
+  const tile = React.useRef<HTMLLabelElement>(null);
+
+  function choose(): void {
+    onSelect(number);
+    revealAbovePhoneBar(tile.current);
+  }
+
+  return (
+    <label
+      ref={tile}
+      data-selected={selected ? "true" : undefined}
+      data-pending={pending ? "true" : undefined}
+      className={cn(
+        "ce-press relative flex size-24 cursor-pointer items-center justify-center overflow-hidden rounded-ce-card lg:size-28",
+        // Room for the sticky open bar (48px button + 12 + 16 padding + 1px
+        // rule = 77px) plus air, so `scrollIntoView` stops above it.
+        "max-md:scroll-mb-[96px]",
+        "font-ce-display text-[44px] leading-none font-bold tabular-nums",
+        "has-[:focus-visible]:outline-[3px] has-[:focus-visible]:outline-offset-[3px] has-[:focus-visible]:outline-ce-primary has-[:focus-visible]:outline-solid",
+        selected
+          ? "bg-ce-primary text-ce-on-primary shadow-ce-2"
+          : "ce-lift bg-ce-surface text-ce-ink shadow-ce-1 hover:text-ce-primary",
+        pending && "opacity-60",
+      )}
+    >
+      <input
+        type="radio"
+        name="team_number"
+        value={number}
+        checked={selected}
+        onChange={choose}
+        // Tab or Shift+Tab onto the already-chosen tile fires no change, so
+        // focus clears the bar too.
+        onFocus={() => revealAbovePhoneBar(tile.current)}
+        // The accessible name is stated rather than inherited from the
+        // label's text. The label holds both the big projected numeral
+        // and a visually-hidden word, so an inherited name read out as
+        // "4 Team 4".
+        aria-label={`Team ${number}`}
+        className="sr-only"
+      />
+      <span aria-hidden="true">{number}</span>
+      {selected ? (
+        <span
+          aria-hidden="true"
+          data-slot="exercise-team-tile-notch"
+          className="absolute top-0 right-0 size-0 border-t-[18px] border-l-[18px] border-t-ce-gold border-l-transparent"
+        />
+      ) : null}
+    </label>
   );
 }

@@ -830,6 +830,7 @@ labels and the license line are unchanged and not listed.
 | Ribbon prefix (every screen) | "Fictional data —" |
 | Opening `h1` | "Who should we invite?" |
 | Opening lead | "Your team is promoting a campus career event with 60 seats. Choose whom to invite, see what happened, then try again." |
+| Event picker, 390 past-events disclosure | "Show the {n} past events" / "Show the 1 past event" (same label when expanded) |
 | Matching, slider note | "The list is rebuilt when you let go of a slider or press Enter." |
 | Matching, 390 sticky bar | "Weights 0.40 · 0.25 · 0.25 · 0.10" and "Edit weights" |
 | Saved settings, field label | "Name these weights" (was "Call these weights") |
