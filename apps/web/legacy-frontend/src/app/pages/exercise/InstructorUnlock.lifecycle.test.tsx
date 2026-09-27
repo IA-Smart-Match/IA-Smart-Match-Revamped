@@ -9,7 +9,7 @@
  *   row rather than to `<body>` (§8.5).
  * - A second press while the unlock is in flight sends nothing.
  */
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { UnlockPanel } from "./InstructorUnlock";
@@ -189,6 +189,57 @@ describe("<UnlockPanel /> keeps focus in the row", () => {
   });
 });
 
+describe("<UnlockPanel /> never takes focus from outside the row", () => {
+  function withOutside(reloadKey: number): React.JSX.Element {
+    return (
+      <>
+        <button type="button">Somewhere else</button>
+        {panel(reloadKey)}
+      </>
+    );
+  }
+
+  it("leaves focus outside when a re-read closes the confirm", async () => {
+    answers = { [`GET ${EVENTS}`]: list(FIRST_FILE, false) };
+    stub();
+    const { rerender } = render(withOutside(0));
+    await openConfirm();
+    const outside = screen.getByRole("button", { name: "Somewhere else" });
+    outside.focus();
+
+    answers[`GET ${EVENTS}`] = list(SECOND_FILE, false);
+    rerender(withOutside(1));
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: /open results now/i })).toBeNull(),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(document.activeElement).toBe(outside);
+  });
+
+  it("leaves focus outside when the unlock lands after focus has moved away", async () => {
+    const held = gate();
+    answers = {
+      [`GET ${EVENTS}`]: list(FIRST_FILE, false),
+      [`POST ${EVENTS}/harbor/unlock`]: {
+        body: { event_key: "harbor", unlocked: true },
+        gate: held.promise,
+      },
+    };
+    stub();
+    render(withOutside(0));
+    await openConfirm();
+    fireEvent.click(screen.getByRole("button", { name: /^open results now$/i }));
+    const outside = screen.getByRole("button", { name: "Somewhere else" });
+    outside.focus();
+
+    answers[`GET ${EVENTS}`] = list(FIRST_FILE, true);
+    held.open();
+    await waitFor(() => expect(harborRow().textContent).toContain("Results are open"));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(document.activeElement).toBe(outside);
+  });
+});
+
 describe("<UnlockPanel /> sends one unlock per confirm", () => {
   it("ignores a second press while the unlock is in flight", async () => {
     const held = gate();
@@ -203,9 +254,12 @@ describe("<UnlockPanel /> sends one unlock per confirm", () => {
     render(panel(0));
     await openConfirm();
     const confirm = screen.getByRole("button", { name: /^open results now$/i });
-    fireEvent.click(confirm);
-    fireEvent.click(confirm);
-    fireEvent.click(screen.getByRole("button", { name: /opening/i }));
+    // Both presses land before React re-renders, so the Button's own pending
+    // state cannot catch the second one: only the panel's in-flight guard can.
+    act(() => {
+      confirm.click();
+      confirm.click();
+    });
 
     held.open();
     await waitFor(() => expect(unlockPosts()).toHaveLength(1));
