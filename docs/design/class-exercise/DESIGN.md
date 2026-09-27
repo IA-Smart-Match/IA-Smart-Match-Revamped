@@ -531,7 +531,10 @@ idea), numerals in `--ce-primary`. Under it a **ruled figures band**, not
 cards: three columns separated by 1px `--ce-line-strong` rules, each a
 `--ce-type-display` numeral over a label: "Seats in the room 60", "Already
 coming 8", "Still open 46". The "added" figure is the server's
-`team.signed_up_count`; the client never subtracts. The seating chart is
+`team.attended_count`, the number the server computes `seats_empty` from
+(corrected 2026-09-26 in the build: an earlier draft said
+`team.signed_up_count`, which does not add up to `event_seats`); the client
+never subtracts. The seating chart is
 `aria-hidden`; the sentences and the band are the accessible content.
 
 ### 6.16 Results chart

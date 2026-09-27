@@ -26,6 +26,9 @@ import {
   type ExerciseResultsSeries,
 } from "./ExerciseResultsChart";
 import type { ResultPanelView, ResultsView } from "../../../lib/exerciseClient";
+import { RoundJourneyArt } from "./exerciseArt";
+import { useIsNarrow } from "./exerciseUi";
+import { SeatReveal } from "./SeatReveal";
 
 /** `profile_no` → the name the ranked list gives it. */
 export type NamesByProfileNo = ReadonlyMap<number, string>;
@@ -55,59 +58,84 @@ export interface ResultPanelsProps {
   readonly results: ResultsView;
   /** Names for the team's own profile numbers; empty when the list is not loaded. */
   readonly names: NamesByProfileNo;
+  /**
+   * Play the seat fill (`ce-seat-fill`). Only the first render after "Run
+   * results for this event" succeeds passes `true`; every later visit shows
+   * the final state (DESIGN.md §5.1).
+   */
+  readonly reveal?: boolean;
 }
 
-export function ResultPanels({ results, names }: ResultPanelsProps): React.JSX.Element {
+export function ResultPanels({
+  results,
+  names,
+  reveal = false,
+}: ResultPanelsProps): React.JSX.Element {
+  const narrow = useIsNarrow();
+  const roundOne = results.round_one;
   return (
-    <div className="flex flex-col gap-8">
-      <ExerciseResultsChart
-        series={resultsSeries(results)}
-        title={`What happened for ${results.event_name}`}
-        caption={
-          results.round_one === null
-            ? "Your team's list beside contacting all 300."
-            : "Your team's list, contacting all 300, and your team's first round."
+    <div className="flex flex-col gap-8 md:gap-12">
+      {roundOne === null ? null : (
+        // §7.10: the round strip at the top of round two's results.
+        <p className="ce-label flex items-center gap-3 text-ce-ink">
+          <RoundJourneyArt className="h-8 w-16 shrink-0 text-ce-primary" />
+          Round 1 → Round 2 · {results.event_name}
+        </p>
+      )}
+
+      <SeatReveal
+        reveal={reveal}
+        counts={{
+          seats: results.event_seats,
+          alreadyComing: results.existing_signups,
+          added: results.team.attended_count,
+          open: results.seats_empty,
+        }}
+        sentences={seatsSentence(
+          {
+            alreadyComing: results.existing_signups,
+            added: results.team.attended_count,
+            open: results.seats_empty,
+          },
+          "now",
+        )}
+        footnote={
+          roundOne === null
+            ? undefined
+            : `In round one your team's list left ${roundOne.seats_empty} ${
+                roundOne.seats_empty === 1 ? "seat" : "seats"
+              } empty.`
         }
       />
 
-      <section className="flex flex-col gap-4">
-        <p
-          className="text-2xl font-semibold text-slate-900 dark:text-slate-50"
-          data-slot="exercise-seats-sentence"
-        >
-          {seatsSentence(
-            {
-              alreadyComing: results.existing_signups,
-              added: results.team.attended_count,
-              open: results.seats_empty,
-            },
-            "now",
-          )}
-        </p>
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4" data-slot="exercise-seats">
-          <Figure label="Seats in the room" value={results.event_seats} />
-          <Figure label="Already coming" value={results.existing_signups} />
-          <Figure label="Added by your invitations" value={results.team.attended_count} />
-          <Figure label="Seats still open" value={results.seats_empty} />
-        </div>
-      </section>
+      <div className="ce-card p-4 md:p-6">
+        <ExerciseResultsChart
+          variant="exercise"
+          horizontal={narrow}
+          series={resultsSeries(results)}
+          title={`What happened for ${results.event_name}`}
+          caption={
+            roundOne === null
+              ? "Your team's list beside contacting all 300."
+              : "Your team's list, contacting all 300, and your team's first round."
+          }
+        />
+      </div>
 
-      {results.round_one === null ? null : (
-        <section data-slot="exercise-round-one" className="flex flex-col gap-2">
-          <h2 className="text-3xl font-semibold text-slate-900 dark:text-slate-50">
-            Your team's first round
-          </h2>
-          <p className="text-xl text-slate-700 dark:text-slate-200">
-            {results.round_one.setting_name === null
+      {roundOne === null ? null : (
+        <section data-slot="exercise-round-one" className="ce-card flex flex-col gap-2 p-5 md:p-6">
+          <h2 className="ce-h3 text-ce-ink">Your team's first round</h2>
+          <p className="ce-body text-ce-ink">
+            {roundOne.setting_name === null
               ? "Built without a saved setting."
-              : `Built from your team's setting “${results.round_one.setting_name}”.`}{" "}
+              : `Built from your team's setting “${roundOne.setting_name}”.`}{" "}
             {seatsSentence(
               {
                 // Round one carries no `existing_signups` of its own: the case's
                 // existing sign-ups are the same number for both events.
                 alreadyComing: results.existing_signups,
-                added: results.round_one.team.attended_count,
-                open: results.round_one.seats_empty,
+                added: roundOne.team.attended_count,
+                open: roundOne.seats_empty,
               },
               "then",
             )}
@@ -115,28 +143,25 @@ export function ResultPanels({ results, names }: ResultPanelsProps): React.JSX.E
         </section>
       )}
 
-      <section className="flex flex-col gap-4" data-slot="exercise-team-people">
-        <h2 className="text-3xl font-semibold text-slate-900 dark:text-slate-50">
-          The people on your team's list
-        </h2>
-        <PeopleList
-          heading="Invited"
-          profileNos={results.team.invited_profile_nos}
-          names={names}
-        />
-        <PeopleList
-          heading="Signed up"
-          profileNos={results.team.signed_up_profile_nos}
-          names={names}
-        />
-        <PeopleList
-          heading="Attended"
-          profileNos={results.team.attended_profile_nos}
-          names={names}
-        />
-        <p className="text-xl text-slate-600 dark:text-slate-300">
-          Contacting all 300 is shown as counts only.
-        </p>
+      <section className="ce-card flex flex-col gap-5 p-5 md:p-6" data-slot="exercise-team-people">
+        <div className="flex flex-wrap items-baseline justify-between gap-3 border-b border-ce-line pb-4">
+          <h2 className="ce-h2 text-ce-ink">The people on your team's list</h2>
+          <p className="ce-meta text-ce-muted">Contacting all 300 is shown as counts only.</p>
+        </div>
+        <div className="grid gap-6 md:grid-cols-3">
+          <PeopleList heading="Invited" profileNos={results.team.invited_profile_nos} names={names} />
+          <PeopleList
+            heading="Signed up"
+            profileNos={results.team.signed_up_profile_nos}
+            names={names}
+          />
+          <PeopleList
+            heading="Attended"
+            profileNos={results.team.attended_profile_nos}
+            names={names}
+            tint
+          />
+        </div>
       </section>
     </div>
   );
@@ -180,41 +205,32 @@ function openSeats(open: number, tense: "now" | "then"): string {
   return open === 1 ? `1 seat ${verbs.one} still open.` : `${open} seats ${verbs.many} still open.`;
 }
 
-function Figure({
-  label,
-  value,
-}: {
-  readonly label: string;
-  readonly value: number;
-}): React.JSX.Element {
-  return (
-    <div className="rounded-lg border-2 border-slate-300 px-4 py-3 dark:border-slate-600">
-      <p className="text-lg text-slate-600 dark:text-slate-300">{label}</p>
-      <p className="text-4xl font-bold text-slate-900 dark:text-slate-50">{value}</p>
-    </div>
-  );
-}
-
+/** One group of people as name chips (DESIGN.md §6.17). The heading carries the count. */
 function PeopleList({
   heading,
   profileNos,
   names,
+  tint = false,
 }: {
   readonly heading: string;
   readonly profileNos: readonly number[];
   readonly names: NamesByProfileNo;
+  readonly tint?: boolean;
 }): React.JSX.Element {
   return (
-    <div>
-      <h3 className="text-2xl font-semibold text-slate-900 dark:text-slate-50">
-        {heading} ({profileNos.length})
+    <div className="flex min-w-0 flex-col gap-3">
+      <h3 className="ce-label text-ce-ink">
+        {heading} <span className="ce-num font-normal text-ce-muted">({profileNos.length})</span>
       </h3>
       {profileNos.length === 0 ? (
-        <p className="text-xl text-slate-600 dark:text-slate-300">Nobody.</p>
+        <p className="ce-body text-ce-muted">Nobody.</p>
       ) : (
-        <ul className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xl text-slate-800 dark:text-slate-100">
+        <ul className="flex flex-wrap gap-2">
           {profileNos.map((profileNo) => (
-            <li key={profileNo}>
+            <li
+              key={profileNo}
+              className={`ce-chip py-1 ${tint ? "bg-ce-primary-tint text-ce-primary-tint-ink" : "bg-ce-sunk text-ce-ink"}`}
+            >
               {/* The number itself when the list on screen does not name it. */}
               {names.get(profileNo) ?? `Profile ${profileNo}`}
             </li>

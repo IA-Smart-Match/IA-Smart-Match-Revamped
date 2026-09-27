@@ -51,10 +51,23 @@ const TWO_SAVED = {
 
 const NONE_SAVED = { body: { event_key: "northline", settings: [], max_settings: 3 } };
 
-/** Pick the final setting, then press run — the one path to a run now. */
+/**
+ * Pick the final setting, then press run — the one path to a run now. The
+ * picker is a group of radio cards (DESIGN.md §6.13), not a `<select>`.
+ */
 async function runWith(name: string): Promise<void> {
-  fireEvent.change(await screen.findByLabelText(/final setting/i), { target: { value: name } });
+  await screen.findByLabelText(/final setting/i);
+  fireEvent.click(screen.getByRole("radio", { name }));
   fireEvent.click(screen.getByRole("button", { name: /run results/i }));
+}
+
+/** The radio cards' names, in order, and which one is chosen. */
+function finalSettingRadios(): { names: string[]; checked: string[] } {
+  const radios = screen.getAllByRole("radio") as HTMLInputElement[];
+  return {
+    names: radios.map((radio) => radio.getAttribute("aria-label") ?? ""),
+    checked: radios.filter((radio) => radio.checked).map((radio) => radio.value),
+  };
 }
 
 const NOT_RUN = {
@@ -266,13 +279,8 @@ describe("<ExerciseResults />", () => {
     const run = await screen.findByRole("button", { name: /run results/i });
     expect((run as HTMLButtonElement).disabled).toBe(true);
     // Every saved setting is offered, and nothing is chosen for the team.
-    const picker = screen.getByLabelText(/final setting/i) as HTMLSelectElement;
-    expect(Array.from(picker.options).map((option) => option.textContent)).toEqual([
-      "Choose a setting",
-      "Wide net",
-      "Only majors",
-    ]);
-    expect(picker.value).toBe("");
+    expect(screen.getByLabelText(/final setting/i).getAttribute("role")).toBe("radiogroup");
+    expect(finalSettingRadios()).toEqual({ names: ["Wide net", "Only majors"], checked: [] });
 
     await runWith("Only majors");
 
@@ -336,7 +344,7 @@ describe("<ExerciseResults />", () => {
     await waitFor(() =>
       expect(calls.filter((call) => call.url === SETTINGS).length).toBeGreaterThan(1),
     );
-    expect((screen.getByLabelText(/final setting/i) as HTMLSelectElement).value).toBe("");
+    expect(finalSettingRadios().checked).toEqual([]);
     expect(
       (screen.getByRole("button", { name: /run results/i }) as HTMLButtonElement).disabled,
     ).toBe(true);

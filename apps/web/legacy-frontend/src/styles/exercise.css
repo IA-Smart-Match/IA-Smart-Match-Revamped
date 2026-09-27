@@ -529,6 +529,14 @@
   .ce-spin {
     animation: ce-spin 900ms linear infinite;
   }
+  /* ce-seat-fill step 3: each added seat scales 1 → 1.08 → 1. */
+  .ce-seat-pop {
+    animation: ce-seat-pop 300ms var(--ce-ease-out) both;
+  }
+  /* ce-seat-fill step 4: the open outlines brighten once. */
+  .ce-seat-brighten {
+    animation: ce-seat-brighten 400ms var(--ce-ease-in-out) both;
+  }
 
   @media (prefers-reduced-motion: reduce) {
     .ce-lift,
@@ -554,6 +562,11 @@
       opacity: 0.75;
     }
     .ce-confirm-underline {
+      animation: none;
+    }
+    .ce-seat-pop,
+    .ce-seat-brighten,
+    .ce-spin {
       animation: none;
     }
     .ce-range::-webkit-slider-thumb {
@@ -640,6 +653,24 @@
   }
   to {
     transform: scaleX(0);
+  }
+}
+@keyframes ce-seat-pop {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.08);
+  }
+}
+@keyframes ce-seat-brighten {
+  0%,
+  100% {
+    border-color: var(--ce-line-strong);
+  }
+  50% {
+    border-color: var(--ce-primary);
   }
 }
 @keyframes ce-spin {
