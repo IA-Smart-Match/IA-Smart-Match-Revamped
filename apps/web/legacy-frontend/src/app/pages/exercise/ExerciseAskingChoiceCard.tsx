@@ -86,7 +86,12 @@ export function AskingChoiceCard({
           disabled={state !== "open"}
           aria-describedby={line === null ? undefined : `${id}-line`}
           onChange={() => onSelect(choice)}
-          className="mt-1.5 size-5 shrink-0 accent-[var(--ce-primary)]"
+          // Once the choice is fixed the seal and the fill carry it; the
+          // radio stays for readers (checked, disabled) but is not drawn.
+          className={cn(
+            "mt-1.5 size-5 shrink-0 accent-[var(--ce-primary)]",
+            state !== "open" && "sr-only",
+          )}
         />
         <span className="ce-type-h3 text-ce-ink">{label}</span>
       </label>

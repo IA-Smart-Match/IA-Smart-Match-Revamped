@@ -116,7 +116,7 @@ function QuestionRow({ question }: { question: CardQuestion }): React.JSX.Elemen
     <li
       data-slot="exercise-card-question"
       data-field={question.field}
-      className="flex flex-col gap-ce-2 border-t border-ce-line pt-ce-4"
+      className="flex flex-col gap-ce-2"
     >
       <p className="ce-type-h3 text-ce-ink">{question.prompt}</p>
       <p className="ce-type-meta text-ce-ink-muted">{question.example}</p>
@@ -149,7 +149,7 @@ function PhoneCard(): React.JSX.Element {
         Answering these would let us suggest events worth your evening.
       </p>
       <MajorConfirm />
-      <ol className="flex flex-col gap-ce-4">
+      <ol className="flex flex-col gap-ce-5 border-t border-ce-line pt-ce-4">
         {CARD_QUESTIONS.map((question) => (
           <QuestionRow key={question.field} question={question} />
         ))}

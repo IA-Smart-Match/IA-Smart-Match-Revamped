@@ -115,11 +115,13 @@ async function readAskingScreen(signal: AbortSignal): Promise<AskingScreenView> 
 
 /** "Back to the events", drawn as a secondary button (§6.3). */
 const BACK_LINK =
-  "ce-press ce-type-label inline-flex min-h-ce-control items-center justify-center rounded-ce-control border-2 border-ce-line-strong bg-ce-surface px-ce-5 text-ce-ink hover:border-ce-primary hover:bg-ce-primary-tint";
+  "ce-press ce-type-label inline-flex min-h-ce-control no-underline items-center justify-center rounded-ce-control border-2 border-ce-line-strong bg-ce-surface px-ce-5 text-ce-ink hover:border-ce-primary hover:bg-ce-primary-tint";
 
 /**
- * `partly-known-card.svg` (DESIGN.md §4, §7.9): a card half filled in, beside
- * the lead at 1280 and hidden on a phone. Decorative, so hidden from readers.
+ * `partly-known-card.svg` (DESIGN.md §4, §7.9): a card half filled in, at the
+ * right of the choices' heading from 768 up (the asking-choice-cards prompt's
+ * placement; the shell's header has no slot beside the lead) and hidden on a
+ * phone. Decorative, so hidden from readers.
  */
 function PartlyKnownCard(): React.JSX.Element {
   return (
@@ -193,12 +195,9 @@ export function ExerciseAskingForMore(): React.JSX.Element {
       title="Asking for more"
       intro="Pick one way to ask the people your team invited to fill in a card. Your team picks once."
       aside={
-        <div className="flex flex-col items-end gap-ce-5">
-          <Link to="/exercise/events" className={BACK_LINK}>
-            Back to the events
-          </Link>
-          <PartlyKnownCard />
-        </div>
+        <Link to="/exercise/events" className={BACK_LINK}>
+          Back to the events
+        </Link>
       }
     >
       {state.status === "loading" ? <AskingSkeleton /> : null}
@@ -335,9 +334,12 @@ function AskingPanels({
       {refusal === null ? null : <ExerciseNotice message={refusal} />}
 
       <section className="flex flex-col gap-ce-4" data-slot="exercise-asking-choices">
-        <h2 id={`${ids}-question`} className="ce-type-h2 text-ce-ink">
-          How will your team ask?
-        </h2>
+        <div className="flex items-end justify-between gap-ce-4">
+          <h2 id={`${ids}-question`} className="ce-type-h2 text-ce-ink">
+            How will your team ask?
+          </h2>
+          <PartlyKnownCard />
+        </div>
         <div
           role="radiogroup"
           aria-labelledby={`${ids}-question`}
@@ -461,7 +463,7 @@ function Count({
   const shown = useCountUp(value, { reduced });
   return (
     <div className="flex min-w-0 flex-col-reverse justify-end gap-ce-2 border-l border-ce-line-strong px-ce-3 first:border-l-0 first:pl-0 md:px-ce-5">
-      <dt className="ce-type-label text-ce-ink-muted">{label}</dt>
+      <dt className="ce-type-body text-ce-ink-muted">{label}</dt>
       <dd className="text-ce-primary">
         <span className="sr-only">{value}</span>
         <span aria-hidden="true" className="ce-type-display">
