@@ -75,6 +75,19 @@ describe("exercise.css", () => {
     expect(/:root\s*\{[^}]*--ce-/.test(css)).toBe(false);
   });
 
+  it("puts the logo on an eggwhite plate in dark mode only, with ≥3:1 contrast", () => {
+    // The only logo asset is green on transparent; on the dark page it vanishes.
+    const dark = /\.dark \.ce-root \.ce-logo\s*\{([^}]*)\}/.exec(css);
+    expect(dark).not.toBeNull();
+    expect(dark?.[1]).toMatch(/background-color:\s*var\(--cpp-eggwhite\)/);
+    // No light-mode plate: light mode renders the logo exactly as CBA does.
+    expect(/(^|\n)\.ce-root \.ce-logo\s*\{[^}]*background/.test(css)).toBe(false);
+    const eggwhite = "#F2EEE8"; // theme.css --cpp-eggwhite, not redefined under .dark
+    const wordmark = "#005030"; // the PNG's CPP Green
+    expect(contrastRatio(wordmark, eggwhite)).toBeGreaterThanOrEqual(3);
+    expect(contrastRatio(eggwhite, CE_COLORS.dark.page)).toBeGreaterThanOrEqual(3);
+  });
+
   it("draws the 3px primary focus ring with a 3px offset", () => {
     expect(css).toMatch(/\.ce-root :focus-visible\s*\{[^}]*outline:\s*3px solid var\(--ce-primary\)/);
     expect(css).toMatch(/\.ce-root :focus-visible\s*\{[^}]*outline-offset:\s*3px/);
