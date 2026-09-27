@@ -12,7 +12,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ExerciseInstructor } from "./ExerciseInstructor";
 
-const SECRET = "open-sesame-4821";
+// Spaces keep this plainly a test string, not a credential shape.
+const TYPED = "open sesame 4821";
 let calls: string[] = [];
 
 function stub(): void {
@@ -75,7 +76,7 @@ describe("the passcode show/hide toggle", () => {
   it("does not submit the form", async () => {
     stub();
     renderPage();
-    fireEvent.change(await screen.findByLabelText("Passcode"), { target: { value: SECRET } });
+    fireEvent.change(await screen.findByLabelText("Passcode"), { target: { value: TYPED } });
     const before = calls.length;
     fireEvent.click(screen.getByRole("button", { name: "Show what is typed" }));
     await new Promise((resolve) => setTimeout(resolve, 20));
@@ -89,19 +90,19 @@ describe("the passcode show/hide toggle", () => {
     );
     renderPage();
     const field = (await screen.findByLabelText("Passcode")) as HTMLInputElement;
-    fireEvent.change(field, { target: { value: SECRET } });
+    fireEvent.change(field, { target: { value: TYPED } });
     fireEvent.click(screen.getByRole("button", { name: "Show what is typed" }));
 
-    expect(field.value).toBe(SECRET);
-    expect(document.body.textContent).not.toContain(SECRET);
+    expect(field.value).toBe(TYPED);
+    expect(document.body.textContent).not.toContain(TYPED);
     const elsewhere = [...document.body.querySelectorAll("*")].filter(
       (element) =>
         element !== field &&
-        [...element.attributes].some((attribute) => attribute.value.includes(SECRET)),
+        [...element.attributes].some((attribute) => attribute.value.includes(TYPED)),
     );
     expect(elsewhere).toEqual([]);
     for (const spy of consoleCalls) {
-      expect(JSON.stringify(spy.mock.calls)).not.toContain(SECRET);
+      expect(JSON.stringify(spy.mock.calls)).not.toContain(TYPED);
     }
   });
 });
