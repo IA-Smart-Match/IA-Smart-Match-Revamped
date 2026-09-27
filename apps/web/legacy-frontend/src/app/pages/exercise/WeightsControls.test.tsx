@@ -79,11 +79,11 @@ describe("<WeightsControls />", () => {
 
     const box = numberBox("career goal fits this event");
     fireEvent.focus(box);
-    fireEvent.change(box, { target: { value: "0.8" } });
+    fireEvent.change(box, { target: { value: "1.5" } });
     fireEvent.keyDown(box, { key: "Enter" });
 
     expect(onChange).toHaveBeenCalledTimes(1);
-    expect(onChange).toHaveBeenCalledWith({ ...WEIGHTS, career_goal_fit: 0.8 });
+    expect(onChange).toHaveBeenCalledWith({ ...WEIGHTS, career_goal_fit: 1.5 });
   });
 
   it("does not spend a request when the number did not change", () => {
@@ -383,12 +383,16 @@ describe("<WeightsControls />", () => {
       expect(document.querySelector('[data-slot="exercise-weight-error"]')).toBeNull();
     });
 
-    // Negative weights are still not *rejected* here with a client-written
-    // sentence: the server is the one place `InvalidExerciseWeightError`
-    // wording lives. Since the desk slider (owner ruling 2: range 0–1), a
-    // plain number outside the range is placed on the nearest end instead,
-    // so `-1` goes out as 0 — no message is invented either way.
-    it("sends a negative number as the slider's lowest weight rather than inventing a refusal", () => {
+    // Negative weights are deliberately NOT rejected here. Round 1 (this PR's
+    // own description, "Dropping `min={0}` with the number type") states why:
+    // the server is the one place `InvalidExerciseWeightError` wording lives
+    // (`exercise/registry.py`'s `_coerce_weight`, "weight must not be
+    // negative"), and a client-side copy of that sentence is a second copy to
+    // keep in sync, which ADR-0025 D6 and this codebase's own error-handling
+    // convention both argue against. `-1` still reaches `strictDecimal` as a
+    // valid shape and is sent, refused, and shown in the server's own words —
+    // consistent with every other exercise refusal on this screen.
+    it("still sends a negative number rather than guessing at the server's own refusal wording", () => {
       const onChange = vi.fn();
       render(<WeightsControls factorLabels={LABELS} weights={WEIGHTS} onChange={onChange} />);
 
@@ -397,8 +401,7 @@ describe("<WeightsControls />", () => {
       fireEvent.change(box, { target: { value: "-1" } });
       fireEvent.blur(box);
 
-      expect(onChange).toHaveBeenCalledWith({ ...WEIGHTS, same_major: 0 });
-      expect(document.querySelector('[data-slot="exercise-weight-error"]')).toBeNull();
+      expect(onChange).toHaveBeenCalledWith({ ...WEIGHTS, same_major: -1 });
     });
   });
 

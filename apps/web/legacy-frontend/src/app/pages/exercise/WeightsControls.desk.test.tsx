@@ -110,12 +110,58 @@ describe("<WeightsControls /> sliders (§6.6)", () => {
       />,
     );
 
-    const alerts = screen.getAllByRole("alert");
-    expect(alerts).toHaveLength(1);
-    expect(alerts[0].textContent).toBe("Those weights were not accepted.");
+    // A server refusal is a status, not an alert (§8.6).
+    const shown = document.querySelectorAll('[data-slot="exercise-weight-error"]');
+    expect(shown).toHaveLength(1);
+    expect(shown[0].textContent).toBe("Those weights were not accepted.");
+    expect(shown[0].getAttribute("role")).toBe("status");
+    expect(screen.queryByRole("alert")).toBeNull();
     expect(slider.getAttribute("aria-valuenow")).toBe("0.4");
     const box = screen.getByRole("textbox", { name: "same major" }) as HTMLInputElement;
     expect(box.value).toBe("0.40");
+  });
+
+  it("shows a refusal of a several-weight commit once, and reverts every weight it changed", () => {
+    const onChange = vi.fn();
+    const { rerender } = render(
+      <WeightsControls factorLabels={LABELS} weights={WEIGHTS} onChange={onChange} />,
+    );
+    const major = screen.getByRole("slider", { name: "same major" });
+    const interest = screen.getByRole("slider", { name: LABELS.stated_interest_overlap });
+    const goal = screen.getByRole("slider", { name: LABELS.career_goal_fit });
+
+    // One in flight, two queued behind it.
+    fireEvent.keyDown(major, { key: "ArrowRight" });
+    fireEvent.keyDown(interest, { key: "ArrowRight" });
+    fireEvent.keyDown(goal, { key: "ArrowRight" });
+    const accepted = { ...WEIGHTS, same_major: 0.45 };
+    rerender(<WeightsControls factorLabels={LABELS} weights={accepted} onChange={onChange} />);
+    expect(onChange).toHaveBeenLastCalledWith({
+      ...accepted,
+      stated_interest_overlap: 0.3,
+      career_goal_fit: 0.3,
+    });
+
+    // The merged commit is refused.
+    rerender(
+      <WeightsControls
+        factorLabels={LABELS}
+        weights={accepted}
+        onChange={onChange}
+        refusal={new ExerciseRefusal(400, "exercise_invalid_weights", "Those weights were not accepted.")}
+      />,
+    );
+
+    expect(document.querySelectorAll('[data-slot="exercise-weight-error"]')).toHaveLength(1);
+    expect(screen.getAllByText("Those weights were not accepted.")).toHaveLength(1);
+    const after = (name: string) =>
+      screen.getByRole("slider", { name }).getAttribute("aria-valuenow");
+    expect(after(LABELS.stated_interest_overlap)).toBe("0.25");
+    expect(after(LABELS.career_goal_fit)).toBe("0.25");
+    expect((screen.getByRole("textbox", { name: LABELS.career_goal_fit }) as HTMLInputElement).value).toBe(
+      "0.25",
+    );
+    expect(after("same major")).toBe("0.45");
   });
 
   it("shows a spinner beside the weight being rebuilt, and keeps every control live", () => {

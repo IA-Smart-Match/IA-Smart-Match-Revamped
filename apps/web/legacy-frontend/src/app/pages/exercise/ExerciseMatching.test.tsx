@@ -312,7 +312,16 @@ describe("<ExerciseMatching />", () => {
     fireEvent.change(box, { target: { value: "0.9" } });
     fireEvent.blur(box);
 
-    await waitFor(() => expect(screen.getByText("Weights must sum to 1.")).toBeDefined());
+    // The sentence shows in the screen's notice and, once, under the refused
+    // slider (DESIGN.md §6.6 X), so it is found by the notice.
+    await waitFor(() =>
+      expect(document.getElementById("exercise-list-refusal")?.textContent).toContain(
+        "Weights must sum to 1.",
+      ),
+    );
+    await waitFor(() =>
+      expect(document.querySelectorAll('[data-slot="exercise-weight-error"]')).toHaveLength(1),
+    );
 
     // The list from before the refused request, and the controls to fix the
     // mistake, are still on screen next to the sentence.

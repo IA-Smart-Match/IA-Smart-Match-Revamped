@@ -24,8 +24,8 @@
  * the field's own messages, and calls `commit` once per finished change —
  * pointer-up, a key step, Enter or leaving the box. The queue and in-flight
  * logic below is unchanged: one request in flight, one merged commit queued
- * behind it. The slider clamps to 0–1 (the ruling's range), so a number typed
- * outside it is sent as the nearest end.
+ * behind it. A number typed in a box is sent exactly as typed, even outside
+ * 0–1: the server refuses a negative weight in its own sentence.
  */
 import * as React from "react";
 
@@ -135,12 +135,23 @@ export function WeightsControls({
   const [pendingKeys, setPendingKeys] = React.useState<readonly string[]>([]);
 
   /**
-   * The server's refusal sentence per weight, shown under that slider
-   * (§6.6 X). Handing it to the slider is also what returns the slider to
-   * the confirmed weight. Cleared when that weight is committed again, and
-   * for every weight once a list is accepted.
+   * The latest refusal and the one slider that shows its sentence (§6.6 X).
+   * Handing the refusal object to a slider is what returns it to the
+   * confirmed weight — a new object per refused attempt, so it reverts even
+   * when the sentence repeats. Cleared when that weight is committed again,
+   * and once a list is accepted.
+   *
+   * One refusal answers one weighting, so its sentence is shown once: under
+   * the slider that holds focus, else the first refused one. Any other slider
+   * the same request changed is reverted by remounting it (`revision`), which
+   * shows nothing. The screen's own notice above carries the sentence too.
    */
-  const [refusedKeys, setRefusedKeys] = React.useState<Readonly<Record<string, string>>>({});
+  const [shownRefusal, setShownRefusal] = React.useState<{
+    readonly key: string;
+    readonly refusal: ExerciseRefusal;
+  } | null>(null);
+  const [revision, setRevision] = React.useState<Readonly<Record<string, number>>>({});
+  const rows = React.useRef<Record<string, HTMLDivElement | null>>({});
 
   function send(next: Readonly<Record<string, number>>, changed: readonly string[]): void {
     pendingBase.current = next;
@@ -177,7 +188,7 @@ export function WeightsControls({
 
   React.useEffect(() => {
     // A confirmed response is the newest truth about what was asked for.
-    setRefusedKeys({});
+    setShownRefusal(null);
     onSettled(weights);
     // `keys` is derived from `factorLabels`; both change only with a new event.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -201,15 +212,25 @@ export function WeightsControls({
     if (refusal === null) {
       return;
     }
-    const refused = inFlightKeys.current.filter((key) => key !== focused.current);
+    const refused = keys.filter(
+      (key) => inFlightKeys.current.includes(key) && key !== focused.current,
+    );
     if (refused.length > 0) {
-      setRefusedKeys((previous) => {
-        const next = { ...previous };
-        for (const key of refused) {
-          next[key] = refusal.message;
-        }
-        return next;
-      });
+      const active = document.activeElement;
+      const announcer =
+        refused.find((key) => active !== null && rows.current[key]?.contains(active)) ??
+        refused[0];
+      setShownRefusal({ key: announcer, refusal });
+      const others = refused.filter((key) => key !== announcer);
+      if (others.length > 0) {
+        setRevision((previous) => {
+          const next = { ...previous };
+          for (const key of others) {
+            next[key] = (next[key] ?? 0) + 1;
+          }
+          return next;
+        });
+      }
     }
     onSettled(weights);
     // `weights` is read for its value as of the refusal, not watched — this
@@ -230,13 +251,7 @@ export function WeightsControls({
    * other refusal on this screen.
    */
   function commit(key: string, value: number): void {
-    setRefusedKeys((previous) => {
-      if (!(key in previous)) {
-        return previous;
-      }
-      const { [key]: _cleared, ...rest } = previous;
-      return rest;
-    });
+    setShownRefusal((previous) => (previous?.key === key ? null : previous));
     // What the next request would ask for if it went out right now: the
     // last confirmed base, with any already-queued edit layered on top.
     const effectiveBase = { ...pendingBase.current, ...(queuedEdits.current ?? {}) };
@@ -276,6 +291,9 @@ export function WeightsControls({
           {keys.map((key) => (
             <div
               key={key}
+              ref={(element) => {
+                rows.current[key] = element;
+              }}
               // Only the number box holds text a refusal could wipe; a focused
               // slider thumb takes the refusal and snaps back like any other.
               onFocus={(event) => {
@@ -286,13 +304,14 @@ export function WeightsControls({
               }}
             >
               <WeightSlider
+                key={revision[key] ?? 0}
                 id={`exercise-weight-${key}`}
                 // Ann's words. The key is the box's name, never its label.
                 label={factorLabels[key] ?? ""}
                 name={key}
                 value={weights[key] ?? 0}
                 onCommit={(value) => commit(key, value)}
-                error={refusedKeys[key] ?? null}
+                refusal={shownRefusal?.key === key ? shownRefusal.refusal : null}
                 pending={pendingKeys.includes(key)}
                 disabled={disabled}
               />
