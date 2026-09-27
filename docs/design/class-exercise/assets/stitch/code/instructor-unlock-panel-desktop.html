@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Smart Match — Instructor Panel</title>
+<!-- Google Fonts: Archivo (SemiExpanded via wght/wdth), Source Serif 4, Figtree -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@112.5,600;112.5,700&amp;family=Figtree:wght@400;500;600;700&amp;family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600&amp;display=swap" rel="stylesheet"/>
+<!-- Material Symbols Outlined -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS with custom theme config -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          "colors": {
+            "secondary-fixed": "#ffdeaa",
+            "tertiary-fixed": "#bff377",
+            "surface-container-low": "#f2f4ef",
+            "on-primary": "#ffffff",
+            "outline": "#707972",
+            "on-primary-fixed": "#002111",
+            "scrim": "rgba(16,37,29,0.48)",
+            "avocado": "#A4D65E",
+            "tertiary-fixed-dim": "#a4d65e",
+            "on-error-container": "#93000a",
+            "error-container": "#ffdad6",
+            "primary-container": "#005030",
+            "on-background": "#191c1a",
+            "primary-fixed-dim": "#91d5ab",
+            "on-surface-variant": "#404942",
+            "secondary": "#7d5700",
+            "secondary-fixed-dim": "#ffba2c",
+            "inverse-surface": "#2e312e",
+            "inverse-primary": "#91d5ab",
+            "on-tertiary-fixed": "#112000",
+            "danger": "#BA1A1A",
+            "on-tertiary-container": "#91c14c",
+            "tertiary-container": "#304d00",
+            "on-error": "#ffffff",
+            "background": "#f8faf5",
+            "surface": "#FFFFFF",
+            "secondary-container": "#feb71a",
+            "on-secondary": "#ffffff",
+            "bay": "#CFBAB0",
+            "page": "#F8F6F1",
+            "primary-fixed": "#acf2c6",
+            "surface-container-highest": "#e0e3de",
+            "surface-container": "#ecefe9",
+            "ink-muted": "#59665F",
+            "gold-tint": "#FFF1CC",
+            "avocado-tint": "#E8F2D8",
+            "on-tertiary": "#ffffff",
+            "surface-bright": "#f8faf5",
+            "outline-variant": "#bfc9c0",
+            "line": "#D9CBC4",
+            "gold-ink": "#7A5200",
+            "surface-container-high": "#e6e9e4",
+            "primary-tint": "#D9EADF",
+            "on-secondary-container": "#6b4b00",
+            "on-tertiary-fixed-variant": "#314f00",
+            "surface-dim": "#d8dbd6",
+            "on-secondary-fixed-variant": "#5f4100",
+            "on-primary-container": "#7dc198",
+            "line-strong": "#8F7A70",
+            "tertiary": "#1f3500",
+            "surface-variant": "#e0e3de",
+            "surface-tint": "#266a48",
+            "surface-sunk": "#F2EEE8",
+            "on-secondary-fixed": "#271900",
+            "ink": "#163229",
+            "seat-taken": "#8C6D62",
+            "on-surface": "#191c1a",
+            "on-primary-fixed-variant": "#035232",
+            "inverse-on-surface": "#eff2ec",
+            "surface-container-lowest": "#ffffff",
+            "error": "#ba1a1a",
+            "primary": "#00371f"
+          },
+          "borderRadius": {
+            "DEFAULT": "0.25rem",
+            "lg": "0.5rem",
+            "xl": "0.75rem",
+            "card": "14px",
+            "control": "10px",
+            "full": "9999px"
+          },
+          "boxShadow": {
+            "resting": "0 1px 2px rgba(22,50,41,.06), 0 4px 12px rgba(22,50,41,.06)",
+            "elev-2": "0 2px 4px rgba(22,50,41,.06), 0 12px 28px rgba(0,80,48,.10)"
+          },
+          "fontFamily": {
+            "headline-lg": ["\"Archivo\"", "sans-serif"],
+            "headline-md": ["\"Source Serif 4\"", "serif"],
+            "headline-sm": ["\"Source Serif 4\"", "serif"],
+            "body-lead": ["\"Figtree\"", "sans-serif"],
+            "body-md": ["\"Figtree\"", "sans-serif"],
+            "label-md": ["\"Figtree\"", "sans-serif"],
+            "meta-caption": ["\"Figtree\"", "sans-serif"]
+          },
+          "fontSize": {
+            "headline-lg": ["48px", { "lineHeight": "56px", "fontWeight": "600" }],
+            "headline-md": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+            "headline-sm": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+            "body-lead": ["20px", { "lineHeight": "30px", "fontWeight": "400" }],
+            "body-md": ["20px", { "lineHeight": "30px", "fontWeight": "400" }],
+            "label-md": ["18px", { "lineHeight": "24px", "letterSpacing": "0.01em", "fontWeight": "600" }],
+            "meta-caption": ["14px", { "lineHeight": "20px", "fontWeight": "400" }]
+          }
+        },
+      },
+    }
+  </script>
+<style>
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+      display: inline-block;
+      vertical-align: middle;
+      line-height: 1;
+    }
+  </style>
+</head>
+<body class="bg-page text-ink min-h-screen antialiased flex flex-col justify-between selection:bg-gold-tint selection:text-ink">
+<!-- Main Canvas Container -->
+<main class="w-full flex-grow flex flex-col items-center px-4 sm:px-6 pt-6 pb-16">
+<div class="w-full max-w-[760px] flex flex-col">
+<!-- Top Ribbon -->
+<section class="w-full bg-gold-tint rounded-card px-6 py-3 flex items-center gap-3">
+<span class="material-symbols-outlined text-gold-ink text-[22px] select-none shrink-0" data-icon="info">info</span>
+<p class="font-body-md text-meta-caption leading-relaxed text-ink m-0">
+<strong class="font-semibold text-ink">Fictional data —</strong> All student profiles are fictional, shaped by overall survey percentages.
+        </p>
+</section>
+<!-- Page Header -->
+<header class="mt-10 mb-8">
+<h1 class="font-headline-lg text-headline-lg text-ink font-semibold tracking-tight m-0">
+          Instructor
+        </h1>
+<p class="font-body-lead text-body-lead text-ink-muted mt-2 m-0">
+          Load a data file, open results for an event, and see what each team has done.
+        </p>
+</header>
+<!-- Main Activity Card -->
+<section class="w-full bg-surface rounded-card p-6 shadow-resting">
+<!-- Card Header Info -->
+<div class="mb-6">
+<h2 class="font-headline-md text-headline-md text-ink font-semibold tracking-tight m-0">
+            Open results for an event
+          </h2>
+<p class="font-body-md text-body-md text-ink-muted mt-1.5 m-0">
+            For Ann's file, 25 September. Teams can run results only for an event that is open.
+          </p>
+</div>
+<!-- Event Rows Container -->
+<div class="w-full border-t border-line">
+<!-- Row 1: Northline Analytics -->
+<div class="h-[72px] flex items-center justify-between border-b border-line">
+<span class="font-label-md text-body-md font-semibold text-ink">
+              Northline Analytics
+            </span>
+<div class="inline-flex items-center gap-2 bg-avocado-tint text-ink px-3 py-1.5 rounded-full select-none">
+<span class="material-symbols-outlined text-[18px] text-ink shrink-0" data-icon="lock_open">lock_open</span>
+<span class="font-label-md text-[15px] font-semibold tracking-normal text-ink">
+                Results are open
+              </span>
+</div>
+</div>
+<!-- Row 2: Harbor Consumer Brands -->
+<div class="h-[72px] flex items-center justify-between border-b border-line">
+<span class="font-label-md text-body-md font-semibold text-ink">
+              Harbor Consumer Brands
+            </span>
+<div class="flex items-center gap-4">
+<!-- Closed Chip -->
+<div class="inline-flex items-center gap-2 bg-surface-sunk text-ink px-3 py-1.5 rounded-full select-none">
+<span class="material-symbols-outlined text-[18px] text-ink shrink-0" data-icon="lock">lock</span>
+<span class="font-label-md text-[15px] font-semibold tracking-normal text-ink">
+                  Results are closed
+                </span>
+</div>
+<!-- Open Results Secondary Action -->
+<button class="bg-surface border-2 border-line-strong rounded-control px-5 py-2.5 font-label-md text-[17px] font-medium text-ink hover:bg-surface-sunk active:scale-[0.98] transition-all duration-150 inline-flex items-center justify-center cursor-pointer" id="open-results-btn" onclick="handleOpenResults()" type="button">
+                Open results
+              </button>
+</div>
+</div>
+</div>
+<!-- Action Under Rows: Spaced 24px below -->
+<div class="mt-6 flex items-center">
+<button class="text-primary-container hover:underline inline-flex items-center gap-2 font-label-md text-[17px] font-medium transition-colors duration-150 group cursor-pointer focus:outline-none" id="refresh-btn" onclick="handleCheckAgain()" type="button">
+<span class="material-symbols-outlined text-[20px] text-primary-container group-hover:rotate-45 transition-transform duration-200 select-none" data-icon="rotate_right">rotate_right</span>
+<span>Check again</span>
+</button>
+</div>
+</section>
+</div>
+</main>
+<!-- Instructional Institutional Notice -->
+<footer class="w-full pb-8 pt-4 px-6 text-center select-none">
+<p class="font-meta-caption text-meta-caption text-ink-muted max-w-[760px] mx-auto leading-normal m-0">
+      For California State Polytechnic University, Pomona — College of Business Administration instructional use only. All student profiles are fictional.
+    </p>
+</footer>
+<script>
+    function handleOpenResults() {
+      const btn = document.getElementById('open-results-btn');
+      if (btn) {
+        btn.classList.add('opacity-60');
+        btn.innerText = 'Opening...';
+        setTimeout(() => {
+          btn.innerText = 'Opened';
+          btn.disabled = true;
+          btn.classList.remove('opacity-60');
+        }, 400);
+      }
+    }
+
+    function handleCheckAgain() {
+      const refreshBtn = document.getElementById('refresh-btn');
+      const icon = refreshBtn?.querySelector('.material-symbols-outlined');
+      if (icon) {
+        icon.style.transform = 'rotate(360deg)';
+        icon.style.transition = 'transform 0.5s ease';
+        setTimeout(() => {
+          icon.style.transform = '';
+          icon.style.transition = '';
+        }, 500);
+      }
+    }
+  </script>
+</body></html>

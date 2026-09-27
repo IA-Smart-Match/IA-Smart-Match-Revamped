@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>The list — Smart Match Class Exercise</title>
+  <!-- Google Fonts: Archivo, Source Serif 4, Figtree -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700&family=Figtree:wght@400;500;600;700&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            'ce-page': '#F8F6F1',
+            'ce-surface': '#FFFFFF',
+            'ce-surface-sunk': '#F2EEE8',
+            'ce-ink': '#163229',
+            'ce-ink-muted': '#59665F',
+            'ce-primary': '#005030',
+            'ce-primary-tint': '#D9EADF',
+            'ce-primary-tint-text': '#003D24',
+            'ce-gold': '#FFB81C',
+            'ce-gold-tint': '#FFF1CC',
+            'ce-gold-ink': '#7A5200',
+            'ce-avocado-tint': '#E8F2D8',
+            'ce-line': '#D9CBC4',
+            'ce-line-strong': '#8F7A70',
+          },
+          fontFamily: {
+            display: ['"Archivo"', 'sans-serif'],
+            serif: ['"Source Serif 4"', 'serif'],
+            sans: ['"Figtree"', 'sans-serif'],
+          },
+          boxShadow: {
+            'card': '0 1px 2px rgba(22, 50, 41, 0.06), 0 4px 12px rgba(22, 50, 41, 0.06)',
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body {
+      background-color: #F8F6F1;
+      color: #163229;
+      font-family: 'Figtree', sans-serif;
+      margin: 0;
+      padding: 0;
+      -webkit-font-smoothing: antialiased;
+    }
+    .tabular-nums {
+      font-variant-numeric: tabular-nums;
+    }
+  </style>
+</head>
+<body class="min-h-screen bg-ce-page text-ce-ink py-10 px-6 flex flex-col items-center">
+
+  <main class="w-full max-w-[1088px] flex flex-col gap-6">
+
+    <!-- Fictional data ribbon -->
+    <div class="w-full bg-ce-gold-tint text-ce-gold-ink px-4 py-3 rounded-[14px] flex items-center gap-2.5 shadow-sm text-[16px] leading-[24px]">
+      <i data-lucide="info" class="w-5 h-5 flex-shrink-0 text-ce-gold-ink stroke-[2]"></i>
+      <span><strong class="font-bold text-ce-gold-ink">Fictional data —</strong> All student profiles are fictional, shaped by overall survey percentages.</span>
+    </div>
+
+    <!-- Main Card containing the table -->
+    <div class="w-full bg-ce-surface rounded-[14px] shadow-card p-6 md:p-8 flex flex-col">
+      
+      <!-- Card Header -->
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-3">
+        <h2 class="font-serif font-semibold text-[32px] leading-[40px] text-ce-ink tracking-tight">The list</h2>
+        
+        <!-- Secondary Button: Download this list as a spreadsheet -->
+        <button type="button" class="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-[10px] bg-ce-surface border border-ce-line-strong text-ce-ink font-sans font-semibold text-[16px] leading-[22px] hover:bg-ce-surface-sunk transition-colors duration-150">
+          <i data-lucide="download" class="w-5 h-5 stroke-[2] text-ce-ink"></i>
+          <span>Download this list as a spreadsheet</span>
+        </button>
+      </div>
+
+      <!-- Helper line under header -->
+      <p class="font-sans text-[18px] text-ce-ink-muted leading-[26px] mb-6">
+        Cut at 30 names, the limit set for this data file.
+      </p>
+
+      <!-- Table Container (1040px wide layout) -->
+      <div class="w-full overflow-x-auto">
+        <table class="w-full border-collapse text-left" style="min-width: 980px;">
+          <!-- Colgroup defining exact widths as specified -->
+          <colgroup>
+            <col style="width: 64px;">
+            <col style="width: 45%;">
+            <col style="width: 22%;">
+            <col style="width: 12%;">
+            <col style="width: auto;">
+          </colgroup>
+
+          <!-- Table Header Band -->
+          <thead>
+            <tr class="bg-ce-surface-sunk text-ce-ink-muted text-[18px] font-sans font-semibold">
+              <th scope="col" class="py-3 px-4 rounded-l-[8px] font-sans text-ce-ink-muted font-semibold">Rank</th>
+              <th scope="col" class="py-3 px-4 font-sans text-ce-ink-muted font-semibold">Name</th>
+              <th scope="col" class="py-3 px-4 font-sans text-ce-ink-muted font-semibold">Major</th>
+              <th scope="col" class="py-3 px-4 font-sans text-ce-ink-muted font-semibold">Year</th>
+              <th scope="col" class="py-3 px-4 rounded-r-[8px] font-sans text-ce-ink-muted font-semibold">How much we know</th>
+            </tr>
+          </thead>
+
+          <!-- Table Body -->
+          <tbody class="divide-y divide-ce-line">
+            
+            <!-- Row 1 -->
+            <tr class="transition-colors">
+              <td class="py-4 px-4 align-top font-display font-bold text-[28px] text-ce-primary leading-[32px] tabular-nums">
+                1
+              </td>
+              <td class="py-4 px-4 align-top">
+                <div class="font-sans font-semibold text-[20px] text-ce-ink leading-[26px]">Maya Tran</div>
+                <div class="font-serif text-[18px] text-ce-ink-muted leading-[26px] mt-1">
+                  What counted: same major; said they are interested in this topic; career goal fits this event.
+                </div>
+              </td>
+              <td class="py-4 px-4 align-top font-sans text-[20px] text-ce-ink leading-[26px]">
+                Computer Information Systems
+              </td>
+              <td class="py-4 px-4 align-top font-sans text-[20px] text-ce-ink leading-[26px]">
+                Senior
+              </td>
+              <td class="py-4 px-4 align-top">
+                <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-ce-primary-tint text-ce-primary-tint-text text-[15px] font-medium leading-[20px]">
+                  <i data-lucide="id-card" class="w-4 h-4 stroke-[2] flex-shrink-0 text-ce-primary-tint-text"></i>
+                  <span>completed card</span>
+                </span>
+              </td>
+            </tr>
+
+            <!-- Row 2 -->
+            <tr class="transition-colors">
+              <td class="py-4 px-4 align-top font-display font-bold text-[28px] text-ce-primary leading-[32px] tabular-nums">
+                2
+              </td>
+              <td class="py-4 px-4 align-top">
+                <div class="font-sans font-semibold text-[20px] text-ce-ink leading-[26px]">Daniel Okafor</div>
+                <div class="font-serif text-[18px] text-ce-ink-muted leading-[26px] mt-1">
+                  What counted: same major; career goal fits this event.
+                </div>
+              </td>
+              <td class="py-4 px-4 align-top font-sans text-[20px] text-ce-ink leading-[26px]">
+                International Business &amp; Marketing
+              </td>
+              <td class="py-4 px-4 align-top font-sans text-[20px] text-ce-ink leading-[26px]">
+                Senior
+              </td>
+              <td class="py-4 px-4 align-top">
+                <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-ce-primary-tint text-ce-primary-tint-text text-[15px] font-medium leading-[20px]">
+                  <i data-lucide="id-card" class="w-4 h-4 stroke-[2] flex-shrink-0 text-ce-primary-tint-text"></i>
+                  <span>completed card</span>
+                </span>
+              </td>
+            </tr>
+
+            <!-- Row 3 -->
+            <tr class="transition-colors">
+              <td class="py-4 px-4 align-top font-display font-bold text-[28px] text-ce-primary leading-[32px] tabular-nums">
+                3
+              </td>
+              <td class="py-4 px-4 align-top">
+                <div class="font-sans font-semibold text-[20px] text-ce-ink leading-[26px]">Priya Patel</div>
+                <div class="font-serif text-[18px] text-ce-ink-muted leading-[26px] mt-1">
+                  What counted: same major; went to similar events before.
+                </div>
+              </td>
+              <td class="py-4 px-4 align-top font-sans text-[20px] text-ce-ink leading-[26px]">
+                Computer Information Systems
+              </td>
+              <td class="py-4 px-4 align-top font-sans text-[20px] text-ce-ink leading-[26px]">
+                Junior
+              </td>
+              <td class="py-4 px-4 align-top">
+                <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-ce-avocado-tint text-ce-ink text-[15px] font-medium leading-[20px]">
+                  <i data-lucide="circle-dot" class="w-4 h-4 stroke-[2] flex-shrink-0 text-ce-ink"></i>
+                  <span>major plus events attended</span>
+                </span>
+              </td>
+            </tr>
+
+            <!-- Row 4 -->
+            <tr class="transition-colors">
+              <td class="py-4 px-4 align-top font-display font-bold text-[28px] text-ce-primary leading-[32px] tabular-nums">
+                4
+              </td>
+              <td class="py-4 px-4 align-top">
+                <div class="font-sans font-semibold text-[20px] text-ce-ink leading-[26px]">Jordan Kim</div>
+                <div class="font-serif text-[18px] text-ce-ink-muted leading-[26px] mt-1">
+                  Same major; nothing else on file.
+                </div>
+              </td>
+              <td class="py-4 px-4 align-top font-sans text-[20px] text-ce-ink leading-[26px]">
+                Computer Information Systems
+              </td>
+              <td class="py-4 px-4 align-top font-sans text-[20px] text-ce-ink leading-[26px]">
+                Senior
+              </td>
+              <td class="py-4 px-4 align-top">
+                <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-ce-surface-sunk text-ce-ink text-[15px] font-medium leading-[20px]">
+                  <i data-lucide="circle" class="w-4 h-4 stroke-[2] flex-shrink-0 text-ce-ink"></i>
+                  <span>major only</span>
+                </span>
+              </td>
+            </tr>
+
+            <!-- Row 5 -->
+            <tr class="transition-colors">
+              <td class="py-4 px-4 align-top font-display font-bold text-[28px] text-ce-primary leading-[32px] tabular-nums">
+                5
+              </td>
+              <td class="py-4 px-4 align-top">
+                <div class="font-sans font-semibold text-[20px] text-ce-ink leading-[26px]">Alexis Rivera</div>
+                <div class="font-serif text-[18px] text-ce-ink-muted leading-[26px] mt-1">
+                  Tied on major; ordered by year.
+                </div>
+              </td>
+              <td class="py-4 px-4 align-top font-sans text-[20px] text-ce-ink leading-[26px]">
+                Computer Information Systems
+              </td>
+              <td class="py-4 px-4 align-top font-sans text-[20px] text-ce-ink leading-[26px]">
+                Junior
+              </td>
+              <td class="py-4 px-4 align-top">
+                <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-ce-surface-sunk text-ce-ink text-[15px] font-medium leading-[20px]">
+                  <i data-lucide="circle" class="w-4 h-4 stroke-[2] flex-shrink-0 text-ce-ink"></i>
+                  <span>major only</span>
+                </span>
+              </td>
+            </tr>
+
+            <!-- Row 6 (With pale gold #FFF1CC wash to show it just joined the list) -->
+            <tr class="bg-ce-gold-tint">
+              <td class="py-4 px-4 align-top font-display font-bold text-[28px] text-ce-primary leading-[32px] tabular-nums">
+                6
+              </td>
+              <td class="py-4 px-4 align-top">
+                <div class="font-sans font-semibold text-[20px] text-ce-ink leading-[26px]">Ethan Nguyen</div>
+                <div class="font-serif text-[18px] text-ce-ink-muted leading-[26px] mt-1">
+                  What counted: same major; went to similar events before.
+                </div>
+              </td>
+              <td class="py-4 px-4 align-top font-sans text-[20px] text-ce-ink leading-[26px]">
+                International Business &amp; Marketing
+              </td>
+              <td class="py-4 px-4 align-top font-sans text-[20px] text-ce-ink leading-[26px]">
+                Senior
+              </td>
+              <td class="py-4 px-4 align-top">
+                <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-ce-avocado-tint text-ce-ink text-[15px] font-medium leading-[20px]">
+                  <i data-lucide="circle-dot" class="w-4 h-4 stroke-[2] flex-shrink-0 text-ce-ink"></i>
+                  <span>major plus events attended</span>
+                </span>
+              </td>
+            </tr>
+
+            <!-- Row 7 -->
+            <tr class="transition-colors">
+              <td class="py-4 px-4 align-top font-display font-bold text-[28px] text-ce-primary leading-[32px] tabular-nums">
+                7
+              </td>
+              <td class="py-4 px-4 align-top">
+                <div class="font-sans font-semibold text-[20px] text-ce-ink leading-[26px]">Sofia Morales</div>
+                <div class="font-serif text-[18px] text-ce-ink-muted leading-[26px] mt-1">
+                  What counted: said they are interested in this topic; career goal fits this event.
+                </div>
+              </td>
+              <td class="py-4 px-4 align-top font-sans text-[20px] text-ce-ink leading-[26px]">
+                Technology &amp; Operations Management
+              </td>
+              <td class="py-4 px-4 align-top font-sans text-[20px] text-ce-ink leading-[26px]">
+                Senior
+              </td>
+              <td class="py-4 px-4 align-top">
+                <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-ce-primary-tint text-ce-primary-tint-text text-[15px] font-medium leading-[20px]">
+                  <i data-lucide="id-card" class="w-4 h-4 stroke-[2] flex-shrink-0 text-ce-primary-tint-text"></i>
+                  <span>completed card</span>
+                </span>
+              </td>
+            </tr>
+
+            <!-- Row 8 -->
+            <tr class="transition-colors">
+              <td class="py-4 px-4 align-top font-display font-bold text-[28px] text-ce-primary leading-[32px] tabular-nums">
+                8
+              </td>
+              <td class="py-4 px-4 align-top">
+                <div class="font-sans font-semibold text-[20px] text-ce-ink leading-[26px]">Marcus Chen</div>
+                <div class="font-serif text-[18px] text-ce-ink-muted leading-[26px] mt-1">
+                  Tied on major; ordered by year.
+                </div>
+              </td>
+              <td class="py-4 px-4 align-top font-sans text-[20px] text-ce-ink leading-[26px]">
+                International Business &amp; Marketing
+              </td>
+              <td class="py-4 px-4 align-top font-sans text-[20px] text-ce-ink leading-[26px]">
+                Junior
+              </td>
+              <td class="py-4 px-4 align-top">
+                <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-ce-surface-sunk text-ce-ink text-[15px] font-medium leading-[20px]">
+                  <i data-lucide="circle" class="w-4 h-4 stroke-[2] flex-shrink-0 text-ce-ink"></i>
+                  <span>major only</span>
+                </span>
+              </td>
+            </tr>
+
+            <!-- Row 9 -->
+            <tr class="transition-colors">
+              <td class="py-4 px-4 align-top font-display font-bold text-[28px] text-ce-primary leading-[32px] tabular-nums">
+                9
+              </td>
+              <td class="py-4 px-4 align-top">
+                <div class="font-sans font-semibold text-[20px] text-ce-ink leading-[26px]">Hannah Lee</div>
+                <div class="font-serif text-[18px] text-ce-ink-muted leading-[26px] mt-1">
+                  Tied on major; ordered by year.
+                </div>
+              </td>
+              <td class="py-4 px-4 align-top font-sans text-[20px] text-ce-ink leading-[26px]">
+                International Business &amp; Marketing
+              </td>
+              <td class="py-4 px-4 align-top font-sans text-[20px] text-ce-ink leading-[26px]">
+                Sophomore
+              </td>
+              <td class="py-4 px-4 align-top">
+                <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-ce-surface-sunk text-ce-ink text-[15px] font-medium leading-[20px]">
+                  <i data-lucide="circle" class="w-4 h-4 stroke-[2] flex-shrink-0 text-ce-ink"></i>
+                  <span>major only</span>
+                </span>
+              </td>
+            </tr>
+
+            <!-- Row 10 -->
+            <tr class="transition-colors">
+              <td class="py-4 px-4 align-top font-display font-bold text-[28px] text-ce-primary leading-[32px] tabular-nums">
+                10
+              </td>
+              <td class="py-4 px-4 align-top">
+                <div class="font-sans font-semibold text-[20px] text-ce-ink leading-[26px]">Diego Garcia</div>
+                <div class="font-serif text-[18px] text-ce-ink-muted leading-[26px] mt-1">
+                  What counted: went to similar events before.
+                </div>
+              </td>
+              <td class="py-4 px-4 align-top font-sans text-[20px] text-ce-ink leading-[26px]">
+                Accounting
+              </td>
+              <td class="py-4 px-4 align-top font-sans text-[20px] text-ce-ink leading-[26px]">
+                Senior
+              </td>
+              <td class="py-4 px-4 align-top">
+                <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-ce-avocado-tint text-ce-ink text-[15px] font-medium leading-[20px]">
+                  <i data-lucide="circle-dot" class="w-4 h-4 stroke-[2] flex-shrink-0 text-ce-ink"></i>
+                  <span>major plus events attended</span>
+                </span>
+              </td>
+            </tr>
+
+          </tbody>
+        </table>
+      </div>
+
+    </div>
+
+  </main>
+
+  <script>
+    lucide.createIcons();
+  </script>
+</body>
+</html>

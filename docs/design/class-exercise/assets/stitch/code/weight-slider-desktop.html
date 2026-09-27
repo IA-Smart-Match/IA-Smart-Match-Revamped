@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>How much each thing counts — Smart Match Class Exercise</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700&family=Figtree:wght@400;500;600;700&family=Source+Serif+4:ital,opsz,wght@0,8..60,600;1,8..60,400;1,8..60,600&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            'ce-page': '#F8F6F1',
+            'ce-surface': '#FFFFFF',
+            'ce-surface-sunk': '#F2EEE8',
+            'ce-ink': '#163229',
+            'ce-ink-muted': '#59665F',
+            'ce-primary': '#005030',
+            'ce-primary-tint': '#D9EADF',
+            'ce-gold': '#FFB81C',
+            'ce-gold-tint': '#FFF1CC',
+            'ce-gold-ink': '#7A5200',
+            'ce-avocado-tint': '#E8F2D8',
+            'ce-seat-taken': '#8C6D62',
+            'ce-line-strong': '#8F7A70',
+            'ce-danger': '#BA1A1A',
+          },
+          fontFamily: {
+            display: ['Archivo', 'sans-serif'],
+            serif: ['Source Serif 4', 'serif'],
+            sans: ['Figtree', 'sans-serif'],
+          },
+          borderRadius: {
+            'card': '14px',
+            'control': '10px',
+          },
+          boxShadow: {
+            'ce-card': '0 1px 2px rgba(22, 50, 41, 0.06), 0 4px 12px rgba(22, 50, 41, 0.06)',
+            'ce-drag': '0 2px 4px rgba(22, 50, 41, 0.08), 0 10px 24px rgba(0, 80, 48, 0.14)',
+            'thumb': '0 1px 3px rgba(22, 50, 41, 0.15)',
+          }
+        }
+      }
+    };
+  </script>
+  <style>
+    .tabular-nums {
+      font-variant-numeric: tabular-nums;
+    }
+  </style>
+</head>
+<body class="bg-ce-page min-h-screen text-ce-ink font-sans antialiased p-6 md:p-12 flex flex-col items-center">
+
+  <!-- Fictional data ribbon -->
+  <div class="w-full max-w-[1080px] mb-8">
+    <div class="bg-ce-gold-tint rounded-card px-4 py-3 flex items-center gap-2.5 text-[15px] leading-snug">
+      <i data-lucide="info" class="w-4 h-4 text-ce-gold-ink shrink-0 stroke-[2]"></i>
+      <p class="text-ce-ink">
+        <span class="font-bold">Fictional data —</span> All student profiles are fictional, shaped by overall survey percentages.
+      </p>
+    </div>
+  </div>
+
+  <!-- Main Card Container: 360px wide -->
+  <main class="w-[360px] bg-ce-surface rounded-card p-6 shadow-ce-card flex flex-col">
+    <!-- Card Title -->
+    <h1 class="font-serif font-semibold text-[32px] leading-[40px] text-ce-ink tracking-tight mb-6">
+      How much each thing counts
+    </h1>
+
+    <!-- 4 Stacked Weight Controls separated by 24px -->
+    <div class="flex flex-col gap-6">
+
+      <!-- Control 1: same major (0.40) -->
+      <div class="flex flex-col">
+        <label class="font-sans font-semibold text-[18px] leading-6 text-ce-ink mb-2">
+          same major
+        </label>
+        <div class="flex items-center gap-3">
+          <!-- Slider Container -->
+          <div class="relative flex-1 h-7 flex items-center cursor-pointer">
+            <!-- Track outline & background -->
+            <div class="w-full h-[6px] bg-ce-surface-sunk rounded-full border-[2px] border-ce-line-strong overflow-hidden relative">
+              <!-- Filled portion: 40% -->
+              <div class="h-full bg-ce-primary rounded-l-full" style="width: 40%;"></div>
+            </div>
+            <!-- Thumb: 28px round, 2px primary ring, soft shadow -->
+            <div class="absolute w-7 h-7 bg-ce-surface border-2 border-ce-primary rounded-full shadow-thumb -translate-x-1/2 pointer-events-none" style="left: 40%;"></div>
+          </div>
+          <!-- Numeric input box: 88px wide, rounded 10px -->
+          <input
+            type="text"
+            readonly
+            value="0.40"
+            class="w-[88px] h-11 px-3 text-right font-sans font-bold text-[18px] tabular-nums text-ce-ink bg-ce-surface border-[2px] border-ce-line-strong rounded-control focus:outline-none focus:ring-3 focus:ring-ce-primary focus:border-ce-primary"
+          />
+        </div>
+      </div>
+
+      <!-- Control 2: said they are interested in this topic (0.25) - DRAGGING STATE -->
+      <div class="flex flex-col">
+        <label class="font-sans font-semibold text-[18px] leading-6 text-ce-ink mb-2">
+          said they are interested in this topic
+        </label>
+        <div class="flex items-center gap-3">
+          <!-- Slider Container in active/dragging state -->
+          <div class="relative flex-1 h-12 flex items-center cursor-grabbing">
+            <!-- Track -->
+            <div class="w-full h-[6px] bg-ce-surface-sunk rounded-full border-[2px] border-ce-line-strong overflow-hidden relative">
+              <!-- Filled portion: 25% -->
+              <div class="h-full bg-ce-primary rounded-l-full" style="width: 25%;"></div>
+            </div>
+
+            <!-- Value bubble above thumb: 0.25 in dark green -->
+            <div class="absolute -top-1 -translate-x-1/2 flex flex-col items-center pointer-events-none" style="left: 25%;">
+              <div class="bg-ce-primary text-white text-[13px] font-sans font-bold tabular-nums px-2 py-0.5 rounded shadow-sm">
+                0.25
+              </div>
+              <div class="w-0 h-0 border-x-4 border-x-transparent border-t-4 border-t-ce-primary"></div>
+            </div>
+
+            <!-- Dragging Thumb: 32px diameter, elevated -->
+            <div class="absolute w-8 h-8 bg-ce-surface border-2 border-ce-primary rounded-full shadow-ce-drag -translate-x-1/2 pointer-events-none" style="left: 25%;"></div>
+          </div>
+
+          <!-- Numeric input box -->
+          <input
+            type="text"
+            readonly
+            value="0.25"
+            class="w-[88px] h-11 px-3 text-right font-sans font-bold text-[18px] tabular-nums text-ce-ink bg-ce-surface border-[2px] border-ce-line-strong rounded-control focus:outline-none"
+          />
+        </div>
+      </div>
+
+      <!-- Control 3: career goal fits this event (0.25) -->
+      <div class="flex flex-col">
+        <label class="font-sans font-semibold text-[18px] leading-6 text-ce-ink mb-2">
+          career goal fits this event
+        </label>
+        <div class="flex items-center gap-3">
+          <!-- Slider Container -->
+          <div class="relative flex-1 h-7 flex items-center cursor-pointer">
+            <!-- Track -->
+            <div class="w-full h-[6px] bg-ce-surface-sunk rounded-full border-[2px] border-ce-line-strong overflow-hidden relative">
+              <!-- Filled portion: 25% -->
+              <div class="h-full bg-ce-primary rounded-l-full" style="width: 25%;"></div>
+            </div>
+            <!-- Thumb: 28px -->
+            <div class="absolute w-7 h-7 bg-ce-surface border-2 border-ce-primary rounded-full shadow-thumb -translate-x-1/2 pointer-events-none" style="left: 25%;"></div>
+          </div>
+          <!-- Numeric input box -->
+          <input
+            type="text"
+            readonly
+            value="0.25"
+            class="w-[88px] h-11 px-3 text-right font-sans font-bold text-[18px] tabular-nums text-ce-ink bg-ce-surface border-[2px] border-ce-line-strong rounded-control focus:outline-none"
+          />
+        </div>
+      </div>
+
+      <!-- Control 4: went to similar events before (0.10) - ERROR STATE -->
+      <div class="flex flex-col">
+        <label class="font-sans font-semibold text-[18px] leading-6 text-ce-ink mb-2">
+          went to similar events before
+        </label>
+        <div class="flex items-center gap-3">
+          <!-- Slider Container -->
+          <div class="relative flex-1 h-7 flex items-center cursor-pointer">
+            <!-- Track -->
+            <div class="w-full h-[6px] bg-ce-surface-sunk rounded-full border-[2px] border-ce-line-strong overflow-hidden relative">
+              <!-- Filled portion: 10% -->
+              <div class="h-full bg-ce-primary rounded-l-full" style="width: 10%;"></div>
+            </div>
+            <!-- Thumb: 28px -->
+            <div class="absolute w-7 h-7 bg-ce-surface border-2 border-ce-primary rounded-full shadow-thumb -translate-x-1/2 pointer-events-none" style="left: 10%;"></div>
+          </div>
+          <!-- Numeric input box with red outline error state -->
+          <input
+            type="text"
+            readonly
+            value="1,5"
+            class="w-[88px] h-11 px-3 text-right font-sans font-bold text-[18px] tabular-nums text-ce-ink bg-ce-surface border-[2px] border-ce-danger rounded-control focus:outline-none ring-1 ring-ce-danger"
+          />
+        </div>
+        <!-- Error Message under input -->
+        <p class="mt-2 text-ce-danger text-[13px] leading-tight font-sans">
+          "1,5" is not a plain number. Use digits and one decimal point, like 0.5.
+        </p>
+      </div>
+
+    </div>
+
+    <!-- Rebuild note line under controls -->
+    <div class="mt-6 pt-2">
+      <p class="text-ce-ink-muted text-[16px] leading-[22px] font-sans">
+        The list is rebuilt when you let go of a slider or press Enter.
+      </p>
+    </div>
+  </main>
+
+  <script>
+    lucide.createIcons();
+  </script>
+</body>
+</html>

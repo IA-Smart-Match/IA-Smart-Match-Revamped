@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Saved Settings — Smart Match Class Exercise</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700&family=Figtree:wght@400;500;600;700&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            page: '#F8F6F1',
+            surface: '#FFFFFF',
+            'surface-sunk': '#F2EEE8',
+            ink: '#163229',
+            'ink-muted': '#59665F',
+            primary: '#005030',
+            'primary-tint': '#D9EADF',
+            'primary-dark': '#003D24',
+            gold: '#FFB81C',
+            'gold-tint': '#FFF1CC',
+            'gold-text': '#7A5200',
+            avocado: '#A4D65E',
+            'avocado-tint': '#E8F2D8',
+            'seat-taken': '#8C6D62',
+            'line-strong': '#8F7A70',
+            danger: '#BA1A1A'
+          },
+          fontFamily: {
+            heading: ['"Archivo"', 'sans-serif'],
+            serif: ['"Source Serif 4"', 'serif'],
+            body: ['"Figtree"', 'sans-serif']
+          }
+        }
+      }
+    };
+  </script>
+  <style>
+    body {
+      background-color: #F8F6F1;
+      color: #163229;
+      font-family: 'Figtree', sans-serif;
+      margin: 0;
+      padding: 0;
+      -webkit-font-smoothing: antialiased;
+    }
+    .tabular-nums {
+      font-variant-numeric: tabular-nums;
+    }
+    .elev-1 {
+      box-shadow: 0 1px 2px rgba(22, 50, 41, 0.06), 0 4px 12px rgba(22, 50, 41, 0.06);
+    }
+    .elev-compare {
+      box-shadow: 0 2px 4px rgba(22, 50, 41, 0.06), 0 12px 28px rgba(0, 80, 48, 0.10);
+    }
+  </style>
+</head>
+<body class="min-h-screen bg-page text-ink p-8">
+  <div class="max-w-[1152px] mx-auto">
+    
+    <!-- Fictional data ribbon -->
+    <div class="bg-gold-tint rounded-[14px] px-4 py-2.5 flex items-center gap-2 mb-12 text-[#163229] text-[15px] font-medium leading-[22px]">
+      <svg class="w-5 h-5 flex-shrink-0 text-gold-text" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"></circle>
+        <line x1="12" y1="16" x2="12" y2="12"></line>
+        <line x1="12" y1="8" x2="12.01" y2="8"></line>
+      </svg>
+      <span><strong class="font-bold">Fictional data —</strong> All student profiles are fictional, shaped by overall survey percentages.</span>
+    </div>
+
+    <!-- Section Heading -->
+    <div class="mb-8">
+      <h2 class="font-serif text-[32px] font-semibold text-ink leading-[40px] mb-2">
+        Your team's saved settings
+      </h2>
+      <p class="text-ink-muted text-[20px] font-normal leading-[30px]">
+        Your team may keep 3 for this event. You have 2.
+      </p>
+    </div>
+
+    <!-- Save Weights Form -->
+    <div class="flex items-center gap-4 mb-8">
+      <div class="flex items-center gap-3">
+        <label for="weights-name" class="font-semibold text-[18px] text-ink whitespace-nowrap">
+          Name these weights
+        </label>
+        <input 
+          id="weights-name" 
+          type="text" 
+          value="Balanced" 
+          class="w-[280px] h-[48px] px-4 rounded-[10px] bg-surface text-ink text-[18px] border-2 border-line-strong focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
+        />
+      </div>
+      <button 
+        type="button" 
+        class="h-[48px] px-6 rounded-[10px] bg-surface text-ink text-[18px] font-semibold border-2 border-line-strong hover:bg-primary-tint hover:border-primary transition-colors flex items-center justify-center cursor-pointer"
+      >
+        Save these weights
+      </button>
+      <span class="text-ink-muted text-[16px] font-medium ml-2">
+        Saves the 4 numbers now on screen.
+      </span>
+    </div>
+
+    <!-- Three index-card style panels row -->
+    <div class="flex flex-row gap-6 items-stretch">
+      
+      <!-- Card 1: Major first (Selected for comparison) -->
+      <div class="w-[352px] bg-surface rounded-[14px] p-6 flex flex-col justify-between relative border-[3px] border-primary elev-compare">
+        <!-- Comparing badge -->
+        <div class="absolute top-4 right-4 bg-primary text-white text-[13px] font-semibold px-2.5 py-1 rounded-full flex items-center gap-1.5">
+          <span>Comparing</span>
+        </div>
+
+        <div>
+          <!-- Title -->
+          <h3 class="font-serif text-[24px] font-semibold text-ink leading-[32px] mb-6 pr-24">
+            Major first
+          </h3>
+
+          <!-- Four weight factor rows -->
+          <div class="space-y-4 mb-8">
+            <div class="flex justify-between items-baseline">
+              <span class="text-[16px] text-ink-muted leading-[22px]">same major</span>
+              <span class="text-[20px] font-bold text-ink tabular-nums leading-[24px]">0.60</span>
+            </div>
+            <div class="flex justify-between items-baseline">
+              <span class="text-[16px] text-ink-muted leading-[22px]">said they are interested in this topic</span>
+              <span class="text-[20px] font-bold text-ink tabular-nums leading-[24px]">0.15</span>
+            </div>
+            <div class="flex justify-between items-baseline">
+              <span class="text-[16px] text-ink-muted leading-[22px]">career goal fits this event</span>
+              <span class="text-[20px] font-bold text-ink tabular-nums leading-[24px]">0.15</span>
+            </div>
+            <div class="flex justify-between items-baseline">
+              <span class="text-[16px] text-ink-muted leading-[22px]">went to similar events before</span>
+              <span class="text-[20px] font-bold text-ink tabular-nums leading-[24px]">0.10</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Footer Actions -->
+        <div class="flex items-center justify-between pt-4 border-t border-[#F2EEE8]">
+          <button 
+            type="button" 
+            class="h-[40px] px-3.5 rounded-[10px] bg-surface text-ink text-[16px] font-semibold border-2 border-line-strong hover:bg-primary-tint hover:border-primary transition-colors cursor-pointer"
+          >
+            Open this list
+          </button>
+          
+          <label class="flex items-center gap-2 text-[16px] font-semibold text-ink cursor-pointer select-none">
+            <input 
+              type="checkbox" 
+              checked 
+              class="w-4 h-4 rounded text-primary focus:ring-primary accent-primary cursor-pointer"
+            />
+            <span>Compare</span>
+          </label>
+
+          <!-- Quiet Delete button: plain CPP Green text, never red -->
+          <button 
+            type="button" 
+            class="text-[16px] font-semibold text-primary hover:underline cursor-pointer p-1"
+          >
+            Delete
+          </button>
+        </div>
+      </div>
+
+      <!-- Card 2: Interests first -->
+      <div class="w-[352px] bg-surface rounded-[14px] p-6 flex flex-col justify-between relative elev-1">
+        <div>
+          <!-- Title -->
+          <h3 class="font-serif text-[24px] font-semibold text-ink leading-[32px] mb-6">
+            Interests first
+          </h3>
+
+          <!-- Four weight factor rows -->
+          <div class="space-y-4 mb-8">
+            <div class="flex justify-between items-baseline">
+              <span class="text-[16px] text-ink-muted leading-[22px]">same major</span>
+              <span class="text-[20px] font-bold text-ink tabular-nums leading-[24px]">0.15</span>
+            </div>
+            <div class="flex justify-between items-baseline">
+              <span class="text-[16px] text-ink-muted leading-[22px]">said they are interested in this topic</span>
+              <span class="text-[20px] font-bold text-ink tabular-nums leading-[24px]">0.45</span>
+            </div>
+            <div class="flex justify-between items-baseline">
+              <span class="text-[16px] text-ink-muted leading-[22px]">career goal fits this event</span>
+              <span class="text-[20px] font-bold text-ink tabular-nums leading-[24px]">0.25</span>
+            </div>
+            <div class="flex justify-between items-baseline">
+              <span class="text-[16px] text-ink-muted leading-[22px]">went to similar events before</span>
+              <span class="text-[20px] font-bold text-ink tabular-nums leading-[24px]">0.15</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Footer Actions -->
+        <div class="flex items-center justify-between pt-4 border-t border-[#F2EEE8]">
+          <button 
+            type="button" 
+            class="h-[40px] px-3.5 rounded-[10px] bg-surface text-ink text-[16px] font-semibold border-2 border-line-strong hover:bg-primary-tint hover:border-primary transition-colors cursor-pointer"
+          >
+            Open this list
+          </button>
+          
+          <label class="flex items-center gap-2 text-[16px] font-semibold text-ink cursor-pointer select-none">
+            <input 
+              type="checkbox" 
+              class="w-4 h-4 rounded text-primary focus:ring-primary accent-primary cursor-pointer"
+            />
+            <span>Compare</span>
+          </label>
+
+          <!-- Quiet Delete button: plain CPP Green text, never red -->
+          <button 
+            type="button" 
+            class="text-[16px] font-semibold text-primary hover:underline cursor-pointer p-1"
+          >
+            Delete
+          </button>
+        </div>
+      </div>
+
+      <!-- Card 3: Empty slot -->
+      <div class="w-[352px] rounded-[14px] p-6 border-2 border-dashed border-line-strong flex flex-col items-center justify-center text-center bg-transparent min-h-[380px]">
+        <!-- Pictogram: Dashed rectangle with plus -->
+        <div class="w-14 h-14 rounded-[8px] border-2 border-dashed border-line-strong flex items-center justify-center mb-5 text-line-strong">
+          <svg class="w-7 h-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="12" y1="5" x2="12" y2="19"></line>
+            <line x1="5" y1="12" x2="19" y2="12"></line>
+          </svg>
+        </div>
+
+        <p class="text-ink text-[18px] font-medium leading-[26px] max-w-[240px]">
+          Slot 3 of 3 is free. Save the weights on screen to fill it.
+        </p>
+      </div>
+
+    </div>
+
+  </div>
+</body>
+</html>
