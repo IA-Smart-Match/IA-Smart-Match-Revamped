@@ -5,7 +5,7 @@
  * contrast the room sees.
  */
 import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
@@ -17,7 +17,8 @@ import {
   type CeColorToken,
 } from "./tokens";
 
-const CSS_PATH = fileURLToPath(new URL("../../../../styles/exercise.css", import.meta.url));
+// Vitest runs from the frontend root (see vitest.config.ts).
+const CSS_PATH = path.resolve(process.cwd(), "src/styles/exercise.css");
 const css = readFileSync(CSS_PATH, "utf8");
 
 /** The declarations inside the first rule whose selector list is exactly `selector`. */
