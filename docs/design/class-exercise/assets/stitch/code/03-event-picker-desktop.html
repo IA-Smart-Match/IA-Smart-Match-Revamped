@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Smart Match — Choose an event</title>
+<!-- Fonts -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700&amp;family=Figtree:wght@400;500;600;700&amp;family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&amp;display=swap" rel="stylesheet"/>
+<!-- Material Symbols -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Lucide Icons -->
+<script src="https://unpkg.com/lucide@latest"></script>
+<!-- Tailwind CSS -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          "colors": {
+            "on-tertiary-fixed-variant": "#314f00",
+            "surface-container-low": "#f2f4ef",
+            "surface-variant": "#e0e3de",
+            "avocado-tint": "#E8F2D8",
+            "gold-ink": "#7A5200",
+            "secondary-fixed-dim": "#ffba2c",
+            "on-secondary-fixed": "#271900",
+            "on-error-container": "#93000a",
+            "on-surface-variant": "#404942",
+            "primary": "#00371f",
+            "gold-tint": "#FFF1CC",
+            "surface-container-highest": "#e0e3de",
+            "secondary-fixed": "#ffdeaa",
+            "on-secondary": "#ffffff",
+            "on-surface": "#191c1a",
+            "line-strong": "#8F7A70",
+            "tertiary-fixed": "#bff377",
+            "inverse-primary": "#91d5ab",
+            "on-background": "#191c1a",
+            "secondary": "#7d5700",
+            "primary-tint": "#D9EADF",
+            "on-primary-fixed": "#002111",
+            "tertiary-fixed-dim": "#a4d65e",
+            "surface-dim": "#d8dbd6",
+            "surface-container-lowest": "#ffffff",
+            "on-tertiary": "#ffffff",
+            "ink": "#163229",
+            "primary-fixed": "#acf2c6",
+            "on-error": "#ffffff",
+            "tertiary-container": "#304d00",
+            "primary-fixed-dim": "#91d5ab",
+            "on-tertiary-container": "#91c14c",
+            "inverse-on-surface": "#eff2ec",
+            "on-primary": "#ffffff",
+            "outline": "#707972",
+            "on-primary-fixed-variant": "#035232",
+            "outline-variant": "#bfc9c0",
+            "surface-container": "#ecefe9",
+            "seat-taken": "#8C6D62",
+            "on-primary-container": "#7dc198",
+            "error": "#ba1a1a",
+            "on-secondary-container": "#6b4b00",
+            "surface": "#FFFFFF",
+            "surface-bright": "#f8faf5",
+            "bay": "#CFBAB0",
+            "secondary-container": "#feb71a",
+            "surface-container-high": "#e6e9e4",
+            "on-secondary-fixed-variant": "#5f4100",
+            "ink-muted": "#59665F",
+            "danger": "#BA1A1A",
+            "surface-tint": "#266a48",
+            "error-container": "#ffdad6",
+            "scrim": "rgba(16,37,29,0.48)",
+            "inverse-surface": "#2e312e",
+            "background": "#f8faf5",
+            "on-tertiary-fixed": "#112000",
+            "page": "#F8F6F1",
+            "avocado": "#A4D65E",
+            "tertiary": "#1f3500",
+            "primary-container": "#005030",
+            "surface-sunk": "#F2EEE8",
+            "line": "#D9CBC4"
+          },
+          "borderRadius": {
+            "DEFAULT": "0.25rem",
+            "lg": "0.5rem",
+            "xl": "0.75rem",
+            "full": "9999px"
+          },
+          "spacing": {
+            "space-xl": "24px",
+            "space-3xl": "48px",
+            "space-xs": "4px",
+            "space-2xl": "32px",
+            "gutter-mobile": "16px",
+            "space-md": "12px",
+            "space-4xl": "64px",
+            "gutter": "24px",
+            "space-5xl": "96px",
+            "margin-mobile": "16px",
+            "space-sm": "8px",
+            "margin": "64px",
+            "space-lg": "16px"
+          },
+          "fontFamily": {
+            "label-md-mobile": ["\"Usual, Figtree, sans-serif\""],
+            "headline-sm-mobile": ["\"Proxima Sera, Source Serif 4, serif\""],
+            "headline-lg-mobile": ["\"Transducer CPP, Archivo, sans-serif\""],
+            "body-md": ["\"Usual, Figtree, sans-serif\""],
+            "value-num-mobile": ["\"Usual, Figtree, sans-serif\""],
+            "value-num": ["\"Usual, Figtree, sans-serif\""],
+            "body-reason": ["\"Proxima Sera, Source Serif 4, serif\""],
+            "meta-caption": ["\"Usual, Figtree, sans-serif\""],
+            "headline-display": ["\"Transducer CPP, Archivo, sans-serif\""],
+            "body-reason-mobile": ["\"Proxima Sera, Source Serif 4, serif\""],
+            "headline-md": ["\"Proxima Sera, Source Serif 4, serif\""],
+            "headline-lg": ["\"Transducer CPP, Archivo, sans-serif\""],
+            "rank-num": ["\"Transducer CPP, Archivo, sans-serif\""],
+            "label-md": ["\"Usual, Figtree, sans-serif\""],
+            "rank-num-mobile": ["\"Transducer CPP, Archivo, sans-serif\""],
+            "headline-display-mobile": ["\"Transducer CPP, Archivo, sans-serif\""],
+            "body-lead": ["\"Usual, Figtree, sans-serif\""],
+            "headline-sm": ["\"Proxima Sera, Source Serif 4, serif\""],
+            "meta-caption-mobile": ["\"Usual, Figtree, sans-serif\""],
+            "headline-md-mobile": ["\"Proxima Sera, Source Serif 4, serif\""],
+            "body-md-mobile": ["\"Usual, Figtree, sans-serif\""],
+            "body-lead-mobile": ["\"Usual, Figtree, sans-serif\""]
+          },
+          "fontSize": {
+            "label-md-mobile": ["16px", { "lineHeight": "22px", "letterSpacing": "0.01em", "fontWeight": "600" }],
+            "headline-sm-mobile": ["21px", { "lineHeight": "28px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+            "headline-lg-mobile": ["32px", { "lineHeight": "38px", "fontWeight": "600" }],
+            "body-md": ["20px", { "lineHeight": "30px", "fontWeight": "400" }],
+            "value-num-mobile": ["18px", { "lineHeight": "24px", "fontWeight": "700" }],
+            "value-num": ["22px", { "lineHeight": "28px", "fontWeight": "700" }],
+            "body-reason": ["18px", { "lineHeight": "28px", "fontWeight": "400" }],
+            "meta-caption": ["16px", { "lineHeight": "24px", "letterSpacing": "0.01em", "fontWeight": "500" }],
+            "headline-display": ["72px", { "lineHeight": "76px", "fontWeight": "700" }],
+            "body-reason-mobile": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+            "headline-md": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+            "headline-lg": ["48px", { "lineHeight": "56px", "fontWeight": "600" }],
+            "rank-num": ["28px", { "lineHeight": "32px", "fontWeight": "700" }],
+            "label-md": ["18px", { "lineHeight": "24px", "letterSpacing": "0.01em", "fontWeight": "600" }],
+            "rank-num-mobile": ["22px", { "lineHeight": "26px", "fontWeight": "700" }],
+            "headline-display-mobile": ["48px", { "lineHeight": "52px", "fontWeight": "700" }],
+            "body-lead": ["22px", { "lineHeight": "34px", "fontWeight": "400" }],
+            "headline-sm": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+            "meta-caption-mobile": ["15px", { "lineHeight": "22px", "letterSpacing": "0.01em", "fontWeight": "500" }],
+            "headline-md-mobile": ["26px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+            "body-md-mobile": ["17px", { "lineHeight": "26px", "fontWeight": "400" }],
+            "body-lead-mobile": ["18px", { "lineHeight": "28px", "fontWeight": "400" }]
+          }
+        },
+      },
+    }
+  </script>
+<style>
+    .ce-elev-1 {
+      box-shadow: 0 1px 2px rgba(22,50,41,.06), 0 4px 12px rgba(22,50,41,.06);
+    }
+    .ce-elev-2 {
+      box-shadow: 0 2px 4px rgba(22,50,41,.06), 0 12px 28px rgba(0,80,48,.10);
+    }
+    .ce-card-interactive {
+      transition: transform 0.18s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .ce-card-interactive:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 2px 4px rgba(22,50,41,.06), 0 12px 28px rgba(0,80,48,.10);
+    }
+    .ce-card-interactive:active {
+      transform: scale(0.995);
+    }
+  </style>
+</head>
+<body class="bg-page text-ink min-h-screen py-8 px-12 antialiased selection:bg-gold-tint selection:text-ink">
+<!-- Content Container (Max width 1152px, perfectly aligned on 1280px canvas) -->
+<main class="w-full max-w-[1152px] mx-auto">
+<!-- Top Ribbon: Slim Gold Wash Warning / Context -->
+<div class="w-full bg-gold-tint rounded-[14px] px-4 py-2.5 flex items-center gap-2 mb-8">
+<i class="w-[18px] h-[18px] text-ink shrink-0" data-lucide="info"></i>
+<p class="font-['Figtree'] text-[15px] text-ink leading-normal">
+<span class="font-bold">Fictional data — </span>All student profiles are fictional, shaped by overall survey percentages.
+      </p>
+</div>
+<!-- Header Row -->
+<header class="flex justify-between items-center mb-2">
+<h1 class="font-headline-lg text-headline-lg text-ink font-semibold tracking-tight">
+        Choose an event
+      </h1>
+<!-- Quiet Team Label Badge -->
+<div class="flex items-center gap-1.5 text-ink-muted font-medium text-lg">
+<i class="w-[18px] h-[18px] text-ink-muted" data-lucide="users"></i>
+<span>Team 4</span>
+</div>
+</header>
+<!-- Lead Line -->
+<p class="font-body-lead text-body-lead text-ink-muted mb-12">
+      Build your team's list for one of the two events in the exercise.
+    </p>
+<!-- Section 1: The two events you can work on -->
+<section class="mb-12">
+<h2 class="font-headline-md text-headline-md text-ink mb-6">
+        The two events you can work on
+      </h2>
+<!-- Stacked Wide White Cards -->
+<div class="flex flex-col gap-6">
+<!-- Card 1: Northline Analytics -->
+<article class="bg-surface rounded-[14px] ce-elev-1 p-6 ce-card-interactive cursor-pointer">
+<div class="flex items-center justify-between">
+<div class="flex items-start gap-5">
+<!-- 48px Round Seal: Numeral 1 (Border outlined style) -->
+<div class="w-12 h-12 rounded-full border-2 border-primary-container bg-transparent text-primary-container flex items-center justify-center font-bold text-2xl shrink-0 tabular-nums select-none">
+                1
+              </div>
+<!-- Event Details -->
+<div>
+<h3 class="font-headline-md text-headline-md text-ink mb-2">
+                  Northline Analytics
+                </h3>
+<p class="font-body-md text-body-md text-ink leading-snug mb-1">
+                  Topics: Technology / information systems; Marketing / advertising / public relations
+                </p>
+<p class="font-body-md text-body-md text-ink leading-snug">
+                  Aimed at: Computer Information Systems; International Business &amp; Marketing
+                </p>
+</div>
+</div>
+<!-- Right Chevron Affordance -->
+<div class="pl-4 shrink-0">
+<i class="w-7 h-7 text-ink-muted stroke-[2]" data-lucide="chevron-right"></i>
+</div>
+</div>
+</article>
+<!-- Card 2: Harbor Consumer Brands -->
+<article class="bg-surface rounded-[14px] ce-elev-1 p-6 ce-card-interactive cursor-pointer">
+<div class="flex items-center justify-between">
+<div class="flex items-start gap-5">
+<!-- 48px Round Seal: Numeral 2 (Filled primary style) -->
+<div class="w-12 h-12 rounded-full bg-primary-container text-surface flex items-center justify-center font-bold text-2xl shrink-0 tabular-nums select-none">
+                2
+              </div>
+<!-- Event Details -->
+<div>
+<h3 class="font-headline-md text-headline-md text-ink mb-2">
+                  Harbor Consumer Brands
+                </h3>
+<p class="font-body-md text-body-md text-ink leading-snug mb-1">
+                  Topics: Retail / consumer goods; Marketing / advertising / public relations
+                </p>
+<p class="font-body-md text-body-md text-ink leading-snug">
+                  Aimed at: International Business &amp; Marketing; Management &amp; Human Resources
+                </p>
+</div>
+</div>
+<!-- Right Chevron Affordance -->
+<div class="pl-4 shrink-0">
+<i class="w-7 h-7 text-ink-muted stroke-[2]" data-lucide="chevron-right"></i>
+</div>
+</div>
+</article>
+</div>
+</section>
+<!-- Section 2: Past events, for attendance history -->
+<section class="mt-12">
+<h2 class="font-headline-md text-headline-md text-ink mb-2">
+        Past events, for attendance history
+      </h2>
+<p class="font-body-md text-body-md text-ink-muted mb-6">
+        These are not events you build a list for. They are what “went to similar events before” reads.
+      </p>
+<!-- Two-Column Balanced List Grid -->
+<div class="grid grid-cols-2 gap-x-12 gap-y-4 py-2">
+<!-- Column 1 Items -->
+<div class="flex items-center gap-3 text-[19px] text-ink font-normal">
+<i class="w-5 h-5 text-ink-muted stroke-[2] shrink-0" data-lucide="calendar-days"></i>
+<span>Fall Career Fair</span>
+</div>
+<div class="flex items-center gap-3 text-[19px] text-ink font-normal">
+<i class="w-5 h-5 text-ink-muted stroke-[2] shrink-0" data-lucide="calendar-days"></i>
+<span>Supply Chain Info Session</span>
+</div>
+<div class="flex items-center gap-3 text-[19px] text-ink font-normal">
+<i class="w-5 h-5 text-ink-muted stroke-[2] shrink-0" data-lucide="calendar-days"></i>
+<span>Resume Lab Workshop</span>
+</div>
+<div class="flex items-center gap-3 text-[19px] text-ink font-normal">
+<i class="w-5 h-5 text-ink-muted stroke-[2] shrink-0" data-lucide="calendar-days"></i>
+<span>Data Analytics Workshop</span>
+</div>
+<div class="flex items-center gap-3 text-[19px] text-ink font-normal">
+<i class="w-5 h-5 text-ink-muted stroke-[2] shrink-0" data-lucide="calendar-days"></i>
+<span>Consulting Industry Panel</span>
+</div>
+<div class="flex items-center gap-3 text-[19px] text-ink font-normal">
+<i class="w-5 h-5 text-ink-muted stroke-[2] shrink-0" data-lucide="calendar-days"></i>
+<span>Nonprofit Networking Mixer</span>
+</div>
+<div class="flex items-center gap-3 text-[19px] text-ink font-normal">
+<i class="w-5 h-5 text-ink-muted stroke-[2] shrink-0" data-lucide="calendar-days"></i>
+<span>Accounting Firms Night</span>
+</div>
+<div class="flex items-center gap-3 text-[19px] text-ink font-normal">
+<i class="w-5 h-5 text-ink-muted stroke-[2] shrink-0" data-lucide="calendar-days"></i>
+<span>Retail Leadership Panel</span>
+</div>
+<div class="flex items-center gap-3 text-[19px] text-ink font-normal">
+<i class="w-5 h-5 text-ink-muted stroke-[2] shrink-0" data-lucide="calendar-days"></i>
+<span>Startup Pitch Night</span>
+</div>
+<div class="flex items-center gap-3 text-[19px] text-ink font-normal">
+<i class="w-5 h-5 text-ink-muted stroke-[2] shrink-0" data-lucide="calendar-days"></i>
+<span>Case Competition Kickoff</span>
+</div>
+</div>
+</section>
+</main>
+<script>
+    // Initialize Lucide icons
+    lucide.createIcons();
+  </script>
+</body></html>

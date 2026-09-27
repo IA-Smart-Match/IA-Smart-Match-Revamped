@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Instructor — Smart Match Class Exercise</title>
+  <!-- Google Fonts: Archivo (SemiExpanded), Source Serif 4, Figtree -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700&family=Figtree:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap" rel="stylesheet">
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            ce: {
+              page: '#F8F6F1',
+              surface: '#FFFFFF',
+              'surface-sunk': '#F2EEE8',
+              ink: '#163229',
+              'ink-muted': '#59665F',
+              primary: '#005030',
+              'primary-tint': '#D9EADF',
+              'primary-text': '#003D24',
+              gold: '#FFB81C',
+              'gold-tint': '#FFF1CC',
+              'gold-ink': '#7A5200',
+              'avocado-tint': '#E8F2D8',
+              'seat-taken': '#8C6D62',
+              'line-strong': '#8F7A70',
+              line: '#D9CBC4',
+              danger: '#BA1A1A',
+            }
+          },
+          fontFamily: {
+            archivo: ['Archivo', 'sans-serif'],
+            serif: ['"Source Serif 4"', 'serif'],
+            figtree: ['Figtree', 'sans-serif'],
+          },
+          boxShadow: {
+            'ce-card': '0 1px 2px rgba(22, 50, 41, 0.06), 0 4px 12px rgba(22, 50, 41, 0.06)',
+          }
+        }
+      }
+    };
+  </script>
+  <style>
+    /* Tabular numbers for all numerical figures and counts */
+    .tabular-nums {
+      font-variant-numeric: tabular-nums;
+    }
+    body {
+      background-color: #F8F6F1;
+      color: #163229;
+      font-family: 'Figtree', sans-serif;
+      font-size: 20px;
+      line-height: 1.5;
+      margin: 0;
+      padding: 0;
+      -webkit-font-smoothing: antialiased;
+    }
+  </style>
+</head>
+<body class="min-h-screen bg-ce-page text-ce-ink selection:bg-ce-gold-tint selection:text-ce-ink">
+
+  <main class="max-w-[1152px] mx-auto px-6 pt-8 pb-20">
+
+    <!-- Top Fictional-data ribbon (6.2) -->
+    <section class="bg-ce-gold-tint rounded-[14px] px-5 py-3 mb-10 flex items-center gap-3 shadow-none">
+      <i data-lucide="info" class="w-5 h-5 text-ce-gold-ink shrink-0 stroke-[2]"></i>
+      <p class="text-[16px] leading-[24px] text-ce-ink m-0">
+        <strong class="font-bold text-ce-ink">Fictional data —</strong> All student profiles are fictional, shaped by overall survey percentages.
+      </p>
+    </section>
+
+    <!-- Page Header (6.1) -->
+    <header class="mb-12">
+      <h1 class="font-archivo font-semibold text-[48px] leading-[56px] text-ce-ink tracking-tight m-0">
+        Instructor
+      </h1>
+      <p class="font-figtree text-[22px] leading-[34px] text-ce-ink-muted mt-3 mb-0 max-w-[72ch]">
+        Load a data file, open results for an event, and see what each team has done.
+      </p>
+    </header>
+
+    <!-- 2-Column Grid (8 / 4) -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+
+      <!-- LEFT COLUMN (Span 8) -->
+      <div class="lg:col-span-8 flex flex-col gap-12">
+
+        <!-- 1. Card: Open results for an event -->
+        <article class="bg-ce-surface rounded-[14px] p-6 shadow-ce-card border-0">
+          <h2 class="font-serif font-semibold text-[32px] leading-[40px] text-ce-ink m-0">
+            Open results for an event
+          </h2>
+          <p class="font-figtree text-[16px] leading-[24px] text-ce-ink-muted mt-2 mb-6">
+            For Ann's file, 25 September. Teams can run results only for an event that is open.
+          </p>
+
+          <div class="flex flex-col gap-4">
+            <!-- Row 1: Northline Analytics (Open) -->
+            <div class="bg-ce-surface-sunk rounded-[10px] p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              <span class="font-figtree font-semibold text-[20px] leading-[28px] text-ce-ink">
+                Northline Analytics
+              </span>
+              <div class="flex items-center gap-3">
+                <span class="inline-flex items-center gap-2 bg-ce-primary-tint text-ce-primary-text px-3.5 py-1.5 rounded-full text-[16px] font-medium leading-[22px]">
+                  <i data-lucide="lock-open" class="w-4 h-4 text-ce-primary-text stroke-[2]"></i>
+                  Results are open
+                </span>
+              </div>
+            </div>
+
+            <!-- Row 2: Harbor Consumer Brands (Closed) -->
+            <div class="bg-ce-surface-sunk rounded-[10px] p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              <span class="font-figtree font-semibold text-[20px] leading-[28px] text-ce-ink">
+                Harbor Consumer Brands
+              </span>
+              <div class="flex items-center gap-4 flex-wrap">
+                <span class="inline-flex items-center gap-2 bg-[#F2EEE8] border border-ce-line-strong text-ce-ink-muted px-3.5 py-1.5 rounded-full text-[16px] font-medium leading-[22px]">
+                  <i data-lucide="lock" class="w-4 h-4 text-ce-ink-muted stroke-[2]"></i>
+                  Results are closed
+                </span>
+                <button type="button" class="h-[44px] px-5 rounded-[10px] bg-ce-surface border-2 border-ce-line-strong text-ce-ink font-figtree font-semibold text-[18px] leading-[24px] hover:border-ce-primary hover:bg-ce-primary-tint transition-colors">
+                  Open results
+                </button>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <!-- 2. Card: Teams (Six rows) -->
+        <article class="bg-ce-surface rounded-[14px] p-6 shadow-ce-card border-0">
+          <h2 class="font-serif font-semibold text-[32px] leading-[40px] text-ce-ink mb-6">
+            Teams
+          </h2>
+
+          <div class="divide-y divide-ce-line">
+
+            <!-- Team 1 -->
+            <div class="py-5 first:pt-0 last:pb-0 flex flex-col sm:flex-row sm:items-center gap-5 justify-between">
+              <div class="flex items-start gap-4">
+                <div class="w-12 h-12 rounded-full bg-ce-surface-sunk border border-ce-line flex items-center justify-center shrink-0">
+                  <span class="font-archivo font-bold text-[22px] leading-none text-ce-ink tabular-nums">1</span>
+                </div>
+                <div>
+                  <div class="font-figtree text-[18px] leading-[26px] text-ce-ink">
+                    In Ann's file, 25 September — <span class="tabular-nums">3</span> saved settings, <span class="tabular-nums">1</span> result run.
+                  </div>
+                  <div class="font-figtree text-[16px] leading-[24px] text-ce-ink-muted mt-0.5">
+                    Asking: A small reward. Has already asked.
+                  </div>
+                </div>
+              </div>
+              <div class="flex items-center gap-4 shrink-0 sm:self-center">
+                <button type="button" class="h-[44px] px-4 rounded-[10px] bg-ce-surface border-2 border-ce-line-strong text-ce-ink font-figtree font-semibold text-[18px] leading-[24px] hover:border-ce-primary hover:bg-ce-primary-tint transition-colors">
+                  Open this team's work
+                </button>
+                <button type="button" class="text-ce-primary font-figtree font-semibold text-[18px] leading-[24px] hover:underline p-1">
+                  Clear team 1's work
+                </button>
+              </div>
+            </div>
+
+            <!-- Team 2 (with Inline Confirm active state) -->
+            <div class="py-5 flex flex-col gap-4">
+              <div class="flex flex-col sm:flex-row sm:items-center gap-5 justify-between">
+                <div class="flex items-start gap-4">
+                  <div class="w-12 h-12 rounded-full bg-ce-surface-sunk border border-ce-line flex items-center justify-center shrink-0">
+                    <span class="font-archivo font-bold text-[22px] leading-none text-ce-ink tabular-nums">2</span>
+                  </div>
+                  <div>
+                    <div class="font-figtree text-[18px] leading-[26px] text-ce-ink">
+                      In Ann's file, 25 September — <span class="tabular-nums">2</span> saved settings, <span class="tabular-nums">1</span> result run.
+                    </div>
+                    <div class="font-figtree text-[16px] leading-[24px] text-ce-ink-muted mt-0.5">
+                      Asking: Required. Not asked yet.
+                    </div>
+                  </div>
+                </div>
+                <div class="flex items-center gap-4 shrink-0 sm:self-center">
+                  <button type="button" class="h-[44px] px-4 rounded-[10px] bg-ce-surface border-2 border-ce-line-strong text-ce-ink font-figtree font-semibold text-[18px] leading-[24px] hover:border-ce-primary hover:bg-ce-primary-tint transition-colors">
+                    Open this team's work
+                  </button>
+                </div>
+              </div>
+              <!-- Inline Confirm Banner for Team 2 -->
+              <div class="bg-ce-surface-sunk rounded-[10px] p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 border border-ce-line ml-0 sm:ml-16">
+                <p class="font-figtree text-[16px] leading-[24px] text-ce-ink m-0">
+                  This clears team 2's saved settings and result runs. No other team is touched.
+                </p>
+                <div class="flex items-center gap-4 shrink-0">
+                  <button type="button" class="h-[44px] px-5 rounded-[10px] bg-ce-danger text-white font-figtree font-semibold text-[18px] leading-[24px] hover:opacity-90 transition-opacity">
+                    Yes, clear team 2
+                  </button>
+                  <button type="button" class="text-ce-primary font-figtree font-semibold text-[18px] leading-[24px] hover:underline p-1">
+                    Keep their work
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Team 3 -->
+            <div class="py-5 flex flex-col sm:flex-row sm:items-center gap-5 justify-between">
+              <div class="flex items-start gap-4">
+                <div class="w-12 h-12 rounded-full bg-ce-surface-sunk border border-ce-line flex items-center justify-center shrink-0">
+                  <span class="font-archivo font-bold text-[22px] leading-none text-ce-ink tabular-nums">3</span>
+                </div>
+                <div>
+                  <div class="font-figtree text-[18px] leading-[26px] text-ce-ink">
+                    In Ann's file, 25 September — <span class="tabular-nums">3</span> saved settings, <span class="tabular-nums">0</span> result runs.
+                  </div>
+                  <div class="font-figtree text-[16px] leading-[24px] text-ce-ink-muted mt-0.5">
+                    Asking: not picked. Not asked yet.
+                  </div>
+                </div>
+              </div>
+              <div class="flex items-center gap-4 shrink-0 sm:self-center">
+                <button type="button" class="h-[44px] px-4 rounded-[10px] bg-ce-surface border-2 border-ce-line-strong text-ce-ink font-figtree font-semibold text-[18px] leading-[24px] hover:border-ce-primary hover:bg-ce-primary-tint transition-colors">
+                  Open this team's work
+                </button>
+                <button type="button" class="text-ce-primary font-figtree font-semibold text-[18px] leading-[24px] hover:underline p-1">
+                  Clear team 3's work
+                </button>
+              </div>
+            </div>
+
+            <!-- Team 4 -->
+            <div class="py-5 flex flex-col sm:flex-row sm:items-center gap-5 justify-between">
+              <div class="flex items-start gap-4">
+                <div class="w-12 h-12 rounded-full bg-ce-surface-sunk border border-ce-line flex items-center justify-center shrink-0">
+                  <span class="font-archivo font-bold text-[22px] leading-none text-ce-ink tabular-nums">4</span>
+                </div>
+                <div>
+                  <div class="font-figtree text-[18px] leading-[26px] text-ce-ink">
+                    In Ann's file, 25 September — <span class="tabular-nums">3</span> saved settings, <span class="tabular-nums">2</span> result runs.
+                  </div>
+                  <div class="font-figtree text-[16px] leading-[24px] text-ce-ink-muted mt-0.5">
+                    Asking: A small reward. Has already asked.
+                  </div>
+                </div>
+              </div>
+              <div class="flex items-center gap-4 shrink-0 sm:self-center">
+                <button type="button" class="h-[44px] px-4 rounded-[10px] bg-ce-surface border-2 border-ce-line-strong text-ce-ink font-figtree font-semibold text-[18px] leading-[24px] hover:border-ce-primary hover:bg-ce-primary-tint transition-colors">
+                  Open this team's work
+                </button>
+                <button type="button" class="text-ce-primary font-figtree font-semibold text-[18px] leading-[24px] hover:underline p-1">
+                  Clear team 4's work
+                </button>
+              </div>
+            </div>
+
+            <!-- Team 5 -->
+            <div class="py-5 flex flex-col sm:flex-row sm:items-center gap-5 justify-between">
+              <div class="flex items-start gap-4">
+                <div class="w-12 h-12 rounded-full bg-ce-surface-sunk border border-ce-line flex items-center justify-center shrink-0">
+                  <span class="font-archivo font-bold text-[22px] leading-none text-ce-ink tabular-nums">5</span>
+                </div>
+                <div>
+                  <div class="font-figtree text-[18px] leading-[26px] text-ce-ink">
+                    In Ann's file, 25 September — <span class="tabular-nums">1</span> saved setting, <span class="tabular-nums">0</span> result runs.
+                  </div>
+                  <div class="font-figtree text-[16px] leading-[24px] text-ce-ink-muted mt-0.5">
+                    Asking: not picked. Not asked yet.
+                  </div>
+                </div>
+              </div>
+              <div class="flex items-center gap-4 shrink-0 sm:self-center">
+                <button type="button" class="h-[44px] px-4 rounded-[10px] bg-ce-surface border-2 border-ce-line-strong text-ce-ink font-figtree font-semibold text-[18px] leading-[24px] hover:border-ce-primary hover:bg-ce-primary-tint transition-colors">
+                  Open this team's work
+                </button>
+                <button type="button" class="text-ce-primary font-figtree font-semibold text-[18px] leading-[24px] hover:underline p-1">
+                  Clear team 5's work
+                </button>
+              </div>
+            </div>
+
+            <!-- Team 6 -->
+            <div class="py-5 last:pb-0 flex flex-col sm:flex-row sm:items-center gap-5 justify-between">
+              <div class="flex items-start gap-4">
+                <div class="w-12 h-12 rounded-full bg-ce-surface-sunk border border-ce-line flex items-center justify-center shrink-0">
+                  <span class="font-archivo font-bold text-[22px] leading-none text-ce-ink tabular-nums">6</span>
+                </div>
+                <div>
+                  <div class="font-figtree text-[18px] leading-[26px] text-ce-ink">
+                    In Ann's file, 25 September — <span class="tabular-nums">0</span> saved settings, <span class="tabular-nums">0</span> result runs.
+                  </div>
+                  <div class="font-figtree text-[16px] leading-[24px] text-ce-ink-muted mt-0.5">
+                    Asking: not picked. Not asked yet.
+                  </div>
+                </div>
+              </div>
+              <div class="flex items-center gap-4 shrink-0 sm:self-center">
+                <button type="button" class="h-[44px] px-4 rounded-[10px] bg-ce-surface border-2 border-ce-line-strong text-ce-ink font-figtree font-semibold text-[18px] leading-[24px] hover:border-ce-primary hover:bg-ce-primary-tint transition-colors">
+                  Open this team's work
+                </button>
+                <button type="button" class="text-ce-primary font-figtree font-semibold text-[18px] leading-[24px] hover:underline p-1">
+                  Clear team 6's work
+                </button>
+              </div>
+            </div>
+
+          </div>
+        </article>
+
+        <!-- 3. Card: Ask for every team at once -->
+        <article class="bg-ce-surface rounded-[14px] p-6 shadow-ce-card border-0">
+          <h2 class="font-serif font-semibold text-[32px] leading-[40px] text-ce-ink m-0">
+            Ask for every team at once
+          </h2>
+          <p class="font-figtree text-[20px] leading-[30px] text-ce-ink-muted mt-3 mb-6 max-w-[65ch]">
+            This runs in one go for every team that has picked a way of asking and has not asked yet. If it cannot be done, no team is changed.
+          </p>
+          <div>
+            <button type="button" class="h-[56px] px-6 rounded-[10px] bg-ce-surface border-2 border-ce-line-strong text-ce-ink font-figtree font-semibold text-[18px] leading-[24px] hover:border-ce-primary hover:bg-ce-primary-tint transition-colors">
+              Ask for every team
+            </button>
+          </div>
+        </article>
+
+      </div>
+
+      <!-- RIGHT COLUMN (Span 4, Sticky) -->
+      <div class="lg:col-span-4 sticky top-8 flex flex-col gap-6">
+
+        <!-- 4. Card: Data files -->
+        <article class="bg-ce-surface rounded-[14px] p-6 shadow-ce-card border-0">
+          <h2 class="font-serif font-semibold text-[32px] leading-[40px] text-ce-ink mb-6">
+            Data files
+          </h2>
+
+          <!-- Drop zone -->
+          <div class="border-2 border-dashed border-ce-line-strong rounded-[10px] p-6 text-center bg-ce-surface hover:bg-ce-primary-tint/20 transition-colors flex flex-col items-center justify-center">
+            <i data-lucide="file-spreadsheet" class="w-10 h-10 text-ce-primary mb-3 stroke-[2]"></i>
+            <span class="font-figtree font-semibold text-[18px] leading-[26px] text-ce-ink">
+              Drop Ann's workbook here, or choose a file
+            </span>
+            <p class="font-figtree text-[15px] leading-[22px] text-ce-ink-muted mt-2 mb-0">
+              Choose Ann's workbook exactly as she sent it. Do not save it as a CSV first.
+            </p>
+          </div>
+
+          <!-- Upload Form Fields -->
+          <div class="mt-6 flex flex-col gap-4">
+            <div>
+              <label for="file-name" class="block font-figtree font-semibold text-[18px] leading-[24px] text-ce-ink mb-2">
+                Call this file
+              </label>
+              <input type="text" id="file-name" placeholder="Ann's file, 25 September" class="w-full h-[48px] px-4 rounded-[10px] bg-ce-surface border-2 border-ce-line-strong text-ce-ink text-[18px] focus:outline-none focus:ring-2 focus:ring-ce-primary" />
+            </div>
+            <div>
+              <button type="button" class="w-full h-[56px] px-6 rounded-[10px] bg-ce-surface border-2 border-ce-line-strong text-ce-ink font-figtree font-semibold text-[18px] leading-[24px] hover:border-ce-primary hover:bg-ce-primary-tint transition-colors">
+                Upload this file
+              </button>
+            </div>
+          </div>
+
+          <!-- Dataset Row Divider -->
+          <div class="border-t border-ce-line my-6"></div>
+
+          <!-- Active Dataset Item -->
+          <div class="bg-ce-surface-sunk rounded-[10px] p-5">
+            <div class="font-figtree font-semibold text-[18px] leading-[24px] text-ce-ink">
+              Ann's file, 25 September
+            </div>
+            <div class="font-figtree text-[15px] leading-[22px] text-ce-ink-muted mt-1 tabular-nums">
+              smartmatch_exercise_300.xlsx — 300 profiles, 12 events
+            </div>
+
+            <!-- Stepper limit control -->
+            <div class="mt-5 pt-4 border-t border-ce-line">
+              <label for="list-limit" class="block font-figtree font-semibold text-[16px] leading-[22px] text-ce-ink mb-2">
+                How many names a list may hold
+              </label>
+              <div class="flex items-center gap-3">
+                <input type="number" id="list-limit" value="30" class="w-[88px] h-[44px] px-3 text-center rounded-[10px] bg-ce-surface border-2 border-ce-line-strong font-figtree font-bold text-[18px] text-ce-ink tabular-nums focus:outline-none focus:ring-2 focus:ring-ce-primary" />
+                <button type="button" class="h-[44px] px-4 rounded-[10px] bg-ce-surface border-2 border-ce-line-strong text-ce-ink font-figtree font-semibold text-[16px] leading-[22px] hover:border-ce-primary hover:bg-ce-primary-tint transition-colors">
+                  Set the limit
+                </button>
+              </div>
+            </div>
+
+            <!-- Move every team action -->
+            <div class="mt-5">
+              <button type="button" class="text-ce-primary font-figtree font-semibold text-[18px] leading-[24px] hover:underline p-0">
+                Move every team to this file
+              </button>
+            </div>
+          </div>
+        </article>
+
+        <!-- 5. Sign out block -->
+        <div class="bg-ce-surface rounded-[14px] p-6 shadow-ce-card border-0">
+          <button type="button" class="text-ce-primary font-figtree font-semibold text-[18px] leading-[24px] hover:underline p-0">
+            Sign out of this browser
+          </button>
+          <p class="font-figtree text-[15px] leading-[22px] text-ce-ink-muted mt-2 mb-0">
+            This clears the passcode from this browser only. It does not sign out anywhere else.
+          </p>
+        </div>
+
+      </div>
+
+    </div>
+
+  </main>
+
+  <script>
+    // Initialize Lucide icons
+    lucide.createIcons();
+  </script>
+</body>
+</html>

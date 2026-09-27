@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>What a profile would be asked — Smart Match Class Exercise</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700&family=Figtree:wght@400;500;600;700&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap" rel="stylesheet">
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    body {
+      background-color: #F8F6F1;
+      color: #163229;
+      font-family: 'Figtree', sans-serif;
+      margin: 0;
+      padding: 0;
+      -webkit-font-smoothing: antialiased;
+    }
+    .font-archivo {
+      font-family: 'Archivo', sans-serif;
+      font-stretch: 110%;
+    }
+    .font-serif {
+      font-family: 'Source Serif 4', Georgia, serif;
+    }
+    .tabular-nums {
+      font-variant-numeric: tabular-nums;
+    }
+    /* Soft two-layer shadow from design system */
+    .shadow-soft-card {
+      box-shadow: 0 1px 2px rgba(22, 50, 41, 0.06), 0 4px 12px rgba(22, 50, 41, 0.06);
+    }
+    /* Deeper soft shadow for desk phone card */
+    .shadow-desk-card {
+      box-shadow: 0 8px 24px rgba(22, 50, 41, 0.08), 0 20px 48px rgba(0, 80, 48, 0.12);
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col justify-start">
+
+  <main class="w-full max-w-[1280px] mx-auto px-16 py-12">
+    <!-- Slim gold-wash ribbon at top -->
+    <div class="w-full bg-[#FFF1CC] rounded-[14px] px-5 py-3.5 flex items-center gap-3 mb-12">
+      <i data-lucide="info" class="w-5 h-5 text-[#7A5200] shrink-0" stroke-width="2"></i>
+      <p class="text-[15px] leading-[22px] text-[#7A5200] m-0 font-medium">
+        <strong class="font-bold text-[#7A5200]">Fictional data —</strong> All student profiles are fictional, shaped by overall survey percentages.
+      </p>
+    </div>
+
+    <!-- Main Content Area: Left Caption Column (360px) + Centre Phone-sized Card (360px) -->
+    <div class="flex flex-row justify-center items-start gap-16 pt-4">
+
+      <!-- Left Caption Column (360px wide) -->
+      <section class="w-[360px] shrink-0 flex flex-col">
+        <h1 class="font-archivo font-semibold text-[48px] leading-[56px] text-[#163229] tracking-normal mb-8">
+          What a profile would be asked
+        </h1>
+
+        <p class="text-[20px] leading-[30px] text-[#59665F] font-normal mb-6">
+          Major and year are already on file, and past events are recorded when someone attends. So the card asks only two things, and asks the person to confirm their major.
+        </p>
+
+        <p class="text-[20px] leading-[30px] text-[#59665F] font-normal">
+          This is a mock-up of the card, shown to the class. It asks nobody anything, keeps no answers, and is not connected to any list.
+        </p>
+      </section>
+
+      <!-- Centre: Phone-sized Card (360px wide) sitting like a card on a desk -->
+      <article class="w-[360px] shrink-0 bg-[#FFFFFF] rounded-[14px] shadow-desk-card p-6 relative flex flex-col">
+        <!-- Top-right corner pill chip -->
+        <div class="absolute top-6 right-6 bg-[#F2EEE8] text-[#163229] text-[13px] font-semibold px-3 py-1 rounded-full">
+          Mock-up only
+        </div>
+
+        <!-- Header block -->
+        <div class="pr-24 mb-6">
+          <h2 class="font-serif font-semibold text-[28px] leading-[34px] text-[#163229] mb-2">
+            Two quick questions
+          </h2>
+          <p class="text-[16px] leading-[24px] text-[#59665F] font-normal">
+            Answering these would let us suggest events worth your evening.
+          </p>
+        </div>
+
+        <div class="w-full h-px bg-[#F2EEE8] mb-6"></div>
+
+        <!-- Section: Confirm your major -->
+        <div class="flex flex-col mb-6">
+          <h3 class="font-serif font-semibold text-[20px] leading-[26px] text-[#163229] mb-1.5">
+            Confirm your major
+          </h3>
+          <p class="text-[14px] leading-[20px] text-[#59665F] font-normal mb-3">
+            This is the major already on file for you. Year and the events you have been to are on file too, so nothing else here asks for them.
+          </p>
+
+          <!-- Dashed outline box -->
+          <div class="w-full border-2 border-dashed border-[#8F7A70] rounded-[10px] bg-[#F2EEE8] bg-opacity-40 py-3.5 px-4 text-[#59665F] text-[15px] font-medium text-center mb-3">
+            Your major, as it is on file
+          </div>
+
+          <!-- Disabled button -->
+          <button type="button" disabled class="w-full py-2.5 px-3 rounded-[10px] bg-[#F2EEE8] text-[#59665F] text-[13px] font-medium cursor-not-allowed text-center">
+            Confirm — mock-up only, this button does nothing
+          </button>
+        </div>
+
+        <div class="w-full h-px bg-[#F2EEE8] mb-6"></div>
+
+        <!-- Question 1 -->
+        <div class="flex flex-col mb-6">
+          <h3 class="font-serif font-semibold text-[18px] leading-[24px] text-[#163229] mb-1.5">
+            What topics are you interested in?
+          </h3>
+          <p class="text-[14px] leading-[20px] text-[#59665F] font-normal mb-3">
+            Pick as many as you like, or add your own.
+          </p>
+          <!-- Dashed empty answer line -->
+          <div class="w-full border-b-2 border-dashed border-[#8F7A70] h-9"></div>
+        </div>
+
+        <!-- Question 2 -->
+        <div class="flex flex-col mb-8">
+          <h3 class="font-serif font-semibold text-[18px] leading-[24px] text-[#163229] mb-1.5">
+            What kind of work do you want to end up doing?
+          </h3>
+          <p class="text-[14px] leading-[20px] text-[#59665F] font-normal mb-3">
+            A sentence is plenty.
+          </p>
+          <!-- Dashed empty answer line -->
+          <div class="w-full border-b-2 border-dashed border-[#8F7A70] h-9"></div>
+        </div>
+
+        <!-- Bottom disabled grey button -->
+        <button type="button" disabled class="w-full py-3 px-4 rounded-[10px] bg-[#F2EEE8] text-[#59665F] text-[14px] font-medium cursor-not-allowed text-center">
+          Mock-up only — this button does nothing
+        </button>
+      </article>
+
+    </div>
+  </main>
+
+  <script>
+    lucide.createIcons();
+  </script>
+</body>
+</html>
