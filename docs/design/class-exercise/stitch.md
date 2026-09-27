@@ -163,7 +163,49 @@ are not repeated here. 26 items. D1, D2 and D8 would mislead a rebuild most.
 | D25 | `pages/06` Claude Design | The `h1` sits inside the left caption column | The `h1` is in the shell header above both columns; the caption column holds the §11.1 caption and the mock-up sentence (§7.6) |
 | D26 | README §4–§5 preambles; `pages/01` | A grey logo placeholder; the dark tokens have no logo rule | Dark mode sets the unchanged CPP logo on an eggwhite plate (`exercise.css`; not yet in `DESIGN.md`) |
 
-## 6. Top 3
+## 6. How to regenerate
+
+1. **Connect Stitch at user scope.** Use Google's remote MCP server
+   `https://stitch.googleapis.com/mcp`, with the API key sent as the
+   `X-Goog-Api-Key` header. The key stays in the user-scope MCP config, never
+   in this repo:
+
+   ```bash
+   claude mcp add --scope user --transport http stitch https://stitch.googleapis.com/mcp \
+     --header "X-Goog-Api-Key: $STITCH_API_KEY"
+   ```
+
+   The local `/stitch` command wraps a third-party npm package. Do not use it.
+2. **Build the design system from the final `DESIGN.md`** with
+   `upload_design_md`, then `create_design_system_from_design_md`. Still state
+   each hex in the prompt: the ingest maps the tokens to a Material palette
+   (section 1).
+3. **Assemble each prompt in this order:**
+   1. the [Stitch style preamble](../../archive/design/class-exercise/prompts/README.md#4-stitch-style-preamble) and the
+      [shared fictional data](../../archive/design/class-exercise/prompts/README.md#7-shared-fictional-data), with D1's
+      numbers fixed
+   2. the page's archived Stitch prompt, unedited
+   3. the section 4 overrides and the section 5 drift items for that file
+   4. the guard rules: no nav bar, photos or people; no invented copy; the
+      exact ribbon text; no per-person numbers; the data wording
+4. **`DESIGN.md` wins** over the prompts and over every image here. Three
+   `DESIGN.md` lines still lag the build (D6, D7, D18); follow the build there.
+5. **Use device types, not pixel widths.** `DESKTOP` stands for the archived
+   "1280", and `MOBILE` for "390".
+6. **Check each screen for the known Stitch flaws** before keeping it:
+   - **Font fallback (F1, F2):** the licensed faces cannot load. Name the
+     stand-ins (Archivo SemiExpanded, Source Serif 4, Figtree) and check that
+     the export loads them from Google Fonts.
+   - **Mobile on a desktop canvas (F4):** a `MOBILE` screen can come back
+     centred on a 1280-wide canvas. Crop to the 390 column, or regenerate.
+   - **Invented copy (F3, F5):** regenerate once, then keep the better attempt
+     and log the flaw.
+7. **Post-process:** desktop 1280 px wide, mobile 780 px (390 at 2x), WebP
+   q82. Scan each HTML export before committing: no keys, no trackers, no
+   scripts beyond the Tailwind CDN, Lucide and Google Fonts. Then update the
+   gallery and its Built as column.
+
+## 7. Top 3
 
 1. [`assets/stitch/08-final-setting-and-results-desktop.webp`](assets/stitch/08-final-setting-and-results-desktop.webp): the lesson's payoff reads at a glance. The room fills 8 / 6 / 46, the serif headline states the same numbers, and the ruled band repeats them. It is counts only, with no invented copy after the regeneration. Best evidence for the build.
 2. [`assets/stitch/05-save-and-compare-desktop.webp`](assets/stitch/05-save-and-compare-desktop.webp): the whole save-and-compare loop fits on one screen. Stitch added each setting's weights under the list title, and the quiet green Delete follows `DESIGN.md`. Gold is used for exactly one job.
