@@ -26,6 +26,13 @@
  * {@link TEAMS_POLL_MS} while the tab is visible. A re-read keeps the rows on
  * screen (the hook's `refreshing`), so an open team or a pending "clear" is not
  * thrown away by a poll.
+ *
+ * **An expired session signs the page out.** The instructor cookie lasts
+ * twelve hours and nothing announces its end. Every read and action here that
+ * is refused with `exercise_instructor_session_required` calls `onSignedOut`,
+ * so the page returns to the passcode form instead of leaving controls that
+ * will all fail. (The page's `guard` covers only the Sign out button; the
+ * other panels do not yet sign out on a 401 — see docs/plans/backlog.md.)
  */
 import * as React from "react";
 
@@ -39,6 +46,7 @@ import {
 } from "../../../lib/exerciseClient";
 import { askingChoiceLabel } from "./askingChoices";
 import { ExerciseLoading, ExerciseNotice } from "./ExerciseScreen";
+import { INSTRUCTOR_SESSION_REQUIRED } from "./refusals";
 import { useExerciseResource } from "./useExerciseResource";
 
 /** How often the list is re-read while the tab is visible. Gentle: one small GET. */
@@ -47,16 +55,47 @@ export const TEAMS_POLL_MS = 15_000;
 const BUTTON =
   "rounded-lg border-2 border-slate-400 px-4 py-2 text-xl font-semibold text-slate-800 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 dark:border-slate-500 dark:text-slate-100 dark:hover:bg-slate-800";
 
+/** The page's sentence for a request that never landed. */
+const UNREACHABLE = "The exercise could not be reached. Check the connection and try again.";
+
 export function InstructorTeams({
   reloadKey = 0,
+  onSignedOut,
 }: {
   /**
    * Bumped by the page when something it did changes what this panel says: an
    * upload, a re-point, "Ask for every team", an unlock.
    */
   readonly reloadKey?: number;
+  /** Called when the instructor session has expired; the page shows the passcode form. */
+  readonly onSignedOut?: () => void;
 } = {}): React.JSX.Element {
   const { state, reload } = useExerciseResource(listTeamWorkspaces, [reloadKey]);
+
+  /**
+   * The sentence to show for a thrown error, signing out first when the
+   * session is gone. Shared by the reset and the team detail.
+   */
+  const describeError = React.useCallback(
+    (error: unknown): string => {
+      if (!isRefusal(error)) {
+        return UNREACHABLE;
+      }
+      if (error.code === INSTRUCTOR_SESSION_REQUIRED) {
+        onSignedOut?.();
+      }
+      return error.message;
+    },
+    [onSignedOut],
+  );
+
+  const listRefusedForSession =
+    state.status === "refused" && state.refusal.code === INSTRUCTOR_SESSION_REQUIRED;
+  React.useEffect(() => {
+    if (listRefusedForSession) {
+      onSignedOut?.();
+    }
+  }, [listRefusedForSession, onSignedOut]);
   const [refusal, setRefusal] = React.useState<string | null>(null);
   const [pending, setPending] = React.useState(false);
   const busy = state.status === "loading" || (state.status === "ready" && state.refreshing);
@@ -98,11 +137,7 @@ export function InstructorTeams({
     try {
       await action();
     } catch (error) {
-      setRefusal(
-        isRefusal(error)
-          ? error.message
-          : "The exercise could not be reached. Check the connection and try again.",
-      );
+      setRefusal(describeError(error));
     } finally {
       setPending(false);
     }
@@ -141,6 +176,7 @@ export function InstructorTeams({
                   <TeamRow
                     team={team}
                     pending={pending}
+                    describeError={describeError}
                     onReset={() =>
                       run(async () => {
                         await resetTeamWorkspace(team.team_number, team.dataset_id);
@@ -161,10 +197,12 @@ export function InstructorTeams({
 function TeamRow({
   team,
   pending,
+  describeError,
   onReset,
 }: {
   readonly team: TeamSummaryView;
   readonly pending: boolean;
+  readonly describeError: (error: unknown) => string;
   readonly onReset: () => Promise<void>;
 }): React.JSX.Element {
   const [confirming, setConfirming] = React.useState(false);
@@ -176,11 +214,7 @@ function TeamRow({
     try {
       setDetail(await readTeamWorkspace(team.team_number, team.dataset_id));
     } catch (error) {
-      setDetailRefusal(
-        isRefusal(error)
-          ? error.message
-          : "The exercise could not be reached. Check the connection and try again.",
-      );
+      setDetailRefusal(describeError(error));
     }
   }
 

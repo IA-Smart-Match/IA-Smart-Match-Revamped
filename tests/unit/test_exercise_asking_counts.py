@@ -7,8 +7,8 @@ them at all. ``GET …/asking-choice`` now carries ``refresh_counts``: ``null``
 before the refresh, the three counts after it, read from the team's own view
 so they are the same whoever pressed the button.
 
-Uses the route fakes from ``test_exercise_results_router.py`` rather than a
-second copy; that file is past the length limit, so new tests live here.
+Uses the route fakes from ``exercise_results_router/support.py`` rather than
+a second copy.
 """
 
 from __future__ import annotations
@@ -21,8 +21,8 @@ from fastapi.testclient import TestClient
 from smartmatch_api.routers.exercise_results_refresh import refresh_counts_from_view
 from smartmatch_domain.exercise.simulation import SimulationCoefficients
 
-import tests.unit.test_exercise_results_router as router_tests
-from tests.unit.test_exercise_results_router import (
+import tests.unit.exercise_results_router.support as router_tests
+from tests.unit.exercise_results_router.support import (
     _ASKING,
     _FINAL_BODY,
     _HEADER,

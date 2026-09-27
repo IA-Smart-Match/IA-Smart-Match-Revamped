@@ -13,7 +13,7 @@ file pins two things that follow from that decision:
   greppable. With the question closed, a marker left behind would tell the next
   engineer the numbers are still waiting on somebody, which they are not.
 
-New tests live here rather than in ``test_exercise_results_router.py``, which is
+New tests live here rather than in ``exercise_results_router/``, whose tests were
 already past the repository's file-length limit.
 """
 

@@ -216,7 +216,7 @@ function SignedIn({ onSignedOut }: { readonly onSignedOut: () => void }): React.
       <UnlockPanel onRefusal={setRefusal} onUnlocked={teamsChanged} reloadKey={dataVersion} />
       <RefreshAllPanel onDone={teamsChanged} />
       {/* A sum, so a bump to either re-reads the teams. */}
-      <InstructorTeams reloadKey={dataVersion + teamsVersion} />
+      <InstructorTeams reloadKey={dataVersion + teamsVersion} onSignedOut={onSignedOut} />
     </div>
   );
 }

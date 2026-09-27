@@ -20,7 +20,7 @@ this module has a field with a place to put an interest term or a goal.
 
 The two ways such a value escapes without anybody writing a line that names it
 are both shut. A response model cannot carry it, because none of them has the
-field — ``tests/unit/test_exercise_results_router.py`` walks every model here,
+field — ``tests/unit/exercise_results_router/`` walks every model here,
 every handler docstring (FastAPI publishes those as operation descriptions) and
 the whole exercise-scope OpenAPI document. And a ``repr`` cannot print it,
 because both types that hold it declare the field ``repr=False``:

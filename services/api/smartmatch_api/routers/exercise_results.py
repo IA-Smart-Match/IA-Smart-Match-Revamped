@@ -47,7 +47,7 @@ ADR-0025 D6, and why the docstrings are part of it
 FastAPI publishes a handler's docstring as its operation description, so a
 docstring is a response field with extra steps. No docstring here, no ``Field``
 description, no error sentence and no log line names the withheld column or any
-value of it. ``tests/unit/test_exercise_results_router.py`` walks the models, the
+value of it. ``tests/unit/exercise_results_router/`` walks the models, the
 handlers' docstrings and the whole exercise-scope OpenAPI document to say so.
 
 The rule itself does read that column — it is the one thing the column is for
@@ -456,7 +456,7 @@ def refresh_profiles(
         raise ExerciseError(
             status_code=status.HTTP_409_CONFLICT,
             code="exercise_asking_not_chosen",
-            message="Choose how your team asks before refreshing.",
+            message="Pick a way of asking first.",
         )
     if team_state.refreshed_at is not None:
         raise _already_refreshed()
@@ -467,7 +467,7 @@ def refresh_profiles(
         raise ExerciseError(
             status_code=status.HTTP_409_CONFLICT,
             code="exercise_no_first_round_results",
-            message="Run the first round's results before refreshing.",
+            message="Run the first round's results before asking.",
         )
     events = datasets.list_events(session, dataset_id=workspace.dataset_id)
     event = event_or_refusal(events, first_round.event_key)
