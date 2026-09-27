@@ -77,8 +77,28 @@ export function UnlockPanel({
   const { state, reload } = useExerciseResource(listInstructorEvents, [reloadKey]);
   useSignOutOnExpiredRead(state, onSignedOut);
   const [pending, setPending] = React.useState(false);
-  /** The event whose "Open results" is waiting for its confirm, if any. */
+  /** Guards the unlock itself, so a second press in the same tick sends nothing. */
+  const inFlight = React.useRef(false);
+  /**
+   * The confirm that is open, keyed on the data file *and* the event.
+   *
+   * It belongs to the list it was opened on. A re-read onto another file (an
+   * upload or re-point landed) would otherwise leave "Open results now" on
+   * screen addressing a file the instructor never saw asked about, and a
+   * refused list followed by "Check again" would bring the confirm back with
+   * focus on it, one Enter from an unlock.
+   */
   const [confirming, setConfirming] = React.useState<string | null>(null);
+  const listFile = state.status === "ready" ? state.data.dataset_id : null;
+  React.useEffect(() => {
+    if (listFile === null) {
+      setConfirming(null);
+    } else {
+      setConfirming((open) =>
+        open !== null && !open.startsWith(`${listFile}\n`) ? null : open,
+      );
+    }
+  }, [listFile]);
   const busy =
     pending || state.status === "loading" || (state.status === "ready" && state.refreshing);
 
@@ -101,6 +121,10 @@ export function UnlockPanel({
   }, [state, onRefusal]);
 
   function unlock(eventKey: string, datasetId: string): void {
+    if (inFlight.current) {
+      return;
+    }
+    inFlight.current = true;
     setPending(true);
     onRefusal(null);
     unlockResults(eventKey, datasetId)
@@ -119,7 +143,10 @@ export function UnlockPanel({
         refusedUnlockPending.current = true;
         return reload();
       })
-      .finally(() => setPending(false));
+      .finally(() => {
+        inFlight.current = false;
+        setPending(false);
+      });
   }
 
   const checkAgain = (
@@ -161,20 +188,23 @@ export function UnlockPanel({
       ) : null}
       {state.status === "ready" && state.data.events.length > 0 ? (
         <ul className="flex flex-col divide-y divide-ce-line">
-          {state.data.events.map((event) => (
-            <UnlockRow
-              key={event.event_key}
-              event={event}
-              // A refresh in flight may be about to change `dataset_id`
-              // (an upload or re-point just landed), so wait for it.
-              disabled={pending || state.refreshing}
-              pending={pending && confirming === event.event_key}
-              confirming={confirming === event.event_key}
-              onAsk={() => setConfirming(event.event_key)}
-              onCancel={() => setConfirming(null)}
-              onUnlock={() => unlock(event.event_key, state.data.dataset_id)}
-            />
-          ))}
+          {state.data.events.map((event) => {
+            const key = confirmKey(state.data.dataset_id, event.event_key);
+            return (
+              <UnlockRow
+                key={event.event_key}
+                event={event}
+                // A refresh in flight may be about to change `dataset_id`
+                // (an upload or re-point just landed), so wait for it.
+                disabled={pending || state.refreshing}
+                pending={pending && confirming === key}
+                confirming={confirming === key}
+                onAsk={() => setConfirming(key)}
+                onCancel={() => setConfirming(null)}
+                onUnlock={() => unlock(event.event_key, state.data.dataset_id)}
+              />
+            );
+          })}
         </ul>
       ) : null}
     </PanelCard>
@@ -287,6 +317,11 @@ function UnlockRow({
       ) : null}
     </li>
   );
+}
+
+/** One open confirm's key: the file and the event, so it cannot outlive its file. */
+function confirmKey(datasetId: string, eventKey: string): string {
+  return `${datasetId}\n${eventKey}`;
 }
 
 /** This panel's sentence for teams split across files (see `UnlockPanel`). */
