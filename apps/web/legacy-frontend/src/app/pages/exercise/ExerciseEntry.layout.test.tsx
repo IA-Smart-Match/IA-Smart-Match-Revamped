@@ -176,3 +176,56 @@ describe("<ExerciseEntry /> layout", () => {
     expect(badge?.getAttribute("aria-hidden")).toBe("true");
   });
 });
+
+/** Answer every `(max-width: …)` query as a phone would, or not. */
+function stubPhoneWidth(phone: boolean): void {
+  vi.stubGlobal(
+    "matchMedia",
+    vi.fn((query: string) => ({
+      matches: phone && query.includes("max-width"),
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(() => false),
+    })),
+  );
+}
+
+describe("<ExerciseEntry /> chosen tile and the phone's sticky bar", () => {
+  const original = Element.prototype.scrollIntoView;
+  let scrolled: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    scrolled = vi.fn();
+    Element.prototype.scrollIntoView = scrolled as unknown as Element["scrollIntoView"];
+  });
+
+  afterEach(() => {
+    Element.prototype.scrollIntoView = original;
+  });
+
+  it("scrolls the tapped tile clear of the sticky bar below md", async () => {
+    // Review of #248: at 390×844 the bar covered 71 of the tile's 96px.
+    stubPhoneWidth(true);
+    stubFetch({ "/v1/exercise": { body: SCOPE }, "/v1/exercise/workspaces/current": NO_WORKSPACE });
+    renderEntry();
+    fireEvent.click(await screen.findByRole("radio", { name: "Team 5" }));
+
+    expect(scrolled).toHaveBeenCalledWith({ block: "nearest" });
+    expect(scrolled.mock.contexts.at(-1)).toBe(tile(5));
+    expect(tile(5).className).toMatch(/max-md:scroll-mb-\[/);
+  });
+
+  it("leaves the page where it is at md and wider", async () => {
+    stubPhoneWidth(false);
+    stubFetch({ "/v1/exercise": { body: SCOPE }, "/v1/exercise/workspaces/current": NO_WORKSPACE });
+    renderEntry();
+    fireEvent.click(await screen.findByRole("radio", { name: "Team 5" }));
+
+    expect(tile(5).getAttribute("data-selected")).toBe("true");
+    expect(scrolled).not.toHaveBeenCalled();
+  });
+});
