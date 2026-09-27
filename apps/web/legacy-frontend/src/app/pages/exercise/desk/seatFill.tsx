@@ -125,6 +125,10 @@ export function useSeatFill({
       skip();
       return undefined;
     }
+    // `play` can flip false → true on a mounted chart (a run lands while the
+    // final state is showing): start over from step 1.
+    setStep(1);
+    setDone(false);
     timers.current = [
       setTimeout(() => setStep(2), SEAT_FILL_STEP_MS[2]),
       setTimeout(() => setStep(3), SEAT_FILL_STEP_MS[3]),

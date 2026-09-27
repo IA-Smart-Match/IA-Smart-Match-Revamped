@@ -47,10 +47,10 @@ JavaScript (`motion.ts`, `confirmWindow.tsx`, `seatFill.tsx`):
 | `ceMotion(name, reduced)` | Motion props for `"fade-rise" \| "notice-in" \| "card-save" \| "row-reorder" \| "row-enter" \| "row-leave" \| "choice-dim"` — `<motion.li {...ceMotion("row-reorder", reduced)} />` |
 | `CE_EASE`, `CE_SPRING_ROW`, `CE_MOTION_MS` | raw tokens |
 | `useCountUp(target, { reduced, durationMs?, delayMs? })` | `ce-count-up`; once per mount; reduced → final number |
-| `useConfirmWindow({ onConfirm, windowMs? })` → `{ armed, press, cancel, onKeyDown }` | `ce-confirm-window` (§6.18): first press arms for 5s, second commits, Escape/lapse reverts. Page supplies the words. |
-| `<ConfirmWindowUnderline active reduced />` | the shrinking 2px underline; reduced → static "5 seconds" |
+| `useConfirmWindow({ onConfirm, windowMs? })` → `{ armed, press, cancel, onKeyDown }` | `ce-confirm-window` (§6.18): first press arms for 5s, second commits, Escape/lapse reverts. A second press within `CONFIRM_GUARD_MS` (300ms) of arming is ignored (double-click). Page supplies the words. |
+| `<ConfirmWindowUnderline active reduced windowMs? />` | the shrinking 2px underline; reduced → static helper derived from `windowMs` ("5 seconds") |
 | `seatFillPlan({ total, taken, added })` | `ce-seat-fill` (§5.1): each seat's kind and start delay, front row first, stagger compressed to fit each step |
-| `useSeatFill({ play, reduced })` → `{ step, announce, animating, skip }` | the 0/240/700/1400/1800ms clock; `play` only on the first render after a run; render the `aria-live` sentences when `announce` |
+| `useSeatFill({ play, reduced })` → `{ step, announce, animating, skip }` | the 0/240/700/1400/1800ms clock; `play` only on the first render after a run (flipping it false → true replays from step 1); render the `aria-live` sentences when `announce` |
 | `<Seat kind delayMs animate />` | one `aria-hidden` seat square, styled per §3.3 |
 
 ## 3. Components (§6)

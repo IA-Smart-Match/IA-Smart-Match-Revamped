@@ -39,7 +39,9 @@ export {
   type CountUpOptions,
 } from "./motion";
 export {
+  CONFIRM_GUARD_MS,
   ConfirmWindowUnderline,
+  confirmWindowHelper,
   useConfirmWindow,
   type ConfirmWindow,
   type ConfirmWindowOptions,
