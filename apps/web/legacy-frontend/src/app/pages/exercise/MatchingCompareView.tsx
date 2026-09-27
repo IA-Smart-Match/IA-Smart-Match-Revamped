@@ -9,14 +9,14 @@
  * the gold wash and an "on both lists" chip, and pulses once on opening
  * (`ce-overlap-pulse`).
  *
- * - **Desktop:** the two lists side by side from 1024 (stacked below that),
- *   each a card with the setting's name and its four weights.
- * - **390:** a segmented control, one tab per setting, with the summary
- *   sentence above it; each list shows 10 rows first and "Showing 10 of 30.
- *   Show all 30" (§11.1).
- *
- * The lists use the ranked list's card layout so every field — rank, name,
- * reason, major, year, marker — fits half a page without a sideways scroll.
+ * - **768 and up:** two real tables (§8.7, owner ruling 2026-09-27), each
+ *   a card with the setting's name and its four weights. They stack rather
+ *   than sit side by side (§6.12): two five-column tables do not fit half of
+ *   the 1152px page with major, year and marker all visible, so each gets the
+ *   full width and its own scroll box.
+ * - **Below 768:** a segmented control, one tab per setting, with the
+ *   summary sentence above it; each list is cards, 10 rows first and
+ *   "Showing 10 of 30. Show all 30" (§11.1).
  */
 import * as React from "react";
 import { X } from "lucide-react";
@@ -70,7 +70,7 @@ export function MatchingCompareView({
       {narrow ? (
         <CompareTabs lists={lists} overlap={overlap} />
       ) : (
-        <div data-slot="exercise-compare-grid" className="grid gap-ce-5 lg:grid-cols-2">
+        <div data-slot="exercise-compare-grid" className="grid gap-ce-5">
           {lists.map((list, index) => (
             <div key={index === 0 ? "a" : "b"} className="ce-card min-w-0 p-ce-4 md:p-ce-5">
               <CompareListHeading list={list} />
@@ -79,7 +79,6 @@ export function MatchingCompareView({
                 factorLabels={list.factor_labels}
                 highlightProfileNos={overlap}
                 caption={settingName(list)}
-                layout="cards"
               />
             </div>
           ))}
