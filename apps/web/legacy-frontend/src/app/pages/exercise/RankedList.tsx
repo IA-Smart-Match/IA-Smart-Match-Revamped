@@ -1,12 +1,19 @@
 /**
  * The ranked list: the names, in order, with one reason each.
  *
- * Design spec §8 and ADR-0025 D8 between them fix the columns: rank, name,
+ * Design spec §8 and ADR-0025 D8 between them fix the fields: rank, name,
  * major, year, marker, reason — and *no number named like a score*. `rank` is
  * a position, and the only other numerals on this table are the profile
  * numbers, which are identifiers. There is no percentage, no confidence, no
  * bar and no "match strength", and there is deliberately no column that could
  * quietly become one.
+ *
+ * **Layout (DESIGN.md §6.7, §8.7).** On desktop a real `<table>`: rank, name
+ * with the reason line directly beneath it (so the eye reads name, then why —
+ * there is no "Why" column), major, year, and the marker chip. On the 390
+ * layout an `<ol>` of cards with the same content. The choice is made in
+ * JavaScript, not by hiding one with CSS, so a screen reader never meets
+ * every name twice. The table scrolls inside its own box.
  *
  * **The reason is the server's string, rendered as-is.** OQ-CE-12 stores Ann's
  * phrases byte-for-byte (`ANN_MAJOR_ONLY_PHRASE`, `ANN_TIED_ON_YEAR_PHRASE`)
@@ -27,9 +34,14 @@
  * it; the module boundary does not cross.
  */
 import * as React from "react";
+import { Link2 } from "lucide-react";
+import { motion } from "motion/react";
 
+import { cn } from "../../components/ui/utils";
 import { type ListEntryView, UNDECIDED_GOAL_HALF_LABEL_KEY } from "../../../lib/exerciseClient";
-import { markerLabel } from "./markers";
+import { CE_MOTION_MS, MarkerChip, ceMotion, usePrefersReducedMotion } from "./desk";
+import { EmptySlotArt } from "./EmptySlotArt";
+import { useNarrowViewport } from "./useNarrowViewport";
 
 /** The rulebook key for "career goal fits this event". Never rendered. */
 const CAREER_GOAL_FIT = "career_goal_fit";
@@ -42,6 +54,41 @@ export interface RankedListProps {
   readonly highlightProfileNos?: readonly number[];
   /** An accessible name, e.g. the setting this list was built from. */
   readonly caption: string;
+  /**
+   * `auto` (default): a table on desktop, cards on 390. `cards`: always
+   * cards — the compare view's half-width columns (§6.12).
+   */
+  readonly layout?: "auto" | "cards";
+}
+
+/**
+ * Profile numbers that were not on the previous list: the `ce-row-join`
+ * wash (§5), cleared after 900ms. Nothing is "new" on the first render.
+ */
+function useJoined(entries: readonly ListEntryView[]): ReadonlySet<number> {
+  const previous = React.useRef<ReadonlySet<number> | null>(null);
+  const [joined, setJoined] = React.useState<ReadonlySet<number>>(() => new Set());
+  const ids = entries.map((entry) => entry.profile_no).join(",");
+
+  React.useLayoutEffect(() => {
+    const now = new Set(entries.map((entry) => entry.profile_no));
+    const before = previous.current;
+    previous.current = now;
+    if (before === null) {
+      return undefined;
+    }
+    const fresh = new Set([...now].filter((id) => !before.has(id)));
+    setJoined(fresh);
+    if (fresh.size === 0) {
+      return undefined;
+    }
+    const timer = window.setTimeout(() => setJoined(new Set()), CE_MOTION_MS.rowJoin);
+    return () => window.clearTimeout(timer);
+    // `ids` is the list's identity; `entries` is read for its current value.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ids]);
+
+  return joined;
 }
 
 export function RankedList({
@@ -49,86 +96,170 @@ export function RankedList({
   factorLabels,
   highlightProfileNos,
   caption,
+  layout = "auto",
 }: RankedListProps): React.JSX.Element {
-  const highlighted = new Set(highlightProfileNos ?? []);
+  const narrow = useNarrowViewport();
+  const reduced = usePrefersReducedMotion();
+  const joined = useJoined(entries);
+  const highlighted = highlightProfileNos ?? [];
 
   if (entries.length === 0) {
     return (
-      <p className="text-xl text-slate-700 dark:text-slate-200">
-        Nobody is on this list. Nobody in this data file can be ranked for this event with these
-        weights.
-      </p>
+      <div className="flex items-center gap-ce-4 py-ce-4">
+        <EmptySlotArt className="w-24" />
+        <p className="ce-type-body ce-measure text-ce-ink">
+          Nobody is on this list. Nobody in this data file can be ranked for this event with these
+          weights.
+        </p>
+      </div>
     );
   }
 
-  // The table scrolls inside its own box. Six columns do not fit a phone, and
-  // a table wider than the page pushed "Why" off-screen with no way to reach it.
+  /** Row styling shared by both layouts: overlap wash, or the join wash. */
+  function rowState(entry: ListEntryView): { onBoth: boolean; className: string; style?: React.CSSProperties } {
+    const overlapIndex = highlighted.indexOf(entry.profile_no);
+    if (overlapIndex >= 0) {
+      return {
+        onBoth: true,
+        className: "ce-overlap-pulse bg-ce-gold-tint",
+        style: { "--ce-i": overlapIndex } as React.CSSProperties,
+      };
+    }
+    return { onBoth: false, className: joined.has(entry.profile_no) ? "ce-row-join" : "" };
+  }
+
+  if (layout === "cards" || narrow) {
+    return (
+      <ol aria-label={caption} data-slot="exercise-ranked-list" data-layout="cards" className="flex flex-col">
+        {entries.map((entry) => {
+          const state = rowState(entry);
+          return (
+            <motion.li
+              key={entry.profile_no}
+              {...ceMotion("row-reorder", reduced)}
+              data-on-both={state.onBoth ? "true" : undefined}
+              className={cn(
+                "flex gap-ce-3 border-b border-ce-line px-ce-2 py-ce-4 last:border-b-0",
+                state.className,
+              )}
+              style={state.style}
+            >
+              <span className="ce-type-rank w-8 shrink-0 text-ce-primary">{entry.rank}</span>
+              <div className="flex min-w-0 flex-1 flex-col gap-ce-1">
+                <div className="flex flex-wrap items-center gap-ce-2">
+                  <span className="ce-type-body font-semibold text-ce-ink">{entry.display_name}</span>
+                  {state.onBoth ? <OnBothChip /> : null}
+                </div>
+                <ReasonLines entry={entry} labels={factorLabels} />
+                <p className="ce-type-meta text-ce-ink-muted">
+                  {entry.major} · {entry.class_year}
+                </p>
+                <MarkerChip marker={entry.marker} className="self-start" />
+              </div>
+            </motion.li>
+          );
+        })}
+      </ol>
+    );
+  }
+
+  // The table scrolls inside its own box. Five columns do not fit a narrow
+  // window, and a table wider than the page pushed columns off-screen with
+  // no way to reach them.
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full border-collapse text-left text-xl" data-slot="exercise-ranked-list">
-        <caption className="pb-2 text-left text-xl text-slate-600 dark:text-slate-300">
-          {caption}
-        </caption>
+    <div className="ce-scroll-x overflow-x-auto">
+      <table
+        className="w-full min-w-[40rem] border-collapse text-left"
+        data-slot="exercise-ranked-list"
+        data-layout="table"
+      >
+        <caption className="sr-only">{caption}</caption>
         <thead>
-          <tr className="border-b-2 border-slate-400 text-lg tracking-wide uppercase">
-            <th scope="col" className="py-2 pr-4">
+          <tr className="ce-type-label bg-ce-surface-sunk text-ce-ink">
+            <th scope="col" className="w-16 rounded-l-ce-control px-ce-3 py-ce-3">
               Rank
             </th>
-            <th scope="col" className="py-2 pr-4">
+            <th scope="col" className="px-ce-3 py-ce-3">
               Name
             </th>
-            <th scope="col" className="py-2 pr-4">
+            <th scope="col" className="px-ce-3 py-ce-3">
               Major
             </th>
-            <th scope="col" className="py-2 pr-4">
+            <th scope="col" className="px-ce-3 py-ce-3">
               Year
             </th>
-            <th scope="col" className="py-2 pr-4">
+            <th scope="col" className="rounded-r-ce-control px-ce-3 py-ce-3">
               How much we know
-            </th>
-            <th scope="col" className="py-2">
-              Why
             </th>
           </tr>
         </thead>
-        <tbody>
+        <tbody className="ce-type-body text-ce-ink">
           {entries.map((entry) => {
-            const onBoth = highlighted.has(entry.profile_no);
+            const state = rowState(entry);
             return (
-              <tr
+              <motion.tr
                 key={entry.profile_no}
-                data-on-both={onBoth ? "true" : undefined}
-                className={`border-b border-slate-200 dark:border-slate-700 ${
-                  onBoth ? "bg-amber-100 dark:bg-amber-950" : ""
-                }`}
+                {...ceMotion("row-reorder", reduced)}
+                data-on-both={state.onBoth ? "true" : undefined}
+                className={cn(
+                  "border-b border-ce-line align-top last:border-b-0",
+                  state.onBoth ? "" : "hover:bg-ce-surface-sunk",
+                  state.className,
+                )}
+                style={state.style}
               >
-                <td className="py-2 pr-4 font-bold">{entry.rank}</td>
-                <td className="py-2 pr-4">
-                  {entry.display_name}
-                  {onBoth ? (
-                    <span className="ml-2 rounded bg-amber-300 px-2 py-0.5 text-base font-semibold text-amber-950">
-                      on both lists
-                    </span>
-                  ) : null}
+                <td className="ce-type-rank px-ce-3 py-ce-4 text-ce-primary">{entry.rank}</td>
+                <td className="min-w-[16rem] px-ce-3 py-ce-4" data-slot="exercise-ranked-name">
+                  <div className="flex flex-wrap items-center gap-ce-2">
+                    <span className="font-semibold">{entry.display_name}</span>
+                    {state.onBoth ? <OnBothChip /> : null}
+                  </div>
+                  <ReasonLines entry={entry} labels={factorLabels} />
                 </td>
-                <td className="py-2 pr-4">{entry.major}</td>
-                <td className="py-2 pr-4">{entry.class_year}</td>
-                <td className="py-2 pr-4">{markerLabel(entry.marker)}</td>
-                <td className="py-2">
-                  {/* The server's sentence, verbatim (OQ-CE-12). */}
-                  {entry.reason}
-                  <FactorNames
-                    keys={entry.contributing_factor_keys}
-                    labels={factorLabels}
-                    undecidedGoalHalf={entry.undecided_goal_half}
-                  />
+                <td className="min-w-[9rem] px-ce-3 py-ce-4">{entry.major}</td>
+                <td className="px-ce-3 py-ce-4">{entry.class_year}</td>
+                <td className="px-ce-3 py-ce-4">
+                  <MarkerChip marker={entry.marker} />
                 </td>
-              </tr>
+              </motion.tr>
             );
           })}
         </tbody>
       </table>
     </div>
+  );
+}
+
+/** "on both lists" (§6.7): `Link2` and words on the gold highlighter, never colour alone. */
+function OnBothChip(): React.JSX.Element {
+  return (
+    <span
+      data-slot="exercise-on-both"
+      className="ce-type-meta inline-flex items-center gap-ce-1 whitespace-nowrap rounded-ce-pill bg-ce-gold px-ce-2 text-ce-on-gold"
+    >
+      <Link2 aria-hidden="true" className="size-4 shrink-0" />
+      on both lists
+    </span>
+  );
+}
+
+/** The server's reason, verbatim (OQ-CE-12), then what counted in Ann's words. */
+function ReasonLines({
+  entry,
+  labels,
+}: {
+  readonly entry: ListEntryView;
+  readonly labels: Readonly<Record<string, string>>;
+}): React.JSX.Element {
+  return (
+    <>
+      <p className="ce-type-reason mt-ce-1 text-ce-ink-muted">{entry.reason}</p>
+      <FactorNames
+        keys={entry.contributing_factor_keys}
+        labels={labels}
+        undecidedGoalHalf={entry.undecided_goal_half}
+      />
+    </>
   );
 }
 
@@ -168,6 +299,8 @@ function FactorNames({
     return null;
   }
   return (
-    <span className="block text-lg text-slate-600 dark:text-slate-300">{named.join("; ")}</span>
+    <span data-slot="exercise-factor-names" className="ce-type-meta block text-ce-ink-muted">
+      {named.join("; ")}
+    </span>
   );
 }

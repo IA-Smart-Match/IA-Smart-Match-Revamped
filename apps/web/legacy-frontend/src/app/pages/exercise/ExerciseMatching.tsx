@@ -27,6 +27,7 @@
  * from the server's.
  */
 import * as React from "react";
+import { Download, LoaderCircle } from "lucide-react";
 import { Link, useParams } from "react-router";
 
 import { isRefusal } from "../../../lib/exerciseApi";
@@ -42,16 +43,24 @@ import {
   type RankedListView,
   type SavedSettingsView,
 } from "../../../lib/exerciseClient";
-import { ExerciseLoading, ExerciseNotice, ExerciseScreen } from "./ExerciseScreen";
+import { cn } from "../../components/ui/utils";
+import { Button, SkeletonRankedRows, SkeletonRegion } from "./desk";
+import { ExerciseNotice, ExerciseScreen } from "./ExerciseScreen";
 import { ListCompositionTable } from "./ListCompositionTable";
+import { MatchingCompareView } from "./MatchingCompareView";
 import { RankedList } from "./RankedList";
 import { SavedSettingsPanel } from "./SavedSettingsPanel";
 import { useExerciseResource } from "./useExerciseResource";
 import { WeightsControls } from "./WeightsControls";
 import { workspaceRequiredNotice } from "./refusals";
 
-const BUTTON =
-  "inline-block rounded-lg border-2 border-slate-400 px-5 py-2 text-xl font-semibold text-slate-800 hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-offset-2 dark:border-slate-500 dark:text-slate-100 dark:hover:bg-slate-800";
+/** A link drawn as the desk's secondary button (DESIGN.md §6.3). */
+export const LINK_SECONDARY =
+  "ce-press ce-type-label inline-flex min-h-ce-control min-w-ce-target items-center justify-center gap-ce-2 rounded-ce-control border-2 border-ce-line-strong bg-ce-surface px-ce-5 text-ce-ink no-underline hover:border-ce-primary hover:bg-ce-primary-tint hover:no-underline";
+
+/** A link drawn as the desk's primary button: one per region (§6.3). */
+const LINK_PRIMARY =
+  "ce-press ce-lift ce-type-label inline-flex min-h-ce-control min-w-ce-target items-center justify-center gap-ce-2 rounded-ce-control bg-ce-primary px-ce-5 text-ce-on-primary no-underline hover:bg-[color-mix(in_srgb,var(--ce-primary)_92%,black)] hover:no-underline";
 
 interface MatchingData {
   readonly list: RankedListView;
@@ -111,101 +120,127 @@ export function ExerciseMatching(): React.JSX.Element {
       title={state.status === "ready" ? state.data.list.event_name : "Your team's list"}
       intro="Decide how much each thing counts, then see who that puts on the list — and who it leaves off."
       aside={
-        <Link to="/exercise/events" className={BUTTON}>
+        <Link to="/exercise/events" className={LINK_SECONDARY}>
           Choose a different event
         </Link>
       }
     >
-      {state.status === "loading" ? <ExerciseLoading what="the list" /> : null}
+      {state.status === "loading" ? (
+        // §6.21: shaped like the list, with the stated-loading sentence.
+        <SkeletonRegion label="Loading the list…" className="ce-card p-ce-4 md:p-ce-5">
+          <SkeletonRankedRows />
+        </SkeletonRegion>
+      ) : null}
       {state.status === "refused" ? workspaceRequiredNotice(state.refusal) : null}
       {state.status === "unreachable" ? (
         <ExerciseNotice message={state.message} tone="problem">
-          <button type="button" onClick={reload} className={BUTTON}>
+          <Button variant="secondary" onClick={reload}>
             Try again
-          </button>
+          </Button>
         </ExerciseNotice>
       ) : null}
 
       {state.status !== "ready" ? null : (
-        <div className="flex flex-col gap-8">
-          {panelRefusal === null ? null : <ExerciseNotice message={panelRefusal} />}
-          {state.refusal === null ? null : (
-            <ExerciseNotice
-              id="exercise-list-refusal"
-              message={state.refusal.message}
-              tone="problem"
-            />
+        <div className="flex flex-col gap-ce-6 md:gap-ce-7">
+          {panelRefusal === null && state.refusal === null ? null : (
+            <div className="flex flex-col gap-ce-3">
+              {panelRefusal === null ? null : <ExerciseNotice message={panelRefusal} />}
+              {state.refusal === null ? null : (
+                <ExerciseNotice
+                  id="exercise-list-refusal"
+                  message={state.refusal.message}
+                  tone="problem"
+                />
+              )}
+            </div>
           )}
 
           {/*
-            Mounted continuously, including while a new list is being fetched.
-            It holds the text a team is typing, so unmounting it between
-            keystrokes — which is what happened while a refetch dropped the
-            screen to `loading` — made a decimal impossible to type.
+            §7.4: the weights sit beside the list at 1280 (sticky, 360px) and
+            above it on narrower layouts.
           */}
-          <WeightsControls
-            factorLabels={state.data.list.factor_labels}
-            weights={state.data.list.weights}
-            refusal={state.refusal}
-            onChange={(weights) => {
-              setComparison(null);
-              setWeighting({ kind: "weights", weights });
-            }}
-          />
-
-          <section
-            className="flex flex-col gap-3"
-            aria-describedby={state.refusal === null ? undefined : "exercise-list-refusal"}
-          >
-            <div className="flex flex-wrap items-baseline justify-between gap-3">
-              <h2 className="text-3xl font-semibold text-slate-900 dark:text-slate-50">
-                The list
-              </h2>
-              {state.refreshing ? (
-                <p
-                  role="status"
-                  data-slot="exercise-list-refreshing"
-                  className="text-xl text-slate-600 dark:text-slate-300"
-                >
-                  Rebuilding the list…
-                </p>
-              ) : null}
-              <a
-                href={rankedListCsvHref(eventKey, weighting)}
-                download
-                className={BUTTON}
-                data-slot="exercise-csv-download"
-              >
-                Download this list as a spreadsheet
-              </a>
+          <div className="grid gap-ce-5 xl:grid-cols-[360px_minmax(0,1fr)] xl:items-start">
+            {/*
+              Mounted continuously, including while a new list is being
+              fetched. It holds the text a team is typing, so unmounting it
+              between keystrokes — which is what happened while a refetch
+              dropped the screen to `loading` — made a decimal impossible to
+              type.
+            */}
+            <div className="min-w-0 xl:sticky xl:top-ce-5">
+              <WeightsControls
+                factorLabels={state.data.list.factor_labels}
+                weights={state.data.list.weights}
+                refusal={state.refusal}
+                onChange={(weights) => {
+                  setComparison(null);
+                  setWeighting({ kind: "weights", weights });
+                }}
+              />
             </div>
-            {state.refusal === null ? null : (
-              // The list below is stale the moment a commit is refused: it is
-              // still the answer to the *previous* weighting, not to the one
-              // the refusal sentence above is about. `aria-describedby` on the
-              // section carries that for assistive tech; this carries it for
-              // sighted readers who may not read the notice above as tied to
-              // the rows below it.
-              <p
-                data-slot="exercise-list-stale"
-                className="text-lg italic text-slate-600 dark:text-slate-300"
-              >
-                This is the list from before that change — it was refused, so the list has not
-                changed.
+
+            <section
+              className="ce-card flex min-w-0 flex-col gap-ce-3 p-ce-4 md:p-ce-5"
+              aria-describedby={state.refusal === null ? undefined : "exercise-list-refusal"}
+            >
+              <div className="flex flex-wrap items-start justify-between gap-ce-3">
+                <div className="flex flex-wrap items-center gap-ce-3">
+                  <h2 className="ce-type-h2 text-ce-ink">The list</h2>
+                  {state.refreshing ? (
+                    <p
+                      role="status"
+                      data-slot="exercise-list-refreshing"
+                      className="ce-type-meta flex items-center gap-ce-2 text-ce-ink-muted"
+                    >
+                      <LoaderCircle
+                        aria-hidden="true"
+                        className="size-4 animate-spin text-ce-primary motion-reduce:animate-none"
+                      />
+                      Rebuilding the list…
+                    </p>
+                  ) : null}
+                </div>
+                <a
+                  href={rankedListCsvHref(eventKey, weighting)}
+                  download
+                  className={LINK_SECONDARY}
+                  data-slot="exercise-csv-download"
+                >
+                  <Download aria-hidden="true" className="size-5 shrink-0" />
+                  Download this list as a spreadsheet
+                </a>
+              </div>
+              {state.refusal === null ? null : (
+                // The list below is stale the moment a commit is refused: it is
+                // still the answer to the *previous* weighting, not to the one
+                // the refusal sentence above is about. `aria-describedby` on the
+                // section carries that for assistive tech; this carries it for
+                // sighted readers who may not read the notice above as tied to
+                // the rows below it.
+                <p data-slot="exercise-list-stale" className="ce-type-reason text-ce-ink-muted">
+                  This is the list from before that change — it was refused, so the list has not
+                  changed.
+                </p>
+              )}
+              <p className="ce-type-meta text-ce-ink-muted">
+                Cut at {state.data.list.invite_limit} names, the limit set for this data file.
+                {state.data.list.setting_name === null
+                  ? null
+                  : ` Built from your team's setting “${state.data.list.setting_name}”.`}
               </p>
-            )}
-            <p className="text-xl text-slate-600 dark:text-slate-300">
-              Cut at {state.data.list.invite_limit} names, the limit set for this data file.
-              {state.data.list.setting_name === null
-                ? null
-                : ` Built from your team's setting “${state.data.list.setting_name}”.`}
-            </p>
-            <RankedList
-              entries={state.data.list.entries}
-              factorLabels={state.data.list.factor_labels}
-              caption={`The names for ${state.data.list.event_name}, in order.`}
-            />
-          </section>
+              {/* §5 ce-list-rebuilding: dim while a new list is fetched, or stale after a refusal. */}
+              <div
+                aria-busy={state.refreshing ? "true" : undefined}
+                className={cn("ce-rebuildable min-w-0", state.refusal !== null && "opacity-60")}
+              >
+                <RankedList
+                  entries={state.data.list.entries}
+                  factorLabels={state.data.list.factor_labels}
+                  caption={`The names for ${state.data.list.event_name}, in order.`}
+                />
+              </div>
+            </section>
+          </div>
 
           <ListCompositionTable
             composition={state.data.list.composition}
@@ -240,70 +275,19 @@ export function ExerciseMatching(): React.JSX.Element {
           />
 
           {comparison === null ? null : (
-            <ComparisonView comparison={comparison} onClose={() => setComparison(null)} />
+            <MatchingCompareView comparison={comparison} onClose={() => setComparison(null)} />
           )}
 
-          <p className="text-xl">
-            <Link to={`/exercise/events/${encodeURIComponent(eventKey)}/results`} className={BUTTON}>
+          <p>
+            <Link
+              to={`/exercise/events/${encodeURIComponent(eventKey)}/results`}
+              className={LINK_PRIMARY}
+            >
               Go to results for this event
             </Link>
           </p>
         </div>
       )}
     </ExerciseScreen>
-  );
-}
-
-/**
- * Two saved settings' lists, with the names on both highlighted.
- *
- * `on_both_profile_nos` comes back in the first list's order, so the same set
- * marks both tables and the highlight means one thing: this person is on the
- * list either way, so the weighting did not decide them.
- */
-function ComparisonView({
-  comparison,
-  onClose,
-}: {
-  readonly comparison: CompareView;
-  readonly onClose: () => void;
-}): React.JSX.Element {
-  const overlap = comparison.on_both_profile_nos;
-  return (
-    <section data-slot="exercise-compare" className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-baseline justify-between gap-3">
-        <h2 className="text-3xl font-semibold text-slate-900 dark:text-slate-50">
-          Two settings, side by side
-        </h2>
-        <button type="button" onClick={onClose} className={BUTTON}>
-          Close this comparison
-        </button>
-      </div>
-      <p className="text-xl text-slate-700 dark:text-slate-200">
-        {overlap.length === 0
-          ? "Nobody is on both lists."
-          : `${overlap.length} ${
-              overlap.length === 1 ? "name is" : "names are"
-            } on both lists, highlighted in each.`}
-      </p>
-      {/*
-        The two lists always stack: the page is capped at max-w-5xl, so two
-        six-column tables never fit side by side at any viewport. `min-w-0`
-        lets a grid child shrink below its table's width, so the table scrolls
-        in its own box rather than widening the page.
-      */}
-      <div data-slot="exercise-compare-grid" className="grid gap-8">
-        {[comparison.a, comparison.b].map((list, index) => (
-          <div key={index === 0 ? "a" : "b"} className="min-w-0">
-            <RankedList
-              entries={list.entries}
-              factorLabels={list.factor_labels}
-              highlightProfileNos={overlap}
-              caption={list.setting_name ?? "This list"}
-            />
-          </div>
-        ))}
-      </div>
-    </section>
   );
 }

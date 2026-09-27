@@ -46,8 +46,8 @@ function entry(undecidedGoalHalf: boolean): ListEntryView {
 }
 
 function factorLine(): string {
-  const cell = document.querySelector('[data-slot="exercise-ranked-list"] tbody td:last-child');
-  return cell?.querySelector("span")?.textContent ?? "";
+  // The "what counted" line sits under the name (DESIGN.md §6.7).
+  return document.querySelector('[data-slot="exercise-factor-names"]')?.textContent ?? "";
 }
 
 afterEach(cleanup);
