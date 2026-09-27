@@ -38,3 +38,34 @@ const ASKING_CHOICE_LABELS: Readonly<Record<string, string>> = {
 export function askingChoiceLabel(choice: string): string {
   return ASKING_CHOICE_LABELS[choice] ?? choice;
 }
+
+/**
+ * One supporting line under each choice's title (DESIGN.md §6.18; wording
+ * approved as drafted in §11.1). Like the labels, this is only wording: the
+ * set is still the server's `choices`.
+ */
+const ASKING_CHOICE_LINES: Readonly<Record<string, string>> = {
+  better_recommendations: "Tell them a card helps us suggest events worth their evening.",
+  small_reward: "Offer something small for a completed card.",
+  required: "Make the card a condition of hearing about events.",
+};
+
+/** The supporting line for a choice, or `null` for a value the server adds. */
+export function askingChoiceLine(choice: string): string | null {
+  return ASKING_CHOICE_LINES[choice] ?? null;
+}
+
+/** The label without its final full stop, for the sentences below. */
+function bareLabel(choice: string): string {
+  return askingChoiceLabel(choice).replace(/\.$/, "");
+}
+
+/** The armed button's label (§6.18, §11.1): "Confirm: A small reward?". */
+export function askingChoiceConfirmLabel(choice: string): string {
+  return `Confirm: ${bareLabel(choice)}?`;
+}
+
+/** The spoken hint while a choice is armed (§6.18, §11.1). */
+export function askingChoiceConfirmHint(choice: string): string {
+  return `Press again to confirm ${bareLabel(choice)}. Your team picks once.`;
+}
