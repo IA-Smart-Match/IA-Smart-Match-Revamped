@@ -153,21 +153,21 @@ export function RankedList({
         </caption>
         <thead>
           <tr className="ce-label bg-ce-sunk text-ce-ink">
-            <th scope="col" className="w-16 rounded-l-[10px] px-4 py-3">
+            <th scope="col" className="w-14 rounded-l-[10px] px-3 py-3">
               Rank
             </th>
-            <th scope="col" className={`px-4 py-3 ${variant === "compact" ? "rounded-r-[10px]" : ""}`}>
+            <th scope="col" className={`px-3 py-3 ${variant === "compact" ? "rounded-r-[10px]" : ""}`}>
               Name
             </th>
             {variant === "full" ? (
               <>
-                <th scope="col" className="px-4 py-3">
+                <th scope="col" className="px-3 py-3">
                   Major
                 </th>
-                <th scope="col" className="px-4 py-3">
+                <th scope="col" className="px-3 py-3">
                   Year
                 </th>
-                <th scope="col" className="rounded-r-[10px] px-4 py-3">
+                <th scope="col" className="w-40 rounded-r-[10px] px-3 py-3">
                   How much we know
                 </th>
               </>
@@ -189,11 +189,11 @@ export function RankedList({
               )}
               style={pulseDelay === null ? undefined : { animationDelay: `${pulseDelay}ms` }}
             >
-              <td className="px-4 py-4">
+              <td className="px-3 py-4">
                 <span className="ce-rank text-ce-primary">{entry.rank}</span>
               </td>
-              <td className="px-4 py-4">
-                <div className="flex min-w-[14rem] flex-col gap-1">
+              <td className="px-3 py-4">
+                <div className="flex min-w-[11rem] flex-col gap-1">
                   <NameLine entry={entry} onBoth={onBoth} />
                   <ReasonLines entry={entry} labels={factorLabels} />
                   {variant === "compact" ? (
@@ -205,9 +205,9 @@ export function RankedList({
               </td>
               {variant === "full" ? (
                 <>
-                  <td className="ce-body px-4 py-4 text-ce-ink">{entry.major}</td>
-                  <td className="ce-body px-4 py-4 text-ce-ink">{entry.class_year}</td>
-                  <td className="px-4 py-4">
+                  <td className="ce-body px-3 py-4 text-ce-ink">{entry.major}</td>
+                  <td className="ce-body px-3 py-4 text-ce-ink">{entry.class_year}</td>
+                  <td className="px-3 py-4">
                     <MarkerChip marker={entry.marker} />
                   </td>
                 </>
@@ -311,11 +311,19 @@ export function MarkerChip({ marker }: { readonly marker: string }): React.JSX.E
   const style = MARKER_STYLE[marker];
   // An unrecognised marker renders its raw string, in the neutral style.
   if (style === undefined) {
-    return <Chip tone="neutral">{markerLabel(marker)}</Chip>;
+    return (
+      <Chip tone="neutral" className="whitespace-normal">
+        {markerLabel(marker)}
+      </Chip>
+    );
   }
   const { tone, Icon } = style;
   return (
-    <Chip tone={tone} icon={<Icon aria-hidden="true" className="size-4 shrink-0" />}>
+    <Chip
+      tone={tone}
+      className="whitespace-normal"
+      icon={<Icon aria-hidden="true" className="size-4 shrink-0" />}
+    >
       {markerLabel(marker)}
     </Chip>
   );

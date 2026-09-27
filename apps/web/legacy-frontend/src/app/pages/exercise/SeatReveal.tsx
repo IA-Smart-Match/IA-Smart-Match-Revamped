@@ -89,7 +89,7 @@ export function SeatReveal({
           {lines.map((line, index) => (
             <span
               key={line}
-              className="block transition-opacity duration-300 motion-reduce:duration-150"
+              className="block text-balance transition-opacity duration-300 motion-reduce:duration-150"
               style={{ opacity: phase >= index + 2 ? 1 : 0 }}
             >
               <Numerals text={line} />

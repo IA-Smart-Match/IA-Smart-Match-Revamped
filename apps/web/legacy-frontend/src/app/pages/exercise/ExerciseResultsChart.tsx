@@ -383,7 +383,7 @@ function ExerciseVariant({
   );
   const patternId = (key: string): string => `${patternPrefix}-ce-${key}`;
   const tick = { fontSize: 18, fill: "var(--ce-ink)" };
-  const width = horizontal ? 340 : Math.max(640, series.length * 300);
+  const width = horizontal ? 340 : Math.max(760, Math.min(1040, series.length * 360));
   const height = horizontal ? 150 * series.length + 40 : 420;
 
   return (

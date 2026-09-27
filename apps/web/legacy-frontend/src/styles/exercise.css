@@ -122,6 +122,15 @@
     outline: 3px solid var(--ce-primary);
     outline-offset: 3px;
   }
+  /*
+   * The `h1` takes focus on a route change (§8.5) so a screen reader starts
+   * there. It is not operable and not in the tab order, so it draws no ring:
+   * a green box round the title on every page load reads as a fault on a
+   * projector. Every focusable control keeps the 3px ring above.
+   */
+  .ce-root h1[tabindex="-1"]:focus-visible {
+    outline: none;
+  }
   .ce-root a.ce-link,
   .ce-link {
     color: var(--ce-primary);

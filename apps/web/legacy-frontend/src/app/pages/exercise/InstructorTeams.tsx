@@ -231,7 +231,7 @@ function TeamRow({
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex flex-col gap-3 md:flex-row md:items-start md:gap-4">
+      <div className="flex flex-col gap-3">
         <span className="flex min-w-0 flex-1 items-start gap-4">
           <span className="ce-label ce-num flex size-11 shrink-0 items-center justify-center rounded-full bg-ce-sunk text-ce-ink">
             <span className="sr-only">Team </span>
@@ -250,7 +250,7 @@ function TeamRow({
             </span>
           </span>
         </span>
-        <span className="flex flex-wrap items-center gap-2 md:shrink-0 md:justify-end">
+        <span className="flex flex-wrap items-center gap-2 pl-15">
           <button type="button" className={ceButton("secondary")} onClick={() => void openDetail()}>
             Open this team's work
           </button>

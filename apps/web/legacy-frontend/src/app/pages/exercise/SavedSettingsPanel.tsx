@@ -195,7 +195,7 @@ export function SavedSettingsPanel({
         <p className="ce-body text-ce-muted">Save two settings to see them side by side.</p>
       ) : (
         <div className="flex flex-col gap-2">
-          {live.length >= 2 ? (
+          {live.length >= 2 && settings.length > 2 ? (
             <p className="ce-meta text-ce-muted" id="exercise-compare-limit">
               Two are chosen. Untick one to swap.
             </p>
