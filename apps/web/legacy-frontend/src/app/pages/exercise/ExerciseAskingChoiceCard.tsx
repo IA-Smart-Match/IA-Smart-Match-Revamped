@@ -123,7 +123,15 @@ export function AskingChoiceCard({
             pending={saving}
             disabled={busy && !saving}
             onClick={() => onPress(choice)}
-            onKeyDown={onKeyDown}
+            onKeyDown={(event) => {
+              // The choice is once-only: a held Enter or Space repeats, and a
+              // repeat must never become the confirming press.
+              if (event.repeat && (event.key === "Enter" || event.key === " ")) {
+                event.preventDefault();
+                return;
+              }
+              onKeyDown(event);
+            }}
             // Three buttons read "Choose this way"; the name says which card.
             // It starts with the visible words (WCAG 2.5.3, label in name).
             aria-label={armed ? askingChoiceConfirmLabel(choice) : `Choose this way: ${label}`}
