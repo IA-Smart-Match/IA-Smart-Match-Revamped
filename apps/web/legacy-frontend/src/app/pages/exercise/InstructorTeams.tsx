@@ -31,8 +31,8 @@
  * twelve hours and nothing announces its end. Every read and action here that
  * is refused with `exercise_instructor_session_required` calls `onSignedOut`,
  * so the page returns to the passcode form instead of leaving controls that
- * will all fail. (The page's `guard` covers only the Sign out button; the
- * other panels do not yet sign out on a 401 — see docs/plans/backlog.md.)
+ * will all fail. Every other panel on the page follows the same rule
+ * (`instructorSession.ts`).
  */
 import * as React from "react";
 
@@ -46,6 +46,7 @@ import {
 } from "../../../lib/exerciseClient";
 import { askingChoiceLabel } from "./askingChoices";
 import { ExerciseLoading, ExerciseNotice } from "./ExerciseScreen";
+import { useSignOutOnExpiredRead } from "./instructorSession";
 import { INSTRUCTOR_SESSION_REQUIRED } from "./refusals";
 import { useExerciseResource } from "./useExerciseResource";
 
@@ -89,13 +90,7 @@ export function InstructorTeams({
     [onSignedOut],
   );
 
-  const listRefusedForSession =
-    state.status === "refused" && state.refusal.code === INSTRUCTOR_SESSION_REQUIRED;
-  React.useEffect(() => {
-    if (listRefusedForSession) {
-      onSignedOut?.();
-    }
-  }, [listRefusedForSession, onSignedOut]);
+  useSignOutOnExpiredRead(state, onSignedOut);
   const [refusal, setRefusal] = React.useState<string | null>(null);
   const [pending, setPending] = React.useState(false);
   const busy = state.status === "loading" || (state.status === "ready" && state.refreshing);

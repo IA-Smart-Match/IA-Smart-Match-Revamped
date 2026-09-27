@@ -42,6 +42,8 @@ import {
   type UploadedDatasetView,
 } from "../../../lib/exerciseClient";
 import { ExerciseLoading, ExerciseNotice } from "./ExerciseScreen";
+import { useSignOutOnExpiredRead } from "./instructorSession";
+import { INSTRUCTOR_SESSION_REQUIRED } from "./refusals";
 import { useExerciseResource } from "./useExerciseResource";
 
 const BUTTON =
@@ -52,14 +54,18 @@ const INPUT =
 
 export function InstructorDatasets({
   onDataChanged,
+  onSignedOut,
 }: {
   /**
    * Called after an upload or a re-point lands, so the page can reload the
    * panels that read the same facts: the teams list and the unlock panel.
    */
   readonly onDataChanged?: () => void;
+  /** Called when the instructor session has expired; the page shows the passcode form. */
+  readonly onSignedOut?: () => void;
 } = {}): React.JSX.Element {
   const { state, reload } = useExerciseResource(listDatasets, []);
+  useSignOutOnExpiredRead(state, onSignedOut);
   const [refusal, setRefusal] = React.useState<string | null>(null);
   /**
    * What just worked, in its own slot.
@@ -89,6 +95,9 @@ export function InstructorDatasets({
           ? error.message
           : "The exercise could not be reached. Check the connection and try again.",
       );
+      if (isRefusal(error) && error.code === INSTRUCTOR_SESSION_REQUIRED) {
+        onSignedOut?.();
+      }
     } finally {
       setPending(false);
     }

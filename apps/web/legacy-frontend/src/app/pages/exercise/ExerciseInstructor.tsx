@@ -38,6 +38,7 @@ import { InstructorDatasets } from "./InstructorDatasets";
 import { InstructorTeams } from "./InstructorTeams";
 import { INSTRUCTOR_SESSION_REQUIRED, TEAMS_SPAN_DATASETS } from "./refusals";
 import { useExerciseResource } from "./useExerciseResource";
+import { useSignOutOnExpiredRead } from "./instructorSession";
 
 const BUTTON =
   "rounded-lg border-2 border-slate-400 px-5 py-3 text-xl font-semibold text-slate-800 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 dark:border-slate-500 dark:text-slate-100 dark:hover:bg-slate-800";
@@ -212,9 +213,14 @@ function SignedIn({ onSignedOut }: { readonly onSignedOut: () => void }): React.
 
       {refusal === null ? null : <ExerciseNotice message={refusal} />}
 
-      <InstructorDatasets onDataChanged={dataChanged} />
-      <UnlockPanel onRefusal={setRefusal} onUnlocked={teamsChanged} reloadKey={dataVersion} />
-      <RefreshAllPanel onDone={teamsChanged} />
+      <InstructorDatasets onDataChanged={dataChanged} onSignedOut={onSignedOut} />
+      <UnlockPanel
+        onRefusal={setRefusal}
+        onUnlocked={teamsChanged}
+        onSignedOut={onSignedOut}
+        reloadKey={dataVersion}
+      />
+      <RefreshAllPanel onDone={teamsChanged} onSignedOut={onSignedOut} />
       {/* A sum, so a bump to either re-reads the teams. */}
       <InstructorTeams reloadKey={dataVersion + teamsVersion} onSignedOut={onSignedOut} />
     </div>
@@ -251,14 +257,18 @@ function SignedIn({ onSignedOut }: { readonly onSignedOut: () => void }): React.
 function UnlockPanel({
   onRefusal,
   onUnlocked,
+  onSignedOut,
   reloadKey,
 }: {
   readonly onRefusal: (message: string | null) => void;
   /** Called after an unlock lands, so the page can re-read the teams. */
   readonly onUnlocked: () => void;
+  /** Called when the instructor session has expired; the page shows the passcode form. */
+  readonly onSignedOut: () => void;
   readonly reloadKey: number;
 }): React.JSX.Element {
   const { state, reload } = useExerciseResource(listInstructorEvents, [reloadKey]);
+  useSignOutOnExpiredRead(state, onSignedOut);
   const [pending, setPending] = React.useState(false);
   const busy =
     pending || state.status === "loading" || (state.status === "ready" && state.refreshing);
@@ -349,6 +359,10 @@ function UnlockPanel({
                             ? error.message
                             : "The exercise could not be reached. Check the connection and try again.",
                         );
+                        if (isRefusal(error) && error.code === INSTRUCTOR_SESSION_REQUIRED) {
+                          onSignedOut();
+                          return undefined;
+                        }
                         refusedUnlockPending.current = true;
                         return reload();
                       })
@@ -372,7 +386,14 @@ const SPLIT_ACROSS_FILES =
   "\u201cMove every team to this file\u201d on the file the class should use. This list reads again on its own once they move.";
 
 /** Refresh every team that has chosen and has not yet asked. */
-function RefreshAllPanel({ onDone }: { readonly onDone: () => void }): React.JSX.Element {
+function RefreshAllPanel({
+  onDone,
+  onSignedOut,
+}: {
+  readonly onDone: () => void;
+  /** Called when the instructor session has expired; the page shows the passcode form. */
+  readonly onSignedOut: () => void;
+}): React.JSX.Element {
   const [pending, setPending] = React.useState(false);
   const [done, setDone] = React.useState<RefreshAllView | null>(null);
   const [refusal, setRefusal] = React.useState<string | null>(null);
@@ -399,13 +420,16 @@ function RefreshAllPanel({ onDone }: { readonly onDone: () => void }): React.JSX
                 setDone(view);
                 onDone();
               })
-              .catch((error: unknown) =>
+              .catch((error: unknown) => {
                 setRefusal(
                   isRefusal(error)
                     ? error.message
                     : "The exercise could not be reached. Check the connection and try again.",
-                ),
-              )
+                );
+                if (isRefusal(error) && error.code === INSTRUCTOR_SESSION_REQUIRED) {
+                  onSignedOut();
+                }
+              })
               .finally(() => setPending(false));
           }}
         >
