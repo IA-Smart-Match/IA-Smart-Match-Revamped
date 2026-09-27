@@ -39,7 +39,9 @@ import {
   type ExerciseScopeFacts,
   type TeamWorkspaceView,
 } from "../../../lib/exerciseClient";
+import { LectureHallArt, TeamBadgeArt } from "./exerciseArt";
 import { ExerciseLoading, ExerciseNotice, ExerciseScreen } from "./ExerciseScreen";
+import { ceButton, Spinner } from "./exerciseUi";
 import { useExerciseResource } from "./useExerciseResource";
 import { clearWorkspacePointer, readWorkspacePointer, writeWorkspacePointer } from "./workspacePointer";
 
@@ -81,38 +83,56 @@ async function loadEntry(signal: AbortSignal): Promise<EntryData> {
   }
 }
 
+/** The opening question and its lead (DESIGN.md §7.1, §11.1). */
+const OPENING_TITLE = "Who should we invite?";
+const OPENING_LEAD =
+  "Your team is promoting a campus career event with 60 seats. Choose whom to invite, see what happened, then try again.";
+
 export function ExerciseEntry(): React.JSX.Element {
   const { state, reload } = useExerciseResource(loadEntry, []);
 
   return (
-    <ExerciseScreen
-      title="Which team are you?"
-      intro="Pick your team's number. Your team's saved work is kept under that number."
-    >
-      {state.status === "loading" ? <ExerciseLoading what="the exercise" /> : null}
-      {state.status === "refused" ? (
-        <ExerciseNotice message={state.refusal.message} />
-      ) : null}
-      {state.status === "unreachable" ? (
-        <ExerciseNotice message={state.message} tone="problem">
-          <button type="button" onClick={reload} className={RETRY_CLASS}>
-            Try again
-          </button>
-        </ExerciseNotice>
-      ) : null}
-      {state.status === "ready" ? <EntryForm data={state.data} /> : null}
-      <p
-        className="text-lg text-slate-700 dark:text-slate-200"
-        data-slot="exercise-license-line"
-      >
-        {EXERCISE_LICENSE_LINE}
-      </p>
+    <ExerciseScreen title={OPENING_TITLE} intro={OPENING_LEAD}>
+      {/*
+        The opening zone's second column (§7.1): the license line in a quiet
+        sunk card, and the lecture hall on desktop. The license line is here in
+        every state — loading, refused, unreachable and ready.
+      */}
+      <div className="grid gap-6 lg:grid-cols-12 lg:items-center">
+        <p
+          className="ce-body ce-well px-5 py-4 text-ce-ink lg:col-span-7 md:px-6 md:py-5"
+          data-slot="exercise-license-line"
+        >
+          {EXERCISE_LICENSE_LINE}
+        </p>
+        <div className="hidden justify-center text-ce-primary lg:col-span-5 lg:flex">
+          <LectureHallArt className="h-[120px] w-[160px]" />
+        </div>
+      </div>
+
+      <hr className="border-0 border-t border-ce-line" />
+
+      <section aria-labelledby="exercise-entry-heading" className="flex flex-col gap-4">
+        <h2 id="exercise-entry-heading" className="ce-h2 text-ce-ink">
+          Which team are you?
+        </h2>
+        <p className="ce-body text-ce-muted">
+          Pick your team's number. Your team's saved work is kept under that number.
+        </p>
+        {state.status === "loading" ? <ExerciseLoading what="the exercise" shape="tiles" /> : null}
+        {state.status === "refused" ? <ExerciseNotice message={state.refusal.message} /> : null}
+        {state.status === "unreachable" ? (
+          <ExerciseNotice message={state.message} tone="problem">
+            <button type="button" onClick={reload} className={ceButton("primary")}>
+              Try again
+            </button>
+          </ExerciseNotice>
+        ) : null}
+        {state.status === "ready" ? <EntryForm data={state.data} /> : null}
+      </section>
     </ExerciseScreen>
   );
 }
-
-const RETRY_CLASS =
-  "rounded-lg border-2 border-slate-400 px-5 py-2 text-xl font-semibold text-slate-800 hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-offset-2 dark:border-slate-500 dark:text-slate-100 dark:hover:bg-slate-800";
 
 function EntryForm({ data }: { readonly data: EntryData }): React.JSX.Element {
   const navigate = useNavigate();
@@ -151,57 +171,114 @@ function EntryForm({ data }: { readonly data: EntryData }): React.JSX.Element {
 
   return (
     <form onSubmit={submit} className="flex flex-col gap-6">
-      <fieldset className="border-0 p-0">
-        <legend className="text-2xl font-semibold text-slate-900 dark:text-slate-50">
-          Team number
-        </legend>
-        <div className="mt-4 flex flex-wrap gap-3">
-          {teamNumbers.map((number) => (
-            <label
-              key={number}
-              className={`flex h-20 w-20 cursor-pointer items-center justify-center rounded-lg border-4 text-3xl font-bold focus-within:outline-2 focus-within:outline-offset-2 ${
-                selected === number
-                  ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
-                  : "border-slate-400 text-slate-800 hover:bg-slate-100 dark:border-slate-500 dark:text-slate-100 dark:hover:bg-slate-800"
-              }`}
-            >
-              <input
-                type="radio"
-                name="team_number"
-                value={number}
-                checked={selected === number}
-                onChange={() => setSelected(number)}
-                // The accessible name is stated rather than inherited from the
-                // label's text. The label holds both the big projected numeral
-                // and a visually-hidden word, so an inherited name read out as
-                // "4 Team 4".
-                aria-label={`Team ${number}`}
-                className="sr-only"
+      <div className="flex w-full flex-col gap-6 sm:w-fit">
+        {/*
+          A real radio group: the six tiles share one `name`, so arrow keys move
+          between them (§8.4). The group's name is the legend; the section's
+          heading above says the same thing for sighted readers.
+        */}
+        <fieldset className="border-0 p-0" disabled={pending}>
+          <legend className="sr-only">Team number</legend>
+          <div className="grid grid-cols-3 gap-4 sm:flex sm:flex-wrap">
+            {teamNumbers.map((number) => (
+              <TeamTile
+                key={number}
+                number={number}
+                selected={selected === number}
+                dimmed={pending}
+                onSelect={() => setSelected(number)}
               />
-              <span aria-hidden="true">{number}</span>
-            </label>
-          ))}
-        </div>
-      </fieldset>
+            ))}
+          </div>
+        </fieldset>
 
-      {data.workspace === null ? null : (
-        <p className="text-xl text-slate-700 dark:text-slate-200" data-slot="exercise-entry-current">
-          This browser is already in team {data.workspace.team_number}, working in{" "}
-          <strong>{data.workspace.dataset_label}</strong>.
-        </p>
-      )}
+        {data.workspace === null ? null : (
+          <p
+            className="ce-body flex items-center gap-3 text-ce-ink"
+            data-slot="exercise-entry-current"
+          >
+            <TeamBadgeArt className="size-8 shrink-0 text-ce-primary" />
+            <span>
+              This browser is already in team {data.workspace.team_number}, working in{" "}
+              <strong>{data.workspace.dataset_label}</strong>.
+            </span>
+          </p>
+        )}
 
-      {refusal === null ? null : <ExerciseNotice message={refusal} />}
+        {refusal === null ? null : <ExerciseNotice message={refusal} />}
 
-      <div>
-        <button
-          type="submit"
-          disabled={selected === null || pending}
-          className="rounded-lg border-2 border-slate-900 bg-slate-900 px-8 py-4 text-2xl font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
+        {/*
+          Right-aligned under the tiles on desktop (§7.2). On a phone it is
+          full width and, once a tile is chosen, sticks to the bottom safe area.
+        */}
+        <div
+          className={`flex sm:justify-end ${
+            selected === null
+              ? ""
+              : "sticky bottom-0 z-10 -mx-4 bg-ce-page px-4 pt-3 pb-[max(12px,env(safe-area-inset-bottom))] sm:static sm:mx-0 sm:bg-transparent sm:p-0"
+          }`}
         >
-          {pending ? "Opening your team's work…" : "Open this team's work"}
-        </button>
+          <button
+            type="submit"
+            disabled={selected === null || pending}
+            aria-busy={pending || undefined}
+            className={ceButton("primary", "ce-btn-lg w-full sm:w-auto")}
+          >
+            {pending ? <Spinner /> : null}
+            {pending ? "Opening your team's work…" : "Open this team's work"}
+          </button>
+        </div>
       </div>
     </form>
+  );
+}
+
+/**
+ * One numbered place card (§6.4): 112px on desktop, 96px on a phone, a
+ * Transducer numeral. Selected is CPP Green with a white numeral and a small
+ * gold corner notch; the notch is decoration, the fill and `checked` state
+ * carry the meaning.
+ */
+function TeamTile({
+  number,
+  selected,
+  dimmed,
+  onSelect,
+}: {
+  readonly number: number;
+  readonly selected: boolean;
+  readonly dimmed: boolean;
+  readonly onSelect: () => void;
+}): React.JSX.Element {
+  return (
+    <label
+      className={`group relative flex aspect-square w-full cursor-pointer items-center justify-center overflow-hidden rounded-[14px] transition-[transform,box-shadow,background-color] duration-150 has-[input:focus-visible]:outline-3 has-[input:focus-visible]:outline-offset-3 has-[input:focus-visible]:outline-ce-primary sm:size-28 ${
+        selected
+          ? "bg-ce-primary text-ce-on-primary shadow-[var(--ce-elev-2)]"
+          : "ce-lift bg-ce-surface text-ce-ink shadow-[var(--ce-elev-1)] hover:text-ce-primary"
+      } ${dimmed ? "opacity-60" : ""}`}
+    >
+      <input
+        type="radio"
+        name="team_number"
+        value={number}
+        checked={selected}
+        onChange={onSelect}
+        // The accessible name is stated rather than inherited from the
+        // label's text. The label holds the big projected numeral, so an
+        // inherited name would read as a bare digit.
+        aria-label={`Team ${number}`}
+        className="sr-only"
+      />
+      <span aria-hidden="true" className="ce-num text-[40px] leading-none font-bold sm:text-[44px]" style={{ fontFamily: "var(--font-headline)" }}>
+        {number}
+      </span>
+      {selected ? (
+        <span
+          aria-hidden="true"
+          className="absolute top-0 right-0 size-0 border-t-[18px] border-l-[18px] border-t-ce-gold border-l-transparent"
+        />
+      ) : null}
+    </label>
   );
 }

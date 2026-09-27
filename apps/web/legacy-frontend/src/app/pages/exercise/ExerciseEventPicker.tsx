@@ -20,9 +20,11 @@
  */
 import * as React from "react";
 import { Link } from "react-router";
+import { CalendarDays, ChevronRight } from "lucide-react";
 
 import { readEvents, type EventView } from "../../../lib/exerciseClient";
 import { ExerciseLoading, ExerciseNotice, ExerciseScreen } from "./ExerciseScreen";
+import { ceButton, useIsNarrow } from "./exerciseUi";
 import { useExerciseResource } from "./useExerciseResource";
 import { workspaceRequiredNotice } from "./refusals";
 
@@ -34,15 +36,11 @@ export function ExerciseEventPicker(): React.JSX.Element {
       title="Choose an event"
       intro="Build your team's list for one of the two events in the exercise."
     >
-      {state.status === "loading" ? <ExerciseLoading what="the events" /> : null}
+      {state.status === "loading" ? <ExerciseLoading what="the events" shape="cards" /> : null}
       {state.status === "refused" ? workspaceRequiredNotice(state.refusal) : null}
       {state.status === "unreachable" ? (
         <ExerciseNotice message={state.message} tone="problem">
-          <button
-            type="button"
-            onClick={reload}
-            className="rounded-lg border-2 border-slate-400 px-5 py-2 text-xl font-semibold"
-          >
+          <button type="button" onClick={reload} className={ceButton("primary")}>
             Try again
           </button>
         </ExerciseNotice>
@@ -53,6 +51,7 @@ export function ExerciseEventPicker(): React.JSX.Element {
 }
 
 function EventLists({ events }: { readonly events: readonly EventView[] }): React.JSX.Element {
+  const narrow = useIsNarrow();
   const rounds = events
     .filter((event) => event.is_exercise_event)
     .slice()
@@ -65,13 +64,30 @@ function EventLists({ events }: { readonly events: readonly EventView[] }): Reac
     );
   }
 
+  const pastList =
+    past.length === 0 ? (
+      <p className="ce-body mt-3 text-ce-muted">This data file carries no past events.</p>
+    ) : (
+      <ul className="mt-4 grid gap-x-12 gap-y-3 md:grid-cols-2">
+        {past.map((event) => (
+          <li key={event.event_key} className="ce-body flex items-start gap-3 text-ce-ink">
+            <CalendarDays aria-hidden="true" className="mt-1 size-5 shrink-0 text-ce-muted" />
+            <span>
+              {event.name}
+              {event.topic_tags.length === 0 ? null : (
+                <span className="text-ce-muted"> — {event.topic_tags.join(", ")}</span>
+              )}
+            </span>
+          </li>
+        ))}
+      </ul>
+    );
+
   return (
-    <div className="flex flex-col gap-8">
-      <section>
-        <h2 className="text-3xl font-semibold text-slate-900 dark:text-slate-50">
-          The two events you can work on
-        </h2>
-        <ul className="mt-4 flex flex-col gap-4">
+    <div className="flex flex-col gap-10 md:gap-12">
+      <section className="flex flex-col gap-4">
+        <h2 className="ce-h2 text-ce-ink">The two events you can work on</h2>
+        <ul className="flex flex-col gap-4 md:gap-6">
           {rounds.map((event, index) => (
             <li key={event.event_key}>
               <RoundCard event={event} roundNumber={index + 1} />
@@ -80,38 +96,33 @@ function EventLists({ events }: { readonly events: readonly EventView[] }): Reac
         </ul>
       </section>
 
-      <section>
-        <h2 className="text-3xl font-semibold text-slate-900 dark:text-slate-50">
-          Past events, for attendance history
-        </h2>
-        <p className="mt-2 text-xl text-slate-600 dark:text-slate-300">
+      <section className="flex flex-col">
+        <h2 className="ce-h2 text-ce-ink">Past events, for attendance history</h2>
+        <p className="ce-body mt-2 max-w-[64ch] text-ce-muted">
           These are not events you build a list for. They are what “went to similar events before”
           reads.
         </p>
-        {past.length === 0 ? (
-          <p className="mt-3 text-xl text-slate-600 dark:text-slate-300">
-            This data file carries no past events.
-          </p>
+        {/* §7.3: on a phone the ten fold behind a disclosure. */}
+        {narrow && past.length > 0 ? (
+          <details className="mt-4">
+            <summary className={ceButton("quiet", "cursor-pointer")}>
+              Show the {past.length} past events
+            </summary>
+            {pastList}
+          </details>
         ) : (
-          <ul className="mt-3 flex flex-col gap-2 text-xl text-slate-800 dark:text-slate-100">
-            {past.map((event) => (
-              <li key={event.event_key}>
-                {event.name}
-                {event.topic_tags.length === 0 ? null : (
-                  <span className="text-slate-600 dark:text-slate-300">
-                    {" "}
-                    — {event.topic_tags.join(", ")}
-                  </span>
-                )}
-              </li>
-            ))}
-          </ul>
+          pastList
         )}
       </section>
     </div>
   );
 }
 
+/**
+ * A round card (§6.5): the round's seal, the event name in Proxima Sera, its
+ * topics and majors, and a trailing chevron that slides on hover. The whole
+ * card is the link.
+ */
 function RoundCard({
   event,
   roundNumber,
@@ -122,22 +133,29 @@ function RoundCard({
   return (
     <Link
       to={`/exercise/events/${encodeURIComponent(event.event_key)}`}
-      className="block rounded-lg border-2 border-slate-400 px-6 py-5 hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 dark:border-slate-500 dark:hover:bg-slate-800"
+      className="ce-card ce-lift group flex items-start gap-4 p-5 text-ce-ink no-underline md:gap-6 md:p-6"
     >
-      <p className="text-lg font-semibold tracking-wide text-slate-600 uppercase dark:text-slate-300">
-        Round {roundNumber}
-      </p>
-      <p className="text-3xl font-bold text-slate-900 dark:text-slate-50">{event.name}</p>
-      {event.topic_tags.length === 0 ? null : (
-        <p className="mt-2 text-xl text-slate-700 dark:text-slate-200">
-          Topics: {event.topic_tags.join(", ")}
-        </p>
-      )}
-      {event.target_majors.length === 0 ? null : (
-        <p className="text-xl text-slate-700 dark:text-slate-200">
-          Aimed at: {event.target_majors.join(", ")}
-        </p>
-      )}
+      <span
+        className={`ce-label flex size-11 shrink-0 items-center justify-center rounded-full border-2 border-ce-primary ce-num ${
+          roundNumber === 1 ? "text-ce-primary" : "bg-ce-primary text-ce-on-primary"
+        }`}
+      >
+        <span className="sr-only">Round </span>
+        {roundNumber}
+      </span>
+      <span className="flex min-w-0 flex-1 flex-col gap-1">
+        <span className="ce-h2 text-ce-ink">{event.name}</span>
+        {event.topic_tags.length === 0 ? null : (
+          <span className="ce-body text-ce-ink">Topics: {event.topic_tags.join(", ")}</span>
+        )}
+        {event.target_majors.length === 0 ? null : (
+          <span className="ce-body text-ce-ink">Aimed at: {event.target_majors.join(", ")}</span>
+        )}
+      </span>
+      <ChevronRight
+        aria-hidden="true"
+        className="mt-3 size-6 shrink-0 self-center text-ce-muted transition-transform duration-150 group-hover:translate-x-1 motion-reduce:transition-none motion-reduce:group-hover:translate-x-0"
+      />
     </Link>
   );
 }
