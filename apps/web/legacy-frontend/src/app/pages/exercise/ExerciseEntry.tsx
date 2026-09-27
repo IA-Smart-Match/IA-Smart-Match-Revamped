@@ -263,6 +263,27 @@ function EntryForm({ data }: { readonly data: EntryData }): React.JSX.Element {
   );
 }
 
+/** Below `md` (Tailwind's 48rem), where the open bar sticks to the bottom. */
+const PHONE_QUERY = "(max-width: 47.99rem)";
+
+/**
+ * On a phone, choosing a tile pins the open bar to the bottom of the screen,
+ * which can cover the lower row of tiles. Scroll the chosen tile just far
+ * enough to clear it (its `scroll-margin-bottom` is the bar's height).
+ * Wider screens never pin the bar, so the page stays where it is.
+ */
+function revealAbovePhoneBar(tile: HTMLElement | null): void {
+  if (
+    tile === null ||
+    typeof window.matchMedia !== "function" ||
+    typeof tile.scrollIntoView !== "function" ||
+    !window.matchMedia(PHONE_QUERY).matches
+  ) {
+    return;
+  }
+  tile.scrollIntoView({ block: "nearest" });
+}
+
 /**
  * One numbered place card (§6.4). The radio is visually hidden inside its
  * label; the label draws the card, the ring (focus-within) and the states.
@@ -278,12 +299,23 @@ function TeamTile({
   readonly pending: boolean;
   readonly onSelect: (number: number) => void;
 }): React.JSX.Element {
+  const tile = React.useRef<HTMLLabelElement>(null);
+
+  function choose(): void {
+    onSelect(number);
+    revealAbovePhoneBar(tile.current);
+  }
+
   return (
     <label
+      ref={tile}
       data-selected={selected ? "true" : undefined}
       data-pending={pending ? "true" : undefined}
       className={cn(
         "ce-press relative flex size-24 cursor-pointer items-center justify-center overflow-hidden rounded-ce-card lg:size-28",
+        // Room for the sticky open bar (48px button + 12 + 16 padding + 1px
+        // rule = 77px) plus air, so `scrollIntoView` stops above it.
+        "max-md:scroll-mb-[96px]",
         "font-ce-display text-[44px] leading-none font-bold tabular-nums",
         "has-[:focus-visible]:outline-[3px] has-[:focus-visible]:outline-offset-[3px] has-[:focus-visible]:outline-ce-primary has-[:focus-visible]:outline-solid",
         selected
@@ -297,7 +329,7 @@ function TeamTile({
         name="team_number"
         value={number}
         checked={selected}
-        onChange={() => onSelect(number)}
+        onChange={choose}
         // The accessible name is stated rather than inherited from the
         // label's text. The label holds both the big projected numeral
         // and a visually-hidden word, so an inherited name read out as
