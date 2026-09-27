@@ -152,14 +152,15 @@
     animation: ce-kf-skeleton calc(var(--ce-dur-skeleton) / 2) var(--ce-ease-in-out) infinite alternate;
   }
 
-  /* ce-slider-settle: thumb and range glide to a clicked point; not while dragging. */
+  /* ce-slider-settle: thumb and range glide to a clicked point; not while dragging.
+     Radix positions the thumb with a wrapper span, reached with :has(). */
   .ce-slider-settle [data-slot="ce-slider-range"],
-  .ce-slider-settle [data-slot="ce-slider-thumb-wrap"] {
+  .ce-slider-settle span:has(> [data-slot="ce-slider-thumb"]) {
     transition: left var(--ce-dur-slider-settle) var(--ce-ease-out),
       right var(--ce-dur-slider-settle) var(--ce-ease-out);
   }
   .ce-slider-settle[data-dragging="true"] [data-slot="ce-slider-range"],
-  .ce-slider-settle[data-dragging="true"] [data-slot="ce-slider-thumb-wrap"] {
+  .ce-slider-settle[data-dragging="true"] span:has(> [data-slot="ce-slider-thumb"]) {
     transition: none;
   }
 
@@ -219,7 +220,7 @@
   .ce-root .ce-confirm-underline { animation: none; display: none; }
   .ce-root .ce-skeleton { animation: none; opacity: 0.75; }
   .ce-root .ce-slider-settle [data-slot="ce-slider-range"],
-  .ce-root .ce-slider-settle [data-slot="ce-slider-thumb-wrap"] { transition: none; }
+  .ce-root .ce-slider-settle span:has(> [data-slot="ce-slider-thumb"]) { transition: none; }
   .ce-root .ce-seat[data-animate="true"] { animation: none; }
   .ce-root .ce-spin { animation: none; }
 }

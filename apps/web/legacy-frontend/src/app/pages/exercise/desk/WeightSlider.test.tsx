@@ -70,6 +70,15 @@ describe("WeightSlider (§6.6)", () => {
     expect(onCommit).toHaveBeenLastCalledWith(0.35);
   });
 
+  it("still sends a move back to the accepted weight while a commit is in flight", () => {
+    const { slider, onCommit } = renderSlider();
+    fireEvent.keyDown(slider, { key: "ArrowRight" });
+    // `value` is still 0.4: the server has not answered the 0.45 yet.
+    fireEvent.keyDown(slider, { key: "ArrowLeft" });
+    expect(onCommit).toHaveBeenCalledTimes(2);
+    expect(onCommit).toHaveBeenLastCalledWith(0.4);
+  });
+
   it("Page keys step by 0.25 and Home/End jump to the ends", () => {
     const { slider, field, onCommit } = renderSlider();
     fireEvent.keyDown(slider, { key: "PageUp" });
