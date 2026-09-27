@@ -145,7 +145,11 @@ describe("<ExerciseAskingForMore />", () => {
       },
     });
     renderAsking();
-    await waitFor(() => expect(screen.getByRole("button", { name: "a_fourth_way" })).toBeDefined());
+    // Each card's button reads "Choose this way" and is named for its choice
+    // (DESIGN.md §6.18); an unknown choice is named by its own value.
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Choose this way: a_fourth_way" })).toBeDefined(),
+    );
   });
 
   it("sends X-Exercise-Request when a team picks", async () => {
@@ -158,8 +162,9 @@ describe("<ExerciseAskingForMore />", () => {
       },
     });
     renderAsking();
-    const button = await screen.findByRole("button", { name: /a small reward/i });
-    fireEvent.click(button);
+    // The inline confirm (DESIGN.md §6.18): the first press arms, the second picks.
+    fireEvent.click(await screen.findByRole("button", { name: /a small reward/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm: A small reward?" }));
     await waitFor(() => {
       const post = calls.find((call) => call.init.method === "POST");
       expect(post?.url).toBe(ASKING);
@@ -183,7 +188,8 @@ describe("<ExerciseAskingForMore />", () => {
       },
     });
     renderAsking();
-    fireEvent.click(await screen.findByRole("button", { name: /^required\.$/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /required\.$/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm: Required?" }));
     await waitFor(() =>
       expect(screen.getByText("Your team has already picked how it will ask.")).toBeDefined(),
     );
@@ -244,9 +250,14 @@ describe("<ExerciseAskingForMore />", () => {
 
     const counts = document.querySelector('[data-slot="exercise-refresh-counts"]');
     expect(counts).not.toBeNull();
-    expect(counts?.textContent).toContain("14");
-    expect(counts?.textContent).toContain("3");
-    expect(counts?.textContent).toContain("22");
+    // Right after this browser's own press the figures count up once
+    // (DESIGN.md §6.19, `ce-count-up`, 700ms), so the final numbers are
+    // waited for rather than read on the first frame.
+    await waitFor(() => {
+      expect(counts?.textContent).toContain("Cards filled in14");
+      expect(counts?.textContent).toContain("Stopped opening messages3");
+      expect(counts?.textContent).toContain("Picked up the first event's topics22");
+    });
     expect(document.body.textContent).not.toContain("%");
   });
 
@@ -509,7 +520,7 @@ describe("<ExerciseAskingForMore />", () => {
       [`GET ${ASKING}`]: { body: { choice: null, choices: ["required"], refreshed: false } },
     });
     renderAsking();
-    await waitFor(() => expect(screen.getByRole("button", { name: /^required\.$/i })).toBeDefined());
+    await waitFor(() => expect(screen.getByRole("button", { name: /required\.$/i })).toBeDefined());
     expect(document.body.textContent?.toLowerCase()).not.toContain("reset");
   });
 });

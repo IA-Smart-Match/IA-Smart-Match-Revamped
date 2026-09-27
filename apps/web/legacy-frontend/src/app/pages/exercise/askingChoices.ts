@@ -38,3 +38,26 @@ const ASKING_CHOICE_LABELS: Readonly<Record<string, string>> = {
 export function askingChoiceLabel(choice: string): string {
   return ASKING_CHOICE_LABELS[choice] ?? choice;
 }
+
+/**
+ * One supporting line per choice (DESIGN.md §6.18, §11.1 "Asking, supporting
+ * lines"). No percentages. A choice the server adds has no line, rather than
+ * a guessed one.
+ */
+const ASKING_CHOICE_LINES: Readonly<Record<string, string>> = {
+  better_recommendations: "Tell them a card helps us suggest events worth their evening.",
+  small_reward: "Offer something small for a completed card.",
+  required: "Make the card a condition of hearing about events.",
+};
+
+export function askingChoiceLine(choice: string): string | null {
+  return ASKING_CHOICE_LINES[choice] ?? null;
+}
+
+/**
+ * The choice's words without the final full stop, for the inline confirm:
+ * "A small reward." becomes "A small reward" (DESIGN.md §6.18).
+ */
+export function askingChoiceShort(choice: string): string {
+  return askingChoiceLabel(choice).replace(/\.$/, "");
+}

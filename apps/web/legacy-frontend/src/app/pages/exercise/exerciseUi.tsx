@@ -121,8 +121,10 @@ export function useCountUp(value: number, play: boolean): number {
     animate.current = false;
     const started = performance.now();
     let frame = 0;
-    const tick = (now: number): void => {
-      const t = Math.min(1, (now - started) / 700);
+    // The frame's own timestamp is not on `performance.now()`'s clock in
+    // every environment, so the clock is read here and clamped.
+    const tick = (): void => {
+      const t = Math.min(1, Math.max(0, (performance.now() - started) / 700));
       // --ce-ease-out, approximated: fast start, long settle.
       const eased = 1 - Math.pow(1 - t, 4);
       setShown(Math.round(value * eased));

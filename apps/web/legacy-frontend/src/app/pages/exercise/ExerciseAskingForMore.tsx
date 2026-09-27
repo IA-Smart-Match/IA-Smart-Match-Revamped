@@ -34,6 +34,7 @@
  */
 import * as React from "react";
 import { Link } from "react-router";
+import { ArrowLeft } from "lucide-react";
 
 import { isRefusal } from "../../../lib/exerciseApi";
 import {
@@ -46,8 +47,10 @@ import {
   type RefreshCountsView,
   type RefreshView,
 } from "../../../lib/exerciseClient";
-import { askingChoiceLabel } from "./askingChoices";
+import { ChoiceCard, ConfirmLiveRegion, useConfirmWindow } from "./AskingChoiceCards";
+import { PartlyKnownCardArt } from "./exerciseArt";
 import { ExerciseLoading, ExerciseNotice, ExerciseScreen } from "./ExerciseScreen";
+import { ceButton, FiguresBand, Spinner } from "./exerciseUi";
 import { useExerciseResource } from "./useExerciseResource";
 import { workspaceRequiredNotice } from "./refusals";
 
@@ -93,9 +96,6 @@ async function readAskingScreen(signal: AbortSignal): Promise<AskingScreenView> 
   }
 }
 
-const BUTTON =
-  "rounded-lg border-2 border-slate-400 px-5 py-3 text-xl font-semibold text-slate-800 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 dark:border-slate-500 dark:text-slate-100 dark:hover:bg-slate-800";
-
 export function ExerciseAskingForMore(): React.JSX.Element {
   const { state, reload } = useExerciseResource(readAskingScreen, []);
 
@@ -115,16 +115,21 @@ export function ExerciseAskingForMore(): React.JSX.Element {
       title="Asking for more"
       intro="Pick one way to ask the people your team invited to fill in a card. Your team picks once."
       aside={
-        <Link to="/exercise/events" className={BUTTON}>
-          Back to the events
-        </Link>
+        <div className="flex flex-col items-start gap-6 md:items-end">
+          <Link to="/exercise/events" className={ceButton("secondary")}>
+            <ArrowLeft aria-hidden="true" className="size-5" />
+            Back to the events
+          </Link>
+          {/* §7.9: the half-filled card, right of the lead, desktop only. */}
+          <PartlyKnownCardArt className="hidden h-20 w-24 text-ce-primary md:block" />
+        </div>
       }
     >
-      {state.status === "loading" ? <ExerciseLoading what="your team's choice" /> : null}
+      {state.status === "loading" ? <ExerciseLoading what="your team's choice" shape="cards" /> : null}
       {state.status === "refused" ? workspaceRequiredNotice(state.refusal) : null}
       {state.status === "unreachable" ? (
         <ExerciseNotice message={state.message} tone="problem">
-          <button type="button" onClick={reload} className={BUTTON}>
+          <button type="button" onClick={reload} className={ceButton("primary")}>
             Try again
           </button>
         </ExerciseNotice>
@@ -162,6 +167,7 @@ function AskingPanels({
 }): React.JSX.Element {
   const [pending, setPending] = React.useState(false);
   const [refusal, setRefusal] = React.useState<string | null>(null);
+  const confirm = useConfirmWindow(asking.choice);
 
   /**
    * Run one action and stay disabled until the screen actually reflects it.
@@ -192,58 +198,45 @@ function AskingPanels({
     }
   }
 
+  const choose = (choice: string): void =>
+    void run(async () => {
+      await chooseAsking(choice);
+      await onChanged();
+    });
+
   return (
-    <div className="flex flex-col gap-8">
+    <div className="flex flex-col gap-10 md:gap-12">
       {refusal === null ? null : <ExerciseNotice message={refusal} />}
 
       <section className="flex flex-col gap-4" data-slot="exercise-asking-choices">
-        <h2 className="text-3xl font-semibold text-slate-900 dark:text-slate-50">
-          How will your team ask?
-        </h2>
-        <ul className="flex flex-col gap-3">
-          {asking.choices.map((choice) => {
-            const chosen = asking.choice === choice;
-            return (
-              <li key={choice} className="flex flex-wrap items-center gap-3">
-                <button
-                  type="button"
-                  disabled={pending || asking.choice !== null}
-                  aria-pressed={chosen}
-                  onClick={() =>
-                    void run(async () => {
-                      await chooseAsking(choice);
-                      await onChanged();
-                    })
-                  }
-                  className={`${BUTTON} ${
-                    chosen
-                      ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
-                      : ""
-                  }`}
-                >
-                  {askingChoiceLabel(choice)}
-                </button>
-                {chosen ? (
-                  <span className="text-xl text-slate-700 dark:text-slate-200">
-                    Your team chose this.
-                  </span>
-                ) : null}
-              </li>
-            );
-          })}
+        <h2 className="ce-h2 text-ce-ink">How will your team ask?</h2>
+        <ul className="grid gap-4 lg:grid-cols-3 lg:gap-6">
+          {asking.choices.map((choice) => (
+            <li key={choice}>
+              <ChoiceCard
+                choice={choice}
+                chosen={asking.choice === choice}
+                faded={asking.choice !== null && asking.choice !== choice}
+                locked={asking.choice !== null}
+                armed={confirm.armed === choice}
+                pending={pending}
+                reduced={confirm.reduced}
+                hint={confirm.armed === choice ? confirm.hint : ""}
+                onPress={() => confirm.press(choice, choose)}
+                onEscape={confirm.disarm}
+              />
+            </li>
+          ))}
         </ul>
+        <ConfirmLiveRegion hint={confirm.hint} />
         {asking.choice === null ? null : (
-          <p className="text-xl text-slate-600 dark:text-slate-300">
-            A team picks once, so these are now fixed.
-          </p>
+          <p className="ce-meta text-ce-muted">A team picks once, so these are now fixed.</p>
         )}
       </section>
 
       <section className="flex flex-col gap-4">
-        <h2 className="text-3xl font-semibold text-slate-900 dark:text-slate-50">
-          Ask the people your team invited
-        </h2>
-        <p className="text-xl text-slate-700 dark:text-slate-200">
+        <h2 className="ce-h2 text-ce-ink">Ask the people your team invited</h2>
+        <p className="ce-body max-w-[72ch] text-ce-ink">
           This happens once. Everyone who attended the first event picks up its topics, and some of
           the people your team invited fill in a card.
         </p>
@@ -257,60 +250,57 @@ function AskingPanels({
                 await onChanged();
               })
             }
-            className={BUTTON}
+            className={ceButton("primary", "ce-btn-lg w-full sm:w-auto")}
           >
+            {pending && asking.choice !== null && !asking.refreshed ? <Spinner /> : null}
             {asking.refreshed ? "Your team has already asked" : "Ask them now"}
           </button>
         </div>
         {asking.choice === null ? (
-          <p className="text-xl text-slate-600 dark:text-slate-300">
-            Pick a way of asking first.
-          </p>
+          <p className="ce-meta text-ce-muted">Pick a way of asking first.</p>
         ) : null}
         {roundOneRun ? null : (
-          <p className="text-xl text-slate-600 dark:text-slate-300">
+          <p className="ce-meta text-ce-muted">
             {`Run your team's results for ${roundOneName ?? "the first event"} before asking.`}
           </p>
         )}
         {/* Only while the server says the team has asked: a reset clears them. */}
-        <RefreshCounts counts={asking.refreshed ? (asking.refresh_counts ?? refreshed) : null} />
+        <RefreshCounts
+          counts={asking.refreshed ? (asking.refresh_counts ?? refreshed) : null}
+          countUp={refreshed !== null}
+        />
       </section>
     </div>
   );
 }
 
 /**
- * The three counts. `topics_added` counts the *people* who picked up the first
- * event's topics, so the label says that rather than "topics added".
+ * The three counts, as the same ruled band as the results (DESIGN.md §6.19).
+ * `topics_added` counts the *people* who picked up the first event's topics,
+ * so the label says that rather than "topics added". They count up once, only
+ * right after this browser's own press.
  */
 function RefreshCounts({
   counts,
+  countUp,
 }: {
   readonly counts: RefreshCountsView | RefreshView | null;
+  readonly countUp: boolean;
 }): React.JSX.Element | null {
   if (counts === null) {
     return null;
   }
   return (
-    <dl className="grid gap-3 text-xl sm:grid-cols-3" data-slot="exercise-refresh-counts">
-      <Count label="Cards filled in" value={counts.cards_completed} />
-      <Count label="Stopped opening messages" value={counts.non_responding} />
-      <Count label="Picked up the first event's topics" value={counts.topics_added} />
-    </dl>
-  );
-}
-
-function Count({
-  label,
-  value,
-}: {
-  readonly label: string;
-  readonly value: number;
-}): React.JSX.Element {
-  return (
-    <div className="rounded-lg border-2 border-slate-300 px-4 py-3 dark:border-slate-600">
-      <dt className="text-lg text-slate-600 dark:text-slate-300">{label}</dt>
-      <dd className="text-3xl font-bold text-slate-900 dark:text-slate-50">{value}</dd>
+    <div className="mt-4">
+      <FiguresBand
+        slot="exercise-refresh-counts"
+        countUp={countUp}
+        figures={[
+          { label: "Cards filled in", value: counts.cards_completed },
+          { label: "Stopped opening messages", value: counts.non_responding },
+          { label: "Picked up the first event's topics", value: counts.topics_added },
+        ]}
+      />
     </div>
   );
 }
