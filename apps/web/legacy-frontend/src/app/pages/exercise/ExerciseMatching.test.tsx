@@ -189,7 +189,7 @@ describe("<ExerciseMatching />", () => {
   it("sends X-Exercise-Request when a team saves a setting", async () => {
     stub();
     renderMatching();
-    const name = await screen.findByLabelText(/call these weights/i);
+    const name = await screen.findByLabelText(/name these weights/i);
     fireEvent.change(name, { target: { value: "Wide net" } });
     fireEvent.click(screen.getByRole("button", { name: /save these weights/i }));
 
@@ -348,7 +348,7 @@ describe("<ExerciseMatching />", () => {
       },
     });
     renderMatching();
-    const name = (await screen.findByLabelText(/call these weights/i)) as HTMLInputElement;
+    const name = (await screen.findByLabelText(/name these weights/i)) as HTMLInputElement;
     fireEvent.change(name, { target: { value: "Wide net" } });
     fireEvent.click(screen.getByRole("button", { name: /save these weights/i }));
 
@@ -363,7 +363,7 @@ describe("<ExerciseMatching />", () => {
   it("clears the name once the save is accepted", async () => {
     stub();
     renderMatching();
-    const name = (await screen.findByLabelText(/call these weights/i)) as HTMLInputElement;
+    const name = (await screen.findByLabelText(/name these weights/i)) as HTMLInputElement;
     fireEvent.change(name, { target: { value: "Wide net" } });
     fireEvent.click(screen.getByRole("button", { name: /save these weights/i }));
 
@@ -402,7 +402,7 @@ describe("<ExerciseMatching />", () => {
       },
     });
     renderMatching();
-    const name = await screen.findByLabelText(/call these weights/i);
+    const name = await screen.findByLabelText(/name these weights/i);
     fireEvent.change(name, { target: { value: "Wide net" } });
     fireEvent.click(screen.getByRole("button", { name: /save these weights/i }));
     await waitFor(() =>
@@ -444,10 +444,11 @@ describe("<ExerciseMatching />", () => {
       },
     });
     renderMatching();
-    fireEvent.change(await screen.findByLabelText(/^compare$/i), {
-      target: { value: "Wide net" },
-    });
-    fireEvent.change(screen.getByLabelText(/^with$/i), { target: { value: "Majors first" } });
+    // DESIGN.md §6.11: each saved card carries a "Compare" tick box; two
+    // ticked, then "Show them side by side".
+    const boxes = await screen.findAllByRole("checkbox", { name: /^compare$/i });
+    fireEvent.click(boxes[0]);
+    fireEvent.click(boxes[1]);
     fireEvent.click(screen.getByRole("button", { name: /show them side by side/i }));
 
     const grid = await waitFor(() => {
@@ -479,7 +480,7 @@ describe("<ExerciseMatching />", () => {
     };
     stub({ "/v1/exercise/workspaces/current/events/northline/settings": { body: saved } });
     renderMatching();
-    const box = await screen.findByLabelText(/call these weights/i);
+    const box = await screen.findByLabelText(/name these weights/i);
     const save = screen.getByRole("button", { name: /save these weights/i }) as HTMLButtonElement;
 
     fireEvent.change(box, { target: { value: "Four" } });
