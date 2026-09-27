@@ -20,15 +20,26 @@
  * `compare` is a reserved setting name — the compare route is declared before
  * the named-setting routes so the word cannot be read as a name, and the save
  * route refuses it. That refusal, too, is the server's to word.
+ *
+ * **Layout (DESIGN.md §6.11, §7.5).** The "Name these weights" field and
+ * "Save these weights" above one index card per slot — `max_settings` of
+ * them, a free slot drawn dashed. Each card has a "Compare" toggle; two may
+ * be ticked, then the rest lock with "Two are chosen. Untick one to swap."
+ * and "Show them side by side" asks for the pair in the order ticked.
  */
 import * as React from "react";
+import { Columns2 } from "lucide-react";
 
 import type { SavedSettingsView, SavedSettingView } from "../../../lib/exerciseClient";
+import { Button } from "./desk";
+import { FreeSettingSlot, SavedSettingCard } from "./SavedSettingCard";
 
 export interface SavedSettingsPanelProps {
   readonly saved: SavedSettingsView;
   /** The weights currently on screen, which "save" stores under a name. */
   readonly weights: Readonly<Record<string, number>>;
+  /** Ann's words per factor key, from the list response, for the cards' weight rows. */
+  readonly factorLabels: Readonly<Record<string, string>>;
   /** Saves under a name; resolves `true` only when the server accepted it. */
   readonly onSave: (name: string) => Promise<boolean>;
   /** Deletes one; resolves `true` only when the server accepted it. */
@@ -39,21 +50,27 @@ export interface SavedSettingsPanelProps {
   readonly onCompare: (a: string, b: string) => void;
 }
 
-const BUTTON =
-  "rounded-lg border-2 border-slate-400 px-4 py-2 text-xl font-semibold text-slate-800 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 dark:border-slate-500 dark:text-slate-100 dark:hover:bg-slate-800";
+const COMPARE_NOTE_ID = "exercise-compare-note";
 
 export function SavedSettingsPanel({
   saved,
   weights,
+  factorLabels,
   onSave,
   onDelete,
   onOpen,
   onCompare,
 }: SavedSettingsPanelProps): React.JSX.Element {
   const [name, setName] = React.useState("");
-  const [pending, setPending] = React.useState(false);
-  const [a, setA] = React.useState("");
-  const [b, setB] = React.useState("");
+  /** Which action is running, if any: one at a time. */
+  const [action, setAction] = React.useState<"save" | "delete" | null>(null);
+  /** Names ticked for comparing, in the order ticked (A, then B). */
+  const [ticked, setTicked] = React.useState<readonly string[]>([]);
+  /** Names on screen at first render: any later card is new this visit (`ce-card-save`). */
+  const [initialNames] = React.useState(
+    () => new Set(saved.settings.map((setting) => setting.name)),
+  );
+  const pending = action !== null;
 
   /**
    * Run one action, and say whether it worked.
@@ -68,15 +85,15 @@ export function SavedSettingsPanel({
    * The caller now reports the outcome, and the only thing this panel does
    * with it is decide whether to clear the box.
    */
-  async function run(action: () => Promise<boolean>): Promise<boolean> {
+  async function run(kind: "save" | "delete", work: () => Promise<boolean>): Promise<boolean> {
     if (pending) {
       return false;
     }
-    setPending(true);
+    setAction(kind);
     try {
-      return await action();
+      return await work();
     } finally {
-      setPending(false);
+      setAction(null);
     }
   }
 
@@ -86,42 +103,56 @@ export function SavedSettingsPanel({
     settings.length >= saved.max_settings &&
     trimmed !== "" &&
     !settings.some((setting) => setting.name === trimmed);
+  const saveBlocked = pending || trimmed === "" || atCapForNewName;
+  // A deleted setting cannot stay ticked.
+  const chosen = ticked.filter((picked) => settings.some((setting) => setting.name === picked));
+  const twoChosen = chosen.length === 2;
+  const freeSlots = Math.max(0, saved.max_settings - settings.length);
+
+  function toggle(settingName: string): void {
+    setTicked((previous) => {
+      const live = previous.filter((picked) => settings.some((setting) => setting.name === picked));
+      if (live.includes(settingName)) {
+        return live.filter((picked) => picked !== settingName);
+      }
+      return live.length >= 2 ? live : [...live, settingName];
+    });
+  }
 
   return (
-    <section data-slot="exercise-saved-settings" className="flex flex-col gap-4">
-      <h2 className="text-3xl font-semibold text-slate-900 dark:text-slate-50">
-        Your team's saved settings
-      </h2>
-      <p className="text-xl text-slate-600 dark:text-slate-300" data-slot="exercise-settings-cap">
-        {/* The cap, as the server reports it. */}
-        Your team may keep {saved.max_settings} for this event. You have {settings.length}.
-      </p>
+    <section data-slot="exercise-saved-settings" className="flex flex-col gap-ce-4">
+      <div className="flex flex-col gap-ce-2">
+        <h2 className="ce-type-h2 text-ce-ink">Your team's saved settings</h2>
+        <p className="ce-type-body text-ce-ink-muted" data-slot="exercise-settings-cap">
+          {/* The cap, as the server reports it. */}
+          Your team may keep {saved.max_settings} for this event. You have {settings.length}.
+        </p>
+      </div>
 
       <form
-        className="flex flex-wrap items-end gap-3"
+        className="ce-card flex flex-wrap items-end gap-ce-3 p-ce-4 md:p-ce-5"
         onSubmit={(event) => {
           event.preventDefault();
-          if (name.trim() === "") {
+          // The button is `aria-disabled` (it stays focusable, §6.3), so
+          // Enter in the box can still submit: hold the same line here.
+          if (saveBlocked) {
             return;
           }
-          void run(async () => {
-            const saved = await onSave(name.trim());
+          void run("save", async () => {
+            const accepted = await onSave(trimmed);
             // Only on success. A refused fourth name, or a name the server
             // will not take, leaves what the team typed where they can see
             // it and fix it.
-            if (saved) {
+            if (accepted) {
               setName("");
             }
-            return saved;
+            return accepted;
           });
         }}
       >
-        <div className="flex flex-col gap-1">
-          <label
-            htmlFor="exercise-setting-name"
-            className="text-xl text-slate-800 dark:text-slate-100"
-          >
-            Call these weights
+        <div className="flex min-w-0 flex-1 basis-64 flex-col gap-ce-1">
+          <label htmlFor="exercise-setting-name" className="ce-type-label text-ce-ink">
+            Name these weights
           </label>
           <input
             id="exercise-setting-name"
@@ -129,18 +160,20 @@ export function SavedSettingsPanel({
             type="text"
             value={name}
             onChange={(event) => setName(event.target.value)}
-            className="w-72 rounded-lg border-2 border-slate-400 px-3 py-2 text-2xl focus-visible:outline-2 focus-visible:outline-offset-2 dark:border-slate-500 dark:bg-slate-900 dark:text-slate-50"
+            className="ce-type-body min-h-ce-control w-full rounded-ce-control border-2 border-ce-line-strong bg-ce-surface px-ce-3 text-ce-ink"
           />
         </div>
-        <button
+        <Button
           type="submit"
-          disabled={pending || trimmed === "" || atCapForNewName}
-          aria-describedby="exercise-save-note"
-          className={BUTTON}
+          variant="secondary"
+          disabled={saveBlocked}
+          pending={action === "save"}
+          pendingLabel="Saving…"
+          describedBy="exercise-save-note"
         >
           Save these weights
-        </button>
-        <span id="exercise-save-note" className="text-lg text-slate-600 dark:text-slate-300">
+        </Button>
+        <span id="exercise-save-note" className="ce-type-meta basis-full text-ce-ink-muted">
           {atCapForNewName
             ? `Your team has ${saved.max_settings} saved settings for this event. Type one of those names to save over it, or delete one first.`
             : `Saves the ${Object.keys(weights).length} numbers now on screen.`}
@@ -148,50 +181,57 @@ export function SavedSettingsPanel({
       </form>
 
       {settings.length === 0 ? (
-        <p className="text-xl text-slate-700 dark:text-slate-200">
+        <p className="ce-type-body text-ce-ink">
           Your team has not saved any settings for this event yet.
         </p>
-      ) : (
-        <ul className="flex flex-col gap-2">
-          {settings.map((setting) => (
-            <li key={setting.name} className="flex flex-wrap items-center gap-3 text-xl">
-              <span className="font-semibold">{setting.name}</span>
-              <button type="button" className={BUTTON} onClick={() => onOpen(setting.name)}>
-                Open this list
-              </button>
-              <button
-                type="button"
-                className={BUTTON}
-                disabled={pending}
-                onClick={() => void run(() => onDelete(setting.name))}
-              >
-                Delete
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
+      ) : null}
+
+      <ul className="grid items-stretch gap-ce-4 md:grid-cols-2 lg:grid-cols-3 md:gap-ce-5">
+        {settings.map((setting, index) => {
+          const comparing = chosen.includes(setting.name);
+          return (
+            <SavedSettingCard
+              key={setting.name}
+              id={`exercise-setting-${index}`}
+              setting={setting}
+              factorLabels={factorLabels}
+              comparing={comparing}
+              compareLocked={twoChosen && !comparing}
+              compareNoteId={COMPARE_NOTE_ID}
+              onToggleCompare={() => toggle(setting.name)}
+              onOpen={() => onOpen(setting.name)}
+              onDelete={() => void run("delete", () => onDelete(setting.name))}
+              busy={pending}
+              fresh={!initialNames.has(setting.name)}
+            />
+          );
+        })}
+        {Array.from({ length: freeSlots }, (_, index) => (
+          <FreeSettingSlot
+            key={`free-${index}`}
+            slot={settings.length + index + 1}
+            of={saved.max_settings}
+          />
+        ))}
+      </ul>
 
       {settings.length < 2 ? (
-        <p className="text-xl text-slate-600 dark:text-slate-300">
-          Save two settings to see them side by side.
-        </p>
+        <p className="ce-type-body text-ce-ink-muted">Save two settings to see them side by side.</p>
       ) : (
-        <form
-          className="flex flex-wrap items-end gap-3"
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (a !== "" && b !== "") {
-              onCompare(a, b);
-            }
-          }}
-        >
-          <SettingPicker id="exercise-compare-a" label="Compare" value={a} onChange={setA} settings={settings} />
-          <SettingPicker id="exercise-compare-b" label="with" value={b} onChange={setB} settings={settings} />
-          <button type="submit" className={BUTTON} disabled={a === "" || b === ""}>
+        <div className="flex flex-wrap items-center gap-ce-4">
+          <Button
+            leadingIcon={<Columns2 />}
+            disabled={!twoChosen}
+            onClick={() => onCompare(chosen[0], chosen[1])}
+          >
             Show them side by side
-          </button>
-        </form>
+          </Button>
+          {twoChosen && settings.length > 2 ? (
+            <p id={COMPARE_NOTE_ID} className="ce-type-meta text-ce-ink-muted">
+              Two are chosen. Untick one to swap.
+            </p>
+          ) : null}
+        </div>
       )}
     </section>
   );
@@ -212,15 +252,15 @@ export function SettingPicker({
   readonly settings: readonly SavedSettingView[];
 }): React.JSX.Element {
   return (
-    <div className="flex flex-col gap-1">
-      <label htmlFor={id} className="text-xl text-slate-800 dark:text-slate-100">
+    <div className="flex flex-col gap-ce-1">
+      <label htmlFor={id} className="ce-type-label text-ce-ink">
         {label}
       </label>
       <select
         id={id}
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="rounded-lg border-2 border-slate-400 px-3 py-2 text-2xl focus-visible:outline-2 focus-visible:outline-offset-2 dark:border-slate-500 dark:bg-slate-900 dark:text-slate-50"
+        className="ce-type-body min-h-ce-control rounded-ce-control border-2 border-ce-line-strong bg-ce-surface px-ce-3 text-ce-ink"
       >
         <option value="">Choose a setting</option>
         {settings.map((setting) => (

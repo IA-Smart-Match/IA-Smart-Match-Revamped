@@ -189,7 +189,7 @@ describe("<ExerciseMatching />", () => {
   it("sends X-Exercise-Request when a team saves a setting", async () => {
     stub();
     renderMatching();
-    const name = await screen.findByLabelText(/call these weights/i);
+    const name = await screen.findByLabelText(/name these weights/i);
     fireEvent.change(name, { target: { value: "Wide net" } });
     fireEvent.click(screen.getByRole("button", { name: /save these weights/i }));
 
@@ -357,7 +357,7 @@ describe("<ExerciseMatching />", () => {
       },
     });
     renderMatching();
-    const name = (await screen.findByLabelText(/call these weights/i)) as HTMLInputElement;
+    const name = (await screen.findByLabelText(/name these weights/i)) as HTMLInputElement;
     fireEvent.change(name, { target: { value: "Wide net" } });
     fireEvent.click(screen.getByRole("button", { name: /save these weights/i }));
 
@@ -372,7 +372,7 @@ describe("<ExerciseMatching />", () => {
   it("clears the name once the save is accepted", async () => {
     stub();
     renderMatching();
-    const name = (await screen.findByLabelText(/call these weights/i)) as HTMLInputElement;
+    const name = (await screen.findByLabelText(/name these weights/i)) as HTMLInputElement;
     fireEvent.change(name, { target: { value: "Wide net" } });
     fireEvent.click(screen.getByRole("button", { name: /save these weights/i }));
 
@@ -411,7 +411,7 @@ describe("<ExerciseMatching />", () => {
       },
     });
     renderMatching();
-    const name = await screen.findByLabelText(/call these weights/i);
+    const name = await screen.findByLabelText(/name these weights/i);
     fireEvent.change(name, { target: { value: "Wide net" } });
     fireEvent.click(screen.getByRole("button", { name: /save these weights/i }));
     await waitFor(() =>
@@ -437,7 +437,7 @@ describe("<ExerciseMatching />", () => {
     }
   });
 
-  it("stacks the two compared lists, each scrolling in its own box (B3)", async () => {
+  it("lays the two compared lists side by side from 1024, each able to shrink (B3, §6.12)", async () => {
     const saved = {
       event_key: "northline",
       settings: [
@@ -453,10 +453,9 @@ describe("<ExerciseMatching />", () => {
       },
     });
     renderMatching();
-    fireEvent.change(await screen.findByLabelText(/^compare$/i), {
-      target: { value: "Wide net" },
-    });
-    fireEvent.change(screen.getByLabelText(/^with$/i), { target: { value: "Majors first" } });
+    // §6.11: a "Compare" toggle on each saved-setting card, two at most.
+    fireEvent.click(await screen.findByRole("checkbox", { name: "Compare Wide net" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Compare Majors first" }));
     fireEvent.click(screen.getByRole("button", { name: /show them side by side/i }));
 
     const grid = await waitFor(() => {
@@ -464,9 +463,10 @@ describe("<ExerciseMatching />", () => {
       expect(found).not.toBeNull();
       return found as HTMLElement;
     });
-    // The page is capped at max-w-5xl, so two six-column tables never fit
-    // side by side at any viewport width: they always stack.
-    expect(grid.className).not.toMatch(/grid-cols-2/);
+    // §6.12: side by side at 1024 and up, stacked below. Each list is the
+    // card layout, so no six-column table has to fit half a page.
+    expect(grid.className).toContain("lg:grid-cols-2");
+    expect(grid.querySelector("table")).toBeNull();
     const children = [...grid.children];
     expect(children.length).toBe(2);
     for (const child of children) {
@@ -486,11 +486,12 @@ describe("<ExerciseMatching />", () => {
     };
     stub({ "/v1/exercise/workspaces/current/events/northline/settings": { body: saved } });
     renderMatching();
-    const box = await screen.findByLabelText(/call these weights/i);
+    const box = await screen.findByLabelText(/name these weights/i);
     const save = screen.getByRole("button", { name: /save these weights/i }) as HTMLButtonElement;
 
     fireEvent.change(box, { target: { value: "Four" } });
-    expect(save.disabled).toBe(true);
+    // The desk button stays focusable when disabled (§6.3): `aria-disabled`.
+    expect(save.getAttribute("aria-disabled")).toBe("true");
     const reason = screen.getByText(
       "Your team has 3 saved settings for this event. Type one of those names to save over it, or delete one first.",
     );
@@ -498,7 +499,7 @@ describe("<ExerciseMatching />", () => {
 
     // Saving over a name the team has is always allowed and changes no count.
     fireEvent.change(box, { target: { value: " Two " } });
-    expect(save.disabled).toBe(false);
+    expect(save.getAttribute("aria-disabled")).toBeNull();
     expect(screen.queryByText(/type one of their names/i)).toBeNull();
   });
 });

@@ -251,6 +251,7 @@ export function ExerciseMatching(): React.JSX.Element {
           <SavedSettingsPanel
             saved={state.data.saved}
             weights={state.data.list.weights}
+            factorLabels={state.data.list.factor_labels}
             onSave={(name) =>
               guard(async () => {
                 await saveSetting(eventKey, name, state.data.list.weights);
