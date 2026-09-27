@@ -263,8 +263,8 @@ function EntryForm({ data }: { readonly data: EntryData }): React.JSX.Element {
   );
 }
 
-/** Below `md` (Tailwind's 48rem), where the open bar sticks to the bottom. */
-const PHONE_QUERY = "(max-width: 47.99rem)";
+/** Below `md`: the exact complement of Tailwind's `md` (`width >= 48rem`). */
+const PHONE_QUERY = "(width < 48rem)";
 
 /**
  * On a phone, choosing a tile pins the open bar to the bottom of the screen,
@@ -330,6 +330,9 @@ function TeamTile({
         value={number}
         checked={selected}
         onChange={choose}
+        // Tab or Shift+Tab onto the already-chosen tile fires no change, so
+        // focus clears the bar too.
+        onFocus={() => revealAbovePhoneBar(tile.current)}
         // The accessible name is stated rather than inherited from the
         // label's text. The label holds both the big projected numeral
         // and a visually-hidden word, so an inherited name read out as
