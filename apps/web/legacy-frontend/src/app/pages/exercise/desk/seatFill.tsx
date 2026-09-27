@@ -9,7 +9,7 @@
  *   the team's, 1400–1800 open seats and figures) and when to announce.
  * - `Seat` — one square, styled by `.ce-seat` in `exercise-motion.css`.
  *
- * Counts come from the server (`team.signed_up_count` for "added"); the plan
+ * Counts come from the server (`team.attended_count` for "added"); the plan
  * never subtracts to find one.
  */
 import * as React from "react";
@@ -125,6 +125,10 @@ export function useSeatFill({
       skip();
       return undefined;
     }
+    // `play` can flip false → true on a mounted chart (a run lands while the
+    // final state is showing): start over from step 1.
+    setStep(1);
+    setDone(false);
     timers.current = [
       setTimeout(() => setStep(2), SEAT_FILL_STEP_MS[2]),
       setTimeout(() => setStep(3), SEAT_FILL_STEP_MS[3]),
