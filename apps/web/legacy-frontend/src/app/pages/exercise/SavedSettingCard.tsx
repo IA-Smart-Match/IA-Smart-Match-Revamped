@@ -119,7 +119,7 @@ export function SavedSettingCard({
         </div>
       ) : (
         <div className="flex flex-wrap items-center justify-between gap-x-ce-3 gap-y-ce-1">
-          <Button variant="quiet" className="underline" describedBy={nameId} onClick={onOpen}>
+          <Button variant="secondary" describedBy={nameId} onClick={onOpen}>
             Open this list
           </Button>
           <label
