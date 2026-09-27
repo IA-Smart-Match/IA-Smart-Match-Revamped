@@ -183,6 +183,32 @@ describe("WeightSlider (§6.6)", () => {
     expect(field.value).toBe("0.40");
   });
 
+  it("a new refusal clears a stale field error and shows the refusal", () => {
+    const onCommit = vi.fn();
+    const sentence = "A weight cannot be negative.";
+    const props = { id: "interest", label: LABEL, value: 0.4, onCommit };
+    const { rerender } = render(<WeightSlider {...props} />);
+    const field = screen.getByRole("textbox", { name: LABEL }) as HTMLInputElement;
+
+    fireEvent.change(field, { target: { value: "-0.5" } });
+    fireEvent.keyDown(field, { key: "Enter" });
+    rerender(<WeightSlider {...props} refusal={{ message: sentence }} />);
+
+    fireEvent.change(field, { target: { value: "abc" } });
+    fireEvent.keyDown(field, { key: "Enter" });
+    expect(screen.getByRole("alert").textContent).toBe(
+      '"abc" is not a plain number. Use digits and one decimal point, like 0.5.',
+    );
+
+    rerender(<WeightSlider {...props} refusal={{ message: sentence }} />);
+    expect(field.value).toBe("0.40");
+    expect(screen.queryByRole("alert")).toBeNull();
+    const status = screen.getByRole("status");
+    expect(status.textContent).toBe(sentence);
+    expect(field.getAttribute("aria-invalid")).toBe("true");
+    expect(field.getAttribute("aria-describedby")).toBe(status.id);
+  });
+
   it("reverts on every refusal, even when the sentence repeats", () => {
     const onCommit = vi.fn();
     const sentence = "A weight cannot be negative.";
