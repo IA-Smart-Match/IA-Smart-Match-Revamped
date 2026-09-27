@@ -6,7 +6,7 @@
  * if the coefficients are ever removed, and the first test below keeps that
  * sentence reaching the projector as a state rather than an error.
  */
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -51,10 +51,21 @@ const TWO_SAVED = {
 
 const NONE_SAVED = { body: { event_key: "northline", settings: [], max_settings: 3 } };
 
-/** Pick the final setting, then press run — the one path to a run now. */
+/**
+ * Pick the final setting, then press run — the one path to a run now. The
+ * picker is radio cards (DESIGN.md §6.13), so picking is a click on the card.
+ */
 async function runWith(name: string): Promise<void> {
-  fireEvent.change(await screen.findByLabelText(/final setting/i), { target: { value: name } });
+  fireEvent.click(await screen.findByRole("radio", { name }));
   fireEvent.click(screen.getByRole("button", { name: /run results/i }));
+}
+
+/**
+ * The desk's Button stays focusable when off, so the reason stays reachable
+ * (DESIGN.md §6.3): "off" is `aria-disabled`, not the `disabled` attribute.
+ */
+function isOff(button: HTMLElement): boolean {
+  return button.getAttribute("aria-disabled") === "true";
 }
 
 const NOT_RUN = {
@@ -264,15 +275,15 @@ describe("<ExerciseResults />", () => {
     });
     renderResults();
     const run = await screen.findByRole("button", { name: /run results/i });
-    expect((run as HTMLButtonElement).disabled).toBe(true);
+    expect(isOff(run)).toBe(true);
+    // Off means off: a press before choosing sends nothing.
+    fireEvent.click(run);
+    expect(calls.some((call) => call.init.method === "POST")).toBe(false);
     // Every saved setting is offered, and nothing is chosen for the team.
-    const picker = screen.getByLabelText(/final setting/i) as HTMLSelectElement;
-    expect(Array.from(picker.options).map((option) => option.textContent)).toEqual([
-      "Choose a setting",
-      "Wide net",
-      "Only majors",
-    ]);
-    expect(picker.value).toBe("");
+    const picker = screen.getByRole("radiogroup", { name: /final setting/i });
+    const radios = within(picker).getAllByRole("radio") as HTMLInputElement[];
+    expect(radios.map((radio) => radio.value)).toEqual(["Wide net", "Only majors"]);
+    expect(radios.some((radio) => radio.checked)).toBe(false);
 
     await runWith("Only majors");
 
@@ -295,10 +306,8 @@ describe("<ExerciseResults />", () => {
       ).toMatch(/save one on your team's list first, then choose it here/i),
     );
     expect(screen.getByRole("link", { name: "your team's list" })).toBeDefined();
-    expect(
-      (screen.getByRole("button", { name: /run results/i }) as HTMLButtonElement).disabled,
-    ).toBe(true);
-    expect(screen.queryByLabelText(/final setting/i)).toBeNull();
+    expect(isOff(screen.getByRole("button", { name: /run results/i }))).toBe(true);
+    expect(screen.queryByRole("radiogroup", { name: /final setting/i })).toBeNull();
     expect(calls.some((call) => call.init.method === "POST")).toBe(false);
   });
 
@@ -336,10 +345,9 @@ describe("<ExerciseResults />", () => {
     await waitFor(() =>
       expect(calls.filter((call) => call.url === SETTINGS).length).toBeGreaterThan(1),
     );
-    expect((screen.getByLabelText(/final setting/i) as HTMLSelectElement).value).toBe("");
-    expect(
-      (screen.getByRole("button", { name: /run results/i }) as HTMLButtonElement).disabled,
-    ).toBe(true);
+    const radios = screen.getAllByRole("radio") as HTMLInputElement[];
+    expect(radios.some((radio) => radio.checked)).toBe(false);
+    expect(isOff(screen.getByRole("button", { name: /run results/i }))).toBe(true);
   });
 
   it("reads no saved settings once the team has run", async () => {
@@ -368,7 +376,7 @@ describe("<ExerciseResults />", () => {
       expect(document.querySelector('[data-slot="exercise-seats"]')).not.toBeNull(),
     );
     expect(calls.some((call) => call.url === SETTINGS)).toBe(false);
-    expect(screen.queryByLabelText(/final setting/i)).toBeNull();
+    expect(screen.queryByRole("radiogroup", { name: /final setting/i })).toBeNull();
   });
 
   it("names the people from the list the final setting built", async () => {

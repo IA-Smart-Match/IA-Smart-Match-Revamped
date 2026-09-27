@@ -113,11 +113,14 @@ describe("ResultPanels", () => {
   it("keeps the figures, split into the two groups", () => {
     render(<ResultPanels results={results()} names={new Map()} />);
 
+    // DESIGN.md §6.15 / §11.1: the ruled band is "Seats in the room",
+    // "Already coming", "Still open"; the team's 6 is said by the sentence
+    // above it and the room's legend, "Your invitations (6)".
     const figures = slotText("exercise-seats");
     expect(figures).toContain("Seats in the room60");
     expect(figures).toContain("Already coming8");
-    expect(figures).toContain("Added by your invitations6");
-    expect(figures).toContain("Seats still open46");
+    expect(figures).toContain("Still open46");
+    expect(slotText("exercise-room")).toContain("Your invitations (6)");
   });
 
   it("says round one's seats the same way, in the past tense", () => {
