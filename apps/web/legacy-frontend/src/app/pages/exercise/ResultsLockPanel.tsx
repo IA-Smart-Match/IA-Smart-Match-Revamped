@@ -12,7 +12,8 @@
  * primary "Run results for this event" stays the only retry.
  *
  * Calm, not red (§1.6, §10): a surface card, the envelope spot art, and a
- * `Lock` chip in words. It sits in the seating chart's place (§7.8).
+ * `Lock` chip in words. It sits in the seating chart's place (§7.8). The
+ * `status` role is on the chip and sentence only, not the whole card.
  */
 import * as React from "react";
 import { Lock } from "lucide-react";
@@ -27,12 +28,13 @@ export interface ResultsLockPanelProps {
 export function ResultsLockPanel({ message }: ResultsLockPanelProps): React.JSX.Element {
   return (
     <div
-      role="status"
       data-slot="exercise-results-lock"
       className="ce-card ce-fade-rise flex flex-col gap-ce-4 p-ce-4 sm:flex-row sm:items-start md:gap-ce-6 md:p-ce-6"
     >
       <EnvelopeArt className="h-auto w-24 shrink-0 text-ce-primary md:w-[120px]" />
-      <div className="flex min-w-0 flex-col items-start gap-ce-3">
+      {/* §8.6: the refusal is a status. Only the words carry it; the art is
+          decoration and stays outside the live region. */}
+      <div role="status" className="flex min-w-0 flex-col items-start gap-ce-3">
         <span className="ce-type-meta inline-flex items-center gap-ce-2 rounded-ce-pill bg-ce-surface-sunk px-ce-3 py-ce-1 text-ce-ink">
           <Lock aria-hidden="true" className="size-4 shrink-0" />
           Results are closed
