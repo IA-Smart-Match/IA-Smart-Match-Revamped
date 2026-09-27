@@ -517,7 +517,7 @@ disabled until chosen, with that line as its description.
 
 | State | Treatment |
 |---|---|
-| Locked | `invitation-envelope.svg`, `Lock` chip "Results are closed", the server sentence, and "Check again" (secondary) |
+| Locked | `invitation-envelope.svg`, `Lock` chip "Results are closed", and the server sentence. No action: teams have no read of the lock state, so any check would be the one-time run itself; the primary run button stays the only retry |
 | Unlocked, not run | `LockOpen` chip "Results are open", final-setting picker, primary "Run results for this event" |
 | Already run | results render; the run button is gone and a line says "A team runs results once per event." |
 

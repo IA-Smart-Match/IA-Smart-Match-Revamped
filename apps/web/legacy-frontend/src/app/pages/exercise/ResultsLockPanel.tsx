@@ -3,35 +3,28 @@
  *
  * A team learns an event is locked only when the run route says so
  * (`exercise_results_locked`); there is no team-side read of the lock. So this
- * panel appears after that refusal, carries the server's sentence verbatim,
- * and "Check again" asks the run route again with the same final setting —
- * the only way the screen can find out whether the instructor has opened it.
+ * panel appears after that refusal and carries the server's sentence verbatim.
+ *
+ * **It has no action.** The only way to find out whether the instructor has
+ * opened the event is to send the run again, and the run is once per team per
+ * event. A "Check again" button would be that one-time run under a
+ * harmless-sounding name, beside the Run button that already sends it. So the
+ * primary "Run results for this event" stays the only retry.
  *
  * Calm, not red (§1.6, §10): a surface card, the envelope spot art, and a
- * `Lock` chip in words. `role="status"`, like every refusal (§8.6).
+ * `Lock` chip in words. It sits in the seating chart's place (§7.8).
  */
 import * as React from "react";
-import { Lock, RotateCcw } from "lucide-react";
+import { Lock } from "lucide-react";
 
-import { Button } from "./desk";
 import { EnvelopeArt } from "./resultsArt";
 
 export interface ResultsLockPanelProps {
   /** The server's sentence, verbatim. */
   readonly message: string;
-  readonly onCheckAgain: () => void;
-  /** This panel's own check is in flight. */
-  readonly pending: boolean;
-  /** Another action on the screen is in flight. */
-  readonly disabled: boolean;
 }
 
-export function ResultsLockPanel({
-  message,
-  onCheckAgain,
-  pending,
-  disabled,
-}: ResultsLockPanelProps): React.JSX.Element {
+export function ResultsLockPanel({ message }: ResultsLockPanelProps): React.JSX.Element {
   return (
     <div
       role="status"
@@ -45,16 +38,6 @@ export function ResultsLockPanel({
           Results are closed
         </span>
         <p className="ce-type-body ce-measure text-ce-ink">{message}</p>
-        <Button
-          variant="secondary"
-          leadingIcon={<RotateCcw />}
-          pending={pending}
-          pendingLabel="Running…"
-          disabled={disabled}
-          onClick={onCheckAgain}
-        >
-          Check again
-        </Button>
       </div>
     </div>
   );

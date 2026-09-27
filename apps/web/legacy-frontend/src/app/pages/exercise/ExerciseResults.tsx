@@ -183,7 +183,7 @@ async function listForEvent(
 }
 
 /** Which of the screen's actions is in flight; one at a time. */
-type Pending = "run" | "check" | "ask" | null;
+type Pending = "run" | "ask" | null;
 
 interface ShownRefusal {
   /** The refusal's code, or `null` for a transport failure. */
@@ -219,7 +219,7 @@ function ResultsBody({
       // Every results refusal is a state, not an error: locked, already run,
       // and the rule not yet confirmed are all the product working. Each is
       // shown as the server's own sentence. The previous one stays on screen
-      // until this answer replaces it, so "Check again" does not blink away.
+      // until this answer replaces it, so a retry does not blink it away.
       setRefusal(
         isRefusal(error)
           ? { code: error.code, message: error.message }
@@ -233,8 +233,8 @@ function ResultsBody({
     }
   }
 
-  function runFinalSetting(which: "run" | "check"): void {
-    void act(which, async () => {
+  function runFinalSetting(): void {
+    void act("run", async () => {
       try {
         await runResults(eventKey, finalSetting);
       } catch (error) {
@@ -261,6 +261,10 @@ function ResultsBody({
 
       {data.results === null ? (
         <section className="flex flex-col gap-ce-5">
+          {/* §7.8: before a run, the lock panel takes the seating chart's
+              place. It has no action; the Run button below is the only
+              retry, because a retry is the one-time run itself. */}
+          {locked && refusal !== null ? <ResultsLockPanel message={refusal.message} /> : null}
           <p className="ce-type-body ce-measure text-ce-ink-muted">
             Your team has not run results for this event yet. A team runs them once.
           </p>
@@ -271,14 +275,6 @@ function ResultsBody({
             value={finalSetting}
             onChange={setFinalSetting}
           />
-          {locked && refusal !== null ? (
-            <ResultsLockPanel
-              message={refusal.message}
-              pending={pending === "check"}
-              disabled={finalSetting === "" || (pending !== null && pending !== "check")}
-              onCheckAgain={() => runFinalSetting("check")}
-            />
-          ) : null}
           <div>
             <Button
               variant="primary"
@@ -286,7 +282,7 @@ function ResultsBody({
               pending={pending === "run"}
               pendingLabel="Running…"
               describedBy={FINAL_SETTING_HINT}
-              onClick={() => runFinalSetting("run")}
+              onClick={runFinalSetting}
             >
               Run results for this event
             </Button>
