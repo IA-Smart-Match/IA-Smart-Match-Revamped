@@ -8,6 +8,7 @@
  * rest open. The client never subtracts.
  */
 import { act, cleanup, render, screen } from "@testing-library/react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { ResultPanelView, ResultsView } from "../../../lib/exerciseClient";
@@ -141,6 +142,29 @@ describe("ResultPanels reveal after a run", () => {
       document.querySelector('[data-slot="exercise-seats-announce"]')?.textContent,
     ).toBe("8 were already coming. Your invitations added 6. 46 seats are still open.");
     expect(document.querySelector('[data-slot="exercise-seats"]')?.textContent).toContain("46");
+  });
+});
+
+describe("ResultPanels live region under reduced motion", () => {
+  it("mounts the live region empty and fills it after mount, so it is announced", () => {
+    stubReducedMotion(true);
+    const sentence = "8 were already coming. Your invitations added 6. 46 seats are still open.";
+
+    // The first render, before any effect runs: a live region that mounts
+    // already holding its text may never be spoken.
+    const host = document.createElement("div");
+    host.innerHTML = renderToStaticMarkup(
+      <ResultPanels results={results()} names={new Map()} reveal />,
+    );
+    const first = host.querySelector('[data-slot="exercise-seats-announce"]');
+    expect(first?.getAttribute("aria-live")).toBe("polite");
+    expect(first?.textContent).toBe("");
+
+    // After mount, the effect fills it once.
+    render(<ResultPanels results={results()} names={new Map()} reveal />);
+    expect(
+      document.querySelector('[data-slot="exercise-seats-announce"]')?.textContent,
+    ).toBe(sentence);
   });
 });
 
