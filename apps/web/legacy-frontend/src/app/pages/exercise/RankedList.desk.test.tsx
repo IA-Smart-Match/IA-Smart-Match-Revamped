@@ -104,6 +104,16 @@ describe("<RankedList /> on desktop (§6.7)", () => {
     expect(stayed.className).not.toContain("ce-row-join");
   });
 
+  it("gives the marker chip the widest data column so it wraps to two lines at most", () => {
+    render(<RankedList entries={ENTRIES} factorLabels={LABELS} caption="List" />);
+    const heads = screen.getAllByRole("columnheader");
+    const width = (index: number) => Number(/w-\[(\d+)%\]/.exec(heads[index].className)?.[1]);
+    // Major, Year, How much we know: the marker column is the widest of the three.
+    expect(width(4)).toBeGreaterThanOrEqual(30);
+    expect(width(4)).toBeGreaterThan(width(2));
+    expect(width(4)).toBeGreaterThan(width(3));
+  });
+
   it("says so when nobody is on the list", () => {
     render(<RankedList entries={[]} factorLabels={LABELS} caption="List" />);
     expect(
@@ -129,5 +139,16 @@ describe("<RankedList /> on 390 (§8.7)", () => {
     expect(first.textContent).toContain("Accounting");
     expect(first.textContent).toContain("Senior");
     expect(first.querySelector('[data-slot="ce-marker-chip"]')).not.toBeNull();
+  });
+
+  it("keeps a two-digit rank apart from the name", () => {
+    stubNarrow(true);
+    render(<RankedList entries={[entry(10, 40, "Nina Vasquez")]} factorLabels={LABELS} caption="List" />);
+    const rank = document.querySelector('[data-slot="exercise-rank"]') as HTMLElement;
+    expect(rank.textContent).toBe("10");
+    // Wide enough for "10" in the rank face, never shrunk, plus the row gap.
+    expect(rank.className).toContain("min-w-12");
+    expect(rank.className).toContain("shrink-0");
+    expect(rank.parentElement?.className).toContain("gap-ce-3");
   });
 });

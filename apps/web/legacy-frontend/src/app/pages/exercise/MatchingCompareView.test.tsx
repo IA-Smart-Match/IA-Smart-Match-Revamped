@@ -72,15 +72,20 @@ afterEach(() => {
 });
 
 describe("<MatchingCompareView /> (§6.12)", () => {
-  it("shows both lists side by side on desktop, overlap marked in each", () => {
+  it("shows both lists as tables at 768 and up, overlap marked in each (§8.7)", () => {
     render(<MatchingCompareView comparison={COMPARISON} onClose={vi.fn()} />);
     expect(screen.getByText("1 name is on both lists, highlighted in each.")).toBeDefined();
-    const grid = document.querySelector('[data-slot="exercise-compare-grid"]') as HTMLElement;
-    expect(grid.className).toContain("lg:grid-cols-2");
     expect(screen.getByRole("heading", { name: "Major first" })).toBeDefined();
     expect(screen.getByRole("heading", { name: "Interests first" })).toBeDefined();
+    const tables = screen.getAllByRole("table");
+    expect(tables).toHaveLength(2);
+    expect(screen.queryAllByRole("listitem")).toHaveLength(0);
+    for (const table of tables) {
+      const heads = within(table).getAllByRole("columnheader").map((head) => head.textContent);
+      expect(heads).toEqual(["Rank", "Name", "Major", "Year", "How much we know"]);
+      expect(within(table).getAllByRole("row")).toHaveLength(31);
+    }
     expect(screen.getAllByText("on both lists")).toHaveLength(2);
-    expect(screen.getAllByRole("listitem")).toHaveLength(60);
   });
 
   it("closes", () => {
@@ -93,6 +98,7 @@ describe("<MatchingCompareView /> (§6.12)", () => {
   it("on 390 shows one list at a time, ten rows first, with a way to see all", () => {
     stubNarrow(true);
     render(<MatchingCompareView comparison={COMPARISON} onClose={vi.fn()} />);
+    expect(screen.queryByRole("table")).toBeNull();
     const tabs = screen.getAllByRole("tab");
     expect(tabs.map((tab) => tab.textContent)).toEqual(["Major first", "Interests first"]);
     expect(tabs[0].getAttribute("aria-selected")).toBe("true");

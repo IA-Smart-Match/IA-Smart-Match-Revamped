@@ -285,7 +285,9 @@ describe("<ExerciseMatching />", () => {
             return Promise.resolve(
               new Response(
                 JSON.stringify({
-                  error: { code: "exercise_invalid_weights", message: "Weights must sum to 1." },
+                  // The server's code for a refused weighting
+                  // (`exercise_matching_weights.py`).
+                  error: { code: "exercise_weights_invalid", message: "Weights must sum to 1." },
                 }),
                 { status: 400 },
               ),
@@ -312,16 +314,13 @@ describe("<ExerciseMatching />", () => {
     fireEvent.change(box, { target: { value: "0.9" } });
     fireEvent.blur(box);
 
-    // The sentence shows in the screen's notice and, once, under the refused
-    // slider (DESIGN.md §6.6 X), so it is found by the notice.
-    await waitFor(() =>
-      expect(document.getElementById("exercise-list-refusal")?.textContent).toContain(
-        "Weights must sum to 1.",
-      ),
-    );
+    // Owner ruling 2026-09-27: a weight refusal is shown once, under the
+    // slider (DESIGN.md §6.6 X), and not again in a page notice.
     await waitFor(() =>
       expect(document.querySelectorAll('[data-slot="exercise-weight-error"]')).toHaveLength(1),
     );
+    expect(screen.getAllByText("Weights must sum to 1.")).toHaveLength(1);
+    expect(document.getElementById("exercise-list-refusal")).toBeNull();
 
     // The list from before the refused request, and the controls to fix the
     // mistake, are still on screen next to the sentence.
@@ -335,9 +334,48 @@ describe("<ExerciseMatching />", () => {
     expect(document.querySelector('[data-slot="exercise-list-stale"]')).not.toBeNull();
     const listSection = document.querySelector('[data-slot="exercise-list-stale"]')
       ?.parentElement as HTMLElement;
-    expect(listSection.getAttribute("aria-describedby")).toBe("exercise-list-refusal");
-    expect(document.getElementById("exercise-list-refusal")?.textContent).toContain(
-      "Weights must sum to 1.",
+    expect(listSection.getAttribute("aria-describedby")).toBe("exercise-list-stale");
+  });
+
+  it("keeps any other refused list GET in the page notice, and not under a slider", async () => {
+    let listCallCount = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string, init: RequestInit) => {
+        calls.push({ url, init });
+        const path = url.split("?")[0];
+        if (path.endsWith("/list")) {
+          listCallCount += 1;
+          return Promise.resolve(
+            listCallCount > 1
+              ? new Response(
+                  JSON.stringify({
+                    error: { code: "exercise_dataset_missing", message: "The data file is gone." },
+                  }),
+                  { status: 409 },
+                )
+              : new Response(JSON.stringify(LIST), { status: 200 }),
+          );
+        }
+        return Promise.resolve(new Response(JSON.stringify(SETTINGS), { status: 200 }));
+      }),
+    );
+    renderMatching();
+    const box = await screen.findByRole("textbox", { name: "same major" });
+    fireEvent.focus(box);
+    fireEvent.change(box, { target: { value: "0.9" } });
+    fireEvent.blur(box);
+
+    await waitFor(() =>
+      expect(document.getElementById("exercise-list-refusal")?.textContent).toContain(
+        "The data file is gone.",
+      ),
+    );
+    expect(screen.getAllByText("The data file is gone.")).toHaveLength(1);
+    expect(document.querySelector('[data-slot="exercise-weight-error"]')).toBeNull();
+    // The slider still goes back to the confirmed weight.
+    expect((screen.getByRole("textbox", { name: "same major" }) as HTMLInputElement).value).toBe(
+      "0.25",
     );
   });
 
@@ -437,7 +475,7 @@ describe("<ExerciseMatching />", () => {
     }
   });
 
-  it("lays the two compared lists side by side from 1024, each able to shrink (B3, §6.12)", async () => {
+  it("shows the two compared lists as tables at 768 and up, each in its own scroll box (B3, §8.7)", async () => {
     const saved = {
       event_key: "northline",
       settings: [
@@ -463,10 +501,15 @@ describe("<ExerciseMatching />", () => {
       expect(found).not.toBeNull();
       return found as HTMLElement;
     });
-    // §6.12: side by side at 1024 and up, stacked below. Each list is the
-    // card layout, so no six-column table has to fit half a page.
-    expect(grid.className).toContain("lg:grid-cols-2");
-    expect(grid.querySelector("table")).toBeNull();
+    // Owner ruling 2026-09-27: real tables at 768 and up (§8.7). Two
+    // five-column tables do not fit half of the 1152px page with major, year
+    // and marker visible, so they stack, each in its own scroll box.
+    expect(grid.className).not.toMatch(/grid-cols-2/);
+    const tables = [...grid.querySelectorAll("table")];
+    expect(tables).toHaveLength(2);
+    for (const table of tables) {
+      expect(table.parentElement?.className).toContain("overflow-x-auto");
+    }
     const children = [...grid.children];
     expect(children.length).toBe(2);
     for (const child of children) {

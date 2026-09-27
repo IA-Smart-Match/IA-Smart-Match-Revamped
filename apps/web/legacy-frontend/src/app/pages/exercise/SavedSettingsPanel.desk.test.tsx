@@ -72,6 +72,14 @@ describe("<SavedSettingsPanel /> cards (§6.11)", () => {
     expect(card.textContent).not.toContain(LABELS.undecided_goal_half);
   });
 
+  it("draws 'Open this list' as a secondary button (§6.3)", () => {
+    const { onOpen } = renderPanel(saved(["Major first"]));
+    const open = screen.getByRole("button", { name: /open this list/i });
+    expect(open.getAttribute("data-variant")).toBe("secondary");
+    fireEvent.click(open);
+    expect(onOpen).toHaveBeenCalledWith("Major first");
+  });
+
   it("labels the name box 'Name these weights'", () => {
     renderPanel(saved([]));
     expect(screen.getByLabelText("Name these weights")).toBeDefined();
