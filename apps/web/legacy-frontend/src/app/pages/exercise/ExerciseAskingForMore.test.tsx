@@ -606,6 +606,21 @@ describe("<ExerciseAskingForMore /> — the invitation desk (§6.18, §6.19, §7
     expect(calls.some((call) => call.init.method === "POST")).toBe(false);
   });
 
+  it("ignores a held Enter or Space: key repeat never confirms a once-only choice", async () => {
+    stub(OPEN_CHOICES);
+    renderAsking();
+    const button = await chooseButton(/a small reward/);
+    fireEvent.click(button);
+    await new Promise((resolve) => setTimeout(resolve, CONFIRM_GUARD_MS + 20));
+    // `fireEvent` returns false when the handler called `preventDefault()`,
+    // which is what stops the browser turning a repeat into a click.
+    expect(fireEvent.keyDown(button, { key: "Enter", repeat: true })).toBe(false);
+    expect(fireEvent.keyDown(button, { key: " ", repeat: true })).toBe(false);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(calls.some((call) => call.init.method === "POST")).toBe(false);
+    expect(button.textContent).toContain("Confirm: A small reward?");
+  });
+
   it("treats a double-click as one press: armed, not chosen", async () => {
     stub(OPEN_CHOICES);
     renderAsking();
