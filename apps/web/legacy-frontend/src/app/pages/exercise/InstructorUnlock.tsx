@@ -30,7 +30,7 @@ const UNREACHABLE = "The exercise could not be reached. Check the connection and
  *
  * The list is `GET …/instructor/events`, behind the passcode session alone. It
  * used to be the team route, which needs a workspace cookie, so an instructor
- * who had not entered as a team saw no events at all. "Results are open." is
+ * who had not entered as a team saw no events at all. "Results are open" is
  * the server's `unlocked` flag rather than local state, so it survives a
  * reload, and the list is re-read after every unlock.
  *
@@ -241,7 +241,7 @@ function UnlockRow({
           ) : (
             <Lock aria-hidden="true" className="size-4 shrink-0 text-ce-ink-muted" />
           )}
-          {event.unlocked ? "Results are open." : "Results are closed."}
+          {event.unlocked ? "Results are open" : "Results are closed"}
         </span>
         {event.unlocked || confirming ? null : (
           <Button
