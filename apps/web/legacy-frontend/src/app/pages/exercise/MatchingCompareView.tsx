@@ -58,7 +58,7 @@ export function MatchingCompareView({
         className={cn(
           "ce-type-body text-ce-ink",
           // §7.5: pinned above the segmented control on 390.
-          narrow && "sticky top-0 z-10 bg-ce-page py-ce-2",
+          narrow && "sticky top-16 z-10 bg-ce-page py-ce-2",
         )}
       >
         {overlap.length === 0

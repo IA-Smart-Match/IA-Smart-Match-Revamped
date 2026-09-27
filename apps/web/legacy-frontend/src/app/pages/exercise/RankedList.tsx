@@ -144,7 +144,7 @@ export function RankedList({
               )}
               style={state.style}
             >
-              <span className="ce-type-rank w-8 shrink-0 text-ce-primary">{entry.rank}</span>
+              <span className="ce-type-rank w-10 shrink-0 text-ce-primary">{entry.rank}</span>
               <div className="flex min-w-0 flex-1 flex-col gap-ce-1">
                 <div className="flex flex-wrap items-center gap-ce-2">
                   <span className="ce-type-body font-semibold text-ce-ink">{entry.display_name}</span>
@@ -169,26 +169,26 @@ export function RankedList({
   return (
     <div className="ce-scroll-x overflow-x-auto">
       <table
-        className="w-full min-w-[40rem] border-collapse text-left"
+        className="w-full min-w-[40rem] table-fixed border-collapse text-left"
         data-slot="exercise-ranked-list"
         data-layout="table"
       >
         <caption className="sr-only">{caption}</caption>
         <thead>
           <tr className="ce-type-label bg-ce-surface-sunk text-ce-ink">
-            <th scope="col" className="w-16 rounded-l-ce-control px-ce-3 py-ce-3">
+            <th scope="col" className="w-[4.5rem] rounded-l-ce-control px-ce-3 py-ce-3">
               Rank
             </th>
             <th scope="col" className="px-ce-3 py-ce-3">
               Name
             </th>
-            <th scope="col" className="px-ce-3 py-ce-3">
+            <th scope="col" className="w-[23%] px-ce-3 py-ce-3">
               Major
             </th>
-            <th scope="col" className="px-ce-3 py-ce-3">
+            <th scope="col" className="w-[16%] px-ce-3 py-ce-3">
               Year
             </th>
-            <th scope="col" className="rounded-r-ce-control px-ce-3 py-ce-3">
+            <th scope="col" className="w-[21%] rounded-r-ce-control px-ce-3 py-ce-3">
               How much we know
             </th>
           </tr>
@@ -209,17 +209,17 @@ export function RankedList({
                 style={state.style}
               >
                 <td className="ce-type-rank px-ce-3 py-ce-4 text-ce-primary">{entry.rank}</td>
-                <td className="min-w-[16rem] px-ce-3 py-ce-4" data-slot="exercise-ranked-name">
+                <td className="px-ce-3 py-ce-4 break-words" data-slot="exercise-ranked-name">
                   <div className="flex flex-wrap items-center gap-ce-2">
                     <span className="font-semibold">{entry.display_name}</span>
                     {state.onBoth ? <OnBothChip /> : null}
                   </div>
                   <ReasonLines entry={entry} labels={factorLabels} />
                 </td>
-                <td className="min-w-[9rem] px-ce-3 py-ce-4">{entry.major}</td>
+                <td className="px-ce-3 py-ce-4">{entry.major}</td>
                 <td className="px-ce-3 py-ce-4">{entry.class_year}</td>
                 <td className="px-ce-3 py-ce-4">
-                  <MarkerChip marker={entry.marker} />
+                  <MarkerChip marker={entry.marker} className="whitespace-normal" />
                 </td>
               </motion.tr>
             );

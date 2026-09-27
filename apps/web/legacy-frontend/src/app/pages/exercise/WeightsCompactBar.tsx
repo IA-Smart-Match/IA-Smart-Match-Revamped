@@ -74,6 +74,7 @@ export function WeightsCompactBar({
         </p>
         <Button
           variant="quiet"
+          className="shrink-0 whitespace-nowrap"
           onClick={() => {
             target.current?.scrollIntoView({ block: "start", behavior: reduced ? "auto" : "smooth" });
             onEdit();

@@ -145,7 +145,7 @@ function GroupTable({
           By {dimension}
         </caption>
         <thead>
-          <tr className="ce-type-label bg-ce-surface-sunk text-ce-ink">
+          <tr className="ce-type-meta bg-ce-surface-sunk font-semibold text-ce-ink">
             <th scope="col" className="rounded-l-ce-control px-ce-3 py-ce-2 first-letter:uppercase">
               {dimension}
             </th>
