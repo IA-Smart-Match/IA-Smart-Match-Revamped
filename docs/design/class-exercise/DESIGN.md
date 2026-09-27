@@ -836,6 +836,8 @@ labels and the license line are unchanged and not listed.
 | Saved settings, empty slot | "Slot 3 of 3 is free. Save the weights on screen to fill it." |
 | Saved settings, compare limit | "Two are chosen. Untick one to swap." |
 | Saved settings, delete confirm | "Delete Balanced? It cannot be brought back." / "Delete it" / "Keep it" |
+| Saved settings, save in progress | "Saving…" |
+| Saved settings, card chosen for compare | "Comparing" |
 | Compare, 390 | "Showing 10 of 30. Show all 30" |
 | Results, room | "The room", "Front of the room", legend "Already coming", "Your invitations", "Still open" |
 | Results, seat headline | "8 were already coming. Your invitations added 6. 46 seats are still open." (pattern from the brief) |
