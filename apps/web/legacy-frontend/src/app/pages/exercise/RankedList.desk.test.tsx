@@ -109,16 +109,18 @@ describe("<RankedList /> on desktop (§6.7)", () => {
     const heads = screen.getAllByRole("columnheader");
     const width = (index: number) => Number(/w-\[(\d+)%\]/.exec(heads[index].className)?.[1]);
     // Major and How much we know take shares; the marker is the wider one.
-    expect(width(4)).toBeGreaterThanOrEqual(28);
+    expect(width(4)).toBeGreaterThanOrEqual(27);
     expect(width(4)).toBeGreaterThan(width(2));
   });
 
-  it("gives Name the room left over: Year a fixed width, Major 18% (#251 review)", () => {
+  it("gives Name the room left over: Year a fixed width, Major 20% (#251 review)", () => {
     render(<RankedList entries={ENTRIES} factorLabels={LABELS} caption="List" />);
     const heads = screen.getAllByRole("columnheader");
     // Name takes no width class, so it gets everything the others leave.
     expect(heads[1].className).not.toMatch(/\bw-/);
-    expect(heads[2].className).toContain("w-[18%]");
+    // 20%, not the review's 18%: at 1280 "International" is 127px and 18%
+    // leaves it 114px, so it ran into the Year column.
+    expect(heads[2].className).toContain("w-[20%]");
     // Year holds one short word ("Sophomore"): a fixed width, not a share.
     expect(heads[3].className).toMatch(/w-\[[\d.]+rem\]/);
   });

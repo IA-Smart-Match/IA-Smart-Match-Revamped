@@ -191,10 +191,10 @@ export function RankedList({
             <th scope="col" className="w-[20%] px-ce-2 py-ce-3">
               Major
             </th>
-            <th scope="col" className="w-[18%] px-ce-2 py-ce-3">
+            <th scope="col" className="w-[7.75rem] px-ce-2 py-ce-3">
               Year
             </th>
-            <th scope="col" className="w-[28%] rounded-r-ce-control px-ce-2 py-ce-3">
+            <th scope="col" className="w-[27%] rounded-r-ce-control px-ce-2 py-ce-3">
               How much we know
             </th>
           </tr>
