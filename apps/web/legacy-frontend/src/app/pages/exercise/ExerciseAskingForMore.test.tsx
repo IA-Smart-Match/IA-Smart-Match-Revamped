@@ -10,6 +10,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { CONFIRM_GUARD_MS } from "./desk";
 import { stubReducedMotion } from "./desk/testMatchMedia";
 import { ExerciseAskingForMore } from "./ExerciseAskingForMore";
 
@@ -105,6 +106,16 @@ function chooseButton(label: RegExp): Promise<HTMLElement> {
   });
 }
 
+/**
+ * Arm, then confirm: two presses on the same button, the second after the
+ * guard that treats a double-click as one press (`CONFIRM_GUARD_MS`).
+ */
+async function pressTwice(button: HTMLElement): Promise<void> {
+  fireEvent.click(button);
+  await new Promise((resolve) => setTimeout(resolve, CONFIRM_GUARD_MS + 20));
+  fireEvent.click(button);
+}
+
 /** Whether a desk Button is shut (it stays focusable: `aria-disabled`). */
 function isShut(button: HTMLElement): boolean {
   return button.getAttribute("aria-disabled") === "true";
@@ -176,6 +187,7 @@ describe("<ExerciseAskingForMore />", () => {
     // Inline confirm (§6.18): the first press arms, the second commits.
     fireEvent.click(button);
     expect(calls.some((call) => call.init.method === "POST")).toBe(false);
+    await new Promise((resolve) => setTimeout(resolve, CONFIRM_GUARD_MS + 20));
     fireEvent.click(button);
     await waitFor(() => {
       const post = calls.find((call) => call.init.method === "POST");
@@ -201,8 +213,7 @@ describe("<ExerciseAskingForMore />", () => {
     });
     renderAsking();
     const required = await chooseButton(/required\./);
-    fireEvent.click(required);
-    fireEvent.click(required);
+    await pressTwice(required);
     await waitFor(() =>
       expect(screen.getByText("Your team has already picked how it will ask.")).toBeDefined(),
     );
@@ -592,6 +603,16 @@ describe("<ExerciseAskingForMore /> — the invitation desk (§6.18, §6.19, §7
     expect(button.textContent).toContain("Choose this way");
     expect(button.textContent).not.toContain("Confirm:");
     fireEvent.click(button);
+    expect(calls.some((call) => call.init.method === "POST")).toBe(false);
+  });
+
+  it("treats a double-click as one press: armed, not chosen", async () => {
+    stub(OPEN_CHOICES);
+    renderAsking();
+    const button = await chooseButton(/a small reward/);
+    fireEvent.click(button);
+    fireEvent.click(button);
+    expect(button.textContent).toContain("Confirm: A small reward?");
     expect(calls.some((call) => call.init.method === "POST")).toBe(false);
   });
 
