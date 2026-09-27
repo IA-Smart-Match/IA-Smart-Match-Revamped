@@ -168,8 +168,10 @@ function PasscodeForm({ onSignedIn }: { readonly onSignedIn: () => void }): Reac
           <Button
             variant="quiet"
             aria-pressed={shown}
+            // One fixed name; aria-pressed says whether it is on. A name that
+            // swapped as well would read "Hide what is typed, pressed".
             // Named without the field's word, so the field keeps its one label.
-            aria-label={shown ? "Hide what is typed" : "Show what is typed"}
+            aria-label="Show what is typed"
             onClick={() => setShown((value) => !value)}
             className="absolute top-1/2 right-ce-1 -translate-y-1/2 text-ce-ink-muted hover:text-ce-primary"
           >
