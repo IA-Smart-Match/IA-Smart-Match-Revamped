@@ -93,6 +93,7 @@ __all__ = [
     "UNDECIDED_GOAL_HALF_LABEL_KEY",
     "AllZeroExerciseWeightsError",
     "InvalidExerciseWeightError",
+    "NegativeExerciseWeightError",
     "exercise_applied_weights",
     "validate_exercise_weight_overrides",
 ]
@@ -260,6 +261,18 @@ class AllZeroExerciseWeightsError(InvalidExerciseWeightError):
     """
 
 
+class NegativeExerciseWeightError(InvalidExerciseWeightError):
+    """Every problem with a proposed weighting is a weight below zero.
+
+    Its own type for the same reason as :class:`AllZeroExerciseWeightsError`:
+    a route answers a class participant in one plain sentence that names no
+    factor key, while this message keeps naming each offending key for an
+    engineer. Raised only when negatives are the *whole* refusal; a weighting
+    that is also wrong in another way is refused as the base type, so no
+    problem is hidden behind a sentence about a different one.
+    """
+
+
 def _coerce_weight(key: str, raw: object) -> float:
     """One proposed weight as a float, or a sentence saying why it is not.
 
@@ -277,7 +290,7 @@ def _coerce_weight(key: str, raw: object) -> float:
     if not math.isfinite(value):
         raise InvalidExerciseWeightError(f"{key}: weight must be a finite number, got {raw!r}")
     if value < 0.0:
-        raise InvalidExerciseWeightError(f"{key}: weight must not be negative, got {value}")
+        raise NegativeExerciseWeightError(f"{key}: weight must not be negative, got {value}")
     return value
 
 
@@ -305,10 +318,12 @@ def validate_exercise_weight_overrides(raw: Mapping[str, object]) -> Mapping[str
         InvalidExerciseWeightError: naming every problem at once.
     """
     problems: list[str] = []
+    only_negatives = True
     weights: dict[str, float] = {}
 
     for key in sorted(raw):
         if key not in EXERCISE_APPROVED_SCORING_KEYS:
+            only_negatives = False
             problems.append(
                 f"{key}: is not one of the exercise's four factors; expected one of "
                 f"{sorted(EXERCISE_APPROVED_SCORING_KEYS)}"
@@ -320,6 +335,7 @@ def validate_exercise_weight_overrides(raw: Mapping[str, object]) -> Mapping[str
             # Collected rather than raised, so a team fixing a settings form
             # sees every problem at once instead of one per submission.
             problems.append(str(exc))
+            only_negatives = only_negatives and isinstance(exc, NegativeExerciseWeightError)
 
     if not problems and weights:
         effective = dict(EXERCISE_DEFAULT_WEIGHTS)
@@ -332,7 +348,10 @@ def validate_exercise_weight_overrides(raw: Mapping[str, object]) -> Mapping[str
             )
 
     if problems:
-        raise InvalidExerciseWeightError("; ".join(problems))
+        detail = "; ".join(problems)
+        if only_negatives:
+            raise NegativeExerciseWeightError(detail)
+        raise InvalidExerciseWeightError(detail)
 
     return MappingProxyType(dict(weights))
 
