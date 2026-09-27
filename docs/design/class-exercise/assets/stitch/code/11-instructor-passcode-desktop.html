@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Smart Match — Instructor Passcode Entry</title>
+<!-- Google Fonts: Archivo (SemiExpanded) & Figtree -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700&amp;family=Figtree:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Lucide Icons -->
+<script src="https://unpkg.com/lucide@latest"></script>
+<!-- Tailwind CSS -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            "on-primary": "#FFFFFF",
+            "line": "#D9CBC4",
+            "primary-tint": "#D9EADF",
+            "primary-fixed-dim": "#91d5ab",
+            "on-tertiary-container": "#91c14c",
+            "error-container": "#ffdad6",
+            "gold-tint": "#FFF1CC",
+            "line-strong": "#8F7A70",
+            "on-error": "#ffffff",
+            "gold-ink": "#7A5200",
+            "tertiary": "#1f3500",
+            "primary": "#00371f",
+            "surface-container-lowest": "#ffffff",
+            "primary-fixed": "#acf2c6",
+            "on-tertiary": "#ffffff",
+            "surface-container-high": "#e6e9e4",
+            "on-secondary-fixed": "#271900",
+            "bay": "#CFBAB0",
+            "ink-muted": "#59665F",
+            "page": "#F8F6F1",
+            "outline-variant": "#bfc9c0",
+            "on-error-container": "#93000a",
+            "surface": "#FFFFFF",
+            "surface-container-highest": "#e0e3de",
+            "on-surface": "#191c1a",
+            "secondary": "#7d5700",
+            "primary-container": "#005030",
+            "error": "#ba1a1a",
+            "on-primary-container": "#7dc198",
+            "inverse-on-surface": "#eff2ec",
+            "on-background": "#191c1a",
+            "secondary-fixed-dim": "#ffba2c",
+            "avocado": "#A4D65E",
+            "on-secondary-container": "#6b4b00",
+            "background": "#f8faf5",
+            "tertiary-fixed-dim": "#a4d65e",
+            "avocado-tint": "#E8F2D8",
+            "secondary-container": "#feb71a",
+            "on-primary-fixed": "#002111",
+            "surface-bright": "#f8faf5",
+            "surface-variant": "#e0e3de",
+            "surface-dim": "#d8dbd6",
+            "on-tertiary-fixed": "#112000",
+            "on-primary-fixed-variant": "#035232",
+            "on-surface-variant": "#404942",
+            "outline": "#707972",
+            "seat-taken": "#8C6D62",
+            "on-secondary": "#ffffff",
+            "inverse-primary": "#91d5ab",
+            "on-tertiary-fixed-variant": "#314f00",
+            "ink": "#163229",
+            "tertiary-container": "#304d00",
+            "on-secondary-fixed-variant": "#5f4100",
+            "surface-container-low": "#f2f4ef",
+            "secondary-fixed": "#ffdeaa",
+            "surface-tint": "#266a48",
+            "inverse-surface": "#2e312e",
+            "danger": "#BA1A1A",
+            "surface-container": "#ecefe9",
+            "tertiary-fixed": "#bff377",
+            "surface-sunk": "#F2EEE8",
+            "scrim": "rgba(16,37,29,0.48)"
+          },
+          borderRadius: {
+            "DEFAULT": "0.25rem",
+            "lg": "0.5rem",
+            "xl": "0.75rem",
+            "full": "9999px"
+          },
+          spacing: {
+            "space-xl": "24px",
+            "space-4xl": "64px",
+            "space-3xl": "48px",
+            "margin": "64px",
+            "gutter": "24px",
+            "space-md": "12px",
+            "space-lg": "16px",
+            "gutter-mobile": "16px",
+            "space-xs": "4px",
+            "space-sm": "8px",
+            "space-2xl": "32px",
+            "space-5xl": "96px",
+            "margin-mobile": "16px"
+          },
+          fontFamily: {
+            "headline-lg": ["Archivo", "sans-serif"],
+            "body-md": ["Figtree", "sans-serif"],
+            "label-md": ["Figtree", "sans-serif"],
+            "meta-caption": ["Figtree", "sans-serif"]
+          },
+          fontSize: {
+            "headline-lg": [
+              "48px",
+              {
+                "lineHeight": "56px",
+                "fontWeight": "600"
+              }
+            ],
+            "body-md": [
+              "20px",
+              {
+                "lineHeight": "30px",
+                "fontWeight": "400"
+              }
+            ],
+            "label-md": [
+              "18px",
+              {
+                "lineHeight": "24px",
+                "letterSpacing": "0.01em",
+                "fontWeight": "600"
+              }
+            ],
+            "meta-caption": [
+              "16px",
+              {
+                "lineHeight": "24px",
+                "letterSpacing": "0.01em",
+                "fontWeight": "500"
+              }
+            ]
+          },
+          boxShadow: {
+            "ce-elev-1": "0 1px 2px rgba(22,50,41,.06), 0 4px 12px rgba(22,50,41,.06)"
+          }
+        }
+      }
+    }
+  </script>
+<style>
+    /* Ensure letter-spacing and typography matches design token definitions */
+    .tracking-tight-title {
+      letter-spacing: -0.02em;
+    }
+  </style>
+</head>
+<body class="bg-page text-ink min-h-screen flex flex-col antialiased font-body-md selection:bg-gold-tint selection:text-gold-ink">
+<!-- Slim gold-wash ribbon -->
+<aside class="w-full bg-gold-tint text-gold-ink py-2.5 px-4 text-center text-sm md:text-base border-none">
+<div class="max-w-[1280px] mx-auto flex items-center justify-center gap-2">
+<i class="w-4 h-4 text-gold-ink shrink-0 stroke-[2]" data-lucide="info"></i>
+<p class="font-meta-caption text-meta-caption">
+<span class="font-semibold">Fictional data —</span> All student profiles are fictional, shaped by overall survey percentages.
+      </p>
+</div>
+</aside>
+<!-- Main Canvas -->
+<main class="w-full max-w-[1280px] mx-auto px-6 py-12 md:py-20 flex-1 flex flex-col justify-center items-center">
+<!-- Header Section -->
+<header class="text-center max-w-[720px] mb-10 md:mb-12">
+<h1 class="font-headline-lg text-headline-lg text-ink font-semibold tracking-tight-title">
+        Instructor
+      </h1>
+<p class="font-body-md text-body-md text-ink-muted mt-3">
+        Load a data file, open results for an event, and see what each team has done.
+      </p>
+</header>
+<!-- Centered Card Section -->
+<section class="w-full max-w-[480px]">
+<div class="bg-surface rounded-[14px] shadow-ce-elev-1 p-8">
+<form class="space-y-6" onsubmit="event.preventDefault();">
+<!-- Key Icon & Label -->
+<div class="space-y-3">
+<div class="w-12 h-12 rounded-[10px] bg-primary-tint/40 flex items-center justify-center text-primary-container">
+<i class="w-8 h-8 text-primary-container stroke-[2]" data-lucide="key-round"></i>
+</div>
+<div>
+<label class="block font-label-md text-label-md text-ink" for="passcode-input">
+                Passcode
+              </label>
+</div>
+</div>
+<!-- Password Input Field -->
+<div class="relative">
+<input autocomplete="current-password" class="w-full h-[52px] rounded-[10px] border-2 border-line-strong bg-surface text-ink px-4 pr-12 text-lg focus:outline-none focus:border-primary-container transition-colors duration-150" id="passcode-input" name="passcode" placeholder="" type="password"/>
+<button aria-label="Toggle password visibility" class="absolute right-3.5 top-1/2 -translate-y-1/2 text-ink-muted hover:text-ink focus:outline-none p-1 transition-colors" id="toggle-password" type="button">
+<i class="w-5 h-5 text-ink-muted stroke-[2]" data-lucide="eye" id="eye-icon"></i>
+</button>
+</div>
+<!-- Primary Button & Helper Text -->
+<div class="space-y-4 pt-1">
+<button class="w-full h-14 rounded-[10px] bg-primary-container text-surface font-label-md text-label-md hover:opacity-95 active:scale-[0.99] transition-all duration-100 flex items-center justify-center" type="submit">
+              Open the instructor page
+            </button>
+<!-- Helper Text Directly Under Button -->
+<p class="font-meta-caption text-meta-caption text-ink-muted text-center">
+              The passcode is shared by the course team. It is not your university login.
+            </p>
+</div>
+</form>
+</div>
+</section>
+</main>
+<!-- Client Interaction Script -->
+<script>
+    // Initialize Lucide icons
+    lucide.createIcons();
+
+    // Toggle password visibility interaction
+    const toggleButton = document.getElementById('toggle-password');
+    const passwordInput = document.getElementById('passcode-input');
+
+    if (toggleButton && passwordInput) {
+      toggleButton.addEventListener('click', () => {
+        const isPassword = passwordInput.getAttribute('type') === 'password';
+        passwordInput.setAttribute('type', isPassword ? 'text' : 'password');
+        
+        // Re-render icon
+        toggleButton.innerHTML = isPassword 
+          ? '<i data-lucide="eye-off" class="w-5 h-5 text-ink-muted stroke-[2]"></i>'
+          : '<i data-lucide="eye" class="w-5 h-5 text-ink-muted stroke-[2]"></i>';
+        
+        lucide.createIcons();
+      });
+    }
+  </script>
+</body></html>

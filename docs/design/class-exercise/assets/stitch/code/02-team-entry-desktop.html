@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Which team are you? — Smart Match Class Exercise</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700&family=Figtree:wght@400;500;600;700&family=Source+Serif+4:ital,opsz,wght@0,8..60,600;1,8..60,600&display=swap" rel="stylesheet">
+  <style>
+    body {
+      background-color: #F8F6F1;
+      color: #163229;
+      font-family: 'Figtree', sans-serif;
+      margin: 0;
+      padding: 0;
+      -webkit-font-smoothing: antialiased;
+    }
+    .font-archivo {
+      font-family: 'Archivo', sans-serif;
+    }
+    .font-serif {
+      font-family: 'Source Serif 4', serif;
+    }
+    .tabular-nums {
+      font-variant-numeric: tabular-nums;
+    }
+    .ce-card-shadow {
+      box-shadow: 0 1px 2px rgba(22, 50, 41, 0.06), 0 4px 12px rgba(22, 50, 41, 0.06);
+    }
+    .ce-card-shadow-active {
+      box-shadow: 0 2px 4px rgba(22, 50, 41, 0.06), 0 12px 28px rgba(0, 80, 48, 0.12);
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col justify-between p-6 md:p-12 lg:p-16 max-w-[1280px] mx-auto box-border">
+
+  <!-- Main Container -->
+  <div class="w-full max-w-[1152px] mx-auto flex flex-col gap-12">
+
+    <!-- Top Fictional Data Ribbon -->
+    <div class="w-full bg-[#FFF1CC] rounded-[14px] px-5 py-3 flex items-center gap-3">
+      <svg class="w-5 h-5 flex-shrink-0 text-[#7A5200]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"></circle>
+        <line x1="12" y1="16" x2="12" y2="12"></line>
+        <line x1="12" y1="8" x2="12.01" y2="8"></line>
+      </svg>
+      <div class="text-[16px] leading-[24px] text-[#7A5200]">
+        <strong class="font-bold text-[#7A5200]">Fictional data —</strong> All student profiles are fictional, shaped by overall survey percentages.
+      </div>
+    </div>
+
+    <!-- Screen Content: Which team are you? -->
+    <main class="w-full flex flex-col pt-4">
+      <h2 class="font-serif text-[32px] leading-[40px] font-semibold text-[#163229] mb-4">
+        Which team are you?
+      </h2>
+      <p class="text-[20px] leading-[30px] text-[#59665F] mb-12">
+        Pick your team's number. Your team's saved work is kept under that number.
+      </p>
+
+      <!-- Row of 6 square tiles -->
+      <div class="flex flex-wrap items-center gap-4 mb-8" role="radiogroup" aria-label="Team selection">
+        
+        <!-- Tile 1 -->
+        <button type="button" role="radio" aria-checked="false" class="w-[112px] h-[112px] rounded-[14px] bg-[#FFFFFF] ce-card-shadow flex items-center justify-center relative cursor-pointer hover:translate-y-[-2px] transition-transform duration-150 focus:outline-none focus:ring-2 focus:ring-[#005030] focus:ring-offset-2">
+          <span class="font-archivo font-bold text-[44px] leading-none text-[#163229] tabular-nums">1</span>
+        </button>
+
+        <!-- Tile 2 -->
+        <button type="button" role="radio" aria-checked="false" class="w-[112px] h-[112px] rounded-[14px] bg-[#FFFFFF] ce-card-shadow flex items-center justify-center relative cursor-pointer hover:translate-y-[-2px] transition-transform duration-150 focus:outline-none focus:ring-2 focus:ring-[#005030] focus:ring-offset-2">
+          <span class="font-archivo font-bold text-[44px] leading-none text-[#163229] tabular-nums">2</span>
+        </button>
+
+        <!-- Tile 3 -->
+        <button type="button" role="radio" aria-checked="false" class="w-[112px] h-[112px] rounded-[14px] bg-[#FFFFFF] ce-card-shadow flex items-center justify-center relative cursor-pointer hover:translate-y-[-2px] transition-transform duration-150 focus:outline-none focus:ring-2 focus:ring-[#005030] focus:ring-offset-2">
+          <span class="font-archivo font-bold text-[44px] leading-none text-[#163229] tabular-nums">3</span>
+        </button>
+
+        <!-- Tile 4 (Selected) -->
+        <button type="button" role="radio" aria-checked="true" class="w-[112px] h-[112px] rounded-[14px] bg-[#005030] ce-card-shadow-active flex items-center justify-center relative overflow-hidden cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#005030] focus:ring-offset-2">
+          <!-- Gold corner notch top-right -->
+          <div class="absolute top-0 right-0 w-0 h-0 border-t-[18px] border-t-[#FFB81C] border-l-[18px] border-l-transparent"></div>
+          <span class="font-archivo font-bold text-[44px] leading-none text-[#FFFFFF] tabular-nums">4</span>
+        </button>
+
+        <!-- Tile 5 -->
+        <button type="button" role="radio" aria-checked="false" class="w-[112px] h-[112px] rounded-[14px] bg-[#FFFFFF] ce-card-shadow flex items-center justify-center relative cursor-pointer hover:translate-y-[-2px] transition-transform duration-150 focus:outline-none focus:ring-2 focus:ring-[#005030] focus:ring-offset-2">
+          <span class="font-archivo font-bold text-[44px] leading-none text-[#163229] tabular-nums">5</span>
+        </button>
+
+        <!-- Tile 6 -->
+        <button type="button" role="radio" aria-checked="false" class="w-[112px] h-[112px] rounded-[14px] bg-[#FFFFFF] ce-card-shadow flex items-center justify-center relative cursor-pointer hover:translate-y-[-2px] transition-transform duration-150 focus:outline-none focus:ring-2 focus:ring-[#005030] focus:ring-offset-2">
+          <span class="font-archivo font-bold text-[44px] leading-none text-[#163229] tabular-nums">6</span>
+        </button>
+
+      </div>
+
+      <!-- Browser info line with shield-and-check pictogram -->
+      <div class="flex items-center gap-2.5 mb-10">
+        <svg class="w-5 h-5 flex-shrink-0 text-[#005030]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+          <path d="m9 12 2 2 4-4"></path>
+        </svg>
+        <span class="text-[20px] leading-[30px] text-[#163229]">
+          This browser is already in team 4, working in Ann's file, 25 September.
+        </span>
+      </div>
+
+      <!-- Action Button -->
+      <div>
+        <button type="button" class="h-[56px] px-8 rounded-[10px] bg-[#005030] text-[#FFFFFF] text-[18px] font-semibold hover:bg-[#003D24] active:scale-[0.98] transition-all duration-150 focus:outline-none focus:ring-3 focus:ring-[#005030] focus:ring-offset-3">
+          Open this team's work
+        </button>
+      </div>
+
+    </main>
+
+  </div>
+
+  <!-- Bottom License Line -->
+  <footer class="w-full max-w-[1152px] mx-auto mt-24">
+    <div class="w-full bg-[#F2EEE8] rounded-[14px] p-5">
+      <p class="text-[18px] leading-[26px] text-[#163229] m-0">
+        For California State Polytechnic University, Pomona — College of Business Administration instructional use only. All student profiles are fictional.
+      </p>
+    </div>
+  </footer>
+
+</body>
+</html>

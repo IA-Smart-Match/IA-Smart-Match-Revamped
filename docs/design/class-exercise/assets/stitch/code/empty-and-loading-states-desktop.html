@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+  <title>Smart Match — State Board</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@112.5,600&family=Figtree:wght@400;500;600&family=Source+Serif+4:opsz,wght@8..60,600&display=swap" rel="stylesheet"/>
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+  <script src="https://cdn.tailwindcss.com?plugins=forms"></script>
+  <script id="tailwind-config">
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            page: "#F8F6F1",
+            surface: "#FFFFFF",
+            "surface-sunk": "#F2EEE8",
+            ink: "#163229",
+            "ink-muted": "#59665F",
+            primary: "#005030",
+            "primary-tint": "#D9EADF",
+            "on-primary-tint": "#003D24",
+            gold: "#FFB81C",
+            "gold-tint": "#FFF1CC",
+            "gold-ink": "#7A5200",
+            avocado: "#A4D65E",
+            "avocado-tint": "#E8F2D8",
+            bay: "#CFBAB0",
+            "seat-taken": "#8C6D62",
+            line: "#D9CBC4",
+            "line-strong": "#8F7A70",
+            danger: "#BA1A1A"
+          },
+          borderRadius: {
+            card: "14px",
+            control: "10px",
+            pill: "9999px"
+          },
+          boxShadow: {
+            soft: "0 1px 2px rgba(22, 50, 41, 0.06), 0 4px 12px rgba(22, 50, 41, 0.06)"
+          },
+          fontFamily: {
+            archivo: ['"Archivo"', 'sans-serif'],
+            serif: ['"Source Serif 4"', 'serif'],
+            figtree: ['"Figtree"', 'sans-serif']
+          }
+        }
+      }
+    };
+  </script>
+  <style>
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+      display: inline-block;
+      vertical-align: middle;
+      line-height: 1;
+    }
+    .tabular-nums {
+      font-variant-numeric: tabular-nums;
+    }
+  </style>
+</head>
+<body class="bg-page text-ink font-figtree min-h-screen selection:bg-gold-tint selection:text-ink antialiased p-8 md:p-12">
+  <div class="max-w-[1152px] mx-auto">
+    
+    <!-- Top ribbon -->
+    <div class="bg-gold-tint rounded-card px-6 py-3.5 flex items-center gap-3 mb-12">
+      <span class="material-symbols-outlined text-gold-ink text-[22px] select-none shrink-0" data-icon="info">info</span>
+      <p class="text-[16px] text-ink leading-normal m-0">
+        <strong class="font-semibold text-ink">Fictional data —</strong> All student profiles are fictional, shaped by overall survey percentages.
+      </p>
+    </div>
+
+    <!-- Page Title -->
+    <div class="mb-12">
+      <h1 class="font-archivo text-[48px] leading-[56px] font-semibold text-ink tracking-tight m-0">
+        State board
+      </h1>
+    </div>
+
+    <!-- 2x4 Grid of State Cards -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+      
+      <!-- State 1: Loading the list -->
+      <div class="flex flex-col gap-2">
+        <span class="text-[14px] text-ink-muted font-medium">Loading the list</span>
+        <div class="w-full bg-surface rounded-card p-6 shadow-soft min-h-[320px] flex flex-col justify-between">
+          <div class="w-full">
+            <!-- Skeleton title bar -->
+            <div class="w-48 h-6 bg-surface-sunk rounded-control mb-6 animate-pulse"></div>
+            <!-- 5 skeleton rows -->
+            <div class="flex flex-col gap-3.5">
+              <!-- Row 1 -->
+              <div class="flex items-center gap-3">
+                <div class="w-7 h-7 rounded-control bg-surface-sunk shrink-0"></div>
+                <div class="h-4 bg-surface-sunk rounded w-44"></div>
+                <div class="h-4 bg-surface-sunk rounded w-56"></div>
+              </div>
+              <!-- Row 2 -->
+              <div class="flex items-center gap-3">
+                <div class="w-7 h-7 rounded-control bg-surface-sunk shrink-0"></div>
+                <div class="h-4 bg-surface-sunk rounded w-36"></div>
+                <div class="h-4 bg-surface-sunk rounded w-64"></div>
+              </div>
+              <!-- Row 3 -->
+              <div class="flex items-center gap-3">
+                <div class="w-7 h-7 rounded-control bg-surface-sunk shrink-0"></div>
+                <div class="h-4 bg-surface-sunk rounded w-40"></div>
+                <div class="h-4 bg-surface-sunk rounded w-48"></div>
+              </div>
+              <!-- Row 4 -->
+              <div class="flex items-center gap-3">
+                <div class="w-7 h-7 rounded-control bg-surface-sunk shrink-0"></div>
+                <div class="h-4 bg-surface-sunk rounded w-48"></div>
+                <div class="h-4 bg-surface-sunk rounded w-52"></div>
+              </div>
+              <!-- Row 5 -->
+              <div class="flex items-center gap-3">
+                <div class="w-7 h-7 rounded-control bg-surface-sunk shrink-0"></div>
+                <div class="h-4 bg-surface-sunk rounded w-32"></div>
+                <div class="h-4 bg-surface-sunk rounded w-60"></div>
+              </div>
+            </div>
+          </div>
+          <p class="text-[16px] text-ink-muted mt-6 mb-0 font-medium">Loading the list…</p>
+        </div>
+      </div>
+
+      <!-- State 2: Results locked -->
+      <div class="flex flex-col gap-2">
+        <span class="text-[14px] text-ink-muted font-medium">Results locked</span>
+        <div class="w-full bg-surface rounded-card p-6 shadow-soft min-h-[320px] flex flex-col items-center justify-center text-center">
+          <!-- Line-drawn envelope pictogram in CPP Green #005030 (96px) -->
+          <svg class="w-24 h-24 mb-4 text-primary" viewBox="0 0 96 96" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="10" y="24" width="76" height="48" rx="8" />
+            <path d="M12 26 L48 54 L84 26" />
+          </svg>
+          <!-- Padlock pill chip -->
+          <div class="inline-flex items-center gap-2 bg-surface-sunk text-ink px-3 py-1.5 rounded-pill mb-3">
+            <span class="material-symbols-outlined text-[18px] text-ink shrink-0" data-icon="lock">lock</span>
+            <span class="text-[15px] font-semibold tracking-normal text-ink">Results are closed</span>
+          </div>
+          <p class="text-[20px] text-ink leading-relaxed max-w-[420px] mb-5">
+            The instructor has not opened results for this event yet.
+          </p>
+          <button type="button" class="bg-surface border-2 border-line-strong rounded-control px-5 py-2.5 text-[17px] font-medium text-ink hover:bg-surface-sunk transition-colors">
+            Check again
+          </button>
+        </div>
+      </div>
+
+      <!-- State 3: Nothing saved yet -->
+      <div class="flex flex-col gap-2">
+        <span class="text-[14px] text-ink-muted font-medium">Nothing saved yet</span>
+        <div class="w-full bg-surface rounded-card p-6 shadow-soft min-h-[320px] flex flex-col items-center justify-center text-center">
+          <!-- Dashed rounded rectangle with a plus in #8F7A70 -->
+          <div class="w-20 h-20 rounded-card border-2 border-dashed border-line-strong flex items-center justify-center mb-5 text-line-strong">
+            <span class="material-symbols-outlined text-[32px]" data-icon="add">add</span>
+          </div>
+          <p class="text-[20px] text-ink leading-relaxed max-w-[420px] m-0">
+            Your team has not saved any settings for this event yet. Save two to see them side by side.
+          </p>
+        </div>
+      </div>
+
+      <!-- State 4: Choose a final setting first -->
+      <div class="flex flex-col gap-2">
+        <span class="text-[14px] text-ink-muted font-medium">Choose a final setting first</span>
+        <div class="w-full bg-surface rounded-card p-6 shadow-soft min-h-[320px] flex flex-col items-center justify-center text-center">
+          <!-- ID-card pictogram in #005030 -->
+          <div class="w-20 h-20 rounded-card bg-primary-tint flex items-center justify-center mb-5 text-primary">
+            <span class="material-symbols-outlined text-[40px]" data-icon="badge">badge</span>
+          </div>
+          <p class="text-[20px] text-ink leading-relaxed max-w-[440px] m-0">
+            Choose one of your saved settings as your final setting before running results.
+          </p>
+        </div>
+      </div>
+
+      <!-- State 5: Already run -->
+      <div class="flex flex-col gap-2">
+        <span class="text-[14px] text-ink-muted font-medium">Already run</span>
+        <div class="w-full bg-surface rounded-card p-6 shadow-soft min-h-[320px] flex flex-col items-center justify-center text-center">
+          <!-- Info icon in #005030 -->
+          <div class="w-20 h-20 rounded-full bg-primary-tint flex items-center justify-center mb-5 text-primary">
+            <span class="material-symbols-outlined text-[40px]" data-icon="info">info</span>
+          </div>
+          <p class="text-[20px] text-ink leading-relaxed max-w-[420px] m-0">
+            This team has already run results for this event.
+          </p>
+        </div>
+      </div>
+
+      <!-- State 6: No data file -->
+      <div class="flex flex-col gap-2">
+        <span class="text-[14px] text-ink-muted font-medium">No data file</span>
+        <div class="w-full bg-surface rounded-card p-6 shadow-soft min-h-[320px] flex flex-col items-center justify-center text-center">
+          <div class="w-20 h-20 rounded-card bg-surface-sunk flex items-center justify-center mb-5 text-ink-muted">
+            <span class="material-symbols-outlined text-[40px]" data-icon="folder_off">folder_off</span>
+          </div>
+          <p class="text-[20px] text-ink leading-relaxed max-w-[420px] m-0">
+            The instructor has not loaded the student body yet.
+          </p>
+        </div>
+      </div>
+
+      <!-- State 7: Connection problem -->
+      <div class="flex flex-col gap-2">
+        <span class="text-[14px] text-ink-muted font-medium">Connection problem</span>
+        <div class="w-full bg-surface rounded-card p-6 shadow-soft border-2 border-danger min-h-[320px] flex flex-col items-center justify-center text-center">
+          <!-- Warning triangle in #BA1A1A -->
+          <div class="mb-4 text-danger flex items-center justify-center">
+            <span class="material-symbols-outlined text-[48px]" data-icon="warning">warning</span>
+          </div>
+          <p class="text-[20px] text-ink leading-relaxed max-w-[420px] mb-6">
+            The exercise could not be reached. Check the connection and try again.
+          </p>
+          <button type="button" class="h-14 px-8 rounded-control bg-primary text-white text-[18px] font-semibold hover:bg-opacity-90 active:scale-[0.98] transition-all">
+            Try again
+          </button>
+        </div>
+      </div>
+
+      <!-- State 8: Empty list -->
+      <div class="flex flex-col gap-2">
+        <span class="text-[14px] text-ink-muted font-medium">Empty list</span>
+        <div class="w-full bg-surface rounded-card p-6 shadow-soft min-h-[320px] flex flex-col items-center justify-center text-center">
+          <!-- Dashed rounded rectangle in #8F7A70 -->
+          <div class="w-20 h-20 rounded-card border-2 border-dashed border-line-strong flex items-center justify-center mb-5 text-line-strong">
+            <span class="material-symbols-outlined text-[32px]" data-icon="format_list_bulleted">format_list_bulleted</span>
+          </div>
+          <p class="text-[20px] text-ink leading-relaxed max-w-[440px] m-0">
+            Nobody is on this list. Nobody in this data file can be ranked for this event with these weights.
+          </p>
+        </div>
+      </div>
+
+    </div>
+
+  </div>
+</body>
+</html>

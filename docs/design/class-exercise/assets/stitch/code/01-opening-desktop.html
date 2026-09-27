@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Smart Match — Who should we invite?</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700&family=Figtree:wght@400;500;600;700&family=Source+Serif+4:ital,opsz,wght@0,8..60,600&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            'ce-page': '#F8F6F1',
+            'ce-surface': '#FFFFFF',
+            'ce-surface-sunk': '#F2EEE8',
+            'ce-ink': '#163229',
+            'ce-ink-muted': '#59665F',
+            'ce-primary': '#005030',
+            'ce-primary-tint': '#D9EADF',
+            'ce-gold': '#FFB81C',
+            'ce-gold-tint': '#FFF1CC',
+            'ce-gold-ink': '#7A5200',
+            'ce-support-tint': '#E8F2D8',
+            'ce-seat-taken': '#8C6D62',
+            'ce-line-strong': '#8F7A70',
+            'ce-danger': '#BA1A1A'
+          },
+          fontFamily: {
+            title: ['Archivo', 'sans-serif'],
+            serif: ['Source Serif 4', 'serif'],
+            body: ['Figtree', 'sans-serif']
+          }
+        }
+      }
+    };
+  </script>
+</head>
+<body class="bg-ce-page text-ce-ink font-body antialiased min-h-screen">
+  <div class="max-w-[1280px] mx-auto px-16 py-8">
+    
+    <!-- Top ribbon: Fictional data -->
+    <div class="w-full bg-ce-gold-tint rounded-[14px] px-5 py-3.5 flex items-center gap-3">
+      <svg class="w-5 h-5 text-ce-gold-ink shrink-0" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"></circle>
+        <line x1="12" y1="16" x2="12" y2="12"></line>
+        <line x1="12" y1="8" x2="12.01" y2="8"></line>
+      </svg>
+      <div class="text-[16px] leading-[24px] text-ce-ink">
+        <span class="font-bold">Fictional data —</span> All student profiles are fictional, shaped by overall survey percentages.
+      </div>
+    </div>
+
+    <!-- Wordmark placeholder: 160x40 grey rectangle -->
+    <div class="mt-8">
+      <div class="w-[160px] h-[40px] bg-ce-surface-sunk text-ce-ink-muted rounded-[6px] border border-ce-line-strong/30 flex items-center justify-center text-[15px] font-medium tracking-normal select-none">
+        CPP logo
+      </div>
+    </div>
+
+    <!-- Main area: 7/5 columns, 96px whitespace above title -->
+    <div class="mt-24 grid grid-cols-12 gap-10 items-start">
+      <!-- Left Column (7 cols) -->
+      <div class="col-span-7">
+        <h1 class="font-title font-semibold text-[48px] leading-[56px] text-ce-ink tracking-tight">
+          Who should we invite?
+        </h1>
+        <p class="mt-4 text-[22px] leading-[34px] text-ce-ink-muted font-normal max-w-[60ch]">
+          Your team is promoting a campus career event with 60 seats. Choose whom to invite, see what happened, then try again.
+        </p>
+
+        <!-- License line panel -->
+        <div class="mt-8 bg-ce-surface-sunk rounded-[14px] p-4">
+          <p class="text-[18px] leading-[28px] text-ce-ink font-normal">
+            For California State Polytechnic University, Pomona — College of Business Administration instructional use only. All student profiles are fictional.
+          </p>
+        </div>
+      </div>
+
+      <!-- Right Column (5 cols) -->
+      <div class="col-span-5 flex justify-center items-start pt-2">
+        <!-- Geometric line pictogram of lecture hall (160px, CPP Green #005030, no people) -->
+        <div class="w-[160px] h-[160px] flex items-center justify-center text-ce-primary">
+          <svg class="w-full h-full" viewBox="0 0 160 160" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <!-- Roof line / stage canopy -->
+            <path d="M16 38 L80 18 L144 38" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M26 44 L134 44" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            
+            <!-- Row 1 of small rounded squares (desks/seats) -->
+            <rect x="24" y="64" width="18" height="18" rx="4" stroke="currentColor" stroke-width="2.5" fill="none"/>
+            <rect x="52" y="64" width="18" height="18" rx="4" stroke="currentColor" stroke-width="2.5" fill="none"/>
+            <rect x="90" y="64" width="18" height="18" rx="4" stroke="currentColor" stroke-width="2.5" fill="none"/>
+            <rect x="118" y="64" width="18" height="18" rx="4" stroke="currentColor" stroke-width="2.5" fill="none"/>
+
+            <!-- Row 2 of small rounded squares (three faded) -->
+            <rect x="24" y="104" width="18" height="18" rx="4" stroke="currentColor" stroke-width="2.5" fill="none" opacity="0.3"/>
+            <rect x="52" y="104" width="18" height="18" rx="4" stroke="currentColor" stroke-width="2.5" fill="none" opacity="0.3"/>
+            <rect x="90" y="104" width="18" height="18" rx="4" stroke="currentColor" stroke-width="2.5" fill="none" opacity="0.3"/>
+            <rect x="118" y="104" width="18" height="18" rx="4" stroke="currentColor" stroke-width="2.5" fill="none"/>
+
+            <!-- Floor guideline -->
+            <line x1="16" y1="140" x2="144" y2="140" stroke="currentColor" stroke-width="2" stroke-linecap="round" opacity="0.4"/>
+          </svg>
+        </div>
+      </div>
+    </div>
+
+    <!-- Start of next section -->
+    <div class="mt-20 pt-10 border-t border-ce-line-strong/20">
+      <h2 class="font-serif font-semibold text-[32px] leading-[40px] text-ce-ink">
+        Which team are you?
+      </h2>
+    </div>
+
+  </div>
+</body>
+</html>

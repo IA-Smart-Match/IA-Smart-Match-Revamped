@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Results — Smart Match Classroom Simulation</title>
+<!-- Fonts -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Archivo+SemiExpanded:wght@600;700&amp;family=Figtree:ital,wght@0,400;0,500;0,600;0,700;1,400&amp;family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            "inverse-primary": "#91d5ab",
+            "on-secondary": "#ffffff",
+            "tertiary-fixed-dim": "#a4d65e",
+            "secondary": "#7d5700",
+            "surface-container-high": "#e6e9e4",
+            "surface-container": "#ecefe9",
+            "on-surface-variant": "#404942",
+            "surface-tint": "#266a48",
+            "primary-container": "#005030",
+            "line": "#D9CBC4",
+            "tertiary-fixed": "#bff377",
+            "scrim": "rgba(16,37,29,0.48)",
+            "page": "#F8F6F1",
+            "avocado-tint": "#E8F2D8",
+            "seat-taken": "#8C6D62",
+            "outline-variant": "#bfc9c0",
+            "secondary-fixed": "#ffdeaa",
+            "bay": "#CFBAB0",
+            "on-tertiary": "#ffffff",
+            "primary-fixed": "#acf2c6",
+            "on-primary-fixed": "#002111",
+            "on-primary": "#FFFFFF",
+            "ink": "#163229",
+            "error-container": "#ffdad6",
+            "outline": "#707972",
+            "gold-ink": "#7A5200",
+            "on-primary-fixed-variant": "#035232",
+            "primary-fixed-dim": "#91d5ab",
+            "secondary-container": "#feb71a",
+            "primary-tint": "#D9EADF",
+            "on-secondary-fixed": "#271900",
+            "on-secondary-fixed-variant": "#5f4100",
+            "background": "#f8faf5",
+            "on-surface": "#191c1a",
+            "surface-container-highest": "#e0e3de",
+            "error": "#ba1a1a",
+            "surface-variant": "#e0e3de",
+            "surface-container-low": "#f2f4ef",
+            "on-tertiary-fixed-variant": "#314f00",
+            "on-error-container": "#93000a",
+            "on-primary-container": "#7dc198",
+            "line-strong": "#8F7A70",
+            "on-error": "#ffffff",
+            "surface-dim": "#d8dbd6",
+            "surface-sunk": "#F2EEE8",
+            "surface": "#FFFFFF",
+            "secondary-fixed-dim": "#ffba2c",
+            "on-secondary-container": "#6b4b00",
+            "tertiary": "#1f3500",
+            "danger": "#BA1A1A",
+            "tertiary-container": "#304d00",
+            "avocado": "#A4D65E",
+            "inverse-surface": "#2e312e",
+            "gold-tint": "#FFF1CC",
+            "ink-muted": "#59665F",
+            "surface-container-lowest": "#ffffff",
+            "on-tertiary-fixed": "#112000",
+            "on-tertiary-container": "#91c14c",
+            "inverse-on-surface": "#eff2ec",
+            "surface-bright": "#f8faf5",
+            "primary": "#005030",
+            "on-background": "#191c1a"
+          },
+          borderRadius: {
+            "DEFAULT": "0.25rem",
+            "lg": "0.5rem",
+            "xl": "0.75rem",
+            "card": "14px",
+            "full": "9999px"
+          },
+          boxShadow: {
+            "elev-1": "0 1px 2px rgba(22,50,41,.06), 0 4px 12px rgba(22,50,41,.06)",
+            "elev-2": "0 2px 4px rgba(22,50,41,.06), 0 12px 28px rgba(0,80,48,.10)"
+          },
+          fontFamily: {
+            "headline-display": ["\"Archivo SemiExpanded\", sans-serif"],
+            "headline-lg": ["\"Archivo SemiExpanded\", sans-serif"],
+            "headline-md": ["\"Source Serif 4\", serif"],
+            "headline-sm": ["\"Source Serif 4\", serif"],
+            "body-lead": ["\"Figtree\", sans-serif"],
+            "body-md": ["\"Figtree\", sans-serif"],
+            "label-md": ["\"Figtree\", sans-serif"],
+            "meta-caption": ["\"Figtree\", sans-serif"],
+            "value-num": ["\"Archivo SemiExpanded\", sans-serif"],
+            "rank-num": ["\"Archivo SemiExpanded\", sans-serif"]
+          },
+          fontSize: {
+            "headline-display": ["72px", { lineHeight: "76px", fontWeight: "700" }],
+            "headline-lg": ["48px", { lineHeight: "56px", fontWeight: "600" }],
+            "headline-md": ["32px", { lineHeight: "40px", letterSpacing: "-0.01em", fontWeight: "600" }],
+            "headline-sm": ["24px", { lineHeight: "32px", letterSpacing: "-0.01em", fontWeight: "600" }],
+            "body-lead": ["22px", { lineHeight: "34px", fontWeight: "400" }],
+            "body-md": ["20px", { lineHeight: "30px", fontWeight: "400" }],
+            "label-md": ["18px", { lineHeight: "24px", letterSpacing: "0.01em", fontWeight: "600" }],
+            "meta-caption": ["16px", { lineHeight: "24px", letterSpacing: "0.01em", fontWeight: "500" }],
+            "value-num": ["22px", { lineHeight: "28px", fontWeight: "700" }],
+            "figures-band": ["72px", { lineHeight: "72px", fontWeight: "700" }]
+          }
+        }
+      }
+    };
+  </script>
+<style>
+    /* 45 degree hatch pattern for Signed up state */
+    .hatch-gold {
+      background-color: #FFB81C;
+      background-image: repeating-linear-gradient(
+        45deg,
+        #7A5200 0,
+        #7A5200 2px,
+        transparent 2px,
+        transparent 8px
+      );
+    }
+  </style>
+</head>
+<body class="bg-page text-ink antialiased min-h-screen">
+<!-- Main Canvas Container: 1280px Grid Shell -->
+<main class="w-full max-w-[1280px] mx-auto px-6 py-8 flex flex-col gap-8">
+<!-- 1. Top Ribbon: Fictional Data Notice -->
+<aside class="w-full bg-gold-tint rounded-[14px] px-4 py-3 flex items-center gap-2.5 shadow-none border border-secondary-container/20">
+<span class="material-symbols-outlined text-[20px] text-gold-ink select-none" data-icon="info">info</span>
+<p class="font-meta-caption text-[15px] leading-snug text-gold-ink m-0">
+<strong class="font-semibold">Fictional data —</strong> All student profiles are fictional, shaped by overall survey percentages.
+      </p>
+</aside>
+<!-- 2. Header & Action Row -->
+<header class="flex flex-col gap-2">
+<div class="flex items-center justify-between gap-4">
+<h1 class="font-headline-lg text-headline-lg text-ink tracking-tight m-0">
+          Results
+        </h1>
+<a class="inline-flex items-center justify-center min-h-[44px] px-6 bg-surface text-ink font-label-md text-label-md rounded-[10px] border-2 border-line-strong hover:bg-surface-sunk active:scale-[0.98] transition-all duration-100 ease-out cursor-pointer text-center no-underline select-none" href="#teams-list">
+          Back to your team's list
+        </a>
+</div>
+<p class="font-body-lead text-body-lead text-ink-muted max-w-4xl m-0">
+        What your team's list did, next to what emailing all 300 would have done, and next to your team's first round.
+      </p>
+<!-- 3. Journey Strip -->
+<div class="flex items-center gap-3.5 pt-3">
+<!-- Exact geometric SVG pictogram -->
+<svg aria-label="Journey progress step 2 of 2" class="shrink-0" fill="none" height="28" viewbox="0 0 124 28" width="124" xmlns="http://www.w3.org/2000/svg">
+<!-- Circle 1 (Completed / Prior) -->
+<circle cx="14" cy="14" fill="#FFFFFF" r="12" stroke="#8F7A70" stroke-width="2"></circle>
+<text fill="#59665F" font-family="'Archivo SemiExpanded', sans-serif" font-size="14" font-weight="700" text-anchor="middle" x="14" y="19">1</text>
+<!-- Dotted arrow connector -->
+<line stroke="#8F7A70" stroke-dasharray="3 3" stroke-width="2" x1="32" x2="88" y1="14" y2="14"></line>
+<path d="M84 10L90 14L84 18" stroke="#8F7A70" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+<!-- Circle 2 (Current Round - CPP Green) -->
+<circle cx="110" cy="14" fill="#005030" r="13"></circle>
+<text fill="#FFFFFF" font-family="'Archivo SemiExpanded', sans-serif" font-size="14" font-weight="700" text-anchor="middle" x="110" y="19">2</text>
+</svg>
+<span class="font-body-md text-[20px] font-medium text-ink">
+          Round 2 · Harbor Consumer Brands
+        </span>
+</div>
+</header>
+<!-- 4. Hero Two-Column Layout -->
+<section class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+<!-- Left Column: The Room Seating Grid (5 cols) -->
+<div class="lg:col-span-6 bg-surface rounded-card p-6 shadow-elev-1 flex flex-col gap-5">
+<div class="flex items-baseline justify-between">
+<h2 class="font-headline-sm text-headline-sm text-ink m-0">The room</h2>
+<span class="font-body-md text-meta-caption text-ink-muted tabular-nums">60 seats</span>
+</div>
+<!-- Front of the room stage bar -->
+<div class="w-full bg-surface-sunk py-2 text-center rounded-[6px]">
+<span class="font-meta-caption text-[14px] text-ink-muted font-medium tracking-wide">
+            Front of the room
+          </span>
+</div>
+<!-- 6 rows x 10 cols Grid -->
+<!-- Total 60: 8 seat-taken (#8C6D62), 11 primary (#005030 with check), 41 open (outline #8F7A70) -->
+<div aria-label="Seating room chart showing 8 already coming, 11 your invitations, and 41 still open." class="grid grid-cols-10 gap-2.5 p-2 bg-page/50 rounded-[8px]" role="img">
+<!-- Row 1: 8 Already coming, 2 Your invitations -->
+<div class="w-full aspect-square rounded-[4px] bg-seat-taken" title="Already coming"></div>
+<div class="w-full aspect-square rounded-[4px] bg-seat-taken" title="Already coming"></div>
+<div class="w-full aspect-square rounded-[4px] bg-seat-taken" title="Already coming"></div>
+<div class="w-full aspect-square rounded-[4px] bg-seat-taken" title="Already coming"></div>
+<div class="w-full aspect-square rounded-[4px] bg-seat-taken" title="Already coming"></div>
+<div class="w-full aspect-square rounded-[4px] bg-seat-taken" title="Already coming"></div>
+<div class="w-full aspect-square rounded-[4px] bg-seat-taken" title="Already coming"></div>
+<div class="w-full aspect-square rounded-[4px] bg-seat-taken" title="Already coming"></div>
+<div class="w-full aspect-square rounded-[4px] bg-primary flex items-center justify-center" title="Your invitations">
+<span class="material-symbols-outlined text-[15px] text-on-primary font-bold select-none" data-icon="check">check</span>
+</div>
+<div class="w-full aspect-square rounded-[4px] bg-primary flex items-center justify-center" title="Your invitations">
+<span class="material-symbols-outlined text-[15px] text-on-primary font-bold select-none" data-icon="check">check</span>
+</div>
+<!-- Row 2: 9 Your invitations, 1 Still open -->
+<div class="w-full aspect-square rounded-[4px] bg-primary flex items-center justify-center" title="Your invitations">
+<span class="material-symbols-outlined text-[15px] text-on-primary font-bold select-none" data-icon="check">check</span>
+</div>
+<div class="w-full aspect-square rounded-[4px] bg-primary flex items-center justify-center" title="Your invitations">
+<span class="material-symbols-outlined text-[15px] text-on-primary font-bold select-none" data-icon="check">check</span>
+</div>
+<div class="w-full aspect-square rounded-[4px] bg-primary flex items-center justify-center" title="Your invitations">
+<span class="material-symbols-outlined text-[15px] text-on-primary font-bold select-none" data-icon="check">check</span>
+</div>
+<div class="w-full aspect-square rounded-[4px] bg-primary flex items-center justify-center" title="Your invitations">
+<span class="material-symbols-outlined text-[15px] text-on-primary font-bold select-none" data-icon="check">check</span>
+</div>
+<div class="w-full aspect-square rounded-[4px] bg-primary flex items-center justify-center" title="Your invitations">
+<span class="material-symbols-outlined text-[15px] text-on-primary font-bold select-none" data-icon="check">check</span>
+</div>
+<div class="w-full aspect-square rounded-[4px] bg-primary flex items-center justify-center" title="Your invitations">
+<span class="material-symbols-outlined text-[15px] text-on-primary font-bold select-none" data-icon="check">check</span>
+</div>
+<div class="w-full aspect-square rounded-[4px] bg-primary flex items-center justify-center" title="Your invitations">
+<span class="material-symbols-outlined text-[15px] text-on-primary font-bold select-none" data-icon="check">check</span>
+</div>
+<div class="w-full aspect-square rounded-[4px] bg-primary flex items-center justify-center" title="Your invitations">
+<span class="material-symbols-outlined text-[15px] text-on-primary font-bold select-none" data-icon="check">check</span>
+</div>
+<div class="w-full aspect-square rounded-[4px] bg-primary flex items-center justify-center" title="Your invitations">
+<span class="material-symbols-outlined text-[15px] text-on-primary font-bold select-none" data-icon="check">check</span>
+</div>
+<div class="w-full aspect-square rounded-[4px] border-2 border-line-strong bg-transparent" title="Still open"></div>
+<!-- Rows 3 to 6: 40 Still open seats (4 rows * 10 = 40 + 1 = 41 total still open) -->
+<!-- Row 3 (10 seats) -->
+<div class="w-full aspect-square rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<div class="w-full aspect-square rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<div class="w-full aspect-square rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<div class="w-full aspect-square rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<div class="w-full aspect-square rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<div class="w-full aspect-square rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<div class="w-full aspect-square rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<div class="w-full aspect-square rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<div class="w-full aspect-square rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<div class="w-full aspect-square rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<!-- Row 4 (10 seats) -->
+<div class="w-full aspect-square rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<div class="w-full aspect-square rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<div class="w-full aspect-square rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<div class="w-full aspect-square rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<div class="w-full aspect-square rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<div class="w-full aspect-square rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<div class="w-full aspect-square rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<div class="w-full aspect-square rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<div class="w-full aspect-square rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<div class="w-full aspect-square rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<!-- Row 5 (10 seats) -->
+<div class="w-full aspect-square rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<div class="w-full aspect-square rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<div class="w-full aspect-square rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<div class="w-full aspect-square rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<div class="w-full aspect-square rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<div class="w-full aspect-square rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<div class="w-full aspect-square rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<div class="w-full aspect-square rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<div class="w-full aspect-square rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<div class="w-full aspect-square rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<!-- Row 6 (10 seats) -->
+<div class="w-full aspect-square rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<div class="w-full aspect-square rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<div class="w-full aspect-square rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<div class="w-full aspect-square rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<div class="w-full aspect-square rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<div class="w-full aspect-square rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<div class="w-full aspect-square rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<div class="w-full aspect-square rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<div class="w-full aspect-square rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<div class="w-full aspect-square rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+</div>
+<!-- Legend -->
+<div class="flex flex-wrap items-center justify-between gap-3 pt-2 text-ink">
+<div class="flex items-center gap-2">
+<span class="w-4 h-4 rounded-[3px] bg-seat-taken shrink-0"></span>
+<span class="font-meta-caption text-[15px] font-medium text-ink tabular-nums">Already coming (8)</span>
+</div>
+<div class="flex items-center gap-2">
+<span class="w-4 h-4 rounded-[3px] bg-primary flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-[11px] text-on-primary font-bold" data-icon="check">check</span>
+</span>
+<span class="font-meta-caption text-[15px] font-medium text-ink tabular-nums">Your invitations (11)</span>
+</div>
+<div class="flex items-center gap-2">
+<span class="w-4 h-4 rounded-[3px] border-2 border-line-strong bg-transparent shrink-0"></span>
+<span class="font-meta-caption text-[15px] font-medium text-ink tabular-nums">Still open (41)</span>
+</div>
+</div>
+</div>
+<!-- Right Column: Narrative Headline & Figures Band (6 cols) -->
+<div class="lg:col-span-6 flex flex-col justify-between self-stretch py-2 gap-8">
+<!-- Descriptive Headline Narrative -->
+<div class="flex flex-col gap-3">
+<h2 class="font-headline-md text-[40px] leading-[1.15] font-semibold text-ink m-0">
+            8 were already coming.<br/>
+            Your invitations added <span class="text-primary font-bold">11</span>.<br/>
+<span class="text-primary font-bold">41</span> seats are still open.
+          </h2>
+<p class="font-body-md text-[18px] text-ink-muted m-0 pt-1">
+            In round one your team's list left 46 seats empty.
+          </p>
+</div>
+<!-- Ruled Figures Band -->
+<div class="bg-surface rounded-card p-6 shadow-elev-1">
+<div class="grid grid-cols-3 divide-x divide-line-strong/60 text-center">
+<!-- Col 1 -->
+<div class="flex flex-col items-center justify-center px-2">
+<span class="font-headline-display text-figures-band text-primary tabular-nums tracking-tight">
+                60
+              </span>
+<span class="font-meta-caption text-[16px] text-ink-muted mt-2 font-medium">
+                Seats in the room
+              </span>
+</div>
+<!-- Col 2 -->
+<div class="flex flex-col items-center justify-center px-2">
+<span class="font-headline-display text-figures-band text-primary tabular-nums tracking-tight">
+                8
+              </span>
+<span class="font-meta-caption text-[16px] text-ink-muted mt-2 font-medium">
+                Already coming
+              </span>
+</div>
+<!-- Col 3 -->
+<div class="flex flex-col items-center justify-center px-2">
+<span class="font-headline-display text-figures-band text-primary tabular-nums tracking-tight">
+                41
+              </span>
+<span class="font-meta-caption text-[16px] text-ink-muted mt-2 font-medium">
+                Still open
+              </span>
+</div>
+</div>
+</div>
+<p class="font-meta-caption text-[16px] text-ink-muted m-0">
+          A team runs results once per event.
+        </p>
+</div>
+</section>
+<!-- 5. Section: What happened for Harbor Consumer Brands -->
+<section class="flex flex-col gap-4 pt-4">
+<div class="flex flex-col gap-1">
+<h2 class="font-headline-md text-headline-md text-ink m-0">
+          What happened for Harbor Consumer Brands
+        </h2>
+<p class="font-body-md text-[18px] text-ink-muted m-0">
+          Your team's list, contacting all 300, and your team's first round.
+        </p>
+</div>
+<!-- Main Comparison Chart Card -->
+<div class="bg-surface rounded-card p-8 shadow-elev-1 flex flex-col gap-8">
+<!-- Legend Bar -->
+<div class="flex flex-wrap items-center gap-6 pb-2 border-b border-surface-container">
+<div class="flex items-center gap-2.5">
+<span class="w-5 h-5 rounded-[4px] bg-primary-tint border-2 border-primary shrink-0"></span>
+<span class="font-label-md text-label-md text-ink font-semibold">Invited</span>
+</div>
+<div class="flex items-center gap-2.5">
+<span class="w-5 h-5 rounded-[4px] hatch-gold border border-gold-ink shrink-0"></span>
+<span class="font-label-md text-label-md text-ink font-semibold">Signed up</span>
+</div>
+<div class="flex items-center gap-2.5">
+<span class="w-5 h-5 rounded-[4px] bg-primary shrink-0"></span>
+<span class="font-label-md text-label-md text-ink font-semibold">Attended</span>
+</div>
+</div>
+<!-- 3 Grouped Bar Columns Container -->
+<div class="grid grid-cols-1 md:grid-cols-3 gap-8 items-end pt-4 pb-2">
+<!-- Group 1: Your team's list -->
+<div class="flex flex-col items-center bg-surface-container-low/40 rounded-xl p-5 gap-4">
+<div class="w-full flex items-end justify-center gap-3.5 h-[240px] px-2 border-b border-line-strong">
+<!-- Invited Bar: 30 -->
+<div class="flex flex-col items-center w-12 gap-1.5 h-full justify-end">
+<span class="font-value-num text-value-num text-ink tabular-nums">30</span>
+<div class="w-full h-[50px] bg-primary-tint border-2 border-primary rounded-t-[6px]"></div>
+</div>
+<!-- Signed up Bar: 11 -->
+<div class="flex flex-col items-center w-12 gap-1.5 h-full justify-end">
+<span class="font-value-num text-value-num text-ink tabular-nums">11</span>
+<div class="w-full h-[28px] hatch-gold border border-gold-ink rounded-t-[6px]"></div>
+</div>
+<!-- Attended Bar: 8 -->
+<div class="flex flex-col items-center w-12 gap-1.5 h-full justify-end">
+<span class="font-value-num text-value-num text-ink tabular-nums">8</span>
+<div class="w-full h-[20px] bg-primary rounded-t-[6px]"></div>
+</div>
+</div>
+<div class="text-center flex flex-col gap-1">
+<h3 class="font-label-md text-label-md font-semibold text-ink m-0">Your team's list</h3>
+<span class="font-meta-caption text-[16px] text-ink-muted tabular-nums">30 · 11 · 8</span>
+</div>
+</div>
+<!-- Group 2: If you emailed everyone -->
+<div class="flex flex-col items-center bg-surface-container-low/40 rounded-xl p-5 gap-4">
+<div class="w-full flex items-end justify-center gap-3.5 h-[240px] px-2 border-b border-line-strong">
+<!-- Invited Bar: 300 -->
+<div class="flex flex-col items-center w-12 gap-1.5 h-full justify-end">
+<span class="font-value-num text-value-num text-ink tabular-nums">300</span>
+<div class="w-full h-[200px] bg-primary-tint border-2 border-primary rounded-t-[6px]"></div>
+</div>
+<!-- Signed up Bar: 44 -->
+<div class="flex flex-col items-center w-12 gap-1.5 h-full justify-end">
+<span class="font-value-num text-value-num text-ink tabular-nums">44</span>
+<div class="w-full h-[66px] hatch-gold border border-gold-ink rounded-t-[6px]"></div>
+</div>
+<!-- Attended Bar: 29 -->
+<div class="flex flex-col items-center w-12 gap-1.5 h-full justify-end">
+<span class="font-value-num text-value-num text-ink tabular-nums">29</span>
+<div class="w-full h-[48px] bg-primary rounded-t-[6px]"></div>
+</div>
+</div>
+<div class="text-center flex flex-col gap-1">
+<h3 class="font-label-md text-label-md font-semibold text-ink m-0">If you emailed everyone</h3>
+<span class="font-meta-caption text-[16px] text-ink-muted tabular-nums">300 · 44 · 29</span>
+</div>
+</div>
+<!-- Group 3: Your team, round one -->
+<div class="flex flex-col items-center bg-surface-container-low/40 rounded-xl p-5 gap-4">
+<div class="w-full flex items-end justify-center gap-3.5 h-[240px] px-2 border-b border-line-strong">
+<!-- Invited Bar: 30 -->
+<div class="flex flex-col items-center w-12 gap-1.5 h-full justify-end">
+<span class="font-value-num text-value-num text-ink tabular-nums">30</span>
+<div class="w-full h-[50px] bg-primary-tint border-2 border-primary rounded-t-[6px]"></div>
+</div>
+<!-- Signed up Bar: 6 -->
+<div class="flex flex-col items-center w-12 gap-1.5 h-full justify-end">
+<span class="font-value-num text-value-num text-ink tabular-nums">6</span>
+<div class="w-full h-[18px] hatch-gold border border-gold-ink rounded-t-[6px]"></div>
+</div>
+<!-- Attended Bar: 4 -->
+<div class="flex flex-col items-center w-12 gap-1.5 h-full justify-end">
+<span class="font-value-num text-value-num text-ink tabular-nums">4</span>
+<div class="w-full h-[14px] bg-primary rounded-t-[6px]"></div>
+</div>
+</div>
+<div class="text-center flex flex-col gap-1">
+<h3 class="font-label-md text-label-md font-semibold text-ink m-0">Your team, round one</h3>
+<span class="font-meta-caption text-[16px] text-ink-muted tabular-nums">30 · 6 · 4</span>
+</div>
+</div>
+</div>
+<!-- Quiet Table Disclosure Link -->
+<div class="pt-2">
+<button class="inline-flex items-center gap-2 font-label-md text-[17px] text-primary hover:text-ink transition-colors duration-150 cursor-pointer p-0 bg-transparent border-none" type="button">
+<span class="material-symbols-outlined text-[20px]" data-icon="table_chart">table_chart</span>
+<span>Show these counts as a table</span>
+</button>
+</div>
+</div>
+</section>
+<!-- 6. Section: Your team's first round -->
+<section class="bg-surface rounded-card p-6 shadow-elev-1 flex flex-col gap-2">
+<h2 class="font-headline-sm text-headline-sm text-ink m-0">
+        Your team's first round
+      </h2>
+<p class="font-body-md text-body-md text-ink m-0">
+        Built from your team's setting “Major first”. It left 46 seats empty.
+      </p>
+</section>
+<!-- 7. License Line Footer -->
+<footer class="pt-6 pb-8 border-t border-line">
+<p class="font-meta-caption text-[14px] text-ink-muted text-center m-0">
+        For California State Polytechnic University, Pomona — College of Business Administration instructional use only. All student profiles are fictional.
+      </p>
+</footer>
+</main>
+</body></html>

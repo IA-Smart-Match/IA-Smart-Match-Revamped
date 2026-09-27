@@ -1,0 +1,572 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Two settings, side by side — Smart Match Class Exercise</title>
+  <!-- Google Fonts: Archivo, Source Serif 4, Figtree -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700&family=Figtree:wght@400;500;600;700&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    :root {
+      --ce-page: #F8F6F1;
+      --ce-surface: #FFFFFF;
+      --ce-surface-sunk: #F2EEE8;
+      --ce-ink: #163229;
+      --ce-ink-muted: #59665F;
+      --ce-primary: #005030;
+      --ce-on-primary: #FFFFFF;
+      --ce-primary-tint: #D9EADF;
+      --ce-primary-tint-text: #003D24;
+      --ce-gold: #FFB81C;
+      --ce-gold-tint: #FFF1CC;
+      --ce-gold-ink: #7A5200;
+      --ce-line: #D9CBC4;
+      --ce-line-strong: #8F7A70;
+    }
+
+    body {
+      background-color: var(--ce-page);
+      color: var(--ce-ink);
+      font-family: 'Figtree', sans-serif;
+      margin: 0;
+      padding: 0;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .font-archivo {
+      font-family: 'Archivo', sans-serif;
+      font-stretch: 110%;
+    }
+
+    .font-serif {
+      font-family: 'Source Serif 4', Georgia, serif;
+    }
+
+    .tabular-nums {
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* Soft two-layer shadow */
+    .ce-card-shadow {
+      box-shadow: 0 1px 2px rgba(22, 50, 41, 0.06), 0 4px 12px rgba(22, 50, 41, 0.06);
+    }
+
+    /* Interactive button transition */
+    .ce-button-secondary {
+      background-color: #FFFFFF;
+      border: 2px solid var(--ce-line-strong);
+      color: var(--ce-ink);
+      border-radius: 10px;
+      transition: background-color 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
+    }
+    .ce-button-secondary:hover {
+      border-color: var(--ce-primary);
+      background-color: var(--ce-primary-tint);
+    }
+    .ce-button-secondary:active {
+      transform: scale(0.98);
+    }
+
+    .ce-text-link {
+      color: var(--ce-primary);
+      text-decoration: underline;
+      text-underline-offset: 4px;
+      font-weight: 500;
+      transition: opacity 0.15s ease;
+    }
+    .ce-text-link:hover {
+      opacity: 0.8;
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col items-center py-8 px-6">
+
+  <!-- Main Container (max 1152px content width) -->
+  <main class="w-full max-w-[1152px] flex flex-col">
+
+    <!-- Top Ribbon: Fictional Data Notice -->
+    <div class="w-full bg-[#FFF1CC] rounded-[14px] px-5 py-3 flex items-center gap-2.5 mb-10 text-[16px] text-[#7A5200]">
+      <i data-lucide="info" class="w-5 h-5 stroke-[2] text-[#7A5200] shrink-0"></i>
+      <p class="m-0 leading-normal text-[#163229]">
+        <strong class="font-bold text-[#7A5200]">Fictional data —</strong> All student profiles are fictional, shaped by overall survey percentages.
+      </p>
+    </div>
+
+    <!-- Comparison Section Header -->
+    <section class="w-full mb-8">
+      <div class="flex items-center justify-between gap-4 pb-3">
+        <h1 class="font-serif text-[32px] leading-[40px] font-semibold text-[#163229] tracking-[-0.01em] m-0">
+          Two settings, side by side
+        </h1>
+        <button type="button" class="ce-button-secondary px-5 py-2.5 text-[18px] font-semibold cursor-pointer">
+          Close this comparison
+        </button>
+      </div>
+
+      <!-- Overlap count readout with gold link icon chip -->
+      <div class="flex items-center gap-2.5 mt-2">
+        <span class="inline-flex items-center justify-center w-7 h-7 rounded-full bg-[#FFB81C] text-[#17352A] shrink-0">
+          <i data-lucide="link-2" class="w-4 h-4 stroke-[2]"></i>
+        </span>
+        <p class="text-[22px] leading-[32px] text-[#163229] font-normal m-0">
+          12 names are on both lists, highlighted in each.
+        </p>
+      </div>
+    </section>
+
+    <!-- Side-by-Side Comparison Cards Grid (2 x 552px equal cards with 48px gap = 1152px) -->
+    <div class="w-full grid grid-cols-2 gap-12 items-start">
+
+      <!-- LEFT CARD: Major first -->
+      <div class="w-full bg-white rounded-[14px] ce-card-shadow p-6 flex flex-col">
+        <!-- Card Header -->
+        <div class="border-b border-[#D9CBC4] pb-4 mb-2">
+          <h2 class="font-serif text-[24px] leading-[32px] font-semibold text-[#163229] m-0">
+            Major first
+          </h2>
+          <p class="text-[15px] leading-[22px] text-[#59665F] mt-1 m-0">
+            same major 0.60 · interested 0.15 · career goal 0.15 · similar events 0.10
+          </p>
+        </div>
+
+        <!-- 10-Row Ranked List -->
+        <div class="flex flex-col divide-y divide-[#D9CBC4]">
+
+          <!-- Row 1: Maya Tran -->
+          <div class="py-3 px-3 rounded-lg flex items-start gap-4">
+            <span class="font-archivo text-[24px] leading-none font-bold text-[#005030] tabular-nums w-7 shrink-0 pt-0.5 text-right">
+              1
+            </span>
+            <div class="flex-1 min-w-0">
+              <div class="flex items-baseline justify-between gap-2">
+                <span class="text-[18px] font-semibold text-[#163229] leading-snug">Maya Tran</span>
+                <span class="text-[15px] text-[#59665F] shrink-0">Computer Information Systems · Senior</span>
+              </div>
+              <p class="font-serif text-[16px] text-[#59665F] leading-snug mt-1 mb-0">
+                What counted: same major; said they are interested in this topic; career goal fits this event.
+              </p>
+            </div>
+          </div>
+
+          <!-- Row 2: Daniel Okafor (On Both Lists) -->
+          <div class="py-3 px-3 rounded-lg flex items-start gap-4 bg-[#FFF1CC]">
+            <span class="font-archivo text-[24px] leading-none font-bold text-[#005030] tabular-nums w-7 shrink-0 pt-0.5 text-right">
+              2
+            </span>
+            <div class="flex-1 min-w-0">
+              <div class="flex items-baseline justify-between gap-2">
+                <div class="flex items-center gap-2">
+                  <span class="text-[18px] font-semibold text-[#163229] leading-snug">Daniel Okafor</span>
+                  <span class="inline-flex items-center gap-1 bg-[#FFB81C] text-[#17352A] text-[13px] font-semibold px-2 py-0.5 rounded-full shrink-0">
+                    <i data-lucide="link-2" class="w-3 h-3 stroke-[2]"></i>
+                    on both lists
+                  </span>
+                </div>
+                <span class="text-[15px] text-[#59665F] shrink-0">International Business &amp; Marketing · Senior</span>
+              </div>
+              <p class="font-serif text-[16px] text-[#59665F] leading-snug mt-1 mb-0">
+                What counted: same major; career goal fits this event.
+              </p>
+            </div>
+          </div>
+
+          <!-- Row 3: Priya Patel -->
+          <div class="py-3 px-3 rounded-lg flex items-start gap-4">
+            <span class="font-archivo text-[24px] leading-none font-bold text-[#005030] tabular-nums w-7 shrink-0 pt-0.5 text-right">
+              3
+            </span>
+            <div class="flex-1 min-w-0">
+              <div class="flex items-baseline justify-between gap-2">
+                <span class="text-[18px] font-semibold text-[#163229] leading-snug">Priya Patel</span>
+                <span class="text-[15px] text-[#59665F] shrink-0">Computer Information Systems · Junior</span>
+              </div>
+              <p class="font-serif text-[16px] text-[#59665F] leading-snug mt-1 mb-0">
+                What counted: same major; went to similar events before.
+              </p>
+            </div>
+          </div>
+
+          <!-- Row 4: Jordan Kim (On Both Lists) -->
+          <div class="py-3 px-3 rounded-lg flex items-start gap-4 bg-[#FFF1CC]">
+            <span class="font-archivo text-[24px] leading-none font-bold text-[#005030] tabular-nums w-7 shrink-0 pt-0.5 text-right">
+              4
+            </span>
+            <div class="flex-1 min-w-0">
+              <div class="flex items-baseline justify-between gap-2">
+                <div class="flex items-center gap-2">
+                  <span class="text-[18px] font-semibold text-[#163229] leading-snug">Jordan Kim</span>
+                  <span class="inline-flex items-center gap-1 bg-[#FFB81C] text-[#17352A] text-[13px] font-semibold px-2 py-0.5 rounded-full shrink-0">
+                    <i data-lucide="link-2" class="w-3 h-3 stroke-[2]"></i>
+                    on both lists
+                  </span>
+                </div>
+                <span class="text-[15px] text-[#59665F] shrink-0">Computer Information Systems · Senior</span>
+              </div>
+              <p class="font-serif text-[16px] text-[#59665F] leading-snug mt-1 mb-0">
+                Same major; nothing else on file.
+              </p>
+            </div>
+          </div>
+
+          <!-- Row 5: Alexis Rivera (On Both Lists) -->
+          <div class="py-3 px-3 rounded-lg flex items-start gap-4 bg-[#FFF1CC]">
+            <span class="font-archivo text-[24px] leading-none font-bold text-[#005030] tabular-nums w-7 shrink-0 pt-0.5 text-right">
+              5
+            </span>
+            <div class="flex-1 min-w-0">
+              <div class="flex items-baseline justify-between gap-2">
+                <div class="flex items-center gap-2">
+                  <span class="text-[18px] font-semibold text-[#163229] leading-snug">Alexis Rivera</span>
+                  <span class="inline-flex items-center gap-1 bg-[#FFB81C] text-[#17352A] text-[13px] font-semibold px-2 py-0.5 rounded-full shrink-0">
+                    <i data-lucide="link-2" class="w-3 h-3 stroke-[2]"></i>
+                    on both lists
+                  </span>
+                </div>
+                <span class="text-[15px] text-[#59665F] shrink-0">Computer Information Systems · Junior</span>
+              </div>
+              <p class="font-serif text-[16px] text-[#59665F] leading-snug mt-1 mb-0">
+                Tied on major; ordered by year.
+              </p>
+            </div>
+          </div>
+
+          <!-- Row 6: Ethan Nguyen -->
+          <div class="py-3 px-3 rounded-lg flex items-start gap-4">
+            <span class="font-archivo text-[24px] leading-none font-bold text-[#005030] tabular-nums w-7 shrink-0 pt-0.5 text-right">
+              6
+            </span>
+            <div class="flex-1 min-w-0">
+              <div class="flex items-baseline justify-between gap-2">
+                <span class="text-[18px] font-semibold text-[#163229] leading-snug">Ethan Nguyen</span>
+                <span class="text-[15px] text-[#59665F] shrink-0">International Business &amp; Marketing · Senior</span>
+              </div>
+              <p class="font-serif text-[16px] text-[#59665F] leading-snug mt-1 mb-0">
+                What counted: same major; went to similar events before.
+              </p>
+            </div>
+          </div>
+
+          <!-- Row 7: Marcus Chen (On Both Lists) -->
+          <div class="py-3 px-3 rounded-lg flex items-start gap-4 bg-[#FFF1CC]">
+            <span class="font-archivo text-[24px] leading-none font-bold text-[#005030] tabular-nums w-7 shrink-0 pt-0.5 text-right">
+              7
+            </span>
+            <div class="flex-1 min-w-0">
+              <div class="flex items-baseline justify-between gap-2">
+                <div class="flex items-center gap-2">
+                  <span class="text-[18px] font-semibold text-[#163229] leading-snug">Marcus Chen</span>
+                  <span class="inline-flex items-center gap-1 bg-[#FFB81C] text-[#17352A] text-[13px] font-semibold px-2 py-0.5 rounded-full shrink-0">
+                    <i data-lucide="link-2" class="w-3 h-3 stroke-[2]"></i>
+                    on both lists
+                  </span>
+                </div>
+                <span class="text-[15px] text-[#59665F] shrink-0">International Business &amp; Marketing · Junior</span>
+              </div>
+              <p class="font-serif text-[16px] text-[#59665F] leading-snug mt-1 mb-0">
+                Tied on major; ordered by year.
+              </p>
+            </div>
+          </div>
+
+          <!-- Row 8: Hannah Lee -->
+          <div class="py-3 px-3 rounded-lg flex items-start gap-4">
+            <span class="font-archivo text-[24px] leading-none font-bold text-[#005030] tabular-nums w-7 shrink-0 pt-0.5 text-right">
+              8
+            </span>
+            <div class="flex-1 min-w-0">
+              <div class="flex items-baseline justify-between gap-2">
+                <span class="text-[18px] font-semibold text-[#163229] leading-snug">Hannah Lee</span>
+                <span class="text-[15px] text-[#59665F] shrink-0">International Business &amp; Marketing · Sophomore</span>
+              </div>
+              <p class="font-serif text-[16px] text-[#59665F] leading-snug mt-1 mb-0">
+                Tied on major; ordered by year.
+              </p>
+            </div>
+          </div>
+
+          <!-- Row 9: Diego Garcia (On Both Lists) -->
+          <div class="py-3 px-3 rounded-lg flex items-start gap-4 bg-[#FFF1CC]">
+            <span class="font-archivo text-[24px] leading-none font-bold text-[#005030] tabular-nums w-7 shrink-0 pt-0.5 text-right">
+              9
+            </span>
+            <div class="flex-1 min-w-0">
+              <div class="flex items-baseline justify-between gap-2">
+                <div class="flex items-center gap-2">
+                  <span class="text-[18px] font-semibold text-[#163229] leading-snug">Diego Garcia</span>
+                  <span class="inline-flex items-center gap-1 bg-[#FFB81C] text-[#17352A] text-[13px] font-semibold px-2 py-0.5 rounded-full shrink-0">
+                    <i data-lucide="link-2" class="w-3 h-3 stroke-[2]"></i>
+                    on both lists
+                  </span>
+                </div>
+                <span class="text-[15px] text-[#59665F] shrink-0">Accounting · Senior</span>
+              </div>
+              <p class="font-serif text-[16px] text-[#59665F] leading-snug mt-1 mb-0">
+                What counted: went to similar events before.
+              </p>
+            </div>
+          </div>
+
+          <!-- Row 10: Chloe Brooks (On Both Lists) -->
+          <div class="py-3 px-3 rounded-lg flex items-start gap-4 bg-[#FFF1CC]">
+            <span class="font-archivo text-[24px] leading-none font-bold text-[#005030] tabular-nums w-7 shrink-0 pt-0.5 text-right">
+              10
+            </span>
+            <div class="flex-1 min-w-0">
+              <div class="flex items-baseline justify-between gap-2">
+                <div class="flex items-center gap-2">
+                  <span class="text-[18px] font-semibold text-[#163229] leading-snug">Chloe Brooks</span>
+                  <span class="inline-flex items-center gap-1 bg-[#FFB81C] text-[#17352A] text-[13px] font-semibold px-2 py-0.5 rounded-full shrink-0">
+                    <i data-lucide="link-2" class="w-3 h-3 stroke-[2]"></i>
+                    on both lists
+                  </span>
+                </div>
+                <span class="text-[15px] text-[#59665F] shrink-0">International Business &amp; Marketing · Senior</span>
+              </div>
+              <p class="font-serif text-[16px] text-[#59665F] leading-snug mt-1 mb-0">
+                What counted: said they are interested in this topic; career goal fits this event.
+              </p>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Card Footer -->
+        <div class="pt-4 mt-2 text-center border-t border-[#D9CBC4]">
+          <a href="#" class="ce-text-link text-[18px]">Showing 10 of 30. Show all 30</a>
+        </div>
+      </div>
+
+      <!-- RIGHT CARD: Interests first -->
+      <div class="w-full bg-white rounded-[14px] ce-card-shadow p-6 flex flex-col">
+        <!-- Card Header -->
+        <div class="border-b border-[#D9CBC4] pb-4 mb-2">
+          <h2 class="font-serif text-[24px] leading-[32px] font-semibold text-[#163229] m-0">
+            Interests first
+          </h2>
+          <p class="text-[15px] leading-[22px] text-[#59665F] mt-1 m-0">
+            same major 0.15 · interested 0.45 · career goal 0.25 · similar events 0.15
+          </p>
+        </div>
+
+        <!-- 10-Row Ranked List -->
+        <div class="flex flex-col divide-y divide-[#D9CBC4]">
+
+          <!-- Row 1: Sofia Morales -->
+          <div class="py-3 px-3 rounded-lg flex items-start gap-4">
+            <span class="font-archivo text-[24px] leading-none font-bold text-[#005030] tabular-nums w-7 shrink-0 pt-0.5 text-right">
+              1
+            </span>
+            <div class="flex-1 min-w-0">
+              <div class="flex items-baseline justify-between gap-2">
+                <span class="text-[18px] font-semibold text-[#163229] leading-snug">Sofia Morales</span>
+                <span class="text-[15px] text-[#59665F] shrink-0">Technology &amp; Operations Management · Senior</span>
+              </div>
+              <p class="font-serif text-[16px] text-[#59665F] leading-snug mt-1 mb-0">
+                What counted: said they are interested in this topic; career goal fits this event.
+              </p>
+            </div>
+          </div>
+
+          <!-- Row 2: Daniel Okafor (On Both Lists) -->
+          <div class="py-3 px-3 rounded-lg flex items-start gap-4 bg-[#FFF1CC]">
+            <span class="font-archivo text-[24px] leading-none font-bold text-[#005030] tabular-nums w-7 shrink-0 pt-0.5 text-right">
+              2
+            </span>
+            <div class="flex-1 min-w-0">
+              <div class="flex items-baseline justify-between gap-2">
+                <div class="flex items-center gap-2">
+                  <span class="text-[18px] font-semibold text-[#163229] leading-snug">Daniel Okafor</span>
+                  <span class="inline-flex items-center gap-1 bg-[#FFB81C] text-[#17352A] text-[13px] font-semibold px-2 py-0.5 rounded-full shrink-0">
+                    <i data-lucide="link-2" class="w-3 h-3 stroke-[2]"></i>
+                    on both lists
+                  </span>
+                </div>
+                <span class="text-[15px] text-[#59665F] shrink-0">International Business &amp; Marketing · Senior</span>
+              </div>
+              <p class="font-serif text-[16px] text-[#59665F] leading-snug mt-1 mb-0">
+                What counted: same major; career goal fits this event.
+              </p>
+            </div>
+          </div>
+
+          <!-- Row 3: Leila Haddad -->
+          <div class="py-3 px-3 rounded-lg flex items-start gap-4">
+            <span class="font-archivo text-[24px] leading-none font-bold text-[#005030] tabular-nums w-7 shrink-0 pt-0.5 text-right">
+              3
+            </span>
+            <div class="flex-1 min-w-0">
+              <div class="flex items-baseline justify-between gap-2">
+                <span class="text-[18px] font-semibold text-[#163229] leading-snug">Leila Haddad</span>
+                <span class="text-[15px] text-[#59665F] shrink-0">International Business &amp; Marketing · Junior</span>
+              </div>
+              <p class="font-serif text-[16px] text-[#59665F] leading-snug mt-1 mb-0">
+                What counted: said they are interested in this topic; career goal fits this event.
+              </p>
+            </div>
+          </div>
+
+          <!-- Row 4: Alexis Rivera (On Both Lists) -->
+          <div class="py-3 px-3 rounded-lg flex items-start gap-4 bg-[#FFF1CC]">
+            <span class="font-archivo text-[24px] leading-none font-bold text-[#005030] tabular-nums w-7 shrink-0 pt-0.5 text-right">
+              4
+            </span>
+            <div class="flex-1 min-w-0">
+              <div class="flex items-baseline justify-between gap-2">
+                <div class="flex items-center gap-2">
+                  <span class="text-[18px] font-semibold text-[#163229] leading-snug">Alexis Rivera</span>
+                  <span class="inline-flex items-center gap-1 bg-[#FFB81C] text-[#17352A] text-[13px] font-semibold px-2 py-0.5 rounded-full shrink-0">
+                    <i data-lucide="link-2" class="w-3 h-3 stroke-[2]"></i>
+                    on both lists
+                  </span>
+                </div>
+                <span class="text-[15px] text-[#59665F] shrink-0">Computer Information Systems · Junior</span>
+              </div>
+              <p class="font-serif text-[16px] text-[#59665F] leading-snug mt-1 mb-0">
+                Tied on major; ordered by year.
+              </p>
+            </div>
+          </div>
+
+          <!-- Row 5: Grace Park -->
+          <div class="py-3 px-3 rounded-lg flex items-start gap-4">
+            <span class="font-archivo text-[24px] leading-none font-bold text-[#005030] tabular-nums w-7 shrink-0 pt-0.5 text-right">
+              5
+            </span>
+            <div class="flex-1 min-w-0">
+              <div class="flex items-baseline justify-between gap-2">
+                <span class="text-[18px] font-semibold text-[#163229] leading-snug">Grace Park</span>
+                <span class="text-[15px] text-[#59665F] shrink-0">International Business &amp; Marketing · Senior</span>
+              </div>
+              <p class="font-serif text-[16px] text-[#59665F] leading-snug mt-1 mb-0">
+                What counted: said they are interested in this topic; went to similar events before.
+              </p>
+            </div>
+          </div>
+
+          <!-- Row 6: Jordan Kim (On Both Lists) -->
+          <div class="py-3 px-3 rounded-lg flex items-start gap-4 bg-[#FFF1CC]">
+            <span class="font-archivo text-[24px] leading-none font-bold text-[#005030] tabular-nums w-7 shrink-0 pt-0.5 text-right">
+              6
+            </span>
+            <div class="flex-1 min-w-0">
+              <div class="flex items-baseline justify-between gap-2">
+                <div class="flex items-center gap-2">
+                  <span class="text-[18px] font-semibold text-[#163229] leading-snug">Jordan Kim</span>
+                  <span class="inline-flex items-center gap-1 bg-[#FFB81C] text-[#17352A] text-[13px] font-semibold px-2 py-0.5 rounded-full shrink-0">
+                    <i data-lucide="link-2" class="w-3 h-3 stroke-[2]"></i>
+                    on both lists
+                  </span>
+                </div>
+                <span class="text-[15px] text-[#59665F] shrink-0">Computer Information Systems · Senior</span>
+              </div>
+              <p class="font-serif text-[16px] text-[#59665F] leading-snug mt-1 mb-0">
+                Same major; nothing else on file.
+              </p>
+            </div>
+          </div>
+
+          <!-- Row 7: Chloe Brooks (On Both Lists) -->
+          <div class="py-3 px-3 rounded-lg flex items-start gap-4 bg-[#FFF1CC]">
+            <span class="font-archivo text-[24px] leading-none font-bold text-[#005030] tabular-nums w-7 shrink-0 pt-0.5 text-right">
+              7
+            </span>
+            <div class="flex-1 min-w-0">
+              <div class="flex items-baseline justify-between gap-2">
+                <div class="flex items-center gap-2">
+                  <span class="text-[18px] font-semibold text-[#163229] leading-snug">Chloe Brooks</span>
+                  <span class="inline-flex items-center gap-1 bg-[#FFB81C] text-[#17352A] text-[13px] font-semibold px-2 py-0.5 rounded-full shrink-0">
+                    <i data-lucide="link-2" class="w-3 h-3 stroke-[2]"></i>
+                    on both lists
+                  </span>
+                </div>
+                <span class="text-[15px] text-[#59665F] shrink-0">International Business &amp; Marketing · Senior</span>
+              </div>
+              <p class="font-serif text-[16px] text-[#59665F] leading-snug mt-1 mb-0">
+                What counted: said they are interested in this topic; career goal fits this event.
+              </p>
+            </div>
+          </div>
+
+          <!-- Row 8: Marcus Chen (On Both Lists) -->
+          <div class="py-3 px-3 rounded-lg flex items-start gap-4 bg-[#FFF1CC]">
+            <span class="font-archivo text-[24px] leading-none font-bold text-[#005030] tabular-nums w-7 shrink-0 pt-0.5 text-right">
+              8
+            </span>
+            <div class="flex-1 min-w-0">
+              <div class="flex items-baseline justify-between gap-2">
+                <div class="flex items-center gap-2">
+                  <span class="text-[18px] font-semibold text-[#163229] leading-snug">Marcus Chen</span>
+                  <span class="inline-flex items-center gap-1 bg-[#FFB81C] text-[#17352A] text-[13px] font-semibold px-2 py-0.5 rounded-full shrink-0">
+                    <i data-lucide="link-2" class="w-3 h-3 stroke-[2]"></i>
+                    on both lists
+                  </span>
+                </div>
+                <span class="text-[15px] text-[#59665F] shrink-0">International Business &amp; Marketing · Junior</span>
+              </div>
+              <p class="font-serif text-[16px] text-[#59665F] leading-snug mt-1 mb-0">
+                Tied on major; ordered by year.
+              </p>
+            </div>
+          </div>
+
+          <!-- Row 9: Aisha Bello -->
+          <div class="py-3 px-3 rounded-lg flex items-start gap-4">
+            <span class="font-archivo text-[24px] leading-none font-bold text-[#005030] tabular-nums w-7 shrink-0 pt-0.5 text-right">
+              9
+            </span>
+            <div class="flex-1 min-w-0">
+              <div class="flex items-baseline justify-between gap-2">
+                <span class="text-[18px] font-semibold text-[#163229] leading-snug">Aisha Bello</span>
+                <span class="text-[15px] text-[#59665F] shrink-0">International Business &amp; Marketing · Senior</span>
+              </div>
+              <p class="font-serif text-[16px] text-[#59665F] leading-snug mt-1 mb-0">
+                Tied on major; ordered by year.
+              </p>
+            </div>
+          </div>
+
+          <!-- Row 10: Diego Garcia (On Both Lists) -->
+          <div class="py-3 px-3 rounded-lg flex items-start gap-4 bg-[#FFF1CC]">
+            <span class="font-archivo text-[24px] leading-none font-bold text-[#005030] tabular-nums w-7 shrink-0 pt-0.5 text-right">
+              10
+            </span>
+            <div class="flex-1 min-w-0">
+              <div class="flex items-baseline justify-between gap-2">
+                <div class="flex items-center gap-2">
+                  <span class="text-[18px] font-semibold text-[#163229] leading-snug">Diego Garcia</span>
+                  <span class="inline-flex items-center gap-1 bg-[#FFB81C] text-[#17352A] text-[13px] font-semibold px-2 py-0.5 rounded-full shrink-0">
+                    <i data-lucide="link-2" class="w-3 h-3 stroke-[2]"></i>
+                    on both lists
+                  </span>
+                </div>
+                <span class="text-[15px] text-[#59665F] shrink-0">Accounting · Senior</span>
+              </div>
+              <p class="font-serif text-[16px] text-[#59665F] leading-snug mt-1 mb-0">
+                What counted: went to similar events before.
+              </p>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Card Footer -->
+        <div class="pt-4 mt-2 text-center border-t border-[#D9CBC4]">
+          <a href="#" class="ce-text-link text-[18px]">Showing 10 of 30. Show all 30</a>
+        </div>
+      </div>
+
+    </div>
+
+  </main>
+
+  <script>
+    // Initialize Lucide icons
+    lucide.createIcons();
+  </script>
+</body>
+</html>

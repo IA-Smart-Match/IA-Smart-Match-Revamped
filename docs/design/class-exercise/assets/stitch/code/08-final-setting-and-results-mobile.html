@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=390, initial-scale=1.0" name="viewport"/>
+<title>Results — Smart Match Class Exercise</title>
+<!-- Google Fonts: Archivo, Figtree, Source Serif 4 -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700&amp;family=Figtree:wght@400;500;600&amp;family=Source+Serif+4:ital,opsz,wght@0,8..60,600;1,8..60,400&amp;display=swap" rel="stylesheet"/>
+<!-- Material Symbols Outlined -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            "surface-bright": "#f8faf5",
+            "inverse-on-surface": "#eff2ec",
+            "primary": "#005030",
+            "primary-dark": "#00371f",
+            "surface-tint": "#266a48",
+            "on-primary": "#ffffff",
+            "seat-taken": "#8C6D62",
+            "on-primary-fixed-variant": "#035232",
+            "ink-muted": "#59665F",
+            "error-container": "#ffdad6",
+            "line-strong": "#8F7A70",
+            "inverse-surface": "#2e312e",
+            "surface-container-lowest": "#ffffff",
+            "on-secondary-container": "#6b4b00",
+            "surface": "#FFFFFF",
+            "on-tertiary": "#ffffff",
+            "page": "#F8F6F1",
+            "on-error": "#ffffff",
+            "gold-tint": "#FFF1CC",
+            "line": "#D9CBC4",
+            "surface-sunk": "#F2EEE8",
+            "secondary-fixed": "#ffdeaa",
+            "on-background": "#191c1a",
+            "surface-container-highest": "#e0e3de",
+            "error": "#BA1A1A",
+            "danger": "#BA1A1A",
+            "tertiary-fixed": "#bff377",
+            "secondary": "#7d5700",
+            "avocado-tint": "#E8F2D8",
+            "primary-fixed-dim": "#91d5ab",
+            "outline": "#707972",
+            "on-secondary": "#ffffff",
+            "surface-container-high": "#e6e9e4",
+            "on-tertiary-fixed-variant": "#314f00",
+            "on-error-container": "#93000a",
+            "on-tertiary-container": "#91c14c",
+            "surface-container-low": "#f2f4ef",
+            "primary-tint": "#D9EADF",
+            "primary-deep": "#003D24",
+            "surface-dim": "#d8dbd6",
+            "surface-variant": "#e0e3de",
+            "inverse-primary": "#91d5ab",
+            "on-primary-container": "#7dc198",
+            "avocado": "#A4D65E",
+            "outline-variant": "#bfc9c0",
+            "on-secondary-fixed-variant": "#5f4100",
+            "ink": "#163229",
+            "background": "#f8faf5",
+            "on-surface": "#191c1a",
+            "tertiary": "#1f3500",
+            "on-secondary-fixed": "#271900",
+            "scrim": "rgba(16,37,29,0.48)",
+            "primary-container": "#005030",
+            "on-tertiary-fixed": "#112000",
+            "on-surface-variant": "#404942",
+            "gold-ink": "#7A5200",
+            "gold-brand": "#FFB81C",
+            "surface-container": "#ecefe9",
+            "tertiary-container": "#304d00",
+            "secondary-container": "#feb71a",
+            "on-primary-fixed": "#002111",
+            "bay": "#CFBAB0",
+            "secondary-fixed-dim": "#ffba2c",
+            "primary-fixed": "#acf2c6",
+            "tertiary-fixed-dim": "#a4d65e"
+          },
+          borderRadius: {
+            "DEFAULT": "0.25rem",
+            "card": "14px",
+            "btn": "10px",
+            "pill": "9999px"
+          },
+          fontFamily: {
+            "label-md-mobile": ["Figtree", "sans-serif"],
+            "rank-num": ["Archivo", "sans-serif"],
+            "body-lead-mobile": ["Figtree", "sans-serif"],
+            "value-num-mobile": ["Figtree", "sans-serif"],
+            "headline-display": ["Archivo", "sans-serif"],
+            "body-md-mobile": ["Figtree", "sans-serif"],
+            "headline-sm-mobile": ["Source Serif 4", "serif"],
+            "label-md": ["Figtree", "sans-serif"],
+            "meta-caption": ["Figtree", "sans-serif"],
+            "headline-sm": ["Source Serif 4", "serif"],
+            "body-reason-mobile": ["Source Serif 4", "serif"],
+            "headline-display-mobile": ["Archivo", "sans-serif"],
+            "headline-lg": ["Archivo", "sans-serif"],
+            "headline-md-mobile": ["Source Serif 4", "serif"],
+            "body-reason": ["Source Serif 4", "serif"],
+            "body-md": ["Figtree", "sans-serif"],
+            "meta-caption-mobile": ["Figtree", "sans-serif"],
+            "headline-md": ["Source Serif 4", "serif"],
+            "value-num": ["Figtree", "sans-serif"],
+            "headline-lg-mobile": ["Archivo", "sans-serif"],
+            "body-lead": ["Figtree", "sans-serif"],
+            "rank-num-mobile": ["Archivo", "sans-serif"]
+          },
+          fontSize: {
+            "label-md-mobile": ["16px", { lineHeight: "22px", letterSpacing: "0.01em", fontWeight: "600" }],
+            "rank-num": ["28px", { lineHeight: "32px", fontWeight: "700" }],
+            "body-lead-mobile": ["17px", { lineHeight: "26px", fontWeight: "400" }],
+            "value-num-mobile": ["18px", { lineHeight: "24px", fontWeight: "700" }],
+            "headline-display": ["72px", { lineHeight: "76px", fontWeight: "700" }],
+            "body-md-mobile": ["17px", { lineHeight: "26px", fontWeight: "400" }],
+            "headline-sm-mobile": ["21px", { lineHeight: "28px", letterSpacing: "-0.01em", fontWeight: "600" }],
+            "label-md": ["18px", { lineHeight: "24px", letterSpacing: "0.01em", fontWeight: "600" }],
+            "meta-caption": ["16px", { lineHeight: "24px", letterSpacing: "0.01em", fontWeight: "500" }],
+            "headline-sm": ["24px", { lineHeight: "32px", letterSpacing: "-0.01em", fontWeight: "600" }],
+            "body-reason-mobile": ["16px", { lineHeight: "24px", fontWeight: "400" }],
+            "headline-display-mobile": ["48px", { lineHeight: "52px", fontWeight: "700" }],
+            "headline-lg": ["48px", { lineHeight: "56px", fontWeight: "600" }],
+            "headline-md-mobile": ["26px", { lineHeight: "32px", letterSpacing: "-0.01em", fontWeight: "600" }],
+            "body-reason": ["18px", { lineHeight: "28px", fontWeight: "400" }],
+            "body-md": ["20px", { lineHeight: "30px", fontWeight: "400" }],
+            "meta-caption-mobile": ["15px", { lineHeight: "22px", letterSpacing: "0.01em", fontWeight: "500" }],
+            "headline-md": ["32px", { lineHeight: "40px", letterSpacing: "-0.01em", fontWeight: "600" }],
+            "value-num": ["22px", { lineHeight: "28px", fontWeight: "700" }],
+            "headline-lg-mobile": ["32px", { lineHeight: "38px", fontWeight: "600" }],
+            "body-lead": ["22px", { lineHeight: "34px", fontWeight: "400" }],
+            "rank-num-mobile": ["22px", { lineHeight: "26px", fontWeight: "700" }]
+          },
+          boxShadow: {
+            "ce-1": "0 1px 2px rgba(22,50,41,.06), 0 4px 12px rgba(22,50,41,.06)"
+          }
+        }
+      }
+    };
+  </script>
+<style>
+    /* Gold diagonal hatch pattern */
+    .gold-hatch {
+      background-color: #FFB81C;
+      background-image: repeating-linear-gradient(45deg, #FFB81C, #FFB81C 5px, #E5A519 5px, #E5A519 10px);
+    }
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 500, 'GRAD' 0, 'opsz' 20;
+      vertical-align: middle;
+      line-height: 1;
+    }
+  </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-page text-ink antialiased min-h-screen flex justify-center p-0 m-0">
+<!-- Mobile Screen Container 390px -->
+<main class="w-full max-w-[390px] min-h-screen bg-page px-4 pt-4 pb-12 flex flex-col gap-8 box-border">
+<!-- 1. Fictional-data Ribbon -->
+<header class="w-full bg-gold-tint rounded-[14px] px-[14px] py-[10px] flex items-start gap-2.5">
+<span class="material-symbols-outlined text-gold-ink text-[18px] shrink-0 mt-[2px]" data-icon="info">info</span>
+<p class="font-meta-caption-mobile text-[15px] leading-[20px] text-gold-ink font-medium m-0">
+        Fictional data — All student profiles are fictional, shaped by overall survey percentages.
+      </p>
+</header>
+<!-- 2. Header Area -->
+<section class="flex flex-col gap-3">
+<!-- Back button -->
+<div>
+<button class="w-full h-[44px] bg-white border-2 border-line-strong rounded-[10px] px-4 flex items-center justify-center gap-2 font-label-md-mobile text-ink text-[16px] font-semibold active:scale-[0.98] transition-transform shadow-none" type="button">
+<span class="material-symbols-outlined text-[20px] text-ink" data-icon="arrow_back">arrow_back</span>
+<span>Back to your team's list</span>
+</button>
+</div>
+<!-- Page Title & Lead -->
+<div class="mt-2 flex flex-col gap-1.5">
+<h1 class="font-headline-lg-mobile text-[32px] font-semibold text-ink tracking-tight m-0">
+          Results
+        </h1>
+<p class="font-body-lead-mobile text-[17px] leading-[24px] text-ink-muted m-0">
+          What your team's list did, next to what emailing all 300 would have done.
+        </p>
+</div>
+</section>
+<!-- 3. The Room & Results Headline -->
+<section class="flex flex-col gap-6">
+<!-- "The Room" Card -->
+<div class="w-full bg-white rounded-card p-4 shadow-ce-1 flex flex-col gap-3.5">
+<!-- Header -->
+<div class="flex items-baseline justify-between">
+<h2 class="font-headline-sm-mobile text-[21px] font-semibold text-ink m-0">
+            The room
+          </h2>
+<span class="font-meta-caption-mobile text-[15px] font-medium text-ink-muted">
+            60 seats
+          </span>
+</div>
+<!-- Front of Room indicator -->
+<div class="w-full h-[26px] bg-surface-sunk rounded-[6px] flex items-center justify-center">
+<span class="font-label-md-mobile text-[13px] text-ink-muted font-normal tracking-wide uppercase">
+            Front of the room
+          </span>
+</div>
+<!-- 6x10 Seating Grid (60 seats) -->
+<div class="grid grid-cols-10 gap-1 w-full justify-between py-1">
+<!-- Row 1: 8 Already Coming (#8C6D62), 2 Your Invitations (#005030) -->
+<div class="h-[25px] rounded-[4px] bg-seat-taken flex items-center justify-center"></div>
+<div class="h-[25px] rounded-[4px] bg-seat-taken flex items-center justify-center"></div>
+<div class="h-[25px] rounded-[4px] bg-seat-taken flex items-center justify-center"></div>
+<div class="h-[25px] rounded-[4px] bg-seat-taken flex items-center justify-center"></div>
+<div class="h-[25px] rounded-[4px] bg-seat-taken flex items-center justify-center"></div>
+<div class="h-[25px] rounded-[4px] bg-seat-taken flex items-center justify-center"></div>
+<div class="h-[25px] rounded-[4px] bg-seat-taken flex items-center justify-center"></div>
+<div class="h-[25px] rounded-[4px] bg-seat-taken flex items-center justify-center"></div>
+<div class="h-[25px] rounded-[4px] bg-primary flex items-center justify-center text-white">
+<span class="material-symbols-outlined text-[13px]" data-icon="check">check</span>
+</div>
+<div class="h-[25px] rounded-[4px] bg-primary flex items-center justify-center text-white">
+<span class="material-symbols-outlined text-[13px]" data-icon="check">check</span>
+</div>
+<!-- Row 2: 4 Your Invitations (#005030), 6 Open -->
+<div class="h-[25px] rounded-[4px] bg-primary flex items-center justify-center text-white">
+<span class="material-symbols-outlined text-[13px]" data-icon="check">check</span>
+</div>
+<div class="h-[25px] rounded-[4px] bg-primary flex items-center justify-center text-white">
+<span class="material-symbols-outlined text-[13px]" data-icon="check">check</span>
+</div>
+<div class="h-[25px] rounded-[4px] bg-primary flex items-center justify-center text-white">
+<span class="material-symbols-outlined text-[13px]" data-icon="check">check</span>
+</div>
+<div class="h-[25px] rounded-[4px] bg-primary flex items-center justify-center text-white">
+<span class="material-symbols-outlined text-[13px]" data-icon="check">check</span>
+</div>
+<div class="h-[25px] rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<div class="h-[25px] rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<div class="h-[25px] rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<div class="h-[25px] rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<div class="h-[25px] rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<div class="h-[25px] rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<!-- Row 3: 10 Open -->
+<div class="h-[25px] rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<div class="h-[25px] rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<div class="h-[25px] rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<div class="h-[25px] rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<div class="h-[25px] rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<div class="h-[25px] rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<div class="h-[25px] rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<div class="h-[25px] rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<div class="h-[25px] rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<div class="h-[25px] rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<!-- Row 4: 10 Open -->
+<div class="h-[25px] rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<div class="h-[25px] rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<div class="h-[25px] rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<div class="h-[25px] rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<div class="h-[25px] rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<div class="h-[25px] rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<div class="h-[25px] rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<div class="h-[25px] rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<div class="h-[25px] rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<div class="h-[25px] rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<!-- Row 5: 10 Open -->
+<div class="h-[25px] rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<div class="h-[25px] rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<div class="h-[25px] rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<div class="h-[25px] rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<div class="h-[25px] rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<div class="h-[25px] rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<div class="h-[25px] rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<div class="h-[25px] rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<div class="h-[25px] rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<div class="h-[25px] rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<!-- Row 6: 10 Open -->
+<div class="h-[25px] rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<div class="h-[25px] rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<div class="h-[25px] rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<div class="h-[25px] rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<div class="h-[25px] rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<div class="h-[25px] rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<div class="h-[25px] rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<div class="h-[25px] rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<div class="h-[25px] rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+<div class="h-[25px] rounded-[4px] border-2 border-line-strong bg-transparent"></div>
+</div>
+<!-- Seating Legend -->
+<div class="flex flex-col gap-2 pt-2 border-t border-surface-sunk">
+<div class="flex items-center gap-2">
+<span class="w-[18px] h-[18px] rounded-[4px] bg-seat-taken shrink-0"></span>
+<span class="font-meta-caption-mobile text-[14px] text-ink-muted">Already coming (8)</span>
+</div>
+<div class="flex items-center gap-2">
+<span class="w-[18px] h-[18px] rounded-[4px] bg-primary shrink-0 flex items-center justify-center text-white">
+<span class="material-symbols-outlined text-[12px]" data-icon="check">check</span>
+</span>
+<span class="font-meta-caption-mobile text-[14px] text-ink-muted">Your invitations (6)</span>
+</div>
+<div class="flex items-center gap-2">
+<span class="w-[18px] h-[18px] rounded-[4px] border-2 border-line-strong bg-transparent shrink-0"></span>
+<span class="font-meta-caption-mobile text-[14px] text-ink-muted">Still open (46)</span>
+</div>
+</div>
+</div>
+<!-- Results Headline & Figures -->
+<div class="flex flex-col gap-4 px-1">
+<!-- Three-line Headline -->
+<h3 class="font-headline-sm text-[28px] leading-[36px] font-semibold text-ink m-0">
+          8 were already coming.<br/>
+          Your invitations added <span class="text-primary font-semibold">6</span>.<br/>
+<span class="text-primary font-semibold">46</span> seats are still open.
+        </h3>
+<!-- Ruled Figures Band -->
+<div class="grid grid-cols-3 py-3 border-y border-line-strong">
+<!-- Col 1 -->
+<div class="flex flex-col pr-2">
+<span class="font-rank-num text-[40px] leading-[44px] font-bold text-ink tabular-nums">
+              60
+            </span>
+<span class="font-meta-caption-mobile text-[14px] leading-[18px] text-ink-muted mt-1">
+              Seats in the room
+            </span>
+</div>
+<!-- Col 2 -->
+<div class="flex flex-col px-2 border-l border-line-strong">
+<span class="font-rank-num text-[40px] leading-[44px] font-bold text-primary tabular-nums">
+              8
+            </span>
+<span class="font-meta-caption-mobile text-[14px] leading-[18px] text-ink-muted mt-1">
+              Already coming
+            </span>
+</div>
+<!-- Col 3 -->
+<div class="flex flex-col pl-2 border-l border-line-strong">
+<span class="font-rank-num text-[40px] leading-[44px] font-bold text-primary tabular-nums">
+              46
+            </span>
+<span class="font-meta-caption-mobile text-[14px] leading-[18px] text-ink-muted mt-1">
+              Still open
+            </span>
+</div>
+</div>
+<p class="font-meta-caption-mobile text-[14px] text-ink-muted m-0">
+          A team runs results once per event.
+        </p>
+</div>
+</section>
+<!-- 4. What happened for Northline Analytics -->
+<section class="flex flex-col gap-3">
+<div class="flex flex-col gap-1 px-1">
+<h2 class="font-headline-md-mobile text-[26px] leading-[32px] font-semibold text-ink m-0">
+          What happened for Northline Analytics
+        </h2>
+<p class="font-body-md-mobile text-[16px] leading-[22px] text-ink-muted m-0">
+          Comparison between your team's invitations and reaching the entire pool.
+        </p>
+</div>
+<!-- Comparison Card -->
+<div class="w-full bg-white rounded-card p-4 shadow-ce-1 flex flex-col gap-5">
+<!-- Legend -->
+<div class="flex flex-wrap items-center gap-x-4 gap-y-2 pb-3 border-b border-surface-sunk text-[13px] font-meta-caption-mobile text-ink-muted">
+<div class="flex items-center gap-1.5">
+<span class="w-3.5 h-3.5 rounded-[2px] bg-primary-tint border-2 border-primary"></span>
+<span>Invited</span>
+</div>
+<div class="flex items-center gap-1.5">
+<span class="w-3.5 h-3.5 rounded-[2px] gold-hatch border-2 border-gold-ink"></span>
+<span>Signed up</span>
+</div>
+<div class="flex items-center gap-1.5">
+<span class="w-3.5 h-3.5 rounded-[2px] bg-primary"></span>
+<span>Attended</span>
+</div>
+</div>
+<!-- Group 1: Your team's list -->
+<div class="flex flex-col gap-2">
+<div class="flex items-baseline justify-between">
+<span class="font-label-md-mobile text-[16px] font-semibold text-ink">Your team's list</span>
+<span class="font-meta-caption-mobile text-[13px] text-ink-muted tabular-nums">30 · 6 · 4</span>
+</div>
+<!-- Rows Container -->
+<div class="flex flex-col gap-2 pt-1">
+<!-- Row: Invited (30 / 300 = 10% normalized mobile representation min 18%) -->
+<div class="flex items-center gap-2">
+<span class="w-16 font-meta-caption-mobile text-[13px] text-ink-muted shrink-0">Invited</span>
+<div class="flex-1 bg-surface-sunk h-6 rounded flex items-center pr-1">
+<div class="h-6 bg-primary-tint border-2 border-primary rounded flex items-center justify-end px-2" style="width: 32%;">
+<span class="font-rank-num text-[12px] font-bold text-primary tabular-nums">30</span>
+</div>
+</div>
+</div>
+<!-- Row: Signed up (6) -->
+<div class="flex items-center gap-2">
+<span class="w-16 font-meta-caption-mobile text-[13px] text-ink-muted shrink-0">Signed up</span>
+<div class="flex-1 bg-surface-sunk h-6 rounded flex items-center pr-1">
+<div class="h-6 gold-hatch border-2 border-gold-ink rounded flex items-center justify-end px-2" style="width: 16%;">
+<span class="font-rank-num text-[12px] font-bold text-gold-ink tabular-nums">6</span>
+</div>
+</div>
+</div>
+<!-- Row: Attended (4) -->
+<div class="flex items-center gap-2">
+<span class="w-16 font-meta-caption-mobile text-[13px] text-ink-muted shrink-0">Attended</span>
+<div class="flex-1 bg-surface-sunk h-6 rounded flex items-center pr-1">
+<div class="h-6 bg-primary rounded flex items-center justify-end px-2" style="width: 13%;">
+<span class="font-rank-num text-[12px] font-bold text-white tabular-nums">4</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="border-t border-surface-sunk my-1"></div>
+<!-- Group 2: If you emailed everyone -->
+<div class="flex flex-col gap-2">
+<div class="flex items-baseline justify-between">
+<span class="font-label-md-mobile text-[16px] font-semibold text-ink">If you emailed everyone</span>
+<span class="font-meta-caption-mobile text-[13px] text-ink-muted tabular-nums">300 · 41 · 27</span>
+</div>
+<!-- Rows Container -->
+<div class="flex flex-col gap-2 pt-1">
+<!-- Row: Invited (300 = 100%) -->
+<div class="flex items-center gap-2">
+<span class="w-16 font-meta-caption-mobile text-[13px] text-ink-muted shrink-0">Invited</span>
+<div class="flex-1 bg-surface-sunk h-6 rounded flex items-center pr-1">
+<div class="h-6 bg-primary-tint border-2 border-primary rounded flex items-center justify-end px-2 w-full">
+<span class="font-rank-num text-[12px] font-bold text-primary tabular-nums">300</span>
+</div>
+</div>
+</div>
+<!-- Row: Signed up (41 / 300 = ~44% visual) -->
+<div class="flex items-center gap-2">
+<span class="w-16 font-meta-caption-mobile text-[13px] text-ink-muted shrink-0">Signed up</span>
+<div class="flex-1 bg-surface-sunk h-6 rounded flex items-center pr-1">
+<div class="h-6 gold-hatch border-2 border-gold-ink rounded flex items-center justify-end px-2" style="width: 44%;">
+<span class="font-rank-num text-[12px] font-bold text-gold-ink tabular-nums">41</span>
+</div>
+</div>
+</div>
+<!-- Row: Attended (27 / 300 = ~32% visual) -->
+<div class="flex items-center gap-2">
+<span class="w-16 font-meta-caption-mobile text-[13px] text-ink-muted shrink-0">Attended</span>
+<div class="flex-1 bg-surface-sunk h-6 rounded flex items-center pr-1">
+<div class="h-6 bg-primary rounded flex items-center justify-end px-2" style="width: 32%;">
+<span class="font-rank-num text-[12px] font-bold text-white tabular-nums">27</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Table link -->
+<button class="mt-2 flex items-center justify-center gap-2 text-primary font-label-md-mobile text-[15px] font-semibold hover:underline" type="button">
+<span class="material-symbols-outlined text-[18px]" data-icon="table_chart">table_chart</span>
+<span>Show these counts as a table</span>
+</button>
+</div>
+</section>
+<!-- 5. The people on your team's list -->
+<section class="w-full bg-white rounded-card p-4 shadow-ce-1 flex flex-col gap-4">
+<div class="flex flex-col gap-1">
+<h2 class="font-headline-sm-mobile text-[22px] font-semibold text-ink m-0">
+          The people on your team's list
+        </h2>
+<p class="font-meta-caption-mobile text-[15px] leading-[20px] text-ink-muted m-0">
+          Fictional profiles selected using the final setting "Major first".
+        </p>
+<p class="font-meta-caption-mobile text-[14px] italic text-ink-muted m-0 mt-0.5">
+          Contacting all 300 is shown as counts only.
+        </p>
+</div>
+<!-- Category 1: Invited (30) -->
+<div class="flex flex-col gap-2 pt-2 border-t border-surface-sunk">
+<div class="flex items-center justify-between">
+<span class="font-label-md-mobile text-[15px] font-semibold text-ink">Invited (30)</span>
+</div>
+<div class="flex flex-wrap gap-1.5">
+<span class="px-2.5 py-1 rounded-pill bg-surface-sunk text-ink font-meta-caption-mobile text-[14px]">Maya Tran</span>
+<span class="px-2.5 py-1 rounded-pill bg-surface-sunk text-ink font-meta-caption-mobile text-[14px]">Daniel Okafor</span>
+<span class="px-2.5 py-1 rounded-pill bg-surface-sunk text-ink font-meta-caption-mobile text-[14px]">Priya Patel</span>
+<span class="px-2.5 py-1 rounded-pill bg-surface-sunk text-ink font-meta-caption-mobile text-[14px]">Jordan Kim</span>
+<span class="px-2.5 py-1 rounded-pill bg-surface-sunk text-ink font-meta-caption-mobile text-[14px]">Alexis Rivera</span>
+<span class="px-2.5 py-1 rounded-pill bg-surface-sunk text-ink font-meta-caption-mobile text-[14px]">Ethan Nguyen</span>
+<span class="px-2.5 py-1 rounded-pill bg-surface-sunk text-ink font-meta-caption-mobile text-[14px]">Sofia Morales</span>
+<span class="px-2.5 py-1 rounded-pill bg-surface-sunk text-ink font-meta-caption-mobile text-[14px]">Marcus Chen</span>
+<span class="px-2.5 py-1 rounded-pill bg-surface-sunk text-ink-muted font-meta-caption-mobile text-[14px] font-medium">+ 22 more</span>
+</div>
+</div>
+<!-- Category 2: Signed up (6) -->
+<div class="flex flex-col gap-2 pt-2 border-t border-surface-sunk">
+<div class="flex items-center justify-between">
+<span class="font-label-md-mobile text-[15px] font-semibold text-ink">Signed up (6)</span>
+</div>
+<div class="flex flex-wrap gap-1.5">
+<span class="px-2.5 py-1 rounded-pill bg-gold-tint text-gold-ink font-meta-caption-mobile text-[14px]">Daniel Okafor</span>
+<span class="px-2.5 py-1 rounded-pill bg-gold-tint text-gold-ink font-meta-caption-mobile text-[14px]">Alexis Rivera</span>
+<span class="px-2.5 py-1 rounded-pill bg-gold-tint text-gold-ink font-meta-caption-mobile text-[14px]">Marcus Chen</span>
+<span class="px-2.5 py-1 rounded-pill bg-gold-tint text-gold-ink font-meta-caption-mobile text-[14px]">Grace Park</span>
+<span class="px-2.5 py-1 rounded-pill bg-gold-tint text-gold-ink font-meta-caption-mobile text-[14px]">Brandon Cole</span>
+<span class="px-2.5 py-1 rounded-pill bg-gold-tint text-gold-ink font-meta-caption-mobile text-[14px]">Emily Wang</span>
+</div>
+</div>
+<!-- Category 3: Attended (4) -->
+<div class="flex flex-col gap-2 pt-2 border-t border-surface-sunk">
+<div class="flex items-center justify-between">
+<span class="font-label-md-mobile text-[15px] font-semibold text-ink">Attended (4)</span>
+</div>
+<div class="flex flex-wrap gap-1.5">
+<span class="px-2.5 py-1 rounded-pill bg-primary-tint text-primary-deep font-meta-caption-mobile text-[14px] font-medium">Daniel Okafor</span>
+<span class="px-2.5 py-1 rounded-pill bg-primary-tint text-primary-deep font-meta-caption-mobile text-[14px] font-medium">Marcus Chen</span>
+<span class="px-2.5 py-1 rounded-pill bg-primary-tint text-primary-deep font-meta-caption-mobile text-[14px] font-medium">Grace Park</span>
+<span class="px-2.5 py-1 rounded-pill bg-primary-tint text-primary-deep font-meta-caption-mobile text-[14px] font-medium">Emily Wang</span>
+</div>
+</div>
+</section>
+<!-- 6. Ask the people your team invited -->
+<section class="w-full bg-white rounded-card p-4 shadow-ce-1 flex flex-col gap-3.5">
+<div class="flex flex-col gap-1">
+<h2 class="font-headline-sm-mobile text-[22px] font-semibold text-ink m-0">
+          Ask the people your team invited
+        </h2>
+<p class="font-body-md-mobile text-[16px] leading-[22px] text-ink-muted m-0">
+          Offer an incentive or question to learn more before the next event.
+        </p>
+</div>
+<button class="w-full h-[48px] bg-white border-2 border-line-strong rounded-[10px] px-4 flex items-center justify-center font-label-md-mobile text-[16px] font-semibold text-ink active:scale-[0.98] transition-transform shadow-none" type="button">
+        Go to asking for more →
+      </button>
+</section>
+<!-- 7. Footer -->
+<footer class="w-full py-6 px-4 text-center">
+<p class="font-meta-caption-mobile text-[13px] leading-[18px] text-ink-muted m-0">
+        For California State Polytechnic University, Pomona — College of Business Administration instructional use only. All student profiles are fictional.
+      </p>
+</footer>
+</main>
+</body></html>

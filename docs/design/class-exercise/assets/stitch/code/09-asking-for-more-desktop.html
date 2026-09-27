@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Asking for more — Smart Match Class Exercise</title>
+  <!-- Google Fonts: Archivo (SemiExpanded via weights), Source Serif 4, Figtree -->
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700&family=Figtree:wght@400;500;600;700&family=Source+Serif+4:ital,opsz,wght@0,8..60,600;1,8..60,400&display=swap" rel="stylesheet"/>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+  <script>
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            "page": "#F8F6F1",
+            "surface": "#FFFFFF",
+            "surface-sunk": "#F2EEE8",
+            "ink": "#163229",
+            "ink-muted": "#59665F",
+            "primary": "#005030",
+            "primary-tint": "#D9EADF",
+            "primary-dark": "#003D24",
+            "gold": "#FFB81C",
+            "gold-tint": "#FFF1CC",
+            "gold-ink": "#7A5200",
+            "support-tint": "#E8F2D8",
+            "seat-taken": "#8C6D62",
+            "line-strong": "#8F7A70",
+            "line": "#D9CBC4",
+            "error": "#BA1A1A"
+          },
+          fontFamily: {
+            "display": ["Archivo", "sans-serif"],
+            "serif": ["'Source Serif 4'", "serif"],
+            "sans": ["Figtree", "sans-serif"]
+          },
+          boxShadow: {
+            "card-soft": "0 1px 2px rgba(22, 50, 41, 0.06), 0 4px 12px rgba(22, 50, 41, 0.06)"
+          },
+          borderRadius: {
+            "card": "14px",
+            "control": "10px",
+            "pill": "9999px"
+          }
+        }
+      }
+    };
+  </script>
+  <style>
+    body {
+      background-color: #F8F6F1;
+      color: #163229;
+      font-family: 'Figtree', sans-serif;
+    }
+    .tabular-nums {
+      font-variant-numeric: tabular-nums;
+    }
+    /* Specific focus state token */
+    *:focus-visible {
+      outline: 3px solid #005030;
+      outline-offset: 3px;
+    }
+  </style>
+</head>
+<body class="min-h-screen bg-page text-ink antialiased p-0 m-0">
+
+  <!-- Main Container: max 1152px content inside 1280px viewport grid -->
+  <main class="w-full max-w-[1280px] mx-auto px-16 pt-8 pb-16 flex flex-col gap-12 box-border">
+
+    <!-- 1. Gold-wash Fictional Data Ribbon -->
+    <header class="w-full bg-gold-tint rounded-card px-4 py-3 flex items-center gap-3">
+      <i data-lucide="info" class="w-5 h-5 text-gold-ink shrink-0" stroke-width="2"></i>
+      <p class="text-[16px] leading-[24px] text-gold-ink font-medium m-0">
+        <strong class="font-bold">Fictional data —</strong> All student profiles are fictional, shaped by overall survey percentages.
+      </p>
+    </header>
+
+    <!-- 2. Header Area: Title & Back Button -->
+    <section class="flex flex-col gap-4">
+      <div class="flex items-center justify-between">
+        <h1 class="font-display font-semibold text-[48px] leading-[56px] text-ink m-0 tracking-normal">
+          Asking for more
+        </h1>
+        <button type="button" class="h-[44px] px-5 bg-surface border-2 border-line-strong rounded-control text-[16px] font-semibold text-ink flex items-center justify-center hover:bg-surface-sunk transition-colors">
+          Back to the events
+        </button>
+      </div>
+
+      <!-- Lead prose + Pictogram (card half filled in: left half solid, right half dashed in CPP Green #005030, 96px) -->
+      <div class="flex items-center justify-between gap-8 pt-2">
+        <p class="max-w-[720px] font-sans text-[22px] leading-[34px] text-ink-muted m-0">
+          Pick one way to ask the people your team invited to fill in a card. Your team picks once.
+        </p>
+        
+        <!-- 96px Geometric pictogram: card half filled in (left half solid, right half dashed) in CPP Green -->
+        <div class="w-[96px] h-[96px] shrink-0 flex items-center justify-center" aria-hidden="true">
+          <svg width="96" height="72" viewBox="0 0 96 72" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <!-- Card Outer Outline -->
+            <rect x="2" y="2" width="92" height="68" rx="8" stroke="#005030" stroke-width="3" fill="#FFFFFF"/>
+            <!-- Left Half: Solid fill block representing completed portion -->
+            <path d="M4 8C4 5.79086 5.79086 4 8 4H47V68H8C5.79086 68 4 66.2091 4 64V8Z" fill="#005030"/>
+            <!-- Lines on left solid half -->
+            <line x1="12" y1="18" x2="38" y2="18" stroke="#FFFFFF" stroke-width="2.5" stroke-linecap="round"/>
+            <line x1="12" y1="30" x2="38" y2="30" stroke="#FFFFFF" stroke-width="2.5" stroke-linecap="round"/>
+            <line x1="12" y1="42" x2="32" y2="42" stroke="#FFFFFF" stroke-width="2.5" stroke-linecap="round"/>
+            <line x1="12" y1="54" x2="26" y2="54" stroke="#FFFFFF" stroke-width="2.5" stroke-linecap="round"/>
+            <!-- Right Half: Dashed lines representing pending/unfilled fields -->
+            <line x1="56" y1="18" x2="84" y2="18" stroke="#005030" stroke-width="2" stroke-dasharray="4 4" stroke-linecap="round"/>
+            <line x1="56" y1="30" x2="84" y2="30" stroke="#005030" stroke-width="2" stroke-dasharray="4 4" stroke-linecap="round"/>
+            <line x1="56" y1="42" x2="84" y2="42" stroke="#005030" stroke-width="2" stroke-dasharray="4 4" stroke-linecap="round"/>
+            <line x1="56" y1="54" x2="74" y2="54" stroke="#005030" stroke-width="2" stroke-dasharray="4 4" stroke-linecap="round"/>
+          </svg>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3. Section: "How will your team ask?" -->
+    <section class="flex flex-col gap-6">
+      <h2 class="font-serif font-semibold text-[32px] leading-[40px] text-ink m-0 tracking-[-0.01em]">
+        How will your team ask?
+      </h2>
+
+      <!-- Three tall cards in a row -->
+      <div class="grid grid-cols-3 gap-6">
+        
+        <!-- Card 1: Promise better recommendations. (Faded) -->
+        <div class="relative bg-surface rounded-card p-6 shadow-card-soft opacity-50 flex flex-col justify-between min-h-[220px]">
+          <div class="flex flex-col gap-3">
+            <h3 class="font-serif font-semibold text-[24px] leading-[32px] text-ink m-0">
+              Promise better recommendations.
+            </h3>
+            <p class="font-sans text-[18px] leading-[26px] text-ink-muted m-0">
+              Tell them a card helps us suggest events worth their evening.
+            </p>
+          </div>
+        </div>
+
+        <!-- Card 2: A small reward. (CHOSEN: #D9EADF fill, 3px CPP Green outline, gold seal at top-right) -->
+        <div class="relative bg-primary-tint border-[3px] border-primary rounded-card p-6 shadow-card-soft flex flex-col justify-between min-h-[220px]">
+          <!-- Gold round seal with check at top-right -->
+          <div class="absolute top-4 right-4 w-9 h-9 rounded-pill bg-gold flex items-center justify-center text-primary-dark shadow-sm">
+            <i data-lucide="check" class="w-5 h-5 text-ink stroke-[2.5]" stroke-width="2.5"></i>
+          </div>
+
+          <div class="flex flex-col gap-3 pr-10">
+            <h3 class="font-serif font-semibold text-[24px] leading-[32px] text-ink m-0">
+              A small reward.
+            </h3>
+            <p class="font-sans text-[18px] leading-[26px] text-ink-muted m-0">
+              Offer something small for a completed card.
+            </p>
+          </div>
+
+          <div class="pt-4 border-t border-line">
+            <span class="font-sans text-[16px] font-semibold text-primary-dark">
+              Your team chose this.
+            </span>
+          </div>
+        </div>
+
+        <!-- Card 3: Required. (Faded) -->
+        <div class="relative bg-surface rounded-card p-6 shadow-card-soft opacity-50 flex flex-col justify-between min-h-[220px]">
+          <div class="flex flex-col gap-3">
+            <h3 class="font-serif font-semibold text-[24px] leading-[32px] text-ink m-0">
+              Required.
+            </h3>
+            <p class="font-sans text-[18px] leading-[26px] text-ink-muted m-0">
+              Make the card a condition of hearing about events.
+            </p>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Under the row helper -->
+      <p class="font-sans text-[16px] leading-[24px] text-ink-muted m-0">
+        A team picks once, so these are now fixed.
+      </p>
+    </section>
+
+    <!-- 4. Section: "Ask the people your team invited" -->
+    <section class="flex flex-col gap-6">
+      <div class="flex flex-col gap-2">
+        <h2 class="font-serif font-semibold text-[32px] leading-[40px] text-ink m-0 tracking-[-0.01em]">
+          Ask the people your team invited
+        </h2>
+        <p class="font-sans text-[20px] leading-[30px] text-ink-muted m-0">
+          This happens once. Everyone who attended the first event picks up its topics, and some of the people your team invited fill in a card.
+        </p>
+      </div>
+
+      <!-- Primary CPP Green button: 56px tall -->
+      <div>
+        <button type="button" class="h-[56px] px-8 bg-primary hover:bg-[#003d24] text-white rounded-control font-sans text-[18px] font-semibold transition-colors flex items-center justify-center">
+          Ask them now
+        </button>
+      </div>
+    </section>
+
+    <!-- 5. Ruled figures band (thin vertical rules, no cards) with 72px Archivo SemiExpanded 700 bold numerals -->
+    <section class="w-full pt-4">
+      <div class="grid grid-cols-3 border-y border-line-strong py-8">
+        
+        <!-- Figure 1 -->
+        <div class="flex flex-col pr-8">
+          <span class="font-display font-bold text-[72px] leading-[76px] text-primary tabular-nums">
+            9
+          </span>
+          <span class="font-sans text-[18px] leading-[26px] text-ink-muted mt-2">
+            Cards filled in
+          </span>
+        </div>
+
+        <!-- Figure 2 -->
+        <div class="flex flex-col px-8 border-l border-line-strong">
+          <span class="font-display font-bold text-[72px] leading-[76px] text-ink tabular-nums">
+            0
+          </span>
+          <span class="font-sans text-[18px] leading-[26px] text-ink-muted mt-2">
+            Stopped opening messages
+          </span>
+        </div>
+
+        <!-- Figure 3 -->
+        <div class="flex flex-col pl-8 border-l border-line-strong">
+          <span class="font-display font-bold text-[72px] leading-[76px] text-primary tabular-nums">
+            34
+          </span>
+          <span class="font-sans text-[18px] leading-[26px] text-ink-muted mt-2">
+            Topics added from the first event
+          </span>
+        </div>
+
+      </div>
+    </section>
+
+  </main>
+
+  <script>
+    // Initialize Lucide icons
+    lucide.createIcons();
+  </script>
+</body>
+</html>

@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Asking for more — Confirm moment</title>
+  <!-- Google Fonts: Archivo, Source Serif 4, Figtree -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700&family=Figtree:wght@400;500;600;700&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap" rel="stylesheet">
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            ce: {
+              page: '#F8F6F1',
+              surface: '#FFFFFF',
+              'surface-sunk': '#F2EEE8',
+              ink: '#163229',
+              'ink-muted': '#59665F',
+              primary: '#005030',
+              'on-primary': '#FFFFFF',
+              'primary-tint': '#D9EADF',
+              'primary-ink': '#003D24',
+              gold: '#FFB81C',
+              'gold-tint': '#FFF1CC',
+              'gold-ink': '#7A5200',
+              avocado: '#A4D65E',
+              'avocado-tint': '#E8F2D8',
+              'seat-taken': '#8C6D62',
+              line: '#D9CBC4',
+              'line-strong': '#8F7A70',
+              danger: '#BA1A1A',
+            }
+          },
+          fontFamily: {
+            display: ['Archivo', 'sans-serif'],
+            serif: ['"Source Serif 4"', 'Georgia', 'serif'],
+            sans: ['Figtree', 'sans-serif'],
+          },
+          borderRadius: {
+            card: '14px',
+            control: '10px',
+          },
+          boxShadow: {
+            'card-resting': '0 1px 2px rgba(22,50,41,0.06), 0 4px 12px rgba(22,50,41,0.06)',
+            'card-confirm': '0 2px 4px rgba(22,50,41,0.06), 0 12px 28px rgba(0,80,48,0.12)',
+          }
+        }
+      }
+    };
+  </script>
+  <style>
+    body {
+      background-color: #F8F6F1;
+      color: #163229;
+      font-family: 'Figtree', sans-serif;
+      margin: 0;
+      padding: 0;
+      -webkit-font-smoothing: antialiased;
+    }
+  </style>
+</head>
+<body class="min-h-screen bg-ce-page text-ce-ink selection:bg-ce-gold-tint selection:text-ce-ink">
+  <div class="max-w-[1152px] mx-auto px-8 pt-8 pb-24">
+
+    <!-- Fictional-data ribbon (verbatim text & styling) -->
+    <div class="mb-10 w-full bg-ce-gold-tint text-ce-ink rounded-card px-4 py-2.5 flex items-center gap-2.5 text-[16px] leading-[24px]">
+      <!-- Info icon in gold-ink -->
+      <svg class="w-5 h-5 flex-shrink-0 text-ce-gold-ink" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"></circle>
+        <line x1="12" y1="16" x2="12" y2="12"></line>
+        <line x1="12" y1="8" x2="12.01" y2="8"></line>
+      </svg>
+      <div>
+        <strong class="font-bold">Fictional data —</strong>
+        <span>All student profiles are fictional, shaped by overall survey percentages.</span>
+      </div>
+    </div>
+
+    <!-- Section Heading & Instruction -->
+    <div class="mb-8">
+      <h2 class="font-serif text-[32px] leading-[40px] font-semibold text-ce-ink tracking-tight mb-2">
+        How will your team ask?
+      </h2>
+      <p class="text-ce-ink-muted text-[20px] leading-[30px] font-sans">
+        Pick one way to ask the people your team invited to fill in a card. Your team picks once.
+      </p>
+    </div>
+
+    <!-- Choice Cards Row -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 items-stretch">
+
+      <!-- Card 1: Promise better recommendations. -->
+      <div class="w-full md:w-[360px] bg-ce-surface rounded-card p-6 shadow-card-resting flex flex-col justify-between">
+        <div>
+          <!-- Round radio marker top-left -->
+          <div class="mb-4">
+            <span class="inline-block w-5 h-5 rounded-full border-2 border-ce-line-strong bg-ce-surface"></span>
+          </div>
+          <!-- Title -->
+          <h3 class="font-serif text-[24px] leading-[32px] font-semibold text-ce-ink mb-3">
+            Promise better recommendations.
+          </h3>
+          <!-- Supporting line -->
+          <p class="text-ce-ink-muted text-[18px] leading-[26px] font-sans">
+            Tell them a card helps us suggest events worth their evening.
+          </p>
+        </div>
+
+        <!-- Button -->
+        <div class="pt-8">
+          <button type="button" class="w-full h-14 bg-ce-surface border-2 border-ce-line-strong hover:border-ce-primary hover:bg-ce-primary-tint text-ce-ink font-semibold text-[18px] rounded-control transition-colors duration-150">
+            Choose this way
+          </button>
+        </div>
+      </div>
+
+      <!-- Card 2: A small reward. (Confirm Moment) -->
+      <div class="w-full md:w-[360px] bg-ce-surface rounded-card p-6 shadow-card-confirm ring-2 ring-ce-primary border border-ce-primary flex flex-col justify-between relative">
+        <div>
+          <!-- Round radio marker top-left with active focus/selection dot -->
+          <div class="mb-4 flex items-center justify-between">
+            <span class="inline-flex items-center justify-center w-5 h-5 rounded-full border-2 border-ce-primary bg-ce-surface">
+              <span class="w-2.5 h-2.5 rounded-full bg-ce-primary"></span>
+            </span>
+          </div>
+          <!-- Title -->
+          <h3 class="font-serif text-[24px] leading-[32px] font-semibold text-ce-ink mb-3">
+            A small reward.
+          </h3>
+          <!-- Supporting line -->
+          <p class="text-ce-ink-muted text-[18px] leading-[26px] font-sans">
+            Offer something small for a completed card.
+          </p>
+        </div>
+
+        <!-- Confirm Button with 5-second countdown underline + helper line -->
+        <div class="pt-8 flex flex-col gap-2">
+          <button type="button" class="w-full h-14 bg-ce-primary text-ce-on-primary font-semibold text-[18px] rounded-control flex flex-col items-center justify-center relative overflow-hidden transition-colors duration-150">
+            <span class="leading-none pt-0.5">Confirm: A small reward?</span>
+            <!-- Countdown bar: 5-second countdown, about half gone (50% width) -->
+            <span class="absolute bottom-2 left-1/4 w-1/2 h-[2px] bg-ce-gold rounded-full"></span>
+          </button>
+          <!-- Helper text under confirm button -->
+          <p class="text-ce-ink-muted text-[14px] leading-[20px] font-sans text-center">
+            Press again within 5 seconds. Your team picks once.
+          </p>
+        </div>
+      </div>
+
+      <!-- Card 3: Required. -->
+      <div class="w-full md:w-[360px] bg-ce-surface rounded-card p-6 shadow-card-resting flex flex-col justify-between">
+        <div>
+          <!-- Round radio marker top-left -->
+          <div class="mb-4">
+            <span class="inline-block w-5 h-5 rounded-full border-2 border-ce-line-strong bg-ce-surface"></span>
+          </div>
+          <!-- Title -->
+          <h3 class="font-serif text-[24px] leading-[32px] font-semibold text-ce-ink mb-3">
+            Required.
+          </h3>
+          <!-- Supporting line -->
+          <p class="text-ce-ink-muted text-[18px] leading-[26px] font-sans">
+            Make the card a condition of hearing about events.
+          </p>
+        </div>
+
+        <!-- Button -->
+        <div class="pt-8">
+          <button type="button" class="w-full h-14 bg-ce-surface border-2 border-ce-line-strong hover:border-ce-primary hover:bg-ce-primary-tint text-ce-ink font-semibold text-[18px] rounded-control transition-colors duration-150">
+            Choose this way
+          </button>
+        </div>
+      </div>
+
+    </div>
+
+  </div>
+</body>
+</html>

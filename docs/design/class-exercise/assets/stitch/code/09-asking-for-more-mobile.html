@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=390, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Asking for more — Smart Match Class Exercise</title>
+  <!-- Google Fonts: Archivo (SemiExpanded simulation via width axis/fallbacks), Source Serif 4, Figtree -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700&family=Figtree:wght@400;500;600;700&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400;1,8..60,600&display=swap" rel="stylesheet">
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    /* CSS Tokens based on Class Exercise Refresh System */
+    :root {
+      --ce-page: #F8F6F1;
+      --ce-surface: #FFFFFF;
+      --ce-surface-sunk: #F2EEE8;
+      --ce-ink: #163229;
+      --ce-ink-muted: #59665F;
+      --ce-primary: #005030;
+      --ce-on-primary: #FFFFFF;
+      --ce-primary-tint: #D9EADF;
+      --ce-gold: #FFB81C;
+      --ce-gold-tint: #FFF1CC;
+      --ce-gold-ink: #7A5200;
+      --ce-avocado-tint: #E8F2D8;
+      --ce-line-strong: #8F7A70;
+      --ce-line: #D9CBC4;
+      --ce-danger: #BA1A1A;
+      
+      --ce-font-display: 'Archivo', -apple-system, BlinkMacSystemFont, sans-serif;
+      --ce-font-serif: 'Source Serif 4', Georgia, serif;
+      --ce-font-body: 'Figtree', -apple-system, BlinkMacSystemFont, sans-serif;
+      
+      --ce-radius-card: 14px;
+      --ce-radius-control: 10px;
+      --ce-radius-pill: 999px;
+      
+      --ce-elev-1: 0 1px 2px rgba(22, 50, 41, 0.06), 0 4px 12px rgba(22, 50, 41, 0.06);
+      --ce-elev-active: 0 2px 6px rgba(22, 50, 41, 0.08), 0 12px 28px rgba(0, 80, 48, 0.12);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    body {
+      background-color: var(--ce-page);
+      color: var(--ce-ink);
+      font-family: var(--ce-font-body);
+      font-size: 17px;
+      line-height: 26px;
+      width: 100%;
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      padding: 0;
+    }
+
+    .mobile-container {
+      width: 390px;
+      max-width: 390px;
+      background-color: var(--ce-page);
+      padding: 16px 16px 40px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+
+    /* Tabular numbers rule */
+    .tabular-nums {
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* Fictional data ribbon */
+    .ribbon {
+      background-color: var(--ce-gold-tint);
+      border-radius: var(--ce-radius-card);
+      padding: 10px 14px;
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      color: var(--ce-gold-ink);
+      font-size: 14px;
+      line-height: 20px;
+    }
+
+    .ribbon i {
+      flex-shrink: 0;
+      margin-top: 1px;
+      color: var(--ce-gold-ink);
+    }
+
+    .ribbon-text {
+      color: var(--ce-gold-ink);
+    }
+
+    .ribbon-text strong {
+      font-weight: 700;
+    }
+
+    /* Top navigation / header row */
+    .header-zone {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .top-actions {
+      display: flex;
+      justify-content: flex-start;
+    }
+
+    .btn-secondary {
+      background-color: var(--ce-surface);
+      color: var(--ce-ink);
+      border: 2px solid var(--ce-line-strong);
+      border-radius: var(--ce-radius-control);
+      font-family: var(--ce-font-body);
+      font-size: 16px;
+      font-weight: 600;
+      height: 44px;
+      padding: 0 16px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      cursor: pointer;
+      text-decoration: none;
+      transition: background-color 0.15s ease, border-color 0.15s ease;
+    }
+
+    .btn-secondary:hover {
+      border-color: var(--ce-primary);
+      background-color: var(--ce-primary-tint);
+    }
+
+    .page-title {
+      font-family: var(--ce-font-display);
+      font-size: 32px;
+      line-height: 38px;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+      color: var(--ce-ink);
+    }
+
+    .lead-text {
+      font-family: var(--ce-font-body);
+      font-size: 17px;
+      line-height: 26px;
+      color: var(--ce-ink-muted);
+      font-weight: 400;
+    }
+
+    /* Section styling */
+    .section-block {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      margin-top: 8px;
+    }
+
+    .section-title {
+      font-family: var(--ce-font-serif);
+      font-size: 26px;
+      line-height: 32px;
+      font-weight: 600;
+      color: var(--ce-ink);
+      letter-spacing: -0.01em;
+    }
+
+    /* Asking Cards Stack */
+    .cards-stack {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .choice-card {
+      background-color: var(--ce-surface);
+      border-radius: var(--ce-radius-card);
+      padding: 20px 18px;
+      box-shadow: var(--ce-elev-1);
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      border: 2px solid transparent;
+      position: relative;
+    }
+
+    .choice-card.unselected {
+      border-color: transparent;
+    }
+
+    /* Card 2 in active confirmation moment */
+    .choice-card.confirming {
+      border: 3px solid var(--ce-primary);
+      box-shadow: var(--ce-elev-active);
+    }
+
+    .card-header-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .card-title {
+      font-family: var(--ce-font-serif);
+      font-size: 22px;
+      line-height: 28px;
+      font-weight: 600;
+      color: var(--ce-ink);
+    }
+
+    .card-support {
+      font-family: var(--ce-font-body);
+      font-size: 16px;
+      line-height: 24px;
+      color: var(--ce-ink-muted);
+    }
+
+    /* Action buttons in cards */
+    .card-action-wrap {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      width: 100%;
+    }
+
+    .btn-choose {
+      background-color: var(--ce-surface);
+      color: var(--ce-ink);
+      border: 2px solid var(--ce-line-strong);
+      border-radius: var(--ce-radius-control);
+      font-family: var(--ce-font-body);
+      font-size: 16px;
+      font-weight: 600;
+      height: 48px;
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+    }
+
+    .btn-confirm-active {
+      background-color: var(--ce-primary);
+      color: var(--ce-on-primary);
+      border: none;
+      border-radius: var(--ce-radius-control);
+      font-family: var(--ce-font-body);
+      font-size: 16px;
+      font-weight: 600;
+      height: 48px;
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      overflow: hidden;
+      cursor: pointer;
+      box-shadow: 0 2px 4px rgba(0, 80, 48, 0.2);
+    }
+
+    .btn-confirm-text {
+      position: relative;
+      z-index: 2;
+    }
+
+    /* Countdown underline track and shrinking indicator (about half gone) */
+    .countdown-track {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      width: 100%;
+      height: 3px;
+      background-color: rgba(255, 255, 255, 0.25);
+      z-index: 1;
+    }
+
+    .countdown-fill {
+      height: 100%;
+      width: 52%; /* ~50% elapsed / remaining */
+      background-color: var(--ce-gold);
+    }
+
+    .confirm-helper {
+      font-family: var(--ce-font-body);
+      font-size: 14px;
+      line-height: 20px;
+      color: var(--ce-ink-muted);
+      margin-top: 2px;
+    }
+
+    /* License line */
+    .license-line {
+      font-family: var(--ce-font-body);
+      font-size: 13px;
+      line-height: 18px;
+      color: var(--ce-ink-muted);
+      border-top: 1px solid var(--ce-line);
+      padding-top: 20px;
+      margin-top: 16px;
+    }
+  </style>
+</head>
+<body>
+  <div class="mobile-container">
+    <!-- Fictional data ribbon -->
+    <div class="ribbon" role="note" aria-label="Fictional data disclaimer">
+      <i data-lucide="info" width="18" height="18"></i>
+      <div class="ribbon-text">
+        <strong>Fictional data —</strong> All student profiles are fictional, shaped by overall survey percentages.
+      </div>
+    </div>
+
+    <!-- Header Zone -->
+    <div class="header-zone">
+      <div class="top-actions">
+        <button class="btn-secondary" type="button" aria-label="Back to the events">
+          <i data-lucide="arrow-left" width="18" height="18"></i>
+          <span>Back to the events</span>
+        </button>
+      </div>
+      <div>
+        <h1 class="page-title">Asking for more</h1>
+        <p class="lead-text" style="margin-top: 8px;">Pick one way to ask the people your team invited to fill in a card. Your team picks once.</p>
+      </div>
+    </div>
+
+    <!-- Section: How will your team ask? -->
+    <section class="section-block" aria-labelledby="asking-options-heading">
+      <h2 id="asking-options-heading" class="section-title">How will your team ask?</h2>
+      
+      <div class="cards-stack" role="radiogroup" aria-label="How will your team ask?">
+        
+        <!-- Card 1: Promise better recommendations. -->
+        <div class="choice-card unselected" role="radio" aria-checked="false">
+          <div class="card-header-group">
+            <h3 class="card-title">Promise better recommendations.</h3>
+            <p class="card-support">Tell them a card helps us suggest events worth their evening.</p>
+          </div>
+          <div class="card-action-wrap">
+            <button class="btn-choose" type="button">Choose this way</button>
+          </div>
+        </div>
+
+        <!-- Card 2: A small reward. (Active Confirm Moment) -->
+        <div class="choice-card confirming" role="radio" aria-checked="false" aria-describedby="card-2-helper">
+          <div class="card-header-group">
+            <h3 class="card-title">A small reward.</h3>
+            <p class="card-support">Offer something small for a completed card.</p>
+          </div>
+          <div class="card-action-wrap">
+            <button class="btn-confirm-active" type="button">
+              <span class="btn-confirm-text">Confirm: A small reward?</span>
+              <div class="countdown-track" aria-hidden="true">
+                <div class="countdown-fill"></div>
+              </div>
+            </button>
+            <p id="card-2-helper" class="confirm-helper" aria-live="polite">Press again within 5 seconds. Your team picks once.</p>
+          </div>
+        </div>
+
+        <!-- Card 3: Required. -->
+        <div class="choice-card unselected" role="radio" aria-checked="false">
+          <div class="card-header-group">
+            <h3 class="card-title">Required.</h3>
+            <p class="card-support">Make the card a condition of hearing about events.</p>
+          </div>
+          <div class="card-action-wrap">
+            <button class="btn-choose" type="button">Choose this way</button>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- License Line verbatim -->
+    <div class="license-line">
+      For California State Polytechnic University, Pomona — College of Business Administration instructional use only. All student profiles are fictional.
+    </div>
+  </div>
+
+  <script>
+    // Initialize Lucide icons
+    lucide.createIcons();
+  </script>
+</body>
+</html>
