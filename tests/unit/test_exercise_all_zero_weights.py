@@ -79,3 +79,28 @@ def test_other_refusals_keep_their_own_detail() -> None:
         validated({"not_a_factor": 1.0})
     assert caught.value.message not in {_TEAM_SENTENCE, _NEGATIVE_SENTENCE}
     assert "not_a_factor" in caught.value.message
+
+
+@pytest.mark.parametrize(
+    "weights",
+    [
+        {"career_goal_fit": float("nan"), "same_major": -1.0},
+        {"same_major": -1.0, "not_a_factor": 1.0},
+    ],
+    ids=["negative-and-nan", "negative-and-unknown-key"],
+)
+def test_a_negative_mixed_with_another_problem_keeps_the_full_detail(
+    weights: dict[str, float],
+) -> None:
+    """The negative sentence is for negatives alone; it must not hide another problem.
+
+    In both cases the other problem sorts *before* the negative, so a collector
+    that remembered only the last problem's type would wrongly call this a
+    negative-only refusal and hide the other problem behind the wrong sentence.
+    """
+    with pytest.raises(InvalidExerciseWeightError) as caught:
+        validate_exercise_weight_overrides(weights)
+    assert type(caught.value) is InvalidExerciseWeightError
+    with pytest.raises(ExerciseError) as refused:
+        validated(weights)
+    assert refused.value.message != _NEGATIVE_SENTENCE
