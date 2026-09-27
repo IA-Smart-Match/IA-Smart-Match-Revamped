@@ -1,0 +1,225 @@
+/*
+ * Class exercise motion — the CSS half of DESIGN.md §5.
+ *
+ * Named motions as classes, scoped to `.ce-root`. The JavaScript half (Motion
+ * props by name, the re-order spring, count-up, confirm window and the seat
+ * fill clock) is `src/app/pages/exercise/desk/{motion,confirmWindow,seatFill}`.
+ * Every motion here has its reduced-motion form in the block at the bottom.
+ */
+
+.ce-root {
+  --ce-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ce-ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --ce-ease-exit: cubic-bezier(0.7, 0, 0.84, 0);
+  --ce-dur-press: 100ms;
+  --ce-dur-lift: 160ms;
+  --ce-dur-fade-rise: 240ms;
+  --ce-dur-reduced: 150ms;
+  --ce-dur-row-join: 900ms;
+  --ce-dur-slider-settle: 180ms;
+  --ce-dur-list-rebuilding: 150ms;
+  --ce-dur-card-save: 220ms;
+  --ce-dur-overlap-pulse: 600ms;
+  --ce-dur-confirm-window: 5000ms;
+  --ce-dur-choice-commit: 240ms;
+  --ce-dur-unlock: 300ms;
+  --ce-dur-skeleton: 1600ms;
+  --ce-dur-notice-in: 200ms;
+}
+
+@keyframes ce-kf-fade-rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes ce-kf-notice-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes ce-kf-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes ce-kf-card-save {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes ce-kf-row-join {
+  from { background-color: var(--ce-gold-tint); }
+  to { background-color: transparent; }
+}
+
+@keyframes ce-kf-hold-gold {
+  from, to { background-color: var(--ce-gold-tint); }
+}
+
+@keyframes ce-kf-overlap-pulse {
+  0%, 100% { background-color: var(--ce-gold-tint); }
+  50% { background-color: var(--ce-gold); }
+}
+
+@keyframes ce-kf-shrink {
+  from { transform: scaleX(1); }
+  to { transform: scaleX(0); }
+}
+
+@keyframes ce-kf-skeleton {
+  from { opacity: 0.55; }
+  to { opacity: 1; }
+}
+
+@keyframes ce-kf-seat-fill {
+  from { background-color: transparent; }
+}
+
+@keyframes ce-kf-seat-pop {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.08); }
+  100% { transform: scale(1); }
+}
+
+@keyframes ce-kf-seat-brighten {
+  0%, 100% { outline-color: var(--ce-seat-open-outline); }
+  50% { outline-color: var(--ce-primary); }
+}
+
+@layer components {
+  /* ce-press: 0.98 on press. */
+  .ce-press {
+    transition: transform var(--ce-dur-press) var(--ce-ease-out),
+      background-color var(--ce-dur-press) var(--ce-ease-out);
+  }
+  .ce-press:active:not([aria-disabled="true"]) { transform: scale(0.98); }
+
+  /* ce-lift: hoverable card rises 2px, elev-1 → elev-2. */
+  .ce-lift {
+    transition: transform var(--ce-dur-lift) var(--ce-ease-out),
+      box-shadow var(--ce-dur-lift) var(--ce-ease-out);
+  }
+  .ce-lift:hover:not([aria-disabled="true"]) {
+    transform: translateY(-2px);
+    box-shadow: var(--ce-elev-2);
+  }
+
+  .ce-fade-rise { animation: ce-kf-fade-rise var(--ce-dur-fade-rise) var(--ce-ease-out) both; }
+  .ce-notice-in { animation: ce-kf-notice-in var(--ce-dur-notice-in) var(--ce-ease-out) both; }
+  .ce-card-save { animation: ce-kf-card-save var(--ce-dur-card-save) var(--ce-ease-out) both; }
+
+  /* ce-row-join: gold wash fades out; remove the class after 900ms. */
+  .ce-row-join { animation: ce-kf-row-join var(--ce-dur-row-join) var(--ce-ease-out) both; }
+
+  /* ce-overlap-pulse: set --ce-i per row for the 30ms stagger. */
+  .ce-overlap-pulse {
+    background-color: var(--ce-gold-tint);
+    animation: ce-kf-overlap-pulse var(--ce-dur-overlap-pulse) var(--ce-ease-in-out) 1;
+    animation-delay: calc(var(--ce-i, 0) * 30ms);
+  }
+
+  /* ce-list-rebuilding: dim while a new list is fetched. Opacity is not movement. */
+  .ce-rebuildable { transition: opacity var(--ce-dur-list-rebuilding) linear; }
+  .ce-rebuildable[aria-busy="true"] { opacity: 0.6; }
+
+  /* ce-choice-commit: the unchosen cards fade to 0.55. */
+  .ce-choice-dim {
+    opacity: 0.55;
+    transition: opacity var(--ce-dur-choice-commit) var(--ce-ease-out);
+  }
+
+  /* ce-unlock: the shackle lifts 4px. */
+  .ce-unlock-lift {
+    transform: translateY(-4px);
+    transition: transform var(--ce-dur-unlock) var(--ce-ease-out);
+  }
+
+  /* ce-confirm-window: the 2px underline shrinks over the window. */
+  .ce-confirm-underline {
+    display: block;
+    height: 2px;
+    margin-top: 4px;
+    background-color: currentColor;
+    transform-origin: left center;
+    animation-name: ce-kf-shrink;
+    animation-timing-function: linear;
+    animation-fill-mode: both;
+  }
+
+  /* ce-skeleton: the only loop; it stops when content lands. */
+  .ce-skeleton {
+    background-color: var(--ce-surface-sunk);
+    animation: ce-kf-skeleton calc(var(--ce-dur-skeleton) / 2) var(--ce-ease-in-out) infinite alternate;
+  }
+
+  /* ce-slider-settle: thumb and range glide to a clicked point; not while dragging. */
+  .ce-slider-settle [data-slot="ce-slider-range"],
+  .ce-slider-settle [data-slot="ce-slider-thumb-wrap"] {
+    transition: left var(--ce-dur-slider-settle) var(--ce-ease-out),
+      right var(--ce-dur-slider-settle) var(--ce-ease-out);
+  }
+  .ce-slider-settle[data-dragging="true"] [data-slot="ce-slider-range"],
+  .ce-slider-settle[data-dragging="true"] [data-slot="ce-slider-thumb-wrap"] {
+    transition: none;
+  }
+
+  /* ce-seat-fill seats (§3.3). */
+  .ce-seat {
+    display: block;
+    position: relative;
+    aspect-ratio: 1;
+    border-radius: var(--ce-radius-seat);
+  }
+  .ce-seat[data-kind="taken"] { background-color: var(--ce-seat-taken); }
+  .ce-seat[data-kind="added"] { background-color: var(--ce-seat-added); }
+  .ce-seat[data-kind="added"]::after {
+    /* the 2px inner check stroke */
+    content: "";
+    position: absolute;
+    left: 30%;
+    top: 18%;
+    width: 25%;
+    height: 45%;
+    border: solid var(--ce-seat-added-mark);
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+  }
+  .ce-seat[data-kind="open"] {
+    background-color: transparent;
+    outline: 2px solid var(--ce-seat-open-outline);
+    outline-offset: -2px;
+  }
+  .ce-seat[data-animate="true"][data-kind="taken"] {
+    animation: ce-kf-seat-fill 120ms var(--ce-ease-out) both;
+    animation-delay: var(--ce-delay, 0ms);
+  }
+  .ce-seat[data-animate="true"][data-kind="added"] {
+    animation: ce-kf-seat-fill 120ms var(--ce-ease-out) both,
+      ce-kf-seat-pop 240ms var(--ce-ease-out) both;
+    animation-delay: var(--ce-delay, 0ms), var(--ce-delay, 0ms);
+  }
+  .ce-seat[data-animate="true"][data-kind="open"] {
+    animation: ce-kf-seat-brighten 400ms var(--ce-ease-in-out) 1;
+    animation-delay: var(--ce-delay, 0ms);
+  }
+}
+
+/* §5 reduced-motion paths. Meaning stays; movement goes. */
+@media (prefers-reduced-motion: reduce) {
+  .ce-root .ce-press:active:not([aria-disabled="true"]) { transform: none; }
+  .ce-root .ce-lift:hover:not([aria-disabled="true"]) { transform: none; }
+  .ce-root .ce-fade-rise,
+  .ce-root .ce-notice-in,
+  .ce-root .ce-card-save {
+    animation: ce-kf-fade var(--ce-dur-reduced) linear both;
+  }
+  .ce-root .ce-row-join { animation: ce-kf-hold-gold var(--ce-dur-row-join) step-end both; }
+  .ce-root .ce-overlap-pulse { animation: none; }
+  .ce-root .ce-unlock-lift { transform: none; transition: none; }
+  .ce-root .ce-confirm-underline { animation: none; display: none; }
+  .ce-root .ce-skeleton { animation: none; opacity: 0.75; }
+  .ce-root .ce-slider-settle [data-slot="ce-slider-range"],
+  .ce-root .ce-slider-settle [data-slot="ce-slider-thumb-wrap"] { transition: none; }
+  .ce-root .ce-seat[data-animate="true"] { animation: none; }
+  .ce-root .ce-spin { animation: none; }
+}
