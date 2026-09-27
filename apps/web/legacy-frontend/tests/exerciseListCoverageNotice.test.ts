@@ -105,7 +105,9 @@ test("the notice is sized for a projector", () => {
   // Design spec §16: "Type sizes chosen for a projector at classroom
   // distance." Anything at or below the app's default `text-sm` would not be
   // readable from the back of Dr. Lin's room.
-  assert.match(notice, /text-(xl|2xl|3xl)/);
+  // The desk type roles (DESIGN.md §3.4) carry the size: `ce-type-body` is
+  // 20px on desktop, the same as `text-xl`.
+  assert.match(notice, /text-(xl|2xl|3xl)|ce-type-(body|lead|h[123])/);
   assert.equal(/text-(xs|sm)\b/.test(notice), false);
 });
 

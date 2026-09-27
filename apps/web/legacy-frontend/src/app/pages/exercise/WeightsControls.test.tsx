@@ -33,6 +33,11 @@ const WEIGHTS = {
 
 afterEach(cleanup);
 
+/** The number box beside each slider (DESIGN.md §6.6); the slider shares its name. */
+function numberBox(name: string): HTMLInputElement {
+  return screen.getByRole("textbox", { name }) as HTMLInputElement;
+}
+
 describe("<WeightsControls />", () => {
   it("lets a decimal be typed one character at a time", () => {
     // Fails on the merged code: `onChange` fired on the `0`, and in the screen
@@ -41,7 +46,7 @@ describe("<WeightsControls />", () => {
     const onChange = vi.fn();
     render(<WeightsControls factorLabels={LABELS} weights={WEIGHTS} onChange={onChange} />);
 
-    const box = screen.getByLabelText("same major") as HTMLInputElement;
+    const box = numberBox("same major") as HTMLInputElement;
     fireEvent.focus(box);
     fireEvent.change(box, { target: { value: "0" } });
     fireEvent.change(box, { target: { value: "0." } });
@@ -59,7 +64,7 @@ describe("<WeightsControls />", () => {
     const onChange = vi.fn();
     render(<WeightsControls factorLabels={LABELS} weights={WEIGHTS} onChange={onChange} />);
 
-    const box = screen.getByLabelText("same major");
+    const box = numberBox("same major");
     fireEvent.focus(box);
     fireEvent.change(box, { target: { value: "0.75" } });
     fireEvent.blur(box);
@@ -72,7 +77,7 @@ describe("<WeightsControls />", () => {
     const onChange = vi.fn();
     render(<WeightsControls factorLabels={LABELS} weights={WEIGHTS} onChange={onChange} />);
 
-    const box = screen.getByLabelText("career goal fits this event");
+    const box = numberBox("career goal fits this event");
     fireEvent.focus(box);
     fireEvent.change(box, { target: { value: "1.5" } });
     fireEvent.keyDown(box, { key: "Enter" });
@@ -90,7 +95,7 @@ describe("<WeightsControls />", () => {
     const onChange = vi.fn();
     render(<WeightsControls factorLabels={LABELS} weights={WEIGHTS} onChange={onChange} />);
 
-    const box = screen.getByLabelText("same major");
+    const box = numberBox("same major");
     fireEvent.focus(box);
     fireEvent.change(box, { target: { value: String(WEIGHTS.same_major) } });
     fireEvent.blur(box);
@@ -105,7 +110,7 @@ describe("<WeightsControls />", () => {
       <WeightsControls factorLabels={LABELS} weights={WEIGHTS} onChange={vi.fn()} />,
     );
 
-    const box = screen.getByLabelText("same major") as HTMLInputElement;
+    const box = numberBox("same major") as HTMLInputElement;
     fireEvent.focus(box);
     fireEvent.change(box, { target: { value: "0." } });
 
@@ -118,10 +123,9 @@ describe("<WeightsControls />", () => {
     );
 
     expect(box.value).toBe("0.");
-    // A box nobody is in does take the server's number.
-    expect((screen.getByLabelText("career goal fits this event") as HTMLInputElement).value).toBe(
-      "0.9",
-    );
+    // A box nobody is in does take the server's number, shown to two
+    // decimals as the slider's box shows every weight (DESIGN.md §6.6).
+    expect(numberBox("career goal fits this event").value).toBe("0.90");
   });
 
   it("carries a first commit into a second one made before the response lands", () => {
@@ -138,7 +142,7 @@ describe("<WeightsControls />", () => {
       <WeightsControls factorLabels={LABELS} weights={WEIGHTS} onChange={onChange} />,
     );
 
-    const first = screen.getByLabelText("same major");
+    const first = numberBox("same major");
     fireEvent.focus(first);
     fireEvent.change(first, { target: { value: "0.6" } });
     fireEvent.blur(first);
@@ -146,7 +150,7 @@ describe("<WeightsControls />", () => {
     // The prop the server would eventually confirm has not arrived yet —
     // this component is still rendering with the original `weights` — so
     // the second commit below queues instead of sending.
-    const second = screen.getByLabelText("career goal fits this event");
+    const second = numberBox("career goal fits this event");
     fireEvent.focus(second);
     fireEvent.change(second, { target: { value: "0.4" } });
     fireEvent.blur(second);
@@ -186,13 +190,13 @@ describe("<WeightsControls />", () => {
         <WeightsControls factorLabels={LABELS} weights={WEIGHTS} onChange={onChange} />,
       );
 
-      const boxA = screen.getByLabelText("same major");
+      const boxA = numberBox("same major");
       fireEvent.focus(boxA);
       fireEvent.change(boxA, { target: { value: "0.9" } });
       fireEvent.blur(boxA);
       expect(onChange).toHaveBeenCalledTimes(1);
 
-      const boxB = screen.getByLabelText("career goal fits this event");
+      const boxB = numberBox("career goal fits this event");
       fireEvent.focus(boxB);
       fireEvent.change(boxB, { target: { value: "0.4" } });
       fireEvent.blur(boxB);
@@ -205,7 +209,7 @@ describe("<WeightsControls />", () => {
           factorLabels={LABELS}
           weights={WEIGHTS}
           onChange={onChange}
-          refusal={new ExerciseRefusal(409, "exercise_invalid_weights", "Weights must sum to 1.")}
+          refusal={new ExerciseRefusal(409, "exercise_weights_invalid", "Weights must sum to 1.")}
         />,
       );
 
@@ -219,12 +223,12 @@ describe("<WeightsControls />", () => {
         <WeightsControls factorLabels={LABELS} weights={WEIGHTS} onChange={onChange} />,
       );
 
-      const boxA = screen.getByLabelText("same major");
+      const boxA = numberBox("same major");
       fireEvent.focus(boxA);
       fireEvent.change(boxA, { target: { value: "0.9" } });
       fireEvent.blur(boxA);
 
-      const boxB = screen.getByLabelText("career goal fits this event");
+      const boxB = numberBox("career goal fits this event");
       fireEvent.focus(boxB);
       fireEvent.change(boxB, { target: { value: "0.4" } });
       fireEvent.blur(boxB);
@@ -253,18 +257,18 @@ describe("<WeightsControls />", () => {
         <WeightsControls factorLabels={LABELS} weights={WEIGHTS} onChange={onChange} />,
       );
 
-      const boxA = screen.getByLabelText("same major");
+      const boxA = numberBox("same major");
       fireEvent.focus(boxA);
       fireEvent.change(boxA, { target: { value: "0.6" } });
       fireEvent.blur(boxA);
       expect(onChange).toHaveBeenCalledTimes(1);
 
-      const boxB = screen.getByLabelText("career goal fits this event");
+      const boxB = numberBox("career goal fits this event");
       fireEvent.focus(boxB);
       fireEvent.change(boxB, { target: { value: "0.4" } });
       fireEvent.blur(boxB);
 
-      const boxC = screen.getByLabelText("said they are interested in this topic");
+      const boxC = numberBox("said they are interested in this topic");
       fireEvent.focus(boxC);
       fireEvent.change(boxC, { target: { value: "0.1" } });
       fireEvent.blur(boxC);
@@ -293,12 +297,12 @@ describe("<WeightsControls />", () => {
       const onChange = vi.fn();
       render(<WeightsControls factorLabels={LABELS} weights={WEIGHTS} onChange={onChange} />);
 
-      const boxA = screen.getByLabelText("same major");
+      const boxA = numberBox("same major");
       fireEvent.focus(boxA);
       fireEvent.change(boxA, { target: { value: "0.9" } });
       fireEvent.blur(boxA);
 
-      const boxB = screen.getByLabelText("career goal fits this event") as HTMLInputElement;
+      const boxB = numberBox("career goal fits this event") as HTMLInputElement;
       expect(boxB.disabled).toBe(false);
       fireEvent.focus(boxB);
       fireEvent.change(boxB, { target: { value: "0.4" } });
@@ -324,7 +328,7 @@ describe("<WeightsControls />", () => {
       const onChange = vi.fn();
       render(<WeightsControls factorLabels={LABELS} weights={WEIGHTS} onChange={onChange} />);
 
-      const box = screen.getByLabelText("same major");
+      const box = numberBox("same major");
       fireEvent.focus(box);
       fireEvent.change(box, { target: { value: typed } });
       fireEvent.blur(box);
@@ -337,7 +341,7 @@ describe("<WeightsControls />", () => {
       const onChange = vi.fn();
       render(<WeightsControls factorLabels={LABELS} weights={WEIGHTS} onChange={onChange} />);
 
-      const box = screen.getByLabelText("same major");
+      const box = numberBox("same major");
       fireEvent.focus(box);
       fireEvent.change(box, { target: { value: "1,5" } });
       fireEvent.blur(box);
@@ -353,7 +357,7 @@ describe("<WeightsControls />", () => {
       const onChange = vi.fn();
       render(<WeightsControls factorLabels={LABELS} weights={WEIGHTS} onChange={onChange} />);
 
-      const box = screen.getByLabelText("same major");
+      const box = numberBox("same major");
       fireEvent.focus(box);
       fireEvent.change(box, { target: { value: "0.6" } });
       fireEvent.blur(box);
@@ -370,7 +374,7 @@ describe("<WeightsControls />", () => {
       const onChange = vi.fn();
       render(<WeightsControls factorLabels={LABELS} weights={WEIGHTS} onChange={onChange} />);
 
-      const box = screen.getByLabelText("same major");
+      const box = numberBox("same major");
       fireEvent.focus(box);
       fireEvent.change(box, { target: { value: ".5" } });
       fireEvent.blur(box);
@@ -392,7 +396,7 @@ describe("<WeightsControls />", () => {
       const onChange = vi.fn();
       render(<WeightsControls factorLabels={LABELS} weights={WEIGHTS} onChange={onChange} />);
 
-      const box = screen.getByLabelText("same major");
+      const box = numberBox("same major");
       fireEvent.focus(box);
       fireEvent.change(box, { target: { value: "-1" } });
       fireEvent.blur(box);
@@ -421,7 +425,7 @@ describe("<WeightsControls />", () => {
       />,
     );
 
-    const boxA = screen.getByLabelText("same major");
+    const boxA = numberBox("same major");
     fireEvent.focus(boxA);
     fireEvent.change(boxA, { target: { value: "0.9" } });
     fireEvent.blur(boxA);
@@ -434,11 +438,11 @@ describe("<WeightsControls />", () => {
         factorLabels={LABELS}
         weights={WEIGHTS}
         onChange={onChange}
-        refusal={new ExerciseRefusal(409, "exercise_invalid_weights", "Weights must sum to 1.")}
+        refusal={new ExerciseRefusal(409, "exercise_weights_invalid", "Weights must sum to 1.")}
       />,
     );
 
-    const boxB = screen.getByLabelText("career goal fits this event");
+    const boxB = numberBox("career goal fits this event");
     fireEvent.focus(boxB);
     fireEvent.change(boxB, { target: { value: "0.4" } });
     fireEvent.blur(boxB);
@@ -457,7 +461,7 @@ describe("<WeightsControls />", () => {
       <WeightsControls factorLabels={LABELS} weights={WEIGHTS} onChange={vi.fn()} refusal={null} />,
     );
 
-    const box = screen.getByLabelText("same major") as HTMLInputElement;
+    const box = numberBox("same major") as HTMLInputElement;
     fireEvent.focus(box);
     fireEvent.change(box, { target: { value: "0.9" } });
     fireEvent.blur(box);
@@ -467,11 +471,11 @@ describe("<WeightsControls />", () => {
         factorLabels={LABELS}
         weights={WEIGHTS}
         onChange={vi.fn()}
-        refusal={new ExerciseRefusal(409, "exercise_invalid_weights", "Weights must sum to 1.")}
+        refusal={new ExerciseRefusal(409, "exercise_weights_invalid", "Weights must sum to 1.")}
       />,
     );
 
-    expect(box.value).toBe(String(WEIGHTS.same_major));
+    expect(box.value).toBe("0.25");
   });
 
   it("keeps a still-focused box's own text when the refusal for it arrives", () => {
@@ -482,7 +486,7 @@ describe("<WeightsControls />", () => {
       <WeightsControls factorLabels={LABELS} weights={WEIGHTS} onChange={vi.fn()} refusal={null} />,
     );
 
-    const box = screen.getByLabelText("same major") as HTMLInputElement;
+    const box = numberBox("same major") as HTMLInputElement;
     fireEvent.focus(box);
     fireEvent.change(box, { target: { value: "0.9" } });
     fireEvent.blur(box);
@@ -494,7 +498,7 @@ describe("<WeightsControls />", () => {
         factorLabels={LABELS}
         weights={WEIGHTS}
         onChange={vi.fn()}
-        refusal={new ExerciseRefusal(409, "exercise_invalid_weights", "Weights must sum to 1.")}
+        refusal={new ExerciseRefusal(409, "exercise_weights_invalid", "Weights must sum to 1.")}
       />,
     );
 

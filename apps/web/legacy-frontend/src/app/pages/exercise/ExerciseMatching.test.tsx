@@ -130,10 +130,10 @@ describe("<ExerciseMatching />", () => {
   it("labels the four factors in Ann's words and never with a rulebook key", async () => {
     stub();
     renderMatching();
-    await waitFor(() => expect(screen.getByLabelText("same major")).toBeDefined());
-    expect(screen.getByLabelText("said they are interested in this topic")).toBeDefined();
-    expect(screen.getByLabelText("career goal fits this event")).toBeDefined();
-    expect(screen.getByLabelText("went to similar events before")).toBeDefined();
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "same major" })).toBeDefined());
+    expect(screen.getByRole("textbox", { name: "said they are interested in this topic" })).toBeDefined();
+    expect(screen.getByRole("textbox", { name: "career goal fits this event" })).toBeDefined();
+    expect(screen.getByRole("textbox", { name: "went to similar events before" })).toBeDefined();
     const weights = document.querySelector('[data-slot="exercise-weights"]');
     expect(weights?.textContent).not.toContain("stated_interest_overlap");
     expect(weights?.textContent).not.toContain("past_event_topic_overlap");
@@ -189,7 +189,7 @@ describe("<ExerciseMatching />", () => {
   it("sends X-Exercise-Request when a team saves a setting", async () => {
     stub();
     renderMatching();
-    const name = await screen.findByLabelText(/call these weights/i);
+    const name = await screen.findByLabelText(/name these weights/i);
     fireEvent.change(name, { target: { value: "Wide net" } });
     fireEvent.click(screen.getByRole("button", { name: /save these weights/i }));
 
@@ -214,7 +214,7 @@ describe("<ExerciseMatching />", () => {
     // `document.activeElement` was the body.
     stub();
     renderMatching();
-    const before = (await screen.findByLabelText("same major")) as HTMLInputElement;
+    const before = (await screen.findByRole("textbox", { name: "same major" })) as HTMLInputElement;
     before.focus();
 
     fireEvent.change(before, { target: { value: "0.75" } });
@@ -226,7 +226,7 @@ describe("<ExerciseMatching />", () => {
       ).toBeGreaterThan(1),
     );
 
-    const after = screen.getByLabelText("same major");
+    const after = screen.getByRole("textbox", { name: "same major" });
     expect(after).toBe(before);
   });
 
@@ -235,7 +235,7 @@ describe("<ExerciseMatching />", () => {
     // a new weighting object, so the list was fetched four extra times.
     stub();
     renderMatching();
-    const box = await screen.findByLabelText("same major");
+    const box = await screen.findByRole("textbox", { name: "same major" });
     await waitFor(() => expect(listCalls().length).toBe(1));
 
     fireEvent.focus(box);
@@ -256,7 +256,7 @@ describe("<ExerciseMatching />", () => {
     // line, so the previous rows were gone from the DOM entirely.
     stub();
     renderMatching();
-    const box = await screen.findByLabelText("same major");
+    const box = await screen.findByRole("textbox", { name: "same major" });
     fireEvent.focus(box);
     fireEvent.change(box, { target: { value: "0.9" } });
     fireEvent.blur(box);
@@ -285,7 +285,9 @@ describe("<ExerciseMatching />", () => {
             return Promise.resolve(
               new Response(
                 JSON.stringify({
-                  error: { code: "exercise_invalid_weights", message: "Weights must sum to 1." },
+                  // The server's code for a refused weighting
+                  // (`exercise_matching_weights.py`).
+                  error: { code: "exercise_weights_invalid", message: "Weights must sum to 1." },
                 }),
                 { status: 400 },
               ),
@@ -305,19 +307,25 @@ describe("<ExerciseMatching />", () => {
     );
     renderMatching();
 
-    const box = await screen.findByLabelText("same major");
+    const box = await screen.findByRole("textbox", { name: "same major" });
     expect(screen.getByText("Rosa Villalobos")).toBeDefined();
 
     fireEvent.focus(box);
     fireEvent.change(box, { target: { value: "0.9" } });
     fireEvent.blur(box);
 
-    await waitFor(() => expect(screen.getByText("Weights must sum to 1.")).toBeDefined());
+    // Owner ruling 2026-09-27: a weight refusal is shown once, under the
+    // slider (DESIGN.md §6.6 X), and not again in a page notice.
+    await waitFor(() =>
+      expect(document.querySelectorAll('[data-slot="exercise-weight-error"]')).toHaveLength(1),
+    );
+    expect(screen.getAllByText("Weights must sum to 1.")).toHaveLength(1);
+    expect(document.getElementById("exercise-list-refusal")).toBeNull();
 
     // The list from before the refused request, and the controls to fix the
     // mistake, are still on screen next to the sentence.
     expect(screen.getByText("Rosa Villalobos")).toBeDefined();
-    expect(screen.getByLabelText("same major")).toBeDefined();
+    expect(screen.getByRole("textbox", { name: "same major" })).toBeDefined();
     expect(document.querySelector('[data-slot="exercise-csv-download"]')).not.toBeNull();
 
     // Round 3 finding 3: the list shown is the *previous* answer, not the
@@ -326,9 +334,48 @@ describe("<ExerciseMatching />", () => {
     expect(document.querySelector('[data-slot="exercise-list-stale"]')).not.toBeNull();
     const listSection = document.querySelector('[data-slot="exercise-list-stale"]')
       ?.parentElement as HTMLElement;
-    expect(listSection.getAttribute("aria-describedby")).toBe("exercise-list-refusal");
-    expect(document.getElementById("exercise-list-refusal")?.textContent).toContain(
-      "Weights must sum to 1.",
+    expect(listSection.getAttribute("aria-describedby")).toBe("exercise-list-stale");
+  });
+
+  it("keeps any other refused list GET in the page notice, and not under a slider", async () => {
+    let listCallCount = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string, init: RequestInit) => {
+        calls.push({ url, init });
+        const path = url.split("?")[0];
+        if (path.endsWith("/list")) {
+          listCallCount += 1;
+          return Promise.resolve(
+            listCallCount > 1
+              ? new Response(
+                  JSON.stringify({
+                    error: { code: "exercise_dataset_missing", message: "The data file is gone." },
+                  }),
+                  { status: 409 },
+                )
+              : new Response(JSON.stringify(LIST), { status: 200 }),
+          );
+        }
+        return Promise.resolve(new Response(JSON.stringify(SETTINGS), { status: 200 }));
+      }),
+    );
+    renderMatching();
+    const box = await screen.findByRole("textbox", { name: "same major" });
+    fireEvent.focus(box);
+    fireEvent.change(box, { target: { value: "0.9" } });
+    fireEvent.blur(box);
+
+    await waitFor(() =>
+      expect(document.getElementById("exercise-list-refusal")?.textContent).toContain(
+        "The data file is gone.",
+      ),
+    );
+    expect(screen.getAllByText("The data file is gone.")).toHaveLength(1);
+    expect(document.querySelector('[data-slot="exercise-weight-error"]')).toBeNull();
+    // The slider still goes back to the confirmed weight.
+    expect((screen.getByRole("textbox", { name: "same major" }) as HTMLInputElement).value).toBe(
+      "0.25",
     );
   });
 
@@ -348,7 +395,7 @@ describe("<ExerciseMatching />", () => {
       },
     });
     renderMatching();
-    const name = (await screen.findByLabelText(/call these weights/i)) as HTMLInputElement;
+    const name = (await screen.findByLabelText(/name these weights/i)) as HTMLInputElement;
     fireEvent.change(name, { target: { value: "Wide net" } });
     fireEvent.click(screen.getByRole("button", { name: /save these weights/i }));
 
@@ -363,7 +410,7 @@ describe("<ExerciseMatching />", () => {
   it("clears the name once the save is accepted", async () => {
     stub();
     renderMatching();
-    const name = (await screen.findByLabelText(/call these weights/i)) as HTMLInputElement;
+    const name = (await screen.findByLabelText(/name these weights/i)) as HTMLInputElement;
     fireEvent.change(name, { target: { value: "Wide net" } });
     fireEvent.click(screen.getByRole("button", { name: /save these weights/i }));
 
@@ -402,7 +449,7 @@ describe("<ExerciseMatching />", () => {
       },
     });
     renderMatching();
-    const name = await screen.findByLabelText(/call these weights/i);
+    const name = await screen.findByLabelText(/name these weights/i);
     fireEvent.change(name, { target: { value: "Wide net" } });
     fireEvent.click(screen.getByRole("button", { name: /save these weights/i }));
     await waitFor(() =>
@@ -428,7 +475,7 @@ describe("<ExerciseMatching />", () => {
     }
   });
 
-  it("stacks the two compared lists, each scrolling in its own box (B3)", async () => {
+  it("shows the two compared lists as tables at 768 and up, each in its own scroll box (B3, §8.7)", async () => {
     const saved = {
       event_key: "northline",
       settings: [
@@ -444,10 +491,9 @@ describe("<ExerciseMatching />", () => {
       },
     });
     renderMatching();
-    fireEvent.change(await screen.findByLabelText(/^compare$/i), {
-      target: { value: "Wide net" },
-    });
-    fireEvent.change(screen.getByLabelText(/^with$/i), { target: { value: "Majors first" } });
+    // §6.11: a "Compare" toggle on each saved-setting card, two at most.
+    fireEvent.click(await screen.findByRole("checkbox", { name: "Compare Wide net" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Compare Majors first" }));
     fireEvent.click(screen.getByRole("button", { name: /show them side by side/i }));
 
     const grid = await waitFor(() => {
@@ -455,9 +501,15 @@ describe("<ExerciseMatching />", () => {
       expect(found).not.toBeNull();
       return found as HTMLElement;
     });
-    // The page is capped at max-w-5xl, so two six-column tables never fit
-    // side by side at any viewport width: they always stack.
+    // Owner ruling 2026-09-27: real tables at 768 and up (§8.7). Two
+    // five-column tables do not fit half of the 1152px page with major, year
+    // and marker visible, so they stack, each in its own scroll box.
     expect(grid.className).not.toMatch(/grid-cols-2/);
+    const tables = [...grid.querySelectorAll("table")];
+    expect(tables).toHaveLength(2);
+    for (const table of tables) {
+      expect(table.parentElement?.className).toContain("overflow-x-auto");
+    }
     const children = [...grid.children];
     expect(children.length).toBe(2);
     for (const child of children) {
@@ -477,11 +529,12 @@ describe("<ExerciseMatching />", () => {
     };
     stub({ "/v1/exercise/workspaces/current/events/northline/settings": { body: saved } });
     renderMatching();
-    const box = await screen.findByLabelText(/call these weights/i);
+    const box = await screen.findByLabelText(/name these weights/i);
     const save = screen.getByRole("button", { name: /save these weights/i }) as HTMLButtonElement;
 
     fireEvent.change(box, { target: { value: "Four" } });
-    expect(save.disabled).toBe(true);
+    // The desk button stays focusable when disabled (§6.3): `aria-disabled`.
+    expect(save.getAttribute("aria-disabled")).toBe("true");
     const reason = screen.getByText(
       "Your team has 3 saved settings for this event. Type one of those names to save over it, or delete one first.",
     );
@@ -489,7 +542,7 @@ describe("<ExerciseMatching />", () => {
 
     // Saving over a name the team has is always allowed and changes no count.
     fireEvent.change(box, { target: { value: " Two " } });
-    expect(save.disabled).toBe(false);
+    expect(save.getAttribute("aria-disabled")).toBeNull();
     expect(screen.queryByText(/type one of their names/i)).toBeNull();
   });
 });

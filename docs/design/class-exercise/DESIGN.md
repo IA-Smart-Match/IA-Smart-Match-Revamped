@@ -499,7 +499,10 @@ weights on screen to fill it."
 
 ### 6.12 Compare view (see [prompt](../../archive/design/class-exercise/prompts/components/compare-view.md))
 
-Two ranked lists side by side (1280) or a segmented control A | B (390),
+Two ranked lists as tables stacked one above the other, each in its own
+scroll box (768 and up; owner ruling 2026-09-27: two five-column tables with
+major, year and marker do not fit side by side), or a segmented control A | B
+(below 768),
 summary sentence "12 names are on both lists, highlighted in each.", overlap
 rows gold-washed with an "on both lists" chip, close action. On 390 each list
 shows 10 rows and "Showing 10 of 30. Show all 30" (from Fable's Room
@@ -679,7 +682,8 @@ Routes and file names are the current ones. Wireframes are schematic.
 ### 7.5 Saved settings and compare (same route, lower zone)
 
 - **1280:** three setting cards in a row, a "Name these weights" field and
-  "Save these weights" button above them. Compare opens below as two columns.
+  "Save these weights" button above them. Compare opens below as two
+  stacked tables, each in its own scroll box (owner ruling 2026-09-27).
 - **390:** cards stack; compare shows a segmented control "Setting A | Setting B"
   with the summary sentence pinned above.
 
@@ -837,6 +841,8 @@ labels and the license line are unchanged and not listed.
 | Saved settings, empty slot | "Slot 3 of 3 is free. Save the weights on screen to fill it." |
 | Saved settings, compare limit | "Two are chosen. Untick one to swap." |
 | Saved settings, delete confirm | "Delete Balanced? It cannot be brought back." / "Delete it" / "Keep it" |
+| Saved settings, save in progress | "Saving…" |
+| Saved settings, card chosen for compare | "Comparing" |
 | Compare, 390 | "Showing 10 of 30. Show all 30" |
 | Results, room | "The room", "Front of the room", legend "Already coming", "Your invitations", "Still open" |
 | Results, seat headline | "8 were already coming. Your invitations added 6. 46 seats are still open." (pattern from the brief) |

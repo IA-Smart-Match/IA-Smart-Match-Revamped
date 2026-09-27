@@ -21,8 +21,15 @@
  * No vocabulary is written here. Majors and years are keys of the maps the
  * server sent, rendered as the file spells them. The vocabularies are closed
  * by Ann's workbook of 2026-09-24, but the server owns them, not this screen.
+ *
+ * **Layout (DESIGN.md §6.9, §7.4).** Three small tables in one row on
+ * desktop, each in a white card; on the 390 layout each folds into a
+ * disclosure. Counts are plain tabular numerals, right-aligned; paired count
+ * bars are not used because they read like a share. A 0 is ink, not muted.
+ * Every table scrolls in its own box, so a long major never widens the page.
  */
 import * as React from "react";
+import { ChevronDown } from "lucide-react";
 
 import type { GroupCountsView, ListCompositionView } from "../../../lib/exerciseClient";
 // The extension is explicit: `ListCoverageNotice.tsx` and its helper
@@ -30,6 +37,7 @@ import type { GroupCountsView, ListCompositionView } from "../../../lib/exercise
 // specifier cannot tell apart on a case-insensitive filesystem (TS1149).
 import { ListCoverageNotice } from "./ListCoverageNotice.tsx";
 import { dimensionLabel, markerLabel } from "./markers";
+import { useNarrowViewport } from "./useNarrowViewport";
 
 export interface ListCompositionTableProps {
   readonly composition: ListCompositionView;
@@ -42,11 +50,16 @@ export function ListCompositionTable({
   unrankableProfileCount,
   unlistedClassYears,
 }: ListCompositionTableProps): React.JSX.Element {
+  const narrow = useNarrowViewport();
+  const groups: readonly { counts: GroupCountsView; label?: (value: string) => string }[] = [
+    { counts: composition.by_major },
+    { counts: composition.by_class_year },
+    { counts: composition.by_marker, label: markerLabel },
+  ];
+
   return (
-    <section data-slot="exercise-list-composition" className="flex flex-col gap-4">
-      <h2 className="text-3xl font-semibold text-slate-900 dark:text-slate-50">
-        Who is on the list
-      </h2>
+    <section data-slot="exercise-list-composition" className="flex flex-col gap-ce-4">
+      <h2 className="ce-type-h2 text-ce-ink">Who is on the list</h2>
 
       {/* PR #161's one-line notice, wired to the coverage the list route reports. */}
       <ListCoverageNotice
@@ -54,13 +67,33 @@ export function ListCompositionTable({
         missingClassYears={composition.coverage.missing_class_years}
       />
 
-      <div className="flex flex-col gap-6">
-        <GroupTable counts={composition.by_major} />
-        <GroupTable counts={composition.by_class_year} />
-        <GroupTable counts={composition.by_marker} label={markerLabel} />
+      <div
+        data-slot="exercise-composition-grid"
+        className="grid items-start gap-ce-4 md:gap-ce-5 lg:grid-cols-3"
+      >
+        {groups.map(({ counts, label }) =>
+          narrow ? (
+            <details key={counts.dimension} className="ce-card group min-w-0">
+              <summary className="ce-type-label flex min-h-ce-target cursor-pointer list-none items-center justify-between gap-ce-3 px-ce-4 py-ce-2 text-ce-ink [&::-webkit-details-marker]:hidden">
+                By {dimensionLabel(counts.dimension)}
+                <ChevronDown
+                  aria-hidden="true"
+                  className="size-5 shrink-0 transition-transform group-open:rotate-180 motion-reduce:transition-none"
+                />
+              </summary>
+              <div className="px-ce-4 pb-ce-4">
+                <GroupTable counts={counts} label={label} captionHidden />
+              </div>
+            </details>
+          ) : (
+            <div key={counts.dimension} className="ce-card min-w-0 p-ce-4 md:p-ce-5">
+              <GroupTable counts={counts} label={label} />
+            </div>
+          ),
+        )}
       </div>
 
-      <p className="text-xl text-slate-700 dark:text-slate-200" data-slot="exercise-unrankable">
+      <p className="ce-type-body ce-measure text-ce-ink" data-slot="exercise-unrankable">
         {unrankableProfileCount === 0
           ? "Everyone in this data file could be ranked for this event."
           : `${unrankableProfileCount} ${
@@ -68,7 +101,7 @@ export function ListCompositionTable({
             } in this data file could not be ranked for this event, so nobody among them can be on the list.`}
       </p>
 
-      <p className="text-xl text-slate-700 dark:text-slate-200" data-slot="exercise-unlisted-years">
+      <p className="ce-type-body ce-measure text-ce-ink" data-slot="exercise-unlisted-years">
         {unlistedClassYears.length === 0
           ? "Every year in this data file has somebody on the list."
           : `Years with nobody on the list: ${unlistedClassYears.join(", ")}.`}
@@ -89,41 +122,53 @@ export function ListCompositionTable({
 function GroupTable({
   counts,
   label = (value: string) => value,
+  captionHidden = false,
 }: {
   readonly counts: GroupCountsView;
   readonly label?: (value: string) => string;
+  /** In a disclosure the summary already says "By major": keep the caption for screen readers only. */
+  readonly captionHidden?: boolean;
 }): React.JSX.Element {
   const groups = [
     ...new Set([...Object.keys(counts.all_profiles), ...Object.keys(counts.on_list)]),
   ].sort((a, b) => a.localeCompare(b));
+  const dimension = dimensionLabel(counts.dimension);
 
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full border-collapse text-left text-xl">
-        <caption className="pb-2 text-left text-2xl font-semibold text-slate-900 dark:text-slate-50">
-          By {dimensionLabel(counts.dimension)}
+    <div className="ce-scroll-x overflow-x-auto">
+      <table className="w-full border-collapse text-left">
+        <caption
+          className={
+            captionHidden ? "sr-only" : "ce-type-h3 pb-ce-3 text-left text-ce-ink"
+          }
+        >
+          By {dimension}
         </caption>
         <thead>
-          <tr className="border-b-2 border-slate-400 text-lg tracking-wide uppercase">
-            <th scope="col" className="py-2 pr-4">
-              {dimensionLabel(counts.dimension)}
+          <tr className="ce-type-meta bg-ce-surface-sunk font-semibold text-ce-ink">
+            <th scope="col" className="rounded-l-ce-control px-ce-3 py-ce-2 first-letter:uppercase">
+              {dimension}
             </th>
-            <th scope="col" className="py-2 pr-4">
+            <th scope="col" className="px-ce-3 py-ce-2 text-right">
               On this list
             </th>
-            <th scope="col" className="py-2">
+            <th scope="col" className="rounded-r-ce-control px-ce-3 py-ce-2 text-right">
               In the whole data file
             </th>
           </tr>
         </thead>
-        <tbody>
+        <tbody className="ce-type-body text-ce-ink">
           {groups.map((group) => (
-            <tr key={group} className="border-b border-slate-200 dark:border-slate-700">
-              <th scope="row" className="py-2 pr-4 font-normal">
+            <tr key={group} className="border-b border-ce-line last:border-b-0">
+              <th scope="row" className="px-ce-3 py-ce-2 font-normal">
                 {label(group)}
               </th>
-              <td className="py-2 pr-4">{counts.on_list[group] ?? 0}</td>
-              <td className="py-2">{counts.all_profiles[group] ?? 0}</td>
+              <td className="ce-tabular px-ce-3 py-ce-2 text-right">
+                {counts.on_list[group] ?? 0}
+              </td>
+              <td className="ce-tabular px-ce-3 py-ce-2 text-right">
+                {counts.all_profiles[group] ?? 0}
+              </td>
             </tr>
           ))}
         </tbody>

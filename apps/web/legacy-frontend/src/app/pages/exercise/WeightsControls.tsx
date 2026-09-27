@@ -18,11 +18,38 @@
  * 2026-09-25 — "Teams should decide for themselves which factors matter
  * most"). This screen sends no weights at all until a team changes one, which
  * is what makes the server's equal defaults the defaults.
+ *
+ * **The controls are the desk's `WeightSlider` (DESIGN.md §6.6, owner ruling
+ * 2).** Each one owns its slider, its number box, the strict-decimal rule and
+ * the field's own messages, and calls `commit` once per finished change —
+ * pointer-up, a key step, Enter or leaving the box. The queue and in-flight
+ * logic below is unchanged: one request in flight, one merged commit queued
+ * behind it. A number typed in a box is sent exactly as typed, even outside
+ * 0–1: the server refuses a negative weight in its own sentence.
  */
 import * as React from "react";
 
 import type { ExerciseRefusal } from "../../../lib/exerciseApi";
 import { EXERCISE_FACTOR_KEYS, UNDECIDED_GOAL_HALF_LABEL_KEY } from "../../../lib/exerciseClient";
+import { WeightSlider } from "./desk";
+import { WeightsCompactBar } from "./WeightsCompactBar";
+
+/**
+ * The server's code for a refused weighting (`exercise_matching_weights.py`).
+ * Owner ruling 2026-09-27: its sentence is shown once, under the slider, and
+ * the screen does not repeat it in a page notice. Any other refusal of a list
+ * request is the screen's to show.
+ */
+export const WEIGHTS_REFUSAL_CODE = "exercise_weights_invalid";
+
+export function isWeightsRefusal(refusal: ExerciseRefusal | null): boolean {
+  return refusal !== null && refusal.code === WEIGHTS_REFUSAL_CODE;
+}
+
+/** The id of a refusal sentence drawn under a box the team is still in. */
+function refusalSentenceId(key: string): string {
+  return `exercise-weight-${key}-refusal`;
+}
 
 export interface WeightsControlsProps {
   /** Ann's words per factor key, from the list response. */
@@ -51,7 +78,7 @@ export interface WeightsControlsProps {
  * {@link UNDECIDED_GOAL_HALF_LABEL_KEY} is a label for the ranked list, not a
  * weight, so it never gets a box.
  */
-function orderedKeys(factorLabels: Readonly<Record<string, string>>): string[] {
+export function orderedFactorKeys(factorLabels: Readonly<Record<string, string>>): string[] {
   const known = EXERCISE_FACTOR_KEYS.filter((key) => key in factorLabels);
   const extra = Object.keys(factorLabels).filter(
     (key) =>
@@ -61,41 +88,6 @@ function orderedKeys(factorLabels: Readonly<Record<string, string>>): string[] {
   return [...known, ...extra];
 }
 
-/**
- * A strict decimal, ASCII-digit only, or `null`.
- *
- * `Number.parseFloat` reads a *prefix*: `"0.5abc"` is `0.5`, `"1,5"` (a
- * comma-locale team's five tenths) is `1` — both silently coerce a rejected
- * or foreign number into an accepted, wrong one. This instead matches the
- * whole string against one plain decimal shape and returns `null` for
- * anything else, `""` included, so the caller can tell "nothing usable was
- * typed" from "the number is legitimately unchanged".
- *
- * The shape accepts a leading-dot decimal (`.5`, same value as `0.5`) but not
- * a trailing-dot one (`5.` is not a number until a digit follows the dot,
- * same reasoning `inputMode="decimal"` above rests on), not `1,5` (a
- * comma-locale team's number, silently misread as `1` by `parseFloat`), not
- * scientific notation, and not a leading `+`.
- */
-function strictDecimal(text: string): number | null {
-  if (!/^-?(\d+(\.\d+)?|\.\d+)$/.test(text)) {
-    return null;
-  }
-  return Number(text);
-}
-
-/** The server's numbers as the text the boxes start from. */
-function textOf(
-  weights: Readonly<Record<string, number>>,
-  keys: readonly string[],
-): Record<string, string> {
-  const text: Record<string, string> = {};
-  for (const key of keys) {
-    text[key] = String(weights[key] ?? 0);
-  }
-  return text;
-}
-
 export function WeightsControls({
   factorLabels,
   weights,
@@ -103,29 +95,14 @@ export function WeightsControls({
   disabled = false,
   refusal = null,
 }: WeightsControlsProps): React.JSX.Element {
-  const keys = orderedKeys(factorLabels);
+  const keys = orderedFactorKeys(factorLabels);
+  const card = React.useRef<HTMLFieldSetElement>(null);
 
   /**
-   * What is in the boxes, as text, while a team is typing.
-   *
-   * The inputs used to be driven straight from the server's echo, with every
-   * keystroke sent upstream as a new weighting. That made typing `0.75`
-   * impossible: `0` refetched the list, the refetch re-rendered the panel, and
-   * the `.` had nowhere to land. A number input also reports an in-progress
-   * `0.` as the empty string, so a controlled value parsed per keystroke
-   * cannot represent one.
-   *
-   * So the text lives here until the team finishes with a box, and the server
-   * hears about it once, on blur or on Enter.
-   */
-  const [draft, setDraft] = React.useState<Record<string, string>>(() => textOf(weights, keys));
-
-  /**
-   * Which box has focus, so the server's echo does not overwrite it.
-   *
-   * When a committed weighting comes back the response's numbers are adopted —
-   * they are the truth about what the list was built from — but never into the
-   * box the team is still in.
+   * Which weight's number box the team is still in, so a refusal
+   * does not wipe what they are typing. Each `WeightSlider` already keeps its
+   * own box's text when the server's echo arrives; this is the one place the
+   * panel needs to know, because it decides whose slider hears a refusal.
    */
   const focused = React.useRef<string | null>(null);
 
@@ -135,7 +112,7 @@ export function WeightsControls({
    *
    * `weights` (the prop) only advances once a response lands, and the hook
    * keeps the *previous* ready data on screen while a request is in flight
-   * (`refreshing`). Without this ref, committing box B before box A's
+   * (`refreshing`). Without this ref, committing weight B before weight A's
    * request had resolved built B's payload on top of the stale prop — the
    * answer to a question the server hadn't been asked yet — and silently
    * dropped A's edit from the request that went out for B. One team's two
@@ -168,11 +145,43 @@ export function WeightsControls({
    */
   const queuedEdits = React.useRef<Record<string, number> | null>(null);
 
+  /** The weights the in-flight request changed: whose sliders a refusal is about. */
+  const inFlightKeys = React.useRef<readonly string[]>([]);
+
+  /** Weights sent or queued and not yet answered: each shows a small spinner (§6.6 L). */
+  const [pendingKeys, setPendingKeys] = React.useState<readonly string[]>([]);
+
   /**
-   * One box's rejection sentence, or `null`. Cleared the moment that box's
-   * text changes again — the team is already fixing it.
+   * The latest refusal and the one slider that shows its sentence (§6.6 X).
+   * Handing the refusal object to a slider is what returns it to the
+   * confirmed weight — a new object per refused attempt, so it reverts even
+   * when the sentence repeats. Cleared when that weight is committed again,
+   * and once a list is accepted.
+   *
+   * One refusal answers one weighting, so a weights refusal's sentence is
+   * shown once (owner ruling 2026-09-27): under the number box the team is
+   * still typing in, else the slider that holds focus, else the first
+   * refused one. A box being typed in keeps its text, so there the sentence
+   * is drawn under it here rather than handed to the slider (which would
+   * reset the box). Any other slider the same request changed is reverted by
+   * remounting it (`revision`), which shows nothing. Any other refusal is
+   * the screen's notice to show; the sliders only revert.
    */
-  const [errors, setErrors] = React.useState<Record<string, string | null>>({});
+  const [shownRefusal, setShownRefusal] = React.useState<{
+    readonly key: string;
+    readonly refusal: ExerciseRefusal;
+    /** The team is still in this weight's box: draw the sentence, keep the text. */
+    readonly inBox: boolean;
+  } | null>(null);
+  const [revision, setRevision] = React.useState<Readonly<Record<string, number>>>({});
+  const rows = React.useRef<Record<string, HTMLDivElement | null>>({});
+
+  function send(next: Readonly<Record<string, number>>, changed: readonly string[]): void {
+    pendingBase.current = next;
+    inFlightKeys.current = changed;
+    setInFlight(true);
+    onChange(next);
+  }
 
   /**
    * Common to both ways a commit settles: a successful load (`weights`
@@ -187,31 +196,22 @@ export function WeightsControls({
    */
   function onSettled(confirmed: Readonly<Record<string, number>>): void {
     pendingBase.current = confirmed;
+    inFlightKeys.current = [];
     setInFlight(false);
     const queued = queuedEdits.current;
     queuedEdits.current = null;
-    setDraft((previous) => {
-      const next = textOf(confirmed, keys);
-      // Keep whatever the team is still typing in the focused box, and
-      // whatever a queued-but-not-yet-sent edit set for any other box — both
-      // are truer than the confirmed number for a box that has moved on.
-      for (const key of Object.keys(next)) {
-        if (key === focused.current || (queued !== null && key in queued)) {
-          next[key] = previous[key] ?? next[key];
-        }
-      }
-      return next;
-    });
-    if (queued !== null) {
-      const next = { ...confirmed, ...queued };
-      pendingBase.current = next;
-      setInFlight(true);
-      onChange(next);
+    if (queued === null) {
+      setPendingKeys([]);
+      return;
     }
+    const changed = Object.keys(queued);
+    setPendingKeys(changed);
+    send({ ...confirmed, ...queued }, changed);
   }
 
   React.useEffect(() => {
     // A confirmed response is the newest truth about what was asked for.
+    setShownRefusal(null);
     onSettled(weights);
     // `keys` is derived from `factorLabels`; both change only with a new event.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -227,11 +227,38 @@ export function WeightsControls({
    *
    * `refusal` is a fresh `ExerciseRefusal` instance per failed attempt, so
    * it is a reliable trigger even when two commits in a row are refused for
-   * the same reason.
+   * the same reason. The sliders the refused request changed hear the
+   * sentence and fall back to the confirmed weight — except one the team is
+   * still in, whose text stays theirs until they leave it.
    */
   React.useEffect(() => {
     if (refusal === null) {
       return;
+    }
+    const inBox = focused.current;
+    const refused = keys.filter((key) => inFlightKeys.current.includes(key));
+    if (refused.length > 0) {
+      let announcer: string | null = null;
+      if (isWeightsRefusal(refusal)) {
+        const active = document.activeElement;
+        announcer =
+          (inBox !== null && refused.includes(inBox) ? inBox : null) ??
+          refused.find((key) => active !== null && rows.current[key]?.contains(active)) ??
+          refused[0];
+        setShownRefusal({ key: announcer, refusal, inBox: announcer === inBox });
+      } else {
+        setShownRefusal(null);
+      }
+      const others = refused.filter((key) => key !== announcer && key !== inBox);
+      if (others.length > 0) {
+        setRevision((previous) => {
+          const next = { ...previous };
+          for (const key of others) {
+            next[key] = (next[key] ?? 0) + 1;
+          }
+          return next;
+        });
+      }
     }
     onSettled(weights);
     // `weights` is read for its value as of the refusal, not watched — this
@@ -241,32 +268,18 @@ export function WeightsControls({
   }, [refusal]);
 
   /**
-   * Send the box's value upstream, once, when the team is done with it — or,
-   * if another commit is already in flight, fold it into the one commit
-   * queued behind it (see `queuedEdits`).
+   * Send one weight upstream, once, when the team is done with it — or, if
+   * another commit is already in flight, fold it into the one commit queued
+   * behind it (see `queuedEdits`).
    *
-   * A number the server will not take — a negative weight — is sent anyway and
-   * refused with the server's own plain sentence, like every other refusal on
-   * this screen. Guessing at the wording here would put a second copy of it in
-   * the client. A number that is not a number at all — `"0.5abc"`, `"1,5"`,
-   * an empty box — never reaches the server: it is rejected here, visibly,
-   * rather than `Number.parseFloat` reading a prefix and sending a value the
-   * team never typed.
+   * Text that is not a plain number never gets here: the slider's box
+   * rejects it with its own message, rather than `Number.parseFloat` reading
+   * a prefix and sending a value the team never typed. A number the server
+   * will not take is sent and refused in the server's own words, like every
+   * other refusal on this screen.
    */
-  function commit(key: string): void {
-    const text = draft[key] ?? "";
-    const value = strictDecimal(text);
-    if (value === null) {
-      setErrors((previous) => ({
-        ...previous,
-        [key]:
-          text.trim() === ""
-            ? "Type a number for this weight."
-            : `"${text}" is not a plain number. Use digits and one decimal point, like 0.5.`,
-      }));
-      return;
-    }
-    setErrors((previous) => (previous[key] === null ? previous : { ...previous, [key]: null }));
+  function commit(key: string, value: number): void {
+    setShownRefusal((previous) => (previous?.key === key ? null : previous));
     // What the next request would ask for if it went out right now: the
     // last confirmed base, with any already-queued edit layered on top.
     const effectiveBase = { ...pendingBase.current, ...(queuedEdits.current ?? {}) };
@@ -275,93 +288,121 @@ export function WeightsControls({
       // queued: do not spend a request.
       return;
     }
+    setPendingKeys((previous) => (previous.includes(key) ? previous : [...previous, key]));
     if (inFlight) {
-      // The boxes stay editable while queued; this edit joins whatever else
-      // is already waiting and both go out together once the in-flight
-      // request settles.
+      // The controls stay live while queued; this edit joins whatever else is
+      // already waiting and both go out together once the in-flight request
+      // settles.
       queuedEdits.current = { ...(queuedEdits.current ?? {}), [key]: value };
       return;
     }
     // A new object, never a mutation of the one the response gave us, built
     // on the last confirmed weighting.
-    const next = { ...pendingBase.current, [key]: value };
-    pendingBase.current = next;
-    setInFlight(true);
-    onChange(next);
+    send({ ...pendingBase.current, [key]: value }, [key]);
+  }
+
+  /**
+   * While a refusal's sentence waits under a box the team is still typing in,
+   * the box itself is marked invalid and names the sentence. `WeightSlider`
+   * owns the box and takes no such props, so the two attributes are set on
+   * it directly and handed back once the slider shows the refusal itself.
+   */
+  React.useLayoutEffect(() => {
+    if (shownRefusal === null || !shownRefusal.inBox) {
+      return undefined;
+    }
+    const box = document.getElementById(`exercise-weight-${shownRefusal.key}-value`);
+    const sentenceId = refusalSentenceId(shownRefusal.key);
+    if (box === null) {
+      return undefined;
+    }
+    box.setAttribute("aria-invalid", "true");
+    box.setAttribute("aria-describedby", sentenceId);
+    return () => {
+      // Only undo what this effect set: the slider may already point the box
+      // at its own copy of the sentence.
+      if (box.getAttribute("aria-describedby") === sentenceId) {
+        box.removeAttribute("aria-describedby");
+        box.setAttribute("aria-invalid", "false");
+      }
+    };
+  }, [shownRefusal]);
+
+  function focusFirstSlider(): void {
+    card.current?.querySelector<HTMLElement>('[role="slider"]')?.focus();
   }
 
   return (
-    <fieldset className="border-0 p-0" data-slot="exercise-weights">
-      <legend className="text-3xl font-semibold text-slate-900 dark:text-slate-50">
-        How much each thing counts
-      </legend>
-      <div className="mt-4 grid gap-4 sm:grid-cols-2">
-        {keys.map((key) => {
-          const inputId = `exercise-weight-${key}`;
-          return (
-            <div key={key} className="flex flex-col gap-1">
-              <label htmlFor={inputId} className="text-xl text-slate-800 dark:text-slate-100">
-                {/* Ann's words. The key is the input's name, never its label. */}
-                {factorLabels[key]}
-              </label>
-              <input
-                id={inputId}
+    <>
+      <fieldset
+        ref={card}
+        data-slot="exercise-weights"
+        className="ce-card m-0 flex min-w-0 scroll-mt-ce-8 flex-col gap-ce-5 border-0 p-ce-4 md:p-ce-5"
+      >
+        <legend className="ce-type-h3 float-left w-full text-ce-ink">
+          How much each thing counts
+        </legend>
+        <div className="clear-both flex flex-col gap-ce-5">
+          {keys.map((key) => (
+            <div
+              key={key}
+              ref={(element) => {
+                rows.current[key] = element;
+              }}
+              // Only the number box holds text a refusal could wipe; a focused
+              // slider thumb takes the refusal and snaps back like any other.
+              onFocus={(event) => {
+                focused.current = event.target instanceof HTMLInputElement ? key : null;
+              }}
+              onBlur={() => {
+                focused.current = null;
+                // #251 review H1: a refusal that landed while the team was in
+                // this box is handed to the slider once they leave it, which
+                // reverts box and thumb to the confirmed weight and keeps the
+                // one sentence, now linked by the slider.
+                setShownRefusal((previous) =>
+                  previous !== null && previous.key === key && previous.inBox
+                    ? { ...previous, inBox: false }
+                    : previous,
+                );
+              }}
+            >
+              <WeightSlider
+                key={revision[key] ?? 0}
+                id={`exercise-weight-${key}`}
+                // Ann's words. The key is the box's name, never its label.
+                label={factorLabels[key] ?? ""}
                 name={key}
-                // `text`, not `number`. A number input *sanitizes its own
-                // value*: while `0.` is being typed, `input.value` reads as
-                // the empty string, in jsdom and in every browser, because
-                // `0.` is not yet a valid floating-point number. A controlled
-                // input therefore cannot hold a half-typed decimal at all —
-                // which is the exact character this whole change exists to let
-                // a team type. `inputMode="decimal"` still brings up the right
-                // keyboard, and the value is parsed on commit.
-                type="text"
-                inputMode="decimal"
-                value={draft[key] ?? ""}
+                value={weights[key] ?? 0}
+                onCommit={(value) => commit(key, value)}
+                refusal={
+                  shownRefusal?.key === key && !shownRefusal.inBox ? shownRefusal.refusal : null
+                }
+                pending={pendingKeys.includes(key)}
                 disabled={disabled}
-                onChange={(event) => {
-                  const typed = event.target.value;
-                  setDraft((previous) => ({ ...previous, [key]: typed }));
-                  // The team is already fixing whatever was rejected.
-                  setErrors((previous) =>
-                    previous[key] === null || previous[key] === undefined
-                      ? previous
-                      : { ...previous, [key]: null },
-                  );
-                }}
-                aria-invalid={errors[key] != null}
-                aria-describedby={errors[key] == null ? undefined : `${inputId}-error`}
-                onFocus={() => {
-                  focused.current = key;
-                }}
-                onBlur={() => {
-                  focused.current = null;
-                  commit(key);
-                }}
-                onKeyDown={(event) => {
-                  // Enter in a single-input form would submit it; here it means
-                  // "I am done with this box", which is the same as blurring.
-                  if (event.key === "Enter") {
-                    event.preventDefault();
-                    commit(key);
-                  }
-                }}
-                className="w-40 rounded-lg border-2 border-slate-400 px-3 py-2 text-2xl focus-visible:outline-2 focus-visible:outline-offset-2 dark:border-slate-500 dark:bg-slate-900 dark:text-slate-50"
               />
-              {errors[key] == null ? null : (
+              {shownRefusal?.key === key && shownRefusal.inBox ? (
                 <p
-                  id={`${inputId}-error`}
-                  role="alert"
+                  id={refusalSentenceId(key)}
+                  role="status"
                   data-slot="exercise-weight-error"
-                  className="text-lg text-red-800 dark:text-red-300"
+                  className="ce-type-meta mt-ce-2 text-ce-danger"
                 >
-                  {errors[key]}
+                  {shownRefusal.refusal.message}
                 </p>
-              )}
+              ) : null}
             </div>
-          );
-        })}
-      </div>
-    </fieldset>
+          ))}
+        </div>
+        <p className="ce-type-meta border-t border-ce-line pt-ce-4 text-ce-ink-muted">
+          The list is rebuilt when you let go of a slider or press Enter.
+        </p>
+      </fieldset>
+      <WeightsCompactBar
+        target={card}
+        values={keys.map((key) => weights[key] ?? 0)}
+        onEdit={focusFirstSlider}
+      />
+    </>
   );
 }
