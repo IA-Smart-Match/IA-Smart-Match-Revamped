@@ -66,7 +66,7 @@ JavaScript (`motion.ts`, `confirmWindow.tsx`, `seatFill.tsx`):
 | `WeightSlider` | `WeightSlider.tsx` | `id`, `label` (server's words), `value` (last accepted), `onCommit(value)`, `error?` (server sentence), `pending?`, `disabled?`, `name?` | §6.6, ruling 2 |
 | weight helpers | `weightValue.ts` | `strictDecimal`, `weightFieldMessage`, `clampWeight`, `formatWeight`, `WEIGHT_*` | same rule and words as `WeightsControls.tsx` |
 
-`WeightSlider` owns one weight. The queue/in-flight logic stays in `WeightsControls.tsx`: render four sliders there and call its existing `commit` path from `onCommit`. Values outside 0–1 typed in the box are clamped to 0–1 on commit.
+`WeightSlider` owns one weight. The queue/in-flight logic stays in `WeightsControls.tsx`: render four sliders there and call its existing `commit` path from `onCommit`. A number typed in the box is committed exactly as typed, even outside 0–1: the server refuses a negative weight in its own sentence and accepts one above 1. Only the thumb's position (and weights the slider itself produces) stay on 0–1.
 
 ## 4. Rules for page tracks
 

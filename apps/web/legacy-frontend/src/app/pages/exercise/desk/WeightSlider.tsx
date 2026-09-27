@@ -8,7 +8,10 @@
  *   never per drag tick.
  * - Keyboard: arrows ±0.05, Page Up/Down ±0.25, Home/End (§8.4).
  * - The box keeps the strict-decimal rule; anything else is a field alert.
- *   Numbers outside 0–1 are clamped onto the slider's range.
+ *   A typed number outside 0–1 is committed as typed — the server refuses a
+ *   negative weight in its own sentence and accepts one above 1 ("refuse,
+ *   never repair") — and only the thumb's position is held on 0–1. Weights
+ *   the slider itself produces (drag, keys) always stay on 0–1.
  * - `error` is the server's refusal sentence; the controls revert to `value`
  *   (the last accepted weight) when it arrives.
  * - The thumb is drawn at 28px inside a 44px hit area (§8.9).
@@ -41,7 +44,10 @@ export interface WeightSliderProps {
   readonly label: string;
   /** The last accepted weight. */
   readonly value: number;
-  /** Called once per commit with the new weight (clamped to 0–1). */
+  /**
+   * Called once per commit with the new weight: a typed number as typed
+   * (never clamped), or a slider value on 0–1.
+   */
   readonly onCommit: (value: number) => void;
   /** The server's refusal sentence for this weight, verbatim. */
   readonly error?: string | null;
@@ -105,8 +111,9 @@ export function WeightSlider({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [error]);
 
+  /** Send a weight. Callers clamp slider-driven values; typed ones pass as typed. */
   function commit(next: number): void {
-    const settled = tidyWeight(clampWeight(next));
+    const settled = tidyWeight(next);
     showValue(settled);
     setFieldError(null);
     if (settled !== lastSent.current) {
@@ -168,7 +175,7 @@ export function WeightSlider({
           setFieldError(null);
         }}
         onValueCommit={([next]) => {
-          commit(next);
+          commit(clampWeight(next));
         }}
         onKeyDown={(event) => {
           // Radix pages by 10 steps (0.5); §8.4 asks for ±0.25.
@@ -176,7 +183,7 @@ export function WeightSlider({
             return;
           }
           event.preventDefault();
-          commit(live + (event.key === "PageUp" ? WEIGHT_PAGE_STEP : -WEIGHT_PAGE_STEP));
+          commit(clampWeight(live + (event.key === "PageUp" ? WEIGHT_PAGE_STEP : -WEIGHT_PAGE_STEP)));
         }}
         className={cn(
           "group/slider relative col-span-2 row-start-2 flex h-ce-target touch-none items-center select-none md:col-span-1 md:col-start-1",

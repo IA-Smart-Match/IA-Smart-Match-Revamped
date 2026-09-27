@@ -118,17 +118,30 @@ describe("WeightSlider (§6.6)", () => {
     expect(field.value).toBe("0.333");
   });
 
-  it("clamps an out-of-range number to 0–1 on the slider and on commit", () => {
+  it("commits a typed out-of-range number as typed; only the thumb is clamped", () => {
+    // The server refuses a negative weight in its own sentence and accepts
+    // one above 1 ("refuse, never repair"); the client never repairs it.
     const { slider, field, onCommit } = renderSlider();
     fireEvent.change(field, { target: { value: "1.5" } });
     expect(slider.getAttribute("aria-valuenow")).toBe("1");
     fireEvent.keyDown(field, { key: "Enter" });
-    expect(onCommit).toHaveBeenLastCalledWith(1);
-    expect(field.value).toBe("1.00");
+    expect(onCommit).toHaveBeenLastCalledWith(1.5);
+    expect(field.value).toBe("1.50");
+    expect(slider.getAttribute("aria-valuenow")).toBe("1");
     fireEvent.change(field, { target: { value: "-0.2" } });
     expect(slider.getAttribute("aria-valuenow")).toBe("0");
     fireEvent.keyDown(field, { key: "Enter" });
-    expect(onCommit).toHaveBeenLastCalledWith(0);
+    expect(onCommit).toHaveBeenLastCalledWith(-0.2);
+    expect(field.value).toBe("-0.20");
+    expect(slider.getAttribute("aria-valuenow")).toBe("0");
+  });
+
+  it("keeps slider-driven commits on the 0–1 range after an out-of-range entry", () => {
+    const { slider, field, onCommit } = renderSlider();
+    fireEvent.change(field, { target: { value: "1.5" } });
+    fireEvent.keyDown(field, { key: "Enter" });
+    fireEvent.keyDown(slider, { key: "PageUp" });
+    expect(onCommit).toHaveBeenLastCalledWith(1);
   });
 
   it("rejects a number that is not plain, as a field alert, without committing", () => {
