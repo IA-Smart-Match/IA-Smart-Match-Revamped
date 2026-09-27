@@ -127,7 +127,7 @@ describe("<ExerciseAskingForMore />", () => {
       },
     });
     renderAsking();
-    await waitFor(() => expect(screen.getByText(/promise better recommendations/i)).toBeDefined());
+    await screen.findByRole("radio", { name: /promise better recommendations/i });
     expect(document.querySelector('[data-slot="synthetic-data-banner"]')).not.toBeNull();
   });
 

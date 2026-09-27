@@ -31,6 +31,14 @@
  * Counts are what ADR-0025 D8 allows and what the requirements ask for; there
  * is no percentage on this screen, and the illustrative shares in Ann's build
  * table (OQ-CE-04, confirmed 2026-09-25) are not returned by the API.
+ *
+ * **The invitation desk (DESIGN.md §6.18, §6.19, §7.9).** The choices are
+ * radio cards (`ExerciseAskingChoiceCard.tsx`) with an inline confirm, owner
+ * ruling 3: the first press on "Choose this way" arms that same button as
+ * "Confirm: A small reward?" for about five seconds (`useConfirmWindow`); a
+ * second press sends the choice; Escape, the window lapsing, or another card
+ * reverts it. No pop-up. The counts are a ruled figures band that counts up
+ * once; a screen reader hears only the final number.
  */
 import * as React from "react";
 import { Link } from "react-router";
@@ -46,13 +54,25 @@ import {
   type RefreshCountsView,
   type RefreshView,
 } from "../../../lib/exerciseClient";
-import { askingChoiceLabel } from "./askingChoices";
-import { ExerciseLoading, ExerciseNotice, ExerciseScreen } from "./ExerciseScreen";
+import { askingChoiceConfirmHint } from "./askingChoices";
+import {
+  Button,
+  SkeletonCard,
+  SkeletonRegion,
+  useConfirmWindow,
+  useCountUp,
+  usePrefersReducedMotion,
+} from "./desk";
+import { AskingChoiceCard, type AskingCardState } from "./ExerciseAskingChoiceCard";
+import { ExerciseNotice, ExerciseScreen } from "./ExerciseScreen";
 import { useExerciseResource } from "./useExerciseResource";
 import { workspaceRequiredNotice } from "./refusals";
 
 /** The refusal `GET …/events/{key}/results` gives for an event not yet run. */
 const RESULTS_NOT_RUN = "exercise_results_not_run";
+
+/** `sending` while the refresh is in flight (never a choice value). */
+const REFRESH_ACTION = "refresh";
 
 /** What this screen reads: the asking state, and whether round one has run. */
 interface AskingScreenView {
@@ -93,8 +113,66 @@ async function readAskingScreen(signal: AbortSignal): Promise<AskingScreenView> 
   }
 }
 
-const BUTTON =
-  "rounded-lg border-2 border-slate-400 px-5 py-3 text-xl font-semibold text-slate-800 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 dark:border-slate-500 dark:text-slate-100 dark:hover:bg-slate-800";
+/** "Back to the events", drawn as a secondary button (§6.3). */
+const BACK_LINK =
+  "ce-press ce-type-label inline-flex min-h-ce-control items-center justify-center rounded-ce-control border-2 border-ce-line-strong bg-ce-surface px-ce-5 text-ce-ink hover:border-ce-primary hover:bg-ce-primary-tint";
+
+/**
+ * `partly-known-card.svg` (DESIGN.md §4, §7.9): a card half filled in, beside
+ * the lead at 1280 and hidden on a phone. Decorative, so hidden from readers.
+ */
+function PartlyKnownCard(): React.JSX.Element {
+  return (
+    <svg
+      viewBox="0 0 100 80"
+      fill="none"
+      aria-hidden="true"
+      focusable="false"
+      data-slot="exercise-asking-art"
+      className="hidden h-auto w-24 text-ce-primary md:block"
+    >
+      <rect
+        x="8"
+        y="10"
+        width="84"
+        height="60"
+        rx="8"
+        fill="currentColor"
+        opacity="0.1"
+        stroke="currentColor"
+        strokeWidth="3"
+      />
+      <rect x="8" y="10" width="42" height="60" rx="8" fill="currentColor" opacity="0.35" />
+      <path d="M50 10 V70" stroke="currentColor" strokeWidth="2" strokeDasharray="4 4" />
+      <circle cx="29" cy="34" r="8" fill="currentColor" opacity="0.7" />
+      <rect x="19" y="48" width="20" height="4" rx="2" fill="currentColor" opacity="0.6" />
+      <circle
+        cx="71"
+        cy="34"
+        r="8"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeDasharray="3 3"
+      />
+      <rect x="61" y="48" width="20" height="4" rx="2" fill="currentColor" opacity="0.25" />
+    </svg>
+  );
+}
+
+/** The loading state (§6.21): three card shapes, and the stated line for readers. */
+function AskingSkeleton(): React.JSX.Element {
+  return (
+    <SkeletonRegion
+      label="Loading your team's choice…"
+      className="grid gap-ce-3 lg:grid-cols-3 lg:gap-ce-5"
+    >
+      <SkeletonCard />
+      <SkeletonCard />
+      <SkeletonCard />
+    </SkeletonRegion>
+  );
+}
 
 export function ExerciseAskingForMore(): React.JSX.Element {
   const { state, reload } = useExerciseResource(readAskingScreen, []);
@@ -115,18 +193,21 @@ export function ExerciseAskingForMore(): React.JSX.Element {
       title="Asking for more"
       intro="Pick one way to ask the people your team invited to fill in a card. Your team picks once."
       aside={
-        <Link to="/exercise/events" className={BUTTON}>
-          Back to the events
-        </Link>
+        <div className="flex flex-col items-end gap-ce-5">
+          <Link to="/exercise/events" className={BACK_LINK}>
+            Back to the events
+          </Link>
+          <PartlyKnownCard />
+        </div>
       }
     >
-      {state.status === "loading" ? <ExerciseLoading what="your team's choice" /> : null}
+      {state.status === "loading" ? <AskingSkeleton /> : null}
       {state.status === "refused" ? workspaceRequiredNotice(state.refusal) : null}
       {state.status === "unreachable" ? (
         <ExerciseNotice message={state.message} tone="problem">
-          <button type="button" onClick={reload} className={BUTTON}>
+          <Button variant="secondary" onClick={() => void reload()}>
             Try again
-          </button>
+          </Button>
         </ExerciseNotice>
       ) : null}
       {state.status === "ready" ? (
@@ -160,8 +241,16 @@ function AskingPanels({
   readonly refreshed: RefreshView | null;
   readonly onRefreshed: (view: RefreshView) => void;
 }): React.JSX.Element {
+  const ids = React.useId();
+  const reduced = usePrefersReducedMotion();
   const [pending, setPending] = React.useState(false);
   const [refusal, setRefusal] = React.useState<string | null>(null);
+  /** Which action is in flight: a choice value, or `REFRESH_ACTION`. */
+  const [sending, setSending] = React.useState<string | null>(null);
+  /** The radio being considered before a choice is made. */
+  const [considered, setConsidered] = React.useState<string | null>(null);
+  /** The card the confirm window belongs to. */
+  const [target, setTarget] = React.useState<string | null>(null);
 
   /**
    * Run one action and stay disabled until the screen actually reflects it.
@@ -173,11 +262,12 @@ function AskingPanels({
    * still the old, unlocked values and the button was clickable again: a
    * once-only action could be fired twice inside that window.
    */
-  async function run(action: () => Promise<void>): Promise<void> {
+  async function run(what: string, action: () => Promise<void>): Promise<void> {
     if (pending) {
       return;
     }
     setPending(true);
+    setSending(what);
     setRefusal(null);
     try {
       await action();
@@ -189,128 +279,195 @@ function AskingPanels({
       );
     } finally {
       setPending(false);
+      setSending(null);
     }
   }
 
+  const confirm = useConfirmWindow({
+    onConfirm: () => {
+      if (target === null) {
+        return;
+      }
+      const choice = target;
+      void run(choice, async () => {
+        await chooseAsking(choice);
+        await onChanged();
+      });
+    },
+  });
+  const armedChoice = confirm.armed ? target : null;
+
+  /** A press on a card's button: arm it, or commit it if it is armed. */
+  function press(choice: string): void {
+    if (pending) {
+      return;
+    }
+    setConsidered(choice);
+    if (confirm.armed && target !== choice) {
+      confirm.cancel();
+    }
+    setTarget(choice);
+    confirm.press();
+  }
+
+  /** Picking another card in the radio group reverts an armed confirm. */
+  function select(choice: string): void {
+    setConsidered(choice);
+    if (confirm.armed && target !== choice) {
+      confirm.cancel();
+    }
+  }
+
+  function cardState(choice: string): AskingCardState {
+    if (asking.choice === null) {
+      return "open";
+    }
+    return asking.choice === choice ? "chosen" : "dimmed";
+  }
+
+  const askShutReasons = [
+    asking.choice === null ? `${ids}-pick-first` : null,
+    roundOneRun ? null : `${ids}-run-first`,
+  ].filter((id): id is string => id !== null);
+
   return (
-    <div className="flex flex-col gap-8">
+    <div className="flex flex-col gap-ce-6 md:gap-ce-7">
       {refusal === null ? null : <ExerciseNotice message={refusal} />}
 
-      <section className="flex flex-col gap-4" data-slot="exercise-asking-choices">
-        <h2 className="text-3xl font-semibold text-slate-900 dark:text-slate-50">
+      <section className="flex flex-col gap-ce-4" data-slot="exercise-asking-choices">
+        <h2 id={`${ids}-question`} className="ce-type-h2 text-ce-ink">
           How will your team ask?
         </h2>
-        <ul className="flex flex-col gap-3">
-          {asking.choices.map((choice) => {
-            const chosen = asking.choice === choice;
-            return (
-              <li key={choice} className="flex flex-wrap items-center gap-3">
-                <button
-                  type="button"
-                  disabled={pending || asking.choice !== null}
-                  aria-pressed={chosen}
-                  onClick={() =>
-                    void run(async () => {
-                      await chooseAsking(choice);
-                      await onChanged();
-                    })
-                  }
-                  className={`${BUTTON} ${
-                    chosen
-                      ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
-                      : ""
-                  }`}
-                >
-                  {askingChoiceLabel(choice)}
-                </button>
-                {chosen ? (
-                  <span className="text-xl text-slate-700 dark:text-slate-200">
-                    Your team chose this.
-                  </span>
-                ) : null}
-              </li>
-            );
-          })}
-        </ul>
+        <div
+          role="radiogroup"
+          aria-labelledby={`${ids}-question`}
+          className="grid gap-ce-3 lg:grid-cols-3 lg:gap-ce-5"
+        >
+          {asking.choices.map((choice) => (
+            <AskingChoiceCard
+              key={choice}
+              choice={choice}
+              group={`${ids}-choice`}
+              state={cardState(choice)}
+              selected={(asking.choice ?? considered) === choice}
+              armed={armedChoice === choice}
+              saving={sending === choice}
+              busy={pending}
+              reduced={reduced}
+              onSelect={select}
+              onPress={press}
+              onKeyDown={confirm.onKeyDown}
+            />
+          ))}
+        </div>
+        <p aria-live="polite" data-slot="exercise-asking-confirm-live" className="sr-only">
+          {armedChoice === null ? "" : askingChoiceConfirmHint(armedChoice)}
+        </p>
         {asking.choice === null ? null : (
-          <p className="text-xl text-slate-600 dark:text-slate-300">
-            A team picks once, so these are now fixed.
-          </p>
+          <p className="ce-type-body text-ce-ink-muted">A team picks once, so these are now fixed.</p>
         )}
       </section>
 
-      <section className="flex flex-col gap-4">
-        <h2 className="text-3xl font-semibold text-slate-900 dark:text-slate-50">
-          Ask the people your team invited
-        </h2>
-        <p className="text-xl text-slate-700 dark:text-slate-200">
+      <section className="flex flex-col gap-ce-4">
+        <h2 className="ce-type-h2 text-ce-ink">Ask the people your team invited</h2>
+        <p className="ce-type-body ce-measure text-ce-ink-muted">
           This happens once. Everyone who attended the first event picks up its topics, and some of
           the people your team invited fill in a card.
         </p>
         <div>
-          <button
-            type="button"
+          <Button
+            variant="primary"
+            pending={sending === REFRESH_ACTION}
             disabled={pending || asking.choice === null || asking.refreshed || !roundOneRun}
+            describedBy={
+              asking.refreshed || askShutReasons.length === 0 ? undefined : askShutReasons.join(" ")
+            }
             onClick={() =>
-              void run(async () => {
+              void run(REFRESH_ACTION, async () => {
                 onRefreshed(await refreshProfiles());
                 await onChanged();
               })
             }
-            className={BUTTON}
+            className="w-full md:w-auto"
           >
             {asking.refreshed ? "Your team has already asked" : "Ask them now"}
-          </button>
+          </Button>
         </div>
         {asking.choice === null ? (
-          <p className="text-xl text-slate-600 dark:text-slate-300">
+          <p id={`${ids}-pick-first`} className="ce-type-body text-ce-ink-muted">
             Pick a way of asking first.
           </p>
         ) : null}
         {roundOneRun ? null : (
-          <p className="text-xl text-slate-600 dark:text-slate-300">
+          <p id={`${ids}-run-first`} className="ce-type-body text-ce-ink-muted">
             {`Run your team's results for ${roundOneName ?? "the first event"} before asking.`}
           </p>
         )}
         {/* Only while the server says the team has asked: a reset clears them. */}
-        <RefreshCounts counts={asking.refreshed ? (asking.refresh_counts ?? refreshed) : null} />
+        <RefreshCounts
+          counts={asking.refreshed ? (asking.refresh_counts ?? refreshed) : null}
+          reduced={reduced}
+        />
       </section>
     </div>
   );
 }
 
 /**
- * The three counts. `topics_added` counts the *people* who picked up the first
- * event's topics, so the label says that rather than "topics added".
+ * The three counts, as a ruled figures band (§6.19, the same band as §6.15).
+ * `topics_added` counts the *people* who picked up the first event's topics,
+ * so the label says that rather than "topics added".
  */
 function RefreshCounts({
   counts,
+  reduced,
 }: {
   readonly counts: RefreshCountsView | RefreshView | null;
+  readonly reduced: boolean;
 }): React.JSX.Element | null {
   if (counts === null) {
     return null;
   }
   return (
-    <dl className="grid gap-3 text-xl sm:grid-cols-3" data-slot="exercise-refresh-counts">
-      <Count label="Cards filled in" value={counts.cards_completed} />
-      <Count label="Stopped opening messages" value={counts.non_responding} />
-      <Count label="Picked up the first event's topics" value={counts.topics_added} />
+    <dl
+      className="mt-ce-4 grid grid-cols-3 border-y border-ce-line-strong py-ce-4 md:py-ce-5"
+      data-slot="exercise-refresh-counts"
+    >
+      <Count label="Cards filled in" value={counts.cards_completed} reduced={reduced} />
+      <Count label="Stopped opening messages" value={counts.non_responding} reduced={reduced} />
+      <Count
+        label="Picked up the first event's topics"
+        value={counts.topics_added}
+        reduced={reduced}
+      />
     </dl>
   );
 }
 
+/**
+ * One figure. The label comes first in the source (a reader hears "Cards
+ * filled in, 9") and is drawn under the numeral. The numeral counts up once
+ * (`ce-count-up`); readers get only the final number.
+ */
 function Count({
   label,
   value,
+  reduced,
 }: {
   readonly label: string;
   readonly value: number;
+  readonly reduced: boolean;
 }): React.JSX.Element {
+  const shown = useCountUp(value, { reduced });
   return (
-    <div className="rounded-lg border-2 border-slate-300 px-4 py-3 dark:border-slate-600">
-      <dt className="text-lg text-slate-600 dark:text-slate-300">{label}</dt>
-      <dd className="text-3xl font-bold text-slate-900 dark:text-slate-50">{value}</dd>
+    <div className="flex min-w-0 flex-col-reverse justify-end gap-ce-2 border-l border-ce-line-strong px-ce-3 first:border-l-0 first:pl-0 md:px-ce-5">
+      <dt className="ce-type-label text-ce-ink-muted">{label}</dt>
+      <dd className="text-ce-primary">
+        <span className="sr-only">{value}</span>
+        <span aria-hidden="true" className="ce-type-display">
+          {shown}
+        </span>
+      </dd>
     </div>
   );
 }
