@@ -181,15 +181,17 @@ function PastEvents({ past }: { readonly past: readonly EventView[] }): React.JS
                 )}
               />
             }
-            className="self-start px-0 md:hidden"
+            className="-ml-ce-2 self-start md:hidden"
           >
             {count === 1 ? "Show the 1 past event" : `Show the ${count} past events`}
           </Button>
           <ul
             id={PAST_LIST_ID}
             data-expanded={expanded ? "true" : "false"}
+            // Two columns read top to bottom, then across, as a printed list.
+            style={{ "--ce-past-rows": Math.ceil(count / 2) } as React.CSSProperties}
             className={cn(
-              "mt-ce-2 grid gap-x-ce-6 gap-y-ce-3 md:grid-cols-2",
+              "mt-ce-2 grid gap-x-ce-6 gap-y-ce-3 md:grid-flow-col md:grid-cols-2 md:grid-rows-[repeat(var(--ce-past-rows),auto)]",
               !expanded && "max-md:hidden",
             )}
           >

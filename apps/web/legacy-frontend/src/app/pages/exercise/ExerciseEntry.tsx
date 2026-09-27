@@ -151,10 +151,10 @@ export function ExerciseEntry(): React.JSX.Element {
 function TileSkeletons(): React.JSX.Element {
   return (
     <SkeletonRegion label="Loading the exercise…">
-      <div className="grid w-fit grid-cols-3 gap-ce-4 md:flex">
+      <div className="grid w-fit grid-cols-3 gap-ce-4 md:flex md:flex-wrap">
         {Array.from({ length: 6 }, (_, index) => (
           <div key={index} data-slot="exercise-team-tile-skeleton">
-            <Skeleton className="size-24 rounded-ce-card md:size-28" />
+            <Skeleton className="size-24 rounded-ce-card lg:size-28" />
           </div>
         ))}
       </div>
@@ -206,7 +206,7 @@ function EntryForm({ data }: { readonly data: EntryData }): React.JSX.Element {
           keys (§8.4) for free. */}
       <fieldset className="m-0 min-w-0 border-0 p-0">
         <legend className="sr-only">Team number</legend>
-        <div className="grid w-fit grid-cols-3 gap-ce-4 md:flex">
+        <div className="grid w-fit grid-cols-3 gap-ce-4 md:flex md:flex-wrap">
           {teamNumbers.map((number) => (
             <TeamTile
               key={number}
@@ -220,7 +220,9 @@ function EntryForm({ data }: { readonly data: EntryData }): React.JSX.Element {
       </fieldset>
 
       {data.workspace === null ? null : (
-        <div className="flex items-center gap-ce-3">
+        // `md:w-0 md:min-w-full`: fill the tile row's width without widening
+        // it, so the button below still lines up with the last tile.
+        <div className="flex items-center gap-ce-3 md:w-0 md:min-w-full">
           <TeamBadgeArt className="size-8 shrink-0 text-ce-primary" />
           <p className="ce-type-body text-ce-ink" data-slot="exercise-entry-current">
             This browser is already in team {data.workspace.team_number}, working in{" "}
@@ -229,7 +231,11 @@ function EntryForm({ data }: { readonly data: EntryData }): React.JSX.Element {
         </div>
       )}
 
-      {refusal === null ? null : <ExerciseNotice message={refusal} />}
+      {refusal === null ? null : (
+        <div className="md:w-0 md:min-w-full">
+          <ExerciseNotice message={refusal} />
+        </div>
+      )}
 
       {/* §7.2: right-aligned under the tiles on desktop; on a phone, full width
           and pinned to the bottom safe area once a tile is chosen. */}
@@ -239,7 +245,7 @@ function EntryForm({ data }: { readonly data: EntryData }): React.JSX.Element {
         className={cn(
           "flex md:justify-end",
           chosen &&
-            "max-md:sticky max-md:bottom-0 max-md:z-10 max-md:-mx-ce-4 max-md:bg-ce-page max-md:px-ce-4 max-md:pt-ce-3 max-md:pb-[max(var(--ce-space-4),env(safe-area-inset-bottom))]",
+            "max-md:sticky max-md:bottom-0 max-md:z-10 max-md:-mx-ce-4 max-md:border-t max-md:border-ce-line max-md:bg-ce-page max-md:px-ce-4 max-md:pt-ce-3 max-md:pb-[max(var(--ce-space-4),env(safe-area-inset-bottom))]",
         )}
       >
         <Button
@@ -277,7 +283,7 @@ function TeamTile({
       data-selected={selected ? "true" : undefined}
       data-pending={pending ? "true" : undefined}
       className={cn(
-        "ce-press relative flex size-24 cursor-pointer items-center justify-center overflow-hidden rounded-ce-card md:size-28",
+        "ce-press relative flex size-24 cursor-pointer items-center justify-center overflow-hidden rounded-ce-card lg:size-28",
         "font-ce-display text-[44px] leading-none font-bold tabular-nums",
         "has-[:focus-visible]:outline-[3px] has-[:focus-visible]:outline-offset-[3px] has-[:focus-visible]:outline-ce-primary has-[:focus-visible]:outline-solid",
         selected
