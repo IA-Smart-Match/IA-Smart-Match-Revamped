@@ -283,8 +283,8 @@ describe("<ExerciseInstructor />", () => {
 
     const roundTwo = (await screen.findByText("Round two")).closest("li");
     const roundOne = screen.getByText("Round one").closest("li");
-    expect(roundTwo?.textContent).toContain("Results are open.");
-    expect(roundOne?.textContent).not.toContain("Results are open.");
+    expect(roundTwo?.textContent).toContain("Results are open");
+    expect(roundOne?.textContent).not.toContain("Results are open");
     expect(roundOne?.querySelector("button")?.textContent).toBe("Open results");
   });
 
@@ -301,10 +301,12 @@ describe("<ExerciseInstructor />", () => {
     const roundTwo = (await screen.findByText("Round two")).closest("li");
     answers[`GET ${INSTRUCTOR_EVENTS}`] = { body: eventsView(true) };
     fireEvent.click(roundTwo?.querySelector("button") as HTMLButtonElement);
+    // DESIGN.md §11.1: opening results asks first, inline.
+    fireEvent.click(screen.getByRole("button", { name: "Open results now" }));
 
     await waitFor(() =>
       expect(screen.getByText("Round two").closest("li")?.textContent).toContain(
-        "Results are open.",
+        "Results are open",
       ),
     );
     const unlock = calls.find((call) => call.url.includes("/unlock"));
@@ -565,6 +567,22 @@ describe("<ExerciseInstructor />", () => {
     expect(within(panel as HTMLElement).getByRole("button", { name: /check again/i })).toBeDefined();
   });
 
+  it("asks before opening results, and 'Not yet' opens nothing", async () => {
+    stub(signedInStubs());
+    renderInstructor();
+    await signIn();
+
+    const roundOne = (await screen.findByText("Round one")).closest("li") as HTMLElement;
+    fireEvent.click(within(roundOne).getByRole("button", { name: "Open results" }));
+    expect(roundOne.textContent).toContain(
+      "Open results for Round one? Every team can then run results once for this event.",
+    );
+    fireEvent.click(within(roundOne).getByRole("button", { name: "Not yet" }));
+    expect(within(roundOne).queryByRole("button", { name: "Open results now" })).toBeNull();
+    expect(within(roundOne).getByRole("button", { name: "Open results" })).toBeDefined();
+    expect(calls.some((call) => call.url.includes("/unlock"))).toBe(false);
+  });
+
   it("re-reads after a refused unlock, then clears the page's sentence", async () => {
     // #232 L2 and L3. The re-read after a refused unlock already happened; the
     // sentence at the top of the page outlived it, still saying "No team is
@@ -592,6 +610,8 @@ describe("<ExerciseInstructor />", () => {
     };
     const readsBefore = calls.filter((call) => call.url === INSTRUCTOR_EVENTS).length;
     fireEvent.click(roundOne?.querySelector("button") as HTMLButtonElement);
+    // DESIGN.md §11.1: opening results asks first, inline.
+    fireEvent.click(screen.getByRole("button", { name: "Open results now" }));
 
     // Refused, and the re-read is in flight: the sentence is up and every
     // unlock button waits, because the file it would address may be changing.
@@ -639,6 +659,8 @@ describe("<ExerciseInstructor />", () => {
       status: 409,
     };
     fireEvent.click(roundOne?.querySelector("button") as HTMLButtonElement);
+    // DESIGN.md §11.1: opening results asks first, inline.
+    fireEvent.click(screen.getByRole("button", { name: "Open results now" }));
 
     await screen.findByText("No team has entered a number yet.");
     expect(screen.getByText("No team is working in that data file.")).toBeDefined();

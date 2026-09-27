@@ -35,6 +35,7 @@ import * as React from "react";
 // ADR-0025 D1 forbids. Changed by CE-MOUNT, which added the test that fails
 // on it; nothing this screen renders changes.
 import { SyntheticDataBanner } from "../../components/provenance/SyntheticDataMarker";
+import { EXERCISE_RIBBON_LABEL, EXERCISE_SYNTHETIC_REASON } from "./ExerciseScreen";
 
 interface CardQuestion {
   /** The `exercise_profile` column this question would fill (design spec §2). */
@@ -70,7 +71,18 @@ const CARD_QUESTIONS: readonly CardQuestion[] = [
 ];
 
 const INERT_BUTTON_CLASS =
-  "cursor-not-allowed self-start rounded-lg border-2 border-slate-300 px-6 py-3 text-xl font-semibold text-slate-500 dark:border-slate-600 dark:text-slate-400";
+  "ce-meta w-full cursor-not-allowed rounded-[10px] bg-ce-sunk px-4 py-3 text-center text-ce-muted";
+
+/** The page's `h1` and caption (DESIGN.md §7.6, §11.1). */
+const PAGE_TITLE = "What a profile would be asked";
+const PAGE_CAPTION =
+  "Major and year are already on file, and past events are recorded when someone attends. So the card asks only two things, and asks the person to confirm their major.";
+/**
+ * What the ribbon used to say on this page. The ribbon now carries the fixed
+ * exercise sentence (DESIGN.md §6.2), so this moved to the caption.
+ */
+const MOCKUP_NOTE =
+  "This is a mock-up of the card, shown to the class. It asks nobody anything, keeps no answers, and is not connected to any list.";
 
 /**
  * The major on file, shown for the student to confirm rather than asked for.
@@ -81,18 +93,16 @@ function MajorConfirm(): React.JSX.Element {
   return (
     <section
       data-slot="exercise-card-major-confirm"
-      className="rounded-lg border-2 border-slate-200 bg-white px-5 py-4 dark:border-slate-700 dark:bg-slate-900"
+      className="flex flex-col gap-2 border-t border-ce-line pt-5"
     >
-      <p className="text-2xl leading-snug font-semibold text-slate-900 dark:text-slate-50">
-        Confirm your major
-      </p>
-      <p className="mt-1 text-lg text-slate-600 dark:text-slate-300">
+      <h3 className="ce-h3 text-ce-ink">Confirm your major</h3>
+      <p className="ce-meta text-ce-muted">
         This is the major already on file for you. Year and the events you have been to are
         on file too, so nothing else here asks for them.
       </p>
       <div
         aria-hidden="true"
-        className="mt-3 flex h-10 items-center rounded-md border-2 border-dashed border-slate-300 px-3 text-lg text-slate-500 dark:border-slate-600 dark:text-slate-400"
+        className="ce-meta flex min-h-11 items-center justify-center rounded-[10px] border-2 border-dashed border-ce-line-strong px-3 text-ce-muted"
       >
         Your major, as it is on file
       </div>
@@ -100,7 +110,7 @@ function MajorConfirm(): React.JSX.Element {
         Inert on purpose, like the button at the foot of the card: there is
         nothing behind it, and its label says so.
       */}
-      <button type="button" disabled aria-disabled="true" className={`mt-3 ${INERT_BUTTON_CLASS}`}>
+      <button type="button" disabled aria-disabled="true" className={INERT_BUTTON_CLASS}>
         Confirm — mock-up only, this button does nothing
       </button>
     </section>
@@ -112,49 +122,67 @@ function QuestionRow({ question }: { question: CardQuestion }): React.JSX.Elemen
     <li
       data-slot="exercise-card-question"
       data-field={question.field}
-      className="rounded-lg border-2 border-slate-200 bg-white px-5 py-4 dark:border-slate-700 dark:bg-slate-900"
+      className="flex flex-col gap-1 border-t border-ce-line pt-5"
     >
-      <p className="text-2xl leading-snug font-semibold text-slate-900 dark:text-slate-50">
-        {question.prompt}
-      </p>
-      <p className="mt-1 text-lg text-slate-600 dark:text-slate-300">{question.example}</p>
+      <h3 className="ce-h3 text-ce-ink">{question.prompt}</h3>
+      <p className="ce-meta text-ce-muted">{question.example}</p>
       {/*
         A blank line drawn, not an input: an input invites typing, and typing
         into a mock-up invites the belief that something was kept.
       */}
-      <div
-        aria-hidden="true"
-        className="mt-3 h-10 rounded-md border-2 border-dashed border-slate-300 dark:border-slate-600"
-      />
+      <div aria-hidden="true" className="mt-6 border-b-2 border-dashed border-ce-line-strong" />
     </li>
   );
 }
 
+/**
+ * The page (DESIGN.md §6.22, §7.6): a phone-sized card, 360px wide, on the
+ * eggwhite desk, with a "Mock-up only" chip in its corner, and a caption
+ * column beside it on desktop (above it on a phone).
+ */
 export function ProfileCardMockup(): React.JSX.Element {
   return (
-    <main className="mx-auto flex max-w-3xl flex-col gap-6 px-6 py-10">
-      <SyntheticDataBanner reason="This is a mock-up of the card, shown to the class. It asks nobody anything, keeps no answers, and is not connected to any list." />
-      <header>
-        <h1 className="text-4xl leading-tight font-bold text-slate-900 dark:text-slate-50">
-          Two quick questions
-        </h1>
-        <p className="mt-2 text-xl text-slate-600 dark:text-slate-300">
-          Answering these would let us suggest events worth your evening.
-        </p>
-      </header>
-      <MajorConfirm />
-      <ol className="flex flex-col gap-4">
-        {CARD_QUESTIONS.map((question) => (
-          <QuestionRow key={question.field} question={question} />
-        ))}
-      </ol>
-      {/*
-        Inert on purpose, and disabled so it cannot be pressed even by
-        accident. Its label is the honest one: there is nothing behind it.
-      */}
-      <button type="button" disabled aria-disabled="true" className={INERT_BUTTON_CLASS}>
-        Mock-up only — this button does nothing
-      </button>
-    </main>
+    <div className="ce-root min-h-screen">
+      <main className="mx-auto flex w-full max-w-[1280px] flex-col gap-8 px-4 pt-6 pb-16 md:px-8 md:pt-8 lg:px-10 xl:px-16">
+        {/* The fixed ribbon every exercise screen carries (DESIGN.md §6.2). */}
+        <SyntheticDataBanner
+          tone="quiet"
+          label={EXERCISE_RIBBON_LABEL}
+          reason={EXERCISE_SYNTHETIC_REASON}
+        />
+        <div className="flex flex-col items-center gap-8 lg:flex-row lg:items-start lg:justify-center lg:gap-16">
+          <header className="flex w-full max-w-[360px] flex-col gap-4 lg:pt-4">
+            <h1 className="ce-h1 text-ce-ink">{PAGE_TITLE}</h1>
+            <p className="ce-lead text-ce-muted md:text-xl">{PAGE_CAPTION}</p>
+            <p className="ce-lead text-ce-muted md:text-xl">{MOCKUP_NOTE}</p>
+          </header>
+          <article
+            aria-label="Profile card mock-up"
+            className="ce-card flex w-full max-w-[360px] flex-col gap-5 p-6 shadow-[var(--ce-elev-3)]"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <h2 className="ce-h2 text-ce-ink">Two quick questions</h2>
+              <span className="ce-chip shrink-0 bg-ce-sunk text-ce-ink">Mock-up only</span>
+            </div>
+            <p className="ce-body -mt-2 text-ce-muted">
+              Answering these would let us suggest events worth your evening.
+            </p>
+            <MajorConfirm />
+            <ol className="flex flex-col gap-5">
+              {CARD_QUESTIONS.map((question) => (
+                <QuestionRow key={question.field} question={question} />
+              ))}
+            </ol>
+            {/*
+              Inert on purpose, and disabled so it cannot be pressed even by
+              accident. Its label is the honest one: there is nothing behind it.
+            */}
+            <button type="button" disabled aria-disabled="true" className={INERT_BUTTON_CLASS}>
+              Mock-up only — this button does nothing
+            </button>
+          </article>
+        </div>
+      </main>
+    </div>
   );
 }

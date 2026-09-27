@@ -181,6 +181,8 @@ describe("the instructor page keeps the Teams panel current", () => {
     const before = teamReads();
 
     fireEvent.click(within(roundOne).getByRole("button", { name: /open results/i }));
+    // DESIGN.md §11.1: opening results asks first, inline.
+    fireEvent.click(within(roundOne).getByRole("button", { name: "Open results now" }));
     await waitFor(() => expect(teamReads()).toBe(before + 1));
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(teamReads()).toBe(before + 1);

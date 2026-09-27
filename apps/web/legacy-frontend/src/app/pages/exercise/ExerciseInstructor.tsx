@@ -22,6 +22,7 @@
  * CBA portal's pages follow for a different reason.
  */
 import * as React from "react";
+import { Eye, EyeOff, KeyRound, Lock, LockOpen, LogOut } from "lucide-react";
 
 import { isRefusal } from "../../../lib/exerciseApi";
 import {
@@ -31,16 +32,15 @@ import {
   listTeamWorkspaces,
   refreshAllWorkspaces,
   unlockResults,
+  type InstructorEventView,
   type RefreshAllView,
 } from "../../../lib/exerciseClient";
 import { ExerciseLoading, ExerciseNotice, ExerciseScreen } from "./ExerciseScreen";
+import { ceButton, Chip, Spinner } from "./exerciseUi";
 import { InstructorDatasets } from "./InstructorDatasets";
 import { InstructorTeams } from "./InstructorTeams";
 import { INSTRUCTOR_SESSION_REQUIRED, TEAMS_SPAN_DATASETS } from "./refusals";
 import { useExerciseResource } from "./useExerciseResource";
-
-const BUTTON =
-  "rounded-lg border-2 border-slate-400 px-5 py-3 text-xl font-semibold text-slate-800 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 dark:border-slate-500 dark:text-slate-100 dark:hover:bg-slate-800";
 
 /** Whether this browser's instructor cookie is still good. */
 type SessionProbe = "checking" | "signed-in" | "signed-out";
@@ -85,6 +85,7 @@ export function ExerciseInstructor(): React.JSX.Element {
     <ExerciseScreen
       title="Instructor"
       intro="Load a data file, open results for an event, and see what each team has done."
+      centered={probe === "signed-out"}
     >
       {probe === "checking" ? <ExerciseLoading what="the instructor page" /> : null}
       {probe === "signed-in" ? <SignedIn onSignedOut={() => setProbe("signed-out")} /> : null}
@@ -95,14 +96,20 @@ export function ExerciseInstructor(): React.JSX.Element {
   );
 }
 
+/**
+ * The passcode card (DESIGN.md §7.11, §6.24): centred, 480px, a `KeyRound`,
+ * one field with a show/hide toggle, one primary action, and the §11.1 helper
+ * saying what the passcode is not.
+ */
 function PasscodeForm({ onSignedIn }: { readonly onSignedIn: () => void }): React.JSX.Element {
   const [passcode, setPasscode] = React.useState("");
+  const [shown, setShown] = React.useState(false);
   const [pending, setPending] = React.useState(false);
   const [refusal, setRefusal] = React.useState<string | null>(null);
 
   return (
     <form
-      className="flex flex-col gap-4"
+      className="ce-card mx-auto flex w-full max-w-[480px] flex-col gap-4 p-6 md:p-8"
       onSubmit={(event) => {
         event.preventDefault();
         if (pending || passcode === "") {
@@ -128,25 +135,54 @@ function PasscodeForm({ onSignedIn }: { readonly onSignedIn: () => void }): Reac
           .finally(() => setPending(false));
       }}
     >
-      <div className="flex flex-col gap-1">
-        <label htmlFor="exercise-passcode" className="text-xl">
+      <span
+        aria-hidden="true"
+        className="flex size-12 items-center justify-center rounded-[10px] bg-ce-primary-tint text-ce-primary"
+      >
+        <KeyRound className="size-6" />
+      </span>
+      <div className="flex flex-col gap-2">
+        <label htmlFor="exercise-passcode" className="ce-label text-ce-ink">
           Passcode
         </label>
-        <input
-          id="exercise-passcode"
-          type="password"
-          autoComplete="current-password"
-          value={passcode}
-          onChange={(event) => setPasscode(event.target.value)}
-          className="w-96 max-w-full rounded-lg border-2 border-slate-400 px-3 py-2 text-2xl focus-visible:outline-2 focus-visible:outline-offset-2 dark:border-slate-500 dark:bg-slate-900 dark:text-slate-50"
-        />
+        <div className="relative">
+          <input
+            id="exercise-passcode"
+            type={shown ? "text" : "password"}
+            autoComplete="current-password"
+            value={passcode}
+            aria-describedby="exercise-passcode-help"
+            onChange={(event) => setPasscode(event.target.value)}
+            className="ce-input w-full pr-14"
+          />
+          <button
+            type="button"
+            aria-pressed={shown}
+            // Named without the field's word, so the field keeps the one label.
+            aria-label={shown ? "Hide what is typed" : "Show what is typed"}
+            onClick={() => setShown((value) => !value)}
+            className="absolute inset-y-0 right-0 flex w-12 items-center justify-center rounded-r-[10px] text-ce-muted hover:text-ce-primary"
+          >
+            {shown ? (
+              <EyeOff aria-hidden="true" className="size-5" />
+            ) : (
+              <Eye aria-hidden="true" className="size-5" />
+            )}
+          </button>
+        </div>
       </div>
       {refusal === null ? null : <ExerciseNotice message={refusal} />}
-      <div>
-        <button type="submit" disabled={pending || passcode === ""} className={BUTTON}>
-          {pending ? "Checking…" : "Open the instructor page"}
-        </button>
-      </div>
+      <button
+        type="submit"
+        disabled={pending || passcode === ""}
+        className={ceButton("primary", "ce-btn-lg w-full")}
+      >
+        {pending ? <Spinner /> : null}
+        {pending ? "Checking…" : "Open the instructor page"}
+      </button>
+      <p id="exercise-passcode-help" className="ce-meta text-center text-ce-muted">
+        The passcode is shared by the course team. It is not your university login.
+      </p>
     </form>
   );
 }
@@ -191,32 +227,39 @@ function SignedIn({ onSignedOut }: { readonly onSignedOut: () => void }): React.
     });
   }
 
+  // §7.11: two columns, 8/4. Left: unlock, teams, ask-for-all. Right, sticky:
+  // data files and sign out. On a phone the same order stacks.
   return (
-    <div className="flex flex-col gap-10">
-      <div className="flex flex-wrap items-center gap-3">
-        <button
-          type="button"
-          className={BUTTON}
-          onClick={() => guard(async () => {
-            await instructorLogout();
-            onSignedOut();
-          })}
-        >
-          Sign out of this browser
-        </button>
-        <span className="text-xl text-slate-600 dark:text-slate-300">
-          {/* §14 as shipped: no server-side session row, no revocation before expiry. */}
-          This clears the passcode from this browser only. It does not sign out anywhere else.
-        </span>
+    <div className="grid items-start gap-6 lg:grid-cols-12 lg:gap-8">
+      <div className="flex min-w-0 flex-col gap-6 lg:col-span-8 lg:gap-8">
+        {refusal === null ? null : <ExerciseNotice message={refusal} />}
+        <UnlockPanel onRefusal={setRefusal} onUnlocked={teamsChanged} reloadKey={dataVersion} />
+        {/* A sum, so a bump to either re-reads the teams. */}
+        <InstructorTeams reloadKey={dataVersion + teamsVersion} onSignedOut={onSignedOut} />
+        <RefreshAllPanel onDone={teamsChanged} />
       </div>
-
-      {refusal === null ? null : <ExerciseNotice message={refusal} />}
-
-      <InstructorDatasets onDataChanged={dataChanged} />
-      <UnlockPanel onRefusal={setRefusal} onUnlocked={teamsChanged} reloadKey={dataVersion} />
-      <RefreshAllPanel onDone={teamsChanged} />
-      {/* A sum, so a bump to either re-reads the teams. */}
-      <InstructorTeams reloadKey={dataVersion + teamsVersion} onSignedOut={onSignedOut} />
+      <div className="flex min-w-0 flex-col gap-6 lg:sticky lg:top-6 lg:col-span-4">
+        <InstructorDatasets onDataChanged={dataChanged} />
+        <section className="ce-card flex flex-col items-start gap-2 p-5 md:p-6">
+          <button
+            type="button"
+            className={ceButton("quiet", "min-h-11 px-0")}
+            onClick={() =>
+              guard(async () => {
+                await instructorLogout();
+                onSignedOut();
+              })
+            }
+          >
+            <LogOut aria-hidden="true" className="size-5" />
+            Sign out of this browser
+          </button>
+          <p className="ce-meta text-ce-muted">
+            {/* §14 as shipped: no server-side session row, no revocation before expiry. */}
+            This clears the passcode from this browser only. It does not sign out anywhere else.
+          </p>
+        </section>
+      </div>
     </div>
   );
 }
@@ -226,7 +269,7 @@ function SignedIn({ onSignedOut }: { readonly onSignedOut: () => void }): React.
  *
  * The list is `GET …/instructor/events`, behind the passcode session alone. It
  * used to be the team route, which needs a workspace cookie, so an instructor
- * who had not entered as a team saw no events at all. "Results are open." is
+ * who had not entered as a team saw no events at all. "Results are open" is
  * the server's `unlocked` flag rather than local state, so it survives a
  * reload, and the list is re-read after every unlock.
  *
@@ -247,6 +290,11 @@ function SignedIn({ onSignedOut }: { readonly onSignedOut: () => void }): React.
  * open results for half a class. The fix is a re-point, so the sentence says
  * where that button is. Branching on the stable `code`, as the refusal rule
  * allows; the server's wording stays untouched everywhere else.
+ *
+ * **Opening asks first, inline** (DESIGN.md §11.1): "Open results" becomes a
+ * line "Open results for Harbor Consumer Brands? Every team can then run
+ * results once for this event." with "Open results now" and "Not yet". Once
+ * open, the row shows a `LockOpen` chip "Results are open" and no button.
  */
 function UnlockPanel({
   onRefusal,
@@ -260,6 +308,8 @@ function UnlockPanel({
 }): React.JSX.Element {
   const { state, reload } = useExerciseResource(listInstructorEvents, [reloadKey]);
   const [pending, setPending] = React.useState(false);
+  /** The event whose "Open results" is waiting for its confirm, if any. */
+  const [confirming, setConfirming] = React.useState<string | null>(null);
   const busy =
     pending || state.status === "loading" || (state.status === "ready" && state.refreshing);
 
@@ -283,17 +333,36 @@ function UnlockPanel({
 
   const checkAgain = (
     <div>
-      <button type="button" className={BUTTON} disabled={busy} onClick={() => void reload()}>
+      <button type="button" className={ceButton("secondary")} disabled={busy} onClick={() => void reload()}>
         Check again
       </button>
     </div>
   );
 
+  function unlock(event: InstructorEventView, datasetId: string): void {
+    setConfirming(null);
+    setPending(true);
+    onRefusal(null);
+    unlockResults(event.event_key, datasetId)
+      .then(() => {
+        onUnlocked();
+        return reload();
+      })
+      .catch((error: unknown) => {
+        onRefusal(
+          isRefusal(error)
+            ? error.message
+            : "The exercise could not be reached. Check the connection and try again.",
+        );
+        refusedUnlockPending.current = true;
+        return reload();
+      })
+      .finally(() => setPending(false));
+  }
+
   return (
-    <section className="flex flex-col gap-3" data-slot="exercise-instructor-unlock">
-      <h2 className="text-3xl font-semibold text-slate-900 dark:text-slate-50">
-        Open results for an event
-      </h2>
+    <section className="ce-card flex flex-col gap-4 p-5 md:p-6" data-slot="exercise-instructor-unlock">
+      <h2 className="ce-h2 text-ce-ink">Open results for an event</h2>
       {state.status === "loading" ? <ExerciseLoading what="the events" /> : null}
       {state.status === "refused" ? (
         <>
@@ -315,52 +384,78 @@ function UnlockPanel({
       ) : null}
       {state.status === "ready" && state.data.events.length === 0 ? (
         <>
-          <p className="text-xl text-slate-700 dark:text-slate-200">
+          <p className="ce-body text-ce-ink">
             {state.data.dataset_label} has no events for the teams to run.
           </p>
           {checkAgain}
         </>
       ) : null}
       {state.status === "ready" && state.data.events.length > 0 ? (
-        <ul className="flex flex-col gap-2">
-          {state.data.events.map((event) => (
-            <li key={event.event_key} className="flex flex-wrap items-center gap-3 text-xl">
-              <span className="font-semibold">{event.name}</span>
-              {event.unlocked ? (
-                <span className="text-slate-700 dark:text-slate-200">Results are open.</span>
-              ) : (
-                <button
-                  type="button"
-                  // A refresh in flight may be about to change `dataset_id`
-                  // (an upload or re-point just landed), so wait for it.
-                  disabled={pending || state.refreshing}
-                  className={BUTTON}
-                  onClick={() => {
-                    setPending(true);
-                    onRefusal(null);
-                    unlockResults(event.event_key, state.data.dataset_id)
-                      .then(() => {
-                        onUnlocked();
-                        return reload();
-                      })
-                      .catch((error: unknown) => {
-                        onRefusal(
-                          isRefusal(error)
-                            ? error.message
-                            : "The exercise could not be reached. Check the connection and try again.",
-                        );
-                        refusedUnlockPending.current = true;
-                        return reload();
-                      })
-                      .finally(() => setPending(false));
-                  }}
-                >
-                  Open results
-                </button>
-              )}
-            </li>
-          ))}
-        </ul>
+        <>
+          <ul className="flex flex-col gap-3">
+            {state.data.events.map((event) => (
+              <li
+                key={event.event_key}
+                className="ce-well flex flex-col gap-3 px-4 py-3 md:px-5"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <span className="ce-body font-semibold text-ce-ink">{event.name}</span>
+                  <span className="flex flex-wrap items-center gap-3">
+                    {event.unlocked ? (
+                      <Chip tone="primary" icon={<LockOpen aria-hidden="true" className="size-4" />}>
+                        Results are open
+                      </Chip>
+                    ) : (
+                      <>
+                        {confirming === event.event_key ? null : (
+                          <button
+                            type="button"
+                            // A refresh in flight may be about to change
+                            // `dataset_id` (an upload or re-point just
+                            // landed), so wait for it.
+                            disabled={pending || state.refreshing}
+                            className={ceButton("secondary")}
+                            onClick={() => setConfirming(event.event_key)}
+                          >
+                            Open results
+                          </button>
+                        )}
+                        <Chip tone="outline" icon={<Lock aria-hidden="true" className="size-4" />}>
+                          Results are closed
+                        </Chip>
+                      </>
+                    )}
+                  </span>
+                </div>
+                {confirming === event.event_key && !event.unlocked ? (
+                  <div className="flex flex-col gap-3 border-t border-ce-line pt-3">
+                    <p className="ce-body text-ce-ink">
+                      Open results for {event.name}? Every team can then run results once for
+                      this event.
+                    </p>
+                    <div className="flex flex-wrap items-center gap-3">
+                      <button
+                        type="button"
+                        disabled={pending || state.refreshing}
+                        className={ceButton("primary")}
+                        onClick={() => unlock(event, state.data.dataset_id)}
+                      >
+                        {pending ? "Opening…" : "Open results now"}
+                      </button>
+                      <button
+                        type="button"
+                        className={ceButton("quiet", "min-h-11")}
+                        onClick={() => setConfirming(null)}
+                      >
+                        Not yet
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </>
       ) : null}
     </section>
   );
@@ -369,7 +464,7 @@ function UnlockPanel({
 /** This panel's sentence for teams split across files (see `UnlockPanel`). */
 const SPLIT_ACROSS_FILES =
   "The teams are working in more than one data file. Under Data files, press " +
-  "\u201cMove every team to this file\u201d on the file the class should use. This list reads again on its own once they move.";
+  "“Move every team to this file” on the file the class should use. This list reads again on its own once they move.";
 
 /** Refresh every team that has chosen and has not yet asked. */
 function RefreshAllPanel({ onDone }: { readonly onDone: () => void }): React.JSX.Element {
@@ -378,11 +473,9 @@ function RefreshAllPanel({ onDone }: { readonly onDone: () => void }): React.JSX
   const [refusal, setRefusal] = React.useState<string | null>(null);
 
   return (
-    <section className="flex flex-col gap-3">
-      <h2 className="text-3xl font-semibold text-slate-900 dark:text-slate-50">
-        Ask for every team at once
-      </h2>
-      <p className="text-xl text-slate-700 dark:text-slate-200">
+    <section className="ce-card flex flex-col gap-4 p-5 md:p-6">
+      <h2 className="ce-h2 text-ce-ink">Ask for every team at once</h2>
+      <p className="ce-body text-ce-ink">
         This runs in one go for every team that has picked a way of asking and has not asked yet. If
         it cannot be done, no team is changed.
       </p>
@@ -390,7 +483,7 @@ function RefreshAllPanel({ onDone }: { readonly onDone: () => void }): React.JSX
         <button
           type="button"
           disabled={pending}
-          className={BUTTON}
+          className={ceButton("secondary")}
           onClick={() => {
             setPending(true);
             setRefusal(null);
@@ -409,12 +502,13 @@ function RefreshAllPanel({ onDone }: { readonly onDone: () => void }): React.JSX
               .finally(() => setPending(false));
           }}
         >
+          {pending ? <Spinner /> : null}
           {pending ? "Asking for every team…" : "Ask for every team"}
         </button>
       </div>
       {refusal === null ? null : <ExerciseNotice message={refusal} />}
       {done === null ? null : (
-        <p className="text-xl text-slate-800 dark:text-slate-100">
+        <p className="ce-body rounded-[14px] bg-ce-avocado-tint px-4 py-3 text-ce-ink" role="status">
           Asked for {done.refreshed} {done.refreshed === 1 ? "team" : "teams"}
           {done.refreshed_team_numbers.length === 0
             ? ""
