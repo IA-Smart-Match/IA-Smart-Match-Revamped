@@ -213,9 +213,13 @@ export function UnlockPanel({
 
 /**
  * One event: its name, a lock chip in icon and words, and "Open results" until
- * it is open. Pressing "Open results" asks first, in the row (§11.1). Focus
- * moves to "Open results now" when the question appears, and back to "Open
- * results" when it is put away, so a keyboard user is never dropped.
+ * it is open. Pressing "Open results" asks first, in the row (§11.1).
+ *
+ * Focus is never dropped (§8.5). It moves to "Open results now" when the
+ * question appears. When the question goes away — "Not yet", Escape, a refused
+ * unlock, a list that moved on — and the focused button went with it, focus
+ * returns to "Open results". When the event opens and that button goes too,
+ * focus lands on the event's name, which takes focus only from code.
  */
 function UnlockRow({
   event,
@@ -237,27 +241,35 @@ function UnlockRow({
 }): React.JSX.Element {
   const openButton = React.useRef<HTMLButtonElement>(null);
   const confirmButton = React.useRef<HTMLButtonElement>(null);
-  /** Set by "Not yet" and Escape, so only a cancel moves focus back. */
-  const restoreFocus = React.useRef(false);
+  const nameAnchor = React.useRef<HTMLSpanElement>(null);
+  const was = React.useRef({ confirming, unlocked: event.unlocked });
 
   React.useEffect(() => {
+    const before = was.current;
+    was.current = { confirming, unlocked: event.unlocked };
     if (confirming) {
-      confirmButton.current?.focus();
-    } else if (restoreFocus.current) {
-      restoreFocus.current = false;
-      openButton.current?.focus();
+      if (!before.confirming) {
+        confirmButton.current?.focus();
+      }
+      return;
     }
-  }, [confirming]);
-
-  function cancel(): void {
-    restoreFocus.current = true;
-    onCancel();
-  }
+    const closed = before.confirming;
+    const opened = !before.unlocked && event.unlocked;
+    // Only when this row's own control just left the page with focus on it:
+    // a list re-read must never pull focus from somewhere else.
+    if ((closed || opened) && focusWasDropped()) {
+      (openButton.current ?? nameAnchor.current)?.focus();
+    }
+  }, [confirming, event.unlocked]);
 
   return (
     <li className="flex flex-col gap-ce-3 py-ce-4 first:pt-ce-2 last:pb-ce-2">
       <div className="flex flex-wrap items-center gap-x-ce-4 gap-y-ce-3">
-        <span className="ce-type-body min-w-0 flex-1 basis-48 font-semibold text-ce-ink">
+        <span
+          ref={nameAnchor}
+          tabIndex={-1}
+          className="ce-type-body min-w-0 flex-1 basis-48 font-semibold text-ce-ink"
+        >
           {event.name}
         </span>
         <span
@@ -291,7 +303,7 @@ function UnlockRow({
           onKeyDown={(keyEvent) => {
             if (keyEvent.key === "Escape" && !pending) {
               keyEvent.preventDefault();
-              cancel();
+              onCancel();
             }
           }}
         >
@@ -309,7 +321,7 @@ function UnlockRow({
             >
               Open results now
             </Button>
-            <Button variant="quiet" disabled={pending} onClick={cancel}>
+            <Button variant="quiet" disabled={pending} onClick={onCancel}>
               Not yet
             </Button>
           </div>
@@ -317,6 +329,12 @@ function UnlockRow({
       ) : null}
     </li>
   );
+}
+
+/** Whether the focused element was removed, leaving focus on `<body>`. */
+function focusWasDropped(): boolean {
+  const active = document.activeElement;
+  return active === null || active === document.body || !active.isConnected;
 }
 
 /** One open confirm's key: the file and the event, so it cannot outlive its file. */
