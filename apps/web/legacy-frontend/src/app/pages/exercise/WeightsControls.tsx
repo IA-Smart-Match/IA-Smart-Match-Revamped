@@ -46,6 +46,11 @@ export function isWeightsRefusal(refusal: ExerciseRefusal | null): boolean {
   return refusal !== null && refusal.code === WEIGHTS_REFUSAL_CODE;
 }
 
+/** The id of a refusal sentence drawn under a box the team is still in. */
+function refusalSentenceId(key: string): string {
+  return `exercise-weight-${key}-refusal`;
+}
+
 export interface WeightsControlsProps {
   /** Ann's words per factor key, from the list response. */
   readonly factorLabels: Readonly<Record<string, string>>;
@@ -296,6 +301,33 @@ export function WeightsControls({
     send({ ...pendingBase.current, [key]: value }, [key]);
   }
 
+  /**
+   * While a refusal's sentence waits under a box the team is still typing in,
+   * the box itself is marked invalid and names the sentence. `WeightSlider`
+   * owns the box and takes no such props, so the two attributes are set on
+   * it directly and handed back once the slider shows the refusal itself.
+   */
+  React.useLayoutEffect(() => {
+    if (shownRefusal === null || !shownRefusal.inBox) {
+      return undefined;
+    }
+    const box = document.getElementById(`exercise-weight-${shownRefusal.key}-value`);
+    const sentenceId = refusalSentenceId(shownRefusal.key);
+    if (box === null) {
+      return undefined;
+    }
+    box.setAttribute("aria-invalid", "true");
+    box.setAttribute("aria-describedby", sentenceId);
+    return () => {
+      // Only undo what this effect set: the slider may already point the box
+      // at its own copy of the sentence.
+      if (box.getAttribute("aria-describedby") === sentenceId) {
+        box.removeAttribute("aria-describedby");
+        box.setAttribute("aria-invalid", "false");
+      }
+    };
+  }, [shownRefusal]);
+
   function focusFirstSlider(): void {
     card.current?.querySelector<HTMLElement>('[role="slider"]')?.focus();
   }
@@ -324,6 +356,15 @@ export function WeightsControls({
               }}
               onBlur={() => {
                 focused.current = null;
+                // #251 review H1: a refusal that landed while the team was in
+                // this box is handed to the slider once they leave it, which
+                // reverts box and thumb to the confirmed weight and keeps the
+                // one sentence, now linked by the slider.
+                setShownRefusal((previous) =>
+                  previous !== null && previous.key === key && previous.inBox
+                    ? { ...previous, inBox: false }
+                    : previous,
+                );
               }}
             >
               <WeightSlider
@@ -342,6 +383,7 @@ export function WeightsControls({
               />
               {shownRefusal?.key === key && shownRefusal.inBox ? (
                 <p
+                  id={refusalSentenceId(key)}
                   role="status"
                   data-slot="exercise-weight-error"
                   className="ce-type-meta mt-ce-2 text-ce-danger"
