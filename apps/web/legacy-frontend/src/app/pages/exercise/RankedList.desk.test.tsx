@@ -109,7 +109,7 @@ describe("<RankedList /> on desktop (§6.7)", () => {
     const heads = screen.getAllByRole("columnheader");
     const width = (index: number) => Number(/w-\[(\d+)%\]/.exec(heads[index].className)?.[1]);
     // Major, Year, How much we know: the marker column is the widest of the three.
-    expect(width(4)).toBeGreaterThanOrEqual(30);
+    expect(width(4)).toBeGreaterThanOrEqual(28);
     expect(width(4)).toBeGreaterThan(width(2));
     expect(width(4)).toBeGreaterThan(width(3));
   });

@@ -166,6 +166,10 @@ export function RankedList({
   // The table scrolls inside its own box. Five columns do not fit a narrow
   // window, and a table wider than the page pushed columns off-screen with
   // no way to reach them.
+  //
+  // Column shares: the marker chip ("major plus events attended") gets the
+  // widest data column so it wraps to two lines at most beside the 1280
+  // weights card; cells use 8px side padding to leave the words room.
   return (
     <div className="ce-scroll-x overflow-x-auto">
       <table
@@ -176,19 +180,19 @@ export function RankedList({
         <caption className="sr-only">{caption}</caption>
         <thead>
           <tr className="ce-type-label bg-ce-surface-sunk text-ce-ink">
-            <th scope="col" className="w-[4.5rem] rounded-l-ce-control px-ce-3 py-ce-3">
+            <th scope="col" className="w-[4.5rem] rounded-l-ce-control px-ce-2 py-ce-3">
               Rank
             </th>
-            <th scope="col" className="px-ce-3 py-ce-3">
+            <th scope="col" className="px-ce-2 py-ce-3">
               Name
             </th>
-            <th scope="col" className="w-[23%] px-ce-3 py-ce-3">
+            <th scope="col" className="w-[20%] px-ce-2 py-ce-3">
               Major
             </th>
-            <th scope="col" className="w-[16%] px-ce-3 py-ce-3">
+            <th scope="col" className="w-[18%] px-ce-2 py-ce-3">
               Year
             </th>
-            <th scope="col" className="w-[21%] rounded-r-ce-control px-ce-3 py-ce-3">
+            <th scope="col" className="w-[28%] rounded-r-ce-control px-ce-2 py-ce-3">
               How much we know
             </th>
           </tr>
@@ -208,18 +212,18 @@ export function RankedList({
                 )}
                 style={state.style}
               >
-                <td className="ce-type-rank px-ce-3 py-ce-4 text-ce-primary">{entry.rank}</td>
-                <td className="px-ce-3 py-ce-4 break-words" data-slot="exercise-ranked-name">
+                <td className="ce-type-rank px-ce-2 py-ce-4 text-ce-primary">{entry.rank}</td>
+                <td className="px-ce-2 py-ce-4 break-words" data-slot="exercise-ranked-name">
                   <div className="flex flex-wrap items-center gap-ce-2">
                     <span className="font-semibold">{entry.display_name}</span>
                     {state.onBoth ? <OnBothChip /> : null}
                   </div>
                   <ReasonLines entry={entry} labels={factorLabels} />
                 </td>
-                <td className="px-ce-3 py-ce-4">{entry.major}</td>
-                <td className="px-ce-3 py-ce-4">{entry.class_year}</td>
-                <td className="px-ce-3 py-ce-4">
-                  <MarkerChip marker={entry.marker} className="whitespace-normal" />
+                <td className="px-ce-2 py-ce-4">{entry.major}</td>
+                <td className="px-ce-2 py-ce-4">{entry.class_year}</td>
+                <td className="px-ce-2 py-ce-4">
+                  <MarkerChip marker={entry.marker} className="whitespace-normal px-ce-2" />
                 </td>
               </motion.tr>
             );
