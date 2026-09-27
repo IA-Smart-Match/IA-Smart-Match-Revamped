@@ -27,7 +27,7 @@ plus 24 HTML/Tailwind exports kept for reference in [`assets/stitch/code/`](asse
 2. **What it got wrong:** it turned the tokens into a Material palette (`primary #00371f`, `background #f8faf5`), so the prompts still had to state each hex.
 3. **Fonts:** it recorded the licensed families (Transducer CPP, Proxima Sera, Usual), which a browser cannot load. When a screen did not also load the stand-ins, text fell back to system fonts. See flaws F1 and F2.
 
-**HTML exports:** 0 API keys and 0 trackers. Each file loads only Tailwind from `cdn.tailwindcss.com`, Lucide from `unpkg.com` and Google Fonts. None loads remote images. They are reference only.
+**HTML exports:** 0 API keys and 0 trackers (re-checked 2026-09-27). The only remote hosts are `cdn.tailwindcss.com` (23 of 24 files; `09-…-mobile` uses plain CSS), `unpkg.com/lucide@latest` (14 files, unpinned) and Google Fonts (24 files). Inline scripts only set the Tailwind config, call `lucide.createIcons()`, or toggle local demo state (the passcode eye and the unlock button). None loads remote images. They are reference only; do not serve them.
 
 ## 2. Gallery
 
