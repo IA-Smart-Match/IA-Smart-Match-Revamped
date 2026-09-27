@@ -310,6 +310,8 @@ describe("<ExerciseInstructor />", () => {
     const roundTwo = (await screen.findByText("Round two")).closest("li");
     answers[`GET ${INSTRUCTOR_EVENTS}`] = { body: eventsView(true) };
     fireEvent.click(roundTwo?.querySelector("button") as HTMLButtonElement);
+    // §11.1: the first press asks; "Open results now" sends the unlock.
+    fireEvent.click(within(roundTwo as HTMLElement).getByRole("button", { name: /open results now/i }));
 
     await waitFor(() =>
       expect(screen.getByText("Round two").closest("li")?.textContent).toContain(
@@ -601,6 +603,7 @@ describe("<ExerciseInstructor />", () => {
     };
     const readsBefore = calls.filter((call) => call.url === INSTRUCTOR_EVENTS).length;
     fireEvent.click(roundOne?.querySelector("button") as HTMLButtonElement);
+    fireEvent.click(within(roundOne as HTMLElement).getByRole("button", { name: /open results now/i }));
 
     // Refused, and the re-read is in flight: the sentence is up and every
     // unlock button waits, because the file it would address may be changing.
@@ -648,6 +651,7 @@ describe("<ExerciseInstructor />", () => {
       status: 409,
     };
     fireEvent.click(roundOne?.querySelector("button") as HTMLButtonElement);
+    fireEvent.click(within(roundOne as HTMLElement).getByRole("button", { name: /open results now/i }));
 
     await screen.findByText("No team has entered a number yet.");
     expect(screen.getByText("No team is working in that data file.")).toBeDefined();

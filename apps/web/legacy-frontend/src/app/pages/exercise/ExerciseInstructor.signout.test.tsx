@@ -153,6 +153,7 @@ describe("<ExerciseInstructor /> returns to the passcode form on a 401", () => {
     signedIn({ [`POST ${EVENTS}/round-one/unlock`]: [EXPIRED] });
     renderPage();
     fireEvent.click(await screen.findByRole("button", { name: /^open results$/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^open results now$/i }));
     await expectPasscodeForm();
   });
 

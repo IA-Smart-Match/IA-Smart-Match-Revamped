@@ -18,7 +18,7 @@ import { cn } from "../../components/ui/utils";
 import { Button, Notice } from "./desk";
 import { ExerciseNotice } from "./ExerciseScreen";
 import { useSignOutOnExpiredRead } from "./instructorSession";
-import { PanelCard, PanelSkeleton } from "./instructorUi";
+import { INSTRUCTOR_WELL, PanelCard, PanelSkeleton } from "./instructorUi";
 import { INSTRUCTOR_SESSION_REQUIRED, TEAMS_SPAN_DATASETS } from "./refusals";
 import { useExerciseResource } from "./useExerciseResource";
 
@@ -52,6 +52,12 @@ const UNREACHABLE = "The exercise could not be reached. Check the connection and
  * where that button is. Branching on the stable `code`, as the refusal rule
  * allows; the server's wording stays untouched everywhere else.
  *
+ * **Opening asks first, inline** (DESIGN.md §11.1): "Open results" becomes
+ * "Open results for {event}? Every team can then run results once for this
+ * event." with "Open results now" and "Not yet". Only "Open results now" sends
+ * the unlock; "Not yet" and Escape put the row back and send nothing. No
+ * pop-up: the question sits in the row it is about.
+ *
  * **An expired session signs the page out**, from the list read or from an
  * unlock, as every instructor panel does (`instructorSession.ts`).
  */
@@ -71,6 +77,8 @@ export function UnlockPanel({
   const { state, reload } = useExerciseResource(listInstructorEvents, [reloadKey]);
   useSignOutOnExpiredRead(state, onSignedOut);
   const [pending, setPending] = React.useState(false);
+  /** The event whose "Open results" is waiting for its confirm, if any. */
+  const [confirming, setConfirming] = React.useState<string | null>(null);
   const busy =
     pending || state.status === "loading" || (state.status === "ready" && state.refreshing);
 
@@ -97,10 +105,12 @@ export function UnlockPanel({
     onRefusal(null);
     unlockResults(eventKey, datasetId)
       .then(() => {
+        setConfirming(null);
         onUnlocked();
         return reload();
       })
       .catch((error: unknown) => {
+        setConfirming(null);
         onRefusal(isRefusal(error) ? error.message : UNREACHABLE);
         if (isRefusal(error) && error.code === INSTRUCTOR_SESSION_REQUIRED) {
           onSignedOut();
@@ -158,6 +168,10 @@ export function UnlockPanel({
               // A refresh in flight may be about to change `dataset_id`
               // (an upload or re-point just landed), so wait for it.
               disabled={pending || state.refreshing}
+              pending={pending && confirming === event.event_key}
+              confirming={confirming === event.event_key}
+              onAsk={() => setConfirming(event.event_key)}
+              onCancel={() => setConfirming(null)}
               onUnlock={() => unlock(event.event_key, state.data.dataset_id)}
             />
           ))}
@@ -167,44 +181,110 @@ export function UnlockPanel({
   );
 }
 
-/** One event: its name, a lock chip in icon and words, and "Open results" until it is open. */
+/**
+ * One event: its name, a lock chip in icon and words, and "Open results" until
+ * it is open. Pressing "Open results" asks first, in the row (§11.1). Focus
+ * moves to "Open results now" when the question appears, and back to "Open
+ * results" when it is put away, so a keyboard user is never dropped.
+ */
 function UnlockRow({
   event,
   disabled,
+  pending,
+  confirming,
+  onAsk,
+  onCancel,
   onUnlock,
 }: {
   readonly event: InstructorEventView;
   readonly disabled: boolean;
+  /** This row's unlock is in flight. */
+  readonly pending: boolean;
+  readonly confirming: boolean;
+  readonly onAsk: () => void;
+  readonly onCancel: () => void;
   readonly onUnlock: () => void;
 }): React.JSX.Element {
+  const openButton = React.useRef<HTMLButtonElement>(null);
+  const confirmButton = React.useRef<HTMLButtonElement>(null);
+  /** Set by "Not yet" and Escape, so only a cancel moves focus back. */
+  const restoreFocus = React.useRef(false);
+
+  React.useEffect(() => {
+    if (confirming) {
+      confirmButton.current?.focus();
+    } else if (restoreFocus.current) {
+      restoreFocus.current = false;
+      openButton.current?.focus();
+    }
+  }, [confirming]);
+
+  function cancel(): void {
+    restoreFocus.current = true;
+    onCancel();
+  }
+
   return (
-    <li className="flex flex-wrap items-center gap-x-ce-4 gap-y-ce-3 py-ce-4 first:pt-ce-2 last:pb-ce-2">
-      <span className="ce-type-body min-w-0 flex-1 basis-48 font-semibold text-ce-ink">
-        {event.name}
-      </span>
-      <span
-        className={cn(
-          "ce-type-meta inline-flex items-center gap-ce-2 rounded-ce-pill px-ce-3 py-ce-1 text-ce-ink",
-          event.unlocked ? "bg-ce-avocado-tint" : "border border-ce-line-strong bg-ce-surface-sunk",
-        )}
-      >
-        {event.unlocked ? (
-          <LockOpen aria-hidden="true" className="size-4 shrink-0 text-ce-primary" />
-        ) : (
-          <Lock aria-hidden="true" className="size-4 shrink-0 text-ce-ink-muted" />
-        )}
-        {event.unlocked ? "Results are open." : "Results are closed."}
-      </span>
-      {event.unlocked ? null : (
-        <Button
-          variant="secondary"
-          disabled={disabled}
-          className="w-full sm:w-auto"
-          onClick={onUnlock}
+    <li className="flex flex-col gap-ce-3 py-ce-4 first:pt-ce-2 last:pb-ce-2">
+      <div className="flex flex-wrap items-center gap-x-ce-4 gap-y-ce-3">
+        <span className="ce-type-body min-w-0 flex-1 basis-48 font-semibold text-ce-ink">
+          {event.name}
+        </span>
+        <span
+          className={cn(
+            "ce-type-meta inline-flex items-center gap-ce-2 rounded-ce-pill px-ce-3 py-ce-1 text-ce-ink",
+            event.unlocked ? "bg-ce-avocado-tint" : "border border-ce-line-strong bg-ce-surface-sunk",
+          )}
         >
-          Open results
-        </Button>
-      )}
+          {event.unlocked ? (
+            <LockOpen aria-hidden="true" className="size-4 shrink-0 text-ce-primary" />
+          ) : (
+            <Lock aria-hidden="true" className="size-4 shrink-0 text-ce-ink-muted" />
+          )}
+          {event.unlocked ? "Results are open." : "Results are closed."}
+        </span>
+        {event.unlocked || confirming ? null : (
+          <Button
+            ref={openButton}
+            variant="secondary"
+            disabled={disabled}
+            className="w-full sm:w-auto"
+            onClick={onAsk}
+          >
+            Open results
+          </Button>
+        )}
+      </div>
+      {confirming && !event.unlocked ? (
+        <div
+          className={cn(INSTRUCTOR_WELL, "ce-fade-rise flex flex-col gap-ce-3")}
+          onKeyDown={(keyEvent) => {
+            if (keyEvent.key === "Escape" && !pending) {
+              keyEvent.preventDefault();
+              cancel();
+            }
+          }}
+        >
+          <p className="ce-type-body text-ce-ink">
+            Open results for {event.name}? Every team can then run results once for this event.
+          </p>
+          <div className="flex flex-wrap items-center gap-ce-3">
+            <Button
+              ref={confirmButton}
+              pending={pending}
+              pendingLabel="Opening…"
+              disabled={disabled && !pending}
+              className="w-full sm:w-auto"
+              onClick={onUnlock}
+            >
+              Open results now
+            </Button>
+            <Button variant="quiet" disabled={pending} onClick={cancel}>
+              Not yet
+            </Button>
+          </div>
+        </div>
+      ) : null}
     </li>
   );
 }
