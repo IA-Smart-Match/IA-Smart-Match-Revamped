@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Smart Match class exercise - Cal Poly Pomona</title>
+<!-- Google Fonts & Material Symbols -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&amp;family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;0,8..60,700;1,8..60,400;1,8..60,600&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Lucide Icons -->
+<script src="https://unpkg.com/lucide@latest"></script>
+<!-- Tailwind CSS -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            "seat-taken": "#8C6D62",
+            "surface-variant": "#e0e3de",
+            "surface-sunk": "#F2EEE8",
+            "surface": "#FFFFFF",
+            "line": "#D9CBC4",
+            "on-tertiary-fixed": "#112000",
+            "surface-container-high": "#e6e9e4",
+            "background": "#f8faf5",
+            "primary": "#005030",
+            "primary-fixed-dim": "#91d5ab",
+            "primary-container": "#005030",
+            "error": "#ba1a1a",
+            "on-primary": "#FFFFFF",
+            "surface-bright": "#f8faf5",
+            "on-secondary-fixed-variant": "#5f4100",
+            "surface-container-low": "#f2f4ef",
+            "on-error": "#ffffff",
+            "surface-tint": "#266a48",
+            "surface-container-highest": "#e0e3de",
+            "secondary-fixed": "#ffdeaa",
+            "gold-tint": "#FFF1CC",
+            "inverse-on-surface": "#eff2ec",
+            "on-tertiary-fixed-variant": "#314f00",
+            "secondary-container": "#feb71a",
+            "secondary": "#7d5700",
+            "error-container": "#ffdad6",
+            "avocado-tint": "#E8F2D8",
+            "bay": "#CFBAB0",
+            "tertiary": "#1f3500",
+            "on-primary-container": "#7dc198",
+            "page": "#F8F6F1",
+            "on-secondary": "#ffffff",
+            "danger": "#BA1A1A",
+            "primary-tint": "#D9EADF",
+            "outline-variant": "#bfc9c0",
+            "on-error-container": "#93000a",
+            "secondary-fixed-dim": "#ffba2c",
+            "inverse-primary": "#91d5ab",
+            "on-surface": "#191c1a",
+            "on-tertiary": "#ffffff",
+            "tertiary-fixed-dim": "#a4d65e",
+            "inverse-surface": "#2e312e",
+            "on-background": "#191c1a",
+            "ink-muted": "#59665F",
+            "on-secondary-container": "#6b4b00",
+            "tertiary-container": "#304d00",
+            "gold-ink": "#7A5200",
+            "scrim": "rgba(16,37,29,0.48)",
+            "surface-container": "#ecefe9",
+            "avocado": "#A4D65E",
+            "surface-container-lowest": "#ffffff",
+            "outline": "#707972",
+            "on-primary-fixed-variant": "#035232",
+            "ink": "#163229",
+            "on-tertiary-container": "#91c14c",
+            "line-strong": "#8F7A70",
+            "on-secondary-fixed": "#271900",
+            "tertiary-fixed": "#bff377",
+            "surface-dim": "#d8dbd6",
+            "on-surface-variant": "#404942",
+            "on-primary-fixed": "#002111",
+            "primary-fixed": "#acf2c6"
+          },
+          borderRadius: {
+            "DEFAULT": "0.25rem",
+            "card": "14px",
+            "btn": "10px",
+            "lg": "0.5rem",
+            "xl": "0.75rem",
+            "full": "9999px"
+          },
+          spacing: {
+            "gutter": "24px",
+            "gutter-mobile": "16px",
+            "space-2xl": "32px",
+            "space-xl": "24px",
+            "space-3xl": "48px",
+            "space-sm": "8px",
+            "space-5xl": "96px",
+            "space-4xl": "64px",
+            "space-md": "12px",
+            "space-xs": "4px",
+            "space-lg": "16px",
+            "margin-mobile": "16px",
+            "margin": "64px"
+          },
+          fontFamily: {
+            "headline-sm": ["\"Source Serif 4\", serif"],
+            "body-reason-mobile": ["\"Source Serif 4\", serif"],
+            "body-lead": ["\"Figtree\", sans-serif"],
+            "headline-display": ["\"Figtree\", sans-serif"],
+            "label-md": ["\"Figtree\", sans-serif"],
+            "rank-num-mobile": ["\"Figtree\", sans-serif"],
+            "value-num-mobile": ["\"Figtree\", sans-serif"],
+            "value-num": ["\"Figtree\", sans-serif"],
+            "headline-md-mobile": ["\"Source Serif 4\", serif"],
+            "body-lead-mobile": ["\"Figtree\", sans-serif"],
+            "rank-num": ["\"Figtree\", sans-serif"],
+            "meta-caption": ["\"Figtree\", sans-serif"],
+            "body-reason": ["\"Source Serif 4\", serif"],
+            "meta-caption-mobile": ["\"Figtree\", sans-serif"],
+            "headline-md": ["\"Source Serif 4\", serif"],
+            "body-md": ["\"Figtree\", sans-serif"],
+            "headline-lg-mobile": ["\"Figtree\", sans-serif"],
+            "headline-display-mobile": ["\"Figtree\", sans-serif"],
+            "body-md-mobile": ["\"Figtree\", sans-serif"],
+            "label-md-mobile": ["\"Figtree\", sans-serif"],
+            "headline-sm-mobile": ["\"Source Serif 4\", serif"],
+            "headline-lg": ["\"Figtree\", sans-serif"]
+          },
+          boxShadow: {
+            'stationery': '0 1px 2px rgba(22,50,41,.06), 0 4px 12px rgba(22,50,41,.06)',
+            'stationery-hover': '0 2px 4px rgba(22,50,41,.06), 0 12px 28px rgba(0,80,48,.10)'
+          }
+        },
+      },
+    }
+  </script>
+<style>
+    body {
+      background-color: #F8F6F1;
+      color: #163229;
+      font-family: 'Figtree', sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+    .custom-scroll::-webkit-scrollbar {
+      display: none;
+    }
+  </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-page min-h-screen flex justify-center selection:bg-primary-tint selection:text-ink">
+<!-- 390px Mobile Canvas Container -->
+<main class="w-[390px] max-w-[390px] bg-page min-h-screen flex flex-col relative pb-12 shadow-sm border-x border-line/30">
+<!-- 1. Top Ribbon -->
+<header class="bg-gold-tint px-margin-mobile py-2.5 flex items-start gap-2 text-gold-ink border-b border-line/40">
+<i class="w-5 h-5 shrink-0 text-gold-ink mt-0.5" data-lucide="info"></i>
+<p class="font-meta-caption-mobile text-meta-caption-mobile text-gold-ink leading-snug">
+<strong class="font-bold">Fictional data —</strong> All student profiles are fictional, shaped by overall survey percentages.
+      </p>
+</header>
+<!-- 2. Peek of top ranked list card -->
+<section aria-label="Northline Analytics Preview" class="px-margin-mobile pt-3 pb-1">
+<div class="bg-surface rounded-t-card pt-3 pb-2.5 px-4 shadow-stationery border-x border-t border-line/40 text-center">
+<p class="font-body-md-mobile text-ink-muted text-sm flex items-center justify-center gap-1.5">
+<span>... and 20 more names below</span>
+<i class="w-4 h-4 text-ink-muted" data-lucide="chevron-down"></i>
+</p>
+</div>
+</section>
+<!-- Main Content Flow -->
+<div class="px-margin-mobile space-y-6 pt-3">
+<!-- 3. Section: Your team's saved settings -->
+<section aria-labelledby="saved-settings-title" class="space-y-4">
+<div>
+<h1 class="font-headline-md-mobile text-headline-md-mobile text-ink tracking-tight font-semibold" id="saved-settings-title">
+            Your team's saved settings
+          </h1>
+<p class="font-body-lead-mobile text-body-lead-mobile text-ink-muted mt-1 text-[17px] leading-relaxed">
+            Your team may keep 3 for this event. You have 3.
+          </p>
+</div>
+<!-- Save Form -->
+<div class="bg-surface rounded-card p-4 shadow-stationery space-y-3">
+<label class="block font-label-md-mobile text-label-md-mobile text-ink" for="weights-name">
+            Name these weights
+          </label>
+<input class="w-full h-12 px-3.5 rounded-[10px] border-2 border-line-strong bg-surface text-ink font-body-md-mobile text-[16px] focus:outline-none focus:border-primary focus:ring-0 transition-colors placeholder:text-ink-muted/50" id="weights-name" placeholder="e.g. Balanced priority" type="text"/>
+<button class="w-full h-12 rounded-[10px] bg-surface border-2 border-line-strong text-ink font-label-md-mobile text-label-md-mobile active:scale-[0.98] transition-transform duration-150 flex items-center justify-center hover:bg-surface-sunk/40" type="button">
+            Save these weights
+          </button>
+<p class="font-meta-caption-mobile text-meta-caption-mobile text-ink-muted text-[15px]">
+            Saves the 4 numbers now on screen.
+          </p>
+</div>
+</section>
+<!-- 4. Three stacked saved-setting index cards -->
+<section aria-label="Saved setting cards" class="space-y-4">
+<!-- Card 1: Major first -->
+<article class="bg-surface rounded-card p-4 shadow-stationery border-[3px] border-primary relative space-y-3.5">
+<div class="flex items-start justify-between">
+<h2 class="font-headline-sm-mobile text-headline-sm-mobile text-ink font-semibold">
+              Major first
+            </h2>
+<span class="bg-primary text-on-primary rounded-full px-2.5 py-0.5 text-xs font-semibold tracking-wide">
+              Comparing
+            </span>
+</div>
+<!-- 4 Weights list -->
+<dl class="space-y-1.5 pt-1 text-[15px]">
+<div class="flex justify-between items-baseline">
+<dt class="text-ink-muted">same major</dt>
+<dd class="font-semibold text-ink tabular-nums text-base">0.60</dd>
+</div>
+<div class="flex justify-between items-baseline">
+<dt class="text-ink-muted">said they are interested in this topic</dt>
+<dd class="font-semibold text-ink tabular-nums text-base">0.15</dd>
+</div>
+<div class="flex justify-between items-baseline">
+<dt class="text-ink-muted">career goal fits this event</dt>
+<dd class="font-semibold text-ink tabular-nums text-base">0.15</dd>
+</div>
+<div class="flex justify-between items-baseline">
+<dt class="text-ink-muted">went to similar events before</dt>
+<dd class="font-semibold text-ink tabular-nums text-base">0.10</dd>
+</div>
+</dl>
+<!-- Card Actions Row -->
+<div class="flex items-center justify-between pt-2 border-t border-line/40">
+<button class="rounded-[10px] border-2 border-line-strong px-3 py-2 text-sm font-semibold text-ink hover:bg-surface-sunk/30 transition-colors" type="button">
+              Open this list
+            </button>
+<div class="flex items-center gap-3">
+<label class="flex items-center gap-1.5 text-sm font-semibold text-ink cursor-pointer select-none">
+<input checked="" class="w-4 h-4 rounded text-primary focus:ring-0 border-line-strong" type="checkbox"/>
+<span>Compare</span>
+</label>
+<button class="text-primary font-semibold text-sm hover:underline py-1" type="button">
+                Delete
+              </button>
+</div>
+</div>
+</article>
+<!-- Card 2: Interests first -->
+<article class="bg-surface rounded-card p-4 shadow-stationery border-[3px] border-primary relative space-y-3.5">
+<div class="flex items-start justify-between">
+<h2 class="font-headline-sm-mobile text-headline-sm-mobile text-ink font-semibold">
+              Interests first
+            </h2>
+<span class="bg-primary text-on-primary rounded-full px-2.5 py-0.5 text-xs font-semibold tracking-wide">
+              Comparing
+            </span>
+</div>
+<!-- 4 Weights list -->
+<dl class="space-y-1.5 pt-1 text-[15px]">
+<div class="flex justify-between items-baseline">
+<dt class="text-ink-muted">same major</dt>
+<dd class="font-semibold text-ink tabular-nums text-base">0.15</dd>
+</div>
+<div class="flex justify-between items-baseline">
+<dt class="text-ink-muted">said they are interested in this topic</dt>
+<dd class="font-semibold text-ink tabular-nums text-base">0.45</dd>
+</div>
+<div class="flex justify-between items-baseline">
+<dt class="text-ink-muted">career goal fits this event</dt>
+<dd class="font-semibold text-ink tabular-nums text-base">0.25</dd>
+</div>
+<div class="flex justify-between items-baseline">
+<dt class="text-ink-muted">went to similar events before</dt>
+<dd class="font-semibold text-ink tabular-nums text-base">0.15</dd>
+</div>
+</dl>
+<!-- Card Actions Row -->
+<div class="flex items-center justify-between pt-2 border-t border-line/40">
+<button class="rounded-[10px] border-2 border-line-strong px-3 py-2 text-sm font-semibold text-ink hover:bg-surface-sunk/30 transition-colors" type="button">
+              Open this list
+            </button>
+<div class="flex items-center gap-3">
+<label class="flex items-center gap-1.5 text-sm font-semibold text-ink cursor-pointer select-none">
+<input checked="" class="w-4 h-4 rounded text-primary focus:ring-0 border-line-strong" type="checkbox"/>
+<span>Compare</span>
+</label>
+<button class="text-primary font-semibold text-sm hover:underline py-1" type="button">
+                Delete
+              </button>
+</div>
+</div>
+</article>
+<!-- Card 3: Balanced -->
+<article class="bg-surface rounded-card p-4 shadow-stationery relative space-y-3.5">
+<div class="flex items-start justify-between">
+<h2 class="font-headline-sm-mobile text-headline-sm-mobile text-ink font-semibold">
+              Balanced
+            </h2>
+</div>
+<!-- 4 Weights list -->
+<dl class="space-y-1.5 pt-1 text-[15px]">
+<div class="flex justify-between items-baseline">
+<dt class="text-ink-muted">same major</dt>
+<dd class="font-semibold text-ink tabular-nums text-base">0.25</dd>
+</div>
+<div class="flex justify-between items-baseline">
+<dt class="text-ink-muted">said they are interested in this topic</dt>
+<dd class="font-semibold text-ink tabular-nums text-base">0.25</dd>
+</div>
+<div class="flex justify-between items-baseline">
+<dt class="text-ink-muted">career goal fits this event</dt>
+<dd class="font-semibold text-ink tabular-nums text-base">0.25</dd>
+</div>
+<div class="flex justify-between items-baseline">
+<dt class="text-ink-muted">went to similar events before</dt>
+<dd class="font-semibold text-ink tabular-nums text-base">0.25</dd>
+</div>
+</dl>
+<!-- Card Actions Row -->
+<div class="flex items-center justify-between pt-2 border-t border-line/40">
+<button class="rounded-[10px] border-2 border-line-strong px-3 py-2 text-sm font-semibold text-ink hover:bg-surface-sunk/30 transition-colors" type="button">
+              Open this list
+            </button>
+<div class="flex items-center gap-3">
+<label class="flex items-center gap-1.5 text-sm font-semibold text-ink/50 cursor-not-allowed select-none">
+<input class="w-4 h-4 rounded text-ink-muted focus:ring-0 border-line-strong opacity-40" disabled="" type="checkbox"/>
+<span>Compare</span>
+</label>
+<button class="text-primary font-semibold text-sm hover:underline py-1" type="button">
+                Delete
+              </button>
+</div>
+</div>
+</article>
+</section>
+<!-- 5. Action Button below the cards -->
+<div>
+<button class="w-full h-12 bg-primary text-on-primary font-label-md-mobile text-label-md-mobile rounded-[10px] shadow-sm flex items-center justify-center active:scale-[0.98] transition-transform duration-150" type="button">
+          Show them side by side
+        </button>
+</div>
+<!-- 6. Section: Two settings, side by side -->
+<section aria-labelledby="side-by-side-title" class="space-y-4 pt-4 border-t border-line/50">
+<div class="flex items-baseline justify-between">
+<h2 class="font-headline-sm text-[24px] text-ink font-semibold leading-tight" id="side-by-side-title">
+            Two settings, side by side
+          </h2>
+<button class="text-primary font-semibold text-sm hover:underline shrink-0" type="button">
+            Close this comparison
+          </button>
+</div>
+<p class="font-body-md-mobile text-body-md-mobile text-ink-muted text-[17px] leading-relaxed">
+          12 names are on both lists, highlighted in each.
+        </p>
+<!-- Segmented Control Bar -->
+<div class="bg-surface-sunk p-1 rounded-[10px] flex items-center gap-1 border border-line/30" role="tablist">
+<button aria-selected="true" class="flex-1 py-2 px-3 text-center bg-primary text-on-primary font-semibold rounded-[8px] text-[15px] shadow-sm transition-all" role="tab" type="button">
+            Major first
+          </button>
+<button aria-selected="false" class="flex-1 py-2 px-3 text-center bg-transparent text-ink font-medium rounded-[8px] text-[15px] hover:text-primary transition-all" role="tab" type="button">
+            Interests first
+          </button>
+</div>
+<!-- Mobile Ranked List Card -->
+<div class="bg-surface rounded-card p-4 shadow-stationery space-y-1">
+<!-- 1. Maya Tran -->
+<div class="p-2.5 my-1 rounded-[8px]">
+<div class="flex items-start justify-between">
+<div class="flex items-baseline gap-2">
+<span class="font-rank-num text-primary font-bold text-lg tabular-nums">1.</span>
+<span class="font-semibold text-ink text-base">Maya Tran</span>
+</div>
+</div>
+<p class="font-body-reason-mobile text-sm text-ink-muted mt-1 leading-snug">
+              What counted: same major; said they are interested in this topic; career goal fits this event.
+            </p>
+<p class="text-xs text-ink-muted mt-0.5">
+              Computer Information Systems · Senior
+            </p>
+</div>
+<!-- 2. Daniel Okafor [SHARED] -->
+<div class="bg-gold-tint p-2.5 my-1.5 rounded-[8px] border-l-4 border-secondary-container">
+<div class="flex items-center justify-between gap-1">
+<div class="flex items-baseline gap-2">
+<span class="font-rank-num text-primary font-bold text-lg tabular-nums">2.</span>
+<span class="font-semibold text-ink text-base">Daniel Okafor</span>
+</div>
+<span class="inline-flex items-center gap-1 bg-secondary-container text-ink px-2 py-0.5 rounded-full text-xs font-semibold shrink-0">
+<i class="w-3.5 h-3.5 text-ink" data-lucide="link"></i>
+<span>on both lists</span>
+</span>
+</div>
+<p class="font-body-reason-mobile text-sm text-ink-muted mt-1 leading-snug">
+              What counted: same major; career goal fits this event.
+            </p>
+<p class="text-xs text-ink-muted mt-0.5">
+              International Business &amp; Marketing · Senior
+            </p>
+</div>
+<!-- 3. Priya Patel -->
+<div class="p-2.5 my-1 rounded-[8px]">
+<div class="flex items-start justify-between">
+<div class="flex items-baseline gap-2">
+<span class="font-rank-num text-primary font-bold text-lg tabular-nums">3.</span>
+<span class="font-semibold text-ink text-base">Priya Patel</span>
+</div>
+</div>
+<p class="font-body-reason-mobile text-sm text-ink-muted mt-1 leading-snug">
+              What counted: same major; went to similar events before.
+            </p>
+<p class="text-xs text-ink-muted mt-0.5">
+              Computer Information Systems · Junior
+            </p>
+</div>
+<!-- 4. Jordan Kim [SHARED] -->
+<div class="bg-gold-tint p-2.5 my-1.5 rounded-[8px] border-l-4 border-secondary-container">
+<div class="flex items-center justify-between gap-1">
+<div class="flex items-baseline gap-2">
+<span class="font-rank-num text-primary font-bold text-lg tabular-nums">4.</span>
+<span class="font-semibold text-ink text-base">Jordan Kim</span>
+</div>
+<span class="inline-flex items-center gap-1 bg-secondary-container text-ink px-2 py-0.5 rounded-full text-xs font-semibold shrink-0">
+<i class="w-3.5 h-3.5 text-ink" data-lucide="link"></i>
+<span>on both lists</span>
+</span>
+</div>
+<p class="font-body-reason-mobile text-sm text-ink-muted mt-1 leading-snug">
+              Same major; nothing else on file.
+            </p>
+<p class="text-xs text-ink-muted mt-0.5">
+              Computer Information Systems · Senior
+            </p>
+</div>
+<!-- 5. Alexis Rivera [SHARED] -->
+<div class="bg-gold-tint p-2.5 my-1.5 rounded-[8px] border-l-4 border-secondary-container">
+<div class="flex items-center justify-between gap-1">
+<div class="flex items-baseline gap-2">
+<span class="font-rank-num text-primary font-bold text-lg tabular-nums">5.</span>
+<span class="font-semibold text-ink text-base">Alexis Rivera</span>
+</div>
+<span class="inline-flex items-center gap-1 bg-secondary-container text-ink px-2 py-0.5 rounded-full text-xs font-semibold shrink-0">
+<i class="w-3.5 h-3.5 text-ink" data-lucide="link"></i>
+<span>on both lists</span>
+</span>
+</div>
+<p class="font-body-reason-mobile text-sm text-ink-muted mt-1 leading-snug">
+              Tied on major; ordered by year.
+            </p>
+<p class="text-xs text-ink-muted mt-0.5">
+              Computer Information Systems · Junior
+            </p>
+</div>
+<!-- 6. Ethan Nguyen -->
+<div class="p-2.5 my-1 rounded-[8px]">
+<div class="flex items-start justify-between">
+<div class="flex items-baseline gap-2">
+<span class="font-rank-num text-primary font-bold text-lg tabular-nums">6.</span>
+<span class="font-semibold text-ink text-base">Ethan Nguyen</span>
+</div>
+</div>
+<p class="font-body-reason-mobile text-sm text-ink-muted mt-1 leading-snug">
+              What counted: same major; went to similar events before.
+            </p>
+<p class="text-xs text-ink-muted mt-0.5">
+              International Business &amp; Marketing · Senior
+            </p>
+</div>
+<!-- 7. Sofia Morales -->
+<div class="p-2.5 my-1 rounded-[8px]">
+<div class="flex items-start justify-between">
+<div class="flex items-baseline gap-2">
+<span class="font-rank-num text-primary font-bold text-lg tabular-nums">7.</span>
+<span class="font-semibold text-ink text-base">Sofia Morales</span>
+</div>
+</div>
+<p class="font-body-reason-mobile text-sm text-ink-muted mt-1 leading-snug">
+              What counted: said they are interested in this topic; career goal fits this event.
+            </p>
+<p class="text-xs text-ink-muted mt-0.5">
+              Technology &amp; Operations Management · Senior
+            </p>
+</div>
+<!-- 8. Marcus Chen [SHARED] -->
+<div class="bg-gold-tint p-2.5 my-1.5 rounded-[8px] border-l-4 border-secondary-container">
+<div class="flex items-center justify-between gap-1">
+<div class="flex items-baseline gap-2">
+<span class="font-rank-num text-primary font-bold text-lg tabular-nums">8.</span>
+<span class="font-semibold text-ink text-base">Marcus Chen</span>
+</div>
+<span class="inline-flex items-center gap-1 bg-secondary-container text-ink px-2 py-0.5 rounded-full text-xs font-semibold shrink-0">
+<i class="w-3.5 h-3.5 text-ink" data-lucide="link"></i>
+<span>on both lists</span>
+</span>
+</div>
+<p class="font-body-reason-mobile text-sm text-ink-muted mt-1 leading-snug">
+              Tied on major; ordered by year.
+            </p>
+<p class="text-xs text-ink-muted mt-0.5">
+              International Business &amp; Marketing · Junior
+            </p>
+</div>
+<!-- 9. Hannah Lee -->
+<div class="p-2.5 my-1 rounded-[8px]">
+<div class="flex items-start justify-between">
+<div class="flex items-baseline gap-2">
+<span class="font-rank-num text-primary font-bold text-lg tabular-nums">9.</span>
+<span class="font-semibold text-ink text-base">Hannah Lee</span>
+</div>
+</div>
+<p class="font-body-reason-mobile text-sm text-ink-muted mt-1 leading-snug">
+              Tied on major; ordered by year.
+            </p>
+<p class="text-xs text-ink-muted mt-0.5">
+              International Business &amp; Marketing · Sophomore
+            </p>
+</div>
+<!-- 10. Diego Garcia [SHARED] -->
+<div class="bg-gold-tint p-2.5 my-1.5 rounded-[8px] border-l-4 border-secondary-container">
+<div class="flex items-center justify-between gap-1">
+<div class="flex items-baseline gap-2">
+<span class="font-rank-num text-primary font-bold text-lg tabular-nums">10.</span>
+<span class="font-semibold text-ink text-base">Diego Garcia</span>
+</div>
+<span class="inline-flex items-center gap-1 bg-secondary-container text-ink px-2 py-0.5 rounded-full text-xs font-semibold shrink-0">
+<i class="w-3.5 h-3.5 text-ink" data-lucide="link"></i>
+<span>on both lists</span>
+</span>
+</div>
+<p class="font-body-reason-mobile text-sm text-ink-muted mt-1 leading-snug">
+              What counted: went to similar events before.
+            </p>
+<p class="text-xs text-ink-muted mt-0.5">
+              Accounting · Senior
+            </p>
+</div>
+<!-- Under the list toggle -->
+<div class="pt-3 pb-1 text-center">
+<button class="text-primary font-semibold text-[15px] hover:underline cursor-pointer" type="button">
+              Showing 10 of 30. Show all 30
+            </button>
+</div>
+</div>
+</section>
+<!-- 7. Bottom Action -->
+<div class="pt-2">
+<button class="w-full h-12 bg-primary text-on-primary font-label-md-mobile text-label-md-mobile rounded-[10px] shadow-sm flex items-center justify-center active:scale-[0.98] transition-transform duration-150" type="button">
+          Go to results for this event
+        </button>
+</div>
+<!-- 8. Bottom License Line (Verbatim) -->
+<footer class="pt-4 border-t border-line text-center">
+<p class="text-xs text-ink-muted leading-relaxed pb-6">
+          For California State Polytechnic University, Pomona — College of Business Administration instructional use only. All student profiles are fictional.
+        </p>
+</footer>
+</div>
+</main>
+<script>
+    // Initialize Lucide Icons
+    lucide.createIcons();
+  </script>
+</body></html>

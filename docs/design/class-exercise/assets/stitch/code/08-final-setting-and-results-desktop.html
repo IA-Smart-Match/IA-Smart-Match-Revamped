@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=1280, initial-scale=1.0" name="viewport"/>
+<title>Results — Smart Match Class Exercise</title>
+<!-- Stand-in fonts per DESIGN.md: Archivo SemiExpanded (display/h1), Source Serif 4 (h2/h3/reason), Figtree (UI/body) -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700&amp;family=Figtree:wght@400;500;600;700&amp;family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/lucide@latest"></script>
+<style>
+    :root {
+      --ce-page: #F8F6F1;
+      --ce-surface: #FFFFFF;
+      --ce-surface-sunk: #F2EEE8;
+      --ce-ink: #163229;
+      --ce-ink-muted: #59665F;
+      --ce-primary: #005030;
+      --ce-on-primary: #FFFFFF;
+      --ce-primary-tint: #D9EADF;
+      --ce-gold: #FFB81C;
+      --ce-gold-tint: #FFF1CC;
+      --ce-gold-ink: #7A5200;
+      --ce-avocado: #A4D65E;
+      --ce-avocado-tint: #E8F2D8;
+      --ce-seat-taken: #8C6D62;
+      --ce-line: #D9CBC4;
+      --ce-line-strong: #8F7A70;
+      --ce-radius-card: 14px;
+      --ce-radius-control: 10px;
+      --ce-radius-seat: 4px;
+      --ce-radius-pill: 999px;
+      --ce-elev-1: 0 1px 2px rgba(22, 50, 41, 0.06), 0 4px 12px rgba(22, 50, 41, 0.06);
+      --ce-elev-2: 0 2px 4px rgba(22, 50, 41, 0.06), 0 12px 28px rgba(0, 80, 48, 0.10);
+    }
+
+    body {
+      background-color: var(--ce-page);
+      color: var(--ce-ink);
+      font-family: 'Figtree', sans-serif;
+      font-size: 20px;
+      line-height: 1.5;
+      margin: 0;
+      padding: 0;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .font-display {
+      font-family: 'Archivo', sans-serif;
+      font-stretch: 110%;
+    }
+
+    .font-serif {
+      font-family: 'Source Serif 4', Georgia, serif;
+    }
+
+    .num-tabular {
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* Hatched pattern for "Signed up" bar per DESIGN.md section 3.3 */
+    .hatch-pattern {
+      background-color: var(--ce-gold);
+      background-image: repeating-linear-gradient(
+        45deg,
+        rgba(122, 82, 0, 0.4),
+        rgba(122, 82, 0, 0.4) 6px,
+        transparent 6px,
+        transparent 12px
+      );
+      border: 2px solid var(--ce-gold-ink);
+    }
+
+    .btn-secondary {
+      height: 48px;
+      padding: 0 24px;
+      background: var(--ce-surface);
+      border: 2px solid var(--ce-line-strong);
+      border-radius: var(--ce-radius-control);
+      color: var(--ce-ink);
+      font-family: 'Figtree', sans-serif;
+      font-weight: 600;
+      font-size: 18px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      text-decoration: none;
+      transition: border-color 0.15s, background-color 0.15s;
+      cursor: pointer;
+    }
+    .btn-secondary:hover {
+      border-color: var(--ce-primary);
+      background-color: var(--ce-primary-tint);
+    }
+
+    .btn-primary {
+      height: 56px;
+      padding: 0 28px;
+      background: var(--ce-primary);
+      border: none;
+      border-radius: var(--ce-radius-control);
+      color: var(--ce-on-primary);
+      font-family: 'Figtree', sans-serif;
+      font-weight: 600;
+      font-size: 18px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      text-decoration: none;
+      cursor: pointer;
+      box-shadow: 0 1px 2px rgba(22, 50, 41, 0.08);
+      transition: filter 0.15s;
+    }
+    .btn-primary:hover {
+      filter: brightness(0.92);
+    }
+  </style>
+</head>
+<body class="min-h-screen text-[#163229] py-8 selection:bg-[#FFF1CC] selection:text-[#163229]">
+<!-- Screen Content Max Container: 1152px on 1280px viewport -->
+<main class="w-[1152px] mx-auto px-0">
+<!-- 1. Fictional-data ribbon (Section 6.2) -->
+<aside aria-label="Data disclosure" class="w-full bg-[#FFF1CC] rounded-[14px] px-5 py-3 mb-8 flex items-center gap-3 text-[#163229]" role="note">
+<i class="w-5 h-5 text-[#7A5200] shrink-0" data-lucide="info"></i>
+<p class="text-[16px] leading-[24px] font-medium m-0">
+<strong class="font-bold text-[#163229]">Fictional data —</strong> All student profiles are fictional, shaped by overall survey percentages.
+      </p>
+</aside>
+<!-- 2. Header: Title, Lead, and Back Action -->
+<header class="flex items-start justify-between mb-12">
+<div>
+<h1 class="font-display font-semibold text-[48px] leading-[56px] text-[#163229] m-0">
+          Results
+        </h1>
+<p class="text-[22px] leading-[34px] text-[#59665F] mt-2 mb-0 max-w-[760px]">
+          What your team's list did, next to what emailing all 300 would have done.
+        </p>
+</div>
+<div class="pt-2">
+<a aria-label="Return to your team's matching list" class="btn-secondary" href="#back">
+<i class="w-5 h-5" data-lucide="arrow-left"></i>
+<span>Back to your team's list</span>
+</a>
+</div>
+</header>
+<!-- 3. Hero Section: Seating Chart ("The room") + Focal Sentences & Ruled Figures Band -->
+<section aria-labelledby="the-room-heading" class="grid grid-cols-12 gap-8 mb-16">
+<!-- Left Column (col-span-6): Seating Chart Card -->
+<div class="col-span-6 bg-white rounded-[14px] p-6" style="box-shadow: var(--ce-elev-1);">
+<div class="flex items-center justify-between pb-4 border-b border-[#F2EEE8] mb-5">
+<h2 class="font-serif font-semibold text-[24px] leading-[32px] text-[#163229] m-0" id="the-room-heading">
+            The room
+          </h2>
+<span class="text-[16px] font-medium text-[#59665F]">60 seats</span>
+</div>
+<!-- Front of room indicator -->
+<div class="w-full bg-[#F2EEE8] text-[#59665F] text-[15px] font-medium text-center py-1.5 rounded-[6px] mb-5">
+          Front of the room
+        </div>
+<!-- 6 rows x 10 cols grid = 60 seats -->
+<div aria-hidden="true" class="grid grid-cols-10 gap-2.5 max-w-[480px] mx-auto p-2">
+<!-- Row 1: 8 already coming (warm brown), 2 added by team (green with check) -->
+<!-- 1..8: Taken -->
+<div class="w-9 h-9 rounded-[4px] bg-[#8C6D62]"></div>
+<div class="w-9 h-9 rounded-[4px] bg-[#8C6D62]"></div>
+<div class="w-9 h-9 rounded-[4px] bg-[#8C6D62]"></div>
+<div class="w-9 h-9 rounded-[4px] bg-[#8C6D62]"></div>
+<div class="w-9 h-9 rounded-[4px] bg-[#8C6D62]"></div>
+<div class="w-9 h-9 rounded-[4px] bg-[#8C6D62]"></div>
+<div class="w-9 h-9 rounded-[4px] bg-[#8C6D62]"></div>
+<div class="w-9 h-9 rounded-[4px] bg-[#8C6D62]"></div>
+<!-- 9..10: Your team added -->
+<div class="w-9 h-9 rounded-[4px] bg-[#005030] flex items-center justify-center text-white">
+<i class="w-4 h-4" data-lucide="check" stroke-width="2.5"></i>
+</div>
+<div class="w-9 h-9 rounded-[4px] bg-[#005030] flex items-center justify-center text-white">
+<i class="w-4 h-4" data-lucide="check" stroke-width="2.5"></i>
+</div>
+<!-- Row 2: 4 added by team (green with check), 6 open (outline) -->
+<div class="w-9 h-9 rounded-[4px] bg-[#005030] flex items-center justify-center text-white">
+<i class="w-4 h-4" data-lucide="check" stroke-width="2.5"></i>
+</div>
+<div class="w-9 h-9 rounded-[4px] bg-[#005030] flex items-center justify-center text-white">
+<i class="w-4 h-4" data-lucide="check" stroke-width="2.5"></i>
+</div>
+<div class="w-9 h-9 rounded-[4px] bg-[#005030] flex items-center justify-center text-white">
+<i class="w-4 h-4" data-lucide="check" stroke-width="2.5"></i>
+</div>
+<div class="w-9 h-9 rounded-[4px] bg-[#005030] flex items-center justify-center text-white">
+<i class="w-4 h-4" data-lucide="check" stroke-width="2.5"></i>
+</div>
+<!-- 6 open in Row 2 -->
+<div class="w-9 h-9 rounded-[4px] border-2 border-[#8F7A70] bg-transparent"></div>
+<div class="w-9 h-9 rounded-[4px] border-2 border-[#8F7A70] bg-transparent"></div>
+<div class="w-9 h-9 rounded-[4px] border-2 border-[#8F7A70] bg-transparent"></div>
+<div class="w-9 h-9 rounded-[4px] border-2 border-[#8F7A70] bg-transparent"></div>
+<div class="w-9 h-9 rounded-[4px] border-2 border-[#8F7A70] bg-transparent"></div>
+<div class="w-9 h-9 rounded-[4px] border-2 border-[#8F7A70] bg-transparent"></div>
+<!-- Row 3: 10 open -->
+<div class="w-9 h-9 rounded-[4px] border-2 border-[#8F7A70] bg-transparent"></div>
+<div class="w-9 h-9 rounded-[4px] border-2 border-[#8F7A70] bg-transparent"></div>
+<div class="w-9 h-9 rounded-[4px] border-2 border-[#8F7A70] bg-transparent"></div>
+<div class="w-9 h-9 rounded-[4px] border-2 border-[#8F7A70] bg-transparent"></div>
+<div class="w-9 h-9 rounded-[4px] border-2 border-[#8F7A70] bg-transparent"></div>
+<div class="w-9 h-9 rounded-[4px] border-2 border-[#8F7A70] bg-transparent"></div>
+<div class="w-9 h-9 rounded-[4px] border-2 border-[#8F7A70] bg-transparent"></div>
+<div class="w-9 h-9 rounded-[4px] border-2 border-[#8F7A70] bg-transparent"></div>
+<div class="w-9 h-9 rounded-[4px] border-2 border-[#8F7A70] bg-transparent"></div>
+<div class="w-9 h-9 rounded-[4px] border-2 border-[#8F7A70] bg-transparent"></div>
+<!-- Row 4: 10 open -->
+<div class="w-9 h-9 rounded-[4px] border-2 border-[#8F7A70] bg-transparent"></div>
+<div class="w-9 h-9 rounded-[4px] border-2 border-[#8F7A70] bg-transparent"></div>
+<div class="w-9 h-9 rounded-[4px] border-2 border-[#8F7A70] bg-transparent"></div>
+<div class="w-9 h-9 rounded-[4px] border-2 border-[#8F7A70] bg-transparent"></div>
+<div class="w-9 h-9 rounded-[4px] border-2 border-[#8F7A70] bg-transparent"></div>
+<div class="w-9 h-9 rounded-[4px] border-2 border-[#8F7A70] bg-transparent"></div>
+<div class="w-9 h-9 rounded-[4px] border-2 border-[#8F7A70] bg-transparent"></div>
+<div class="w-9 h-9 rounded-[4px] border-2 border-[#8F7A70] bg-transparent"></div>
+<div class="w-9 h-9 rounded-[4px] border-2 border-[#8F7A70] bg-transparent"></div>
+<div class="w-9 h-9 rounded-[4px] border-2 border-[#8F7A70] bg-transparent"></div>
+<!-- Row 5: 10 open -->
+<div class="w-9 h-9 rounded-[4px] border-2 border-[#8F7A70] bg-transparent"></div>
+<div class="w-9 h-9 rounded-[4px] border-2 border-[#8F7A70] bg-transparent"></div>
+<div class="w-9 h-9 rounded-[4px] border-2 border-[#8F7A70] bg-transparent"></div>
+<div class="w-9 h-9 rounded-[4px] border-2 border-[#8F7A70] bg-transparent"></div>
+<div class="w-9 h-9 rounded-[4px] border-2 border-[#8F7A70] bg-transparent"></div>
+<div class="w-9 h-9 rounded-[4px] border-2 border-[#8F7A70] bg-transparent"></div>
+<div class="w-9 h-9 rounded-[4px] border-2 border-[#8F7A70] bg-transparent"></div>
+<div class="w-9 h-9 rounded-[4px] border-2 border-[#8F7A70] bg-transparent"></div>
+<div class="w-9 h-9 rounded-[4px] border-2 border-[#8F7A70] bg-transparent"></div>
+<div class="w-9 h-9 rounded-[4px] border-2 border-[#8F7A70] bg-transparent"></div>
+<!-- Row 6: 10 open -->
+<div class="w-9 h-9 rounded-[4px] border-2 border-[#8F7A70] bg-transparent"></div>
+<div class="w-9 h-9 rounded-[4px] border-2 border-[#8F7A70] bg-transparent"></div>
+<div class="w-9 h-9 rounded-[4px] border-2 border-[#8F7A70] bg-transparent"></div>
+<div class="w-9 h-9 rounded-[4px] border-2 border-[#8F7A70] bg-transparent"></div>
+<div class="w-9 h-9 rounded-[4px] border-2 border-[#8F7A70] bg-transparent"></div>
+<div class="w-9 h-9 rounded-[4px] border-2 border-[#8F7A70] bg-transparent"></div>
+<div class="w-9 h-9 rounded-[4px] border-2 border-[#8F7A70] bg-transparent"></div>
+<div class="w-9 h-9 rounded-[4px] border-2 border-[#8F7A70] bg-transparent"></div>
+<div class="w-9 h-9 rounded-[4px] border-2 border-[#8F7A70] bg-transparent"></div>
+<div class="w-9 h-9 rounded-[4px] border-2 border-[#8F7A70] bg-transparent"></div>
+</div>
+<!-- Legend (verbatim words) -->
+<div class="flex items-center justify-center gap-6 mt-6 pt-4 border-t border-[#F2EEE8] text-[16px] text-[#59665F]">
+<div class="flex items-center gap-2">
+<span class="w-3.5 h-3.5 rounded-[2px] bg-[#8C6D62] inline-block"></span>
+<span>Already coming (8)</span>
+</div>
+<span class="text-[#D9CBC4]">·</span>
+<div class="flex items-center gap-2">
+<span class="w-3.5 h-3.5 rounded-[2px] bg-[#005030] inline-block"></span>
+<span>Your invitations (6)</span>
+</div>
+<span class="text-[#D9CBC4]">·</span>
+<div class="flex items-center gap-2">
+<span class="w-3.5 h-3.5 rounded-[2px] border-2 border-[#8F7A70] inline-block"></span>
+<span>Still open (46)</span>
+</div>
+</div>
+</div>
+<!-- Right Column (col-span-6): Three-line headline + Ruled figures band -->
+<div class="col-span-6 flex flex-col justify-between py-2">
+<!-- Three-line headline in Source Serif 4 semibold 40px with CPP green numerals -->
+<div class="font-serif font-semibold text-[40px] leading-[48px] text-[#163229]">
+<p class="m-0 mb-2">
+<span class="text-[#005030] font-bold num-tabular">8</span> were already coming.
+          </p>
+<p class="m-0 mb-2">
+            Your invitations added <span class="text-[#005030] font-bold num-tabular">6</span>.
+          </p>
+<p class="m-0">
+<span class="text-[#005030] font-bold num-tabular">46</span> seats are still open.
+          </p>
+</div>
+<!-- Ruled figures band (thin vertical rules, no cards, numerals 72px Archivo SemiExpanded 700 per DESIGN.md override) -->
+<div aria-label="Seat counts summary" class="grid grid-cols-3 pt-8 mt-6 border-t border-[#8F7A70]" role="region">
+<!-- Col 1: Seats in the room -->
+<div class="pr-6">
+<div class="font-display font-bold text-[72px] leading-[76px] text-[#005030] num-tabular">
+              60
+            </div>
+<div class="font-semibold text-[18px] leading-[24px] text-[#163229] mt-2">
+              Seats in the room
+            </div>
+</div>
+<!-- Col 2: Already coming -->
+<div class="px-6 border-l border-[#8F7A70]">
+<div class="font-display font-bold text-[72px] leading-[76px] text-[#005030] num-tabular">
+              8
+            </div>
+<div class="font-semibold text-[18px] leading-[24px] text-[#163229] mt-2">
+              Already coming
+            </div>
+</div>
+<!-- Col 3: Still open -->
+<div class="pl-6 border-l border-[#8F7A70]">
+<div class="font-display font-bold text-[72px] leading-[76px] text-[#005030] num-tabular">
+              46
+            </div>
+<div class="font-semibold text-[18px] leading-[24px] text-[#163229] mt-2">
+              Still open
+            </div>
+</div>
+</div>
+<p class="text-[16px] text-[#59665F] m-0 mt-4">
+          A team runs results once per event.
+        </p>
+</div>
+</section>
+<!-- 4. Section: What happened for Northline Analytics (Grouped Bar Chart) -->
+<section aria-labelledby="chart-heading" class="bg-white rounded-[14px] p-8 mb-12" style="box-shadow: var(--ce-elev-1);">
+<div class="flex items-center justify-between mb-8 pb-4 border-b border-[#F2EEE8]">
+<div>
+<h2 class="font-serif font-semibold text-[32px] leading-[40px] text-[#163229] m-0" id="chart-heading">
+            What happened for Northline Analytics
+          </h2>
+</div>
+<!-- Legend -->
+<div class="flex items-center gap-6 text-[16px] font-medium text-[#163229]">
+<div class="flex items-center gap-2">
+<span class="w-4 h-4 rounded-[2px] bg-[#D9EADF] border-2 border-[#005030] inline-block"></span>
+<span>Invited</span>
+</div>
+<div class="flex items-center gap-2">
+<span class="w-4 h-4 rounded-[2px] hatch-pattern inline-block"></span>
+<span>Signed up</span>
+</div>
+<div class="flex items-center gap-2">
+<span class="w-4 h-4 rounded-[2px] bg-[#005030] inline-block"></span>
+<span>Attended</span>
+</div>
+</div>
+</div>
+<!-- Chart visual container: 2 Groups -->
+<!-- Max value is 300 (height scale 260px = 300) -->
+<div class="grid grid-cols-2 gap-16 pt-8 pb-4 px-6 border-b border-[#8F7A70]">
+<!-- Group 1: Your team's list (30, 6, 4) -->
+<div>
+<div class="h-[260px] flex items-end justify-center gap-10">
+<!-- Bar 1: Invited 30 (height ~35px) -->
+<div class="flex flex-col items-center">
+<span class="font-display font-bold text-[20px] text-[#005030] mb-2 num-tabular">30</span>
+<div class="w-16 h-[38px] rounded-t-[4px] bg-[#D9EADF] border-2 border-[#005030]" title="Your team's list: Invited 30"></div>
+</div>
+<!-- Bar 2: Signed up 6 (height ~16px) -->
+<div class="flex flex-col items-center">
+<span class="font-display font-bold text-[20px] text-[#7A5200] mb-2 num-tabular">6</span>
+<div class="w-16 h-[20px] rounded-t-[4px] hatch-pattern" title="Your team's list: Signed up 6"></div>
+</div>
+<!-- Bar 3: Attended 4 (height ~14px) -->
+<div class="flex flex-col items-center">
+<span class="font-display font-bold text-[20px] text-[#005030] mb-2 num-tabular">4</span>
+<div class="w-16 h-[16px] rounded-t-[4px] bg-[#005030]" title="Your team's list: Attended 4"></div>
+</div>
+</div>
+<div class="text-center mt-4">
+<h3 class="font-serif font-semibold text-[22px] text-[#163229] m-0">Your team's list</h3>
+<p class="text-[16px] text-[#59665F] mt-0.5 m-0">Invited 30 · Signed up 6 · Attended 4</p>
+</div>
+</div>
+<!-- Group 2: If you emailed everyone (300, 41, 27) -->
+<div>
+<div class="h-[260px] flex items-end justify-center gap-10">
+<!-- Bar 1: Invited 300 (height 240px) -->
+<div class="flex flex-col items-center">
+<span class="font-display font-bold text-[20px] text-[#005030] mb-2 num-tabular">300</span>
+<div class="w-16 h-[240px] rounded-t-[4px] bg-[#D9EADF] border-2 border-[#005030]" title="If you emailed everyone: Invited 300"></div>
+</div>
+<!-- Bar 2: Signed up 41 (height ~46px) -->
+<div class="flex flex-col items-center">
+<span class="font-display font-bold text-[20px] text-[#7A5200] mb-2 num-tabular">41</span>
+<div class="w-16 h-[46px] rounded-t-[4px] hatch-pattern" title="If you emailed everyone: Signed up 41"></div>
+</div>
+<!-- Bar 3: Attended 27 (height ~34px) -->
+<div class="flex flex-col items-center">
+<span class="font-display font-bold text-[20px] text-[#005030] mb-2 num-tabular">27</span>
+<div class="w-16 h-[34px] rounded-t-[4px] bg-[#005030]" title="If you emailed everyone: Attended 27"></div>
+</div>
+</div>
+<div class="text-center mt-4">
+<h3 class="font-serif font-semibold text-[22px] text-[#163229] m-0">If you emailed everyone</h3>
+<p class="text-[16px] text-[#59665F] mt-0.5 m-0">Invited 300 · Signed up 41 · Attended 27</p>
+</div>
+</div>
+</div>
+<!-- Table Disclosure Link (verbatim text) -->
+<div class="mt-6 flex justify-start">
+<button class="text-[18px] text-[#005030] font-semibold underline underline-offset-4 hover:decoration-2 transition-all inline-flex items-center gap-2 bg-transparent border-0 p-0 cursor-pointer" type="button">
+<i class="w-4 h-4" data-lucide="table"></i>
+<span>Show these counts as a table</span>
+</button>
+</div>
+</section>
+<!-- 5. Section: The people on your team's list -->
+<section aria-labelledby="people-heading" class="bg-white rounded-[14px] p-8 mb-12" style="box-shadow: var(--ce-elev-1);">
+<div class="flex items-baseline justify-between mb-8 pb-4 border-b border-[#F2EEE8]">
+<div>
+<h2 class="font-serif font-semibold text-[32px] leading-[40px] text-[#163229] m-0" id="people-heading">
+            The people on your team's list
+          </h2>
+</div>
+<p class="text-[16px] text-[#59665F] italic m-0">
+          Contacting all 300 is shown as counts only.
+        </p>
+</div>
+<!-- Three columns of name chips -->
+<div class="grid grid-cols-3 gap-8">
+<!-- Column 1: Invited (30) -->
+<div>
+<div class="flex items-center gap-2 mb-4">
+<h3 class="font-semibold text-[18px] leading-[24px] text-[#163229] m-0">
+              Invited <span class="text-[#59665F] font-normal num-tabular">(30)</span>
+</h3>
+</div>
+<div class="flex flex-wrap gap-2">
+<!-- First 8 names from prompt ranked list -->
+<span class="inline-flex items-center px-3.5 py-1.5 rounded-full bg-[#F2EEE8] text-[#163229] text-[16px] font-medium">
+              Maya Tran
+            </span>
+<span class="inline-flex items-center px-3.5 py-1.5 rounded-full bg-[#F2EEE8] text-[#163229] text-[16px] font-medium">
+              Daniel Okafor
+            </span>
+<span class="inline-flex items-center px-3.5 py-1.5 rounded-full bg-[#F2EEE8] text-[#163229] text-[16px] font-medium">
+              Priya Patel
+            </span>
+<span class="inline-flex items-center px-3.5 py-1.5 rounded-full bg-[#F2EEE8] text-[#163229] text-[16px] font-medium">
+              Jordan Kim
+            </span>
+<span class="inline-flex items-center px-3.5 py-1.5 rounded-full bg-[#F2EEE8] text-[#163229] text-[16px] font-medium">
+              Alexis Rivera
+            </span>
+<span class="inline-flex items-center px-3.5 py-1.5 rounded-full bg-[#F2EEE8] text-[#163229] text-[16px] font-medium">
+              Ethan Nguyen
+            </span>
+<span class="inline-flex items-center px-3.5 py-1.5 rounded-full bg-[#F2EEE8] text-[#163229] text-[16px] font-medium">
+              Sofia Morales
+            </span>
+<span class="inline-flex items-center px-3.5 py-1.5 rounded-full bg-[#F2EEE8] text-[#163229] text-[16px] font-medium">
+              Marcus Chen
+            </span>
+<!-- Prompt requirement: "and 22 more" -->
+<span class="inline-flex items-center px-3.5 py-1.5 rounded-full bg-white border border-[#8F7A70] text-[#59665F] text-[16px] font-medium">
+              and 22 more
+            </span>
+</div>
+</div>
+<!-- Column 2: Signed up (6) -->
+<div>
+<div class="flex items-center gap-2 mb-4">
+<h3 class="font-semibold text-[18px] leading-[24px] text-[#163229] m-0">
+              Signed up <span class="text-[#59665F] font-normal num-tabular">(6)</span>
+</h3>
+</div>
+<div class="flex flex-wrap gap-2">
+<span class="inline-flex items-center px-3.5 py-1.5 rounded-full bg-[#F2EEE8] text-[#163229] text-[16px] font-medium">
+              Daniel Okafor
+            </span>
+<span class="inline-flex items-center px-3.5 py-1.5 rounded-full bg-[#F2EEE8] text-[#163229] text-[16px] font-medium">
+              Alexis Rivera
+            </span>
+<span class="inline-flex items-center px-3.5 py-1.5 rounded-full bg-[#F2EEE8] text-[#163229] text-[16px] font-medium">
+              Marcus Chen
+            </span>
+<span class="inline-flex items-center px-3.5 py-1.5 rounded-full bg-[#F2EEE8] text-[#163229] text-[16px] font-medium">
+              Grace Park
+            </span>
+<span class="inline-flex items-center px-3.5 py-1.5 rounded-full bg-[#F2EEE8] text-[#163229] text-[16px] font-medium">
+              Brandon Cole
+            </span>
+<span class="inline-flex items-center px-3.5 py-1.5 rounded-full bg-[#F2EEE8] text-[#163229] text-[16px] font-medium">
+              Emily Wang
+            </span>
+</div>
+</div>
+<!-- Column 3: Attended (4) -->
+<div>
+<div class="flex items-center gap-2 mb-4">
+<h3 class="font-semibold text-[18px] leading-[24px] text-[#163229] m-0">
+              Attended <span class="text-[#59665F] font-normal num-tabular">(4)</span>
+</h3>
+</div>
+<div class="flex flex-wrap gap-2">
+<span class="inline-flex items-center px-3.5 py-1.5 rounded-full bg-[#D9EADF] text-[#003D24] text-[16px] font-medium">
+              Daniel Okafor
+            </span>
+<span class="inline-flex items-center px-3.5 py-1.5 rounded-full bg-[#D9EADF] text-[#003D24] text-[16px] font-medium">
+              Marcus Chen
+            </span>
+<span class="inline-flex items-center px-3.5 py-1.5 rounded-full bg-[#D9EADF] text-[#003D24] text-[16px] font-medium">
+              Grace Park
+            </span>
+<span class="inline-flex items-center px-3.5 py-1.5 rounded-full bg-[#D9EADF] text-[#003D24] text-[16px] font-medium">
+              Emily Wang
+            </span>
+</div>
+</div>
+</div>
+</section>
+<!-- 6. Section: Ask the people your team invited -->
+<section aria-labelledby="ask-heading" class="bg-white rounded-[14px] p-8 mb-16 flex items-center justify-between" style="box-shadow: var(--ce-elev-1);">
+<div>
+<h2 class="font-serif font-semibold text-[32px] leading-[40px] text-[#163229] m-0" id="ask-heading">
+          Ask the people your team invited
+        </h2>
+</div>
+<div>
+<a aria-label="Navigate to asking for more" class="btn-secondary" href="#asking-for-more">
+<span>Go to asking for more</span>
+<i class="w-5 h-5" data-lucide="arrow-right"></i>
+</a>
+</div>
+</section>
+<!-- 7. Footer: License line verbatim (DESIGN.md & Prompt) -->
+<footer class="pt-6 pb-12 border-t border-[#D9CBC4] text-center">
+<p class="text-[16px] leading-[24px] text-[#59665F] m-0">
+        For California State Polytechnic University, Pomona — College of Business Administration instructional use only. All student profiles are fictional.
+      </p>
+</footer>
+</main>
+<script>
+    // Initialize Lucide icons
+    lucide.createIcons();
+  </script>
+</body>
+</html>

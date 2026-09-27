@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Northline Analytics</title>
+<!-- Google Fonts & Material Symbols -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700&amp;family=Figtree:wght@400;500;600;700&amp;family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&amp;family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            "secondary-fixed-dim": "#ffba2c",
+            "primary-tint": "#D9EADF",
+            "error-container": "#ffdad6",
+            "on-surface-variant": "#404942",
+            "surface-bright": "#f8faf5",
+            "on-primary-fixed": "#002111",
+            "outline-variant": "#bfc9c0",
+            "tertiary-fixed-dim": "#a4d65e",
+            "surface-container-low": "#f2f4ef",
+            "outline": "#707972",
+            "secondary-fixed": "#ffdeaa",
+            "ink-muted": "#59665F",
+            "primary-fixed": "#acf2c6",
+            "surface-sunk": "#F2EEE8",
+            "on-primary": "#FFFFFF",
+            "on-tertiary-fixed": "#112000",
+            "gold-tint": "#FFF1CC",
+            "surface-container-high": "#e6e9e4",
+            "gold-ink": "#7A5200",
+            "on-tertiary-container": "#91c14c",
+            "seat-taken": "#8C6D62",
+            "on-secondary-fixed-variant": "#5f4100",
+            "inverse-primary": "#91d5ab",
+            "on-tertiary": "#ffffff",
+            "scrim": "rgba(16,37,29,0.48)",
+            "on-primary-fixed-variant": "#035232",
+            "secondary": "#7d5700",
+            "on-secondary-container": "#6b4b00",
+            "on-secondary": "#ffffff",
+            "on-error-container": "#93000a",
+            "primary-container": "#005030",
+            "on-error": "#ffffff",
+            "line-strong": "#8F7A70",
+            "ink": "#163229",
+            "avocado": "#A4D65E",
+            "surface-dim": "#d8dbd6",
+            "danger": "#BA1A1A",
+            "surface": "#FFFFFF",
+            "on-primary-container": "#7dc198",
+            "on-surface": "#191c1a",
+            "bay": "#CFBAB0",
+            "surface-container": "#ecefe9",
+            "surface-tint": "#266a48",
+            "on-secondary-fixed": "#271900",
+            "primary": "#005030",
+            "on-tertiary-fixed-variant": "#314f00",
+            "background": "#f8faf5",
+            "line": "#D9CBC4",
+            "secondary-container": "#feb71a",
+            "inverse-surface": "#2e312e",
+            "surface-container-highest": "#e0e3de",
+            "primary-fixed-dim": "#91d5ab",
+            "on-background": "#191c1a",
+            "inverse-on-surface": "#eff2ec",
+            "tertiary-fixed": "#bff377",
+            "page": "#F8F6F1",
+            "avocado-tint": "#E8F2D8",
+            "surface-variant": "#e0e3de",
+            "error": "#ba1a1a",
+            "tertiary": "#1f3500",
+            "surface-container-lowest": "#ffffff",
+            "tertiary-container": "#304d00"
+          },
+          borderRadius: {
+            "DEFAULT": "0.25rem",
+            "lg": "0.5rem",
+            "xl": "0.75rem",
+            "full": "9999px"
+          },
+          spacing: {
+            "space-2xl": "32px",
+            "space-sm": "8px",
+            "space-lg": "16px",
+            "space-5xl": "96px",
+            "space-md": "12px",
+            "space-4xl": "64px",
+            "margin-mobile": "16px",
+            "space-xl": "24px",
+            "gutter": "24px",
+            "margin": "64px",
+            "gutter-mobile": "16px",
+            "space-xs": "4px",
+            "space-3xl": "48px"
+          },
+          fontFamily: {
+            "meta-caption": ["\"Figtree\", sans-serif"],
+            "headline-sm": ["\"Source Serif 4\", serif"],
+            "rank-num": ["\"Archivo\", sans-serif"],
+            "body-reason": ["\"Source Serif 4\", serif"],
+            "value-num": ["\"Figtree\", sans-serif"],
+            "headline-md": ["\"Source Serif 4\", serif"],
+            "body-md": ["\"Figtree\", sans-serif"],
+            "label-md": ["\"Figtree\", sans-serif"],
+            "headline-lg": ["\"Archivo\", sans-serif"],
+            "body-lead": ["\"Figtree\", sans-serif"]
+          },
+          fontSize: {
+            "meta-caption": ["16px", { lineHeight: "24px", letterSpacing: "0.01em", fontWeight: "500" }],
+            "headline-sm": ["24px", { lineHeight: "32px", letterSpacing: "-0.01em", fontWeight: "600" }],
+            "rank-num": ["28px", { lineHeight: "32px", fontWeight: "700" }],
+            "body-reason": ["18px", { lineHeight: "28px", fontWeight: "400" }],
+            "value-num": ["20px", { lineHeight: "28px", fontWeight: "700" }],
+            "headline-md": ["32px", { lineHeight: "40px", letterSpacing: "-0.01em", fontWeight: "600" }],
+            "body-md": ["20px", { lineHeight: "30px", fontWeight: "400" }],
+            "label-md": ["18px", { lineHeight: "24px", letterSpacing: "0.01em", fontWeight: "600" }],
+            "headline-lg": ["48px", { lineHeight: "56px", fontWeight: "600" }],
+            "body-lead": ["22px", { lineHeight: "34px", fontWeight: "400" }]
+          },
+          boxShadow: {
+            "stationery-card": "0 1px 2px rgba(22,50,41,.06), 0 4px 12px rgba(22,50,41,.06)"
+          }
+        }
+      }
+    };
+  </script>
+</head>
+<body class="bg-page text-ink antialiased min-h-screen font-body-md text-body-md selection:bg-gold-tint selection:text-gold-ink pb-16">
+<!-- Content Container (1280px max width) -->
+<main class="w-full max-w-[1280px] mx-auto px-6 pt-6 flex flex-col gap-6">
+<!-- 1. Top Ribbon -->
+<aside class="w-full bg-gold-tint rounded-[14px] px-5 py-3.5 flex items-center gap-3">
+<span class="material-symbols-outlined text-gold-ink text-[20px] select-none" data-icon="info">info</span>
+<p class="font-meta-caption text-meta-caption text-gold-ink m-0">
+<strong class="font-bold">Fictional data —</strong> All student profiles are fictional, shaped by overall survey percentages.
+      </p>
+</aside>
+<!-- 2. Header Row -->
+<header class="flex flex-col gap-3">
+<div class="flex items-center justify-between">
+<h1 class="font-headline-lg text-headline-lg text-ink m-0 tracking-tight">
+          Northline Analytics
+        </h1>
+<div class="flex items-center gap-6">
+<span class="font-body-md text-body-md text-ink-muted">Team 4</span>
+<button class="h-12 px-5 bg-surface rounded-[10px] border-2 border-line-strong text-ink font-label-md text-label-md hover:bg-surface-container-low active:scale-[0.98] transition-all flex items-center gap-2" type="button">
+<span>Choose a different event</span>
+<span class="material-symbols-outlined text-ink text-[20px]" data-icon="arrow_forward">arrow_forward</span>
+</button>
+</div>
+</div>
+<p class="font-body-lead text-body-lead text-ink-muted max-w-4xl m-0">
+        Decide how much each thing counts, then see who that puts on the list — and who it leaves off.
+      </p>
+</header>
+<!-- 3. Two Columns Layout -->
+<div class="grid grid-cols-[360px_1fr] gap-6 items-start">
+<!-- Left Column: Sliders (Sticky) -->
+<aside class="sticky top-6 bg-surface rounded-[14px] shadow-stationery-card p-6 flex flex-col gap-6">
+<div>
+<h2 class="font-headline-sm text-headline-sm text-ink m-0">
+            How much each thing counts
+          </h2>
+</div>
+<div class="flex flex-col gap-6">
+<!-- Slider 1 -->
+<div class="flex flex-col gap-2">
+<div class="flex items-center justify-between gap-2">
+<label class="font-label-md text-label-md text-ink" for="slider-major">same major</label>
+<div class="w-[88px] h-11 bg-surface border-2 border-line-strong rounded-[10px] flex items-center justify-center font-value-num text-value-num text-ink tabular-nums">
+                0.40
+              </div>
+</div>
+<!-- Tactile Slider Track Representation -->
+<div class="relative w-full h-[6px] bg-surface-sunk rounded-full border-2 border-line-strong flex items-center my-3">
+<div class="h-full bg-primary rounded-l-full" style="width: 40%;"></div>
+<div class="absolute -ml-3.5 w-7 h-7 bg-surface rounded-full border-2 border-primary shadow-sm flex items-center justify-center cursor-pointer" style="left: 40%;">
+<div class="w-1.5 h-1.5 bg-primary rounded-full"></div>
+</div>
+</div>
+</div>
+<!-- Slider 2 -->
+<div class="flex flex-col gap-2">
+<div class="flex items-center justify-between gap-2">
+<label class="font-label-md text-label-md text-ink" for="slider-interest">said they are interested in this topic</label>
+<div class="w-[88px] h-11 bg-surface border-2 border-line-strong rounded-[10px] flex items-center justify-center font-value-num text-value-num text-ink tabular-nums">
+                0.25
+              </div>
+</div>
+<div class="relative w-full h-[6px] bg-surface-sunk rounded-full border-2 border-line-strong flex items-center my-3">
+<div class="h-full bg-primary rounded-l-full" style="width: 25%;"></div>
+<div class="absolute -ml-3.5 w-7 h-7 bg-surface rounded-full border-2 border-primary shadow-sm flex items-center justify-center cursor-pointer" style="left: 25%;">
+<div class="w-1.5 h-1.5 bg-primary rounded-full"></div>
+</div>
+</div>
+</div>
+<!-- Slider 3 -->
+<div class="flex flex-col gap-2">
+<div class="flex items-center justify-between gap-2">
+<label class="font-label-md text-label-md text-ink" for="slider-career">career goal fits this event</label>
+<div class="w-[88px] h-11 bg-surface border-2 border-line-strong rounded-[10px] flex items-center justify-center font-value-num text-value-num text-ink tabular-nums">
+                0.25
+              </div>
+</div>
+<div class="relative w-full h-[6px] bg-surface-sunk rounded-full border-2 border-line-strong flex items-center my-3">
+<div class="h-full bg-primary rounded-l-full" style="width: 25%;"></div>
+<div class="absolute -ml-3.5 w-7 h-7 bg-surface rounded-full border-2 border-primary shadow-sm flex items-center justify-center cursor-pointer" style="left: 25%;">
+<div class="w-1.5 h-1.5 bg-primary rounded-full"></div>
+</div>
+</div>
+</div>
+<!-- Slider 4 -->
+<div class="flex flex-col gap-2">
+<div class="flex items-center justify-between gap-2">
+<label class="font-label-md text-label-md text-ink" for="slider-prior">went to similar events before</label>
+<div class="w-[88px] h-11 bg-surface border-2 border-line-strong rounded-[10px] flex items-center justify-center font-value-num text-value-num text-ink tabular-nums">
+                0.10
+              </div>
+</div>
+<div class="relative w-full h-[6px] bg-surface-sunk rounded-full border-2 border-line-strong flex items-center my-3">
+<div class="h-full bg-primary rounded-l-full" style="width: 10%;"></div>
+<div class="absolute -ml-3.5 w-7 h-7 bg-surface rounded-full border-2 border-primary shadow-sm flex items-center justify-center cursor-pointer" style="left: 10%;">
+<div class="w-1.5 h-1.5 bg-primary rounded-full"></div>
+</div>
+</div>
+</div>
+</div>
+<p class="font-meta-caption text-meta-caption text-ink-muted pt-2 border-t border-line m-0">
+          The list is rebuilt when you let go of a slider or press Enter.
+        </p>
+</aside>
+<!-- Right Column: List and Data Table -->
+<section class="bg-surface rounded-[14px] shadow-stationery-card p-6 flex flex-col gap-6">
+<!-- Card Header -->
+<div class="flex flex-col gap-1">
+<div class="flex items-center justify-between">
+<h2 class="font-headline-md text-headline-md text-ink m-0">
+              The list
+            </h2>
+<button class="h-11 px-4 bg-surface rounded-[10px] border-2 border-line-strong text-ink font-label-md text-label-md hover:bg-surface-container-low active:scale-[0.98] transition-all flex items-center gap-2" type="button">
+<span class="material-symbols-outlined text-ink text-[20px]" data-icon="download">download</span>
+<span>Download this list as a spreadsheet</span>
+</button>
+</div>
+<p class="font-label-md text-label-md text-ink-muted font-normal m-0">
+            Cut at 30 names, the limit set for this data file.
+          </p>
+</div>
+<!-- Coverage Notice Banner -->
+<div class="bg-gold-tint rounded-[10px] p-4 flex items-center gap-3">
+<span class="material-symbols-outlined text-gold-ink text-[20px] select-none" data-icon="group">group</span>
+<p class="font-meta-caption text-meta-caption text-gold-ink m-0">
+            Nobody on this list is a Freshman or a Finance, Real Estate &amp; Law major.
+          </p>
+</div>
+<!-- Ranked Table Container -->
+<div class="w-full relative">
+<table class="w-full text-left border-collapse">
+<thead>
+<tr class="bg-surface-sunk text-ink font-label-md text-label-md">
+<th class="py-3.5 px-4 rounded-tl-[10px] w-16" scope="col">Rank</th>
+<th class="py-3.5 px-4" scope="col">Name</th>
+<th class="py-3.5 px-4" scope="col">Major</th>
+<th class="py-3.5 px-4 w-28" scope="col">Year</th>
+<th class="py-3.5 px-4 rounded-tr-[10px] w-56" scope="col">How much we know</th>
+</tr>
+</thead>
+<tbody>
+<!-- Row 1 -->
+<tr class="border-b border-line align-top">
+<td class="py-4 px-4 font-rank-num text-rank-num text-primary tabular-nums">1</td>
+<td class="py-4 px-4">
+<div class="font-label-md text-[20px] text-ink">Maya Tran</div>
+<div class="font-body-reason text-body-reason text-ink-muted mt-0.5">What counted: same major; said they are interested in this topic; career goal fits this event.</div>
+</td>
+<td class="py-4 px-4 font-body-md text-body-md text-ink">Computer Information Systems</td>
+<td class="py-4 px-4 font-body-md text-body-md text-ink">Senior</td>
+<td class="py-4 px-4">
+<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-primary-tint text-[#003D24] font-label-md text-[15px]">
+<span class="material-symbols-outlined text-[18px]" data-icon="badge">badge</span>
+                    completed card
+                  </span>
+</td>
+</tr>
+<!-- Row 2 -->
+<tr class="border-b border-line align-top">
+<td class="py-4 px-4 font-rank-num text-rank-num text-primary tabular-nums">2</td>
+<td class="py-4 px-4">
+<div class="font-label-md text-[20px] text-ink">Daniel Okafor</div>
+<div class="font-body-reason text-body-reason text-ink-muted mt-0.5">What counted: same major; career goal fits this event.</div>
+</td>
+<td class="py-4 px-4 font-body-md text-body-md text-ink">International Business &amp; Marketing</td>
+<td class="py-4 px-4 font-body-md text-body-md text-ink">Senior</td>
+<td class="py-4 px-4">
+<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-primary-tint text-[#003D24] font-label-md text-[15px]">
+<span class="material-symbols-outlined text-[18px]" data-icon="badge">badge</span>
+                    completed card
+                  </span>
+</td>
+</tr>
+<!-- Row 3 -->
+<tr class="border-b border-line align-top">
+<td class="py-4 px-4 font-rank-num text-rank-num text-primary tabular-nums">3</td>
+<td class="py-4 px-4">
+<div class="font-label-md text-[20px] text-ink">Priya Patel</div>
+<div class="font-body-reason text-body-reason text-ink-muted mt-0.5">What counted: same major; went to similar events before.</div>
+</td>
+<td class="py-4 px-4 font-body-md text-body-md text-ink">Computer Information Systems</td>
+<td class="py-4 px-4 font-body-md text-body-md text-ink">Junior</td>
+<td class="py-4 px-4">
+<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-avocado-tint text-ink font-label-md text-[15px]">
+<span class="material-symbols-outlined text-[18px]" data-icon="adjust">adjust</span>
+                    major plus events attended
+                  </span>
+</td>
+</tr>
+<!-- Row 4 -->
+<tr class="border-b border-line align-top">
+<td class="py-4 px-4 font-rank-num text-rank-num text-primary tabular-nums">4</td>
+<td class="py-4 px-4">
+<div class="font-label-md text-[20px] text-ink">Jordan Kim</div>
+<div class="font-body-reason text-body-reason text-ink-muted mt-0.5">Same major; nothing else on file.</div>
+</td>
+<td class="py-4 px-4 font-body-md text-body-md text-ink">Computer Information Systems</td>
+<td class="py-4 px-4 font-body-md text-body-md text-ink">Senior</td>
+<td class="py-4 px-4">
+<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-surface-sunk text-ink font-label-md text-[15px]">
+<span class="material-symbols-outlined text-[18px]" data-icon="radio_button_unchecked">radio_button_unchecked</span>
+                    major only
+                  </span>
+</td>
+</tr>
+<!-- Row 5 -->
+<tr class="border-b border-line align-top">
+<td class="py-4 px-4 font-rank-num text-rank-num text-primary tabular-nums">5</td>
+<td class="py-4 px-4">
+<div class="font-label-md text-[20px] text-ink">Alexis Rivera</div>
+<div class="font-body-reason text-body-reason text-ink-muted mt-0.5">Tied on major; ordered by year.</div>
+</td>
+<td class="py-4 px-4 font-body-md text-body-md text-ink">Computer Information Systems</td>
+<td class="py-4 px-4 font-body-md text-body-md text-ink">Junior</td>
+<td class="py-4 px-4">
+<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-surface-sunk text-ink font-label-md text-[15px]">
+<span class="material-symbols-outlined text-[18px]" data-icon="radio_button_unchecked">radio_button_unchecked</span>
+                    major only
+                  </span>
+</td>
+</tr>
+<!-- Row 6 -->
+<tr class="border-b border-line align-top">
+<td class="py-4 px-4 font-rank-num text-rank-num text-primary tabular-nums">6</td>
+<td class="py-4 px-4">
+<div class="font-label-md text-[20px] text-ink">Ethan Nguyen</div>
+<div class="font-body-reason text-body-reason text-ink-muted mt-0.5">What counted: same major; went to similar events before.</div>
+</td>
+<td class="py-4 px-4 font-body-md text-body-md text-ink">International Business &amp; Marketing</td>
+<td class="py-4 px-4 font-body-md text-body-md text-ink">Senior</td>
+<td class="py-4 px-4">
+<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-avocado-tint text-ink font-label-md text-[15px]">
+<span class="material-symbols-outlined text-[18px]" data-icon="adjust">adjust</span>
+                    major plus events attended
+                  </span>
+</td>
+</tr>
+<!-- Row 7 -->
+<tr class="border-b border-line align-top">
+<td class="py-4 px-4 font-rank-num text-rank-num text-primary tabular-nums">7</td>
+<td class="py-4 px-4">
+<div class="font-label-md text-[20px] text-ink">Sofia Morales</div>
+<div class="font-body-reason text-body-reason text-ink-muted mt-0.5">What counted: said they are interested in this topic; career goal fits this event.</div>
+</td>
+<td class="py-4 px-4 font-body-md text-body-md text-ink">Technology &amp; Operations Management</td>
+<td class="py-4 px-4 font-body-md text-body-md text-ink">Senior</td>
+<td class="py-4 px-4">
+<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-primary-tint text-[#003D24] font-label-md text-[15px]">
+<span class="material-symbols-outlined text-[18px]" data-icon="badge">badge</span>
+                    completed card
+                  </span>
+</td>
+</tr>
+<!-- Row 8 -->
+<tr class="border-b border-line align-top">
+<td class="py-4 px-4 font-rank-num text-rank-num text-primary tabular-nums">8</td>
+<td class="py-4 px-4">
+<div class="font-label-md text-[20px] text-ink">Marcus Chen</div>
+<div class="font-body-reason text-body-reason text-ink-muted mt-0.5">Tied on major; ordered by year.</div>
+</td>
+<td class="py-4 px-4 font-body-md text-body-md text-ink">International Business &amp; Marketing</td>
+<td class="py-4 px-4 font-body-md text-body-md text-ink">Junior</td>
+<td class="py-4 px-4">
+<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-surface-sunk text-ink font-label-md text-[15px]">
+<span class="material-symbols-outlined text-[18px]" data-icon="radio_button_unchecked">radio_button_unchecked</span>
+                    major only
+                  </span>
+</td>
+</tr>
+<!-- Row 9 (With fade out initiation) -->
+<tr class="border-b border-line align-top opacity-75">
+<td class="py-4 px-4 font-rank-num text-rank-num text-primary tabular-nums">9</td>
+<td class="py-4 px-4">
+<div class="font-label-md text-[20px] text-ink">Hannah Lee</div>
+<div class="font-body-reason text-body-reason text-ink-muted mt-0.5">Tied on major; ordered by year.</div>
+</td>
+<td class="py-4 px-4 font-body-md text-body-md text-ink">International Business &amp; Marketing</td>
+<td class="py-4 px-4 font-body-md text-body-md text-ink">Sophomore</td>
+<td class="py-4 px-4">
+<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-surface-sunk text-ink font-label-md text-[15px]">
+<span class="material-symbols-outlined text-[18px]" data-icon="radio_button_unchecked">radio_button_unchecked</span>
+                    major only
+                  </span>
+</td>
+</tr>
+<!-- Row 10 (With stronger fade) -->
+<tr class="border-b border-line align-top opacity-35">
+<td class="py-4 px-4 font-rank-num text-rank-num text-primary tabular-nums">10</td>
+<td class="py-4 px-4">
+<div class="font-label-md text-[20px] text-ink">Diego Garcia</div>
+<div class="font-body-reason text-body-reason text-ink-muted mt-0.5">What counted: went to similar events before.</div>
+</td>
+<td class="py-4 px-4 font-body-md text-body-md text-ink">Accounting</td>
+<td class="py-4 px-4 font-body-md text-body-md text-ink">Senior</td>
+<td class="py-4 px-4">
+<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-avocado-tint text-ink font-label-md text-[15px]">
+<span class="material-symbols-outlined text-[18px]" data-icon="adjust">adjust</span>
+                    major plus events attended
+                  </span>
+</td>
+</tr>
+</tbody>
+</table>
+<!-- Subtle bottom overlay & indicator -->
+<div class="w-full pt-6 pb-2 flex flex-col items-center justify-center gap-1">
+<span class="font-label-md text-label-md text-ink-muted">20 more names below</span>
+<span class="material-symbols-outlined text-ink-muted text-[20px]" data-icon="keyboard_arrow_down">keyboard_arrow_down</span>
+</div>
+</div>
+</section>
+</div>
+<!-- 4. Bottom Action / License Strip -->
+<footer class="pt-4 border-t border-line">
+<p class="font-meta-caption text-meta-caption text-ink-muted m-0">
+        For California State Polytechnic University, Pomona — College of Business Administration instructional use only. All student profiles are fictional.
+      </p>
+</footer>
+</main>
+</body></html>
