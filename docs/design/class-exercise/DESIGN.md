@@ -561,12 +561,17 @@ pressing Escape, or choosing another card, reverts the button to "Choose this
 way". No pop-up, no modal, no second button. Screen readers hear "Press again
 to confirm A small reward. Your team picks once." via `aria-live="polite"`.
 Reduced motion: no underline animation; the label change and a static
-"5 seconds" helper carry it.
+"5 seconds" helper carry it. Moving focus away (blur) does **not** disarm:
+only the lapse, Escape, or another card reverts it, so a stray Tab does not
+cost the class its moment. A held Enter or Space (key repeat) never counts as
+the confirming press.
 
 ### 6.19 Refresh counts
 
 The same ruled figures band as 6.15: "Cards filled in", "Stopped opening
-messages", "Topics added from the first event". Values count up once.
+messages", "Picked up the first event's topics". The third figure counts
+*people*, not topics (`topics_added` is `len(gainers)` in
+`results_repository.py`), so the label names people. Values count up once.
 
 ### 6.20 Notice
 
@@ -722,7 +727,9 @@ Before a run: lock panel (6.14) in the seating-chart position.
 
 ### 7.9 Asking for more (`/exercise/asking`)
 
-- **1280:** `h1` "Asking for more"; `partly-known-card.svg` right of the lead;
+- **1280:** `h1` "Asking for more"; `partly-known-card.svg` (96px) right of
+  the "How will your team ask?" `h2` (the shell's header has no slot beside
+  the lead);
   three choice cards in a row; below, "Ask the people your team invited" with
   the primary button and, after it runs, three count cards.
 - **390:** cards stack; button full width.
@@ -847,6 +854,7 @@ labels and the license line are unchanged and not listed.
 | Asking, buttons | "Choose this way" → "Confirm: A small reward?" |
 | Asking, spoken hint | "Press again to confirm A small reward. Your team picks once." |
 | Profile-card page `h1` | "What a profile would be asked" |
+| Profile card, stamp chip | "Mock-up only" |
 | Profile-card caption | "Major and year are already on file, and past events are recorded when someone attends. So the card asks only two things, and asks the person to confirm their major." |
 | Instructor, passcode helper | "The passcode is shared by the course team. It is not your university login." |
 | Instructor, unlock confirm | "Open results for Harbor Consumer Brands? Every team can then run results once for this event." / "Open results now" / "Not yet" |
