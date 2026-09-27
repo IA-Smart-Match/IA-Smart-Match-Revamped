@@ -130,10 +130,10 @@ describe("<ExerciseMatching />", () => {
   it("labels the four factors in Ann's words and never with a rulebook key", async () => {
     stub();
     renderMatching();
-    await waitFor(() => expect(screen.getByLabelText("same major")).toBeDefined());
-    expect(screen.getByLabelText("said they are interested in this topic")).toBeDefined();
-    expect(screen.getByLabelText("career goal fits this event")).toBeDefined();
-    expect(screen.getByLabelText("went to similar events before")).toBeDefined();
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "same major" })).toBeDefined());
+    expect(screen.getByRole("textbox", { name: "said they are interested in this topic" })).toBeDefined();
+    expect(screen.getByRole("textbox", { name: "career goal fits this event" })).toBeDefined();
+    expect(screen.getByRole("textbox", { name: "went to similar events before" })).toBeDefined();
     const weights = document.querySelector('[data-slot="exercise-weights"]');
     expect(weights?.textContent).not.toContain("stated_interest_overlap");
     expect(weights?.textContent).not.toContain("past_event_topic_overlap");
@@ -214,7 +214,7 @@ describe("<ExerciseMatching />", () => {
     // `document.activeElement` was the body.
     stub();
     renderMatching();
-    const before = (await screen.findByLabelText("same major")) as HTMLInputElement;
+    const before = (await screen.findByRole("textbox", { name: "same major" })) as HTMLInputElement;
     before.focus();
 
     fireEvent.change(before, { target: { value: "0.75" } });
@@ -226,7 +226,7 @@ describe("<ExerciseMatching />", () => {
       ).toBeGreaterThan(1),
     );
 
-    const after = screen.getByLabelText("same major");
+    const after = screen.getByRole("textbox", { name: "same major" });
     expect(after).toBe(before);
   });
 
@@ -235,7 +235,7 @@ describe("<ExerciseMatching />", () => {
     // a new weighting object, so the list was fetched four extra times.
     stub();
     renderMatching();
-    const box = await screen.findByLabelText("same major");
+    const box = await screen.findByRole("textbox", { name: "same major" });
     await waitFor(() => expect(listCalls().length).toBe(1));
 
     fireEvent.focus(box);
@@ -256,7 +256,7 @@ describe("<ExerciseMatching />", () => {
     // line, so the previous rows were gone from the DOM entirely.
     stub();
     renderMatching();
-    const box = await screen.findByLabelText("same major");
+    const box = await screen.findByRole("textbox", { name: "same major" });
     fireEvent.focus(box);
     fireEvent.change(box, { target: { value: "0.9" } });
     fireEvent.blur(box);
@@ -305,7 +305,7 @@ describe("<ExerciseMatching />", () => {
     );
     renderMatching();
 
-    const box = await screen.findByLabelText("same major");
+    const box = await screen.findByRole("textbox", { name: "same major" });
     expect(screen.getByText("Rosa Villalobos")).toBeDefined();
 
     fireEvent.focus(box);
@@ -317,7 +317,7 @@ describe("<ExerciseMatching />", () => {
     // The list from before the refused request, and the controls to fix the
     // mistake, are still on screen next to the sentence.
     expect(screen.getByText("Rosa Villalobos")).toBeDefined();
-    expect(screen.getByLabelText("same major")).toBeDefined();
+    expect(screen.getByRole("textbox", { name: "same major" })).toBeDefined();
     expect(document.querySelector('[data-slot="exercise-csv-download"]')).not.toBeNull();
 
     // Round 3 finding 3: the list shown is the *previous* answer, not the
