@@ -44,17 +44,17 @@ import {
   type TeamDetailView,
   type TeamSummaryView,
 } from "../../../lib/exerciseClient";
+import { cn } from "../../components/ui/utils";
 import { askingChoiceLabel } from "./askingChoices";
-import { ExerciseLoading, ExerciseNotice } from "./ExerciseScreen";
+import { Button } from "./desk";
+import { ExerciseNotice } from "./ExerciseScreen";
 import { useSignOutOnExpiredRead } from "./instructorSession";
+import { INSTRUCTOR_WELL, PanelCard, PanelSkeleton } from "./instructorUi";
 import { INSTRUCTOR_SESSION_REQUIRED } from "./refusals";
 import { useExerciseResource } from "./useExerciseResource";
 
 /** How often the list is re-read while the tab is visible. Gentle: one small GET. */
 export const TEAMS_POLL_MS = 15_000;
-
-const BUTTON =
-  "rounded-lg border-2 border-slate-400 px-4 py-2 text-xl font-semibold text-slate-800 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 dark:border-slate-500 dark:text-slate-100 dark:hover:bg-slate-800";
 
 /** The page's sentence for a request that never landed. */
 const UNREACHABLE = "The exercise could not be reached. Check the connection and try again.";
@@ -139,35 +139,38 @@ export function InstructorTeams({
   }
 
   return (
-    <section className="flex flex-col gap-4" data-slot="exercise-instructor-teams">
-      <div className="flex flex-wrap items-center gap-3">
-        <h2 className="text-3xl font-semibold text-slate-900 dark:text-slate-50">Teams</h2>
-        <button type="button" className={BUTTON} disabled={busy} onClick={() => void reload()}>
+    <PanelCard
+      title="Teams"
+      slot="exercise-instructor-teams"
+      headerAction={
+        <Button variant="secondary" disabled={busy} onClick={() => void reload()}>
           Check the teams again
-        </button>
-      </div>
+        </Button>
+      }
+    >
       {refusal === null ? null : <ExerciseNotice message={refusal} />}
 
-      {state.status === "loading" ? <ExerciseLoading what="the teams" /> : null}
+      {state.status === "loading" ? <PanelSkeleton what="the teams" rows={3} /> : null}
       {state.status === "refused" ? <ExerciseNotice message={state.refusal.message} /> : null}
       {state.status === "unreachable" ? (
         <ExerciseNotice message={state.message} tone="problem" />
       ) : null}
       {state.status === "ready" ? (
         <>
-          <p className="text-xl text-slate-600 dark:text-slate-300">
+          <p className="ce-type-body ce-measure text-ce-ink-muted">
             {state.data.active_dataset_label === null
               ? "No data file has been uploaded yet."
               : `The newest data file is ${state.data.active_dataset_label}. A team stays in the file it entered on until it is moved.`}
           </p>
           {state.data.teams.length === 0 ? (
-            <p className="text-xl text-slate-700 dark:text-slate-200">
-              No team has entered a number yet.
-            </p>
+            <p className="ce-type-body text-ce-ink-muted">No team has entered a number yet.</p>
           ) : (
-            <ul className="flex flex-col gap-4">
+            <ul className="flex flex-col divide-y divide-ce-line">
               {state.data.teams.map((team) => (
-                <li key={`${team.dataset_id}-${team.team_number}`}>
+                <li
+                  key={`${team.dataset_id}-${team.team_number}`}
+                  className="py-ce-4 first:pt-ce-2 last:pb-0"
+                >
                   <TeamRow
                     team={team}
                     pending={pending}
@@ -185,7 +188,7 @@ export function InstructorTeams({
           )}
         </>
       ) : null}
-    </section>
+    </PanelCard>
   );
 }
 
@@ -214,73 +217,88 @@ function TeamRow({
   }
 
   return (
-    <div className="rounded-lg border-2 border-slate-300 px-5 py-4 dark:border-slate-600">
-      <p className="text-2xl font-semibold text-slate-900 dark:text-slate-50">
-        Team {team.team_number}
-      </p>
-      <p className="text-xl text-slate-600 dark:text-slate-300">
-        In {team.dataset_label} — {team.saved_setting_count} saved settings,{" "}
-        {team.result_run_count} result runs.
-      </p>
-      <p className="text-xl text-slate-600 dark:text-slate-300">
-        {team.asking_choice === null
-          ? "Has not picked a way of asking."
-          : `Asking: ${askingChoiceLabel(team.asking_choice)}`}{" "}
-        {team.refreshed_at === null ? "Has not asked yet." : "Has already asked."}
-      </p>
+    <div className="flex items-start gap-ce-4">
+      {/* The team's seal: its number, as on the place cards (§6.4). */}
+      <span
+        aria-hidden="true"
+        className="ce-type-rank inline-flex size-10 shrink-0 items-center justify-center rounded-full bg-ce-primary-tint text-ce-on-primary-tint"
+      >
+        {team.team_number}
+      </span>
+      <div className="flex min-w-0 flex-1 flex-col gap-ce-3">
+        <div className="flex flex-col gap-ce-1">
+          <h3 className="ce-type-h3 text-ce-ink">Team {team.team_number}</h3>
+          <p className="ce-type-body ce-tabular text-ce-ink">
+            In {team.dataset_label} — {team.saved_setting_count} saved settings,{" "}
+            {team.result_run_count} result runs.
+          </p>
+          <p className="ce-type-meta text-ce-ink-muted">
+            {team.asking_choice === null
+              ? "Has not picked a way of asking."
+              : `Asking: ${askingChoiceLabel(team.asking_choice)}`}{" "}
+            {team.refreshed_at === null ? "Has not asked yet." : "Has already asked."}
+          </p>
+        </div>
 
-      <div className="mt-3 flex flex-wrap items-center gap-3">
-        <button type="button" className={BUTTON} onClick={() => void openDetail()}>
-          Open this team's work
-        </button>
-        {confirming ? (
-          <>
-            <span className="text-xl">
-              This clears team {team.team_number}'s saved settings and result runs. No other team is
-              touched.
-            </span>
-            <button
-              type="button"
-              disabled={pending}
-              className={BUTTON}
-              onClick={() => {
-                setConfirming(false);
-                void onReset();
-              }}
-            >
-              Yes, clear team {team.team_number}
-            </button>
-            <button type="button" className={BUTTON} onClick={() => setConfirming(false)}>
-              Keep their work
-            </button>
-          </>
-        ) : (
-          <button
-            type="button"
-            className={BUTTON}
-            data-slot="exercise-team-reset"
-            onClick={() => setConfirming(true)}
+        <div className="flex flex-wrap items-center gap-ce-3">
+          <Button
+            variant="secondary"
+            className="w-full sm:w-auto"
+            onClick={() => void openDetail()}
           >
-            Clear team {team.team_number}'s work
-          </button>
-        )}
-      </div>
+            Open this team&apos;s work
+          </Button>
+          {confirming ? null : (
+            <Button
+              variant="quiet"
+              data-slot="exercise-team-reset"
+              onClick={() => setConfirming(true)}
+            >
+              Clear team {team.team_number}&apos;s work
+            </Button>
+          )}
+        </div>
 
-      {detailRefusal === null ? null : <ExerciseNotice message={detailRefusal} />}
-      {detail === null ? null : <TeamDetail detail={detail} />}
+        {confirming ? (
+          <div className={cn(INSTRUCTOR_WELL, "flex flex-col gap-ce-3")}>
+            <p className="ce-type-body text-ce-ink">
+              This clears team {team.team_number}&apos;s saved settings and result runs. No other
+              team is touched.
+            </p>
+            <div className="flex flex-wrap items-center gap-ce-3">
+              <Button
+                variant="destructive"
+                disabled={pending}
+                onClick={() => {
+                  setConfirming(false);
+                  void onReset();
+                }}
+              >
+                Yes, clear team {team.team_number}
+              </Button>
+              <Button variant="quiet" onClick={() => setConfirming(false)}>
+                Keep their work
+              </Button>
+            </div>
+          </div>
+        ) : null}
+
+        {detailRefusal === null ? null : <ExerciseNotice message={detailRefusal} />}
+        {detail === null ? null : <TeamDetail detail={detail} />}
+      </div>
     </div>
   );
 }
 
 function TeamDetail({ detail }: { readonly detail: TeamDetailView }): React.JSX.Element {
   return (
-    <div className="mt-4 flex flex-col gap-3 text-xl">
-      <div>
-        <h4 className="text-2xl font-semibold">Saved settings</h4>
+    <div className={cn(INSTRUCTOR_WELL, "ce-fade-rise flex flex-col gap-ce-4")}>
+      <div className="flex flex-col gap-ce-1">
+        <h4 className="ce-type-label text-ce-ink">Saved settings</h4>
         {detail.saved_settings.length === 0 ? (
-          <p className="text-slate-600 dark:text-slate-300">None.</p>
+          <p className="ce-type-body text-ce-ink-muted">None.</p>
         ) : (
-          <ul>
+          <ul className="ce-type-body flex flex-col gap-ce-1 text-ce-ink">
             {detail.saved_settings.map((setting) => (
               <li key={`${setting.event_key}-${setting.name}`}>
                 {setting.name} — for {setting.event_key}
@@ -289,12 +307,12 @@ function TeamDetail({ detail }: { readonly detail: TeamDetailView }): React.JSX.
           </ul>
         )}
       </div>
-      <div>
-        <h4 className="text-2xl font-semibold">Result runs</h4>
+      <div className="flex flex-col gap-ce-1">
+        <h4 className="ce-type-label text-ce-ink">Result runs</h4>
         {detail.result_runs.length === 0 ? (
-          <p className="text-slate-600 dark:text-slate-300">None.</p>
+          <p className="ce-type-body text-ce-ink-muted">None.</p>
         ) : (
-          <ul>
+          <ul className="ce-type-body ce-tabular flex flex-col gap-ce-1 text-ce-ink">
             {detail.result_runs.map((run) => (
               <li key={`${run.event_key}-${run.round}`}>
                 {/* D8: open seats in words, not "N seats empty". */}

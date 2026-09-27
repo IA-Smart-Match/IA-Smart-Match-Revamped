@@ -28,8 +28,13 @@
  * on the opening screen (`EXERCISE_LICENSE_LINE` in `ExerciseEntry.tsx`), not
  * a per-upload value. The ingest does not fill `license_line`, so it is `null`
  * here and nothing stands in for it.
+ *
+ * An expired session signs the page out, from the list read or from any
+ * action, as every instructor panel does (`instructorSession.ts`). Visual
+ * layout: DESIGN.md §6.24 (dropzone, dataset row, invite limit).
  */
 import * as React from "react";
+import { CircleCheck, FileSpreadsheet } from "lucide-react";
 
 import { isRefusal } from "../../../lib/exerciseApi";
 import {
@@ -41,16 +46,16 @@ import {
   type DatasetView,
   type UploadedDatasetView,
 } from "../../../lib/exerciseClient";
-import { ExerciseLoading, ExerciseNotice } from "./ExerciseScreen";
+import { cn } from "../../components/ui/utils";
+import { Button } from "./desk";
+import { ExerciseNotice } from "./ExerciseScreen";
 import { useSignOutOnExpiredRead } from "./instructorSession";
+import { INSTRUCTOR_INPUT, INSTRUCTOR_WELL, PanelCard, PanelSkeleton } from "./instructorUi";
 import { INSTRUCTOR_SESSION_REQUIRED } from "./refusals";
 import { useExerciseResource } from "./useExerciseResource";
 
-const BUTTON =
-  "rounded-lg border-2 border-slate-400 px-4 py-2 text-xl font-semibold text-slate-800 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 dark:border-slate-500 dark:text-slate-100 dark:hover:bg-slate-800";
-
-const INPUT =
-  "rounded-lg border-2 border-slate-400 px-3 py-2 text-xl focus-visible:outline-2 focus-visible:outline-offset-2 dark:border-slate-500 dark:bg-slate-900 dark:text-slate-50";
+/** Which action is in flight, so only its own button shows the in-progress verb. */
+type PendingAction = "upload" | "limit" | "repoint";
 
 export function InstructorDatasets({
   onDataChanged,
@@ -78,13 +83,14 @@ export function InstructorDatasets({
    */
   const [done, setDone] = React.useState<string | null>(null);
   const [uploaded, setUploaded] = React.useState<UploadedDatasetView | null>(null);
-  const [pending, setPending] = React.useState(false);
+  const [pendingAction, setPendingAction] = React.useState<PendingAction | null>(null);
+  const pending = pendingAction !== null;
 
-  async function run(action: () => Promise<void>): Promise<void> {
+  async function run(kind: PendingAction, action: () => Promise<void>): Promise<void> {
     if (pending) {
       return;
     }
-    setPending(true);
+    setPendingAction(kind);
     setRefusal(null);
     setDone(null);
     try {
@@ -99,30 +105,30 @@ export function InstructorDatasets({
         onSignedOut?.();
       }
     } finally {
-      setPending(false);
+      setPendingAction(null);
     }
   }
 
   return (
-    <section className="flex flex-col gap-4">
-      <h2 className="text-3xl font-semibold text-slate-900 dark:text-slate-50">Data files</h2>
-
+    <PanelCard title="Data files">
       {refusal === null ? null : <ExerciseNotice message={refusal} />}
       {done === null ? null : (
-        <p
+        <div
           role="status"
           aria-live="polite"
           data-slot="exercise-instructor-done"
-          className="rounded-lg border-2 border-slate-300 px-5 py-4 text-xl text-slate-800 dark:border-slate-600 dark:text-slate-100"
+          className="ce-notice-in flex items-start gap-ce-3 rounded-ce-card bg-ce-avocado-tint p-ce-4 text-ce-ink"
         >
-          {done}
-        </p>
+          <CircleCheck aria-hidden="true" className="mt-[3px] size-6 shrink-0 text-ce-primary" />
+          <p className="ce-type-body min-w-0">{done}</p>
+        </div>
       )}
 
       <UploadForm
         pending={pending}
+        uploading={pendingAction === "upload"}
         onUpload={(file, label) =>
-          run(async () => {
+          run("upload", async () => {
             // The read happens inside the guard, so a file that cannot be read
             // becomes a sentence on screen rather than an exception nobody
             // sees. It used to be `file.text()` outside it, which threw where
@@ -136,10 +142,10 @@ export function InstructorDatasets({
       />
 
       {uploaded === null ? null : (
-        <div className="flex flex-col gap-2" data-slot="exercise-upload-report">
+        <div className="flex flex-col gap-ce-3" data-slot="exercise-upload-report">
           {/* The server's own sentence about what an upload did and did not do. */}
           <ExerciseNotice message={uploaded.notice} />
-          <dl className="grid gap-2 text-xl sm:grid-cols-3">
+          <dl className="grid grid-cols-2 gap-ce-3">
             <Pair label="Profiles" value={uploaded.report.profile_count} />
             <Pair label="Events" value={uploaded.report.event_count} />
             <Pair label="Events in the exercise" value={uploaded.report.exercise_event_count} />
@@ -153,17 +159,17 @@ export function InstructorDatasets({
         </div>
       )}
 
-      {state.status === "loading" ? <ExerciseLoading what="the data files" /> : null}
+      <div className="border-t border-ce-line" aria-hidden="true" />
+
+      {state.status === "loading" ? <PanelSkeleton what="the data files" rows={1} /> : null}
       {state.status === "refused" ? <ExerciseNotice message={state.refusal.message} /> : null}
       {state.status === "unreachable" ? (
         <ExerciseNotice message={state.message} tone="problem" />
       ) : null}
       {state.status === "ready" ? (
-        <ul className="flex flex-col gap-4">
+        <ul className="flex flex-col gap-ce-4">
           {state.data.length === 0 ? (
-            <li className="text-xl text-slate-700 dark:text-slate-200">
-              No data file has been uploaded yet.
-            </li>
+            <li className="ce-type-body text-ce-ink-muted">No data file has been uploaded yet.</li>
           ) : null}
           {state.data.map((dataset) => (
             <li key={dataset.dataset_id}>
@@ -171,13 +177,13 @@ export function InstructorDatasets({
                 dataset={dataset}
                 pending={pending}
                 onLimit={(limit) =>
-                  run(async () => {
+                  run("limit", async () => {
                     await setInviteLimit(dataset.dataset_id, limit);
                     reload();
                   })
                 }
                 onRepoint={() =>
-                  run(async () => {
+                  run("repoint", async () => {
                     const moved = await repointWorkspaces(dataset.dataset_id);
                     setDone(
                       `Moved ${moved.teams_moved} ${
@@ -195,7 +201,7 @@ export function InstructorDatasets({
           ))}
         </ul>
       ) : null}
-    </section>
+    </PanelCard>
   );
 }
 
@@ -221,19 +227,31 @@ function readFileAsBytes(file: File): Promise<ArrayBuffer> {
   });
 }
 
+/**
+ * The upload: a dropzone (§6.24) over the native file input, a name, a button.
+ *
+ * The file input itself covers the whole dashed zone, transparent, so a click
+ * anywhere opens the picker and a dropped file lands on the input exactly as
+ * the browser delivers it — the same `change` event, no drag-and-drop code in
+ * the upload path. The zone draws the focus ring for it, and keeps the chosen
+ * file's name on screen, including after a refusal.
+ */
 function UploadForm({
   pending,
+  uploading,
   onUpload,
 }: {
   readonly pending: boolean;
+  readonly uploading: boolean;
   readonly onUpload: (file: File, label: string) => Promise<void>;
 }): React.JSX.Element {
   const [label, setLabel] = React.useState("");
   const [file, setFile] = React.useState<File | null>(null);
+  const [dragging, setDragging] = React.useState(false);
 
   return (
     <form
-      className="flex flex-wrap items-end gap-3"
+      className="flex flex-col gap-ce-4"
       onSubmit={(event) => {
         event.preventDefault();
         if (file === null || label.trim() === "") {
@@ -244,8 +262,49 @@ function UploadForm({
         void onUpload(file, label.trim());
       }}
     >
-      <div className="flex flex-col gap-1">
-        <label htmlFor="exercise-upload-label" className="text-xl">
+      <div className="flex min-w-0 flex-col gap-ce-2">
+        <label htmlFor="exercise-upload-file" className="ce-type-label text-ce-ink">
+          Ann&apos;s Excel workbook (.xlsx)
+        </label>
+        <div
+          className={cn(
+            "relative flex flex-col items-center gap-ce-2 rounded-ce-card border-2 border-dashed px-ce-4 py-ce-5 text-center transition-colors",
+            "has-[:focus-visible]:[outline:3px_solid_var(--ce-primary)] has-[:focus-visible]:[outline-offset:3px]",
+            dragging
+              ? "border-ce-primary bg-ce-primary-tint"
+              : "border-ce-line-strong hover:border-ce-primary hover:bg-ce-primary-tint",
+          )}
+        >
+          <FileSpreadsheet aria-hidden="true" className="size-8 text-ce-primary" />
+          <p aria-hidden="true" className="ce-type-body font-semibold text-ce-ink">
+            Drop Ann&apos;s workbook here, or choose a file
+          </p>
+          <p id="exercise-upload-file-help" className="ce-type-meta text-ce-ink-muted">
+            Choose Ann&apos;s workbook exactly as she sent it. Do not save it as a CSV first.
+          </p>
+          {file === null ? null : (
+            <p className="ce-type-meta max-w-full break-all font-semibold text-ce-ink">
+              {file.name}
+            </p>
+          )}
+          <input
+            id="exercise-upload-file"
+            type="file"
+            accept={`.xlsx,${XLSX_CONTENT_TYPE}`}
+            aria-describedby="exercise-upload-file-help"
+            onChange={(event) => {
+              setDragging(false);
+              setFile(event.target.files?.[0] ?? null);
+            }}
+            onDragEnter={() => setDragging(true)}
+            onDragLeave={() => setDragging(false)}
+            onDrop={() => setDragging(false)}
+            className="absolute inset-0 size-full cursor-pointer opacity-0"
+          />
+        </div>
+      </div>
+      <div className="flex flex-col gap-ce-2">
+        <label htmlFor="exercise-upload-label" className="ce-type-label text-ce-ink">
           Call this file
         </label>
         <input
@@ -253,28 +312,19 @@ function UploadForm({
           type="text"
           value={label}
           onChange={(event) => setLabel(event.target.value)}
-          className={INPUT}
+          className={`${INSTRUCTOR_INPUT} w-full`}
         />
       </div>
-      <div className="flex min-w-0 max-w-full flex-col gap-1">
-        <label htmlFor="exercise-upload-file" className="text-xl">
-          Ann&apos;s Excel workbook (.xlsx)
-        </label>
-        <input
-          id="exercise-upload-file"
-          type="file"
-          accept={`.xlsx,${XLSX_CONTENT_TYPE}`}
-          aria-describedby="exercise-upload-file-help"
-          onChange={(event) => setFile(event.target.files?.[0] ?? null)}
-          className={`${INPUT} w-full max-w-full`}
-        />
-        <p id="exercise-upload-file-help" className="text-lg text-slate-600 dark:text-slate-300">
-          Choose Ann&apos;s workbook exactly as she sent it. Do not save it as a CSV first.
-        </p>
-      </div>
-      <button type="submit" disabled={pending || file === null || label.trim() === ""} className={BUTTON}>
+      <Button
+        type="submit"
+        variant="secondary"
+        pending={uploading}
+        pendingLabel="Uploading and checking the file…"
+        disabled={pending || file === null || label.trim() === ""}
+        className="w-full"
+      >
         Upload this file
-      </button>
+      </Button>
     </form>
   );
 }
@@ -295,18 +345,20 @@ function DatasetRow({
   const limitId = `exercise-invite-limit-${dataset.dataset_id}`;
 
   return (
-    <div className="rounded-lg border-2 border-slate-300 px-5 py-4 dark:border-slate-600">
-      <p className="text-2xl font-semibold text-slate-900 dark:text-slate-50">{dataset.label}</p>
-      <p className="text-xl text-slate-600 dark:text-slate-300">
-        {dataset.source_filename} — {dataset.row_count} profiles, {dataset.event_count} events
-      </p>
-      {/* A per-upload line, rendered only when one is stored (see OQ-CE-09 above). */}
-      {dataset.license_line === null ? null : (
-        <p className="text-xl text-slate-700 dark:text-slate-200">{dataset.license_line}</p>
-      )}
+    <div className={cn(INSTRUCTOR_WELL, "flex flex-col gap-ce-3")}>
+      <div className="flex min-w-0 flex-col gap-ce-1">
+        <p className="ce-type-h3 text-ce-ink">{dataset.label}</p>
+        <p className="ce-type-meta ce-tabular break-words text-ce-ink-muted">
+          {dataset.source_filename} — {dataset.row_count} profiles, {dataset.event_count} events
+        </p>
+        {/* A per-upload line, rendered only when one is stored (see OQ-CE-09 above). */}
+        {dataset.license_line === null ? null : (
+          <p className="ce-type-meta text-ce-ink">{dataset.license_line}</p>
+        )}
+      </div>
 
       <form
-        className="mt-3 flex flex-wrap items-end gap-3"
+        className="flex flex-col gap-ce-2 border-t border-ce-line pt-ce-3"
         onSubmit={(event) => {
           event.preventDefault();
           const parsed = Number.parseInt(limit, 10);
@@ -315,51 +367,52 @@ function DatasetRow({
           }
         }}
       >
-        <div className="flex flex-col gap-1">
-          <label htmlFor={limitId} className="text-xl">
-            How many names a list may hold
-          </label>
+        <label htmlFor={limitId} className="ce-type-label text-ce-ink">
+          How many names a list may hold
+        </label>
+        <div className="flex flex-wrap items-center gap-ce-3">
           <input
             id={limitId}
             type="number"
             min={1}
             value={limit}
             onChange={(event) => setLimit(event.target.value)}
-            className={`${INPUT} w-32`}
+            className={`${INSTRUCTOR_INPUT} ce-tabular w-24`}
           />
+          <Button type="submit" variant="secondary" disabled={pending}>
+            Set the limit
+          </Button>
         </div>
-        <button type="submit" disabled={pending} className={BUTTON}>
-          Set the limit
-        </button>
       </form>
 
-      <div className="mt-3 flex flex-wrap items-center gap-3">
-        {confirming ? (
-          <>
-            <span className="text-xl">
-              This moves every team to this file and clears the work of every team it moves.
-            </span>
-            <button
-              type="button"
+      {confirming ? (
+        <div className="flex flex-col gap-ce-3 rounded-ce-control bg-ce-surface p-ce-3">
+          <p className="ce-type-body text-ce-ink">
+            This moves every team to this file and clears the work of every team it moves.
+          </p>
+          <div className="flex flex-wrap items-center gap-ce-3">
+            <Button
+              variant="destructive"
               disabled={pending}
-              className={BUTTON}
               onClick={() => {
                 setConfirming(false);
                 void onRepoint();
               }}
             >
               Yes, move every team here
-            </button>
-            <button type="button" className={BUTTON} onClick={() => setConfirming(false)}>
+            </Button>
+            <Button variant="quiet" onClick={() => setConfirming(false)}>
               Keep them where they are
-            </button>
-          </>
-        ) : (
-          <button type="button" className={BUTTON} onClick={() => setConfirming(true)}>
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div>
+          <Button variant="quiet" className="-ml-ce-2" onClick={() => setConfirming(true)}>
             Move every team to this file
-          </button>
-        )}
-      </div>
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
@@ -372,9 +425,9 @@ function Pair({
   readonly value: number;
 }): React.JSX.Element {
   return (
-    <div>
-      <dt className="text-lg text-slate-600 dark:text-slate-300">{label}</dt>
-      <dd className="text-2xl font-bold text-slate-900 dark:text-slate-50">{value}</dd>
+    <div className="flex flex-col gap-ce-1">
+      <dt className="ce-type-meta text-ce-ink-muted">{label}</dt>
+      <dd className="ce-type-value text-ce-ink">{value}</dd>
     </div>
   );
 }

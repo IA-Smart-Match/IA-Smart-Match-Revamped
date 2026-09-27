@@ -130,6 +130,15 @@ function signedInStubs(extra: Record<string, Answer> = {}): Record<string, Answe
   };
 }
 
+/**
+ * Whether a button refuses presses. The desk `Button` (DESIGN.md §6.3) stays
+ * focusable when unavailable, so it sets `aria-disabled` rather than the
+ * `disabled` attribute.
+ */
+function isInert(button: HTMLButtonElement): boolean {
+  return button.getAttribute("aria-disabled") === "true";
+}
+
 function renderInstructor() {
   const router = createMemoryRouter([{ path: "/exercise/instructor", element: <ExerciseInstructor /> }], {
     initialEntries: ["/exercise/instructor"],
@@ -603,7 +612,7 @@ describe("<ExerciseInstructor />", () => {
       document.querySelector('[data-slot="exercise-instructor-unlock"]') as HTMLElement,
     ).getAllByRole("button", { name: /open results/i }) as HTMLButtonElement[];
     expect(unlockButtons.length).toBe(2);
-    expect(unlockButtons.every((button) => button.disabled)).toBe(true);
+    expect(unlockButtons.every(isInert)).toBe(true);
 
     reRead.open();
     await waitFor(() =>
@@ -612,7 +621,7 @@ describe("<ExerciseInstructor />", () => {
     const again = within(
       document.querySelector('[data-slot="exercise-instructor-unlock"]') as HTMLElement,
     ).getAllByRole("button", { name: /open results/i }) as HTMLButtonElement[];
-    expect(again.every((button) => !button.disabled)).toBe(true);
+    expect(again.some(isInert)).toBe(false);
   });
 
   it("keeps the page's sentence when the re-read is refused too", async () => {
@@ -663,9 +672,9 @@ describe("<ExerciseInstructor />", () => {
       gate: reRead.promise,
     };
     fireEvent.click(again);
-    await waitFor(() => expect(again.disabled).toBe(true));
+    await waitFor(() => expect(isInert(again)).toBe(true));
 
     reRead.open();
-    await waitFor(() => expect(again.disabled).toBe(false));
+    await waitFor(() => expect(isInert(again)).toBe(false));
   });
 });
