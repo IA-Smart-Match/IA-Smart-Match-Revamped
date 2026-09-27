@@ -130,6 +130,15 @@ function signedInStubs(extra: Record<string, Answer> = {}): Record<string, Answe
   };
 }
 
+/**
+ * Whether a button refuses presses. The desk `Button` (DESIGN.md §6.3) stays
+ * focusable when unavailable, so it sets `aria-disabled` rather than the
+ * `disabled` attribute.
+ */
+function isInert(button: HTMLButtonElement): boolean {
+  return button.getAttribute("aria-disabled") === "true";
+}
+
 function renderInstructor() {
   const router = createMemoryRouter([{ path: "/exercise/instructor", element: <ExerciseInstructor /> }], {
     initialEntries: ["/exercise/instructor"],
@@ -283,8 +292,8 @@ describe("<ExerciseInstructor />", () => {
 
     const roundTwo = (await screen.findByText("Round two")).closest("li");
     const roundOne = screen.getByText("Round one").closest("li");
-    expect(roundTwo?.textContent).toContain("Results are open.");
-    expect(roundOne?.textContent).not.toContain("Results are open.");
+    expect(roundTwo?.textContent).toContain("Results are open");
+    expect(roundOne?.textContent).not.toContain("Results are open");
     expect(roundOne?.querySelector("button")?.textContent).toBe("Open results");
   });
 
@@ -301,10 +310,12 @@ describe("<ExerciseInstructor />", () => {
     const roundTwo = (await screen.findByText("Round two")).closest("li");
     answers[`GET ${INSTRUCTOR_EVENTS}`] = { body: eventsView(true) };
     fireEvent.click(roundTwo?.querySelector("button") as HTMLButtonElement);
+    // §11.1: the first press asks; "Open results now" sends the unlock.
+    fireEvent.click(within(roundTwo as HTMLElement).getByRole("button", { name: /open results now/i }));
 
     await waitFor(() =>
       expect(screen.getByText("Round two").closest("li")?.textContent).toContain(
-        "Results are open.",
+        "Results are open",
       ),
     );
     const unlock = calls.find((call) => call.url.includes("/unlock"));
@@ -592,6 +603,7 @@ describe("<ExerciseInstructor />", () => {
     };
     const readsBefore = calls.filter((call) => call.url === INSTRUCTOR_EVENTS).length;
     fireEvent.click(roundOne?.querySelector("button") as HTMLButtonElement);
+    fireEvent.click(within(roundOne as HTMLElement).getByRole("button", { name: /open results now/i }));
 
     // Refused, and the re-read is in flight: the sentence is up and every
     // unlock button waits, because the file it would address may be changing.
@@ -603,7 +615,7 @@ describe("<ExerciseInstructor />", () => {
       document.querySelector('[data-slot="exercise-instructor-unlock"]') as HTMLElement,
     ).getAllByRole("button", { name: /open results/i }) as HTMLButtonElement[];
     expect(unlockButtons.length).toBe(2);
-    expect(unlockButtons.every((button) => button.disabled)).toBe(true);
+    expect(unlockButtons.every(isInert)).toBe(true);
 
     reRead.open();
     await waitFor(() =>
@@ -612,7 +624,7 @@ describe("<ExerciseInstructor />", () => {
     const again = within(
       document.querySelector('[data-slot="exercise-instructor-unlock"]') as HTMLElement,
     ).getAllByRole("button", { name: /open results/i }) as HTMLButtonElement[];
-    expect(again.every((button) => !button.disabled)).toBe(true);
+    expect(again.some(isInert)).toBe(false);
   });
 
   it("keeps the page's sentence when the re-read is refused too", async () => {
@@ -639,6 +651,7 @@ describe("<ExerciseInstructor />", () => {
       status: 409,
     };
     fireEvent.click(roundOne?.querySelector("button") as HTMLButtonElement);
+    fireEvent.click(within(roundOne as HTMLElement).getByRole("button", { name: /open results now/i }));
 
     await screen.findByText("No team has entered a number yet.");
     expect(screen.getByText("No team is working in that data file.")).toBeDefined();
@@ -663,9 +676,9 @@ describe("<ExerciseInstructor />", () => {
       gate: reRead.promise,
     };
     fireEvent.click(again);
-    await waitFor(() => expect(again.disabled).toBe(true));
+    await waitFor(() => expect(isInert(again)).toBe(true));
 
     reRead.open();
-    await waitFor(() => expect(again.disabled).toBe(false));
+    await waitFor(() => expect(isInert(again)).toBe(false));
   });
 });
