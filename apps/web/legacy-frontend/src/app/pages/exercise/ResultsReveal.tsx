@@ -61,7 +61,7 @@ export function ResultsReveal({
         animate={fill.animating}
         counts={{ taken: alreadyComing, added, open }}
       />
-      <div className="flex min-w-0 flex-col justify-center gap-ce-5 lg:col-span-6">
+      <div className="flex min-w-0 flex-col justify-center gap-ce-5 lg:col-span-7">
         <Headline sentence={sentence} step={fill.step} hidden={reveal} />
         {reveal ? (
           <p
@@ -99,7 +99,7 @@ function Room({
     <div
       aria-hidden="true"
       data-slot="exercise-room"
-      className="ce-card flex min-w-0 flex-col gap-ce-4 p-ce-4 md:p-ce-5 lg:col-span-6"
+      className="ce-card flex min-w-0 flex-col gap-ce-4 p-ce-4 md:p-ce-5 lg:col-span-5"
     >
       <p className="ce-type-h3 text-ce-ink">The room</p>
       <p className="ce-type-meta rounded-ce-control bg-ce-surface-sunk py-ce-1 text-center text-ce-ink-muted">
@@ -159,7 +159,7 @@ function Headline({
     <p
       data-slot="exercise-seats-sentence"
       aria-hidden={hidden ? "true" : undefined}
-      className="font-ce-serif text-[28px] leading-[36px] font-semibold text-ce-ink md:text-[40px] md:leading-[48px]"
+      className="font-ce-serif text-[24px] leading-[32px] font-semibold text-ce-ink md:text-[40px] md:leading-[48px]"
     >
       {lines.map((line, index) => (
         <React.Fragment key={index}>
@@ -205,7 +205,7 @@ function FiguresBand({
       {figures.map((figure, index) => (
         <div
           key={figure.label}
-          className={`flex min-w-0 flex-col-reverse gap-ce-1 ${
+          className={`flex min-w-0 flex-col gap-ce-1 ${
             index === 0 ? "pr-ce-3" : "border-l border-ce-line-strong px-ce-3 md:px-ce-5"
           }`}
         >
@@ -226,7 +226,7 @@ function FigureValue({
 }): React.JSX.Element {
   const shown = useCountUp(value, { reduced: !animate, delayMs: COUNT_UP_DELAY_MS });
   return (
-    <dd className="ce-type-display text-ce-primary max-md:text-[40px] max-md:leading-[44px]">
+    <dd className="ce-type-display order-first text-ce-primary max-md:text-[40px] max-md:leading-[44px]">
       {shown}
     </dd>
   );

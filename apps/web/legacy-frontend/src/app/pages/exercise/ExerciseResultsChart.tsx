@@ -467,6 +467,6 @@ export function ExerciseResultsChart({
 const CELL = "px-3 py-1 text-left";
 
 /** The exercise look's quiet table: the same padding, plus a hairline per row. */
-const DESK_CELL = `${CELL} border-b border-ce-line`;
+const DESK_CELL = `${CELL} whitespace-nowrap border-b border-ce-line`;
 
 export default ExerciseResultsChart;
