@@ -177,8 +177,10 @@
   outline-offset: 3px;
 }
 
-/* A heading that receives focus on a route change is not a control. */
-.ce-root h1[tabindex="-1"]:focus:not(:focus-visible) {
+/* A heading that receives focus on a route change is not a control and is
+   not in the tab order; Chrome marks programmatic focus as :focus-visible,
+   which would ring every page title on load. */
+.ce-root h1[tabindex="-1"]:focus {
   outline: none;
 }
 
