@@ -742,8 +742,14 @@ Before a run: lock panel (6.14) in the seating-chart position.
   "Open the instructor page".
 - **Signed in, 1280:** two columns 8/4. Left: "Open results for an event"
   (unlock panel) first, then "Teams" (six rows), then "Ask for every team at
-  once". Right, sticky: "Data files" (dropzone, dataset rows, invite limit) and
+  once". Right: "Data files" (dropzone, dataset rows, invite limit) and
   "Sign out of this browser".
+- **The right column is not sticky (as built, #250).** At 1280 it is
+  1615–2411px tall (dropzone, upload report, one or more data files, an open
+  "Move every team" confirm), taller than any laptop window. A sticky column
+  taller than the window hides its own bottom, "Move every team to this file"
+  and "Sign out of this browser", until the left column ends; a scroll box
+  inside the column clipped the same controls. It scrolls with the page.
 - **390:** single column in the order unlock, teams, ask-for-all, data files,
   sign out.
 
@@ -851,3 +857,6 @@ labels and the license line are unchanged and not listed.
 | Instructor, passcode helper | "The passcode is shared by the course team. It is not your university login." |
 | Instructor, unlock confirm | "Open results for Harbor Consumer Brands? Every team can then run results once for this event." / "Open results now" / "Not yet" |
 | Instructor, dropzone | "Drop Ann's workbook here, or choose a file" |
+| Instructor, passcode show/hide toggle (accessible name; `aria-pressed` carries the state) | "Show what is typed" |
+| Instructor, unlock confirm in progress | "Opening…" |
+| Instructor, upload in progress | "Uploading and checking the file…" |
