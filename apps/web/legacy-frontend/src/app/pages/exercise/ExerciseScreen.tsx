@@ -14,12 +14,17 @@
  * What it provides is the three things a projector screen needs — the marker,
  * one `h1`, and a readable measure — and nothing else.
  *
- * Type is sized for "a projector at classroom distance" (§16, which gives no
- * numbers). The scale here matches `ExerciseResultsChart`'s, which chose 20px
- * axis labels and 26px values for the same room: `text-4xl` headings, `text-xl`
- * body, `text-2xl` on the controls a team actually operates.
+ * Visual system: `docs/design/class-exercise/DESIGN.md` ("The invitation
+ * desk"). The wrapper carries `.ce-root`, which scopes every `--ce-*` token
+ * (`src/styles/exercise.css`) to the exercise so no CBA screen changes. The
+ * header follows §6.1: compact CPP logo, the quiet fictional-data ribbon
+ * (§6.2), one `h1` in the display face, one lead line, an optional aside.
+ * Shared pieces pages compose live in `./desk` (see its README).
  */
 import * as React from "react";
+import { MotionConfig } from "motion/react";
+
+import { BrandLogo } from "../../components/BrandLogo";
 
 // Imported from the module, not from `components/provenance`'s barrel. The
 // barrel re-exports `MetricDrilldownSheet`, which imports `@/lib/api` — so a
@@ -28,6 +33,10 @@ import * as React from "react";
 // exercise chunks besides. `SyntheticDataMarker` itself reaches only `clsx`,
 // `tailwind-merge` and an icon.
 import { SyntheticDataBanner } from "../../components/provenance/SyntheticDataMarker";
+import { Notice } from "./desk/Notice";
+
+/** The ribbon's bold prefix on every exercise screen (DESIGN.md §6.2, ruling 1). */
+export const EXERCISE_RIBBON_LABEL = "Fictional data —";
 
 /**
  * Why every exercise screen is synthetic, in one sentence.
@@ -59,24 +68,47 @@ export function ExerciseScreen({
   aside,
   children,
 }: ExerciseScreenProps): React.JSX.Element {
+  const heading = React.useRef<HTMLHeadingElement>(null);
+
+  // §8.5: a route change moves focus to the h1. After a link click the link
+  // unmounts and focus falls to <body>; only then is it moved, so a screen
+  // never takes focus away from a control someone is using.
+  React.useEffect(() => {
+    const active = document.activeElement;
+    if (active === null || active === document.body) {
+      heading.current?.focus();
+    }
+  }, []);
+
   return (
-    <main className="mx-auto flex max-w-5xl flex-col gap-6 px-6 py-10">
-      <SyntheticDataBanner reason={EXERCISE_SYNTHETIC_REASON} />
-      <header className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="text-4xl leading-tight font-bold text-slate-900 dark:text-slate-50">
-            {title}
-          </h1>
-          {intro === undefined ? null : (
-            <p className="mt-2 text-xl text-slate-600 dark:text-slate-300">{intro}</p>
-          )}
-        </div>
-        {aside === undefined ? null : (
-          <div className="text-xl text-slate-600 dark:text-slate-300">{aside}</div>
-        )}
-      </header>
-      {children}
-    </main>
+    <div className="ce-root min-h-screen">
+      <MotionConfig reducedMotion="user">
+        <main className="ce-container flex flex-col gap-ce-5 pt-ce-5 pb-ce-7 md:gap-ce-6 md:pt-ce-8">
+          <div className="flex flex-col gap-ce-4">
+            <BrandLogo compact />
+            <SyntheticDataBanner
+              tone="quiet"
+              label={EXERCISE_RIBBON_LABEL}
+              reason={EXERCISE_SYNTHETIC_REASON}
+            />
+          </div>
+          <header className="flex flex-wrap items-start justify-between gap-ce-4">
+            <div className="flex min-w-0 flex-col gap-ce-2">
+              <h1 ref={heading} tabIndex={-1} className="ce-type-h1 text-ce-ink">
+                {title}
+              </h1>
+              {intro === undefined ? null : (
+                <p className="ce-type-lead ce-measure text-ce-ink-muted">{intro}</p>
+              )}
+            </div>
+            {aside === undefined ? null : (
+              <div className="ce-type-body text-ce-ink-muted">{aside}</div>
+            )}
+          </header>
+          {children}
+        </main>
+      </MotionConfig>
+    </div>
   );
 }
 
@@ -87,7 +119,7 @@ export function ExerciseScreen({
  * has not opened this event yet" and "the course owner has not confirmed the
  * results rule" are both the product working, and both arrive as a 409. PR
  * #190 asks for exactly this: render the sentence as a state, not as an error
- * toast. So the treatment is a bordered panel with the server's own sentence
+ * toast. So the treatment is a composed card with the server's own sentence
  * and, optionally, the one action that would move it along — never a red
  * alert, never a retry button for something retrying will not fix.
  *
@@ -107,27 +139,15 @@ export function ExerciseNotice({
   /** Lets another element point at this notice with `aria-describedby`. */
   readonly id?: string;
 }): React.JSX.Element {
-  const palette =
-    tone === "problem"
-      ? "border-red-300 bg-red-50 text-red-900 dark:border-red-700 dark:bg-red-950 dark:text-red-100"
-      : "border-slate-300 bg-slate-50 text-slate-800 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100";
-  return (
-    <div
-      id={id}
-      role="status"
-      data-slot="exercise-notice"
-      className={`rounded-lg border-2 px-5 py-4 text-xl leading-snug ${palette}`}
-    >
-      <p>{message}</p>
-      {children === undefined ? null : <div className="mt-3">{children}</div>}
-    </div>
-  );
+  // The desk Notice (DESIGN.md §6.20) is the one notice; this keeps the
+  // signature every screen already calls.
+  return <Notice id={id} tone={tone} message={message} action={children} />;
 }
 
 /** The loading state, stated rather than left blank (DESIGN.md's state table). */
 export function ExerciseLoading({ what }: { readonly what: string }): React.JSX.Element {
   return (
-    <p role="status" className="text-xl text-slate-600 dark:text-slate-300">
+    <p role="status" className="ce-type-body text-ce-ink-muted">
       Loading {what}…
     </p>
   );
