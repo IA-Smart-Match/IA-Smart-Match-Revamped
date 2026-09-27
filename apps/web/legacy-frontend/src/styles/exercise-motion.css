@@ -71,8 +71,14 @@
   to { opacity: 1; }
 }
 
+/* Before its delay a seat shows this frame (fill-mode both): an open seat's
+   outline, so all 60 seats are visible from step 1 (§5.1). */
 @keyframes ce-kf-seat-fill {
-  from { background-color: transparent; }
+  from {
+    background-color: transparent;
+    outline: 2px solid var(--ce-seat-open-outline);
+    outline-offset: -2px;
+  }
 }
 
 @keyframes ce-kf-seat-pop {
@@ -214,7 +220,8 @@
   .ce-root .ce-card-save {
     animation: ce-kf-fade var(--ce-dur-reduced) linear both;
   }
-  .ce-root .ce-row-join { animation: ce-kf-hold-gold var(--ce-dur-row-join) step-end both; }
+  /* Static gold for 900ms, then gone: no fill-mode, so nothing outlives the run. */
+  .ce-root .ce-row-join { animation: ce-kf-hold-gold var(--ce-dur-row-join) step-end; }
   .ce-root .ce-overlap-pulse { animation: none; }
   .ce-root .ce-unlock-lift { transform: none; transition: none; }
   .ce-root .ce-confirm-underline { animation: none; display: none; }
