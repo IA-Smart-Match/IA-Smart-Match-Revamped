@@ -52,7 +52,7 @@ describe("<ExerciseEventPicker /> layout", () => {
     );
     renderPicker();
 
-    expect(screen.getByRole("status").textContent).toBe("Loading the events…");
+    expect(screen.getByText("Loading the events…").getAttribute("role")).toBe("status");
     expect(document.querySelectorAll('[data-slot="ce-skeleton-card"]').length).toBe(2);
     expect(document.querySelectorAll('[data-slot="exercise-past-event-skeleton"]').length).toBe(4);
   });

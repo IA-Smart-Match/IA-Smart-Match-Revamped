@@ -98,7 +98,7 @@ describe("<ExerciseEntry /> layout", () => {
     stubFetch({ "/v1/exercise": "hang" });
     renderEntry();
 
-    expect(screen.getByRole("status").textContent).toBe("Loading the exercise…");
+    expect(screen.getByText("Loading the exercise…").getAttribute("role")).toBe("status");
     expect(document.querySelectorAll('[data-slot="exercise-team-tile-skeleton"]').length).toBe(6);
     // The license line holds in every state, loading included.
     expect(screen.getByText(EXERCISE_LICENSE_LINE)).toBeDefined();
