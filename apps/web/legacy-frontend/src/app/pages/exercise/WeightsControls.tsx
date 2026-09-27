@@ -34,6 +34,18 @@ import { EXERCISE_FACTOR_KEYS, UNDECIDED_GOAL_HALF_LABEL_KEY } from "../../../li
 import { WeightSlider } from "./desk";
 import { WeightsCompactBar } from "./WeightsCompactBar";
 
+/**
+ * The server's code for a refused weighting (`exercise_matching_weights.py`).
+ * Owner ruling 2026-09-27: its sentence is shown once, under the slider, and
+ * the screen does not repeat it in a page notice. Any other refusal of a list
+ * request is the screen's to show.
+ */
+export const WEIGHTS_REFUSAL_CODE = "exercise_weights_invalid";
+
+export function isWeightsRefusal(refusal: ExerciseRefusal | null): boolean {
+  return refusal !== null && refusal.code === WEIGHTS_REFUSAL_CODE;
+}
+
 export interface WeightsControlsProps {
   /** Ann's words per factor key, from the list response. */
   readonly factorLabels: Readonly<Record<string, string>>;
@@ -141,14 +153,20 @@ export function WeightsControls({
    * when the sentence repeats. Cleared when that weight is committed again,
    * and once a list is accepted.
    *
-   * One refusal answers one weighting, so its sentence is shown once: under
-   * the slider that holds focus, else the first refused one. Any other slider
-   * the same request changed is reverted by remounting it (`revision`), which
-   * shows nothing. The screen's own notice above carries the sentence too.
+   * One refusal answers one weighting, so a weights refusal's sentence is
+   * shown once (owner ruling 2026-09-27): under the number box the team is
+   * still typing in, else the slider that holds focus, else the first
+   * refused one. A box being typed in keeps its text, so there the sentence
+   * is drawn under it here rather than handed to the slider (which would
+   * reset the box). Any other slider the same request changed is reverted by
+   * remounting it (`revision`), which shows nothing. Any other refusal is
+   * the screen's notice to show; the sliders only revert.
    */
   const [shownRefusal, setShownRefusal] = React.useState<{
     readonly key: string;
     readonly refusal: ExerciseRefusal;
+    /** The team is still in this weight's box: draw the sentence, keep the text. */
+    readonly inBox: boolean;
   } | null>(null);
   const [revision, setRevision] = React.useState<Readonly<Record<string, number>>>({});
   const rows = React.useRef<Record<string, HTMLDivElement | null>>({});
@@ -212,16 +230,21 @@ export function WeightsControls({
     if (refusal === null) {
       return;
     }
-    const refused = keys.filter(
-      (key) => inFlightKeys.current.includes(key) && key !== focused.current,
-    );
+    const inBox = focused.current;
+    const refused = keys.filter((key) => inFlightKeys.current.includes(key));
     if (refused.length > 0) {
-      const active = document.activeElement;
-      const announcer =
-        refused.find((key) => active !== null && rows.current[key]?.contains(active)) ??
-        refused[0];
-      setShownRefusal({ key: announcer, refusal });
-      const others = refused.filter((key) => key !== announcer);
+      let announcer: string | null = null;
+      if (isWeightsRefusal(refusal)) {
+        const active = document.activeElement;
+        announcer =
+          (inBox !== null && refused.includes(inBox) ? inBox : null) ??
+          refused.find((key) => active !== null && rows.current[key]?.contains(active)) ??
+          refused[0];
+        setShownRefusal({ key: announcer, refusal, inBox: announcer === inBox });
+      } else {
+        setShownRefusal(null);
+      }
+      const others = refused.filter((key) => key !== announcer && key !== inBox);
       if (others.length > 0) {
         setRevision((previous) => {
           const next = { ...previous };
@@ -311,10 +334,21 @@ export function WeightsControls({
                 name={key}
                 value={weights[key] ?? 0}
                 onCommit={(value) => commit(key, value)}
-                refusal={shownRefusal?.key === key ? shownRefusal.refusal : null}
+                refusal={
+                  shownRefusal?.key === key && !shownRefusal.inBox ? shownRefusal.refusal : null
+                }
                 pending={pendingKeys.includes(key)}
                 disabled={disabled}
               />
+              {shownRefusal?.key === key && shownRefusal.inBox ? (
+                <p
+                  role="status"
+                  data-slot="exercise-weight-error"
+                  className="ce-type-meta mt-ce-2 text-ce-danger"
+                >
+                  {shownRefusal.refusal.message}
+                </p>
+              ) : null}
             </div>
           ))}
         </div>

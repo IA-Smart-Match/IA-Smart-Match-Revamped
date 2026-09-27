@@ -51,7 +51,7 @@ import { MatchingCompareView } from "./MatchingCompareView";
 import { RankedList } from "./RankedList";
 import { SavedSettingsPanel } from "./SavedSettingsPanel";
 import { useExerciseResource } from "./useExerciseResource";
-import { WeightsControls } from "./WeightsControls";
+import { isWeightsRefusal, WeightsControls } from "./WeightsControls";
 import { workspaceRequiredNotice } from "./refusals";
 
 /** A link drawn as the desk's secondary button (DESIGN.md §6.3). */
@@ -115,6 +115,18 @@ export function ExerciseMatching(): React.JSX.Element {
     }
   }
 
+  /**
+   * A refused weighting's sentence is shown once, under the slider
+   * (`WeightsControls`, owner ruling 2026-09-27); every other refusal of the
+   * list request is this screen's notice.
+   */
+  const listRefusal =
+    state.status === "ready" &&
+    state.refusal !== null &&
+    !(weighting.kind === "weights" && isWeightsRefusal(state.refusal))
+      ? state.refusal
+      : null;
+
   return (
     <ExerciseScreen
       title={state.status === "ready" ? state.data.list.event_name : "Your team's list"}
@@ -142,13 +154,13 @@ export function ExerciseMatching(): React.JSX.Element {
 
       {state.status !== "ready" ? null : (
         <div className="flex flex-col gap-ce-6 md:gap-ce-7">
-          {panelRefusal === null && state.refusal === null ? null : (
+          {panelRefusal === null && listRefusal === null ? null : (
             <div className="flex flex-col gap-ce-3">
               {panelRefusal === null ? null : <ExerciseNotice message={panelRefusal} />}
-              {state.refusal === null ? null : (
+              {listRefusal === null ? null : (
                 <ExerciseNotice
                   id="exercise-list-refusal"
-                  message={state.refusal.message}
+                  message={listRefusal.message}
                   tone="problem"
                 />
               )}
@@ -181,7 +193,13 @@ export function ExerciseMatching(): React.JSX.Element {
 
             <section
               className="ce-card flex min-w-0 flex-col gap-ce-3 p-ce-4 md:p-ce-5"
-              aria-describedby={state.refusal === null ? undefined : "exercise-list-refusal"}
+              aria-describedby={
+                state.refusal === null
+                  ? undefined
+                  : listRefusal === null
+                    ? "exercise-list-stale"
+                    : "exercise-list-refusal"
+              }
             >
               <div className="flex flex-wrap items-start justify-between gap-ce-3">
                 <div className="flex flex-wrap items-center gap-ce-3">
@@ -217,7 +235,7 @@ export function ExerciseMatching(): React.JSX.Element {
                 // section carries that for assistive tech; this carries it for
                 // sighted readers who may not read the notice above as tied to
                 // the rows below it.
-                <p data-slot="exercise-list-stale" className="ce-type-reason text-ce-ink-muted">
+                <p id="exercise-list-stale" data-slot="exercise-list-stale" className="ce-type-reason text-ce-ink-muted">
                   This is the list from before that change — it was refused, so the list has not
                   changed.
                 </p>

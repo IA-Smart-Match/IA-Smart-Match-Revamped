@@ -106,7 +106,7 @@ describe("<WeightsControls /> sliders (§6.6)", () => {
         factorLabels={LABELS}
         weights={WEIGHTS}
         onChange={onChange}
-        refusal={new ExerciseRefusal(400, "exercise_invalid_weights", "Those weights were not accepted.")}
+        refusal={new ExerciseRefusal(400, "exercise_weights_invalid", "Those weights were not accepted.")}
       />,
     );
 
@@ -148,7 +148,7 @@ describe("<WeightsControls /> sliders (§6.6)", () => {
         factorLabels={LABELS}
         weights={accepted}
         onChange={onChange}
-        refusal={new ExerciseRefusal(400, "exercise_invalid_weights", "Those weights were not accepted.")}
+        refusal={new ExerciseRefusal(400, "exercise_weights_invalid", "Those weights were not accepted.")}
       />,
     );
 

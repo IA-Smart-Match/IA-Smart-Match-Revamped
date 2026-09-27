@@ -209,7 +209,7 @@ describe("<WeightsControls />", () => {
           factorLabels={LABELS}
           weights={WEIGHTS}
           onChange={onChange}
-          refusal={new ExerciseRefusal(409, "exercise_invalid_weights", "Weights must sum to 1.")}
+          refusal={new ExerciseRefusal(409, "exercise_weights_invalid", "Weights must sum to 1.")}
         />,
       );
 
@@ -438,7 +438,7 @@ describe("<WeightsControls />", () => {
         factorLabels={LABELS}
         weights={WEIGHTS}
         onChange={onChange}
-        refusal={new ExerciseRefusal(409, "exercise_invalid_weights", "Weights must sum to 1.")}
+        refusal={new ExerciseRefusal(409, "exercise_weights_invalid", "Weights must sum to 1.")}
       />,
     );
 
@@ -471,7 +471,7 @@ describe("<WeightsControls />", () => {
         factorLabels={LABELS}
         weights={WEIGHTS}
         onChange={vi.fn()}
-        refusal={new ExerciseRefusal(409, "exercise_invalid_weights", "Weights must sum to 1.")}
+        refusal={new ExerciseRefusal(409, "exercise_weights_invalid", "Weights must sum to 1.")}
       />,
     );
 
@@ -498,7 +498,7 @@ describe("<WeightsControls />", () => {
         factorLabels={LABELS}
         weights={WEIGHTS}
         onChange={vi.fn()}
-        refusal={new ExerciseRefusal(409, "exercise_invalid_weights", "Weights must sum to 1.")}
+        refusal={new ExerciseRefusal(409, "exercise_weights_invalid", "Weights must sum to 1.")}
       />,
     );
 
