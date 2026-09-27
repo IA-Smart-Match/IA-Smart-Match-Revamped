@@ -29,6 +29,7 @@ from smartmatch_domain.exercise.registry import (
     EXERCISE_DEFAULT_WEIGHTS,
     AllZeroExerciseWeightsError,
     InvalidExerciseWeightError,
+    NegativeExerciseWeightError,
     validate_exercise_weight_overrides,
 )
 
@@ -41,6 +42,7 @@ from smartmatch_api.routers.exercise_matching_models import (
 
 __all__ = [
     "ALL_ZERO_WEIGHTS_SENTENCE",
+    "NEGATIVE_WEIGHT_SENTENCE",
     "capped",
     "effective_weights",
     "requested_weights",
@@ -56,10 +58,15 @@ def weight_query(label: str) -> Any:
     Four parameters rather than one JSON blob, because a ranked list is a
     ``GET``: a body on a ``GET`` is not sent by every client and is not
     cacheable, and four named numbers are what a screen's four sliders produce.
+
+    **No ``ge=0`` bound here.** A bound on the parameter answered a negative
+    weight with FastAPI's generic ``invalid_request`` before :func:`validated`
+    ran, so the screen showed a page notice instead of reverting the box. The
+    rulebook refuses a negative weight itself, in its own code and sentence —
+    refuse, never repair.
     """
     return Query(
         default=None,
-        ge=0.0,
         description=(
             f"The weight your team set for “{label}”. Leave every weight out to "
             "use the course's starting values."
@@ -127,6 +134,10 @@ def within_bounds_or_refusal(raw: Mapping[str, object]) -> None:
 #: What a team reads when every weight is zero (M2 B5).
 ALL_ZERO_WEIGHTS_SENTENCE = "At least one number must be above 0."
 
+#: What a team reads when a weight is below zero. It names no factor key:
+#: screens never show column names.
+NEGATIVE_WEIGHT_SENTENCE = "A weight cannot be below 0."
+
 
 def validated(raw: Mapping[str, object]) -> Mapping[str, float]:
     """Run a team's proposed weighting through the rulebook's own check.
@@ -158,6 +169,13 @@ def validated(raw: Mapping[str, object]) -> Mapping[str, float]:
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             code="exercise_weights_invalid",
             message=ALL_ZERO_WEIGHTS_SENTENCE,
+        ) from None
+    except NegativeExerciseWeightError:
+        # The domain's sentence quotes the factor key; a team reads this.
+        raise ExerciseError(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            code="exercise_weights_invalid",
+            message=NEGATIVE_WEIGHT_SENTENCE,
         ) from None
     except InvalidExerciseWeightError as error:
         raise ExerciseError(
