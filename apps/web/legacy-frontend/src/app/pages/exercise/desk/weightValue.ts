@@ -2,8 +2,12 @@
  * Weight parsing and display for the weight slider (DESIGN.md §6.6).
  *
  * `strictDecimal` and the two field messages are the same rule and the same
- * words `WeightsControls.tsx` ships today, so moving the matching screen onto
- * the slider changes no behaviour and no copy.
+ * words `WeightsControls.tsx` ships today, and a typed weight is committed
+ * exactly as typed — never clamped — so moving the matching screen onto the
+ * slider changes no behaviour and no copy. The server owns the range: it
+ * refuses a negative weight in its own sentence and accepts one above 1
+ * ("refuse, never repair"). `clampWeight` is for the thumb's position and
+ * for values the slider itself produces, never for a typed commit.
  */
 
 export const WEIGHT_MIN = 0;
@@ -30,7 +34,7 @@ export function weightFieldMessage(text: string): string {
     : `"${text}" is not a plain number. Use digits and one decimal point, like 0.5.`;
 }
 
-/** Keep a weight on the slider's 0–1 range. */
+/** Keep a value on the slider's 0–1 range: the thumb's position and slider-driven commits only. */
 export function clampWeight(value: number): number {
   return Math.min(WEIGHT_MAX, Math.max(WEIGHT_MIN, value));
 }

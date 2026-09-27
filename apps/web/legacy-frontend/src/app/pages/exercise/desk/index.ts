@@ -16,7 +16,7 @@ export {
   type SkeletonRegionProps,
 } from "./Skeleton";
 export { MarkerChip, type MarkerChipProps } from "./MarkerChip";
-export { WeightSlider, type WeightSliderProps } from "./WeightSlider";
+export { WeightSlider, type WeightRefusal, type WeightSliderProps } from "./WeightSlider";
 export {
   WEIGHT_MAX,
   WEIGHT_MIN,
@@ -39,7 +39,9 @@ export {
   type CountUpOptions,
 } from "./motion";
 export {
+  CONFIRM_GUARD_MS,
   ConfirmWindowUnderline,
+  confirmWindowHelper,
   useConfirmWindow,
   type ConfirmWindow,
   type ConfirmWindowOptions,

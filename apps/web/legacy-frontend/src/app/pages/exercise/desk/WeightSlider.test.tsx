@@ -118,17 +118,30 @@ describe("WeightSlider (§6.6)", () => {
     expect(field.value).toBe("0.333");
   });
 
-  it("clamps an out-of-range number to 0–1 on the slider and on commit", () => {
+  it("commits a typed out-of-range number as typed; only the thumb is clamped", () => {
+    // The server refuses a negative weight in its own sentence and accepts
+    // one above 1 ("refuse, never repair"); the client never repairs it.
     const { slider, field, onCommit } = renderSlider();
     fireEvent.change(field, { target: { value: "1.5" } });
     expect(slider.getAttribute("aria-valuenow")).toBe("1");
     fireEvent.keyDown(field, { key: "Enter" });
-    expect(onCommit).toHaveBeenLastCalledWith(1);
-    expect(field.value).toBe("1.00");
+    expect(onCommit).toHaveBeenLastCalledWith(1.5);
+    expect(field.value).toBe("1.50");
+    expect(slider.getAttribute("aria-valuenow")).toBe("1");
     fireEvent.change(field, { target: { value: "-0.2" } });
     expect(slider.getAttribute("aria-valuenow")).toBe("0");
     fireEvent.keyDown(field, { key: "Enter" });
-    expect(onCommit).toHaveBeenLastCalledWith(0);
+    expect(onCommit).toHaveBeenLastCalledWith(-0.2);
+    expect(field.value).toBe("-0.20");
+    expect(slider.getAttribute("aria-valuenow")).toBe("0");
+  });
+
+  it("keeps slider-driven commits on the 0–1 range after an out-of-range entry", () => {
+    const { slider, field, onCommit } = renderSlider();
+    fireEvent.change(field, { target: { value: "1.5" } });
+    fireEvent.keyDown(field, { key: "Enter" });
+    fireEvent.keyDown(slider, { key: "PageUp" });
+    expect(onCommit).toHaveBeenLastCalledWith(1);
   });
 
   it("rejects a number that is not plain, as a field alert, without committing", () => {
@@ -146,7 +159,7 @@ describe("WeightSlider (§6.6)", () => {
     expect(screen.getByRole("alert").textContent).toBe("Type a number for this weight.");
   });
 
-  it("shows the server's refusal under the box and reverts to the accepted value", () => {
+  it("shows the server's refusal as a status, not an alert, and reverts to the accepted value", () => {
     const onCommit = vi.fn();
     const { rerender } = render(
       <WeightSlider id="interest" label={LABEL} value={0.4} onCommit={onCommit} />,
@@ -160,11 +173,36 @@ describe("WeightSlider (§6.6)", () => {
         label={LABEL}
         value={0.4}
         onCommit={onCommit}
-        error="Those weights were not accepted."
+        refusal={{ message: "Those weights were not accepted." }}
       />,
     );
-    expect(screen.getByRole("alert").textContent).toBe("Those weights were not accepted.");
+    const status = screen.getByRole("status");
+    expect(status.textContent).toBe("Those weights were not accepted.");
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(field.getAttribute("aria-describedby")).toBe(status.id);
     expect(field.value).toBe("0.40");
+  });
+
+  it("reverts on every refusal, even when the sentence repeats", () => {
+    const onCommit = vi.fn();
+    const sentence = "A weight cannot be negative.";
+    const props = { id: "interest", label: LABEL, value: 0.4, onCommit };
+    const { rerender } = render(<WeightSlider {...props} />);
+    const field = screen.getByRole("textbox", { name: LABEL }) as HTMLInputElement;
+    const slider = screen.getByRole("slider", { name: LABEL });
+
+    fireEvent.change(field, { target: { value: "-0.5" } });
+    fireEvent.keyDown(field, { key: "Enter" });
+    rerender(<WeightSlider {...props} refusal={{ message: sentence }} />);
+    expect(field.value).toBe("0.40");
+
+    fireEvent.change(field, { target: { value: "-0.3" } });
+    fireEvent.keyDown(field, { key: "Enter" });
+    expect(onCommit).toHaveBeenLastCalledWith(-0.3);
+    // A fresh refusal object per failed attempt, same words.
+    rerender(<WeightSlider {...props} refusal={{ message: sentence }} />);
+    expect(field.value).toBe("0.40");
+    expect(slider.getAttribute("aria-valuenow")).toBe("0.4");
   });
 
   it("adopts a newly confirmed value from the server", () => {
@@ -196,6 +234,49 @@ describe("WeightSlider (§6.6)", () => {
     stubReducedMotion(true);
     const reduced = renderSlider();
     expect(reduced.container.querySelector(".ce-slider-settle")).toBeNull();
+  });
+
+  describe("pointer", () => {
+    // jsdom has no pointer capture; Radix calls it on the thumb.
+    const proto = HTMLElement.prototype as unknown as Record<string, unknown>;
+    const saved = {
+      set: proto.setPointerCapture,
+      release: proto.releasePointerCapture,
+      has: proto.hasPointerCapture,
+    };
+    beforeEach(() => {
+      proto.setPointerCapture = vi.fn();
+      proto.releasePointerCapture = vi.fn();
+      proto.hasPointerCapture = vi.fn(() => false);
+    });
+    afterEach(() => {
+      proto.setPointerCapture = saved.set;
+      proto.releasePointerCapture = saved.release;
+      proto.hasPointerCapture = saved.has;
+    });
+
+    function root(container: HTMLElement): HTMLElement {
+      return container.querySelector("[data-dragging]") as HTMLElement;
+    }
+
+    it("stops dragging on release even when the value did not change", () => {
+      const { slider, container, onCommit } = renderSlider();
+      fireEvent.pointerDown(slider, { pointerId: 1 });
+      expect(root(container).dataset.dragging).toBe("true");
+      fireEvent.pointerUp(slider, { pointerId: 1 });
+      expect(root(container).dataset.dragging).toBe("false");
+      expect(onCommit).not.toHaveBeenCalled();
+    });
+
+    it("stops dragging when the pointer is cancelled or capture is lost", () => {
+      const { slider, container } = renderSlider();
+      fireEvent.pointerDown(slider, { pointerId: 1 });
+      fireEvent.pointerCancel(slider, { pointerId: 1 });
+      expect(root(container).dataset.dragging).toBe("false");
+      fireEvent.pointerDown(slider, { pointerId: 2 });
+      fireEvent.lostPointerCapture(slider, { pointerId: 2 });
+      expect(root(container).dataset.dragging).toBe("false");
+    });
   });
 
   it("when disabled, neither control moves", () => {
