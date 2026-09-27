@@ -1,6 +1,6 @@
 """B26 T4: the stored Stage A availability verdict (``availability_verdict``).
 
-Plan ``docs/plans/b26-tracks/T4-plan.md`` §2, §3, §5 and §8 tests 1–10. Pure
+Plan ``docs/archive/plans/b26-tracks/T4-plan.md`` §2, §3, §5 and §8 tests 1–10. Pure
 domain: no database, no clock.
 """
 

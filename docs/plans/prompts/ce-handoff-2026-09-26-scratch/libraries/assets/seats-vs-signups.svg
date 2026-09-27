@@ -1,0 +1,11 @@
+<svg viewBox="0 0 100 70" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Filled and empty seats comparison">
+  <g fill="currentColor">
+    <rect x="6" y="40" width="14" height="24" rx="2"/>
+    <rect x="24" y="40" width="14" height="24" rx="2"/>
+    <rect x="42" y="40" width="14" height="24" rx="2" opacity="0.15" stroke="currentColor" stroke-width="2"/>
+    <rect x="60" y="40" width="14" height="24" rx="2"/>
+    <rect x="78" y="40" width="14" height="24" rx="2" opacity="0.15" stroke="currentColor" stroke-width="2"/>
+  </g>
+  <path d="M6 34 h88" stroke="currentColor" stroke-width="2" stroke-dasharray="3 5"/>
+  <text x="50" y="14" font-size="10" fill="currentColor" text-anchor="middle" opacity="0.7">seats</text>
+</svg>

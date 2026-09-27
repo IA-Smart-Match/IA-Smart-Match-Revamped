@@ -1,7 +1,7 @@
 """Turns a coordinator's review-accept into ``pipeline_record`` rows — Card 5.
 
 This is the application-service module Decision 1 in
-`docs/plans/2026-09-03-pipeline-synthetic-caller-plan.md` §2 names: the caller
+`docs/archive/plans/2026-09-03-pipeline-synthetic-caller-plan.md` §2 names: the caller
 `python/smartmatch_persistence/smartmatch_persistence/pipeline.py::PipelineRepository`
 has had none of since it was written. Cards 1-4 built the pieces —
 ``record_matched``'s provenance column and CHECK (Card 1), the deterministic

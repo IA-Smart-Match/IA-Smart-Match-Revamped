@@ -41,7 +41,7 @@ that its absence from the running system was itself asserted by
 when G4 was deferred and none of them is correct now: R4 landed
 ``outreach.send`` on the worker registry, published the draft and send routes,
 and rewrote those absence tests into presence tests (plan card L7,
-``docs/plans/2026-09-04-r4-outreach-g4-implementation-plan.md``). The claim that
+``docs/archive/plans/2026-09-04-r4-outreach-g4-implementation-plan.md``). The claim that
 survives unchanged is the one that was never about wiring — the domain layer
 still cannot open a socket, read a credential, or import
 ``smartmatch_providers``, because the import-linter contract "Domain is pure"

@@ -52,7 +52,7 @@ amendment" at the end).
 ## What is still open
 
 Nothing is waiting on Ann or Chau. Ann receives the
-[sample result](../plans/open-questions/oq-ce-03-sample-result.md) for
+[sample result](../archive/plans/open-questions/oq-ce-03-sample-result.md) for
 information. If she reacts to the numbers (D7) or to P004 (D9), each is a small
 change. The only open register row is OQ-CE-06: the team still has to apply
 the rate-limit rule at the proxy.

@@ -3,7 +3,7 @@
 **Status:** Released
 **Date:** 5 September 2026
 **Source:** `docs/product/cba-smart-match-customer-requirements.md` §§7–8
-**Implements:** `docs/plans/2026-09-05-cba-pivot-waves.md` — CBA-TAXONOMY
+**Implements:** `docs/archive/plans/2026-09-05-cba-pivot-waves.md` — CBA-TAXONOMY
 **Code:** `python/smartmatch_domain/smartmatch_domain/naics_sectors.py`,
 `python/smartmatch_domain/smartmatch_domain/cba_role_categories.py`
 

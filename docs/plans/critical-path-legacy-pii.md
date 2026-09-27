@@ -1,7 +1,7 @@
 # Critical path: legacy identity exposure (MM-A09)
 
 **ID:** CP-PII
-**Parent:** [critical-path-plans.md](critical-path-plans.md)
+**Parent:** [critical-path-plans.md](../archive/plans/critical-path-plans.md)
 
 The only severity-1 item in the stakeholder test log. It is **not closable from
 this repository**. It currently has **no owner**.
@@ -12,7 +12,7 @@ Planning only. No writes to the legacy repository are authorized.
 
 Session approver Danny Tran (@BrooklynD23) recorded this item as
 **CANNOT CLOSE** — see `docs/decisions/2026-08-31-session-ratification.md`
-and `docs/plans/prep/human-decisions-handoff-831.md` §8. **Legacy PII
+and `docs/archive/plans/prep/human-decisions-handoff-831.md` §8. **Legacy PII
 remediation owner and outcome remain unnamed and unresolved**; this
 ratification does not name one and does not claim remediation.
 
@@ -48,7 +48,7 @@ A remediation that deletes four paths leaves two intact.
 
 This is **Fix #1** in Dr. Ann Wang's 19–20 August 2026 test log. MM-A04 covers
 only `demo.db` / `smartmatch.db` / `feedback-log.jsonl` — none of the six.
-S-005 in `docs/security/scaffold-security-review.md` flagged the local DBs
+S-005 in `docs/archive/security/scaffold-security-review.md` flagged the local DBs
 without inspecting them; MM-A09 is the identity finding that audit did not
 enumerate.
 
@@ -58,11 +58,11 @@ remove them from git history**.
 Sources:
 
 - `docs/migration/migration-manifest.yaml` MM-A09 (`blocking_owner: unassigned`)
-- `docs/plans/stakeholder-audit-integration.md` §2.5, §8, §9 Q1, §10
-- `docs/architecture/review/stakeholder-test-log-audit.md` Fix #1
-- `docs/plans/remaining-foundation-r1-work.md` D9 (gated by MM-A09)
+- `docs/archive/plans/stakeholder-audit-integration.md` §2.5, §8, §9 Q1, §10
+- `docs/archive/architecture/review/stakeholder-test-log-audit.md` Fix #1
+- `docs/archive/plans/remaining-foundation-r1-work.md` D9 (gated by MM-A09)
 - Orchestrator contract: legacy is read-only evidence; no write without
-  authorization (`docs/plans/orchestrator-handoff.md`)
+  authorization (`docs/archive/plans/orchestrator-handoff.md`)
 
 Related but smaller: whether the **stakeholder test log itself** should be
 vendored here. It names real people, which is the subject of this finding.

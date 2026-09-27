@@ -2,7 +2,7 @@
   "id": "G1-GC-004",
   "symptom_class": "tie",
   "description": "DRAFT PROPOSAL — NOT RATIFIED. Candidate reproducing inputs for the G1-GC-001 exact-tie symptom, offered so the workshop can ratify or replace concrete inputs rather than author them live. Two synthetic candidates are symmetric on every proposed Stage B factor input, so any weight vector over the proposed factor set produces an exact tie. The tie-BREAK rule is NOT proposed here: the packet does not determine it (packet line 74). No expected scores until G1 closes.",
-  "stakeholder_reference": "docs/plans/workshops/g1-factor-registry-workshop-packet.md line 74; docs/plans/stakeholder-audit-integration.md — 43% tie; MM-002 golden case",
+  "stakeholder_reference": "docs/archive/plans/workshops/g1-factor-registry-workshop-packet.md line 74; docs/archive/plans/stakeholder-audit-integration.md — 43% tie; MM-002 golden case",
   "inputs": {
     "_draft_status": "proposed_pending_ratification_by_danny_tran",
     "_data_provenance": "synthetic; no real professional, student, or event data",

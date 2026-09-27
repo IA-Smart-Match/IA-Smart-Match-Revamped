@@ -101,7 +101,7 @@ Date:                 2026-09-02
 ## References
 
 - `docs/architecture/decisions/ADR-0014-disclosure-consent.md`
-- `docs/plans/orchestrator-handoff.md` §Blocker 2
-- `docs/plans/workshops/p1-metrics-authorization-workshop-packet.md`
+- `docs/archive/plans/orchestrator-handoff.md` §Blocker 2
+- `docs/archive/plans/workshops/p1-metrics-authorization-workshop-packet.md`
 - `services/api/smartmatch_api/routers/metrics.py`
 - `tests/authz/test_policy_matrix.py`

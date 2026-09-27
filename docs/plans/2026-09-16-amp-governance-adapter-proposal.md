@@ -236,7 +236,7 @@ exists, is tested, and reaches no network.
 
 - AMP Agent Integration Playbook (source document for the API shapes above)
 - `docs/decisions/g3-crawler-decision.md` — signed G3 scope, limits, review policy
-- `docs/security/r3-technical-review-findings.md` — T-11..T-15, egress, PII
+- `docs/archive/security/r3-technical-review-findings.md` — T-11..T-15, egress, PII
 - `docs/plans/open-questions/r4-outreach-deferred.md` — OQ-001..009, the register this file's OQ style follows
 - `python/smartmatch_providers/smartmatch_providers/resend.py` — the port shape being copied
 - `tests/unit/test_no_external_calls_on_request_path.py` — the structural constraint on §3.1

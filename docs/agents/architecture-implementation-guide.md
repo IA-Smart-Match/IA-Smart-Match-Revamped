@@ -466,7 +466,7 @@ with a genuine `unknown`, and so weights are never re-spread per candidate.
 `toFixed` on a nullable score; a default value in a Pydantic response model.
 
 **How to check.** `make scan`, plus
-`docs/plans/adr0011-frontend-coercion-inventory.md` for the shapes already found.
+`docs/archive/plans/adr0011-frontend-coercion-inventory.md` for the shapes already found.
 
 ### 3.15 The terminology scan will reject retired vocabulary in CBA-visible copy
 

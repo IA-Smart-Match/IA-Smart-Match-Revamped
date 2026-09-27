@@ -32,7 +32,7 @@ and "we did not look" should not be left to a client to reconstruct.
 No subject ids, no names, no per-student rows, and no field one could be put
 in. A unit-scoped summary is a count of evidence, and D8 — the
 disclosure-consent policy — is the decision that has not been made about who
-may see whose attendance (``docs/architecture/engagement-model.md`` §8). Counts
+may see whose attendance (``docs/archive/architecture/engagement-model.md`` §8). Counts
 of a cohort are not a disclosure about a person; a list of that cohort is.
 """
 

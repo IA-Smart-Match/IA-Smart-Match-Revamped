@@ -105,7 +105,7 @@ def test_landing_page_has_no_role_bearing_login_links() -> None:
 # ---------------------------------------------------------------------------
 # Fix #7 residue: no browser-asserted identity anywhere in the frontend
 #
-# Plan P2 card A3 (`docs/plans/2026-08-28-a1b-institutional-sign-in-plan.md`).
+# Plan P2 card A3 (`docs/archive/plans/2026-08-28-a1b-institutional-sign-in-plan.md`).
 # The portal shells used to read a session blob out of `sessionStorage` and,
 # because nothing ever wrote it, fall back to a hard-coded id per portal — so
 # any visitor at all was rendered as a fixture person. These assertions are

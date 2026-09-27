@@ -64,7 +64,7 @@ def _receipt(estimate: Decimal = Decimal("0.3500")) -> SpendReservationReceipt:
 def test_a3_is_the_figure_the_source_document_records():
     """A1 requires the constant to be the source's number, not a rounded memory."""
     assert Decimal("0.035") == A3_PRICE_PER_PROSE_PAGE
-    assert A3_SOURCE == "docs/plans/prep/g3-limits-and-policy-options.md:221"
+    assert A3_SOURCE == "docs/archive/plans/prep/g3-limits-and-policy-options.md:221"
     assert A3_RECORDED_ON.isoformat() == "2026-08-29"
 
 

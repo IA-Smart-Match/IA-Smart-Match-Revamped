@@ -18,7 +18,7 @@ This module is the pure half of all three:
 * :func:`changed_since`, :func:`as_of_utc`, :func:`event_time_from_columns`,
   :func:`filed_this_request` (Q8).
 
-Pure domain: no I/O, no clock. Plan ``docs/plans/b26-tracks/T4-plan.md`` §2-§5.
+Pure domain: no I/O, no clock. Plan ``docs/archive/plans/b26-tracks/T4-plan.md`` §2-§5.
 """
 
 from __future__ import annotations

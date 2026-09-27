@@ -26,7 +26,7 @@ Stored strings are unchanged, deliberately
 
 The stored vocabulary stays ``student``, ``coordinator``, ``volunteer``,
 ``admin``. A permanent database rename is a separate, deferred decision
-(``docs/plans/2026-09-05-cba-pivot-waves.md``): a rename touches seeds, every
+(``docs/archive/plans/2026-09-05-cba-pivot-waves.md``): a rename touches seeds, every
 ``required_roles`` set, existing rows, and any operator runbook that names a
 role, and doing it inside a presentation change would make one reviewable
 decision look like two unreviewable ones. So this module is a *translation
@@ -74,7 +74,7 @@ Sources
 
 * ``docs/product/cba-smart-match-customer-requirements.md`` §§2–4
 * ``docs/product/cba-role-presentation.md`` (this map, in prose)
-* ``docs/plans/2026-09-05-cba-pivot-waves.md`` (CBA-ROLE-PRESENTATION)
+* ``docs/archive/plans/2026-09-05-cba-pivot-waves.md`` (CBA-ROLE-PRESENTATION)
 """
 
 from __future__ import annotations

@@ -3,7 +3,7 @@
 Architecture v1.1 §1.5, §3.1, §3.6 N1, gate G3. Implements the pure domain
 logic pinned by two Accepted ADRs — the `event` and `event_tag` tables
 themselves are not implemented here; they are deferred to R2 behind open
-decisions D6-D8 (`docs/architecture/engagement-model.md`), and the vocabulary's
+decisions D6-D8 (`docs/archive/architecture/engagement-model.md`), and the vocabulary's
 actual terms are deferred to S5 behind gate G3. This module is the contract
 those land against.
 

@@ -10,10 +10,10 @@ somewhere correct to land the moment one exists.
 
 ## No production caller wires this module yet, and that is deliberate
 
-`docs/plans/2026-08-28-opportunities-s12-plan.md` states a standing
+`docs/archive/plans/2026-08-28-opportunities-s12-plan.md` states a standing
 constraint that governs this exact table: **"No matcher actions before G1."**
 G1 (plan P5, M1–M10 matching) has not closed
-(`docs/status-report/2026-09-02-audit-status-report.md` §5: "M1–M10 matching
+(`docs/archive/status-report/2026-09-02-audit-status-report.md` §5: "M1–M10 matching
 (after G1 workshop)" is still future work), so no code path in this
 repository originates a genuine "subject X was matched to opportunity Y"
 event today. Two further gaps compound that: professionals — the funnel's

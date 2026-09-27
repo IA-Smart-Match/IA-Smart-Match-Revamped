@@ -231,7 +231,7 @@ ALLOWLIST: dict[tuple[str, str], str] = {
         "demo-mode-fallback",
     ): "Docstring explains why fixtures are not a demo-data source.",
     (
-        "docs/security/scaffold-security-review.md",
+        "docs/archive/security/scaffold-security-review.md",
         "mock-login",
     ): "Security review cites the archived pattern.",
     (
@@ -239,7 +239,7 @@ ALLOWLIST: dict[tuple[str, str], str] = {
         "mock-login",
     ): "The design brief names the archived pattern to state that no frontend may reintroduce it.",
     (
-        "docs/plans/stakeholder-audit-integration.md",
+        "docs/archive/plans/stakeholder-audit-integration.md",
         "mock-login",
     ): "The plan records Fix #7 as the one already-closed item; naming it is the point.",
     (
@@ -247,7 +247,7 @@ ALLOWLIST: dict[tuple[str, str], str] = {
         "mock-login",
     ): "The ADR names the archived pattern to argue why a tenant-scoped lookup revives it.",
     (
-        "docs/architecture/review/stakeholder-test-log-audit.md",
+        "docs/archive/architecture/review/stakeholder-test-log-audit.md",
         "mock-login",
     ): "The audit names the archived pattern to record Fix #7 as its one closed finding.",
 }

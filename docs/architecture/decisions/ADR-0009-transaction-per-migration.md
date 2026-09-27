@@ -164,9 +164,9 @@ than no test. The online call site is covered by review.
 
 ## References
 
-- `docs/plans/transaction-boundary-defects.md` §4 — the full analysis, including
+- `docs/archive/plans/transaction-boundary-defects.md` §4 — the full analysis, including
   what was checked before changing the setting.
-- `docs/plans/remaining-foundation-r1-work.md` — F11.
+- `docs/archive/plans/remaining-foundation-r1-work.md` — F11.
 - `db/migrations/versions/0003_global_external_subject.py` — the lock, and the
   `CONCURRENTLY` guidance this ADR qualifies.
 - ADR-0004 — hand-written schema; migration mechanics were out of its scope.

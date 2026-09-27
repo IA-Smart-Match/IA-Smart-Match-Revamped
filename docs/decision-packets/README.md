@@ -27,7 +27,7 @@ evidence the register or plan already requires, and says what stays blocked.
 
 | Packet | Decision framed | Register rows / gates |
 |---|---|---|
-| [`g1-factors-weights.md`](g1-factors-weights.md) | D1/G1 matching registry — factors, weights, golden cases, program owner, weight governance | `remaining-engineering-implementation-plan.md` §2 row 1, §5.1; P5 stop-gate |
+| [`g1-factors-weights.md`](../archive/decision-packets/g1-factors-weights.md) | D1/G1 matching registry — factors, weights, golden cases, program owner, weight governance | `remaining-engineering-implementation-plan.md` §2 row 1, §5.1; P5 stop-gate |
 | [`g3-crawler-threat-model.md`](g3-crawler-threat-model.md) | G3 crawler/event pipeline — threat model, tool/domain allowlist, eval set, cost controls, vocabulary-growth owner | §2 row 2, §5.2; P6 stop-gate; R3 |
 | [`d6-d7-rewards.md`](d6-d7-rewards.md) | D6 budget owners and funding; D7 calibration N (ADR-0013) | OQ-SC-01; §2 row 3, §5.3; P7 stop-gate |
 | [`metrics-authz.md`](metrics-authz.md) | Metrics role-gating under ADR-0014 — aggregate versus drill-down roles | OQ-SE-08, OQ-SC-13, OQ-CBA-042; §2 row 4, §5.4 |
@@ -37,7 +37,7 @@ evidence the register or plan already requires, and says what stays blocked.
 ## Conflicts these packets surface
 
 Four packets record a disagreement between
-[`../plans/remaining-engineering-implementation-plan.md`](../plans/remaining-engineering-implementation-plan.md)
+[`../plans/remaining-engineering-implementation-plan.md`](../archive/plans/remaining-engineering-implementation-plan.md)
 (dated 2026-08-28 in its planning baseline) and later decision artifacts. The
 packets show both sides and resolve none of them:
 
@@ -62,7 +62,7 @@ packets show both sides and resolve none of them:
 **Updated 2026-09-18.** All four conflicts above now carry dated supersession
 notes inside the plan itself — at §2 and at §5.1 (G1), §5.2 (G3), §5.4
 (metrics) and Wave C item 4 (A1b) of
-[`../plans/remaining-engineering-implementation-plan.md`](../plans/remaining-engineering-implementation-plan.md).
+[`../plans/remaining-engineering-implementation-plan.md`](../archive/plans/remaining-engineering-implementation-plan.md).
 Those notes quote each later artifact's own status words, leave the original
 plan text intact, and end with what is still open. They resolve nothing: the
 reconciliation remains the owners' decision.

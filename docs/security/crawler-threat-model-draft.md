@@ -4,7 +4,7 @@
 **Revision:** 4 (2026-08-30). Revisions 1, 2 and 3 remain in git history.
 **Gate:** R3. G3 itself was **signed** 2026-08-29 (`docs/decisions/g3-crawler-decision.md`).
 **Reviews that produced this revision:**
-  - `docs/security/r3-technical-review-findings.md` — the self-review behind revision 2
+  - `docs/archive/security/r3-technical-review-findings.md` — the self-review behind revision 2
   - an **adversarial** independent review of revision 2, conducted by a reviewer
     explicitly told that revision 2 was a self-review, which returned
     **DO NOT SIGN** and twelve minimum required edits. Revision 3 answered it.
@@ -15,7 +15,7 @@
     **Revision 4 exists to answer that review.** Its findings are reproduced
     here in the rows and sections they touch; the review pass itself made no
     code or document change.
-**T-11 depth:** `docs/security/prompt-injection-assessment.md`
+**T-11 depth:** `docs/archive/security/prompt-injection-assessment.md`
 **Related ADRs:** ADR-0003, ADR-0010, ADR-0012, ADR-0015 (amendment pending), MM-A08.
 
 ## Stabilization note — read before signing
@@ -27,8 +27,8 @@ evidence is not committed.** Before any signature:
 
 1. This revision **and** every artifact it references
    (`docs/decisions/g3-crawler-decision.md`,
-   `docs/security/r3-technical-review-findings.md`,
-   `docs/security/prompt-injection-assessment.md`) must be committed, so the
+   `docs/archive/security/r3-technical-review-findings.md`,
+   `docs/archive/security/prompt-injection-assessment.md`) must be committed, so the
    signature names a fixed set of bytes.
 2. The signing commit replaces the draft status line, records the named
    reviewer, and **flips
@@ -99,7 +99,7 @@ in T-14.
 
 - No port of legacy `CrawlerFeed`, `CrawlerContext`, or `POST /api/crawler/start`.
 - No operational legacy crawler code ported. See
-  `docs/security/prompt-injection-assessment.md` §2 for the assessed reasons.
+  `docs/archive/security/prompt-injection-assessment.md` §2 for the assessed reasons.
 - No production egress configuration or credentials.
 
 ## Trust boundaries
@@ -431,7 +431,7 @@ Required instead, structurally:
 ## T-11 — Indirect prompt injection (expanded)
 
 The highest-priority threat in this design. Full analysis:
-`docs/security/prompt-injection-assessment.md`.
+`docs/archive/security/prompt-injection-assessment.md`.
 
 Untrusted third-party content is fed to an LLM extractor. Any page under
 attacker or vandal control can carry text addressed to the extractor — in body
@@ -1066,8 +1066,8 @@ Remaining open at signature time:
 
 ## References
 
-- `docs/security/r3-technical-review-findings.md` — the review behind revision 2
-- `docs/security/prompt-injection-assessment.md` — T-11 in depth
+- `docs/archive/security/r3-technical-review-findings.md` — the review behind revision 2
+- `docs/archive/security/prompt-injection-assessment.md` — T-11 in depth
 - `docs/decisions/g3-crawler-decision.md` — signed G3 decisions
 - `docs/architecture/decisions/ADR-0012-event-identity-and-tag-vocabulary.md`
 - `docs/architecture/decisions/ADR-0010-event-temporal-model.md`

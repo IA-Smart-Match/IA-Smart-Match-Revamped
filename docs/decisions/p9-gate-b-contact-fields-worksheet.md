@@ -7,7 +7,7 @@ remain forbidden from populating them (§3).
 **Prior ratification (31 August 2026):** session working direction in §0.5,
 superseded for field choices by §8; see
 `docs/decisions/2026-08-31-session-ratification.md`.
-**Gate:** P9 Gate B (`docs/plans/2026-08-28-pilot-columns-plan.md` §Stop-gates).
+**Gate:** P9 Gate B (`docs/archive/plans/2026-08-28-pilot-columns-plan.md` §Stop-gates).
 **Prepared:** 2026-08-30, by an agent, from the sources in §7.
 **Deciders required:** Dr. Wang (program owner) **and** a named privacy owner.
 **Changes no code.**
@@ -44,7 +44,7 @@ review, not a substitute for it.
 **Permitted implementation boundary (after §8 close):** human/import-origin
 contact fields per §8; static HTTPS URL-shape validation for `Public URL`
 (the four rules in §V2 of
-`docs/superpowers/specs/2026-08-31-ratification-and-feature-delivery-design.md`).
+`docs/archive/superpowers/specs/2026-08-31-ratification-and-feature-delivery-design.md`).
 Raw crawler URL persistence remains blocked unless a separately approved
 host/path projection exists. Crawler/LLM extractors **may not** populate any
 contact field (§3).
@@ -60,7 +60,7 @@ behind it:
 |---|---|---|
 | **T-14 — incidental PII** | `docs/security/crawler-threat-model-draft.md` | R3's own text says T-14 **cannot close** until Gate B decides collect-or-drop per published contact field with a privacy owner. T-14 not closing is one of the adversarial review's stated reasons not to sign R3. |
 | **MP-4 — never emit personal contact data** | `docs/decisions/g3-crawler-decision.md` §7 | MP-4 is currently an **absolute** prohibition scoped explicitly to "while P9's contact-field decision is open". Gate B decides whether it stays absolute or acquires a permitted set. |
-| **Stage 0 §4 schema review** | `docs/plans/prep/campus-event-discovery-capability.md` §7 | Stage 0 lists "get the contact-field group decided" as one of its four buildable-now items. It is the only one of the four still open. |
+| **Stage 0 §4 schema review** | `docs/archive/plans/prep/campus-event-discovery-capability.md` §7 | Stage 0 lists "get the contact-field group decided" as one of its four buildable-now items. It is the only one of the four still open. |
 
 Note the shape of the coupling: **Gate B does not need to say "collect" to
 unblock anything.** A decision of "drop all three" closes T-14, makes MP-4
@@ -188,14 +188,14 @@ ingest is authorized.
 
 ## 7. Sources
 
-- `docs/plans/2026-08-28-pilot-columns-plan.md` — Gate B text, branches, card W1
-- `docs/pilot-data/event-contact-fields-decision-prep.md` — field table, synthetic samples
+- `docs/archive/plans/2026-08-28-pilot-columns-plan.md` — Gate B text, branches, card W1
+- `docs/archive/pilot-data/event-contact-fields-decision-prep.md` — field table, synthetic samples
 - `docs/pilot-data/columns.yaml` — `open_questions`, second item
 - `docs/architecture/decisions/ADR-0014-disclosure-consent.md` — disclosure ≠ contact consent
 - `docs/decisions/g3-crawler-decision.md` §7 — MP-4
-- `docs/security/r3-technical-review-findings.md` — T-14 and its Gate B dependency
-- `docs/security/prompt-injection-assessment.md` §2.5, §3 A6 — the legacy contact-field path
-- `docs/plans/prep/campus-event-discovery-capability.md` §7 — Stage 0 schema review
+- `docs/archive/security/r3-technical-review-findings.md` — T-14 and its Gate B dependency
+- `docs/archive/security/prompt-injection-assessment.md` §2.5, §3 A6 — the legacy contact-field path
+- `docs/archive/plans/prep/campus-event-discovery-capability.md` §7 — Stage 0 schema review
 
 ## 8. Decision record — SIGNED 2 September 2026
 

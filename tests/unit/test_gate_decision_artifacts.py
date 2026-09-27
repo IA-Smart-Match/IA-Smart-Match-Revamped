@@ -11,7 +11,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
-G1_PACKET = REPO_ROOT / "docs/plans/workshops/g1-factor-registry-workshop-packet.md"
+G1_PACKET = REPO_ROOT / "docs/archive/plans/workshops/g1-factor-registry-workshop-packet.md"
 G3_THREAT_MODEL = REPO_ROOT / "docs/security/crawler-threat-model-draft.md"
 D6_WORKSHEET = REPO_ROOT / "docs/pilot-data/rewards-catalog-worksheet.md"
 CBA_SCORING_ADR = REPO_ROOT / "docs/architecture/decisions/ADR-0016-cba-scoring-policy.md"

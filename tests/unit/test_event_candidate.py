@@ -2,7 +2,7 @@
 
 These tests are the specification for `smartmatch_domain.event_candidate`, the
 safe exposed-wrapper design authorized by
-`docs/superpowers/specs/2026-08-31-ratification-and-feature-delivery-design.md`
+`docs/archive/superpowers/specs/2026-08-31-ratification-and-feature-delivery-design.md`
 §7 and the "P6 Stage 0 scope" row of §3.3. The unsigned P6/R3 stop-gate is
 **not** passed; only this wrapper — internal parser, allowlist projection,
 `ContactFreeEventCandidate` — is authorized, with no runtime caller.

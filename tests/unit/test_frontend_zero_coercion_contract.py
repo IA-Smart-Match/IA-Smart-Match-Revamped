@@ -2,7 +2,7 @@
 
 Narrow, source-text checks in the style of test_frontend_auth_contract.py.
 This is not a substitute for Vitest — it only asserts that the specific
-fields the Z1 inventory (docs/plans/adr0011-frontend-coercion-inventory.md)
+fields the Z1 inventory (docs/archive/plans/adr0011-frontend-coercion-inventory.md)
 classified as violations were actually converted to the nullable seam
 (`parseNumberOrNull` / `number | null`), and that the pre-fix fabricated
 fallback in Volunteers.tsx is gone.

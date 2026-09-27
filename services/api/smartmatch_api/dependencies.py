@@ -302,7 +302,7 @@ def charge_quota(
     discarded by ``get_session``'s unconditional ``finally: session.rollback()``
     on every path that raises, which is precisely the ``403``/``404``/``400``
     set this ordering exists to charge for. So the increment gets a transaction
-    of its own, which is the shape ``docs/plans/transaction-boundary-defects.md``
+    of its own, which is the shape ``docs/archive/plans/transaction-boundary-defects.md``
     §2.3(c) records as the right long-term one: a rate-limit counter is not part
     of a command's atomic unit, and a command that never happens must not take
     the caller's charge back down with it.

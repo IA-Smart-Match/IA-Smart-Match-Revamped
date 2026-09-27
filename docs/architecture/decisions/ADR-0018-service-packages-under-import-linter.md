@@ -6,7 +6,7 @@
 **Backlog:** Stage 2 AP-01, AP-02; migration increment M2
 **Findings:** `docs/architecture/risk-register.md` R-05, R-06;
 `docs/architecture/dependency-analysis.md` §3, §3a–§3c;
-`docs/architecture/OPUS_AUDIT_HANDOFF.md` §8 ("where the leverage is")
+`docs/archive/architecture/OPUS_AUDIT_HANDOFF.md` §8 ("where the leverage is")
 
 ## Context
 

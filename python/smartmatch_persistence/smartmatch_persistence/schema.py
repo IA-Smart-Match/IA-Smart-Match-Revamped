@@ -429,7 +429,7 @@ concurrency_lease = sa.Table(
 
 
 # ADR-0013, backlog S6/S7/S8 (migration 0009). Three of the five tables
-# docs/architecture/engagement-model.md §1 describes — event, redemption, and
+# docs/archive/architecture/engagement-model.md §1 describes — event, redemption, and
 # disclosure_consent are each deferred behind a gate this migration cannot
 # settle. See 0009_engagement_schema.py's module docstring for the full
 # rationale on every choice below; only what a reader of this mirror needs is
@@ -583,7 +583,7 @@ reward_item = sa.Table(
 
 # ---------------------------------------------------------------------------
 # redemption (migration 0019, plan cards L2/L4). One of the two tables
-# docs/architecture/engagement-model.md §1 describes that migration 0009
+# docs/archive/architecture/engagement-model.md §1 describes that migration 0009
 # deferred and 0017 did not settle -- disclosure_consent, gated on ADR-0014, is
 # the other. 0009 deferred this one behind D6's shipped-catalog gate, which
 # closed for pilot scope on 2026-09-02.

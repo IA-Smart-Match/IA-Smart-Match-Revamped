@@ -14,7 +14,7 @@ here authenticates as one.
 
 ## Decision 2 — created at review-accept, not at import (deliberate, not an oversight)
 
-`docs/plans/2026-09-03-pipeline-synthetic-caller-plan.md` §2 Decision 2
+`docs/archive/plans/2026-09-03-pipeline-synthetic-caller-plan.md` §2 Decision 2
 records this in one paragraph, restated here because it governs when this
 module's methods may be called: Architecture v1.1 §1.5 — restated in
 ``smartmatch_persistence.review``'s own module docstring — is that "a

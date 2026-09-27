@@ -1,7 +1,7 @@
 """``event`` / ``event_tag`` / ``discovery_review_item`` write path (migration ``0017``).
 
 Cards S4 (deterministic identity and upsert) and S5 (vocabulary, quarantine,
-review queue) of `docs/plans/2026-08-28-g3-events-s3-s5-plan.md`. Migration
+review queue) of `docs/archive/plans/2026-08-28-g3-events-s3-s5-plan.md`. Migration
 ``0017`` created the tables; this is the only module that writes them.
 
 **No production caller wires this module yet, and that is deliberate.** The

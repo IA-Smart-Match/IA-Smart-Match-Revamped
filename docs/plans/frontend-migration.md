@@ -27,7 +27,7 @@ anything. `apps/web/README.md` remains on hold.
   `python/smartmatch_domain/` and the R1/R2 backlog. A row marked **no
   counterpart** means the current API cannot serve that screen truthfully.
 - **Phasing** follows `apps/web/DESIGN.md` sequencing (W4 before W3 and W5) and
-  `docs/plans/remaining-foundation-r1-work.md`. It is a plan, not a schedule.
+  `docs/archive/plans/remaining-foundation-r1-work.md`. It is a plan, not a schedule.
 
 Do not port `mockData.ts`, `mockProfilePhotos.ts`, `studentPoints.ts`, the
 in-browser rewards catalog, or the MM-A01 login client. Those are the defects
@@ -367,8 +367,8 @@ These can become endpoints later; they are not callable from a browser today.
 ## 4. Stakeholder requirements → frontend work
 
 Source: Dr. Ann Wang test log (19–20 August 2026) as classified in
-`docs/architecture/review/stakeholder-test-log-audit.md` and planned in
-`docs/plans/stakeholder-audit-integration.md`. Contract review
+`docs/archive/architecture/review/stakeholder-test-log-audit.md` and planned in
+`docs/archive/plans/stakeholder-audit-integration.md`. Contract review
 (`docs/architecture/review/contract-findings.md`) is cited where it
 intersects the UI.
 

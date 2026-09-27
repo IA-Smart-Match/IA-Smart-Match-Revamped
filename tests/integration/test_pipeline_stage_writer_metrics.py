@@ -1,6 +1,6 @@
 """The funnel's last three metrics go non-zero because of the stage-advance routes.
 
-``docs/plans/2026-09-05-pipeline-stage-writers-plan.md`` §4. This is the claim
+``docs/archive/plans/2026-09-05-pipeline-stage-writers-plan.md`` §4. This is the claim
 the slice actually makes, and no other test in this repository makes it:
 ``pipeline_confirmed``, ``pipeline_attended`` and ``pipeline_member_inquiry``
 can be **non-zero from a deployed HTTP path** that a coordinator can reach.

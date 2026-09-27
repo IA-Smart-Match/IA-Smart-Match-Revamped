@@ -123,7 +123,7 @@ surface would leave attendance collected with nothing built on it.
 
 ## Consequences
 
-- `docs/architecture/engagement-model.md` carries the full ERD, the derivation
+- `docs/archive/architecture/engagement-model.md` carries the full ERD, the derivation
   rule, and the calibration arithmetic worked through.
 - **MM-F03** records `studentPoints.ts` and `studentRewardsCatalog.ts` as
   `REPLACE`. A browser-computed balance is not a balance.

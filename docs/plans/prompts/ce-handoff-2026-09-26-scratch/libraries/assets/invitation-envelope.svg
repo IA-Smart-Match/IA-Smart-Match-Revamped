@@ -1,0 +1,6 @@
+<svg viewBox="0 0 100 80" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Invitation envelope">
+  <rect x="6" y="16" width="88" height="58" rx="6" fill="currentColor" opacity="0.12" stroke="currentColor" stroke-width="3"/>
+  <path d="M6 20 L50 52 L94 20" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <circle cx="50" cy="8" r="7" fill="currentColor"/>
+  <path d="M46 8 L49 11 L55 5" stroke="var(--card, #fff)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+</svg>

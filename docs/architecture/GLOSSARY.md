@@ -176,7 +176,7 @@ not a task someone forgot.
 | **F5** — GCP deploy | Owner | Deferred. Seven Terraform modules, four envs, deliberately non-applyable | `tools/env_isolation_check.py`; `docs/plans/open-questions/f5-deploy-deferred.md`. Also used as the label for the seven legacy pages in `capability-inventory.md` |
 | **R2** — engagement | Owner | Attendance-summary slice shipped with safe defaults that fail toward *reporting less* | `docs/plans/open-questions/engagement-deferred.md` |
 | **R4** — outreach | Owner | G4 slice shipped with safe defaults that fail toward *not sending* | `docs/plans/open-questions/r4-outreach-deferred.md` |
-| **S12** — the opportunities funnel | Owner | Canonical metric + `pipeline_record` persistence | `docs/plans/2026-08-28-opportunities-s12-plan.md`; table `pipeline_record` (`schema.py:676`) |
+| **S12** — the opportunities funnel | Owner | Canonical metric + `pipeline_record` persistence | `docs/archive/plans/2026-08-28-opportunities-s12-plan.md`; table `pipeline_record` (`schema.py:676`) |
 
 **The asymmetry that defines every deferral.** A safe default is chosen so that
 being wrong degrades toward *inaction* — not sending, reporting less, no

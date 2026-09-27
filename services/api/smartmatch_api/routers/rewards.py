@@ -1,6 +1,6 @@
 """The student rewards catalog and the redemption command surface (S8, S9).
 
-Card **U1** of ``docs/plans/2026-08-28-d6-rewards-s8-s9-plan.md`` asks for four
+Card **U1** of ``docs/archive/plans/2026-08-28-d6-rewards-s8-s9-plan.md`` asks for four
 things at once: a server catalog, a server balance, a redemption that goes
 through the durable state machine, and the deletion of the browser-side
 formulas that used to stand in for all three. This module is the HTTP half.
@@ -73,7 +73,7 @@ name a balance of ``0`` this router has just said it does not know.
 
 ## Progress only toward what a student could actually reach
 
-``docs/architecture/engagement-model.md`` §4 asks that progress be shown only
+``docs/archive/architecture/engagement-model.md`` §4 asks that progress be shown only
 toward reachable items, and
 :func:`~smartmatch_domain.rewards.events_still_needed` enforces it by *raising*
 for an unlistable item rather than returning a number a progress bar would

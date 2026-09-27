@@ -60,7 +60,7 @@ _R3_FORBIDDEN_SEGMENTS = frozenset(
         # outreach family
         #
         # NARROWED for R4/G4 (plan card L7,
-        # `docs/plans/2026-09-04-r4-outreach-g4-implementation-plan.md`). This
+        # `docs/archive/plans/2026-09-04-r4-outreach-g4-implementation-plan.md`). This
         # guard was never about outreach being forbidden — it is about the
         # *request path* reaching a provider, which is the R3 lag defect. G4
         # closed, the outreach routes shipped, and they submit a durable command

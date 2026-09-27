@@ -4,7 +4,7 @@
 the first time, to make a change and see it work end to end.
 
 **Posture:** this is the *developer* companion to
-[`hosted-synthetic-pilot-guide.md`](hosted-synthetic-pilot-guide.md), which is
+[`hosted-synthetic-pilot-guide.md`](../archive/operations/hosted-synthetic-pilot-guide.md), which is
 written for an operator standing up a demo for a stakeholder over a tunnel.
 The two overlap — same appliance, same fixtures — but that guide's path runs
 mostly through `docker compose` and fixture bearer tokens; this one runs the
@@ -519,7 +519,7 @@ want to know whether your change is green — push and let CI answer that.
 
 ## See also
 
-- [`hosted-synthetic-pilot-guide.md`](hosted-synthetic-pilot-guide.md) — the
+- [`hosted-synthetic-pilot-guide.md`](../archive/operations/hosted-synthetic-pilot-guide.md) — the
   operator's compose-and-tunnel path, the `.env` inventory against what the
   code actually reads, and the pre-loaded compose principal table.
 - [`../../INSTALL.md`](../../INSTALL.md) — the launcher-script path

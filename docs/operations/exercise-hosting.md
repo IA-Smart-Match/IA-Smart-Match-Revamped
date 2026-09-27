@@ -36,7 +36,7 @@ away and why it is acceptable for this scope and not for the other one.
 | Gap | Why | Consequence |
 |---|---|---|
 | ~~No compose service runs this scope~~ **Closed.** | `docker-compose.exercise.yml` (a THIRD `-f` file, loaded only when named) defines an `api-exercise` service running `SMARTMATCH_PRODUCT_SCOPE=class_exercise`, gated behind the `exercise` compose profile, bound to `127.0.0.1:8090`, with its own restart policy and `SMARTMATCH_EXERCISE_COOKIE_SECURE=true` pinned in the same file. `docker-compose.yml` and `docker-compose.vm.yml` are untouched — an earlier version of this lived inside `docker-compose.yml` and broke `docker compose up` for the whole CBA stack (Compose evaluates required-secret interpolation for every service in a loaded file, profile or no profile). `tests/unit/test_exercise_compose_service.py` pins its shape. | Steps 7-10 and 18 of [§9](#9-deploy-and-verify-checklist) are runnable by an operator; see that section for the exact commands. |
-| **The Vite dev server rejects `exercise.plated.blog`** | `apps/web/legacy-frontend/vite.config.ts:53` is `allowedHosts: ["pilot.plated.blog"]` — one host, and it is the other one | `exercise.plated.blog` served through that dev server answers **"Blocked request"**, exactly as `pilot.plated.blog` did before commit `d5ffcb05` fixed it there. `"exercise.plated.blog"` must be added to that array. Code change, frontend track. |
+| ~~**The Vite dev server rejects `exercise.plated.blog`**~~ **Closed.** | `vite.config.ts` `allowedHosts` includes both `pilot.plated.blog` and `exercise.plated.blog` (server and preview). | — |
 | **No proxy rate-limit config is in the repository** | The only front door is a dashboard-managed Cloudflare Tunnel (`vm-deploy.md:87-96`); there is no nginx/Caddy/Traefik config checked in | The per-client limit on the instructor login has to be built in the Cloudflare dashboard by hand, and cannot be reviewed in git. With no Access policy on this host, that rule is the **only** edge protection. See [§5](#5-rate-limiting-belongs-at-the-proxy-oq-ce-06). |
 
 Everything below is still worth doing in order; step 1 tells you what the
@@ -650,7 +650,7 @@ session (the passcode) and sends `X-Exercise-Request`. Step 0 needs neither.
    in `simulation.py:471`), so `POST
    /v1/exercise/workspaces/current/events/{event_key}/results` runs once the
    round is unlocked. Chau approved the numbers on 2026-09-25 from
-   [the sample result](../plans/open-questions/oq-ce-03-sample-result.md), and
+   [the sample result](../archive/plans/open-questions/oq-ce-03-sample-result.md), and
    OQ-CE-03 is **CLOSED** (decision record D7 in
    [`class-exercise-decisions-2026-09-25.md`](../decisions/class-exercise-decisions-2026-09-25.md)).
    A change to them is still a code change and a redeploy. The `409

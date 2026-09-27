@@ -290,7 +290,7 @@ def propose_weight_adjustments(entries: Sequence[FeedbackEntry]) -> WeightPropos
     consumer applying it — weight sets arrive in M1/M8 behind gate G1, and
     until one exists there is nothing to normalize against and no way to tell
     which number a human is actually approving. This is a recorded deferral
-    (review finding F-25, ``docs/plans/defect-remediation.md`` §4.5), not an
+    (review finding F-25, ``docs/archive/plans/defect-remediation.md`` §4.5), not an
     oversight, and ``test_aggregate_movement_is_deliberately_unbounded`` pins
     the present behavior so the deferral cannot be mistaken for a bound.
 

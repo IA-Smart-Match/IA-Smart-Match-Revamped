@@ -221,7 +221,7 @@ both the run and the event belong to the batch's own unit; anything else stays
 NULL. No NOT NULL: legacy batches have no request to name. The API rule is
 C12 = R1: every **new** batch names a request, derived from its run or given
 directly, else `422 speaker_invitation_request_required`. Track plan
-`docs/plans/b26-tracks/T4-plan.md` §4.1.
+`docs/archive/plans/b26-tracks/T4-plan.md` §4.1.
 
 ## 4. API
 

@@ -1,6 +1,6 @@
 """Fixture-only event ingest: committed files in, event candidates out.
 
-Scaffold for card S6 (`docs/plans/2026-08-28-g3-events-s3-s5-plan.md` §"Card S6")
+Scaffold for card S6 (`docs/archive/plans/2026-08-28-g3-events-s3-s5-plan.md` §"Card S6")
 with the one capability S6a is about — fetching — deliberately absent. This
 module is the *reading and assembly* half of a crawl: it takes documents that
 are already in the checkout, runs them through the Stage 0 parsers

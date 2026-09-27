@@ -1,0 +1,78 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>The Ledger — save and compare</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=Inter+Tight:wght@500;600&display=swap" rel="stylesheet">
+<style>
+:root{--paper:#F6F3EC;--ink:#161616;--mute:#5A5750;--rule:#B9B2A3;--amber:#E0A425;--amber-soft:#F6E3B4}
+*{box-sizing:border-box}html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--paper);color:var(--ink);font:18px/1.45 Newsreader,Georgia,serif}
+.wrap{max-width:1120px;margin:0 auto;padding:20px 16px 48px}
+.mast{text-align:center;border-top:3px double var(--ink);border-bottom:1px solid var(--ink);padding:10px 0 8px}
+.mast h1{font:500 clamp(34px,5vw,58px)/1 Newsreader,Georgia,serif;margin:0;letter-spacing:-.01em}
+.dateline{display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px 16px;font:500 12px/1.4 "Inter Tight",Inter,sans-serif;letter-spacing:.12em;text-transform:uppercase;color:var(--mute);border-bottom:2px solid var(--ink);padding:8px 0}
+h2.head{font:500 clamp(28px,3.6vw,40px)/1.1 Newsreader,Georgia,serif;margin:24px 0 8px;letter-spacing:-.01em}
+.deck{font-size:20px;font-style:italic;color:var(--mute);margin:0 0 18px;max-width:62ch}
+.kicker{font:600 12px/1 "Inter Tight",Inter,sans-serif;letter-spacing:.14em;text-transform:uppercase;margin:24px 0 8px;padding-top:8px;border-top:2px solid var(--ink)}
+.box{border:1px solid var(--ink);padding:14px 16px}
+.weights{display:grid;grid-template-columns:repeat(4,1fr);gap:14px 22px}
+@media(max-width:820px){.weights{grid-template-columns:1fr 1fr}}
+@media(max-width:480px){.weights{grid-template-columns:1fr}}
+.w label{display:block;font-size:17px;margin-bottom:2px}
+.w .n{font:500 15px "Inter Tight",Inter,sans-serif;color:var(--mute)}
+input[type=range]{width:100%;height:44px;margin:0;-webkit-appearance:none;background:transparent}
+input[type=range]::-webkit-slider-runnable-track{height:2px;background:var(--ink)}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:22px;height:22px;border-radius:2px;background:var(--paper);border:2px solid var(--ink);margin-top:-10px}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:0 40px}
+@media(max-width:760px){.two{grid-template-columns:1fr}}
+.col{column-gap:40px}
+ol.list{list-style:none;margin:0;padding:0;counter-reset:r}
+ol.list li{display:grid;grid-template-columns:44px 1fr;gap:0 10px;padding:9px 0;border-bottom:1px solid var(--rule);break-inside:avoid}
+ol.list li .r{font:500 26px/1 "Inter Tight",Inter,sans-serif;color:var(--mute);padding-top:2px}
+ol.list li .nm{font-weight:600;font-size:19px}
+ol.list li .run{color:var(--mute)}
+ol.list li .why{font-style:italic;color:var(--mute);font-size:16px}
+.tag{font:600 11px/1 "Inter Tight",Inter,sans-serif;letter-spacing:.1em;text-transform:uppercase;border:1px solid var(--ink);padding:3px 6px;margin-left:8px;vertical-align:2px;white-space:nowrap}
+.tag.both{background:var(--amber-soft);border-color:#B07E10}
+li.both{background:linear-gradient(90deg,var(--amber) 0 4px,transparent 4px);padding-left:12px!important}
+.pull{font:italic 22px/1.3 Newsreader,Georgia,serif;border-top:2px solid var(--ink);border-bottom:1px solid var(--ink);padding:12px 0;margin:16px 0}
+.btn{display:inline-block;font:600 14px/1 "Inter Tight",Inter,sans-serif;letter-spacing:.08em;text-transform:uppercase;border:2px solid var(--ink);padding:14px 16px;color:var(--ink);text-decoration:none;min-height:44px}
+.btn.solid{background:var(--ink);color:var(--paper)}
+.rowb{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:12px}
+.eds{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+@media(max-width:640px){.eds{grid-template-columns:1fr}}
+.ed{border:1px solid var(--ink);padding:12px 14px}
+.ed.on{border-width:2px;box-shadow:4px 4px 0 var(--ink)}
+.ed .k{font:600 11px/1 "Inter Tight",Inter,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:var(--mute)}
+.ed b{display:block;font-size:22px;margin:4px 0}
+.ed .n{font:500 14px "Inter Tight",Inter,sans-serif;color:var(--mute)}
+.field input[type=text]{font:inherit;padding:8px 10px;border:0;border-bottom:2px solid var(--ink);background:transparent;min-width:240px;min-height:44px}
+.headline{font:500 clamp(36px,6vw,72px)/1.02 Newsreader,Georgia,serif;letter-spacing:-.02em;margin:18px 0 8px}
+.subdeck{font-size:clamp(20px,2.4vw,28px);line-height:1.3;margin:0 0 18px;max-width:44ch}
+.subdeck b{font-weight:600}
+table.rt{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+table.rt th{text-align:left;font:600 11px/1 "Inter Tight",Inter,sans-serif;letter-spacing:.12em;text-transform:uppercase;padding:8px 10px 8px 0;border-bottom:2px solid var(--ink)}
+table.rt td{padding:10px 10px 10px 0;border-bottom:1px solid var(--rule)}
+table.rt td.n{font:500 30px/1 "Inter Tight",Inter,sans-serif;text-align:right;padding-right:0}
+table.rt th.n{text-align:right;padding-right:0}
+.figs{display:grid;grid-template-columns:repeat(3,1fr);gap:0 24px;border-top:2px solid var(--ink);border-bottom:1px solid var(--ink);padding:12px 0;margin-top:20px}
+@media(max-width:560px){.figs{grid-template-columns:1fr;gap:10px}}
+.fig b{display:block;font:500 44px/1 "Inter Tight",Inter,sans-serif}.fig span{font-size:15px;color:var(--mute)}
+.people{display:grid;grid-template-columns:repeat(3,1fr);gap:20px}
+@media(max-width:760px){.people{grid-template-columns:1fr}}
+.people ul{margin:0;padding:0;list-style:none}.people li{padding:4px 0;border-bottom:1px solid var(--rule)}
+@media(max-width:760px){.tag{white-space:normal;display:inline-block;margin:6px 6px 0 0;vertical-align:baseline}ol.list li .nm{display:block}}
+footer{margin-top:40px;color:var(--mute);font-size:13px;border-top:3px double var(--ink);padding-top:10px;font-family:"Inter Tight",Inter,sans-serif}
+.sr{position:absolute;left:-9999px}
+</style></head><body><div class="wrap">
+<div class="mast"><h1>The Invitation Ledger</h1></div>
+<div class="dateline"><span>AI in Marketing · College of Business</span><span>Northline campus talk · two editions</span><span>Byline: Team 3</span></div>
+<h2 class="head">Two editions, side by side</h2>
+<p class="deck">Your team may keep 3 editions for this event. You have 3. Names carried by both get an amber mark.</p>
+<div class="eds">
+  <div class="ed on"><span class="k">Edition A · comparing</span><b>Major first</b><span class="n">0.80 · 0.35 · 0.50 · 0.25</span></div>
+  <div class="ed on"><span class="k">Edition B · comparing</span><b>Events first</b><span class="n">0.30 · 0.90 · 0.40 · 0.40</span></div>
+  <div class="ed"><span class="k">Edition C</span><b>Balanced</b><span class="n">0.50 · 0.50 · 0.50 · 0.50</span></div>
+</div>
+<div class="rowb"><a class="btn solid" href="#">Go to press with one of these</a><a class="btn" href="#">Pick a different pair</a></div>
+<div class="two" style="margin-top:8px">
+  <div><p class="kicker">Major first · 12 names also on Events first</p><ol class="list"><li><span class="r">1</span><span><span class="nm">Maya Tran</span><span class="tag">completed card</span><br><span class="run">Marketing Management · Senior</span><br><span class="why">Same major; nothing else on file.</span></span></li><li class="both"><span class="r">2</span><span><span class="nm">Daniel Okafor</span><span class="tag">major only</span><span class="tag both">on both lists</span><br><span class="run">Marketing Management · Junior</span><br><span class="why">Same major; nothing else on file.</span></span></li><li><span class="r">3</span><span><span class="nm">Priya Patel</span><span class="tag">major only</span><br><span class="run">Marketing Management · Sophomore</span><br><span class="why">Same major; nothing else on file.</span></span></li><li class="both"><span class="r">4</span><span><span class="nm">Jordan Kim</span><span class="tag">major plus events attended</span><span class="tag both">on both lists</span><br><span class="run">Marketing Management · Senior</span><br><span class="why">Tied on major; ordered by year.</span></span></li><li class="both"><span class="r">5</span><span><span class="nm">Alexis Rivera</span><span class="tag">major only</span><span class="tag both">on both lists</span><br><span class="run">Marketing Management · Junior</span><br><span class="why">Tied on major; ordered by year.</span></span></li><li class="both"><span class="r">6</span><span><span class="nm">Ethan Nguyen</span><span class="tag">major only</span><span class="tag both">on both lists</span><br><span class="run">Marketing Management · Sophomore</span><br><span class="why">Tied on major; ordered by year.</span></span></li><li class="both"><span class="r">7</span><span><span class="nm">Sofia Morales</span><span class="tag">major plus events attended</span><span class="tag both">on both lists</span><br><span class="run">Marketing Management · Senior</span><br><span class="why">Tied on major; ordered by year.</span></span></li><li class="both"><span class="r">8</span><span><span class="nm">Marcus Chen</span><span class="tag">completed card</span><span class="tag both">on both lists</span><br><span class="run">Marketing Management · Junior</span><br><span class="why">Tied on major; ordered by year.</span></span></li><li class="both"><span class="r">9</span><span><span class="nm">Hannah Lee</span><span class="tag">major only</span><span class="tag both">on both lists</span><br><span class="run">Marketing Management · Sophomore</span><br><span class="why">Tied on major; ordered by year.</span></span></li><li class="both"><span class="r">10</span><span><span class="nm">Diego Garcia</span><span class="tag">major plus events attended</span><span class="tag both">on both lists</span><br><span class="run">Marketing Management · Senior</span><br><span class="why">Tied on major; ordered by year.</span></span></li><li class="both"><span class="r">11</span><span><span class="nm">Chloe Brooks</span><span class="tag">major only</span><span class="tag both">on both lists</span><br><span class="run">Marketing Management · Junior</span><br><span class="why">Tied on major; ordered by year.</span></span></li><li class="both"><span class="r">12</span><span><span class="nm">Ravi Shah</span><span class="tag">major only</span><span class="tag both">on both lists</span><br><span class="run">Marketing Management · Sophomore</span><br><span class="why">Tied on major; ordered by year.</span></span></li></ol><p style="color:var(--mute);font-size:15px">Showing 12 of 30. <a href="#">Show all 30</a></p></div>
+  <div><p class="kicker">Events first · 12 names also on Major first</p><ol class="list"><li class="both"><span class="r">1</span><span><span class="nm">Alexis Rivera</span><span class="tag">major only</span><span class="tag both">on both lists</span><br><span class="run">Marketing Management · Junior</span><br><span class="why">Tied on major; ordered by year.</span></span></li><li class="both"><span class="r">2</span><span><span class="nm">Daniel Okafor</span><span class="tag">major plus events attended</span><span class="tag both">on both lists</span><br><span class="run">Finance, Real Estate & Law · Sophomore</span><br><span class="why">Tied on major; ordered by year.</span></span></li><li class="both"><span class="r">3</span><span><span class="nm">Sofia Morales</span><span class="tag">major plus events attended</span><span class="tag both">on both lists</span><br><span class="run">Marketing Management · Senior</span><br><span class="why">Tied on major; ordered by year.</span></span></li><li class="both"><span class="r">4</span><span><span class="nm">Jordan Kim</span><span class="tag">major plus events attended</span><span class="tag both">on both lists</span><br><span class="run">Computer Information Systems · Junior</span><br><span class="why">Tied on major; ordered by year.</span></span></li><li class="both"><span class="r">5</span><span><span class="nm">Hannah Lee</span><span class="tag">major only</span><span class="tag both">on both lists</span><br><span class="run">Marketing Management · Sophomore</span><br><span class="why">Tied on major; ordered by year.</span></span></li><li class="both"><span class="r">6</span><span><span class="nm">Ethan Nguyen</span><span class="tag">major plus events attended</span><span class="tag both">on both lists</span><br><span class="run">Accounting · Senior</span><br><span class="why">Tied on major; ordered by year.</span></span></li><li class="both"><span class="r">7</span><span><span class="nm">Chloe Brooks</span><span class="tag">major only</span><span class="tag both">on both lists</span><br><span class="run">Marketing Management · Junior</span><br><span class="why">Tied on major; ordered by year.</span></span></li><li class="both"><span class="r">8</span><span><span class="nm">Marcus Chen</span><span class="tag">major plus events attended</span><span class="tag both">on both lists</span><br><span class="run">International Business & Marketing · Sophomore</span><br><span class="why">Tied on major; ordered by year.</span></span></li><li class="both"><span class="r">9</span><span><span class="nm">Grace Park</span><span class="tag">major plus events attended</span><span class="tag both">on both lists</span><br><span class="run">Marketing Management · Senior</span><br><span class="why">Tied on major; ordered by year.</span></span></li><li class="both"><span class="r">10</span><span><span class="nm">Diego Garcia</span><span class="tag">major plus events attended</span><span class="tag both">on both lists</span><br><span class="run">Marketing Management · Junior</span><br><span class="why">Tied on major; ordered by year.</span></span></li><li class="both"><span class="r">11</span><span><span class="nm">Leila Haddad</span><span class="tag">completed card</span><span class="tag both">on both lists</span><br><span class="run">Marketing Management · Sophomore</span><br><span class="why">Tied on major; ordered by year.</span></span></li><li class="both"><span class="r">12</span><span><span class="nm">Ravi Shah</span><span class="tag">major plus events attended</span><span class="tag both">on both lists</span><br><span class="run">Finance, Real Estate & Law · Senior</span><br><span class="why">Tied on major; ordered by year.</span></span></li></ol><p style="color:var(--mute);font-size:15px">Showing 12 of 30. <a href="#">Show all 30</a></p></div>
+</div><footer>Fictional profiles shaped by overall survey percentages. For California State Polytechnic University, Pomona — College of Business Administration instructional use only.</footer></div></body></html>

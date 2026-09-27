@@ -142,7 +142,7 @@ consume the quota a real re-drive would need.
 commits, then the command commits. ADR-0006 already accepts one write on the
 request path before the work being limited; this is a second round trip on the
 same connection. It is not the second *connection* that
-`docs/plans/transaction-boundary-defects.md` §2.3(c) priced when it described an
+`docs/archive/plans/transaction-boundary-defects.md` §2.3(c) priced when it described an
 autonomous-connection variant — the session is reused, and no second pool slot
 is taken.
 
@@ -319,7 +319,7 @@ tense throughout. Where a sentence below describes a mechanism, it describes
 one that must be built, not one that runs. This ratification authorizes only
 a **synthetic-provider** reservation implementation and its verification as
 the next slice (V1 of
-`docs/plans/2026-08-31-ratification-and-implementation-report.md`); no paid
+`docs/archive/plans/2026-08-31-ratification-and-implementation-report.md`); no paid
 call, live OpenRouter/Groq credential, or production configuration is
 authorized by it.
 **Recorded in the index's `Amended` column, in this same commit.** The ADR's
@@ -745,7 +745,7 @@ provenance of that estimate:
 > actual provider.
 
 A3 is `$0.035` per prose page
-(`docs/plans/prep/g3-limits-and-policy-options.md:221`), derived from a
+(`docs/archive/plans/prep/g3-limits-and-policy-options.md:221`), derived from a
 token-count assumption and never checked against a bill. It is a **named, dated
 assumption**, and this amendment requires it to remain one:
 
@@ -838,16 +838,16 @@ queue out of a bounded budget: whoever can cause budget failures can fill a queu
 that people have to read. The portfolio already reasons this way about
 neighbouring controls: L10's per-page artifact cap exists against *"Unbounded
 parse output… flooding the event table and the review queue in a single job"*
-(`docs/plans/prep/g3-limits-and-policy-options.md:118`), and R3 caps proposal
+(`docs/archive/plans/prep/g3-limits-and-policy-options.md:118`), and R3 caps proposal
 volume for T-12 *"so approval cannot be flooded"*
-(`docs/security/r3-technical-review-findings.md:131`). The escalation must
+(`docs/archive/security/r3-technical-review-findings.md:131`). The escalation must
 therefore be **bounded** — deduplicated per job, rate-limited per tenant, or
 aggregated — rather than one row per failure. Naming that bound is the
 implementer's decision and belongs in the work item; what this amendment settles
 is that "one row per budget failure, unbounded" is not acceptable — which is what
 T-08 and T-17 already say, and A1 defers to them rather than restating a second,
 possibly divergent bound. *(Stated plainly: this concern is **not** phrased as an
-explicit finding in `docs/security/r3-technical-review-findings.md`; the T-12
+explicit finding in `docs/archive/security/r3-technical-review-findings.md`; the T-12
 citation above is the nearest thing there. It **is** phrased explicitly in the
 threat model draft, at T-08 and T-17, and that is where it belongs. If those rows
 change, they govern and this paragraph follows them.)*

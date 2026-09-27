@@ -92,7 +92,7 @@ _FALSE_CLAIMS = (
 #: claims above.
 _PROSE_FILES = (
     Path("docker-compose.yml"),
-    Path("docs/operations/hosted-synthetic-pilot-guide.md"),
+    Path("docs/archive/operations/hosted-synthetic-pilot-guide.md"),
     Path("docs/operations/local-dev-walkthrough.md"),
     Path("docs/operations/pilot-dataset-rebuild.md"),
     Path(".env.example"),

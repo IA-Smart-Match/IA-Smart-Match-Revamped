@@ -5,7 +5,7 @@
 **Approver:** Danny Tran (@BrooklynD23)
 
 **Prepared:** 2 September 2026, from
-`docs/plans/2026-08-31-ratification-and-implementation-report.md` §5 item 2.
+`docs/archive/plans/2026-08-31-ratification-and-implementation-report.md` §5 item 2.
 
 **Note (4 September 2026):** rows 1–7 remain closed exactly as named below.
 This update adds decision-signing authority for two additional people — see
@@ -21,7 +21,7 @@ close their gate — it makes the gate runnable.
 |---|---|---|---|---|
 | 1 | **Privacy owner** (P9 Gate B) | Danny Tran (@BrooklynD23) — named 2026-09-02; **gate closed** same date | — | `docs/decisions/p9-gate-b-contact-fields-worksheet.md` §8 |
 | 2 | **Program owner** (P5 / D1 / G1 matching) | **Danny Tran (@BrooklynD23)** — named 2026-09-02; **G1 closed 2026-09-03** | M2 factor implementation (`topic_relevance`, `travel_burden`) | `docs/plans/workshops/g1-workshop-output-worksheet.md` |
-| 3 | **Rewards budget owner** (P7 / D6) | **Danny Tran (@BrooklynD23)** — named 2026-09-02; $5,000 placeholder ceiling ratified pending institutional funding confirmation | Rewards catalog path; formal D6 gate **closed** for pilot scope | `docs/plans/2026-08-28-d6-rewards-s8-s9-plan.md` |
+| 3 | **Rewards budget owner** (P7 / D6) | **Danny Tran (@BrooklynD23)** — named 2026-09-02; $5,000 placeholder ceiling ratified pending institutional funding confirmation | Rewards catalog path; formal D6 gate **closed** for pilot scope | `docs/archive/plans/2026-08-28-d6-rewards-s8-s9-plan.md` |
 | 4 | **Product owner** (P8 opportunities, and P1 metrics) | **Danny Tran (@BrooklynD23)** — same as program owner; named 2026-09-02 | P8 and P1 gates **closed** 2026-09-02 | `docs/decisions/metrics-authorization-decision-draft.md`; `docs/decisions/p8-opportunities-decision-draft.md` |
 | 5 | **R3 signature authority** | **Resolved 1a** — Danny Tran (@BrooklynD23), Development Lead; threat model **signed 2026-09-03** | S6a implementation evidence (live fetch still gated) | `docs/security/crawler-threat-model-draft.md`; `docs/decisions/r3-signing-decisions-2026-09-03.md` |
 
@@ -86,6 +86,6 @@ entry.
 
 ## References
 
-- `docs/plans/2026-08-31-ratification-and-implementation-report.md` §3, §5
-- `docs/plans/prep/blocked-work-register-830.md` §3, §6
+- `docs/archive/plans/2026-08-31-ratification-and-implementation-report.md` §3, §5
+- `docs/archive/plans/prep/blocked-work-register-830.md` §3, §6
 - `docs/decisions/pilot-decisions.md`

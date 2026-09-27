@@ -3,7 +3,7 @@
 **Status:** Released
 **Date:** 5 September 2026
 **Source:** [`docs/product/cba-smart-match-customer-requirements.md`](../product/cba-smart-match-customer-requirements.md) §§18–19
-**Implements:** `docs/plans/2026-09-05-cba-pivot-waves.md` — `CBA-IMPORT-CONTRACT`
+**Implements:** `docs/archive/plans/2026-09-05-cba-pivot-waves.md` — `CBA-IMPORT-CONTRACT`
 **Contract:** [`columns.yaml`](columns.yaml) — the single source of truth for column names
 **Schema:** migration `0024_cba_classification_schema` (`CBA-DATA-SCHEMA`), mirrored in
 `python/smartmatch_persistence/smartmatch_persistence/schema.py`

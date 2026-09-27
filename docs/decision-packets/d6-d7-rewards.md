@@ -20,7 +20,7 @@ placeholder, so that a catalog item may be listed.
   [`../plans/open-questions/student-engagement-deferred.md`](../plans/open-questions/student-engagement-deferred.md),
   OQ-SC-01.
 - D7 ratification is assigned to the "program-owner" by
-  [`../plans/2026-08-28-d6-rewards-s8-s9-plan.md`](../plans/2026-08-28-d6-rewards-s8-s9-plan.md)
+  [`../plans/2026-08-28-d6-rewards-s8-s9-plan.md`](../archive/plans/2026-08-28-d6-rewards-s8-s9-plan.md)
   stop-gate item 2; the program owner of record is Danny Tran (@BrooklynD23)
   ([`../decisions/owner-roster.md`](../decisions/owner-roster.md) row 2).
 - Reward read and redemption **roles**: stop-gate item 3 records these as "TBD".
@@ -67,7 +67,7 @@ points and rewards (tentative)" records the tentative numbers:
 with the property `min(points_cost over listed items) ≤ N × points_per_event`
 holding "by construction: **3 × 100 = 300**, which is the cheapest band exactly."
 
-**Conflict flagged.** [`../plans/remaining-engineering-implementation-plan.md`](../plans/remaining-engineering-implementation-plan.md)
+**Conflict flagged.** [`../plans/remaining-engineering-implementation-plan.md`](../archive/plans/remaining-engineering-implementation-plan.md)
 §2 row 3 still classifies rewards as blocked because "D6 must name budget owners
 and D7 must choose calibration N"; D6 is recorded closed for pilot scope, while
 D7 remains explicitly tentative. The plan has not been amended to distinguish
@@ -102,7 +102,7 @@ above supplies.
 ## Evidence needed to close
 
 From
-[`../plans/2026-08-28-d6-rewards-s8-s9-plan.md`](../plans/2026-08-28-d6-rewards-s8-s9-plan.md)
+[`../plans/2026-08-28-d6-rewards-s8-s9-plan.md`](../archive/plans/2026-08-28-d6-rewards-s8-s9-plan.md)
 (stop-gate):
 
 1. **D6** — "every proposed listable item has a **named human budget owner**
@@ -126,7 +126,7 @@ must exist before S8/S9."
 
 ## What stays blocked until closure
 
-Per [`../plans/remaining-engineering-implementation-plan.md`](../plans/remaining-engineering-implementation-plan.md)
+Per [`../plans/remaining-engineering-implementation-plan.md`](../archive/plans/remaining-engineering-implementation-plan.md)
 §5.3:
 
 > **Do not build yet:** no listable catalog content, redemption UI, or repriced
@@ -134,7 +134,7 @@ Per [`../plans/remaining-engineering-implementation-plan.md`](../plans/remaining
 
 Per OQ-SC-01's "Blocked slices" column: **Rewards activation**.
 
-Per [`../plans/2026-08-28-d6-rewards-s8-s9-plan.md`](../plans/2026-08-28-d6-rewards-s8-s9-plan.md)'s
+Per [`../plans/2026-08-28-d6-rewards-s8-s9-plan.md`](../archive/plans/2026-08-28-d6-rewards-s8-s9-plan.md)'s
 31 August amendment header: cards "L1–L4, C1, R3, U1 … (ledger fold, listing,
 redemption) remain gated on D6/D7/role artifacts … No new budget envelope,
 commitment, reservation, redemption, earning, catalog, route, or UI behavior is
@@ -143,10 +143,10 @@ authorized."
 ## Source links
 
 - [`../plans/open-questions/student-engagement-deferred.md`](../plans/open-questions/student-engagement-deferred.md) — OQ-SC-01, closure discipline
-- [`../plans/remaining-engineering-implementation-plan.md`](../plans/remaining-engineering-implementation-plan.md) — §2 row 3, §5.3
-- [`../plans/2026-08-28-d6-rewards-s8-s9-plan.md`](../plans/2026-08-28-d6-rewards-s8-s9-plan.md) — standing constraints, stop-gate, 31 August amendment
+- [`../plans/remaining-engineering-implementation-plan.md`](../archive/plans/remaining-engineering-implementation-plan.md) — §2 row 3, §5.3
+- [`../plans/2026-08-28-d6-rewards-s8-s9-plan.md`](../archive/plans/2026-08-28-d6-rewards-s8-s9-plan.md) — standing constraints, stop-gate, 31 August amendment
 - [`../architecture/decisions/ADR-0013-attendance-derived-engagement.md`](../architecture/decisions/ADR-0013-attendance-derived-engagement.md) — ledger, budget owner, calibration property
 - [`../decisions/d6-rewards-budget-decision-record.md`](../decisions/d6-rewards-budget-decision-record.md) — D6 closure for pilot scope
 - [`../decisions/pilot-decisions.md`](../decisions/pilot-decisions.md) — §D6, §D7 (tentative)
 - [`../decisions/owner-roster.md`](../decisions/owner-roster.md) — rows 2 and 3
-- [`../architecture/engagement-model.md`](../architecture/engagement-model.md) — calibration arithmetic
+- [`../architecture/engagement-model.md`](../archive/architecture/engagement-model.md) — calibration arithmetic

@@ -98,10 +98,10 @@ that person signs in as on the pilot appliance.
 4. Live-catalog test: cheapest listed item reachable within approved N events.
 5. Retire `studentPoints.ts` and `studentRewardsCatalog.ts` — server values only.
 
-See `docs/plans/prep/s8-s9-engagement-api-contract.md`.
+See `docs/archive/plans/prep/s8-s9-engagement-api-contract.md`.
 
 ## References
 
 - `docs/architecture/decisions/ADR-0013-attendance-derived-engagement.md`
-- `docs/architecture/engagement-model.md`
+- `docs/archive/architecture/engagement-model.md`
 - `db/migrations/versions/0009_engagement_schema.py`

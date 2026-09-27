@@ -6,7 +6,7 @@
 **Backlog:** Stage 2 AP-07; migration increment M3
 **Findings:** `docs/architecture/risk-register.md` R-02, R-15;
 `docs/architecture/capability-inventory.md` §4 D2, D5;
-`docs/architecture/OPUS_AUDIT_HANDOFF.md` §5 (finding 2), §8
+`docs/archive/architecture/OPUS_AUDIT_HANDOFF.md` §5 (finding 2), §8
 
 ## Context
 

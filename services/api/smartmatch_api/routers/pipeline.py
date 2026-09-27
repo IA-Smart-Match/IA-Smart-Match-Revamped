@@ -1,6 +1,6 @@
 """Coordinator-driven pipeline stage advances (S12 funnel write path).
 
-``docs/plans/2026-09-05-pipeline-stage-writers-plan.md`` is this module's plan
+``docs/archive/plans/2026-09-05-pipeline-stage-writers-plan.md`` is this module's plan
 card. Two operations:
 
 * ``GET  /v1/units/{unit_id}/pipeline-records/{record_id}`` — one journey and

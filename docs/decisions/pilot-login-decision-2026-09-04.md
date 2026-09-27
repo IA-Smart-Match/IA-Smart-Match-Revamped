@@ -13,7 +13,7 @@ designated in the database.
 Production SSO is **explicitly deferred until after the pilot**.
 
 This is a scoped, authorized deviation from the plan in
-[`../plans/2026-08-28-a1b-institutional-sign-in-plan.md`](../plans/2026-08-28-a1b-institutional-sign-in-plan.md),
+[`../plans/2026-08-28-a1b-institutional-sign-in-plan.md`](../archive/plans/2026-08-28-a1b-institutional-sign-in-plan.md),
 recorded here because it is a deviation and not a completion.
 
 ## Why
@@ -192,7 +192,7 @@ document is not one.
 
 ## Related
 
-* [`../plans/2026-08-28-a1b-institutional-sign-in-plan.md`](../plans/2026-08-28-a1b-institutional-sign-in-plan.md)
+* [`../plans/2026-08-28-a1b-institutional-sign-in-plan.md`](../archive/plans/2026-08-28-a1b-institutional-sign-in-plan.md)
   — the plan this deviates from. Still the record of what A1b requires, and
   still open: this decision closes none of A0, A1, or A1b.
 * [`a1b-idp-configuration-worksheet.md`](a1b-idp-configuration-worksheet.md) —

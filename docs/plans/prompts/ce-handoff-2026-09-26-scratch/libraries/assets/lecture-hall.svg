@@ -1,0 +1,19 @@
+<svg viewBox="0 0 120 90" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Lecture hall with rows of seats">
+  <rect x="4" y="6" width="112" height="34" rx="4" fill="currentColor" opacity="0.12"/>
+  <path d="M20 30 L60 10 L100 30" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <g fill="currentColor">
+    <rect x="10" y="52" width="10" height="10" rx="2"/>
+    <rect x="24" y="52" width="10" height="10" rx="2"/>
+    <rect x="38" y="52" width="10" height="10" rx="2"/>
+    <rect x="52" y="52" width="10" height="10" rx="2" opacity="0.3"/>
+    <rect x="66" y="52" width="10" height="10" rx="2"/>
+    <rect x="80" y="52" width="10" height="10" rx="2"/>
+    <rect x="94" y="52" width="10" height="10" rx="2"/>
+    <rect x="17" y="68" width="10" height="10" rx="2"/>
+    <rect x="31" y="68" width="10" height="10" rx="2" opacity="0.3"/>
+    <rect x="45" y="68" width="10" height="10" rx="2"/>
+    <rect x="59" y="68" width="10" height="10" rx="2"/>
+    <rect x="73" y="68" width="10" height="10" rx="2"/>
+    <rect x="87" y="68" width="10" height="10" rx="2" opacity="0.3"/>
+  </g>
+</svg>

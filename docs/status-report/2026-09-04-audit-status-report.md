@@ -6,7 +6,7 @@
 **Posture:** Foundation scaffold — **not production-ready, not deployed, synthetic data only**
 
 **Authoritative blocker index:** `docs/decisions/2026-08-31-session-ratification.md`  
-**Continuation order:** `docs/plans/2026-08-31-ratification-and-implementation-report.md` (V1–V8)  
+**Continuation order:** `docs/archive/plans/2026-08-31-ratification-and-implementation-report.md` (V1–V8)  
 **Session closures since prior report (2026-09-02):** G1/D1 closed, R3 signed, synthetic pilot authorization — see `docs/decisions/pilot-decisions.md` §2026-09-03 decision records.
 
 This report decides nothing and fills no owner field.
@@ -85,7 +85,7 @@ Foundation → R1 → R2 → R3 → R4 → R5
 | P6 Stage 0 | iCal + JSON-LD parsers + contact-free wrapper — fixture-only |
 | Pilot data contract (P9 W1) | `columns.yaml` ratified; worker enforces via `column_contract.py` |
 | J8/J9 dispatcher | **Code closed** — compose scheduler sidecar; external Cloud Scheduler wiring open |
-| Hosted synthetic demo ops | New guides: `docs/operations/hosted-synthetic-pilot-guide.md`, `docs/operations/classroom-vm-cloudflare-tunnel.md` (compose + Vite + tunnel/VM; not F5) |
+| Hosted synthetic demo ops | New guides: `docs/archive/operations/hosted-synthetic-pilot-guide.md`, `docs/operations/classroom-vm-cloudflare-tunnel.md` (compose + Vite + tunnel/VM; not F5) |
 | `docker-compose.yml` | db + migrate + seed + api + worker + scheduler; **no IdP or frontend** |
 
 ### Blocked or absent
@@ -152,7 +152,7 @@ GCP: **Cloud Run** (API + worker), **Cloud SQL** (Postgres 16), **Cloud Tasks**,
 | `Dockerfile.api` / `Dockerfile.worker` | Built and probed in CI; **no registry push** |
 | `docker-compose.yml` | Local dev / CI smoke only |
 | Terraform | Placeholder `locals` only in four env skeletons — **no provider, backend, resource, or module** |
-| `ALLOW_CLOUD_DEPLOY=false` | Orchestrator contract gate (`docs/migration/orchestrator-run.md`); not an env toggle |
+| `ALLOW_CLOUD_DEPLOY=false` | Orchestrator contract gate (`docs/archive/migration/orchestrator-run.md`); not an env toggle |
 | Worker OIDC (S-001) | Verifier logic exists; no signature backend → refuses live delivery outside dev bearers |
 | Cloud Tasks adapter | Not implemented — `FixtureTaskQueue` + local loopback queue only |
 | Monitoring / on-call | Design only — nothing running |
@@ -295,8 +295,8 @@ Cloud vs local is primarily an **ops choice** once the same product slices exist
 | `docs/decisions/pilot-decisions.md` D7 § | Says "no points ledger" in code; migration `0009` + `point_ledger_entry` table exist (behavior/routes still absent) |
 | `apps/web/DESIGN.md` | Says OpenAPI describes "**seven** endpoints"; verified **11** |
 | `apps/web/legacy-frontend/` | UI copy still cites `REGISTRY_STATUS` as `"proposed"` (`AIMatching.tsx`, `Volunteers.tsx`, `api.ts`, etc.) |
-| `docs/plans/prep/blocked-work-register-830.md` | P5 row still workshop-pending; superseded by G1 closure 2026-09-03 |
-| `docs/plans/orchestrator-handoff.md` | Still references `REGISTRY_STATUS == "proposed"` |
+| `docs/archive/plans/prep/blocked-work-register-830.md` | P5 row still workshop-pending; superseded by G1 closure 2026-09-03 |
+| `docs/archive/plans/orchestrator-handoff.md` | Still references `REGISTRY_STATUS == "proposed"` |
 | `tests/unit/test_gate_decision_artifacts.py` | Expects G1 packet "unapproved prep" text; worksheet ratified 2026-09-03 |
 | `tests/golden/matching/symptoms/G1-GC-*.json` | Descriptions still say "NOT RATIFIED"; no expected scores in fixtures |
 | `docs/status-report/README.md` | Index pointed at 2026-09-02 report; updated by this report |
@@ -317,18 +317,18 @@ Cloud vs local is primarily an **ops choice** once the same product slices exist
 | G1 closure worksheet | `docs/plans/workshops/g1-workshop-output-worksheet.md` |
 | R3 signing record | `docs/decisions/r3-signing-decisions-2026-09-03.md` |
 | Synthetic pilot authorization | `docs/decisions/synthetic-pilot-development-authorization-2026-09-03.md` |
-| Hosted demo guide | `docs/operations/hosted-synthetic-pilot-guide.md` |
+| Hosted demo guide | `docs/archive/operations/hosted-synthetic-pilot-guide.md` |
 | Classroom VM + tunnel | `docs/operations/classroom-vm-cloudflare-tunnel.md` |
 | F5 deploy target | `docs/decisions/f5-deploy-target-note-2026-09-03.md` |
 | Plan portfolio | `docs/plans/2026-08-28-plan-portfolio-index.md` |
-| Blocked-work register | `docs/plans/prep/blocked-work-register-830.md` |
+| Blocked-work register | `docs/archive/plans/prep/blocked-work-register-830.md` |
 | Deploy runbook | `docs/operations/deploy-runbook.md` |
 | Containers / compose | `docs/operations/containers.md`, `docker-compose.yml` |
 | Factor registry | `python/smartmatch_domain/smartmatch_domain/factor_registry.py` |
 | Fail-closed contracts | `tests/unit/test_matching_fail_closed.py` |
 | Migration head | `db/migrations/versions/0015_remove_unauthorized_ledger_reversal.py` |
 | OpenAPI contract | `contracts/openapi/smartmatch.json` (11 paths / 11 operations) |
-| Prior report | `docs/status-report/2026-09-02-audit-status-report.md` |
+| Prior report | `docs/archive/status-report/2026-09-02-audit-status-report.md` |
 
 ---
 

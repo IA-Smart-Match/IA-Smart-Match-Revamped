@@ -364,7 +364,7 @@ and it does not belong inside a lag policy.
 
 `timed_out` is the sweep's half of the same story: a worker claimed a job and
 never came back. `rescued` is `reclaimed + timed_out` — the single number
-`docs/plans/transaction-boundary-defects.md` §3.3 asked the pass to expose, and
+`docs/archive/plans/transaction-boundary-defects.md` §3.3 asked the pass to expose, and
 the one to page on; the two fields beneath it tell the operator which table to
 open (`outbox_record` or `job`).
 
@@ -443,7 +443,7 @@ sweep with the J12 reclaim and J1 dispatch. Cloud Scheduler is expected to call
 `tests/integration/test_job_lease_lifecycle.py` (13 cases) and
 `tests/integration/test_scheduled_dispatch_pass.py` (9 cases). The recorded
 implementation-run pass/revert evidence is in
-`docs/plans/pr1-blockers-handoff.md` and `docs/plans/pr3-verification-evidence.md`;
+`docs/archive/plans/pr1-blockers-handoff.md` and `docs/archive/plans/pr3-verification-evidence.md`;
 current local execution is collection/skip only when PostgreSQL is unavailable.
 
 **Deploy procedure (when F5 and S-001 land):** create a Cloud Scheduler HTTP job

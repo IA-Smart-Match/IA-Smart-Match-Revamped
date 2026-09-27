@@ -1,0 +1,125 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>The Room — results</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{--paper:#FAF7F0;--ink:#1A1A1A;--mute:#5E5A52;--rule:#D9D3C5;--team:#2F6F73;--team-soft:#CFE3E3;--amber:#F2B33D;--amber-soft:#FBE7B8;}
+*{box-sizing:border-box}html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--paper);color:var(--ink);font:17px/1.45 Inter,system-ui,sans-serif}
+.wrap{max-width:1180px;margin:0 auto;padding:24px 16px 48px}
+header.top{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:8px 16px;border-bottom:2px solid var(--ink);padding-bottom:10px}
+.brand{font:600 14px/1 Inter;letter-spacing:.08em;text-transform:uppercase;color:var(--mute)}
+.team{display:inline-flex;align-items:center;gap:8px;font-weight:600}
+.team i{width:14px;height:14px;border-radius:50%;background:var(--team);display:inline-block}
+h1{font:500 clamp(30px,4.2vw,46px)/1.08 Fraunces,Georgia,serif;font-variation-settings:"opsz" 144;margin:22px 0 6px;letter-spacing:-.01em}
+.lede{color:var(--mute);margin:0 0 22px;font-size:18px;max-width:60ch}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:28px;align-items:start}
+@media(max-width:760px){.grid2{grid-template-columns:1fr}}
+.panel{background:#fff;border:1px solid var(--rule);border-radius:14px;padding:18px 18px 16px}
+.panel h2,.sec h2{font:500 22px/1.2 Fraunces,Georgia,serif;margin:0 0 12px}
+.slider{display:grid;grid-template-columns:1fr auto;gap:2px 12px;align-items:center;padding:10px 0;border-top:1px solid var(--rule)}
+.slider:first-of-type{border-top:0}
+.slider label{font-weight:500;grid-column:1/-1}
+.slider .val{font:600 15px/1 Inter;background:var(--team-soft);color:var(--team);border-radius:999px;padding:6px 10px;min-width:44px;text-align:center}
+input[type=range]{width:100%;height:44px;margin:0;-webkit-appearance:none;background:transparent}
+input[type=range]::-webkit-slider-runnable-track{height:8px;border-radius:4px;background:linear-gradient(90deg,var(--team) var(--p),var(--rule) var(--p))}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:28px;height:28px;border-radius:50%;background:#fff;border:3px solid var(--team);margin-top:-10px;box-shadow:0 1px 3px rgba(0,0,0,.2)}
+.room{width:100%;height:auto;display:block}
+.room .stage{fill:#E8E2D3}.room .stage-label{font:11px Inter;fill:var(--mute);text-anchor:middle;letter-spacing:.1em;text-transform:uppercase}
+.room .seat{fill:none;stroke:#B9B2A3;stroke-width:1.5}
+.room .seat.pre{fill:#DDD8CC;stroke:#B9B2A3}
+.room .seat.inv{stroke:var(--team);stroke-width:2.5}
+.room .seat.sgn{fill:var(--team-soft)}
+.room .seat.att{fill:var(--team);stroke:var(--team)}
+.room .seat.both{fill:var(--amber-soft);stroke:#C98A0B}
+.legend{display:flex;flex-wrap:wrap;gap:10px 18px;color:var(--mute);font-size:14px;margin-top:8px}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.legend svg{width:18px;height:18px}
+.count{font:500 20px/1.2 Fraunces,Georgia,serif;margin:10px 0 0}
+.sec{margin-top:30px}
+.sec .row{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:8px 16px}
+.btn{display:inline-block;border:2px solid var(--ink);border-radius:10px;padding:9px 16px;font-weight:600;background:#fff;color:var(--ink);text-decoration:none;min-height:44px;line-height:1.3}
+.btn.primary{background:var(--ink);color:#fff}
+.btn.quiet{border-color:var(--rule);color:var(--mute)}
+.note{background:#FFF8E6;border-left:4px solid var(--amber);padding:10px 14px;border-radius:0 10px 10px 0;margin:12px 0 0;font-size:16px}
+table{width:100%;border-collapse:collapse;margin-top:14px}
+th{text-align:left;font:600 12px/1 Inter;letter-spacing:.1em;text-transform:uppercase;color:var(--mute);padding:0 10px 10px 0;border-bottom:2px solid var(--ink)}
+td{padding:11px 10px 11px 0;border-bottom:1px solid var(--rule);vertical-align:top}
+td.rank{font:500 22px/1 Fraunces,Georgia,serif;width:44px;color:var(--mute)}
+td.name{font-weight:600;white-space:nowrap}
+td.reason{color:var(--mute)}
+.dots{display:inline-flex;gap:3px;vertical-align:middle;margin-right:8px}
+.dots i{width:9px;height:9px;border-radius:50%;border:1.5px solid var(--team);display:inline-block}
+.dots i.on{background:var(--team)}
+.chip{display:inline-block;font:600 12px/1 Inter;letter-spacing:.04em;background:var(--amber-soft);color:#6B4A00;border-radius:999px;padding:5px 9px;margin-left:8px;vertical-align:middle}
+tr.both td{background:#FFF6DF}
+table.compact,table.compact thead,table.compact tbody,table.compact tr,table.compact td{display:block}
+table.compact thead{display:none}
+table.compact tr{border-bottom:1px solid var(--rule);padding:10px 0}
+table.compact td{border:0;padding:2px 0}
+table.compact td.rank{float:left;width:40px;padding-top:2px}
+table.compact td.name{white-space:normal}
+table.compact td.meta,table.compact td.reason{margin-left:40px;font-size:15px}
+@media(max-width:760px){
+  table,thead,tbody,tr,td{display:block}
+  thead{display:none}
+  tr{border-bottom:1px solid var(--rule);padding:10px 0}
+  td{border:0;padding:2px 0}
+  td.rank{float:left;width:40px;padding-top:2px}
+  td.name{white-space:normal}
+  td.meta,td.reason{margin-left:40px;font-size:15px}
+}
+.saved{display:flex;flex-wrap:wrap;gap:10px;margin:10px 0 0}
+.tag{display:inline-flex;flex-direction:column;border:2px solid var(--rule);border-radius:12px;padding:10px 14px;min-width:150px;background:#fff}
+.tag.on{border-color:var(--team);box-shadow:inset 0 0 0 2px var(--team-soft)}
+.tag b{font-size:16px}.tag small{color:var(--mute);font-size:13px}
+.tag .w{font:500 13px Inter;color:var(--team);margin-top:4px}
+.field{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin-top:14px}
+.field label{display:block;font-size:14px;color:var(--mute);margin-bottom:4px}
+.field input[type=text]{font:inherit;padding:10px 12px;border:2px solid var(--rule);border-radius:10px;min-width:220px;min-height:44px}
+.big{font:500 clamp(28px,4vw,44px)/1.15 Fraunces,Georgia,serif;margin:18px 0 6px;max-width:26ch}
+.big em{font-style:normal;color:var(--team)}
+.figs{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:16px}
+@media(max-width:560px){.figs{grid-template-columns:1fr 1fr}}
+.fig{background:#fff;border:1px solid var(--rule);border-radius:12px;padding:12px 14px}
+.fig b{display:block;font:500 34px/1 Fraunces,Georgia,serif}.fig span{font-size:14px;color:var(--mute)}
+.bars{margin-top:16px}
+.bars .g{display:grid;grid-template-columns:150px 1fr;gap:6px 12px;align-items:center;margin-top:10px}
+@media(max-width:560px){.bars .g{grid-template-columns:1fr}}
+.bars .lab{font-weight:600}
+.bar{display:grid;grid-template-columns:auto 1fr;gap:4px 8px;align-items:center;font-size:14px;color:var(--mute)}
+.bar i{display:block;height:14px;border-radius:3px;background:var(--team)}
+.bar i.l{background:var(--team-soft);border:1px solid var(--team)}
+.bar i.g{background:#B9B2A3}
+.people{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:14px}
+@media(max-width:760px){.people{grid-template-columns:1fr}}
+.people h3{font:600 12px/1 Inter;letter-spacing:.1em;text-transform:uppercase;color:var(--mute);margin:0 0 8px}
+.people ul{margin:0;padding:0;list-style:none}.people li{padding:5px 0;border-bottom:1px solid var(--rule)}
+footer{margin-top:40px;color:var(--mute);font-size:13px;border-top:1px solid var(--rule);padding-top:12px}
+.sr{position:absolute;left:-9999px}
+</style></head><body><div class="wrap">
+<header class="top"><span class="brand">SmartMatch · class exercise · Northline campus talk</span><span class="team"><i></i>Team 3</span></header>
+<h1>What happened for the Northline campus talk</h1>
+<p class="lede">Built from your team's final setting “Major first”. One run per team per event.</p>
+<div class="grid2">
+  <section class="panel"><h2>The room after the talk</h2><svg viewBox="0 0 400 250" class="room" aria-hidden="true" focusable="false">
+  <defs><symbol id="chair" viewBox="0 0 30 30"><rect x="4" y="3" width="22" height="9" rx="3"/><rect x="4" y="13" width="22" height="13" rx="3"/></symbol></defs>
+  <rect x="120" y="2" width="160" height="10" rx="3" class="stage"/><text x="200" y="24" class="stage-label">speaker</text><use href="#chair" x="20" y="40" width="30" height="30" class="seat inv"/><use href="#chair" x="56" y="40" width="30" height="30" class="seat inv sgn att"/><use href="#chair" x="92" y="40" width="30" height="30" class="seat inv"/><use href="#chair" x="128" y="40" width="30" height="30" class="seat inv"/><use href="#chair" x="164" y="40" width="30" height="30" class="seat inv sgn"/><use href="#chair" x="200" y="40" width="30" height="30" class="seat inv"/><use href="#chair" x="236" y="40" width="30" height="30" class="seat inv"/><use href="#chair" x="272" y="40" width="30" height="30" class="seat inv sgn att"/><use href="#chair" x="308" y="40" width="30" height="30" class="seat inv"/><use href="#chair" x="344" y="40" width="30" height="30" class="seat inv"/><use href="#chair" x="20" y="74" width="30" height="30" class="seat inv"/><use href="#chair" x="56" y="74" width="30" height="30" class="seat inv"/><use href="#chair" x="92" y="74" width="30" height="30" class="seat inv sgn att"/><use href="#chair" x="128" y="74" width="30" height="30" class="seat inv"/><use href="#chair" x="164" y="74" width="30" height="30" class="seat inv"/><use href="#chair" x="200" y="74" width="30" height="30" class="seat inv sgn"/><use href="#chair" x="236" y="74" width="30" height="30" class="seat inv"/><use href="#chair" x="272" y="74" width="30" height="30" class="seat inv"/><use href="#chair" x="308" y="74" width="30" height="30" class="seat inv"/><use href="#chair" x="344" y="74" width="30" height="30" class="seat inv"/><use href="#chair" x="20" y="108" width="30" height="30" class="seat inv sgn att"/><use href="#chair" x="56" y="108" width="30" height="30" class="seat inv"/><use href="#chair" x="92" y="108" width="30" height="30" class="seat inv"/><use href="#chair" x="128" y="108" width="30" height="30" class="seat inv"/><use href="#chair" x="164" y="108" width="30" height="30" class="seat inv"/><use href="#chair" x="200" y="108" width="30" height="30" class="seat inv"/><use href="#chair" x="236" y="108" width="30" height="30" class="seat inv"/><use href="#chair" x="272" y="108" width="30" height="30" class="seat inv"/><use href="#chair" x="308" y="108" width="30" height="30" class="seat inv"/><use href="#chair" x="344" y="108" width="30" height="30" class="seat inv"/><use href="#chair" x="20" y="142" width="30" height="30" class="seat"/><use href="#chair" x="56" y="142" width="30" height="30" class="seat"/><use href="#chair" x="92" y="142" width="30" height="30" class="seat"/><use href="#chair" x="128" y="142" width="30" height="30" class="seat"/><use href="#chair" x="164" y="142" width="30" height="30" class="seat"/><use href="#chair" x="200" y="142" width="30" height="30" class="seat"/><use href="#chair" x="236" y="142" width="30" height="30" class="seat"/><use href="#chair" x="272" y="142" width="30" height="30" class="seat"/><use href="#chair" x="308" y="142" width="30" height="30" class="seat"/><use href="#chair" x="344" y="142" width="30" height="30" class="seat"/><use href="#chair" x="20" y="176" width="30" height="30" class="seat"/><use href="#chair" x="56" y="176" width="30" height="30" class="seat"/><use href="#chair" x="92" y="176" width="30" height="30" class="seat"/><use href="#chair" x="128" y="176" width="30" height="30" class="seat"/><use href="#chair" x="164" y="176" width="30" height="30" class="seat"/><use href="#chair" x="200" y="176" width="30" height="30" class="seat"/><use href="#chair" x="236" y="176" width="30" height="30" class="seat"/><use href="#chair" x="272" y="176" width="30" height="30" class="seat"/><use href="#chair" x="308" y="176" width="30" height="30" class="seat"/><use href="#chair" x="344" y="176" width="30" height="30" class="seat"/><use href="#chair" x="20" y="210" width="30" height="30" class="seat pre"/><use href="#chair" x="56" y="210" width="30" height="30" class="seat pre"/><use href="#chair" x="92" y="210" width="30" height="30" class="seat pre"/><use href="#chair" x="128" y="210" width="30" height="30" class="seat pre"/><use href="#chair" x="164" y="210" width="30" height="30" class="seat pre"/><use href="#chair" x="200" y="210" width="30" height="30" class="seat pre"/><use href="#chair" x="236" y="210" width="30" height="30" class="seat pre"/><use href="#chair" x="272" y="210" width="30" height="30" class="seat pre"/><use href="#chair" x="308" y="210" width="30" height="30" class="seat"/><use href="#chair" x="344" y="210" width="30" height="30" class="seat"/></svg>
+    <div class="legend"><span><svg viewBox="0 0 30 30" class="room"><use href="#chair" width="30" height="30" class="seat inv"/></svg>invited, no reply (30)</span><span><svg viewBox="0 0 30 30" class="room"><use href="#chair" width="30" height="30" class="seat inv sgn"/></svg>signed up (6)</span><span><svg viewBox="0 0 30 30" class="room"><use href="#chair" width="30" height="30" class="seat att"/></svg>attended (4)</span><span><svg viewBox="0 0 30 30" class="room"><use href="#chair" width="30" height="30" class="seat pre"/></svg>already coming (8)</span><span><svg viewBox="0 0 30 30" class="room"><use href="#chair" width="30" height="30" class="seat "/></svg>open (46)</span></div>
+  </section>
+  <section>
+    <p class="big"><em>8</em> were already coming. Your invitations added <em>6</em>. <em>46</em> seats are still open.</p>
+    <div class="figs"><div class="fig"><b>60</b><span>Seats in the room</span></div><div class="fig"><b>8</b><span>Already signed up before your team</span></div><div class="fig"><b>46</b><span>Seats still empty</span></div></div>
+    <div class="bars"><h2 style="font:500 22px/1.2 Fraunces,Georgia,serif;margin:22px 0 0">Your list beside contacting all 300</h2>
+      <div class="g"><span class="lab">Your team's list</span><div class="bar"><span>invited 30</span><i class="g" style="width:30%"></i><span>signed up 6</span><i class="l" style="width:6%"></i><span>attended 4</span><i style="width:4%"></i></div></div>
+      <div class="g"><span class="lab">If you emailed everyone</span><div class="bar"><span>invited 300</span><i class="g" style="width:100%"></i><span>signed up 41</span><i class="l" style="width:41%"></i><span>attended 27</span><i style="width:27%"></i></div></div>
+    </div>
+  </section>
+</div>
+<section class="sec"><h2>The people on your team's list</h2>
+<div class="people">
+  <div><h3>Invited · 30</h3><ul><li>Maya Tran</li><li>Daniel Okafor</li><li>Priya Patel</li><li>Jordan Kim</li><li>Alexis Rivera</li><li>Ethan Nguyen</li><li>Sofia Morales</li><li>Marcus Chen</li><li style="color:var(--mute)">and 22 more</li></ul></div>
+  <div><h3>Signed up · 6</h3><ul><li>Daniel Okafor</li><li>Alexis Rivera</li><li>Marcus Chen</li><li>Grace Park</li><li>Brandon Cole</li><li>Emily Wang</li></ul></div>
+  <div><h3>Attended · 4</h3><ul><li>Daniel Okafor</li><li>Marcus Chen</li><li>Grace Park</li><li>Emily Wang</li></ul></div>
+</div>
+<p style="color:var(--mute);margin-top:12px">Contacting all 300 is shown as counts only.</p>
+<p style="margin-top:20px"><a class="btn primary" href="#">Ask the people you invited for more</a></p>
+</section><footer>Fictional profiles shaped by overall survey percentages. For California State Polytechnic University, Pomona — College of Business Administration instructional use only.</footer></div></body></html>

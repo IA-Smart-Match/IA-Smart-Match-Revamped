@@ -153,7 +153,7 @@ default "No student profile persistence or personalized ranking" and blocks
 - [`../architecture/decisions/ADR-0011-accountable-numbers.md`](../architecture/decisions/ADR-0011-accountable-numbers.md) — unknown is not zero
 - [`../architecture/student-recommender-contracts.md`](../architecture/student-recommender-contracts.md) — feature registry and payload contracts
 - [`../decisions/student-recommender-decision-record.md`](../decisions/student-recommender-decision-record.md) — decision record (draft)
-- [`../plans/2026-09-13-w2-student-event-ranking-plan.md`](../plans/2026-09-13-w2-student-event-ranking-plan.md) — W2 ranking plan
+- [`../plans/2026-09-13-w2-student-event-ranking-plan.md`](../archive/plans/2026-09-13-w2-student-event-ranking-plan.md) — W2 ranking plan
 - [`../plans/2026-09-14-student-engagement-program-plan.md`](../plans/2026-09-14-student-engagement-program-plan.md) — program plan
 - [`../plans/README.md`](../plans/README.md) — recommender gating
 - [`../decisions/owner-roster.md`](../decisions/owner-roster.md) — program owner

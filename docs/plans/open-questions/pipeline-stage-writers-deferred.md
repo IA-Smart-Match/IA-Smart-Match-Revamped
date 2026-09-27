@@ -1,7 +1,7 @@
 # S12 pipeline stage writers — open questions carried by this slice
 
 **Date:** 2026-09-05 · **Slice:** coordinator-driven stage advances
-(`docs/plans/2026-09-05-pipeline-stage-writers-plan.md`)
+(`docs/archive/plans/2026-09-05-pipeline-stage-writers-plan.md`)
 
 Every item here is a decision or an integration engineering could not supply on
 its own. None of them stopped the slice: each carries a **safe default that is

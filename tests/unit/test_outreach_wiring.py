@@ -10,7 +10,7 @@ deferred gate has been opened by accident rather than by decision"*.
 
 That was the right test for that state. The decision has now been made
 deliberately (plan
-``docs/plans/2026-09-04-r4-outreach-g4-implementation-plan.md``, card L7), so
+``docs/archive/plans/2026-09-04-r4-outreach-g4-implementation-plan.md``, card L7), so
 each assertion is **rewritten rather than deleted**: every "no outreach command
 is routed" becomes "exactly ``outreach.send`` is routed, and it is the only
 one". The guard keeps its shape and changes its expectation, which is what lets

@@ -2,14 +2,14 @@
 
 **Status:** **CLOSED — 2026-09-02.** Canonical definition ratified by product
 owner Danny Tran (@BrooklynD23). Card O1 of
-`docs/plans/2026-08-28-opportunities-s12-plan.md` may proceed; O2+ remain
+`docs/archive/plans/2026-08-28-opportunities-s12-plan.md` may proceed; O2+ remain
 blocked on S12 persistence and P6 crawler persistence where applicable.
-**Gate:** P8 stop-gate (`docs/plans/2026-08-28-opportunities-s12-plan.md`
+**Gate:** P8 stop-gate (`docs/archive/plans/2026-08-28-opportunities-s12-plan.md`
 §Stop-gate).
 **Product owner:** Danny Tran (@BrooklynD23) — named 2026-09-02 (same as program
 owner).
-**Prepared from:** `docs/plans/prep/human-decisions-handoff-831.md` §7 and
-`docs/plans/opportunities-metric-inventory.md`.
+**Prepared from:** `docs/archive/plans/prep/human-decisions-handoff-831.md` §7 and
+`docs/archive/plans/opportunities-metric-inventory.md`.
 
 ---
 
@@ -84,7 +84,7 @@ Date:           2026-09-02
 
 ## 7. References
 
-- `docs/plans/2026-08-28-opportunities-s12-plan.md`
-- `docs/plans/opportunities-metric-inventory.md`
+- `docs/archive/plans/2026-08-28-opportunities-s12-plan.md`
+- `docs/archive/plans/opportunities-metric-inventory.md`
 - `docs/decisions/2026-08-31-session-ratification.md`
 - `docs/decisions/metrics-authorization-decision-draft.md` (P1 — closed)

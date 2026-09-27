@@ -1,6 +1,6 @@
 """What one match run pins, and how its inputs are fingerprinted (card M8a).
 
-Plan `docs/plans/2026-08-28-g1-matching-m1-m10-plan.md` card M8 says a stored
+Plan `docs/archive/plans/2026-08-28-g1-matching-m1-m10-plan.md` card M8 says a stored
 run carries "inputs hash, registry version, weights, optimizer + route-estimate
 version pins, tenant/unit scoping, created-at", and the G1 workshop worksheet
 (`docs/plans/workshops/g1-workshop-output-worksheet.md`, agenda item 4) settles

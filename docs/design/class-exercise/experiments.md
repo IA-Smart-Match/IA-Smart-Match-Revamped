@@ -11,15 +11,15 @@ Inputs (both arrived 2026-09-25):
 
 | Input | What it gave | Where it is folded in |
 |---|---|---|
-| Fable experimental designer | 4 directions, a 3-reviewer adversarial pass, 12 PNG mock-ups, image-gen seeds | This file; 8 PNGs in [`assets/mockups/`](assets/mockups/); DESIGN.md 6.12, 6.15, 7.1 |
-| Sonnet library scout | 10 library categories, a motion spec, 8 SVGs, 12 references | [Library picks](#library-picks) below; DESIGN.md 4 and 5; 7 SVGs in [`assets/svg/`](assets/svg/) |
+| Fable experimental designer | 4 directions, a 3-reviewer adversarial pass, 12 PNG mock-ups, image-gen seeds | This file; 8 PNGs in [`assets/mockups/`](../../archive/design/class-exercise/assets/mockups); DESIGN.md 6.12, 6.15, 7.1 |
+| Sonnet library scout | 10 library categories, a motion spec, 8 SVGs, 12 references | [Library picks](#library-picks) below; DESIGN.md 4 and 5; 7 SVGs in [`assets/svg/`](assets/svg) |
 
 ## 1. Fable's four directions
 
 | Rank (Fable) | Direction | Idea | Mock-ups |
 |---|---|---|---|
-| 1 | **The Room** | Every screen shows the 60-seat room; the list reserves chairs; results show who sat down | [list](assets/mockups/room/list-1280.png), [compare](assets/mockups/room/compare-1280.png), [results](assets/mockups/room/results-1280.png) (+ 390 each) |
-| 2 | **The Ledger** | Editorial broadsheet: masthead, numbered column, a front-page headline sentence on results | [results](assets/mockups/ledger/results-1280.png), [results 390](assets/mockups/ledger/results-390.png) |
+| 1 | **The Room** | Every screen shows the 60-seat room; the list reserves chairs; results show who sat down | [list](../../archive/design/class-exercise/assets/mockups/room/list-1280.png), [compare](../../archive/design/class-exercise/assets/mockups/room/compare-1280.png), [results](../../archive/design/class-exercise/assets/mockups/room/results-1280.png) (+ 390 each) |
+| 2 | **The Ledger** | Editorial broadsheet: masthead, numbered column, a front-page headline sentence on results | [results](../../archive/design/class-exercise/assets/mockups/ledger/results-1280.png), [results 390](../../archive/design/class-exercise/assets/mockups/ledger/results-390.png) |
 | 3 | **Corkboard** | Profiles as index cards under four dials; compare joined by red string | none |
 | 4 | **The Reveal** | Dark game-show stage, tile flips, a seat counter | none (deliberately risky) |
 

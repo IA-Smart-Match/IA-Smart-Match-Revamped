@@ -165,7 +165,7 @@ def test_guest_lecture_and_guest_lecturer_are_both_present_and_distinct():
 # at an event* (`panelist`, `judge`), while a CBA role category is the *career
 # discipline a speaker works in* (`Finance`, `Human Resources`). ADR-0012
 # governs the first, `smartmatch_domain.cba_role_categories` the second, and
-# `docs/plans/2026-09-05-cba-pivot-waves.md` states the rule these tests
+# `docs/archive/plans/2026-09-05-cba-pivot-waves.md` states the rule these tests
 # enforce: "ADR-0012's event type/speaker-function tag vocabulary is not the
 # CBA career-role taxonomy. They remain separate versioned vocabularies."
 #

@@ -3,7 +3,7 @@
 These tests are the specification for `smartmatch_domain.ical_parser`. Every
 case runs against a committed synthetic fixture — no network, no live provider,
 no recorded third-party content. Stage 0 of the discovery roadmap
-(`docs/plans/prep/campus-event-discovery-capability.md` §7) authorizes exactly
+(`docs/archive/plans/prep/campus-event-discovery-capability.md` §7) authorizes exactly
 this: deterministic parser work against fixtures, with no transport, no
 migration, and no route.
 

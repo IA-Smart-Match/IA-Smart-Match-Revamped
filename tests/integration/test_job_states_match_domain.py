@@ -37,7 +37,7 @@ two. ``test_check_constraints.py::test_every_check_constraint_is_validated``
 reads ``pg_constraint.convalidated``, which is the only thing that can, and
 covers ``ck_job_status`` along with the other seven.
 
-Reading expression text is a thing ``docs/plans/defect-remediation.md`` §6.3
+Reading expression text is a thing ``docs/archive/plans/defect-remediation.md`` §6.3
 argues against for the schema drift test, and the objection does not apply here.
 There the expression *is* the assertion, and PostgreSQL's rewriting of
 ``status IN (...)`` into ``status = ANY (ARRAY[...])`` makes comparing two
