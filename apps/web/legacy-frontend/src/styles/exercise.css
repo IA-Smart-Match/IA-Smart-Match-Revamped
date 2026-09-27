@@ -1,0 +1,649 @@
+/*
+ * Class exercise "invitation desk" tokens and primitives.
+ *
+ * Contract: docs/design/class-exercise/DESIGN.md §3 (tokens), §5 (motion),
+ * §8 (accessibility). Every `--ce-*` colour is an alias of a `theme.css`
+ * value, or a tint or shade of an existing CPP hue — no new brand colour.
+ * The `ce-` prefix keeps all of it away from the CBA screens: nothing here
+ * matches an element unless it sits inside `.ce-root` or carries a `ce-`
+ * class, and only the exercise pages add those.
+ *
+ * The alias block is declared on `.dark` as well as `:root`. A custom
+ * property that reads `var(--primary)` resolves where it is declared and is
+ * inherited as that resolved value, so declaring it only on `:root` would
+ * freeze the light value inside a `.dark` subtree.
+ */
+
+:root,
+.dark {
+  /* §3.1 colour, light */
+  --ce-page: var(--background);
+  --ce-surface: var(--card);
+  --ce-surface-sunk: var(--muted);
+  --ce-ink: var(--foreground);
+  --ce-ink-muted: var(--muted-foreground);
+  --ce-primary: var(--primary);
+  --ce-on-primary: var(--primary-foreground);
+  --ce-primary-tint: var(--primary-container);
+  --ce-primary-tint-ink: var(--on-primary-container);
+  --ce-gold: var(--cpp-gold);
+  --ce-gold-on: var(--secondary-foreground);
+  --ce-gold-tint: #fff1cc;
+  --ce-gold-ink: #7a5200;
+  --ce-avocado: var(--cpp-avocado);
+  --ce-avocado-tint: var(--accent);
+  --ce-bay: var(--cpp-bay-brown);
+  --ce-seat-taken: var(--chart-4);
+  --ce-line: var(--border);
+  --ce-line-strong: #8f7a70;
+  --ce-danger: var(--destructive);
+  --ce-on-danger: var(--destructive-foreground);
+  --ce-scrim: rgba(16, 37, 29, 0.48);
+
+  /* §3.3 chart series */
+  --ce-chart-invited-fill: var(--primary-container);
+  --ce-chart-invited-stroke: var(--primary);
+  --ce-chart-signed-fill: var(--cpp-gold);
+  --ce-chart-signed-stroke: #7a5200;
+  --ce-chart-attended: var(--primary);
+
+  /* §3.6 radius */
+  --ce-radius-seat: 4px;
+  --ce-radius-control: 10px;
+  --ce-radius-card: 14px;
+  --ce-radius-sheet: 18px;
+
+  /* §3.7 elevation */
+  --ce-elev-1: 0 1px 2px rgba(22, 50, 41, 0.06), 0 4px 12px rgba(22, 50, 41, 0.06);
+  --ce-elev-2: 0 2px 4px rgba(22, 50, 41, 0.06), 0 12px 28px rgba(0, 80, 48, 0.1);
+  --ce-elev-3: 0 8px 16px rgba(22, 50, 41, 0.08), 0 24px 60px rgba(0, 80, 48, 0.16);
+
+  /* §5 easing */
+  --ce-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ce-ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --ce-ease-exit: cubic-bezier(0.7, 0, 0.84, 0);
+}
+
+/* §3.2 colour, dark. Only what the aliases above do not already follow. */
+.dark {
+  --ce-primary-tint: var(--accent);
+  --ce-primary-tint-ink: var(--foreground);
+  --ce-gold-on: #10251d;
+  --ce-gold-tint: #3a3420;
+  --ce-gold-ink: #ffd37a;
+  --ce-seat-taken: #b89a8e;
+  --ce-line-strong: #8fa89c;
+  --ce-chart-invited-fill: var(--accent);
+  --ce-chart-signed-stroke: #ffd37a;
+  --ce-elev-1: 0 1px 2px rgba(0, 0, 0, 0.35), 0 4px 12px rgba(0, 0, 0, 0.35);
+  --ce-elev-2: 0 2px 4px rgba(0, 0, 0, 0.35), 0 12px 28px rgba(0, 0, 0, 0.35);
+  --ce-elev-3: 0 8px 16px rgba(0, 0, 0, 0.35), 0 24px 60px rgba(0, 0, 0, 0.35);
+}
+
+@theme inline {
+  --color-ce-page: var(--ce-page);
+  --color-ce-surface: var(--ce-surface);
+  --color-ce-sunk: var(--ce-surface-sunk);
+  --color-ce-ink: var(--ce-ink);
+  --color-ce-muted: var(--ce-ink-muted);
+  --color-ce-primary: var(--ce-primary);
+  --color-ce-on-primary: var(--ce-on-primary);
+  --color-ce-primary-tint: var(--ce-primary-tint);
+  --color-ce-primary-tint-ink: var(--ce-primary-tint-ink);
+  --color-ce-gold: var(--ce-gold);
+  --color-ce-gold-on: var(--ce-gold-on);
+  --color-ce-gold-tint: var(--ce-gold-tint);
+  --color-ce-gold-ink: var(--ce-gold-ink);
+  --color-ce-avocado: var(--ce-avocado);
+  --color-ce-avocado-tint: var(--ce-avocado-tint);
+  --color-ce-bay: var(--ce-bay);
+  --color-ce-seat-taken: var(--ce-seat-taken);
+  --color-ce-line: var(--ce-line);
+  --color-ce-line-strong: var(--ce-line-strong);
+  --color-ce-danger: var(--ce-danger);
+  --color-ce-on-danger: var(--ce-on-danger);
+}
+
+@layer components {
+  /* ---- §3.9 browser surfaces, scoped to the exercise root ---- */
+  .ce-root {
+    background: var(--ce-page);
+    color: var(--ce-ink);
+    caret-color: var(--ce-primary);
+    font-family: var(--font-body);
+    font-size: 17px;
+    line-height: 26px;
+  }
+  .ce-root ::selection {
+    background: var(--ce-gold-tint);
+    color: var(--ce-ink);
+  }
+  .ce-root :focus-visible {
+    outline: 3px solid var(--ce-primary);
+    outline-offset: 3px;
+  }
+  .ce-root a.ce-link,
+  .ce-link {
+    color: var(--ce-primary);
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 4px;
+  }
+  .ce-link:hover {
+    text-decoration-thickness: 2px;
+  }
+  .ce-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: var(--ce-line-strong) var(--ce-surface-sunk);
+  }
+  @media (min-width: 768px) {
+    .ce-root {
+      font-size: 20px;
+      line-height: 30px;
+    }
+  }
+
+  /* ---- §3.4 type roles. Families come from fonts.css. ---- */
+  .ce-display,
+  .ce-h1,
+  .ce-rank {
+    font-family: var(--font-headline);
+    letter-spacing: 0;
+  }
+  .ce-h2,
+  .ce-h3,
+  .ce-reason,
+  .ce-headline {
+    font-family: var(--font-subhead);
+  }
+  .ce-lead,
+  .ce-body,
+  .ce-label,
+  .ce-meta,
+  .ce-value {
+    font-family: var(--font-body);
+  }
+  .ce-display {
+    font-weight: 700;
+    font-size: 40px;
+    line-height: 44px;
+    font-variant-numeric: tabular-nums;
+  }
+  .ce-h1 {
+    font-weight: 600;
+    font-size: 32px;
+    line-height: 38px;
+  }
+  .ce-h2 {
+    font-weight: 600;
+    font-size: 26px;
+    line-height: 32px;
+    letter-spacing: -0.01em;
+  }
+  .ce-h3 {
+    font-weight: 600;
+    font-size: 21px;
+    line-height: 28px;
+    letter-spacing: -0.01em;
+  }
+  .ce-lead {
+    font-weight: 400;
+    font-size: 18px;
+    line-height: 28px;
+  }
+  .ce-body {
+    font-weight: 400;
+    font-size: 17px;
+    line-height: 26px;
+  }
+  .ce-reason {
+    font-weight: 400;
+    font-size: 16px;
+    line-height: 24px;
+  }
+  .ce-label {
+    font-weight: 600;
+    font-size: 16px;
+    line-height: 22px;
+    letter-spacing: 0.01em;
+  }
+  .ce-meta {
+    font-weight: 500;
+    font-size: 15px;
+    line-height: 22px;
+    letter-spacing: 0.01em;
+  }
+  .ce-rank {
+    font-weight: 700;
+    font-size: 22px;
+    line-height: 26px;
+    font-variant-numeric: tabular-nums;
+  }
+  .ce-value {
+    font-weight: 700;
+    font-size: 18px;
+    line-height: 24px;
+    font-variant-numeric: tabular-nums;
+  }
+  .ce-headline {
+    font-weight: 600;
+    font-size: 28px;
+    line-height: 34px;
+  }
+  .ce-num {
+    font-variant-numeric: tabular-nums;
+  }
+  @media (min-width: 768px) {
+    .ce-display {
+      font-size: 72px;
+      line-height: 76px;
+    }
+    .ce-h1 {
+      font-size: 48px;
+      line-height: 56px;
+    }
+    .ce-h2 {
+      font-size: 32px;
+      line-height: 40px;
+    }
+    .ce-h3 {
+      font-size: 24px;
+      line-height: 32px;
+    }
+    .ce-lead {
+      font-size: 22px;
+      line-height: 34px;
+    }
+    .ce-body {
+      font-size: 20px;
+      line-height: 30px;
+    }
+    .ce-reason {
+      font-size: 18px;
+      line-height: 28px;
+    }
+    .ce-label {
+      font-size: 18px;
+      line-height: 24px;
+    }
+    .ce-meta {
+      font-size: 16px;
+      line-height: 24px;
+    }
+    .ce-rank {
+      font-size: 28px;
+      line-height: 32px;
+    }
+    .ce-value {
+      font-size: 22px;
+      line-height: 28px;
+    }
+    .ce-headline {
+      font-size: 40px;
+      line-height: 48px;
+    }
+  }
+
+  /* ---- Surfaces (§3.7: a shadow or a border, never both) ---- */
+  .ce-card {
+    background: var(--ce-surface);
+    border-radius: var(--ce-radius-card);
+    box-shadow: var(--ce-elev-1);
+  }
+  .ce-lift {
+    transition:
+      transform 160ms var(--ce-ease-out),
+      box-shadow 160ms var(--ce-ease-out);
+  }
+  .ce-lift:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--ce-elev-2);
+  }
+  .ce-well {
+    background: var(--ce-surface-sunk);
+    border-radius: var(--ce-radius-card);
+  }
+
+  /* ---- §6.3 buttons ---- */
+  .ce-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 48px;
+    min-width: 44px;
+    padding: 0 20px;
+    border-radius: var(--ce-radius-control);
+    font-family: var(--font-body);
+    font-weight: 600;
+    font-size: 17px;
+    line-height: 22px;
+    text-align: center;
+    cursor: pointer;
+    transition:
+      transform 100ms var(--ce-ease-out),
+      background-color 160ms var(--ce-ease-out),
+      border-color 160ms var(--ce-ease-out),
+      box-shadow 160ms var(--ce-ease-out);
+  }
+  .ce-btn:active:not(:disabled):not([aria-disabled="true"]) {
+    transform: scale(0.98);
+  }
+  .ce-btn:disabled,
+  .ce-btn[aria-disabled="true"] {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+  .ce-btn-primary {
+    background: var(--ce-primary);
+    color: var(--ce-on-primary);
+    border: 2px solid var(--ce-primary);
+  }
+  .ce-btn-primary:hover:not(:disabled):not([aria-disabled="true"]) {
+    background: color-mix(in srgb, var(--ce-primary) 92%, black);
+    border-color: color-mix(in srgb, var(--ce-primary) 92%, black);
+    box-shadow: var(--ce-elev-2);
+    transform: translateY(-2px);
+  }
+  .ce-btn-secondary {
+    background: var(--ce-surface);
+    color: var(--ce-ink);
+    border: 2px solid var(--ce-line-strong);
+  }
+  .ce-btn-secondary:hover:not(:disabled):not([aria-disabled="true"]) {
+    border-color: var(--ce-primary);
+    background: var(--ce-primary-tint);
+  }
+  .ce-btn-quiet {
+    background: transparent;
+    color: var(--ce-primary);
+    border: 0;
+    padding: 0 4px;
+    text-decoration: none;
+    text-underline-offset: 4px;
+  }
+  .ce-btn-quiet:hover:not(:disabled):not([aria-disabled="true"]) {
+    text-decoration: underline;
+    text-decoration-thickness: 2px;
+  }
+  .ce-btn-danger {
+    background: var(--ce-danger);
+    color: var(--ce-on-danger);
+    border: 2px solid var(--ce-danger);
+  }
+  .ce-btn-danger:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--ce-danger) 92%, black);
+  }
+  @media (min-width: 768px) {
+    .ce-btn {
+      font-size: 18px;
+      min-height: 52px;
+    }
+    .ce-btn-lg {
+      min-height: 56px;
+      padding: 0 28px;
+    }
+  }
+
+  /* ---- Fields ---- */
+  .ce-input {
+    min-height: 48px;
+    padding: 0 12px;
+    border-radius: var(--ce-radius-control);
+    border: 2px solid var(--ce-line-strong);
+    background: var(--ce-surface);
+    color: var(--ce-ink);
+    font-family: var(--font-body);
+    font-size: 18px;
+  }
+  .ce-input[aria-invalid="true"] {
+    border-color: var(--ce-danger);
+  }
+
+  /* ---- Chips (§3.6: pills are chips and tags only) ---- */
+  .ce-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border-radius: 999px;
+    padding: 2px 10px;
+    font-family: var(--font-body);
+    font-weight: 500;
+    font-size: 15px;
+    line-height: 22px;
+    white-space: nowrap;
+  }
+
+  /* ---- §6.6 weight slider: a native range, styled ---- */
+  .ce-range {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 44px;
+    background: transparent;
+    cursor: pointer;
+    --ce-fill: 0%;
+  }
+  .ce-range:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+  .ce-range::-webkit-slider-runnable-track {
+    height: 10px;
+    border-radius: 999px;
+    border: 2px solid var(--ce-line-strong);
+    background: linear-gradient(
+      to right,
+      var(--ce-primary) 0 var(--ce-fill),
+      var(--ce-surface-sunk) var(--ce-fill) 100%
+    );
+  }
+  .ce-range::-moz-range-track {
+    height: 6px;
+    border-radius: 999px;
+    border: 2px solid var(--ce-line-strong);
+    background: var(--ce-surface-sunk);
+  }
+  .ce-range::-moz-range-progress {
+    height: 6px;
+    border-radius: 999px;
+    background: var(--ce-primary);
+  }
+  .ce-range::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 28px;
+    height: 28px;
+    margin-top: -11px;
+    border-radius: 50%;
+    background: var(--ce-surface);
+    border: 2px solid var(--ce-primary);
+    box-shadow: var(--ce-elev-1);
+    transition:
+      transform 180ms var(--ce-ease-out),
+      box-shadow 180ms var(--ce-ease-out);
+  }
+  .ce-range::-moz-range-thumb {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: var(--ce-surface);
+    border: 2px solid var(--ce-primary);
+    box-shadow: var(--ce-elev-1);
+  }
+  .ce-range:hover::-webkit-slider-thumb,
+  .ce-range:active::-webkit-slider-thumb {
+    transform: scale(1.14);
+    box-shadow: var(--ce-elev-2);
+  }
+  .ce-range:hover::-moz-range-thumb,
+  .ce-range:active::-moz-range-thumb {
+    transform: scale(1.14);
+    box-shadow: var(--ce-elev-2);
+  }
+  .ce-range:focus-visible {
+    outline: none;
+  }
+  .ce-range:focus-visible::-webkit-slider-thumb {
+    outline: 3px solid var(--ce-primary);
+    outline-offset: 3px;
+  }
+  .ce-range:focus-visible::-moz-range-thumb {
+    outline: 3px solid var(--ce-primary);
+    outline-offset: 3px;
+  }
+
+  /* ---- §5 named motions (CSS side). Each has a reduced path below. ---- */
+  .ce-fade-rise {
+    animation: ce-fade-rise 240ms var(--ce-ease-out) both;
+  }
+  .ce-notice-in {
+    animation: ce-notice-in 200ms var(--ce-ease-out) both;
+  }
+  .ce-card-save {
+    animation: ce-card-save 220ms var(--ce-ease-out) both;
+  }
+  .ce-row-join {
+    animation: ce-row-join 900ms var(--ce-ease-out) both;
+  }
+  .ce-overlap-pulse {
+    animation: ce-overlap-pulse 600ms var(--ce-ease-in-out) both;
+  }
+  .ce-skeleton {
+    background: var(--ce-surface-sunk);
+    border-radius: 8px;
+    animation: ce-skeleton 1.6s var(--ce-ease-in-out) infinite;
+  }
+  .ce-rebuilding {
+    opacity: 0.6;
+    transition: opacity 150ms linear;
+  }
+  .ce-settled {
+    opacity: 1;
+    transition: opacity 150ms linear;
+  }
+  .ce-confirm-underline {
+    transform-origin: left center;
+    animation: ce-confirm-window 5000ms linear both;
+  }
+  .ce-spin {
+    animation: ce-spin 900ms linear infinite;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .ce-lift,
+    .ce-lift:hover,
+    .ce-btn,
+    .ce-btn:active:not(:disabled),
+    .ce-btn-primary:hover:not(:disabled) {
+      transform: none !important;
+    }
+    .ce-fade-rise,
+    .ce-notice-in,
+    .ce-card-save {
+      animation: ce-fade 150ms linear both;
+    }
+    .ce-row-join {
+      animation: ce-row-join-static 900ms steps(1, end) both;
+    }
+    .ce-overlap-pulse {
+      animation: none;
+    }
+    .ce-skeleton {
+      animation: none;
+      opacity: 0.75;
+    }
+    .ce-confirm-underline {
+      animation: none;
+    }
+    .ce-range::-webkit-slider-thumb {
+      transition: none;
+    }
+  }
+}
+
+@keyframes ce-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes ce-fade-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes ce-notice-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes ce-card-save {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes ce-row-join {
+  from {
+    background-color: var(--ce-gold-tint);
+  }
+  to {
+    background-color: transparent;
+  }
+}
+@keyframes ce-row-join-static {
+  from {
+    background-color: var(--ce-gold-tint);
+  }
+  to {
+    background-color: transparent;
+  }
+}
+@keyframes ce-overlap-pulse {
+  0%,
+  100% {
+    background-color: var(--ce-gold-tint);
+  }
+  50% {
+    background-color: color-mix(in srgb, var(--ce-gold) 45%, var(--ce-gold-tint));
+  }
+}
+@keyframes ce-skeleton {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+@keyframes ce-confirm-window {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
+@keyframes ce-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

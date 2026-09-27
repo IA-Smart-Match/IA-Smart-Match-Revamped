@@ -21,6 +21,7 @@ import { Link } from "react-router";
 
 import type { ExerciseRefusal } from "../../../lib/exerciseApi";
 import { ExerciseNotice } from "./ExerciseScreen";
+import { ceButton } from "./exerciseUi";
 
 /** The 401 that means this browser has not entered a team number yet. */
 export const WORKSPACE_REQUIRED = "exercise_workspace_required";
@@ -45,10 +46,7 @@ export function workspaceRequiredNotice(refusal: ExerciseRefusal): React.JSX.Ele
   }
   return (
     <ExerciseNotice message={refusal.message}>
-      <Link
-        to="/exercise"
-        className="inline-block rounded-lg border-2 border-slate-900 px-5 py-2 text-xl font-semibold text-slate-900 focus-visible:outline-2 focus-visible:outline-offset-2 dark:border-slate-100 dark:text-slate-100"
-      >
+      <Link to="/exercise" className={ceButton("secondary")}>
         Enter your team number
       </Link>
     </ExerciseNotice>
