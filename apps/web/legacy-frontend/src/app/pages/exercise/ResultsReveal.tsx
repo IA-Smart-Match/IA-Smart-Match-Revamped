@@ -53,6 +53,13 @@ export function ResultsReveal({
     () => seatFillPlan({ total: eventSeats, taken: alreadyComing, added }),
     [eventSeats, alreadyComing, added],
   );
+  // A live region that mounts already holding its text may never be spoken
+  // (reduced motion announces at once). So it mounts empty and is filled in
+  // an effect, after the empty region is in the document.
+  const [mounted, setMounted] = React.useState(false);
+  React.useEffect(() => {
+    setMounted(true);
+  }, []);
 
   return (
     <section className="grid gap-ce-5 lg:grid-cols-12 lg:gap-ce-6" data-slot="exercise-reveal">
@@ -70,7 +77,7 @@ export function ResultsReveal({
             aria-live="polite"
             data-slot="exercise-seats-announce"
           >
-            {fill.announce ? sentence : ""}
+            {mounted && fill.announce ? sentence : ""}
           </p>
         ) : null}
         <FiguresBand
