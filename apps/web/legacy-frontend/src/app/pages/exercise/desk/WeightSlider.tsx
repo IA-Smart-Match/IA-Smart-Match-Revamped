@@ -117,6 +117,9 @@ export function WeightSlider({
     if (refusal !== null) {
       lastSent.current = value;
       showValue(value);
+      // The box now holds the accepted value, so any typing error is stale;
+      // left set, it would also hide the server's sentence.
+      setFieldError(null);
     }
     // `value` is read for its current value, not watched: the trigger is a new
     // refusal object, which changes identity on every refused attempt.
