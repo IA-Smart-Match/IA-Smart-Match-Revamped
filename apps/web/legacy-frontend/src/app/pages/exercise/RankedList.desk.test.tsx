@@ -108,10 +108,19 @@ describe("<RankedList /> on desktop (§6.7)", () => {
     render(<RankedList entries={ENTRIES} factorLabels={LABELS} caption="List" />);
     const heads = screen.getAllByRole("columnheader");
     const width = (index: number) => Number(/w-\[(\d+)%\]/.exec(heads[index].className)?.[1]);
-    // Major, Year, How much we know: the marker column is the widest of the three.
+    // Major and How much we know take shares; the marker is the wider one.
     expect(width(4)).toBeGreaterThanOrEqual(28);
     expect(width(4)).toBeGreaterThan(width(2));
-    expect(width(4)).toBeGreaterThan(width(3));
+  });
+
+  it("gives Name the room left over: Year a fixed width, Major 18% (#251 review)", () => {
+    render(<RankedList entries={ENTRIES} factorLabels={LABELS} caption="List" />);
+    const heads = screen.getAllByRole("columnheader");
+    // Name takes no width class, so it gets everything the others leave.
+    expect(heads[1].className).not.toMatch(/\bw-/);
+    expect(heads[2].className).toContain("w-[18%]");
+    // Year holds one short word ("Sophomore"): a fixed width, not a share.
+    expect(heads[3].className).toMatch(/w-\[[\d.]+rem\]/);
   });
 
   it("says so when nobody is on the list", () => {
