@@ -504,7 +504,12 @@ describe("<ExerciseResults /> once-only presses", () => {
 
     await waitFor(() => expect(screen.getByText(/could not be reached/i)).toBeDefined());
     // The run the server confirmed is on screen, and there is no Run to press.
-    expect(document.querySelector('[data-slot="exercise-seats"]')?.textContent).toContain("50");
+    // Read from D8's sentence, not the figures band: a run made on this screen
+    // plays the desk reveal, whose band counts up from 0 after a 1.4s delay,
+    // while the sentence carries the server's numbers from the first render.
+    expect(
+      document.querySelector('[data-slot="exercise-seats-sentence"]')?.textContent,
+    ).toContain("50 seats are still open.");
     expect(screen.queryByRole("button", { name: /run results/i })).toBeNull();
     expect(posts(RESULTS)).toBe(1);
   });
