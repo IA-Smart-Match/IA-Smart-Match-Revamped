@@ -43,7 +43,7 @@
 import * as React from "react";
 import { Link } from "react-router";
 
-import { isRefusal } from "../../../lib/exerciseApi";
+import { ExerciseUnreachable, isRefusal, type ExerciseRefusal } from "../../../lib/exerciseApi";
 import {
   chooseAsking,
   readAskingChoice,
@@ -54,7 +54,7 @@ import {
   type RefreshCountsView,
   type RefreshView,
 } from "../../../lib/exerciseClient";
-import { askingChoiceConfirmHint } from "./askingChoices";
+import { askingChoiceConfirmHint, askingChoiceLabel } from "./askingChoices";
 import {
   Button,
   SkeletonCard,
@@ -65,7 +65,7 @@ import {
 } from "./desk";
 import { AskingChoiceCard, type AskingCardState } from "./ExerciseAskingChoiceCard";
 import { ExerciseNotice, ExerciseScreen } from "./ExerciseScreen";
-import { useExerciseResource } from "./useExerciseResource";
+import { isAccessRefusal, useExerciseResource } from "./useExerciseResource";
 import { workspaceRequiredNotice } from "./refusals";
 
 /** The refusal `GET …/events/{key}/results` gives for an event not yet run. */
@@ -177,7 +177,12 @@ function AskingSkeleton(): React.JSX.Element {
 }
 
 export function ExerciseAskingForMore(): React.JSX.Element {
-  const { state, reload } = useExerciseResource(readAskingScreen, []);
+  // A reload that cannot reach the server keeps the screen: after a once-only
+  // press, taking the panels down would also take down what the server just
+  // confirmed. Every refusal still replaces it, and a 401/403 always does.
+  const { state, reload } = useExerciseResource(readAskingScreen, [], {
+    keepDataOnError: (error) => error instanceof ExerciseUnreachable,
+  });
 
   /**
    * What this browser's own refresh press reported, held by the screen.
@@ -189,6 +194,19 @@ export function ExerciseAskingForMore(): React.JSX.Element {
    * it landing; the stored counts win once they arrive.
    */
   const [refreshed, setRefreshed] = React.useState<RefreshView | null>(null);
+  /** The choice this browser's own POST was answered with. */
+  const [confirmedChoice, setConfirmedChoice] = React.useState<string | null>(null);
+  /** A choice or refresh refused because this browser lost access. */
+  const [accessRefusal, setAccessRefusal] = React.useState<ExerciseRefusal | null>(null);
+
+  // Access gone on a read: nothing this browser was told may stay in memory.
+  const readRefused = state.status === "refused" && isAccessRefusal(state.refusal);
+  React.useEffect(() => {
+    if (readRefused) {
+      setRefreshed(null);
+      setConfirmedChoice(null);
+    }
+  }, [readRefused]);
 
   return (
     <ExerciseScreen
@@ -209,15 +227,35 @@ export function ExerciseAskingForMore(): React.JSX.Element {
           </Button>
         </ExerciseNotice>
       ) : null}
-      {state.status === "ready" ? (
-        <AskingPanels
-          asking={state.data.asking}
-          roundOneRun={state.data.roundOneRun}
-          roundOneName={state.data.roundOneName}
-          onChanged={reload}
-          refreshed={refreshed}
-          onRefreshed={setRefreshed}
-        />
+      {accessRefusal === null ? null : workspaceRequiredNotice(accessRefusal)}
+      {state.status === "ready" && accessRefusal === null ? (
+        <>
+          {state.unreachable === null ? null : (
+            <ExerciseNotice message={state.unreachable} tone="problem">
+              <Button variant="secondary" onClick={() => void reload()}>
+                Try again
+              </Button>
+            </ExerciseNotice>
+          )}
+          <AskingPanels
+            asking={state.data.asking}
+            roundOneRun={state.data.roundOneRun}
+            roundOneName={state.data.roundOneName}
+            onChanged={reload}
+            refreshed={refreshed}
+            onRefreshed={setRefreshed}
+            confirmedChoice={confirmedChoice}
+            onChoiceConfirmed={setConfirmedChoice}
+            // The read on screen may predate this browser's own confirmed
+            // press: its reload is still running, or could not be reached.
+            trustConfirmed={state.refreshing || state.unreachable !== null}
+            onAccessLost={(refusal) => {
+              setRefreshed(null);
+              setConfirmedChoice(null);
+              setAccessRefusal(refusal);
+            }}
+          />
+        </>
       ) : null}
     </ExerciseScreen>
   );
@@ -230,6 +268,10 @@ function AskingPanels({
   onChanged,
   refreshed,
   onRefreshed,
+  confirmedChoice,
+  onChoiceConfirmed,
+  trustConfirmed,
+  onAccessLost,
 }: {
   readonly asking: AskingStateView;
   /** Whether this team has results for its first round (see the module note). */
@@ -239,6 +281,16 @@ function AskingPanels({
   /** The once-only refresh result, owned by the screen. */
   readonly refreshed: RefreshView | null;
   readonly onRefreshed: (view: RefreshView) => void;
+  /** The choice this browser's POST was answered with, owned by the screen. */
+  readonly confirmedChoice: string | null;
+  readonly onChoiceConfirmed: (choice: string) => void;
+  /**
+   * `asking` may be older than this browser's own confirmed press, so the
+   * confirmed answers above stand in for it. Once a later read lands, the
+   * server's word wins again — including a reset that cleared both.
+   */
+  readonly trustConfirmed: boolean;
+  readonly onAccessLost: (refusal: ExerciseRefusal) => void;
 }): React.JSX.Element {
   const ids = React.useId();
   const reduced = usePrefersReducedMotion();
@@ -250,6 +302,21 @@ function AskingPanels({
   const [considered, setConsidered] = React.useState<string | null>(null);
   /** The card the confirm window belongs to. */
   const [target, setTarget] = React.useState<string | null>(null);
+  /**
+   * Set synchronously, before any render: two presses in one tick both read
+   * `pending` as `false`, so the state alone cannot keep a once-only POST
+   * from going out twice.
+   */
+  const inFlight = React.useRef(false);
+
+  /** What the team has chosen and asked, by the server's latest word or this browser's own. */
+  const choice = asking.choice ?? (trustConfirmed ? confirmedChoice : null);
+  const hasAsked = asking.refreshed || (trustConfirmed && refreshed !== null);
+  const counts = asking.refreshed
+    ? (asking.refresh_counts ?? refreshed)
+    : trustConfirmed
+      ? refreshed
+      : null;
 
   /**
    * Run one action and stay disabled until the screen actually reflects it.
@@ -262,21 +329,27 @@ function AskingPanels({
    * once-only action could be fired twice inside that window.
    */
   async function run(what: string, action: () => Promise<void>): Promise<void> {
-    if (pending) {
+    if (inFlight.current) {
       return;
     }
+    inFlight.current = true;
     setPending(true);
     setSending(what);
     setRefusal(null);
     try {
       await action();
     } catch (error) {
+      if (isAccessRefusal(error)) {
+        onAccessLost(error);
+        return;
+      }
       setRefusal(
         isRefusal(error)
           ? error.message
           : "The exercise could not be reached. Check the connection and try again.",
       );
     } finally {
+      inFlight.current = false;
       setPending(false);
       setSending(null);
     }
@@ -287,9 +360,9 @@ function AskingPanels({
       if (target === null) {
         return;
       }
-      const choice = target;
-      void run(choice, async () => {
-        await chooseAsking(choice);
+      const picked = target;
+      void run(picked, async () => {
+        onChoiceConfirmed((await chooseAsking(picked)).choice ?? picked);
         await onChanged();
       });
     },
@@ -298,7 +371,7 @@ function AskingPanels({
 
   /** A press on a card's button: arm it, or commit it if it is armed. */
   function press(choice: string): void {
-    if (pending) {
+    if (inFlight.current) {
       return;
     }
     setConsidered(choice);
@@ -317,15 +390,15 @@ function AskingPanels({
     }
   }
 
-  function cardState(choice: string): AskingCardState {
-    if (asking.choice === null) {
+  function cardState(card: string): AskingCardState {
+    if (choice === null) {
       return "open";
     }
-    return asking.choice === choice ? "chosen" : "dimmed";
+    return choice === card ? "chosen" : "dimmed";
   }
 
   const askShutReasons = [
-    asking.choice === null ? `${ids}-pick-first` : null,
+    choice === null ? `${ids}-pick-first` : null,
     roundOneRun ? null : `${ids}-run-first`,
   ].filter((id): id is string => id !== null);
 
@@ -345,15 +418,15 @@ function AskingPanels({
           aria-labelledby={`${ids}-question`}
           className="grid gap-ce-3 lg:grid-cols-3 lg:gap-ce-5"
         >
-          {asking.choices.map((choice) => (
+          {asking.choices.map((card) => (
             <AskingChoiceCard
-              key={choice}
-              choice={choice}
+              key={card}
+              choice={card}
               group={`${ids}-choice`}
-              state={cardState(choice)}
-              selected={(asking.choice ?? considered) === choice}
-              armed={armedChoice === choice}
-              saving={sending === choice}
+              state={cardState(card)}
+              selected={(choice ?? considered) === card}
+              armed={armedChoice === card}
+              saving={sending === card}
               busy={pending}
               reduced={reduced}
               onSelect={select}
@@ -363,9 +436,13 @@ function AskingPanels({
           ))}
         </div>
         <p aria-live="polite" data-slot="exercise-asking-confirm-live" className="sr-only">
-          {armedChoice === null ? "" : askingChoiceConfirmHint(armedChoice)}
+          {armedChoice !== null
+            ? askingChoiceConfirmHint(armedChoice)
+            : confirmedChoice !== null && choice === confirmedChoice
+              ? `Your team chose this: ${askingChoiceLabel(confirmedChoice)}`
+              : ""}
         </p>
-        {asking.choice === null ? null : (
+        {choice === null ? null : (
           <p className="ce-type-body text-ce-ink-muted">A team picks once, so these are now fixed.</p>
         )}
       </section>
@@ -380,9 +457,9 @@ function AskingPanels({
           <Button
             variant="primary"
             pending={sending === REFRESH_ACTION}
-            disabled={pending || asking.choice === null || asking.refreshed || !roundOneRun}
+            disabled={pending || choice === null || hasAsked || !roundOneRun}
             describedBy={
-              asking.refreshed || askShutReasons.length === 0 ? undefined : askShutReasons.join(" ")
+              hasAsked || askShutReasons.length === 0 ? undefined : askShutReasons.join(" ")
             }
             onClick={() =>
               void run(REFRESH_ACTION, async () => {
@@ -392,10 +469,10 @@ function AskingPanels({
             }
             className="w-full md:w-auto"
           >
-            {asking.refreshed ? "Your team has already asked" : "Ask them now"}
+            {hasAsked ? "Your team has already asked" : "Ask them now"}
           </Button>
         </div>
-        {asking.choice === null ? (
+        {choice === null ? (
           <p id={`${ids}-pick-first`} className="ce-type-body text-ce-ink-muted">
             Pick a way of asking first.
           </p>
@@ -405,11 +482,16 @@ function AskingPanels({
             {`Run your team's results for ${roundOneName ?? "the first event"} before asking.`}
           </p>
         )}
-        {/* Only while the server says the team has asked: a reset clears them. */}
-        <RefreshCounts
-          counts={asking.refreshed ? (asking.refresh_counts ?? refreshed) : null}
-          reduced={reduced}
-        />
+        {/*
+          While the server says the team has asked (a reset clears them), or
+          while this browser's own confirmed refresh is newer than the read.
+        */}
+        <RefreshCounts counts={counts} reduced={reduced} />
+        <p aria-live="polite" data-slot="exercise-refresh-announce" className="sr-only">
+          {refreshed === null || counts === null
+            ? ""
+            : `Your team asked. Cards filled in: ${counts.cards_completed}. Stopped opening messages: ${counts.non_responding}. Picked up the first event's topics: ${counts.topics_added}.`}
+        </p>
       </section>
     </div>
   );

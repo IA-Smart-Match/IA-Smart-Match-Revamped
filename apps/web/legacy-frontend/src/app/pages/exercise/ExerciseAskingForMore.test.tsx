@@ -121,6 +121,40 @@ function isShut(button: HTMLElement): boolean {
   return button.getAttribute("aria-disabled") === "true";
 }
 
+/**
+ * Answer by `METHOD url` and call count, with the first round already run:
+ * `"offline"` stands for a request that never reached the server, and `null`
+ * falls through to a 404.
+ */
+function stubBy(
+  answer: (key: string, count: number) => { body: unknown; status?: number } | "offline" | null,
+): void {
+  const counts = new Map<string, number>();
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((url: string, init: RequestInit) => {
+      calls.push({ url, init });
+      const key = `${init.method ?? "GET"} ${url}`;
+      const count = (counts.get(key) ?? 0) + 1;
+      counts.set(key, count);
+      const roundOne: Record<string, { body: unknown; status?: number }> = ROUND_ONE_RUN;
+      const found = answer(key, count) ?? roundOne[key] ?? null;
+      if (found === "offline") {
+        return Promise.reject(new TypeError("offline"));
+      }
+      const { body, status } = found ?? {
+        body: { error: { code: "test_unstubbed", message: key } },
+        status: 404,
+      };
+      return Promise.resolve(new Response(JSON.stringify(body), { status: status ?? 200 }));
+    }),
+  );
+}
+
+function postsTo(url: string): number {
+  return calls.filter((call) => call.url === url && call.init.method === "POST").length;
+}
+
 beforeEach(() => {
   calls = [];
 });
@@ -803,5 +837,98 @@ describe("<ExerciseAskingForMore /> — the invitation desk (§6.18, §6.19, §7
     for (const ticking of counts.querySelectorAll("dd [aria-hidden='true']")) {
       expect(ticking.classList.contains("ce-type-display")).toBe(true);
     }
+  });
+});
+
+describe("<ExerciseAskingForMore /> — once-only presses the server confirmed", () => {
+  const CHOSEN = { choice: "required", choices: ["required"], refreshed: false };
+  const COUNTS = { choice: "required", cards_completed: 8, non_responding: 2, topics_added: 5 };
+
+  it("sends one refresh POST for two presses in the same tick", async () => {
+    stubBy((key) => {
+      if (key === `GET ${ASKING}`) return { body: CHOSEN };
+      if (key === `POST ${REFRESH}`) return { body: COUNTS };
+      return null;
+    });
+    renderAsking();
+    const ask = await screen.findByRole("button", { name: /ask them now/i });
+    act(() => {
+      ask.click();
+      ask.click();
+    });
+    await waitFor(() => expect(postsTo(REFRESH)).toBe(1));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(postsTo(REFRESH)).toBe(1);
+  });
+
+  it("keeps a confirmed refresh shut, its counts on screen, when the re-read cannot be reached", async () => {
+    stubBy((key, count) => {
+      if (key === `GET ${ASKING}`) return count === 1 ? { body: CHOSEN } : "offline";
+      if (key === `POST ${REFRESH}`) return { body: COUNTS };
+      return null;
+    });
+    renderAsking();
+    fireEvent.click(await screen.findByRole("button", { name: /ask them now/i }));
+
+    await waitFor(() => expect(screen.getByText(/could not be reached/i)).toBeDefined());
+    const shut = screen.getByRole("button", { name: /your team has already asked/i });
+    expect(isShut(shut)).toBe(true);
+    fireEvent.click(shut);
+    expect(postsTo(REFRESH)).toBe(1);
+
+    const counts = document.querySelector('[data-slot="exercise-refresh-counts"]');
+    expect(counts?.textContent).toContain("Cards filled in8");
+    // Announced once, in full, for a screen reader.
+    expect(document.querySelector('[data-slot="exercise-refresh-announce"]')?.textContent).toBe(
+      "Your team asked. Cards filled in: 8. Stopped opening messages: 2. Picked up the first event's topics: 5.",
+    );
+
+    // "Try again" is the only way back to the server, and the server's word wins.
+    expect(screen.getByRole("button", { name: "Try again" })).toBeDefined();
+  });
+
+  it("keeps a confirmed choice fixed when the re-read cannot be reached", async () => {
+    stubBy((key, count) => {
+      if (key === `GET ${ASKING}`) return count === 1 ? OPEN_CHOICES[`GET ${ASKING}`] : "offline";
+      if (key === `POST ${ASKING}`) {
+        return {
+          body: { choice: "small_reward", choices: OPEN_CHOICES[`GET ${ASKING}`].body.choices, refreshed: false },
+        };
+      }
+      return null;
+    });
+    renderAsking();
+    await pressTwice(await chooseButton(/a small reward/));
+
+    await waitFor(() => expect(screen.getByText(/could not be reached/i)).toBeDefined());
+    expect(screen.queryByRole("button", { name: /choose this way/i })).toBeNull();
+    expect((screen.getByRole("radio", { name: /a small reward/i }) as HTMLInputElement).checked).toBe(
+      true,
+    );
+    expect(screen.getByText("A team picks once, so these are now fixed.")).toBeDefined();
+    expect(postsTo(ASKING)).toBe(1);
+    expect(document.querySelector('[data-slot="exercise-asking-confirm-live"]')?.textContent).toBe(
+      "Your team chose this: A small reward.",
+    );
+  });
+
+  it("takes the screen down when a refresh is refused for access", async () => {
+    stubBy((key) => {
+      if (key === `GET ${ASKING}`) return { body: CHOSEN };
+      if (key === `POST ${REFRESH}`) {
+        return {
+          body: { error: { code: "exercise_workspace_required", message: "Enter your team number." } },
+          status: 401,
+        };
+      }
+      return null;
+    });
+    renderAsking();
+    fireEvent.click(await screen.findByRole("button", { name: /ask them now/i }));
+    await waitFor(() =>
+      expect(screen.getByRole("link", { name: "Enter your team number" })).toBeDefined(),
+    );
+    expect(screen.queryByRole("radiogroup")).toBeNull();
+    expect(screen.queryByRole("button", { name: /ask them now/i })).toBeNull();
   });
 });

@@ -423,13 +423,14 @@ function EventMatching({ eventKey }: { readonly eventKey: string }): React.JSX.E
             onSave={(name) =>
               guard(async () => {
                 await saveSetting(eventKey, name, state.data.list.weights);
-                reload();
+                // Held until the saved list is re-read, so the panel stays busy.
+                await reload();
               })
             }
             onDelete={(name) =>
               guard(async () => {
                 await deleteSetting(eventKey, name);
-                reload();
+                await reload();
               })
             }
             onOpen={(name) => {

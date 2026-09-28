@@ -684,6 +684,23 @@ describe("<ExerciseMatching />", () => {
     expect(name.value).toBe("Wide net");
   });
 
+  it("sends one save for two presses in the same tick", async () => {
+    stub();
+    renderMatching();
+    const name = await screen.findByLabelText(/name these weights/i);
+    fireEvent.change(name, { target: { value: "Wide net" } });
+    const save = saveButton();
+    act(() => {
+      save.click();
+      save.click();
+    });
+    await waitFor(() =>
+      expect(calls.filter((call) => call.init.method === "PUT")).toHaveLength(1),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(calls.filter((call) => call.init.method === "PUT")).toHaveLength(1);
+  });
+
   it("clears the name once the save is accepted", async () => {
     stub();
     renderMatching();

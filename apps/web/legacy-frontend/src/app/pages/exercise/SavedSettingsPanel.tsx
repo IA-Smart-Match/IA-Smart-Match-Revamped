@@ -78,6 +78,11 @@ export function SavedSettingsPanel({
     () => new Set(saved.settings.map((setting) => setting.name)),
   );
   const pending = action !== null;
+  /**
+   * Set synchronously, before any render: a double-click reads `pending` as
+   * `false` twice, so the state alone cannot stop a second save or delete.
+   */
+  const inFlight = React.useRef(false);
 
   /**
    * Run one action, and say whether it worked.
@@ -93,13 +98,15 @@ export function SavedSettingsPanel({
    * with it is decide whether to clear the box.
    */
   async function run(kind: "save" | "delete", work: () => Promise<boolean>): Promise<boolean> {
-    if (pending) {
+    if (inFlight.current) {
       return false;
     }
+    inFlight.current = true;
     setAction(kind);
     try {
       return await work();
     } finally {
+      inFlight.current = false;
       setAction(null);
     }
   }
