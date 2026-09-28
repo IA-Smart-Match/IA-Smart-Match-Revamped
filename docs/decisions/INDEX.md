@@ -42,6 +42,7 @@ closes. (`docs/architecture/decisions/` ADRs have their own CI-gated index.)
 | `pilot-decisions.md` | partial supersession | tentative register; student Qs moved to OQ-SE/SC register |
 | `pilot-login-decision-2026-09-04.md` | decided, implemented | DB login substitutes A1b for pilot |
 | `r3-signing-decisions-2026-09-03.md` | ratified | T-19/27/28/04/29/C-1/13/23; S6a open |
+| `stakeholder-correspondence-2026-09.md` | record | Ann Wang emails verbatim (speaker phase two, Friday check-in, dataset); alignment check 2026-09-28 |
 | `student-recommender-decision-record.md` | dispositions recorded 09-16 | OQ-SE/SC product rows; ADR-0024 |
 | `synthetic-pilot-development-authorization-2026-09-03.md` | ratified | synthetic-only; deferred-gate map |
 
