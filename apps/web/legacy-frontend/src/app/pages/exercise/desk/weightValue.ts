@@ -49,3 +49,17 @@ export function formatWeight(value: number): string {
   const hundredths = value * 100;
   return Math.abs(hundredths - Math.round(hundredths)) < 1e-9 ? value.toFixed(2) : String(value);
 }
+
+/**
+ * The weights added up, free of binary noise (0.1 + 0.2 is 0.3, not
+ * 0.30000000000000004). Never capped at 1 and never rescaled: the scorer
+ * divides each weight by this total, so only how the weights compare matters.
+ */
+export function weightTotal(values: readonly number[]): number {
+  return tidyWeight(values.reduce((sum, value) => sum + value, 0));
+}
+
+/** The total as the team reads it: always two decimals ("1.00", "4.50"). Never a percentage. */
+export function formatWeightTotal(total: number): string {
+  return total.toFixed(2);
+}

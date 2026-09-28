@@ -20,6 +20,9 @@
  * - The thumb is drawn at 28px inside a 44px hit area (§8.9).
  * - `ce-slider-settle` glides the thumb to a clicked point (180ms); reduced
  *   motion jumps.
+ * - `onLiveChange` hears the box's number as it changes (a drag, a key step,
+ *   typing, or a reset to `value`) before anything is committed, so a running
+ *   total can follow along. Text that is not a plain number is `null`.
  * - Never disabled during a refetch: `pending` only shows a spinner.
  */
 import * as React from "react";
@@ -60,6 +63,12 @@ export interface WeightSliderProps {
    * (never clamped), or a slider value on 0–1.
    */
   readonly onCommit: (value: number) => void;
+  /**
+   * Called whenever the shown number changes, committed or not: the box's
+   * text read by `strictDecimal` (as typed, never clamped), or `null` when it
+   * is not a plain number. Also called once on mount.
+   */
+  readonly onLiveChange?: (value: number | null) => void;
   /** The latest commit's refusal (new object per attempt); its sentence is shown verbatim. */
   readonly refusal?: WeightRefusal | null;
   /** A committed change is rebuilding the list: show a spinner, stay live. */
@@ -75,6 +84,7 @@ export function WeightSlider({
   label,
   value,
   onCommit,
+  onLiveChange,
   refusal = null,
   pending = false,
   disabled = false,
@@ -98,6 +108,15 @@ export function WeightSlider({
    * and moving back to it must still be sent.
    */
   const lastSent = React.useRef(value);
+
+  // The latest callback, so a parent's inline arrow does not refire the effect.
+  const liveListener = React.useRef(onLiveChange);
+  React.useEffect(() => {
+    liveListener.current = onLiveChange;
+  });
+  React.useEffect(() => {
+    liveListener.current?.(strictDecimal(draft));
+  }, [draft]);
 
   const showValue = React.useCallback((next: number): void => {
     setDraft(formatWeight(next));

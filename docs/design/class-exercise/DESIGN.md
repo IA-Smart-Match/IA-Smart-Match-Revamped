@@ -427,6 +427,17 @@ Commit on pointer-up, on Enter, or on field blur; never per drag tick.
 | X | field outline `--ce-danger`, message under field from the component ("Type a number for this weight.") or the server's refusal sentence |
 | Dis | 45% opacity; never disabled during a refetch |
 
+**Total weight (owner ruling 2026-09-28).** Under the four sliders, above the
+"The list is rebuilt…" note, the card shows "Total weight: 1.00" (the sum of
+the four numbers as shown, two decimals, tabular numerals, updated live while
+dragging or typing) and one sentence: "What matters is how the weights
+compare: a factor set to 0.50 counts twice as much as one set to 0.25." The
+scorer divides each weight by the total, so the total is never forced to 1
+and the 0.25 defaults stay (OQ-CE-02). No percentage is shown anywhere
+(ADR-0025 D8). When the total is 0 the card shows the server's own sentence,
+"At least one number must be above 0.", as `role="status"`, and not again
+while that refusal is already shown under a slider.
+
 ### 6.7 Ranked row with reason line (see [prompt](../../archive/design/class-exercise/prompts/components/ranked-row.md))
 
 Desktop: table row. Columns: rank (Transducer 28, primary), name (Usual 600
@@ -849,7 +860,9 @@ labels and the license line are unchanged and not listed.
 | Opening lead | "Your team is promoting a campus career event with 60 seats. Choose whom to invite, see what happened, then try again." |
 | Event picker, 390 past-events disclosure | "Show the {n} past events" / "Show the 1 past event" (same label when expanded) |
 | Matching, slider note | "The list is rebuilt when you let go of a slider or press Enter." |
-| Matching, 390 sticky bar | "Weights 0.40 · 0.25 · 0.25 · 0.10" and "Edit weights" |
+| Matching, weight total | "Total weight: 1.00" |
+| Matching, weight total meaning | "What matters is how the weights compare: a factor set to 0.50 counts twice as much as one set to 0.25." |
+| Matching, 390 sticky bar | "Weights 0.40 · 0.25 · 0.25 · 0.10 · Total 1.00" and "Edit weights" |
 | Saved settings, field label | "Name these weights" (was "Call these weights") |
 | Saved settings, empty slot | "Slot 3 of 3 is free. Save the weights on screen to fill it." |
 | Saved settings, compare limit | "Two are chosen. Untick one to swap." |
