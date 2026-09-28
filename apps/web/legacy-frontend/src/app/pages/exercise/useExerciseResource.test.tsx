@@ -209,8 +209,16 @@ describe("useExerciseResource's keepDataOnError", () => {
     });
     const hook = renderHook(() => useExerciseResource(load, [], { keepDataOnError: keep }));
     await waitFor(() => expect(hook.result.current.state.status).toBe("ready"));
+    // Start the reload inside a synchronous `act`, then await it in a second
+    // one. Awaiting it inside the *same* `act` deadlocks: React holds the
+    // `setAttempt` update in act's queue until the scope exits, and the scope
+    // cannot exit until the reload that update starts has settled.
+    let reloaded: Promise<void> = Promise.resolve();
+    act(() => {
+      reloaded = hook.result.current.reload();
+    });
     await act(async () => {
-      await hook.result.current.reload();
+      await reloaded;
     });
     return hook.result;
   }
