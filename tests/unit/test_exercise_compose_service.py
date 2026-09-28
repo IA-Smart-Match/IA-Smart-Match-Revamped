@@ -214,3 +214,84 @@ def test_pins_cookie_secure_true(service: dict) -> None:
     # (exercise-hosting.md §2). Hard-set rather than interpolated, for the
     # same reason as the restart policy above.
     assert service["environment"]["SMARTMATCH_EXERCISE_COOKIE_SECURE"] == "true"
+
+
+# --- web-exercise -----------------------------------------------------------
+#
+# The second Vite dev server that serves the SPA's /exercise pages and proxies
+# /v1 to api-exercise. The base `web` service proxies /v1 to the CBA `api`,
+# which does not mount the exercise routers, and api-exercise serves no pages,
+# so the public exercise hostname must point at this service
+# (docs/operations/exercise-hosting.md §4a).
+
+WEB_SERVICE_NAME = "web-exercise"
+WEB_NODE_MODULES_VOLUME = "web-exercise-node-modules"
+
+
+@pytest.fixture(scope="module")
+def web_service(exercise_compose_document: dict) -> dict:
+    services = exercise_compose_document["services"]
+    assert WEB_SERVICE_NAME in services, (
+        f"{WEB_SERVICE_NAME} is not defined in docker-compose.exercise.yml — "
+        "without it the exercise pages have no server that proxies to api-exercise"
+    )
+    return services[WEB_SERVICE_NAME]
+
+
+def test_web_exercise_is_not_in_the_default_stack(
+    compose_document: dict, vm_compose_document: dict
+) -> None:
+    assert WEB_SERVICE_NAME not in compose_document["services"]
+    assert WEB_SERVICE_NAME not in vm_compose_document.get("services", {})
+
+
+def test_web_exercise_matches_the_base_web_image_and_command(
+    compose_document: dict, web_service: dict
+) -> None:
+    base_web = compose_document["services"]["web"]
+    assert web_service["image"] == base_web["image"]
+    assert web_service["working_dir"] == "/app"
+    assert web_service["command"] == base_web["command"]
+
+
+def test_web_exercise_proxies_to_api_exercise(web_service: dict) -> None:
+    env = web_service["environment"]
+    assert env["SMARTMATCH_API_PROXY_TARGET"] == f"http://{SERVICE_NAME}:8080"
+    assert web_service["depends_on"] == {SERVICE_NAME: {"condition": "service_started"}}
+
+
+def test_web_exercise_ships_no_bearer_token(web_service: dict) -> None:
+    # VITE_* values are bundled into what the browser runs. The CBA dev bearer
+    # token must never reach pages served on the public exercise hostname.
+    assert web_service["environment"]["VITE_SMARTMATCH_BEARER_TOKEN"] == ""
+
+
+def test_web_exercise_binds_loopback_5174(web_service: dict) -> None:
+    assert web_service["ports"] == ["127.0.0.1:5174:5173"]
+
+
+def test_web_exercise_does_not_reuse_the_web_port(
+    compose_document: dict, web_service: dict
+) -> None:
+    web_ports = {b.split(":")[1] for b in compose_document["services"]["web"]["ports"]}
+    exercise_ports = {b.split(":")[1] for b in web_service["ports"]}
+    assert not (web_ports & exercise_ports)
+
+
+def test_web_exercise_has_its_own_node_modules_volume(
+    exercise_compose_document: dict, web_service: dict
+) -> None:
+    # Two Vite servers must not share one node_modules (and its .vite cache).
+    volumes = web_service["volumes"]
+    assert "./apps/web/legacy-frontend:/app" in volumes
+    assert f"{WEB_NODE_MODULES_VOLUME}:/app/node_modules" in volumes
+    assert not any(v.startswith("web-node-modules:") for v in volumes)
+    assert WEB_NODE_MODULES_VOLUME in exercise_compose_document["volumes"]
+
+
+def test_web_exercise_is_gated_behind_the_exercise_profile(web_service: dict) -> None:
+    assert web_service.get("profiles") == ["exercise"]
+
+
+def test_web_exercise_adds_restart_policy(web_service: dict) -> None:
+    assert web_service.get("restart") == "unless-stopped"
