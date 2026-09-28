@@ -2,6 +2,7 @@
 
 **Status:** record. Holds three emails verbatim, as supplied by Danny (owner) on
 2026-09-27, plus what each one settles and an alignment check against the repo.
+Section D (Chau and Dr. Wang, 2026-09-28) was added on 2026-09-28.
 This file decides nothing new. Where an email answered a register row, the
 register row is the authority.
 **Recorded:** 2026-09-28.
@@ -130,6 +131,55 @@ invite-only speaker proposal.
 
 ---
 
+## D. Chau and Dr. Wang: how two factors score
+
+- **From:** Chau (the team), then Dr. Ann Wang's reply
+- **To:** Dr. Ann Wang, then Chau
+- **Date:** 2026-09-28
+- **Channel:** not stated in the copy supplied; Ann's reply asks for follow-up
+  questions on Teams
+- **Context:** an earlier team question listed four options for "said they are
+  interested in this topic": A, Jaccard |interests ∩ topics| / |interests ∪
+  topics| (what `stated_interest_overlap` computes); B, share of event topics
+  hit; C, share of interests used; D, any match 0/1, "like the major table".
+- **Attachments:** none
+
+**Chau → Dr. Wang:**
+
+> Hi Dr. Wang, it's Chau here. I hope you are having a great night. Just want to double check with you a bit. Currently, for the factor "said they are interested in this topic", we are using Jaccard Index to measure the similarity (this is what we have implemented). I noticed that, for Jaccard Index, say, if student A lists out two stated_interests and both of them match with the event_topics, then student A will receive higher score than student B, who lists out three stated_interests but only one of the interests match with the event_topics. I just want to double-check that this is what we want, rather than using a purely binary match (0 = no match, 1 = match), where the score does not take into account how many interests actually match. Thank you Dr. Wang.
+
+**Dr. Wang's reply:**
+
+> Hi Chau, This is a very good observation. Students should not be penalized for being "curious" and having broader interests. So yes:
+> 1. Said they are interested in this topic (intention) → yes/no match
+> Score 1 if any of the student's stated interests match any of the event's topics, 0 if none do.
+> 2. Went to similar events before (action)→ count of related past events
+> A past event counts as "related" if it shares at least one topic with the new event. Score it like this:
+> 0 related past events → 0
+> 1 related past event → 0.5
+> 2 or more related past events → 1
+> Please let me know on Teams if anything is unclea[r]
+
+### What this settles
+
+1. **"Said they are interested in this topic" becomes any-match** (option D):
+   1 when any stated interest is one of the event's topics, else 0. It replaces
+   the Jaccard index in
+   `python/smartmatch_domain/smartmatch_domain/student_factors/factors.py:146`.
+2. **"Went to similar events before" becomes a count of related past events**:
+   0 → 0, 1 → 0.5, 2 or more → 1. A past event is related when it shares at
+   least one topic with the event being promoted. It replaces the Jaccard of the
+   union of past topics (`factors.py:234`).
+3. **Why:** "Students should not be penalized for being 'curious' and having
+   broader interests." The same reasoning covers past events: the union Jaccard
+   also shrinks as a student attends more varied events.
+4. **Not settled:** whether the results rule follows, how repeat attendance of
+   one event counts, and the wording for a single related event. Logged as
+   OQ-CE-17; the build plan is
+   [`../plans/2026-09-28-exercise-interest-anymatch-past-events-plan.md`](../plans/2026-09-28-exercise-interest-anymatch-past-events-plan.md).
+
+---
+
 ## Alignment check (2026-09-28)
 
 Emails A–C and the 15 September requirements against `origin/main` at
@@ -164,6 +214,7 @@ items come first.
 | 18 | Results lock, one run per team per event | **built** | `api/exercise_instructor.py:405` unlock; `api/exercise_results_run.py:332` `already_run` | None. |
 | 19 | Comparison: "email everyone", round-one result in round two, seats still empty (+ if-time bar chart) | **built** | `domain/exercise/simulation.py:647` `run_email_everyone`, `:676` seats; `api/exercise_results.py:150` round one; `web/ResultPanels.tsx:41`, `:101` chart | None. |
 | 20 | Asking-for-more choice, per-team refresh, instructor refresh-all, per-team reset (+ if-time card mock-up) | **built** | `api/exercise_results.py:371` choose, `:430` refresh; `api/exercise_instructor_refresh.py:96`; `api/exercise_instructor.py:538` reset (instructor-only, owner ruling 2026-09-19); `web/ProfileCardMockup.tsx` (two questions, OQ-CE-11) | None (Oct 16 code items done; Ann's run-through needs row 3). |
+| 21 | Dr. Wang (D, 2026-09-28): interest is any-match 0/1; past events score by count of related events, 0 / 0.5 / 1 | **conflicts** — both are built as Jaccard | `domain/student_factors/factors.py:146` `jaccard(interests, topics)`; `:234` `jaccard(attended, topics)`; `domain/student_factors/terms.py:44` | Build per [`../plans/2026-09-28-exercise-interest-anymatch-past-events-plan.md`](../plans/2026-09-28-exercise-interest-anymatch-past-events-plan.md); OQ-CE-17. |
 
 ### Milestones against the build
 
@@ -186,3 +237,6 @@ items come first.
    the app's placeholder limiter is proven today).
 4. **P004 (row 5).** Whether to tell Ann that the "turned off" half does not
    hold as built.
+5. **Interest and past-event scoring (row 21).** Approve the build plan, and
+   decide whether the shared `student_factors` functions change in place
+   (ADR-0025 D3) — see the plan's owner question.
