@@ -30,7 +30,7 @@ import * as React from "react";
 import { Download, LoaderCircle } from "lucide-react";
 import { Link, useParams } from "react-router";
 
-import { isRefusal } from "../../../lib/exerciseApi";
+import { ExerciseRefusal, isRefusal } from "../../../lib/exerciseApi";
 import {
   compareSettings,
   deleteSetting,
@@ -50,7 +50,7 @@ import { ListCompositionTable } from "./ListCompositionTable";
 import { MatchingCompareView } from "./MatchingCompareView";
 import { RankedList } from "./RankedList";
 import { SavedSettingsPanel } from "./SavedSettingsPanel";
-import { useExerciseResource } from "./useExerciseResource";
+import { isAccessRefusal, useExerciseResource } from "./useExerciseResource";
 import { isWeightsRefusal, WeightsControls } from "./WeightsControls";
 import { workspaceRequiredNotice } from "./refusals";
 
@@ -67,6 +67,45 @@ interface MatchingData {
   readonly saved: SavedSettingsView;
 }
 
+function sameWeights(
+  left: Readonly<Record<string, number>>,
+  right: Readonly<Record<string, number>>,
+): boolean {
+  const keys = new Set([...Object.keys(left), ...Object.keys(right)]);
+  return [...keys].every((key) => left[key] === right[key]);
+}
+
+/**
+ * Whether the list on screen is the answer to the weighting last asked for.
+ *
+ * The screen owns two weightings and they are not the same thing: the one it
+ * *asked* for (`weighting`) and the one the server *accepted* (the list's own
+ * `weights` and `setting_name`). Between a request and its answer, and after a
+ * refusal, they differ — and anything that acts on "these weights" (the
+ * status line, save, the download) has to know which one it means.
+ */
+function listAnswersWeighting(list: RankedListView, weighting: ListWeighting): boolean {
+  if (weighting.kind === "weights") {
+    return sameWeights(list.weights, weighting.weights);
+  }
+  if (weighting.kind === "setting") {
+    return list.setting_name === weighting.name;
+  }
+  return list.setting_name === null;
+}
+
+/**
+ * Which failed list reads keep the list already on screen.
+ *
+ * A refused weighting must not take the screen down with it — the list a team
+ * was already looking at is still the true answer to the question it asked
+ * before the one that was refused. The hook itself never keeps data past a
+ * 401 or 403 (see `useExerciseResource`'s `keepDataOnError`).
+ */
+function keepMatchingData(error: unknown): boolean {
+  return error instanceof ExerciseRefusal;
+}
+
 export function ExerciseMatching(): React.JSX.Element {
   const { eventKey = "" } = useParams();
 
@@ -75,6 +114,10 @@ export function ExerciseMatching(): React.JSX.Element {
   /** The side-by-side view, when a team has asked for one. */
   const [comparison, setComparison] = React.useState<CompareView | null>(null);
   const [panelRefusal, setPanelRefusal] = React.useState<string | null>(null);
+  /** A save, delete or compare refused because this browser lost access. */
+  const [accessRefusal, setAccessRefusal] = React.useState<ExerciseRefusal | null>(null);
+  /** Whether a weight box holds text that has not been committed yet. */
+  const [hasUnsent, setHasUnsent] = React.useState(false);
 
   const load = React.useCallback(
     async (signal: AbortSignal): Promise<MatchingData> => ({
@@ -83,14 +126,15 @@ export function ExerciseMatching(): React.JSX.Element {
     }),
     [eventKey, weighting],
   );
-  // A refused weighting must not take the screen down with it — the list a
-  // team was already looking at is still the true answer to the question it
-  // asked before the one that was refused. See `useExerciseResource`'s
-  // `keepDataOnRefusal` docstring for why the other exercise screens do not
-  // opt into this.
+  // See `keepMatchingData`, and `useExerciseResource`'s `keepDataOnError`
+  // docstring for why the other exercise screens do not opt into this.
   const { state, reload } = useExerciseResource(load, [eventKey, weighting], {
-    keepDataOnRefusal: true,
+    keepDataOnError: keepMatchingData,
   });
+
+  /** The list on screen answers the boxes: nothing typed and unsent, nothing asked and unanswered. */
+  const listCurrent =
+    state.status === "ready" && !hasUnsent && listAnswersWeighting(state.data.list, weighting);
 
   /**
    * Run one action; show any refusal, and say whether it worked.
@@ -106,6 +150,12 @@ export function ExerciseMatching(): React.JSX.Element {
       await action();
       return true;
     } catch (error) {
+      if (isAccessRefusal(error)) {
+        // The workspace cookie has gone or access was refused: nothing on this
+        // screen is known to be readable any more, so it all goes.
+        setAccessRefusal(error);
+        return false;
+      }
       setPanelRefusal(
         isRefusal(error)
           ? error.message
@@ -129,7 +179,11 @@ export function ExerciseMatching(): React.JSX.Element {
 
   return (
     <ExerciseScreen
-      title={state.status === "ready" ? state.data.list.event_name : "Your team's list"}
+      title={
+        state.status === "ready" && accessRefusal === null
+          ? state.data.list.event_name
+          : "Your team's list"
+      }
       intro="Decide how much each thing counts, then see who that puts on the list — and who it leaves off."
       aside={
         <Link to="/exercise/events" className={LINK_SECONDARY}>
@@ -152,7 +206,9 @@ export function ExerciseMatching(): React.JSX.Element {
         </ExerciseNotice>
       ) : null}
 
-      {state.status !== "ready" ? null : (
+      {accessRefusal === null ? null : workspaceRequiredNotice(accessRefusal)}
+
+      {state.status !== "ready" || accessRefusal !== null ? null : (
         <div className="flex flex-col gap-ce-6 md:gap-ce-7">
           {panelRefusal === null && listRefusal === null ? null : (
             <div className="flex flex-col gap-ce-3">
@@ -184,6 +240,7 @@ export function ExerciseMatching(): React.JSX.Element {
                 factorLabels={state.data.list.factor_labels}
                 weights={state.data.list.weights}
                 refusal={state.refusal}
+                onUnsentChange={setHasUnsent}
                 onChange={(weights) => {
                   setComparison(null);
                   setWeighting({ kind: "weights", weights });
@@ -215,6 +272,14 @@ export function ExerciseMatching(): React.JSX.Element {
                         className="size-4 animate-spin text-ce-primary motion-reduce:animate-none"
                       />
                       Rebuilding the list…
+                    </p>
+                  ) : state.refusal === null && !listCurrent ? (
+                    <p
+                      data-slot="exercise-list-not-current"
+                      className="ce-type-meta text-ce-ink-muted"
+                    >
+                      This list is not built from the numbers above yet. Leave the box or press
+                      Enter to rebuild it.
                     </p>
                   ) : null}
                 </div>

@@ -11,6 +11,7 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import * as React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { ExerciseRefusal, ExerciseUnreachable } from "../../../lib/exerciseApi";
 import { useExerciseResource } from "./useExerciseResource";
 
 afterEach(() => {
@@ -18,6 +19,33 @@ afterEach(() => {
 });
 
 describe("useExerciseResource's reload()", () => {
+  it("settles a reload queued immediately before unmount", async () => {
+    // The reload's own run never starts: the hook unmounts in the same tick.
+    const load = vi.fn(() => Promise.resolve("ready"));
+    const { result, unmount } = renderHook(() => useExerciseResource(load, []));
+    await waitFor(() => expect(result.current.state.status).toBe("ready"));
+
+    let settled = false;
+    act(() => {
+      void result.current.reload().then(() => {
+        settled = true;
+      });
+      unmount();
+    });
+
+    await waitFor(() => expect(settled).toBe(true));
+  });
+
+  it("returns an already-settled reload after unmount", async () => {
+    const { result, unmount } = renderHook(() =>
+      useExerciseResource(() => Promise.resolve("ready"), []),
+    );
+    await waitFor(() => expect(result.current.state.status).toBe("ready"));
+    const reload = result.current.reload;
+    unmount();
+    await expect(reload()).resolves.toBeUndefined();
+  });
+
   it("settles reload() on unmount instead of leaving it pending forever", async () => {
     // Round 3, finding 4. A run's cleanup hands its unresolved waiters to
     // "whichever run replaces it" — there is no such run when the hook
@@ -168,5 +196,56 @@ describe("useExerciseResource's reload()", () => {
 
     release?.();
     await waitFor(() => expect(settled).toBe(true));
+  });
+});
+
+describe("useExerciseResource's keepDataOnError", () => {
+  /** A hook whose first load succeeds and whose next load fails with `error`. */
+  async function readyThenFailing(error: unknown, keep: (error: unknown) => boolean) {
+    let count = 0;
+    const load = vi.fn(() => {
+      count += 1;
+      return count === 1 ? Promise.resolve("first") : Promise.reject(error);
+    });
+    const hook = renderHook(() => useExerciseResource(load, [], { keepDataOnError: keep }));
+    await waitFor(() => expect(hook.result.current.state.status).toBe("ready"));
+    await act(async () => {
+      await hook.result.current.reload();
+    });
+    return hook.result;
+  }
+
+  it("keeps the previous answer beside a refusal the caller accepts", async () => {
+    const refusal = new ExerciseRefusal(422, "exercise_weights_invalid", "A weight cannot be below 0.");
+    const result = await readyThenFailing(refusal, () => true);
+    const state = result.current.state;
+    expect(state.status).toBe("ready");
+    if (state.status === "ready") {
+      expect(state.data).toBe("first");
+      expect(state.refusal).toBe(refusal);
+      expect(state.unreachable).toBeNull();
+    }
+  });
+
+  it("keeps the previous answer beside the transport sentence when the caller accepts it", async () => {
+    const result = await readyThenFailing(new ExerciseUnreachable(), () => true);
+    const state = result.current.state;
+    expect(state.status).toBe("ready");
+    if (state.status === "ready") {
+      expect(state.data).toBe("first");
+      expect(state.refusal).toBeNull();
+      expect(state.unreachable).toBe(new ExerciseUnreachable().message);
+    }
+  });
+
+  it.each([401, 403])("purges the previous answer on a %i even when the caller would keep it", async (status) => {
+    const refusal = new ExerciseRefusal(status, "exercise_workspace_required", "Enter your team number.");
+    const result = await readyThenFailing(refusal, () => true);
+    expect(result.current.state).toEqual({ status: "refused", refusal });
+  });
+
+  it("replaces the screen when the caller does not accept the failure", async () => {
+    const result = await readyThenFailing(new ExerciseUnreachable(), () => false);
+    expect(result.current.state.status).toBe("unreachable");
   });
 });

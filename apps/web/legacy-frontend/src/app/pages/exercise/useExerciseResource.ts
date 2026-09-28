@@ -27,12 +27,18 @@ export type ExerciseResourceState<T> =
        * The refusal the *latest* load got, with the previous answer still on
        * screen beside it.
        *
-       * Only ever non-null for a caller that passed `keepDataOnRefusal` — see
-       * the hook's own docstring for why that is opt-in rather than the
-       * default. `null` on every successful load, so a stale sentence cannot
-       * outlive the request that produced it.
+       * Only ever non-null for a caller whose `keepDataOnError` accepted the
+       * refusal — see the option's docstring for why that is opt-in rather
+       * than the default. `null` on every successful load, so a stale
+       * sentence cannot outlive the request that produced it.
        */
       readonly refusal: ExerciseRefusal | null;
+      /**
+       * The transport sentence the *latest* load got, with the previous answer
+       * still on screen beside it. Same rules as `refusal`: opt-in through
+       * `keepDataOnError`, and `null` on every successful load.
+       */
+      readonly unreachable: string | null;
       /**
        * A newer load is in flight and this is the previous answer.
        *
@@ -63,9 +69,17 @@ export function stateFromError<T>(error: unknown): ExerciseResourceState<T> {
   return { status: "unreachable", message: new ExerciseUnreachable().message };
 }
 
+/**
+ * A refusal that means this browser may no longer read what is on screen: the
+ * workspace cookie has gone (401) or the request was forbidden (403).
+ */
+export function isAccessRefusal(error: unknown): error is ExerciseRefusal {
+  return error instanceof ExerciseRefusal && (error.status === 401 || error.status === 403);
+}
+
 export interface ExerciseResourceOptions {
   /**
-   * Keep the answer already on screen when a later load is refused.
+   * Keep the answer already on screen when a later load fails with `error`.
    *
    * **Opt-in, and deliberately not the default.** Whether a stale answer
    * beside a refusal is honest or dishonest depends entirely on what the
@@ -82,8 +96,14 @@ export interface ExerciseResourceOptions {
    * previous dataset list or the previous run underneath that sentence would
    * be showing something that is no longer known to be true. They keep the
    * discarding behaviour: the refusal replaces the screen.
+   *
+   * **Never for a 401 or 403,** whatever the predicate says. Those mean this
+   * browser may no longer read the data at all, so it is purged rather than
+   * left on screen beside the sentence. Only an `ExerciseRefusal` or an
+   * `ExerciseUnreachable` is ever kept; anything else is a transport failure
+   * with no answer to keep beside it.
    */
-  readonly keepDataOnRefusal?: boolean;
+  readonly keepDataOnError?: (error: unknown) => boolean;
 }
 
 /**
@@ -98,7 +118,7 @@ export function useExerciseResource<T>(
   deps: readonly unknown[],
   options: ExerciseResourceOptions = {},
 ): { readonly state: ExerciseResourceState<T>; readonly reload: () => Promise<void> } {
-  const keepDataOnRefusal = options.keepDataOnRefusal ?? false;
+  const keepDataOnError = options.keepDataOnError;
   const [state, setState] = useState<ExerciseResourceState<T>>({ status: "loading" });
   const [attempt, setAttempt] = useState(0);
 
@@ -135,6 +155,14 @@ export function useExerciseResource<T>(
     unmounted.current = false;
     return () => {
       unmounted.current = true;
+      // A `reload()` queued in the same tick as the unmount has no run left to
+      // settle it: the run it asked for never starts. Resolve it here rather
+      // than leave its caller waiting forever.
+      const queued = settled.current;
+      settled.current = [];
+      for (const resolve of queued) {
+        resolve();
+      }
     };
   }, []);
 
@@ -162,14 +190,20 @@ export function useExerciseResource<T>(
     // across the reload that follows them.
     setState((previous) =>
       previous.status === "ready"
-        ? { status: "ready", data: previous.data, refreshing: true, refusal: null }
+        ? {
+            status: "ready",
+            data: previous.data,
+            refreshing: true,
+            refusal: null,
+            unreachable: null,
+          }
         : { status: "loading" },
     );
     loadRef
       .current(controller.signal)
       .then((data) => {
         if (live) {
-          setState({ status: "ready", data, refreshing: false, refusal: null });
+          setState({ status: "ready", data, refreshing: false, refusal: null, unreachable: null });
           resolveAll();
         }
       })
@@ -179,13 +213,21 @@ export function useExerciseResource<T>(
         }
         setState((previous) => {
           if (
-            keepDataOnRefusal &&
             previous.status === "ready" &&
-            error instanceof ExerciseRefusal
+            !isAccessRefusal(error) &&
+            (error instanceof ExerciseRefusal || error instanceof ExerciseUnreachable) &&
+            keepDataOnError?.(error) === true
           ) {
             // The answer on screen is still the true answer to the question
-            // that produced it. The refusal is about the *new* question.
-            return { status: "ready", data: previous.data, refreshing: false, refusal: error };
+            // that produced it. The failure is about the *new* question.
+            return {
+              status: "ready",
+              data: previous.data,
+              refreshing: false,
+              refusal: error instanceof ExerciseRefusal ? error : null,
+              unreachable:
+                error instanceof ExerciseUnreachable ? new ExerciseUnreachable().message : null,
+            };
           }
           return stateFromError<T>(error);
         });
@@ -214,11 +256,15 @@ export function useExerciseResource<T>(
       settled.current = [...resolvers, ...settled.current];
     };
     // `deps` is the caller's declared dependency list; `attempt` forces a
-    // reload. `keepDataOnRefusal` is a caller constant, not a dependency.
+    // reload. `keepDataOnError` is a caller constant, not a dependency.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [...deps, attempt]);
 
   const reload = useCallback(() => {
+    if (unmounted.current) {
+      // Nothing will run for it: the screen that asked is gone.
+      return Promise.resolve();
+    }
     return new Promise<void>((resolve) => {
       settled.current = [...settled.current, resolve];
       setAttempt((value) => value + 1);
