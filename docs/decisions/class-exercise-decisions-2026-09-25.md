@@ -153,6 +153,12 @@ Every `file:line` below is on `origin/main` at `9339d5a4`. Paths are shortened:
 - **Code.** `tests/fixtures/exercise/SmartMatch_Student_Body_300.xlsx` and
   `tests/fixtures/exercise/SmartMatch_Student_Body_Sample_20.xlsx`, sheets
   `Profiles` and `Events` only. Stripped in commit `a2086ffd` (PR #231).
+- **Amendment, 2026-09-27.** Two derived files may also be committed:
+  `tests/fixtures/exercise/SmartMatch_Student_Body_300.accdb` (an Access copy
+  of the 300 workbook) and `test_data/event_major_fit.csv` (the E11/E12
+  major-fit table). The xlsx stays the source of truth; the `.accdb` carries
+  no document metadata (no Author, Company or LastAuthor). See
+  `tests/fixtures/exercise/README.md`. Owner-approved 2026-09-27 (PR #243).
 
 ## D5. A results run needs a saved final setting
 

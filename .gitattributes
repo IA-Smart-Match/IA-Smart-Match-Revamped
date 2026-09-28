@@ -22,4 +22,5 @@
 *.ttf binary
 *.otf binary
 *.db binary
+*.accdb binary
 *.npy binary

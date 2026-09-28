@@ -80,6 +80,13 @@ apps/web/.vite/
 # A binary spreadsheet in git is a file nobody can review a change to.
 *.xlsx
 
+# Access lock files. Opening a .accdb/.mdb in Microsoft Access writes a
+# .laccdb/.ldb beside it that records the computer name and the user name of
+# whoever has it open. The committed .accdb fixture is intentional; its lock
+# file never is.
+*.laccdb
+*.ldb
+
 # Codex CLI debris. `codex exec` writes an error.log into the working directory
 # on startup; it carries the account identifier the CLI authenticated with, and
 # it is a transcript of a tool run rather than anything about this project.
