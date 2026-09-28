@@ -81,6 +81,12 @@ export interface WeightsControlsProps {
    * it as if it were.
    */
   readonly onUnsentChange?: (hasUnsent: boolean) => void;
+  /**
+   * The latest commit's request never reached the server. It settles that
+   * commit like a refusal does — but the sliders keep the weights the team
+   * asked for, since nothing refused them, and the screen offers the retry.
+   */
+  readonly transportFailed?: boolean;
 }
 
 /**
@@ -109,6 +115,7 @@ export function WeightsControls({
   disabled = false,
   refusal = null,
   onUnsentChange,
+  transportFailed = false,
 }: WeightsControlsProps): React.JSX.Element {
   const keys = orderedFactorKeys(factorLabels);
   const card = React.useRef<HTMLFieldSetElement>(null);
@@ -312,6 +319,21 @@ export function WeightsControls({
   }, [refusal]);
 
   /**
+   * A request that never landed is settled too, or the next commit would be
+   * queued behind it forever. Its base is what was asked for: the sliders
+   * still show those numbers, and the next commit must build on them. Only a
+   * change into the failed state counts — the screen's "Try again" is the
+   * retry, never this.
+   */
+  React.useEffect(() => {
+    if (!transportFailed) {
+      return;
+    }
+    onSettled(pendingBase.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [transportFailed]);
+
+  /**
    * Send one weight upstream, once, when the team is done with it — or, if
    * another commit is already in flight, fold it into the one commit queued
    * behind it (see `queuedEdits`).
@@ -340,11 +362,11 @@ export function WeightsControls({
     // last confirmed base, with any already-queued edit layered on top.
     const effectiveBase = { ...pendingBase.current, ...(queuedEdits.current ?? {}) };
     if (value === effectiveBase[key]) {
-      if (refusal !== null && !inFlight) {
-        // The team has typed a refused weight back to the accepted one. The
-        // screen is still holding the refused request, so staying silent
-        // here would leave it stuck on "that change was refused" with no way
-        // out. Ask for the accepted weights: that is the correction.
+      if ((refusal !== null || transportFailed) && !inFlight) {
+        // The team has typed a refused (or unsent) weight back to the one
+        // already asked for. The screen is still holding the failed request,
+        // so staying silent here would leave it stuck on "that change was
+        // refused" with no way out. Ask again: that is the correction.
         setPendingKeys((previous) => (previous.includes(key) ? previous : [...previous, key]));
         send(effectiveBase, [key]);
       }

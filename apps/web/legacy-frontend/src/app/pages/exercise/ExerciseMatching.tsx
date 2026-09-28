@@ -30,7 +30,7 @@ import * as React from "react";
 import { Download, LoaderCircle } from "lucide-react";
 import { Link, useParams } from "react-router";
 
-import { ExerciseRefusal, isRefusal } from "../../../lib/exerciseApi";
+import { ExerciseRefusal, ExerciseUnreachable, isRefusal } from "../../../lib/exerciseApi";
 import {
   compareSettings,
   deleteSetting,
@@ -97,18 +97,34 @@ function listAnswersWeighting(list: RankedListView, weighting: ListWeighting): b
 /**
  * Which failed list reads keep the list already on screen.
  *
- * A refused weighting must not take the screen down with it — the list a team
- * was already looking at is still the true answer to the question it asked
- * before the one that was refused. The hook itself never keeps data past a
- * 401 or 403 (see `useExerciseResource`'s `keepDataOnError`).
+ * A refused weighting, or one that could not be sent, must not take the screen
+ * down with it — the list a team was already looking at is still the true
+ * answer to the question it asked before that one. The hook itself never
+ * keeps data past a 401 or 403 (see `useExerciseResource`'s
+ * `keepDataOnError`).
  */
 function keepMatchingData(error: unknown): boolean {
-  return error instanceof ExerciseRefusal;
+  return error instanceof ExerciseRefusal || error instanceof ExerciseUnreachable;
 }
+
+/** The weighting the list on screen was built from, to ask for again. */
+function acceptedWeighting(list: RankedListView): ListWeighting {
+  return list.setting_name === null
+    ? { kind: "weights", weights: { ...list.weights } }
+    : { kind: "setting", name: list.setting_name };
+}
+
+/** Why the download and save are off, pointed at by both. */
+const NOT_CURRENT_REASON = "exercise-list-not-current";
 
 export function ExerciseMatching(): React.JSX.Element {
   const { eventKey = "" } = useParams();
+  // Keyed by event: the weighting, the comparison and every refusal belong to
+  // one event, and none of them may carry over to the next one picked.
+  return <EventMatching key={eventKey} eventKey={eventKey} />;
+}
 
+function EventMatching({ eventKey }: { readonly eventKey: string }): React.JSX.Element {
   /** What the list on screen was built from. */
   const [weighting, setWeighting] = React.useState<ListWeighting>({ kind: "default" });
   /** The side-by-side view, when a team has asked for one. */
@@ -118,6 +134,8 @@ export function ExerciseMatching(): React.JSX.Element {
   const [accessRefusal, setAccessRefusal] = React.useState<ExerciseRefusal | null>(null);
   /** Whether a weight box holds text that has not been committed yet. */
   const [hasUnsent, setHasUnsent] = React.useState(false);
+  /** Bumped to put every weight box back to the list's own weights. */
+  const [controlsRevision, setControlsRevision] = React.useState(0);
 
   const load = React.useCallback(
     async (signal: AbortSignal): Promise<MatchingData> => ({
@@ -135,6 +153,18 @@ export function ExerciseMatching(): React.JSX.Element {
   /** The list on screen answers the boxes: nothing typed and unsent, nothing asked and unanswered. */
   const listCurrent =
     state.status === "ready" && !hasUnsent && listAnswersWeighting(state.data.list, weighting);
+  /**
+   * The list on screen is settled and is the answer to the boxes. Only then
+   * may it be saved or downloaded: "these weights" must mean the list's own.
+   */
+  const settled =
+    state.status === "ready" &&
+    !state.refreshing &&
+    state.refusal === null &&
+    state.unreachable === null &&
+    listCurrent;
+  /** The list is the answer to an earlier weighting than the one last asked for. */
+  const stale = state.status === "ready" && (state.refusal !== null || state.unreachable !== null);
 
   /**
    * Run one action; show any refusal, and say whether it worked.
@@ -222,6 +252,14 @@ export function ExerciseMatching(): React.JSX.Element {
               )}
             </div>
           )}
+          {state.unreachable === null ? null : (
+            // Asked again only when the team says so: no retry loop.
+            <ExerciseNotice id="exercise-list-unreachable" message={state.unreachable} tone="problem">
+              <Button variant="secondary" onClick={() => void reload()}>
+                Try again
+              </Button>
+            </ExerciseNotice>
+          )}
 
           {/*
             §7.4: the weights sit beside the list at 1280 (sticky, 360px) and
@@ -237,9 +275,11 @@ export function ExerciseMatching(): React.JSX.Element {
             */}
             <div className="min-w-0 xl:sticky xl:top-ce-5">
               <WeightsControls
+                key={controlsRevision}
                 factorLabels={state.data.list.factor_labels}
                 weights={state.data.list.weights}
                 refusal={state.refusal}
+                transportFailed={state.unreachable !== null}
                 onUnsentChange={setHasUnsent}
                 onChange={(weights) => {
                   setComparison(null);
@@ -251,11 +291,13 @@ export function ExerciseMatching(): React.JSX.Element {
             <section
               className="ce-card flex min-w-0 flex-col gap-ce-3 p-ce-4 md:p-ce-5"
               aria-describedby={
-                state.refusal === null
+                !stale
                   ? undefined
-                  : listRefusal === null
-                    ? "exercise-list-stale"
-                    : "exercise-list-refusal"
+                  : listRefusal !== null
+                    ? "exercise-list-refusal"
+                    : state.unreachable !== null
+                      ? "exercise-list-unreachable exercise-list-stale"
+                      : "exercise-list-stale"
               }
             >
               <div className="flex flex-wrap items-start justify-between gap-ce-3">
@@ -263,6 +305,7 @@ export function ExerciseMatching(): React.JSX.Element {
                   <h2 className="ce-type-h2 text-ce-ink">The list</h2>
                   {state.refreshing ? (
                     <p
+                      id={NOT_CURRENT_REASON}
                       role="status"
                       data-slot="exercise-list-refreshing"
                       className="ce-type-meta flex items-center gap-ce-2 text-ce-ink-muted"
@@ -273,8 +316,9 @@ export function ExerciseMatching(): React.JSX.Element {
                       />
                       Rebuilding the list…
                     </p>
-                  ) : state.refusal === null && !listCurrent ? (
+                  ) : !stale && !listCurrent ? (
                     <p
+                      id={NOT_CURRENT_REASON}
                       data-slot="exercise-list-not-current"
                       className="ce-type-meta text-ce-ink-muted"
                     >
@@ -283,16 +327,38 @@ export function ExerciseMatching(): React.JSX.Element {
                     </p>
                   ) : null}
                 </div>
-                <a
-                  href={rankedListCsvHref(eventKey, weighting)}
-                  download
-                  className={LINK_SECONDARY}
-                  data-slot="exercise-csv-download"
-                >
-                  <Download aria-hidden="true" className="size-5 shrink-0" />
-                  Download this list as a spreadsheet
-                </a>
+                {settled ? (
+                  // Settled means the weighting asked for is the one this list
+                  // was built from, so the file is this list and no other.
+                  <a
+                    href={rankedListCsvHref(eventKey, weighting)}
+                    download
+                    className={LINK_SECONDARY}
+                    data-slot="exercise-csv-download"
+                  >
+                    <Download aria-hidden="true" className="size-5 shrink-0" />
+                    Download this list as a spreadsheet
+                  </a>
+                ) : (
+                  <a
+                    role="link"
+                    aria-disabled="true"
+                    tabIndex={0}
+                    aria-describedby={stale ? "exercise-list-stale" : NOT_CURRENT_REASON}
+                    className={cn(LINK_SECONDARY, "cursor-not-allowed opacity-45")}
+                    data-slot="exercise-csv-download"
+                  >
+                    <Download aria-hidden="true" className="size-5 shrink-0" />
+                    Download this list as a spreadsheet
+                  </a>
+                )}
               </div>
+              {state.unreachable === null ? null : (
+                <p id="exercise-list-stale" data-slot="exercise-list-stale" className="ce-type-reason text-ce-ink-muted">
+                  This is the list from before that change — it could not be rebuilt, so the list
+                  has not changed.
+                </p>
+              )}
               {state.refusal === null ? null : (
                 // The list below is stale the moment a commit is refused: it is
                 // still the answer to the *previous* weighting, not to the one
@@ -305,6 +371,20 @@ export function ExerciseMatching(): React.JSX.Element {
                   changed.
                 </p>
               )}
+              {state.refreshing || (!stale && listCurrent) ? null : (
+                <div>
+                  <Button
+                    variant="secondary"
+                    onClick={() => {
+                      setComparison(null);
+                      setWeighting(acceptedWeighting(state.data.list));
+                      setControlsRevision((value) => value + 1);
+                    }}
+                  >
+                    Go back to this list's weights
+                  </Button>
+                </div>
+              )}
               <p className="ce-type-meta text-ce-ink-muted">
                 Cut at {state.data.list.invite_limit} names, the limit set for this data file.
                 {state.data.list.setting_name === null
@@ -314,7 +394,7 @@ export function ExerciseMatching(): React.JSX.Element {
               {/* §5 ce-list-rebuilding: dim while a new list is fetched, or stale after a refusal. */}
               <div
                 aria-busy={state.refreshing ? "true" : undefined}
-                className={cn("ce-rebuildable min-w-0", state.refusal !== null && "opacity-60")}
+                className={cn("ce-rebuildable min-w-0", stale && "opacity-60")}
               >
                 <RankedList
                   entries={state.data.list.entries}
@@ -335,6 +415,11 @@ export function ExerciseMatching(): React.JSX.Element {
             saved={state.data.saved}
             weights={state.data.list.weights}
             factorLabels={state.data.list.factor_labels}
+            saveBlockedReason={
+              settled
+                ? null
+                : "Saving is off until the list is built from the numbers above."
+            }
             onSave={(name) =>
               guard(async () => {
                 await saveSetting(eventKey, name, state.data.list.weights);

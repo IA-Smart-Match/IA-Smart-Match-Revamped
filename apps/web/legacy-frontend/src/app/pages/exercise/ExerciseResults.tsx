@@ -94,7 +94,12 @@ interface ResultsData {
 
 export function ExerciseResults(): React.JSX.Element {
   const { eventKey = "" } = useParams();
+  // Keyed by event: the chosen final setting, a refusal and a just-run reveal
+  // belong to one event and must not carry over to the next.
+  return <EventResults key={eventKey} eventKey={eventKey} />;
+}
 
+function EventResults({ eventKey }: { readonly eventKey: string }): React.JSX.Element {
   const load = React.useCallback(
     async (signal: AbortSignal): Promise<ResultsData> => {
       let results: ResultsView | null = null;
