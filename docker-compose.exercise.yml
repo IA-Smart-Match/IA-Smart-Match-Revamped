@@ -2,7 +2,12 @@
 # (SMARTMATCH_PRODUCT_SCOPE=class_exercise) — docs/operations/exercise-hosting.md.
 #
 #   docker compose -f docker-compose.yml -f docker-compose.vm.yml \
-#     -f docker-compose.exercise.yml --profile exercise up -d --build api-exercise
+#     -f docker-compose.exercise.yml --profile exercise up -d --build \
+#     api-exercise web-exercise
+#
+# scripts/vm/deploy.sh adds this file and `--profile exercise` on its own
+# whenever the checkout's .env defines SMARTMATCH_EXERCISE_WORKSPACE_SECRET,
+# so a CI deploy keeps both services instead of removing them as orphans.
 #
 # WHY A SEPARATE FILE, NOT A SERVICE IN docker-compose.yml BEHIND A PROFILE
 # ALONE. That was tried first and broke CI: Docker Compose interpolates
@@ -25,9 +30,10 @@
 # second, independent gate: naming this file without also passing
 # `--profile exercise` still does not start `api-exercise` on a bare `up`.
 #
-# WHAT THIS FILE CHANGES. Exactly one thing: it adds the `api-exercise`
-# service. It does not touch `api`, `worker`, `web`, or any other service in
-# docker-compose.yml or docker-compose.vm.yml.
+# WHAT THIS FILE CHANGES. It adds two services, `api-exercise` and
+# `web-exercise`, and one volume, `web-exercise-node-modules`. It does not
+# touch `api`, `worker`, `web`, or any other service in docker-compose.yml or
+# docker-compose.vm.yml.
 #
 # `restart: unless-stopped` and `SMARTMATCH_EXERCISE_COOKIE_SECURE=true` live
 # here rather than in docker-compose.vm.yml, for the same interpolation
@@ -125,3 +131,43 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
+
+  # -------------------------------------------------------------------------
+  # Web-exercise — a second Vite dev server that serves the SPA's /exercise
+  # pages and proxies /v1 to `api-exercise`. It exists because the base `web`
+  # service proxies /v1 to the CBA `api`, which does not mount the exercise
+  # routers (every exercise call there is a 404), and `api-exercise` itself
+  # is API-only and serves no pages. The Cloudflare tunnel hostname for the
+  # exercise points here (127.0.0.1:5174), not at :8090 —
+  # docs/operations/exercise-hosting.md §4a.
+  #
+  # Same pinned image and start command as `web` in docker-compose.yml.
+  # -------------------------------------------------------------------------
+  web-exercise:
+    profiles:
+      - "exercise"
+    image: node@sha256:2cf067cfed83d5ea958367df9f966191a942351a2df77d6f0193e162b5febfc0
+    working_dir: /app
+    restart: unless-stopped
+    command:
+      - "sh"
+      - "-c"
+      - "[ -x node_modules/.bin/vite ] || npm ci; exec npm run dev -- --host 0.0.0.0"
+    environment:
+      SMARTMATCH_API_PROXY_TARGET: "http://api-exercise:8080"
+      # Deliberately empty: the CBA dev bearer token must never be bundled
+      # into pages served on the public exercise hostname.
+      VITE_SMARTMATCH_BEARER_TOKEN: ""
+    ports:
+      - "127.0.0.1:5174:5173"
+    volumes:
+      - ./apps/web/legacy-frontend:/app
+      # Its own volume, not `web-node-modules`: two Vite servers must not
+      # share one node_modules (and its .vite cache).
+      - web-exercise-node-modules:/app/node_modules
+    depends_on:
+      api-exercise:
+        condition: service_started
+
+volumes:
+  web-exercise-node-modules:

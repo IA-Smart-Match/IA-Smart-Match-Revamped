@@ -133,3 +133,20 @@ everywhere else in the tree and its history.
 """
 regexTarget = "match"
 regexes = ['''late/retry/outage/DST''']
+
+[[allowlists]]
+description = """
+tests/unit/test_vm_deploy_script.py proves that scripts/vm/deploy.sh loads the
+class-exercise compose overlay only when `.env` gives
+`SMARTMATCH_EXERCISE_WORKSPACE_SECRET` a real value, and ignores a
+commented-out line and a different key. Those cases need a value that looks
+like a secret, so the test writes one into a throwaway `.env`.
+`abcdefgh12345678` is that value: the alphabet from a to h followed by
+12345678. It is not the VM's secret, it signs nothing, and it exists only in
+temporary test directories.
+Scoped to the exact string, matching the allowlists above: the file is still
+scanned for every other secret shape, and `generic-api-key` still fires
+everywhere else in the tree and its history.
+"""
+regexTarget = "match"
+regexes = ['''abcdefgh12345678''']

@@ -35,7 +35,8 @@ away and why it is acceptable for this scope and not for the other one.
 
 | Gap | Why | Consequence |
 |---|---|---|
-| ~~No compose service runs this scope~~ **Closed.** | `docker-compose.exercise.yml` (a THIRD `-f` file, loaded only when named) defines an `api-exercise` service running `SMARTMATCH_PRODUCT_SCOPE=class_exercise`, gated behind the `exercise` compose profile, bound to `127.0.0.1:8090`, with its own restart policy and `SMARTMATCH_EXERCISE_COOKIE_SECURE=true` pinned in the same file. `docker-compose.yml` and `docker-compose.vm.yml` are untouched — an earlier version of this lived inside `docker-compose.yml` and broke `docker compose up` for the whole CBA stack (Compose evaluates required-secret interpolation for every service in a loaded file, profile or no profile). `tests/unit/test_exercise_compose_service.py` pins its shape. | Steps 7-10 and 18 of [§9](#9-deploy-and-verify-checklist) are runnable by an operator; see that section for the exact commands. |
+| ~~No compose service runs this scope~~ **Closed.** | `docker-compose.exercise.yml` (a THIRD `-f` file, loaded only when named) defines an `api-exercise` service running `SMARTMATCH_PRODUCT_SCOPE=class_exercise`, gated behind the `exercise` compose profile, bound to `127.0.0.1:8090`, with its own restart policy and `SMARTMATCH_EXERCISE_COOKIE_SECURE=true` pinned in the same file. `docker-compose.yml` and `docker-compose.vm.yml` are untouched — an earlier version of this lived inside `docker-compose.yml` and broke `docker compose up` for the whole CBA stack (Compose evaluates required-secret interpolation for every service in a loaded file, profile or no profile). `tests/unit/test_exercise_compose_service.py` pins its shape. The same file also defines `web-exercise`, the Vite server the tunnel points at (`127.0.0.1:5174`, [§4a](#4a-the-tunnel-and-why-there-is-no-access-policy)). | Steps 7-10 and 18 of [§9](#9-deploy-and-verify-checklist) are runnable by an operator; see that section for the exact commands. |
+| ~~**A CI deploy removes the exercise containers**~~ **Closed.** | `scripts/vm/deploy.sh` runs `up -d --remove-orphans`. It used to load only the two CBA files, so `api-exercise` and `web-exercise` (same compose project) were deleted as orphans on every deploy. It now adds `-f docker-compose.exercise.yml --profile exercise` whenever the VM's `.env` gives `SMARTMATCH_EXERCISE_WORKSPACE_SECRET` a value, and logs `compose scope: CBA + class exercise`. | Keep that secret in `/opt/smartmatch/app/.env`, not only in a shell export, or the deploy treats the VM as CBA-only. The boot unit (`scripts/vm/smartmatch.service`) still names only the two CBA files; see [§9](#9-deploy-and-verify-checklist) step 18. |
 | ~~**The Vite dev server rejects `exercise.plated.blog`**~~ **Closed.** | `vite.config.ts` `allowedHosts` includes both `pilot.plated.blog` and `exercise.plated.blog` (server and preview). | — |
 | **No proxy rate-limit config is in the repository** | The only front door is a dashboard-managed Cloudflare Tunnel (`vm-deploy.md:87-96`); there is no nginx/Caddy/Traefik config checked in | The per-client limit on the instructor login has to be built in the Cloudflare dashboard by hand, and cannot be reviewed in git. With no Access policy on this host, that rule is the **only** edge protection. See [§5](#5-rate-limiting-belongs-at-the-proxy-oq-ce-06). |
 
@@ -441,11 +442,22 @@ same tunnel:
    (`classroom-vm-cloudflare-tunnel.md` Part 2 step 3). If it did not, add it
    there; that guide is the authority on the DNS half.
 
-**The loopback port is `127.0.0.1:8090`** — `docker-compose.yml`'s
-`api-exercise` service, distinct from the CBA API's `127.0.0.1:8080` and
-`web`'s `127.0.0.1:5173` (`vm-deploy.md:319-329`). Point the hostname at that
-origin. This mapping is dashboard-managed and lives in no file in this
-repository (`vm-deploy.md:87-96`), exactly as `pilot.plated.blog`'s does.
+**The loopback port is `127.0.0.1:5174`** — `docker-compose.exercise.yml`'s
+`web-exercise` service, distinct from `web`'s `127.0.0.1:5173` and the CBA
+API's `127.0.0.1:8080` (`vm-deploy.md:319-329`). Point the hostname at that
+origin, **not** at `api-exercise`'s `127.0.0.1:8090`:
+
+| Origin | Serves pages? | Where `/v1` goes | Result on `exercise.plated.blog` |
+|---|---|---|---|
+| `127.0.0.1:5173` (`web`) | yes | CBA `api`, which does not mount the exercise routers | every exercise call is a **404** |
+| `127.0.0.1:8090` (`api-exercise`) | **no** — API only | itself | `/` and `/exercise` pages do not load |
+| `127.0.0.1:5174` (`web-exercise`) | yes | `api-exercise` | works |
+
+`web-exercise` is a second Vite dev server over the same checkout, with its own
+`node_modules` volume and an **empty** `VITE_SMARTMATCH_BEARER_TOKEN`, so the
+CBA dev bearer token is never bundled into pages on this public host. This
+mapping is dashboard-managed and lives in no file in this repository
+(`vm-deploy.md:87-96`), exactly as `pilot.plated.blog`'s does.
 
 ### No Cloudflare Access policy on this host
 
@@ -814,8 +826,8 @@ checklist for real:
 
 ### Compose up
 
-7. **Bring `api-exercise` up with all three files, the `exercise` profile,
-   and a rebuild.** `docker-compose.exercise.yml` holds the service itself
+7. **Bring `api-exercise` and `web-exercise` up with all three files, the
+   `exercise` profile, and a rebuild.** `docker-compose.exercise.yml` holds both services
    and is not loaded by any command that omits it — that is deliberate: an
    earlier version of this service lived directly in `docker-compose.yml`
    and broke the default `docker compose up` for the whole CBA stack, because
@@ -828,14 +840,21 @@ checklist for real:
    ```bash
    docker compose -f docker-compose.yml -f docker-compose.vm.yml \
      -f docker-compose.exercise.yml --profile exercise \
-     up -d --build api-exercise
+     up -d --build api-exercise web-exercise
    docker compose -f docker-compose.yml -f docker-compose.vm.yml \
      -f docker-compose.exercise.yml ps
    ```
+   This hand-run `up` is only for the first bring-up. From then on,
+   `scripts/vm/deploy.sh` keeps both services in every CI deploy, as long as
+   `SMARTMATCH_EXERCISE_WORKSPACE_SECRET` is set in `/opt/smartmatch/app/.env`
+   (step 18).
    `migrate` does not need re-running here on its own — it already ran (or
    will run) as part of the normal CBA `up`, and `api-exercise` shares that
    same database and migration head ([§0](#read-this-first-three-things-you-cannot-do-today)
-   step 2). Pass: `docker compose ps` shows `api-exercise` as `Up`. Omitting
+   step 2). Pass: `docker compose ps` shows `api-exercise` and `web-exercise`
+   as `Up`. The first `web-exercise` start runs `npm ci` into its own volume
+   and takes minutes; `curl -sS -o /dev/null -w '%{http_code}\n'
+   http://127.0.0.1:5174/` answers `200` once it is ready. Omitting
    `docker-compose.exercise.yml` means the service is never defined at all;
    omitting `--build` reuses a stale image; omitting `--profile exercise`
    means the service is defined but never started — none is a valid partial
@@ -855,11 +874,13 @@ checklist for real:
 
 9. **Add the `exercise.plated.blog` public hostname** to the existing
    `smartmatch-classroom-pilot` tunnel, per [§4a](#4a-the-tunnel-and-why-there-is-no-access-policy),
-   pointing it at `http://127.0.0.1:8090` — the loopback origin
-   `docker-compose.exercise.yml`'s `api-exercise` service publishes. No new tunnel, no
+   pointing it at `http://127.0.0.1:5174` — the loopback origin
+   `docker-compose.exercise.yml`'s `web-exercise` service publishes. **Not**
+   `:8090`: `api-exercise` serves no pages, so the entry page (step 12) would
+   fail; §4a has the table. No new tunnel, no
    new `cloudflared service install`. Pass: Cloudflare Zero Trust → Networks →
    Tunnels → `smartmatch-classroom-pilot` lists a public hostname for
-   `exercise.plated.blog` pointing at `127.0.0.1:8090`. **VERIFY ON VM** —
+   `exercise.plated.blog` pointing at `127.0.0.1:5174`. **VERIFY ON VM** —
    this is a dashboard action with no file in this repository to check it
    against.
 
@@ -953,14 +974,20 @@ to be live. All are **VERIFY ON VM** until then.
     rollback because there is no exercise-only backup — the database is
     shared. A compose-level rollback of the service itself is just
     `docker compose -f docker-compose.yml -f docker-compose.vm.yml
-    -f docker-compose.exercise.yml --profile exercise stop api-exercise`
-    (or the full three-file `up -d --build api-exercise` from step 7 again
-    on the prior SHA) — it is `-f docker-compose.exercise.yml --profile
-    exercise` on top of, not a replacement for, the ordinary
-    `deploy.sh` rollback path. **VERIFY ON VM**: `scripts/vm/deploy.sh` is
-    not part of this track and was not changed here — confirm by hand
-    whether its health gate already covers a profile-gated service before
-    relying on it to catch an `api-exercise` failure automatically.
+    -f docker-compose.exercise.yml --profile exercise stop api-exercise web-exercise`
+    (or the full three-file `up -d --build api-exercise web-exercise` from
+    step 7 again on the prior SHA) — it is `-f docker-compose.exercise.yml
+    --profile exercise` on top of, not a replacement for, the ordinary
+    `deploy.sh` rollback path.
+
+    **What `scripts/vm/deploy.sh` covers (answered).**
+
+    | Question | Answer |
+    |---|---|
+    | Does a CI deploy keep the exercise containers? | **Yes**, when `/opt/smartmatch/app/.env` gives `SMARTMATCH_EXERCISE_WORKSPACE_SECRET` a value and the checkout has `docker-compose.exercise.yml`. It then adds that file and `--profile exercise` to every compose call, so `build` rebuilds `api-exercise` and `up -d --remove-orphans` recreates both services instead of deleting them. The deploy log says `compose scope: CBA + class exercise`. Otherwise it logs `compose scope: CBA only` and behaves exactly as before. |
+    | Does the health gate check the exercise services? | **No.** `scripts/compose_health.sh` checks the CBA services only. If `api-exercise` or `web-exercise` fails to *start*, `up -d` exits nonzero and the whole release rolls back; if one starts and then fails, the deploy stays green. Check step 11 and step 12 by hand after a promote. |
+    | Does the rollback keep them? | **Yes.** The scope is re-read for the rolled-back checkout; a release older than `web-exercise` just starts `api-exercise`, and one older than `docker-compose.exercise.yml` falls back to CBA-only. |
+    | Does a VM reboot keep them? | **No, not yet.** `scripts/vm/smartmatch.service` runs `up -d --remove-orphans` with only the two CBA files, so a boot removes both exercise containers. Re-run step 7 after a reboot, or run a deploy. |
 
 ### Post-class teardown / reset
 
