@@ -133,7 +133,7 @@ invite-only speaker proposal.
 ## Alignment check (2026-09-28)
 
 Emails A–C and the 15 September requirements against `origin/main` at
-`a9cefd5b`. Paths are shortened:
+`19b110eb`. Paths are shortened:
 
 - `domain/` = `python/smartmatch_domain/smartmatch_domain/`
 - `api/` = `services/api/smartmatch_api/routers/`
