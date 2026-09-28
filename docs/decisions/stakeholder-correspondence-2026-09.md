@@ -146,8 +146,8 @@ items come first.
 |---|---|---|---|---|
 | 1 | Ann (B): "one direction, not two … do not build anything for the classroom that the college would not use"; requirements: "no work on the CBACH scope beyond the optional five-questions mock-up" until 20 Nov | **conflicts** (wording) with the owner's standing ruling that the CBA track and the exercise run in parallel | `docs/product/class-exercise-requirements.md` "Parallel tracks"; ADR-0026 (Proposed) blockquote: "Both stakeholder tracks proceed"; B26 plan and T6b work on main (row 2). ADR-0018 is the import-linter ADR and has no bearing. | **Owner decision.** No ADR, status or paragraph changed here. |
 | 2 | Ann (B) and build table "Not now": invite-only speaker accounts are phase two, pending Pia and Lisa | **conflicts** — already built on the CBA track, capability off | `python/smartmatch_domain/smartmatch_domain/product_scope.py:245` `SPEAKER_PORTAL`, `:284`/`:313`/`:349` default `False`; `api/speaker_portal.py`; `db/migrations/versions/0039_speaker_portal.py`; B26 plan track T6b; decisions INDEX open gate 3 | **Owner decision:** keep `SPEAKER_PORTAL` off until Pia/Lisa answer. Backlog row updated. The event-host "match over the whole speaker database" half is the existing CBA matcher. |
-| 3 | Hosting: stable address, under 5 s in Chrome; Oct 2 needs matching "working on the demo site with the full data" | **missing** — not deployed | `docs/plans/backlog.md` row "Class-exercise VM deploy" (blocked 2026-09-26: no `deploy` branch, env secrets, DNS, rate-limit rule); PR #253 open (`fix/vm-deploy-keeps-exercise`); load time never measured | Owner steps in `docs/operations/exercise-hosting.md` §9 before **Fri Oct 2** (4 days). |
-| 4 | No-login routes rate-limited (hosting half of OQ-CE-06) | **missing** | `services/api/smartmatch_api/exercise_rate_limit.py` `PLACEHOLDER (OQ-CE-06)`; register row OPEN | Apply the proxy rule at deploy. |
+| 3 | Hosting: stable address, under 5 s in Chrome; Oct 2 needs matching "working on the demo site with the full data" | **partly** — deployed; does not yet survive a redeploy or reboot | Verified by the dispatcher 2026-09-28: VM `deploy` = main `19b110eb` (CI deploy run 36360903557 green); `api-exercise` on 127.0.0.1:8090, `web-exercise` (Vite, proxies `/v1` to `api-exercise`) on 127.0.0.1:5174; tunnel maps `exercise.plated.blog` → :5174; `https://exercise.plated.blog/exercise` returns 200 in 0.12 s; Ann's 300-row xlsx uploaded (300 profiles, 12 events); restricted role `smartmatch_exercise` verified per `exercise-hosting.md` §3. Gap: the next `deploy.sh` run or a reboot removes the exercise containers. | Merge PR #253 (deploy side); then update the boot unit `scripts/vm/smartmatch.service`. |
+| 4 | No-login routes rate-limited (hosting half of OQ-CE-06) | **partly** — app limiter answers; Cloudflare rule not confirmed | Dispatcher, 2026-09-28: 11 wrong-passcode POSTs return 401 ×10 then 429; the 429 body is the app's own `exercise_instructor_login_rate_limited` from the placeholder limiter (`services/api/smartmatch_api/exercise_rate_limit.py`, `PLACEHOLDER (OQ-CE-06)`); register row OPEN | Owner confirms the rate-limit rule in the Cloudflare dashboard. |
 | 5 | P004 (C): above a plain Accounting major with the interest factor up, **not** above with it off; requirements example says "product design" | **conflicts** (accepted deviation) | `tests/golden/exercise/test_exercise_ann_dataset_golden.py:157` (card names "Technology / information systems"), `:161` up → above, `:178` off → still above on career goal, `:188` information tie-break; OQ-CE-15 / D9. "Product design" is not one of the 13 topics (`domain/exercise/vocabulary.py:119`), so the email's case replaces the doc's example. | Tell Ann at a Friday check-in that the second half does not hold and why (D9); she may revisit. |
 | 6 | Team numbers 1–6; class size "could be 5 or 8" (Ann confirms by Oct 2) | **partly** | `domain/exercise/__init__.py:37` `EXERCISE_TEAM_NUMBERS = (1, 2, 3, 4, 5, 6)` | If Dr. Lin says 8 teams, change the tuple (and its tests) before Oct 16. |
 | 7 | Justin: one-page, no-code write-up of the results rule, the three choices and the refresh, before the Nov practice run | **partly** | Rule in words in `domain/exercise/simulation.py:1` docstring; numbers in `docs/archive/plans/open-questions/oq-ce-03-sample-result.md`; no single one-page write-up found | Justin writes it before the week of Nov 9. |
@@ -169,8 +169,8 @@ items come first.
 
 | Date | Code on main | Blocker |
 |---|---|---|
-| Fri Oct 2 | Rows 12–17 built | Row 3: not on the demo site. Ann owes spring week and class size (row 6). |
-| Fri Oct 16 | Rows 10, 11, 18–20 built | Row 3: Ann cannot run both sessions without the site. Row 4 should be applied first. |
+| Fri Oct 2 | Rows 12–17 built | Met on the demo site (row 3), apart from confirming the Cloudflare rule (row 4). Ann owes spring week and class size (row 6). |
+| Fri Oct 16 | Rows 10, 11, 18–20 built | Row 3: the site must survive redeploys and reboots through Ann's run-through (PR #253 plus the boot unit). Row 4: confirm the Cloudflare rule. |
 
 ## Owner decisions needed
 
@@ -179,7 +179,10 @@ items come first.
    whether to answer Ann, and how. This record changes no ADR and no status.
 2. **Speaker portal ahead of phase two (row 2).** Confirm `SPEAKER_PORTAL` stays
    off, and no real Speaker is invited, until Pia and Lisa answer.
-3. **Deploy before Oct 2 (rows 3–4).** Owner steps in `exercise-hosting.md` §9;
-   passcode and secrets are the owner's to set.
+3. **Keep the deployed site up, and confirm the rate limit (rows 3–4).** The
+   exercise is live at `exercise.plated.blog`. Merge PR #253 and update
+   `scripts/vm/smartmatch.service` so a redeploy or reboot keeps the exercise
+   containers; confirm the rate-limit rule in the Cloudflare dashboard (only
+   the app's placeholder limiter is proven today).
 4. **P004 (row 5).** Whether to tell Ann that the "turned off" half does not
    hold as built.
