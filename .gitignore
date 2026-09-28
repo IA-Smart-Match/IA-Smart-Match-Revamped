@@ -100,3 +100,6 @@ _worktrees/
 # driver and generator stdout for one local rebuild. A transcript of a run on
 # one machine, useful while debugging that run and meaningless in the history.
 .pilot-reset-logs/
+
+# Proprietary stakeholder documents (Ann Wang's Word files); never commit them.
+test_data/*.docx
