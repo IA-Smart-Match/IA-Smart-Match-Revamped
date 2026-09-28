@@ -281,6 +281,78 @@ describe("<WeightsControls /> sliders (§6.6)", () => {
   });
 });
 
+describe("<WeightsControls /> total weight (§6.6, owner ruling 2026-09-28)", () => {
+  const totalText = (): string | null | undefined =>
+    document.querySelector('[data-slot="exercise-weight-total"]')?.textContent;
+
+  it("shows the total and what it means, and no percentage anywhere in the weights", () => {
+    render(<WeightsControls factorLabels={LABELS} weights={WEIGHTS} onChange={vi.fn()} />);
+    expect(totalText()).toContain("Total weight: 1.00");
+    expect(
+      screen.getByText(
+        "What matters is how the weights compare: a factor set to 0.50 counts twice as much as one set to 0.25.",
+      ),
+    ).toBeDefined();
+    const section = document.querySelector('[data-slot="exercise-weights"]');
+    expect(section?.textContent).not.toContain("%");
+    expect(screen.queryByText("At least one number must be above 0.")).toBeNull();
+  });
+
+  it("updates the total after a key step", () => {
+    render(<WeightsControls factorLabels={LABELS} weights={WEIGHTS} onChange={vi.fn()} />);
+    fireEvent.keyDown(screen.getByRole("slider", { name: "same major" }), { key: "ArrowRight" });
+    expect(totalText()).toContain("Total weight: 1.05");
+    expect(document.querySelector('[data-slot="exercise-weights"]')?.textContent).not.toContain("%");
+  });
+
+  it("follows typing before anything is committed, and is not capped at 1", () => {
+    const onChange = vi.fn();
+    render(<WeightsControls factorLabels={LABELS} weights={WEIGHTS} onChange={onChange} />);
+    fireEvent.change(screen.getByRole("textbox", { name: "same major" }), { target: { value: "4" } });
+    expect(totalText()).toContain("Total weight: 4.60");
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("says a zero total cannot be used, as a status", () => {
+    render(<WeightsControls factorLabels={LABELS} weights={WEIGHTS} onChange={vi.fn()} />);
+    for (const box of screen.getAllByRole("textbox")) {
+      fireEvent.change(box, { target: { value: "0" } });
+    }
+    expect(totalText()).toContain("Total weight: 0.00");
+    const notice = screen.getByText("At least one number must be above 0.");
+    expect(notice.getAttribute("role")).toBe("status");
+  });
+
+  it("does not repeat the zero sentence while the server's refusal is shown", () => {
+    const zero = { same_major: 0, stated_interest_overlap: 0, career_goal_fit: 0, past_event_topic_overlap: 0 };
+    const start = { ...zero, same_major: 0.25 };
+    const onChange = vi.fn();
+    const { rerender } = render(
+      <WeightsControls factorLabels={LABELS} weights={start} onChange={onChange} />,
+    );
+    // Typed and sent from the box, which keeps its "0" while the team is in it,
+    // so the total on screen stays 0 when the refusal lands.
+    const box = screen.getByRole("textbox", { name: "same major" }) as HTMLInputElement;
+    box.focus();
+    fireEvent.change(box, { target: { value: "0" } });
+    expect(screen.getAllByText("At least one number must be above 0.")).toHaveLength(1);
+    fireEvent.keyDown(box, { key: "Enter" });
+    expect(onChange).toHaveBeenLastCalledWith(zero);
+    rerender(
+      <WeightsControls
+        factorLabels={LABELS}
+        weights={start}
+        onChange={onChange}
+        refusal={new ExerciseRefusal(422, "exercise_weights_invalid", "At least one number must be above 0.")}
+      />,
+    );
+    expect(totalText()).toContain("Total weight: 0.00");
+    const shown = screen.getAllByText("At least one number must be above 0.");
+    expect(shown).toHaveLength(1);
+    expect(shown[0].getAttribute("data-slot")).toBe("exercise-weight-error");
+  });
+});
+
 describe("<WeightsControls /> compact bar on 390 (§7.4)", () => {
   it("appears once the sliders scroll out of view, with the four values", () => {
     stubViewport(true);
@@ -291,6 +363,8 @@ describe("<WeightsControls /> compact bar on 390 (§7.4)", () => {
 
     const bar = document.querySelector('[data-slot="exercise-weights-bar"]');
     expect(bar?.textContent).toContain("Weights 0.40 · 0.25 · 0.25 · 0.10");
+    expect(bar?.textContent).toContain("Total 1.00");
+    expect(bar?.textContent).not.toContain("%");
     expect(screen.getByRole("button", { name: "Edit weights" })).toBeDefined();
 
     act(() => observed?.([{ isIntersecting: true }]));
