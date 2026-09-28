@@ -35,6 +35,7 @@ export interface SavedSettingsPanelProps {
   readonly onOpen: (name: string) => void;
   /** Show two of them side by side. */
   readonly onCompare: (a: string, b: string) => void;
+  readonly disabled?: boolean;
 }
 
 const BUTTON =
@@ -47,9 +48,11 @@ export function SavedSettingsPanel({
   onDelete,
   onOpen,
   onCompare,
+  disabled = false,
 }: SavedSettingsPanelProps): React.JSX.Element {
   const [name, setName] = React.useState("");
   const [pending, setPending] = React.useState(false);
+  const pendingRef = React.useRef(false);
   const [a, setA] = React.useState("");
   const [b, setB] = React.useState("");
 
@@ -67,13 +70,15 @@ export function SavedSettingsPanel({
    * with it is decide whether to clear the box.
    */
   async function run(action: () => Promise<boolean>): Promise<boolean> {
-    if (pending) {
+    if (pendingRef.current || disabled) {
       return false;
     }
+    pendingRef.current = true;
     setPending(true);
     try {
       return await action();
     } finally {
+      pendingRef.current = false;
       setPending(false);
     }
   }
@@ -125,7 +130,7 @@ export function SavedSettingsPanel({
             className="w-72 rounded-lg border-2 border-slate-400 px-3 py-2 text-2xl focus-visible:outline-2 focus-visible:outline-offset-2 dark:border-slate-500 dark:bg-slate-900 dark:text-slate-50"
           />
         </div>
-        <button type="submit" disabled={pending || name.trim() === ""} className={BUTTON}>
+        <button type="submit" disabled={disabled || pending || name.trim() === ""} className={BUTTON}>
           Save these weights
         </button>
         <span className="text-lg text-slate-600 dark:text-slate-300">
@@ -142,13 +147,13 @@ export function SavedSettingsPanel({
           {settings.map((setting) => (
             <li key={setting.name} className="flex flex-wrap items-center gap-3 text-xl">
               <span className="font-semibold">{setting.name}</span>
-              <button type="button" className={BUTTON} onClick={() => onOpen(setting.name)}>
+              <button type="button" disabled={disabled} className={BUTTON} onClick={() => onOpen(setting.name)}>
                 Open this list
               </button>
               <button
                 type="button"
                 className={BUTTON}
-                disabled={pending}
+                disabled={disabled || pending}
                 onClick={() => void run(() => onDelete(setting.name))}
               >
                 Delete
@@ -174,7 +179,7 @@ export function SavedSettingsPanel({
         >
           <SettingPicker id="exercise-compare-a" label="Compare" value={a} onChange={setA} settings={settings} />
           <SettingPicker id="exercise-compare-b" label="with" value={b} onChange={setB} settings={settings} />
-          <button type="submit" className={BUTTON} disabled={a === "" || b === ""}>
+          <button type="submit" className={BUTTON} disabled={disabled || a === "" || b === ""}>
             Show them side by side
           </button>
         </form>

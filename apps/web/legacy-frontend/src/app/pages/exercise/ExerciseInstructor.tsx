@@ -42,7 +42,7 @@ const BUTTON =
   "rounded-lg border-2 border-slate-400 px-5 py-3 text-xl font-semibold text-slate-800 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 dark:border-slate-500 dark:text-slate-100 dark:hover:bg-slate-800";
 
 /** Whether this browser's instructor cookie is still good. */
-type SessionProbe = "checking" | "signed-in" | "signed-out";
+type SessionProbe = "checking" | "signed-in" | "signed-out" | "error";
 
 export function ExerciseInstructor(): React.JSX.Element {
   /**
@@ -58,11 +58,13 @@ export function ExerciseInstructor(): React.JSX.Element {
    * is an ordinary gated read: `GET …/instructor/workspaces` is behind
    * `require_instructor_session` like every other instructor route, so its
    * answer *is* the session's state. 200 means signed in; a 401
-   * `exercise_instructor_session_required` means the passcode form. Anything
-   * else is left as signed out, because a page that cannot reach the server
-   * has nothing to show behind the passcode either.
+   * `exercise_instructor_session_required` means the passcode form. Any other
+   * failure remains an error with a retry; an outage must not impersonate a
+   * signed-out session.
    */
   const [probe, setProbe] = React.useState<SessionProbe>("checking");
+  const [probeAttempt, setProbeAttempt] = React.useState(0);
+  const [probeMessage, setProbeMessage] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     const controller = new AbortController();
@@ -72,13 +74,26 @@ export function ExerciseInstructor(): React.JSX.Element {
           setProbe("signed-in");
         }
       })
-      .catch(() => {
+      .catch((error: unknown) => {
         if (!controller.signal.aborted) {
-          setProbe("signed-out");
+          if (
+            isRefusal(error) &&
+            error.status === 401 &&
+            error.code === INSTRUCTOR_SESSION_REQUIRED
+          ) {
+            setProbe("signed-out");
+          } else {
+            setProbeMessage(
+              isRefusal(error)
+                ? error.message
+                : "The exercise could not be reached. Check the connection and try again.",
+            );
+            setProbe("error");
+          }
         }
       });
     return () => controller.abort();
-  }, []);
+  }, [probeAttempt]);
 
   return (
     <ExerciseScreen
@@ -89,6 +104,21 @@ export function ExerciseInstructor(): React.JSX.Element {
       {probe === "signed-in" ? <SignedIn onSignedOut={() => setProbe("signed-out")} /> : null}
       {probe === "signed-out" ? (
         <PasscodeForm onSignedIn={() => setProbe("signed-in")} />
+      ) : null}
+      {probe === "error" && probeMessage !== null ? (
+        <ExerciseNotice message={probeMessage} tone="problem">
+          <button
+            type="button"
+            className={BUTTON}
+            onClick={() => {
+              setProbe("checking");
+              setProbeMessage(null);
+              setProbeAttempt((value) => value + 1);
+            }}
+          >
+            Try again
+          </button>
+        </ExerciseNotice>
       ) : null}
     </ExerciseScreen>
   );
@@ -152,6 +182,18 @@ function PasscodeForm({ onSignedIn }: { readonly onSignedIn: () => void }): Reac
 
 function SignedIn({ onSignedOut }: { readonly onSignedOut: () => void }): React.JSX.Element {
   const [refusal, setRefusal] = React.useState<string | null>(null);
+  const [workspaceRevision, setWorkspaceRevision] = React.useState(0);
+
+  const handleError = React.useCallback(
+    (error: unknown): boolean => {
+      if (isRefusal(error) && error.code === INSTRUCTOR_SESSION_REQUIRED) {
+        onSignedOut();
+        return true;
+      }
+      return false;
+    },
+    [onSignedOut],
+  );
 
   /**
    * Any instructor action, with the session's own 401 handled once.
@@ -164,11 +206,11 @@ function SignedIn({ onSignedOut }: { readonly onSignedOut: () => void }): React.
   function guard(action: () => Promise<void>): void {
     setRefusal(null);
     action().catch((error: unknown) => {
+      if (handleError(error)) {
+        return;
+      }
       if (isRefusal(error)) {
         setRefusal(error.message);
-        if (error.code === INSTRUCTOR_SESSION_REQUIRED) {
-          onSignedOut();
-        }
         return;
       }
       setRefusal("The exercise could not be reached. Check the connection and try again.");
@@ -196,10 +238,13 @@ function SignedIn({ onSignedOut }: { readonly onSignedOut: () => void }): React.
 
       {refusal === null ? null : <ExerciseNotice message={refusal} />}
 
-      <InstructorDatasets />
-      <UnlockPanel onRefusal={setRefusal} />
-      <RefreshAllPanel />
-      <InstructorTeams />
+      <InstructorDatasets
+        onSessionExpired={onSignedOut}
+        onWorkspacesChanged={() => setWorkspaceRevision((value) => value + 1)}
+      />
+      <UnlockPanel onRefusal={setRefusal} onSessionExpired={onSignedOut} />
+      <RefreshAllPanel onSessionExpired={onSignedOut} />
+      <InstructorTeams key={workspaceRevision} onSessionExpired={onSignedOut} />
     </div>
   );
 }
@@ -207,8 +252,10 @@ function SignedIn({ onSignedOut }: { readonly onSignedOut: () => void }): React.
 /** Open results for one event. Idempotent: a second press says the same thing. */
 function UnlockPanel({
   onRefusal,
+  onSessionExpired,
 }: {
   readonly onRefusal: (message: string | null) => void;
+  readonly onSessionExpired: () => void;
 }): React.JSX.Element {
   const [events, setEvents] = React.useState<{ key: string; name: string }[]>([]);
   const [unlocked, setUnlocked] = React.useState<readonly string[]>([]);
@@ -267,20 +314,26 @@ function UnlockPanel({
                   onRefusal(null);
                   unlockResults(event.key)
                     .then((view) => setUnlocked((open) => [...open, view.event_key]))
-                    .catch((error: unknown) =>
+                    .catch((error: unknown) => {
+                      if (isRefusal(error) && error.code === INSTRUCTOR_SESSION_REQUIRED) {
+                        onSessionExpired();
+                        return;
+                      }
                       onRefusal(
                         isRefusal(error)
                           ? error.message
                           : "The exercise could not be reached. Check the connection and try again.",
-                      ),
-                    )
+                      );
+                    })
                     .finally(() => setPending(false));
                 }}
               >
                 Open results
               </button>
               {unlocked.includes(event.key) ? (
-                <span className="text-slate-700 dark:text-slate-200">Results are open.</span>
+                <span role="status" aria-live="polite" className="text-slate-700 dark:text-slate-200">
+                  Results are open.
+                </span>
               ) : null}
             </li>
           ))}
@@ -291,7 +344,7 @@ function UnlockPanel({
 }
 
 /** Refresh every team that has chosen and has not yet asked. */
-function RefreshAllPanel(): React.JSX.Element {
+function RefreshAllPanel({ onSessionExpired }: { readonly onSessionExpired: () => void }): React.JSX.Element {
   const [pending, setPending] = React.useState(false);
   const [done, setDone] = React.useState<RefreshAllView | null>(null);
   const [refusal, setRefusal] = React.useState<string | null>(null);
@@ -315,13 +368,17 @@ function RefreshAllPanel(): React.JSX.Element {
             setRefusal(null);
             refreshAllWorkspaces()
               .then(setDone)
-              .catch((error: unknown) =>
+              .catch((error: unknown) => {
+                if (isRefusal(error) && error.code === INSTRUCTOR_SESSION_REQUIRED) {
+                  onSessionExpired();
+                  return;
+                }
                 setRefusal(
                   isRefusal(error)
                     ? error.message
                     : "The exercise could not be reached. Check the connection and try again.",
-                ),
-              )
+                );
+              })
               .finally(() => setPending(false));
           }}
         >
@@ -330,7 +387,7 @@ function RefreshAllPanel(): React.JSX.Element {
       </div>
       {refusal === null ? null : <ExerciseNotice message={refusal} />}
       {done === null ? null : (
-        <p className="text-xl text-slate-800 dark:text-slate-100">
+        <p role="status" aria-live="polite" className="text-xl text-slate-800 dark:text-slate-100">
           Asked for {done.refreshed} {done.refreshed === 1 ? "team" : "teams"}
           {done.refreshed_team_numbers.length === 0
             ? ""

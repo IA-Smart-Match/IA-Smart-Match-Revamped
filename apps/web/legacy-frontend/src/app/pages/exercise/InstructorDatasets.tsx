@@ -37,6 +37,7 @@ import {
   type UploadedDatasetView,
 } from "../../../lib/exerciseClient";
 import { ExerciseLoading, ExerciseNotice } from "./ExerciseScreen";
+import { INSTRUCTOR_SESSION_REQUIRED } from "./refusals";
 import { useExerciseResource } from "./useExerciseResource";
 
 const BUTTON =
@@ -45,7 +46,13 @@ const BUTTON =
 const INPUT =
   "rounded-lg border-2 border-slate-400 px-3 py-2 text-xl focus-visible:outline-2 focus-visible:outline-offset-2 dark:border-slate-500 dark:bg-slate-900 dark:text-slate-50";
 
-export function InstructorDatasets(): React.JSX.Element {
+export function InstructorDatasets({
+  onSessionExpired,
+  onWorkspacesChanged,
+}: {
+  readonly onSessionExpired: () => void;
+  readonly onWorkspacesChanged: () => void;
+}): React.JSX.Element {
   const { state, reload } = useExerciseResource(listDatasets, []);
   const [refusal, setRefusal] = React.useState<string | null>(null);
   /**
@@ -60,23 +67,36 @@ export function InstructorDatasets(): React.JSX.Element {
   const [done, setDone] = React.useState<string | null>(null);
   const [uploaded, setUploaded] = React.useState<UploadedDatasetView | null>(null);
   const [pending, setPending] = React.useState(false);
+  const pendingRef = React.useRef(false);
+
+  React.useEffect(() => {
+    if (state.status === "refused" && state.refusal.code === INSTRUCTOR_SESSION_REQUIRED) {
+      onSessionExpired();
+    }
+  }, [onSessionExpired, state]);
 
   async function run(action: () => Promise<void>): Promise<void> {
-    if (pending) {
+    if (pendingRef.current) {
       return;
     }
+    pendingRef.current = true;
     setPending(true);
     setRefusal(null);
     setDone(null);
     try {
       await action();
     } catch (error) {
+      if (isRefusal(error) && error.code === INSTRUCTOR_SESSION_REQUIRED) {
+        onSessionExpired();
+        return;
+      }
       setRefusal(
         isRefusal(error)
           ? error.message
           : "The exercise could not be reached. Check the connection and try again.",
       );
     } finally {
+      pendingRef.current = false;
       setPending(false);
     }
   }
@@ -169,7 +189,8 @@ export function InstructorDatasets(): React.JSX.Element {
                         moved.teams_discarded
                       } of them.`,
                     );
-                    reload();
+                    onWorkspacesChanged();
+                    await reload();
                   })
                 }
               />

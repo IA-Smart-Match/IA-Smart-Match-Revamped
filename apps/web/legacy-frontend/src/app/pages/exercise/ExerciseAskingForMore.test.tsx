@@ -117,6 +117,76 @@ describe("<ExerciseAskingForMore />", () => {
     });
   });
 
+  it("sends a once-only choice only once and keeps it closed across a stale reload", async () => {
+    stub({
+      [`GET ${ASKING}`]: {
+        body: { choice: null, choices: ["required"], refreshed: false },
+      },
+      [`POST ${ASKING}`]: {
+        body: { choice: "required", choices: ["required"], refreshed: false },
+      },
+    });
+    renderAsking();
+    const button = await screen.findByRole("button", { name: /^required\.$/i });
+    fireEvent.click(button);
+    fireEvent.click(button);
+
+    await waitFor(() =>
+      expect(calls.filter((call) => call.url === ASKING && call.init.method === "POST")).toHaveLength(1),
+    );
+    await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(true));
+  });
+
+  it("keeps an accepted choice closed when its reload cannot be reached", async () => {
+    let getCount = 0;
+    let failReload: (() => void) | null = null;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string, init: RequestInit) => {
+        calls.push({ url, init });
+        const method = init.method ?? "GET";
+        if (url === ASKING && method === "GET") {
+          getCount += 1;
+          if (getCount === 1) {
+            return Promise.resolve(
+              new Response(
+                JSON.stringify({ choice: null, choices: ["required"], refreshed: false }),
+                { status: 200 },
+              ),
+            );
+          }
+          return new Promise<Response>((_resolve, reject) => {
+            failReload = () => reject(new TypeError("offline"));
+          });
+        }
+        if (url === ASKING && method === "POST") {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({ choice: "required", choices: ["required"], refreshed: false }),
+              { status: 200 },
+            ),
+          );
+        }
+        return Promise.reject(new Error(`unstubbed ${method} ${url}`));
+      }),
+    );
+
+    renderAsking();
+    const choice = (await screen.findByRole("button", {
+      name: /^required\.$/i,
+    })) as HTMLButtonElement;
+    fireEvent.click(choice);
+
+    await waitFor(() => expect(getCount).toBe(2));
+    expect(choice.disabled).toBe(true);
+    expect(screen.getByText(/your team chose this/i)).toBeDefined();
+    fireEvent.click(choice);
+    expect(calls.filter((call) => call.url === ASKING && call.init.method === "POST")).toHaveLength(1);
+    failReload?.();
+    await waitFor(() => expect(screen.getByText(/could not be reached/i)).toBeDefined());
+    expect(choice.disabled).toBe(true);
+  });
+
   it("renders a refused second choice as the server's sentence", async () => {
     stub({
       [`GET ${ASKING}`]: {
@@ -252,6 +322,55 @@ describe("<ExerciseAskingForMore />", () => {
       expect(screen.getByRole("button", { name: /your team has already asked/i })).toBeDefined(),
     );
     expect(calls.filter((call) => call.url === REFRESH).length).toBe(1);
+  });
+
+  it("keeps an accepted refresh closed and its counts visible when reload fails", async () => {
+    let getCount = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string, init: RequestInit) => {
+        calls.push({ url, init });
+        const method = init.method ?? "GET";
+        if (url === ASKING && method === "GET") {
+          getCount += 1;
+          if (getCount === 1) {
+            return Promise.resolve(
+              new Response(
+                JSON.stringify({ choice: "required", choices: ["required"], refreshed: false }),
+                { status: 200 },
+              ),
+            );
+          }
+          return Promise.reject(new TypeError("offline"));
+        }
+        if (url === REFRESH && method === "POST") {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                choice: "required",
+                cards_completed: 8,
+                non_responding: 2,
+                topics_added: 5,
+              }),
+              { status: 200 },
+            ),
+          );
+        }
+        return Promise.reject(new Error(`unstubbed ${method} ${url}`));
+      }),
+    );
+
+    renderAsking();
+    const ask = (await screen.findByRole("button", { name: /ask them now/i })) as HTMLButtonElement;
+    fireEvent.click(ask);
+
+    await waitFor(() => expect(getCount).toBe(2));
+    await waitFor(() => expect(screen.getByText(/cards filled in/i).parentElement?.textContent).toContain("8"));
+    expect(
+      (screen.getByRole("button", { name: /already asked/i }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+    fireEvent.click(ask);
+    expect(calls.filter((call) => call.url === REFRESH)).toHaveLength(1);
   });
 
   it("renders a refresh refused before a first round as a state, not an error", async () => {

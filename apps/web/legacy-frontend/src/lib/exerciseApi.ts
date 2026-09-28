@@ -153,12 +153,16 @@ function hasParticipantSentence(code: string): boolean {
 
 function refusalFrom(status: number, payload: unknown): ExerciseRefusal {
   const body = payload as ErrorEnvelope | null;
-  const code = typeof body?.error?.code === "string" ? body.error.code : "exercise_unknown_refusal";
+  const originalCode =
+    typeof body?.error?.code === "string" && body.error.code.trim() !== ""
+      ? body.error.code
+      : null;
+  const code = originalCode ?? "exercise_unknown_refusal";
   const stated =
     typeof body?.error?.message === "string" && body.error.message.trim() !== ""
       ? body.error.message
       : null;
-  if (!hasParticipantSentence(code)) {
+  if (originalCode === null || !hasParticipantSentence(originalCode)) {
     // The code is kept on the object — a screen may still branch on it and a
     // developer may still read it — but it never becomes the text on screen.
     return new ExerciseRefusal(status, code, NOT_THE_EXERCISE);

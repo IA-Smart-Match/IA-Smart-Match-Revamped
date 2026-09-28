@@ -27,12 +27,13 @@ export type ExerciseResourceState<T> =
        * The refusal the *latest* load got, with the previous answer still on
        * screen beside it.
        *
-       * Only ever non-null for a caller that passed `keepDataOnRefusal` — see
-       * the hook's own docstring for why that is opt-in rather than the
-       * default. `null` on every successful load, so a stale sentence cannot
-       * outlive the request that produced it.
+       * Only non-null when a caller's narrow `keepDataOnError` predicate
+       * accepts the refusal. `null` on every successful load, so a stale
+       * sentence cannot outlive the request that produced it.
        */
       readonly refusal: ExerciseRefusal | null;
+      /** A safe transport sentence while the last accepted answer remains visible. */
+      readonly unreachable: string | null;
       /**
        * A newer load is in flight and this is the previous answer.
        *
@@ -83,7 +84,7 @@ export interface ExerciseResourceOptions {
    * be showing something that is no longer known to be true. They keep the
    * discarding behaviour: the refusal replaces the screen.
    */
-  readonly keepDataOnRefusal?: boolean;
+  readonly keepDataOnError?: (error: unknown) => boolean;
 }
 
 /**
@@ -98,7 +99,7 @@ export function useExerciseResource<T>(
   deps: readonly unknown[],
   options: ExerciseResourceOptions = {},
 ): { readonly state: ExerciseResourceState<T>; readonly reload: () => Promise<void> } {
-  const keepDataOnRefusal = options.keepDataOnRefusal ?? false;
+  const keepDataOnError = options.keepDataOnError;
   const [state, setState] = useState<ExerciseResourceState<T>>({ status: "loading" });
   const [attempt, setAttempt] = useState(0);
 
@@ -135,6 +136,11 @@ export function useExerciseResource<T>(
     unmounted.current = false;
     return () => {
       unmounted.current = true;
+      const queued = settled.current;
+      settled.current = [];
+      for (const resolve of queued) {
+        resolve();
+      }
     };
   }, []);
 
@@ -162,14 +168,14 @@ export function useExerciseResource<T>(
     // across the reload that follows them.
     setState((previous) =>
       previous.status === "ready"
-        ? { status: "ready", data: previous.data, refreshing: true, refusal: null }
+        ? { status: "ready", data: previous.data, refreshing: true, refusal: null, unreachable: null }
         : { status: "loading" },
     );
     loadRef
       .current(controller.signal)
       .then((data) => {
         if (live) {
-          setState({ status: "ready", data, refreshing: false, refusal: null });
+          setState({ status: "ready", data, refreshing: false, refusal: null, unreachable: null });
           resolveAll();
         }
       })
@@ -179,13 +185,18 @@ export function useExerciseResource<T>(
         }
         setState((previous) => {
           if (
-            keepDataOnRefusal &&
+            !(error instanceof ExerciseRefusal && (error.status === 401 || error.status === 403)) &&
+            keepDataOnError?.(error) === true &&
             previous.status === "ready" &&
-            error instanceof ExerciseRefusal
+            (error instanceof ExerciseRefusal || error instanceof ExerciseUnreachable)
           ) {
-            // The answer on screen is still the true answer to the question
-            // that produced it. The refusal is about the *new* question.
-            return { status: "ready", data: previous.data, refreshing: false, refusal: error };
+            return {
+              status: "ready",
+              data: previous.data,
+              refreshing: false,
+              refusal: error instanceof ExerciseRefusal ? error : null,
+              unreachable: error instanceof ExerciseUnreachable ? error.message : null,
+            };
           }
           return stateFromError<T>(error);
         });
@@ -214,11 +225,14 @@ export function useExerciseResource<T>(
       settled.current = [...resolvers, ...settled.current];
     };
     // `deps` is the caller's declared dependency list; `attempt` forces a
-    // reload. `keepDataOnRefusal` is a caller constant, not a dependency.
+    // reload. `keepDataOnError` is a caller constant, not a dependency.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [...deps, attempt]);
 
   const reload = useCallback(() => {
+    if (unmounted.current) {
+      return Promise.resolve();
+    }
     return new Promise<void>((resolve) => {
       settled.current = [...settled.current, resolve];
       setAttempt((value) => value + 1);

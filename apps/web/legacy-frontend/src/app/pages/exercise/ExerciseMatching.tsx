@@ -29,7 +29,7 @@
 import * as React from "react";
 import { Link, useParams } from "react-router";
 
-import { isRefusal } from "../../../lib/exerciseApi";
+import { ExerciseRefusal, ExerciseUnreachable, isRefusal } from "../../../lib/exerciseApi";
 import {
   compareSettings,
   deleteSetting,
@@ -60,12 +60,46 @@ interface MatchingData {
 
 export function ExerciseMatching(): React.JSX.Element {
   const { eventKey = "" } = useParams();
+  return <EventMatching key={eventKey} eventKey={eventKey} />;
+}
+
+function sameWeights(
+  left: Readonly<Record<string, number>>,
+  right: Readonly<Record<string, number>>,
+): boolean {
+  const keys = new Set([...Object.keys(left), ...Object.keys(right)]);
+  return [...keys].every((key) => left[key] === right[key]);
+}
+
+function requestWasAccepted(list: RankedListView, weighting: ListWeighting): boolean {
+  if (weighting.kind === "weights") {
+    return sameWeights(list.weights, weighting.weights);
+  }
+  if (weighting.kind === "setting") {
+    return list.setting_name === weighting.name;
+  }
+  return list.setting_name === null;
+}
+
+function keepMatchingData(error: unknown): boolean {
+  return (
+    error instanceof ExerciseUnreachable ||
+    (error instanceof ExerciseRefusal &&
+      error.status === 422 &&
+      (error.code === "invalid_request" || error.code.startsWith("exercise_weights_")))
+  );
+}
+
+function EventMatching({ eventKey }: { readonly eventKey: string }): React.JSX.Element {
 
   /** What the list on screen was built from. */
   const [weighting, setWeighting] = React.useState<ListWeighting>({ kind: "default" });
   /** The side-by-side view, when a team has asked for one. */
   const [comparison, setComparison] = React.useState<CompareView | null>(null);
   const [panelRefusal, setPanelRefusal] = React.useState<string | null>(null);
+  const [controlsRevision, setControlsRevision] = React.useState(0);
+  const [draftMatchesAccepted, setDraftMatchesAccepted] = React.useState(true);
+  const [accessRefusal, setAccessRefusal] = React.useState<ExerciseRefusal | null>(null);
 
   const load = React.useCallback(
     async (signal: AbortSignal): Promise<MatchingData> => ({
@@ -74,14 +108,17 @@ export function ExerciseMatching(): React.JSX.Element {
     }),
     [eventKey, weighting],
   );
-  // A refused weighting must not take the screen down with it — the list a
-  // team was already looking at is still the true answer to the question it
-  // asked before the one that was refused. See `useExerciseResource`'s
-  // `keepDataOnRefusal` docstring for why the other exercise screens do not
-  // opt into this.
   const { state, reload } = useExerciseResource(load, [eventKey, weighting], {
-    keepDataOnRefusal: true,
+    keepDataOnError: keepMatchingData,
   });
+
+  const settled =
+    draftMatchesAccepted &&
+    state.status === "ready" &&
+    !state.refreshing &&
+    state.refusal === null &&
+    state.unreachable === null &&
+    requestWasAccepted(state.data.list, weighting);
 
   /**
    * Run one action; show any refusal, and say whether it worked.
@@ -97,6 +134,10 @@ export function ExerciseMatching(): React.JSX.Element {
       await action();
       return true;
     } catch (error) {
+      if (isRefusal(error) && (error.status === 401 || error.status === 403)) {
+        setAccessRefusal(error);
+        return false;
+      }
       setPanelRefusal(
         isRefusal(error)
           ? error.message
@@ -108,7 +149,7 @@ export function ExerciseMatching(): React.JSX.Element {
 
   return (
     <ExerciseScreen
-      title={state.status === "ready" ? state.data.list.event_name : "Your team's list"}
+      title={state.status === "ready" && accessRefusal === null ? state.data.list.event_name : "Your team's list"}
       intro="Decide how much each thing counts, then see who that puts on the list — and who it leaves off."
       aside={
         <Link to="/exercise/events" className={BUTTON}>
@@ -126,7 +167,8 @@ export function ExerciseMatching(): React.JSX.Element {
         </ExerciseNotice>
       ) : null}
 
-      {state.status !== "ready" ? null : (
+      {accessRefusal === null ? null : workspaceRequiredNotice(accessRefusal)}
+      {state.status !== "ready" || accessRefusal !== null ? null : (
         <div className="flex flex-col gap-8">
           {panelRefusal === null ? null : <ExerciseNotice message={panelRefusal} />}
           {state.refusal === null ? null : (
@@ -136,6 +178,13 @@ export function ExerciseMatching(): React.JSX.Element {
               tone="problem"
             />
           )}
+          {state.unreachable === null ? null : (
+            <ExerciseNotice id="exercise-list-unreachable" message={state.unreachable} tone="problem">
+              <button type="button" onClick={() => void reload()} className={BUTTON}>
+                Try again
+              </button>
+            </ExerciseNotice>
+          )}
 
           {/*
             Mounted continuously, including while a new list is being fetched.
@@ -144,9 +193,12 @@ export function ExerciseMatching(): React.JSX.Element {
             screen to `loading` — made a decimal impossible to type.
           */}
           <WeightsControls
+            key={controlsRevision}
             factorLabels={state.data.list.factor_labels}
             weights={state.data.list.weights}
             refusal={state.refusal}
+            transportFailed={state.unreachable !== null}
+            onDraftMatchesAcceptedChange={setDraftMatchesAccepted}
             onChange={(weights) => {
               setComparison(null);
               setWeighting({ kind: "weights", weights });
@@ -161,23 +213,32 @@ export function ExerciseMatching(): React.JSX.Element {
               <h2 className="text-3xl font-semibold text-slate-900 dark:text-slate-50">
                 The list
               </h2>
-              {state.refreshing ? (
+              {!settled ? (
                 <p
                   role="status"
                   data-slot="exercise-list-refreshing"
                   className="text-xl text-slate-600 dark:text-slate-300"
                 >
-                  Rebuilding the list…
+                  {state.refreshing ? "Rebuilding the list…" : "This list is not up to date."}
                 </p>
               ) : null}
-              <a
-                href={rankedListCsvHref(eventKey, weighting)}
-                download
-                className={BUTTON}
-                data-slot="exercise-csv-download"
-              >
-                Download this list as a spreadsheet
-              </a>
+              {settled ? (
+                <a
+                  href={rankedListCsvHref(eventKey, {
+                    kind: "weights",
+                    weights: state.data.list.weights,
+                  })}
+                  download
+                  className={BUTTON}
+                  data-slot="exercise-csv-download"
+                >
+                  Download this list as a spreadsheet
+                </a>
+              ) : (
+                <span aria-disabled="true" className={`${BUTTON} cursor-not-allowed opacity-50`}>
+                  Download this list as a spreadsheet
+                </span>
+              )}
             </div>
             {state.refusal === null ? null : (
               // The list below is stale the moment a commit is refused: it is
@@ -193,6 +254,19 @@ export function ExerciseMatching(): React.JSX.Element {
                 This is the list from before that change — it was refused, so the list has not
                 changed.
               </p>
+            )}
+            {settled ? null : (
+              <button
+                type="button"
+                className={BUTTON}
+                onClick={() => {
+                  setComparison(null);
+                  setWeighting({ kind: "weights", weights: state.data.list.weights });
+                  setControlsRevision((value) => value + 1);
+                }}
+              >
+                Restore the accepted weights
+              </button>
             )}
             <p className="text-xl text-slate-600 dark:text-slate-300">
               Cut at {state.data.list.invite_limit} names, the limit set for this data file.
@@ -216,16 +290,17 @@ export function ExerciseMatching(): React.JSX.Element {
           <SavedSettingsPanel
             saved={state.data.saved}
             weights={state.data.list.weights}
+            disabled={!settled}
             onSave={(name) =>
               guard(async () => {
                 await saveSetting(eventKey, name, state.data.list.weights);
-                reload();
+                await reload();
               })
             }
             onDelete={(name) =>
               guard(async () => {
                 await deleteSetting(eventKey, name);
-                reload();
+                await reload();
               })
             }
             onOpen={(name) => {

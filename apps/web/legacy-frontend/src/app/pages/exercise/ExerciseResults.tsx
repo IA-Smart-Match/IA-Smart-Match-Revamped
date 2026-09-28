@@ -29,7 +29,7 @@
 import * as React from "react";
 import { Link, useParams } from "react-router";
 
-import { isRefusal } from "../../../lib/exerciseApi";
+import { ExerciseUnreachable, isRefusal, type ExerciseRefusal } from "../../../lib/exerciseApi";
 import {
   readAskingChoice,
   readRankedList,
@@ -37,6 +37,7 @@ import {
   refreshProfiles,
   runResults,
   type AskingStateView,
+  type RefreshView,
   type ResultsView,
 } from "../../../lib/exerciseClient";
 import { ExerciseLoading, ExerciseNotice, ExerciseScreen } from "./ExerciseScreen";
@@ -59,6 +60,10 @@ interface ResultsData {
 
 export function ExerciseResults(): React.JSX.Element {
   const { eventKey = "" } = useParams();
+  return <EventResults key={eventKey} eventKey={eventKey} />;
+}
+
+function EventResults({ eventKey }: { readonly eventKey: string }): React.JSX.Element {
 
   const load = React.useCallback(
     async (signal: AbortSignal): Promise<ResultsData> => {
@@ -75,7 +80,19 @@ export function ExerciseResults(): React.JSX.Element {
     },
     [eventKey],
   );
-  const { state, reload } = useExerciseResource(load, [eventKey]);
+  const { state, reload } = useExerciseResource(load, [eventKey], {
+    keepDataOnError: (error) => error instanceof ExerciseUnreachable,
+  });
+  const [confirmedResults, setConfirmedResults] = React.useState<ResultsView | null>(null);
+  const [confirmedRefresh, setConfirmedRefresh] = React.useState<RefreshView | null>(null);
+  const [accessRefusal, setAccessRefusal] = React.useState<ExerciseRefusal | null>(null);
+
+  React.useEffect(() => {
+    if (state.status === "refused" && (state.refusal.status === 401 || state.refusal.status === 403)) {
+      setConfirmedResults(null);
+      setConfirmedRefresh(null);
+    }
+  }, [state]);
 
   return (
     <ExerciseScreen
@@ -97,7 +114,30 @@ export function ExerciseResults(): React.JSX.Element {
         </ExerciseNotice>
       ) : null}
       {state.status === "ready" ? (
-        <ResultsBody eventKey={eventKey} data={state.data} onChanged={reload} />
+        <>
+          {accessRefusal === null ? null : workspaceRequiredNotice(accessRefusal)}
+          {state.unreachable === null ? null : (
+            <ExerciseNotice message={state.unreachable} tone="problem">
+              <button type="button" className={BUTTON} onClick={() => void reload()}>
+                Try again
+              </button>
+            </ExerciseNotice>
+          )}
+          {accessRefusal === null ? <ResultsBody
+            eventKey={eventKey}
+            data={state.data}
+            onChanged={reload}
+            confirmedResults={confirmedResults}
+            onResultsConfirmed={setConfirmedResults}
+            confirmedRefresh={confirmedRefresh}
+            onRefreshConfirmed={setConfirmedRefresh}
+            onAccessLost={(message) => {
+              setConfirmedResults(null);
+              setConfirmedRefresh(null);
+              setAccessRefusal(message);
+            }}
+          /> : null}
+        </>
       ) : null}
     </ExerciseScreen>
   );
@@ -119,7 +159,7 @@ async function namesForEvent(eventKey: string, signal: AbortSignal): Promise<Nam
     // An abort is not a missing list — it is this load being replaced. It has
     // to propagate, or a superseded load resolves with an empty map and the
     // hook settles a stale answer over the live one.
-    if (signal.aborted) {
+    if (signal.aborted || (isRefusal(error) && (error.status === 401 || error.status === 403))) {
       throw error;
     }
     return new Map();
@@ -130,23 +170,39 @@ function ResultsBody({
   eventKey,
   data,
   onChanged,
+  confirmedResults,
+  onResultsConfirmed,
+  confirmedRefresh,
+  onRefreshConfirmed,
+  onAccessLost,
 }: {
   readonly eventKey: string;
   readonly data: ResultsData;
-  readonly onChanged: () => void;
+  readonly onChanged: () => Promise<void>;
+  readonly confirmedResults: ResultsView | null;
+  readonly onResultsConfirmed: (view: ResultsView) => void;
+  readonly confirmedRefresh: RefreshView | null;
+  readonly onRefreshConfirmed: (view: RefreshView) => void;
+  readonly onAccessLost: (refusal: ExerciseRefusal) => void;
 }): React.JSX.Element {
   const [pending, setPending] = React.useState(false);
   const [refusal, setRefusal] = React.useState<string | null>(null);
+  const pendingRef = React.useRef(false);
 
   async function run(action: () => Promise<void>): Promise<void> {
-    if (pending) {
+    if (pendingRef.current) {
       return;
     }
+    pendingRef.current = true;
     setPending(true);
     setRefusal(null);
     try {
       await action();
     } catch (error) {
+      if (isRefusal(error) && (error.status === 401 || error.status === 403)) {
+        onAccessLost(error);
+        return;
+      }
       // Every results refusal is a state, not an error: locked, already run,
       // and the rule not yet confirmed are all the product working. Each is
       // shown as the server's own sentence.
@@ -156,17 +212,20 @@ function ResultsBody({
           : "The exercise could not be reached. Check the connection and try again.",
       );
     } finally {
+      pendingRef.current = false;
       setPending(false);
     }
   }
 
-  const canRefresh = data.asking.choice !== null && !data.asking.refreshed;
+  const results = data.results ?? confirmedResults;
+  const canRefresh =
+    data.asking.choice !== null && !data.asking.refreshed && confirmedRefresh === null;
 
   return (
     <div className="flex flex-col gap-8">
       {refusal === null ? null : <ExerciseNotice message={refusal} />}
 
-      {data.results === null ? (
+      {results === null ? (
         <section className="flex flex-col gap-4">
           <p className="text-xl text-slate-700 dark:text-slate-200">
             Your team has not run results for this event yet. A team runs them once.
@@ -177,8 +236,8 @@ function ResultsBody({
               disabled={pending}
               onClick={() =>
                 void run(async () => {
-                  await runResults(eventKey, null);
-                  onChanged();
+                  onResultsConfirmed(await runResults(eventKey, null));
+                  void onChanged();
                 })
               }
               className={BUTTON}
@@ -188,7 +247,7 @@ function ResultsBody({
           </div>
         </section>
       ) : (
-        <ResultPanels results={data.results} names={data.names} />
+        <ResultPanels results={results} names={data.names} />
       )}
 
       <section className="flex flex-col gap-3">
@@ -210,17 +269,25 @@ function ResultsBody({
               disabled={pending || !canRefresh}
               onClick={() =>
                 void run(async () => {
-                  await refreshProfiles();
-                  onChanged();
+                  onRefreshConfirmed(await refreshProfiles());
+                  void onChanged();
                 })
               }
               className={BUTTON}
             >
-              {data.asking.refreshed ? "Your team has already asked" : "Ask them now"}
+              {data.asking.refreshed || confirmedRefresh !== null
+                ? "Your team has already asked"
+                : "Ask them now"}
             </button>
             <p className="mt-2 text-xl text-slate-600 dark:text-slate-300">
               Your team may ask once.
             </p>
+            {confirmedRefresh === null ? null : (
+              <p role="status" aria-live="polite" className="mt-2 text-xl text-slate-700 dark:text-slate-200">
+                Cards filled in: {confirmedRefresh.cards_completed}. Stopped opening messages:{" "}
+                {confirmedRefresh.non_responding}. Topics added: {confirmedRefresh.topics_added}.
+              </p>
+            )}
           </div>
         )}
       </section>

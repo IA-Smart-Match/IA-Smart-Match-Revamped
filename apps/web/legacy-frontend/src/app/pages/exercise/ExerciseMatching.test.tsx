@@ -181,9 +181,9 @@ describe("<ExerciseMatching />", () => {
       expect(found).not.toBeNull();
       return found;
     });
-    expect(link?.getAttribute("href")).toBe(
-      "/v1/exercise/workspaces/current/events/northline/list.csv",
-    );
+    const href = new URL(link?.getAttribute("href") ?? "", "http://exercise.test");
+    expect(href.pathname).toBe("/v1/exercise/workspaces/current/events/northline/list.csv");
+    expect(href.searchParams.get("same_major")).toBe("0.25");
   });
 
   it("sends X-Exercise-Request when a team saves a setting", async () => {
@@ -267,7 +267,7 @@ describe("<ExerciseMatching />", () => {
   });
 
   it("shows a refused list GET as a sentence and leaves the rest of the screen usable", async () => {
-    // G2. Fails on the merged code: without `keepDataOnRefusal`, a refused
+    // G2. A refused
     // list GET dropped the whole hook to `status: "refused"`, which
     // `ExerciseMatching` renders as `workspaceRequiredNotice` in place of
     // everything else — the weight boxes, the previous list, the save panel.
@@ -285,9 +285,12 @@ describe("<ExerciseMatching />", () => {
             return Promise.resolve(
               new Response(
                 JSON.stringify({
-                  error: { code: "exercise_invalid_weights", message: "Weights must sum to 1." },
+                  error: {
+                    code: "exercise_weights_invalid",
+                    message: "Weights must be finite and non-negative.",
+                  },
                 }),
-                { status: 400 },
+                { status: 422 },
               ),
             );
           }
@@ -312,7 +315,9 @@ describe("<ExerciseMatching />", () => {
     fireEvent.change(box, { target: { value: "0.9" } });
     fireEvent.blur(box);
 
-    await waitFor(() => expect(screen.getByText("Weights must sum to 1.")).toBeDefined());
+    await waitFor(() =>
+      expect(screen.getByText("Weights must be finite and non-negative.")).toBeDefined(),
+    );
 
     // The list from before the refused request, and the controls to fix the
     // mistake, are still on screen next to the sentence.
@@ -328,7 +333,7 @@ describe("<ExerciseMatching />", () => {
       ?.parentElement as HTMLElement;
     expect(listSection.getAttribute("aria-describedby")).toBe("exercise-list-refusal");
     expect(document.getElementById("exercise-list-refusal")?.textContent).toContain(
-      "Weights must sum to 1.",
+      "Weights must be finite and non-negative.",
     );
   });
 

@@ -40,6 +40,10 @@ export interface WeightsControlsProps {
    * refusal produces no change at all to notice.
    */
   readonly refusal?: ExerciseRefusal | null;
+  /** A retained transport failure also settles the outstanding commit. */
+  readonly transportFailed?: boolean;
+  /** Prevent saving/exporting while the boxes differ from the accepted list. */
+  readonly onDraftMatchesAcceptedChange?: (matches: boolean) => void;
 }
 
 /**
@@ -77,7 +81,8 @@ function strictDecimal(text: string): number | null {
   if (!/^-?(\d+(\.\d+)?|\.\d+)$/.test(text)) {
     return null;
   }
-  return Number(text);
+  const value = Number(text);
+  return Number.isFinite(value) ? value : null;
 }
 
 /** The server's numbers as the text the boxes start from. */
@@ -98,6 +103,8 @@ export function WeightsControls({
   onChange,
   disabled = false,
   refusal = null,
+  transportFailed = false,
+  onDraftMatchesAcceptedChange,
 }: WeightsControlsProps): React.JSX.Element {
   const keys = orderedKeys(factorLabels);
 
@@ -139,6 +146,7 @@ export function WeightsControls({
    * build on the first, not erase it.
    */
   const pendingBase = React.useRef<Readonly<Record<string, number>>>(weights);
+  const submitted = React.useRef<Readonly<Record<string, number>>>(weights);
 
   /**
    * Whether a commit's request is currently in flight — i.e. `onChange` has
@@ -169,6 +177,13 @@ export function WeightsControls({
    * text changes again — the team is already fixing it.
    */
   const [errors, setErrors] = React.useState<Record<string, string | null>>({});
+  const rejectedKeys = React.useRef(new Set<string>());
+
+  React.useEffect(() => {
+    onDraftMatchesAcceptedChange?.(
+      !inFlight && keys.every((key) => strictDecimal(draft[key] ?? "") === weights[key]),
+    );
+  }, [draft, weights, inFlight, factorLabels, onDraftMatchesAcceptedChange]);
 
   /**
    * Common to both ways a commit settles: a successful load (`weights`
@@ -181,18 +196,34 @@ export function WeightsControls({
    * request's own optimistic `pendingBase`, which is exactly the base a
    * refused commit must not be built on (H1's fix, extended to the queue).
    */
-  function onSettled(confirmed: Readonly<Record<string, number>>): void {
+  function onSettled(
+    confirmed: Readonly<Record<string, number>>,
+    preserveDraft = false,
+  ): void {
     pendingBase.current = confirmed;
     setInFlight(false);
     const queued = queuedEdits.current;
     queuedEdits.current = null;
+    if (preserveDraft) {
+      for (const key of keys) {
+        if (submitted.current[key] !== confirmed[key]) {
+          rejectedKeys.current.add(key);
+        }
+      }
+    }
     setDraft((previous) => {
       const next = textOf(confirmed, keys);
       // Keep whatever the team is still typing in the focused box, and
       // whatever a queued-but-not-yet-sent edit set for any other box — both
       // are truer than the confirmed number for a box that has moved on.
       for (const key of Object.keys(next)) {
-        if (key === focused.current || (queued !== null && key in queued)) {
+        if (
+          preserveDraft ||
+          rejectedKeys.current.has(key) ||
+          errors[key] != null ||
+          key === focused.current ||
+          (queued !== null && key in queued)
+        ) {
           next[key] = previous[key] ?? next[key];
         }
       }
@@ -201,6 +232,7 @@ export function WeightsControls({
     if (queued !== null) {
       const next = { ...confirmed, ...queued };
       pendingBase.current = next;
+      submitted.current = next;
       setInFlight(true);
       onChange(next);
     }
@@ -229,12 +261,21 @@ export function WeightsControls({
     if (refusal === null) {
       return;
     }
-    onSettled(weights);
+    onSettled(weights, true);
     // `weights` is read for its value as of the refusal, not watched — this
     // effect's own trigger is `refusal` itself, a fresh object per refused
     // attempt.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refusal]);
+
+  React.useEffect(() => {
+    if (!transportFailed) {
+      return;
+    }
+    onSettled(weights, true);
+    // A transition into the retained transport-error state settles the request.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [transportFailed]);
 
   /**
    * Send the box's value upstream, once, when the team is done with it — or,
@@ -267,6 +308,15 @@ export function WeightsControls({
     // last confirmed base, with any already-queued edit layered on top.
     const effectiveBase = { ...pendingBase.current, ...(queuedEdits.current ?? {}) };
     if (value === effectiveBase[key]) {
+      if (refusal !== null || transportFailed) {
+        // The user explicitly restored this box to the accepted value. Send
+        // that accepted snapshot so the parent leaves its refused request.
+        rejectedKeys.current.delete(key);
+        pendingBase.current = effectiveBase;
+        submitted.current = effectiveBase;
+        setInFlight(true);
+        onChange(effectiveBase);
+      }
       // Nothing changed relative to what has already been asked for or
       // queued: do not spend a request.
       return;
@@ -282,6 +332,7 @@ export function WeightsControls({
     // on the last confirmed weighting.
     const next = { ...pendingBase.current, [key]: value };
     pendingBase.current = next;
+    submitted.current = next;
     setInFlight(true);
     onChange(next);
   }
@@ -317,6 +368,8 @@ export function WeightsControls({
                 disabled={disabled}
                 onChange={(event) => {
                   const typed = event.target.value;
+                  onDraftMatchesAcceptedChange?.(false);
+                  rejectedKeys.current.delete(key);
                   setDraft((previous) => ({ ...previous, [key]: typed }));
                   // The team is already fixing whatever was rejected.
                   setErrors((previous) =>

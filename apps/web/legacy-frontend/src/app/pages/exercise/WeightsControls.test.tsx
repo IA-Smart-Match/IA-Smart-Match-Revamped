@@ -34,6 +34,16 @@ const WEIGHTS = {
 afterEach(cleanup);
 
 describe("<WeightsControls />", () => {
+  it("rejects a decimal whose numeric value is not finite", () => {
+    const onChange = vi.fn();
+    render(<WeightsControls factorLabels={LABELS} weights={WEIGHTS} onChange={onChange} />);
+    const box = screen.getByLabelText("same major");
+    fireEvent.change(box, { target: { value: "9".repeat(400) } });
+    fireEvent.blur(box);
+    expect(onChange).not.toHaveBeenCalled();
+    expect(box.getAttribute("aria-invalid")).toBe("true");
+  });
+
   it("lets a decimal be typed one character at a time", () => {
     // Fails on the merged code: `onChange` fired on the `0`, and in the screen
     // that re-rendered the panel from the server's echo, so the box never held
@@ -205,7 +215,7 @@ describe("<WeightsControls />", () => {
           factorLabels={LABELS}
           weights={WEIGHTS}
           onChange={onChange}
-          refusal={new ExerciseRefusal(409, "exercise_invalid_weights", "Weights must sum to 1.")}
+          refusal={new ExerciseRefusal(422, "exercise_weights_invalid", "Weights must be finite and non-negative.")}
         />,
       );
 
@@ -434,7 +444,7 @@ describe("<WeightsControls />", () => {
         factorLabels={LABELS}
         weights={WEIGHTS}
         onChange={onChange}
-        refusal={new ExerciseRefusal(409, "exercise_invalid_weights", "Weights must sum to 1.")}
+        refusal={new ExerciseRefusal(422, "exercise_weights_invalid", "Weights must be finite and non-negative.")}
       />,
     );
 
@@ -448,11 +458,10 @@ describe("<WeightsControls />", () => {
     expect(onChange).toHaveBeenNthCalledWith(2, { ...WEIGHTS, career_goal_fit: 0.4 });
   });
 
-  it("shows the confirmed number, not a silently fabricated one, once a commit is refused", () => {
+  it("keeps the rejected raw number visible so the team can correct it", () => {
     // A refused commit is answered with the screen's own refusal sentence
-    // (rendered above this component), so this box falling back to the last
-    // confirmed number — not staying on the rejected 0.9, and not some third
-    // value nobody asked for — is an honest state, not a silent one.
+    // (rendered above this component). The rejected raw number stays visible
+    // so the team can see and correct the exact input the server refused.
     const { rerender } = render(
       <WeightsControls factorLabels={LABELS} weights={WEIGHTS} onChange={vi.fn()} refusal={null} />,
     );
@@ -467,11 +476,11 @@ describe("<WeightsControls />", () => {
         factorLabels={LABELS}
         weights={WEIGHTS}
         onChange={vi.fn()}
-        refusal={new ExerciseRefusal(409, "exercise_invalid_weights", "Weights must sum to 1.")}
+        refusal={new ExerciseRefusal(422, "exercise_weights_invalid", "Weights must be finite and non-negative.")}
       />,
     );
 
-    expect(box.value).toBe(String(WEIGHTS.same_major));
+    expect(box.value).toBe("0.9");
   });
 
   it("keeps a still-focused box's own text when the refusal for it arrives", () => {
@@ -494,7 +503,7 @@ describe("<WeightsControls />", () => {
         factorLabels={LABELS}
         weights={WEIGHTS}
         onChange={vi.fn()}
-        refusal={new ExerciseRefusal(409, "exercise_invalid_weights", "Weights must sum to 1.")}
+        refusal={new ExerciseRefusal(422, "exercise_weights_invalid", "Weights must be finite and non-negative.")}
       />,
     );
 

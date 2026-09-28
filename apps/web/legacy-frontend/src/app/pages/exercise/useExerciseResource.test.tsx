@@ -18,6 +18,32 @@ afterEach(() => {
 });
 
 describe("useExerciseResource's reload()", () => {
+  it("settles a reload queued immediately before unmount", async () => {
+    const load = vi.fn(() => Promise.resolve("ready"));
+    const { result, unmount } = renderHook(() => useExerciseResource(load, []));
+    await waitFor(() => expect(result.current.state.status).toBe("ready"));
+
+    let settled = false;
+    act(() => {
+      void result.current.reload().then(() => {
+        settled = true;
+      });
+      unmount();
+    });
+
+    await waitFor(() => expect(settled).toBe(true));
+  });
+
+  it("returns an already-settled reload after unmount", async () => {
+    const { result, unmount } = renderHook(() =>
+      useExerciseResource(() => Promise.resolve("ready"), []),
+    );
+    await waitFor(() => expect(result.current.state.status).toBe("ready"));
+    const reload = result.current.reload;
+    unmount();
+    await expect(reload()).resolves.toBeUndefined();
+  });
+
   it("settles reload() on unmount instead of leaving it pending forever", async () => {
     // Round 3, finding 4. A run's cleanup hands its unresolved waiters to
     // "whichever run replaces it" — there is no such run when the hook

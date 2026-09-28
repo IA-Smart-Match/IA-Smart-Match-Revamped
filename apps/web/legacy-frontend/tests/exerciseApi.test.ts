@@ -205,6 +205,23 @@ test("a refusal that is not the exercise's own does not put its words on screen"
   assert.equal(error.code, "not_found");
 });
 
+for (const [label, code] of [
+  ["missing", undefined],
+  ["numeric", 42],
+  ["empty", ""],
+] as const) {
+  test(`a ${label} refusal code cannot make arbitrary server prose trusted`, async () => {
+    answerWith(() => json({ error: { code, message: "SQL raw details" } }, 500));
+    const error = (await exerciseRequest("/workspaces/current").then(
+      () => null,
+      (caught: unknown) => caught,
+    )) as ExerciseRefusal;
+    assert.ok(error instanceof ExerciseRefusal);
+    assert.equal(error.message, NOT_THE_EXERCISE);
+    assert.ok(!error.message.includes("SQL raw details"));
+  });
+}
+
 test("the exercise's own sentence is still shown exactly as written", async () => {
   answerWith(() =>
     json(

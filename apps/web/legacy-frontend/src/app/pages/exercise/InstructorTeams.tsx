@@ -31,31 +31,51 @@ import {
 } from "../../../lib/exerciseClient";
 import { askingChoiceLabel } from "./askingChoices";
 import { ExerciseLoading, ExerciseNotice } from "./ExerciseScreen";
+import { INSTRUCTOR_SESSION_REQUIRED } from "./refusals";
 import { useExerciseResource } from "./useExerciseResource";
 
 const BUTTON =
   "rounded-lg border-2 border-slate-400 px-4 py-2 text-xl font-semibold text-slate-800 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 dark:border-slate-500 dark:text-slate-100 dark:hover:bg-slate-800";
 
-export function InstructorTeams(): React.JSX.Element {
+export function InstructorTeams({
+  onSessionExpired,
+}: {
+  readonly onSessionExpired: () => void;
+}): React.JSX.Element {
   const { state, reload } = useExerciseResource(listTeamWorkspaces, []);
   const [refusal, setRefusal] = React.useState<string | null>(null);
   const [pending, setPending] = React.useState(false);
+  const pendingRef = React.useRef(false);
 
-  async function run(action: () => Promise<void>): Promise<void> {
-    if (pending) {
-      return;
+  React.useEffect(() => {
+    if (state.status === "refused" && state.refusal.code === INSTRUCTOR_SESSION_REQUIRED) {
+      onSessionExpired();
     }
+  }, [onSessionExpired, state]);
+
+  async function run(action: () => Promise<void>): Promise<boolean> {
+    if (pendingRef.current) {
+      return false;
+    }
+    pendingRef.current = true;
     setPending(true);
     setRefusal(null);
     try {
       await action();
+      return true;
     } catch (error) {
+      if (isRefusal(error) && error.code === INSTRUCTOR_SESSION_REQUIRED) {
+        onSessionExpired();
+        return false;
+      }
       setRefusal(
         isRefusal(error)
           ? error.message
           : "The exercise could not be reached. Check the connection and try again.",
       );
+      return false;
     } finally {
+      pendingRef.current = false;
       setPending(false);
     }
   }
@@ -88,10 +108,11 @@ export function InstructorTeams(): React.JSX.Element {
                   <TeamRow
                     team={team}
                     pending={pending}
+                    onSessionExpired={onSessionExpired}
                     onReset={() =>
                       run(async () => {
                         await resetTeamWorkspace(team.team_number, team.dataset_id);
-                        reload();
+                        void reload();
                       })
                     }
                   />
@@ -108,21 +129,35 @@ export function InstructorTeams(): React.JSX.Element {
 function TeamRow({
   team,
   pending,
+  onSessionExpired,
   onReset,
 }: {
   readonly team: TeamSummaryView;
   readonly pending: boolean;
-  readonly onReset: () => Promise<void>;
+  readonly onSessionExpired: () => void;
+  readonly onReset: () => Promise<boolean>;
 }): React.JSX.Element {
   const [confirming, setConfirming] = React.useState(false);
   const [detail, setDetail] = React.useState<TeamDetailView | null>(null);
   const [detailRefusal, setDetailRefusal] = React.useState<string | null>(null);
+  const detailGeneration = React.useRef(0);
 
   async function openDetail(): Promise<void> {
+    const generation = ++detailGeneration.current;
     setDetailRefusal(null);
     try {
-      setDetail(await readTeamWorkspace(team.team_number, team.dataset_id));
+      const next = await readTeamWorkspace(team.team_number, team.dataset_id);
+      if (generation === detailGeneration.current) {
+        setDetail(next);
+      }
     } catch (error) {
+      if (generation !== detailGeneration.current) {
+        return;
+      }
+      if (isRefusal(error) && error.code === INSTRUCTOR_SESSION_REQUIRED) {
+        onSessionExpired();
+        return;
+      }
       setDetailRefusal(
         isRefusal(error)
           ? error.message
@@ -163,7 +198,13 @@ function TeamRow({
               className={BUTTON}
               onClick={() => {
                 setConfirming(false);
-                void onReset();
+                void onReset().then((reset) => {
+                  if (reset) {
+                    detailGeneration.current += 1;
+                    setDetail(null);
+                    setDetailRefusal(null);
+                  }
+                });
               }}
             >
               Yes, clear team {team.team_number}

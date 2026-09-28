@@ -27,7 +27,7 @@
 import * as React from "react";
 import { Link } from "react-router";
 
-import { isRefusal } from "../../../lib/exerciseApi";
+import { ExerciseUnreachable, isRefusal, type ExerciseRefusal } from "../../../lib/exerciseApi";
 import {
   chooseAsking,
   readAskingChoice,
@@ -44,7 +44,9 @@ const BUTTON =
   "rounded-lg border-2 border-slate-400 px-5 py-3 text-xl font-semibold text-slate-800 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 dark:border-slate-500 dark:text-slate-100 dark:hover:bg-slate-800";
 
 export function ExerciseAskingForMore(): React.JSX.Element {
-  const { state, reload } = useExerciseResource(readAskingChoice, []);
+  const { state, reload } = useExerciseResource(readAskingChoice, [], {
+    keepDataOnError: (error) => error instanceof ExerciseUnreachable,
+  });
 
   /**
    * What the one refresh reported, held by the screen rather than the panel.
@@ -63,6 +65,15 @@ export function ExerciseAskingForMore(): React.JSX.Element {
    * to stay on the screen.
    */
   const [refreshed, setRefreshed] = React.useState<RefreshView | null>(null);
+  const [confirmedAsking, setConfirmedAsking] = React.useState<AskingStateView | null>(null);
+  const [accessRefusal, setAccessRefusal] = React.useState<ExerciseRefusal | null>(null);
+
+  React.useEffect(() => {
+    if (state.status === "refused" && (state.refusal.status === 401 || state.refusal.status === 403)) {
+      setRefreshed(null);
+      setConfirmedAsking(null);
+    }
+  }, [state]);
 
   return (
     <ExerciseScreen
@@ -84,12 +95,29 @@ export function ExerciseAskingForMore(): React.JSX.Element {
         </ExerciseNotice>
       ) : null}
       {state.status === "ready" ? (
-        <AskingPanels
-          asking={state.data}
-          onChanged={reload}
-          refreshed={refreshed}
-          onRefreshed={setRefreshed}
-        />
+        <>
+          {accessRefusal === null ? null : workspaceRequiredNotice(accessRefusal)}
+          {state.unreachable === null ? null : (
+            <ExerciseNotice message={state.unreachable} tone="problem">
+              <button type="button" className={BUTTON} onClick={() => void reload()}>
+                Try again
+              </button>
+            </ExerciseNotice>
+          )}
+          {accessRefusal === null ? <AskingPanels
+            asking={state.data}
+            confirmedAsking={confirmedAsking}
+            onAskingConfirmed={setConfirmedAsking}
+            onChanged={reload}
+            refreshed={refreshed}
+            onRefreshed={setRefreshed}
+            onAccessLost={(message) => {
+              setRefreshed(null);
+              setConfirmedAsking(null);
+              setAccessRefusal(message);
+            }}
+          /> : null}
+        </>
       ) : null}
     </ExerciseScreen>
   );
@@ -97,18 +125,27 @@ export function ExerciseAskingForMore(): React.JSX.Element {
 
 function AskingPanels({
   asking,
+  confirmedAsking,
+  onAskingConfirmed,
   onChanged,
   refreshed,
   onRefreshed,
+  onAccessLost,
 }: {
   readonly asking: AskingStateView;
+  readonly confirmedAsking: AskingStateView | null;
+  readonly onAskingConfirmed: (view: AskingStateView) => void;
   readonly onChanged: () => Promise<void>;
   /** The once-only refresh result, owned by the screen. */
   readonly refreshed: RefreshView | null;
   readonly onRefreshed: (view: RefreshView) => void;
+  readonly onAccessLost: (refusal: ExerciseRefusal) => void;
 }): React.JSX.Element {
   const [pending, setPending] = React.useState(false);
   const [refusal, setRefusal] = React.useState<string | null>(null);
+  const pendingRef = React.useRef(false);
+  const shownChoice = asking.choice ?? confirmedAsking?.choice ?? null;
+  const shownRefreshed = asking.refreshed || refreshed !== null;
 
   /**
    * Run one action and stay disabled until the screen actually reflects it.
@@ -121,20 +158,26 @@ function AskingPanels({
    * once-only action could be fired twice inside that window.
    */
   async function run(action: () => Promise<void>): Promise<void> {
-    if (pending) {
+    if (pendingRef.current) {
       return;
     }
+    pendingRef.current = true;
     setPending(true);
     setRefusal(null);
     try {
       await action();
     } catch (error) {
+      if (isRefusal(error) && (error.status === 401 || error.status === 403)) {
+        onAccessLost(error);
+        return;
+      }
       setRefusal(
         isRefusal(error)
           ? error.message
           : "The exercise could not be reached. Check the connection and try again.",
       );
     } finally {
+      pendingRef.current = false;
       setPending(false);
     }
   }
@@ -149,17 +192,17 @@ function AskingPanels({
         </h2>
         <ul className="flex flex-col gap-3">
           {asking.choices.map((choice) => {
-            const chosen = asking.choice === choice;
+            const chosen = shownChoice === choice;
             return (
               <li key={choice} className="flex flex-wrap items-center gap-3">
                 <button
                   type="button"
-                  disabled={pending || asking.choice !== null}
+                  disabled={pending || shownChoice !== null}
                   aria-pressed={chosen}
                   onClick={() =>
                     void run(async () => {
-                      await chooseAsking(choice);
-                      await onChanged();
+                      onAskingConfirmed(await chooseAsking(choice));
+                      void onChanged();
                     })
                   }
                   className={`${BUTTON} ${
@@ -171,7 +214,7 @@ function AskingPanels({
                   {askingChoiceLabel(choice)}
                 </button>
                 {chosen ? (
-                  <span className="text-xl text-slate-700 dark:text-slate-200">
+                  <span role="status" className="text-xl text-slate-700 dark:text-slate-200">
                     Your team chose this.
                   </span>
                 ) : null}
@@ -179,7 +222,7 @@ function AskingPanels({
             );
           })}
         </ul>
-        {asking.choice === null ? null : (
+        {shownChoice === null ? null : (
           <p className="text-xl text-slate-600 dark:text-slate-300">
             A team picks once, so these are now fixed.
           </p>
@@ -197,25 +240,29 @@ function AskingPanels({
         <div>
           <button
             type="button"
-            disabled={pending || asking.choice === null || asking.refreshed}
+            disabled={
+              pending || shownChoice === null || shownRefreshed
+            }
             onClick={() =>
               void run(async () => {
                 onRefreshed(await refreshProfiles());
-                await onChanged();
+                void onChanged();
               })
             }
             className={BUTTON}
           >
-            {asking.refreshed ? "Your team has already asked" : "Ask them now"}
+            {shownRefreshed ? "Your team has already asked" : "Ask them now"}
           </button>
         </div>
-        {asking.choice === null ? (
+        {shownChoice === null ? (
           <p className="text-xl text-slate-600 dark:text-slate-300">
             Pick a way of asking first.
           </p>
         ) : null}
         {refreshed === null ? null : (
           <dl
+            role="status"
+            aria-live="polite"
             className="grid gap-3 text-xl sm:grid-cols-3"
             data-slot="exercise-refresh-counts"
           >
