@@ -85,11 +85,17 @@ export function InstructorDatasets({
   const [uploaded, setUploaded] = React.useState<UploadedDatasetView | null>(null);
   const [pendingAction, setPendingAction] = React.useState<PendingAction | null>(null);
   const pending = pendingAction !== null;
+  /**
+   * The in-flight guard. `pending` is state, so two submits handled before a
+   * re-render both read `false`; the ref is set the moment the first starts.
+   */
+  const pendingRef = React.useRef(false);
 
   async function run(kind: PendingAction, action: () => Promise<void>): Promise<void> {
-    if (pending) {
+    if (pendingRef.current) {
       return;
     }
+    pendingRef.current = true;
     setPendingAction(kind);
     setRefusal(null);
     setDone(null);
@@ -105,6 +111,7 @@ export function InstructorDatasets({
         onSignedOut?.();
       }
     } finally {
+      pendingRef.current = false;
       setPendingAction(null);
     }
   }
