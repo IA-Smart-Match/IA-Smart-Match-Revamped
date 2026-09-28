@@ -27,7 +27,12 @@ own cookies, its own restricted database role and its own runbook: see
 is the operator procedure for standing that scope up and confirming it is
 reachable — separate from the CBA promote/deploy procedure below. Nothing in
 this file changes for it, and the Access requirement stated below still applies to
-`pilot.plated.blog`.
+`pilot.plated.blog`. One deploy-time link: when the VM's `.env` gives
+`SMARTMATCH_EXERCISE_WORKSPACE_SECRET` a value, `scripts/vm/deploy.sh` also
+loads `docker-compose.exercise.yml` with `--profile exercise`, so a promote
+keeps `api-exercise` and `web-exercise` running instead of removing them as
+orphans. The deploy log's `compose scope:` line says which it did
+([`exercise-hosting.md` §9 step 18](exercise-hosting.md#9-deploy-and-verify-checklist)).
 
 > **The gap this document used to describe is closed.** Earlier revisions
 > recorded that the machine serving the pilot did not have the layout described

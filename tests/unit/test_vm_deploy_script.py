@@ -652,3 +652,120 @@ def test_git_is_given_the_deploy_key() -> None:
     assert "StrictHostKeyChecking=yes" in deploy_source and (
         "StrictHostKeyChecking=yes" in bootstrap
     ), "host-key checking must stay on; the VM pins github.com via ssh-keyscan at bootstrap"
+
+
+# --- the class-exercise compose scope ---------------------------------------
+#
+# docker-compose.exercise.yml declares api-exercise and web-exercise in the
+# same `smartmatch` project. If deploy.sh does not name that file, its
+# `up -d --remove-orphans` deletes both containers as orphans. It must name it
+# only when the VM is configured for the exercise: the file's `${VAR:?}`
+# secrets are interpolated at parse time and would break every compose command
+# on a VM that lacks them.
+
+EXERCISE_SCOPE = "-f docker-compose.exercise.yml --profile exercise"
+EXERCISE_SECRET_LINE = "SMARTMATCH_EXERCISE_WORKSPACE_SECRET=abcdefgh12345678\n"
+
+
+def _ship_exercise_overlay(vm: Deployment) -> None:
+    """Make the release being deployed carry docker-compose.exercise.yml."""
+    (vm.seed / "docker-compose.exercise.yml").write_text("services: {}\n", encoding="utf-8")
+    vm.target_sha = vm.push_commit("ship the exercise overlay", "v3")  # type: ignore[attr-defined]
+
+
+def _write_env(vm: Deployment, text: str) -> None:
+    # Untracked on the VM, exactly like the real .env: the dirty-tree check
+    # ignores untracked files, so this does not refuse the deployment.
+    (vm.app / ".env").write_text(text, encoding="utf-8")
+
+
+def _up_calls(vm: Deployment) -> list[str]:
+    return [call for call in vm.docker_calls if "up -d --remove-orphans" in call]
+
+
+def test_without_exercise_secret_the_scope_is_cba_only(vm: Deployment) -> None:
+    _ship_exercise_overlay(vm)
+    _write_env(vm, "SMARTMATCH_PILOT_ADMIN_EMAIL=a@example.invalid\n")
+
+    result = vm.run()
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert not any("docker-compose.exercise.yml" in call for call in vm.docker_calls)
+    assert not any("--profile" in call for call in vm.docker_calls)
+    assert "compose scope: CBA only" in vm.log_text()
+
+
+def test_with_exercise_secret_the_up_keeps_the_exercise_services(vm: Deployment) -> None:
+    _ship_exercise_overlay(vm)
+    _write_env(vm, EXERCISE_SECRET_LINE)
+
+    result = vm.run()
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    ups = _up_calls(vm)
+    assert len(ups) == 1, ups
+    expected = "compose -f docker-compose.yml -f docker-compose.vm.yml " + EXERCISE_SCOPE
+    assert expected in ups[0], ups[0]
+    builds = [call for call in vm.docker_calls if call.endswith(" build")]
+    assert builds and all(EXERCISE_SCOPE in call for call in builds), builds
+    assert "compose scope: CBA + class exercise" in vm.log_text()
+
+
+@pytest.mark.parametrize(
+    "env_text",
+    [
+        "SMARTMATCH_EXERCISE_WORKSPACE_SECRET=\n",
+        'SMARTMATCH_EXERCISE_WORKSPACE_SECRET=""\n',
+        "# SMARTMATCH_EXERCISE_WORKSPACE_SECRET=abcdefgh12345678\n",
+        "SMARTMATCH_EXERCISE_WORKSPACE_SECRET_OLD=abcdefgh12345678\n",
+    ],
+    ids=["empty", "empty-quoted", "commented-out", "different-key"],
+)
+def test_an_unset_exercise_secret_does_not_load_the_overlay(vm: Deployment, env_text: str) -> None:
+    # An empty value would fail the file's `${VAR:?}` interpolation, so it must
+    # count as "not configured", not as "configured".
+    _ship_exercise_overlay(vm)
+    _write_env(vm, env_text)
+
+    result = vm.run()
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert not any(EXERCISE_SCOPE in call for call in vm.docker_calls)
+
+
+def test_an_exported_exercise_secret_loads_the_overlay(vm: Deployment) -> None:
+    _ship_exercise_overlay(vm)
+    _write_env(vm, "export " + EXERCISE_SECRET_LINE)
+
+    result = vm.run()
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    ups = _up_calls(vm)
+    assert ups and all(EXERCISE_SCOPE in call for call in ups), ups
+
+
+def test_a_checkout_without_the_overlay_file_stays_cba_only(vm: Deployment) -> None:
+    # The secret is set but the release predates docker-compose.exercise.yml:
+    # naming a missing file would fail every compose command.
+    _write_env(vm, EXERCISE_SECRET_LINE)
+
+    result = vm.run()
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert not any(EXERCISE_SCOPE in call for call in vm.docker_calls)
+
+
+def test_rollback_re_resolves_the_scope_for_the_previous_checkout(vm: Deployment) -> None:
+    # The new release ships the overlay; the previous one does not. The
+    # rollback's `up` must drop the file rather than name one that is gone.
+    _ship_exercise_overlay(vm)
+    _write_env(vm, EXERCISE_SECRET_LINE)
+
+    result = vm.run(HEALTH_STUB_FAIL_FOR=vm.target_sha)  # type: ignore[attr-defined]
+
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert vm.metadata()["rolled_back"] is True
+    ups = _up_calls(vm)
+    assert len(ups) == 2, ups
+    assert EXERCISE_SCOPE in ups[0], ups[0]
+    assert EXERCISE_SCOPE not in ups[1], ups[1]

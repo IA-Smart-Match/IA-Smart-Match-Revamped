@@ -102,7 +102,13 @@ SEED_LOGINS_TIMEOUT="${SMARTMATCH_SEED_LOGINS_TIMEOUT:-120}"
 # healthy before the deployment refuses for want of a backup.
 DB_START_ATTEMPTS="${SMARTMATCH_DB_START_ATTEMPTS:-60}"
 
-COMPOSE_FILES=(-f docker-compose.yml -f docker-compose.vm.yml)
+# The CBA stack. resolve_compose_scope (below) appends the class-exercise
+# overlay to this when the checkout is configured for it.
+BASE_COMPOSE_FILES=(-f docker-compose.yml -f docker-compose.vm.yml)
+COMPOSE_FILES=("${BASE_COMPOSE_FILES[@]}")
+EXERCISE_COMPOSE_FILE="docker-compose.exercise.yml"
+# The .env key whose presence means "this VM hosts the class exercise".
+EXERCISE_ENV_KEY="SMARTMATCH_EXERCISE_WORKSPACE_SECRET"
 DB_URL="postgresql://smartmatch:smartmatch@localhost:5432/smartmatch"
 
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
@@ -222,6 +228,35 @@ trap 'write_metadata' EXIT
 
 compose() { docker compose "${COMPOSE_FILES[@]}" "$@"; }
 
+resolve_compose_scope() {
+  # Decides, for the checkout currently in $APP_DIR, whether the class-exercise
+  # overlay (api-exercise, web-exercise) is part of the stack this script
+  # manages. Without it, `up -d --remove-orphans` deletes those containers as
+  # orphans of the `smartmatch` project on every deployment.
+  #
+  # It must stay CONDITIONAL. docker-compose.exercise.yml uses required
+  # `${VAR:?}` interpolation, which compose evaluates at parse time for the
+  # whole file; naming it on a VM without the exercise secrets breaks every
+  # compose command here, not only the exercise services. So the overlay is
+  # loaded only when .env gives SMARTMATCH_EXERCISE_WORKSPACE_SECRET a
+  # non-empty value AND the checkout has the file. The second check matters
+  # after a rollback to a release that predates it.
+  #
+  # Re-run before each build-and-up, because the pull and the rollback both
+  # change which checkout that is. `--profile exercise` goes in the same array
+  # as the files: it is a global `docker compose` flag, and one array keeps the
+  # expansion safe under `set -u`.
+  COMPOSE_FILES=("${BASE_COMPOSE_FILES[@]}")
+  if [ -f .env ] \
+     && grep -Eq "^[[:space:]]*(export[[:space:]]+)?${EXERCISE_ENV_KEY}=[\"']?[^\"'[:space:]]" .env \
+     && [ -f "$EXERCISE_COMPOSE_FILE" ]; then
+    COMPOSE_FILES+=(-f "$EXERCISE_COMPOSE_FILE" --profile exercise)
+    log "compose scope: CBA + class exercise (${EXERCISE_COMPOSE_FILE}, --profile exercise)"
+  else
+    log "compose scope: CBA only (no ${EXERCISE_ENV_KEY} in .env, or no ${EXERCISE_COMPOSE_FILE})"
+  fi
+}
+
 record_running_release() {
   # The systemd unit reads this file, so a reboot brings the stack back
   # reporting the SHA it is actually running rather than the `vm-unknown`
@@ -230,6 +265,8 @@ record_running_release() {
   printf 'SMARTMATCH_RELEASE=%s\n' "$1" > "${STATE_DIR}/release.env" 2>/dev/null \
     || log "warning: could not write ${STATE_DIR}/release.env"
 }
+
+resolve_compose_scope
 
 # --- 1. refuse before changing anything -------------------------------------
 
@@ -352,6 +389,7 @@ export SMARTMATCH_RELEASE="$DEPLOYED_SHA"
 deploy_current_checkout() {
   # Build first. A build failure must never reach the point of stopping a
   # running service, which is why this is a separate step from `up`.
+  resolve_compose_scope
   log "building images for $(git rev-parse HEAD)"
   compose build || return 1
 
