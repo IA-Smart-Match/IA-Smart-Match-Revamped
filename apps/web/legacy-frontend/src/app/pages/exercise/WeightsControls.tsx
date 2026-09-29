@@ -31,8 +31,26 @@ import * as React from "react";
 
 import type { ExerciseRefusal } from "../../../lib/exerciseApi";
 import { EXERCISE_FACTOR_KEYS, UNDECIDED_GOAL_HALF_LABEL_KEY } from "../../../lib/exerciseClient";
-import { strictDecimal, WeightSlider, type WeightRefusal } from "./desk";
+import {
+  formatWeightTotal,
+  strictDecimal,
+  WeightSlider,
+  weightTotal,
+  type WeightRefusal,
+} from "./desk";
 import { WeightsCompactBar } from "./WeightsCompactBar";
+
+/**
+ * What the total means, in Ann's background-note framing ("twice as much").
+ * The scorer divides each weight by the total (`factor_registry.py`
+ * `normalize_weights`), so the total itself changes nothing: no weight has
+ * to add up to 1, and no percentage is shown (ADR-0025 D8).
+ */
+export const WEIGHT_TOTAL_MEANING =
+  "What matters is how the weights compare: a factor set to 0.50 counts twice as much as one set to 0.25.";
+
+/** The server's sentence for an all-zero weighting (`exercise_matching_weights.py`), shown before it is sent. */
+export const WEIGHT_TOTAL_ZERO = "At least one number must be above 0.";
 
 /**
  * The server's code for a refused weighting (`exercise_matching_weights.py`).
@@ -222,6 +240,17 @@ export function WeightsControls({
       return next;
     });
   }
+
+  /**
+   * Each slider's number as shown right now, committed or not, so the total
+   * follows a drag or typing. `null` (text that is not a number) or a missing
+   * key falls back to the confirmed weight.
+   */
+  const [liveValues, setLiveValues] = React.useState<Readonly<Record<string, number | null>>>({});
+  const onLiveChange = React.useCallback((key: string, value: number | null): void => {
+    setLiveValues((previous) => (previous[key] === value ? previous : { ...previous, [key]: value }));
+  }, []);
+  const total = weightTotal(keys.map((key) => liveValues[key] ?? weights[key] ?? 0));
 
   function send(next: Readonly<Record<string, number>>, changed: readonly string[]): void {
     pendingBase.current = next;
@@ -473,6 +502,7 @@ export function WeightsControls({
                 name={key}
                 value={weights[key] ?? 0}
                 onCommit={(value) => commit(key, value)}
+                onLiveChange={(value) => onLiveChange(key, value)}
                 refusal={
                   shownRefusal?.key === key && !shownRefusal.inBox ? shownRefusal.refusal : null
                 }
@@ -492,9 +522,29 @@ export function WeightsControls({
             </div>
           ))}
         </div>
-        <p className="ce-type-meta border-t border-ce-line pt-ce-4 text-ce-ink-muted">
-          The list is rebuilt when you let go of a slider or press Enter.
-        </p>
+        <div
+          data-slot="exercise-weight-total"
+          className="flex flex-col gap-ce-2 border-t border-ce-line pt-ce-4"
+        >
+          {/* The team's own numbers added up: a sum, never a percentage (D8). */}
+          <p className="ce-type-label ce-tabular text-ce-ink">
+            Total weight: <span className="ce-type-value">{formatWeightTotal(total)}</span>
+          </p>
+          <p className="ce-type-body text-ce-ink">{WEIGHT_TOTAL_MEANING}</p>
+          {/* Shown before sending; a refusal already on screen is not repeated (owner rule). */}
+          {total === 0 && shownRefusal === null ? (
+            <p
+              role="status"
+              data-slot="exercise-weight-total-zero"
+              className="ce-type-meta text-ce-danger"
+            >
+              {WEIGHT_TOTAL_ZERO}
+            </p>
+          ) : null}
+          <p className="ce-type-meta text-ce-ink-muted">
+            The list is rebuilt when you let go of a slider or press Enter.
+          </p>
+        </div>
       </fieldset>
       <WeightsCompactBar
         target={card}

@@ -38,6 +38,7 @@ file contents. Dated material lives in `docs/archive/` — see
 ## Product — "what are we building?"
 - CBA scope authority → `product/cba-smart-match-customer-requirements.md`
 - Class exercise authority → `product/class-exercise-requirements.md`
+- Stakeholder emails (Ann Wang, Sept 2026) + alignment check → `decisions/stakeholder-correspondence-2026-09.md`
 - Capability/role/taxonomy maps → `product/cba-capability-policy.md`, `cba-role-presentation.md`, `cba-taxonomies.md`, `cba-terminology.md`
 - Exercise visual system → `design/class-exercise/DESIGN.md` (§11 = owner rulings)
 - Exercise Stitch mock-ups (contact sheet) → `design/class-exercise/stitch.md`

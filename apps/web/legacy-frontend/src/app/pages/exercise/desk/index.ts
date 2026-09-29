@@ -24,8 +24,10 @@ export {
   WEIGHT_STEP,
   clampWeight,
   formatWeight,
+  formatWeightTotal,
   strictDecimal,
   weightFieldMessage,
+  weightTotal,
 } from "./weightValue";
 export {
   CE_EASE,
