@@ -33,6 +33,11 @@
  * so the page returns to the passcode form instead of leaving controls that
  * will all fail. Every other panel on the page follows the same rule
  * (`instructorSession.ts`).
+ *
+ * **A reset closes the team's open work.** A list re-read keeps each row, so
+ * an opened team used to go on showing the saved settings and runs the reset
+ * had just cleared. A landed reset closes it, and a read of the team's work
+ * that was still in flight when the reset landed is dropped when it arrives.
  */
 import * as React from "react";
 
@@ -93,6 +98,11 @@ export function InstructorTeams({
   useSignOutOnExpiredRead(state, onSignedOut);
   const [refusal, setRefusal] = React.useState<string | null>(null);
   const [pending, setPending] = React.useState(false);
+  /**
+   * The in-flight guard. `pending` is state, so two presses handled before a
+   * re-render both read `false`; the ref is set the moment the first starts.
+   */
+  const pendingRef = React.useRef(false);
   const busy = state.status === "loading" || (state.status === "ready" && state.refreshing);
 
   /**
@@ -123,17 +133,22 @@ export function InstructorTeams({
     };
   }, [reload]);
 
-  async function run(action: () => Promise<void>): Promise<void> {
-    if (pending) {
-      return;
+  /** Runs one action; `true` when it landed. */
+  async function run(action: () => Promise<void>): Promise<boolean> {
+    if (pendingRef.current) {
+      return false;
     }
+    pendingRef.current = true;
     setPending(true);
     setRefusal(null);
     try {
       await action();
+      return true;
     } catch (error) {
       setRefusal(describeError(error));
+      return false;
     } finally {
+      pendingRef.current = false;
       setPending(false);
     }
   }
@@ -178,7 +193,7 @@ export function InstructorTeams({
                     onReset={() =>
                       run(async () => {
                         await resetTeamWorkspace(team.team_number, team.dataset_id);
-                        reload();
+                        void reload();
                       })
                     }
                   />
@@ -201,18 +216,34 @@ function TeamRow({
   readonly team: TeamSummaryView;
   readonly pending: boolean;
   readonly describeError: (error: unknown) => string;
-  readonly onReset: () => Promise<void>;
+  /** Resolves `true` when the reset landed. */
+  readonly onReset: () => Promise<boolean>;
 }): React.JSX.Element {
   const [confirming, setConfirming] = React.useState(false);
   const [detail, setDetail] = React.useState<TeamDetailView | null>(null);
   const [detailRefusal, setDetailRefusal] = React.useState<string | null>(null);
+  /**
+   * Which read of the team's work may still land. Bumped by every new read
+   * and by a landed reset, so an older answer — including one from before the
+   * reset — is dropped when it arrives.
+   */
+  const detailGeneration = React.useRef(0);
 
   async function openDetail(): Promise<void> {
+    const generation = ++detailGeneration.current;
     setDetailRefusal(null);
     try {
-      setDetail(await readTeamWorkspace(team.team_number, team.dataset_id));
+      const next = await readTeamWorkspace(team.team_number, team.dataset_id);
+      if (generation === detailGeneration.current) {
+        setDetail(next);
+      }
     } catch (error) {
-      setDetailRefusal(describeError(error));
+      // Described even when stale: an expired session signs the page out
+      // whichever read found it. Only the sentence is dropped.
+      const sentence = describeError(error);
+      if (generation === detailGeneration.current) {
+        setDetailRefusal(sentence);
+      }
     }
   }
 
@@ -271,7 +302,13 @@ function TeamRow({
                 disabled={pending}
                 onClick={() => {
                   setConfirming(false);
-                  void onReset();
+                  void onReset().then((landed) => {
+                    if (landed) {
+                      detailGeneration.current += 1;
+                      setDetail(null);
+                      setDetailRefusal(null);
+                    }
+                  });
                 }}
               >
                 Yes, clear team {team.team_number}

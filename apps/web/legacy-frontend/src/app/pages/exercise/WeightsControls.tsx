@@ -31,7 +31,13 @@ import * as React from "react";
 
 import type { ExerciseRefusal } from "../../../lib/exerciseApi";
 import { EXERCISE_FACTOR_KEYS, UNDECIDED_GOAL_HALF_LABEL_KEY } from "../../../lib/exerciseClient";
-import { WeightSlider, formatWeightTotal, weightTotal } from "./desk";
+import {
+  formatWeightTotal,
+  strictDecimal,
+  WeightSlider,
+  weightTotal,
+  type WeightRefusal,
+} from "./desk";
 import { WeightsCompactBar } from "./WeightsCompactBar";
 
 /**
@@ -58,6 +64,13 @@ export function isWeightsRefusal(refusal: ExerciseRefusal | null): boolean {
   return refusal !== null && refusal.code === WEIGHTS_REFUSAL_CODE;
 }
 
+/**
+ * A typed number too long to be a number at all (`Number` reads it as
+ * Infinity). It is not sent: the server's answer would name the factor by its
+ * rulebook key, which a screen never shows.
+ */
+export const WEIGHT_TOO_LARGE_SENTENCE = "That number is too big to use. Type a smaller one, like 0.5.";
+
 /** The id of a refusal sentence drawn under a box the team is still in. */
 function refusalSentenceId(key: string): string {
   return `exercise-weight-${key}-refusal`;
@@ -79,6 +92,19 @@ export interface WeightsControlsProps {
    * refusal produces no change at all to notice.
    */
   readonly refusal?: ExerciseRefusal | null;
+  /**
+   * Told whether any number box holds text the team has not committed yet —
+   * typed and not yet left, or not a number at all. The list on screen is not
+   * the answer to what those boxes show, so the screen must not save or export
+   * it as if it were.
+   */
+  readonly onUnsentChange?: (hasUnsent: boolean) => void;
+  /**
+   * The latest commit's request never reached the server. It settles that
+   * commit like a refusal does — but the sliders keep the weights the team
+   * asked for, since nothing refused them, and the screen offers the retry.
+   */
+  readonly transportFailed?: boolean;
 }
 
 /**
@@ -106,6 +132,8 @@ export function WeightsControls({
   onChange,
   disabled = false,
   refusal = null,
+  onUnsentChange,
+  transportFailed = false,
 }: WeightsControlsProps): React.JSX.Element {
   const keys = orderedFactorKeys(factorLabels);
   const card = React.useRef<HTMLFieldSetElement>(null);
@@ -181,12 +209,37 @@ export function WeightsControls({
    */
   const [shownRefusal, setShownRefusal] = React.useState<{
     readonly key: string;
-    readonly refusal: ExerciseRefusal;
+    readonly refusal: WeightRefusal;
     /** The team is still in this weight's box: draw the sentence, keep the text. */
     readonly inBox: boolean;
   } | null>(null);
   const [revision, setRevision] = React.useState<Readonly<Record<string, number>>>({});
   const rows = React.useRef<Record<string, HTMLDivElement | null>>({});
+
+  /**
+   * Weights whose number box holds text that has not been committed: typed
+   * and not yet left, or not a plain number. Cleared by that weight's commit.
+   */
+  const [unsent, setUnsent] = React.useState<ReadonlySet<string>>(() => new Set());
+
+  React.useEffect(() => {
+    onUnsentChange?.(unsent.size > 0);
+  }, [unsent, onUnsentChange]);
+
+  function markUnsent(key: string, isUnsent: boolean): void {
+    setUnsent((previous) => {
+      if (previous.has(key) === isUnsent) {
+        return previous;
+      }
+      const next = new Set(previous);
+      if (isUnsent) {
+        next.add(key);
+      } else {
+        next.delete(key);
+      }
+      return next;
+    });
+  }
 
   /**
    * Each slider's number as shown right now, committed or not, so the total
@@ -274,6 +327,10 @@ export function WeightsControls({
       }
       const others = refused.filter((key) => key !== announcer && key !== inBox);
       if (others.length > 0) {
+        // A remounted slider shows the confirmed weight, whatever was typed.
+        for (const key of others) {
+          markUnsent(key, false);
+        }
         setRevision((previous) => {
           const next = { ...previous };
           for (const key of others) {
@@ -291,6 +348,21 @@ export function WeightsControls({
   }, [refusal]);
 
   /**
+   * A request that never landed is settled too, or the next commit would be
+   * queued behind it forever. Its base is what was asked for: the sliders
+   * still show those numbers, and the next commit must build on them. Only a
+   * change into the failed state counts — the screen's "Try again" is the
+   * retry, never this.
+   */
+  React.useEffect(() => {
+    if (!transportFailed) {
+      return;
+    }
+    onSettled(pendingBase.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [transportFailed]);
+
+  /**
    * Send one weight upstream, once, when the team is done with it — or, if
    * another commit is already in flight, fold it into the one commit queued
    * behind it (see `queuedEdits`).
@@ -302,13 +374,33 @@ export function WeightsControls({
    * other refusal on this screen.
    */
   function commit(key: string, value: number): void {
+    markUnsent(key, false);
+    if (!Number.isFinite(value)) {
+      // Digits only, so it passed the strict-decimal rule, but too many of
+      // them to be a number. Refused here, in the same place a server refusal
+      // is shown, and never sent (see `WEIGHT_TOO_LARGE_SENTENCE`).
+      setShownRefusal({
+        key,
+        refusal: { message: WEIGHT_TOO_LARGE_SENTENCE },
+        inBox: focused.current === key,
+      });
+      return;
+    }
     setShownRefusal((previous) => (previous?.key === key ? null : previous));
     // What the next request would ask for if it went out right now: the
     // last confirmed base, with any already-queued edit layered on top.
     const effectiveBase = { ...pendingBase.current, ...(queuedEdits.current ?? {}) };
     if (value === effectiveBase[key]) {
-      // Nothing changed relative to what has already been asked for or
-      // queued: do not spend a request.
+      if ((refusal !== null || transportFailed) && !inFlight) {
+        // The team has typed a refused (or unsent) weight back to the one
+        // already asked for. The screen is still holding the failed request,
+        // so staying silent here would leave it stuck on "that change was
+        // refused" with no way out. Ask again: that is the correction.
+        setPendingKeys((previous) => (previous.includes(key) ? previous : [...previous, key]));
+        send(effectiveBase, [key]);
+      }
+      // Otherwise nothing changed relative to what has already been asked
+      // for or queued: do not spend a request.
       return;
     }
     setPendingKeys((previous) => (previous.includes(key) ? previous : [...previous, key]));
@@ -376,6 +468,18 @@ export function WeightsControls({
               // slider thumb takes the refusal and snaps back like any other.
               onFocus={(event) => {
                 focused.current = event.target instanceof HTMLInputElement ? key : null;
+              }}
+              // The number box's typing bubbles here. Text that is not the
+              // number already asked for is unsent until that weight commits.
+              onChange={(event) => {
+                if (
+                  event.target instanceof HTMLInputElement &&
+                  event.target.id === `exercise-weight-${key}-value`
+                ) {
+                  const parsed = strictDecimal(event.target.value);
+                  const asked = { ...pendingBase.current, ...(queuedEdits.current ?? {}) }[key];
+                  markUnsent(key, parsed === null || parsed !== asked);
+                }
               }}
               onBlur={() => {
                 focused.current = null;

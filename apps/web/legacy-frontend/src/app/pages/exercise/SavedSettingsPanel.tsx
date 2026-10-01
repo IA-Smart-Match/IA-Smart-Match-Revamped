@@ -48,6 +48,12 @@ export interface SavedSettingsPanelProps {
   readonly onOpen: (name: string) => void;
   /** Show two of them side by side. */
   readonly onCompare: (a: string, b: string) => void;
+  /**
+   * Why "save" is off right now, or `null` when it is not: the list is being
+   * rebuilt, or is not the answer to the numbers on screen. Saving stores the
+   * list's own weights, so it waits until those are the ones on screen.
+   */
+  readonly saveBlockedReason?: string | null;
 }
 
 const COMPARE_NOTE_ID = "exercise-compare-note";
@@ -60,6 +66,7 @@ export function SavedSettingsPanel({
   onDelete,
   onOpen,
   onCompare,
+  saveBlockedReason = null,
 }: SavedSettingsPanelProps): React.JSX.Element {
   const [name, setName] = React.useState("");
   /** Which action is running, if any: one at a time. */
@@ -71,6 +78,11 @@ export function SavedSettingsPanel({
     () => new Set(saved.settings.map((setting) => setting.name)),
   );
   const pending = action !== null;
+  /**
+   * Set synchronously, before any render: a double-click reads `pending` as
+   * `false` twice, so the state alone cannot stop a second save or delete.
+   */
+  const inFlight = React.useRef(false);
 
   /**
    * Run one action, and say whether it worked.
@@ -86,13 +98,15 @@ export function SavedSettingsPanel({
    * with it is decide whether to clear the box.
    */
   async function run(kind: "save" | "delete", work: () => Promise<boolean>): Promise<boolean> {
-    if (pending) {
+    if (inFlight.current) {
       return false;
     }
+    inFlight.current = true;
     setAction(kind);
     try {
       return await work();
     } finally {
+      inFlight.current = false;
       setAction(null);
     }
   }
@@ -103,7 +117,7 @@ export function SavedSettingsPanel({
     settings.length >= saved.max_settings &&
     trimmed !== "" &&
     !settings.some((setting) => setting.name === trimmed);
-  const saveBlocked = pending || trimmed === "" || atCapForNewName;
+  const saveBlocked = pending || trimmed === "" || atCapForNewName || saveBlockedReason !== null;
   // A deleted setting cannot stay ticked.
   const chosen = ticked.filter((picked) => settings.some((setting) => setting.name === picked));
   const twoChosen = chosen.length === 2;
@@ -174,7 +188,9 @@ export function SavedSettingsPanel({
           Save these weights
         </Button>
         <span id="exercise-save-note" className="ce-type-meta basis-full text-ce-ink-muted">
-          {atCapForNewName
+          {saveBlockedReason !== null
+            ? saveBlockedReason
+            : atCapForNewName
             ? `Your team has ${saved.max_settings} saved settings for this event. Type one of those names to save over it, or delete one first.`
             : `Saves the ${Object.keys(weights).length} numbers now on screen.`}
         </span>

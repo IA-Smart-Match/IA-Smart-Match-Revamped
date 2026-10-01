@@ -6,7 +6,7 @@
  * if the coefficients are ever removed, and the first test below keeps that
  * sentence reaching the projector as a state rather than an error.
  */
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -102,6 +102,53 @@ function renderResults() {
     { initialEntries: ["/exercise/events/northline/results"] },
   );
   return render(<RouterProvider router={router} />);
+}
+
+/** A stored round-one run, as the run POST and the results GET both answer it. */
+const RUN_VIEW = {
+  event_key: "northline",
+  event_name: "Northline Analytics",
+  round: 1,
+  setting_name: "Wide net",
+  team: panel(6, 3, 2),
+  email_everyone: panel(300, 40, 30),
+  seats_empty: 50,
+  event_seats: 60,
+  existing_signups: 8,
+  round_one: null,
+  created_at: "2026-09-21T10:00:00Z",
+};
+
+/**
+ * Answer by `METHOD path` and call count: `null` falls through to a 404, a
+ * thrown `TypeError` stands for a request that never reached the server.
+ */
+function stubBy(
+  answer: (key: string, count: number) => { body: unknown; status?: number } | "offline" | null,
+): void {
+  const counts = new Map<string, number>();
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((url: string, init: RequestInit) => {
+      calls.push({ url, init });
+      const key = `${init.method ?? "GET"} ${url.split("?")[0]}`;
+      const count = (counts.get(key) ?? 0) + 1;
+      counts.set(key, count);
+      const found = answer(key, count);
+      if (found === "offline") {
+        return Promise.reject(new TypeError("offline"));
+      }
+      const { body, status } = found ?? {
+        body: { error: { code: "test_unstubbed", message: key } },
+        status: 404,
+      };
+      return Promise.resolve(new Response(JSON.stringify(body), { status: status ?? 200 }));
+    }),
+  );
+}
+
+function posts(path: string): number {
+  return calls.filter((call) => call.init.method === "POST" && call.url === path).length;
 }
 
 beforeEach(() => {
@@ -414,5 +461,111 @@ describe("<ExerciseResults />", () => {
     );
     const listCall = calls.find((call) => call.url.startsWith(LIST));
     expect(listCall?.url).toBe(`${LIST}?setting=Wide+net`);
+  });
+});
+
+describe("<ExerciseResults /> once-only presses", () => {
+  const REFRESH = "/v1/exercise/workspaces/current/refresh";
+  const CHOSEN = { body: { choice: "required", choices: ["required"], refreshed: false } };
+  const COUNTS = { choice: "required", cards_completed: 8, non_responding: 2, topics_added: 5 };
+
+  it("sends one run for two presses in the same tick", async () => {
+    stubBy((key) => {
+      if (key === `GET ${RESULTS}`) return NOT_RUN;
+      if (key === `POST ${RESULTS}`) return { body: RUN_VIEW };
+      if (key === `GET ${LIST}`) return NO_LIST;
+      if (key === `GET ${ASKING}`) return NO_CHOICE;
+      if (key === `GET ${SETTINGS}`) return TWO_SAVED;
+      return null;
+    });
+    renderResults();
+    fireEvent.click(await screen.findByRole("radio", { name: "Wide net" }));
+    const run = screen.getByRole("button", { name: /run results/i });
+    act(() => {
+      run.click();
+      run.click();
+    });
+    await waitFor(() => expect(posts(RESULTS)).toBe(1));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(posts(RESULTS)).toBe(1);
+  });
+
+  it("shows a confirmed run and keeps Run shut when the re-read cannot be reached", async () => {
+    stubBy((key, count) => {
+      if (key === `GET ${RESULTS}`) return count === 1 ? NOT_RUN : "offline";
+      if (key === `POST ${RESULTS}`) return { body: RUN_VIEW };
+      if (key === `GET ${LIST}`) return NO_LIST;
+      if (key === `GET ${ASKING}`) return NO_CHOICE;
+      if (key === `GET ${SETTINGS}`) return TWO_SAVED;
+      return null;
+    });
+    renderResults();
+    await runWith("Wide net");
+
+    await waitFor(() => expect(screen.getByText(/could not be reached/i)).toBeDefined());
+    // The run the server confirmed is on screen, and there is no Run to press.
+    // Read from D8's sentence, not the figures band: a run made on this screen
+    // plays the desk reveal, whose band counts up from 0 after a 1.4s delay,
+    // while the sentence carries the server's numbers from the first render.
+    expect(
+      document.querySelector('[data-slot="exercise-seats-sentence"]')?.textContent,
+    ).toContain("50 seats are still open.");
+    expect(screen.queryByRole("button", { name: /run results/i })).toBeNull();
+    expect(posts(RESULTS)).toBe(1);
+  });
+
+  it("keeps a confirmed refresh shut and its counts readable when the re-read cannot be reached", async () => {
+    stubBy((key, count) => {
+      if (key === `GET ${RESULTS}`) return count === 1 ? { body: RUN_VIEW } : "offline";
+      if (key === `POST ${REFRESH}`) return { body: COUNTS };
+      if (key === `GET ${LIST}`) return NO_LIST;
+      if (key === `GET ${ASKING}`) return CHOSEN;
+      return null;
+    });
+    renderResults();
+    const ask = await screen.findByRole("button", { name: /ask them now/i });
+    const counts = document.querySelector('[data-slot="exercise-results-refresh-counts"]');
+    expect(counts?.getAttribute("role")).toBe("status");
+    expect(counts?.textContent).toBe("");
+
+    act(() => {
+      ask.click();
+      ask.click();
+    });
+
+    await waitFor(() => expect(screen.getByText(/could not be reached/i)).toBeDefined());
+    expect(posts(REFRESH)).toBe(1);
+    const shut = screen.getByRole("button", { name: /your team has already asked/i });
+    expect(isOff(shut)).toBe(true);
+    fireEvent.click(shut);
+    expect(posts(REFRESH)).toBe(1);
+    expect(
+      document.querySelector('[data-slot="exercise-results-refresh-counts"]')?.textContent,
+    ).toBe(
+      "Your team asked. Cards filled in: 8. Stopped opening messages: 2. Picked up the first event's topics: 5.",
+    );
+  });
+
+  it("takes the screen down when a run is refused for access", async () => {
+    stubBy((key) => {
+      if (key === `GET ${RESULTS}`) return NOT_RUN;
+      if (key === `POST ${RESULTS}`) {
+        return {
+          body: { error: { code: "exercise_workspace_required", message: "Enter your team number." } },
+          status: 401,
+        };
+      }
+      if (key === `GET ${LIST}`) return NO_LIST;
+      if (key === `GET ${ASKING}`) return NO_CHOICE;
+      if (key === `GET ${SETTINGS}`) return TWO_SAVED;
+      return null;
+    });
+    renderResults();
+    await runWith("Wide net");
+    await waitFor(() =>
+      expect(screen.getByRole("link", { name: "Enter your team number" })).toBeDefined(),
+    );
+    expect(screen.queryByRole("radiogroup", { name: /final setting/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /run results/i })).toBeNull();
   });
 });

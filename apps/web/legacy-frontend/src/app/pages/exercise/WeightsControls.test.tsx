@@ -15,7 +15,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ExerciseRefusal } from "../../../lib/exerciseApi";
-import { WeightsControls } from "./WeightsControls";
+import { WEIGHT_TOO_LARGE_SENTENCE, WeightsControls } from "./WeightsControls";
 
 const LABELS = {
   same_major: "same major",
@@ -503,6 +503,80 @@ describe("<WeightsControls />", () => {
     );
 
     expect(box.value).toBe("0.6");
+  });
+
+  it("refuses a number too long to be a number, without sending it", () => {
+    // 400 nines pass the strict-decimal rule and read as Infinity. Sent, the
+    // server's refusal would name the factor by its rulebook key.
+    const onChange = vi.fn();
+    render(<WeightsControls factorLabels={LABELS} weights={WEIGHTS} onChange={onChange} />);
+    const box = numberBox("same major");
+    fireEvent.focus(box);
+    fireEvent.change(box, { target: { value: "9".repeat(400) } });
+    fireEvent.blur(box);
+
+    expect(onChange).not.toHaveBeenCalled();
+    const errors = document.querySelectorAll('[data-slot="exercise-weight-error"]');
+    expect(errors).toHaveLength(1);
+    expect(errors[0].textContent).toBe(WEIGHT_TOO_LARGE_SENTENCE);
+    expect(box.value).toBe("0.25");
+  });
+
+  it("sends the accepted weights when a box refused in place is typed back to them", () => {
+    // #252: a negative weight is refused in the server's own sentence. With
+    // the team still in the box, typing the accepted number back used to be
+    // "no change" and sent nothing, so the screen stayed on the refused
+    // request with no way out of it.
+    const onChange = vi.fn();
+    const { rerender } = render(
+      <WeightsControls factorLabels={LABELS} weights={WEIGHTS} onChange={onChange} />,
+    );
+    const box = numberBox("same major");
+    fireEvent.focus(box);
+    fireEvent.change(box, { target: { value: "-1" } });
+    fireEvent.keyDown(box, { key: "Enter" });
+    expect(onChange).toHaveBeenLastCalledWith({ ...WEIGHTS, same_major: -1 });
+
+    rerender(
+      <WeightsControls
+        factorLabels={LABELS}
+        weights={WEIGHTS}
+        onChange={onChange}
+        refusal={new ExerciseRefusal(422, "exercise_weights_invalid", "A weight cannot be below 0.")}
+      />,
+    );
+    expect(screen.getByText("A weight cannot be below 0.")).toBeDefined();
+
+    fireEvent.change(box, { target: { value: "0.25" } });
+    fireEvent.keyDown(box, { key: "Enter" });
+
+    expect(onChange).toHaveBeenCalledTimes(2);
+    expect(onChange).toHaveBeenLastCalledWith(WEIGHTS);
+  });
+
+  it("tells the screen while a box holds text that has not been sent", () => {
+    const onUnsentChange = vi.fn();
+    render(
+      <WeightsControls
+        factorLabels={LABELS}
+        weights={WEIGHTS}
+        onChange={vi.fn()}
+        onUnsentChange={onUnsentChange}
+      />,
+    );
+    expect(onUnsentChange).toHaveBeenLastCalledWith(false);
+    const box = numberBox("same major");
+    fireEvent.focus(box);
+    fireEvent.change(box, { target: { value: "0.5" } });
+    expect(onUnsentChange).toHaveBeenLastCalledWith(true);
+    fireEvent.blur(box);
+    expect(onUnsentChange).toHaveBeenLastCalledWith(false);
+
+    // Text that is not a number cannot be sent, so it stays unsent.
+    fireEvent.focus(box);
+    fireEvent.change(box, { target: { value: "0.5abc" } });
+    fireEvent.blur(box);
+    expect(onUnsentChange).toHaveBeenLastCalledWith(true);
   });
 
   it("never renders a rulebook key as a label", () => {

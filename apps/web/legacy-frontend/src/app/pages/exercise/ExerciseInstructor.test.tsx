@@ -7,7 +7,7 @@
  * screen to explain it. And the per-team reset must be *present* on this page,
  * because it is absent everywhere else by design (PR #186).
  */
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -46,6 +46,8 @@ interface Answer {
   readonly body: unknown;
   readonly status?: number;
   readonly gate?: Promise<void>;
+  /** The request never lands: `fetch` rejects, as it does when the network is down. */
+  readonly unreachable?: boolean;
 }
 
 /** A promise and the function that resolves it. */
@@ -82,6 +84,9 @@ function stub(answers: Record<string, Answer>): void {
           body: { error: { code: "test_unstubbed", message: path } },
           status: 404,
         };
+      if (answer.unreachable === true) {
+        return Promise.reject(new TypeError("Failed to fetch"));
+      }
       const respond = () =>
         new Response(JSON.stringify(answer.body), { status: answer.status ?? 200 });
       return answer.gate === undefined ? Promise.resolve(respond()) : answer.gate.then(respond);
@@ -680,5 +685,184 @@ describe("<ExerciseInstructor />", () => {
 
     reRead.open();
     await waitFor(() => expect(isInert(again)).toBe(false));
+  });
+
+  describe("the session probe", () => {
+    it("shows a problem with Try again, not the passcode, when the server cannot be reached", async () => {
+      // 4a. The probe's catch used to land every failure on the passcode
+      // form, which asked for a passcode that could not help.
+      hasSession = true;
+      const answers = signedInStubs({ [`GET ${WORKSPACES}`]: { body: null, unreachable: true } });
+      stub(answers);
+      renderInstructor();
+
+      const sentence = await screen.findByText(
+        "The exercise could not be reached. Check the connection and try again.",
+      );
+      expect(sentence.closest('[data-slot="exercise-notice"]')?.getAttribute("data-tone")).toBe(
+        "problem",
+      );
+      expect(screen.queryByLabelText(/passcode/i)).toBeNull();
+      expect(screen.getByRole("button", { name: "Try again" })).toBeDefined();
+    });
+
+    it("runs the probe again on Try again, and opens the page once it answers", async () => {
+      hasSession = true;
+      const answers = signedInStubs({ [`GET ${WORKSPACES}`]: { body: null, unreachable: true } });
+      stub(answers);
+      renderInstructor();
+      const again = await screen.findByRole("button", { name: "Try again" });
+
+      answers[`GET ${WORKSPACES}`] = {
+        body: { teams: [TEAM], active_dataset_label: "Autumn draft" },
+      };
+      fireEvent.click(again);
+
+      await screen.findByText("Data files");
+      expect(screen.queryByLabelText(/passcode/i)).toBeNull();
+      expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+      const probes = calls.filter((call) => call.url.split("?")[0] === WORKSPACES);
+      expect(probes.length).toBeGreaterThanOrEqual(2);
+    });
+
+    it("does not take a 401 for another cookie as the instructor's session", async () => {
+      // 4a. Only `exercise_instructor_session_required` means the passcode
+      // form; a 401 with any other code is the server's sentence.
+      hasSession = true;
+      stub(
+        signedInStubs({
+          [`GET ${WORKSPACES}`]: {
+            body: {
+              error: {
+                code: "exercise_workspace_required",
+                message: "Enter your team's number to start.",
+              },
+            },
+            status: 401,
+          },
+        }),
+      );
+      renderInstructor();
+
+      await screen.findByText("Enter your team's number to start.");
+      expect(screen.queryByLabelText(/passcode/i)).toBeNull();
+      expect(screen.getByRole("button", { name: "Try again" })).toBeDefined();
+    });
+
+    it("shows a server failure as a problem, never its own prose, and not the passcode", async () => {
+      hasSession = true;
+      stub(
+        signedInStubs({
+          [`GET ${WORKSPACES}`]: {
+            body: { error: { code: "internal_error", message: "Traceback: boom" } },
+            status: 500,
+          },
+        }),
+      );
+      renderInstructor();
+
+      const again = await screen.findByRole("button", { name: "Try again" });
+      expect(again.closest('[data-slot="exercise-notice"]')?.getAttribute("data-tone")).toBe(
+        "problem",
+      );
+      expect(screen.queryByText(/Traceback/)).toBeNull();
+      expect(screen.queryByLabelText(/passcode/i)).toBeNull();
+    });
+  });
+
+  describe("a team's opened work and its reset", () => {
+    const TEAM_WORK_PATH = "/v1/exercise/instructor/workspaces/3";
+    const RESET_PATH = "/v1/exercise/instructor/workspaces/3/reset";
+    const TEAM_WORK = {
+      team_number: 3,
+      saved_settings: [{ event_key: "round-one", name: "Plan A" }],
+      result_runs: [],
+    };
+
+    const listReads = (): number =>
+      calls.filter(
+        (call) => call.url.split("?")[0] === WORKSPACES && (call.init.method ?? "GET") === "GET",
+      ).length;
+
+    async function confirmReset(): Promise<void> {
+      fireEvent.click(await screen.findByRole("button", { name: /clear team 3's work/i }));
+      fireEvent.click(await screen.findByRole("button", { name: /yes, clear team 3/i }));
+    }
+
+    it("closes the team's opened work once its reset lands", async () => {
+      // 4c. A list re-read keeps the row, so the opened work went on showing
+      // the saved settings the reset had just cleared.
+      stub(
+        signedInStubs({
+          [`GET ${TEAM_WORK_PATH}`]: { body: TEAM_WORK },
+          [`POST ${RESET_PATH}`]: { body: TEAM },
+        }),
+      );
+      renderInstructor();
+      await signIn();
+      fireEvent.click(await screen.findByRole("button", { name: /open this team's work/i }));
+      await screen.findByText(/Plan A/);
+
+      await confirmReset();
+
+      await waitFor(() => expect(screen.queryByText(/Plan A/)).toBeNull());
+      expect(calls.some((call) => call.url.split("?")[0] === RESET_PATH)).toBe(true);
+    });
+
+    it("drops a read of the team's work that arrives after the reset landed", async () => {
+      // 4c. The read was sent before the reset; its answer describes work the
+      // reset cleared, so it must not open when it finally arrives.
+      const slow = gate();
+      stub(
+        signedInStubs({
+          [`GET ${TEAM_WORK_PATH}`]: { body: TEAM_WORK, gate: slow.promise },
+          [`POST ${RESET_PATH}`]: { body: TEAM },
+        }),
+      );
+      renderInstructor();
+      await signIn();
+      fireEvent.click(await screen.findByRole("button", { name: /open this team's work/i }));
+      await waitFor(() =>
+        expect(calls.some((call) => call.url.split("?")[0] === TEAM_WORK_PATH)).toBe(true),
+      );
+
+      const readsBefore = listReads();
+      await confirmReset();
+      // The reset has landed once the list is read again because of it.
+      await waitFor(() => expect(listReads()).toBeGreaterThan(readsBefore));
+
+      await act(async () => {
+        slow.open();
+        await slow.promise;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      });
+      expect(screen.queryByText(/Plan A/)).toBeNull();
+    });
+
+    it("keeps the team's opened work when the reset is refused", async () => {
+      stub(
+        signedInStubs({
+          [`GET ${TEAM_WORK_PATH}`]: { body: TEAM_WORK },
+          [`POST ${RESET_PATH}`]: {
+            body: {
+              error: {
+                code: "exercise_reset_refused",
+                message: "Team 3 could not be cleared just now.",
+              },
+            },
+            status: 409,
+          },
+        }),
+      );
+      renderInstructor();
+      await signIn();
+      fireEvent.click(await screen.findByRole("button", { name: /open this team's work/i }));
+      await screen.findByText(/Plan A/);
+
+      await confirmReset();
+
+      await screen.findByText("Team 3 could not be cleared just now.");
+      expect(screen.getByText(/Plan A/)).toBeDefined();
+    });
   });
 });

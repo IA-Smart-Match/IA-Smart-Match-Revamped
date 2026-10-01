@@ -46,8 +46,27 @@ import { INSTRUCTOR_SESSION_REQUIRED } from "./refusals";
 /** The page's sentence for a request that never landed. */
 const UNREACHABLE = "The exercise could not be reached. Check the connection and try again.";
 
-/** Whether this browser's instructor cookie is still good. */
-type SessionProbe = "checking" | "signed-in" | "signed-out";
+/**
+ * Whether this browser's instructor cookie is still good — or, when the probe
+ * failed for any reason other than the session, the sentence to show instead.
+ */
+type SessionProbe =
+  | "checking"
+  | "signed-in"
+  | "signed-out"
+  | { readonly message: string; readonly tone: "calm" | "problem" };
+
+/**
+ * The probe's failure, as a notice. A server that could not answer (5xx) or
+ * could not be reached is a problem; any other refusal is the server's own
+ * calm sentence.
+ */
+function probeFailure(error: unknown): Exclude<SessionProbe, string> {
+  if (!isRefusal(error)) {
+    return { message: UNREACHABLE, tone: "problem" };
+  }
+  return { message: error.message, tone: error.status >= 500 ? "problem" : "calm" };
+}
 
 export function ExerciseInstructor(): React.JSX.Element {
   /**
@@ -63,11 +82,16 @@ export function ExerciseInstructor(): React.JSX.Element {
    * is an ordinary gated read: `GET …/instructor/workspaces` is behind
    * `require_instructor_session` like every other instructor route, so its
    * answer *is* the session's state. 200 means signed in; a 401
-   * `exercise_instructor_session_required` means the passcode form. Anything
-   * else is left as signed out, because a page that cannot reach the server
-   * has nothing to show behind the passcode either.
+   * `exercise_instructor_session_required` means the passcode form.
+   *
+   * Anything else is a problem with a "Try again", not the passcode form. An
+   * outage, a 5xx or a 401 for some other cookie used to land on the passcode
+   * form too, which asked for a passcode that could not help and hid the
+   * actual sentence.
    */
   const [probe, setProbe] = React.useState<SessionProbe>("checking");
+  /** Bumped by "Try again" to run the probe once more. */
+  const [probeAttempt, setProbeAttempt] = React.useState(0);
 
   React.useEffect(() => {
     const controller = new AbortController();
@@ -77,13 +101,22 @@ export function ExerciseInstructor(): React.JSX.Element {
           setProbe("signed-in");
         }
       })
-      .catch(() => {
-        if (!controller.signal.aborted) {
-          setProbe("signed-out");
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) {
+          return;
         }
+        if (
+          isRefusal(error) &&
+          error.status === 401 &&
+          error.code === INSTRUCTOR_SESSION_REQUIRED
+        ) {
+          setProbe("signed-out");
+          return;
+        }
+        setProbe(probeFailure(error));
       });
     return () => controller.abort();
-  }, []);
+  }, [probeAttempt]);
 
   return (
     <ExerciseScreen
@@ -99,6 +132,21 @@ export function ExerciseInstructor(): React.JSX.Element {
       {probe === "signed-out" ? (
         <PasscodeForm onSignedIn={() => setProbe("signed-in")} />
       ) : null}
+      {typeof probe === "string" ? null : (
+        <div className="mx-auto w-full max-w-[480px]">
+          <ExerciseNotice message={probe.message} tone={probe.tone}>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setProbe("checking");
+                setProbeAttempt((attempt) => attempt + 1);
+              }}
+            >
+              Try again
+            </Button>
+          </ExerciseNotice>
+        </div>
+      )}
     </ExerciseScreen>
   );
 }

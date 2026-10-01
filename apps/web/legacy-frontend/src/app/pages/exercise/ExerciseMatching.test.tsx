@@ -5,7 +5,7 @@
  * rulebook key rendered where Ann's phrase belongs, a `3` written in place of
  * `max_settings`, and a reset button that has no route behind it any more.
  */
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -98,6 +98,65 @@ function renderMatching() {
 /** Just the ranked-list GETs, which is what a keystroke used to multiply. */
 function listCalls(): { url: string; init: RequestInit }[] {
   return calls.filter((call) => call.url.split("?")[0].endsWith("/list"));
+}
+
+/**
+ * A fetch that answers each list GET from `listAnswer` (by its query) and
+ * everything else from the ordinary stub.
+ */
+function stubLists(
+  listAnswer: (search: URLSearchParams, count: number) => Response | Promise<Response>,
+): void {
+  let listCount = 0;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((url: string, init: RequestInit) => {
+      calls.push({ url, init });
+      const [path, query = ""] = url.split("?");
+      if (path.endsWith("/list")) {
+        listCount += 1;
+        return Promise.resolve(listAnswer(new URLSearchParams(query), listCount));
+      }
+      if (path.endsWith("/settings")) {
+        return Promise.resolve(new Response(JSON.stringify(SETTINGS), { status: 200 }));
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify({ error: { code: "test_unstubbed", message: url } }), {
+          status: 404,
+        }),
+      );
+    }),
+  );
+}
+
+function refusal(status: number, code: string, message: string): Response {
+  return new Response(JSON.stringify({ error: { code, message } }), { status });
+}
+
+function listWith(weights: Record<string, number>): Response {
+  return new Response(JSON.stringify({ ...LIST, weights }), { status: 200 });
+}
+
+/** A list built from exactly the weights the query asked for, as the server echoes them. */
+function echoList(search: URLSearchParams): Response {
+  const weights: Record<string, number> = { ...LIST.weights };
+  for (const key of Object.keys(weights)) {
+    const value = search.get(key);
+    if (value !== null) {
+      weights[key] = Number(value);
+    }
+  }
+  return listWith(weights);
+}
+
+function csvLink(): HTMLElement {
+  const link = document.querySelector<HTMLElement>('[data-slot="exercise-csv-download"]');
+  expect(link).not.toBeNull();
+  return link as HTMLElement;
+}
+
+function saveButton(): HTMLElement {
+  return screen.getByRole("button", { name: /save these weights/i });
 }
 
 beforeEach(() => {
@@ -326,7 +385,10 @@ describe("<ExerciseMatching />", () => {
     // mistake, are still on screen next to the sentence.
     expect(screen.getByText("Rosa Villalobos")).toBeDefined();
     expect(screen.getByRole("textbox", { name: "same major" })).toBeDefined();
-    expect(document.querySelector('[data-slot="exercise-csv-download"]')).not.toBeNull();
+    // The download is still there, but off: the list is not the answer to
+    // the weighting just asked for.
+    expect(csvLink().getAttribute("href")).toBeNull();
+    expect(csvLink().getAttribute("aria-disabled")).toBe("true");
 
     // Round 3 finding 3: the list shown is the *previous* answer, not the
     // answer to the weighting that was just refused — that has to be said,
@@ -379,6 +441,221 @@ describe("<ExerciseMatching />", () => {
     );
   });
 
+  it("lets a team correct a negative weight the server refused (#252)", async () => {
+    stubLists((search) => {
+      const sameMajor = search.get("same_major");
+      if (sameMajor === "-1") {
+        return refusal(422, "exercise_weights_invalid", "A weight cannot be below 0.");
+      }
+      return sameMajor === null
+        ? listWith(LIST.weights)
+        : listWith({ ...LIST.weights, same_major: Number(sameMajor) });
+    });
+    renderMatching();
+    const box = (await screen.findByRole("textbox", { name: "same major" })) as HTMLInputElement;
+
+    fireEvent.focus(box);
+    fireEvent.change(box, { target: { value: "-1" } });
+    fireEvent.blur(box);
+    await waitFor(() => expect(screen.getAllByText("A weight cannot be below 0.")).toHaveLength(1));
+    expect(document.querySelector('[data-slot="exercise-list-stale"]')).not.toBeNull();
+
+    // The box is live and the next number goes out as the correction.
+    fireEvent.focus(box);
+    fireEvent.change(box, { target: { value: "0.5" } });
+    fireEvent.blur(box);
+    await waitFor(() => {
+      const lists = listCalls();
+      expect(lists[lists.length - 1]?.url).toContain("same_major=0.5");
+    });
+    await waitFor(() => expect(screen.queryByText("A weight cannot be below 0.")).toBeNull());
+    expect(document.querySelector('[data-slot="exercise-list-stale"]')).toBeNull();
+  });
+
+  it("says the list is not built from a number still being typed", async () => {
+    stub();
+    renderMatching();
+    const box = await screen.findByRole("textbox", { name: "same major" });
+    expect(document.querySelector('[data-slot="exercise-list-not-current"]')).toBeNull();
+    fireEvent.focus(box);
+    fireEvent.change(box, { target: { value: "0.5" } });
+    expect(document.querySelector('[data-slot="exercise-list-not-current"]')).not.toBeNull();
+  });
+
+  it("drops the whole list when a weighting read is refused for access", async () => {
+    stubLists((_search, count) =>
+      count === 1
+        ? listWith(LIST.weights)
+        : refusal(401, "exercise_workspace_required", "Enter your team number to carry on."),
+    );
+    renderMatching();
+    const box = await screen.findByRole("textbox", { name: "same major" });
+    fireEvent.focus(box);
+    fireEvent.change(box, { target: { value: "0.5" } });
+    fireEvent.blur(box);
+
+    await waitFor(() => expect(screen.getByText("Enter your team number to carry on.")).toBeDefined());
+    expect(screen.queryByText("Rosa Villalobos")).toBeNull();
+    expect(screen.queryByRole("textbox", { name: "same major" })).toBeNull();
+    expect(screen.getByRole("link", { name: "Enter your team number" })).toBeDefined();
+  });
+
+  it("drops the whole list when a save is refused for access", async () => {
+    stub({
+      "/v1/exercise/workspaces/current/events/northline/settings/Wide%20net": {
+        body: {
+          error: { code: "exercise_workspace_required", message: "Enter your team number to carry on." },
+        },
+        status: 401,
+      },
+    });
+    renderMatching();
+    const name = await screen.findByLabelText(/name these weights/i);
+    fireEvent.change(name, { target: { value: "Wide net" } });
+    fireEvent.click(screen.getByRole("button", { name: /save these weights/i }));
+
+    await waitFor(() => expect(screen.getByText("Enter your team number to carry on.")).toBeDefined());
+    expect(screen.queryByText("Rosa Villalobos")).toBeNull();
+    expect(screen.queryByLabelText(/name these weights/i)).toBeNull();
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Your team's list");
+  });
+
+  it("asks with every weight changed so far, not only the last one", async () => {
+    stubLists((search) => echoList(search));
+    renderMatching();
+    const sameMajor = await screen.findByRole("textbox", { name: "same major" });
+    fireEvent.focus(sameMajor);
+    fireEvent.change(sameMajor, { target: { value: "0.5" } });
+    fireEvent.blur(sameMajor);
+    await waitFor(() => expect(listCalls().length).toBe(2));
+    await waitFor(() => expect(csvLink().getAttribute("href")).not.toBeNull());
+
+    const careerFit = screen.getByRole("textbox", { name: "career goal fits this event" });
+    fireEvent.focus(careerFit);
+    fireEvent.change(careerFit, { target: { value: "0.4" } });
+    fireEvent.blur(careerFit);
+    await waitFor(() => expect(listCalls().length).toBe(3));
+    const last = new URL(listCalls()[2].url, "http://exercise.test").searchParams;
+    expect(last.get("same_major")).toBe("0.5");
+    expect(last.get("career_goal_fit")).toBe("0.4");
+  });
+
+  it("keeps the download and save off while the list is rebuilt, then binds them to it", async () => {
+    let release: (() => void) | null = null;
+    stubLists((search, count) =>
+      count === 1
+        ? echoList(search)
+        : new Promise<Response>((resolve) => {
+            release = () => resolve(echoList(search));
+          }),
+    );
+    renderMatching();
+    const box = await screen.findByRole("textbox", { name: "same major" });
+    fireEvent.change(await screen.findByLabelText(/name these weights/i), {
+      target: { value: "Wide net" },
+    });
+    expect(saveButton().getAttribute("aria-disabled")).toBeNull();
+
+    fireEvent.focus(box);
+    fireEvent.change(box, { target: { value: "0.5" } });
+    fireEvent.blur(box);
+    await waitFor(() => expect(listCalls().length).toBe(2));
+
+    // Pending: neither may act on "these weights" yet.
+    expect(csvLink().getAttribute("href")).toBeNull();
+    expect(csvLink().getAttribute("aria-disabled")).toBe("true");
+    expect(saveButton().getAttribute("aria-disabled")).toBe("true");
+    expect(
+      screen.getByText("Saving is off until the list is built from the numbers above."),
+    ).toBeDefined();
+
+    (release as (() => void) | null)?.();
+    await waitFor(() => expect(csvLink().getAttribute("href")).not.toBeNull());
+    const href = new URL(csvLink().getAttribute("href") ?? "", "http://exercise.test");
+    expect(href.pathname).toBe("/v1/exercise/workspaces/current/events/northline/list.csv");
+    expect(href.searchParams.get("same_major")).toBe("0.5");
+    expect(saveButton().getAttribute("aria-disabled")).toBeNull();
+  });
+
+  it("keeps the list, says it is stale, and waits for Try again when a weighting cannot be sent", async () => {
+    stubLists((search, count) =>
+      count === 2 ? Promise.reject(new TypeError("offline")) : echoList(search),
+    );
+    renderMatching();
+    const box = await screen.findByRole("textbox", { name: "same major" });
+    fireEvent.focus(box);
+    fireEvent.change(box, { target: { value: "0.5" } });
+    fireEvent.blur(box);
+
+    await waitFor(() => expect(screen.getByText(/could not be reached/i)).toBeDefined());
+    expect(screen.getByText("Rosa Villalobos")).toBeDefined();
+    expect(document.querySelector('[data-slot="exercise-list-stale"]')?.textContent).toContain(
+      "could not be rebuilt",
+    );
+    expect(csvLink().getAttribute("href")).toBeNull();
+    // The box keeps the number the team asked for: nothing refused it.
+    expect((screen.getByRole("textbox", { name: "same major" }) as HTMLInputElement).value).toBe(
+      "0.50",
+    );
+
+    // No retry of its own.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(listCalls().length).toBe(2);
+
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    await waitFor(() => expect(listCalls().length).toBe(3));
+    expect(listCalls()[2].url).toContain("same_major=0.5");
+    await waitFor(() => expect(document.querySelector('[data-slot="exercise-list-stale"]')).toBeNull());
+    expect(csvLink().getAttribute("href")).not.toBeNull();
+  });
+
+  it("goes back to the list's own weights after a refusal, when the team asks", async () => {
+    stubLists((search) =>
+      search.get("same_major") === "-1"
+        ? refusal(422, "exercise_weights_invalid", "A weight cannot be below 0.")
+        : echoList(search),
+    );
+    renderMatching();
+    const box = await screen.findByRole("textbox", { name: "same major" });
+    expect(screen.queryByRole("button", { name: "Go back to this list's weights" })).toBeNull();
+    fireEvent.focus(box);
+    fireEvent.change(box, { target: { value: "-1" } });
+    fireEvent.blur(box);
+    await waitFor(() => expect(screen.getByText("A weight cannot be below 0.")).toBeDefined());
+
+    fireEvent.click(screen.getByRole("button", { name: "Go back to this list's weights" }));
+
+    await waitFor(() => expect(listCalls().length).toBe(3));
+    expect(listCalls()[2].url).toContain("same_major=0.25");
+    await waitFor(() => expect(document.querySelector('[data-slot="exercise-list-stale"]')).toBeNull());
+    expect(screen.queryByText("A weight cannot be below 0.")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Go back to this list's weights" })).toBeNull();
+    expect(csvLink().getAttribute("href")).not.toBeNull();
+  });
+
+  it("does not carry one event's weighting into the next", async () => {
+    stubLists((search) => echoList(search));
+    const router = createMemoryRouter(
+      [{ path: "/exercise/events/:eventKey", element: <ExerciseMatching /> }],
+      { initialEntries: ["/exercise/events/northline"] },
+    );
+    render(<RouterProvider router={router} />);
+    const box = await screen.findByRole("textbox", { name: "same major" });
+    fireEvent.focus(box);
+    fireEvent.change(box, { target: { value: "0.5" } });
+    fireEvent.blur(box);
+    await waitFor(() => expect(listCalls().length).toBe(2));
+
+    await act(async () => {
+      await router.navigate("/exercise/events/southline");
+    });
+    await waitFor(() =>
+      expect(listCalls().some((call) => call.url.includes("/events/southline/list"))).toBe(true),
+    );
+    const southline = listCalls().filter((call) => call.url.includes("/events/southline/list"));
+    expect(southline[0].url).not.toContain("?");
+  });
+
   it("keeps the name a team typed when the save is refused", async () => {
     // F5. Fails on the merged code: the screen's `guard` swallowed the refusal
     // and resolved, the panel read that as success and called `setName("")`,
@@ -405,6 +682,23 @@ describe("<ExerciseMatching />", () => {
       ).toBeDefined(),
     );
     expect(name.value).toBe("Wide net");
+  });
+
+  it("sends one save for two presses in the same tick", async () => {
+    stub();
+    renderMatching();
+    const name = await screen.findByLabelText(/name these weights/i);
+    fireEvent.change(name, { target: { value: "Wide net" } });
+    const save = saveButton();
+    act(() => {
+      save.click();
+      save.click();
+    });
+    await waitFor(() =>
+      expect(calls.filter((call) => call.init.method === "PUT")).toHaveLength(1),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(calls.filter((call) => call.init.method === "PUT")).toHaveLength(1);
   });
 
   it("clears the name once the save is accepted", async () => {

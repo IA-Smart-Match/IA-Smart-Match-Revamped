@@ -36,7 +36,7 @@
 import * as React from "react";
 import { Link, useParams } from "react-router";
 
-import { isRefusal } from "../../../lib/exerciseApi";
+import { ExerciseUnreachable, isRefusal, type ExerciseRefusal } from "../../../lib/exerciseApi";
 import {
   EXERCISE_FACTOR_KEYS,
   readAskingChoice,
@@ -47,6 +47,8 @@ import {
   runResults,
   type AskingStateView,
   type ListWeighting,
+  type RefreshCountsView,
+  type RefreshView,
   type ResultsView,
   type SavedSettingView,
   type SavedSettingsView,
@@ -57,7 +59,7 @@ import { ExerciseLoading, ExerciseNotice, ExerciseScreen } from "./ExerciseScree
 import { ResultPanels, type NamesByProfileNo } from "./ResultPanels";
 import { ProfileCardArt } from "./resultsArt";
 import { ResultsLockPanel } from "./ResultsLockPanel";
-import { useExerciseResource } from "./useExerciseResource";
+import { isAccessRefusal, useExerciseResource } from "./useExerciseResource";
 import { workspaceRequiredNotice } from "./refusals";
 
 /** A link that looks like the desk's secondary button (§6.3). */
@@ -94,7 +96,12 @@ interface ResultsData {
 
 export function ExerciseResults(): React.JSX.Element {
   const { eventKey = "" } = useParams();
+  // Keyed by event: the chosen final setting, a refusal and a just-run reveal
+  // belong to one event and must not carry over to the next.
+  return <EventResults key={eventKey} eventKey={eventKey} />;
+}
 
+function EventResults({ eventKey }: { readonly eventKey: string }): React.JSX.Element {
   const load = React.useCallback(
     async (signal: AbortSignal): Promise<ResultsData> => {
       let results: ResultsView | null = null;
@@ -116,7 +123,26 @@ export function ExerciseResults(): React.JSX.Element {
     },
     [eventKey],
   );
-  const { state, reload } = useExerciseResource(load, [eventKey]);
+  // A reload that cannot reach the server keeps the screen, so a run or a
+  // refresh the server just confirmed stays shut and on screen. Every refusal
+  // still replaces it, and a 401/403 always does.
+  const { state, reload } = useExerciseResource(load, [eventKey], {
+    keepDataOnError: (error) => error instanceof ExerciseUnreachable,
+  });
+  /** What this browser's own run and refresh were answered with. */
+  const [confirmedResults, setConfirmedResults] = React.useState<ResultsView | null>(null);
+  const [confirmedRefresh, setConfirmedRefresh] = React.useState<RefreshView | null>(null);
+  /** A run or refresh refused because this browser lost access. */
+  const [accessRefusal, setAccessRefusal] = React.useState<ExerciseRefusal | null>(null);
+
+  // Access gone on a read: nothing this browser was told may stay in memory.
+  const readRefused = state.status === "refused" && isAccessRefusal(state.refusal);
+  React.useEffect(() => {
+    if (readRefused) {
+      setConfirmedResults(null);
+      setConfirmedRefresh(null);
+    }
+  }, [readRefused]);
 
   return (
     <ExerciseScreen
@@ -137,8 +163,34 @@ export function ExerciseResults(): React.JSX.Element {
           </Button>
         </ExerciseNotice>
       ) : null}
-      {state.status === "ready" ? (
-        <ResultsBody eventKey={eventKey} data={state.data} onChanged={reload} />
+      {accessRefusal === null ? null : workspaceRequiredNotice(accessRefusal)}
+      {state.status === "ready" && accessRefusal === null ? (
+        <>
+          {state.unreachable === null ? null : (
+            <ExerciseNotice message={state.unreachable} tone="problem">
+              <Button variant="secondary" onClick={() => void reload()}>
+                Try again
+              </Button>
+            </ExerciseNotice>
+          )}
+          <ResultsBody
+            eventKey={eventKey}
+            data={state.data}
+            onChanged={reload}
+            confirmedResults={confirmedResults}
+            onResultsConfirmed={setConfirmedResults}
+            confirmedRefresh={confirmedRefresh}
+            onRefreshConfirmed={setConfirmedRefresh}
+            // The read on screen may predate this browser's own confirmed
+            // press: its reload is still running, or could not be reached.
+            trustConfirmed={state.refreshing || state.unreachable !== null}
+            onAccessLost={(refusal) => {
+              setConfirmedResults(null);
+              setConfirmedRefresh(null);
+              setAccessRefusal(refusal);
+            }}
+          />
+        </>
       ) : null}
     </ExerciseScreen>
   );
@@ -191,14 +243,38 @@ interface ShownRefusal {
   readonly message: string;
 }
 
+/** The three refresh counts as one sentence, in the asking screen's words. */
+function refreshCountsSentence(counts: RefreshCountsView): string {
+  return `Your team asked. Cards filled in: ${counts.cards_completed}. Stopped opening messages: ${counts.non_responding}. Picked up the first event's topics: ${counts.topics_added}.`;
+}
+
 function ResultsBody({
   eventKey,
   data,
   onChanged,
+  confirmedResults,
+  onResultsConfirmed,
+  confirmedRefresh,
+  onRefreshConfirmed,
+  trustConfirmed,
+  onAccessLost,
 }: {
   readonly eventKey: string;
   readonly data: ResultsData;
-  readonly onChanged: () => void;
+  /** Re-read the screen; resolves once the new read has landed. */
+  readonly onChanged: () => Promise<void>;
+  /** The run this browser's POST was answered with, owned by the screen. */
+  readonly confirmedResults: ResultsView | null;
+  readonly onResultsConfirmed: (view: ResultsView) => void;
+  /** The refresh this browser's POST was answered with, owned by the screen. */
+  readonly confirmedRefresh: RefreshView | null;
+  readonly onRefreshConfirmed: (view: RefreshView) => void;
+  /**
+   * `data` may be older than this browser's own confirmed press, so the
+   * confirmed answers above stand in for it until a later read lands.
+   */
+  readonly trustConfirmed: boolean;
+  readonly onAccessLost: (refusal: ExerciseRefusal) => void;
 }): React.JSX.Element {
   const [pending, setPending] = React.useState<Pending>(null);
   const [refusal, setRefusal] = React.useState<ShownRefusal | null>(null);
@@ -206,16 +282,27 @@ function ResultsBody({
   // True once this screen's own run succeeds: the results that arrive next
   // play the seat fill (§5.1). A later visit mounts with it false.
   const [justRan, setJustRan] = React.useState(false);
+  /**
+   * Set synchronously, before any render: two presses in one tick both read
+   * `pending` as `null`, so the state alone cannot keep a once-only POST from
+   * going out twice.
+   */
+  const inFlight = React.useRef(false);
 
   async function act(which: Exclude<Pending, null>, action: () => Promise<void>): Promise<void> {
-    if (pending !== null) {
+    if (inFlight.current) {
       return;
     }
+    inFlight.current = true;
     setPending(which);
     try {
       await action();
       setRefusal(null);
     } catch (error) {
+      if (isAccessRefusal(error)) {
+        onAccessLost(error);
+        return;
+      }
       // Every results refusal is a state, not an error: locked, already run,
       // and the rule not yet confirmed are all the product working. Each is
       // shown as the server's own sentence. The previous one stays on screen
@@ -229,37 +316,50 @@ function ResultsBody({
             },
       );
     } finally {
+      inFlight.current = false;
       setPending(null);
     }
   }
 
   function runFinalSetting(): void {
     void act("run", async () => {
+      let view: ResultsView;
       try {
-        await runResults(eventKey, finalSetting);
+        view = await runResults(eventKey, finalSetting);
       } catch (error) {
         // The chosen name was deleted since this screen loaded: clear it and
         // re-read the list, so the picker only offers names the run route can
         // still find. The sentence still shows.
         if (isRefusal(error) && error.code === SETTING_UNKNOWN) {
           setFinalSetting("");
-          onChanged();
+          void onChanged();
         }
         throw error;
       }
+      onResultsConfirmed(view);
       setJustRan(true);
-      onChanged();
+      // Held until the re-read lands, so the run cannot be pressed again in
+      // between; the confirmed run stands in if that read cannot be reached.
+      await onChanged();
     });
   }
 
-  const canRefresh = data.asking.choice !== null && !data.asking.refreshed;
-  const locked = refusal?.code === LOCKED && data.results === null;
+  /** The run and the refresh, by the server's latest read or this browser's own confirmed press. */
+  const results = data.results ?? (trustConfirmed ? confirmedResults : null);
+  const hasAsked = data.asking.refreshed || (trustConfirmed && confirmedRefresh !== null);
+  const counts: RefreshCountsView | null = data.asking.refreshed
+    ? (data.asking.refresh_counts ?? confirmedRefresh)
+    : trustConfirmed
+      ? confirmedRefresh
+      : null;
+  const canRefresh = data.asking.choice !== null && !hasAsked;
+  const locked = refusal?.code === LOCKED && results === null;
 
   return (
     <div className="flex flex-col gap-ce-6 md:gap-ce-7">
       {refusal === null || locked ? null : <ExerciseNotice message={refusal.message} />}
 
-      {data.results === null ? (
+      {results === null ? (
         <section className="flex flex-col gap-ce-5">
           {/* §7.8: before a run, the lock panel takes the seating chart's
               place. It has no action; the Run button below is the only
@@ -289,7 +389,7 @@ function ResultsBody({
           </div>
         </section>
       ) : (
-        <ResultPanels results={data.results} names={data.names} reveal={justRan} />
+        <ResultPanels results={results} names={data.names} reveal={justRan} />
       )}
 
       <section className="ce-card flex flex-col gap-ce-4 p-ce-4 md:p-ce-6">
@@ -307,14 +407,22 @@ function ResultsBody({
               pending={pending === "ask"}
               onClick={() =>
                 void act("ask", async () => {
-                  await refreshProfiles();
-                  onChanged();
+                  onRefreshConfirmed(await refreshProfiles());
+                  await onChanged();
                 })
               }
             >
-              {data.asking.refreshed ? "Your team has already asked" : "Ask them now"}
+              {hasAsked ? "Your team has already asked" : "Ask them now"}
             </Button>
             <p className="ce-type-meta text-ce-ink-muted">Your team may ask once.</p>
+            {/* Always present, so the counts are announced when they arrive. */}
+            <p
+              role="status"
+              data-slot="exercise-results-refresh-counts"
+              className="ce-type-body text-ce-ink"
+            >
+              {counts === null ? "" : refreshCountsSentence(counts)}
+            </p>
           </div>
         )}
       </section>
