@@ -12,7 +12,7 @@ The two student matching factors currently score Jaccard overlap, conflicting wi
 
 User wants the class-exercise student→event matching to score two factors differently than implemented. Repo: `C:\Users\thuys\Downloads\Smartmatch\IA-Smart-Match-Revamped`, branch `chau-10-02-update-matching-algorithm` (from latest origin/main).
 
-**Status 2026-10-04:** audited; decision points D1–D4 confirmed by Chau (D5 newly opened). Audit corrections are applied inline.
+**Status 2026-10-04:** audited; decision points D1–D5 confirmed by Chau. D5 is in scope (same PR) but the implementing agent must get Chau's ruling on the 4b reading before writing code. Audit corrections are applied inline.
 
 ### The conflict (verified against the code)
 
@@ -26,7 +26,7 @@ User wants the class-exercise student→event matching to score two factors diff
 - `stated_interest_overlap` returns `jaccard(card.normalized_interests, event.normalized_topics)` — fractional (e.g., 1 shared of 3 distinct terms → 0.3333); `None` when no card.
 - `past_event_topic_overlap` returns `jaccard(union of all attended events' topics, event topics)`; `None` when `attended_event_topics is None` **or** when zero events attended.
 
-**Not in conflict:** `same_major`, `career_goal_fit`, equal 0.25 weights, composition (unknown contributes nothing, no re-spread), tie-break, reason lines, markers — all stay.
+**Not in conflict:** `same_major`, equal 0.25 weights, composition (unknown contributes nothing, no re-spread), tie-break, reason lines, markers — all stay. `career_goal_fit` stays **except** for its undecided branch, pending D5.
 
 ### Decision points for the orchestrator — resolved (confirmed by Chau, 2026-10-04)
 
@@ -34,7 +34,11 @@ User wants the class-exercise student→event matching to score two factors diff
 - **D2 — keep factor keys: CONFIRMED, unchanged.** `stated_interest_overlap` / `past_event_topic_overlap` stay: they are API query-param names, saved-settings DB keys, and frontend label keys; labels ("said they are interested…", "went to similar events before") remain accurate.
 - **D3 — versioning: CONFIRMED, with a correction.** Bump `EXERCISE_REGISTRY_VERSION` `exercise-0.1.0` → `exercise-0.2.0` (rulebook contents changed) and `EXERCISE_STAGE_B_FORMULA_VERSION` → `1.1.0-exercise`. Update the `tests/golden` pin of `"exercise-0.1.0"`. `EXERCISE_APPROVER` follows the existing convention at `python/smartmatch_domain/smartmatch_domain/exercise/registry.py` (~line 113, currently `"Ann Wang, class-exercise requirements 2026-09-15"`) → `"Ann Wang, progress check and revisions 2026-10-02"`. Note: Ann's Oct-2 revisions approve the factor changes; the 0.5 middle bucket for related past events is Chau's own refinement and is not in Ann's document, so the decision record must credit it to Chau.
 - **D4 — deferred STUDENT_REGISTRY: CONFIRMED, accepted as written.** Docs (ADR-0024/design spec) describe the future student track as Jaccard-based; changing the shared `student_factors` functions changes what that track inherits. Accepted — flag it in the decision record.
-- **D5 — OPEN, needs Chau (scope question raised by the 2026-10-04 audit):** Ann's 2026-10-02 revision item 4b says an "Undecided" career goal should earn nothing on Northline — this conflicts with this plan's "career_goal_fit unchanged" and with the existing OQ-CE-14 rule (`UNDECIDED_EXPLORATORY_GOAL_FIT = 0.5` on exploratory events; `goal_is_undecided` in `services/api/smartmatch_api/routers/exercise_matching_models.py`, `career_goal_fit` in `python/smartmatch_domain/smartmatch_domain/student_factors/factors.py`). Chau must confirm whether 4b is in this change's scope or a separate PR. Also flagged: revision item 4c (one reason line per name — remove the second FactorNames line) is separate frontend work; and the Northline refresh appends Northline's own topics to attendees' `attended_event_topics`, which under the count rule makes prior Northline attendance count as "related" when Northline is ranked again.
+- **D5 — RESOLVED: item 4b is in scope (same PR, Chau 2026-10-04), but the implementing agent must confirm the reading with Chau before writing code.** Ann's 2026-10-02 revision item 4b, verbatim (`docs/10-2-2026/SmartMatch_Progress_and_Revisions_10022026.docx` §4b): *"It is being counted as fitting a 'broad event.' That rule is not in the plan, and Northline is not a broad event. Please remove it."* This reverses OQ-CE-14 — Ann's own Sept-25 ruling that put `UNDECIDED_EXPLORATORY_GOAL_FIT = 0.5` in `career_goal_fit` (`python/smartmatch_domain/smartmatch_domain/student_factors/factors.py` ~lines 177–186) and marked both Northline and Harbor exploratory ("treat both… as exploratory, since they are company events" — `python/smartmatch_domain/smartmatch_domain/exercise/vocabulary.py` ~line 41; both are `Employer talk`). Two readings, very different diffs:
+  - **(a) Remove the undecided rule everywhere** — the plainer reading of "that rule is not in the plan." `UNDECIDED_EXPLORATORY_GOAL_FIT` and the `career_goal_undecided` branch in `career_goal_fit` go; undecided becomes a measured `0.0` on every event. `UNDECIDED_GOAL_HALF_LABEL` (`exercise/registry.py` ~line 150) and the "undecided goal suits a broad event" reason phrase become dead. `exercise/simulation.py`'s mirrored rule (~line 539) presumably follows — Ann's Sept-25 email bound the two together — but that flips a file this plan lists as MUST NOT CHANGE, so get Chau's explicit word.
+  - **(b) Northline only** — harder than it looks: `is_exploratory` is derived from `event_type` through `EXERCISE_EVENT_TYPES` (`vocabulary.py` ~line 236, `exercise/ingest.py` ~line 367) and Northline and Harbor share `Employer talk`, so unmarking the type also strips Harbor. Northline-only needs a per-event override or a new event type — uglier, and leaves Harbor undecided at 0.5, which Ann's wording does not clearly ask for.
+  - Golden pins that move either way: `test_northline_and_harbor_give_undecided_half_and_a_fitting_goal_the_whole` (UNDECIDED_CARDS `0.5` → `0` on E11, and E12 too under reading a), `test_an_undecided_card_on_northline_is_never_told_its_goal_fits` (P197's rank-30 pin and reason line); `test_undecided_earns_nothing_from_an_event_that_is_not_exploratory` still passes as-is.
+  - Also flagged: revision item 4c (one reason line per name — remove the second FactorNames line) is separate frontend work; and the Northline refresh appends Northline's own topics to attendees' `attended_event_topics`, which under the count rule makes prior Northline attendance count as "related" when Northline is ranked again.
 
 ---
 
@@ -47,10 +51,23 @@ Repo root: `IA-Smart-Match-Revamped` (Python domain + FastAPI + React). Work on 
 current branch. Do NOT merge; produce one PR-sized change set. Python tests run with
 `pytest` from repo root; the domain package lives in `python/smartmatch_domain/smartmatch_domain/`.
 
+## Before writing code (required)
+
+Ask Chau these questions and wait for her answers — do not start Agent A without them:
+
+1. Item 4b reading: remove the undecided half-fit rule entirely, or only on
+   Northline? Northline and Harbor share the `Employer talk` event type, so
+   "Northline only" needs a per-event override, not a flag flip. (Full context
+   in decision D5, outside this block.)
+2. Does `exercise/simulation.py`'s mirrored undecided rule (~line 539) change
+   with it? It is listed below as MUST NOT CHANGE; item 4b may override that.
+
 ## Goal
 
-Two of the four shared student factors must change formula. Keys, labels, weights,
-composition, tie-break, markers, and reason sentences do NOT change.
+Two of the four shared student factors must change formula — plus a possible
+third change to `career_goal_fit`'s undecided branch, gated on Chau's 4b
+answer above. Keys, labels, weights, composition, tie-break, markers, and
+reason sentences do NOT change.
 
 1. `stated_interest_overlap` ("said they are interested in this topic", intention):
    - New rule: `1.0` if the profile card's normalized interests ∩ the event's
