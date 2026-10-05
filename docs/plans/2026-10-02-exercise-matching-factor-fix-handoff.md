@@ -111,8 +111,9 @@ as one covering all topics.
 - `tests/unit/test_exercise_matching.py` — audit composite expectations.
   Correction to the earlier draft: `_full_card` does NOT stay 1.0 under the new
   rule — it has exactly 1 attended event (~line 58), so its past-event factor
-  becomes `0.5` and its composite `0.875`; roughly six assertions use it
-  (~lines 326, 357, 533). Chau's confirmed resolution: extend the fixture with
+  becomes `0.5` and its composite `0.875`; the fixture is used at ~lines 80,
+  89 (the explicit `== 1.0` check), 139, 252, 326, 327, 357, 533. Chau's
+  confirmed resolution: extend the fixture with
   a second related past event — e.g. add `("analytics",)` to
   `attended_event_topics` — so it stays `1.0`. Then check any case assuming
   fractional overlap.
@@ -129,16 +130,20 @@ as one covering all topics.
     + `0.25` major).
   - G-CE-06 "card with a partial interest overlap": → `0.5` (binary interest:
     1 of its topics matches → full `0.25` + `0.25` major); keep the
-    "1 of 3 interests" profile as-is.
-  - New G-CE-07 — Marketing + 2 related past events, no card → `0.5` (pins the
+    "1 of 3 interests" profile as-is, but update the pinned expression
+    `0.25 + 0.25 * 0.3333` and the `# …: 1/3.` comment (~lines 103–109).
+  - New G-CE-16 — Marketing + 2 related past events, no card → `0.5` (pins the
     ≥2 bucket).
-  - New G-CE-08 — Marketing + 1 attended event with no shared topic → `0.25`
+  - New G-CE-17 — Marketing + 1 attended event with no shared topic → `0.25`
     (pins measured-0 vs unknown: marker becomes `major_plus_events` not
     `major_only`, wins the information tie-break at equal value, and the factor
     is absent from `unknown_factor_keys` — verify against `derive_marker` in
     `python/smartmatch_domain/smartmatch_domain/exercise/markers.py`).
-  - ID note: the tie-break tests already occupy G-CE-07…G-CE-12 — renumber that
-    block or give the two new FACTOR_CASES entries the next free IDs.
+  - ID note: G-CE-01…G-CE-15 are all taken — 01–06 are FACTOR_CASES and
+    `test_g_ce_07`…`test_g_ce_15` cover tie-breaks, determinism, and registry
+    isolation — so the two new factor cases take G-CE-16 and G-CE-17; also
+    update the block header comment (~line 59, "G-CE-01 … G-CE-06: every
+    factor, known and unknown") to name them.
   - Recompute every ranked-order golden; update the
     `registry_version == "exercise-0.1.0"` pin to `"exercise-0.2.0"`.
 - `tests/unit/test_exercise_registry.py` (~line 115) — pins the
@@ -157,10 +162,8 @@ as one covering all topics.
   ranked-list fixtures: recompute expected orders under the new factor values
   (any-overlap → 1.0 boosts interest-matching carded profiles; related-count
   buckets change partial-attendance scores).
-- `tests/unit/test_exercise_event_interest_fit_csv.py` — see Agent C: this file
-  must be WRITTEN (it is not on this branch); the docstring should note that
-  after this change the CSV's binary rule IS the app's rule for carded
-  profiles, while no-card stays unknown (not 0).
+- `tests/unit/test_exercise_event_interest_fit_csv.py` — owned by Agent C
+  (B and C run in parallel; do not touch it here).
 - Note for spot-checks: with binary interest and bucketed past-events, more
   profiles tie on composite → more "tied on major; ordered by year" / "tied on
   what counted; ordered by year" reason lines — include this in the P004 and
@@ -176,11 +179,12 @@ as one covering all topics.
   committed `tools/compute_event_major_fit.ps1` + `test_data/event_major_fit.csv`
   pair.
 - `tests/unit/test_exercise_event_interest_fit_csv.py` is not on this branch —
-  it must be WRITTEN, not just docstring-updated. A version exists on
-  `origin/chau-0925-matching` (commit eae720e0); either check it out from there
-  or write it mirroring `tests/unit/test_exercise_event_major_fit_csv.py`.
-  Keep the note that after this change the CSV's binary rule IS the app's rule
-  for carded profiles, while no-card stays unknown (not 0).
+  check out `origin/chau-0925-matching`'s version (commit eae720e0) or write it
+  mirroring `tests/unit/test_exercise_event_major_fit_csv.py`. Its docstring
+  must be REWRITTEN, not kept: the committed version says it is "deliberately
+  not the app's Jaccard `stated_interest_overlap` factor", which is now false —
+  after this change the CSV's binary rule IS the app's rule for carded
+  profiles, while no-card stays unknown (not 0).
 - `docs/superpowers/specs/2026-09-16-class-exercise-design.md` §4.2 table:
   replace the Jaccard rows with the binary and related-count rules.
 - `docs/architecture/decisions/ADR-0025-*.md` factor table (~line 80): update
@@ -201,8 +205,9 @@ as one covering all topics.
 - Confirm no contract change: weight query params in
   `services/api/smartmatch_api/routers/exercise_matching.py` and
   `exercise_matching_weights.py` key on factor keys — unchanged.
-- Frontend `apps/web/legacy-frontend` uses label keys only — unchanged; check
-  `RankedList.tsx` ~line 276 comment for stale Jaccard wording.
+- Frontend `apps/web/legacy-frontend` uses label keys only — unchanged; grep
+  it for any stale "Jaccard" wording in comments (no hit expected —
+  `RankedList.tsx` ~line 276 checked clean).
 - `exercise/simulation.py` MUST NOT CHANGE: it is the hidden-truth results rule
   (`past_event_count >= 1` threshold, hidden true interests), a separate
   requirement, not a matching factor.
