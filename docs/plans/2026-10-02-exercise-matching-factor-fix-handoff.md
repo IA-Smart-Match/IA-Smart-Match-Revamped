@@ -2,6 +2,7 @@
 agent: devin-local
 session: exclusive-garnet
 created: 2026-10-02T19:02:09Z
+audited: 2026-10-04
 ---
 # Handoff: fix exercise matching factors to binary interest-fit and related-past-event count
 
@@ -10,6 +11,8 @@ The two student matching factors currently score Jaccard overlap, conflicting wi
 ## Context
 
 User wants the class-exercise student→event matching to score two factors differently than implemented. Repo: `C:\Users\thuys\Downloads\Smartmatch\IA-Smart-Match-Revamped`, branch `chau-10-02-update-matching-algorithm` (from latest origin/main).
+
+**Status 2026-10-04:** audited; decision points D1–D4 confirmed by Chau (D5 newly opened). Audit corrections are applied inline.
 
 ### The conflict (verified against the code)
 
@@ -25,12 +28,13 @@ User wants the class-exercise student→event matching to score two factors diff
 
 **Not in conflict:** `same_major`, `career_goal_fit`, equal 0.25 weights, composition (unknown contributes nothing, no re-spread), tie-break, reason lines, markers — all stay.
 
-### Decision points for the orchestrator (defaults recommended, confirm with Chau)
+### Decision points for the orchestrator — resolved (confirmed by Chau, 2026-10-04)
 
-- **D1 — zero attendance:** `past_event_keys` is `NOT NULL` default `[]`, so production always sends `attended_event_topics=()`. Keep `None` (unknown) for zero attended events — consistent with the requirements doc ("counts only for profiles that have that information") and ADR-0011; composite is numerically identical either way since unknown and measured-0 both contribute nothing. `None`-record stays unknown regardless.
-- **D2 — keep factor keys** `stated_interest_overlap` / `past_event_topic_overlap` unchanged: they are API query-param names, saved-settings DB keys, and frontend label keys; labels ("said they are interested…", "went to similar events before") remain accurate.
-- **D3 — versioning:** bump `EXERCISE_REGISTRY_VERSION` `exercise-0.1.0` → `exercise-0.2.0` (rulebook contents changed; approver = Chau's refined rule, dated 2026-10-02) and `EXERCISE_STAGE_B_FORMULA_VERSION` → `1.1.0-exercise`. Update `tests/golden` pin of `"exercise-0.1.0"`.
-- **D4 — deferred STUDENT_REGISTRY:** docs (ADR-0024/design spec) describe the future student track as Jaccard-based; changing the shared `student_factors` functions changes what that track inherits. Acceptable — flag it in the decision record.
+- **D1 — zero attendance: CONFIRMED.** `past_event_keys` is `NOT NULL` default `[]`, so production always sends `attended_event_topics=()`. Keep `None` (unknown) for zero attended events — consistent with the requirements doc ("counts only for profiles that have that information") and ADR-0011. `None`-record stays unknown regardless. Unknown and measured-0 contribute the same 0 to the composite value, but they still differ in marker (`major_only` vs `major_plus_events`), the information tie-break, `unknown_factor_keys`, and the reason line.
+- **D2 — keep factor keys: CONFIRMED, unchanged.** `stated_interest_overlap` / `past_event_topic_overlap` stay: they are API query-param names, saved-settings DB keys, and frontend label keys; labels ("said they are interested…", "went to similar events before") remain accurate.
+- **D3 — versioning: CONFIRMED, with a correction.** Bump `EXERCISE_REGISTRY_VERSION` `exercise-0.1.0` → `exercise-0.2.0` (rulebook contents changed) and `EXERCISE_STAGE_B_FORMULA_VERSION` → `1.1.0-exercise`. Update the `tests/golden` pin of `"exercise-0.1.0"`. `EXERCISE_APPROVER` follows the existing convention at `python/smartmatch_domain/smartmatch_domain/exercise/registry.py` (~line 113, currently `"Ann Wang, class-exercise requirements 2026-09-15"`) → `"Ann Wang, progress check and revisions 2026-10-02"`. Note: Ann's Oct-2 revisions approve the factor changes; the 0.5 middle bucket for related past events is Chau's own refinement and is not in Ann's document, so the decision record must credit it to Chau.
+- **D4 — deferred STUDENT_REGISTRY: CONFIRMED, accepted as written.** Docs (ADR-0024/design spec) describe the future student track as Jaccard-based; changing the shared `student_factors` functions changes what that track inherits. Accepted — flag it in the decision record.
+- **D5 — OPEN, needs Chau (scope question raised by the 2026-10-04 audit):** Ann's 2026-10-02 revision item 4b says an "Undecided" career goal should earn nothing on Northline — this conflicts with this plan's "career_goal_fit unchanged" and with the existing OQ-CE-14 rule (`UNDECIDED_EXPLORATORY_GOAL_FIT = 0.5` on exploratory events; `goal_is_undecided` in `services/api/smartmatch_api/routers/exercise_matching_models.py`, `career_goal_fit` in `python/smartmatch_domain/smartmatch_domain/student_factors/factors.py`). Chau must confirm whether 4b is in this change's scope or a separate PR. Also flagged: revision item 4c (one reason line per name — remove the second FactorNames line) is separate frontend work; and the Northline refresh appends Northline's own topics to attendees' `attended_event_topics`, which under the count rule makes prior Northline attendance count as "related" when Northline is ranked again.
 
 ---
 
@@ -83,9 +87,11 @@ as one covering all topics.
     the rationale ("no topic set to compare") should now read "a count of related
     events has no events to count".
 - `python/smartmatch_domain/smartmatch_domain/exercise/registry.py`
-  - Bump `EXERCISE_REGISTRY_VERSION` to `"exercise-0.2.0"`; update
-    `EXERCISE_APPROVER`/`EXERCISE_APPROVED_ON` to record Chau's refined scoring
-    rule dated 2026-10-02 (check repo conventions for the exact wording style).
+  - Bump `EXERCISE_REGISTRY_VERSION` to `"exercise-0.2.0"`; set
+    `EXERCISE_APPROVER` to `"Ann Wang, progress check and revisions 2026-10-02"`
+    and `EXERCISE_APPROVED_ON` to `"2026-10-02"` (D3 — Ann's Oct-2 revisions
+    approve the change; the 0.5 middle bucket is Chau's own refinement and is
+    credited to Chau in the decision record).
   - Update `_RATIONALE[PAST_EVENT_TOPIC_OVERLAP_FACTOR_KEY]` to describe the
     0 / 0.5 / 1 related-count rule.
 - `python/smartmatch_domain/smartmatch_domain/exercise/matching.py`
@@ -102,29 +108,79 @@ as one covering all topics.
     two related attended events → `1.0`; add cases: 1 related of several → `0.5`,
     0 related → `0.0` (already covered by the measured-zero test), empty record →
     `None` (existing), `None` record → `None` (existing).
-- `tests/unit/test_exercise_matching.py` — audit composite expectations;
-  `_full_card` stays 1.0; check any case assuming fractional overlap.
-- `tests/golden/exercise/test_exercise_matching_golden.py`
-  - G-CE-06: card `("analytics","sports")` vs topics `{analytics,careers}` now
-    scores interest `1.0` → expected composite `0.25 + 0.25 = 0.5`, not
-    `0.25 + 0.25*0.3333`.
-  - Recompute every FACTOR_CASES entry and every ranked-order golden;
-    update the `registry_version == "exercise-0.1.0"` pin to `"exercise-0.2.0"`.
+- `tests/unit/test_exercise_matching.py` — audit composite expectations.
+  Correction to the earlier draft: `_full_card` does NOT stay 1.0 under the new
+  rule — it has exactly 1 attended event (~line 58), so its past-event factor
+  becomes `0.5` and its composite `0.875`; roughly six assertions use it
+  (~lines 326, 357, 533). Chau's confirmed resolution: extend the fixture with
+  a second related past event — e.g. add `("analytics",)` to
+  `attended_event_topics` — so it stays `1.0`. Then check any case assuming
+  fractional overlap.
+- `tests/golden/exercise/test_exercise_matching_golden.py` — confirmed
+  FACTOR_CASES values:
+  - G-CE-01 "major only": `0.25` (unchanged).
+  - G-CE-02 "major misses, nothing else on file": `0` (unchanged).
+  - G-CE-04 "empty card is measured, past events unknown": `0.25` (unchanged).
+  - G-CE-03 "every factor known and perfect": stays `1.0` — the fixture gets a
+    second related past event, e.g.
+    `attended_event_topics=(("analytics", "careers"), ("analytics",))`
+    (Chau-confirmed).
+  - G-CE-05 "past events only": `0.5` → `0.375` (1 related event → `0.5 × 0.25`
+    + `0.25` major).
+  - G-CE-06 "card with a partial interest overlap": → `0.5` (binary interest:
+    1 of its topics matches → full `0.25` + `0.25` major); keep the
+    "1 of 3 interests" profile as-is.
+  - New G-CE-07 — Marketing + 2 related past events, no card → `0.5` (pins the
+    ≥2 bucket).
+  - New G-CE-08 — Marketing + 1 attended event with no shared topic → `0.25`
+    (pins measured-0 vs unknown: marker becomes `major_plus_events` not
+    `major_only`, wins the information tie-break at equal value, and the factor
+    is absent from `unknown_factor_keys` — verify against `derive_marker` in
+    `python/smartmatch_domain/smartmatch_domain/exercise/markers.py`).
+  - ID note: the tie-break tests already occupy G-CE-07…G-CE-12 — renumber that
+    block or give the two new FACTOR_CASES entries the next free IDs.
+  - Recompute every ranked-order golden; update the
+    `registry_version == "exercise-0.1.0"` pin to `"exercise-0.2.0"`.
+- `tests/unit/test_exercise_registry.py` (~line 115) — pins the
+  `exercise-0.1.0` version string → `exercise-0.2.0`.
+- `tests/unit/test_exercise_registry_isolation.py` (~line 28) — `EXERCISE_PIN`
+  constant → `exercise-0.2.0`.
+- `tests/golden/exercise/test_exercise_ann_dataset_golden.py` and
+  `tests/golden/exercise/test_exercise_results_rule_sample_golden.py` — ranked
+  orders on Ann's dataset will shift under the new values; recompute.
+- Docstrings naming `exercise-0.1.0`:
+  `python/smartmatch_domain/smartmatch_domain/exercise/registry.py`
+  (~lines 14, 26, 241) and
+  `python/smartmatch_domain/smartmatch_domain/exercise/matching.py`
+  (~lines 3, 204) — update to the new version string.
 - `tests/integration/exercise_class_driver.py` and any `tests/golden/exercise/`
   ranked-list fixtures: recompute expected orders under the new factor values
   (any-overlap → 1.0 boosts interest-matching carded profiles; related-count
   buckets change partial-attendance scores).
-- `tests/unit/test_exercise_event_interest_fit_csv.py` — update the docstring:
-  after this change the CSV's binary rule IS the app's rule for carded profiles
-  (no-card stays unknown, not 0 — keep noting that difference).
+- `tests/unit/test_exercise_event_interest_fit_csv.py` — see Agent C: this file
+  must be WRITTEN (it is not on this branch); the docstring should note that
+  after this change the CSV's binary rule IS the app's rule for carded
+  profiles, while no-card stays unknown (not 0).
+- Note for spot-checks: with binary interest and bucketed past-events, more
+  profiles tie on composite → more "tied on major; ordered by year" / "tied on
+  what counted; ordered by year" reason lines — include this in the P004 and
+  300-profile spot-checks.
 
 ### Data tooling + docs (Agent C — parallel with B)
-- Move `compute_event_interest_fit.ps1` (currently at the workspace root beside
-  the repo) into `tools/` and `event_interest_fit.csv` into `test_data/`,
-  mirroring the committed `tools/compute_event_major_fit.ps1` +
-  `test_data/event_major_fit.csv` pair. Fix the CSV output path in the script
-  to match the major-fit precedent's location. The test at
-  `tests/unit/test_exercise_event_interest_fit_csv.py` expects exactly these paths.
+- Bring `tools/compute_event_interest_fit.ps1` and
+  `test_data/event_interest_fit.csv` onto this branch — they already exist at
+  the correct paths on `origin/chau-0925-matching` (commit e7ff7b95), so the
+  earlier "move from the workspace root" instruction is stale:
+  `git checkout origin/chau-0925-matching -- test_data/event_interest_fit.csv
+  tools/compute_event_interest_fit.ps1` and commit them, alongside the
+  committed `tools/compute_event_major_fit.ps1` + `test_data/event_major_fit.csv`
+  pair.
+- `tests/unit/test_exercise_event_interest_fit_csv.py` is not on this branch —
+  it must be WRITTEN, not just docstring-updated. A version exists on
+  `origin/chau-0925-matching` (commit eae720e0); either check it out from there
+  or write it mirroring `tests/unit/test_exercise_event_major_fit_csv.py`.
+  Keep the note that after this change the CSV's binary rule IS the app's rule
+  for carded profiles, while no-card stays unknown (not 0).
 - `docs/superpowers/specs/2026-09-16-class-exercise-design.md` §4.2 table:
   replace the Jaccard rows with the binary and related-count rules.
 - `docs/architecture/decisions/ADR-0025-*.md` factor table (~line 80): update
@@ -134,7 +190,9 @@ as one covering all topics.
   related-event count rule if the current wording implies union-overlap.
 - Add a short decision record under `docs/decisions/` (match existing naming)
   recording: binary interest fit replaces Jaccard; related-past-event count
-  (0/0.5/1) replaces Jaccard-of-union; approver Chau, 2026-10-02; note D4 —
+  (0/0.5/1) replaces Jaccard-of-union; approver "Ann Wang, progress check and
+  revisions 2026-10-02" — but the 0.5 middle bucket is Chau's own refinement,
+  not in Ann's document, so credit it to Chau (per D3); note D4 —
   the deferred STUDENT_REGISTRY track inherits these formulas.
 - Optional: a `compute_event_related_past_fit.ps1` + CSV + drift-guard test in
   the same pattern, if Chau wants the second factor also CSV-verified.
@@ -148,9 +206,10 @@ as one covering all topics.
 - `exercise/simulation.py` MUST NOT CHANGE: it is the hidden-truth results rule
   (`past_event_count >= 1` threshold, hidden true interests), a separate
   requirement, not a matching factor.
-- `student_factors/terms.py`: `jaccard` may become unused by factors; keep it
-  exported (shared vocabulary) or remove per repo lint conventions — check
-  whether anything still imports it.
+- `student_factors/terms.py`: `jaccard` MUST stay exported even if factors stop
+  using it — `python/smartmatch_domain/smartmatch_domain/student_factors/__init__.py`
+  re-exports it and `tests/unit/test_student_factors.py` imports it
+  (~lines 25, 226). Removing it breaks the package.
 
 ## Constraints (all agents)
 - ADR-0011/0016: unknown stays `None`, never `0.0`; unknown factors contribute
@@ -180,9 +239,10 @@ as one covering all topics.
 
 ## Verification (for whoever implements)
 - `pytest tests/unit/test_student_factors.py tests/unit/test_exercise_matching.py tests/golden/exercise`
-- `pytest tests/unit/test_exercise_event_interest_fit_csv.py` (after CSV/PS1 are moved into `test_data/`/`tools/`)
+- `pytest tests/unit/test_exercise_event_interest_fit_csv.py` (after the CSV/PS1 are checked out from `origin/chau-0925-matching` and the test is written)
 - `pytest tests/unit tests/golden tests/integration` — full sweep for ranking fallout
 
 ## Risks
-- The registry-version bump re-labels new scores; any stored exercise runs pinned to `exercise-0.1.0` become non-reproducible (acceptable pre-class, flag to Chau if the DB already holds runs).
+- The registry-version bump re-labels new scores; any stored exercise runs pinned to `exercise-0.1.0` become non-reproducible (acceptable pre-class, flag to Chau if the DB already holds runs). More composite ties also mean the year and fixed-order tie-breaks fire more often — verify the ranked-list goldens and the Ann-dataset spot checks.
+- On Ann's current dataset no event has 2 related past events (Northline E11 relates only to E08; Harbor E12 only to E05), so the past-event factor caps at 0.5 for every profile in class — 16 profiles reach 0.5 on Northline, 11 on Harbor. Flag to Ann before class so the "went to similar events" slider isn't expected to move names as much as the other three.
 - Rankings will visibly shift (partial Jaccard credit disappears; binary 1.0 rewards any single interest match) — expected, but worth a spot-check on Ann's P004 case and the full 300-profile dataset before class.
