@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { InstructorDatasets } from "./InstructorDatasets";
 import { InstructorTeams, teamClearedSentence } from "./InstructorTeams";
 import { REFRESH_ALL_LABEL, REFRESH_ALL_QUESTION, RefreshAllPanel } from "./InstructorUnlock";
+import { pastTheConfirmGuard } from "./inlineConfirmGuard.testkit";
 
 const DATASETS = "/v1/exercise/instructor/datasets";
 const WORKSPACES = "/v1/exercise/instructor/workspaces";
@@ -100,6 +101,7 @@ describe("refresh every team at once asks first", () => {
     stub({ [`POST ${REFRESH_ALL}`]: { body: REPORT } });
     const { onDone } = renderPanel();
     fireEvent.click(screen.getByRole("button", { name: REFRESH_ALL_LABEL }));
+    await pastTheConfirmGuard();
     fireEvent.click(screen.getByRole("button", { name: "Refresh them now" }));
 
     await screen.findByText("No team has entered a number yet, so there was nothing to refresh.");
@@ -136,6 +138,7 @@ describe("refresh every team at once asks first", () => {
     stub({ [`POST ${REFRESH_ALL}`]: { body: REPORT } });
     renderPanel();
     fireEvent.click(screen.getByRole("button", { name: REFRESH_ALL_LABEL }));
+    await pastTheConfirmGuard();
     fireEvent.click(screen.getByRole("button", { name: "Refresh them now" }));
     await screen.findByText("No team has entered a number yet, so there was nothing to refresh.");
 
