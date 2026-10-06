@@ -18,6 +18,17 @@ export interface PanelNote {
   /** `done` for something that worked; `calm` for a refusal or a failure. */
   readonly tone: "done" | "calm";
   readonly text: string;
+  /**
+   * The sentence is a claim about the list on screen ("The list above is
+   * built from it."), so it is taken down when the team asks for another list.
+   * Every other sentence is about a press and stays until the next press.
+   */
+  readonly aboutList?: boolean;
+  /**
+   * `false` when the page's own notice already announces these words (a
+   * refused list read), so a screen reader hears them once. Default spoken.
+   */
+  readonly spoken?: boolean;
 }
 
 /** "You have 2 of 3 slots left." — or nothing when the answer does not say. */

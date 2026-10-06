@@ -63,28 +63,47 @@ function settings(...names: string[]): object {
 }
 
 type Answer = { body: unknown; status?: number };
+/** An answer, or one worked out from the request's query (and held back, if it likes). */
+type Named = Answer | ((search: URLSearchParams) => Answer | undefined | Promise<Answer>);
+
+/** A list as the server sends it for this request: built from the setting it names, if any. */
+function listFor(search: URLSearchParams): Answer {
+  // Weights asked for by number come back as asked, as the server echoes them.
+  const weights = Object.fromEntries(
+    Object.entries(WEIGHTS).map(([key, value]) => [
+      key,
+      search.has(key) ? Number(search.get(key)) : value,
+    ]),
+  );
+  return { body: { ...LIST, weights, setting_name: search.get("setting") } };
+}
 
 /** Answers by "METHOD path"; the saved list is whatever `saved` holds at the time. */
-function stub(saved: { current: object }, named: Record<string, Answer> = {}): void {
+function stub(saved: { current: object }, named: Record<string, Named> = {}): void {
   vi.stubGlobal(
     "fetch",
-    vi.fn((url: string, init: RequestInit) => {
+    vi.fn(async (url: string, init: RequestInit) => {
       const path = url.split("?")[0];
+      const search = new URLSearchParams(url.split("?")[1]);
       const key = `${init.method ?? "GET"} ${path}`;
+      const found = named[key];
       const answer: Answer =
-        named[key] ??
+        (typeof found === "function" ? await found(search) : found) ??
         (key === `GET ${BASE}/list`
-          ? // A list asked for by a setting's name says which setting built it.
-            { body: { ...LIST, setting_name: new URLSearchParams(url.split("?")[1]).get("setting") } }
+          ? listFor(search)
           : key === `GET ${BASE}/settings`
             ? { body: saved.current }
             : { body: { error: { code: "test_unstubbed", message: key } }, status: 404 });
-      return Promise.resolve(
-        new Response(JSON.stringify(answer.body), { status: answer.status ?? 200 }),
-      );
+      return new Response(JSON.stringify(answer.body), { status: answer.status ?? 200 });
     }),
   );
 }
+
+function refused(status: number, code: string, message: string): Answer {
+  return { body: { error: { code, message } }, status };
+}
+
+const aMoment = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 30));
 
 function renderMatching() {
   const router = createMemoryRouter(
@@ -232,6 +251,45 @@ describe("<ExerciseMatching /> says what each press did", () => {
     await within(panel()).findByText("Closed the side-by-side view.");
   });
 
+  it("says why a delete did nothing, with the server's own sentence and no “Deleted”", async () => {
+    const saved = { current: settings("Setting A") };
+    stub(saved, {
+      [`DELETE ${BASE}/settings/Setting%20A`]: refused(
+        404,
+        "exercise_setting_unknown",
+        "Your team has no saved setting with that name.",
+      ),
+    });
+    renderMatching();
+    fireEvent.click(await screen.findByRole("button", { name: "Delete Setting A" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete it" }));
+
+    const said = await within(panel()).findByText("Your team has no saved setting with that name.");
+    expect((said.closest('[data-slot="exercise-notice"]') as HTMLElement).dataset.tone).toBe("calm");
+    expect(within(panel()).queryByText(/^Deleted/)).toBeNull();
+  });
+
+  it("says why a comparison was not shown, with the server's own sentence and no “Showing”", async () => {
+    const saved = { current: settings("A", "B") };
+    stub(saved, {
+      [`GET ${BASE}/settings/compare`]: refused(
+        404,
+        "exercise_setting_unknown",
+        "Your team has no saved setting with that name.",
+      ),
+    });
+    renderMatching();
+    const boxes = await screen.findAllByRole("checkbox");
+    fireEvent.click(boxes[0]);
+    fireEvent.click(boxes[1]);
+    fireEvent.click(screen.getByRole("button", { name: "Show them side by side" }));
+
+    const said = await within(panel()).findByText("Your team has no saved setting with that name.");
+    expect((said.closest('[data-slot="exercise-notice"]') as HTMLElement).dataset.tone).toBe("calm");
+    expect(within(panel()).queryByText(/^Showing/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Close this comparison" })).toBeNull();
+  });
+
   it("says “List updated.” beside the list once a list the team asked for has landed", async () => {
     const saved = { current: settings("Setting A") };
     stub(saved);
@@ -249,5 +307,118 @@ describe("<ExerciseMatching /> says what each press did", () => {
     expect(
       document.querySelector('[data-slot="exercise-list-updated"]')?.getAttribute("role"),
     ).toBe("status");
+  });
+});
+
+/**
+ * "Opened “A”. The list above is built from it." is a claim about the list
+ * on screen, so it is made when that list is on screen and taken down when it
+ * stops being true (PR #346 review).
+ */
+describe("<ExerciseMatching /> says “Opened” only while the list is built from that setting", () => {
+  const OPENED = "Opened “Setting A”. The list above is built from it.";
+
+  it("waits for that setting's list to land before it says so", async () => {
+    const saved = { current: settings("Setting A") };
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    stub(saved, {
+      [`GET ${BASE}/list`]: async (search) => {
+        if (search.get("setting") === "Setting A") {
+          await held;
+        }
+        return listFor(search);
+      },
+    });
+    renderMatching();
+    fireEvent.click(await screen.findByRole("button", { name: "Open this list" }));
+
+    // The read is out and has not answered: the list above is still the old one.
+    await aMoment();
+    expect(within(panel()).queryByText(/^Opened/)).toBeNull();
+
+    release();
+    const said = await within(panel()).findByText(OPENED);
+    expect((said.closest('[data-slot="exercise-notice"]') as HTMLElement).dataset.tone).toBe("done");
+  });
+
+  it("says the server's refusal instead when the setting is gone, and never “Opened”", async () => {
+    // Deleted in another tab since this screen read the saved settings.
+    const saved = { current: settings("Setting A") };
+    stub(saved, {
+      [`GET ${BASE}/list`]: (search) =>
+        search.get("setting") === "Setting A"
+          ? refused(404, "exercise_setting_unknown", "Your team has no saved setting with that name.")
+          : undefined,
+    });
+    renderMatching();
+    fireEvent.click(await screen.findByRole("button", { name: "Open this list" }));
+
+    const said = await within(panel()).findByText("Your team has no saved setting with that name.");
+    const notice = said.closest('[data-slot="exercise-notice"]') as HTMLElement;
+    expect(notice.dataset.tone).toBe("calm");
+    expect(within(panel()).queryByText(/^Opened/)).toBeNull();
+    // Announced once: the page's own notice about the list is the live one.
+    expect(notice.getAttribute("role")).toBeNull();
+    expect(document.getElementById("exercise-list-refusal")?.getAttribute("role")).toBe("status");
+    await aMoment();
+    expect(within(panel()).queryByText(/^Opened/)).toBeNull();
+  });
+
+  it("takes it down when the team moves a weight", async () => {
+    const saved = { current: settings("Setting A") };
+    stub(saved);
+    renderMatching();
+    fireEvent.click(await screen.findByRole("button", { name: "Open this list" }));
+    await within(panel()).findByText(OPENED);
+
+    const box = screen.getByRole("textbox", { name: "same major" });
+    fireEvent.focus(box);
+    fireEvent.change(box, { target: { value: "0.5" } });
+    fireEvent.blur(box);
+
+    await waitFor(() => expect(within(panel()).queryByText(/^Opened/)).toBeNull());
+    // And it does not come back when the new list lands.
+    await waitFor(() =>
+      expect(document.querySelector('[data-slot="exercise-list-updated"]')).not.toBeNull(),
+    );
+    expect(within(panel()).queryByText(/^Opened/)).toBeNull();
+  });
+
+  it("takes it down when the team goes back to the list's weights", async () => {
+    const saved = { current: settings("Setting A") };
+    stub(saved);
+    renderMatching();
+    fireEvent.click(await screen.findByRole("button", { name: "Open this list" }));
+    await within(panel()).findByText(OPENED);
+
+    // Typed and not sent: the list is no longer the answer to the boxes.
+    const box = screen.getByRole("textbox", { name: "same major" });
+    fireEvent.focus(box);
+    fireEvent.change(box, { target: { value: "0.5" } });
+    fireEvent.click(await screen.findByRole("button", { name: "Go back to this list's weights" }));
+
+    await waitFor(() => expect(within(panel()).queryByText(/^Opened/)).toBeNull());
+  });
+
+  it("keeps another press's sentence when a weight moves: only “Opened” is about the list", async () => {
+    const saved = { current: settings("Setting A") };
+    stub(saved, { [`DELETE ${BASE}/settings/Setting%20A`]: { body: settings() } });
+    renderMatching();
+    fireEvent.click(await screen.findByRole("button", { name: "Delete Setting A" }));
+    saved.current = settings();
+    fireEvent.click(screen.getByRole("button", { name: "Delete it" }));
+    await within(panel()).findByText(/^Deleted “Setting A”/);
+
+    const box = screen.getByRole("textbox", { name: "same major" });
+    fireEvent.focus(box);
+    fireEvent.change(box, { target: { value: "0.5" } });
+    fireEvent.blur(box);
+    await waitFor(() =>
+      expect(document.querySelector('[data-slot="exercise-list-updated"]')).not.toBeNull(),
+    );
+    expect(within(panel()).getByText(/^Deleted “Setting A”/)).toBeDefined();
   });
 });

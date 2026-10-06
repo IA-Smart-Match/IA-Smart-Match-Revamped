@@ -125,6 +125,13 @@ function acceptedWeighting(list: RankedListView): ListWeighting {
     : { kind: "setting", name: list.setting_name };
 }
 
+/** An "Open this list" press whose list read has settled, landed or not. */
+interface SettledOpen {
+  readonly name: string;
+  /** `openToken` at the press, so a press overtaken by another list is dropped. */
+  readonly token: number;
+}
+
 /** Why the download and save are off, pointed at by both. */
 const NOT_CURRENT_REASON = "exercise-list-not-current";
 
@@ -151,6 +158,13 @@ function EventMatching({ eventKey }: { readonly eventKey: string }): React.JSX.E
   const [hasUnsent, setHasUnsent] = React.useState(false);
   /** Bumped to put every weight box back to the list's own weights. */
   const [controlsRevision, setControlsRevision] = React.useState(0);
+  /**
+   * An "Open this list" whose read has settled and has not been answered in
+   * the panel yet. See `onOpen` and the effect under `useExerciseResource`.
+   */
+  const [openSettled, setOpenSettled] = React.useState<SettledOpen | null>(null);
+  /** Which "Open this list" may still be answered; moved on by every later list request. */
+  const openToken = React.useRef(0);
 
   const load = React.useCallback(
     async (signal: AbortSignal): Promise<MatchingData> => ({
@@ -164,6 +178,49 @@ function EventMatching({ eventKey }: { readonly eventKey: string }): React.JSX.E
   const { state, reload } = useExerciseResource(load, [eventKey, weighting], {
     keepDataOnError: keepMatchingData,
   });
+
+  /**
+   * "Opened “A”. The list above is built from it." is said once that list
+   * is the one on screen, never at the press (PR #346 review): the read may be
+   * slow, and it may be refused — the setting deleted in another tab — which
+   * leaves the old list above a sentence saying otherwise. A read that failed
+   * is answered with its own sentence instead, beside the button that asked.
+   *
+   * It runs after the render that has the settled read, because the press's
+   * own `then` still holds the state from before it.
+   */
+  React.useEffect(() => {
+    if (openSettled === null) {
+      return;
+    }
+    if (openSettled.token !== openToken.current || state.status !== "ready") {
+      // Another list was asked for since, or the screen itself was refused
+      // and says so in the list's place.
+      setOpenSettled(null);
+      return;
+    }
+    if (state.refreshing) {
+      // A later read of the same list is out; answer when it lands.
+      return;
+    }
+    setOpenSettled(null);
+    const failed = state.refusal?.message ?? state.unreachable;
+    if (failed !== null) {
+      // The page's notice above the list announces it; this one is for the eye.
+      setPanelNote({ tone: "calm", text: failed, spoken: false });
+    } else if (state.data.list.setting_name === openSettled.name) {
+      setPanelNote({ tone: "done", text: openedSentence(openSettled.name), aboutList: true });
+    }
+  }, [openSettled, state]);
+
+  /**
+   * The team asked for a list by its weights: an open still in flight is no
+   * longer answered, and "The list above is built from it." comes down.
+   */
+  function leaveOpenedList(): void {
+    openToken.current += 1;
+    setPanelNote((note) => (note?.aboutList === true ? null : note));
+  }
 
   /** The list on screen answers the boxes: nothing typed and unsent, nothing asked and unanswered. */
   const listCurrent =
@@ -191,6 +248,8 @@ function EventMatching({ eventKey }: { readonly eventKey: string }): React.JSX.E
    * worked, the server's own when it was refused.
    */
   async function guard(action: () => Promise<string>): Promise<boolean> {
+    // The slot is this press's now: an open still in flight no longer writes to it.
+    openToken.current += 1;
     setPanelNote(null);
     try {
       setPanelNote({ tone: "done", text: await action() });
@@ -301,6 +360,7 @@ function EventMatching({ eventKey }: { readonly eventKey: string }): React.JSX.E
                 onUnsentChange={setHasUnsent}
                 onChange={(weights) => {
                   setComparison(null);
+                  leaveOpenedList();
                   setWeighting({ kind: "weights", weights });
                 }}
               />
@@ -405,6 +465,7 @@ function EventMatching({ eventKey }: { readonly eventKey: string }): React.JSX.E
                     variant="secondary"
                     onClick={() => {
                       setComparison(null);
+                      leaveOpenedList();
                       setWeighting(acceptedWeighting(state.data.list));
                       setControlsRevision((value) => value + 1);
                     }}
@@ -467,8 +528,14 @@ function EventMatching({ eventKey }: { readonly eventKey: string }): React.JSX.E
             }
             onOpen={(name) => {
               setComparison(null);
+              // The last press's sentence goes now; this press's is written
+              // when its list has landed, or has failed to.
+              setPanelNote(null);
+              const token = ++openToken.current;
               setWeighting({ kind: "setting", name });
-              setPanelNote({ tone: "done", text: openedSentence(name) });
+              // One request: the new weighting and this reload reach the
+              // hook in the same render. It resolves when that read settles.
+              void reload().then(() => setOpenSettled({ name, token }));
             }}
             onCompare={(a, b) => {
               void guard(async () => {

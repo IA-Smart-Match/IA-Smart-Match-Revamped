@@ -573,6 +573,14 @@ side-by-side view."; calm tone, with the server's own sentence, for a press
 that was refused (state X above now means this notice, no longer one at the
 top of the page). It stays until the next press in the panel replaces it; it
 never times out. The slot counts come from the server's answer to the press.
+"Opened “Setting A”. The list above is built from it." is a claim about the
+list on screen, so it alone follows the list (amended 2026-10-06, PR #346
+review): it appears once that setting's list has landed, not at the press;
+if the read is refused or cannot be reached (the setting was deleted in
+another tab) the notice is that sentence instead, calm tone, and not a second
+live region, since the page's notice above the list already announces it;
+and it is taken down when the team moves a weight or presses "Go back to
+this list's weights".
 Beside "The list" heading, "List updated." takes the place of "Rebuilding the
 list…" once a list the team asked for has landed, and stays until the next
 change.
@@ -634,8 +642,14 @@ Rules that go with the table:
 - **Every press here says what it did** (issue #321). After the run the line
   under the grey button gives the time from the run itself: "Run at 10:42 AM.
   A team runs results once per event." "Check again" that finds results
-  still closed says so under itself, "Checked at 10:43 AM. Results are still
-  not open.", instead of leaving the screen unchanged.
+  still closed says so under itself, "Checked at 10:43:07 AM. Results are
+  still not open.", instead of leaving the screen unchanged. Only a read that
+  landed says that: when the read could not be reached the line is the
+  could-not-be-reached sentence instead, because nothing is then known about
+  the lock (amended 2026-10-06, PR #346 review). The time is the browser's
+  clock, to the second, so a second press in the same minute changes the line
+  and is announced again; "Run at" is the server's time and stays to the
+  minute.
 
 ### 6.15 Results reveal and seat figures (see [prompt](../../archive/design/class-exercise/prompts/components/results-reveal.md))
 
@@ -850,6 +864,19 @@ appears and back to the panel's button when it goes. It is the two-button
 form, not the five-second window: the sentence is too long to read against a
 timer. Every run asks again.
 
+**The press that asks cannot also answer (amended 2026-10-06, PR #346
+review).** Because focus moves onto the confirming button, a held Enter would
+repeat on it and a double-click would land on it, sending the request with
+the question unread. On "Refresh them now", "Open results now" and "Close
+results now" a repeated Enter or Space (key repeat) is ignored however long
+the key is held, and any press inside the 300 ms guard after the question
+opens is ignored (the same guard length as `ce-confirm-window`, section 5).
+Clearing a team and moving every team do not move focus onto their "yes", so
+a held key never reaches it. The refresh-every-team well is a `group` named
+by its question (`aria-labelledby`), so the scope sentence is read with the
+button focus lands on, once: it is not also the button's description and not
+a live region.
+
 **The three class-wide confirms, side by side (issue #321).** Clear a team:
 "This clears team 3's saved settings and result runs. No other team is
 touched." Move every team: "This moves every team to this file and clears
@@ -858,13 +885,18 @@ All three are inline, name their scope, and have a way out that sends
 nothing.
 
 **After a press (issue #321).** Clearing a team shows a done-tone notice at
-the top of the Teams panel, "Team 3 cleared at 10:42 AM. It is back at the
-start. No other team was changed.", which stays until the next clear (the
+the top of the Teams panel, "Team 3 cleared at 10:42:07 AM. It is back at
+the start. No other team was changed.", which stays until the next clear (the
 time is the browser's clock when the answer landed; the server sends none).
 Setting the list limit shows "Limit set to 25." in the Data files panel's
-done slot. The Teams panel says "Teams last read at 10:43 AM." under its
+done slot. The Teams panel says "Teams last read at 10:43:07 AM." under its
 lead line, so "Check the teams again" visibly did something even when no
-team changed.
+team changed. These two lines and the results screen's "Checked at …" are
+the only times read off the browser's clock, and the only ones shown to the
+second (amended 2026-10-06, PR #346 review): to the minute, a second press
+in the same minute rewrote the line with the same words. Times the server
+recorded ("Run at", "Refreshed at", "Opened at", "Closed at") stay to the
+minute.
 
 ## 7. Page layouts
 
@@ -1119,7 +1151,7 @@ labels and the license line are unchanged and not listed.
 | Saved settings, save in progress | "Saving…" |
 | Saved settings, after a save (2026-10-06, #321; Ann's example, with the event's own name and the server's counts) | "Saved “Setting A” for Northline Analytics: Behind the Business. You have 2 of 3 slots left." |
 | Saved settings, after a delete (#321) | "Deleted “Setting A”. You have 3 of 3 slots left." |
-| Saved settings, after "Open this list" (#321) | "Opened “Setting A”. The list above is built from it." |
+| Saved settings, after "Open this list", once that list has landed (#321; taken down when the team asks for another list) | "Opened “Setting A”. The list above is built from it." |
 | Saved settings, after "Show them side by side" and after closing it (#321) | "Showing “Setting A” and “Setting B” side by side, below." / "Closed the side-by-side view." |
 | Saved settings, card chosen for compare | "Comparing" |
 | Compare, 390 | "Showing 10 of 30. Show all 30" |
@@ -1135,7 +1167,8 @@ labels and the license line are unchanged and not listed.
 | Results, button after the run (#328; Ann's checklist wording) | "Results already run for this event." |
 | Results, why it cannot be run again (#328; 6.14's line, now on screen) | "A team runs results once per event." |
 | Results, when the run was made (2026-10-06, #321; in front of the line above) | "Run at 10:42 AM." |
-| Results, after "Check again" finds results still closed (#321) | "Checked at 10:43 AM. Results are still not open." |
+| Results, after "Check again" finds results still closed (#321; browser's clock, to the second) | "Checked at 10:43:07 AM. Results are still not open." (no time known: "Checked. Results are still not open.") |
+| Results, after "Check again" when the read could not be made (2026-10-06, PR #346 review; the could-not-be-reached sentence, under the button) | "The exercise could not be reached. Check the connection and try again." |
 | Results, table disclosure | "Show these counts as a table" |
 | Round two | "In round one your team's list left 46 seats empty." |
 | Asking, supporting lines | "Tell them a card helps us suggest events worth their evening." / "Offer something small for a completed card." / "Make the card a condition of hearing about events." |
@@ -1178,8 +1211,8 @@ labels and the license line are unchanged and not listed.
 | Instructor, a run whose setting was deleted afterwards (#319, #271) | "Built from the setting “Wide net”. The team has deleted that setting since; this run is unchanged." |
 | Instructor, a run's counts (#319; D8 wording, kept) | "Invited 30, signed up 14, attended 11. 46 seats are still open." |
 | Instructor, a run stored before names were kept (#319, #271) | "Names were not kept for this run." |
-| Instructor, after a team is cleared (2026-10-06, #321; Ann's checklist §2 "Team X cleared.", with the time and the scope) | "Team 3 cleared at 10:42 AM. It is back at the start. No other team was changed." (no time known: "Team 3 cleared. …") |
-| Instructor, when the Teams panel was last read (#321) | "Teams last read at 10:43 AM." |
+| Instructor, after a team is cleared (2026-10-06, #321; Ann's checklist §2 "Team X cleared.", with the time and the scope) | "Team 3 cleared at 10:42:07 AM. It is back at the start. No other team was changed." (no time known: "Team 3 cleared. …") |
+| Instructor, when the Teams panel was last read (#321; browser's clock, to the second) | "Teams last read at 10:43:07 AM." |
 | Instructor, after the list limit is set (#321; Ann's checklist §2 wording) | "Limit set to 25." |
 | Instructor, upload in progress | "Uploading and checking the file…" |
 | Instructor, upload done (#325; composed on the page from the server's file name and counts) | "SmartMatch_Student_Body_300.xlsx — 300 profiles, 12 events loaded." |

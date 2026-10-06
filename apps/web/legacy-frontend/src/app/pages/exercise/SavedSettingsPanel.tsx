@@ -25,7 +25,9 @@
  * sentence under the save form and above the cards, so it is beside the
  * button that was pressed: "Saved “Setting A” for Northline. You have 2 of 3
  * slots left.", "Deleted “Setting A”. …", or the server's own sentence for
- * a press it refused. It stays until the next press.
+ * a press it refused. It stays until the next press. "Opened “Setting A”.
+ * The list above is built from it." is the one exception: the screen shows it
+ * once that list has landed and takes it down when the team asks for another.
  *
  * **Layout (DESIGN.md §6.11, §7.5).** The "Name these weights" field and
  * "Save these weights" above one index card per slot — `max_settings` of
@@ -215,6 +217,7 @@ export function SavedSettingsPanel({
           key={feedback.text}
           tone={feedback.tone}
           message={feedback.text}
+          live={feedback.spoken !== false}
           className="self-start"
         />
       )}
