@@ -34,14 +34,14 @@ Stakeholder text (Progress `:27-30`, Checklist `:41`, `:147`): "its saved settin
 Shared wire model, defined once in `exercise_results_models.py` and reused by the instructor track (cross-router-module import is already the pattern — `exercise_results_run.py` imports `exercise_matching_models`):
 
 ```python
-class InvitedProfileView(BaseModel):          # the six §7 display fields + rank
+class InvitedProfileView(BaseModel):  # the six §7 display fields + rank
     model_config = ConfigDict(extra="forbid")
-    rank: int | None = None                   # null only on pre-migration rows
+    rank: int | None = None  # null only on pre-migration rows
     profile_no: int
     display_name: str
     major: str | None = None
     class_year: str | None = None
-    marker: str | None = None                 # null only on pre-migration rows
+    marker: str | None = None  # null only on pre-migration rows
     reason: str | None = None
 ```
 
