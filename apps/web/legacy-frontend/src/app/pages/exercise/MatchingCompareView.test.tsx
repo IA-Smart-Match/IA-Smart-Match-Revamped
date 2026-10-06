@@ -20,7 +20,6 @@ function entries(prefix: string, count: number): ListEntryView[] {
     marker: "major_only",
     reason: "Same major; nothing else on file.",
     contributing_factor_keys: ["same_major"],
-    undecided_goal_half: false,
   }));
 }
 

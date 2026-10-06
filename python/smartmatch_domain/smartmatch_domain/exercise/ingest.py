@@ -36,8 +36,8 @@ What the file says, and what is decided here
   of the tie-break (owner ruling 3).
 * An event's ``target_major`` of ``All majors`` is stored as all six majors.
 * An event's ``sequence`` is its row position on the ``Events`` sheet.
-* An event's ``event_type`` is one of Ann's event types and decides whether
-  the event is exploratory (OQ-CE-14); the type itself is not stored.
+* An event's ``event_type`` is one of Ann's event types; the type itself is
+  not stored.
 * ``seats`` is read on the two exercise events and must be
   :data:`~smartmatch_domain.exercise.simulation.EVENT_SEATS`: the simulated
   results run with that many seats, and a file saying otherwise is refused
@@ -364,7 +364,6 @@ def _parse_event(
         target_majors=majors,
         is_exercise_event=flag,
         sequence=position,
-        is_exploratory=EXERCISE_EVENT_TYPES[event_type],
     )
 
 

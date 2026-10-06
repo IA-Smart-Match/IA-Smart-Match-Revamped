@@ -12,6 +12,8 @@ The two student matching factors currently score Jaccard overlap, conflicting wi
 
 User wants the class-exercise student→event matching to score two factors differently than implemented. Repo: `C:\Users\thuys\Downloads\Smartmatch\IA-Smart-Match-Revamped`, branch `chau-10-02-update-matching-algorithm` (from latest origin/main).
 
+**Status 2026-10-05: executed on this branch.** Chau's rulings on D5: (1) remove the undecided half-fit rule everywhere, not only on Northline; (2) `exercise/simulation.py`'s mirrored rule goes with it, which overrides the "MUST NOT CHANGE" line below; (3) full removal of the plumbing, including `exercise_event.is_exploratory`; (4) the column is dropped in the same PR (migration `0044_drop_event_exploratory`). The frontend therefore did change, and the "Agent D" notes below are stale on both points. Record: [`class-exercise-factor-revisions-2026-10-02.md`](../decisions/class-exercise-factor-revisions-2026-10-02.md).
+
 **Status 2026-10-04:** audited; decision points D1–D5 confirmed by Chau. D5 is in scope (same PR) but the implementing agent must get Chau's ruling on the 4b reading before writing code. Audit corrections are applied inline.
 
 ### The conflict (verified against the code)

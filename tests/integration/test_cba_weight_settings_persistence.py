@@ -208,7 +208,11 @@ _PREVIOUS_REVISION = "0026_event_registration"
 #: ``0042_exercise_ann_dataset`` and is the head. It adds one boolean
 #: ``exercise_event`` column defaulting to false and writes no rows, so this
 #: file's claims still hold through it.
-_HEAD_REVISION = "0043_exercise_event_exploratory"
+#: Moved again by CE-FACTOR-REVISIONS: ``0044_drop_event_exploratory`` chains to
+#: ``0043_exercise_event_exploratory`` and is the head. It drops the one boolean
+#: ``exercise_event`` column 0043 added and writes no rows, so this file's claims
+#: still hold through it.
+_HEAD_REVISION = "0044_drop_event_exploratory"
 
 NEED = "need-weight-settings-1"
 

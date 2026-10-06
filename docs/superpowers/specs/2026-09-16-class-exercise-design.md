@@ -82,7 +82,7 @@ read. The mapping (`smartmatch_domain/exercise/layout.py`, `EXERCISE_LAYOUT`):
 | `event_id`, `event_name`, `event_topics`, `target_major` | `event_key`, `name`, `topic_tags`, `target_majors` (`All majors` → all six) |
 | `exercise_event` (Yes/No), `seats` | `is_exercise_event`; `seats` must be 60 on the two exercise events |
 | Row position on `Events` | `sequence` |
-| `event_type` | `is_exploratory` — true for Career fair, Employer info session, Industry panel and Employer talk (OQ-CE-14, Ann 2026-09-25); the type itself is not stored |
+| `event_type` | checked against Ann's seven kinds of event; nothing is stored from it (`is_exploratory` was dropped on Ann's revisions of 2026-10-02) |
 | `events_attended_count`, `info_level`, `event_date` | not read — derivable or shown nowhere |
 
 The vocabularies are closed in code (`smartmatch_domain/exercise/vocabulary.py`,
@@ -90,8 +90,9 @@ owner ruling 2026-09-24): six majors, four years, thirteen topics and sixteen
 career-goal labels, stored in Ann's spelling. A career goal is a **small fixed
 list**, not a topic; "career goal fits this event" compares the topic the label
 points at through the role→topic table (OQ-CE-14, decided 2026-09-25 by Ann).
-`Undecided` points at no topic but earns half of "career goal fits this event"
-on an exploratory event, and the simulated-results rule treats it the same way.
+`Undecided` points at no topic and fits no event, in matching and in the
+simulated-results rule alike (Ann's revisions of 2026-10-02, item 4b; her
+answer of 2026-09-25 had given it half credit on broad events).
 
 ## 3. Spreadsheet ingest
 
@@ -149,16 +150,19 @@ Four pure functions over `(ProfileEvidence, EventEvidence)`, each returning a
 | Function | Value | Unknown when |
 |---|---|---|
 | `same_major` | 1.0 if profile major ∈ event target majors else 0.0 | never (major is always on file) |
-| `stated_interest_overlap` | Jaccard of card interests and event topic tags | no card |
-| `career_goal_fit` | 1.0 if career goal maps to a topic tag of the event; 0.5 (`UNDECIDED_EXPLORATORY_GOAL_FIT`) if the goal is `Undecided` and the event is exploratory (D2); else 0.0 | no card |
-| `past_event_topic_overlap` | Jaccard of the union of attended events' topics and this event's topics | no past events |
+| `stated_interest_overlap` | 1.0 if any card interest is one of the event's topic tags, else 0.0 | no card |
+| `career_goal_fit` | 1.0 if career goal maps to a topic tag of the event; else 0.0, `Undecided` included | no card |
+| `past_event_topic_overlap` | by the number of attended events that share a topic with this event: 0 → 0.0, 1 → 0.5, 2 or more → 1.0 | no past events |
 
 Both `STUDENT_REGISTRY` (CBA track) and `EXERCISE_REGISTRY` import these.
+The interest and past-event rows were Jaccard overlaps until Ann's revisions of
+2026-10-02
+([decision record](../../decisions/class-exercise-factor-revisions-2026-10-02.md)).
 
 ### 4.3 Exercise-only: `EXERCISE_REGISTRY` and `score_exercise_pair`
 
-`EXERCISE_REGISTRY` version `0.1.0`, `status = "approved"`, approver "Ann
-Wang, class-exercise requirements 2026-09-15", four `FactorSpec`s with Ann's
+`EXERCISE_REGISTRY` version `0.2.0`, `status = "approved"`, approver "Ann
+Wang, progress check and revisions 2026-10-02", four `FactorSpec`s with Ann's
 plain-words labels, all `implemented=True`. `score_exercise_pair(profile,
 event, *, weights)` composes them with `normalize_weights(registry=...)`:
 an unknown factor contributes nothing and its weight is **not** re-spread
@@ -333,7 +337,8 @@ which Ann receives for information; a change is one line. The
 `PLACEHOLDER` comment above the constant is being removed on
 `feat/ce-results-integration` (not yet merged). The module docstring's plain-words paragraph
 supersedes the draft above and states every number. An undecided career goal
-half-fits an exploratory event here too (OQ-CE-14, decision record D2).
+earns none of the career-goal part here either (Ann's revisions of 2026-10-02,
+item 4b).
 
 **As shipped (PR #186, 2026-09-19) — who may reset.** Owner ruling of
 2026-09-19: the per-team reset is an **instructor action only**. The

@@ -55,7 +55,9 @@ def _full_card(profile_id: str) -> ProfileEvidence:
         profile_id,
         "Marketing",
         card=ProfileCard(("analytics", "careers"), career_goal="analytics"),
-        attended_event_topics=(("analytics", "careers"),),
+        # Two related past events: one alone is half of "went to similar events
+        # before" (Ann's revisions of 2026-10-02), and this card is the perfect one.
+        attended_event_topics=(("analytics", "careers"), ("analytics",)),
     )
 
 

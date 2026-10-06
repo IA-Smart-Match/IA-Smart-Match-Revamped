@@ -93,19 +93,6 @@ def test_anns_full_workbook_is_accepted_as_she_sent_it() -> None:
     assert dataset.report.distinct_stated_interest_terms == 13
 
 
-def test_northline_and_harbor_are_exploratory_events_in_anns_file() -> None:
-    """OQ-CE-14 (Ann, 2026-09-25): both are company events, so both are exploratory.
-
-    Of the ten past events, the career fair, the three employer info sessions and
-    the three industry panels are exploratory; the workshop, the competition and
-    the networking mixer are not.
-    """
-    dataset = _accepted(ANN_FULL_FILE.read_bytes())
-    exploratory = {event.event_key for event in dataset.events if event.is_exploratory}
-
-    assert exploratory == {"E02", "E03", "E04", "E05", "E07", "E08", "E09", "E11", "E12"}
-
-
 def test_the_markers_agree_with_anns_info_level_column() -> None:
     """Ann's info_level column can be derived from the other columns (Ann's data
     file, 2026-09-24). The app derives it, and it agrees."""
@@ -301,9 +288,11 @@ def test_an_event_with_no_event_type_is_refused() -> None:
 
 
 def test_an_event_type_is_read_through_the_fold() -> None:
+    """A spelling the fold accepts is not refused; the type itself is not kept."""
     dataset = _accepted(_with_event(0, event_type="  career FAIR "))
 
-    assert dataset.events[0].is_exploratory is True
+    assert len(dataset.events) == 12
+    assert "event_type" not in {field.name for field in dataclasses.fields(dataset.events[0])}
 
 
 @pytest.mark.parametrize("column", ["major", "year", "first_name", "last_name"])

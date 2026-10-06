@@ -13,8 +13,7 @@ profile's hidden true interests and hidden true career goal, and it reads them
 **into** :class:`~smartmatch_domain.exercise.simulation.SimulationProfile` — the
 input of design spec §11's rule, which is what the columns exist for. The goal
 goes in as the topic it points at (``vocabulary.goal_topic_for_matching``, the
-same table the ranker reads), plus whether it is ``Undecided``
-(``vocabulary.goal_is_undecided``, OQ-CE-14). From there the values go nowhere: the rule
+same table the ranker reads). From there the values go nowhere: the rule
 returns profile numbers, the panels below carry profile numbers, and no model in
 this module has a field with a place to put an interest term or a goal.
 
@@ -61,7 +60,7 @@ from smartmatch_domain.exercise.simulation import (
     SimulationEvent,
     SimulationProfile,
 )
-from smartmatch_domain.exercise.vocabulary import goal_is_undecided, goal_topic_for_matching
+from smartmatch_domain.exercise.vocabulary import goal_topic_for_matching
 
 from smartmatch_api.exercise_dependencies import (
     ExerciseEventRow,
@@ -155,7 +154,6 @@ def simulation_event(event: ExerciseEventRow) -> SimulationEvent:
         event_key=event.event_key,
         topic_tags=frozenset(event.topic_tags),
         target_majors=frozenset(event.target_majors),
-        exploratory=event.is_exploratory,
     )
 
 
@@ -198,7 +196,6 @@ def simulation_profiles(
             major=row.major or "",
             true_interests=frozenset(row.hidden_true_interests),
             career_goal=goal_topic_for_matching(row.hidden_true_career_goal),
-            career_goal_undecided=goal_is_undecided(row.hidden_true_career_goal),
             past_event_count=len(row.past_event_keys),
             non_responding=row.profile_no in non_responding_profile_nos,
         )

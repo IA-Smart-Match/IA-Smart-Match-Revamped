@@ -105,7 +105,6 @@ def _events() -> tuple[ExerciseEventRow, ...]:
             target_majors=e.target_majors,
             is_exercise_event=e.is_exercise_event,
             sequence=e.sequence,
-            is_exploratory=e.is_exploratory,
         )
         for e in _dataset().events
     )
@@ -248,8 +247,10 @@ def test_the_fixed_order_is_anns_tiebreak_order_not_the_checksum() -> None:
 
 
 # ---------------------------------------------------------------------------
-# OQ-CE-14, decided 2026-09-25 (Ann Wang): undecided is half a fit for an
-# exploratory event, and a goal that clearly fits still ranks higher
+# Ann's revisions of 2026-10-02, item 4b: an undecided career goal fits no
+# event. Her answer of 2026-09-25 (OQ-CE-14) had given it half credit on broad
+# events, Northline and Harbor included; "That rule is not in the plan … Please
+# remove it." These cases pin the removal on the two events the rule reached.
 # ---------------------------------------------------------------------------
 
 #: Card holders whose card says "Undecided".
@@ -261,8 +262,8 @@ FITTING_CARDS = {
     "E12": (31, 50, 154, 168),  # "Retail or consumer goods role", "Supply chain or operations role"
 }
 
-#: Card holders whose card says "Graduate school": no event topic, even an
-#: exploratory one ("Graduate school → no specific event topic: yes").
+#: Card holders whose card says "Graduate school": no event topic
+#: ("Graduate school → no specific event topic: yes").
 GRADUATE_SCHOOL_CARDS = (40, 44, 225, 239, 249)
 
 _GOAL_ONLY = {
@@ -294,61 +295,63 @@ def test_the_cards_named_here_are_what_anns_file_says() -> None:
 
 @pytest.mark.golden
 @pytest.mark.parametrize("event_key", ["E11", "E12"])
-def test_northline_and_harbor_give_undecided_half_and_a_fitting_goal_the_whole(
+def test_northline_and_harbor_give_a_fitting_goal_the_whole_and_undecided_nothing(
     event_key: str,
 ) -> None:
     for number in FITTING_CARDS[event_key]:
         assert _goal_fit(event_key, number) == 1.0, number
     for number in UNDECIDED_CARDS:
-        assert _goal_fit(event_key, number) == 0.5, number
+        assert _goal_fit(event_key, number) == 0.0, number
     for number in GRADUATE_SCHOOL_CARDS:
         assert _goal_fit(event_key, number) == 0.0, number
 
 
 @pytest.mark.golden
-def test_undecided_earns_nothing_from_an_event_that_is_not_exploratory() -> None:
-    """E06, "Pitch Night: Student Startups", is a Competition."""
-    for number in UNDECIDED_CARDS:
-        assert _goal_fit("E06", number) == 0.0, number
+def test_undecided_earns_nothing_from_any_of_the_twelve_events() -> None:
+    """No event type is an exception: a career fair, a panel, a talk, none."""
+    for event in _dataset().events:
+        for number in UNDECIDED_CARDS:
+            assert _goal_fit(event.event_key, number) == 0.0, (event.event_key, number)
 
 
 @pytest.mark.golden
 @pytest.mark.parametrize("event_key", ["E11", "E12"])
-def test_on_the_goal_alone_every_fitting_goal_outranks_every_undecided_one(
-    event_key: str,
-) -> None:
+def test_on_the_goal_alone_only_a_fitting_goal_counts(event_key: str) -> None:
+    """Undecided and Graduate school are the same miss; neither outranks the other by rule."""
     listing = _ranked(event_key, _GOAL_ONLY, invite_limit=300)
     at = _positions(listing)
 
     last_fitting = max(at[number] for number in FITTING_CARDS[event_key])
-    undecided = [at[number] for number in UNDECIDED_CARDS]
-    graduate = [at[number] for number in GRADUATE_SCHOOL_CARDS]
-    assert last_fitting < min(undecided)
-    assert max(undecided) < min(graduate)
+    assert last_fitting == len(FITTING_CARDS[event_key]), "the fitting goals lead the list"
+    for number in (*UNDECIDED_CARDS, *GRADUATE_SCHOOL_CARDS):
+        assert last_fitting < at[number]
+        assert _entry(listing, number).contributing_factor_keys == ()  # type: ignore[attr-defined]
 
 
 @pytest.mark.golden
-def test_an_undecided_card_on_northline_is_never_told_its_goal_fits() -> None:
-    """How a half contribution reads: the factor counted, with no number.
-
-    "Career goal fits this event" would be false beside a card that says
-    "Undecided", so the half is named "undecided goal suits a broad event"
-    (ADR-0025 D8: still no number).
-
-    P197 is the undecided card the default list reaches: 30th of 30 on
-    Northline, on its half goal fit and its past events.
-    """
-    listing = _ranked("E11", None)
-    p197 = _entry(listing, 197)
-
-    assert p197.rank == 30  # type: ignore[attr-defined]
-    assert p197.contributing_factor_keys == (  # type: ignore[attr-defined]
-        "career_goal_fit",
-        "past_event_topic_overlap",
-    )
-    assert p197.reason == phrase_as_sentence(  # type: ignore[attr-defined]
-        "what counted: undecided goal suits a broad event and went to similar events before"
-    )
+@pytest.mark.parametrize("event_key", ["E11", "E12"])
+def test_an_undecided_card_is_never_told_its_goal_counted(event_key: str) -> None:
+    listing = _ranked(event_key, None, invite_limit=300)
     for number in UNDECIDED_CARDS:
-        entry = _entry(_ranked("E11", None, invite_limit=300), number)
-        assert "career_goal_fit" in entry.contributing_factor_keys  # type: ignore[attr-defined]
+        entry = _entry(listing, number)
+        assert "career_goal_fit" not in entry.contributing_factor_keys  # type: ignore[attr-defined]
+        assert "goal" not in entry.reason  # type: ignore[attr-defined]
+
+
+@pytest.mark.golden
+def test_p197_leaves_the_northline_list_without_its_half_goal_fit() -> None:
+    """The one undecided card the old default list reached, 30th of 30.
+
+    P197 is an Accounting major (not Northline's major) whose card names none
+    of Northline's topics and says "Undecided". Of its three past events one,
+    E08, shares a topic with Northline. So one thing counts for it, at half:
+    0.25 x 0.5. That places it 39th of 300, off the list of 30.
+    """
+    by_no = {p.profile_no: p for p in _dataset().profiles}
+    assert by_no[197].past_event_keys == ("E02", "E08", "E09")
+
+    p197 = _entry(_ranked("E11", None, invite_limit=300), 197)
+
+    assert p197.contributing_factor_keys == ("past_event_topic_overlap",)  # type: ignore[attr-defined]
+    assert p197.rank == 39  # type: ignore[attr-defined]
+    assert "197" not in {entry.profile_id for entry in _ranked("E11", None).entries}

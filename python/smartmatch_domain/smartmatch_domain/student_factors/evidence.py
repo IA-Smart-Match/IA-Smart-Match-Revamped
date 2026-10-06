@@ -28,8 +28,9 @@ fact as no card, and the types say so rather than leaving it to a convention:
 ``attended_event_topics`` carries the same distinction — ``None`` for "no
 attendance record on file" against ``()`` for "the record exists and is empty"
 — and both read as unknown for ``past_event_topic_overlap``, because that
-factor's question ("did the topics of the events they went to overlap this
-one?") has no input to measure when there is no event to read topics from.
+factor's question ("how many of the events they went to were related to this
+one?") has no input to measure: a count of related events has no events to
+count.
 The distinction is preserved on the evidence rather than collapsed, so the
 marker in :mod:`smartmatch_domain.exercise.markers` and any later consumer can
 still tell the two apart.
@@ -68,26 +69,16 @@ class ProfileCard:
             as exact normalized strings.
         career_goal: The career goal written on the card, or ``None`` when that
             one field of an existing card is blank or names no topic.
-        career_goal_undecided: ``True`` when the card says the person has not
-            decided on a career. Such a goal names no topic, so ``career_goal``
-            is ``None``; it half-fits an event that is broad and exploratory
-            (:data:`~smartmatch_domain.student_factors.UNDECIDED_EXPLORATORY_GOAL_FIT`).
     """
 
     stated_interests: tuple[str, ...] = ()
     career_goal: str | None = None
-    career_goal_undecided: bool = False
 
     def __post_init__(self) -> None:
         if self.career_goal is not None and not self.career_goal.strip():
             raise ValueError(
                 "career_goal: blank — use None for a card whose career goal is not "
                 "filled in, not a blank string"
-            )
-        if self.career_goal_undecided and self.career_goal is not None:
-            raise ValueError(
-                "career_goal_undecided: an undecided goal names no topic, so "
-                "career_goal must be None"
             )
         object.__setattr__(self, "stated_interests", tuple(self.stated_interests))
 
@@ -170,15 +161,11 @@ class EventEvidence:
         event_key: The event's key. Non-blank.
         topic_tags: The event's topics, as given.
         target_majors: The majors the event is aimed at, as given.
-        exploratory: ``True`` for a broad exploratory event — a company talk,
-            an industry panel, a career fair — which an undecided career goal
-            half-fits. ``False`` unless the caller says so.
     """
 
     event_key: str
     topic_tags: tuple[str, ...] = ()
     target_majors: tuple[str, ...] = ()
-    exploratory: bool = False
 
     def __post_init__(self) -> None:
         if not self.event_key.strip():

@@ -17,7 +17,6 @@ from smartmatch_domain.factor_registry import PROHIBITED_INPUTS
 from smartmatch_domain.factors import FactorState, ZeroClassification
 from smartmatch_domain.student_factors import (
     STUDENT_FACTOR_KEYS,
-    UNDECIDED_EXPLORATORY_GOAL_FIT,
     EventEvidence,
     ProfileCard,
     ProfileEvidence,
@@ -86,11 +85,25 @@ def test_an_empty_card_is_not_no_card() -> None:
     assert stated_interest_overlap(absent, EVENT).value is None
 
 
-def test_stated_interest_overlap_is_the_jaccard_index() -> None:
+def test_stated_interest_overlap_is_whole_when_any_interest_is_an_event_topic() -> None:
+    """Ann's revisions of 2026-10-02: one shared topic is a fit, not a third of one."""
     card = ProfileCard(("analytics", "sports"))
     score = stated_interest_overlap(ProfileEvidence("p1", "Marketing", card=card), EVENT)
-    # {analytics, sports} vs {analytics, careers}: one shared of three distinct.
-    assert score.value == pytest.approx(1 / 3, abs=1e-4)
+    assert score.value == 1.0
+    assert "1 of 2 stated interests" in score.basis
+
+
+def test_stated_interest_overlap_counts_several_shared_topics_the_same_as_one() -> None:
+    card = ProfileCard(("analytics", "careers"))
+    score = stated_interest_overlap(ProfileEvidence("p1", "Marketing", card=card), EVENT)
+    assert score.value == 1.0
+
+
+def test_stated_interests_that_miss_every_topic_are_a_measured_zero() -> None:
+    card = ProfileCard(("sports", "law"))
+    score = stated_interest_overlap(ProfileEvidence("p1", "Marketing", card=card), EVENT)
+    assert score.value == 0.0
+    assert score.zero_classification is ZeroClassification.MEASURED_ZERO
 
 
 # ---------------------------------------------------------------------------
@@ -126,52 +139,6 @@ def test_a_blank_string_career_goal_is_refused_rather_than_read_as_absent() -> N
         ProfileCard(career_goal="   ")
 
 
-# OQ-CE-14, decided 2026-09-25 (Ann Wang): an undecided goal matches broad
-# exploratory events at half credit, so a goal that clearly fits ranks higher.
-
-EXPLORATORY_EVENT = dataclasses.replace(EVENT, exploratory=True)
-
-
-def _undecided() -> ProfileEvidence:
-    return ProfileEvidence("p1", "Marketing", card=ProfileCard(career_goal_undecided=True))
-
-
-def test_an_undecided_goal_is_half_a_fit_for_an_exploratory_event() -> None:
-    score = career_goal_fit(_undecided(), EXPLORATORY_EVENT)
-    assert score.value == UNDECIDED_EXPLORATORY_GOAL_FIT == 0.5
-    assert "undecided" in score.basis
-
-
-def test_an_undecided_goal_is_a_measured_zero_for_an_event_that_is_not_exploratory() -> None:
-    score = career_goal_fit(_undecided(), EVENT)
-    assert score.value == 0.0
-    assert score.zero_classification is ZeroClassification.MEASURED_ZERO
-
-
-def test_a_goal_that_clearly_fits_an_exploratory_event_still_scores_the_whole_fit() -> None:
-    card = ProfileCard(career_goal="Analytics")
-    fit = career_goal_fit(ProfileEvidence("p1", "Marketing", card=card), EXPLORATORY_EVENT)
-    assert fit.value == 1.0
-    assert fit.value > career_goal_fit(_undecided(), EXPLORATORY_EVENT).value  # type: ignore[operator]
-
-
-def test_a_goal_that_misses_an_exploratory_event_earns_nothing_from_it() -> None:
-    """Only "undecided" is a half fit; an exploratory event is not a fit for every goal."""
-    card = ProfileCard(career_goal="Law")
-    fit = career_goal_fit(ProfileEvidence("p1", "Marketing", card=card), EXPLORATORY_EVENT)
-    assert fit.value == 0.0
-
-
-def test_an_undecided_card_names_no_goal_topic() -> None:
-    with pytest.raises(ValueError, match="career_goal_undecided"):
-        ProfileCard(career_goal="Analytics", career_goal_undecided=True)
-
-
-def test_an_event_is_not_exploratory_unless_it_says_so() -> None:
-    assert EventEvidence(event_key="e1").exploratory is False
-    assert ProfileCard().career_goal_undecided is False
-
-
 # ---------------------------------------------------------------------------
 # past_event_topic_overlap
 # ---------------------------------------------------------------------------
@@ -198,14 +165,38 @@ def test_the_two_kinds_of_absence_stay_distinguishable_on_the_evidence() -> None
     assert empty_record.attended_event_count == 0
 
 
-def test_past_event_topic_overlap_unions_the_attended_events_topics() -> None:
-    profile = ProfileEvidence(
-        "p1",
-        "Marketing",
-        attended_event_topics=(("Analytics",), ("Sports", "Analytics")),
-    )
-    # union {analytics, sports} vs {analytics, careers}: one of three.
-    assert past_event_topic_overlap(profile, EVENT).value == pytest.approx(1 / 3, abs=1e-4)
+def _attended(*events: tuple[str, ...]) -> ProfileEvidence:
+    return ProfileEvidence("p1", "Marketing", attended_event_topics=events)
+
+
+def test_two_related_past_events_are_the_whole_fit() -> None:
+    score = past_event_topic_overlap(_attended(("Analytics",), ("Sports", "Analytics")), EVENT)
+    assert score.value == 1.0
+    assert "2 of 2 past events" in score.basis
+
+
+def test_more_than_two_related_past_events_are_still_the_whole_fit() -> None:
+    profile = _attended(("Analytics",), ("Careers",), ("Analytics", "Careers"))
+    assert past_event_topic_overlap(profile, EVENT).value == 1.0
+
+
+def test_one_related_past_event_among_several_is_half() -> None:
+    profile = _attended(("Sports",), ("Analytics",), ("Law",))
+    score = past_event_topic_overlap(profile, EVENT)
+    assert score.value == 0.5
+    assert "1 of 3 past events" in score.basis
+
+
+def test_a_past_event_counts_once_however_many_topics_it_shares() -> None:
+    """Each past event is read on its own; the topics are never pooled first."""
+    every_topic = _attended(("Analytics", "Careers"))
+    one_topic = _attended(("Analytics",))
+    assert past_event_topic_overlap(every_topic, EVENT).value == 0.5
+    assert past_event_topic_overlap(one_topic, EVENT).value == 0.5
+
+
+def test_a_past_events_topics_are_compared_case_and_space_insensitively() -> None:
+    assert past_event_topic_overlap(_attended(("  ANALYTICS ",)), EVENT).value == 0.5
 
 
 def test_attending_events_that_miss_every_topic_is_a_measured_zero() -> None:

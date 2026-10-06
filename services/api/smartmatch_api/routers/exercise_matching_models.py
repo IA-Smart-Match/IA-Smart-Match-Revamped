@@ -47,10 +47,9 @@ A card's career goal is one of Ann's sixteen labels; "career goal fits this
 event" compares the **topic** that label points at, through
 :func:`~smartmatch_domain.exercise.vocabulary.goal_topic_for_matching` — the
 one place that mapping is applied for the ranker. The stored and displayed
-goal stays Ann's label. An ``Undecided`` goal names no topic but is flagged
-(:func:`~smartmatch_domain.exercise.vocabulary.goal_is_undecided`), and the
-event carries ``is_exploratory``, so the factor gives it half a fit on a broad
-exploratory event (OQ-CE-14, decided 2026-09-25).
+goal stays Ann's label. An ``Undecided`` goal names no topic, so the factor
+gives it a measured zero on every event (Ann's revisions of 2026-10-02, item
+4b).
 """
 
 from __future__ import annotations
@@ -59,7 +58,6 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from http import HTTPStatus
-from types import MappingProxyType
 from typing import Final
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -71,14 +69,9 @@ from smartmatch_domain.exercise.markers import (
     list_composition,
 )
 from smartmatch_domain.exercise.matching import ExerciseList, ExerciseProfile
-from smartmatch_domain.exercise.registry import (
-    EXERCISE_FACTOR_LABELS,
-    UNDECIDED_GOAL_HALF_LABEL,
-    UNDECIDED_GOAL_HALF_LABEL_KEY,
-)
+from smartmatch_domain.exercise.registry import EXERCISE_FACTOR_LABELS
 from smartmatch_domain.exercise.vocabulary import (
     EXERCISE_CLASS_YEAR_RANK,
-    goal_is_undecided,
     goal_topic_for_matching,
 )
 from smartmatch_domain.exercise_list_coverage import ListCoverage
@@ -218,7 +211,6 @@ def event_evidence(event: ExerciseEventRow) -> EventEvidence:
         event_key=event.event_key,
         topic_tags=event.topic_tags,
         target_majors=event.target_majors,
-        exploratory=event.is_exploratory,
     )
 
 
@@ -269,7 +261,6 @@ def _profile_evidence(
         ProfileCard(
             stated_interests=interests,
             career_goal=goal_topic_for_matching(career_goal),
-            career_goal_undecided=goal_is_undecided(career_goal),
         )
         if interests is not None
         else None
@@ -399,12 +390,6 @@ class ListEntryView(BaseModel):
             "not numbers — render them through `factor_labels`."
         ),
     )
-    undecided_goal_half: bool = Field(
-        description=(
-            "True when the career goal counted only as an undecided goal's half "
-            "on a broad exploratory event. A flag, not a number."
-        ),
-    )
 
 
 class GroupCountsView(BaseModel):
@@ -466,12 +451,7 @@ class RankedListView(BaseModel):
         ),
     )
     factor_labels: dict[str, str] = Field(
-        description=(
-            "The plain words for each factor key, for a screen to render, plus "
-            "one entry under `undecided_goal_half`: the words to use in place of "
-            "the career-goal label on an entry whose `undecided_goal_half` flag "
-            "is set. That entry is a label, not a weight."
-        )
+        description="The plain words for each factor key, for a screen to render."
     )
     entries: list[ListEntryView] = Field(description="The names, in order.")
     composition: ListCompositionView = Field(description='The "who is on the list" table.')
@@ -649,14 +629,6 @@ def _composition_for(ranked: ExerciseList, rankable: RankableSet) -> ListComposi
     return list_composition(listed, everyone)
 
 
-#: What every list response sends as ``factor_labels``: Ann's four factor
-#: labels, then the Undecided half's words (OQ-CE-14) so a screen reads them
-#: from the response instead of keeping a copy.
-_RESPONSE_FACTOR_LABELS: Final[Mapping[str, str]] = MappingProxyType(
-    {**EXERCISE_FACTOR_LABELS, UNDECIDED_GOAL_HALF_LABEL_KEY: UNDECIDED_GOAL_HALF_LABEL}
-)
-
-
 def ranked_list_view(
     ranked: ExerciseList,
     rankable: RankableSet,
@@ -680,7 +652,6 @@ def ranked_list_view(
                 marker=str(entry.marker),
                 reason=entry.reason,
                 contributing_factor_keys=list(entry.contributing_factor_keys),
-                undecided_goal_half=entry.undecided_goal_half,
             )
         )
     return RankedListView(
@@ -689,7 +660,7 @@ def ranked_list_view(
         invite_limit=ranked.invite_limit,
         setting_name=setting_name,
         weights=dict(weights),
-        factor_labels=dict(_RESPONSE_FACTOR_LABELS),
+        factor_labels=dict(EXERCISE_FACTOR_LABELS),
         entries=entries,
         composition=_composition_view(_composition_for(ranked, rankable)),
         unlisted_class_years=list(ranked.unlisted_class_years),

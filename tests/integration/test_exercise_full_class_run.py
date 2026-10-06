@@ -26,8 +26,6 @@ The tests below read the record of that walk. What they hold the class to:
   register ID in any response body of the whole class.
 * **Plausible figures** — 0 ≤ sign-ups ≤ 30, attended ⊆ signed up ⊆ invited,
   empty seats = 60 - 8 - attended.
-* **D2 reaches the rule** — an undecided career goal's half credit on an
-  exploratory event changes who signs up, through the route.
 
 Runs against its own scratch database, migrated to head and dropped afterwards;
 skipped where no PostgreSQL is reachable.
@@ -35,7 +33,6 @@ skipped where no PostgreSQL is reachable.
 
 from __future__ import annotations
 
-import dataclasses
 import json
 from collections.abc import Iterator
 from dataclasses import dataclass, field
@@ -63,8 +60,6 @@ from exercise_class_driver import (
     prepare_round,
     read_everything,
     recompute,
-    rule_event,
-    rule_inputs,
     run,
     set_seed,
     team_snapshot,
@@ -78,8 +73,6 @@ from smartmatch_domain.exercise import EXERCISE_TEAM_NUMBERS
 from smartmatch_domain.exercise.simulation import (
     EVENT_SEATS,
     EXISTING_SIGNUPS,
-    require_coefficients,
-    run_email_everyone,
 )
 from smartmatch_persistence.exercise import schema
 from sqlalchemy import Engine
@@ -91,14 +84,6 @@ pytestmark = pytest.mark.integration
 
 #: The team whose reset is checked against the other five.
 _RESET_TEAM = 3
-
-#: The team whose seed is chosen so the undecided half credit shows (D2).
-_D2_TEAM = 1
-
-#: How many seeds :func:`_seed_where_undecided_credit_shows` may try. Each is
-#: one "email everyone" run over 300 profiles, so this bounds the cost; the
-#: first seed that shows the effect is usually within the first handful.
-_D2_SEED_SEARCH = 500
 
 
 @dataclass
@@ -125,9 +110,6 @@ class _ClassRun:
     rerun_round_one: dict[str, Any] = field(default_factory=dict)
     rerun_refresh: dict[str, Any] = field(default_factory=dict)
     rerun_round_two: dict[str, Any] = field(default_factory=dict)
-    d2_with_credit: Any = None
-    d2_without_credit: Any = None
-    undecided_count: int = 0
 
 
 @pytest.fixture(scope="module")
@@ -157,30 +139,6 @@ def _without_times(value: Any) -> Any:
     if isinstance(value, list):
         return [_without_times(item) for item in value]
     return value
-
-
-def _seed_where_undecided_credit_shows(
-    sessions: sessionmaker[Session], team_number: int
-) -> tuple[int, Any, Any]:
-    """A seed under which D2's half credit changes who signs up for Northline.
-
-    The rule is deterministic in the seed, so "does the half credit matter" is
-    a question with a fixed answer per seed. Searching for one where it does,
-    and then running the route on it, turns a probabilistic effect into an
-    exact assertion: the route's "email everyone" must equal the rule *with*
-    the credit and differ from the rule *without* it.
-    """
-    everybody, _ = rule_inputs(sessions, team_number)
-    stripped = tuple(dataclasses.replace(p, career_goal_undecided=False) for p in everybody)
-    event = rule_event(sessions, ROUND_ONE)
-    assert event.exploratory, "Northline is exploratory in Ann's file (D2)"
-    coefficients = require_coefficients()
-    for seed in range(1, _D2_SEED_SEARCH + 1):
-        with_credit = run_email_everyone(everybody, event, seed=seed, coefficients=coefficients)
-        without = run_email_everyone(stripped, event, seed=seed, coefficients=coefficients)
-        if with_credit.signed_up != without.signed_up:
-            return seed, with_credit, without
-    raise AssertionError(f"no seed in 1..{_D2_SEED_SEARCH} shows the undecided half credit")
 
 
 def _round_one(
@@ -278,13 +236,6 @@ def class_run(sessions: sessionmaker[Session]) -> _ClassRun:
     app = build_app(sessions)
     teacher = instructor(app, record.log)
     teams = {number: enter(app, record.log, number) for number in EXERCISE_TEAM_NUMBERS}
-
-    seed, record.d2_with_credit, record.d2_without_credit = _seed_where_undecided_credit_shows(
-        sessions, _D2_TEAM
-    )
-    set_seed(sessions, workspace_row(sessions, _D2_TEAM).id, seed)
-    everybody, _ = rule_inputs(sessions, _D2_TEAM)
-    record.undecided_count = sum(1 for profile in everybody if profile.career_goal_undecided)
 
     for number, client in teams.items():
         record.final_lists[(number, ROUND_ONE)] = prepare_round(client, ROUND_ONE, number)
@@ -566,19 +517,3 @@ def test_the_class_as_a_whole_got_sign_ups(class_run: _ClassRun) -> None:
     """A rule that signed nobody up across twelve runs would be a dead rule."""
     total = sum(body["team"]["signed_up_count"] for _, body in _all_results(class_run))
     assert total > 0
-
-
-# ---------------------------------------------------------------------------
-# D2: the undecided half credit reaches the results rule
-# ---------------------------------------------------------------------------
-
-
-def test_the_file_has_undecided_profiles_and_the_rule_sees_them(class_run: _ClassRun) -> None:
-    """Ann's file carries 31 undecided true goals; each reaches the rule flagged."""
-    assert class_run.undecided_count == 31
-
-
-def test_the_undecided_half_credit_changes_the_routes_result(class_run: _ClassRun) -> None:
-    answered = numbers_of(class_run.round_one[_D2_TEAM]["email_everyone"])
-    assert answered == panel_of(class_run.d2_with_credit)
-    assert answered != panel_of(class_run.d2_without_credit)
