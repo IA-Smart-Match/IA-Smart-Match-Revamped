@@ -230,6 +230,35 @@ Every `file:line` below is on `origin/main` at `9339d5a4`. Paths are shortened:
   `simulation.py:465-470` still reads "PLACEHOLDER (OQ-CE-03 … Chau to
   confirm …)". CODE-A removes that marker and states the approval. No number
   changes.
+- **Amendment, 2026-10-06. The chance part outlives a team's reset.** D7 sets
+  how big the chance part is (`chance_spread`); it never said how long a
+  team's draw lasts. Design spec §11 said a reset "regenerates its seed", and
+  the code, tests and hosting runbook followed it. Ann's test checklist of
+  2026-10-02, section 8, says the opposite in so many words: "After clearing,
+  run the same list again for that team. The result is the same as before (the
+  chance part is fixed per team)."
+  - **Decision.** Clearing one team's work keeps that team's seed. The same
+    list, run again after a clear, gives the same result.
+  - **Approved.** Danny (owner), 2026-10-06, implementing the checklist as
+    written. Source: `SmartMatch_User_Test_Checklist_10022026`, section 8
+    (and section 5: "Each team's result is fixed and repeatable").
+  - **Supersedes.** Design spec §11's "regenerates its seed" clause (corrected
+    in place, 2026-10-06) and the rationale in `reset_team`'s docstring.
+  - **Unchanged.** The numbers in the table above; the SHA-256 stable digest
+    that makes the draw; the seed stays off every screen and every response.
+    A **re-point** to another data file still draws each moved team a new
+    seed — the checklist speaks only about clearing one team.
+  - **What would reverse it.** A written change from Ann to checklist section
+    8 asking for a fresh draw after a clear. The change back is one line.
+  - **Code.** Issue #331.
+    `python/smartmatch_persistence/smartmatch_persistence/exercise/workspace_repository.py`
+    `reset_team` no longer writes `seed`. Pinned by
+    `tests/integration/test_exercise_workspace_persistence.py`
+    `test_a_reset_clears_one_team_and_nothing_else`,
+    `tests/integration/test_exercise_results_persistence.py`
+    `test_a_reset_clears_the_run_the_overlay_and_the_choice` and
+    `tests/integration/test_exercise_full_class_run.py`
+    `test_the_reset_cleared_team_3_and_kept_its_seed`.
 
 ## D8. Empty seats: show both groups
 

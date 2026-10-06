@@ -264,8 +264,8 @@ per statement, so the grant above can be rebuilt rather than trusted.
 | `settings_repository.py:436` `sa.delete(exercise_saved_setting)` | `exercise_saved_setting` | DELETE |
 | `workspace_repository.py:272-282` `pg_insert(...).on_conflict_do_nothing` | `exercise_team_workspace` | INSERT |
 | `workspace_repository.py:449-452` `sa.update(table)` — the token-hash repair | `exercise_team_workspace` | UPDATE |
-| `workspace_repository.py:535-540` `sa.delete(child)`, three children | `exercise_profile_overlay`, `exercise_saved_setting`, `exercise_result_run` | DELETE |
-| `workspace_repository.py:543` `sa.update(table)` — reset regenerates the seed | `exercise_team_workspace` | UPDATE |
+| `workspace_repository.py:543-548` `sa.delete(child)`, three children | `exercise_profile_overlay`, `exercise_saved_setting`, `exercise_result_run` | DELETE |
+| `workspace_repository.py:551-554` `sa.update(table)` — reset clears the asking choice and the refresh time; the seed is kept | `exercise_team_workspace` | UPDATE |
 | every repository read (`sa.select`) | all eight | SELECT |
 | `sa.select(sa.func.pg_advisory_xact_lock(...))` (e.g. `instructor_repository.py:677`) | none | none — see below |
 
@@ -652,8 +652,12 @@ session (the passcode) and sends `X-Exercise-Request`. Step 0 needs neither.
 5. **Reset one team if it needs it.** `POST
    /v1/exercise/instructor/workspaces/{team_number}/reset`
    (`exercise_instructor.py:532-533`). It deletes that workspace's overlay,
-   saved settings and result runs and regenerates its seed
-   (`workspace_repository.py:526-545`). **One team, and nothing else** — there
+   saved settings and result runs and **keeps its seed**
+   (`workspace_repository.py:543-554`), so the same list run again gives the
+   same result — Ann's checklist of 2026-10-02, section 8. Until 2026-10-06 a
+   reset drew a new seed; a build older than that still does, so check the
+   release on `/api/health` before promising a cleared team the same result.
+   **One team, and nothing else** — there
    is no team-facing reset; PR #186 removed it on the owner's ruling of
    2026-09-19.
 6. **Expect the results screen to answer with the approved numbers.** Since

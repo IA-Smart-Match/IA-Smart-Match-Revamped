@@ -481,11 +481,12 @@ class ExerciseInstructorRepository:
     ) -> None:
         """Delete one workspace's overlay, saved settings and result runs.
 
-        The delete half of a reset, without the seed regeneration
-        ``workspace_repository.reset_team`` does — because a re-point needs the
-        rows gone *before* it may update ``dataset_id`` (see the module
-        docstring), and regenerating a seed mid-move would be a second thing
-        happening in a statement about a dataset.
+        The delete half of a reset, without the workspace-row update
+        ``workspace_repository.reset_team`` ends with — because a re-point needs
+        the rows gone *before* it may update ``dataset_id`` (see the module
+        docstring), and it writes that row itself, once, with the new
+        ``dataset_id`` and a new seed. (A per-team reset keeps the seed since
+        2026-10-06; a re-point still draws a new one.)
 
         Every statement is keyed on ``workspace_id`` and therefore cannot reach
         another team's rows: the isolation is a key, not a discipline.
