@@ -148,6 +148,40 @@ def test_anns_october_workbook_is_accepted_with_its_new_last_column() -> None:
     assert (dataset.report.profile_count, dataset.report.event_count) == (300, 12)
 
 
+def test_northline_and_harbor_carry_their_descriptions_in_the_october_file() -> None:
+    """Ann, 2026-10-02 (#318): "It holds the short description for Northline and
+    Harbor. It is blank for the ten past events."
+
+    Asserted by length and by how each begins and ends, so the test pins that
+    the whole cell arrived without copying Ann's paragraphs into the suite.
+    """
+    events = {event.event_key: event for event in _accepted(ANN_OCT02_FILE.read_bytes()).events}
+
+    northline, harbor = events["E11"].description, events["E12"].description
+    assert northline is not None and harbor is not None
+    assert (len(northline), len(harbor)) == (571, 561)
+    assert northline.startswith("Northline Analytics helps mid-sized companies")
+    assert harbor.startswith("Harbor Consumer Brands makes household")
+    assert northline.endswith("Snacks provided.") and harbor.endswith("Snacks provided.")
+    past = [key for key in events if key not in {"E11", "E12"}]
+    assert len(past) == 10
+    assert all(events[key].description is None for key in past)
+
+
+def test_the_september_file_has_no_descriptions_and_is_otherwise_the_same_file() -> None:
+    """Ann, 2026-10-02: "Nothing else in the file changed." A file without the
+    column is still accepted (#325), and it differs in nothing but the text."""
+    september = _accepted(ANN_FULL_FILE.read_bytes())
+    october = _accepted(ANN_OCT02_FILE.read_bytes())
+
+    assert all(event.description is None for event in september.events)
+    assert october.profiles == september.profiles
+    assert [dataclasses.replace(event, description=None) for event in october.events] == list(
+        september.events
+    )
+    assert october.report == september.report
+
+
 def test_the_twenty_row_sample_is_refused_by_the_specs_row_count_floor() -> None:
     """Design spec §3: 50–1000 profiles. The sample is for reading, not uploading."""
     refusal = _refusal(ANN_SAMPLE_FILE.read_bytes())
@@ -425,6 +459,47 @@ def test_the_longer_limit_does_not_reach_a_profiles_column_of_the_same_name() ->
 
     assert refusal.code == "cell_too_long"
     assert "`Profiles` sheet has more than 500 characters" in refusal.message
+
+
+# ---------------------------------------------------------------------------
+# Reading the description (#318)
+# ---------------------------------------------------------------------------
+
+_BLURB = "A fictional sixty-minute talk about a made-up company. Snacks provided."
+
+
+def test_an_events_description_is_read_as_the_file_wrote_it() -> None:
+    dataset = _accepted(_with_described_event(10, **{LAYOUT.event_description_column: _BLURB}))
+
+    assert dataset.events[10].description == _BLURB
+
+
+def test_a_blank_description_is_no_description() -> None:
+    dataset = _accepted(_with_described_event(10, **{LAYOUT.event_description_column: "   "}))
+
+    assert [event.description for event in dataset.events] == [None] * 12
+
+
+def test_a_file_without_the_description_column_is_accepted_with_no_descriptions() -> None:
+    """The column is optional: every file Ann sent before 2026-10-02 lacks it."""
+    assert LAYOUT.event_description_column not in EVENT_HEADINGS
+
+    dataset = _accepted(good_workbook())
+
+    assert [event.description for event in dataset.events] == [None] * 12
+
+
+def test_a_description_is_free_text_and_is_not_checked_against_a_vocabulary() -> None:
+    text = "Basket weaving; `quoted`; =SUM(A1); 100% made up."
+
+    dataset = _accepted(_with_described_event(11, **{LAYOUT.event_description_column: text}))
+
+    assert dataset.events[11].description == text
+
+
+def test_the_description_is_not_a_withheld_column() -> None:
+    """It is the public paragraph, shown to teams; only the two pink columns are withheld."""
+    assert LAYOUT.event_description_column not in LAYOUT.withheld_columns
 
 
 def test_heading_spelling_is_presentation_rather_than_identity() -> None:

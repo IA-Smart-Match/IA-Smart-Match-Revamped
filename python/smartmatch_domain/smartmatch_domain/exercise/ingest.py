@@ -38,6 +38,9 @@ What the file says, and what is decided here
 * An event's ``sequence`` is its row position on the ``Events`` sheet.
 * An event's ``event_type`` is one of Ann's event types and decides whether
   the event is exploratory (OQ-CE-14); the type itself is not stored.
+* An event's ``event_description`` is free text, kept as written. The column
+  is optional: a blank cell, and a file without the column, both read as no
+  description (#318).
 * ``seats`` is read on the two exercise events and must be
   :data:`~smartmatch_domain.exercise.simulation.EVENT_SEATS`: the simulated
   results run with that many seats, and a file saying otherwise is refused
@@ -240,6 +243,11 @@ class _Cells:
     def text(self, column: str) -> str:
         return self._row.get(self._sheet.headers[normalize_header(column)], "")
 
+    def optional_text(self, column: str) -> str:
+        """A cell of a column the sheet need not carry; blank when it does not."""
+        heading = self._sheet.headers.get(normalize_header(column))
+        return "" if heading is None else self._row.get(heading, "")
+
     def refuse(self, code: str, detail: str) -> IngestRefusal:
         return IngestRefusal(code, f"Row {self._line} of the `{self._sheet.title}` sheet {detail}")
 
@@ -369,6 +377,7 @@ def _parse_event(
         is_exercise_event=flag,
         sequence=position,
         is_exploratory=EXERCISE_EVENT_TYPES[event_type],
+        description=cells.optional_text(layout.event_description_column) or None,
     )
 
 

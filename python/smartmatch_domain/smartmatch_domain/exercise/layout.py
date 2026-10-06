@@ -279,6 +279,9 @@ class ParsedEvent:
     ``is_exploratory`` is read off the ``event_type`` cell through
     :func:`~smartmatch_domain.exercise.vocabulary.event_type_is_exploratory`;
     the type itself is not kept, because nothing shows it (OQ-CE-14).
+    ``description`` is the file's ``event_description`` cell as written, or
+    ``None`` when the cell is blank or the file has no such column (#318). It
+    is the public paragraph a team reads, and is not a withheld value.
     """
 
     event_key: str
@@ -288,6 +291,7 @@ class ParsedEvent:
     is_exercise_event: bool
     sequence: int
     is_exploratory: bool = False
+    description: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

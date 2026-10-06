@@ -91,12 +91,16 @@ class InstructorEventRow:
     cookie and forgot every unlock on reload. ``unlocked`` is the existence of
     the ``exercise_result_unlock`` row design spec §9 reads, so what the panel
     shows is what the teams' results route will answer.
+
+    ``description`` is the data file's short public text for the event, the
+    same paragraph the teams read, or ``None`` when the file gave none (#318).
     """
 
     event_key: str
     name: str
     sequence: int
     unlocked: bool
+    description: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

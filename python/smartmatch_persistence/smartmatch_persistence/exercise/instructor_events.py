@@ -45,6 +45,7 @@ def select_exercise_events(
             exercise_event.c.event_key,
             exercise_event.c.name,
             exercise_event.c.sequence,
+            exercise_event.c.description,
             is_unlocked,
         )
         .where(
@@ -59,6 +60,7 @@ def select_exercise_events(
             name=row.name,
             sequence=row.sequence,
             unlocked=bool(row.unlocked),
+            description=row.description,
         )
         for row in session.execute(statement).all()
     )

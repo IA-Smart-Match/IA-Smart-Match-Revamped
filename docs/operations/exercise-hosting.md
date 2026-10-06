@@ -759,20 +759,23 @@ checklist for real:
    diverged; resolve before promoting, per
    [`vm-deploy.md`](vm-deploy.md#promoting-a-commit-to-the-vm).
 
-2. **Confirm the migration head is `0043_exercise_event_exploratory`.**
+2. **Confirm the migration head is `0044_exercise_event_description`.**
    ```bash
-   grep -L 'down_revision = "0043_exercise_event_exploratory"' /dev/null; \
-   grep -rl 'down_revision = "0043_exercise_event_exploratory"' db/migrations/versions/*.py
+   grep -L 'down_revision = "0044_exercise_event_description"' /dev/null; \
+   grep -rl 'down_revision = "0044_exercise_event_description"' db/migrations/versions/*.py
    ```
    Pass: the second command prints **nothing** — no later revision points back
-   at `0043_exercise_event_exploratory`, so it is the head
-   (`db/migrations/versions/0043_exercise_event_exploratory.py` sets its own
-   `down_revision = "0042_exercise_ann_dataset"`; it adds the boolean
-   `is_exploratory` to `exercise_event`, read from Ann's `event_type`).
-   **Re-upload Ann's file after this revision**: a dataset stored before it
-   has every event non-exploratory, so an undecided career goal earns nothing
-   on Northline or Harbor. Fail: a revision is printed — the head has moved
-   past `0043`; re-derive this step against the new file before continuing,
+   at `0044_exercise_event_description`, so it is the head
+   (`db/migrations/versions/0044_exercise_event_description.py` sets its own
+   `down_revision = "0043_exercise_event_exploratory"`; it adds the nullable
+   text column `description` to `exercise_event`, read from Ann's
+   `event_description`. `0043` before it added the boolean `is_exploratory`,
+   read from her `event_type`).
+   **Re-upload Ann's file after these revisions**: a dataset stored before
+   `0043` has every event non-exploratory, so an undecided career goal earns
+   nothing on Northline or Harbor, and a dataset stored before `0044` shows no
+   event description. Fail: a revision is printed — the head has moved
+   past `0044`; re-derive this step against the new file before continuing,
    since the tables the grant in [§3](#3-the-database-role) depends on may
    have changed shape.
 

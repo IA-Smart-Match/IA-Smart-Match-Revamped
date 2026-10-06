@@ -125,6 +125,10 @@ def _summary(*, invite_limit: int = 30) -> DatasetSummary:
     )
 
 
+#: A fictional description, as the data file's ``event_description`` cell.
+_EVENT_DESCRIPTION = "A fictional sixty-minute talk about a made-up company."
+
+
 class _FakeDatasetRepository:
     """Enough of ``ExerciseDatasetRepository`` to exercise the routes."""
 
@@ -256,6 +260,7 @@ class _FakeInstructorRepository:
                 name="Northline Analytics",
                 sequence=11,
                 unlocked=(dataset_id, _EVENT_KEY) in self.unlocked,
+                description=_EVENT_DESCRIPTION,
             ),
         )
 
@@ -1055,7 +1060,14 @@ def test_the_instructor_lists_the_teams_events_without_a_team_cookie(
     assert response.json() == {
         "dataset_id": str(_TEAMS_DATASET_ID),
         "dataset_label": _TEAMS_DATASET_LABEL,
-        "events": [{"event_key": _EVENT_KEY, "name": "Northline Analytics", "unlocked": False}],
+        "events": [
+            {
+                "event_key": _EVENT_KEY,
+                "name": "Northline Analytics",
+                "unlocked": False,
+                "description": _EVENT_DESCRIPTION,
+            }
+        ],
     }
 
 
@@ -1070,7 +1082,18 @@ def test_the_event_list_says_which_events_are_already_open(
 
     events = signed_in.get("/v1/exercise/instructor/events").json()["events"]
 
-    assert events == [{"event_key": _EVENT_KEY, "name": "Northline Analytics", "unlocked": True}]
+    assert [(event["event_key"], event["unlocked"]) for event in events] == [(_EVENT_KEY, True)]
+
+
+def test_an_event_with_no_description_is_listed_with_null() -> None:
+    """#318: a data file from before 2026-10-02 has none, and the panel shows none."""
+    from smartmatch_api.routers.exercise_instructor_models import event_view
+
+    view = event_view(
+        InstructorEventRow(event_key=_EVENT_KEY, name="Northline", sequence=11, unlocked=False)
+    )
+
+    assert view.model_dump()["description"] is None
 
 
 def test_the_event_list_resolves_the_file_the_unlock_writes_to(

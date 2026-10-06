@@ -133,6 +133,9 @@ _SUMMARY = DatasetSummary(
     event_count=2,
 )
 
+#: A fictional description, as the data file's ``event_description`` cell.
+_NORTHLINE_DESCRIPTION = "A fictional sixty-minute talk about a made-up company."
+
 _NORTHLINE = ExerciseEventRow(
     event_key="northline",
     name="Northline round",
@@ -140,6 +143,7 @@ _NORTHLINE = ExerciseEventRow(
     target_majors=("Marketing",),
     is_exercise_event=True,
     sequence=11,
+    description=_NORTHLINE_DESCRIPTION,
 )
 
 _PAST = ExerciseEventRow(
@@ -441,6 +445,21 @@ def test_the_events_route_returns_this_teams_data_files_events(client: TestClien
     assert northline["topic_tags"] == ["analytics", "brand"]
     assert northline["target_majors"] == ["Marketing"]
     assert northline["sequence"] == 11
+
+
+def test_the_events_route_carries_each_events_description_or_null(client: TestClient) -> None:
+    """#318: the data file's text for an event that has one, null for one that has none."""
+    past, northline = client.get(f"{_BASE}/events").json()["events"]
+
+    assert northline["description"] == _NORTHLINE_DESCRIPTION
+    assert past["description"] is None
+
+
+def test_the_ranked_list_carries_its_events_description(client: TestClient) -> None:
+    """#318: the matching page reads the list, not the picker, so the text rides on it."""
+    body = client.get(_LIST).json()
+
+    assert body["event_description"] == _NORTHLINE_DESCRIPTION
 
 
 # ---------------------------------------------------------------------------

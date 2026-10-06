@@ -311,6 +311,13 @@ class InstructorEventView(BaseModel):
     unlocked: bool = Field(
         description="Whether the instructor has opened results for this event in this data file."
     )
+    description: str | None = Field(
+        default=None,
+        description=(
+            "The event's short description, as the data file wrote it — the same "
+            "text the teams read — or null when the data file gives none."
+        ),
+    )
 
 
 class InstructorEventsView(BaseModel):
@@ -406,7 +413,12 @@ def team_view(row: InstructorWorkspaceRow) -> TeamSummaryView:
 
 
 def event_view(row: InstructorEventRow) -> InstructorEventView:
-    return InstructorEventView(event_key=row.event_key, name=row.name, unlocked=row.unlocked)
+    return InstructorEventView(
+        event_key=row.event_key,
+        name=row.name,
+        unlocked=row.unlocked,
+        description=row.description,
+    )
 
 
 def setting_view(row: InstructorSavedSetting) -> SavedSettingView:
