@@ -21,7 +21,6 @@ from smartmatch_domain.student_factors import (
     ProfileCard,
     ProfileEvidence,
     career_goal_fit,
-    jaccard,
     normalized_term,
     normalized_terms,
     past_event_topic_overlap,
@@ -214,7 +213,6 @@ def test_attending_events_that_miss_every_topic_is_a_measured_zero() -> None:
 def test_terms_are_compared_as_exact_normalized_strings() -> None:
     assert normalized_term("  Analytics ") == "analytics"
     assert normalized_terms((" A ", "a", "")) == frozenset({"a"})
-    assert jaccard(frozenset(), frozenset()) == 0.0
 
 
 # ---------------------------------------------------------------------------

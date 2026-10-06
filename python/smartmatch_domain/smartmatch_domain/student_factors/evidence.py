@@ -142,16 +142,6 @@ class ProfileEvidence:
             return None
         return len(self.attended_event_topics)
 
-    @property
-    def normalized_attended_topics(self) -> frozenset[str] | None:
-        """The union of the attended events' topics, or ``None`` with no record."""
-        if self.attended_event_topics is None:
-            return None
-        flattened: list[str] = []
-        for topics in self.attended_event_topics:
-            flattened.extend(topics)
-        return normalized_terms(flattened)
-
 
 @dataclass(frozen=True, slots=True)
 class EventEvidence:

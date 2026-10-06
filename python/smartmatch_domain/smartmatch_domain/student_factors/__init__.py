@@ -38,7 +38,7 @@ from smartmatch_domain.student_factors.factors import (
     same_major,
     stated_interest_overlap,
 )
-from smartmatch_domain.student_factors.terms import jaccard, normalized_term, normalized_terms
+from smartmatch_domain.student_factors.terms import normalized_term, normalized_terms
 
 __all__ = [
     "CAREER_GOAL_FIT_FACTOR_KEY",
@@ -50,7 +50,6 @@ __all__ = [
     "ProfileCard",
     "ProfileEvidence",
     "career_goal_fit",
-    "jaccard",
     "normalized_term",
     "normalized_terms",
     "past_event_topic_overlap",
