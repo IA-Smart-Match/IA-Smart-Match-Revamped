@@ -26,6 +26,11 @@ The tests below read the record of that walk. What they hold the class to:
   register ID in any response body of the whole class.
 * **Plausible figures** — 0 ≤ sign-ups ≤ 30, attended ⊆ signed up ⊆ invited,
   empty seats = 60 - 8 - attended.
+* **An undecided true goal reaches the rule** — for every profile whose
+  withheld true career goal is "Undecided", the route answers exactly what the
+  rule answers on the same stored rows. Ann's revisions of 2026-10-02 removed
+  the half credit such a goal earned; this holds the route to the rule as it
+  now stands.
 
 Runs against its own scratch database, migrated to head and dropped afterwards;
 skipped where no PostgreSQL is reachable.
@@ -63,6 +68,7 @@ from exercise_class_driver import (
     run,
     set_seed,
     team_snapshot,
+    undecided_true_goal_profile_nos,
     unlock,
     weightings,
     workspace_row,
@@ -110,6 +116,7 @@ class _ClassRun:
     rerun_round_one: dict[str, Any] = field(default_factory=dict)
     rerun_refresh: dict[str, Any] = field(default_factory=dict)
     rerun_round_two: dict[str, Any] = field(default_factory=dict)
+    undecided_profile_nos: frozenset[int] = frozenset()
 
 
 @pytest.fixture(scope="module")
@@ -256,6 +263,7 @@ def class_run(sessions: sessionmaker[Session]) -> _ClassRun:
     for client in teams.values():
         read_everything(client, teacher)
     record.seeds = {n: workspace_row(sessions, n).seed for n in EXERCISE_TEAM_NUMBERS}
+    record.undecided_profile_nos = undecided_true_goal_profile_nos(sessions, _RESET_TEAM)
     _reset_and_repeat(record, sessions, teams, teacher)
     return record
 
@@ -517,3 +525,47 @@ def test_the_class_as_a_whole_got_sign_ups(class_run: _ClassRun) -> None:
     """A rule that signed nobody up across twelve runs would be a dead rule."""
     total = sum(body["team"]["signed_up_count"] for _, body in _all_results(class_run))
     assert total > 0
+
+
+# ---------------------------------------------------------------------------
+# An undecided true career goal, through the route
+# ---------------------------------------------------------------------------
+
+#: How many of Ann's 300 profiles have "Undecided" as their withheld true goal.
+_UNDECIDED_TRUE_GOALS = 31
+
+
+@pytest.mark.parametrize("event_key", [ROUND_ONE, ROUND_TWO])
+def test_an_undecided_true_goal_gets_from_the_route_what_the_rule_gives_it(
+    class_run: _ClassRun, event_key: str
+) -> None:
+    """Outcomes only: who signed up and who attended, among the undecided.
+
+    "Email everyone" invites all 300, so every undecided profile is in the
+    run. The recomputed result is the rule applied to the same stored rows,
+    seed and event outside the route.
+    """
+    undecided = class_run.undecided_profile_nos
+    assert len(undecided) == _UNDECIDED_TRUE_GOALS
+    answered = class_run.round_one if event_key == ROUND_ONE else class_run.round_two
+    for number in EXERCISE_TEAM_NUMBERS:
+        route = numbers_of(answered[number]["email_everyone"])
+        _, everyone = class_run.recomputed[(number, event_key)]
+        rule = panel_of(everyone)
+        assert undecided <= set(route["invited_profile_nos"]), number
+        for outcome in ("signed_up_profile_nos", "attended_profile_nos"):
+            assert undecided & set(route[outcome]) == undecided & set(rule[outcome]), (
+                number,
+                outcome,
+            )
+
+
+def test_the_undecided_outcomes_compared_are_not_all_empty(class_run: _ClassRun) -> None:
+    """Twelve runs in which no undecided profile signed up would compare nothing."""
+    signed_up = {
+        profile_no
+        for answered in (class_run.round_one, class_run.round_two)
+        for number in EXERCISE_TEAM_NUMBERS
+        for profile_no in answered[number]["email_everyone"]["signed_up_profile_nos"]
+    }
+    assert class_run.undecided_profile_nos & signed_up
