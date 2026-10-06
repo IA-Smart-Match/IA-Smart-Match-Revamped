@@ -161,6 +161,7 @@ describe("<ExerciseInstructor /> returns to the passcode form on a 401", () => {
     signedIn({ [`POST ${REFRESH_ALL}`]: [EXPIRED] });
     renderPage();
     fireEvent.click(await screen.findByRole("button", { name: "Refresh every team that has chosen how to ask" }));
+    fireEvent.click(screen.getByRole("button", { name: "Refresh them now" }));
     await expectPasscodeForm();
   });
 
@@ -203,6 +204,7 @@ describe("<ExerciseInstructor /> returns to the passcode form on a 401", () => {
     signedIn({ [`POST ${REFRESH_ALL}`]: [NO_TEAMS_YET] });
     renderPage();
     fireEvent.click(await screen.findByRole("button", { name: "Refresh every team that has chosen how to ask" }));
+    fireEvent.click(screen.getByRole("button", { name: "Refresh them now" }));
     await screen.findByText("No team has entered a number yet.");
     expect(screen.getByRole("heading", { name: "Data files" })).toBeDefined();
     expect(screen.queryByRole("button", { name: /open the instructor page/i })).toBeNull();

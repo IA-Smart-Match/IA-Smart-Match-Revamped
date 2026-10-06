@@ -56,8 +56,9 @@ import {
 } from "../../../lib/exerciseClient";
 import { cn } from "../../components/ui/utils";
 import { askingChoiceLabel } from "./askingChoices";
-import { Button } from "./desk";
+import { Button, Notice } from "./desk";
 import { ExerciseNotice } from "./ExerciseScreen";
+import { clockTime } from "./exerciseTime";
 import { useSignOutOnExpiredRead } from "./instructorSession";
 import { TeamDetail } from "./InstructorTeamDetail";
 import { INSTRUCTOR_WELL, PanelCard, PanelSkeleton } from "./instructorUi";
@@ -103,6 +104,14 @@ export function InstructorTeams({
 
   useSignOutOnExpiredRead(state, onSignedOut);
   const [refusal, setRefusal] = React.useState<string | null>(null);
+  /**
+   * What the last clear did (issue #321; Ann's checklist: "asks first, then
+   * shows “Team X cleared.”"). At the top of the panel, not in the row: a
+   * cleared team's row leaves the list. It stays until the next clear.
+   */
+  const [done, setDone] = React.useState<string | null>(null);
+  /** When the list on screen was read, so "Check the teams again" shows it did something. */
+  const [checkedAt, setCheckedAt] = React.useState<string | null>(null);
   const [pending, setPending] = React.useState(false);
   /**
    * The in-flight guard. `pending` is state, so two presses handled before a
@@ -119,6 +128,13 @@ export function InstructorTeams({
    */
   const hasList = React.useRef(false);
   hasList.current = state.status === "ready";
+
+  const listLanded = state.status === "ready" && !state.refreshing ? state.data : null;
+  React.useEffect(() => {
+    if (listLanded !== null) {
+      setCheckedAt(clockNow());
+    }
+  }, [listLanded]);
 
   React.useEffect(() => {
     const whenVisible = (): void => {
@@ -147,6 +163,7 @@ export function InstructorTeams({
     pendingRef.current = true;
     setPending(true);
     setRefusal(null);
+    setDone(null);
     try {
       await action();
       return true;
@@ -170,6 +187,9 @@ export function InstructorTeams({
       }
     >
       {refusal === null ? null : <ExerciseNotice message={refusal} />}
+      {done === null ? null : (
+        <Notice tone="done" message={done} className="self-start" />
+      )}
 
       {state.status === "loading" ? <PanelSkeleton what="the teams" rows={3} /> : null}
       {state.status === "refused" ? <ExerciseNotice message={state.refusal.message} /> : null}
@@ -183,6 +203,11 @@ export function InstructorTeams({
               ? "No data file has been uploaded yet."
               : `The newest data file is ${state.data.active_dataset_label}. A team stays in the file it entered on until it is moved.`}
           </p>
+          {checkedAt === null ? null : (
+            <p data-slot="exercise-teams-checked" className="ce-type-meta ce-tabular text-ce-ink-muted">
+              {`Teams last read at ${checkedAt}.`}
+            </p>
+          )}
           {state.data.teams.length === 0 ? (
             <p className="ce-type-body text-ce-ink-muted">No team has entered a number yet.</p>
           ) : (
@@ -199,6 +224,7 @@ export function InstructorTeams({
                     onReset={() =>
                       run(async () => {
                         await resetTeamWorkspace(team.team_number, team.dataset_id);
+                        setDone(teamClearedSentence(team.team_number, clockNow()));
                         void reload();
                       })
                     }
@@ -211,6 +237,17 @@ export function InstructorTeams({
       ) : null}
     </PanelCard>
   );
+}
+
+/** The room's clock now, as every other time on the page is written. */
+function clockNow(): string | null {
+  return clockTime(new Date().toISOString());
+}
+
+/** "Team 3 cleared at 10:42 AM. It is back at the start. No other team was changed." */
+export function teamClearedSentence(teamNumber: number, at: string | null): string {
+  const when = at === null ? "" : ` at ${at}`;
+  return `Team ${teamNumber} cleared${when}. It is back at the start. No other team was changed.`;
 }
 
 function TeamRow({

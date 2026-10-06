@@ -342,7 +342,9 @@ say why in the component's prompt.
 ### 6.1 Screen shell (`ExerciseScreen`)
 
 Header: CPP logo (compact, left), fictional-data ribbon, one `h1`, one lead
-line, optional aside (team and event). Max content 1152px.
+line, optional aside (the page's one way back). On a team's pages the
+**team status line** sits under the header and above the body. Max content
+1152px.
 
 | State | Treatment |
 |---|---|
@@ -352,6 +354,47 @@ line, optional aside (team and event). Max content 1152px.
 | E | n/a |
 | X | Body replaced by a notice (6.20); title stays |
 | Dis | n/a |
+
+**Team status line (`TeamStatusBand`), added 2026-10-06 (issue #321).**
+Ann's revisions of 2026-10-02: "Each team page has a line at the top that is
+always visible: team number, which event, results used or not, way of asking
+chosen or not, refresh done or not." Her checklist adds "round one or round
+two", and that after a reload "the status line still shows where the team
+is".
+
+- **Where:** the four team pages (event picker, matching, results, asking
+  for more), in the shell's `status` slot, so it is in the same place on each.
+  Not on the opening screen, which comes before a team exists, and not on the
+  instructor page, which is not a team's page and lists every team itself.
+  It is at the top of the page; it is not pinned while the page scrolls.
+- **What:** a surface card (`ce-card`), body size (never smaller than the
+  list text), a wrapping `dl`. First "You are Team 3" in semibold. Then, as
+  "label: **value**" pairs: each round with its event ("Round 1 · Northline
+  Analytics: Behind the Business") and whether its results are used; "Way of
+  asking"; "Refresh"; "Data file". Both rounds are always listed, so the
+  line reads the same on every page; the round a page is about is marked in
+  words, "(this page)". Under the pairs, in meta size, the link "Not your
+  team? Pick again" to the opening screen.
+- **Source:** three reads the team already has (its workspace, its events,
+  its asking state). Nothing is kept in the browser and the team number is
+  never read from `localStorage`, so a reload or a second tab shows the same
+  line. A page asks for it again after one of its own changes lands (a run,
+  a choice, a refresh); the previous line stays until the new one arrives.
+- **Words** are written in the browser (`teamStatusWording.ts`); the
+  refresh's are never a server sentence (6.19).
+
+| State | Treatment |
+|---|---|
+| D | the pairs, values in semibold ink, labels muted |
+| H/F | n/a for the line; the link follows link rules |
+| L | "Reading your team's status…" in muted ink, same card |
+| E | n/a: a team always has a number; a file with no rounds lists none |
+| X | refused (no team entered, access gone): **nothing** is drawn, because the page below shows that sentence and the way back. Unreachable: "Your team's status could not be read. Reload the page to read it again." A later read that fails keeps the line and adds "This line could not be read again just now, so it may be out of date." |
+| Dis | n/a |
+
+It is a named region ("Your team's status"), not a live region: its first
+appearance is part of the page loading. One `sr-only` polite line inside it
+says the new line when it changes (§8.6).
 
 ### 6.2 Fictional-data ribbon
 
@@ -521,6 +564,19 @@ weights on screen to fill it."
 | X | notice above the row with the server sentence; the typed name stays in the field |
 | Dis | once two cards are ticked, the third "Compare" toggle disables with the line "Two are chosen. Untick one to swap." |
 
+**After a press (amended 2026-10-06, issue #321).** One notice (6.20) sits
+under the save form and above the cards, beside the buttons it is about, and
+says what the last press did: done tone for "Saved “Setting A” for Northline.
+You have 2 of 3 slots left.", "Deleted “Setting A”. …", "Opened “Setting
+A”. …", "Showing “A” and “B” side by side, below." and "Closed the
+side-by-side view."; calm tone, with the server's own sentence, for a press
+that was refused (state X above now means this notice, no longer one at the
+top of the page). It stays until the next press in the panel replaces it; it
+never times out. The slot counts come from the server's answer to the press.
+Beside "The list" heading, "List updated." takes the place of "Rebuilding the
+list…" once a list the team asked for has landed, and stays until the next
+change.
+
 ### 6.12 Compare view (see [prompt](../../archive/design/class-exercise/prompts/components/compare-view.md))
 
 Two ranked lists as tables stacked one above the other, each in its own
@@ -550,6 +606,11 @@ deliberate, and it is reversed here on purpose: Ann's checklist of 2026-10-02
 that asks before the one run, and that stays on screen, grey, afterwards. The
 team's events read now carries `results_open` and `results_run` for each
 round, so the state is known on load.
+The same two fields feed the team status line (6.1, issue #321): each round
+reads "Results used", "Results not used yet (open now)" or "Results not
+used yet (not open yet)", with run winning over open as below. The line is a
+second reader of that read, not a second source: it shows what the server
+says and decides nothing.
 
 | State | Read | Treatment |
 |---|---|---|
@@ -570,6 +631,11 @@ Rules that go with the table:
   right state. That covers a second press, a reload, and a second tab.
 - If the events read cannot say (it failed, or does not list the event), the
   button is live and the run route answers, as before this amendment.
+- **Every press here says what it did** (issue #321). After the run the line
+  under the grey button gives the time from the run itself: "Run at 10:42 AM.
+  A team runs results once per event." "Check again" that finds results
+  still closed says so under itself, "Checked at 10:43 AM. Results are still
+  not open.", instead of leaving the screen unchanged.
 
 ### 6.15 Results reveal and seat figures (see [prompt](../../archive/design/class-exercise/prompts/components/results-reveal.md))
 
@@ -616,6 +682,11 @@ only the lapse, Escape, or another card reverts it, so a stray Tab does not
 cost the class its moment. A held Enter or Space (key repeat) never counts as
 the confirming press.
 
+**After the choice (amended 2026-10-06, issue #321).** Under the cards, in
+ink: "You chose: A small reward." followed, muted, by "A team picks once, so
+these are now fixed." It is read from the server's own word, so it is still
+there after a reload, and the status line (6.1) shows the same choice.
+
 ### 6.19 Refresh summary and counts
 
 **Amended 2026-10-06 (Ann's review of 2026-10-02, checklist section 6).** The
@@ -642,6 +713,15 @@ second browser and a team the instructor refreshed show the same thing:
 
 The shut button reads "Already refreshed at 10:42 AM" (6.3 Dis). A second
 press from another tab is answered with the same words, not with a refusal.
+
+**The button asks first (amended 2026-10-06, issue #321).** The refresh
+happens once per team and cannot be undone, like the run (6.14) and the
+choice (6.18), so "Ask them now" uses the same `ce-confirm-window`: the
+first press sends nothing and the button reads "Ask them now? Your team can
+ask only once", with the line "Press again to ask. Your team cannot ask a
+second time, and it cannot be undone." under it; a second press inside 5 s
+asks; Escape or the window lapsing puts it back; a held Enter or Space never
+confirms. One component (`AskOnceButton`) on both screens that offer it.
 
 **The server sends facts; the screen writes these sentences**
 (`refreshWording.ts`). The server's own sentences say "asking", never
@@ -755,8 +835,36 @@ report (teams in more than one data file), every name carries its file's
 label: "Team 3 (October file):". A label is not unique, so a repeated number,
 not a second label, is what turns this on. The
 request is one transaction: refused, it changes no team and shows the server's
-sentence instead of a report. The "Are you sure?" step in front of this button
-is not part of this panel yet.
+sentence instead of a report.
+
+**It asks first (amended 2026-10-06, issue #321).** Ann's revisions of
+2026-10-02: buttons that change work for everyone "ask “Are you sure?” first
+and say what will change". The button opens the question in the panel, in
+the same sunk well as opening results: "Refresh every team that has chosen
+how to ask? Each of those teams is refreshed once, and that cannot be undone
+or done again. Teams that have not chosen, and teams already refreshed, are
+not changed." with primary "Refresh them now" and quiet "Not yet". Only
+"Refresh them now" sends the request. "Not yet" and Escape put the button
+back and send nothing. Focus moves to "Refresh them now" when the question
+appears and back to the panel's button when it goes. It is the two-button
+form, not the five-second window: the sentence is too long to read against a
+timer. Every run asks again.
+
+**The three class-wide confirms, side by side (issue #321).** Clear a team:
+"This clears team 3's saved settings and result runs. No other team is
+touched." Move every team: "This moves every team to this file and clears
+the work of every team it moves." Refresh every team: the question above.
+All three are inline, name their scope, and have a way out that sends
+nothing.
+
+**After a press (issue #321).** Clearing a team shows a done-tone notice at
+the top of the Teams panel, "Team 3 cleared at 10:42 AM. It is back at the
+start. No other team was changed.", which stays until the next clear (the
+time is the browser's clock when the answer landed; the server sends none).
+Setting the list limit shows "Limit set to 25." in the Data files panel's
+done slot. The Teams panel says "Teams last read at 10:43 AM." under its
+lead line, so "Check the teams again" visibly did something even when no
+team changed.
 
 ## 7. Page layouts
 
@@ -922,7 +1030,9 @@ event." button sits above the seating chart.
    focus to the `h1`.
 6. **Live regions:** "Rebuilding the list…" and the seat sentences are
    `aria-live="polite"`, announced once. Refusals use `role="status"`, not
-   `alert`; field errors use `role="alert"`.
+   `alert`; field errors use `role="alert"`. What a press did (issue #321) is
+   a done-tone notice with `role="status"`, or a polite line that was already
+   on the page. The team status line is announced only when it changes.
 7. **Tables:** ranked list and composition stay real `<table>`s at ≥768px; the
    390 card view is an `<ol>` with the same content order.
 8. **Reduced motion:** every motion in section 5 has a stated fallback.
@@ -986,10 +1096,19 @@ labels and the license line are unchanged and not listed.
 | Where | New text |
 |---|---|
 | Ribbon prefix (every screen) | "Fictional data —" |
+| Team status line, every team page (2026-10-06, #321; Ann's checklist §3 wording for the team) | "You are Team 3" |
+| Team status line, a round (#321; the instructor page's "Round 1 · …" form) | "Round 1 · Northline Analytics: Behind the Business:" / on that event's own pages "Round 1 · Northline Analytics: Behind the Business (this page):" |
+| Team status line, whether a round's results are used (#321) | "Results used" / "Results not used yet (open now)" / "Results not used yet (not open yet)" |
+| Team status line, way of asking (#321; the choice labels, without the full stop) | "Way of asking: A small reward" / "Way of asking: Not chosen yet" |
+| Team status line, refresh (#321; written in the browser) | "Refresh: Done at 10:42 AM" / "Refresh: Done" (no time known) / "Refresh: Not done yet" |
+| Team status line, data file (#321; the file's own label) | "Data file: October file" |
+| Team status line, wrong team (#321) | "Not your team? Pick again" |
+| Team status line, loading and failing (#321) | "Reading your team's status…" / "Your team's status could not be read. Reload the page to read it again." / "This line could not be read again just now, so it may be out of date." |
 | Opening `h1` | "Who should we invite?" |
 | Opening lead | "Your team is promoting a campus career event with 60 seats. Choose whom to invite, see what happened, then try again." |
 | Event picker, 390 past-events disclosure | "Show the {n} past events" / "Show the 1 past event" (same label when expanded) |
 | Matching, slider note | "The list is rebuilt when you let go of a slider or press Enter." |
+| Matching, after a rebuilt list lands (2026-10-06, #321; Ann's checklist §4 wording) | "List updated." |
 | Matching, weight total | "Total weight: 1.00" |
 | Matching, weight total meaning | "What matters is how the weights compare: a factor set to 0.50 counts twice as much as one set to 0.25." |
 | Matching, 390 sticky bar | "Weights 0.40 · 0.25 · 0.25 · 0.10 · Total 1.00" and "Edit weights" |
@@ -998,6 +1117,10 @@ labels and the license line are unchanged and not listed.
 | Saved settings, compare limit | "Two are chosen. Untick one to swap." |
 | Saved settings, delete confirm | "Delete Balanced? It cannot be brought back." / "Delete it" / "Keep it" |
 | Saved settings, save in progress | "Saving…" |
+| Saved settings, after a save (2026-10-06, #321; Ann's example, with the event's own name and the server's counts) | "Saved “Setting A” for Northline Analytics: Behind the Business. You have 2 of 3 slots left." |
+| Saved settings, after a delete (#321) | "Deleted “Setting A”. You have 3 of 3 slots left." |
+| Saved settings, after "Open this list" (#321) | "Opened “Setting A”. The list above is built from it." |
+| Saved settings, after "Show them side by side" and after closing it (#321) | "Showing “Setting A” and “Setting B” side by side, below." / "Closed the side-by-side view." |
 | Saved settings, card chosen for compare | "Comparing" |
 | Compare, 390 | "Showing 10 of 30. Show all 30" |
 | Results, room | "The room", "Front of the room", legend "Already coming", "Your invitations", "Still open" |
@@ -1011,11 +1134,14 @@ labels and the license line are unchanged and not listed.
 | Results, spoken and shown hint while the question is up (#328) | "Press again to send this list. Your team cannot run this event a second time." |
 | Results, button after the run (#328; Ann's checklist wording) | "Results already run for this event." |
 | Results, why it cannot be run again (#328; 6.14's line, now on screen) | "A team runs results once per event." |
+| Results, when the run was made (2026-10-06, #321; in front of the line above) | "Run at 10:42 AM." |
+| Results, after "Check again" finds results still closed (#321) | "Checked at 10:43 AM. Results are still not open." |
 | Results, table disclosure | "Show these counts as a table" |
 | Round two | "In round one your team's list left 46 seats empty." |
 | Asking, supporting lines | "Tell them a card helps us suggest events worth their evening." / "Offer something small for a completed card." / "Make the card a condition of hearing about events." |
 | Asking, buttons | "Choose this way" → "Confirm: A small reward?" |
 | Asking, spoken hint | "Press again to confirm A small reward. Your team picks once." |
+| Asking, after the choice, on screen (2026-10-06, #321; Ann's checklist §6 wording; the second sentence is the existing one) | "You chose: A small reward. A team picks once, so these are now fixed." |
 | Asking, before round one has results (in place of the three cards) | "Your team picks a way of asking after it has its results for Northline." (falls back to "the first event") |
 | Asking and Results, refresh summary (2026-10-06, from Ann's checklist) | "Refresh done at 10:42 AM. 9 people who came to Northline now count as having gone to a similar event. 12 of the 22 invited people with no card completed one. 0 people stopped responding." |
 | Refresh summary, singular forms | "1 person who came to Northline now counts as having gone to a similar event." / "1 of the 1 invited person with no card completed one." / "1 person stopped responding." |
@@ -1024,6 +1150,8 @@ labels and the license line are unchanged and not listed.
 | Asking, before-and-after heading | "How much we know, all 300 profiles, before and after" |
 | Asking, before-and-after lines | "Completed card: 70 → 82" / "Major plus events attended: 64 → 58" / "Major only: 166 → 160" (spoken: "70 before, 82 after") |
 | Asking and Results, shut refresh button (was "Your team has already asked") | "Already refreshed at 10:42 AM" (without a time: "Already refreshed") |
+| Asking and Results, the refresh button asking first (2026-10-06, #321) | "Ask them now? Your team can ask only once" |
+| Asking and Results, shown and spoken hint while it asks (#321) | "Press again to ask. Your team cannot ask a second time, and it cannot be undone." |
 | Ranked list, marks on a changed profile | "New card" / "New: went to Northline" (falls back to "New: went to the first event") / "Stopped responding" |
 | Profile-card page `h1` | "What a profile would be asked" |
 | Profile card, stamp chip | "Mock-up only" |
@@ -1049,6 +1177,9 @@ labels and the license line are unchanged and not listed.
 | Instructor, a run whose setting was deleted afterwards (#319, #271) | "Built from the setting “Wide net”. The team has deleted that setting since; this run is unchanged." |
 | Instructor, a run's counts (#319; D8 wording, kept) | "Invited 30, signed up 14, attended 11. 46 seats are still open." |
 | Instructor, a run stored before names were kept (#319, #271) | "Names were not kept for this run." |
+| Instructor, after a team is cleared (2026-10-06, #321; Ann's checklist §2 "Team X cleared.", with the time and the scope) | "Team 3 cleared at 10:42 AM. It is back at the start. No other team was changed." (no time known: "Team 3 cleared. …") |
+| Instructor, when the Teams panel was last read (#321) | "Teams last read at 10:43 AM." |
+| Instructor, after the list limit is set (#321; Ann's checklist §2 wording) | "Limit set to 25." |
 | Instructor, upload in progress | "Uploading and checking the file…" |
 | Instructor, upload done (#325; composed on the page from the server's file name and counts) | "SmartMatch_Student_Body_300.xlsx — 300 profiles, 12 events loaded." |
 | Instructor, upload refused (#325; the server's sentence, now sent without backticks) | "The Events sheet is missing the column seats." |
@@ -1057,6 +1188,7 @@ labels and the license line are unchanged and not listed.
 | Instructor, every-team button (was "Ask for every team") | "Refresh every team that has chosen how to ask" |
 | Instructor, every-team explainer | "This refreshes, in one go, every team that has chosen a way of asking and has not been refreshed yet. Teams that are not ready are skipped, and the list below says why. If it cannot be done, no team is changed." |
 | Instructor, every-team in progress (was "Asking for every team…") | "Refreshing every team…" |
+| Instructor, every-team confirm (2026-10-06, #321) | "Refresh every team that has chosen how to ask? Each of those teams is refreshed once, and that cannot be undone or done again. Teams that have not chosen, and teams already refreshed, are not changed." / "Refresh them now" / "Not yet" |
 | Instructor, every-team report headline | "Refreshed 2 teams. Skipped 3 teams." (singular: "1 team") |
 | Instructor, every-team report, nobody has entered | "No team has entered a number yet, so there was nothing to refresh." |
 | Instructor, every-team report, a refreshed team | "Team 2: Refreshed at 10:42 AM. 9 people who came to Northline now count as having gone to a similar event. 12 of the 22 invited people with no card completed one. 0 people stopped responding. Completed card: 70 → 82." |
