@@ -83,8 +83,11 @@ from smartmatch_persistence.exercise.results_rows import (
     StoredResultRun,
     TeamResultsState,
     WorkspaceRefreshStatus,
+    int_tuple,
     invited_as_json,
     invited_from_json,
+    panel_as_json,
+    panel_from_json,
     weights_as_json,
     weights_from_json,
 )
@@ -225,36 +228,6 @@ def _constraint_name(error: SQLAlchemyError) -> str:
     diagnostic = getattr(original, "diag", None)
     name = getattr(diagnostic, "constraint_name", None)
     return str(name) if name else "unknown"
-
-
-def _ints(value: object) -> tuple[int, ...]:
-    """A PostgreSQL integer array as a tuple. ``NULL`` reads as empty."""
-    return tuple(int(item) for item in value) if isinstance(value, list) else ()
-
-
-def _panel_from_json(value: object) -> ResultPanel:
-    """``exercise_result_run.email_everyone`` as a :class:`ResultPanel`.
-
-    Defensive about the stored shape rather than trusting it: the column is
-    JSONB, so a row written by an older version of this module is data the
-    current one is reading, and a missing key is read as "nobody" rather than as
-    a crash on a screen.
-    """
-    stored = value if isinstance(value, Mapping) else {}
-    return ResultPanel(
-        invited_profile_nos=_ints(stored.get("invited")),
-        signed_up_profile_nos=_ints(stored.get("signed_up")),
-        attended_profile_nos=_ints(stored.get("attended")),
-    )
-
-
-def _panel_as_json(panel: ResultPanel) -> dict[str, list[int]]:
-    """A :class:`ResultPanel` as the JSONB column stores it."""
-    return {
-        "invited": list(panel.invited_profile_nos),
-        "signed_up": list(panel.signed_up_profile_nos),
-        "attended": list(panel.attended_profile_nos),
-    }
 
 
 class ExerciseResultsRepository:
@@ -511,7 +484,7 @@ class ExerciseResultsRepository:
                 invited_profile_nos=list(team.invited_profile_nos),
                 signed_up_profile_nos=list(team.signed_up_profile_nos),
                 attended_profile_nos=list(team.attended_profile_nos),
-                email_everyone=_panel_as_json(email_everyone),
+                email_everyone=panel_as_json(email_everyone),
                 seats_empty=seats_empty,
                 invited_profiles=invited_as_json(invited),
                 setting_weights=weights_as_json(setting_weights),
@@ -755,11 +728,11 @@ class ExerciseResultsRepository:
             round=int(row.round),
             setting_name=row.setting_name,
             team=ResultPanel(
-                invited_profile_nos=_ints(row.invited_profile_nos),
-                signed_up_profile_nos=_ints(row.signed_up_profile_nos),
-                attended_profile_nos=_ints(row.attended_profile_nos),
+                invited_profile_nos=int_tuple(row.invited_profile_nos),
+                signed_up_profile_nos=int_tuple(row.signed_up_profile_nos),
+                attended_profile_nos=int_tuple(row.attended_profile_nos),
             ),
-            email_everyone=_panel_from_json(row.email_everyone),
+            email_everyone=panel_from_json(row.email_everyone),
             seats_empty=int(row.seats_empty),
             created_at=row.created_at,
             invited=invited_from_json(row.invited_profiles),

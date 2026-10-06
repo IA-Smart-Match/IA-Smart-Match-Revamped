@@ -40,8 +40,11 @@ __all__ = [
     "StoredResultRun",
     "TeamResultsState",
     "WorkspaceRefreshStatus",
+    "int_tuple",
     "invited_as_json",
     "invited_from_json",
+    "panel_as_json",
+    "panel_from_json",
     "weights_as_json",
     "weights_from_json",
 ]
@@ -237,6 +240,36 @@ def _int_or_none(value: object) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) else None
 
 
+def int_tuple(value: object) -> tuple[int, ...]:
+    """A PostgreSQL integer array as a tuple. ``NULL`` reads as empty."""
+    return tuple(int(item) for item in value) if isinstance(value, list) else ()
+
+
+def panel_from_json(value: object) -> ResultPanel:
+    """``exercise_result_run.email_everyone`` as a :class:`ResultPanel`.
+
+    Defensive about the stored shape rather than trusting it: the column is
+    JSONB, so a row written by an older version of this module is data the
+    current one is reading, and a missing key is read as "nobody" rather than as
+    a crash on a screen.
+    """
+    stored = value if isinstance(value, Mapping) else {}
+    return ResultPanel(
+        invited_profile_nos=int_tuple(stored.get("invited")),
+        signed_up_profile_nos=int_tuple(stored.get("signed_up")),
+        attended_profile_nos=int_tuple(stored.get("attended")),
+    )
+
+
+def panel_as_json(panel: ResultPanel) -> dict[str, list[int]]:
+    """A :class:`ResultPanel` as the JSONB column stores it."""
+    return {
+        "invited": list(panel.invited_profile_nos),
+        "signed_up": list(panel.signed_up_profile_nos),
+        "attended": list(panel.attended_profile_nos),
+    }
+
+
 def invited_as_json(invited: Sequence[InvitedProfile]) -> list[dict[str, object]]:
     """A run's invited list as ``exercise_result_run.invited_profiles`` stores it."""
     return [
@@ -256,7 +289,7 @@ def invited_as_json(invited: Sequence[InvitedProfile]) -> list[dict[str, object]
 def invited_from_json(value: object) -> tuple[InvitedProfile, ...]:
     """``exercise_result_run.invited_profiles`` as values, in the stored order.
 
-    Defensive about the stored shape, for ``_panel_from_json``'s reason: the
+    Defensive about the stored shape, for :func:`panel_from_json`'s reason: the
     column is JSONB, so a row written by an older version — or backfilled by
     revision 0046 without ``rank``, ``marker`` and ``reason`` — is data this
     version is reading. A missing key reads as ``None``; an entry with no
