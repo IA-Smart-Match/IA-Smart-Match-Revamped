@@ -76,6 +76,7 @@ import {
   type SavedSettingsView,
 } from "../../../lib/exerciseClient";
 import { cn } from "../../components/ui/utils";
+import { AskOnceButton } from "./AskOnceButton";
 import {
   Button,
   ConfirmWindowUnderline,
@@ -84,10 +85,12 @@ import {
   usePrefersReducedMotion,
 } from "./desk";
 import { ExerciseLoading, ExerciseNotice, ExerciseScreen } from "./ExerciseScreen";
+import { clockTime } from "./exerciseTime";
 import { ResultPanels, type NamesByProfileNo } from "./ResultPanels";
-import { alreadyRefreshedLabel, refreshSummaryText } from "./refreshWording";
+import { refreshSummaryText } from "./refreshWording";
 import { ProfileCardArt } from "./resultsArt";
 import { ResultsLockPanel } from "./ResultsLockPanel";
+import { TeamStatusBand, useStatusRevision } from "./TeamStatusBand";
 import { isAccessRefusal, useExerciseResource } from "./useExerciseResource";
 import { workspaceRequiredNotice } from "./refusals";
 
@@ -192,6 +195,8 @@ function EventResults({ eventKey }: { readonly eventKey: string }): React.JSX.El
   const { state, reload } = useExerciseResource(load, [eventKey], {
     keepDataOnError: (error) => error instanceof ExerciseUnreachable,
   });
+  // A run or a refresh changes the status line too: read it after the page.
+  const { revision, reloadWithStatus } = useStatusRevision(reload);
   /** What this browser's own run and refresh were answered with. */
   const [confirmedResults, setConfirmedResults] = React.useState<ResultsView | null>(null);
   const [confirmedRefresh, setConfirmedRefresh] = React.useState<RefreshView | null>(null);
@@ -216,6 +221,7 @@ function EventResults({ eventKey }: { readonly eventKey: string }): React.JSX.El
           Back to your team's list
         </Link>
       }
+      status={<TeamStatusBand eventKey={eventKey} revision={revision} />}
     >
       {state.status === "loading" ? <ExerciseLoading what="your team's results" /> : null}
       {state.status === "refused" ? workspaceRequiredNotice(state.refusal) : null}
@@ -239,7 +245,7 @@ function EventResults({ eventKey }: { readonly eventKey: string }): React.JSX.El
           <ResultsBody
             eventKey={eventKey}
             data={state.data}
-            onChanged={reload}
+            onChanged={reloadWithStatus}
             confirmedResults={confirmedResults}
             onResultsConfirmed={setConfirmedResults}
             confirmedRefresh={confirmedRefresh}
@@ -363,6 +369,8 @@ function ResultsBody({
   // True once this screen's own run succeeds: the results that arrive next
   // play the seat fill (§5.1). A later visit mounts with it false.
   const [justRan, setJustRan] = React.useState(false);
+  /** When "Check again" last read the lock and found it still closed (issue #321). */
+  const [checkedAt, setCheckedAt] = React.useState<string | null>(null);
   /**
    * Set synchronously, before any render: two presses in one tick both read
    * `pending` as `null`, so the state alone cannot keep a once-only POST from
@@ -442,7 +450,6 @@ function ResultsBody({
   const refreshedAt = data.asking.refreshed
     ? (data.asking.refreshed_at ?? own?.refreshed_at ?? null)
     : (own?.refreshed_at ?? null);
-  const canRefresh = data.asking.choice !== null && !hasAsked;
   // Run wins over open: results closed again after a run still read as run.
   const hasRun = results !== null || data.event?.run === true;
   const refusedAsLocked = refusal?.code === LOCKED;
@@ -450,6 +457,8 @@ function ResultsBody({
   // The lock panel carries the sentence, so the notice does not repeat it.
   const lockSentence =
     data.event === null ? (refusal?.message ?? "") : notOpenSentence(data.event.name);
+  /** When the run was made, from the run itself; `null` when it is not on screen. */
+  const ranAt = clockTime(results?.created_at);
 
   return (
     <div className="flex flex-col gap-ce-6 md:gap-ce-7">
@@ -463,7 +472,8 @@ function ResultsBody({
             Results already run for this event.
           </Button>
           <p id={ALREADY_RUN_REASON} className="ce-type-meta text-ce-ink-muted">
-            A team runs results once per event.
+            {ranAt === null ? null : <span data-slot="exercise-results-run-at">{`Run at ${ranAt}. `}</span>}
+            <span>A team runs results once per event.</span>
           </p>
         </div>
       ) : null}
@@ -481,11 +491,18 @@ function ResultsBody({
                 disabled={pending !== null}
                 onClick={() => {
                   setRefusal(null);
-                  void onChanged();
+                  // If results have opened, this panel is gone when the read
+                  // lands; if not, the press says so instead of saying nothing.
+                  void onChanged().then(() =>
+                    setCheckedAt(clockTime(new Date().toISOString())),
+                  );
                 }}
               >
                 Check again
               </Button>
+              <p aria-live="polite" data-slot="exercise-results-checked" className="ce-type-meta text-ce-ink-muted">
+                {checkedAt === null ? "" : `Checked at ${checkedAt}. Results are still not open.`}
+              </p>
             </ResultsLockPanel>
           ) : null}
           <p className="ce-type-body ce-measure text-ce-ink-muted">
@@ -525,11 +542,13 @@ function ResultsBody({
           </p>
         ) : (
           <div className="flex flex-col items-start gap-ce-2">
-            <Button
+            <AskOnceButton
               variant="secondary"
-              disabled={!canRefresh || (pending !== null && pending !== "ask")}
+              asked={hasAsked}
+              askedAt={refreshedAt}
+              disabled={pending !== null && pending !== "ask"}
               pending={pending === "ask"}
-              onClick={() =>
+              onAsk={() =>
                 void act("ask", async () => {
                   try {
                     onRefreshConfirmed(await refreshProfiles());
@@ -543,9 +562,7 @@ function ResultsBody({
                   await onChanged();
                 })
               }
-            >
-              {hasAsked ? alreadyRefreshedLabel(refreshedAt) : "Ask them now"}
-            </Button>
+            />
             <p className="ce-type-meta text-ce-ink-muted">Your team may ask once.</p>
             {/* Always present, so the summary is announced when it arrives. */}
             <p

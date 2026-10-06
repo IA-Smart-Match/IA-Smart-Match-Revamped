@@ -18,7 +18,8 @@
  * desk"). The wrapper carries `.ce-root`, which scopes every `--ce-*` token
  * (`src/styles/exercise.css`) to the exercise so no CBA screen changes. The
  * header follows §6.1: compact CPP logo, the quiet fictional-data ribbon
- * (§6.2), one `h1` in the display face, one lead line, an optional aside.
+ * (§6.2), one `h1` in the display face, one lead line, an optional aside, and
+ * on a team's pages the team's status line under them.
  * Shared pieces pages compose live in `./desk` (see its README).
  */
 import * as React from "react";
@@ -57,8 +58,15 @@ export interface ExerciseScreenProps {
   readonly title: string;
   /** One line under the title, when the screen needs one. */
   readonly intro?: React.ReactNode;
-  /** Shown at the top right of the header — e.g. which team and data file. */
+  /** Shown at the top right of the header: the page's one way back. */
   readonly aside?: React.ReactNode;
+  /**
+   * The team's status line (§6.1, issue #321), between the header and the
+   * body, so it is in the same place on every team page. Team pages pass
+   * `<TeamStatusBand />`; the opening screen and the instructor page pass
+   * nothing, because neither is a team's page.
+   */
+  readonly status?: React.ReactNode;
   readonly children: React.ReactNode;
 }
 
@@ -66,6 +74,7 @@ export function ExerciseScreen({
   title,
   intro,
   aside,
+  status,
   children,
 }: ExerciseScreenProps): React.JSX.Element {
   const heading = React.useRef<HTMLHeadingElement>(null);
@@ -109,6 +118,7 @@ export function ExerciseScreen({
               <div className="ce-type-body text-ce-ink-muted">{aside}</div>
             )}
           </header>
+          {status}
           {children}
         </main>
       </MotionConfig>

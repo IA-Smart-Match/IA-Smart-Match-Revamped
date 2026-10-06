@@ -49,8 +49,18 @@ import { EventDescription } from "./EventDescription";
 import { ExerciseNotice, ExerciseScreen } from "./ExerciseScreen";
 import { ListCompositionTable } from "./ListCompositionTable";
 import { MatchingCompareView } from "./MatchingCompareView";
+import {
+  COMPARISON_CLOSED,
+  LIST_UPDATED,
+  comparingSentence,
+  deletedSentence,
+  openedSentence,
+  savedSentence,
+  type PanelNote,
+} from "./matchingWording";
 import { RankedList } from "./RankedList";
 import { SavedSettingsPanel } from "./SavedSettingsPanel";
+import { TeamStatusBand } from "./TeamStatusBand";
 import { isAccessRefusal, useExerciseResource } from "./useExerciseResource";
 import { isWeightsRefusal, WeightsControls } from "./WeightsControls";
 import { workspaceRequiredNotice } from "./refusals";
@@ -130,7 +140,11 @@ function EventMatching({ eventKey }: { readonly eventKey: string }): React.JSX.E
   const [weighting, setWeighting] = React.useState<ListWeighting>({ kind: "default" });
   /** The side-by-side view, when a team has asked for one. */
   const [comparison, setComparison] = React.useState<CompareView | null>(null);
-  const [panelRefusal, setPanelRefusal] = React.useState<string | null>(null);
+  /**
+   * What the last saved-settings press did, or why it did nothing. It stays
+   * beside those buttons until the next press (issue #321).
+   */
+  const [panelNote, setPanelNote] = React.useState<PanelNote | null>(null);
   /** A save, delete or compare refused because this browser lost access. */
   const [accessRefusal, setAccessRefusal] = React.useState<ExerciseRefusal | null>(null);
   /** Whether a weight box holds text that has not been committed yet. */
@@ -168,17 +182,18 @@ function EventMatching({ eventKey }: { readonly eventKey: string }): React.JSX.E
   const stale = state.status === "ready" && (state.refusal !== null || state.unreachable !== null);
 
   /**
-   * Run one action; show any refusal, and say whether it worked.
+   * Run one action; say what it did, or why it did nothing.
    *
    * The boolean matters. This used to swallow the refusal and resolve, which
    * from the saved-settings panel's side was indistinguishable from success —
-   * so a refused save still cleared the name box. The one error slot on this
-   * screen is `panelRefusal`; the outcome goes back to the caller.
+   * so a refused save still cleared the name box. The one slot for the
+   * outcome is `panelNote`: the sentence `action` resolves with when it
+   * worked, the server's own when it was refused.
    */
-  async function guard(action: () => Promise<void>): Promise<boolean> {
-    setPanelRefusal(null);
+  async function guard(action: () => Promise<string>): Promise<boolean> {
+    setPanelNote(null);
     try {
-      await action();
+      setPanelNote({ tone: "done", text: await action() });
       return true;
     } catch (error) {
       if (isAccessRefusal(error)) {
@@ -187,11 +202,12 @@ function EventMatching({ eventKey }: { readonly eventKey: string }): React.JSX.E
         setAccessRefusal(error);
         return false;
       }
-      setPanelRefusal(
-        isRefusal(error)
+      setPanelNote({
+        tone: "calm",
+        text: isRefusal(error)
           ? error.message
           : "The exercise could not be reached. Check the connection and try again.",
-      );
+      });
       return false;
     }
   }
@@ -221,6 +237,7 @@ function EventMatching({ eventKey }: { readonly eventKey: string }): React.JSX.E
           Choose a different event
         </Link>
       }
+      status={<TeamStatusBand eventKey={eventKey} />}
     >
       {state.status === "loading" ? (
         // §6.21: shaped like the list, with the stated-loading sentence.
@@ -246,17 +263,12 @@ function EventMatching({ eventKey }: { readonly eventKey: string }): React.JSX.E
             sliders, in the data file's own words. Nothing when it has none.
           */}
           <EventDescription text={state.data.list.event_description} />
-          {panelRefusal === null && listRefusal === null ? null : (
-            <div className="flex flex-col gap-ce-3">
-              {panelRefusal === null ? null : <ExerciseNotice message={panelRefusal} />}
-              {listRefusal === null ? null : (
-                <ExerciseNotice
-                  id="exercise-list-refusal"
-                  message={listRefusal.message}
-                  tone="problem"
-                />
-              )}
-            </div>
+          {listRefusal === null ? null : (
+            <ExerciseNotice
+              id="exercise-list-refusal"
+              message={listRefusal.message}
+              tone="problem"
+            />
           )}
           {state.unreachable === null ? null : (
             // Asked again only when the team says so: no retry loop.
@@ -330,6 +342,16 @@ function EventMatching({ eventKey }: { readonly eventKey: string }): React.JSX.E
                     >
                       This list is not built from the numbers above yet. Leave the box or press
                       Enter to rebuild it.
+                    </p>
+                  ) : settled && weighting.kind !== "default" ? (
+                    // A list the team asked for has landed. It stays until the
+                    // next change, which puts one of the two lines above here.
+                    <p
+                      role="status"
+                      data-slot="exercise-list-updated"
+                      className="ce-type-meta text-ce-ink-muted"
+                    >
+                      {LIST_UPDATED}
                     </p>
                   ) : null}
                 </div>
@@ -427,32 +449,43 @@ function EventMatching({ eventKey }: { readonly eventKey: string }): React.JSX.E
                 ? null
                 : "Saving is off until the list is built from the numbers above."
             }
+            feedback={panelNote}
             onSave={(name) =>
               guard(async () => {
-                await saveSetting(eventKey, name, state.data.list.weights);
+                const after = await saveSetting(eventKey, name, state.data.list.weights);
                 // Held until the saved list is re-read, so the panel stays busy.
                 await reload();
+                return savedSentence(name, state.data.list.event_name, after);
               })
             }
             onDelete={(name) =>
               guard(async () => {
-                await deleteSetting(eventKey, name);
+                const after = await deleteSetting(eventKey, name);
                 await reload();
+                return deletedSentence(name, after);
               })
             }
             onOpen={(name) => {
               setComparison(null);
               setWeighting({ kind: "setting", name });
+              setPanelNote({ tone: "done", text: openedSentence(name) });
             }}
             onCompare={(a, b) => {
               void guard(async () => {
                 setComparison(await compareSettings(eventKey, a, b));
+                return comparingSentence(a, b);
               });
             }}
           />
 
           {comparison === null ? null : (
-            <MatchingCompareView comparison={comparison} onClose={() => setComparison(null)} />
+            <MatchingCompareView
+              comparison={comparison}
+              onClose={() => {
+                setComparison(null);
+                setPanelNote({ tone: "done", text: COMPARISON_CLOSED });
+              }}
+            />
           )}
 
           <p>

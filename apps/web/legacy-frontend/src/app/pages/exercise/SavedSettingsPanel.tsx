@@ -21,6 +21,12 @@
  * the named-setting routes so the word cannot be read as a name, and the save
  * route refuses it. That refusal, too, is the server's to word.
  *
+ * **Every press says what it did, here** (issue #321). `feedback` is one
+ * sentence under the save form and above the cards, so it is beside the
+ * button that was pressed: "Saved “Setting A” for Northline. You have 2 of 3
+ * slots left.", "Deleted “Setting A”. …", or the server's own sentence for
+ * a press it refused. It stays until the next press.
+ *
  * **Layout (DESIGN.md §6.11, §7.5).** The "Name these weights" field and
  * "Save these weights" above one index card per slot — `max_settings` of
  * them, a free slot drawn dashed. Each card has a "Compare" toggle; two may
@@ -31,7 +37,8 @@ import * as React from "react";
 import { Columns2 } from "lucide-react";
 
 import type { SavedSettingsView, SavedSettingView } from "../../../lib/exerciseClient";
-import { Button } from "./desk";
+import { Button, Notice } from "./desk";
+import type { PanelNote } from "./matchingWording";
 import { FreeSettingSlot, SavedSettingCard } from "./SavedSettingCard";
 
 export interface SavedSettingsPanelProps {
@@ -54,6 +61,12 @@ export interface SavedSettingsPanelProps {
    * list's own weights, so it waits until those are the ones on screen.
    */
   readonly saveBlockedReason?: string | null;
+  /**
+   * What the last press here did, or why it did nothing: one sentence shown
+   * beside these buttons until the next press (issue #321). The caller owns
+   * it, because the caller is what hears the server's answer.
+   */
+  readonly feedback?: PanelNote | null;
 }
 
 const COMPARE_NOTE_ID = "exercise-compare-note";
@@ -67,6 +80,7 @@ export function SavedSettingsPanel({
   onOpen,
   onCompare,
   saveBlockedReason = null,
+  feedback = null,
 }: SavedSettingsPanelProps): React.JSX.Element {
   const [name, setName] = React.useState("");
   /** Which action is running, if any: one at a time. */
@@ -195,6 +209,15 @@ export function SavedSettingsPanel({
             : `Saves the ${Object.keys(weights).length} numbers now on screen.`}
         </span>
       </form>
+
+      {feedback === null ? null : (
+        <Notice
+          key={feedback.text}
+          tone={feedback.tone}
+          message={feedback.text}
+          className="self-start"
+        />
+      )}
 
       {settings.length === 0 ? (
         <p className="ce-type-body text-ce-ink">

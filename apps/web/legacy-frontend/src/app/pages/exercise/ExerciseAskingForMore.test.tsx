@@ -14,6 +14,14 @@ import { CONFIRM_GUARD_MS } from "./desk";
 import { stubReducedMotion } from "./desk/testMatchMedia";
 import { ExerciseAskingForMore } from "./ExerciseAskingForMore";
 
+// The status line makes three reads of its own and has its own tests
+// (`TeamStatusBand.test.tsx`, `TeamStatusBand.pages.test.tsx`). It is left out
+// here, so these tests count only the requests this page makes.
+vi.mock("./TeamStatusBand", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./TeamStatusBand")>()),
+  TeamStatusBand: () => null,
+}));
+
 let calls: { url: string; init: RequestInit }[] = [];
 
 const ASKING = "/v1/exercise/workspaces/current/asking-choice";
@@ -285,7 +293,7 @@ describe("<ExerciseAskingForMore />", () => {
       }),
     );
     renderAsking();
-    fireEvent.click(await screen.findByRole("button", { name: /ask them now/i }));
+    await pressTwice(await screen.findByRole("button", { name: /ask them now/i }));
 
     // The POST, then the reload's GET, have both been issued.
     await waitFor(() => expect(calls.filter((call) => call.url === REFRESH).length).toBe(1));
@@ -364,7 +372,7 @@ describe("<ExerciseAskingForMore />", () => {
     const ask = (await screen.findByRole("button", {
       name: /ask them now/i,
     })) as HTMLButtonElement;
-    fireEvent.click(ask);
+    await pressTwice(ask);
 
     // The refresh POST has landed and the reload's GET is in flight, held
     // open by `releaseSecondGet`.
@@ -396,7 +404,7 @@ describe("<ExerciseAskingForMore />", () => {
       // the press lands. Its sentence is still the answer.
     });
     renderAsking();
-    fireEvent.click(await screen.findByRole("button", { name: /ask them now/i }));
+    await pressTwice(await screen.findByRole("button", { name: /ask them now/i }));
     await waitFor(() =>
       expect(
         screen.getByText("Run the first event's results before asking anyone for more."),
@@ -606,7 +614,7 @@ describe("<ExerciseAskingForMore />", () => {
     expect(live?.className).toContain("sr-only");
     expect(live?.textContent).toBe("");
 
-    fireEvent.click(ask);
+    await pressTwice(ask);
 
     await waitFor(() => expect(live?.textContent).toBe(said));
     expect(document.querySelector('[data-slot="exercise-refresh-announce"]')).toBe(live);
@@ -647,7 +655,7 @@ describe("<ExerciseAskingForMore />", () => {
       return null;
     });
     renderAsking();
-    fireEvent.click(await screen.findByRole("button", { name: /ask them now/i }));
+    await pressTwice(await screen.findByRole("button", { name: /ask them now/i }));
     const shut = await screen.findByRole("button", { name: "Already refreshed at 10:42 AM" });
     expect(isShut(shut)).toBe(true);
     expect(screen.queryByText("Your team has already asked the people it invited.")).toBeNull();
@@ -682,7 +690,7 @@ describe("<ExerciseAskingForMore />", () => {
       }),
     );
     renderAsking();
-    fireEvent.click(await screen.findByRole("button", { name: /ask them now/i }));
+    await pressTwice(await screen.findByRole("button", { name: /ask them now/i }));
     // The reload after the press still says "not refreshed": a reset landed.
     await waitFor(() => expect(calls.filter((call) => call.url === ASKING).length).toBe(2));
     await new Promise((resolve) => setTimeout(resolve, 50));
@@ -825,7 +833,7 @@ describe("<ExerciseAskingForMore /> — the invitation desk (§6.18, §6.19, §7
     // Shut for want of a choice…
     stub(OPEN_CHOICES);
     const first = renderAsking();
-    fireEvent.click(await screen.findByRole("button", { name: /ask them now/i }));
+    await pressTwice(await screen.findByRole("button", { name: /ask them now/i }));
     first.unmount();
     // …and for want of a first-round run.
     stub({
@@ -1006,6 +1014,14 @@ describe("<ExerciseAskingForMore /> — once-only presses the server confirmed",
     });
     renderAsking();
     const ask = await screen.findByRole("button", { name: /ask them now/i });
+    // The first press asks (issue #321); a double-click is one press and
+    // sends nothing.
+    act(() => {
+      ask.click();
+      ask.click();
+    });
+    expect(postsTo(REFRESH)).toBe(0);
+    await new Promise((resolve) => setTimeout(resolve, CONFIRM_GUARD_MS + 20));
     act(() => {
       ask.click();
       ask.click();
@@ -1022,7 +1038,7 @@ describe("<ExerciseAskingForMore /> — once-only presses the server confirmed",
       return null;
     });
     renderAsking();
-    fireEvent.click(await screen.findByRole("button", { name: /ask them now/i }));
+    await pressTwice(await screen.findByRole("button", { name: /ask them now/i }));
 
     await waitFor(() => expect(screen.getByText(/could not be reached/i)).toBeDefined());
     const shut = screen.getByRole("button", { name: "Already refreshed at 10:42 AM" });
@@ -1078,7 +1094,7 @@ describe("<ExerciseAskingForMore /> — once-only presses the server confirmed",
       return null;
     });
     renderAsking();
-    fireEvent.click(await screen.findByRole("button", { name: /ask them now/i }));
+    await pressTwice(await screen.findByRole("button", { name: /ask them now/i }));
     await waitFor(() =>
       expect(screen.getByRole("link", { name: "Enter your team number" })).toBeDefined(),
     );
