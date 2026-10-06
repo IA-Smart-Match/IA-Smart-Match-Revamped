@@ -2,7 +2,7 @@
 
 **Date recorded:** 2026-10-06 · **Decided by:** Dr. Ann Wang · **Relayed by:** the
 owner (Danny) on 2026-10-06 · **Scope:** the class exercise (`ProductScope.CLASS_EXERCISE`)
-and the Smart Match CPP platform design · **Status:** recorded, **not yet implemented**
+and the Smart Match CPP platform design · **Status:** recorded, **not yet implemented**; display scale decided the same day (whole numbers 0–10)
 
 ## The ruling
 
@@ -26,6 +26,32 @@ Her README says the page's code holds "the same four factors and default weights
 
 Her own send date and exact words for this answer were not given to the
 repository; only the owner's relay and the prototype are on record.
+
+## Display scale — whole numbers 0 to 10 (decided 2026-10-06)
+
+**Decided by the owner (Danny), 2026-10-06:** weights are shown and set as whole
+numbers from 0 to 10, as in Dr. Wang's prototype (sliders `min 0`, `max 10`),
+starting at 3 / 3 / 2 / 2. This closes OQ-CE-19. The alternative — keeping the
+0-to-1 scale and starting at 0.30 / 0.30 / 0.20 / 0.20 — was not chosen.
+
+What this changes from the screens as built:
+
+| As built (0-to-1 scale) | Ruled (0-to-10 scale) |
+|---|---|
+| Sliders 0.00–1.00, arrow step 0.05 | Sliders 0–10, step 1 |
+| Start at 0.25 each | Start at 3 / 3 / 2 / 2 |
+| "Total 1.00" line and the weight-total work from PR #256 | No fixed total; the numbers need not add up to anything |
+| "a factor set to 0.50 counts twice as much as one set to 0.25." | The same idea in whole numbers, e.g. a factor set to 4 counts twice as much as one set to 2 — exact sentence to be pinned in DESIGN.md §11.1 with the implementing change |
+| 390-wide bar "Weights 0.40 · 0.25 · 0.25 · 0.10 · Total 1.00" | Four whole numbers, no total |
+
+What it does not change: the ranking depends only on how the weights compare, so
+3 / 3 / 2 / 2 orders profiles exactly as 0.30 / 0.30 / 0.20 / 0.20 would. All
+four at 0 is still the "every weight is 0" case and needs its existing message.
+
+Carried into implementation, not decided here: how saved settings and run
+snapshots already stored on the 0-to-1 scale are shown beside new whole-number
+ones (convert for display, or show as stored), and whether the API stores whole
+numbers or keeps fractions and converts at the edge.
 
 ## What it supersedes
 
@@ -61,8 +87,9 @@ repository; only the owner's relay and the prototype are on record.
    sample result, and "P004 ranks 5th with the starting settings" (checklist §4
    and Dr. Wang's 2026-10-02 note) — the starting order changes when same major
    and stated interest outweigh the other two.
-2. The weights screen: slider range and step, the running total, the sentence
-   explaining how weights compare, and the 390-wide summary bar.
+2. The weights screen: sliders become 0–10 in steps of 1, the running total and
+   its copy go away, and the sentence explaining how weights compare and the
+   390-wide summary bar are reworded (see "Display scale" above).
 3. Saved settings already stored by teams. They hold the team's own stated
    weights and should not be rewritten.
 4. Run snapshots (`exercise_result_run.setting_weights`) keep what the run used.
@@ -74,9 +101,9 @@ repository; only the owner's relay and the prototype are on record.
 
 | OQ | Question | Options | Recommended default | Who |
 |---|---|---|---|---|
-| **OQ-CE-19** | On what scale are 3/3/2/2 shown and stored? | **A.** Whole numbers 0–10 as in her prototype (sliders `min 0`, `max 10`), no "total". **B.** Keep the 0–1 scale and start at 0.30 / 0.30 / 0.20 / 0.20 (same ratios, total 1.00). | **A** for the platform design; ask before changing the class screens, because B needs no new copy and keeps the weight-total work from PR #256. Rankings are identical under both — only the display differs. | Dr. Wang |
+| **OQ-CE-19** | On what scale are 3/3/2/2 shown and stored? | — | **Closed 2026-10-06 (owner): whole numbers 0–10.** See "Display scale" above. | — |
 | **OQ-CE-20** | Does "P004 ranks 5th with the starting settings" still have to hold? | Re-state the expected rank under 3/3/2/2, or drop the pinned rank. | Recompute and send her the new rank for confirmation. | Dr. Wang; Chau for the number |
-| **OQ-CE-21** | When does the class module switch? | Before the 2026-10-16 run-through, or after it. | Before, so her run-through sees the ruled defaults — but only once OQ-CE-19 is answered. | Owner |
+| **OQ-CE-21** | When does the class module switch? | Before the 2026-10-16 run-through, or after it. | Before, so her run-through sees the ruled defaults. | Owner |
 
 ## Related
 
