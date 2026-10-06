@@ -639,6 +639,26 @@ def _prepare_refresh(
     return first
 
 
+def _run_round_one(fakes: _Fakes, client: TestClient) -> Mapping[str, object]:
+    """Unlock and run round one, which a team needs before it may choose how to ask."""
+    fakes.unlock("round-one")
+    response = client.post(_RESULTS, json=_FINAL_BODY, headers=_HEADER)
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+def _seed_choice(fakes: _Fakes, team_number: int, choice: str = "required") -> None:
+    """Store a choice for a team **without** the route.
+
+    The route refuses a choice before round one's results (Oct-2 checklist §6),
+    so "chosen, but no round one" can no longer be reached through it. The state
+    still exists — a row written before the gate — and the two routes that meet
+    it must still answer it.
+    """
+    workspace = fakes.workspaces.rows[(_DATASET_ID, team_number)]
+    fakes.results.choices[workspace.id] = choice
+
+
 def _instructor(fakes: _Fakes) -> TestClient:
     """A client holding a live instructor session cookie."""
     client = TestClient(_exercise_app(fakes))

@@ -57,6 +57,7 @@ import { cn } from "../../components/ui/utils";
 import { Button, formatWeight } from "./desk";
 import { ExerciseLoading, ExerciseNotice, ExerciseScreen } from "./ExerciseScreen";
 import { ResultPanels, type NamesByProfileNo } from "./ResultPanels";
+import { alreadyRefreshedLabel, refreshSummaryText } from "./refreshWording";
 import { ProfileCardArt } from "./resultsArt";
 import { ResultsLockPanel } from "./ResultsLockPanel";
 import { isAccessRefusal, useExerciseResource } from "./useExerciseResource";
@@ -243,10 +244,8 @@ interface ShownRefusal {
   readonly message: string;
 }
 
-/** The three refresh counts as one sentence, in the asking screen's words. */
-function refreshCountsSentence(counts: RefreshCountsView): string {
-  return `Your team asked. Cards filled in: ${counts.cards_completed}. Stopped opening messages: ${counts.non_responding}. Picked up the first event's topics: ${counts.topics_added}.`;
-}
+/** The refusal a second refresh gets. The screen answers it with the time. */
+const ALREADY_REFRESHED = "exercise_already_refreshed";
 
 function ResultsBody({
   eventKey,
@@ -347,11 +346,14 @@ function ResultsBody({
   /** The run and the refresh, by the server's latest read or this browser's own confirmed press. */
   const results = data.results ?? (trustConfirmed ? confirmedResults : null);
   const hasAsked = data.asking.refreshed || (trustConfirmed && confirmedRefresh !== null);
+  /** This browser's own press stands in only while it is newer than the read. */
+  const own = data.asking.refreshed || trustConfirmed ? confirmedRefresh : null;
   const counts: RefreshCountsView | null = data.asking.refreshed
-    ? (data.asking.refresh_counts ?? confirmedRefresh)
-    : trustConfirmed
-      ? confirmedRefresh
-      : null;
+    ? (data.asking.refresh_counts ?? own?.refresh_counts ?? null)
+    : (own?.refresh_counts ?? null);
+  const refreshedAt = data.asking.refreshed
+    ? (data.asking.refreshed_at ?? own?.refreshed_at ?? null)
+    : (own?.refreshed_at ?? null);
   const canRefresh = data.asking.choice !== null && !hasAsked;
   const locked = refusal?.code === LOCKED && results === null;
 
@@ -407,21 +409,31 @@ function ResultsBody({
               pending={pending === "ask"}
               onClick={() =>
                 void act("ask", async () => {
-                  onRefreshConfirmed(await refreshProfiles());
+                  try {
+                    onRefreshConfirmed(await refreshProfiles());
+                  } catch (error) {
+                    // A second press changes nothing; the re-read brings the
+                    // time of the first, and the button then says so.
+                    if (!(isRefusal(error) && error.code === ALREADY_REFRESHED)) {
+                      throw error;
+                    }
+                  }
                   await onChanged();
                 })
               }
             >
-              {hasAsked ? "Your team has already asked" : "Ask them now"}
+              {hasAsked ? alreadyRefreshedLabel(refreshedAt) : "Ask them now"}
             </Button>
             <p className="ce-type-meta text-ce-ink-muted">Your team may ask once.</p>
-            {/* Always present, so the counts are announced when they arrive. */}
+            {/* Always present, so the summary is announced when it arrives. */}
             <p
               role="status"
               data-slot="exercise-results-refresh-counts"
               className="ce-type-body text-ce-ink"
             >
-              {counts === null ? "" : refreshCountsSentence(counts)}
+              {hasAsked
+                ? refreshSummaryText(refreshedAt, counts, data.asking.first_round_event_name)
+                : ""}
             </p>
           </div>
         )}

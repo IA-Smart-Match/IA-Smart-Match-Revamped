@@ -54,6 +54,7 @@ __all__ = [
     "derive_marker",
     "information_rank",
     "list_composition",
+    "marker_for",
 ]
 
 
@@ -96,9 +97,29 @@ def derive_marker(profile: ProfileEvidence) -> InformationMarker:
         all, are both "major only" — neither has an event to say anything
         about — and the difference between them stays on the evidence.
     """
-    if profile.card is not None:
+    return marker_for(
+        has_card=profile.card is not None,
+        attended_event_count=profile.attended_event_count or 0,
+    )
+
+
+def marker_for(*, has_card: bool, attended_event_count: int) -> InformationMarker:
+    """The three-group rule itself, for a caller that holds no evidence object.
+
+    :func:`derive_marker` reads these two facts off a :class:`ProfileEvidence`,
+    which refuses a profile with no major. A count over **every** row of a data
+    file — the upload report's, and the before-and-after counts a team is shown
+    once its profiles are updated — has rows no list can rank, and must still
+    put each of them in a group. Both go through here, so "how much we know"
+    has one definition.
+
+    Args:
+        has_card: Whether a card exists, however little is written on it.
+        attended_event_count: How many past events are on file. Zero for none.
+    """
+    if has_card:
         return InformationMarker.COMPLETED_CARD
-    if profile.attended_event_count:
+    if attended_event_count:
         return InformationMarker.MAJOR_PLUS_EVENTS
     return InformationMarker.MAJOR_ONLY
 

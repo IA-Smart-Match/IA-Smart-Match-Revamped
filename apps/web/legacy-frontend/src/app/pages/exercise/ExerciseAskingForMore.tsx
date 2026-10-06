@@ -19,18 +19,20 @@
  * a choice is made, showing which one the team took, rather than vanishing: a
  * class arguing about the choice needs to see what was chosen.
  *
- * **The refresh waits for a first-round run.** The server refuses a refresh
- * before one, and did so cleanly, but the button used to be offered anyway.
- * The asking response does not say whether that run exists, so the screen
- * reads it the way the results screen does: the first round is the first
- * exercise event by `sequence` (never by name), and its stored results either
- * come back or are refused as not run. The server stays the judge; this only
- * stops the screen offering a press it already knows will be refused.
+ * **Both wait for a first-round run** (Ann, 2026-10-02: "the choice appears
+ * only after the team has its round-one results"). The asking response says
+ * whether that run exists (`first_round_results`) and names the event, so the
+ * three cards are not drawn until it does; one line says why. The server
+ * stays the judge: it refuses a choice or a refresh that comes early.
  *
- * The refresh reports counts — cards completed, non-responding, topics added.
- * Counts are what ADR-0025 D8 allows and what the requirements ask for; there
- * is no percentage on this screen, and the illustrative shares in Ann's build
- * table (OQ-CE-04, confirmed 2026-09-25) are not returned by the API.
+ * **The refresh says that it happened, when, and what it changed**
+ * (`RefreshSummary.tsx`): a timestamped summary in plain words, the three
+ * counts, and the "how much we know" counts for every profile before and
+ * after. All of it is on the asking response, so a reload, a second browser
+ * and a team the instructor refreshed see the same thing. The shut button
+ * reads "Already refreshed at 10:42 AM". Counts are what ADR-0025 D8 allows;
+ * there is no percentage on this screen, and the shares in Ann's build table
+ * (OQ-CE-04, confirmed 2026-09-25) are not returned by the API.
  *
  * **The invitation desk (DESIGN.md §6.18, §6.19, §7.9).** The choices are
  * radio cards (`ExerciseAskingChoiceCard.tsx`) with an inline confirm, owner
@@ -47,8 +49,6 @@ import { ExerciseUnreachable, isRefusal, type ExerciseRefusal } from "../../../l
 import {
   chooseAsking,
   readAskingChoice,
-  readEvents,
-  readResults,
   refreshProfiles,
   type AskingStateView,
   type RefreshCountsView,
@@ -65,53 +65,16 @@ import {
 } from "./desk";
 import { AskingChoiceCard, type AskingCardState } from "./ExerciseAskingChoiceCard";
 import { ExerciseNotice, ExerciseScreen } from "./ExerciseScreen";
+import { RefreshSummary } from "./RefreshSummary";
+import { alreadyRefreshedLabel } from "./refreshWording";
 import { isAccessRefusal, useExerciseResource } from "./useExerciseResource";
 import { workspaceRequiredNotice } from "./refusals";
 
-/** The refusal `GET …/events/{key}/results` gives for an event not yet run. */
-const RESULTS_NOT_RUN = "exercise_results_not_run";
+/** The refusal a second refresh gets. The screen answers it with the time. */
+const ALREADY_REFRESHED = "exercise_already_refreshed";
 
 /** `sending` while the refresh is in flight (never a choice value). */
 const REFRESH_ACTION = "refresh";
-
-/** What this screen reads: the asking state, and whether round one has run. */
-interface AskingScreenView {
-  readonly asking: AskingStateView;
-  /** Whether this team has stored results for its first round. */
-  readonly roundOneRun: boolean;
-  /** The first round's event name, or `null` when the file has no rounds. */
-  readonly roundOneName: string | null;
-}
-
-/**
- * The asking state, plus whether this team's first round has results.
- *
- * Skipped once the team has refreshed: a refresh is only ever allowed after a
- * first-round run, so the answer is already known. Any refusal other than
- * "not run yet" (the workspace cookie gone, say) is the screen's refusal.
- */
-async function readAskingScreen(signal: AbortSignal): Promise<AskingScreenView> {
-  const asking = await readAskingChoice(signal);
-  if (asking.refreshed) {
-    return { asking, roundOneRun: true, roundOneName: null };
-  }
-  const { events } = await readEvents(signal);
-  const roundOne = events
-    .filter((event) => event.is_exercise_event)
-    .sort((a, b) => a.sequence - b.sequence)[0];
-  if (roundOne === undefined) {
-    return { asking, roundOneRun: false, roundOneName: null };
-  }
-  try {
-    await readResults(roundOne.event_key, signal);
-    return { asking, roundOneRun: true, roundOneName: roundOne.name };
-  } catch (error) {
-    if (isRefusal(error) && error.code === RESULTS_NOT_RUN) {
-      return { asking, roundOneRun: false, roundOneName: roundOne.name };
-    }
-    throw error;
-  }
-}
 
 /** "Back to the events", drawn as a secondary button (§6.3). */
 const BACK_LINK =
@@ -180,7 +143,7 @@ export function ExerciseAskingForMore(): React.JSX.Element {
   // A reload that cannot reach the server keeps the screen: after a once-only
   // press, taking the panels down would also take down what the server just
   // confirmed. Every refusal still replaces it, and a 401/403 always does.
-  const { state, reload } = useExerciseResource(readAskingScreen, [], {
+  const { state, reload } = useExerciseResource(readAskingChoice, [], {
     keepDataOnError: (error) => error instanceof ExerciseUnreachable,
   });
 
@@ -238,9 +201,7 @@ export function ExerciseAskingForMore(): React.JSX.Element {
             </ExerciseNotice>
           )}
           <AskingPanels
-            asking={state.data.asking}
-            roundOneRun={state.data.roundOneRun}
-            roundOneName={state.data.roundOneName}
+            asking={state.data}
             onChanged={reload}
             refreshed={refreshed}
             onRefreshed={setRefreshed}
@@ -263,8 +224,6 @@ export function ExerciseAskingForMore(): React.JSX.Element {
 
 function AskingPanels({
   asking,
-  roundOneRun,
-  roundOneName,
   onChanged,
   refreshed,
   onRefreshed,
@@ -274,9 +233,6 @@ function AskingPanels({
   onAccessLost,
 }: {
   readonly asking: AskingStateView;
-  /** Whether this team has results for its first round (see the module note). */
-  readonly roundOneRun: boolean;
-  readonly roundOneName: string | null;
   readonly onChanged: () => Promise<void>;
   /** The once-only refresh result, owned by the screen. */
   readonly refreshed: RefreshView | null;
@@ -312,11 +268,17 @@ function AskingPanels({
   /** What the team has chosen and asked, by the server's latest word or this browser's own. */
   const choice = asking.choice ?? (trustConfirmed ? confirmedChoice : null);
   const hasAsked = asking.refreshed || (trustConfirmed && refreshed !== null);
-  const counts = asking.refreshed
-    ? (asking.refresh_counts ?? refreshed)
-    : trustConfirmed
-      ? refreshed
-      : null;
+  /** This browser's own press stands in only while it is newer than the read. */
+  const own = asking.refreshed || trustConfirmed ? refreshed : null;
+  const counts: RefreshCountsView | null = asking.refreshed
+    ? (asking.refresh_counts ?? own?.refresh_counts ?? null)
+    : (own?.refresh_counts ?? null);
+  const refreshedAt = asking.refreshed
+    ? (asking.refreshed_at ?? own?.refreshed_at ?? null)
+    : (own?.refreshed_at ?? null);
+  /** Whether round one has results. A team that has asked always has them. */
+  const roundOneRun = asking.first_round_results === true || hasAsked;
+  const roundOneName = asking.first_round_event_name ?? null;
 
   /**
    * Run one action and stay disabled until the screen actually reflects it.
@@ -413,28 +375,38 @@ function AskingPanels({
           </h2>
           <PartlyKnownCard />
         </div>
-        <div
-          role="radiogroup"
-          aria-labelledby={`${ids}-question`}
-          className="grid gap-ce-3 lg:grid-cols-3 lg:gap-ce-5"
-        >
-          {asking.choices.map((card) => (
-            <AskingChoiceCard
-              key={card}
-              choice={card}
-              group={`${ids}-choice`}
-              state={cardState(card)}
-              selected={(choice ?? considered) === card}
-              armed={armedChoice === card}
-              saving={sending === card}
-              busy={pending}
-              reduced={reduced}
-              onSelect={select}
-              onPress={press}
-              onKeyDown={confirm.onKeyDown}
-            />
-          ))}
-        </div>
+        {/*
+          The choice appears only after round one's results (Ann, 2026-10-02).
+          A team that somehow chose earlier still sees what it chose.
+        */}
+        {roundOneRun || choice !== null ? (
+          <div
+            role="radiogroup"
+            aria-labelledby={`${ids}-question`}
+            className="grid gap-ce-3 lg:grid-cols-3 lg:gap-ce-5"
+          >
+            {asking.choices.map((card) => (
+              <AskingChoiceCard
+                key={card}
+                choice={card}
+                group={`${ids}-choice`}
+                state={cardState(card)}
+                selected={(choice ?? considered) === card}
+                armed={armedChoice === card}
+                saving={sending === card}
+                busy={pending}
+                reduced={reduced}
+                onSelect={select}
+                onPress={press}
+                onKeyDown={confirm.onKeyDown}
+              />
+            ))}
+          </div>
+        ) : (
+          <p data-slot="exercise-asking-not-yet" className="ce-type-body ce-measure text-ce-ink">
+            {`Your team picks a way of asking after it has its results for ${roundOneName ?? "the first event"}.`}
+          </p>
+        )}
         <p aria-live="polite" data-slot="exercise-asking-confirm-live" className="sr-only">
           {armedChoice !== null
             ? askingChoiceConfirmHint(armedChoice)
@@ -463,13 +435,22 @@ function AskingPanels({
             }
             onClick={() =>
               void run(REFRESH_ACTION, async () => {
-                onRefreshed(await refreshProfiles());
+                try {
+                  onRefreshed(await refreshProfiles());
+                } catch (error) {
+                  // A second press (another tab got there first) changes
+                  // nothing. The re-read below brings the time it happened,
+                  // and the button then says so.
+                  if (!(isRefusal(error) && error.code === ALREADY_REFRESHED)) {
+                    throw error;
+                  }
+                }
                 await onChanged();
               })
             }
             className="w-full md:w-auto"
           >
-            {hasAsked ? "Your team has already asked" : "Ask them now"}
+            {hasAsked ? alreadyRefreshedLabel(refreshedAt) : "Ask them now"}
           </Button>
         </div>
         {choice === null ? (
@@ -486,12 +467,10 @@ function AskingPanels({
           While the server says the team has asked (a reset clears them), or
           while this browser's own confirmed refresh is newer than the read.
         */}
+        {hasAsked ? (
+          <RefreshSummary at={refreshedAt} counts={counts} eventName={roundOneName} />
+        ) : null}
         <RefreshCounts counts={counts} reduced={reduced} />
-        <p aria-live="polite" data-slot="exercise-refresh-announce" className="sr-only">
-          {refreshed === null || counts === null
-            ? ""
-            : `Your team asked. Cards filled in: ${counts.cards_completed}. Stopped opening messages: ${counts.non_responding}. Picked up the first event's topics: ${counts.topics_added}.`}
-        </p>
       </section>
     </div>
   );
@@ -506,7 +485,7 @@ function RefreshCounts({
   counts,
   reduced,
 }: {
-  readonly counts: RefreshCountsView | RefreshView | null;
+  readonly counts: RefreshCountsView | null;
   readonly reduced: boolean;
 }): React.JSX.Element | null {
   if (counts === null) {

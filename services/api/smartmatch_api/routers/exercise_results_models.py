@@ -65,11 +65,11 @@ from smartmatch_domain.exercise.vocabulary import goal_is_undecided, goal_topic_
 
 from smartmatch_api.exercise_dependencies import (
     ExerciseEventRow,
-    RefreshCounts,
     ResultPanel,
     SimulationProfileRow,
     StoredResultRun,
 )
+from smartmatch_api.routers.exercise_results_refresh import RefreshReport
 
 __all__ = [
     "EXERCISE_ROUNDS",
@@ -87,6 +87,7 @@ __all__ = [
     "asking_state_view",
     "panel_view",
     "previous_round_view",
+    "refresh_counts_view",
     "round_of",
     "row_is_round",
     "simulation_event",
@@ -376,7 +377,15 @@ class ResultsView(BaseModel):
 
 
 class RefreshCountsView(BaseModel):
-    """What this team's one refresh changed, as three counts (ADR-0025 D8)."""
+    """What one team's one refresh changed, as counts of people (ADR-0025 D8).
+
+    **One shape, three places**: the team's own press, every later read of its
+    asking state, and each refreshed team's line in the instructor's report. A
+    screen writes its sentence from these; none of them is a sentence.
+
+    ``cards_completed`` beside ``invited_without_card`` is "12 of the 22". Both
+    are counts, and no fraction of them is on any response.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -386,6 +395,21 @@ class RefreshCountsView(BaseModel):
     )
     topics_added: int = Field(
         description="How many profiles gained the first round's topics from having attended it."
+    )
+    invited_without_card: int = Field(
+        description=(
+            "How many of the profiles the team invited in round one had no card "
+            "in the data file: the group that was asked to complete one."
+        ),
+    )
+    marker_counts_before: dict[str, int] = Field(
+        description=(
+            "Every profile in the data file by how much is on file about it, "
+            "before the refresh: `major_only`, `major_plus_events`, `completed_card`."
+        ),
+    )
+    marker_counts_after: dict[str, int] = Field(
+        description="The same three counts as the team sees the profiles after the refresh.",
     )
 
 
@@ -399,11 +423,28 @@ class AskingStateView(BaseModel):
     )
     choices: list[str] = Field(description="The three ways of asking, as the course names them.")
     refreshed: bool = Field(description="Whether your team has already used its one refresh.")
+    refreshed_at: datetime | None = Field(
+        default=None,
+        description="When your team's one refresh happened, or null before it has.",
+    )
     refresh_counts: RefreshCountsView | None = Field(
         default=None,
         description=(
             "What the refresh changed, read back from your team's view: null "
             "until the team has been refreshed, by itself or by the instructor."
+        ),
+    )
+    first_round_results: bool = Field(
+        description=(
+            "Whether your team has run the first round's results. The choice of "
+            "how to ask is accepted only once it has."
+        ),
+    )
+    first_round_event_name: str | None = Field(
+        default=None,
+        description=(
+            "The first round's event, as the data file spells it, or null when "
+            "the file carries no round."
         ),
     )
 
@@ -423,6 +464,14 @@ class RefreshView(BaseModel):
     )
     topics_added: int = Field(
         description="How many profiles gained the first round's topics from having attended it."
+    )
+    refreshed_at: datetime = Field(description="When this refresh happened.")
+    refresh_counts: RefreshCountsView = Field(
+        description=(
+            "The same three counts, with the group that was asked and the "
+            "before-and-after counts of every profile. What a later read of the "
+            "asking state returns."
+        ),
     )
 
 
@@ -506,11 +555,25 @@ def stored_results_view(
     )
 
 
+def refresh_counts_view(report: RefreshReport) -> RefreshCountsView:
+    """One team's refresh report as the one shape every response carries it in."""
+    return RefreshCountsView(
+        cards_completed=report.counts.cards_completed,
+        non_responding=report.counts.non_responding,
+        topics_added=report.counts.topics_added,
+        invited_without_card=report.invited_without_card,
+        marker_counts_before=dict(report.marker_counts_before),
+        marker_counts_after=dict(report.marker_counts_after),
+    )
+
+
 def asking_state_view(
     choice: str | None,
     *,
-    refreshed: bool,
-    counts: RefreshCounts | None = None,
+    refreshed_at: datetime | None,
+    first_round_results: bool,
+    first_round_event_name: str | None,
+    report: RefreshReport | None = None,
 ) -> AskingStateView:
     """This team's asking choice, with the three names read off the domain.
 
@@ -518,18 +581,16 @@ def asking_state_view(
     rather than from a list written here, so the three names on the response, the
     three the refresh applies a share for, and the three
     ``ck_exercise_team_workspace_asking_choice`` admits cannot drift apart.
+
+    ``refreshed`` is derived from ``refreshed_at`` here, so the flag and the
+    time cannot disagree.
     """
     return AskingStateView(
         choice=choice,
         choices=[member.value for member in AskingChoice],
-        refreshed=refreshed,
-        refresh_counts=(
-            None
-            if counts is None
-            else RefreshCountsView(
-                cards_completed=counts.cards_completed,
-                non_responding=counts.non_responding,
-                topics_added=counts.topics_added,
-            )
-        ),
+        refreshed=refreshed_at is not None,
+        refreshed_at=refreshed_at,
+        refresh_counts=None if report is None else refresh_counts_view(report),
+        first_round_results=first_round_results,
+        first_round_event_name=first_round_event_name,
     )

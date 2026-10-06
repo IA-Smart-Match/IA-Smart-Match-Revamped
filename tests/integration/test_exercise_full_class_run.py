@@ -39,6 +39,7 @@ import dataclasses
 import json
 from collections.abc import Iterator
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any
 
 import pytest
@@ -150,10 +151,14 @@ def _body(response: Any) -> dict[str, Any]:
     return body
 
 
+#: When a row was written, which a repeat of the same work is free to change.
+_TIME_KEYS = frozenset({"created_at", "refreshed_at"})
+
+
 def _without_times(value: Any) -> Any:
-    """A response body with its ``created_at`` stamps removed, at any depth."""
+    """A response body with its time stamps removed, at any depth."""
     if isinstance(value, dict):
-        return {key: _without_times(item) for key, item in value.items() if key != "created_at"}
+        return {key: _without_times(item) for key, item in value.items() if key not in _TIME_KEYS}
     if isinstance(value, list):
         return [_without_times(item) for item in value]
     return value
@@ -369,12 +374,36 @@ def test_round_two_carries_the_teams_own_round_one(class_run: _ClassRun) -> None
 def test_the_asking_route_reports_the_same_counts_the_refresh_did(
     class_run: _ClassRun,
 ) -> None:
-    """M2 B4: the counts survive a reload, read back from the stored overlay."""
+    """M2 B4: the counts survive a reload, read back from the stored overlay.
+
+    And, since Ann's review of 2026-10-02, so does everything else the summary
+    is written from: the time, the group that was asked, and the before-and-after
+    counts of every profile.
+    """
     for number in EXERCISE_TEAM_NUMBERS:
         posted = class_run.refresh[number]
-        assert class_run.asking_after_refresh[number]["refresh_counts"] == {
-            key: posted[key] for key in ("cards_completed", "non_responding", "topics_added")
-        }, number
+        read = class_run.asking_after_refresh[number]
+        assert read["refresh_counts"] == posted["refresh_counts"], number
+        assert {
+            key: read["refresh_counts"][key]
+            for key in ("cards_completed", "non_responding", "topics_added")
+        } == {key: posted[key] for key in ("cards_completed", "non_responding", "topics_added")}, (
+            number
+        )
+        assert datetime.fromisoformat(read["refreshed_at"]) == datetime.fromisoformat(
+            posted["refreshed_at"]
+        ), number
+        assert read["first_round_results"] is True, number
+
+
+def test_the_refresh_reports_every_profile_before_and_after(class_run: _ClassRun) -> None:
+    """Ann, 2026-10-02: the "how much we know" counts for all 300, before and after."""
+    for number in EXERCISE_TEAM_NUMBERS:
+        counts = class_run.refresh[number]["refresh_counts"]
+        before, after = counts["marker_counts_before"], counts["marker_counts_after"]
+        assert sum(before.values()) == sum(after.values()), number
+        assert after["completed_card"] == before["completed_card"] + counts["cards_completed"]
+        assert counts["cards_completed"] <= counts["invited_without_card"] <= 30, number
 
 
 def test_each_team_used_its_own_way_of_asking(class_run: _ClassRun) -> None:
@@ -427,7 +456,7 @@ def test_after_a_reset_the_same_seed_and_list_give_the_same_round_one(
 def test_after_a_reset_the_same_seed_and_choice_give_the_same_refresh(
     class_run: _ClassRun,
 ) -> None:
-    assert class_run.rerun_refresh == class_run.refresh[_RESET_TEAM]
+    assert _without_times(class_run.rerun_refresh) == _without_times(class_run.refresh[_RESET_TEAM])
 
 
 def test_after_a_reset_the_same_seed_and_list_give_the_same_round_two(

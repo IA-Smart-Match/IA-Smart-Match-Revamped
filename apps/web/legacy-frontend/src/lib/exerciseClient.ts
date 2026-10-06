@@ -77,6 +77,12 @@ export interface ListEntryView {
   readonly contributing_factor_keys: string[];
   /** The career goal counted only as an undecided goal's half (OQ-CE-14). A flag, not a number. */
   readonly undecided_goal_half: boolean;
+  /**
+   * What this team's refresh changed about the profile: `new_card`,
+   * `new_event`, `stopped_responding`. Empty before the refresh; may hold
+   * several. The server always sends it; optional so older fixtures type-check.
+   */
+  readonly refresh_marks?: readonly string[];
 }
 
 export interface GroupCountsView {
@@ -110,6 +116,11 @@ export interface RankedListView {
    */
   readonly factor_labels: Record<string, string>;
   readonly entries: ListEntryView[];
+  /**
+   * The first round's event name, so a `new_event` mark can say which event.
+   * `null` when the file has no round. Optional for older fixtures.
+   */
+  readonly first_round_event_name?: string | null;
   readonly composition: ListCompositionView;
   readonly unlisted_class_years: string[];
   readonly unrankable_profile_count: number;
@@ -199,18 +210,34 @@ export interface AskingStateView {
   /** The three ways of asking, as the course names them. Never hard-coded. */
   readonly choices: string[];
   readonly refreshed: boolean;
+  /** When the team's one refresh happened (ISO, UTC), or `null` before it has. */
+  readonly refreshed_at: string | null;
   /**
    * What the team's refresh changed, read back from the server: `null` until
-   * the team is refreshed (by itself or by the instructor). Optional so older
-   * fixtures without it still type-check.
+   * the team is refreshed (by itself or by the instructor).
    */
-  readonly refresh_counts?: RefreshCountsView | null;
+  readonly refresh_counts: RefreshCountsView | null;
+  /** Whether the team has run round one's results. The choice opens only then. */
+  readonly first_round_results: boolean;
+  /** The first round's event name, or `null` when the file has no round. */
+  readonly first_round_event_name: string | null;
 }
 
+/**
+ * What one refresh changed, as counts of people. One shape for the team's own
+ * press, every later read, and each team's line in the instructor's report.
+ * The server sends no sentence: `refreshWording.ts` writes them.
+ */
 export interface RefreshCountsView {
   readonly cards_completed: number;
   readonly non_responding: number;
   readonly topics_added: number;
+  /** How many invited profiles had no card: "12 of the **22**". */
+  readonly invited_without_card: number;
+  /** Every profile by "how much we know", before the refresh. Keyed by marker. */
+  readonly marker_counts_before: Readonly<Record<string, number>>;
+  /** The same, as the team sees the profiles after it. */
+  readonly marker_counts_after: Readonly<Record<string, number>>;
 }
 
 export interface RefreshView {
@@ -218,6 +245,8 @@ export interface RefreshView {
   readonly cards_completed: number;
   readonly non_responding: number;
   readonly topics_added: number;
+  readonly refreshed_at: string;
+  readonly refresh_counts: RefreshCountsView;
 }
 
 export interface RefreshAllView {

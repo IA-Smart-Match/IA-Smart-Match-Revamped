@@ -452,6 +452,7 @@ then why. 390: a stacked card per row with the same content order.
 | F | n/a (rows are not focusable; the table is reachable by screen reader) |
 | Joined | `ce-row-join` gold-tint wash |
 | On both lists | persistent `--ce-gold-tint` wash, `Link2` chip "on both lists" in `--ce-gold` with `#17352A` text |
+| Changed by the refresh | chips beside the name, one per `refresh_marks` value: `Sparkles` "New card" and "New: went to {first event}" on `--ce-primary-tint` with a `--ce-primary` rule; `MailX` "Stopped responding" on `--ce-surface-sunk` with a `--ce-line-strong` rule. Icon and words, never colour alone. A profile may carry several. None before the refresh |
 | L | 8 skeleton rows with rank placeholders |
 | E | "Nobody is on this list. Nobody in this data file can be ranked for this event with these weights." with `empty-state.svg` |
 | X | list dims to 0.6 and a line under the header: "This is the list from before that change…" |
@@ -580,12 +581,36 @@ only the lapse, Escape, or another card reverts it, so a stray Tab does not
 cost the class its moment. A held Enter or Space (key repeat) never counts as
 the confirming press.
 
-### 6.19 Refresh counts
+### 6.19 Refresh summary and counts
 
-The same ruled figures band as 6.15: "Cards filled in", "Stopped opening
-messages", "Picked up the first event's topics". The third figure counts
-*people*, not topics (`topics_added` is `len(gainers)` in
-`results_repository.py`), so the label names people. Values count up once.
+**Amended 2026-10-06 (Ann's review of 2026-10-02, checklist section 6).** The
+refresh says that it happened, when, and what it changed. Three parts, in
+this order under the button, all read from the asking response so a reload, a
+second browser and a team the instructor refreshed show the same thing:
+
+1. **Summary** (`RefreshSummary.tsx`): a done-tone notice (6.20) with one
+   line of plain sentences: "Refresh done at 10:42 AM. 9 people who came to
+   Northline now count as having gone to a similar event. 12 of the 22 invited
+   people with no card completed one. 0 people stopped responding." The time is
+   the browser's local clock (`en-US`, "10:42 AM").
+2. **Before and after**, inside the same notice: "How much we know, all 300
+   profiles, before and after", then one line per group, most on file first:
+   "Completed card: 70 → 82". A screen reader hears "70 before, 82 after".
+   Every profile in the data file is counted, not only the ones on a list.
+3. **Figures band**, as 6.15: "Cards filled in", "Stopped opening messages",
+   "Picked up the first event's topics". The third figure counts *people*, not
+   topics (`topics_added` is `len(gainers)` in `results_repository.py`), so
+   the label names people. Values count up once.
+
+The shut button reads "Already refreshed at 10:42 AM" (6.3 Dis). A second
+press from another tab is answered with the same words, not with a refusal.
+
+**The server sends facts; the screen writes these sentences**
+(`refreshWording.ts`). The server's own sentences say "asking", never
+"refresh" (`test_exercise_results_asking_wording.py`), and it has no way to
+know the room's time zone. Ann's review words the outcome as "Refresh done"
+and "Already refreshed", so those words are used for it; the button that
+starts it keeps "Ask them now". Counts only: no percentage is composed.
 
 ### 6.20 Notice
 
@@ -746,7 +771,12 @@ Before a run: lock panel (6.14) in the seating-chart position.
   the "How will your team ask?" `h2` (the shell's header has no slot beside
   the lead);
   three choice cards in a row; below, "Ask the people your team invited" with
-  the primary button and, after it runs, three count cards.
+  the primary button and, after it runs, the summary notice with the
+  before-and-after lines, then three count cards (6.19).
+- **Before round one has results** the three cards are not drawn. One line
+  stands in their place: "Your team picks a way of asking after it has its
+  results for {first event}." (Ann, 2026-10-02: "The choice appears only after
+  the team has its round-one results.")
 - **390:** cards stack; button full width.
 
 ### 7.10 Round-two comparison (results for the second event)
@@ -879,6 +909,15 @@ labels and the license line are unchanged and not listed.
 | Asking, supporting lines | "Tell them a card helps us suggest events worth their evening." / "Offer something small for a completed card." / "Make the card a condition of hearing about events." |
 | Asking, buttons | "Choose this way" → "Confirm: A small reward?" |
 | Asking, spoken hint | "Press again to confirm A small reward. Your team picks once." |
+| Asking, before round one has results (in place of the three cards) | "Your team picks a way of asking after it has its results for Northline." (falls back to "the first event") |
+| Asking and Results, refresh summary (2026-10-06, from Ann's checklist) | "Refresh done at 10:42 AM. 9 people who came to Northline now count as having gone to a similar event. 12 of the 22 invited people with no card completed one. 0 people stopped responding." |
+| Refresh summary, singular forms | "1 person who came to Northline now counts as having gone to a similar event." / "1 of the 1 invited person with no card completed one." / "1 person stopped responding." |
+| Refresh summary, nobody invited was without a card | "Everyone your team invited already had a card." |
+| Refresh summary, time not known | "Refresh done." |
+| Asking, before-and-after heading | "How much we know, all 300 profiles, before and after" |
+| Asking, before-and-after lines | "Completed card: 70 → 82" / "Major plus events attended: 64 → 58" / "Major only: 166 → 160" (spoken: "70 before, 82 after") |
+| Asking and Results, shut refresh button (was "Your team has already asked") | "Already refreshed at 10:42 AM" (without a time: "Already refreshed") |
+| Ranked list, marks on a changed profile | "New card" / "New: went to Northline" (falls back to "New: went to the first event") / "Stopped responding" |
 | Profile-card page `h1` | "What a profile would be asked" |
 | Profile card, stamp chip | "Mock-up only" |
 | Profile-card caption | "Major and year are already on file, and past events are recorded when someone attends. So the card asks only two things, and asks the person to confirm their major." |
