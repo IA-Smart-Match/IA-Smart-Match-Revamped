@@ -104,7 +104,7 @@ misused. Every CBA route answers 404 in this process.
 ### Never set `SMARTMATCH_EXERCISE_SEED_ON_START` on the VM
 
 `SMARTMATCH_EXERCISE_SEED_ON_START=true` makes the API store Ann's fixture file
-(`tests/fixtures/exercise/SmartMatch_Student_Body_300.xlsx`) as the active
+(`tests/fixtures/exercise/SmartMatch_Student_Body_300_10022026.xlsx`) as the active
 dataset at start-up when the database has none (CE-SEED, owner design "A",
 2026-09-25). It exists for developer machines, where every fresh database
 otherwise starts empty until someone uploads by hand. On the VM the instructor
