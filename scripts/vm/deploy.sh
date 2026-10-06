@@ -61,6 +61,27 @@
 #     # unused since: <the release that stopped using the object>
 #     CONTRACT_PHASE = True
 #
+# What step 9 does about the migration step. The compose `migrate` service runs
+# the CHECKOUT's db/ tree, and after the rollback checkout that is the previous
+# release's tree. If the failed release already applied a revision, the
+# database is at a revision that tree does not contain, so the previous
+# release's migrate exits non-zero ("Can't locate revision identified by ...")
+# and compose will not start the API or the worker behind it. The rollback
+# therefore tries the ordinary `up` first and, ONLY when migrate failed for
+# exactly that reason AND the named revision is one the failed release's tree
+# defines and the previous release's tree does not, brings the stack up again
+# with migrate replaced by a no-op (an override file written to $STATE_DIR —
+# see schema_ahead_revision and rollback below). Nothing is downgraded; the
+# schema stays where the failed release left it, which is what expand/contract
+# makes safe for the previous code. Health then tolerates one check only: the
+# previous release's `migrations-at-head`, and only when it reports that same
+# revision. Any other migrate failure, and any other failing check, still ends
+# in "The VM needs a human". A forward deployment never takes this path.
+#
+# One consequence of step 4: `git pull` replaces this file on disk, but the
+# copy already executing is the PREVIOUS release's. A change to the rollback
+# logic therefore takes effect from the deployment AFTER the one that ships it.
+#
 # The backup exists so a human has something to work from when a migration
 # does real damage. Restoring it is a deliberate, manual, logged decision, not
 # something an automated deployment gets to make at 3am.
@@ -122,6 +143,12 @@ EXERCISE_COMPOSE_FILE="docker-compose.exercise.yml"
 # The .env key whose presence means "this VM hosts the class exercise".
 EXERCISE_ENV_KEY="SMARTMATCH_EXERCISE_WORKSPACE_SECRET"
 DB_URL="postgresql://smartmatch:smartmatch@localhost:5432/smartmatch"
+# Written by rollback() when the previous release has to start against a schema
+# that is ahead of it, and named on the compose command line only then. It
+# lives outside the checkout so it never makes the working tree dirty.
+SKIP_MIGRATE_FILE="${STATE_DIR}/rollback-skip-migrate.compose.yml"
+SKIP_MIGRATE=0
+MIGRATIONS_DIR="db/migrations/versions"
 
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 
@@ -210,6 +237,9 @@ log "log file: ${LOG_FILE}"
 
 PREVIOUS_SHA=""
 DEPLOYED_SHA=""
+# Where the last deploy_current_checkout stopped: build, up, migrate,
+# seed-logins, or empty when it succeeded.
+BRING_UP_FAILED_AT=""
 BACKUP_FILE=""
 OUTCOME="failed"
 FAILURE_STAGE="startup"
@@ -266,6 +296,10 @@ resolve_compose_scope() {
     log "compose scope: CBA + class exercise (${EXERCISE_COMPOSE_FILE}, --profile exercise)"
   else
     log "compose scope: CBA only (no ${EXERCISE_ENV_KEY} in .env, or no ${EXERCISE_COMPOSE_FILE})"
+  fi
+  if [ "$SKIP_MIGRATE" = "1" ]; then
+    COMPOSE_FILES+=(-f "$SKIP_MIGRATE_FILE")
+    log "compose scope: migrate is a no-op for this rollback (${SKIP_MIGRATE_FILE})"
   fi
 }
 
@@ -403,6 +437,7 @@ deploy_current_checkout() {
   # running service, which is why this is a separate step from `up`.
   resolve_compose_scope
   log "building images for $(git rev-parse HEAD)"
+  BRING_UP_FAILED_AT="build"
   compose build || return 1
 
   # `up -d` runs the one-shot migrate service exactly once and, through the
@@ -416,6 +451,7 @@ deploy_current_checkout() {
   # anywhere in this script: the database and the web node_modules volume
   # survive every deployment, and that is asserted by a unit test.
   log "recreating changed services (volumes are preserved)"
+  BRING_UP_FAILED_AT="up"
   compose up -d --remove-orphans || return 1
 
   local migrate_state migrate_exit
@@ -427,6 +463,7 @@ deploy_current_checkout() {
     fail_out "this script will not downgrade and will not restore the backup."
     fail_out "See docs/operations/deploy-runbook.md, 'When a revision fails part-way'."
     compose logs --no-color --tail=200 migrate || true
+    BRING_UP_FAILED_AT="migrate"
     return 1
   fi
 
@@ -468,9 +505,111 @@ deploy_current_checkout() {
     fail_out "the seed-logins service did not exit 0. Stakeholder password login is"
     fail_out "not guaranteed to work; treating this as a deployment failure."
     compose logs --no-color --tail=200 seed-logins || true
+    BRING_UP_FAILED_AT="seed-logins"
     return 1
   fi
+  BRING_UP_FAILED_AT=""
   return 0
+}
+
+revision_defined_in() {
+  # $1 a commit, $2 a revision id. True when that commit's migration tree has a
+  # file declaring `revision = "<id>"` at column zero — the same greppable
+  # declaration scripts/compose_health.sh computes the head from.
+  git grep -q -E "^revision(: *str)? *= *[\"']${2}[\"']" "$1" -- "$MIGRATIONS_DIR" 2>/dev/null
+}
+
+schema_ahead_revision() {
+  # Prints the revision the database is at, and returns 0, ONLY when the
+  # bring-up that just failed on the rollback checkout failed for the one
+  # reason an application rollback is expected to meet: the failed release
+  # moved the schema forward, and this (previous) tree does not contain the
+  # revision the database now names. All four must hold:
+  #
+  #   1. the failure was at `up` or at the migrate check — not the build, not
+  #      seed-logins;
+  #   2. the migrate container exited, non-zero;
+  #   3. the LAST failure line it logged is the migration tool's "Can't locate
+  #      revision identified by '<id>'" — an unreachable database, multiple
+  #      heads, or a revision that is present and fails all say something else;
+  #   4. <id> is declared in the failed release's tree ($DEPLOYED_SHA) and is
+  #      NOT declared in the tree now checked out. A revision neither release
+  #      knows is a database this script does not understand.
+  #
+  # Anything else returns 1 and the rollback stops with "needs a human".
+  local state exit_code last_failure revision
+  case "${BRING_UP_FAILED_AT:-}" in
+    up|migrate) : ;;
+    *) return 1 ;;
+  esac
+  state="$(compose ps -a --format '{{.State}}' migrate | head -n1)"
+  exit_code="$(compose ps -a --format '{{.ExitCode}}' migrate | head -n1)"
+  [ "$state" = "exited" ] || return 1
+  case "$exit_code" in ''|0|*[!0-9]*) return 1 ;; esac
+
+  last_failure="$(compose logs --no-color --tail=200 migrate 2>/dev/null | grep 'FAILED:' | tail -n1)"
+  revision="$(printf '%s\n' "$last_failure" \
+    | sed -n -E "s/.*FAILED: Can't locate revision identified by '([A-Za-z0-9_]+)'[[:space:]]*\$/\1/p")"
+  [ -n "$revision" ] || return 1
+  [ -n "$DEPLOYED_SHA" ] || return 1
+  revision_defined_in "$DEPLOYED_SHA" "$revision" || return 1
+  revision_defined_in HEAD "$revision" && return 1
+  printf '%s' "$revision"
+}
+
+write_skip_migrate_override() {
+  # A compose override that changes one thing: what the one-shot `migrate`
+  # service runs. Everything else — the image, the database dependency, and
+  # every other service's `service_completed_successfully` wait on migrate —
+  # is the previous release's own compose file, so the seeds, the API and the
+  # worker still start in compose's order. `sh` is what that service's own
+  # command already runs under.
+  cat > "$SKIP_MIGRATE_FILE" <<OVERRIDE
+# Written by scripts/vm/deploy.sh ${STAMP} while rolling back to ${PREVIOUS_SHA}.
+# The database is at revision ${1}, which that release's db/ tree does not
+# contain, so its migration step cannot run. Nothing was downgraded. This file
+# is named only by that rollback; the next deployment does not use it.
+services:
+  migrate:
+    command: ["sh", "-c", "echo 'rollback: the schema is at ${1}, ahead of this release; migration step skipped'"]
+OVERRIDE
+}
+
+health_tolerating_schema_ahead() {
+  # $1 the revision the schema is known to be ahead at. The previous release's
+  # own health suite, polled with --json until $HEALTH_TIMEOUT. It passes when
+  # every check passes, or when the ONLY failing check is `migrations-at-head`
+  # and its detail reports the database at exactly $1 — the difference this
+  # rollback already established. That check compares the database to the
+  # checkout's head, so against a newer schema it can never pass; every other
+  # check (the API reporting this SHA, the worker, the frontend, the one-shots)
+  # still has to.
+  local revision="$1" deadline report failing
+  deadline=$(( $(date +%s) + HEALTH_TIMEOUT ))
+  while :; do
+    report="$(SMARTMATCH_RELEASE="$PREVIOUS_SHA" SMARTMATCH_API_BEARER="" \
+      scripts/compose_health.sh --json 2>/dev/null)"
+    failing="$(printf '%s' "$report" | grep -o '"id":"[^"]*","status":"[^"]*"' \
+      | grep -v '"status":"pass"$' | sed -E 's/^"id":"([^"]*)".*/\1/' | tr '\n' ' ')"
+    if printf '%s' "$report" | grep -q '"status":"pass"'; then
+      if [ -z "$failing" ]; then
+        return 0
+      fi
+      # The detail reads "<version table>='<revision>' but head is '<head>'".
+      # Matched from the `=` on: the test that this script never invokes the
+      # migration tool scans its code for that tool's name.
+      if [ "$failing" = "migrations-at-head " ] \
+         && printf '%s' "$report" | grep -qF "_version='${revision}' but head is '"; then
+        log "health: every check passed except migrations-at-head, which reports the schema at ${revision} as expected"
+        return 0
+      fi
+    fi
+    [ "$(date +%s)" -ge "$deadline" ] && break
+    sleep 5
+  done
+  fail_out "health: not tolerated — failing checks: ${failing:-the suite printed no result}"
+  printf '%s\n' "$report"
+  return 1
 }
 
 rollback() {
@@ -502,8 +641,44 @@ rollback() {
   fi
 
   export SMARTMATCH_RELEASE="$PREVIOUS_SHA"
+  local ahead_revision=""
   if ! deploy_current_checkout; then
-    fail_out "the previous release could not be rebuilt. The VM needs a human."
+    # The one failure that is expected here: the failed release migrated, and
+    # this release's migrate cannot run against a revision it does not have.
+    # See schema_ahead_revision for exactly what is accepted as that.
+    if ! ahead_revision="$(schema_ahead_revision)" || [ -z "$ahead_revision" ]; then
+      fail_out "the previous release could not be rebuilt. The VM needs a human."
+      FAILURE_STAGE="$stage"
+      return
+    fi
+    fail_out "the database is at revision ${ahead_revision}, which ${DEPLOYED_SHA} added and"
+    fail_out "${PREVIOUS_SHA} does not contain, so the previous release's migration step"
+    fail_out "cannot run. Starting it WITHOUT that step, against the schema as it is."
+    fail_out "Nothing is downgraded and the backup is not restored."
+    if ! write_skip_migrate_override "$ahead_revision"; then
+      fail_out "could not write ${SKIP_MIGRATE_FILE}. The VM needs a human."
+      FAILURE_STAGE="$stage"
+      return
+    fi
+    SKIP_MIGRATE=1
+    if ! deploy_current_checkout; then
+      fail_out "the previous release could not be started even without its migration step."
+      fail_out "The VM needs a human."
+      FAILURE_STAGE="$stage"
+      return
+    fi
+  fi
+
+  if [ -n "$ahead_revision" ]; then
+    if health_tolerating_schema_ahead "$ahead_revision"; then
+      record_running_release "$PREVIOUS_SHA"
+      fail_out "rolled back to ${PREVIOUS_SHA} and it is healthy."
+      fail_out "The schema is still at ${ahead_revision}: the previous code is running against the"
+      fail_out "newer schema. Fix forward — the next deployment migrates normally."
+      fail_out "The deployment still FAILED; this job exits nonzero on purpose."
+    else
+      fail_out "rolled back to ${PREVIOUS_SHA} but it is NOT healthy. The VM needs a human."
+    fi
     FAILURE_STAGE="$stage"
     return
   fi

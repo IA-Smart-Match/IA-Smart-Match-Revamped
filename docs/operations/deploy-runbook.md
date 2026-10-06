@@ -287,6 +287,43 @@ must not be conflated. One is automatic; the other does not exist.
   currently applied. It is safe only because of the rolling-deploy safety rule
   above: every revision must already be compatible with the release before
   it, so the previous code can run against a schema a migration just changed.
+
+  *What the rollback does about the migration step.* The compose `migrate`
+  service runs the checkout's `db/` tree, which after the rollback is the
+  previous release's. If the failed release already applied a revision, the
+  database is at a revision that tree does not contain: `alembic upgrade head`
+  exits 255 with `Can't locate revision identified by '<id>'`, and compose
+  will not start `api` or `worker` behind a failed `migrate`. So:
+
+  1. The rollback runs the ordinary `up` first. With no new revision applied,
+     the previous `migrate` exits 0 and nothing below happens.
+  2. If `migrate` failed, `deploy.sh` accepts exactly one cause: its last
+     `FAILED:` line is that message, **and** `<id>` is a revision the failed
+     release's tree declares and the previous release's tree does not. It
+     then runs `up` again with one override
+     (`/opt/smartmatch/rollback-skip-migrate.compose.yml`) that makes
+     `migrate` a no-op, so compose starts the seeds, API and worker in its
+     usual order. Nothing is downgraded; the schema stays at `<id>`.
+  3. The previous release's health suite must still pass. One check is
+     tolerated: `migrations-at-head`, and only when it reports the database at
+     that same `<id>`.
+  4. Anything else — database unreachable, multiple heads, a revision neither
+     release knows, any other failing check — ends in "The VM needs a human".
+
+  Expand/contract is what makes step 2 safe: the newer schema only *added*
+  objects, so the previous code still finds everything it reads and writes. A
+  forward deployment never skips `migrate`.
+
+  After such a rollback the VM is serving but behind its schema: fix forward
+  promptly. The next deployment recreates `migrate` from its own tree and
+  migrates normally. **Known gaps:** this path is covered by mocked tests
+  only — it has not been exercised on a real VM or against a real Docker
+  daemon. A reboot before the next deployment runs `smartmatch.service`'s
+  plain `up -d` without the override, so `migrate` fails again; whether the
+  restart policies alone bring `api` and `worker` back in that state is
+  unverified. And because the `deploy.sh` that executes a deployment is the
+  copy from the release *before* the pull, this logic is live from the
+  deployment after the one that ships it.
 * *Manual.* Promote an earlier commit to `deploy` (via
   [`promote.yml`](../../.github/workflows/promote.yml) with that commit as
   `source_ref`, subject to its fast-forward-only push) and let `deploy.yml`
