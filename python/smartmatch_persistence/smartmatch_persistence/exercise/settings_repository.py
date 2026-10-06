@@ -144,7 +144,7 @@ MAX_SAVED_SETTINGS_PER_EVENT: Final[int] = 3
 #:   INSERT/UPDATE ``exercise_profile_overlay``; FK FOR KEY SHARE on
 #:   ``exercise_team_workspace`` and on ``exercise_profile``.
 #: * ``results_unlocked``, ``team_state``, ``get_run``, ``get_run_for_round``,
-#:   ``workspaces_awaiting_refresh`` — none → none.
+#:   ``workspaces_awaiting_refresh``, ``workspaces_refresh_status`` — none → none.
 #:
 #: ``instructor_repository``
 #:

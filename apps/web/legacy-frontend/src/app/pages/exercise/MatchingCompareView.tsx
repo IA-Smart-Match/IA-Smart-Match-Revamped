@@ -79,6 +79,7 @@ export function MatchingCompareView({
                 factorLabels={list.factor_labels}
                 highlightProfileNos={overlap}
                 caption={settingName(list)}
+                firstRoundEventName={list.first_round_event_name}
               />
             </div>
           ))}
@@ -172,6 +173,7 @@ function CompareTabs({
           highlightProfileNos={overlap}
           caption={settingName(list)}
           layout="cards"
+          firstRoundEventName={list.first_round_event_name}
         />
         {showAll || list.entries.length <= PHONE_ROWS ? null : (
           <p className="ce-type-meta pt-ce-3 text-center text-ce-ink-muted">

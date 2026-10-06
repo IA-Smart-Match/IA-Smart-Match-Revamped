@@ -39,6 +39,7 @@ __all__ = [
     "ResultPanel",
     "StoredResultRun",
     "TeamResultsState",
+    "WorkspaceRefreshStatus",
     "invited_as_json",
     "invited_from_json",
     "weights_as_json",
@@ -181,6 +182,30 @@ class RefreshCandidate:
     dataset_id: uuid.UUID
     team_number: int
     asking_choice: str
+    seed: int = field(repr=False)
+
+
+@dataclass(frozen=True, slots=True)
+class WorkspaceRefreshStatus:
+    """One team, as the instructor's every-team refresh has to report it.
+
+    **Every** workspace, not only the ones :class:`RefreshCandidate` selects:
+    the report says which teams were refreshed *and which were not, and why*, so
+    a team that has not chosen and a team that already refreshed each need a
+    row to be named from.
+
+    ``dataset_label`` is the data file's own label, carried so that two "Team
+    3"s in a classroom split across two files can be told apart on the report
+    without an identifier leaving the server. ``seed`` is ``repr=False`` for
+    :class:`RefreshCandidate`'s reason.
+    """
+
+    workspace_id: uuid.UUID
+    dataset_id: uuid.UUID
+    dataset_label: str
+    team_number: int
+    asking_choice: str | None
+    refreshed_at: datetime | None
     seed: int = field(repr=False)
 
 

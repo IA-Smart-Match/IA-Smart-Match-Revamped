@@ -406,6 +406,7 @@ function EventMatching({ eventKey }: { readonly eventKey: string }): React.JSX.E
                   entries={state.data.list.entries}
                   factorLabels={state.data.list.factor_labels}
                   caption={`The names for ${state.data.list.event_name}, in order.`}
+                  firstRoundEventName={state.data.list.first_round_event_name}
                 />
               </div>
             </section>

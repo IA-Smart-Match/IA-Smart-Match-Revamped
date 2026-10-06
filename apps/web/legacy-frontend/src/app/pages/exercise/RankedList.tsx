@@ -34,13 +34,14 @@
  * it; the module boundary does not cross.
  */
 import * as React from "react";
-import { Link2 } from "lucide-react";
+import { Link2, MailX, Sparkles } from "lucide-react";
 import { motion } from "motion/react";
 
 import { cn } from "../../components/ui/utils";
 import { type ListEntryView, UNDECIDED_GOAL_HALF_LABEL_KEY } from "../../../lib/exerciseClient";
 import { CE_MOTION_MS, MarkerChip, ceMotion, usePrefersReducedMotion } from "./desk";
 import { EmptySlotArt } from "./EmptySlotArt";
+import { STOPPED_RESPONDING, refreshMarkLabel } from "./refreshWording";
 import { useNarrowViewport } from "./useNarrowViewport";
 
 /** The rulebook key for "career goal fits this event". Never rendered. */
@@ -59,6 +60,11 @@ export interface RankedListProps {
    * cards — the compare view's half-width columns (§6.12).
    */
   readonly layout?: "auto" | "cards";
+  /**
+   * The first round's event name, from the same list response, so a
+   * `new_event` mark can say "New: went to Northline". `null` names no event.
+   */
+  readonly firstRoundEventName?: string | null;
 }
 
 /**
@@ -97,6 +103,7 @@ export function RankedList({
   highlightProfileNos,
   caption,
   layout = "auto",
+  firstRoundEventName = null,
 }: RankedListProps): React.JSX.Element {
   const narrow = useNarrowViewport();
   const reduced = usePrefersReducedMotion();
@@ -151,6 +158,7 @@ export function RankedList({
                 <div className="flex flex-wrap items-center gap-ce-2">
                   <span className="ce-type-body font-semibold text-ce-ink">{entry.display_name}</span>
                   {state.onBoth ? <OnBothChip /> : null}
+                  <RefreshMarkChips marks={entry.refresh_marks} eventName={firstRoundEventName} />
                 </div>
                 <ReasonLines entry={entry} labels={factorLabels} />
                 <p className="ce-type-meta text-ce-ink-muted">
@@ -219,6 +227,7 @@ export function RankedList({
                   <div className="flex flex-wrap items-center gap-ce-2">
                     <span className="font-semibold">{entry.display_name}</span>
                     {state.onBoth ? <OnBothChip /> : null}
+                    <RefreshMarkChips marks={entry.refresh_marks} eventName={firstRoundEventName} />
                   </div>
                   <ReasonLines entry={entry} labels={factorLabels} />
                 </td>
@@ -246,6 +255,48 @@ function OnBothChip(): React.JSX.Element {
       <Link2 aria-hidden="true" className="size-4 shrink-0" />
       on both lists
     </span>
+  );
+}
+
+/**
+ * What this team's refresh changed about a profile (§6.7), beside the name:
+ * "New card", "New: went to Northline", "Stopped responding". An icon and
+ * words on a ruled pill, never colour alone; a profile may carry several.
+ * Nothing is drawn before the refresh, when the server sends no marks.
+ */
+function RefreshMarkChips({
+  marks,
+  eventName,
+}: {
+  readonly marks: readonly string[] | undefined;
+  readonly eventName: string | null;
+}): React.JSX.Element | null {
+  if (marks === undefined || marks.length === 0) {
+    return null;
+  }
+  return (
+    <>
+      {marks.map((mark) => {
+        const stopped = mark === STOPPED_RESPONDING;
+        const Icon = stopped ? MailX : Sparkles;
+        return (
+          <span
+            key={mark}
+            data-slot="exercise-refresh-mark"
+            data-mark={mark}
+            className={cn(
+              "ce-type-meta inline-flex items-center gap-ce-1 rounded-ce-pill border px-ce-2 text-ce-ink",
+              stopped
+                ? "border-ce-line-strong bg-ce-surface-sunk"
+                : "border-ce-primary bg-ce-primary-tint",
+            )}
+          >
+            <Icon aria-hidden="true" className="size-4 shrink-0" />
+            {refreshMarkLabel(mark, eventName)}
+          </span>
+        );
+      })}
+    </>
   );
 }
 

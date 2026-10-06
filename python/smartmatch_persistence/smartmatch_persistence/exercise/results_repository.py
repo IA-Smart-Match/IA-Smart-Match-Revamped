@@ -82,12 +82,14 @@ from smartmatch_persistence.exercise.results_rows import (
     ResultPanel,
     StoredResultRun,
     TeamResultsState,
+    WorkspaceRefreshStatus,
     invited_as_json,
     invited_from_json,
     weights_as_json,
     weights_from_json,
 )
 from smartmatch_persistence.exercise.schema import (
+    exercise_dataset,
     exercise_profile_overlay,
     exercise_result_run,
     exercise_result_unlock,
@@ -372,6 +374,54 @@ class ExerciseResultsRepository:
                 dataset_id=row.dataset_id,
                 team_number=row.team_number,
                 asking_choice=str(row.asking_choice),
+                seed=int(row.seed),
+            )
+            for row in rows
+        )
+
+    def workspaces_refresh_status(self, session: Session) -> tuple[WorkspaceRefreshStatus, ...]:
+        """Every team that exists, with what its refresh state is.
+
+        The read behind the instructor's per-team report. Unlike
+        :meth:`workspaces_awaiting_refresh` it filters nothing: a team that has
+        not chosen and a team that has already refreshed are both returned, so
+        the route can say so by name instead of leaving them out.
+
+        Ordered by the data file's upload time, then its id, then team number —
+        ``instructor_repository.list_workspaces``'s order — so the report reads
+        in the order the Teams panel beside it does, and a classroom split
+        across two files reads as two groups.
+        """
+        rows = session.execute(
+            sa.select(
+                exercise_team_workspace.c.id,
+                exercise_team_workspace.c.dataset_id,
+                exercise_dataset.c.label,
+                exercise_team_workspace.c.team_number,
+                exercise_team_workspace.c.asking_choice,
+                exercise_team_workspace.c.refreshed_at,
+                exercise_team_workspace.c.seed,
+            )
+            .select_from(
+                exercise_team_workspace.join(
+                    exercise_dataset,
+                    exercise_team_workspace.c.dataset_id == exercise_dataset.c.id,
+                )
+            )
+            .order_by(
+                exercise_dataset.c.uploaded_at,
+                exercise_dataset.c.id,
+                exercise_team_workspace.c.team_number,
+            )
+        ).all()
+        return tuple(
+            WorkspaceRefreshStatus(
+                workspace_id=row.id,
+                dataset_id=row.dataset_id,
+                dataset_label=str(row.label),
+                team_number=row.team_number,
+                asking_choice=row.asking_choice,
+                refreshed_at=row.refreshed_at,
                 seed=int(row.seed),
             )
             for row in rows

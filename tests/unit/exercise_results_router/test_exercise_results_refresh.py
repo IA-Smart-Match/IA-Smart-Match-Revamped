@@ -7,7 +7,9 @@ Split by topic from ``tests/unit/test_exercise_results_router.py``; see
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import datetime
 
+import pytest
 from fastapi.testclient import TestClient
 from smartmatch_api.routers import (
     exercise_instructor_refresh,
@@ -51,6 +53,8 @@ from tests.unit.exercise_results_router.support import (
     _instructor,
     _prepare_refresh,
     _Row,
+    _run_round_one,
+    _seed_choice,
 )
 
 # ---------------------------------------------------------------------------
@@ -72,7 +76,7 @@ def test_a_refresh_before_the_choice_is_refused(
 
 
 def test_a_refresh_before_the_first_round_is_refused(fakes: _Fakes, client: TestClient) -> None:
-    assert client.post(_ASKING, json={"choice": "required"}, headers=_HEADER).status_code == 200
+    _seed_choice(fakes, 1)
 
     response = client.post(_REFRESH, json={}, headers=_HEADER)
 
@@ -204,6 +208,162 @@ def test_a_refresh_copies_a_card_that_then_reads_as_an_ordinary_card(
     # is for is the card: at least one profile must have reached the third state.
     completed = [key for key in moved if after[key] == "completed_card"]
     assert completed, "no profile reached `completed_card`, so no card was copied"
+
+
+# ---------------------------------------------------------------------------
+# Making the refresh visible (Oct-2 checklist §6)
+# ---------------------------------------------------------------------------
+
+_MARKER_KEYS = {"major_only", "major_plus_events", "completed_card"}
+_LEGACY_COUNT_KEYS = ("cards_completed", "non_responding", "topics_added")
+
+
+def test_the_choice_is_refused_before_round_one_has_results(
+    fakes: _Fakes, client: TestClient
+) -> None:
+    """Checklist: "The choice appears only after the team has its round-one results"."""
+    before = client.get(_ASKING).json()
+
+    response = client.post(_ASKING, json={"choice": "required"}, headers=_HEADER)
+
+    assert before["first_round_results"] is False
+    assert response.status_code == 409
+    assert response.json()["error"] == {
+        "code": "exercise_no_first_round_results",
+        "message": "Run the first round's results before asking.",
+    }
+    assert fakes.results.choices == {}, "a refused choice must store nothing"
+
+
+def test_an_unknown_choice_is_still_answered_before_the_round_one_gate(
+    client: TestClient,
+) -> None:
+    response = client.post(_ASKING, json={"choice": "bribery"}, headers=_HEADER)
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "exercise_asking_choice_unknown"
+
+
+def test_the_asking_route_says_when_round_one_has_results_and_names_the_event(
+    fakes: _Fakes, client: TestClient, confirmed: SimulationCoefficients
+) -> None:
+    assert client.get(_ASKING).json()["first_round_event_name"] == _ROUND_ONE.name
+
+    _run_round_one(fakes, client)
+    after = client.get(_ASKING).json()
+
+    assert after["first_round_results"] is True
+    assert after["first_round_event_name"] == _ROUND_ONE.name
+    assert after["refreshed_at"] is None
+    assert client.post(_ASKING, json={"choice": "required"}, headers=_HEADER).status_code == 200
+
+
+def test_a_refresh_reports_when_it_happened_and_what_it_changed(
+    fakes: _Fakes, client: TestClient, confirmed: SimulationCoefficients
+) -> None:
+    """Every fact the checklist's summary sentence and before/after line need."""
+    first = _prepare_refresh(fakes, client)
+    workspace = fakes.workspaces.rows[(_DATASET_ID, 1)]
+    invited = first["team"]["invited_profile_nos"]
+
+    body = client.post(_REFRESH, json={}, headers=_HEADER).json()
+
+    stored = fakes.results.refreshed[workspace.id]
+    assert datetime.fromisoformat(body["refreshed_at"]) == stored
+    counts = body["refresh_counts"]
+    assert {key: counts[key] for key in _LEGACY_COUNT_KEYS} == {
+        key: body[key] for key in _LEGACY_COUNT_KEYS
+    }
+    assert counts["invited_without_card"] == len(invited_without_a_card(_PROFILES, invited))
+    assert counts["invited_without_card"] >= counts["cards_completed"] >= 1
+    before, after = counts["marker_counts_before"], counts["marker_counts_after"]
+    assert set(before) == set(after) == _MARKER_KEYS
+    assert sum(before.values()) == sum(after.values()) == len(_PROFILES), "every row is counted"
+    assert before == {"major_only": 7, "major_plus_events": 3, "completed_card": 2}
+    assert after["completed_card"] == before["completed_card"] + counts["cards_completed"]
+
+
+def test_a_reload_reads_the_same_time_and_the_same_counts(
+    fakes: _Fakes, client: TestClient, confirmed: SimulationCoefficients
+) -> None:
+    _prepare_refresh(fakes, client)
+    posted = client.post(_REFRESH, json={}, headers=_HEADER).json()
+
+    read = client.get(_ASKING).json()
+
+    assert read["refreshed"] is True
+    assert read["refreshed_at"] == posted["refreshed_at"]
+    assert read["refresh_counts"] == posted["refresh_counts"]
+
+
+def test_a_second_refresh_changes_nothing_and_the_time_stands(
+    fakes: _Fakes, client: TestClient, confirmed: SimulationCoefficients
+) -> None:
+    """Checklist: a second press "does nothing"; the screen says when the first was."""
+    _prepare_refresh(fakes, client)
+    first = client.post(_REFRESH, json={}, headers=_HEADER).json()
+    overlays = dict(fakes.team_view.overlays)
+
+    second = client.post(_REFRESH, json={}, headers=_HEADER)
+
+    assert second.status_code == 409
+    assert second.json()["error"]["code"] == "exercise_already_refreshed"
+    assert fakes.team_view.overlays == overlays
+    assert client.get(_ASKING).json()["refreshed_at"] == first["refreshed_at"]
+
+
+def test_the_list_marks_the_profiles_the_refresh_changed(
+    fakes: _Fakes, client: TestClient, confirmed: SimulationCoefficients
+) -> None:
+    """Checklist: "The changed profiles are marked in the list"."""
+    before = client.get(f"{_BASE}/events/round-one/list").json()
+    assert all(entry["refresh_marks"] == [] for entry in before["entries"])
+    assert before["first_round_event_name"] == _ROUND_ONE.name
+
+    _prepare_refresh(fakes, client)
+    client.post(_REFRESH, json={}, headers=_HEADER)
+    after = client.get(f"{_BASE}/events/round-one/list").json()
+
+    workspace = fakes.workspaces.rows[(_DATASET_ID, 1)]
+    marks = {entry["profile_no"]: entry["refresh_marks"] for entry in after["entries"]}
+    checked = 0
+    for (workspace_id, profile_no), row in fakes.team_view.overlays.items():
+        assert workspace_id == workspace.id
+        if profile_no not in marks:
+            continue
+        expected = [
+            mark
+            for mark, applies in (
+                ("new_card", row.overlay_card_interests is not None),
+                ("new_event", bool(row.overlay_added_event_topics)),
+                ("stopped_responding", row.non_responding),
+            )
+            if applies
+        ]
+        assert marks[profile_no] == expected
+        checked += 1
+    assert checked >= 1, "no changed profile is on the list, so nothing was checked"
+    untouched = set(marks) - {profile_no for _, profile_no in fakes.team_view.overlays}
+    assert all(marks[profile_no] == [] for profile_no in untouched)
+
+
+def test_one_teams_marks_never_reach_another_teams_list(
+    fakes: _Fakes, confirmed: SimulationCoefficients
+) -> None:
+    """Checklist: "One team's refresh changes nothing for any other team"."""
+    with _entered(fakes, 1) as first, _entered(fakes, 2) as second:
+        _prepare_refresh(fakes, first)
+        assert first.post(_REFRESH, json={}, headers=_HEADER).status_code == 200
+
+        own = first.get(f"{_BASE}/events/round-one/list").json()
+        other = second.get(f"{_BASE}/events/round-one/list").json()
+        other_asking = second.get(_ASKING).json()
+
+    assert any(entry["refresh_marks"] for entry in own["entries"])
+    assert all(entry["refresh_marks"] == [] for entry in other["entries"])
+    assert other_asking["refreshed"] is False
+    assert other_asking["refreshed_at"] is None
+    assert other_asking["refresh_counts"] is None
 
 
 # ---------------------------------------------------------------------------
@@ -380,10 +540,10 @@ def test_refresh_all_skips_and_counts_a_team_with_no_first_round(
     fakes: _Fakes, confirmed: SimulationCoefficients
 ) -> None:
     fakes.unlock("round-one")
-    with _entered(fakes, 1) as one, _entered(fakes, 2) as two:
+    with _entered(fakes, 1) as one, _entered(fakes, 2):
         one.post(_RESULTS, json=_FINAL_BODY, headers=_HEADER)
         one.post(_ASKING, json={"choice": "required"}, headers=_HEADER)
-        two.post(_ASKING, json={"choice": "required"}, headers=_HEADER)
+        _seed_choice(fakes, 2)
 
         with _instructor(fakes) as instructor:
             body = instructor.post(_REFRESH_ALL, headers=_HEADER).json()
@@ -412,6 +572,114 @@ def test_refresh_all_produces_what_the_teams_own_buttons_would_have(
     assert [entry["marker"] for entry in first["entries"]] == [
         entry["marker"] for entry in second["entries"]
     ]
+
+
+def test_refresh_all_reports_every_team_and_why_it_was_skipped(
+    fakes: _Fakes, confirmed: SimulationCoefficients
+) -> None:
+    """Ann, 2026-10-02: "which teams were refreshed and which were skipped and why"."""
+    fakes.unlock("round-one")
+    with (
+        _entered(fakes, 1) as one,
+        _entered(fakes, 2) as two,
+        _entered(fakes, 3),
+        _entered(fakes, 4),
+    ):
+        for client in (one, two):
+            client.post(_RESULTS, json=_FINAL_BODY, headers=_HEADER)
+            client.post(_ASKING, json={"choice": "required"}, headers=_HEADER)
+        earlier = two.post(_REFRESH, json={}, headers=_HEADER).json()
+        # team three never chooses; team four has a choice and no round one
+        _seed_choice(fakes, 4)
+
+        with _instructor(fakes) as instructor:
+            body = instructor.post(_REFRESH_ALL, headers=_HEADER).json()
+        own = one.get(_ASKING).json()
+
+    assert [team["team_number"] for team in body["teams"]] == [1, 2, 3, 4]
+    assert [(team["outcome"], team["reason_code"]) for team in body["teams"]] == [
+        ("refreshed", None),
+        ("skipped", "already_refreshed"),
+        ("skipped", "no_asking_choice"),
+        ("skipped", "no_round_one_run"),
+    ]
+    refreshed, already, unchosen, behind = body["teams"]
+    # The refreshed team's line is the same summary that team now reads itself.
+    assert refreshed["refresh_counts"] == own["refresh_counts"]
+    assert refreshed["refreshed_at"] == own["refreshed_at"]
+    assert refreshed["first_round_event_name"] == _ROUND_ONE.name
+    assert refreshed["refresh_counts"]["cards_completed"] >= 1
+    # A team that refreshed itself earlier keeps its own time and is not re-counted.
+    assert already["refreshed_at"] == earlier["refreshed_at"]
+    assert already["refresh_counts"] is None
+    for skipped in (unchosen, behind):
+        assert skipped["refreshed_at"] is None
+        assert skipped["refresh_counts"] is None
+    assert {team["dataset_label"] for team in body["teams"]} == {"Made-up student body (sample)"}
+    # The three fields the route has always sent keep their meaning.
+    assert body["refreshed_team_numbers"] == [1]
+    assert body["refreshed"] == 1
+    assert body["skipped"] == 1, "only the chosen team that could not be refreshed"
+
+
+def test_refresh_all_reports_nothing_for_a_classroom_nobody_entered(fakes: _Fakes) -> None:
+    with _instructor(fakes) as instructor:
+        body = instructor.post(_REFRESH_ALL, headers=_HEADER).json()
+
+    assert body == {"refreshed_team_numbers": [], "refreshed": 0, "skipped": 0, "teams": []}
+
+
+def test_refresh_all_does_not_blame_round_one_for_a_team_cleared_mid_request(
+    fakes: _Fakes, confirmed: SimulationCoefficients, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A lost claim is read back and named for what the row now says."""
+    fakes.unlock("round-one")
+    with _entered(fakes, 1) as one:
+        one.post(_RESULTS, json=_FINAL_BODY, headers=_HEADER)
+        one.post(_ASKING, json={"choice": "required"}, headers=_HEADER)
+        workspace = fakes.workspaces.rows[(_DATASET_ID, 1)]
+
+        def cleared_first(*_args: object, **_kwargs: object) -> None:
+            """The team's choice goes away between the listing and the claim."""
+            del fakes.results.choices[workspace.id]
+
+        monkeypatch.setattr(fakes.results, "apply_refresh", cleared_first)
+        with _instructor(fakes) as instructor:
+            body = instructor.post(_REFRESH_ALL, headers=_HEADER).json()
+
+    assert [(team["outcome"], team["reason_code"]) for team in body["teams"]] == [
+        ("skipped", "no_asking_choice")
+    ]
+    assert body["refreshed"] == 0
+    assert fakes.team_view.overlays == {}
+
+
+def test_refresh_all_names_a_team_that_refreshed_itself_mid_request(
+    fakes: _Fakes, confirmed: SimulationCoefficients, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A claim lost to the team's own press is reported with that press's time."""
+    fakes.unlock("round-one")
+    own_press = datetime.fromisoformat("2026-10-16T10:31:00+00:00")
+    with _entered(fakes, 1) as one:
+        one.post(_RESULTS, json=_FINAL_BODY, headers=_HEADER)
+        one.post(_ASKING, json={"choice": "required"}, headers=_HEADER)
+        workspace = fakes.workspaces.rows[(_DATASET_ID, 1)]
+
+        def refreshed_first(*_args: object, **_kwargs: object) -> None:
+            """The team's own press lands between the listing and the claim."""
+            fakes.results.refreshed[workspace.id] = own_press
+
+        monkeypatch.setattr(fakes.results, "apply_refresh", refreshed_first)
+        with _instructor(fakes) as instructor:
+            body = instructor.post(_REFRESH_ALL, headers=_HEADER).json()
+
+    assert [(team["outcome"], team["reason_code"]) for team in body["teams"]] == [
+        ("skipped", "already_refreshed")
+    ]
+    assert datetime.fromisoformat(body["teams"][0]["refreshed_at"]) == own_press
+    assert body["teams"][0]["refresh_counts"] is None
+    assert body["refreshed"] == 0
+    assert fakes.team_view.overlays == {}
 
 
 def test_refresh_all_is_answered_by_the_new_router() -> None:

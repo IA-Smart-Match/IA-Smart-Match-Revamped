@@ -1,6 +1,6 @@
 /**
  * The instructor's two class-wide actions: open or close results for an event,
- * and ask for every team at once. Moved out of `ExerciseInstructor.tsx` unchanged in
+ * and refresh every team at once. Moved out of `ExerciseInstructor.tsx` unchanged in
  * behaviour for the invitation-desk layout (DESIGN.md §6.24, §7.11).
  */
 import * as React from "react";
@@ -15,6 +15,7 @@ import {
   type InstructorEventView,
   type RefreshAllView,
 } from "../../../lib/exerciseClient";
+import { refreshAllHeadline, refreshAllTeamLine } from "./refreshWording";
 import { cn } from "../../components/ui/utils";
 import { Button, Notice } from "./desk";
 import { EventDescription } from "./EventDescription";
@@ -425,12 +426,24 @@ const SPLIT_ACROSS_FILES =
   "The teams are working in more than one data file. Under Data files, press " +
   "“Move every team to this file” on the file the class should use. This list reads again on its own once they move.";
 
+/** What the every-team button does, on the button itself (DESIGN.md §11.1). */
+export const REFRESH_ALL_LABEL = "Refresh every team that has chosen how to ask";
+
 /**
- * Refresh every team that has chosen and has not yet asked.
+ * Refresh every team that has chosen a way of asking and is not refreshed yet.
  *
- * It refreshes every team that has chosen a way of asking and has not yet
- * asked, skipping the rest, and reports both counts. An expired session signs
- * the page out.
+ * Ann's review of 2026-10-02: the button's label "should say what it does",
+ * and after running it "says … which teams were refreshed and which were
+ * skipped and why", with "the same kind of summary for each team". So the
+ * label names the action, and the answer is one line per team: the team's own
+ * refresh summary, or the reason it was skipped. The server sends an outcome,
+ * a reason code, a time and counts; `refreshWording.ts` writes the words.
+ *
+ * It is one request and all or nothing: if it is refused, no team is changed.
+ * An expired session signs the page out.
+ *
+ * No "Are you sure?" step here: that is a separate change. `send` is the one
+ * place the request is made, so a confirm can sit in front of it.
  */
 export function RefreshAllPanel({
   onDone,
@@ -444,59 +457,76 @@ export function RefreshAllPanel({
   const [done, setDone] = React.useState<RefreshAllView | null>(null);
   const [refusal, setRefusal] = React.useState<string | null>(null);
 
+  function send(): void {
+    setPending(true);
+    setRefusal(null);
+    refreshAllWorkspaces()
+      .then((view) => {
+        setDone(view);
+        onDone();
+      })
+      .catch((error: unknown) => {
+        setRefusal(isRefusal(error) ? error.message : UNREACHABLE);
+        if (isRefusal(error) && error.code === INSTRUCTOR_SESSION_REQUIRED) {
+          onSignedOut();
+        }
+      })
+      .finally(() => setPending(false));
+  }
+
   return (
-    <PanelCard title="Ask for every team at once">
+    <PanelCard title="Refresh every team at once" slot="exercise-instructor-refresh-all">
       <p className="ce-type-body ce-measure text-ce-ink-muted">
-        This runs in one go for every team that has picked a way of asking and has not asked yet. If
-        it cannot be done, no team is changed.
+        This refreshes, in one go, every team that has chosen a way of asking and has not been
+        refreshed yet. Teams that are not ready are skipped, and the list below says why. If it
+        cannot be done, no team is changed.
       </p>
       <div>
         <Button
           variant="secondary"
           pending={pending}
-          pendingLabel="Asking for every team…"
+          pendingLabel="Refreshing every team…"
           className="w-full sm:w-auto"
-          onClick={() => {
-            setPending(true);
-            setRefusal(null);
-            refreshAllWorkspaces()
-              .then((view) => {
-                setDone(view);
-                onDone();
-              })
-              .catch((error: unknown) => {
-                setRefusal(isRefusal(error) ? error.message : UNREACHABLE);
-                if (isRefusal(error) && error.code === INSTRUCTOR_SESSION_REQUIRED) {
-                  onSignedOut();
-                }
-              })
-              .finally(() => setPending(false));
-          }}
+          onClick={send}
         >
-          Ask for every team
+          {REFRESH_ALL_LABEL}
         </Button>
       </div>
       {refusal === null ? null : <ExerciseNotice message={refusal} />}
-      {done === null ? null : <Notice tone="done" message={refreshAllSentence(done)} />}
+      {done === null ? null : <RefreshAllReport done={done} />}
     </PanelCard>
   );
 }
 
 /**
- * "Asked for 1 team (2). Skipped 1: that team has not run results…".
- *
- * A chosen team with no round-one run is what the server skips. (It also
- * skips, rarely, a team that asked by itself in the same moment; that team
- * already shows "Has already asked" in the Teams panel.)
+ * What the every-team refresh did: a headline, then one line per team in the
+ * Teams panel's order. The team's name leads each line in bold so a row can be
+ * found by eye; the reason is words, never a colour.
  */
-function refreshAllSentence(done: RefreshAllView): string {
-  const numbers =
-    done.refreshed_team_numbers.length === 0 ? "" : ` (${done.refreshed_team_numbers.join(", ")})`;
-  const why =
-    done.skipped === 0
-      ? "."
-      : done.skipped === 1
-        ? ": that team has not run results for its first event yet."
-        : ": those teams have not run results for their first event yet.";
-  return `Asked for ${done.refreshed} ${done.refreshed === 1 ? "team" : "teams"}${numbers}. Skipped ${done.skipped}${why}`;
+function RefreshAllReport({ done }: { readonly done: RefreshAllView }): React.JSX.Element {
+  const teams = done.teams ?? [];
+  // A file's label is not unique, so the label says nothing about how many
+  // files there are. A repeated team number is what needs telling apart.
+  const repeated = new Set(teams.map((team) => team.team_number)).size < teams.length;
+  return (
+    <Notice tone="done" message={refreshAllHeadline(done)}>
+      {teams.length === 0 ? undefined : (
+        <ul data-slot="exercise-refresh-all-teams" className="ce-type-body flex flex-col gap-ce-2">
+          {teams.map((team, index) => {
+            const line = refreshAllTeamLine(team, { nameFile: repeated });
+            return (
+              <li
+                // The report is one fixed answer, so its order is its identity.
+                key={index}
+                data-outcome={team.outcome}
+                data-reason={team.reason_code ?? undefined}
+              >
+                <span className="font-semibold">{line.team}</span> {line.what}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </Notice>
+  );
 }

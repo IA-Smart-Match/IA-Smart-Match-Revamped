@@ -140,6 +140,7 @@ from smartmatch_persistence.exercise.results_rows import (
     ResultPanel,
     StoredResultRun,
     TeamResultsState,
+    WorkspaceRefreshStatus,
 )
 from smartmatch_persistence.exercise.settings_repository import (
     MAX_SAVED_SETTINGS_PER_EVENT,
@@ -215,6 +216,7 @@ __all__ = [
     "TooManySavedSettingsError",
     "WorkingDataset",
     "WorkspaceCookiePolicy",
+    "WorkspaceRefreshStatus",
     "WorkspaceRepository",
     "WorkspaceSecret",
     "get_active_dataset",
