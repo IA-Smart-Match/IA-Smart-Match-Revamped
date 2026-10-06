@@ -9,9 +9,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { RefreshAllTeamView, RefreshCountsView } from "../../../lib/exerciseClient";
+import { clockTime } from "./exerciseTime";
 import {
   alreadyRefreshedLabel,
-  formatClockTime,
   markerCountLines,
   markerCountTotal,
   refreshAllHeadline,
@@ -33,16 +33,16 @@ const COUNTS: RefreshCountsView = {
   marker_counts_after: { major_only: 160, major_plus_events: 58, completed_card: 82 },
 };
 
-describe("formatClockTime", () => {
+describe("clockTime", () => {
   it("reads as the time on the room's clock, with a plain space", () => {
-    expect(formatClockTime(AT)).toBe("10:42 AM");
-    expect(formatClockTime("2026-10-16T14:05:00")).toBe("2:05 PM");
+    expect(clockTime(AT)).toBe("10:42 AM");
+    expect(clockTime("2026-10-16T14:05:00")).toBe("2:05 PM");
   });
 
   it("is null when there is no time to show", () => {
-    expect(formatClockTime(null)).toBeNull();
-    expect(formatClockTime(undefined)).toBeNull();
-    expect(formatClockTime("not a time")).toBeNull();
+    expect(clockTime(null)).toBeNull();
+    expect(clockTime(undefined)).toBeNull();
+    expect(clockTime("not a time")).toBeNull();
   });
 });
 
@@ -55,7 +55,9 @@ describe("a server timestamp, which carries its offset", () => {
   });
 
   /** The module as a browser in `timeZone` loads it, whatever zone the tests run in. */
-  async function inRoom(timeZone: string): Promise<typeof import("./refreshWording")> {
+  async function inRoom(
+    timeZone: string,
+  ): Promise<typeof import("./refreshWording") & typeof import("./exerciseTime")> {
     class RoomClock extends realFormat {
       constructor(locales?: string | string[], options?: Intl.DateTimeFormatOptions) {
         super(locales, { ...options, timeZone });
@@ -63,18 +65,18 @@ describe("a server timestamp, which carries its offset", () => {
     }
     Intl.DateTimeFormat = RoomClock as typeof Intl.DateTimeFormat;
     vi.resetModules();
-    return import("./refreshWording");
+    return { ...(await import("./exerciseTime")), ...(await import("./refreshWording")) };
   }
 
   it("reads as the room's clock, not as the hour written in the value", async () => {
     const utc = "2026-10-16T17:42:00+00:00";
     const pacific = await inRoom("America/Los_Angeles");
-    expect(pacific.formatClockTime(utc)).toBe("10:42 AM");
+    expect(pacific.clockTime(utc)).toBe("10:42 AM");
     expect(pacific.alreadyRefreshedLabel(utc)).toBe("Already refreshed at 10:42 AM");
     expect(pacific.refreshDoneLine(utc)).toBe("Refresh done at 10:42 AM.");
 
     const eastern = await inRoom("America/New_York");
-    expect(eastern.formatClockTime(utc)).toBe("1:42 PM");
+    expect(eastern.clockTime(utc)).toBe("1:42 PM");
   });
 });
 

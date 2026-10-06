@@ -20,29 +20,8 @@ import type {
   RefreshAllView,
   RefreshCountsView,
 } from "../../../lib/exerciseClient";
+import { clockTime } from "./exerciseTime";
 import { markerLabel } from "./markers";
-
-/** "10:42 AM", in the browser's own time zone. */
-const CLOCK = new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit" });
-
-/**
- * A server timestamp as the time on the room's clock: "10:42 AM".
- *
- * `null` when there is no timestamp or it cannot be read, so a caller can
- * leave the time out rather than print "Invalid Date". Newer browsers put a
- * narrow no-break space before "AM"; it is replaced with a plain space so the
- * text reads, copies and compares as written.
- */
-export function formatClockTime(iso: string | null | undefined): string | null {
-  if (iso === null || iso === undefined) {
-    return null;
-  }
-  const when = new Date(iso);
-  if (Number.isNaN(when.getTime())) {
-    return null;
-  }
-  return CLOCK.format(when).replace(/[  ]/g, " ");
-}
 
 /** "1 person" / "9 people" / "0 people". */
 function people(count: number): string {
@@ -51,13 +30,13 @@ function people(count: number): string {
 
 /** The first line of the summary: "Refresh done at 10:42 AM." */
 export function refreshDoneLine(at: string | null | undefined): string {
-  const time = formatClockTime(at);
+  const time = clockTime(at);
   return time === null ? "Refresh done." : `Refresh done at ${time}.`;
 }
 
 /** The shut button's own words: "Already refreshed at 10:42 AM". */
 export function alreadyRefreshedLabel(at: string | null | undefined): string {
-  const time = formatClockTime(at);
+  const time = clockTime(at);
   return time === null ? "Already refreshed" : `Already refreshed at ${time}`;
 }
 
@@ -187,7 +166,7 @@ function skipReason(team: RefreshAllTeamView): string {
     return "Skipped: it has not run results for its first event.";
   }
   if (team.reason_code === "already_refreshed") {
-    const time = formatClockTime(team.refreshed_at);
+    const time = clockTime(team.refreshed_at);
     return time === null
       ? "Skipped: it was already refreshed."
       : `Skipped: it was already refreshed at ${time}.`;
@@ -214,7 +193,7 @@ export function refreshAllTeamLine(
   if (team.outcome !== "refreshed") {
     return { team: name, what: skipReason(team) };
   }
-  const time = formatClockTime(team.refreshed_at);
+  const time = clockTime(team.refreshed_at);
   const counts = team.refresh_counts;
   const cards = counts === null ? undefined : markerCountLines(counts)[0];
   const parts = [
