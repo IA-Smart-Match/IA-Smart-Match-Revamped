@@ -96,6 +96,9 @@ class InstructorEventRow:
     ``unlocked_at`` is when results were last opened and ``closed_at`` is when
     they were closed again; both are ``None`` for an event never opened, and
     ``closed_at`` is ``None`` while it is open (D16 amendment, 2026-10-06).
+
+    ``description`` is the data file's short public text for the event, the
+    same paragraph the teams read, or ``None`` when the file gave none (#318).
     """
 
     event_key: str
@@ -104,6 +107,7 @@ class InstructorEventRow:
     unlocked: bool
     unlocked_at: datetime | None = None
     closed_at: datetime | None = None
+    description: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

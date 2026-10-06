@@ -341,6 +341,7 @@ def read_events(
                 target_majors=list(event.target_majors),
                 is_exercise_event=event.is_exercise_event,
                 sequence=event.sequence,
+                description=event.description,
                 results_open=results_open,
                 results_run=results_run,
             )

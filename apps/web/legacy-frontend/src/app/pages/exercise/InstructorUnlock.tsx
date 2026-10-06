@@ -17,6 +17,7 @@ import {
 } from "../../../lib/exerciseClient";
 import { cn } from "../../components/ui/utils";
 import { Button, Notice } from "./desk";
+import { EventDescription } from "./EventDescription";
 import { ExerciseNotice } from "./ExerciseScreen";
 import { clockTime } from "./exerciseTime";
 import { useSignOutOnExpiredRead } from "./instructorSession";
@@ -346,6 +347,8 @@ function UnlockRow({
           </Button>
         )}
       </div>
+      {/* #318: the same description the teams read, beside the event it is about. */}
+      <EventDescription text={event.description} />
       {asking === null ? null : (
         <div
           className={cn(INSTRUCTOR_WELL, "ce-fade-rise flex flex-col gap-ce-3")}

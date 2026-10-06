@@ -90,6 +90,20 @@ Every `file:line` below is on `origin/main` at `9339d5a4`. Paths are shortened:
   - `:286` the CSV refusal sentence; `:291` `_guard_zip`
   - `python/smartmatch_domain/pyproject.toml:9-10` pins `openpyxl` and
     `defusedxml`
+- **Amendment, 2026-10-06 (#325, #318).** Ann's file of 2026-10-02 adds a last
+  `Events` column, `event_description`, whose two filled cells are 571 and 561
+  characters. Three defaults were taken to accept it; each awaits the owner's
+  confirmation.
+  1. The 500-character cell cap stays for every heading and every cell except
+     `Events.event_description`, which may hold 2,000
+     (`layout.py` `EVENT_DESCRIPTION_MAX_CHARACTERS`). The other option was to
+     raise the cap for the whole file.
+  2. `event_description` is optional. A file without the column is accepted
+     and shows no description; a blank cell means the same. The other option
+     was to require it, which refuses every file sent before 2026-10-02.
+  3. The upload route sends a refusal without the parser's backticks, so the
+     page shows "The Events sheet is missing the column seats." The parser's
+     own sentences are unchanged.
 
 ## D2. Career goal → topic, and "Undecided" at half credit
 
@@ -159,6 +173,15 @@ Every `file:line` below is on `origin/main` at `9339d5a4`. Paths are shortened:
   major-fit table). The xlsx stays the source of truth; the `.accdb` carries
   no document metadata (no Author, Company or LastAuthor). See
   `tests/fixtures/exercise/README.md`. Owner-approved 2026-09-27 (PR #243).
+- **Amendment, 2026-10-06 (#325).** Ann's file of 2026-10-02 is committed as
+  `tests/fixtures/exercise/SmartMatch_Student_Body_300_10022026.xlsx`, cut the
+  same way: sheets `Profiles` and `Events` only, document properties reset.
+  The September file stays beside it, as the source of the `.accdb` and as
+  the proof that a file without `event_description` still uploads. The two
+  agree cell for cell on every column they share. The `.accdb` is **not**
+  rebuilt: it still mirrors the September file and has no
+  `event_description`. Rebuilding it needs Microsoft Access on Windows and is
+  an open manual step. Awaits the owner's confirmation.
 
 ## D5. A results run needs a saved final setting
 

@@ -56,7 +56,7 @@ readiness.
 |---|---|---|
 | `exercise_dataset` | id, label, source_filename, uploaded_at, row_count, checksum, invite_limit (default 30), license_line (nullable) | One row per uploaded data file. The instructor's "replace the data file" creates a new row and points active workspaces at it after validation. |
 | `exercise_profile` | dataset_id, profile_no, display_name, major, class_year, past_event_keys[], stated_interests[] (topics), career_goal, tiebreak_order, **hidden_true_interests[]**, **hidden_true_career_goal** | The 300. Both hidden columns are in `EXERCISE_WITHHELD_FIELDS`. `tiebreak_order` and `hidden_true_career_goal` arrived with revision 0042. |
-| `exercise_event` | dataset_id, event_key, name, topic_tags[] (topics), target_majors[], is_exercise_event, sequence | 12 rows: 10 past, then Northline (round 1) and Harbor (round 2). |
+| `exercise_event` | dataset_id, event_key, name, topic_tags[] (topics), target_majors[], is_exercise_event, sequence, is_exploratory, description (nullable, revision 0044) | 12 rows: 10 past, then Northline (round 1) and Harbor (round 2). |
 | `exercise_team_workspace` | dataset_id, team_number (1–6), workspace_token_hash, seed, created_at, asking_choice (nullable), refreshed_at (nullable) | One per team per dataset. `seed` drives §11's chance element. |
 | `exercise_profile_overlay` | workspace_id, profile_no, added_event_topics[], card_interests[] (nullable), card_career_goal (nullable), non_responding (bool) | Per-team mutations only. A team's view of a profile is base row ⟕ overlay. "Reset team" deletes this team's overlay, runs, and settings. Cheaper than six copies of 300 rows and makes isolation a key, not a discipline. |
 | `exercise_saved_setting` | workspace_id, event_key, name, weights (jsonb, four keys), created_at | UNIQUE (workspace_id, event_key, name); at most three per (workspace, event), enforced in the repository and by a partial check. |
@@ -83,6 +83,7 @@ read. The mapping (`smartmatch_domain/exercise/layout.py`, `EXERCISE_LAYOUT`):
 | `exercise_event` (Yes/No), `seats` | `is_exercise_event`; `seats` must be 60 on the two exercise events |
 | Row position on `Events` | `sequence` |
 | `event_type` | `is_exploratory` — true for Career fair, Employer info session, Industry panel and Employer talk (OQ-CE-14, Ann 2026-09-25); the type itself is not stored |
+| `event_description` (optional; Ann 2026-10-02, #318) | `description` — the short public paragraph, kept as written; `NULL` for a blank cell or a file without the column. Shown on the picker card, at the top of the matching page and beside the event on the instructor page. Never ranked on. |
 | `events_attended_count`, `info_level`, `event_date` | not read — derivable or shown nowhere |
 
 The vocabularies are closed in code (`smartmatch_domain/exercise/vocabulary.py`,
@@ -110,6 +111,12 @@ on an exploratory event, and the simulated-results rule treats it the same way.
   `MAX_TOTAL_UNCOMPRESSED_BYTES` in `workbook.py`, tightened in PR #228's
   security review). Row, column and cell caps as before. A CSV or an old `.xls`
   is refused with its own sentence.
+- Cell cap (amended 2026-10-06, #325): a cell holds at most 500 characters
+  (`MAX_CELL_CHARACTERS`), except a cell of `Events.event_description`, which
+  holds at most 2,000 (`EVENT_DESCRIPTION_MAX_CHARACTERS` in `layout.py`).
+  Ann's two descriptions of 2026-10-02 are 571 and 561 characters. Headings
+  and every other column, read or not, keep 500. The exception is declared on
+  the layout and handed to the reader, which still knows no column name.
 - Validation, in order, each producing one plain sentence on failure: both
   sheets present ("The workbook has no sheet named `Events`."); required
   columns present, naming the sheet ("The `Profiles` sheet is missing the
@@ -122,8 +129,15 @@ on an exploratory event, and the simulated-results rule treats it the same way.
   workspaces keep pointing at their old dataset until the instructor
   re-points them; a re-point resets every team.
 
-The required columns are every column of `EXERCISE_LAYOUT`: twelve on
-`Profiles`, six on `Events`.
+The required columns are every column of `EXERCISE_LAYOUT` but one: twelve on
+`Profiles`, seven on `Events`. `Events.event_description` is read when present
+and is **optional** (amended 2026-10-06, #318): a file without it, which is
+every file before 2026-10-02, is accepted and has no descriptions.
+
+The parser's sentences set sheet and column names off in backticks, as quoted
+above. The upload route sends them without the backticks (amended 2026-10-06,
+#325), because the instructor page prints a refusal exactly as it arrives:
+"The Events sheet is missing the column seats."
 
 **Not multipart (owner ruling 2026-09-21).** FastAPI's multipart parsing needs
 `python-multipart`, which this repository does not carry. The body is the file's

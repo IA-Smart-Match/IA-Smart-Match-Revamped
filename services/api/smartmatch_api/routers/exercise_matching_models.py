@@ -364,6 +364,13 @@ class EventView(BaseModel):
         ),
     )
     sequence: int = Field(description="The event's position in the data file, from 1.")
+    description: str | None = Field(
+        default=None,
+        description=(
+            "The event's short description, as the data file wrote it, or null "
+            "when the data file gives none. Shown as it is; nothing ranks on it."
+        ),
+    )
     results_open: bool = Field(
         description=(
             "Whether the instructor has results for this event open right now: "
@@ -468,6 +475,13 @@ class RankedListView(BaseModel):
 
     event_key: str = Field(description="The event this list was built for.")
     event_name: str = Field(description="That event's label.")
+    event_description: str | None = Field(
+        default=None,
+        description=(
+            "That event's short description, as the data file wrote it, or "
+            "null when the data file gives none."
+        ),
+    )
     invite_limit: int = Field(description="The cap the list was cut at, from the data file.")
     setting_name: str | None = Field(
         default=None,
@@ -701,6 +715,7 @@ def ranked_list_view(
     return RankedListView(
         event_key=event.event_key,
         event_name=event.name,
+        event_description=event.description,
         invite_limit=ranked.invite_limit,
         setting_name=setting_name,
         weights=dict(weights),

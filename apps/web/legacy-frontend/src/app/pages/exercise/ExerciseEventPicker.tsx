@@ -28,6 +28,7 @@ import { CalendarDays, ChevronDown, ChevronRight } from "lucide-react";
 import { readEvents, type EventView } from "../../../lib/exerciseClient";
 import { cn } from "../../components/ui/utils";
 import { Button, Skeleton, SkeletonCard, SkeletonRegion } from "./desk";
+import { EventDescription } from "./EventDescription";
 import { ExerciseNotice, ExerciseScreen } from "./ExerciseScreen";
 import { useExerciseResource } from "./useExerciseResource";
 import { workspaceRequiredNotice } from "./refusals";
@@ -106,8 +107,13 @@ function EventLists({ events }: { readonly events: readonly EventView[] }): Reac
 
 /**
  * One round (§6.5): a numbered seal, the event name in the serif, its topics
- * and majors as the server sends them, and a chevron. The whole card is the
- * link, so the ring and the lift wrap the card.
+ * and majors as the server sends them, the data file's description when it
+ * has one (#318), and a chevron. The whole card is the link, so the ring and
+ * the lift wrap the card.
+ *
+ * The link is *named* by the seal and the event name and *described* by the
+ * rest. A description runs to several sentences, and a link whose name is a
+ * paragraph is unusable in a screen reader's list of links.
  */
 function RoundCard({
   event,
@@ -119,12 +125,16 @@ function RoundCard({
   // round-journey.svg geometry: round one is a tinted ring, later rounds a
   // filled disc.
   const first = roundNumber === 1;
+  const id = React.useId();
   return (
     <Link
       to={`/exercise/events/${encodeURIComponent(event.event_key)}`}
+      aria-labelledby={`${id}-round ${id}-name`}
+      aria-describedby={`${id}-details`}
       className="group ce-card ce-lift flex items-start gap-ce-4 p-ce-4 text-ce-ink no-underline md:gap-ce-5 md:p-ce-5"
     >
       <div
+        id={`${id}-round`}
         className={cn(
           "flex size-11 shrink-0 items-center justify-center rounded-full border-[3px] border-ce-primary font-ce-display text-[22px] leading-none font-bold tabular-nums md:size-14 md:text-[26px]",
           first ? "bg-ce-primary-tint text-ce-on-primary-tint" : "bg-ce-primary text-ce-on-primary",
@@ -134,15 +144,20 @@ function RoundCard({
         {roundNumber}
       </div>
       <div className="flex min-w-0 flex-1 flex-col gap-ce-2">
-        <p className="ce-type-h2 break-words text-ce-ink">{event.name}</p>
-        {event.topic_tags.length === 0 ? null : (
-          <p className="ce-type-body text-ce-ink">Topics: {event.topic_tags.join(", ")}</p>
-        )}
-        {event.target_majors.length === 0 ? null : (
-          <p className="ce-type-body text-ce-ink-muted">
-            Aimed at: {event.target_majors.join(", ")}
-          </p>
-        )}
+        <p id={`${id}-name`} className="ce-type-h2 break-words text-ce-ink">
+          {event.name}
+        </p>
+        <div id={`${id}-details`} className="flex flex-col gap-ce-2">
+          <EventDescription text={event.description} />
+          {event.topic_tags.length === 0 ? null : (
+            <p className="ce-type-body text-ce-ink">Topics: {event.topic_tags.join(", ")}</p>
+          )}
+          {event.target_majors.length === 0 ? null : (
+            <p className="ce-type-body text-ce-ink-muted">
+              Aimed at: {event.target_majors.join(", ")}
+            </p>
+          )}
+        </div>
       </div>
       <ChevronRight
         aria-hidden="true"

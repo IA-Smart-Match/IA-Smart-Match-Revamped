@@ -32,13 +32,17 @@ from smartmatch_domain.exercise.ingest import (
     ParsedDataset,
     parse_exercise_file,
 )
+from smartmatch_domain.exercise.layout import EVENT_DESCRIPTION_MAX_CHARACTERS
 from smartmatch_domain.exercise.vocabulary import EXERCISE_MAJORS
+from smartmatch_domain.exercise.workbook import MAX_CELL_CHARACTERS
 from smartmatch_domain.student_factors import EventEvidence, ProfileEvidence, same_major
 
 from tests.unit.exercise_workbooks import (
     ANN_FULL_FILE,
+    ANN_OCT02_FILE,
     ANN_SAMPLE_FILE,
     EVENT_HEADINGS,
+    EVENT_HEADINGS_WITH_DESCRIPTION,
     LAYOUT,
     PROFILE_HEADINGS,
     WITHHELD_GOAL,
@@ -72,6 +76,15 @@ def _with_event(index: int, **overrides: object) -> bytes:
     events = event_rows()
     events[index].update(overrides)
     return workbook_bytes(good_profile_rows(), events)
+
+
+def _with_described_event(index: int, **overrides: object) -> bytes:
+    """As :func:`_with_event`, on a sheet that carries the description column."""
+    events = event_rows()
+    events[index].update(overrides)
+    return workbook_bytes(
+        good_profile_rows(), events, event_headings=EVENT_HEADINGS_WITH_DESCRIPTION
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -126,6 +139,47 @@ def test_p004_is_read_the_way_anns_data_file_describes_it() -> None:
     assert p004.career_goal == "Data, analytics or IT role"
     assert p004.tiebreak_order == 186
     assert p004.hidden_true_career_goal == "Data, analytics or IT role"
+
+
+def test_anns_october_workbook_is_accepted_with_its_new_last_column() -> None:
+    """#325: the 2026-10-02 file carries two cells longer than 500 characters."""
+    dataset = _accepted(ANN_OCT02_FILE.read_bytes())
+
+    assert (dataset.report.profile_count, dataset.report.event_count) == (300, 12)
+
+
+def test_northline_and_harbor_carry_their_descriptions_in_the_october_file() -> None:
+    """Ann, 2026-10-02 (#318): "It holds the short description for Northline and
+    Harbor. It is blank for the ten past events."
+
+    Asserted by length and by how each begins and ends, so the test pins that
+    the whole cell arrived without copying Ann's paragraphs into the suite.
+    """
+    events = {event.event_key: event for event in _accepted(ANN_OCT02_FILE.read_bytes()).events}
+
+    northline, harbor = events["E11"].description, events["E12"].description
+    assert northline is not None and harbor is not None
+    assert (len(northline), len(harbor)) == (571, 561)
+    assert northline.startswith("Northline Analytics helps mid-sized companies")
+    assert harbor.startswith("Harbor Consumer Brands makes household")
+    assert northline.endswith("Snacks provided.") and harbor.endswith("Snacks provided.")
+    past = [key for key in events if key not in {"E11", "E12"}]
+    assert len(past) == 10
+    assert all(events[key].description is None for key in past)
+
+
+def test_the_september_file_has_no_descriptions_and_is_otherwise_the_same_file() -> None:
+    """Ann, 2026-10-02: "Nothing else in the file changed." A file without the
+    column is still accepted (#325), and it differs in nothing but the text."""
+    september = _accepted(ANN_FULL_FILE.read_bytes())
+    october = _accepted(ANN_OCT02_FILE.read_bytes())
+
+    assert all(event.description is None for event in september.events)
+    assert october.profiles == september.profiles
+    assert [dataclasses.replace(event, description=None) for event in october.events] == list(
+        september.events
+    )
+    assert october.report == september.report
 
 
 def test_the_twenty_row_sample_is_refused_by_the_specs_row_count_floor() -> None:
@@ -357,6 +411,97 @@ def test_the_columns_the_parser_does_not_read_are_not_required() -> None:
     _accepted(content)
 
 
+# ---------------------------------------------------------------------------
+# The description column's own length limit (#325)
+# ---------------------------------------------------------------------------
+
+
+def test_a_description_may_be_as_long_as_its_own_limit() -> None:
+    text = "d" * EVENT_DESCRIPTION_MAX_CHARACTERS
+
+    _accepted(_with_described_event(10, **{LAYOUT.event_description_column: text}))
+
+
+def test_a_description_past_its_limit_is_refused_and_the_sentence_says_the_limit() -> None:
+    text = "d" * (EVENT_DESCRIPTION_MAX_CHARACTERS + 1)
+
+    refusal = _refusal(_with_described_event(10, **{LAYOUT.event_description_column: text}))
+
+    assert refusal.code == "cell_too_long"
+    assert refusal.message == (
+        "Row 12 of the `Events` sheet has more than 2000 characters in the column "
+        "`event_description`; please shorten it and upload again."
+    )
+
+
+def test_a_long_cell_in_any_other_events_column_is_still_refused() -> None:
+    name = "n" * (MAX_CELL_CHARACTERS + 1)
+
+    refusal = _refusal(_with_described_event(10, **{LAYOUT.event_name_column: name}))
+
+    assert refusal.code == "cell_too_long"
+    assert "more than 500 characters in the column `event_name`" in refusal.message
+
+
+def test_a_long_cell_in_a_column_the_parser_does_not_read_is_still_refused() -> None:
+    refusal = _refusal(_with_event(0, event_date="9" * (MAX_CELL_CHARACTERS + 1)))
+
+    assert refusal.code == "cell_too_long"
+    assert "more than 500 characters in the column `event_date`" in refusal.message
+
+
+def test_the_longer_limit_does_not_reach_a_profiles_column_of_the_same_name() -> None:
+    headings = (*PROFILE_HEADINGS, LAYOUT.event_description_column)
+    rows = good_profile_rows()
+    rows[0][LAYOUT.event_description_column] = "d" * (MAX_CELL_CHARACTERS + 1)
+
+    refusal = _refusal(workbook_bytes(rows, event_rows(), profile_headings=headings))
+
+    assert refusal.code == "cell_too_long"
+    assert "`Profiles` sheet has more than 500 characters" in refusal.message
+
+
+# ---------------------------------------------------------------------------
+# Reading the description (#318)
+# ---------------------------------------------------------------------------
+
+_BLURB = "A fictional sixty-minute talk about a made-up company. Snacks provided."
+
+
+def test_an_events_description_is_read_as_the_file_wrote_it() -> None:
+    dataset = _accepted(_with_described_event(10, **{LAYOUT.event_description_column: _BLURB}))
+
+    assert dataset.events[10].description == _BLURB
+
+
+def test_a_blank_description_is_no_description() -> None:
+    dataset = _accepted(_with_described_event(10, **{LAYOUT.event_description_column: "   "}))
+
+    assert [event.description for event in dataset.events] == [None] * 12
+
+
+def test_a_file_without_the_description_column_is_accepted_with_no_descriptions() -> None:
+    """The column is optional: every file Ann sent before 2026-10-02 lacks it."""
+    assert LAYOUT.event_description_column not in EVENT_HEADINGS
+
+    dataset = _accepted(good_workbook())
+
+    assert [event.description for event in dataset.events] == [None] * 12
+
+
+def test_a_description_is_free_text_and_is_not_checked_against_a_vocabulary() -> None:
+    text = "Basket weaving; `quoted`; =SUM(A1); 100% made up."
+
+    dataset = _accepted(_with_described_event(11, **{LAYOUT.event_description_column: text}))
+
+    assert dataset.events[11].description == text
+
+
+def test_the_description_is_not_a_withheld_column() -> None:
+    """It is the public paragraph, shown to teams; only the two pink columns are withheld."""
+    assert LAYOUT.event_description_column not in LAYOUT.withheld_columns
+
+
 def test_heading_spelling_is_presentation_rather_than_identity() -> None:
     renamed = {"tiebreak_order": "Tiebreak Order", "card_completed": " CARD-completed "}
     headings = [renamed.get(h, h) for h in PROFILE_HEADINGS]
@@ -574,14 +719,18 @@ def test_the_checksum_is_stable_for_the_same_bytes() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_every_layout_column_is_required_on_its_sheet() -> None:
+def test_every_layout_column_is_required_on_its_sheet_or_declared_optional() -> None:
     declared = {
         getattr(LAYOUT, field.name)
         for field in dataclasses.fields(LAYOUT)
         if field.name.endswith("_column")
     }
+    required = set(LAYOUT.profile_columns) | set(LAYOUT.event_columns)
+    optional = set(LAYOUT.optional_event_columns)
 
-    assert set(LAYOUT.profile_columns) | set(LAYOUT.event_columns) == declared
+    assert required | optional == declared
+    assert required.isdisjoint(optional)
+    assert optional == {"event_description"}
     assert LAYOUT.withheld_columns == {"hidden_true_interests", "hidden_true_career_goal"}
 
 

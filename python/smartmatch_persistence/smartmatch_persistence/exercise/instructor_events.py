@@ -39,6 +39,7 @@ def select_exercise_events(
             exercise_event.c.event_key,
             exercise_event.c.name,
             exercise_event.c.sequence,
+            exercise_event.c.description,
             exercise_result_unlock.c.unlocked_at,
             exercise_result_unlock.c.closed_at,
         )
@@ -65,6 +66,7 @@ def select_exercise_events(
             unlocked=row.unlocked_at is not None and row.closed_at is None,
             unlocked_at=row.unlocked_at,
             closed_at=row.closed_at,
+            description=row.description,
         )
         for row in session.execute(statement).all()
     )

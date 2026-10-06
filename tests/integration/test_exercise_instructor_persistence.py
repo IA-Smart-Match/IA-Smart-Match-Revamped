@@ -433,6 +433,7 @@ def test_the_event_list_carries_the_unlock_row_and_only_exercise_events(
                     name=name,
                     sequence=sequence,
                     is_exercise_event=is_round,
+                    description="A fictional later round." if key == "round-late" else None,
                 )
             )
         session.commit()
@@ -456,6 +457,8 @@ def test_the_event_list_carries_the_unlock_row_and_only_exercise_events(
         ("round-mid", "A middle round", False),
         ("round-late", "A later round", False),
     ]
+    # #318: the description beside each event, and nothing for one without.
+    assert [row.description for row in after] == [None, None, "A fictional later round."]
 
 
 def test_an_event_that_is_not_in_the_file_is_recognised_before_the_write(

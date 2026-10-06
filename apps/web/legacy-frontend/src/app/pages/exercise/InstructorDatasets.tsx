@@ -29,6 +29,14 @@
  * a per-upload value. The ingest does not fill `license_line`, so it is `null`
  * here and nothing stands in for it.
  *
+ * **An upload answers in one sentence, and a refusal stands alone.** Ann's
+ * checklist §2 (2026-10-02, #325): after an upload, "file name, '300 profiles,
+ * 12 events loaded.'"; after a refused one, "a plain message naming the missing
+ * column, and the old file stays in use". So the report leads with that
+ * sentence, composed here from the server's own file name and counts, and the
+ * report of an earlier upload is taken away the moment another upload starts
+ * or anything on this panel is refused: "loaded" never sits beside "refused".
+ *
  * An expired session signs the page out, from the list read or from any
  * action, as every instructor panel does (`instructorSession.ts`). Visual
  * layout: DESIGN.md §6.24 (dropzone, dataset row, invite limit).
@@ -99,9 +107,15 @@ export function InstructorDatasets({
     setPendingAction(kind);
     setRefusal(null);
     setDone(null);
+    if (kind === "upload") {
+      // The report on screen is about the previous file, not this one.
+      setUploaded(null);
+    }
     try {
       await action();
     } catch (error) {
+      // A refusal never sits next to an earlier upload's "loaded".
+      setUploaded(null);
       setRefusal(
         isRefusal(error)
           ? error.message
@@ -119,17 +133,7 @@ export function InstructorDatasets({
   return (
     <PanelCard title="Data files">
       {refusal === null ? null : <ExerciseNotice message={refusal} />}
-      {done === null ? null : (
-        <div
-          role="status"
-          aria-live="polite"
-          data-slot="exercise-instructor-done"
-          className="ce-notice-in flex items-start gap-ce-3 rounded-ce-card bg-ce-avocado-tint p-ce-4 text-ce-ink"
-        >
-          <CircleCheck aria-hidden="true" className="mt-[3px] size-6 shrink-0 text-ce-primary" />
-          <p className="ce-type-body min-w-0">{done}</p>
-        </div>
-      )}
+      {done === null ? null : <DoneNotice slot="exercise-instructor-done">{done}</DoneNotice>}
 
       <UploadForm
         pending={pending}
@@ -150,6 +154,7 @@ export function InstructorDatasets({
 
       {uploaded === null ? null : (
         <div className="flex flex-col gap-ce-3" data-slot="exercise-upload-report">
+          <DoneNotice slot="exercise-upload-done">{uploadSentence(uploaded)}</DoneNotice>
           {/* The server's own sentence about what an upload did and did not do. */}
           <ExerciseNotice message={uploaded.notice} />
           <dl className="grid grid-cols-2 gap-ce-3">
@@ -210,6 +215,39 @@ export function InstructorDatasets({
       ) : null}
     </PanelCard>
   );
+}
+
+/**
+ * What just worked (DESIGN.md §6.20, "Done"): a polite live region, so it is
+ * heard without arriving as an alert.
+ */
+function DoneNotice({
+  slot,
+  children,
+}: {
+  readonly slot: string;
+  readonly children: React.ReactNode;
+}): React.JSX.Element {
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      data-slot={slot}
+      className="ce-notice-in flex items-start gap-ce-3 rounded-ce-card bg-ce-avocado-tint p-ce-4 text-ce-ink"
+    >
+      <CircleCheck aria-hidden="true" className="mt-[3px] size-6 shrink-0 text-ce-primary" />
+      <p className="ce-type-body min-w-0 break-words">{children}</p>
+    </div>
+  );
+}
+
+/**
+ * Ann's one sentence for an upload (checklist §2): the file's name and what
+ * was in it. Every part is the server's; only the order of the words is ours.
+ */
+function uploadSentence(uploaded: UploadedDatasetView): string {
+  const { dataset, report } = uploaded;
+  return `${dataset.source_filename} — ${report.profile_count} profiles, ${report.event_count} events loaded.`;
 }
 
 /**
