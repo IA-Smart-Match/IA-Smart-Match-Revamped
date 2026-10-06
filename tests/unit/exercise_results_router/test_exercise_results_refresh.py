@@ -654,6 +654,34 @@ def test_refresh_all_does_not_blame_round_one_for_a_team_cleared_mid_request(
     assert fakes.team_view.overlays == {}
 
 
+def test_refresh_all_names_a_team_that_refreshed_itself_mid_request(
+    fakes: _Fakes, confirmed: SimulationCoefficients, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A claim lost to the team's own press is reported with that press's time."""
+    fakes.unlock("round-one")
+    own_press = datetime.fromisoformat("2026-10-16T10:31:00+00:00")
+    with _entered(fakes, 1) as one:
+        one.post(_RESULTS, json=_FINAL_BODY, headers=_HEADER)
+        one.post(_ASKING, json={"choice": "required"}, headers=_HEADER)
+        workspace = fakes.workspaces.rows[(_DATASET_ID, 1)]
+
+        def refreshed_first(*_args: object, **_kwargs: object) -> None:
+            """The team's own press lands between the listing and the claim."""
+            fakes.results.refreshed[workspace.id] = own_press
+
+        monkeypatch.setattr(fakes.results, "apply_refresh", refreshed_first)
+        with _instructor(fakes) as instructor:
+            body = instructor.post(_REFRESH_ALL, headers=_HEADER).json()
+
+    assert [(team["outcome"], team["reason_code"]) for team in body["teams"]] == [
+        ("skipped", "already_refreshed")
+    ]
+    assert datetime.fromisoformat(body["teams"][0]["refreshed_at"]) == own_press
+    assert body["teams"][0]["refresh_counts"] is None
+    assert body["refreshed"] == 0
+    assert fakes.team_view.overlays == {}
+
+
 def test_refresh_all_is_answered_by_the_new_router() -> None:
     declared = {
         (method, route.path)
