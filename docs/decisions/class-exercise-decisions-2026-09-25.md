@@ -97,7 +97,8 @@ Every `file:line` below is on `origin/main` at `9339d5a4`. Paths are shortened:
 > **Superseded in part, 2026-10-02.** Ann's progress check and revisions (item
 > 4b) removed the half credit for "Undecided": it now fits no event, in
 > matching and in the results step, and `exercise_event.is_exploratory` is
-> dropped. The role→topic table below stands. See [`class-exercise-factor-revisions-2026-10-02.md`](class-exercise-factor-revisions-2026-10-02.md).
+> no longer read or written (the column is kept until a later contract-phase
+> migration drops it). The role→topic table below stands. See [`class-exercise-factor-revisions-2026-10-02.md`](class-exercise-factor-revisions-2026-10-02.md).
 > The text below is left as it was recorded on 2026-09-25.
 
 - **Question.** Which event topic does each career-goal label fit? (OQ-CE-14)

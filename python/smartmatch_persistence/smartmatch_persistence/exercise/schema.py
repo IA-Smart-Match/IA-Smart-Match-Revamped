@@ -65,9 +65,13 @@ career goals — are closed **in code**
 Revision ``0042_exercise_ann_dataset`` added Ann's two columns this table did
 not have: ``hidden_true_career_goal`` (withheld) and ``tiebreak_order``.
 Revision ``0043_exercise_event_exploratory`` added ``exercise_event.is_exploratory``
-(OQ-CE-14) and revision ``0044_drop_event_exploratory`` dropped it again, when
-Ann's revisions of 2026-10-02 removed the rule that read it. Nothing is stored
-from Ann's ``event_type``.
+(OQ-CE-14). Ann's revisions of 2026-10-02 removed the rule that read it, so
+no application code reads or writes the column now: an insert leaves it out and
+the server default stores ``false``. The column itself stays, declared below so
+this module still matches the migrations, until a contract-phase revision drops
+it after the 2026-10-16 run-through — the release before this one selects and
+inserts it, and a VM rollback rebuilds that release without downgrading the
+schema.
 """
 
 from __future__ import annotations
@@ -208,6 +212,13 @@ exercise_event = sa.Table(
     # attended. The distinction is what keeps a past event out of the picker.
     sa.Column("is_exercise_event", sa.Boolean, nullable=False, server_default=sa.text("false")),
     sa.Column("sequence", sa.Integer, nullable=False),
+    # Revision 0043 (OQ-CE-14). RETIRED, NOT YET DROPPED: Ann's revisions of
+    # 2026-10-02 removed the rule that read it, and nothing in the application
+    # reads or writes it. Do not select it or put it in an insert's values —
+    # the server default fills it. It is declared so this module matches the
+    # database; the drop is a contract-phase revision for a later release,
+    # because the previous release still reads and inserts the column.
+    sa.Column("is_exploratory", sa.Boolean, nullable=False, server_default=sa.text("false")),
     sa.PrimaryKeyConstraint("dataset_id", "event_key", name="exercise_event_pkey"),
     # One event per position. The ten past events and the two rounds are an
     # ordered list in the case; two events claiming position 11 would make

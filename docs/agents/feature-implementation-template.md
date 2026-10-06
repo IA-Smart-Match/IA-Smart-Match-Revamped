@@ -83,8 +83,8 @@ its worksheet.
   command-path tables do. If both API and worker would write it, say so here and
   say why; seed the entry from `tools/derive_table_writers.py` rather than from
   memory.
-- **Migration number** = current head + 1. Head is `0044_drop_event_exploratory.py`, so
-  the next is `0045_<slug>.py`. One transaction per revision (ADR-0009).
+- **Migration number** = current head + 1. Head is `0043_exercise_event_exploratory.py`, so
+  the next is `0034_<slug>.py`. One transaction per revision (ADR-0009).
 - **Check constraints** — the constraint is the contract, not the annotation.
   List each and the invariant it holds.
 - **Parity** — declared in `schema.py` by hand (ADR-0004), including indexes

@@ -759,22 +759,22 @@ checklist for real:
    diverged; resolve before promoting, per
    [`vm-deploy.md`](vm-deploy.md#promoting-a-commit-to-the-vm).
 
-2. **Confirm the migration head is `0044_drop_event_exploratory`.**
+2. **Confirm the migration head is `0043_exercise_event_exploratory`.**
    ```bash
-   grep -L 'down_revision = "0044_drop_event_exploratory"' /dev/null; \
-   grep -rl 'down_revision = "0044_drop_event_exploratory"' db/migrations/versions/*.py
+   grep -L 'down_revision = "0043_exercise_event_exploratory"' /dev/null; \
+   grep -rl 'down_revision = "0043_exercise_event_exploratory"' db/migrations/versions/*.py
    ```
    Pass: the second command prints **nothing** — no later revision points back
-   at `0044_drop_event_exploratory`, so it is the head
-   (`db/migrations/versions/0044_drop_event_exploratory.py` sets its own
-   `down_revision = "0043_exercise_event_exploratory"`; it drops the boolean
-   `is_exploratory` from `exercise_event`, which nothing reads since Ann's
-   revisions of 2026-10-02). No re-upload is needed for it. **Rolling the
-   application back past this release needs
-   `alembic downgrade 0043_exercise_event_exploratory` first**: the older
-   application selects the dropped column. Fail: a revision is printed — the
-   head has moved past `0044`; re-derive this step against the new file before
-   continuing,
+   at `0043_exercise_event_exploratory`, so it is the head
+   (`db/migrations/versions/0043_exercise_event_exploratory.py` sets its own
+   `down_revision = "0042_exercise_ann_dataset"`; it adds the boolean
+   `is_exploratory` to `exercise_event`). Nothing reads or writes that column
+   since Ann's revisions of 2026-10-02; it stays in the table, `false` by
+   default, so that rolling the application back to the release before those
+   revisions still works with no schema step. Dropping it is a contract-phase
+   revision for a later release, after the 2026-10-16 run-through. No
+   re-upload is needed. Fail: a revision is printed — the head has moved
+   past `0043`; re-derive this step against the new file before continuing,
    since the tables the grant in [§3](#3-the-database-role) depends on may
    have changed shape.
 

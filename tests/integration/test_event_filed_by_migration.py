@@ -97,11 +97,7 @@ REVISION = "0033_event_filed_by"
 #: ``0042_exercise_ann_dataset`` and is the head. It adds one boolean
 #: ``exercise_event`` column defaulting to false and writes no rows, so this
 #: file's claims still hold through it.
-#: Moved again by CE-FACTOR-REVISIONS: ``0044_drop_event_exploratory`` chains to
-#: ``0043_exercise_event_exploratory`` and is the head. It drops the one boolean
-#: ``exercise_event`` column 0043 added and writes no rows, so this file's claims
-#: still hold through it.
-HEAD_REVISION = "0044_drop_event_exploratory"
+HEAD_REVISION = "0043_exercise_event_exploratory"
 
 ON_DATE = "2026-10-14"
 ZONE = "America/Los_Angeles"

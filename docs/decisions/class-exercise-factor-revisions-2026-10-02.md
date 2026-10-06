@@ -48,20 +48,29 @@ that this removes the rule everywhere, not only on Northline:
   way"), so they are removed together.
 - The plumbing goes with the rule: the "undecided goal suits a broad event"
   wording, the `undecided_goal_half` flag and label on the list response, the
-  web's handling of both, and `exercise_event.is_exploratory`.
+  web's handling of both, and every read and write of
+  `exercise_event.is_exploratory`. The column itself stays for now (see
+  "Compatibility and scope").
 
 The rulebook is `exercise-0.2.0` (was `exercise-0.1.0`), Stage B formula
 `1.1.0-exercise`, approver "Ann Wang, progress check and revisions 2026-10-02".
 
 ## Compatibility and scope
 
-- **The column is dropped in the same release.** Migration
-  `0044_drop_event_exploratory` removes `exercise_event.is_exploratory`.
-  `db/migrations/script.py.mako` asks for a destructive step to wait until the
-  release that stops reading the column is promoted and stable. Chau decided on
-  2026-10-05 to drop it with the rule. Consequence: rolling the application
-  back needs `alembic downgrade 0043_exercise_event_exploratory` first. The
-  downgrade restores the column as `false` for every event.
+- **The column stays in this release; the drop is deferred.** This release
+  stops reading and writing `exercise_event.is_exploratory` and ships no
+  migration: the head stays `0043_exercise_event_exploratory`. The column is
+  `BOOLEAN NOT NULL DEFAULT false`, so an insert that leaves it out stores
+  `false` and nothing else notices it. Chau's ruling of 2026-10-05 was to drop
+  it with the rule, and the first version of this change carried migration
+  `0044_drop_event_exploratory`. The audit of PR #337 (2026-10-06) took it out,
+  with the owner's approval: `scripts/vm/deploy.sh` rolls back by rebuilding
+  the previous commit and never downgrades the schema, and the previous
+  release selects and inserts this column, so a rollback after the drop would
+  have broken the ranked list and the upload.
+  `db/migrations/script.py.mako` asks for exactly this order — expand, then
+  contract once the release is promoted and stable. The drop is a
+  contract-phase follow-up, to be opened after the 2026-10-16 run-through.
 - **`event_type` is still required and checked at ingest** against Ann's seven
   kinds of event. Nothing is stored from it.
 - **The list response loses a field.** `undecided_goal_half` is gone from each

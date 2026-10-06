@@ -82,7 +82,7 @@ read. The mapping (`smartmatch_domain/exercise/layout.py`, `EXERCISE_LAYOUT`):
 | `event_id`, `event_name`, `event_topics`, `target_major` | `event_key`, `name`, `topic_tags`, `target_majors` (`All majors` → all six) |
 | `exercise_event` (Yes/No), `seats` | `is_exercise_event`; `seats` must be 60 on the two exercise events |
 | Row position on `Events` | `sequence` |
-| `event_type` | checked against Ann's seven kinds of event; nothing is stored from it (`is_exploratory` was dropped on Ann's revisions of 2026-10-02) |
+| `event_type` | checked against Ann's seven kinds of event; nothing is stored from it (`is_exploratory` is no longer read or written since Ann's revisions of 2026-10-02; the column stays, `false` by default, until a later contract-phase migration drops it) |
 | `events_attended_count`, `info_level`, `event_date` | not read — derivable or shown nowhere |
 
 The vocabularies are closed in code (`smartmatch_domain/exercise/vocabulary.py`,
