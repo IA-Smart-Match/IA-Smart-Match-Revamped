@@ -633,7 +633,7 @@ invite-limit stepper, team row (6), unlock row, ask-for-every-team panel. See
 | F | ring | ring on button | ring on each action |
 | L | "Uploading and checking the file…" with determinate stages: Reading → Checking columns → Saved | "Opening…" | "Clearing…" |
 | E | "No data file has been uploaded yet." | "{file} has no events for the teams to run." | "No team has entered a number yet." |
-| X | server sentence under the zone, file name kept | server sentence inline | server sentence inline |
+| X | server sentence under the zone, file name kept; the report of an earlier upload is removed (#325) | server sentence inline | server sentence inline |
 | Dis | while uploading | once open: `LockOpen` chip "Results are open", no button | during a pending action |
 
 ## 7. Page layouts
@@ -888,3 +888,6 @@ labels and the license line are unchanged and not listed.
 | Instructor, passcode show/hide toggle (accessible name; `aria-pressed` carries the state) | "Show what is typed" |
 | Instructor, unlock confirm in progress | "Opening…" |
 | Instructor, upload in progress | "Uploading and checking the file…" |
+| Instructor, upload done (#325; composed on the page from the server's file name and counts) | "SmartMatch_Student_Body_300.xlsx — 300 profiles, 12 events loaded." |
+| Instructor, upload refused (#325; the server's sentence, now sent without backticks) | "The Events sheet is missing the column seats." |
+| Instructor, upload refused, a description too long (#325; server sentence) | "Row 12 of the Events sheet has more than 2000 characters in the column event_description; please shorten it and upload again." |

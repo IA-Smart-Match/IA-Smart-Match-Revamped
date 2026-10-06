@@ -164,7 +164,11 @@ def parse_exercise_file(
 
 def _parse(raw: bytes, layout: ExerciseFileLayout) -> ParsedDataset | IngestRefusal:
     """The whole of §3, in order. The first refusal is the answer."""
-    sheets = read_sheets(raw, (layout.profiles_sheet, layout.events_sheet))
+    sheets = read_sheets(
+        raw,
+        (layout.profiles_sheet, layout.events_sheet),
+        cell_limits=layout.cell_character_limits,
+    )
     if isinstance(sheets, IngestRefusal):
         return sheets
     profile_sheet, event_sheet = sheets

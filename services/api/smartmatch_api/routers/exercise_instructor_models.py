@@ -68,6 +68,7 @@ __all__ = [
     "UploadedDatasetView",
     "dataset_view",
     "event_view",
+    "plain_sentence",
     "report_view",
     "run_view",
     "setting_view",
@@ -165,6 +166,21 @@ class IngestReportView(BaseModel):
     major_only: int
     major_plus_events: int
     completed_card: int
+
+
+def plain_sentence(message: str) -> str:
+    """A parser's refusal sentence as the instructor page prints it (#325).
+
+    The parser sets sheet and column names off in backticks, and the page
+    prints a refusal exactly as it arrives, so the marks showed on screen. Ann
+    asked for "a plain message naming the missing column" (checklist §2,
+    2026-10-02); this drops the marks and nothing else.
+
+    Dropping every backtick is safe because none of them is file content:
+    ``smartmatch_domain.exercise.workbook.quote`` removes backticks from
+    anything it quotes out of the upload, so each one left is a delimiter.
+    """
+    return message.replace("`", "")
 
 
 #: What an upload says about the teams, in one plain sentence. Design spec §3:

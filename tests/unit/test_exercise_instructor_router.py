@@ -830,6 +830,89 @@ def test_a_refused_file_is_one_plain_sentence(signed_in: TestClient) -> None:
     assert ".xlsx" in message
 
 
+def _upload(signed_in: TestClient, content: bytes, filename: str = "file.xlsx") -> Any:
+    from smartmatch_domain.exercise.workbook import XLSX_MEDIA_TYPE
+
+    return signed_in.post(
+        "/v1/exercise/instructor/datasets",
+        params={"label": "Ann's student body", "source_filename": filename},
+        content=content,
+        headers={EXERCISE_REQUEST_HEADER: "1", "content-type": XLSX_MEDIA_TYPE},
+    )
+
+
+def test_a_workbook_with_a_column_removed_is_refused_in_plain_words_and_nothing_is_stored(
+    signed_in: TestClient, state: dict[str, Any]
+) -> None:
+    """Ann's checklist §2 (2026-10-02): "Upload a workbook with one column removed.
+    You see a plain message naming the missing column, and the old file stays in
+    use." (#325.)
+
+    The parser quotes sheet and column names in backticks; the screen prints the
+    sentence as it arrives, so the route sends it without them. Nothing is
+    written and nothing is committed, so every team keeps the file it is on.
+    """
+    from tests.unit.exercise_workbooks import (
+        EVENT_HEADINGS,
+        event_rows,
+        good_profile_rows,
+        workbook_bytes,
+    )
+
+    headings = [heading for heading in EVENT_HEADINGS if heading != "seats"]
+    content = workbook_bytes(good_profile_rows(), event_rows(), event_headings=headings)
+
+    response = _upload(signed_in, content)
+
+    assert response.status_code == 422
+    error = response.json()["error"]
+    assert error["code"] == "exercise_ingest_missing_columns"
+    assert error["message"] == "The Events sheet is missing the column seats."
+    assert state["datasets"].created == []
+    assert state["session"].commits == 0
+
+
+def test_a_description_past_its_limit_is_refused_in_plain_words(signed_in: TestClient) -> None:
+    from tests.unit.exercise_workbooks import (
+        EVENT_HEADINGS_WITH_DESCRIPTION,
+        event_rows,
+        good_profile_rows,
+        workbook_bytes,
+    )
+
+    events = event_rows()
+    events[10]["event_description"] = "d" * 2_001
+    content = workbook_bytes(
+        good_profile_rows(), events, event_headings=EVENT_HEADINGS_WITH_DESCRIPTION
+    )
+
+    response = _upload(signed_in, content)
+
+    assert response.status_code == 422
+    error = response.json()["error"]
+    assert error["code"] == "exercise_ingest_cell_too_long"
+    assert error["message"] == (
+        "Row 12 of the Events sheet has more than 2000 characters in the column "
+        "event_description; please shorten it and upload again."
+    )
+
+
+def test_anns_october_workbook_is_accepted_and_stored(
+    signed_in: TestClient, state: dict[str, Any]
+) -> None:
+    """#325: the 2026-10-02 file, whose two descriptions pass 500 characters."""
+    from tests.unit.exercise_workbooks import ANN_OCT02_FILE
+
+    response = _upload(signed_in, ANN_OCT02_FILE.read_bytes(), ANN_OCT02_FILE.name)
+
+    assert response.status_code == 201, response.text
+    report = response.json()["report"]
+    assert (report["profile_count"], report["event_count"]) == (300, 12)
+    assert state["datasets"].created == [("Ann's student body", ANN_OCT02_FILE.name)]
+    assert state["session"].commits == 1
+    assert "hidden" not in response.text
+
+
 def test_anns_workbook_is_accepted_as_the_raw_body(signed_in: TestClient) -> None:
     """OQ-CE-05, closed 2026-09-24: the instructor uploads Ann's file as she sent it."""
     from smartmatch_domain.exercise.workbook import XLSX_MEDIA_TYPE

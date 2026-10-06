@@ -123,6 +123,7 @@ from smartmatch_api.routers.exercise_instructor_models import (
     UploadedDatasetView,
     dataset_view,
     event_view,
+    plain_sentence,
     report_view,
     run_view,
     setting_view,
@@ -222,7 +223,7 @@ def upload_dataset(
         raise ExerciseError(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             code=f"exercise_ingest_{parsed.code}",
-            message=parsed.message,
+            message=plain_sentence(parsed.message),
         )
     try:
         summary = repository.create_dataset(
