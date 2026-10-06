@@ -246,28 +246,28 @@ per statement, so the grant above can be rebuilt rather than trusted.
 
 | Statement | Table | Privilege |
 |---|---|---|
-| `dataset_repository.py:391` `sa.insert(exercise_dataset)` | `exercise_dataset` | INSERT |
-| `dataset_repository.py:401` `sa.insert(exercise_profile)` | `exercise_profile` | INSERT |
-| `dataset_repository.py:406` `sa.insert(exercise_event)` | `exercise_event` | INSERT |
-| `instructor_repository.py:445` `sa.update(exercise_dataset)` | `exercise_dataset` | UPDATE |
-| `instructor_repository.py:469-471` `pg_insert(...).on_conflict_do_nothing` | `exercise_result_unlock` | INSERT |
-| `instructor_repository.py:540-544` `sa.delete(child)`, three children | `exercise_profile_overlay`, `exercise_saved_setting`, `exercise_result_run` | DELETE |
-| `instructor_repository.py:684-686` `sa.select(...).with_for_update()` | `exercise_team_workspace` | SELECT **+ UPDATE** (a row lock needs `UPDATE` beside `SELECT`) |
-| `instructor_repository.py:690-695` `sa.select(...).with_for_update()` | `exercise_team_workspace` | SELECT + UPDATE |
-| `instructor_repository.py:708-711` `sa.delete(exercise_team_workspace)` | `exercise_team_workspace` | DELETE |
-| `instructor_repository.py:718` `sa.update(exercise_team_workspace)` | `exercise_team_workspace` | UPDATE |
-| `results_repository.py:432` `sa.insert(exercise_result_run)` | `exercise_result_run` | INSERT |
-| `results_repository.py:473` `sa.update(exercise_team_workspace)` | `exercise_team_workspace` | UPDATE |
-| `results_repository.py:553` `sa.update(exercise_team_workspace)` | `exercise_team_workspace` | UPDATE |
-| `results_repository.py:650-656` `pg_insert(...).on_conflict_do_update` | `exercise_profile_overlay` | INSERT **+ UPDATE** |
-| `settings_repository.py:386-398` `pg_insert(...).on_conflict_do_update` | `exercise_saved_setting` | INSERT **+ UPDATE** |
-| `settings_repository.py:436` `sa.delete(exercise_saved_setting)` | `exercise_saved_setting` | DELETE |
+| `dataset_repository.py:401` `sa.insert(exercise_dataset)` | `exercise_dataset` | INSERT |
+| `dataset_repository.py:411` `sa.insert(exercise_profile)` | `exercise_profile` | INSERT |
+| `dataset_repository.py:416` `sa.insert(exercise_event)` | `exercise_event` | INSERT |
+| `instructor_repository.py:446` `sa.update(exercise_dataset)` | `exercise_dataset` | UPDATE |
+| `instructor_repository.py:470-472` `pg_insert(...).on_conflict_do_nothing` | `exercise_result_unlock` | INSERT |
+| `instructor_repository.py:542-548` `sa.delete(child)`, three children | `exercise_profile_overlay`, `exercise_saved_setting`, `exercise_result_run` | DELETE |
+| `instructor_repository.py:686-688` `sa.select(...).with_for_update()` | `exercise_team_workspace` | SELECT **+ UPDATE** (a row lock needs `UPDATE` beside `SELECT`) |
+| `instructor_repository.py:692-697` `sa.select(...).with_for_update()` | `exercise_team_workspace` | SELECT + UPDATE |
+| `instructor_repository.py:710-712` `sa.delete(exercise_team_workspace)` | `exercise_team_workspace` | DELETE |
+| `instructor_repository.py:720` `sa.update(exercise_team_workspace)` | `exercise_team_workspace` | UPDATE |
+| `results_repository.py:440` `sa.insert(exercise_result_run)` | `exercise_result_run` | INSERT |
+| `results_repository.py:481` `sa.update(exercise_team_workspace)` | `exercise_team_workspace` | UPDATE |
+| `results_repository.py:568` `sa.update(exercise_team_workspace)` | `exercise_team_workspace` | UPDATE |
+| `results_repository.py:643-649` `pg_insert(...).on_conflict_do_update` | `exercise_profile_overlay` | INSERT **+ UPDATE** |
+| `settings_repository.py:389-401` `pg_insert(...).on_conflict_do_update` | `exercise_saved_setting` | INSERT **+ UPDATE** |
+| `settings_repository.py:439` `sa.delete(exercise_saved_setting)` | `exercise_saved_setting` | DELETE |
 | `workspace_repository.py:272-282` `pg_insert(...).on_conflict_do_nothing` | `exercise_team_workspace` | INSERT |
 | `workspace_repository.py:449-452` `sa.update(table)` — the token-hash repair | `exercise_team_workspace` | UPDATE |
 | `workspace_repository.py:543-548` `sa.delete(child)`, three children | `exercise_profile_overlay`, `exercise_saved_setting`, `exercise_result_run` | DELETE |
 | `workspace_repository.py:551-554` `sa.update(table)` — reset clears the asking choice and the refresh time; the seed is kept | `exercise_team_workspace` | UPDATE |
 | every repository read (`sa.select`) | all eight | SELECT |
-| `sa.select(sa.func.pg_advisory_xact_lock(...))` (e.g. `instructor_repository.py:677`) | none | none — see below |
+| `sa.select(sa.func.pg_advisory_xact_lock(...))` (e.g. `instructor_repository.py:679`) | none | none — see below |
 
 **Advisory locks need no grant.** The exercise repositories serialize with
 `pg_advisory_xact_lock`, which is a function, not a table: `EXECUTE` on it is
