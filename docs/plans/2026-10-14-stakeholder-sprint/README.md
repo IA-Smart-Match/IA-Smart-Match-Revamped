@@ -26,7 +26,7 @@ A plan is a point-in-time record; the PR and the code are the authority.
 | [007](007-refresh-visibility.md) | #329 refresh visibility | #340 | PR open, reviewed |
 | [008](008-refresh-all-report.md) | #330 refresh-all report | #340 | PR open, reviewed |
 | [009](009-download-plain-labels.md) | #335 download labels | #338 | PR open, reviewed |
-| [010](010-status-band-and-feedback.md) | #321 status band and feedback | `oct14/status-band` | In progress |
+| [010](010-status-band-and-feedback.md) | #321 status band and feedback | #346 | PR open, review fixes in progress |
 | [011](011-seed-preserved-on-reset.md) | #331 seed kept on clear | #344 | PR open, reviewed |
 | [012](012-email-everyone-baseline-seed.md) | #295 baseline seed | — | Deferred to Ann |
 | [013](013-license-line.md) | #273 license line | — | Deferred to owner |
@@ -37,7 +37,7 @@ A plan is a point-in-time record; the PR and the code are the authority.
 1. #339 (migration `0044_exercise_event_description`).
 2. #345 (stacked on #339; `0045_exercise_unlock_closed_at`, `0046_exercise_run_snapshot`).
 3. #340, #338, #344 — independent of each other and of 1–2.
-4. `oct14/status-band` (#321) last — stacked on #345 and #340.
+4. #346 (#321) last — stacked on #345 and #340.
 
 Expect small text conflicts between lanes in `docs/design/class-exercise/DESIGN.md`
 §11.1, `docs/decisions/class-exercise-decisions-2026-09-25.md`,
