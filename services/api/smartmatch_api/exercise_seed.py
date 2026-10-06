@@ -86,7 +86,8 @@ __all__ = [
 
 _LOGGER = logging.getLogger(__name__)
 
-#: Ann's full file, as committed for the golden tests. Resolved from this
+#: Ann's full file of 2026-10-02 (the one that carries the event descriptions,
+#: #318), as committed for the golden tests. Resolved from this
 #: module's own path, so it exists in a repository checkout and nowhere else —
 #: ``Dockerfile.api`` copies ``python/`` and ``services/api/`` only, which is one
 #: more reason the start-up seed cannot run inside a built image.
@@ -95,7 +96,7 @@ DEFAULT_SEED_FILE: Final[Path] = (
     / "tests"
     / "fixtures"
     / "exercise"
-    / "SmartMatch_Student_Body_300.xlsx"
+    / "SmartMatch_Student_Body_300_10022026.xlsx"
 )
 
 #: What a seeded dataset is called on the instructor page, so nobody mistakes

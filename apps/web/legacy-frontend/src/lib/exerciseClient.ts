@@ -54,6 +54,12 @@ export interface EventView {
   readonly target_majors: string[];
   readonly is_exercise_event: boolean;
   readonly sequence: number;
+  /**
+   * The event's short description, as the data file wrote it (#318), or
+   * `null` when the file gives none: the past events, and any file from
+   * before 2026-10-02. Printed as it is; nothing stands in for a `null`.
+   */
+  readonly description: string | null;
 }
 
 export interface EventsView {
@@ -101,6 +107,8 @@ export interface ListCompositionView {
 export interface RankedListView {
   readonly event_key: string;
   readonly event_name: string;
+  /** That event's description from the data file, or `null` (see `EventView`). */
+  readonly event_description: string | null;
   readonly invite_limit: number;
   readonly setting_name: string | null;
   readonly weights: Record<string, number>;
@@ -316,6 +324,8 @@ export interface InstructorEventView {
   readonly event_key: string;
   readonly name: string;
   readonly unlocked: boolean;
+  /** The same description the teams read, or `null` (see `EventView`). */
+  readonly description: string | null;
 }
 
 /** `GET /v1/exercise/instructor/events`: the teams' data file and its events. */

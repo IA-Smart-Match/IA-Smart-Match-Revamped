@@ -69,7 +69,11 @@ REVISION = "0037_exercise_tables"
 #: ``0042_exercise_ann_dataset`` and is the head. It adds one boolean
 #: ``exercise_event`` column defaulting to false and writes no rows, so this
 #: file's claims still hold through it.
-HEAD_REVISION = "0043_exercise_event_exploratory"
+#: Moved again by #318: ``0044_exercise_event_description`` chains to
+#: ``0043_exercise_event_exploratory`` and is the head. It adds one nullable
+#: ``exercise_event`` column and writes no rows, so this file's claims still
+#: hold through it.
+HEAD_REVISION = "0044_exercise_event_description"
 
 #: Design spec §2's eight tables.
 EXERCISE_TABLES = (

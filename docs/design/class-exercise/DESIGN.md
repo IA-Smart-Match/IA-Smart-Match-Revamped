@@ -396,8 +396,20 @@ Numbered place card, 112×112 desktop, 96×96 on 390, Transducer 44 numeral.
 ### 6.5 Event round card
 
 A wide card: round seal (circle with 1 or 2, from `round-journey.svg` geometry),
-event name in Proxima Sera 32, "Topics:" and "Aimed at:" lines, trailing
-`ChevronRight`. Past events render as a quiet list below, not cards.
+event name in Proxima Sera 32, the event's description when the data file has
+one, "Topics:" and "Aimed at:" lines, trailing `ChevronRight`. Past events
+render as a quiet list below, not cards.
+
+**Event description (#318, Ann 2026-10-02).** The data file's
+`event_description` text, printed as it arrives, at body size (`ce-type-body`,
+the size of the ranked list's names; her checklist asks for "no smaller than
+the list text"), `--ce-ink`, `ce-measure`. It sits under the event name on the
+round card, at the top of the matching page above the sliders (§7.4), and
+under the event name in the instructor's unlock row (§6.24). An event with no
+description shows nothing: no placeholder, no gap. No description is written
+in the frontend. On the card the link is named by the seal and the event name
+(`aria-labelledby`) and described by the rest (`aria-describedby`), so the
+link's name stays short.
 
 | State | Treatment |
 |---|---|
@@ -628,12 +640,12 @@ invite-limit stepper, team row (6), unlock row, ask-for-every-team panel. See
 
 | State | Dropzone | Unlock row | Team row |
 |---|---|---|---|
-| D | dashed 2px outline, `FileSpreadsheet`, "Drop Ann's workbook here, or choose a file" | event name + `Lock` chip + "Open results" secondary | team seal, file label, counts, actions |
+| D | dashed 2px outline, `FileSpreadsheet`, "Drop Ann's workbook here, or choose a file" | event name + `Lock` chip + "Open results" secondary; the event's description under them when the data file has one (§6.5) | team seal, file label, counts, actions |
 | H | outline primary, wash `--ce-primary-tint` | lift | lift |
 | F | ring | ring on button | ring on each action |
 | L | "Uploading and checking the file…" with determinate stages: Reading → Checking columns → Saved | "Opening…" | "Clearing…" |
 | E | "No data file has been uploaded yet." | "{file} has no events for the teams to run." | "No team has entered a number yet." |
-| X | server sentence under the zone, file name kept | server sentence inline | server sentence inline |
+| X | server sentence under the zone, file name kept; the report of an earlier upload is removed (#325) | server sentence inline | server sentence inline |
 | Dis | while uploading | once open: `LockOpen` chip "Results are open", no button | during a pending action |
 
 ## 7. Page layouts
@@ -674,6 +686,7 @@ Routes and file names are the current ones. Wireframes are schematic.
 │ ribbon                                                        │
 │ Northline Analytics (h1)            Team 4 · Choose another → │
 │ lead                                                          │
+│ The event's description, from the data file (§6.5)            │
 ├──────────────────┬────────────────────────────────────────────┤
 │ How much each    │ The list (h2)     Rebuilding…  Download ⤓  │
 │ thing counts     │ Cut at 30 names…                           │
@@ -888,3 +901,6 @@ labels and the license line are unchanged and not listed.
 | Instructor, passcode show/hide toggle (accessible name; `aria-pressed` carries the state) | "Show what is typed" |
 | Instructor, unlock confirm in progress | "Opening…" |
 | Instructor, upload in progress | "Uploading and checking the file…" |
+| Instructor, upload done (#325; composed on the page from the server's file name and counts) | "SmartMatch_Student_Body_300.xlsx — 300 profiles, 12 events loaded." |
+| Instructor, upload refused (#325; the server's sentence, now sent without backticks) | "The Events sheet is missing the column seats." |
+| Instructor, upload refused, a description too long (#325; server sentence) | "Row 12 of the Events sheet has more than 2000 characters in the column event_description; please shorten it and upload again." |

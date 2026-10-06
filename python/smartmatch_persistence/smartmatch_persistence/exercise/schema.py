@@ -67,6 +67,9 @@ not have: ``hidden_true_career_goal`` (withheld) and ``tiebreak_order``.
 Revision ``0043_exercise_event_exploratory`` added ``exercise_event.is_exploratory``
 (OQ-CE-14): a boolean derived from Ann's ``event_type`` at ingest, so no
 vocabulary of event types is written as DDL either.
+Revision ``0044_exercise_event_description`` added ``exercise_event.description``
+(#318): the file's ``event_description`` cell, ``NULL`` where the file says
+nothing.
 """
 
 from __future__ import annotations
@@ -212,6 +215,11 @@ exercise_event = sa.Table(
     # career goal half-fits. Derived at ingest from Ann's ``event_type``; the
     # type itself is not stored. False for a dataset stored before 0043.
     sa.Column("is_exploratory", sa.Boolean, nullable=False, server_default=sa.text("false")),
+    # Revision 0044 (#318, Ann 2026-10-02): the short public description from
+    # the file's ``event_description`` column. NULL for a blank cell (the ten
+    # past events) and for a dataset stored before 0044, and a reader renders
+    # nothing for NULL.
+    sa.Column("description", sa.Text, nullable=True),
     sa.PrimaryKeyConstraint("dataset_id", "event_key", name="exercise_event_pkey"),
     # One event per position. The ten past events and the two rounds are an
     # ordered list in the case; two events claiming position 11 would make
