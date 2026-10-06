@@ -34,7 +34,9 @@ above it::
     # unused since: release 2026-10-06 (PR #337), which stopped reading the column
     CONTRACT_PHASE = True
 
-The marker without the ``unused since:`` comment fails. The comment is the
+The marker without the ``unused since:`` comment fails, and so does a comment
+that names nothing: the release has to carry a digit — a date, a pull request
+number, a version or a commit — so ``TBD`` is not a release. The comment is the
 claim a reviewer checks; the marker alone is a switch.
 
 Scope: every migration, with a closed baseline
@@ -45,11 +47,26 @@ merge base, and a shallow clone, a push to ``main`` or a missing remote ref
 would each turn it into a check of nothing.
 
 The revisions that were already destructive when this gate landed are listed in
-:data:`BASELINE` with the exact operations they contain. A listed file passes
+:data:`BASELINE` with the exact operations they contain, target included
+(``drop_column point_ledger_entry.reverses_entry_id``). A listed file passes
 with those operations and no others, so *changing* an old migration to drop
-something more fails exactly as a new migration would. The baseline is closed
+something more, or something else, fails exactly as a new migration would. The baseline is closed
 at :data:`BASELINE_HEAD_PREFIX`: a newer revision takes the marker, never an
 entry (``tests/unit/test_migration_expand_contract_check.py`` holds both).
+
+Known limits
+------------
+This reads source; it does not run it. SQL is followed through literals,
+f-strings, ``+``, ``%``, ``.format()``, wrapping calls such as ``sa.text`` and
+names bound at module level or in a function ``upgrade()`` reaches, and helpers
+are followed through module-level aliases. SQL built from a function
+*argument*, read from a file, or produced by code this cannot evaluate is not
+seen. Review still owns those.
+
+Destructive words inside quoted SQL data are reported, on purpose: quoting is
+also how a ``DO`` block's ``EXECUTE '...'`` carries real DDL, and the two are
+indistinguishable here. A false alarm costs a reword; a missed drop costs a
+rollback.
 
 Stdlib only. Usage::
 
@@ -82,10 +99,13 @@ MARKER_NAME: Final[str] = "CONTRACT_PHASE"
 BASELINE_HEAD_PREFIX: Final[str] = "0043"
 
 #: Revisions that were destructive in ``upgrade()`` before this gate existed,
-#: with the operations each contains. They shipped; failing them now would
-#: protect nothing. Closed — see the module docstring.
+#: with the :attr:`Operation.signature` of each operation they contain. They
+#: shipped; failing them now would protect nothing. Closed — see the module
+#: docstring.
 BASELINE: Final[Mapping[str, tuple[str, ...]]] = {
-    "0015_remove_unauthorized_ledger_reversal.py": ("drop_column",),
+    "0015_remove_unauthorized_ledger_reversal.py": (
+        "drop_column point_ledger_entry.reverses_entry_id",
+    ),
 }
 
 _DIRECT_OPERATIONS: Final[frozenset[str]] = frozenset({"drop_column", "drop_table", "rename_table"})
@@ -109,9 +129,15 @@ _ALTER_TABLE_DROP: Final[re.Pattern[str]] = re.compile(
 _ALTER_INDEX: Final[re.Pattern[str]] = re.compile(r"^\s*ALTER\s+INDEX\b")
 _RENAME: Final[re.Pattern[str]] = re.compile(r"\bRENAME\s+(?!CONSTRAINT\b)\S")
 
+#: A release is named by something with a digit in it: a date, a pull request
+#: number, a version, a commit. ``TBD`` and "the last release" are not names.
 _RELEASE_COMMENT: Final[re.Pattern[str]] = re.compile(
-    r"unused\s+since\s*:?\s*(\S.{2,})", re.IGNORECASE
+    r"unused\s+since\s*:?\s*\S[^\n]*\d", re.IGNORECASE
 )
+
+_FORMAT_FIELD: Final[re.Pattern[str]] = re.compile(r"\{(\w*)[^{}]*\}")
+_PERCENT_FIELD: Final[re.Pattern[str]] = re.compile(r"%(?:\((\w+)\))?[-#0 +]*\d*(?:\.\d+)?[sdrif]")
+_WHITESPACE: Final[re.Pattern[str]] = re.compile(r"\s+")
 
 
 @dataclass(frozen=True)
@@ -119,13 +145,20 @@ class Operation:
     """One destructive operation reachable from ``upgrade()``.
 
     Attributes:
-        kind: What it is, e.g. ``drop_column`` or ``execute(DROP)``. The
-            spelling :data:`BASELINE` records.
+        kind: What it is, e.g. ``drop_column`` or ``execute(DROP)``.
         line: The 1-based line of the call.
+        target: What it acts on, as far as the source says: ``table.column``
+            for a direct operation, the statement for raw SQL.
     """
 
     kind: str
     line: int
+    target: str = ""
+
+    @property
+    def signature(self) -> str:
+        """Kind and target together — the spelling :data:`BASELINE` records."""
+        return f"{self.kind} {self.target}".strip()
 
 
 @dataclass(frozen=True)
@@ -175,19 +208,26 @@ def _reachable_from_upgrade(tree: ast.Module) -> list[ast.FunctionDef | ast.Asyn
     functions = _module_functions(tree)
     if "upgrade" not in functions:
         return []
-    seen: list[str] = []
-    pending = ["upgrade"]
+    aliases = _bindings(tree, [])
+    reached = ["upgrade"]
+    followed: set[str] = set()
+    pending: list[ast.AST] = [functions["upgrade"]]
     while pending:
-        name = pending.pop()
-        if name in seen:
-            continue
-        seen.append(name)
-        for node in ast.walk(functions[name]):
+        for node in ast.walk(pending.pop()):
+            if not isinstance(node, ast.Name):
+                continue
             # Any mention of a module-level function counts, not only a direct
             # call: ``for step in (_a, _b): step()`` reaches both.
-            if isinstance(node, ast.Name) and node.id in functions:
-                pending.append(node.id)
-    return [functions[name] for name in seen]
+            if node.id in functions:
+                if node.id not in reached:
+                    reached.append(node.id)
+                    pending.append(functions[node.id])
+            # ``STEP = _retire`` at module level, then ``STEP()``: follow the
+            # name to whatever it was bound to.
+            elif node.id in aliases and node.id not in followed:
+                followed.add(node.id)
+                pending.extend(aliases[node.id])
+    return [functions[name] for name in reached]
 
 
 def _bindings(
@@ -229,6 +269,8 @@ def _text_of(node: ast.AST, bindings: Mapping[str, list[ast.expr]], active: froz
     if isinstance(node, ast.FormattedValue):
         return _text_of(node.value, bindings, active)
     if isinstance(node, ast.BinOp):
+        if isinstance(node.op, ast.Mod):
+            return _percent_formatted(node, bindings, active)
         return _text_of(node.left, bindings, active) + _text_of(node.right, bindings, active)
     if isinstance(node, ast.Name):
         if node.id in active or node.id not in bindings:
@@ -244,12 +286,67 @@ def _text_of(node: ast.AST, bindings: Mapping[str, list[ast.expr]], active: froz
     if isinstance(node, ast.IfExp):
         return " ; ".join(_text_of(branch, bindings, active) for branch in (node.body, node.orelse))
     if isinstance(node, ast.Call):
-        # ``sa.text("...")``, ``textwrap.dedent("...")``, ``"...".format(...)``.
+        if isinstance(node.func, ast.Attribute) and node.func.attr == "format":
+            return _str_formatted(node, node.func.value, bindings, active)
+        # ``sa.text("...")``, ``textwrap.dedent("...")``, ``sa.text("...").bindparams()``.
         parts = [*node.args, *(keyword.value for keyword in node.keywords)]
         if isinstance(node.func, ast.Attribute):
             parts.insert(0, node.func.value)
         return " ".join(_text_of(part, bindings, active) for part in parts)
     return _UNKNOWN
+
+
+def _filled(
+    template: str, pattern: re.Pattern[str], positional: Sequence[str], named: Mapping[str, str]
+) -> str:
+    """``template`` with each replacement field swapped for the value it takes."""
+    automatic = iter(positional)
+
+    def value(match: re.Match[str]) -> str:
+        field = match.group(1) or ""
+        if field.isdigit():
+            index = int(field)
+            return positional[index] if index < len(positional) else _UNKNOWN
+        if field:
+            return named.get(field, _UNKNOWN)
+        return next(automatic, _UNKNOWN)
+
+    return pattern.sub(value, template)
+
+
+def _str_formatted(
+    call: ast.Call,
+    template: ast.expr,
+    bindings: Mapping[str, list[ast.expr]],
+    active: frozenset[str],
+) -> str:
+    """``"DROP {kind} old".format(kind="TABLE")`` as the string it produces."""
+    positional = [_text_of(argument, bindings, active) for argument in call.args]
+    named = {
+        keyword.arg: _text_of(keyword.value, bindings, active)
+        for keyword in call.keywords
+        if keyword.arg is not None
+    }
+    return _filled(_text_of(template, bindings, active), _FORMAT_FIELD, positional, named)
+
+
+def _percent_formatted(
+    node: ast.BinOp, bindings: Mapping[str, list[ast.expr]], active: frozenset[str]
+) -> str:
+    """``"DROP %s old" % "TABLE"`` as the string it produces."""
+    positional: list[str] = []
+    named: dict[str, str] = {}
+    if isinstance(node.right, ast.Tuple):
+        positional = [_text_of(element, bindings, active) for element in node.right.elts]
+    elif isinstance(node.right, ast.Dict):
+        named = {
+            key.value: _text_of(value, bindings, active)
+            for key, value in zip(node.right.keys, node.right.values, strict=True)
+            if isinstance(key, ast.Constant) and isinstance(key.value, str)
+        }
+    else:
+        positional = [_text_of(node.right, bindings, active)]
+    return _filled(_text_of(node.left, bindings, active), _PERCENT_FIELD, positional, named)
 
 
 def _drops(statement: str) -> bool:
@@ -262,10 +359,15 @@ def _renames(statement: str) -> bool:
     return bool(_RENAME.search(statement) and not _ALTER_INDEX.search(statement))
 
 
-def _sql_kinds(sql: str) -> list[str]:
-    """Which destructive kinds one piece of SQL text contains, each at most once."""
-    stripped = _SQL_BLOCK_COMMENT.sub(" ", _SQL_LINE_COMMENT.sub(" ", sql)).upper()
-    statements = stripped.split(";")
+def _normalized_sql(sql: str) -> str:
+    """SQL without comments, upper-cased, on one line."""
+    stripped = _SQL_BLOCK_COMMENT.sub(" ", _SQL_LINE_COMMENT.sub(" ", sql))
+    return _WHITESPACE.sub(" ", stripped).strip().upper()
+
+
+def _sql_kinds(normalized: str) -> list[str]:
+    """Which destructive kinds one piece of normalized SQL contains, each at most once."""
+    statements = normalized.split(";")
     kinds: list[str] = []
     if any(_drops(statement) for statement in statements):
         kinds.append("execute(DROP)")
@@ -282,18 +384,29 @@ def _renames_a_column(call: ast.Call) -> bool:
     )
 
 
-def _call_kinds(call: ast.Call, bindings: Mapping[str, list[ast.expr]]) -> list[str]:
+def _object_named(call: ast.Call, bindings: Mapping[str, list[ast.expr]]) -> str:
+    """``table.column`` (or whatever the call names), from its arguments in order."""
+    arguments = [*call.args, *(keyword.value for keyword in call.keywords)]
+    parts = (_text_of(argument, bindings, frozenset()).strip() for argument in arguments)
+    return ".".join(part for part in parts if part)
+
+
+def _call_operations(
+    call: ast.Call, bindings: Mapping[str, list[ast.expr]]
+) -> list[tuple[str, str]]:
+    """``(kind, target)`` for each destructive thing one call does."""
     if not isinstance(call.func, ast.Attribute):
         return []
     method = call.func.attr
     if method in _DIRECT_OPERATIONS:
-        return [method]
+        return [(method, _object_named(call, bindings))]
     if method == "alter_column" and _renames_a_column(call):
-        return ["alter_column(new_column_name)"]
+        return [("alter_column(new_column_name)", _object_named(call, bindings))]
     if method in _EXECUTE_METHODS:
         arguments = [*call.args, *(keyword.value for keyword in call.keywords)]
         sql = " ; ".join(_text_of(argument, bindings, frozenset()) for argument in arguments)
-        return _sql_kinds(sql)
+        normalized = _normalized_sql(sql)
+        return [(kind, normalized) for kind in _sql_kinds(normalized)]
     return []
 
 
@@ -314,13 +427,15 @@ def destructive_operations(source: str) -> list[Operation]:
     functions = _reachable_from_upgrade(tree)
     bindings = _bindings(tree, functions)
     found = {
-        (node.lineno, node.col_offset, kind)
+        (node.lineno, node.col_offset, kind, target)
         for function in functions
         for node in ast.walk(function)
         if isinstance(node, ast.Call)
-        for kind in _call_kinds(node, bindings)
+        for kind, target in _call_operations(node, bindings)
     }
-    return [Operation(kind=kind, line=line) for line, _, kind in sorted(found)]
+    return [
+        Operation(kind=kind, line=line, target=target) for line, _, kind, target in sorted(found)
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -392,8 +507,8 @@ def _beyond_baseline(operations: Sequence[Operation], recorded: Sequence[str]) -
     allowance = Counter(recorded)
     extra: list[Operation] = []
     for operation in operations:
-        if allowance[operation.kind] > 0:
-            allowance[operation.kind] -= 1
+        if allowance[operation.signature] > 0:
+            allowance[operation.signature] -= 1
         else:
             extra.append(operation)
     return extra
@@ -412,7 +527,7 @@ def _file_violations(
             Violation(
                 name,
                 operation.line,
-                f"{operation.kind} in upgrade() is not one of the operations recorded for "
+                f"{operation.signature} in upgrade() is not one of the operations recorded for "
                 f"this grandfathered revision. {_HOW_TO_MARK}",
             )
             for operation in _beyond_baseline(operations, baseline[name])
@@ -422,12 +537,13 @@ def _file_violations(
     if marker.declared:
         problem = (
             f"{MARKER_NAME} = True is set without naming the release: add "
-            "`# unused since: <release>` on that line or directly above it."
+            "`# unused since: <release>` on that line or directly above it, where the "
+            "release is a date, a pull request number, a version or a commit."
         )
     else:
         problem = _HOW_TO_MARK
     return [
-        Violation(name, operation.line, f"{operation.kind} in upgrade(). {problem}")
+        Violation(name, operation.line, f"{operation.signature} in upgrade(). {problem}")
         for operation in operations
     ]
 
