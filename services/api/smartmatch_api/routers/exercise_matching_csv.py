@@ -23,6 +23,8 @@ import csv
 import io
 from typing import TYPE_CHECKING, Final
 
+from smartmatch_domain.exercise.markers import marker_words
+
 if TYPE_CHECKING:
     from smartmatch_api.routers.exercise_matching_models import RankedListView
 
@@ -44,12 +46,18 @@ __all__ = [
 
 #: Design spec §8's columns, in order. Named here rather than written into the
 #: writer, so the header row and the value row cannot drift.
+#:
+#: The fifth is headed with the words the screen puts over the same column —
+#: "how much we know" — rather than with the API's field name, because this row
+#: is read by a person in a spreadsheet (Oct-2 checklist §4, "Download"). Six
+#: columns, and no seventh: a refresh mark, a flag or a number added here is a
+#: column the checklist does not name.
 CSV_LIST_COLUMNS: Final[tuple[str, ...]] = (
     "rank",
     "name",
     "major",
     "year",
-    "marker",
+    "how much we know",
     "reason",
 )
 
@@ -145,6 +153,11 @@ def ranked_list_csv(view: RankedListView) -> str:
 
     ``lineterminator="\\r\\n"`` is stated rather than left to the platform, so
     the bytes a classroom downloads do not depend on which machine served them.
+
+    The "how much we know" cell carries the three phrases a participant reads
+    on screen — "major only", "major plus events attended", "completed card" —
+    through :func:`~smartmatch_domain.exercise.markers.marker_words`, not the
+    key the API sends. A marker that is none of the three is written as itself.
     """
     buffer = io.StringIO()
     writer = csv.writer(buffer, lineterminator="\r\n")
@@ -157,7 +170,7 @@ def ranked_list_csv(view: RankedListView) -> str:
                 entry.display_name,
                 entry.major,
                 entry.class_year,
-                entry.marker,
+                marker_words(entry.marker),
                 entry.reason,
             )
         )

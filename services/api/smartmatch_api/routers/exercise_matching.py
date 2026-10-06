@@ -441,7 +441,7 @@ def download_ranked_list(
     career_goal_fit: float | None = weight_query("career goal fits this event"),
     past_event_topic_overlap: float | None = weight_query("went to similar events before"),
 ) -> Response:
-    """Design spec §8: rank, name, major, year, marker and reason, as a CSV file.
+    """Design spec §8: rank, name, major, year, how much we know and reason, as a CSV file.
 
     The same list the route above returns, built from the same weights by the
     same call, so the file and the screen cannot disagree. Written with
