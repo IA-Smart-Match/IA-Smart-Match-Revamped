@@ -89,6 +89,7 @@ import { clockTime } from "./exerciseTime";
 import { ResultPanels, type NamesByProfileNo } from "./ResultPanels";
 import { refreshSummaryText } from "./refreshWording";
 import { ProfileCardArt } from "./resultsArt";
+import { ResultsCheckAgain } from "./ResultsCheckAgain";
 import { ResultsLockPanel } from "./ResultsLockPanel";
 import { TeamStatusBand, useStatusRevision } from "./TeamStatusBand";
 import { isAccessRefusal, useExerciseResource } from "./useExerciseResource";
@@ -253,6 +254,7 @@ function EventResults({ eventKey }: { readonly eventKey: string }): React.JSX.El
             // The read on screen may predate this browser's own confirmed
             // press: its reload is still running, or could not be reached.
             trustConfirmed={state.refreshing || state.unreachable !== null}
+            readFailed={state.unreachable !== null}
             onAccessLost={(refusal) => {
               setConfirmedResults(null);
               setConfirmedRefresh(null);
@@ -344,6 +346,7 @@ function ResultsBody({
   confirmedRefresh,
   onRefreshConfirmed,
   trustConfirmed,
+  readFailed,
   onAccessLost,
 }: {
   readonly eventKey: string;
@@ -361,6 +364,8 @@ function ResultsBody({
    * confirmed answers above stand in for it until a later read lands.
    */
   readonly trustConfirmed: boolean;
+  /** The latest read could not be reached, so `data` is the answer before it. */
+  readonly readFailed: boolean;
   readonly onAccessLost: (refusal: ExerciseRefusal) => void;
 }): React.JSX.Element {
   const [pending, setPending] = React.useState<Pending>(null);
@@ -369,8 +374,6 @@ function ResultsBody({
   // True once this screen's own run succeeds: the results that arrive next
   // play the seat fill (§5.1). A later visit mounts with it false.
   const [justRan, setJustRan] = React.useState(false);
-  /** When "Check again" last read the lock and found it still closed (issue #321). */
-  const [checkedAt, setCheckedAt] = React.useState<string | null>(null);
   /**
    * Set synchronously, before any render: two presses in one tick both read
    * `pending` as `null`, so the state alone cannot keep a once-only POST from
@@ -486,23 +489,14 @@ function ResultsBody({
               place. "Check again" is a read of the lock, never the run. */}
           {notOpen ? (
             <ResultsLockPanel message={lockSentence} messageId={NOT_OPEN_REASON}>
-              <Button
-                variant="secondary"
+              <ResultsCheckAgain
                 disabled={pending !== null}
-                onClick={() => {
+                readFailed={readFailed}
+                onCheck={() => {
                   setRefusal(null);
-                  // If results have opened, this panel is gone when the read
-                  // lands; if not, the press says so instead of saying nothing.
-                  void onChanged().then(() =>
-                    setCheckedAt(clockTime(new Date().toISOString())),
-                  );
+                  return onChanged();
                 }}
-              >
-                Check again
-              </Button>
-              <p aria-live="polite" data-slot="exercise-results-checked" className="ce-type-meta text-ce-ink-muted">
-                {checkedAt === null ? "" : `Checked at ${checkedAt}. Results are still not open.`}
-              </p>
+              />
             </ResultsLockPanel>
           ) : null}
           <p className="ce-type-body ce-measure text-ce-ink-muted">

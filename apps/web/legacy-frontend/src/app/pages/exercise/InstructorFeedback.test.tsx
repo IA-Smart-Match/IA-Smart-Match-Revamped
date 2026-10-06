@@ -174,7 +174,7 @@ describe("clearing a team says it was cleared", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Yes, clear team 3" }));
     const said = await screen.findByText(
-      /^Team 3 cleared at \d{1,2}:\d{2} (AM|PM)\. It is back at the start\. No other team was changed\.$/,
+      /^Team 3 cleared at \d{1,2}:\d{2}:\d{2} (AM|PM)\. It is back at the start\. No other team was changed\.$/,
     );
     const notice = said.closest('[data-slot="exercise-notice"]') as HTMLElement;
     expect(notice.dataset.tone).toBe("done");
@@ -185,12 +185,35 @@ describe("clearing a team says it was cleared", () => {
     expect(screen.getByText(/^Team 3 cleared at/)).toBeDefined();
   });
 
+  it("says the server's sentence, and no “Team 3 cleared”, when the clear is refused", async () => {
+    stub({
+      [`GET ${WORKSPACES}`]: { body: { teams: [team(3), team(4)], active_dataset_label: "October file" } },
+      [`POST ${WORKSPACES}/3/reset`]: {
+        body: {
+          error: { code: "exercise_team_unknown", message: "No team with that number is in this data file." },
+        },
+        status: 404,
+      },
+    });
+    render(<InstructorTeams />);
+    fireEvent.click(await screen.findByRole("button", { name: "Clear team 3's work" }));
+    fireEvent.click(screen.getByRole("button", { name: "Yes, clear team 3" }));
+
+    const said = await screen.findByText("No team with that number is in this data file.");
+    expect(said.closest('[data-slot="exercise-instructor-teams"]')).not.toBeNull();
+    expect(sent(`POST ${WORKSPACES}/3/reset`)).toBe(1);
+    expect(screen.queryByText(/^Team 3 cleared/)).toBeNull();
+    // The team is still listed: nothing was cleared.
+    expect(screen.getByRole("heading", { name: "Team 3" })).toBeDefined();
+  });
+
   it("says when the teams were last read, so “Check the teams again” shows it did something", async () => {
     stub({
       [`GET ${WORKSPACES}`]: { body: { teams: [team(3)], active_dataset_label: "October file" } },
     });
     render(<InstructorTeams />);
-    await screen.findByText(/^Teams last read at \d{1,2}:\d{2} (AM|PM)\.$/);
+    // To the second, so a second press in the same minute shows it was read again.
+    await screen.findByText(/^Teams last read at \d{1,2}:\d{2}:\d{2} (AM|PM)\.$/);
     fireEvent.click(screen.getByRole("button", { name: "Check the teams again" }));
     await waitFor(() => expect(sent(`GET ${WORKSPACES}`)).toBe(2));
     expect(screen.getByText(/^Teams last read at/)).toBeDefined();

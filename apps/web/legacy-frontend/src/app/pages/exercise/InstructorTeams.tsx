@@ -58,7 +58,7 @@ import { cn } from "../../components/ui/utils";
 import { askingChoiceLabel } from "./askingChoices";
 import { Button, Notice } from "./desk";
 import { ExerciseNotice } from "./ExerciseScreen";
-import { clockTime } from "./exerciseTime";
+import { clockNow } from "./exerciseTime";
 import { useSignOutOnExpiredRead } from "./instructorSession";
 import { TeamDetail } from "./InstructorTeamDetail";
 import { INSTRUCTOR_WELL, PanelCard, PanelSkeleton } from "./instructorUi";
@@ -110,7 +110,11 @@ export function InstructorTeams({
    * cleared team's row leaves the list. It stays until the next clear.
    */
   const [done, setDone] = React.useState<string | null>(null);
-  /** When the list on screen was read, so "Check the teams again" shows it did something. */
+  /**
+   * When the list on screen was read, so "Check the teams again" shows it did
+   * something. To the second (`clockNow`): to the minute, a second press in
+   * the same minute rewrote the line with the same words.
+   */
   const [checkedAt, setCheckedAt] = React.useState<string | null>(null);
   const [pending, setPending] = React.useState(false);
   /**
@@ -239,12 +243,7 @@ export function InstructorTeams({
   );
 }
 
-/** The room's clock now, as every other time on the page is written. */
-function clockNow(): string | null {
-  return clockTime(new Date().toISOString());
-}
-
-/** "Team 3 cleared at 10:42 AM. It is back at the start. No other team was changed." */
+/** "Team 3 cleared at 10:42:07 AM. It is back at the start. No other team was changed." */
 export function teamClearedSentence(teamNumber: number, at: string | null): string {
   const when = at === null ? "" : ` at ${at}`;
   return `Team ${teamNumber} cleared${when}. It is back at the start. No other team was changed.`;

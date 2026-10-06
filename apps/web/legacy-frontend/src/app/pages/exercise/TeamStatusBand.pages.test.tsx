@@ -40,6 +40,8 @@ interface Server {
 
 let server: Server;
 let extra: Record<string, Answer | (() => Answer)>;
+/** While true, no request lands: the network is down. */
+let offline: boolean;
 
 function round(key: string, name: string, sequence: number, open: boolean, run: boolean): object {
   return {
@@ -133,9 +135,13 @@ function answer(key: string): Answer {
 beforeEach(() => {
   server = { open: false, run: false, choice: null, refreshed: false };
   extra = {};
+  offline = false;
   vi.stubGlobal(
     "fetch",
     vi.fn((url: string, init: RequestInit) => {
+      if (offline) {
+        return Promise.reject(new TypeError("Failed to fetch"));
+      }
       const found = answer(`${init.method ?? "GET"} ${url.split("?")[0]}`);
       return Promise.resolve(new Response(JSON.stringify(found.body), { status: found.status ?? 200 }));
     }),
@@ -304,8 +310,36 @@ describe("“Check again” says what it found", () => {
     expect(said()).toBe("");
 
     fireEvent.click(check);
+    // To the second: a second press in the same minute must not read the same.
     await waitFor(() =>
-      expect(said()).toMatch(/^Checked at \d{1,2}:\d{2} (AM|PM)\. Results are still not open\.$/),
+      expect(said()).toMatch(
+        /^Checked at \d{1,2}:\d{2}:\d{2} (AM|PM)\. Results are still not open\.$/,
+      ),
+    );
+  });
+
+  it("does not say it checked when the read could not be made: it says that instead", async () => {
+    renderAt("/exercise/events/northline/results");
+    const check = await screen.findByRole("button", { name: "Check again" });
+    const said = (): string =>
+      document.querySelector('[data-slot="exercise-results-checked"]')?.textContent ?? "";
+
+    offline = true;
+    fireEvent.click(check);
+    await waitFor(() =>
+      expect(said()).toBe("The exercise could not be reached. Check the connection and try again."),
+    );
+    // Nothing was read, so nothing is known about the lock.
+    expect(said()).not.toContain("Checked at");
+    expect(said()).not.toContain("still not open");
+
+    // The next check that lands says what it found.
+    offline = false;
+    fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+    await waitFor(() =>
+      expect(said()).toMatch(
+        /^Checked at \d{1,2}:\d{2}:\d{2} (AM|PM)\. Results are still not open\.$/,
+      ),
     );
   });
 

@@ -44,6 +44,15 @@ describe("clockTime", () => {
     expect(clockTime(undefined)).toBeNull();
     expect(clockTime("not a time")).toBeNull();
   });
+
+  it("shows the seconds only when asked: a press read off this browser's own clock", () => {
+    // Two presses in one minute must not read as the same line (PR #346 review).
+    expect(clockTime("2026-10-16T10:43:07", { seconds: true })).toBe("10:43:07 AM");
+    expect(clockTime("2026-10-16T14:05:59", { seconds: true })).toBe("2:05:59 PM");
+    // A time the server recorded stays to the minute.
+    expect(clockTime("2026-10-16T10:43:07")).toBe("10:43 AM");
+    expect(clockTime(null, { seconds: true })).toBeNull();
+  });
 });
 
 describe("a server timestamp, which carries its offset", () => {
