@@ -73,6 +73,7 @@ Seven, all under `/v1/exercise`, all gated on `Capability.CLASS_EXERCISE`:
 | `exercise_matching` | `/v1/exercise/workspaces/current` | `main.py:635` |
 | `exercise_results` | `/v1/exercise/workspaces/current` | `main.py:647` |
 | `exercise_instructor_refresh` | `/v1/exercise/instructor` | `main.py:654` |
+| `exercise_instructor_detail` (one team's whole work, #319) | `/v1/exercise/instructor` | `main.py`, the row after `exercise_instructor_refresh` |
 
 ### No CBA authenticated router is registered
 
@@ -104,7 +105,7 @@ misused. Every CBA route answers 404 in this process.
 ### Never set `SMARTMATCH_EXERCISE_SEED_ON_START` on the VM
 
 `SMARTMATCH_EXERCISE_SEED_ON_START=true` makes the API store Ann's fixture file
-(`tests/fixtures/exercise/SmartMatch_Student_Body_300.xlsx`) as the active
+(`tests/fixtures/exercise/SmartMatch_Student_Body_300_10022026.xlsx`) as the active
 dataset at start-up when the database has none (CE-SEED, owner design "A",
 2026-09-25). It exists for developer machines, where every fresh database
 otherwise starts empty until someone uploads by hand. On the VM the instructor
@@ -215,7 +216,7 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON exercise_team_workspace  TO "<EXERCISE_D
 GRANT SELECT, INSERT, UPDATE, DELETE ON exercise_profile_overlay TO "<EXERCISE_DB_ROLE>";
 GRANT SELECT, INSERT, UPDATE, DELETE ON exercise_saved_setting   TO "<EXERCISE_DB_ROLE>";
 GRANT SELECT, INSERT, DELETE         ON exercise_result_run      TO "<EXERCISE_DB_ROLE>";
-GRANT SELECT, INSERT                 ON exercise_result_unlock   TO "<EXERCISE_DB_ROLE>";
+GRANT SELECT, INSERT, UPDATE         ON exercise_result_unlock   TO "<EXERCISE_DB_ROLE>";
 ```
 
 ### `ON CONFLICT DO UPDATE` needs `UPDATE` even when nothing conflicts
@@ -233,8 +234,30 @@ fails **every time**, which takes out `POST
 setting (saved setting).
 
 `ON CONFLICT DO NOTHING` is the opposite case and needs `INSERT` alone, which
-is why `exercise_team_workspace`'s entry upsert and `exercise_result_unlock`
-contribute no `UPDATE` of their own.
+is why `exercise_team_workspace`'s entry upsert contributes no `UPDATE` of its
+own.
+
+**`exercise_result_unlock` needs `UPDATE` since 2026-10-06** (migration
+`0045_exercise_result_unlock_closed_at.py`, issue #326). Results can be closed
+again, so opening is now `INSERT ... ON CONFLICT DO UPDATE` (a reopening clears
+`closed_at`) and closing is a plain `UPDATE`. For the reason above, a role
+holding only `INSERT` on this table fails **every** "Open results" press, not
+only reopenings, and every "Close results" press. A deployment granted before
+that date must run, as the owner of the table and before the new code serves:
+
+```sql
+GRANT UPDATE ON exercise_result_unlock TO "<EXERCISE_DB_ROLE>";
+```
+
+`DELETE` stays ungranted: closing sets a timestamp and removes no row.
+
+**Rolling back the application only, past this change, reopens every closed
+event.** The previous release's image ignores `closed_at`: it reads any row in
+`exercise_result_unlock` as open, so every closed event reads as open and a
+team that has not run can run. Before an application-only rollback, note which
+events are closed (`SELECT dataset_id, event_key FROM exercise_result_unlock
+WHERE closed_at IS NOT NULL`) and delete those rows as the table's owner, or
+accept that they are open until the new code serves again.
 
 ### Every statement, and the privilege it needs
 
@@ -246,28 +269,29 @@ per statement, so the grant above can be rebuilt rather than trusted.
 
 | Statement | Table | Privilege |
 |---|---|---|
-| `dataset_repository.py:401` `sa.insert(exercise_dataset)` | `exercise_dataset` | INSERT |
-| `dataset_repository.py:411` `sa.insert(exercise_profile)` | `exercise_profile` | INSERT |
-| `dataset_repository.py:416` `sa.insert(exercise_event)` | `exercise_event` | INSERT |
-| `instructor_repository.py:446` `sa.update(exercise_dataset)` | `exercise_dataset` | UPDATE |
-| `instructor_repository.py:470-472` `pg_insert(...).on_conflict_do_nothing` | `exercise_result_unlock` | INSERT |
-| `instructor_repository.py:542-548` `sa.delete(child)`, three children | `exercise_profile_overlay`, `exercise_saved_setting`, `exercise_result_run` | DELETE |
-| `instructor_repository.py:686-688` `sa.select(...).with_for_update()` | `exercise_team_workspace` | SELECT **+ UPDATE** (a row lock needs `UPDATE` beside `SELECT`) |
-| `instructor_repository.py:692-697` `sa.select(...).with_for_update()` | `exercise_team_workspace` | SELECT + UPDATE |
-| `instructor_repository.py:710-712` `sa.delete(exercise_team_workspace)` | `exercise_team_workspace` | DELETE |
-| `instructor_repository.py:720` `sa.update(exercise_team_workspace)` | `exercise_team_workspace` | UPDATE |
-| `results_repository.py:440` `sa.insert(exercise_result_run)` | `exercise_result_run` | INSERT |
-| `results_repository.py:481` `sa.update(exercise_team_workspace)` | `exercise_team_workspace` | UPDATE |
-| `results_repository.py:568` `sa.update(exercise_team_workspace)` | `exercise_team_workspace` | UPDATE |
-| `results_repository.py:643-649` `pg_insert(...).on_conflict_do_update` | `exercise_profile_overlay` | INSERT **+ UPDATE** |
-| `settings_repository.py:389-401` `pg_insert(...).on_conflict_do_update` | `exercise_saved_setting` | INSERT **+ UPDATE** |
-| `settings_repository.py:439` `sa.delete(exercise_saved_setting)` | `exercise_saved_setting` | DELETE |
+| `dataset_repository.py:405` `sa.insert(exercise_dataset)` | `exercise_dataset` | INSERT |
+| `dataset_repository.py:415` `sa.insert(exercise_profile)` | `exercise_profile` | INSERT |
+| `dataset_repository.py:420` `sa.insert(exercise_event)` | `exercise_event` | INSERT |
+| `instructor_repository.py:404` `sa.update(exercise_dataset)` | `exercise_dataset` | UPDATE |
+| `instructor_repository.py:430-436` `pg_insert(...).on_conflict_do_update` — open, and reopen | `exercise_result_unlock` | INSERT **+ UPDATE** |
+| `instructor_repository.py:472-479` `sa.update(exercise_result_unlock)` — close again | `exercise_result_unlock` | UPDATE |
+| `instructor_repository.py:551` `sa.delete(child)`, three children | `exercise_profile_overlay`, `exercise_saved_setting`, `exercise_result_run` | DELETE |
+| `instructor_repository.py:692-694` `sa.select(...).with_for_update()` | `exercise_team_workspace` | SELECT **+ UPDATE** (a row lock needs `UPDATE` beside `SELECT`) |
+| `instructor_repository.py:698-703` `sa.select(...).with_for_update()` | `exercise_team_workspace` | SELECT + UPDATE |
+| `instructor_repository.py:716-718` `sa.delete(exercise_team_workspace)` | `exercise_team_workspace` | DELETE |
+| `instructor_repository.py:726` `sa.update(exercise_team_workspace)` | `exercise_team_workspace` | UPDATE |
+| `results_repository.py:474` `sa.insert(exercise_result_run)` | `exercise_result_run` | INSERT |
+| `results_repository.py:517` `sa.update(exercise_team_workspace)` | `exercise_team_workspace` | UPDATE |
+| `results_repository.py:604` `sa.update(exercise_team_workspace)` | `exercise_team_workspace` | UPDATE |
+| `results_repository.py:679-685` `pg_insert(...).on_conflict_do_update` | `exercise_profile_overlay` | INSERT **+ UPDATE** |
+| `settings_repository.py:397-409` `pg_insert(...).on_conflict_do_update` | `exercise_saved_setting` | INSERT **+ UPDATE** |
+| `settings_repository.py:447` `sa.delete(exercise_saved_setting)` | `exercise_saved_setting` | DELETE |
 | `workspace_repository.py:272-282` `pg_insert(...).on_conflict_do_nothing` | `exercise_team_workspace` | INSERT |
 | `workspace_repository.py:449-452` `sa.update(table)` — the token-hash repair | `exercise_team_workspace` | UPDATE |
 | `workspace_repository.py:543-548` `sa.delete(child)`, three children | `exercise_profile_overlay`, `exercise_saved_setting`, `exercise_result_run` | DELETE |
 | `workspace_repository.py:551-554` `sa.update(table)` — reset clears the asking choice and the refresh time; the seed is kept | `exercise_team_workspace` | UPDATE |
 | every repository read (`sa.select`) | all eight | SELECT |
-| `sa.select(sa.func.pg_advisory_xact_lock(...))` (e.g. `instructor_repository.py:679`) | none | none — see below |
+| `sa.select(sa.func.pg_advisory_xact_lock(...))` (e.g. `instructor_repository.py:685`) | none | none — see below |
 
 **Advisory locks need no grant.** The exercise repositories serialize with
 `pg_advisory_xact_lock`, which is a function, not a table: `EXECUTE` on it is
@@ -365,13 +389,13 @@ It must match the grant block above exactly:
 | `exercise_profile` | t | t | f | f |
 | `exercise_profile_overlay` | t | t | **t** | t |
 | `exercise_result_run` | t | t | f | t |
-| `exercise_result_unlock` | t | t | f | f |
+| `exercise_result_unlock` | t | t | **t** | f |
 | `exercise_saved_setting` | t | t | **t** | t |
 | `exercise_team_workspace` | t | t | t | t |
 
-The two bold `upd` cells are the `ON CONFLICT DO UPDATE` ones. If either reads
-`f`, refresh and saved settings are broken and no other check in this document
-will tell you.
+The three bold `upd` cells are the `ON CONFLICT DO UPDATE` ones. If any reads
+`f`, refresh, saved settings, or opening and closing results is broken and no
+other check in this document will tell you.
 
 ---
 
@@ -638,9 +662,17 @@ session (the passcode) and sends `X-Exercise-Request`. Step 0 needs neither.
    The instructor page lists the events with `GET
    /v1/exercise/instructor/events`, which also says which are already open,
    so a reload of the page shows the unlocks the database holds.
-   Unlocking twice is not an error — the insert is
-   `on_conflict_do_nothing` and the route says the same sentence either way
-   (`instructor_repository.py:468-476`).
+   Unlocking twice is not an error — a second press on an open event writes
+   nothing and the route says the same sentence either way
+   (`instructor_repository.unlock_results`).
+   **Results can be closed again** (2026-10-06, issue #326): `POST
+   /v1/exercise/instructor/events/{event_key}/lock`, or "Close results" on the
+   instructor page. Closing deletes no run: teams that already ran keep their
+   results, and teams that have not are refused until the event is opened
+   again. The page shows the time each event was last opened or closed. To
+   start a session from a clean site, **close both events before clearing the
+   teams** — both orders work, since clearing a team keeps its row, but this
+   one never leaves an open event with empty teams in front of it.
 4. **Refresh all, once, after the first round.** `POST
    /v1/exercise/instructor/refresh-all`
    (`exercise_instructor_refresh.py:90-91`). **All or nothing**: every team is
@@ -763,20 +795,23 @@ checklist for real:
    diverged; resolve before promoting, per
    [`vm-deploy.md`](vm-deploy.md#promoting-a-commit-to-the-vm).
 
-2. **Confirm the migration head is `0043_exercise_event_exploratory`.**
+2. **Confirm the migration head is `0044_exercise_event_description`.**
    ```bash
-   grep -L 'down_revision = "0043_exercise_event_exploratory"' /dev/null; \
-   grep -rl 'down_revision = "0043_exercise_event_exploratory"' db/migrations/versions/*.py
+   grep -L 'down_revision = "0044_exercise_event_description"' /dev/null; \
+   grep -rl 'down_revision = "0044_exercise_event_description"' db/migrations/versions/*.py
    ```
    Pass: the second command prints **nothing** — no later revision points back
-   at `0043_exercise_event_exploratory`, so it is the head
-   (`db/migrations/versions/0043_exercise_event_exploratory.py` sets its own
-   `down_revision = "0042_exercise_ann_dataset"`; it adds the boolean
-   `is_exploratory` to `exercise_event`, read from Ann's `event_type`).
-   **Re-upload Ann's file after this revision**: a dataset stored before it
-   has every event non-exploratory, so an undecided career goal earns nothing
-   on Northline or Harbor. Fail: a revision is printed — the head has moved
-   past `0043`; re-derive this step against the new file before continuing,
+   at `0044_exercise_event_description`, so it is the head
+   (`db/migrations/versions/0044_exercise_event_description.py` sets its own
+   `down_revision = "0043_exercise_event_exploratory"`; it adds the nullable
+   text column `description` to `exercise_event`, read from Ann's
+   `event_description`. `0043` before it added the boolean `is_exploratory`,
+   read from her `event_type`).
+   **Re-upload Ann's file after these revisions**: a dataset stored before
+   `0043` has every event non-exploratory, so an undecided career goal earns
+   nothing on Northline or Harbor, and a dataset stored before `0044` shows no
+   event description. Fail: a revision is printed — the head has moved
+   past `0044`; re-derive this step against the new file before continuing,
    since the tables the grant in [§3](#3-the-database-role) depends on may
    have changed shape.
 

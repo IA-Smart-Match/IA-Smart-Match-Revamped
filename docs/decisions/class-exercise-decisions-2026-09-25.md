@@ -90,6 +90,20 @@ Every `file:line` below is on `origin/main` at `9339d5a4`. Paths are shortened:
   - `:286` the CSV refusal sentence; `:291` `_guard_zip`
   - `python/smartmatch_domain/pyproject.toml:9-10` pins `openpyxl` and
     `defusedxml`
+- **Amendment, 2026-10-06 (#325, #318).** Ann's file of 2026-10-02 adds a last
+  `Events` column, `event_description`, whose two filled cells are 571 and 561
+  characters. Three defaults were taken to accept it; each awaits the owner's
+  confirmation.
+  1. The 500-character cell cap stays for every heading and every cell except
+     `Events.event_description`, which may hold 2,000
+     (`layout.py` `EVENT_DESCRIPTION_MAX_CHARACTERS`). The other option was to
+     raise the cap for the whole file.
+  2. `event_description` is optional. A file without the column is accepted
+     and shows no description; a blank cell means the same. The other option
+     was to require it, which refuses every file sent before 2026-10-02.
+  3. The upload route sends a refusal without the parser's backticks, so the
+     page shows "The Events sheet is missing the column seats." The parser's
+     own sentences are unchanged.
 
 ## D2. Career goal → topic, and "Undecided" at half credit
 
@@ -159,6 +173,15 @@ Every `file:line` below is on `origin/main` at `9339d5a4`. Paths are shortened:
   major-fit table). The xlsx stays the source of truth; the `.accdb` carries
   no document metadata (no Author, Company or LastAuthor). See
   `tests/fixtures/exercise/README.md`. Owner-approved 2026-09-27 (PR #243).
+- **Amendment, 2026-10-06 (#325).** Ann's file of 2026-10-02 is committed as
+  `tests/fixtures/exercise/SmartMatch_Student_Body_300_10022026.xlsx`, cut the
+  same way: sheets `Profiles` and `Events` only, document properties reset.
+  The September file stays beside it, as the source of the `.accdb` and as
+  the proof that a file without `event_description` still uploads. The two
+  agree cell for cell on every column they share. The `.accdb` is **not**
+  rebuilt: it still mirrors the September file and has no
+  `event_description`. Rebuilding it needs Microsoft Access on Windows and is
+  an open manual step. Awaits the owner's confirmation.
 
 ## D5. A results run needs a saved final setting
 
@@ -407,6 +430,58 @@ Every `file:line` below is on `origin/main` at `9339d5a4`. Paths are shortened:
   `:217-227` (the order in words); `api/routers/exercise_results_run.py:347`
   `runnable_or_refusal`, `:142`, `:116` `coefficients_or_refusal`, `:169`
   `weights_or_refusal`.
+
+### D16 amendment, 2026-10-06. Results can be closed again; "already run" comes before "locked"
+
+- **Why now.** Ann's revisions of 2026-10-02, area 2: "Opening or closing
+  results for an event shows the time it was done, and results can be closed
+  again." Her checklist, section 2: "There is also a way to close it again."
+  Until now an unlock was one-way.
+- **What this supersedes.** The one-way unlock (design spec §9: "the absence
+  of a row is locked"), and the position of "locked" in the order above.
+- **Decision 1: the lock has three states**, read off one
+  `exercise_result_unlock` row per data file and event:
+
+  | Row | `closed_at` | State | A new run |
+  |---|---|---|---|
+  | none | — | never opened | refused, "not open" |
+  | present | empty | open | allowed, once per team |
+  | present | set | closed again | refused, "not open" |
+
+  Open means: a row exists **and** `closed_at IS NULL`. Every reader uses that
+  one predicate (`results_repository.results_unlocked`,
+  `instructor_events.select_exercise_events`).
+- **Decision 2: what `unlocked_at` means.** The **most recent** opening. A
+  reopening overwrites it and clears `closed_at`; a close sets `closed_at` and
+  leaves `unlocked_at` alone. So each column answers "when was this last
+  done", which is what the instructor page shows. The first-ever opening time
+  is not kept: one row cannot hold every open-and-close cycle either way, and
+  showing the first opening beside a reopened event would be the wrong time.
+  Pressing open on an event that is already open still changes nothing.
+- **Decision 3: closing deletes nothing.** A team that already ran keeps its
+  stored results and can still read them. Only a team that has not run is
+  refused, until the event is opened again. Clearing work is the per-team
+  reset, not the close.
+- **Decision 4: the order of a run's refusals is now** unknown event (404) →
+  not a round (409) → **already run (409) → locked (409)** → no final setting
+  (422) → no coefficients (409) → setting not saved (404). The two swapped
+  checks are both one-row reads, so cost does not order them. What does: with
+  a close, a team that ran while results were open and presses again
+  afterwards has had its one run. "Not open yet" would tell it to wait for a
+  second run that will never come; "This team has already run results for
+  this event." is the true sentence.
+- **Approved.** Implementer default taken on 2026-10-06 from Ann's written
+  request; listed for confirmation on the pull request for issue #326.
+- **Affects.** The instructor's "Open results for an event" panel (chips
+  "Results open" / "Results closed", the time, "Close results"); which
+  sentence a team sees on a closed event; the exercise database role, which
+  now needs `UPDATE` on `exercise_result_unlock`
+  (`docs/operations/exercise-hosting.md`).
+- **Code.** Migration `0045_exercise_result_unlock_closed_at.py` (revision id
+  `0045_exercise_unlock_closed_at`); `instructor_repository.unlock_results` /
+  `lock_results`; `POST /v1/exercise/instructor/events/{event_key}/lock` in
+  `api/routers/exercise_instructor.py`; `runnable_or_refusal` in
+  `api/routers/exercise_results_run.py`.
 
 ---
 

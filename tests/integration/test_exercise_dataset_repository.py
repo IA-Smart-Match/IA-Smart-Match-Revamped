@@ -19,6 +19,7 @@ Requires a live database; skipped otherwise.
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 import os
 import uuid
@@ -403,6 +404,30 @@ def test_whether_an_event_is_exploratory_round_trips(session: Session) -> None:
         "northline",
         "harbor",
     }
+
+
+def test_an_events_description_round_trips_and_a_missing_one_stays_missing(
+    session: Session,
+) -> None:
+    """#318: what ingest read from ``event_description`` is what a read returns."""
+    text = "A fictional sixty-minute talk. " * 30
+    assert len(text) > 500
+    events = tuple(
+        dataclasses.replace(event, description=text if event.event_key == "northline" else None)
+        for event in _events()
+    )
+    parsed = dataclasses.replace(_dataset(), events=events)
+    summary = REPOSITORY.create_dataset(
+        session, parsed, label="Described", source_filename="d.xlsx"
+    )
+    session.commit()
+
+    stored = REPOSITORY.list_events(session, dataset_id=summary.dataset_id)
+
+    assert {event.event_key: event.description for event in stored if event.description} == {
+        "northline": text
+    }
+    assert sum(event.description is None for event in stored) == 11
 
 
 def test_no_card_on_file_stays_different_from_an_empty_card(session: Session) -> None:

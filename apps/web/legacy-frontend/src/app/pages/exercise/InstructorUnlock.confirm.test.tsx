@@ -64,15 +64,15 @@ afterEach(() => {
 });
 
 describe("<UnlockPanel /> lock chips", () => {
-  it("read exactly as §11.1: no trailing full stop", async () => {
+  it("read exactly as Ann's checklist of 2026-10-02: no trailing full stop", async () => {
     stub();
     renderPanel();
     const open = (await screen.findByText("Northline Analytics")).closest("li") as HTMLElement;
     const closed = (await harborRow()) as HTMLElement;
-    expect(within(open).getByText("Results are open")).toBeDefined();
-    expect(within(closed).getByText("Results are closed")).toBeDefined();
-    expect(open.textContent).not.toContain("Results are open.");
-    expect(closed.textContent).not.toContain("Results are closed.");
+    expect(within(open).getByText("Results open")).toBeDefined();
+    expect(within(closed).getByText("Results closed")).toBeDefined();
+    expect(open.textContent).not.toContain("Results open.");
+    expect(closed.textContent).not.toContain("Results closed.");
   });
 });
 
@@ -102,7 +102,7 @@ describe("<UnlockPanel /> asks before it opens results", () => {
     await waitFor(() => expect(unlockPosts()).toBe(1));
     await waitFor(() =>
       expect(screen.getByText("Harbor Consumer Brands").closest("li")?.textContent).toContain(
-        "Results are open",
+        "Results open",
       ),
     );
     expect(unlockPosts()).toBe(1);

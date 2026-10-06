@@ -101,6 +101,7 @@ from smartmatch_api.exercise_dependencies import (
     ExerciseDatasetWriteError,
     ExerciseSession,
     ExerciseWriteRefused,
+    InstructorEventRow,
     InstructorRepository,
     MaybeActiveDataset,
     TeamWorkspaceHandle,
@@ -115,19 +116,19 @@ from smartmatch_api.routers.exercise_instructor_models import (
     DatasetView,
     InstructorEventsView,
     InviteLimitRequest,
+    LockView,
     RepointView,
-    TeamDetailView,
     TeamListView,
     TeamSummaryView,
     UnlockView,
     UploadedDatasetView,
     dataset_view,
     event_view,
+    plain_sentence,
     report_view,
-    run_view,
-    setting_view,
     team_view,
 )
+from smartmatch_api.routers.exercise_results_run import not_a_round
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -222,7 +223,7 @@ def upload_dataset(
         raise ExerciseError(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             code=f"exercise_ingest_{parsed.code}",
-            message=parsed.message,
+            message=plain_sentence(parsed.message),
         )
     try:
         summary = repository.create_dataset(
@@ -410,9 +411,11 @@ def unlock_results(
 ) -> UnlockView:
     """Write the ``exercise_result_unlock`` row design spec §9 reads.
 
-    **Idempotent.** A second press inserts nothing, moves no ``unlocked_at``,
-    and answers the same sentence — an instructor pressing a button twice in a
-    classroom is the expected case, not the exceptional one.
+    **Idempotent.** A second press on an open event changes nothing, moves no
+    ``unlocked_at``, and answers the same sentence — an instructor pressing a
+    button twice in a classroom is the expected case, not the exceptional one.
+    Opening an event that was closed again reopens it and answers with the
+    time of this opening (D16 amendment, 2026-10-06).
 
     **Scoped to the data file the teams are on**, resolved by
     :func:`_teams_dataset`, and this is a correction rather than a preference.
@@ -427,26 +430,84 @@ def unlock_results(
         ExerciseError: 404 when the event is not in that data file, 409 when no
             data file can be resolved or the write is refused.
     """
-    dataset = _teams_dataset(instructor, session, requested=dataset_id)
+    row = _change_lock(instructor, session, requested=dataset_id, event_key=event_key, open_=True)
+    return UnlockView(
+        event_key=event_key, unlocked=True, unlocked_at=row.unlocked_at if row else None
+    )
+
+
+@router.post(
+    "/events/{event_key}/lock",
+    response_model=LockView,
+    dependencies=_STATE_CHANGING,
+    summary="Close results for one event again",
+)
+def lock_results(
+    event_key: str,
+    session: ExerciseSession,
+    instructor: InstructorRepository,
+    dataset_id: _DatasetChoice = None,
+) -> LockView:
+    """Close results for one event, so no further team can run them.
+
+    The other half of the unlock (D16 amendment, 2026-10-06), scoped to the
+    same data file by :func:`_teams_dataset`. **Nothing is deleted**: a team
+    that already ran keeps its results on screen, and a team that has not is
+    told results are not open until the instructor opens the event again.
+
+    **Idempotent.** Closing an event that is already closed, or was never
+    opened, changes nothing and is not an error.
+
+    Raises:
+        ExerciseError: 404 when the event is not in that data file, 409 when no
+            data file can be resolved or the write is refused.
+    """
+    row = _change_lock(instructor, session, requested=dataset_id, event_key=event_key, open_=False)
+    return LockView(event_key=event_key, unlocked=False, closed_at=row.closed_at if row else None)
+
+
+def _change_lock(
+    instructor: InstructorRepository,
+    session: ExerciseSession,
+    *,
+    requested: uuid.UUID | None,
+    event_key: str,
+    open_: bool,
+) -> InstructorEventRow | None:
+    """Open or close one event's results, commit, and read the row back.
+
+    One body for both routes so the file resolution, the unknown-event sentence
+    and the commit cannot drift apart between them. The row comes back from the
+    same read the panel's list uses, so the time a press answers with is the
+    time a reload will show.
+
+    A past event is refused **before any write** (review round 2): it has no
+    place on that list and its lock opens nothing a team can run, so writing
+    one and answering "unlocked" with no time said something untrue.
+    """
+    dataset = _teams_dataset(instructor, session, requested=requested)
     if not instructor.event_exists(session, dataset_id=dataset.dataset_id, event_key=event_key):
         raise ExerciseError(
             status_code=status.HTTP_404_NOT_FOUND,
             code="exercise_event_unknown",
             message="That event is not in the data file the teams are working in.",
         )
+    rounds = instructor.list_exercise_events(session, dataset_id=dataset.dataset_id)
+    if all(row.event_key != event_key for row in rounds):
+        raise not_a_round()
+    write = instructor.unlock_results if open_ else instructor.lock_results
     try:
-        newly = instructor.unlock_results(
-            session, dataset_id=dataset.dataset_id, event_key=event_key
-        )
+        changed = write(session, dataset_id=dataset.dataset_id, event_key=event_key)
     except ExerciseWriteRefused as error:
         raise ExerciseError(
             status_code=status.HTTP_409_CONFLICT,
-            code="exercise_unlock_write_refused",
+            code="exercise_unlock_write_refused" if open_ else "exercise_lock_write_refused",
             message=str(error),
         ) from error
     session.commit()
-    _LOGGER.info("exercise results unlocked: newly=%s", newly)
-    return UnlockView(event_key=event_key, unlocked=True)
+    _LOGGER.info("exercise results %s: changed=%s", "opened" if open_ else "closed", changed)
+    rows = instructor.list_exercise_events(session, dataset_id=dataset.dataset_id)
+    return next((row for row in rows if row.event_key == event_key), None)
 
 
 # ---------------------------------------------------------------------------
@@ -488,45 +549,11 @@ def list_team_workspaces(
     )
 
 
-@router.get(
-    "/workspaces/{team_number}",
-    response_model=TeamDetailView,
-    summary="One team's saved settings and result runs",
-)
-def read_team_workspace(
-    team_number: int,
-    session: ExerciseSession,
-    instructor: InstructorRepository,
-    dataset_id: _DatasetChoice = None,
-) -> TeamDetailView:
-    """Design spec §14's "open any team's saved settings and results". Read-only.
-
-    Addressed by *the data file the teams are on* (see :func:`_teams_dataset`),
-    not by the newest upload — which is why this no longer 404s on a team that
-    is plainly still working the moment a new file is uploaded.
-
-    ``result_runs`` is empty until the results track lands, which is a real
-    answer: design spec §9's route does not exist yet, so no team can have run
-    results.
-
-    Raises:
-        ExerciseError: 404 when that team has not entered its number, 422 for a
-            team number outside 1-6, 409 when no data file can be resolved.
-    """
-    dataset = _teams_dataset(instructor, session, requested=dataset_id)
-    workspace = _require_team(
-        instructor, session, dataset_id=dataset.dataset_id, team_number=team_number
-    )
-    return TeamDetailView(
-        team_number=workspace.team_number,
-        saved_settings=tuple(
-            setting_view(row)
-            for row in instructor.list_saved_settings(session, workspace_id=workspace.id)
-        ),
-        result_runs=tuple(
-            run_view(row) for row in instructor.list_result_runs(session, workspace_id=workspace.id)
-        ),
-    )
+# ``GET /workspaces/{team_number}`` — one team's whole work — is
+# ``routers/exercise_instructor_detail.py``. It composes a ranked list per saved
+# setting and reads each run's stored names, and this file is near the line
+# ceiling; it reaches :func:`_teams_dataset` and :func:`_require_team` below so
+# that "which file, which team" keeps one answer.
 
 
 @router.post(

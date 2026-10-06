@@ -74,6 +74,7 @@ from smartmatch_api.exercise_dependencies import (
     ExerciseSession,
     ExerciseSettingsWriteRefused,
     ExerciseWorkspace,
+    ResultsRepository,
     SettingsRepository,
     TeamViewRepository,
     TooManySavedSettingsError,
@@ -309,6 +310,7 @@ def read_events(
     session: ExerciseSession,
     workspace: CurrentWorkspace,
     datasets: DatasetRepository,
+    results: ResultsRepository,
 ) -> EventsView:
     """Every event in the data file this team is working in, in file order.
 
@@ -316,12 +318,22 @@ def read_events(
     run. ``is_exercise_event`` is what tells them apart, so a picker can offer
     the rounds without this route deciding which of them is which.
 
+    Each of the two rounds also says whether results are open for it and
+    whether your team has already run them, so a screen can show a results
+    button that is not open yet, or already used, before anybody presses it.
+    Both are facts about your own team and its own data file, read through the
+    workspace cookie; nothing here says what another team has done. They are
+    what to show, not what is allowed: the run route decides, and it refuses
+    with a sentence.
+
     Raises:
         ExerciseError: 401 when the cookie is absent or names no workspace.
     """
     events = datasets.list_events(session, dataset_id=workspace.dataset_id)
-    return EventsView(
-        events=[
+    views: list[EventView] = []
+    for event in events:
+        results_open, results_run = _results_state(session, results, workspace, event)
+        views.append(
             EventView(
                 event_key=event.event_key,
                 name=event.name,
@@ -329,10 +341,41 @@ def read_events(
                 target_majors=list(event.target_majors),
                 is_exercise_event=event.is_exercise_event,
                 sequence=event.sequence,
+                description=event.description,
+                results_open=results_open,
+                results_run=results_run,
             )
-            for event in events
-        ]
+        )
+    return EventsView(events=views)
+
+
+def _results_state(
+    session: ExerciseSession,
+    results: ResultsRepository,
+    workspace: ExerciseWorkspace,
+    event: ExerciseEventRow,
+) -> tuple[bool, bool]:
+    """Whether results are open for one event, and whether this team has run them.
+
+    Asked only of the events the teams run: a past event has no round and no
+    run, so it costs no read and answers ``(False, False)``. For a round it is
+    two single-row reads, the same two the run route makes — the lock through
+    the one predicate teams consult (open, and not closed again), the run
+    scoped to this workspace in the statement itself.
+
+    This reverses a deliberate earlier choice — the team side had no read of
+    the lock (DESIGN.md §6.14, amended 2026-10-06) — because Ann's checklist of
+    2026-10-02 asks for a results button that is grey *before* it is pressed.
+    """
+    if not event.is_exercise_event:
+        return False, False
+    is_open = results.results_unlocked(
+        session, dataset_id=workspace.dataset_id, event_key=event.event_key
     )
+    has_run = (
+        results.get_run(session, workspace_id=workspace.id, event_key=event.event_key) is not None
+    )
+    return is_open, has_run
 
 
 # ---------------------------------------------------------------------------

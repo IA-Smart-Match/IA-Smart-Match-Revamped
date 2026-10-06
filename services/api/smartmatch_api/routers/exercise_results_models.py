@@ -31,7 +31,8 @@ ADR-0025 D8 — no numeric score
 ==============================
 Every number on every model below is a count of people or of chairs:
 ``invited_count``, ``seats_empty``, ``event_seats``, ``existing_signups``,
-``cards_completed``. ``round`` is 1 or 2. There is no probability, no share and
+``cards_completed``. ``round`` is 1 or 2, and ``rank`` on an invited name is its
+position on the list the team already saw. There is no probability, no share and
 no percentage anywhere on a response — the shares design spec §12 names are
 applied on the server and reported as *how many profiles*, never as *what
 fraction*.
@@ -65,6 +66,7 @@ from smartmatch_domain.exercise.vocabulary import goal_is_undecided, goal_topic_
 
 from smartmatch_api.exercise_dependencies import (
     ExerciseEventRow,
+    InvitedProfile,
     RefreshCounts,
     ResultPanel,
     SimulationProfileRow,
@@ -77,6 +79,7 @@ __all__ = [
     "MAX_ASKING_CHOICE_CHARACTERS",
     "AskingChoiceRequest",
     "AskingStateView",
+    "InvitedProfileView",
     "PreviousRoundView",
     "RefreshAllView",
     "RefreshCountsView",
@@ -85,6 +88,7 @@ __all__ = [
     "ResultsView",
     "RunResultsRequest",
     "asking_state_view",
+    "invited_profile_view",
     "panel_view",
     "previous_round_view",
     "round_of",
@@ -319,6 +323,51 @@ class ResultPanelView(BaseModel):
     attended_count: int = Field(description="How many attended.")
 
 
+class InvitedProfileView(BaseModel):
+    """One name a run invited, as that team's ranked list showed it at the time.
+
+    Read from the snapshot the run stored of its own list (issues #271, #319),
+    not from a saved setting — so the names are still here after the setting is
+    deleted or saved again, and they are the names the run actually invited.
+
+    The same fields a team reads on its ranked list, and nothing else: no
+    withheld column (ADR-0025 D6) and no number that ranks a person beyond the
+    position on the list (D8). Shared by the team's results and the
+    instructor's view of a team, so one run is described one way.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    rank: int | None = Field(
+        default=None,
+        description=(
+            "Position on the invited list, from 1. Null on a run stored before "
+            "names were kept with the run: its order cannot be rebuilt."
+        ),
+    )
+    profile_no: int = Field(description="The profile's number in the data file.")
+    display_name: str = Field(description="The made-up name. Every row is fictional.")
+    major: str | None = Field(default=None, description="The profile's major, when on file.")
+    class_year: str | None = Field(
+        default=None, description="The profile's year, as the data file spells it."
+    )
+    marker: str | None = Field(
+        default=None,
+        description=(
+            "How much was on file about this profile when the run was made: "
+            "`major_only`, `major_plus_events` or `completed_card`. Null on a "
+            "run stored before names were kept with the run."
+        ),
+    )
+    reason: str | None = Field(
+        default=None,
+        description=(
+            "The one sentence the list gave for this name when the run was "
+            "made. Null on a run stored before names were kept with the run."
+        ),
+    )
+
+
 class PreviousRoundView(BaseModel):
     """Design spec §10's third panel: what this team's earlier round did."""
 
@@ -371,6 +420,16 @@ class ResultsView(BaseModel):
     )
     round_one: PreviousRoundView | None = Field(
         default=None, description="Your team's stored round-one result, in round two."
+    )
+    invited_profiles: list[InvitedProfileView] = Field(
+        default_factory=list,
+        description=(
+            "The people your team's list invited, as the list showed them when "
+            "you ran results, in list order. Stored with the run, so deleting "
+            "or changing the saved setting afterwards does not change them. "
+            "Empty only for a run stored before names were kept with the run. "
+            "Everybody-in-the-file stays counts only."
+        ),
     )
     created_at: datetime = Field(description="When this run was stored.")
 
@@ -466,6 +525,24 @@ def panel_view(panel: ResultPanel) -> ResultPanelView:
     )
 
 
+def invited_profile_view(entry: InvitedProfile) -> InvitedProfileView:
+    """One stored snapshot entry as a response, field by field.
+
+    Named rather than validated from attributes, for ``panel_view``'s reason:
+    a field added to the stored value later is a deliberate addition here and
+    not an automatic disclosure.
+    """
+    return InvitedProfileView(
+        rank=entry.rank,
+        profile_no=entry.profile_no,
+        display_name=entry.display_name,
+        major=entry.major,
+        class_year=entry.class_year,
+        marker=entry.marker,
+        reason=entry.reason,
+    )
+
+
 def previous_round_view(run: StoredResultRun) -> PreviousRoundView:
     """A stored earlier run as design spec §10's third panel."""
     return PreviousRoundView(
@@ -502,6 +579,7 @@ def stored_results_view(
         event_seats=EVENT_SEATS,
         existing_signups=EXISTING_SIGNUPS,
         round_one=previous_round_view(round_one) if round_one is not None else None,
+        invited_profiles=[invited_profile_view(entry) for entry in run.invited],
         created_at=run.created_at,
     )
 

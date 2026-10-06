@@ -7,17 +7,20 @@
  * which is the order the comparison is meant to be read in: what your list
  * did, what contacting all 300 did, what you did last time.
  *
- * **Names appear for the team's own panel only.** The results routes carry
- * profile *numbers* and counts, never names (PR #190). Owner decision of
- * 2026-09-21: the screen joins those numbers against `display_name` on the
- * ranked list the matching screen already fetches, and the "email everyone"
- * panel stays counts only. So a team can see who its own decision reached; the
- * 300-person comparison stays a number, which is the point of it.
+ * **Names appear for the team's own panel only**, and they are the run's own
+ * record (issue #271). The run stores the names its list showed when it was
+ * made (`ResultsView.invited_profiles`), and this screen reads them from
+ * there — see {@link namesFromRun}. It used to join the panel's numbers
+ * against the ranked list the run's saved setting builds (owner decision,
+ * 2026-09-21), which named nobody once that setting was deleted, and named
+ * the wrong people once it was saved again. The "email everyone" panel stays
+ * counts only. So a team can see who its own decision reached; the 300-person
+ * comparison stays a number, which is the point of it.
  *
- * A number with no name in the list — possible when the list was rebuilt under
- * different weights since the run — renders as the profile number rather than
- * being dropped or shown as blank. Design spec §7's rule about absent
- * information is the same rule: say what is missing, do not fill it in.
+ * A number the run's record does not name — a run stored before names were
+ * kept with the run — renders as the profile number rather than being dropped
+ * or shown as blank. Design spec §7's rule about absent information is the
+ * same rule: say what is missing, do not fill it in.
  */
 import * as React from "react";
 
@@ -29,8 +32,20 @@ import type { ResultPanelView, ResultsView } from "../../../lib/exerciseClient";
 import { RoundJourneyArt } from "./resultsArt";
 import { ResultsReveal } from "./ResultsReveal";
 
-/** `profile_no` → the name the ranked list gives it. */
+/** `profile_no` → the name the run stored for it. */
 export type NamesByProfileNo = ReadonlyMap<number, string>;
+
+/**
+ * The names a run kept of the people it invited, by profile number.
+ *
+ * Signed-up and attended are subsets of invited, so this one map names all
+ * three of the team's lists. Empty for a run stored before names were kept.
+ */
+export function namesFromRun(results: ResultsView): NamesByProfileNo {
+  return new Map(
+    (results.invited_profiles ?? []).map((entry) => [entry.profile_no, entry.display_name]),
+  );
+}
 
 /** The three panels, in §10's reading order, for the chart. */
 export function resultsSeries(results: ResultsView): ExerciseResultsSeries[] {
@@ -55,8 +70,11 @@ function panelSeries(label: string, panel: ResultPanelView): ExerciseResultsSeri
 
 export interface ResultPanelsProps {
   readonly results: ResultsView;
-  /** Names for the team's own profile numbers; empty when the list is not loaded. */
-  readonly names: NamesByProfileNo;
+  /**
+   * Names for the team's own profile numbers. Left out, they are read from
+   * the run's own record ({@link namesFromRun}), which is what a screen wants.
+   */
+  readonly names?: NamesByProfileNo;
   /**
    * Play the seat fill (`ce-seat-fill`, DESIGN.md §5.1). True only on the first
    * render after this screen's own run succeeded; a later visit shows the
@@ -71,9 +89,10 @@ export interface ResultPanelsProps {
  */
 export function ResultPanels({
   results,
-  names,
+  names: given,
   reveal = false,
 }: ResultPanelsProps): React.JSX.Element {
+  const names = React.useMemo(() => given ?? namesFromRun(results), [given, results]);
   return (
     <div className="flex flex-col gap-ce-6 md:gap-ce-7">
       {results.round_one === null ? null : (
@@ -227,7 +246,7 @@ function PeopleList({
               data-slot="exercise-person-chip"
               className="ce-type-meta rounded-ce-pill bg-ce-surface-sunk px-ce-3 py-ce-1 text-ce-ink"
             >
-              {/* The number itself when the list on screen does not name it. */}
+              {/* The number itself when the run's record does not name it. */}
               {names.get(profileNo) ?? `Profile ${profileNo}`}
             </li>
           ))}
