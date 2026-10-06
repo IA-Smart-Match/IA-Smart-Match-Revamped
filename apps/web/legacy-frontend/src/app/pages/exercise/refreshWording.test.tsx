@@ -7,12 +7,14 @@
  */
 import { describe, expect, it } from "vitest";
 
-import type { RefreshCountsView } from "../../../lib/exerciseClient";
+import type { RefreshAllTeamView, RefreshCountsView } from "../../../lib/exerciseClient";
 import {
   alreadyRefreshedLabel,
   formatClockTime,
   markerCountLines,
   markerCountTotal,
+  refreshAllHeadline,
+  refreshAllTeamLine,
   refreshChangeSentences,
   refreshDoneLine,
   refreshMarkLabel,
@@ -116,5 +118,65 @@ describe("the marks on a list entry", () => {
   it("falls back to plain words without an event name, and to the value for an unknown mark", () => {
     expect(refreshMarkLabel("new_event", null)).toBe("New: went to the first event");
     expect(refreshMarkLabel("a_fourth_mark", "Northline")).toBe("a_fourth_mark");
+  });
+});
+
+describe("the instructor's every-team report", () => {
+  const SKIPPED: RefreshAllTeamView = {
+    team_number: 4,
+    dataset_label: "October file",
+    outcome: "skipped",
+    reason_code: "no_asking_choice",
+    refreshed_at: null,
+    refresh_counts: null,
+    first_round_event_name: null,
+  };
+  const REFRESHED: RefreshAllTeamView = {
+    ...SKIPPED,
+    team_number: 2,
+    outcome: "refreshed",
+    reason_code: null,
+    refreshed_at: AT,
+    refresh_counts: COUNTS,
+    first_round_event_name: "Northline",
+  };
+
+  it("gives a refreshed team the summary that team reads itself", () => {
+    expect(refreshAllTeamLine(REFRESHED, { nameFile: false })).toEqual({
+      team: "Team 2:",
+      what: "Refreshed at 10:42 AM. 9 people who came to Northline now count as having gone to a similar event. 12 of the 22 invited people with no card completed one. 0 people stopped responding. Completed card: 70 → 82.",
+    });
+  });
+
+  it("says why a team was skipped, from the server's code", () => {
+    const why = (reason: string, at: string | null = null) =>
+      refreshAllTeamLine({ ...SKIPPED, reason_code: reason, refreshed_at: at }, { nameFile: false })
+        .what;
+    expect(why("no_asking_choice")).toBe("Skipped: it has not chosen a way of asking.");
+    expect(why("no_round_one_run")).toBe("Skipped: it has not run results for its first event.");
+    expect(why("already_refreshed", "2026-10-16T10:31:00")).toBe(
+      "Skipped: it was already refreshed at 10:31 AM.",
+    );
+    expect(why("already_refreshed")).toBe("Skipped: it was already refreshed.");
+  });
+
+  it("invents no reason for a code it does not know", () => {
+    expect(
+      refreshAllTeamLine({ ...SKIPPED, reason_code: "a_new_reason" }, { nameFile: false }).what,
+    ).toBe("Skipped.");
+  });
+
+  it("names the file only when asked to", () => {
+    expect(refreshAllTeamLine(SKIPPED, { nameFile: true }).team).toBe("Team 4 (October file):");
+  });
+
+  it("counts both outcomes in the headline, and says when there was no team", () => {
+    const view = { refreshed_team_numbers: [2], refreshed: 1, skipped: 0 };
+    expect(refreshAllHeadline({ ...view, teams: [REFRESHED, SKIPPED] })).toBe(
+      "Refreshed 1 team. Skipped 1 team.",
+    );
+    expect(refreshAllHeadline({ ...view, refreshed: 0, refreshed_team_numbers: [], teams: [] })).toBe(
+      "No team has entered a number yet, so there was nothing to refresh.",
+    );
   });
 });

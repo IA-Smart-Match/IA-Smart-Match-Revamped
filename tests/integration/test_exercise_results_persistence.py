@@ -787,6 +787,48 @@ def test_refresh_all_sees_only_teams_that_chose_and_have_not_refreshed(
     assert unchosen not in {candidate.workspace_id for candidate in awaiting}
 
 
+def test_the_refresh_report_read_returns_every_team_whatever_its_state(
+    exercise_sessions: sessionmaker[Session],
+) -> None:
+    """The every-team report names teams that cannot be refreshed, so it reads them too."""
+    results = ExerciseResultsRepository()
+    with exercise_sessions() as session:
+        dataset_id, (chosen, unchosen) = _classroom(session)
+        results.choose_asking(session, workspace_id=chosen, choice="small_reward")
+        session.commit()
+        label = session.execute(
+            sa.select(schema.exercise_dataset.c.label).where(
+                schema.exercise_dataset.c.id == dataset_id
+            )
+        ).scalar_one()
+
+        before = results.workspaces_refresh_status(session)
+        now = _now(session)
+        results.apply_refresh(
+            session,
+            dataset_id=dataset_id,
+            workspace_id=chosen,
+            added_topics=["analytics"],
+            topic_gainers=[1],
+            card_profile_nos=[1],
+            non_responding_profile_nos=[],
+            now=now,
+        )
+        session.commit()
+        after = results.workspaces_refresh_status(session)
+
+    assert [team.workspace_id for team in before] == [chosen, unchosen]
+    assert [team.team_number for team in before] == sorted(team.team_number for team in before)
+    assert [(team.asking_choice, team.refreshed_at) for team in before] == [
+        ("small_reward", None),
+        (None, None),
+    ]
+    assert {team.dataset_label for team in before} == {label}
+    assert {team.dataset_id for team in before} == {dataset_id}
+    assert [team.refreshed_at for team in after] == [now, None]
+    assert "seed" not in repr(before[0]), "a team's seed must stay out of a printed row"
+
+
 # ---------------------------------------------------------------------------
 # A reset and a re-point clear what they say they clear
 # ---------------------------------------------------------------------------

@@ -26,6 +26,7 @@ from smartmatch_api.exercise_dependencies import (
     ResultPanel,
     StoredResultRun,
     TeamResultsState,
+    WorkspaceRefreshStatus,
     get_active_dataset,
     get_dataset_repository,
     get_exercise_session,
@@ -424,6 +425,21 @@ class _FakeResultsRepository:
             )
             for workspace in sorted(self.workspaces.rows.values(), key=lambda row: row.team_number)
             if workspace.id in self.choices and workspace.id not in self.refreshed
+        )
+
+    def workspaces_refresh_status(self, _session: object) -> tuple[WorkspaceRefreshStatus, ...]:
+        """Every team that exists, in team-number order (one data file here)."""
+        return tuple(
+            WorkspaceRefreshStatus(
+                workspace_id=workspace.id,
+                dataset_id=workspace.dataset_id,
+                dataset_label=workspace.dataset_label,
+                team_number=workspace.team_number,
+                asking_choice=self.choices.get(workspace.id),
+                refreshed_at=self.refreshed.get(workspace.id),
+                seed=self.workspaces.seeds[workspace.id],
+            )
+            for workspace in sorted(self.workspaces.rows.values(), key=lambda row: row.team_number)
         )
 
     # -- writes -------------------------------------------------------------

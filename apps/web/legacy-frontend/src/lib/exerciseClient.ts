@@ -249,10 +249,31 @@ export interface RefreshView {
   readonly refresh_counts: RefreshCountsView;
 }
 
+/** Why the every-team refresh skipped a team. Codes; `refreshWording.ts` owns the words. */
+export type RefreshSkipReason = "no_asking_choice" | "no_round_one_run" | "already_refreshed";
+
+/** One team's line in the every-team refresh report. */
+export interface RefreshAllTeamView {
+  readonly team_number: number;
+  /** The team's data file, by label. Shown only when the report spans two files. */
+  readonly dataset_label: string;
+  readonly outcome: "refreshed" | "skipped";
+  /** `null` for a refreshed team. Typed loosely so a new code renders, not crashes. */
+  readonly reason_code: RefreshSkipReason | (string & {}) | null;
+  /** When it was refreshed: by this request, or earlier if `already_refreshed`. */
+  readonly refreshed_at: string | null;
+  /** What this request's refresh changed. `null` for a skipped team. */
+  readonly refresh_counts: RefreshCountsView | null;
+  readonly first_round_event_name: string | null;
+}
+
 export interface RefreshAllView {
   readonly refreshed_team_numbers: number[];
   readonly refreshed: number;
+  /** Teams that had chosen and still could not be refreshed. Not `teams`' skipped count. */
   readonly skipped: number;
+  /** Every team that exists, in the Teams panel's order. */
+  readonly teams: RefreshAllTeamView[];
 }
 
 // ---------------------------------------------------------------------------

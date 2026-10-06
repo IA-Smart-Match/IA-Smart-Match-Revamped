@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import datetime
 
+import pytest
 from fastapi.testclient import TestClient
 from smartmatch_api.routers import (
     exercise_instructor_refresh,
@@ -571,6 +572,86 @@ def test_refresh_all_produces_what_the_teams_own_buttons_would_have(
     assert [entry["marker"] for entry in first["entries"]] == [
         entry["marker"] for entry in second["entries"]
     ]
+
+
+def test_refresh_all_reports_every_team_and_why_it_was_skipped(
+    fakes: _Fakes, confirmed: SimulationCoefficients
+) -> None:
+    """Ann, 2026-10-02: "which teams were refreshed and which were skipped and why"."""
+    fakes.unlock("round-one")
+    with (
+        _entered(fakes, 1) as one,
+        _entered(fakes, 2) as two,
+        _entered(fakes, 3),
+        _entered(fakes, 4),
+    ):
+        for client in (one, two):
+            client.post(_RESULTS, json=_FINAL_BODY, headers=_HEADER)
+            client.post(_ASKING, json={"choice": "required"}, headers=_HEADER)
+        earlier = two.post(_REFRESH, json={}, headers=_HEADER).json()
+        # team three never chooses; team four has a choice and no round one
+        _seed_choice(fakes, 4)
+
+        with _instructor(fakes) as instructor:
+            body = instructor.post(_REFRESH_ALL, headers=_HEADER).json()
+        own = one.get(_ASKING).json()
+
+    assert [team["team_number"] for team in body["teams"]] == [1, 2, 3, 4]
+    assert [(team["outcome"], team["reason_code"]) for team in body["teams"]] == [
+        ("refreshed", None),
+        ("skipped", "already_refreshed"),
+        ("skipped", "no_asking_choice"),
+        ("skipped", "no_round_one_run"),
+    ]
+    refreshed, already, unchosen, behind = body["teams"]
+    # The refreshed team's line is the same summary that team now reads itself.
+    assert refreshed["refresh_counts"] == own["refresh_counts"]
+    assert refreshed["refreshed_at"] == own["refreshed_at"]
+    assert refreshed["first_round_event_name"] == _ROUND_ONE.name
+    assert refreshed["refresh_counts"]["cards_completed"] >= 1
+    # A team that refreshed itself earlier keeps its own time and is not re-counted.
+    assert already["refreshed_at"] == earlier["refreshed_at"]
+    assert already["refresh_counts"] is None
+    for skipped in (unchosen, behind):
+        assert skipped["refreshed_at"] is None
+        assert skipped["refresh_counts"] is None
+    assert {team["dataset_label"] for team in body["teams"]} == {"Made-up student body (sample)"}
+    # The three fields the route has always sent keep their meaning.
+    assert body["refreshed_team_numbers"] == [1]
+    assert body["refreshed"] == 1
+    assert body["skipped"] == 1, "only the chosen team that could not be refreshed"
+
+
+def test_refresh_all_reports_nothing_for_a_classroom_nobody_entered(fakes: _Fakes) -> None:
+    with _instructor(fakes) as instructor:
+        body = instructor.post(_REFRESH_ALL, headers=_HEADER).json()
+
+    assert body == {"refreshed_team_numbers": [], "refreshed": 0, "skipped": 0, "teams": []}
+
+
+def test_refresh_all_does_not_blame_round_one_for_a_team_cleared_mid_request(
+    fakes: _Fakes, confirmed: SimulationCoefficients, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A lost claim is read back and named for what the row now says."""
+    fakes.unlock("round-one")
+    with _entered(fakes, 1) as one:
+        one.post(_RESULTS, json=_FINAL_BODY, headers=_HEADER)
+        one.post(_ASKING, json={"choice": "required"}, headers=_HEADER)
+        workspace = fakes.workspaces.rows[(_DATASET_ID, 1)]
+
+        def cleared_first(*_args: object, **_kwargs: object) -> None:
+            """The team's choice goes away between the listing and the claim."""
+            del fakes.results.choices[workspace.id]
+
+        monkeypatch.setattr(fakes.results, "apply_refresh", cleared_first)
+        with _instructor(fakes) as instructor:
+            body = instructor.post(_REFRESH_ALL, headers=_HEADER).json()
+
+    assert [(team["outcome"], team["reason_code"]) for team in body["teams"]] == [
+        ("skipped", "no_asking_choice")
+    ]
+    assert body["refreshed"] == 0
+    assert fakes.team_view.overlays == {}
 
 
 def test_refresh_all_is_answered_by_the_new_router() -> None:

@@ -51,7 +51,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import datetime
-from typing import Any, Final
+from typing import Any, Final, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from smartmatch_domain.exercise.asking import AskingChoice
@@ -78,6 +78,7 @@ __all__ = [
     "AskingChoiceRequest",
     "AskingStateView",
     "PreviousRoundView",
+    "RefreshAllTeamView",
     "RefreshAllView",
     "RefreshCountsView",
     "RefreshView",
@@ -475,6 +476,54 @@ class RefreshView(BaseModel):
     )
 
 
+class RefreshAllTeamView(BaseModel):
+    """One team's line in the every-team refresh report (Ann, 2026-10-02).
+
+    *"which teams were refreshed and which were skipped and why"*, as facts: an
+    outcome, a reason code, a time and the same counts a team reads about its
+    own refresh. The instructor's screen writes the words from these, exactly as
+    a team's screen does.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    team_number: int = Field(description="The team this line is about.")
+    dataset_label: str = Field(
+        description=(
+            "The label of the data file this team is working in, so two teams "
+            "with one number in two files can be told apart."
+        ),
+    )
+    outcome: Literal["refreshed", "skipped"] = Field(
+        description="Whether this request refreshed the team."
+    )
+    reason_code: Literal["no_asking_choice", "no_round_one_run", "already_refreshed"] | None = (
+        Field(
+            default=None,
+            description=(
+                "Why a skipped team was skipped: it has not chosen how to ask, it "
+                "has not run the first round's results, or it was refreshed "
+                "before this request. Null for a refreshed team."
+            ),
+        )
+    )
+    refreshed_at: datetime | None = Field(
+        default=None,
+        description=(
+            "When the team was refreshed: by this request, or earlier for a team "
+            "skipped as already refreshed. Null otherwise."
+        ),
+    )
+    refresh_counts: RefreshCountsView | None = Field(
+        default=None,
+        description="What this request's refresh changed for the team. Null for a skipped team.",
+    )
+    first_round_event_name: str | None = Field(
+        default=None,
+        description="The first round's event in this team's data file, for a refreshed team.",
+    )
+
+
 class RefreshAllView(BaseModel):
     """Design spec §14's "refresh all", as what it did to the classroom."""
 
@@ -488,6 +537,13 @@ class RefreshAllView(BaseModel):
         description=(
             "How many teams had chosen but could not be refreshed yet, because "
             "they have not run the first round's results."
+        ),
+    )
+    teams: list[RefreshAllTeamView] = Field(
+        default_factory=list,
+        description=(
+            "Every team that exists, in the order the instructor's list shows "
+            "them, each with what happened to it and why."
         ),
     )
 

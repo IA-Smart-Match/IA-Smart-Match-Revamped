@@ -15,7 +15,11 @@
  *
  * Counts only (ADR-0025 D8): no percentage is ever composed here.
  */
-import type { RefreshCountsView } from "../../../lib/exerciseClient";
+import type {
+  RefreshAllTeamView,
+  RefreshAllView,
+  RefreshCountsView,
+} from "../../../lib/exerciseClient";
 import { markerLabel } from "./markers";
 
 /** "10:42 AM", in the browser's own time zone. */
@@ -153,4 +157,70 @@ export function refreshMarkLabel(mark: string, eventName: string | null | undefi
     return "Stopped responding";
   }
   return mark;
+}
+
+// ---------------------------------------------------------------------------
+// The instructor's every-team report
+// ---------------------------------------------------------------------------
+
+/** "1 team" / "3 teams". */
+function teams(count: number): string {
+  return count === 1 ? "1 team" : `${count} teams`;
+}
+
+/** The report's first line: "Refreshed 2 teams. Skipped 3 teams." */
+export function refreshAllHeadline(done: RefreshAllView): string {
+  const all = done.teams ?? [];
+  if (all.length === 0) {
+    return "No team has entered a number yet, so there was nothing to refresh.";
+  }
+  const skipped = all.filter((team) => team.outcome === "skipped").length;
+  return `Refreshed ${teams(done.refreshed)}. Skipped ${teams(skipped)}.`;
+}
+
+/** Why a team was skipped, in words, from the server's reason code. */
+function skipReason(team: RefreshAllTeamView): string {
+  if (team.reason_code === "no_asking_choice") {
+    return "Skipped: it has not chosen a way of asking.";
+  }
+  if (team.reason_code === "no_round_one_run") {
+    return "Skipped: it has not run results for its first event.";
+  }
+  if (team.reason_code === "already_refreshed") {
+    const time = formatClockTime(team.refreshed_at);
+    return time === null
+      ? "Skipped: it was already refreshed."
+      : `Skipped: it was already refreshed at ${time}.`;
+  }
+  // A reason this screen does not know: say it was skipped and invent no why.
+  return "Skipped.";
+}
+
+/**
+ * One team's line: who ("Team 2:") and what happened.
+ *
+ * A refreshed team gets the same summary that team reads on its own screen,
+ * plus the completed-card count before and after. `nameFile` adds the data
+ * file's label to the name, for a classroom split across two files where two
+ * teams share a number.
+ */
+export function refreshAllTeamLine(
+  team: RefreshAllTeamView,
+  { nameFile }: { readonly nameFile: boolean },
+): { readonly team: string; readonly what: string } {
+  const name = nameFile
+    ? `Team ${team.team_number} (${team.dataset_label}):`
+    : `Team ${team.team_number}:`;
+  if (team.outcome !== "refreshed") {
+    return { team: name, what: skipReason(team) };
+  }
+  const time = formatClockTime(team.refreshed_at);
+  const counts = team.refresh_counts;
+  const cards = counts === null ? undefined : markerCountLines(counts)[0];
+  const parts = [
+    time === null ? "Refreshed." : `Refreshed at ${time}.`,
+    ...(counts === null ? [] : refreshChangeSentences(counts, team.first_round_event_name)),
+    ...(cards === undefined ? [] : [`${cards.label}: ${cards.before} → ${cards.after}.`]),
+  ];
+  return { team: name, what: parts.join(" ") };
 }

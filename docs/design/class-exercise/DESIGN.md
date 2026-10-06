@@ -647,7 +647,7 @@ spec stays so the later build starts from it.
 ### 6.24 Instructor components
 
 Passcode field (with show/hide toggle), dropzone for `.xlsx`, dataset row,
-invite-limit stepper, team row (6), unlock row, ask-for-every-team panel. See
+invite-limit stepper, team row (6), unlock row, refresh-every-team panel. See
 [instructor prompt](../../archive/design/class-exercise/prompts/pages/11-instructor.md) and
 [unlock panel prompt](../../archive/design/class-exercise/prompts/components/instructor-unlock-panel.md).
 
@@ -660,6 +660,26 @@ invite-limit stepper, team row (6), unlock row, ask-for-every-team panel. See
 | E | "No data file has been uploaded yet." | "{file} has no events for the teams to run." | "No team has entered a number yet." |
 | X | server sentence under the zone, file name kept | server sentence inline | server sentence inline |
 | Dis | while uploading | once open: `LockOpen` chip "Results are open", no button | during a pending action |
+
+**Refresh-every-team panel (amended 2026-10-06, Ann's review of
+2026-10-02).** Title "Refresh every team at once". The button's label says
+what it does: "Refresh every team that has chosen how to ask" (it was "Ask for
+every team"). After it runs, a done-tone notice (6.20) carries a headline,
+"Refreshed 2 teams. Skipped 3 teams.", and one line per team in the Teams
+panel's order, the team's name in bold:
+
+- refreshed: the summary that team reads on its own screen (6.19), then the
+  completed-card count before and after;
+- skipped: the reason in words, from the server's `reason_code`
+  (`no_asking_choice`, `no_round_one_run`, `already_refreshed`). An unknown
+  code reads "Skipped." and invents no reason.
+
+Only teams that exist are listed; a team nobody has entered as is absent, as
+it is from the Teams panel. When the listed teams are in more than one data
+file, each name carries its file's label: "Team 3 (October file):". The
+request is one transaction: refused, it changes no team and shows the server's
+sentence instead of a report. The "Are you sure?" step in front of this button
+is not part of this panel yet.
 
 ## 7. Page layouts
 
@@ -793,7 +813,7 @@ Before a run: lock panel (6.14) in the seating-chart position.
 - **Signed out, 1280:** a centred 480px card: `KeyRound`, "Passcode" field,
   "Open the instructor page".
 - **Signed in, 1280:** two columns 8/4. Left: "Open results for an event"
-  (unlock panel) first, then "Teams" (six rows), then "Ask for every team at
+  (unlock panel) first, then "Teams" (six rows), then "Refresh every team at
   once". Right: "Data files" (dropzone, dataset rows, invite limit) and
   "Sign out of this browser".
 - **The right column is not sticky (as built, #250).** At 1280 it is
@@ -802,8 +822,8 @@ Before a run: lock panel (6.14) in the seating-chart position.
   taller than the window hides its own bottom, "Move every team to this file"
   and "Sign out of this browser", until the left column ends; a scroll box
   inside the column clipped the same controls. It scrolls with the page.
-- **390:** single column in the order unlock, teams, ask-for-all, data files,
-  sign out.
+- **390:** single column in the order unlock, teams, refresh-every-team, data
+  files, sign out.
 
 ## 8. Accessibility (WCAG 2.2 AA)
 
@@ -927,3 +947,12 @@ labels and the license line are unchanged and not listed.
 | Instructor, passcode show/hide toggle (accessible name; `aria-pressed` carries the state) | "Show what is typed" |
 | Instructor, unlock confirm in progress | "Opening…" |
 | Instructor, upload in progress | "Uploading and checking the file…" |
+| Instructor, every-team panel title (was "Ask for every team at once") | "Refresh every team at once" |
+| Instructor, every-team button (was "Ask for every team") | "Refresh every team that has chosen how to ask" |
+| Instructor, every-team explainer | "This refreshes, in one go, every team that has chosen a way of asking and has not been refreshed yet. Teams that are not ready are skipped, and the list below says why. If it cannot be done, no team is changed." |
+| Instructor, every-team in progress (was "Asking for every team…") | "Refreshing every team…" |
+| Instructor, every-team report headline | "Refreshed 2 teams. Skipped 3 teams." (singular: "1 team") |
+| Instructor, every-team report, nobody has entered | "No team has entered a number yet, so there was nothing to refresh." |
+| Instructor, every-team report, a refreshed team | "Team 2: Refreshed at 10:42 AM. 9 people who came to Northline now count as having gone to a similar event. 12 of the 22 invited people with no card completed one. 0 people stopped responding. Completed card: 70 → 82." |
+| Instructor, every-team report, skipped teams | "Team 4: Skipped: it has not chosen a way of asking." / "Team 5: Skipped: it has not run results for its first event." / "Team 1: Skipped: it was already refreshed at 10:31 AM." (no time known: "…it was already refreshed.") / unknown reason: "Skipped." |
+| Instructor, every-team report, teams in two data files | "Team 3 (October file): …" |

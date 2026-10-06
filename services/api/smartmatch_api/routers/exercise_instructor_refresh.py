@@ -38,6 +38,19 @@ choice that no route stored yet. The choice is stored now
 (``POST /v1/exercise/workspaces/current/asking-choice``), so the stub is deleted
 rather than deprecated and this is the route at that path.
 
+The report (Ann, 2026-10-02)
+============================
+*"…says, after running, which teams were refreshed and which were skipped and
+why."* So the route visits **every** team that exists, not only the ones it can
+refresh, and answers one line per team: refreshed, with the same counts that
+team reads about itself; or skipped, with a reason code. The codes are the
+three states a team can be in instead — it has not chosen, it has not run round
+one, it was already refreshed. The instructor's screen writes the words.
+
+A team that never entered a number has no workspace and is not listed: the
+Teams panel treats it as absent too, and a line about a team nobody is on would
+report something nobody was asked.
+
 ADR-0025 D6 and D8
 ==================
 Nothing here reads the withheld column. The refresh's card copy happens inside
@@ -45,7 +58,7 @@ Nothing here reads the withheld column. The refresh's card copy happens inside
 ``dataset_repository.load_simulation_profiles``; this module passes profile
 numbers and reports team numbers and counts. No score, no percentage, no
 confidence appears on the response — the instructor's screen is on the same
-projector as the teams'.
+projector as the teams'. The data file is named by its label, never its id.
 """
 
 from __future__ import annotations
@@ -62,20 +75,28 @@ from smartmatch_api.exercise_dependencies import (
     ExerciseEventRow,
     ExerciseResultsWriteRefused,
     ExerciseSession,
-    RefreshCandidate,
     ResultsRepository,
     TeamViewRepository,
+    WorkspaceRefreshStatus,
     require_exercise_request_header,
     require_instructor_session,
 )
 from smartmatch_api.exercise_errors import ExerciseError
 from smartmatch_api.routers.exercise_results_models import (
     FIRST_ROUND,
+    RefreshAllTeamView,
     RefreshAllView,
+    refresh_counts_view,
     row_is_round,
 )
-from smartmatch_api.routers.exercise_results_refresh import refresh_one_team
+from smartmatch_api.routers.exercise_results_refresh import refresh_one_team, refresh_report
 from smartmatch_api.utils import utc_now
+
+#: Why a team was skipped, as the response names it. Codes, not sentences: the
+#: instructor's screen owns the words, as a team's screen does for its own.
+NO_ASKING_CHOICE = "no_asking_choice"
+NO_ROUND_ONE_RUN = "no_round_one_run"
+ALREADY_REFRESHED = "already_refreshed"
 
 #: Every route here is gated by the instructor session, on the router. A bare
 #: module-level assignment, for ``exercise_public.router``'s reason: the route
@@ -102,16 +123,18 @@ def refresh_all_workspaces(
     """Apply each team's own way of asking to that team's own view, once each.
 
     Design spec §14: *"refresh all"* runs design spec §13's refresh for every
-    team that has chosen and not yet refreshed. Teams that have not chosen are
-    not visited — there is no share to apply — and teams that have already
-    refreshed have had their one refresh; neither is an error and neither is
-    counted.
+    team that has chosen and not yet refreshed. Every other team is left exactly
+    as it was and **named in the report with the reason**: it has not chosen
+    (there is no share to apply), it has already had its one refresh, or it has
+    chosen but has not run the first round's results — the refresh adds the
+    first round's topics to the people who attended it, and there is nothing to
+    add for a team that has not run it. None of these is an error, so the button
+    does not fail for the teams that are ready.
 
-    A team that has chosen but has not run the first round's results is
-    **skipped and counted**, not refused: the refresh adds the first round's
-    topics to the people who attended it, and there is nothing to add for a team
-    that has not run it. Reporting it as a number lets the instructor see that
-    two teams are behind without the button failing for the four that are not.
+    ``teams`` carries one entry per team, in the order the instructor's list
+    shows them. ``skipped`` keeps the meaning it has always had — teams that had
+    chosen and still could not be refreshed — and is not the length of the
+    skipped entries.
 
     Each team is refreshed in its own right, from its own seed, so this produces
     exactly what six teams pressing their own button would have produced.
@@ -127,35 +150,60 @@ def refresh_all_workspaces(
     """
     now = utc_now()
     events_by_dataset: dict[uuid.UUID, tuple[ExerciseEventRow, ...]] = {}
-    refreshed: list[int] = []
-    skipped = 0
-    for candidate in results.workspaces_awaiting_refresh(session):
+    teams: list[RefreshAllTeamView] = []
+    awaiting = 0
+    for team in results.workspaces_refresh_status(session):
+        if team.asking_choice is None:
+            teams.append(_skipped(team, NO_ASKING_CHOICE))
+            continue
+        if team.refreshed_at is not None:
+            teams.append(_skipped(team, ALREADY_REFRESHED, refreshed_at=team.refreshed_at))
+            continue
+        awaiting += 1
         events = events_by_dataset.setdefault(
-            candidate.dataset_id,
-            datasets.list_events(session, dataset_id=candidate.dataset_id),
+            team.dataset_id,
+            datasets.list_events(session, dataset_id=team.dataset_id),
         )
-        if _refresh_candidate(session, results, team_view, candidate, events, now=now):
-            refreshed.append(candidate.team_number)
-        else:
-            skipped += 1
+        choice = AskingChoice(team.asking_choice)
+        teams.append(
+            _refresh_team(session, results, team_view, team, events, choice=choice, now=now)
+        )
     session.commit()
+    refreshed = [team.team_number for team in teams if team.outcome == "refreshed"]
     return RefreshAllView(
         refreshed_team_numbers=refreshed,
         refreshed=len(refreshed),
-        skipped=skipped,
+        skipped=awaiting - len(refreshed),
+        teams=teams,
     )
 
 
-def _refresh_candidate(
+def _skipped(
+    team: WorkspaceRefreshStatus, reason_code: str, *, refreshed_at: datetime | None = None
+) -> RefreshAllTeamView:
+    """One team's line when this request did not refresh it."""
+    return RefreshAllTeamView.model_validate(
+        {
+            "team_number": team.team_number,
+            "dataset_label": team.dataset_label,
+            "outcome": "skipped",
+            "reason_code": reason_code,
+            "refreshed_at": refreshed_at,
+        }
+    )
+
+
+def _refresh_team(
     session: ExerciseSession,
     results: ResultsRepository,
     team_view: TeamViewRepository,
-    candidate: RefreshCandidate,
+    team: WorkspaceRefreshStatus,
     events: Sequence[ExerciseEventRow],
     *,
+    choice: AskingChoice,
     now: datetime,
-) -> bool:
-    """Refresh one team. ``False`` when there is nothing to refresh from yet.
+) -> RefreshAllTeamView:
+    """Refresh one team that has chosen and not refreshed, and say what happened.
 
     The first round's run is what supplies both the attended set that gains
     topics and the invited set the card share is drawn from, so a team without
@@ -165,29 +213,33 @@ def _refresh_candidate(
     The round-one event is resolved from the stored run's own ``event_key``
     against this data file's events, so the topics added are the topics of the
     event that was actually run.
+
+    The counts are read back from the team's view after the claim
+    (``refresh_report``), which is what that team's own asking state will say:
+    the instructor's line and the team's screen are one derivation.
     """
     first_round = results.get_run_for_round(
-        session, workspace_id=candidate.workspace_id, round_number=FIRST_ROUND
+        session, workspace_id=team.workspace_id, round_number=FIRST_ROUND
     )
     if first_round is None:
-        return False
+        return _skipped(team, NO_ROUND_ONE_RUN)
     event = next(
         (row for row in events if row.event_key == first_round.event_key and row_is_round(row)),
         None,
     )
     if event is None:  # pragma: no cover - the run's foreign key names this event
-        return False
+        return _skipped(team, NO_ROUND_ONE_RUN)
     profiles = team_view.list_team_profiles(
-        session, dataset_id=candidate.dataset_id, workspace_id=candidate.workspace_id
+        session, dataset_id=team.dataset_id, workspace_id=team.workspace_id
     )
     try:
         applied = refresh_one_team(
             session,
             results,
-            dataset_id=candidate.dataset_id,
-            workspace_id=candidate.workspace_id,
-            seed=candidate.seed,
-            choice=AskingChoice(candidate.asking_choice),
+            dataset_id=team.dataset_id,
+            workspace_id=team.workspace_id,
+            seed=team.seed,
+            choice=choice,
             profiles=profiles,
             invited_profile_nos=first_round.team.invited_profile_nos,
             attended_profile_nos=first_round.team.attended_profile_nos,
@@ -200,4 +252,34 @@ def _refresh_candidate(
             code="exercise_refresh_write_refused",
             message=str(error),
         ) from None
-    return applied is not None
+    if applied is None:
+        return _claim_lost(session, results, team)
+    report = refresh_report(
+        team_view.list_team_profiles(
+            session, dataset_id=team.dataset_id, workspace_id=team.workspace_id
+        ),
+        first_round.team.invited_profile_nos,
+    )
+    return RefreshAllTeamView(
+        team_number=team.team_number,
+        dataset_label=team.dataset_label,
+        outcome="refreshed",
+        refreshed_at=now,
+        refresh_counts=refresh_counts_view(report),
+        first_round_event_name=event.name,
+    )
+
+
+def _claim_lost(
+    session: ExerciseSession, results: ResultsRepository, team: WorkspaceRefreshStatus
+) -> RefreshAllTeamView:
+    """Name a team whose row changed between the listing and the claim.
+
+    The repository declines the claim when the team has refreshed itself in the
+    same moment, or has been cleared and has no choice any more. Neither is "has
+    not run round one", so the row is read again and named for what it says now.
+    """
+    state = results.team_state(session, workspace_id=team.workspace_id)
+    if state is not None and state.refreshed_at is not None:
+        return _skipped(team, ALREADY_REFRESHED, refreshed_at=state.refreshed_at)
+    return _skipped(team, NO_ASKING_CHOICE)
