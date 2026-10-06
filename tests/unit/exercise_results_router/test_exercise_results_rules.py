@@ -70,6 +70,7 @@ from tests.unit.exercise_results_router.support import (
     _ROUTER_SOURCE,
     _ROWS,
     _TRACK_SOURCES,
+    _entered,
     _Fakes,
     _settings,
 )
@@ -219,6 +220,45 @@ def test_a_second_run_is_refused_with_the_specs_own_sentence(
     assert body["code"] == "exercise_results_already_run"
     assert body["message"] == "This team has already run results for this event."
     assert body["message"] == ALREADY_RUN_SENTENCE
+
+
+def test_a_team_that_already_ran_is_told_so_after_results_are_closed_again(
+    fakes: _Fakes, client: TestClient, confirmed: SimulationCoefficients
+) -> None:
+    """D16 amendment, 2026-10-06: already run is answered before locked.
+
+    Results can be closed again. A team that ran while they were open has had
+    its one run; "not open yet" would tell it to wait for a second one.
+    """
+    fakes.unlock("round-one")
+    assert client.post(_RESULTS, json=_FINAL_BODY, headers=_HEADER).status_code == 201
+    fakes.lock("round-one")
+
+    again = client.post(_RESULTS, json=_FINAL_BODY, headers=_HEADER)
+
+    assert again.status_code == 409
+    assert again.json()["error"]["code"] == "exercise_results_already_run"
+    assert again.json()["error"]["message"] == ALREADY_RUN_SENTENCE
+    assert len(fakes.results.runs) == 1
+
+
+def test_closing_results_again_refuses_a_new_run_and_keeps_a_stored_one_readable(
+    fakes: _Fakes, confirmed: SimulationCoefficients
+) -> None:
+    """Closing deletes nothing: only a team that has not run is turned away."""
+    fakes.unlock("round-one")
+    with _entered(fakes, 1) as ran, _entered(fakes, 2) as late:
+        stored = ran.post(_RESULTS, json=_FINAL_BODY, headers=_HEADER)
+        assert stored.status_code == 201
+        fakes.lock("round-one")
+
+        refused = late.post(_RESULTS, json=_FINAL_BODY, headers=_HEADER)
+        kept = ran.get(_RESULTS)
+
+    assert refused.status_code == 409
+    assert refused.json()["error"]["code"] == "exercise_results_locked"
+    assert kept.status_code == 200
+    assert kept.json()["team"] == stored.json()["team"]
 
 
 def test_the_sentence_is_the_repositorys_and_is_not_restated_in_the_router() -> None:

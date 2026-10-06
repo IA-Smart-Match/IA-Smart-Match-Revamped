@@ -3,7 +3,8 @@
 Four questions, one table family, one advisory key:
 
 * **Is this event unlocked?** ``exercise_result_unlock`` has a row for
-  ``(dataset, event)``, or it does not. Absence is "locked" (design spec §9).
+  ``(dataset, event)`` whose ``closed_at`` is empty, or it does not. No row and
+  a closed row are both "locked" (design spec §9, D16 amendment 2026-10-06).
 * **What did this team run?** ``exercise_result_run``, at most one row per
   ``(workspace, event)`` — the one-run rule, which is
   ``uq_exercise_result_run_workspace_event`` rather than a count in code.
@@ -256,17 +257,18 @@ class ExerciseResultsRepository:
     # -----------------------------------------------------------------------
 
     def results_unlocked(self, session: Session, *, dataset_id: uuid.UUID, event_key: str) -> bool:
-        """Design spec §9's lock: whether the instructor has unlocked this event.
+        """Design spec §9's lock: whether results for this event are open now.
 
-        The absence of a row is "locked", which is why this is an existence
-        question and not a boolean column: a boolean would need a row per event
-        written at ingest to mean anything, and a missing row would then be a
-        third state nobody defined (``schema.py`` says the same).
+        Open is a row whose ``closed_at`` is empty. No row is "never opened"
+        and a row with ``closed_at`` set is "closed again" (D16 amendment,
+        2026-10-06); both answer ``False``. This is the one lock predicate a
+        team's routes consult.
         """
         found = session.execute(
             sa.select(exercise_result_unlock.c.event_key).where(
                 exercise_result_unlock.c.dataset_id == dataset_id,
                 exercise_result_unlock.c.event_key == event_key,
+                exercise_result_unlock.c.closed_at.is_(None),
             )
         ).one_or_none()
         return found is not None

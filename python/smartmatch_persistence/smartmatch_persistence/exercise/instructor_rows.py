@@ -88,15 +88,22 @@ class InstructorEventRow:
 
     CE-INSTRUCTOR-UNLOCK: the unlock panel used to read its events from the
     team route and keep "open" as local state, so it was empty without a team
-    cookie and forgot every unlock on reload. ``unlocked`` is the existence of
-    the ``exercise_result_unlock`` row design spec §9 reads, so what the panel
-    shows is what the teams' results route will answer.
+    cookie and forgot every unlock on reload. ``unlocked`` is the
+    ``exercise_result_unlock`` row design spec §9 reads — present and not
+    closed — so what the panel shows is what the teams' results route will
+    answer.
+
+    ``unlocked_at`` is when results were last opened and ``closed_at`` is when
+    they were closed again; both are ``None`` for an event never opened, and
+    ``closed_at`` is ``None`` while it is open (D16 amendment, 2026-10-06).
     """
 
     event_key: str
     name: str
     sequence: int
     unlocked: bool
+    unlocked_at: datetime | None = None
+    closed_at: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)

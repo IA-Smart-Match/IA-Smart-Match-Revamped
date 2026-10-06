@@ -456,10 +456,14 @@ exercise_result_unlock = sa.Table(
     METADATA,
     sa.Column("dataset_id", _UUID, nullable=False),
     sa.Column("event_key", sa.Text, nullable=False),
+    # When results were last opened. Moved on a reopening, not only written
+    # once: "the time it was done" (D16 amendment, 2026-10-06).
     sa.Column("unlocked_at", _TS, nullable=False, server_default=sa.text("now()")),
-    # §9: the absence of a row is "locked". A boolean column would need a row
-    # per event written at ingest to mean anything, and a missing row would
-    # then be a third state nobody defined.
+    # §9 as amended on 2026-10-06 (revision 0045): three states off one row.
+    # No row is "never opened"; a row with ``closed_at IS NULL`` is "open"; a
+    # row with ``closed_at`` set is "opened, then closed again". Both of the
+    # last two refuse nothing a stored run needs: closing deletes no run.
+    sa.Column("closed_at", _TS, nullable=True),
     sa.PrimaryKeyConstraint("dataset_id", "event_key", name="exercise_result_unlock_pkey"),
     sa.ForeignKeyConstraint(
         ["dataset_id", "event_key"],

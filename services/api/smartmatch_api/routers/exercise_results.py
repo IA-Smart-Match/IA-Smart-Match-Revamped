@@ -199,8 +199,8 @@ def run_results(
     Allowed **once** per team per event: the second attempt is refused with one
     sentence. Two presses arriving together cannot both succeed, because the
     write takes an advisory key and the table carries a UNIQUE constraint behind
-    it — a read alone would not be enough. Allowed at all only after the
-    instructor has unlocked this event.
+    it — a read alone would not be enough. Allowed at all only while the
+    instructor has results for this event open.
 
     The invited list is the ranked list this team's screen shows, built from the
     team's **final setting**: ``setting_name`` is required and names one of the
@@ -217,9 +217,10 @@ def run_results(
 
     The refusals come in this order, so the most useful sentence wins:
 
-    1. The event — unknown (404), not a round, locked, already run (409). These
-       say whether this event can be run at all, whatever the body says; telling
-       a team that has already run to choose a setting would invite a second try.
+    1. The event — unknown (404), not a round, already run, not open (409).
+       These say whether this event can be run at all, whatever the body says;
+       telling a team that has already run to choose a setting, or to wait for
+       results to open, would invite a second try.
     2. The final setting — left out or blank (422). The team's own step, so it
        is answered before anything the team cannot fix.
     3. The rule — no coefficient set (409). Only reachable if the approved set

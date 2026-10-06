@@ -1,6 +1,6 @@
 /**
- * The instructor's two class-wide actions: open results for an event, and ask
- * for every team at once. Moved out of `ExerciseInstructor.tsx` unchanged in
+ * The instructor's two class-wide actions: open or close results for an event,
+ * and ask for every team at once. Moved out of `ExerciseInstructor.tsx` unchanged in
  * behaviour for the invitation-desk layout (DESIGN.md §6.24, §7.11).
  */
 import * as React from "react";
@@ -9,6 +9,7 @@ import { Lock, LockOpen } from "lucide-react";
 import { isRefusal } from "../../../lib/exerciseApi";
 import {
   listInstructorEvents,
+  lockResults,
   refreshAllWorkspaces,
   unlockResults,
   type InstructorEventView,
@@ -17,6 +18,7 @@ import {
 import { cn } from "../../components/ui/utils";
 import { Button, Notice } from "./desk";
 import { ExerciseNotice } from "./ExerciseScreen";
+import { clockTime } from "./exerciseTime";
 import { useSignOutOnExpiredRead } from "./instructorSession";
 import { INSTRUCTOR_WELL, PanelCard, PanelSkeleton } from "./instructorUi";
 import { INSTRUCTOR_SESSION_REQUIRED, TEAMS_SPAN_DATASETS } from "./refusals";
@@ -25,12 +27,21 @@ import { useExerciseResource } from "./useExerciseResource";
 /** The page's sentence for a request that never landed. */
 const UNREACHABLE = "The exercise could not be reached. Check the connection and try again.";
 
+/** What a row's confirm is asking about. */
+type LockAction = "open" | "close";
+
 /**
- * Open results for one event. Idempotent: a second press says the same thing.
+ * Open results for one event, or close them again (Ann, 2026-10-02: "results
+ * can be closed again"). Idempotent: a second press says the same thing.
+ *
+ * **Closing asks first too, in the row**: "Close results for {event}? …" with
+ * "Close results now" and "Keep them open". Closing deletes nothing — a team
+ * that already ran keeps its results — and the sentence says so. Each row
+ * shows the time its state was last changed ("Opened at 10:42 AM.").
  *
  * The list is `GET …/instructor/events`, behind the passcode session alone. It
  * used to be the team route, which needs a workspace cookie, so an instructor
- * who had not entered as a team saw no events at all. "Results are open" is
+ * who had not entered as a team saw no events at all. "Results open" is
  * the server's `unlocked` flag rather than local state, so it survives a
  * reload, and the list is re-read after every unlock.
  *
@@ -68,7 +79,7 @@ export function UnlockPanel({
   reloadKey,
 }: {
   readonly onRefusal: (message: string | null) => void;
-  /** Called after an unlock lands, so the page can re-read the teams. */
+  /** Called after an unlock or a close lands, so the page can re-read the teams. */
   readonly onUnlocked: () => void;
   /** Called when the instructor session has expired; the page shows the passcode form. */
   readonly onSignedOut: () => void;
@@ -80,7 +91,8 @@ export function UnlockPanel({
   /** Guards the unlock itself, so a second press in the same tick sends nothing. */
   const inFlight = React.useRef(false);
   /**
-   * The confirm that is open, keyed on the data file *and* the event.
+   * The confirm that is open, keyed on the data file, the event *and* whether
+   * it asks to open or to close.
    *
    * It belongs to the list it was opened on. A re-read onto another file (an
    * upload or re-point landed) would otherwise leave "Open results now" on
@@ -120,14 +132,16 @@ export function UnlockPanel({
     }
   }, [state, onRefusal]);
 
-  function unlock(eventKey: string, datasetId: string): void {
+  function change(action: LockAction, eventKey: string, datasetId: string): void {
     if (inFlight.current) {
       return;
     }
     inFlight.current = true;
     setPending(true);
     onRefusal(null);
-    unlockResults(eventKey, datasetId)
+    const sent: Promise<unknown> =
+      action === "open" ? unlockResults(eventKey, datasetId) : lockResults(eventKey, datasetId);
+    sent
       .then(() => {
         setConfirming(null);
         onUnlocked();
@@ -189,7 +203,7 @@ export function UnlockPanel({
       {state.status === "ready" && state.data.events.length > 0 ? (
         <ul className="flex flex-col divide-y divide-ce-line">
           {state.data.events.map((event) => {
-            const key = confirmKey(state.data.dataset_id, event.event_key);
+            const action = confirmedAction(confirming, state.data.dataset_id, event.event_key);
             return (
               <UnlockRow
                 key={event.event_key}
@@ -197,11 +211,13 @@ export function UnlockPanel({
                 // A refresh in flight may be about to change `dataset_id`
                 // (an upload or re-point just landed), so wait for it.
                 disabled={pending || state.refreshing}
-                pending={pending && confirming === key}
-                confirming={confirming === key}
-                onAsk={() => setConfirming(key)}
+                pending={pending && action !== null}
+                confirming={action}
+                onAsk={(asked) =>
+                  setConfirming(confirmKey(state.data.dataset_id, event.event_key, asked))
+                }
                 onCancel={() => setConfirming(null)}
-                onUnlock={() => unlock(event.event_key, state.data.dataset_id)}
+                onConfirm={(asked) => change(asked, event.event_key, state.data.dataset_id)}
               />
             );
           })}
@@ -212,14 +228,21 @@ export function UnlockPanel({
 }
 
 /**
- * One event: its name, a lock chip in icon and words, and "Open results" until
- * it is open. Pressing "Open results" asks first, in the row (§11.1).
+ * One event: its name, a lock chip in icon and words, the time its state last
+ * changed, and "Open results" or "Close results". Either press asks first, in
+ * the row (§11.1).
  *
- * Focus is never dropped (§8.5). It moves to "Open results now" when the
- * question appears. When the question goes away — "Not yet", Escape, a refused
- * unlock, a list that moved on — and the focused button went with it, focus
- * returns to "Open results". When the event opens and that button goes too,
- * focus lands on the event's name, which takes focus only from code.
+ * The chip reads "Results closed" or "Results open" — Ann's checklist of
+ * 2026-10-02, word for word — and the line under it says when: "Opened at
+ * 10:42 AM." or "Closed at 10:50 AM.". An event never opened has no time.
+ *
+ * Focus is never dropped (§8.5). It moves to the confirming button when the
+ * question appears. When the question goes away — "Not yet", "Keep them open",
+ * Escape, a refused press, a list that moved on — and the focused button went
+ * with it, focus returns to the row's own button. When the event's state
+ * changes, focus lands on the event's name, which takes focus only from code:
+ * never on the opposite action, so a repeated Enter cannot undo what was just
+ * done.
  */
 function UnlockRow({
   event,
@@ -228,39 +251,53 @@ function UnlockRow({
   confirming,
   onAsk,
   onCancel,
-  onUnlock,
+  onConfirm,
 }: {
   readonly event: InstructorEventView;
   readonly disabled: boolean;
-  /** This row's unlock is in flight. */
+  /** This row's open or close is in flight. */
   readonly pending: boolean;
-  readonly confirming: boolean;
-  readonly onAsk: () => void;
+  /** Which question this row is asking, or `null`. */
+  readonly confirming: LockAction | null;
+  readonly onAsk: (action: LockAction) => void;
   readonly onCancel: () => void;
-  readonly onUnlock: () => void;
+  readonly onConfirm: (action: LockAction) => void;
 }): React.JSX.Element {
-  const openButton = React.useRef<HTMLButtonElement>(null);
+  const actionButton = React.useRef<HTMLButtonElement>(null);
   const confirmButton = React.useRef<HTMLButtonElement>(null);
   const nameAnchor = React.useRef<HTMLSpanElement>(null);
-  const was = React.useRef({ confirming, unlocked: event.unlocked });
+  // A question about a state the event is no longer in is not asked: opening
+  // an event that is already open, or closing one that is already closed.
+  const asking: LockAction | null =
+    confirming === null ? null : (confirming === "open") === !event.unlocked ? confirming : null;
+  const was = React.useRef({ asking, unlocked: event.unlocked });
 
   React.useEffect(() => {
     const before = was.current;
-    was.current = { confirming, unlocked: event.unlocked };
-    if (confirming) {
-      if (!before.confirming) {
+    was.current = { asking, unlocked: event.unlocked };
+    if (asking !== null) {
+      if (before.asking === null) {
         confirmButton.current?.focus();
       }
       return;
     }
-    const closed = before.confirming;
-    const opened = !before.unlocked && event.unlocked;
+    const changed = before.unlocked !== event.unlocked;
+    if (changed) {
+      // The row's button now offers the opposite action. Focus left on it (or
+      // dropped with the confirm) goes to the name; focus elsewhere is left.
+      if (focusWasDropped() || document.activeElement === actionButton.current) {
+        nameAnchor.current?.focus();
+      }
+      return;
+    }
     // Only when this row's own control just left the page with focus on it:
     // a list re-read must never pull focus from somewhere else.
-    if ((closed || opened) && focusWasDropped()) {
-      (openButton.current ?? nameAnchor.current)?.focus();
+    if (before.asking !== null && focusWasDropped()) {
+      (actionButton.current ?? nameAnchor.current)?.focus();
     }
-  }, [confirming, event.unlocked]);
+  }, [asking, event.unlocked]);
+
+  const when = lockTimeSentence(event);
 
   return (
     <li className="flex flex-col gap-ce-3 py-ce-4 first:pt-ce-2 last:pb-ce-2">
@@ -272,32 +309,44 @@ function UnlockRow({
         >
           {event.name}
         </span>
-        <span
-          className={cn(
-            "ce-type-meta inline-flex items-center gap-ce-2 rounded-ce-pill px-ce-3 py-ce-1 text-ce-ink",
-            event.unlocked ? "bg-ce-avocado-tint" : "border border-ce-line-strong bg-ce-surface-sunk",
-          )}
-        >
-          {event.unlocked ? (
-            <LockOpen aria-hidden="true" className="size-4 shrink-0 text-ce-primary" />
-          ) : (
-            <Lock aria-hidden="true" className="size-4 shrink-0 text-ce-ink-muted" />
-          )}
-          {event.unlocked ? "Results are open" : "Results are closed"}
+        <span className="flex flex-col items-start gap-ce-1">
+          <span
+            className={cn(
+              "ce-type-meta inline-flex items-center gap-ce-2 rounded-ce-pill px-ce-3 py-ce-1 text-ce-ink",
+              event.unlocked
+                ? "bg-ce-avocado-tint"
+                : "border border-ce-line-strong bg-ce-surface-sunk",
+            )}
+          >
+            {event.unlocked ? (
+              <LockOpen aria-hidden="true" className="size-4 shrink-0 text-ce-primary" />
+            ) : (
+              <Lock aria-hidden="true" className="size-4 shrink-0 text-ce-ink-muted" />
+            )}
+            {event.unlocked ? "Results open" : "Results closed"}
+          </span>
+          {/* Always present, so the time is announced when the state changes. */}
+          <span
+            role="status"
+            data-slot="exercise-instructor-lock-time"
+            className="ce-type-meta ce-tabular text-ce-ink-muted"
+          >
+            {when ?? ""}
+          </span>
         </span>
-        {event.unlocked || confirming ? null : (
+        {asking !== null ? null : (
           <Button
-            ref={openButton}
+            ref={actionButton}
             variant="secondary"
             disabled={disabled}
             className="w-full sm:w-auto"
-            onClick={onAsk}
+            onClick={() => onAsk(event.unlocked ? "close" : "open")}
           >
-            Open results
+            {event.unlocked ? "Close results" : "Open results"}
           </Button>
         )}
       </div>
-      {confirming && !event.unlocked ? (
+      {asking === null ? null : (
         <div
           className={cn(INSTRUCTOR_WELL, "ce-fade-rise flex flex-col gap-ce-3")}
           onKeyDown={(keyEvent) => {
@@ -308,27 +357,41 @@ function UnlockRow({
           }}
         >
           <p className="ce-type-body text-ce-ink">
-            Open results for {event.name}? Every team can then run results once for this event.
+            {asking === "open"
+              ? `Open results for ${event.name}? Every team can then run results once for this event.`
+              : `Close results for ${event.name}? Teams that have not run results yet cannot run them until you open results again. Results already run stay on each team's screen.`}
           </p>
           <div className="flex flex-wrap items-center gap-ce-3">
             <Button
               ref={confirmButton}
               pending={pending}
-              pendingLabel="Opening…"
+              pendingLabel={asking === "open" ? "Opening…" : "Closing…"}
               disabled={disabled && !pending}
               className="w-full sm:w-auto"
-              onClick={onUnlock}
+              onClick={() => onConfirm(asking)}
             >
-              Open results now
+              {asking === "open" ? "Open results now" : "Close results now"}
             </Button>
             <Button variant="quiet" disabled={pending} onClick={onCancel}>
-              Not yet
+              {asking === "open" ? "Not yet" : "Keep them open"}
             </Button>
           </div>
         </div>
-      ) : null}
+      )}
     </li>
   );
+}
+
+/**
+ * "Opened at 10:42 AM." for an open event, "Closed at 10:50 AM." for one that
+ * was closed again, and nothing for one that was never opened.
+ */
+function lockTimeSentence(event: InstructorEventView): string | null {
+  const at = clockTime(event.unlocked ? event.unlocked_at : event.closed_at);
+  if (at === null) {
+    return null;
+  }
+  return event.unlocked ? `Opened at ${at}.` : `Closed at ${at}.`;
 }
 
 /** Whether the focused element was removed, leaving focus on `<body>`. */
@@ -337,9 +400,21 @@ function focusWasDropped(): boolean {
   return active === null || active === document.body || !active.isConnected;
 }
 
-/** One open confirm's key: the file and the event, so it cannot outlive its file. */
-function confirmKey(datasetId: string, eventKey: string): string {
-  return `${datasetId}\n${eventKey}`;
+/** One open confirm's key: the file, the event and the question, so it cannot outlive its file. */
+function confirmKey(datasetId: string, eventKey: string, action: LockAction): string {
+  return `${datasetId}\n${eventKey}\n${action}`;
+}
+
+/** Which question, if any, the open confirm is asking about this event of this file. */
+function confirmedAction(
+  confirming: string | null,
+  datasetId: string,
+  eventKey: string,
+): LockAction | null {
+  if (confirming === confirmKey(datasetId, eventKey, "open")) {
+    return "open";
+  }
+  return confirming === confirmKey(datasetId, eventKey, "close") ? "close" : null;
 }
 
 /** This panel's sentence for teams split across files (see `UnlockPanel`). */

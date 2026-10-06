@@ -58,6 +58,7 @@ __all__ = [
     "InstructorLoginRequest",
     "InstructorSessionView",
     "InviteLimitRequest",
+    "LockView",
     "RepointView",
     "ResultRunView",
     "SavedSettingView",
@@ -293,7 +294,18 @@ class InstructorEventView(BaseModel):
     event_key: str
     name: str
     unlocked: bool = Field(
-        description="Whether the instructor has opened results for this event in this data file."
+        description=(
+            "Whether results for this event are open in this data file right "
+            "now: opened, and not closed again since."
+        )
+    )
+    unlocked_at: datetime | None = Field(
+        default=None,
+        description="When results were last opened, or null when they never were.",
+    )
+    closed_at: datetime | None = Field(
+        default=None,
+        description="When results were closed again, or null while they are open or never opened.",
     )
 
 
@@ -318,6 +330,29 @@ class UnlockView(BaseModel):
 
     event_key: str
     unlocked: bool = Field(description="True. A second press says the same thing.")
+    unlocked_at: datetime | None = Field(
+        default=None, description="When results were opened: the time it was done."
+    )
+
+
+class LockView(BaseModel):
+    """Results for one event are closed again (D16 amendment, 2026-10-06).
+
+    Closing deletes nothing: a team that already ran keeps its results, and a
+    team that has not is refused until the instructor opens the event again.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    event_key: str
+    unlocked: bool = Field(description="False. A second press says the same thing.")
+    closed_at: datetime | None = Field(
+        default=None,
+        description=(
+            "When results were closed: the time it was done. Null when the "
+            "event had never been opened, so there was nothing to close."
+        ),
+    )
 
 
 class RepointView(BaseModel):
@@ -390,7 +425,13 @@ def team_view(row: InstructorWorkspaceRow) -> TeamSummaryView:
 
 
 def event_view(row: InstructorEventRow) -> InstructorEventView:
-    return InstructorEventView(event_key=row.event_key, name=row.name, unlocked=row.unlocked)
+    return InstructorEventView(
+        event_key=row.event_key,
+        name=row.name,
+        unlocked=row.unlocked,
+        unlocked_at=row.unlocked_at,
+        closed_at=row.closed_at,
+    )
 
 
 def setting_view(row: InstructorSavedSetting) -> SavedSettingView:

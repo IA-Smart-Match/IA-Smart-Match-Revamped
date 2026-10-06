@@ -73,7 +73,11 @@ REVISION = "0037_exercise_tables"
 #: ``0043_exercise_event_exploratory`` and is the head. It adds one nullable
 #: ``exercise_event`` column and writes no rows, so this file's claims still
 #: hold through it.
-HEAD_REVISION = "0044_exercise_event_description"
+#: Moved again by #326: ``0045_exercise_unlock_closed_at`` chains to
+#: ``0044_exercise_event_description`` and is the head. It adds one nullable
+#: ``exercise_result_unlock`` column and writes no rows, so this file's claims
+#: still hold through it.
+HEAD_REVISION = "0045_exercise_unlock_closed_at"
 
 #: Design spec §2's eight tables.
 EXERCISE_TABLES = (

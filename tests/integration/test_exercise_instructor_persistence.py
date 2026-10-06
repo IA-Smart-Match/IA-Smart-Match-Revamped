@@ -43,6 +43,7 @@ from smartmatch_persistence.exercise.instructor_repository import (
     ExerciseInstructorRepository,
     ExerciseWriteRefused,
 )
+from smartmatch_persistence.exercise.results_repository import ExerciseResultsRepository
 from smartmatch_persistence.exercise.workspace_repository import (
     WORKSPACE_MEMBERSHIP_LOCK_KEY,
     ExerciseWorkspaceRepository,
@@ -340,6 +341,74 @@ def test_unlocking_twice_writes_one_row_and_moves_no_timestamp(
     assert (first, second) == (True, False)
     assert rows == 1
     assert stamp == after
+
+
+def _lock_row(session: Session) -> tuple[object, object]:
+    table = schema.exercise_result_unlock
+    row = session.execute(sa.select(table.c.unlocked_at, table.c.closed_at)).one()
+    return row.unlocked_at, row.closed_at
+
+
+def test_results_close_again_and_reopen_on_the_one_row(
+    exercise_sessions: sessionmaker[Session],
+) -> None:
+    """D16 amendment, 2026-10-06: open -> closed -> open, three states off one row.
+
+    Each write is its own transaction, so ``now()`` moves between them and the
+    timestamps can be ordered.
+    """
+    table = schema.exercise_result_unlock
+    results = ExerciseResultsRepository()
+
+    def is_open(session: Session, dataset_id: uuid.UUID) -> bool:
+        return results.results_unlocked(session, dataset_id=dataset_id, event_key=_EVENT_KEY)
+
+    with exercise_sessions() as session:
+        dataset_id = _insert_dataset(session, label="closing")
+        never_opened = REPOSITORY.lock_results(session, dataset_id=dataset_id, event_key=_EVENT_KEY)
+        session.commit()
+        rows_before = session.execute(sa.select(sa.func.count()).select_from(table)).scalar_one()
+
+        REPOSITORY.unlock_results(session, dataset_id=dataset_id, event_key=_EVENT_KEY)
+        session.commit()
+        opened_at, open_closed_at = _lock_row(session)
+        was_open = is_open(session, dataset_id)
+
+        closed = REPOSITORY.lock_results(session, dataset_id=dataset_id, event_key=_EVENT_KEY)
+        session.commit()
+        still_opened_at, closed_at = _lock_row(session)
+        was_closed = not is_open(session, dataset_id)
+        closed_again = REPOSITORY.lock_results(session, dataset_id=dataset_id, event_key=_EVENT_KEY)
+        session.commit()
+        _, closed_at_after_second_press = _lock_row(session)
+        listed_closed = REPOSITORY.list_exercise_events(session, dataset_id=dataset_id)
+
+        reopened = REPOSITORY.unlock_results(session, dataset_id=dataset_id, event_key=_EVENT_KEY)
+        session.commit()
+        reopened_at, reopened_closed_at = _lock_row(session)
+        listed_open = REPOSITORY.list_exercise_events(session, dataset_id=dataset_id)
+        rows_after = session.execute(sa.select(sa.func.count()).select_from(table)).scalar_one()
+        reopened_is_open = is_open(session, dataset_id)
+
+    assert never_opened is False, "closing an event never opened is a no-op, not an error"
+    assert rows_before == 0, "and it writes no row"
+    assert (was_open, open_closed_at) == (True, None)
+    assert (closed, closed_again) == (True, False)
+    assert was_closed
+    assert still_opened_at == opened_at, "closing moves no unlocked_at"
+    assert closed_at is not None and closed_at >= opened_at
+    assert closed_at_after_second_press == closed_at, "a second close moves no closed_at"
+    assert [(row.unlocked, row.unlocked_at, row.closed_at) for row in listed_closed] == [
+        (False, opened_at, closed_at)
+    ]
+    assert reopened is True
+    assert reopened_closed_at is None
+    assert reopened_at >= closed_at, "a reopening moves unlocked_at to the time it was done"
+    assert [(row.unlocked, row.unlocked_at, row.closed_at) for row in listed_open] == [
+        (True, reopened_at, None)
+    ]
+    assert rows_after == 1, "one row per (data file, event), whatever was pressed"
+    assert reopened_is_open
 
 
 def test_the_event_list_carries_the_unlock_row_and_only_exercise_events(

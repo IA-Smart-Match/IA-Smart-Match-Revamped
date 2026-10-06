@@ -311,11 +311,21 @@ export interface TeamDetailView {
   readonly result_runs: ResultRunView[];
 }
 
-/** One event the teams run, and whether its results are already open. */
+/**
+ * One event the teams run, and whether its results are open right now.
+ *
+ * Three states off two timestamps (D16 amendment, 2026-10-06): never opened
+ * (both `null`), open (`unlocked`, `closed_at` `null`), closed again
+ * (`closed_at` set). `unlocked_at` is the most recent opening.
+ */
 export interface InstructorEventView {
   readonly event_key: string;
   readonly name: string;
   readonly unlocked: boolean;
+  /** ISO time results were last opened, or `null` when they never were. */
+  readonly unlocked_at: string | null;
+  /** ISO time results were closed again, or `null` while open or never opened. */
+  readonly closed_at: string | null;
 }
 
 /** `GET /v1/exercise/instructor/events`: the teams' data file and its events. */
@@ -329,6 +339,16 @@ export interface InstructorEventsView {
 export interface UnlockView {
   readonly event_key: string;
   readonly unlocked: boolean;
+  /** ISO time of this opening. */
+  readonly unlocked_at: string | null;
+}
+
+/** `POST …/instructor/events/{event_key}/lock`: results are closed again. */
+export interface LockView {
+  readonly event_key: string;
+  readonly unlocked: boolean;
+  /** ISO time of the close, or `null` when there was nothing open to close. */
+  readonly closed_at: string | null;
 }
 
 export interface RepointView {
@@ -588,6 +608,19 @@ export function unlockResults(eventKey: string, datasetId?: string, signal?: Abo
     `/instructor/events/${encodeURIComponent(eventKey)}/unlock`,
     { method: "POST", query: { dataset_id: datasetId }, signal },
   );
+}
+
+/**
+ * `POST /v1/exercise/instructor/events/{event_key}/lock` — close results for
+ * one event again. Nothing is deleted: teams that already ran keep their
+ * results; teams that have not are refused until the event is opened again.
+ */
+export function lockResults(eventKey: string, datasetId?: string, signal?: AbortSignal) {
+  return exerciseRequest<LockView>(`/instructor/events/${encodeURIComponent(eventKey)}/lock`, {
+    method: "POST",
+    query: { dataset_id: datasetId },
+    signal,
+  });
 }
 
 export function listTeamWorkspaces(signal?: AbortSignal) {

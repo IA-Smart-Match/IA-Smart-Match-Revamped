@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Iterator
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -70,6 +70,7 @@ from smartmatch_domain.exercise import EXERCISE_WITHHELD_FIELDS
 from smartmatch_domain.exercise.instructor_session import mint_instructor_session
 from smartmatch_domain.exercise.workspace_token import derive_workspace_token
 from smartmatch_persistence.exercise.instructor_repository import (
+    ExerciseWriteRefused,
     InstructorEventRow,
     InstructorResultRun,
     InstructorSavedSetting,
@@ -94,6 +95,12 @@ _DATASET = ExerciseDatasetSummary(
     id=_DATASET_ID, label="Made-up student body (sample)", invite_limit=30
 )
 _WHEN = datetime(2026, 11, 20, 9, 0, tzinfo=UTC)
+
+#: When the fake repository says results were opened and closed. Fixed, so a
+#: response's timestamps can be compared whole.
+_OPENED_AT = _WHEN + timedelta(minutes=30)
+_CLOSED_AT = _WHEN + timedelta(minutes=40)
+_REOPENED_AT = _WHEN + timedelta(minutes=50)
 
 #: The data file the teams are actually on, deliberately **not** the active
 #: one. Design spec §3: an upload moves no team, so the newest file and the
@@ -166,6 +173,11 @@ class _FakeInstructorRepository:
         #: them equal could not fail the way production did.
         self.teams: dict[int, tuple[uuid.UUID, uuid.UUID]] = {3: (uuid.uuid4(), _TEAMS_DATASET_ID)}
         self.unlocked: list[tuple[uuid.UUID, str]] = []
+        #: The lock's two timestamps, per (data file, event), as the real row
+        #: holds them: opened-at once a row exists, closed-at while it is shut.
+        self.opened_at: dict[tuple[uuid.UUID, str], datetime] = {}
+        self.closed_at: dict[tuple[uuid.UUID, str], datetime] = {}
+        self.lock_write_fails = False
         self.repointed: list[uuid.UUID] = []
         self.reset_children: list[uuid.UUID] = []
         self.reset_ids: list[uuid.UUID] = []
@@ -256,14 +268,31 @@ class _FakeInstructorRepository:
                 name="Northline Analytics",
                 sequence=11,
                 unlocked=(dataset_id, _EVENT_KEY) in self.unlocked,
+                unlocked_at=self.opened_at.get((dataset_id, _EVENT_KEY)),
+                closed_at=self.closed_at.get((dataset_id, _EVENT_KEY)),
             ),
         )
 
     def unlock_results(self, _session: object, *, dataset_id: uuid.UUID, event_key: str) -> bool:
-        already = (dataset_id, event_key) in self.unlocked
-        if not already:
-            self.unlocked.append((dataset_id, event_key))
-        return not already
+        key = (dataset_id, event_key)
+        if self.lock_write_fails:
+            raise ExerciseWriteRefused("The results for that event could not be unlocked.")
+        if key in self.unlocked:
+            return False
+        self.opened_at[key] = _REOPENED_AT if key in self.opened_at else _OPENED_AT
+        self.closed_at.pop(key, None)
+        self.unlocked.append(key)
+        return True
+
+    def lock_results(self, _session: object, *, dataset_id: uuid.UUID, event_key: str) -> bool:
+        key = (dataset_id, event_key)
+        if self.lock_write_fails:
+            raise ExerciseWriteRefused("The results for that event could not be closed.")
+        if key not in self.unlocked:
+            return False
+        self.unlocked.remove(key)
+        self.closed_at[key] = _CLOSED_AT
+        return True
 
     def repoint_workspaces(self, _session: object, *, dataset_id: uuid.UUID) -> RepointOutcome:
         self.repointed.append(dataset_id)
@@ -783,6 +812,7 @@ def test_a_session_from_another_deployment_is_refused(client: TestClient) -> Non
         ("PATCH", "/v1/exercise/instructor/datasets/{dataset_id}"),
         ("POST", "/v1/exercise/instructor/datasets/{dataset_id}/repoint"),
         ("POST", "/v1/exercise/instructor/events/{event_key}/unlock"),
+        ("POST", "/v1/exercise/instructor/events/{event_key}/lock"),
         ("POST", "/v1/exercise/instructor/workspaces/{team_number}/reset"),
         ("POST", "/v1/exercise/instructor/refresh-all"),
     ],
@@ -940,7 +970,129 @@ def test_unlocking_an_event_twice_says_the_same_thing(signed_in: TestClient) -> 
     )
 
     assert first.status_code == second.status_code == 200
-    assert first.json() == second.json() == {"event_key": _EVENT_KEY, "unlocked": True}
+    assert (
+        first.json()
+        == second.json()
+        == {"event_key": _EVENT_KEY, "unlocked": True, "unlocked_at": _iso(_OPENED_AT)}
+    )
+
+
+_LOCK = f"/v1/exercise/instructor/events/{_EVENT_KEY}/lock"
+_UNLOCK = f"/v1/exercise/instructor/events/{_EVENT_KEY}/unlock"
+_CSRF = {EXERCISE_REQUEST_HEADER: "1"}
+
+
+def _iso(moment: datetime) -> str:
+    """A timestamp as the API serializes it."""
+    return moment.isoformat().replace("+00:00", "Z")
+
+
+def _northline(signed_in: TestClient) -> dict[str, Any]:
+    events = signed_in.get("/v1/exercise/instructor/events").json()["events"]
+    assert [event["event_key"] for event in events] == [_EVENT_KEY]
+    return dict(events[0])
+
+
+def test_results_can_be_closed_again_and_the_time_is_reported(
+    signed_in: TestClient, state: dict[str, Any]
+) -> None:
+    """Ann, 2026-10-02: "results can be closed again", with the time it was done."""
+    assert signed_in.post(_UNLOCK, headers=_CSRF).status_code == 200
+
+    response = signed_in.post(_LOCK, headers=_CSRF)
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "event_key": _EVENT_KEY,
+        "unlocked": False,
+        "closed_at": _iso(_CLOSED_AT),
+    }
+    assert state["instructor"].unlocked == []
+    assert state["session"].commits == 2
+    assert _northline(signed_in) == {
+        "event_key": _EVENT_KEY,
+        "name": "Northline Analytics",
+        "unlocked": False,
+        "unlocked_at": _iso(_OPENED_AT),
+        "closed_at": _iso(_CLOSED_AT),
+    }
+
+
+def test_closing_twice_or_before_any_opening_changes_nothing_and_is_not_an_error(
+    signed_in: TestClient, state: dict[str, Any]
+) -> None:
+    never_opened = signed_in.post(_LOCK, headers=_CSRF)
+    signed_in.post(_UNLOCK, headers=_CSRF)
+    first = signed_in.post(_LOCK, headers=_CSRF)
+    second = signed_in.post(_LOCK, headers=_CSRF)
+
+    assert never_opened.status_code == first.status_code == second.status_code == 200
+    assert never_opened.json() == {"event_key": _EVENT_KEY, "unlocked": False, "closed_at": None}
+    assert first.json() == second.json()
+    assert state["instructor"].closed_at == {(_TEAMS_DATASET_ID, _EVENT_KEY): _CLOSED_AT}
+
+
+def test_a_closed_event_can_be_opened_again_with_the_time_of_that_opening(
+    signed_in: TestClient,
+) -> None:
+    signed_in.post(_UNLOCK, headers=_CSRF)
+    signed_in.post(_LOCK, headers=_CSRF)
+
+    reopened = signed_in.post(_UNLOCK, headers=_CSRF)
+
+    assert reopened.json() == {
+        "event_key": _EVENT_KEY,
+        "unlocked": True,
+        "unlocked_at": _iso(_REOPENED_AT),
+    }
+    assert _northline(signed_in) == {
+        "event_key": _EVENT_KEY,
+        "name": "Northline Analytics",
+        "unlocked": True,
+        "unlocked_at": _iso(_REOPENED_AT),
+        "closed_at": None,
+    }
+
+
+def test_closing_an_event_that_is_not_in_the_file_is_one_sentence(
+    signed_in: TestClient,
+) -> None:
+    response = signed_in.post("/v1/exercise/instructor/events/not-an-event/lock", headers=_CSRF)
+
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "exercise_event_unknown"
+    assert response.json()["error"]["message"] == (
+        "That event is not in the data file the teams are working in."
+    )
+
+
+def test_a_refused_close_is_one_sentence_and_commits_nothing(
+    signed_in: TestClient, state: dict[str, Any]
+) -> None:
+    state["instructor"].lock_write_fails = True
+
+    response = signed_in.post(_LOCK, headers=_CSRF)
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "exercise_lock_write_refused"
+    assert response.json()["error"]["message"] == "The results for that event could not be closed."
+    assert state["session"].commits == 0
+
+
+def test_closing_acts_on_the_file_the_teams_are_on_and_never_on_an_empty_one(
+    signed_in: TestClient, state: dict[str, Any]
+) -> None:
+    """The same resolution as the unlock: never the newest upload by default."""
+    signed_in.post(_UNLOCK, headers=_CSRF)
+    empty_file = signed_in.post(_LOCK, headers=_CSRF, params={"dataset_id": str(_DATASET_ID)})
+    state["instructor"].teams.clear()
+    no_teams = signed_in.post(_LOCK, headers=_CSRF)
+
+    assert empty_file.status_code == 409
+    assert empty_file.json()["error"]["code"] == "exercise_dataset_has_no_teams"
+    assert no_teams.status_code == 409
+    assert no_teams.json()["error"]["message"] == "No team has entered a number yet."
+    assert state["instructor"].unlocked == [(_TEAMS_DATASET_ID, _EVENT_KEY)]
 
 
 def test_unlocking_an_event_that_is_not_in_the_file_is_one_sentence(
@@ -972,7 +1124,15 @@ def test_the_instructor_lists_the_teams_events_without_a_team_cookie(
     assert response.json() == {
         "dataset_id": str(_TEAMS_DATASET_ID),
         "dataset_label": _TEAMS_DATASET_LABEL,
-        "events": [{"event_key": _EVENT_KEY, "name": "Northline Analytics", "unlocked": False}],
+        "events": [
+            {
+                "event_key": _EVENT_KEY,
+                "name": "Northline Analytics",
+                "unlocked": False,
+                "unlocked_at": None,
+                "closed_at": None,
+            }
+        ],
     }
 
 
@@ -987,7 +1147,15 @@ def test_the_event_list_says_which_events_are_already_open(
 
     events = signed_in.get("/v1/exercise/instructor/events").json()["events"]
 
-    assert events == [{"event_key": _EVENT_KEY, "name": "Northline Analytics", "unlocked": True}]
+    assert events == [
+        {
+            "event_key": _EVENT_KEY,
+            "name": "Northline Analytics",
+            "unlocked": True,
+            "unlocked_at": _iso(_OPENED_AT),
+            "closed_at": None,
+        }
+    ]
 
 
 def test_the_event_list_resolves_the_file_the_unlock_writes_to(
@@ -1446,6 +1614,18 @@ _EXPECTED_INSTRUCTOR_ROUTES: dict[tuple[str, str], tuple[int, str, tuple[str, ..
     ("POST", "/v1/exercise/instructor/events/{event_key}/unlock"): (
         200,
         "UnlockView",
+        (
+            "get_exercise_session",
+            "get_instructor_repository",
+            "get_settings",
+            "get_workspace_secret",
+            "require_exercise_request_header",
+            "require_instructor_session",
+        ),
+    ),
+    ("POST", "/v1/exercise/instructor/events/{event_key}/lock"): (
+        200,
+        "LockView",
         (
             "get_exercise_session",
             "get_instructor_repository",

@@ -628,13 +628,24 @@ invite-limit stepper, team row (6), unlock row, ask-for-every-team panel. See
 
 | State | Dropzone | Unlock row | Team row |
 |---|---|---|---|
-| D | dashed 2px outline, `FileSpreadsheet`, "Drop Ann's workbook here, or choose a file" | event name + `Lock` chip + "Open results" secondary | team seal, file label, counts, actions |
+| D | dashed 2px outline, `FileSpreadsheet`, "Drop Ann's workbook here, or choose a file" | event name + `Lock` chip "Results closed" + "Open results" secondary; a closed-again event adds "Closed at 10:50 AM." | team seal, file label, counts, actions |
 | H | outline primary, wash `--ce-primary-tint` | lift | lift |
 | F | ring | ring on button | ring on each action |
-| L | "Uploading and checking the file…" with determinate stages: Reading → Checking columns → Saved | "Opening…" | "Clearing…" |
+| L | "Uploading and checking the file…" with determinate stages: Reading → Checking columns → Saved | "Opening…" / "Closing…" | "Clearing…" |
 | E | "No data file has been uploaded yet." | "{file} has no events for the teams to run." | "No team has entered a number yet." |
 | X | server sentence under the zone, file name kept | server sentence inline | server sentence inline |
-| Dis | while uploading | once open: `LockOpen` chip "Results are open", no button | during a pending action |
+| Dis | while uploading | — (see the note below: an open row is no longer a dead end) | during a pending action |
+
+**Unlock row, amended 2026-10-06 (issue #326).** Ann's revisions of
+2026-10-02: "Opening or closing results for an event shows the time it was
+done, and results can be closed again." So an open row is `LockOpen` chip
+"Results open", the line "Opened at 10:42 AM.", and a secondary "Close
+results". Closing asks first, inline, in the same sunk well as opening:
+"Close results for {event}? …" with "Close results now" and "Keep them open".
+The chip words follow her checklist exactly ("Results closed" / "Results
+open"); the team-side lock panel keeps its own chip (6.14). After either
+change lands, focus goes to the event's name and never to the opposite action,
+so a repeated Enter cannot undo what was just done.
 
 ## 7. Page layouts
 
@@ -887,4 +898,9 @@ labels and the license line are unchanged and not listed.
 | Instructor, dropzone | "Drop Ann's workbook here, or choose a file" |
 | Instructor, passcode show/hide toggle (accessible name; `aria-pressed` carries the state) | "Show what is typed" |
 | Instructor, unlock confirm in progress | "Opening…" |
+| Instructor, lock chips (2026-10-06, #326; Ann's checklist wording) | "Results closed" / "Results open" |
+| Instructor, when results were opened or closed (#326) | "Opened at 10:42 AM." / "Closed at 10:50 AM." |
+| Instructor, close button (#326) | "Close results" |
+| Instructor, close confirm (#326) | "Close results for Northline Analytics? Teams that have not run results yet cannot run them until you open results again. Results already run stay on each team's screen." / "Close results now" / "Keep them open" |
+| Instructor, close confirm in progress (#326) | "Closing…" |
 | Instructor, upload in progress | "Uploading and checking the file…" |

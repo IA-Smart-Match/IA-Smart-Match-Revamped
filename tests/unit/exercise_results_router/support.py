@@ -550,6 +550,11 @@ class _Fakes:
         for event_key in event_keys:
             self.results.unlocked.add((_DATASET_ID, event_key))
 
+    def lock(self, *event_keys: str) -> None:
+        """Close results again, as the instructor's lock route does."""
+        for event_key in event_keys:
+            self.results.unlocked.discard((_DATASET_ID, event_key))
+
 
 def _settings() -> Settings:
     return Settings(

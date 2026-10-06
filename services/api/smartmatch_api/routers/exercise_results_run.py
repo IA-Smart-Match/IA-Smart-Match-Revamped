@@ -351,19 +351,22 @@ def runnable_or_refusal(
     workspace: ExerciseWorkspace,
     event_key: str,
 ) -> tuple[Sequence[ExerciseEventRow], ExerciseEventRow, int]:
-    """The four gates a run must pass, in the order they cost least to fail.
+    """The four gates a run must pass: known event, a round, not yet run, open.
 
     Extracted from ``exercise_results.run_results`` (review round 1, F3), which
     had grown past the repository's fifty-line limit for a function.
-    Behaviour-preserving: the same four checks, in the same order, raising the
-    same sentences.
 
-    The order is load-bearing rather than tidy, for the matching router's
-    reason. The events of one data file are a dozen rows and everything after
-    this reads three hundred joined to an overlay, so the cheapest thing a
-    client can send — an unknown event key — is refused before any of that
-    happens. The unlock is one row; the already-run read is one row; the
-    coefficients and the ranked list come after.
+    The first two come first because they cost least: the events of one data
+    file are a dozen rows and everything after this reads three hundred joined
+    to an overlay, so the cheapest thing a client can send — an unknown event
+    key — is refused before any of that happens.
+
+    **Already run is asked before locked** (D16 amendment, 2026-10-06). Both
+    are one-row reads, so cost does not order them; what does is which sentence
+    is true for the team. Results can now be closed again, and a team that ran
+    while they were open and presses again after the close has not been locked
+    out of anything — it has had its one run. Telling it "not open yet" would
+    invite it to wait for a second try that will never come.
 
     The already-run read here is a **courtesy**, not the rule: it turns the
     ordinary second press of a button into a sentence instead of a constraint
@@ -378,12 +381,14 @@ def runnable_or_refusal(
 
     Raises:
         ExerciseError: 404 for an event that is not in this team's data file,
-            409 when it is not one of the two rounds, is still locked, or has
-            already been run.
+            409 when it is not one of the two rounds, has already been run, or
+            is not open.
     """
     events = datasets.list_events(session, dataset_id=workspace.dataset_id)
     event = event_or_refusal(events, event_key)
     round_number = round_or_refusal(events, event.event_key)
+    if results.get_run(session, workspace_id=workspace.id, event_key=event.event_key) is not None:
+        raise already_run()
     if not results.results_unlocked(
         session, dataset_id=workspace.dataset_id, event_key=event.event_key
     ):
@@ -392,8 +397,6 @@ def runnable_or_refusal(
             code="exercise_results_locked",
             message="The instructor has not opened results for this event yet.",
         )
-    if results.get_run(session, workspace_id=workspace.id, event_key=event.event_key) is not None:
-        raise already_run()
     return events, event, round_number
 
 

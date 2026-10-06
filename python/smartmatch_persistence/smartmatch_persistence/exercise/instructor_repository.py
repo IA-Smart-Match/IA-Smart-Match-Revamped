@@ -62,6 +62,10 @@ from smartmatch_persistence.exercise.instructor_rows import (
     TeamWorkspaceHandle,
     WorkingDataset,
 )
+from smartmatch_persistence.exercise.instructor_team_work import (
+    select_result_runs,
+    select_saved_settings,
+)
 from smartmatch_persistence.exercise.results_repository import RESULT_RUN_LOCK_KEY
 from smartmatch_persistence.exercise.schema import (
     exercise_dataset,
@@ -332,60 +336,14 @@ class ExerciseInstructorRepository:
     def list_saved_settings(
         self, session: Session, *, workspace_id: uuid.UUID
     ) -> tuple[InstructorSavedSetting, ...]:
-        """A team's saved settings, oldest first. Names only, never the weights."""
-        statement = (
-            sa.select(
-                exercise_saved_setting.c.event_key,
-                exercise_saved_setting.c.name,
-                exercise_saved_setting.c.created_at,
-            )
-            .where(exercise_saved_setting.c.workspace_id == workspace_id)
-            .order_by(exercise_saved_setting.c.created_at, exercise_saved_setting.c.name)
-        )
-        return tuple(
-            InstructorSavedSetting(
-                event_key=row.event_key, name=row.name, created_at=row.created_at
-            )
-            for row in session.execute(statement).all()
-        )
+        """A team's saved settings, oldest first; see :mod:`.instructor_team_work`."""
+        return select_saved_settings(session, workspace_id=workspace_id)
 
     def list_result_runs(
         self, session: Session, *, workspace_id: uuid.UUID
     ) -> tuple[InstructorResultRun, ...]:
-        """A team's result runs, by round. Empty until the results track lands.
-
-        Counted in SQL — ``cardinality`` over the three arrays — so the profile
-        numbers themselves are never fetched into this process, let alone
-        returned. That is cheaper and it is also the D8 boundary written as a
-        query rather than as a promise about what the caller does next.
-        """
-        statement = (
-            sa.select(
-                exercise_result_run.c.event_key,
-                exercise_result_run.c.round,
-                exercise_result_run.c.setting_name,
-                sa.func.cardinality(exercise_result_run.c.invited_profile_nos).label("invited"),
-                sa.func.cardinality(exercise_result_run.c.signed_up_profile_nos).label("signed_up"),
-                sa.func.cardinality(exercise_result_run.c.attended_profile_nos).label("attended"),
-                exercise_result_run.c.seats_empty,
-                exercise_result_run.c.created_at,
-            )
-            .where(exercise_result_run.c.workspace_id == workspace_id)
-            .order_by(exercise_result_run.c.round, exercise_result_run.c.created_at)
-        )
-        return tuple(
-            InstructorResultRun(
-                event_key=row.event_key,
-                round=row.round,
-                setting_name=row.setting_name,
-                invited_count=row.invited,
-                signed_up_count=row.signed_up,
-                attended_count=row.attended,
-                seats_empty=row.seats_empty,
-                created_at=row.created_at,
-            )
-            for row in session.execute(statement).all()
-        )
+        """A team's result runs, by round; see :mod:`.instructor_team_work`."""
+        return select_result_runs(session, workspace_id=workspace_id)
 
     def list_exercise_events(
         self, session: Session, *, dataset_id: uuid.UUID
@@ -455,26 +413,59 @@ class ExerciseInstructorRepository:
     def unlock_results(self, session: Session, *, dataset_id: uuid.UUID, event_key: str) -> bool:
         """Design spec §9: let the teams run results for one event.
 
-        Idempotent by the primary key rather than by a read first: a second
-        press of the same button inserts nothing, changes no ``unlocked_at``,
-        and is not an error. An instructor pressing "unlock" twice in a
-        classroom is the expected case, not the exceptional one.
+        Opens an event never opened, and reopens one that was closed: the
+        conflict branch clears ``closed_at`` and moves ``unlocked_at`` to now,
+        so the time shown is the time it was done (D16 amendment, 2026-10-06).
+        Its ``WHERE closed_at IS NOT NULL`` is what keeps a second press on an
+        event that is already open from changing anything — an instructor
+        pressing "open" twice in a classroom is the expected case.
 
         Returns:
-            ``True`` when this call is what unlocked the event, ``False`` when
-            it was already unlocked. The route says the same sentence either
-            way; the distinction is for the log line and the test.
+            ``True`` when this call is what opened the event, ``False`` when it
+            was already open. The route says the same sentence either way.
         """
-        inserted = self._execute(
+        table = exercise_result_unlock
+        opened = self._execute(
             session,
-            pg_insert(exercise_result_unlock)
+            pg_insert(table)
             .values(dataset_id=dataset_id, event_key=event_key)
-            .on_conflict_do_nothing(constraint="exercise_result_unlock_pkey")
-            .returning(exercise_result_unlock.c.event_key),
+            .on_conflict_do_update(
+                constraint="exercise_result_unlock_pkey",
+                set_={"unlocked_at": sa.func.now(), "closed_at": None},
+                where=table.c.closed_at.is_not(None),
+            )
+            .returning(table.c.event_key),
             dataset_id=dataset_id,
             refusal="The results for that event could not be unlocked.",
         )
-        return bool(inserted.all())
+        return bool(opened.all())
+
+    def lock_results(self, session: Session, *, dataset_id: uuid.UUID, event_key: str) -> bool:
+        """Close results for one event again (D16 amendment, 2026-10-06).
+
+        Sets ``closed_at`` on an open row and touches nothing else: no run is
+        deleted, so what a team already ran stays readable. An event that was
+        never opened, or is already closed, matches no row — that is "already
+        closed", not an error.
+
+        Returns:
+            ``True`` when this call is what closed the event.
+        """
+        table = exercise_result_unlock
+        closed = self._execute(
+            session,
+            sa.update(table)
+            .where(
+                table.c.dataset_id == dataset_id,
+                table.c.event_key == event_key,
+                table.c.closed_at.is_(None),
+            )
+            .values(closed_at=sa.func.now())
+            .returning(table.c.event_key),
+            dataset_id=dataset_id,
+            refusal="The results for that event could not be closed.",
+        )
+        return bool(closed.all())
 
     def reset_workspace_children(
         self, session: Session, *, dataset_id: uuid.UUID, workspace_id: uuid.UUID
