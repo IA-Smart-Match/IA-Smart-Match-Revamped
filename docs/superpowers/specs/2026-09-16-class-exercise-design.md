@@ -266,6 +266,12 @@ pandas.
 hits the UNIQUE constraint and is refused with "This team has already run
 results for this event." Instructor: `POST /v1/exercise/instructor/events/{event_key}/unlock`.
 
+**As amended on 2026-10-06** (decision D16's amendment in
+`docs/decisions/class-exercise-decisions-2026-09-25.md`): results can be closed
+again with `POST /v1/exercise/instructor/events/{event_key}/lock`. "Open" is a
+row whose `closed_at` is empty; closing deletes no run; and a team that has
+already run is told so before it is told the event is closed.
+
 **The run takes the team's final setting** (source: Ann to Chau, Discord,
 2026-09-24). The flow is: the team sets weights and the app picks the top 30;
 the team saves up to three settings and compares two; **the team chooses one

@@ -28,25 +28,29 @@ def select_exercise_events(
     """The events the teams run in one data file, in file order, with lock state.
 
     Only ``is_exercise_event`` rows: the past events are history a profile may
-    have attended, and unlocking one opens nothing a team can run. ``unlocked``
-    is an ``EXISTS`` on the ``exercise_result_unlock`` row that
-    ``unlock_results`` writes, so a reload shows what the database holds.
+    have attended, and unlocking one opens nothing a team can run. The lock is
+    read off the ``exercise_result_unlock`` row ``unlock_results`` and
+    ``lock_results`` write, by a LEFT JOIN, so a reload shows what the database
+    holds: ``unlocked`` is "a row whose ``closed_at`` is empty", and the two
+    timestamps travel with it for the panel's "the time it was done".
     """
-    is_unlocked = (
-        sa.exists()
-        .where(
-            exercise_result_unlock.c.dataset_id == exercise_event.c.dataset_id,
-            exercise_result_unlock.c.event_key == exercise_event.c.event_key,
-        )
-        .label("unlocked")
-    )
     statement = (
         sa.select(
             exercise_event.c.event_key,
             exercise_event.c.name,
             exercise_event.c.sequence,
             exercise_event.c.description,
-            is_unlocked,
+            exercise_result_unlock.c.unlocked_at,
+            exercise_result_unlock.c.closed_at,
+        )
+        .select_from(
+            exercise_event.outerjoin(
+                exercise_result_unlock,
+                sa.and_(
+                    exercise_result_unlock.c.dataset_id == exercise_event.c.dataset_id,
+                    exercise_result_unlock.c.event_key == exercise_event.c.event_key,
+                ),
+            )
         )
         .where(
             exercise_event.c.dataset_id == dataset_id,
@@ -59,7 +63,9 @@ def select_exercise_events(
             event_key=row.event_key,
             name=row.name,
             sequence=row.sequence,
-            unlocked=bool(row.unlocked),
+            unlocked=row.unlocked_at is not None and row.closed_at is None,
+            unlocked_at=row.unlocked_at,
+            closed_at=row.closed_at,
             description=row.description,
         )
         for row in session.execute(statement).all()

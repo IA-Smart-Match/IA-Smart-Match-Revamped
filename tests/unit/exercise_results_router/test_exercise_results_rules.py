@@ -70,6 +70,7 @@ from tests.unit.exercise_results_router.support import (
     _ROUTER_SOURCE,
     _ROWS,
     _TRACK_SOURCES,
+    _entered,
     _Fakes,
     _settings,
 )
@@ -183,7 +184,9 @@ def test_a_locked_event_is_refused_with_a_sentence(
     assert response.status_code == 409
     body = response.json()["error"]
     assert body["code"] == "exercise_results_locked"
-    assert body["message"] == "The instructor has not opened results for this event yet."
+    # Ann, 2026-10-02: "Results for Harbor are not open yet. Ask your
+    # instructor." — her sentence, with the event named as the file spells it.
+    assert body["message"] == "Results for The first round are not open yet. Ask your instructor."
     assert fakes.results.runs == {}
 
 
@@ -219,6 +222,79 @@ def test_a_second_run_is_refused_with_the_specs_own_sentence(
     assert body["code"] == "exercise_results_already_run"
     assert body["message"] == "This team has already run results for this event."
     assert body["message"] == ALREADY_RUN_SENTENCE
+
+
+def test_a_team_that_already_ran_is_told_so_after_results_are_closed_again(
+    fakes: _Fakes, client: TestClient, confirmed: SimulationCoefficients
+) -> None:
+    """D16 amendment, 2026-10-06: already run is answered before locked.
+
+    Results can be closed again. A team that ran while they were open has had
+    its one run; "not open yet" would tell it to wait for a second one.
+    """
+    fakes.unlock("round-one")
+    assert client.post(_RESULTS, json=_FINAL_BODY, headers=_HEADER).status_code == 201
+    fakes.lock("round-one")
+
+    again = client.post(_RESULTS, json=_FINAL_BODY, headers=_HEADER)
+
+    assert again.status_code == 409
+    assert again.json()["error"]["code"] == "exercise_results_already_run"
+    assert again.json()["error"]["message"] == ALREADY_RUN_SENTENCE
+    assert len(fakes.results.runs) == 1
+
+
+def test_closing_results_again_refuses_a_new_run_and_keeps_a_stored_one_readable(
+    fakes: _Fakes, confirmed: SimulationCoefficients
+) -> None:
+    """Closing deletes nothing: only a team that has not run is turned away."""
+    fakes.unlock("round-one")
+    with _entered(fakes, 1) as ran, _entered(fakes, 2) as late:
+        stored = ran.post(_RESULTS, json=_FINAL_BODY, headers=_HEADER)
+        assert stored.status_code == 201
+        fakes.lock("round-one")
+
+        refused = late.post(_RESULTS, json=_FINAL_BODY, headers=_HEADER)
+        kept = ran.get(_RESULTS)
+
+    assert refused.status_code == 409
+    assert refused.json()["error"]["code"] == "exercise_results_locked"
+    assert refused.json()["error"]["message"] == (
+        "Results for The first round are not open yet. Ask your instructor."
+    )
+    assert kept.status_code == 200
+    assert kept.json()["team"] == stored.json()["team"]
+
+
+def test_a_close_that_lands_while_a_run_is_computing_still_refuses_the_run(
+    fakes: _Fakes, client: TestClient, confirmed: SimulationCoefficients
+) -> None:
+    """Review round 2: the route reads "open" once, before the rule runs.
+
+    The close here lands right after that read, as an instructor's press does
+    while a team's run is computing. The write re-reads the state under the
+    results key, so the run is refused with the same sentence and nothing is
+    stored. The real interleaving is the integration file's.
+    """
+    fakes.unlock("round-one")
+    read_open = fakes.results.results_unlocked
+
+    def open_then_closed(session: object, **where: object) -> bool:
+        answer = read_open(session, **where)  # type: ignore[arg-type]
+        fakes.lock("round-one")
+        return answer
+
+    fakes.results.results_unlocked = open_then_closed  # type: ignore[method-assign]
+
+    response = client.post(_RESULTS, json=_FINAL_BODY, headers=_HEADER)
+
+    assert response.status_code == 409
+    assert response.json()["error"] == {
+        "code": "exercise_results_locked",
+        "message": "Results for The first round are not open yet. Ask your instructor.",
+    }
+    assert "refresh" not in response.json()["error"]["message"].lower()
+    assert fakes.results.runs == {}, "a refused run must store nothing"
 
 
 def test_the_sentence_is_the_repositorys_and_is_not_restated_in_the_router() -> None:

@@ -371,6 +371,21 @@ class EventView(BaseModel):
             "when the data file gives none. Shown as it is; nothing ranks on it."
         ),
     )
+    results_open: bool = Field(
+        description=(
+            "Whether the instructor has results for this event open right now: "
+            "opened, and not closed again since. Always false for a past event. "
+            "What a screen shows a team before it presses; the run route still "
+            "decides."
+        ),
+    )
+    results_run: bool = Field(
+        description=(
+            "Whether your team has already run results for this event. A team "
+            "runs them once, so true means the run is used. Always false for a "
+            "past event."
+        ),
+    )
 
 
 class EventsView(BaseModel):
