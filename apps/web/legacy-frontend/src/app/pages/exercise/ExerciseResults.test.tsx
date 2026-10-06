@@ -569,6 +569,52 @@ describe("<ExerciseResults /> once-only presses", () => {
     );
   });
 
+  it("answers a second press from another tab with the time, not an error", async () => {
+    // Ann: "Pressing refresh a second time does nothing and says 'Already
+    // refreshed at 10:42 AM.'" This tab's read predates the other tab's press.
+    let pressed = false;
+    stubBy((key) => {
+      if (key === `GET ${RESULTS}`) return { body: RUN_VIEW };
+      if (key === `GET ${LIST}`) return NO_LIST;
+      if (key === `GET ${ASKING}`) {
+        return pressed
+          ? {
+              body: {
+                ...CHOSEN.body,
+                refreshed: true,
+                refreshed_at: COUNTS.refreshed_at,
+                refresh_counts: COUNTS.refresh_counts,
+              },
+            }
+          : CHOSEN;
+      }
+      if (key === `POST ${REFRESH}`) {
+        pressed = true;
+        return {
+          body: {
+            error: {
+              code: "exercise_already_refreshed",
+              message: "Your team has already asked the people it invited.",
+            },
+          },
+          status: 409,
+        };
+      }
+      return null;
+    });
+    renderResults();
+    fireEvent.click(await screen.findByRole("button", { name: /ask them now/i }));
+    const shut = await screen.findByRole("button", { name: "Already refreshed at 10:42 AM" });
+    expect(isOff(shut)).toBe(true);
+    expect(screen.queryByText("Your team has already asked the people it invited.")).toBeNull();
+    expect(
+      document.querySelector('[data-slot="exercise-results-refresh-counts"]')?.textContent,
+    ).toContain("Refresh done at 10:42 AM.");
+    fireEvent.click(shut);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(posts(REFRESH)).toBe(1);
+  });
+
   it("takes the screen down when a run is refused for access", async () => {
     stubBy((key) => {
       if (key === `GET ${RESULTS}`) return NOT_RUN;

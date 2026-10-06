@@ -535,7 +535,7 @@ describe("<ExerciseAskingForMore />", () => {
       expect(found).not.toBeNull();
       return found as HTMLElement;
     });
-    expect(within(summary).getByRole("status").textContent).toContain(
+    expect(summary.textContent).toContain(
       "Refresh done at 10:42 AM. 9 people who came to Northline now count as having gone to a similar event. 12 of the 22 invited people with no card completed one. 0 people stopped responding.",
     );
     expect(document.body.textContent).not.toContain("%");
@@ -570,6 +570,50 @@ describe("<ExerciseAskingForMore />", () => {
     expect(lines[0].textContent).toBe("Completed card: 70 → 8270 before, 82 after");
     expect(lines[0].querySelector("[aria-hidden='true']")?.textContent).toBe("70 → 82");
     expect(lines[0].querySelector(".sr-only")?.textContent).toBe("70 before, 82 after");
+  });
+
+  it("announces the summary once, in a live region that was there before the press", async () => {
+    // A notice that mounts already filled is often not read out; a line that
+    // is there first and then filled is. The notice itself is not a second one.
+    const said =
+      "Refresh done at 10:42 AM. 6 people who came to Northline now count as having gone to a similar event. 4 of the 22 invited people with no card completed one. 1 person stopped responding.";
+    const view = refreshView({ cards_completed: 4, non_responding: 1, topics_added: 6 });
+    const before = {
+      choice: "required",
+      choices: ["required"],
+      refreshed: false,
+      first_round_event_name: "Northline",
+    };
+    let pressed = false;
+    stubBy((key) => {
+      if (key === `GET ${ASKING}`) {
+        return {
+          body: pressed
+            ? { ...before, refreshed: true, refreshed_at: AT, refresh_counts: view.refresh_counts }
+            : before,
+        };
+      }
+      if (key === `POST ${REFRESH}`) {
+        pressed = true;
+        return { body: view };
+      }
+      return null;
+    });
+    renderAsking();
+    const ask = await screen.findByRole("button", { name: /ask them now/i });
+    const live = document.querySelector('[data-slot="exercise-refresh-announce"]');
+    expect(live?.getAttribute("aria-live")).toBe("polite");
+    expect(live?.className).toContain("sr-only");
+    expect(live?.textContent).toBe("");
+
+    fireEvent.click(ask);
+
+    await waitFor(() => expect(live?.textContent).toBe(said));
+    expect(document.querySelector('[data-slot="exercise-refresh-announce"]')).toBe(live);
+    const summary = document.querySelector('[data-slot="exercise-refresh-summary"]') as HTMLElement;
+    expect(summary.textContent).toContain(said);
+    expect(within(summary).queryByRole("status")).toBeNull();
+    expect(summary.querySelector("[aria-live]")).toBeNull();
   });
 
   it("answers a second press from another tab with the time, not an error", async () => {
@@ -988,9 +1032,8 @@ describe("<ExerciseAskingForMore /> — once-only presses the server confirmed",
 
     const band = document.querySelector('[data-slot="exercise-refresh-counts"]');
     expect(band?.textContent).toContain("Cards filled in8");
-    // Said once, in full, in a status region a screen reader announces.
     const summary = document.querySelector('[data-slot="exercise-refresh-summary"]') as HTMLElement;
-    expect(within(summary).getByRole("status").textContent).toContain(
+    expect(summary.textContent).toContain(
       "Refresh done at 10:42 AM. 5 people who came to Northline Career Fair now count as having gone to a similar event. 8 of the 22 invited people with no card completed one. 2 people stopped responding.",
     );
 

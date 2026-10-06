@@ -247,6 +247,69 @@ describe("the instructor page keeps the Teams panel current", () => {
     ]);
   });
 
+  it("names the file for a repeated team number even when the two files share a label", async () => {
+    // A file's label is not unique: two uploads may both be "October file".
+    const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    stub(
+      pageStubs({
+        [`POST ${REFRESH_ALL}`]: {
+          body: {
+            refreshed_team_numbers: [],
+            refreshed: 0,
+            skipped: 0,
+            teams: [
+              skippedTeam(3, "no_asking_choice"),
+              skippedTeam(3, "no_round_one_run"),
+              skippedTeam(4, "no_asking_choice"),
+            ],
+          },
+        },
+      }),
+    );
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: REFRESH_ALL_BUTTON }));
+    await screen.findByText("Refreshed 0 teams. Skipped 3 teams.");
+    const lines = [...document.querySelectorAll('[data-slot="exercise-refresh-all-teams"] li')].map(
+      (line) => line.textContent,
+    );
+    expect(lines).toEqual([
+      "Team 3 (October file): Skipped: it has not chosen a way of asking.",
+      "Team 3 (October file): Skipped: it has not run results for its first event.",
+      "Team 4 (October file): Skipped: it has not chosen a way of asking.",
+    ]);
+    // Two rows with one label and one number are still two rows to React.
+    expect(errors.mock.calls.flat().join(" ")).not.toContain("same key");
+    errors.mockRestore();
+  });
+
+  it("leaves the file out when the teams are in two files and no number repeats", async () => {
+    stub(
+      pageStubs({
+        [`POST ${REFRESH_ALL}`]: {
+          body: {
+            refreshed_team_numbers: [],
+            refreshed: 0,
+            skipped: 0,
+            teams: [
+              skippedTeam(3, "no_asking_choice", null, "September file"),
+              skippedTeam(4, "no_asking_choice", null, "October file"),
+            ],
+          },
+        },
+      }),
+    );
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: REFRESH_ALL_BUTTON }));
+    await screen.findByText("Refreshed 0 teams. Skipped 2 teams.");
+    const lines = [...document.querySelectorAll('[data-slot="exercise-refresh-all-teams"] li')].map(
+      (line) => line.textContent,
+    );
+    expect(lines).toEqual([
+      "Team 3: Skipped: it has not chosen a way of asking.",
+      "Team 4: Skipped: it has not chosen a way of asking.",
+    ]);
+  });
+
   it("says so when there was no team to refresh", async () => {
     stub(
       pageStubs({

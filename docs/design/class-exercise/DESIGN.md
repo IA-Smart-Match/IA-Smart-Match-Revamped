@@ -589,7 +589,10 @@ this order under the button, all read from the asking response so a reload, a
 second browser and a team the instructor refreshed show the same thing:
 
 1. **Summary** (`RefreshSummary.tsx`): a done-tone notice (6.20) with one
-   line of plain sentences: "Refresh done at 10:42 AM. 9 people who came to
+   line of plain sentences (on Asking the notice is not `role="status"`: it
+   mounts already filled, so an always-present `sr-only` `aria-live="polite"`
+   line beside it, `exercise-refresh-announce`, carries the same sentences and
+   is what a screen reader hears, once): "Refresh done at 10:42 AM. 9 people who came to
    Northline now count as having gone to a similar event. 12 of the 22 invited
    people with no card completed one. 0 people stopped responding." The time is
    the browser's local clock (`en-US`, "10:42 AM").
@@ -675,8 +678,10 @@ panel's order, the team's name in bold:
   code reads "Skipped." and invents no reason.
 
 Only teams that exist are listed; a team nobody has entered as is absent, as
-it is from the Teams panel. When the listed teams are in more than one data
-file, each name carries its file's label: "Team 3 (October file):". The
+it is from the Teams panel. When a team number appears more than once in the
+report (teams in more than one data file), every name carries its file's
+label: "Team 3 (October file):". A label is not unique, so a repeated number,
+not a second label, is what turns this on. The
 request is one transaction: refused, it changes no team and shows the server's
 sentence instead of a report. The "Are you sure?" step in front of this button
 is not part of this panel yet.

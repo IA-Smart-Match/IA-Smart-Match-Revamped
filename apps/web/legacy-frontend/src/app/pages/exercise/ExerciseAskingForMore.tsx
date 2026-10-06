@@ -66,7 +66,7 @@ import {
 import { AskingChoiceCard, type AskingCardState } from "./ExerciseAskingChoiceCard";
 import { ExerciseNotice, ExerciseScreen } from "./ExerciseScreen";
 import { RefreshSummary } from "./RefreshSummary";
-import { alreadyRefreshedLabel } from "./refreshWording";
+import { alreadyRefreshedLabel, refreshSummaryText } from "./refreshWording";
 import { isAccessRefusal, useExerciseResource } from "./useExerciseResource";
 import { workspaceRequiredNotice } from "./refusals";
 
@@ -471,6 +471,10 @@ function AskingPanels({
           <RefreshSummary at={refreshedAt} counts={counts} eventName={roundOneName} />
         ) : null}
         <RefreshCounts counts={counts} reduced={reduced} />
+        {/* Always present, so the summary is announced when it arrives. */}
+        <p aria-live="polite" data-slot="exercise-refresh-announce" className="sr-only">
+          {hasAsked ? refreshSummaryText(refreshedAt, counts, roundOneName) : ""}
+        </p>
       </section>
     </div>
   );

@@ -3,9 +3,10 @@
  *
  * Ann's checklist of 2026-10-02 (section 6) gives the words; these tests hold
  * them. Timestamps are written without a zone so they read as the same wall
- * clock time wherever the tests run.
+ * clock time wherever the tests run; the one case that carries an offset, as
+ * the server's do, pins the room's time zone first.
  */
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { RefreshAllTeamView, RefreshCountsView } from "../../../lib/exerciseClient";
 import {
@@ -42,6 +43,38 @@ describe("formatClockTime", () => {
     expect(formatClockTime(null)).toBeNull();
     expect(formatClockTime(undefined)).toBeNull();
     expect(formatClockTime("not a time")).toBeNull();
+  });
+});
+
+describe("a server timestamp, which carries its offset", () => {
+  const realFormat = Intl.DateTimeFormat;
+
+  afterEach(() => {
+    Intl.DateTimeFormat = realFormat;
+    vi.resetModules();
+  });
+
+  /** The module as a browser in `timeZone` loads it, whatever zone the tests run in. */
+  async function inRoom(timeZone: string): Promise<typeof import("./refreshWording")> {
+    class RoomClock extends realFormat {
+      constructor(locales?: string | string[], options?: Intl.DateTimeFormatOptions) {
+        super(locales, { ...options, timeZone });
+      }
+    }
+    Intl.DateTimeFormat = RoomClock as typeof Intl.DateTimeFormat;
+    vi.resetModules();
+    return import("./refreshWording");
+  }
+
+  it("reads as the room's clock, not as the hour written in the value", async () => {
+    const utc = "2026-10-16T17:42:00+00:00";
+    const pacific = await inRoom("America/Los_Angeles");
+    expect(pacific.formatClockTime(utc)).toBe("10:42 AM");
+    expect(pacific.alreadyRefreshedLabel(utc)).toBe("Already refreshed at 10:42 AM");
+    expect(pacific.refreshDoneLine(utc)).toBe("Refresh done at 10:42 AM.");
+
+    const eastern = await inRoom("America/New_York");
+    expect(eastern.formatClockTime(utc)).toBe("1:42 PM");
   });
 });
 

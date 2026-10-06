@@ -427,16 +427,19 @@ export function RefreshAllPanel({
  */
 function RefreshAllReport({ done }: { readonly done: RefreshAllView }): React.JSX.Element {
   const teams = done.teams ?? [];
-  const files = new Set(teams.map((team) => team.dataset_label));
+  // A file's label is not unique, so the label says nothing about how many
+  // files there are. A repeated team number is what needs telling apart.
+  const repeated = new Set(teams.map((team) => team.team_number)).size < teams.length;
   return (
     <Notice tone="done" message={refreshAllHeadline(done)}>
       {teams.length === 0 ? undefined : (
         <ul data-slot="exercise-refresh-all-teams" className="ce-type-body flex flex-col gap-ce-2">
-          {teams.map((team) => {
-            const line = refreshAllTeamLine(team, { nameFile: files.size > 1 });
+          {teams.map((team, index) => {
+            const line = refreshAllTeamLine(team, { nameFile: repeated });
             return (
               <li
-                key={`${team.dataset_label}\n${team.team_number}`}
+                // The report is one fixed answer, so its order is its identity.
+                key={index}
                 data-outcome={team.outcome}
                 data-reason={team.reason_code ?? undefined}
               >

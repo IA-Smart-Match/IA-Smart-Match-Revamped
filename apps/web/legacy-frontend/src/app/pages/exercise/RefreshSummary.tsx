@@ -3,9 +3,11 @@
  * "how much we know" counts for every profile before and after (DESIGN.md
  * §6.19; Ann's checklist of 2026-10-02, section 6).
  *
- * A done-tone notice (§6.20, `role="status"`), so the press that causes it is
- * announced once, in full, and a reload shows the same thing silently. The
- * words come from `refreshWording.ts`; the facts come from the server.
+ * A done-tone notice (§6.20) that is not itself a live region: it mounts
+ * already filled, which screen readers often do not announce. The screen that
+ * shows it keeps an always-present `aria-live` line carrying the same words,
+ * so the press is announced once and a reload shows the same thing silently.
+ * The words come from `refreshWording.ts`; the facts come from the server.
  *
  * Before and after are written as numbers with an arrow between them, and
  * read aloud as "70 before, 82 after": the arrow is never the only signal.
@@ -37,7 +39,7 @@ export function RefreshSummary({
   const lines = counts === null ? [] : markerCountLines(counts);
   return (
     <div data-slot="exercise-refresh-summary">
-      <Notice tone="done" message={[refreshDoneLine(at), ...sentences].join(" ")}>
+      <Notice tone="done" live={false} message={[refreshDoneLine(at), ...sentences].join(" ")}>
         {counts === null || lines.length === 0 ? undefined : (
           <MarkerCountsBeforeAfter lines={lines} total={markerCountTotal(counts)} />
         )}

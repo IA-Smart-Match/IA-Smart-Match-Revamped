@@ -201,8 +201,8 @@ function skipReason(team: RefreshAllTeamView): string {
  *
  * A refreshed team gets the same summary that team reads on its own screen,
  * plus the completed-card count before and after. `nameFile` adds the data
- * file's label to the name, for a classroom split across two files where two
- * teams share a number.
+ * file's label to the name, for a report in which a team number repeats (a
+ * classroom split across two files).
  */
 export function refreshAllTeamLine(
   team: RefreshAllTeamView,
