@@ -279,7 +279,7 @@ def _claim_lost(
     same moment, or has been cleared and has no choice any more. Neither is "has
     not run round one", so the row is read again and named for what it says now.
     """
-    state = results.team_state(session, workspace_id=team.workspace_id)
-    if state is not None and state.refreshed_at is not None:
-        return _skipped(team, ALREADY_REFRESHED, refreshed_at=state.refreshed_at)
+    current = results.team_state(session, workspace_id=team.workspace_id)
+    if current is not None and current.refreshed_at is not None:
+        return _skipped(team, ALREADY_REFRESHED, refreshed_at=current.refreshed_at)
     return _skipped(team, NO_ASKING_CHOICE)
