@@ -184,7 +184,9 @@ def test_a_locked_event_is_refused_with_a_sentence(
     assert response.status_code == 409
     body = response.json()["error"]
     assert body["code"] == "exercise_results_locked"
-    assert body["message"] == "The instructor has not opened results for this event yet."
+    # Ann, 2026-10-02: "Results for Harbor are not open yet. Ask your
+    # instructor." — her sentence, with the event named as the file spells it.
+    assert body["message"] == "Results for The first round are not open yet. Ask your instructor."
     assert fakes.results.runs == {}
 
 
@@ -257,6 +259,9 @@ def test_closing_results_again_refuses_a_new_run_and_keeps_a_stored_one_readable
 
     assert refused.status_code == 409
     assert refused.json()["error"]["code"] == "exercise_results_locked"
+    assert refused.json()["error"]["message"] == (
+        "Results for The first round are not open yet. Ask your instructor."
+    )
     assert kept.status_code == 200
     assert kept.json()["team"] == stored.json()["team"]
 

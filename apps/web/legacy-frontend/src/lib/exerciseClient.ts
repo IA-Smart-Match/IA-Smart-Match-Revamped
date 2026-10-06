@@ -54,6 +54,13 @@ export interface EventView {
   readonly target_majors: string[];
   readonly is_exercise_event: boolean;
   readonly sequence: number;
+  /**
+   * Whether the instructor has results for this event open right now. What to
+   * show before a press; the run route still decides. `false` for past events.
+   */
+  readonly results_open: boolean;
+  /** Whether this team has already used its one results run for this event. */
+  readonly results_run: boolean;
 }
 
 export interface EventsView {

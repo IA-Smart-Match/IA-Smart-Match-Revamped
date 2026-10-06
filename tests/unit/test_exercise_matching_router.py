@@ -46,6 +46,7 @@ from smartmatch_api.exercise_dependencies import (
     get_active_dataset,
     get_dataset_repository,
     get_exercise_session,
+    get_results_repository,
     get_settings_repository,
     get_team_view_repository,
     get_workspace_repository,
@@ -349,6 +350,29 @@ class _FakeSettingsRepository:
         return self.rows.pop((workspace_id, event_key, name), None) is not None
 
 
+class _FakeResultsRepository:
+    """The two results reads the event picker makes, and nothing that writes.
+
+    ``open`` and ``ran`` are what a test sets; every read is recorded, so a
+    test can say which events were asked about and which were not.
+    """
+
+    def __init__(self) -> None:
+        self.open: set[tuple[uuid.UUID, str]] = set()
+        self.ran: set[tuple[uuid.UUID, str]] = set()
+        self.asked: list[tuple[str, str]] = []
+
+    def results_unlocked(self, _session: object, *, dataset_id: uuid.UUID, event_key: str) -> bool:
+        self.asked.append(("open", event_key))
+        return (dataset_id, event_key) in self.open
+
+    def get_run(
+        self, _session: object, *, workspace_id: uuid.UUID, event_key: str
+    ) -> object | None:
+        self.asked.append(("run", event_key))
+        return object() if (workspace_id, event_key) in self.ran else None
+
+
 class _FakeSession:
     """A session that can be committed and answers every read with nothing."""
 
@@ -378,6 +402,7 @@ class _Fakes:
         self.datasets = _FakeDatasetRepository()
         self.team_view = _FakeTeamViewRepository()
         self.settings = _FakeSettingsRepository()
+        self.results = _FakeResultsRepository()
 
 
 def _exercise_app(fakes: _Fakes) -> FastAPI:
@@ -393,6 +418,7 @@ def _exercise_app(fakes: _Fakes) -> FastAPI:
     app.dependency_overrides[get_dataset_repository] = lambda: fakes.datasets
     app.dependency_overrides[get_team_view_repository] = lambda: fakes.team_view
     app.dependency_overrides[get_settings_repository] = lambda: fakes.settings
+    app.dependency_overrides[get_results_repository] = lambda: fakes.results
     app.dependency_overrides[get_active_dataset] = lambda: _DATASET
     app.dependency_overrides[get_workspace_secret] = lambda: _TEST_SECRET
     return app
@@ -441,6 +467,64 @@ def test_the_events_route_returns_this_teams_data_files_events(client: TestClien
     assert northline["topic_tags"] == ["analytics", "brand"]
     assert northline["target_majors"] == ["Marketing"]
     assert northline["sequence"] == 11
+
+
+def _results_state(client: TestClient, event_key: str = "northline") -> tuple[bool, bool]:
+    events = {event["event_key"]: event for event in client.get(f"{_BASE}/events").json()["events"]}
+    return events[event_key]["results_open"], events[event_key]["results_run"]
+
+
+def test_an_event_says_whether_results_are_open_and_whether_this_team_has_run(
+    fakes: _Fakes, client: TestClient
+) -> None:
+    """Issue #328: the team side can read the lock and its own one run.
+
+    The four states a results button has to tell apart, in the order a class
+    meets them — and the fourth, which a close after a run produces.
+    """
+    team = fakes.workspaces.rows[(_DATASET_ID, 1)].id
+    before = _results_state(client)
+    fakes.results.open.add((_DATASET_ID, "northline"))
+    opened = _results_state(client)
+    fakes.results.ran.add((team, "northline"))
+    run = _results_state(client)
+    fakes.results.open.clear()
+    closed_again = _results_state(client)
+
+    assert before == (False, False), "not open yet"
+    assert opened == (True, False), "open: the run is still to use"
+    assert run == (True, True), "run: used"
+    assert closed_again == (False, True), "closed again after the run: still used"
+
+
+def test_a_past_event_is_never_open_or_run_and_costs_no_results_read(
+    fakes: _Fakes, client: TestClient
+) -> None:
+    """A past event has no round. Its two fields are false without asking."""
+    fakes.results.open.add((_DATASET_ID, "past-analytics"))
+
+    assert _results_state(client, "past-analytics") == (False, False)
+    assert {event_key for _, event_key in fakes.results.asked} == {"northline"}
+    assert sorted(kind for kind, _ in fakes.results.asked) == ["open", "run"]
+
+
+def test_one_teams_run_is_not_another_teams_run(fakes: _Fakes) -> None:
+    """``results_run`` is this team's own fact; the open lock is the class's."""
+    fakes.results.open.add((_DATASET_ID, "northline"))
+    with _entered(fakes, 1) as first, _entered(fakes, 2) as second:
+        fakes.results.ran.add((fakes.workspaces.rows[(_DATASET_ID, 1)].id, "northline"))
+
+        assert _results_state(first) == (True, True)
+        assert _results_state(second) == (True, False)
+
+
+def test_the_results_state_fields_are_required_and_described() -> None:
+    """Both fields are always sent, so a screen never has to guess at a missing key."""
+    fields = exercise_matching_models.EventView.model_fields
+    for name in ("results_open", "results_run"):
+        assert fields[name].is_required(), name
+        assert fields[name].annotation is bool, name
+        assert fields[name].description, name
 
 
 # ---------------------------------------------------------------------------

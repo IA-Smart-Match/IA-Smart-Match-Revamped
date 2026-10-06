@@ -71,7 +71,7 @@ describe("Button (§6.3)", () => {
 
 describe("Notice (§6.20)", () => {
   it("renders a calm refusal as role=status with the server sentence verbatim", () => {
-    const sentence = "The instructor has not opened results for this event yet.";
+    const sentence = "Results for Harbor are not open yet. Ask your instructor.";
     render(<Notice tone="calm" message={sentence} />);
     const notice = screen.getByRole("status");
     expect(notice.textContent).toContain(sentence);

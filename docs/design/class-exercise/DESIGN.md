@@ -529,11 +529,34 @@ disabled until chosen, with that line as its description.
 
 ### 6.14 Results lock panel
 
-| State | Treatment |
-|---|---|
-| Locked | `invitation-envelope.svg`, `Lock` chip "Results are closed", and the server sentence. No action: teams have no read of the lock state, so any check would be the one-time run itself; the primary run button stays the only retry |
-| Unlocked, not run | `LockOpen` chip "Results are open", final-setting picker, primary "Run results for this event" |
-| Already run | results render; the run button is gone and a line says "A team runs results once per event." |
+**Amended 2026-10-06 (issue #328).** This section used to say that teams
+have no read of the lock, so the lock showed only after a refused press, the
+panel had no action, and the run button vanished after the run. That was
+deliberate, and it is reversed here on purpose: Ann's checklist of 2026-10-02
+(section 5) asks for a results button that is grey **before** it is pressed,
+that asks before the one run, and that stays on screen, grey, afterwards. The
+team's events read now carries `results_open` and `results_run` for each
+round, so the state is known on load.
+
+| State | Read | Treatment |
+|---|---|---|
+| Not open | `results_open` false, `results_run` false | `invitation-envelope.svg`, `Lock` chip "Results are closed", the sentence "Results for {event} are not open yet. Ask your instructor.", and a secondary "Check again" (a read of the lock, never the run). The final-setting picker stays, so a team can choose while it waits. Primary button, grey: "Results not open yet.", described by that sentence |
+| Open, not run | `results_open` true, `results_run` false | final-setting picker, primary "Run results for this event" (grey until a setting is chosen, described by the picker's line). **First press asks, on the button itself:** "Send this list? You get one results run for {event}", with the `ce-confirm-window` underline; a second press inside 5 s sends the run; Escape, the window lapsing, or choosing another setting puts it back. A held Enter or Space never confirms |
+| Already run | `results_run` true, or stored results on screen | primary button, grey: "Results already run for this event.", described by the line "A team runs results once per event."; the stored results render under it |
+
+Rules that go with the table:
+
+- **Run wins over open.** Results closed again after a team ran (issue #326)
+  read as "already run", with the results still on screen.
+- **Grey is `aria-disabled`, never the `disabled` attribute** (6.3), so the
+  button stays focusable and its reason stays reachable.
+- **Grey is what is shown, not what is allowed.** The server refuses a second
+  run whatever the screen believes. A tab that was open before the run, or
+  before results were closed, still has a live button; its press is answered
+  with the server's sentence, and the screen then reads again and lands on the
+  right state. That covers a second press, a reload, and a second tab.
+- If the events read cannot say (it failed, or does not list the event), the
+  button is live and the run route answers, as before this amendment.
 
 ### 6.15 Results reveal and seat figures (see [prompt](../../archive/design/class-exercise/prompts/components/results-reveal.md))
 
@@ -746,7 +769,9 @@ Deferred this round (see 6.23).
 └───────────────────────────────────────────────────────────────┘
 ```
 
-Before a run: lock panel (6.14) in the seating-chart position.
+Before a run, while results are not open: lock panel (6.14) in the
+seating-chart position. After a run: the grey "Results already run for this
+event." button sits above the seating chart.
 - **390:** seating chart full width (10 per row, 26px seats), sentences below,
   the figures band stays three columns at 40px numerals, chart switches to horizontal
   bars.
@@ -885,6 +910,13 @@ labels and the license line are unchanged and not listed.
 | Results, seat headline | "8 were already coming. Your invitations added 6. 46 seats are still open." (pattern from the brief) |
 | Results, figures band | "Seats in the room", "Already coming", "Still open" |
 | Results, lock chips | "Results are closed" / "Results are open" |
+| Results, button before results are open (2026-10-06, #328; Ann's checklist wording) | "Results not open yet." |
+| Results, why it is not open (#328; Ann's example sentence, also the server's answer to a run) | "Results for Northline Analytics: Behind the Business are not open yet. Ask your instructor." |
+| Results, re-read the lock (#328) | "Check again" |
+| Results, question before the one run (#328; Ann's checklist wording, event name substituted) | "Send this list? You get one results run for Northline Analytics: Behind the Business" |
+| Results, spoken and shown hint while the question is up (#328) | "Press again to send this list. Your team cannot run this event a second time." |
+| Results, button after the run (#328; Ann's checklist wording) | "Results already run for this event." |
+| Results, why it cannot be run again (#328; 6.14's line, now on screen) | "A team runs results once per event." |
 | Results, table disclosure | "Show these counts as a table" |
 | Round two | "In round one your team's list left 46 seats empty." |
 | Asking, supporting lines | "Tell them a card helps us suggest events worth their evening." / "Offer something small for a completed card." / "Make the card a condition of hearing about events." |

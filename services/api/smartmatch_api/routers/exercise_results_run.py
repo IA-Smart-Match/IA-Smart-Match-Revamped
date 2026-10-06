@@ -84,6 +84,7 @@ __all__ = [
     "coefficients_or_refusal",
     "final_setting_or_refusal",
     "invited_list",
+    "locked_sentence",
     "round_or_refusal",
     "run_the_rule",
     "runnable_or_refusal",
@@ -329,6 +330,18 @@ def store(
         ) from None
 
 
+def locked_sentence(event_name: str) -> str:
+    """What a team reads when results for an event are not open.
+
+    Ann's own example, from her revisions of 2026-10-02: "Results for Harbor are
+    not open yet. Ask your instructor." — a press that did nothing says why,
+    and says what to do next. The event is named as the data file spells it.
+    The same words cover an event never opened and one closed again: either
+    way the instructor is who opens it.
+    """
+    return f"Results for {event_name} are not open yet. Ask your instructor."
+
+
 def already_run() -> ExerciseError:
     """Design spec §9's sentence, written once and raised from two places.
 
@@ -395,7 +408,7 @@ def runnable_or_refusal(
         raise ExerciseError(
             status_code=status.HTTP_409_CONFLICT,
             code="exercise_results_locked",
-            message="The instructor has not opened results for this event yet.",
+            message=locked_sentence(event.name),
         )
     return events, event, round_number
 

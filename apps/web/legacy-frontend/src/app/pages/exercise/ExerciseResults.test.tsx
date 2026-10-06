@@ -10,7 +10,19 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { CONFIRM_GUARD_MS } from "./desk";
 import { ExerciseResults } from "./ExerciseResults";
+
+/**
+ * Send the run: the first press arms the button ("Send this list? You get one
+ * results run for …"), the second sends it. The pause clears the guard that
+ * treats a double-click as one press (`CONFIRM_GUARD_MS`).
+ */
+async function pressRun(): Promise<void> {
+  fireEvent.click(screen.getByRole("button", { name: /run results/i }));
+  await new Promise((resolve) => setTimeout(resolve, CONFIRM_GUARD_MS + 20));
+  fireEvent.click(screen.getByRole("button", { name: /send this list/i }));
+}
 
 let calls: { url: string; init: RequestInit }[] = [];
 
@@ -57,7 +69,7 @@ const NONE_SAVED = { body: { event_key: "northline", settings: [], max_settings:
  */
 async function runWith(name: string): Promise<void> {
   fireEvent.click(await screen.findByRole("radio", { name }));
-  fireEvent.click(screen.getByRole("button", { name: /run results/i }));
+  await pressRun();
 }
 
 /**
@@ -469,7 +481,7 @@ describe("<ExerciseResults /> once-only presses", () => {
   const CHOSEN = { body: { choice: "required", choices: ["required"], refreshed: false } };
   const COUNTS = { choice: "required", cards_completed: 8, non_responding: 2, topics_added: 5 };
 
-  it("sends one run for two presses in the same tick", async () => {
+  it("sends nothing for two presses in the same tick: a double-click only asks", async () => {
     stubBy((key) => {
       if (key === `GET ${RESULTS}`) return NOT_RUN;
       if (key === `POST ${RESULTS}`) return { body: RUN_VIEW };
@@ -481,6 +493,29 @@ describe("<ExerciseResults /> once-only presses", () => {
     renderResults();
     fireEvent.click(await screen.findByRole("radio", { name: "Wide net" }));
     const run = screen.getByRole("button", { name: /run results/i });
+    act(() => {
+      run.click();
+      run.click();
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(posts(RESULTS)).toBe(0);
+    expect(run.textContent).toContain("Send this list?");
+  });
+
+  it("sends one run for two confirming presses in the same tick", async () => {
+    stubBy((key) => {
+      if (key === `GET ${RESULTS}`) return NOT_RUN;
+      if (key === `POST ${RESULTS}`) return { body: RUN_VIEW };
+      if (key === `GET ${LIST}`) return NO_LIST;
+      if (key === `GET ${ASKING}`) return NO_CHOICE;
+      if (key === `GET ${SETTINGS}`) return TWO_SAVED;
+      return null;
+    });
+    renderResults();
+    fireEvent.click(await screen.findByRole("radio", { name: "Wide net" }));
+    const run = screen.getByRole("button", { name: /run results/i });
+    fireEvent.click(run);
+    await new Promise((resolve) => setTimeout(resolve, CONFIRM_GUARD_MS + 20));
     act(() => {
       run.click();
       run.click();
