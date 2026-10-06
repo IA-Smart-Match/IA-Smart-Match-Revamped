@@ -12,6 +12,9 @@ Marketing course).
 amended 25 September 2026 for D3 and D6 (see "Why this file, and the ADR
 amendment" at the end).
 **Design:** [`2026-09-16-class-exercise-design.md`](../superpowers/specs/2026-09-16-class-exercise-design.md)
+**Later record, 2026-10-06:** Ann's results rule supersedes D7's numbers as
+the requirement and touches D2, D6 and D8. See the dated note under each, and
+[`class-exercise-results-rule-2026-10-06.md`](class-exercise-results-rule-2026-10-06.md).
 
 ---
 
@@ -132,6 +135,12 @@ Every `file:line` below is on `origin/main` at `9339d5a4`. Paths are shortened:
   - `domain/exercise/simulation.py:536` the rule's half
   - `domain/exercise/ingest.py:367` reads `event_type` into `is_exploratory`
   - `db/migrations/versions/0043_exercise_event_exploratory.py`
+- **See also, 2026-10-06 (results rule).** Ann's rule relayed on 2026-10-06
+  gives "+15 if their true career goal fits the event" and does not mention an
+  undecided goal. Whether the results step keeps this row's half is open:
+  OQ-CE-21. This row is not superseded by that record. PR #337 (open) removes
+  the half on the strength of Ann's revisions of 2026-10-02. Record:
+  [`class-exercise-results-rule-2026-10-06.md`](class-exercise-results-rule-2026-10-06.md).
 
 ## D3. The last tie-break step is Ann's `tiebreak_order`
 
@@ -213,6 +222,12 @@ Every `file:line` below is on `origin/main` at `9339d5a4`. Paths are shortened:
   `COPIED_CARD_CAREER_GOAL = CopiedCardCareerGoal.HIDDEN_GOAL`.
 - **ADR.** ADR-0025 D6 named one withheld column and one reader; both are now
   two. The amendment records it.
+- **See also, 2026-10-06 (results rule).** Unchanged, and confirmed. Ann's
+  rule relayed on 2026-10-06 uses "each student's true interests and true
+  career goal (the hidden columns)" to decide who signs up, for all 300. A
+  card does not change anyone's chance, so the refresh changes results only
+  through the list a team builds next: OQ-CE-28. Record:
+  [`class-exercise-results-rule-2026-10-06.md`](class-exercise-results-rule-2026-10-06.md).
 
 ## D7. The results-rule numbers
 
@@ -253,6 +268,18 @@ Every `file:line` below is on `origin/main` at `9339d5a4`. Paths are shortened:
   `simulation.py:465-470` still reads "PLACEHOLDER (OQ-CE-03 … Chau to
   confirm …)". CODE-A removes that marker and states the approval. No number
   changes.
+- **Superseded in part, 2026-10-06 (results rule).** Ann gave the rule's
+  numbers herself, relayed by the owner on 2026-10-06: a notice step (75% for
+  the team's list, 15% for "email everyone"); start 5%; +35 true interests;
+  +15 true career goal; +5 for 1–2 past events and +10 for 3 or more; +5 same
+  major; 70% of sign-ups attend. As the **requirement**, those replace the
+  values in the table above, this row's "Why" figures (9.5 / 7.1 and
+  7.5 / 5.6) and the sample result. **The code is unchanged**: the table above
+  is still what `simulation.py` runs. What stands: the order a lot > some > a
+  little, chance fixed per team, and hidden truth deciding outcomes. What is
+  open: the size of the chance (`chance_spread`), OQ-CE-24, and whether the
+  new numbers replace this set outright, OQ-CE-29. Record:
+  [`class-exercise-results-rule-2026-10-06.md`](class-exercise-results-rule-2026-10-06.md).
 
 ## D8. Empty seats: show both groups
 
@@ -277,6 +304,11 @@ Every `file:line` below is on `origin/main` at `9339d5a4`. Paths are shortened:
     already signed up, seats still empty
 - **Intended end state (CODE-A, `feat/ce-results-integration`).** The panel
   adds the three sentences above, filled from the run's own numbers.
+- **See also, 2026-10-06 (results rule).** Unchanged. Ann's rule relayed on
+  2026-10-06 says "a flat 70% show up" of those who sign up. Whether the 8
+  already signed up also attend at 70%, or for certain as this row counts
+  them, is open: OQ-CE-25. Record:
+  [`class-exercise-results-rule-2026-10-06.md`](class-exercise-results-rule-2026-10-06.md).
 
 ## D9. P004 test case: keep as built
 

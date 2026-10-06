@@ -5,6 +5,10 @@
 This file decides nothing new. Where an email answered a register row, the
 register row is the authority.
 **Recorded:** 2026-09-28.
+**Added 2026-10-06:** exchange D (Chau's question and Ann's results rule), as
+relayed by the owner on 2026-10-06. It is recorded here because no October
+correspondence file exists. The alignment check of 2026-09-28 below predates
+it and is not re-run; its row 11 is marked.
 **Scope:** `ProductScope.CLASS_EXERCISE`, plus the speaker-workflow proposal
 (CBA platform track).
 **Requirements authority:** [`../product/class-exercise-requirements.md`](../product/class-exercise-requirements.md).
@@ -130,6 +134,63 @@ invite-only speaker proposal.
 
 ---
 
+## D. Chau's question and Ann Wang's results rule
+
+- **From:** Chau (question); Ann Wang (answer)
+- **To:** the team
+- **Date:** relayed by Danny (owner) on 2026-10-06. Ann's own send date was
+  not given. The channel was not given.
+- **Attachments:** none recorded
+
+Chau asked:
+
+> we haven't decided yet how we'll determine who among the 30 people will sign up for the event and, from those who sign up, who will actually attend.
+
+Ann answered:
+
+> Here is the rule:
+> Step A: Did they notice the invitation? A personal invite from the team is noticed far more often than a mass email. Team's list of 30: 75%. "Email everyone" (all 300): 15%.
+> Step B: If they noticed, do they sign up? Start at 5%, then add: +35 if their true interests match the event (the main driver); +15 if their true career goal fits the event; +5 for 1–2 past events, +10 for 3 or more; +5 for same major.
+> Step C: Of those who sign up, who attends? A flat 70% show up.
+> Chance: Add a small element of luck, fixed for each team, so the same list always gives the same result.
+> For deciding who signs up, use each student's true interests and true career goal (the hidden columns), so the rule works for all 300 students, including those without a card. For students who have a card, the card already matches their true interests, so nothing conflicts. Justin, please add a short plain-words description of this rule to the one-page write-up.
+
+The same message, as the owner relayed it (a summary, not Ann's wording): the
+dean wants the team to present to the CBACH advisory board on Thursday
+2026-10-08. Two presenters including Chau. A 30-minute slot between 1:00 and
+4:30 pm: about 15 minutes of demo focused on the front end, not the back end,
+then about 15 minutes of questions.
+
+### What this settles
+
+1. **The results rule has three steps and Ann's numbers** — decision record
+   [`class-exercise-results-rule-2026-10-06.md`](class-exercise-results-rule-2026-10-06.md)
+   (R1). It supersedes the numbers of D7 as the requirement. **The code is
+   unchanged**; it still runs D7's numbers.
+2. **A notice step is new.** 75% for the team's list, 15% for "email
+   everyone". The code has no such step
+   (`python/smartmatch_domain/smartmatch_domain/exercise/simulation.py:558-581`).
+3. **Outcomes use the hidden true interests and true career goal** for all
+   300. This is what the code does today; ADR-0025 D6 stands.
+4. **"The card already matches their true interests."** Checked against the
+   committed 300-row fixture on 2026-10-06: all 70 cards carry the same
+   interests and the same career goal as the hidden columns.
+5. **Justin's one-page write-up gains a short plain-words description of this
+   rule.** No write-up file exists in the repository yet (row 7 of the
+   alignment check below).
+6. **Board presentation, Thursday 2026-10-08, front end first.** A scheduling
+   matter for the people involved. The demo-readiness note is in the
+   [impact analysis](../plans/2026-10-06-results-rule-impact-analysis.md).
+
+### What this does not settle
+
+Thirteen gaps an implementer would have to guess, OQ-CE-19 to OQ-CE-31 in the
+[register](../plans/open-questions/class-exercise-open-questions.md). The
+impact analysis lists what would change in code, tests, golden files and
+documents.
+
+---
+
 ## Alignment check (2026-09-28)
 
 Emails A–C and the 15 September requirements against `origin/main` at
@@ -154,7 +215,7 @@ items come first.
 | 8 | Weight display: total of the four weights plus "counts twice as much" sentence; no percentages; no forced sum of 1 | **partly** | Not on main; branch `feat/exercise-weight-total`. Weights are relative today (`domain/weight_settings.py:33` divides by the total); ADR-0025 D8 forbids percentages | Merge the separate PR. |
 | 9 | If time: per-profile points counter | **partly** | `web/ProfilePointsCounter.tsx:78` exists, not routed; `domain/exercise_points.py`; DESIGN.md §11 item 4 "Deferred" | None for Oct; backlog row stands. |
 | 10 | "Asking for more": 30 / 55 / 80 percent, 15 percent stop responding under "required" | **built** | `domain/exercise/asking.py:82-84` shares, `:92` `REQUIRED_NON_RESPONDING_SHARE = 0.15`, `:191` half-up count; OQ-CE-04 (Ann: "All good") | None. |
-| 11 | Results rule: true fit matters most; frequent attenders "only a little"; major a small lift; chance fixed per team | **built** (numbers per Ann's later words) | `domain/exercise/simulation.py:471` `EXERCISE_SIMULATION_COEFFICIENTS`; OQ-CE-03 / D7 (a lot +0.40, some +0.10 for ≥1 past event, a little +0.04) | None. Ann's 9-25 "some" supersedes the doc's "only a little". |
+| 11 | Results rule: true fit matters most; frequent attenders "only a little"; major a small lift; chance fixed per team | **built** (numbers per Ann's later words) | `domain/exercise/simulation.py:471` `EXERCISE_SIMULATION_COEFFICIENTS`; OQ-CE-03 / D7 (a lot +0.40, some +0.10 for ≥1 past event, a little +0.04) | None. Ann's 9-25 "some" supersedes the doc's "only a little". **Note, 2026-10-06:** Ann's rule in exchange D supersedes these numbers as the requirement; the code still runs them. See [`class-exercise-results-rule-2026-10-06.md`](class-exercise-results-rule-2026-10-06.md). |
 | 12 | Default weights (doc: "the default settings") | **built** | `domain/exercise/registry.py:133-136` 0.25 each; OQ-CE-02 (Ann, 2026-09-25) | None. |
 | 13 | Getting in: no login, team number, per-team workspace surviving reload; instructor page behind passcode | **built** | `api/exercise_workspace.py:202` enter, `:177` httpOnly session cookie; `api/exercise_instructor_session.py:124` login; OQ-CE-07, OQ-CE-08 | None. |
 | 14 | Data: load Ann's file, instructor re-upload, plain error on a missing column | **built** | `api/exercise_instructor.py:189` upload; `domain/exercise/ingest.py:171`, `:201` missing-column refusal; `domain/exercise/workbook.py` (xlsx, D1) | None. |
