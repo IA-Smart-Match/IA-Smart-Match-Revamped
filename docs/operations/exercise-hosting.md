@@ -272,10 +272,10 @@ per statement, so the grant above can be rebuilt rather than trusted.
 | `instructor_repository.py:681-687` `sa.select(...).with_for_update()` | `exercise_team_workspace` | SELECT + UPDATE |
 | `instructor_repository.py:700-703` `sa.delete(exercise_team_workspace)` | `exercise_team_workspace` | DELETE |
 | `instructor_repository.py:710` `sa.update(exercise_team_workspace)` | `exercise_team_workspace` | UPDATE |
-| `results_repository.py:432` `sa.insert(exercise_result_run)` | `exercise_result_run` | INSERT |
-| `results_repository.py:473` `sa.update(exercise_team_workspace)` | `exercise_team_workspace` | UPDATE |
-| `results_repository.py:553` `sa.update(exercise_team_workspace)` | `exercise_team_workspace` | UPDATE |
-| `results_repository.py:650-656` `pg_insert(...).on_conflict_do_update` | `exercise_profile_overlay` | INSERT **+ UPDATE** |
+| `results_repository.py:454` `sa.insert(exercise_result_run)` | `exercise_result_run` | INSERT |
+| `results_repository.py:497` `sa.update(exercise_team_workspace)` | `exercise_team_workspace` | UPDATE |
+| `results_repository.py:584` `sa.update(exercise_team_workspace)` | `exercise_team_workspace` | UPDATE |
+| `results_repository.py:659-665` `pg_insert(...).on_conflict_do_update` | `exercise_profile_overlay` | INSERT **+ UPDATE** |
 | `settings_repository.py:386-398` `pg_insert(...).on_conflict_do_update` | `exercise_saved_setting` | INSERT **+ UPDATE** |
 | `settings_repository.py:436` `sa.delete(exercise_saved_setting)` | `exercise_saved_setting` | DELETE |
 | `workspace_repository.py:272-282` `pg_insert(...).on_conflict_do_nothing` | `exercise_team_workspace` | INSERT |
