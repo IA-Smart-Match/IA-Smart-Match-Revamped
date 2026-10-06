@@ -26,7 +26,7 @@ import io
 import re
 import uuid
 from collections.abc import Iterator
-from dataclasses import field, make_dataclass
+from dataclasses import field, make_dataclass, replace
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
@@ -64,9 +64,9 @@ def client(fakes: _Fakes) -> Iterator[TestClient]:
 
 
 #: The header a participant sees when the file opens, written out (Oct-2
-#: checklist §4, "Download"). Not derived from ``CSV_LIST_COLUMNS``: the test
-#: above compares the header with that constant, so it agrees with whatever the
-#: constant says.
+#: checklist §4, "Download"). Not derived from ``CSV_LIST_COLUMNS``: the six-
+#: column test in ``test_exercise_matching_router.py`` compares the header with
+#: that constant, so it agrees with whatever the constant says.
 _CSV_HEADER = ("rank", "name", "major", "year", "how much we know", "reason")
 
 #: The three phrases the screen shows, written out for the same reason.
@@ -78,6 +78,11 @@ _SCREEN_MARKERS_SOURCE = (
     Path(__file__).resolve().parents[2]
     / "apps/web/legacy-frontend/src/app/pages/exercise/markers.ts"
 )
+
+#: Where the screen heads the same column over the ranked list. That heading is
+#: its own literal in the component, not a call into ``markers.ts``, so it is
+#: read here too: capitalised on screen, the same words otherwise.
+_SCREEN_LIST_SOURCE = _SCREEN_MARKERS_SOURCE.with_name("RankedList.tsx")
 
 
 def _csv_rows(response: Any) -> list[list[str]]:
@@ -123,6 +128,12 @@ def test_the_csv_words_are_the_words_the_screen_file_holds() -> None:
     assert column is not None, "markers.ts no longer labels the marker dimension"
     assert column.group(1) == "how much we know"
     assert column.group(1) in CSV_LIST_COLUMNS
+    listed = _SCREEN_LIST_SOURCE.read_text(encoding="utf-8")
+    heads = re.findall(r'<th scope="col"[^>]*>\s*([^<>{}]+?)\s*</th>', listed)
+    assert len(heads) == len(_CSV_HEADER) - 1, "RankedList.tsx no longer has five headings"
+    on_list = heads[_CSV_HEADER.index("how much we know")]
+    assert on_list.casefold() == column.group(1).casefold()
+    assert on_list.casefold() in CSV_LIST_COLUMNS
 
 
 # -- The two pink columns (Oct-2 revisions, "The attached Excel file") -------
@@ -262,6 +273,43 @@ def test_the_writer_cannot_grow_a_column_from_what_an_entry_carries() -> None:
     assert written == ranked_list_csv(cast(Any, plain))
     assert {len(row) for row in csv.reader(io.StringIO(written))} == {6}
     _assert_no_pink_column(written.encode("utf-8"))
+
+
+def test_a_copied_card_on_the_overlay_never_reaches_the_csv(fakes: _Fakes) -> None:
+    """After a refresh the team's own overlay holds values out of the pink columns.
+
+    ``results_cards.py`` copies ``hidden_true_interests`` and, under the copied-
+    card policy, ``hidden_true_career_goal`` onto the new card, and the card is
+    stored on the overlay the list route reads. So the pink *values* are on the
+    row behind this download even though the pink *columns* are not. The row is
+    on the list, it is marked as a completed card, and neither value nor either
+    column's name is anywhere in the bytes.
+    """
+    interest = _WITHHELD_SENTINELS["hidden_true_interests"]
+    goal = _WITHHELD_SENTINELS["hidden_true_career_goal"]
+    base = _PROFILES[2]
+    weights = {"same_major": 1.0, "stated_interest_overlap": 1.0, "career_goal_fit": 1.0}
+
+    with _entered(fakes, 1) as entered:
+        workspace = fakes.workspaces.rows[(_DATASET_ID, 1)]
+        fakes.team_view.overlays[(workspace.id, base.profile_no)] = replace(
+            base,
+            overlay_card_interests=(interest, "analytics"),
+            overlay_card_career_goal=goal,
+        )
+        listed = entered.get(_LIST, params=weights).json()["entries"]
+        response = entered.get(f"{_BASE}/events/northline/list.csv", params=weights)
+
+    assert response.status_code == 200, response.text
+    rows = _csv_rows(response)
+    on_list = {entry["profile_no"]: entry for entry in listed}
+    assert base.profile_no in on_list, "the copied card is not on the list being downloaded"
+    assert on_list[base.profile_no]["marker"] == "completed_card"
+    row = rows[on_list[base.profile_no]["rank"]]
+    assert row[_CSV_HEADER.index("name")] == base.display_name
+    assert row[_CSV_HEADER.index("how much we know")] == "completed card"
+    assert {len(row) for row in rows} == {6}
+    _assert_no_pink_column(response.content)
 
 
 def test_no_download_column_is_a_withheld_one() -> None:

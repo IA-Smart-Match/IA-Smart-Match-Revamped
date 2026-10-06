@@ -89,7 +89,7 @@ INFORMATION_RANK: Final[Mapping[InformationMarker, int]] = MappingProxyType(
 #:
 #: The screen holds the same words in ``apps/web/legacy-frontend/src/app/pages/
 #: exercise/markers.ts`` (``MARKER_LABELS``), because a browser cannot import
-#: this module. ``tests/unit/test_exercise_matching_router.py`` reads that file
+#: this module. ``tests/unit/test_exercise_matching_csv.py`` reads that file
 #: and compares it with this table, so the two cannot be reworded apart.
 MARKER_WORDS: Final[Mapping[InformationMarker, str]] = MappingProxyType(
     {
