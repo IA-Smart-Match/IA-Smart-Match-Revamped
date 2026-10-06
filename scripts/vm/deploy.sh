@@ -49,6 +49,18 @@
 # docs/operations/deploy-runbook.md, which is the authority on this and on what
 # to do when a revision fails part-way.
 #
+# The rule that rollback depends on: a release only ADDS to the schema
+# (expand). Dropping or renaming a table or column (contract) ships in a LATER
+# release, once the release that stopped using the object is promoted and
+# stable. A drop shipped together with the code that stops reading the column
+# breaks step 9: the previous code still selects and inserts it.
+# tools/migration_expand_contract_check.py (`make expand-contract`, and the
+# `isolation` job in CI) fails a migration whose upgrade() drops or renames,
+# unless the file is marked as a contract revision:
+#
+#     # unused since: <the release that stopped using the object>
+#     CONTRACT_PHASE = True
+#
 # The backup exists so a human has something to work from when a migration
 # does real damage. Restoring it is a deliberate, manual, logged decision, not
 # something an automated deployment gets to make at 3am.

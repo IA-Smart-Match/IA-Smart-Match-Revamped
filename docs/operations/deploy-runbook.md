@@ -249,6 +249,29 @@ rollout the old and the new release both run against whatever schema is
 currently applied. That requirement is what makes "the database sits at any
 revision" an acceptable state, and it is a review rule for every new revision.
 
+**The rule, enforced: a release only adds to the schema.** Release N expands
+(new tables, new columns, each nullable or with a server default) and stops
+using what it no longer needs. The drop or rename is the contract step, and it
+ships in a later release, once N is promoted and stable. A drop shipped in N
+itself breaks the automatic rollback below, because release N-1 still selects
+and inserts the column. `tools/migration_expand_contract_check.py` checks every
+file in `db/migrations/versions` — run it with `make expand-contract`; it is
+part of `make check` and of the `isolation` job in CI. It fails a migration
+whose `upgrade()` calls `drop_column`, `drop_table`, `rename_table` or
+`alter_column(..., new_column_name=...)`, or executes raw SQL that drops or
+renames a table, column, view, type or schema. `downgrade()` is exempt. To mark
+a contract migration, put this at module level, with the comment naming the
+release that stopped using the object (the marker without the comment fails):
+
+```python
+# unused since: release 2026-10-06 (PR #337), which stopped reading the column
+CONTRACT_PHASE = True
+```
+
+Revisions that were already destructive when the gate landed are listed in the
+tool's `BASELINE` with their exact operations; the list is closed, and a new
+revision takes the marker, never an entry.
+
 ### Application rollback vs. database rollback — these are different things
 
 The VM deployment path (`scripts/vm/deploy.sh`, described end to end in
