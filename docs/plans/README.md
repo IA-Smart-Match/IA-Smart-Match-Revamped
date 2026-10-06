@@ -45,6 +45,13 @@ For student engagement, the canonical register owns the open decisions. W4 is
 accepted ADR-0011, including one registered definition, one owning query, and
 authorized exact-row reconciliation.
 
+## Oct-14 stakeholder sprint (class exercise)
+
+The [2026-10-14 stakeholder sprint plans](2026-10-14-stakeholder-sprint/README.md)
+hold one plan per Oct-2 stakeholder issue, with the merge order and deploy steps.
+Deferred questions and defaults taken are in
+[`open-questions/oct14-deferred.md`](open-questions/oct14-deferred.md).
+
 ## Historical plans and status snapshots
 
 The [2026-08-28 plan portfolio index](2026-08-28-plan-portfolio-index.md) and
