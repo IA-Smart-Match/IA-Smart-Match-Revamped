@@ -67,13 +67,13 @@ describe("ExerciseScreen (§6.1)", () => {
 describe("ExerciseNotice", () => {
   it("renders the server sentence verbatim as a status, with its action", () => {
     render(
-      <ExerciseNotice message="The instructor has not opened results for this event yet.">
+      <ExerciseNotice message="Results for Harbor are not open yet. Ask your instructor.">
         <button type="button">Check again</button>
       </ExerciseNotice>,
     );
     const notice = screen.getByRole("status");
     expect(notice.dataset.slot).toBe("exercise-notice");
-    expect(notice.textContent).toContain("The instructor has not opened results for this event yet.");
+    expect(notice.textContent).toContain("Results for Harbor are not open yet. Ask your instructor.");
     expect(screen.getByRole("button", { name: "Check again" })).toBeDefined();
   });
 

@@ -32,11 +32,12 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Iterator
-from datetime import UTC, datetime
-from typing import Any
+from datetime import UTC, datetime, timedelta
+from typing import Any, get_args
 
 import pytest
 from fastapi import FastAPI
+from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 from pydantic import BaseModel
 from smartmatch_api.config import Settings, require_exercise_workspace_secret
@@ -55,6 +56,7 @@ from smartmatch_api.exercise_dependencies import (
     get_instructor_passcode,
     get_instructor_repository,
     get_maybe_active_dataset,
+    get_team_view_repository,
     get_workspace_repository,
     get_workspace_secret,
     instructor_cookie_policy,
@@ -65,11 +67,19 @@ from smartmatch_api.exercise_rate_limit import (
     FixedWindowLimiter,
 )
 from smartmatch_api.main import routers_for
-from smartmatch_api.routers import exercise_instructor, exercise_instructor_session
+from smartmatch_api.routers import (
+    exercise_instructor,
+    exercise_instructor_detail,
+    exercise_instructor_models,
+    exercise_instructor_session,
+)
 from smartmatch_domain.exercise import EXERCISE_WITHHELD_FIELDS
 from smartmatch_domain.exercise.instructor_session import mint_instructor_session
+from smartmatch_domain.exercise.registry import EXERCISE_DEFAULT_WEIGHTS
 from smartmatch_domain.exercise.workspace_token import derive_workspace_token
+from smartmatch_persistence.exercise.dataset_repository import ExerciseEventRow
 from smartmatch_persistence.exercise.instructor_repository import (
+    ExerciseWriteRefused,
     InstructorEventRow,
     InstructorResultRun,
     InstructorSavedSetting,
@@ -78,6 +88,8 @@ from smartmatch_persistence.exercise.instructor_repository import (
     TeamWorkspaceHandle,
     WorkingDataset,
 )
+from smartmatch_persistence.exercise.results_rows import InvitedProfile
+from smartmatch_persistence.exercise.team_view_repository import TeamProfileRow
 from smartmatch_providers import Edition
 
 #: Assembled from pieces, for ``test_exercise_workspace_router.py``'s reason:
@@ -94,6 +106,12 @@ _DATASET = ExerciseDatasetSummary(
     id=_DATASET_ID, label="Made-up student body (sample)", invite_limit=30
 )
 _WHEN = datetime(2026, 11, 20, 9, 0, tzinfo=UTC)
+
+#: When the fake repository says results were opened and closed. Fixed, so a
+#: response's timestamps can be compared whole.
+_OPENED_AT = _WHEN + timedelta(minutes=30)
+_CLOSED_AT = _WHEN + timedelta(minutes=40)
+_REOPENED_AT = _WHEN + timedelta(minutes=50)
 
 #: The data file the teams are actually on, deliberately **not** the active
 #: one. Design spec §3: an upload moves no team, so the newest file and the
@@ -125,6 +143,101 @@ def _summary(*, invite_limit: int = 30) -> DatasetSummary:
     )
 
 
+_PAST_EVENT = ExerciseEventRow(
+    event_key="past-analytics",
+    name="An earlier analytics evening",
+    topic_tags=("analytics",),
+    target_majors=("Marketing",),
+    is_exercise_event=False,
+    sequence=1,
+)
+
+_NORTHLINE_EVENT = ExerciseEventRow(
+    event_key=_EVENT_KEY,
+    name="Northline Analytics",
+    topic_tags=("analytics",),
+    target_majors=("Marketing",),
+    is_exercise_event=True,
+    sequence=11,
+)
+
+
+def _team_profile(
+    profile_no: int,
+    display_name: str,
+    *,
+    major: str = "Marketing",
+    stated_interests: tuple[str, ...] | None = None,
+) -> TeamProfileRow:
+    """One base row with no overlay. Every value is made up."""
+    return TeamProfileRow(
+        profile_no=profile_no,
+        display_name=display_name,
+        major=major,
+        class_year="Senior",
+        past_event_keys=(),
+        stated_interests=stated_interests,
+        career_goal=None,
+        overlay_added_event_topics=(),
+        overlay_card_interests=None,
+        overlay_card_career_goal=None,
+        non_responding=False,
+    )
+
+
+#: Four fictional profiles: two share the event's major, two said they are
+#: interested in its topic, and only one is both. So "major only" and "interest
+#: only" weightings put different names first, which is what a list is for.
+_TEAM_PROFILES: tuple[TeamProfileRow, ...] = (
+    _team_profile(1, "Avery Brooks", stated_interests=("analytics",)),
+    _team_profile(2, "Bao Nguyen"),
+    _team_profile(3, "Cam Ellis", major="Finance", stated_interests=("analytics",)),
+    _team_profile(4, "Devi Rao", major="Finance"),
+)
+
+#: A team's saved weighting that counts the major and nothing else.
+_MAJOR_ONLY = {
+    "same_major": 1.0,
+    "stated_interest_overlap": 0.0,
+    "career_goal_fit": 0.0,
+    "past_event_topic_overlap": 0.0,
+}
+
+#: The snapshot a run stored of its own list: what the team's screen showed.
+_RUN_SNAPSHOT: tuple[InvitedProfile, ...] = (
+    InvitedProfile(
+        rank=1,
+        profile_no=3,
+        display_name="Cam Ellis",
+        major="Finance",
+        class_year="Senior",
+        marker="completed_card",
+        reason="said they are interested in this topic",
+    ),
+    InvitedProfile(
+        rank=2,
+        profile_no=1,
+        display_name="Avery Brooks",
+        major="Marketing",
+        class_year="Senior",
+        marker="completed_card",
+        reason="same major; said they are interested in this topic",
+    ),
+    InvitedProfile(
+        rank=3,
+        profile_no=2,
+        display_name="Bao Nguyen",
+        major="Marketing",
+        class_year="Senior",
+        marker="major_only",
+        reason="same major",
+    ),
+)
+
+#: A fictional description, as the data file's ``event_description`` cell.
+_EVENT_DESCRIPTION = "A fictional sixty-minute talk about a made-up company."
+
+
 class _FakeDatasetRepository:
     """Enough of ``ExerciseDatasetRepository`` to exercise the routes."""
 
@@ -140,9 +253,15 @@ class _FakeDatasetRepository:
     def get_dataset_summary(
         self, _session: object, *, dataset_id: uuid.UUID
     ) -> DatasetSummary | None:
-        if dataset_id != _DATASET_ID:
+        if dataset_id not in {_DATASET_ID, _TEAMS_DATASET_ID}:
             return None
         return _summary(invite_limit=self.invite_limit)
+
+    def list_events(
+        self, _session: object, *, dataset_id: uuid.UUID
+    ) -> tuple[ExerciseEventRow, ...]:
+        assert dataset_id == _TEAMS_DATASET_ID, "the team's file, never the newest upload"
+        return (_PAST_EVENT, _NORTHLINE_EVENT)
 
     def create_dataset(
         self, _session: object, parsed: object, *, label: str, source_filename: str | None
@@ -151,6 +270,21 @@ class _FakeDatasetRepository:
             raise ExerciseDatasetWriteError()
         self.created.append((label, source_filename))
         return _summary(invite_limit=self.invite_limit)
+
+
+class _FakeTeamViewRepository:
+    """One team's view of four made-up profiles, and a count of how often it is read."""
+
+    def __init__(self) -> None:
+        self.reads = 0
+
+    def list_team_profiles(
+        self, _session: object, *, dataset_id: uuid.UUID, workspace_id: uuid.UUID
+    ) -> tuple[TeamProfileRow, ...]:
+        assert dataset_id == _TEAMS_DATASET_ID
+        assert workspace_id is not None
+        self.reads += 1
+        return _TEAM_PROFILES
 
 
 class _FakeInstructorRepository:
@@ -165,7 +299,22 @@ class _FakeInstructorRepository:
         #: and the whole of M8 was the two being confused. A fake that made
         #: them equal could not fail the way production did.
         self.teams: dict[int, tuple[uuid.UUID, uuid.UUID]] = {3: (uuid.uuid4(), _TEAMS_DATASET_ID)}
+        #: What ``list_saved_settings`` and ``list_result_runs`` answer. One
+        #: setting and no run by default; the team-view tests replace them.
+        self.saved_settings: tuple[InstructorSavedSetting, ...] = (
+            InstructorSavedSetting(
+                event_key=_EVENT_KEY, name="Wide net", created_at=_WHEN, weights=_MAJOR_ONLY
+            ),
+        )
+        self.result_runs: tuple[InstructorResultRun, ...] = ()
+        self.asking_choice: str | None = None
+        self.refreshed_at: datetime | None = None
         self.unlocked: list[tuple[uuid.UUID, str]] = []
+        #: The lock's two timestamps, per (data file, event), as the real row
+        #: holds them: opened-at once a row exists, closed-at while it is shut.
+        self.opened_at: dict[tuple[uuid.UUID, str], datetime] = {}
+        self.closed_at: dict[tuple[uuid.UUID, str], datetime] = {}
+        self.lock_write_fails = False
         self.repointed: list[uuid.UUID] = []
         self.reset_children: list[uuid.UUID] = []
         self.reset_ids: list[uuid.UUID] = []
@@ -181,8 +330,8 @@ class _FakeInstructorRepository:
                 created_at=_WHEN,
                 saved_setting_count=2,
                 result_run_count=0,
-                asking_choice=None,
-                refreshed_at=None,
+                asking_choice=self.asking_choice,
+                refreshed_at=self.refreshed_at,
             )
             for number, (_id, on_dataset) in sorted(self.teams.items())
             if dataset_id is None or on_dataset == dataset_id
@@ -227,17 +376,17 @@ class _FakeInstructorRepository:
         self, _session: object, *, workspace_id: uuid.UUID
     ) -> tuple[InstructorSavedSetting, ...]:
         assert workspace_id in {found[0] for found in self.teams.values()}
-        return (InstructorSavedSetting(event_key=_EVENT_KEY, name="Wide net", created_at=_WHEN),)
+        return self.saved_settings
 
     def list_result_runs(
         self, _session: object, *, workspace_id: uuid.UUID
     ) -> tuple[InstructorResultRun, ...]:
         assert workspace_id in {found[0] for found in self.teams.values()}
-        return ()
+        return self.result_runs
 
     def event_exists(self, _session: object, *, dataset_id: uuid.UUID, event_key: str) -> bool:
         known = {_DATASET_ID, _TEAMS_DATASET_ID}
-        return dataset_id in known and event_key == _EVENT_KEY
+        return dataset_id in known and event_key in {_EVENT_KEY, _PAST_EVENT.event_key}
 
     def set_invite_limit(
         self, _session: object, *, dataset_id: uuid.UUID, invite_limit: int
@@ -256,14 +405,32 @@ class _FakeInstructorRepository:
                 name="Northline Analytics",
                 sequence=11,
                 unlocked=(dataset_id, _EVENT_KEY) in self.unlocked,
+                unlocked_at=self.opened_at.get((dataset_id, _EVENT_KEY)),
+                closed_at=self.closed_at.get((dataset_id, _EVENT_KEY)),
+                description=_EVENT_DESCRIPTION,
             ),
         )
 
     def unlock_results(self, _session: object, *, dataset_id: uuid.UUID, event_key: str) -> bool:
-        already = (dataset_id, event_key) in self.unlocked
-        if not already:
-            self.unlocked.append((dataset_id, event_key))
-        return not already
+        key = (dataset_id, event_key)
+        if self.lock_write_fails:
+            raise ExerciseWriteRefused("The results for that event could not be unlocked.")
+        if key in self.unlocked:
+            return False
+        self.opened_at[key] = _REOPENED_AT if key in self.opened_at else _OPENED_AT
+        self.closed_at.pop(key, None)
+        self.unlocked.append(key)
+        return True
+
+    def lock_results(self, _session: object, *, dataset_id: uuid.UUID, event_key: str) -> bool:
+        key = (dataset_id, event_key)
+        if self.lock_write_fails:
+            raise ExerciseWriteRefused("The results for that event could not be closed.")
+        if key not in self.unlocked:
+            return False
+        self.unlocked.remove(key)
+        self.closed_at[key] = _CLOSED_AT
+        return True
 
     def repoint_workspaces(self, _session: object, *, dataset_id: uuid.UUID) -> RepointOutcome:
         self.repointed.append(dataset_id)
@@ -328,6 +495,7 @@ def _exercise_app(settings: Settings, state: dict[str, Any]) -> FastAPI:
     app.dependency_overrides[get_dataset_repository] = lambda: state["datasets"]
     app.dependency_overrides[get_instructor_repository] = lambda: state["instructor"]
     app.dependency_overrides[get_workspace_repository] = lambda: state["workspaces"]
+    app.dependency_overrides[get_team_view_repository] = lambda: state["team_view"]
     app.dependency_overrides[get_active_dataset] = lambda: _DATASET
     app.dependency_overrides[get_maybe_active_dataset] = lambda: MaybeDataset(dataset=_DATASET)
     app.dependency_overrides[get_workspace_secret] = lambda: require_exercise_workspace_secret(
@@ -377,6 +545,7 @@ def state() -> dict[str, Any]:
         "datasets": datasets,
         "instructor": _FakeInstructorRepository(datasets),
         "workspaces": _FakeWorkspaceRepository(),
+        "team_view": _FakeTeamViewRepository(),
     }
 
 
@@ -710,7 +879,11 @@ def _instructor_routes(settings: Settings) -> list[tuple[str, str]]:
     the object the session dependency is attached to; asking which router a
     route came from is asking the question the test is about.
     """
-    gated = {id(route) for route in exercise_instructor.router.routes}
+    gated = {
+        id(route)
+        for router in (exercise_instructor.router, exercise_instructor_detail.router)
+        for route in router.routes
+    }
     found: list[tuple[str, str]] = []
     for mounted in routers_for(settings):
         for route in mounted.routes:
@@ -783,6 +956,7 @@ def test_a_session_from_another_deployment_is_refused(client: TestClient) -> Non
         ("PATCH", "/v1/exercise/instructor/datasets/{dataset_id}"),
         ("POST", "/v1/exercise/instructor/datasets/{dataset_id}/repoint"),
         ("POST", "/v1/exercise/instructor/events/{event_key}/unlock"),
+        ("POST", "/v1/exercise/instructor/events/{event_key}/lock"),
         ("POST", "/v1/exercise/instructor/workspaces/{team_number}/reset"),
         ("POST", "/v1/exercise/instructor/refresh-all"),
     ],
@@ -828,6 +1002,89 @@ def test_a_refused_file_is_one_plain_sentence(signed_in: TestClient) -> None:
     assert "Traceback" not in message
     assert response.json()["error"]["code"] == "exercise_ingest_not_a_workbook"
     assert ".xlsx" in message
+
+
+def _upload(signed_in: TestClient, content: bytes, filename: str = "file.xlsx") -> Any:
+    from smartmatch_domain.exercise.workbook import XLSX_MEDIA_TYPE
+
+    return signed_in.post(
+        "/v1/exercise/instructor/datasets",
+        params={"label": "Ann's student body", "source_filename": filename},
+        content=content,
+        headers={EXERCISE_REQUEST_HEADER: "1", "content-type": XLSX_MEDIA_TYPE},
+    )
+
+
+def test_a_workbook_with_a_column_removed_is_refused_in_plain_words_and_nothing_is_stored(
+    signed_in: TestClient, state: dict[str, Any]
+) -> None:
+    """Ann's checklist §2 (2026-10-02): "Upload a workbook with one column removed.
+    You see a plain message naming the missing column, and the old file stays in
+    use." (#325.)
+
+    The parser quotes sheet and column names in backticks; the screen prints the
+    sentence as it arrives, so the route sends it without them. Nothing is
+    written and nothing is committed, so every team keeps the file it is on.
+    """
+    from tests.unit.exercise_workbooks import (
+        EVENT_HEADINGS,
+        event_rows,
+        good_profile_rows,
+        workbook_bytes,
+    )
+
+    headings = [heading for heading in EVENT_HEADINGS if heading != "seats"]
+    content = workbook_bytes(good_profile_rows(), event_rows(), event_headings=headings)
+
+    response = _upload(signed_in, content)
+
+    assert response.status_code == 422
+    error = response.json()["error"]
+    assert error["code"] == "exercise_ingest_missing_columns"
+    assert error["message"] == "The Events sheet is missing the column seats."
+    assert state["datasets"].created == []
+    assert state["session"].commits == 0
+
+
+def test_a_description_past_its_limit_is_refused_in_plain_words(signed_in: TestClient) -> None:
+    from tests.unit.exercise_workbooks import (
+        EVENT_HEADINGS_WITH_DESCRIPTION,
+        event_rows,
+        good_profile_rows,
+        workbook_bytes,
+    )
+
+    events = event_rows()
+    events[10]["event_description"] = "d" * 2_001
+    content = workbook_bytes(
+        good_profile_rows(), events, event_headings=EVENT_HEADINGS_WITH_DESCRIPTION
+    )
+
+    response = _upload(signed_in, content)
+
+    assert response.status_code == 422
+    error = response.json()["error"]
+    assert error["code"] == "exercise_ingest_cell_too_long"
+    assert error["message"] == (
+        "Row 12 of the Events sheet has more than 2000 characters in the column "
+        "event_description; please shorten it and upload again."
+    )
+
+
+def test_anns_october_workbook_is_accepted_and_stored(
+    signed_in: TestClient, state: dict[str, Any]
+) -> None:
+    """#325: the 2026-10-02 file, whose two descriptions pass 500 characters."""
+    from tests.unit.exercise_workbooks import ANN_OCT02_FILE
+
+    response = _upload(signed_in, ANN_OCT02_FILE.read_bytes(), ANN_OCT02_FILE.name)
+
+    assert response.status_code == 201, response.text
+    report = response.json()["report"]
+    assert (report["profile_count"], report["event_count"]) == (300, 12)
+    assert state["datasets"].created == [("Ann's student body", ANN_OCT02_FILE.name)]
+    assert state["session"].commits == 1
+    assert "hidden" not in response.text
 
 
 def test_anns_workbook_is_accepted_as_the_raw_body(signed_in: TestClient) -> None:
@@ -940,7 +1197,131 @@ def test_unlocking_an_event_twice_says_the_same_thing(signed_in: TestClient) -> 
     )
 
     assert first.status_code == second.status_code == 200
-    assert first.json() == second.json() == {"event_key": _EVENT_KEY, "unlocked": True}
+    assert (
+        first.json()
+        == second.json()
+        == {"event_key": _EVENT_KEY, "unlocked": True, "unlocked_at": _iso(_OPENED_AT)}
+    )
+
+
+_LOCK = f"/v1/exercise/instructor/events/{_EVENT_KEY}/lock"
+_UNLOCK = f"/v1/exercise/instructor/events/{_EVENT_KEY}/unlock"
+_CSRF = {EXERCISE_REQUEST_HEADER: "1"}
+
+
+def _iso(moment: datetime) -> str:
+    """A timestamp as the API serializes it."""
+    return moment.isoformat().replace("+00:00", "Z")
+
+
+def _northline(signed_in: TestClient) -> dict[str, Any]:
+    events = signed_in.get("/v1/exercise/instructor/events").json()["events"]
+    assert [event["event_key"] for event in events] == [_EVENT_KEY]
+    return dict(events[0])
+
+
+def test_results_can_be_closed_again_and_the_time_is_reported(
+    signed_in: TestClient, state: dict[str, Any]
+) -> None:
+    """Ann, 2026-10-02: "results can be closed again", with the time it was done."""
+    assert signed_in.post(_UNLOCK, headers=_CSRF).status_code == 200
+
+    response = signed_in.post(_LOCK, headers=_CSRF)
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "event_key": _EVENT_KEY,
+        "unlocked": False,
+        "closed_at": _iso(_CLOSED_AT),
+    }
+    assert state["instructor"].unlocked == []
+    assert state["session"].commits == 2
+    assert _northline(signed_in) == {
+        "event_key": _EVENT_KEY,
+        "name": "Northline Analytics",
+        "unlocked": False,
+        "unlocked_at": _iso(_OPENED_AT),
+        "closed_at": _iso(_CLOSED_AT),
+        "description": _EVENT_DESCRIPTION,
+    }
+
+
+def test_closing_twice_or_before_any_opening_changes_nothing_and_is_not_an_error(
+    signed_in: TestClient, state: dict[str, Any]
+) -> None:
+    never_opened = signed_in.post(_LOCK, headers=_CSRF)
+    signed_in.post(_UNLOCK, headers=_CSRF)
+    first = signed_in.post(_LOCK, headers=_CSRF)
+    second = signed_in.post(_LOCK, headers=_CSRF)
+
+    assert never_opened.status_code == first.status_code == second.status_code == 200
+    assert never_opened.json() == {"event_key": _EVENT_KEY, "unlocked": False, "closed_at": None}
+    assert first.json() == second.json()
+    assert state["instructor"].closed_at == {(_TEAMS_DATASET_ID, _EVENT_KEY): _CLOSED_AT}
+
+
+def test_a_closed_event_can_be_opened_again_with_the_time_of_that_opening(
+    signed_in: TestClient,
+) -> None:
+    signed_in.post(_UNLOCK, headers=_CSRF)
+    signed_in.post(_LOCK, headers=_CSRF)
+
+    reopened = signed_in.post(_UNLOCK, headers=_CSRF)
+
+    assert reopened.json() == {
+        "event_key": _EVENT_KEY,
+        "unlocked": True,
+        "unlocked_at": _iso(_REOPENED_AT),
+    }
+    assert _northline(signed_in) == {
+        "event_key": _EVENT_KEY,
+        "name": "Northline Analytics",
+        "unlocked": True,
+        "unlocked_at": _iso(_REOPENED_AT),
+        "closed_at": None,
+        "description": _EVENT_DESCRIPTION,
+    }
+
+
+def test_closing_an_event_that_is_not_in_the_file_is_one_sentence(
+    signed_in: TestClient,
+) -> None:
+    response = signed_in.post("/v1/exercise/instructor/events/not-an-event/lock", headers=_CSRF)
+
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "exercise_event_unknown"
+    assert response.json()["error"]["message"] == (
+        "That event is not in the data file the teams are working in."
+    )
+
+
+def test_a_refused_close_is_one_sentence_and_commits_nothing(
+    signed_in: TestClient, state: dict[str, Any]
+) -> None:
+    state["instructor"].lock_write_fails = True
+
+    response = signed_in.post(_LOCK, headers=_CSRF)
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "exercise_lock_write_refused"
+    assert response.json()["error"]["message"] == "The results for that event could not be closed."
+    assert state["session"].commits == 0
+
+
+def test_closing_acts_on_the_file_the_teams_are_on_and_never_on_an_empty_one(
+    signed_in: TestClient, state: dict[str, Any]
+) -> None:
+    """The same resolution as the unlock: never the newest upload by default."""
+    signed_in.post(_UNLOCK, headers=_CSRF)
+    empty_file = signed_in.post(_LOCK, headers=_CSRF, params={"dataset_id": str(_DATASET_ID)})
+    state["instructor"].teams.clear()
+    no_teams = signed_in.post(_LOCK, headers=_CSRF)
+
+    assert empty_file.status_code == 409
+    assert empty_file.json()["error"]["code"] == "exercise_dataset_has_no_teams"
+    assert no_teams.status_code == 409
+    assert no_teams.json()["error"]["message"] == "No team has entered a number yet."
+    assert state["instructor"].unlocked == [(_TEAMS_DATASET_ID, _EVENT_KEY)]
 
 
 def test_unlocking_an_event_that_is_not_in_the_file_is_one_sentence(
@@ -955,6 +1336,31 @@ def test_unlocking_an_event_that_is_not_in_the_file_is_one_sentence(
     assert response.json()["error"]["message"] == (
         "That event is not in the data file the teams are working in."
     )
+
+
+@pytest.mark.parametrize("action", ["unlock", "lock"])
+def test_opening_or_closing_a_past_event_is_refused_and_writes_nothing(
+    signed_in: TestClient, state: dict[str, Any], action: str
+) -> None:
+    """Review round 2: a past event is in the file and is not a round.
+
+    The write used to happen and the answer said "unlocked" with no time,
+    for a lock that opens nothing a team can run. Refused before any write,
+    with the sentence a team reads for the same mistake.
+    """
+    response = signed_in.post(
+        f"/v1/exercise/instructor/events/{_PAST_EVENT.event_key}/{action}",
+        headers={EXERCISE_REQUEST_HEADER: "1"},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["error"] == {
+        "code": "exercise_event_is_not_a_round",
+        "message": "Results are only run for the two rounds of the exercise.",
+    }
+    assert state["instructor"].unlocked == []
+    assert state["instructor"].opened_at == {}
+    assert state["session"].commits == 0
 
 
 def test_the_instructor_lists_the_teams_events_without_a_team_cookie(
@@ -972,7 +1378,16 @@ def test_the_instructor_lists_the_teams_events_without_a_team_cookie(
     assert response.json() == {
         "dataset_id": str(_TEAMS_DATASET_ID),
         "dataset_label": _TEAMS_DATASET_LABEL,
-        "events": [{"event_key": _EVENT_KEY, "name": "Northline Analytics", "unlocked": False}],
+        "events": [
+            {
+                "event_key": _EVENT_KEY,
+                "name": "Northline Analytics",
+                "unlocked": False,
+                "unlocked_at": None,
+                "closed_at": None,
+                "description": _EVENT_DESCRIPTION,
+            }
+        ],
     }
 
 
@@ -987,7 +1402,27 @@ def test_the_event_list_says_which_events_are_already_open(
 
     events = signed_in.get("/v1/exercise/instructor/events").json()["events"]
 
-    assert events == [{"event_key": _EVENT_KEY, "name": "Northline Analytics", "unlocked": True}]
+    assert events == [
+        {
+            "event_key": _EVENT_KEY,
+            "name": "Northline Analytics",
+            "unlocked": True,
+            "unlocked_at": _iso(_OPENED_AT),
+            "closed_at": None,
+            "description": _EVENT_DESCRIPTION,
+        }
+    ]
+
+
+def test_an_event_with_no_description_is_listed_with_null() -> None:
+    """#318: a data file from before 2026-10-02 has none, and the panel shows none."""
+    from smartmatch_api.routers.exercise_instructor_models import event_view
+
+    view = event_view(
+        InstructorEventRow(event_key=_EVENT_KEY, name="Northline", sequence=11, unlocked=False)
+    )
+
+    assert view.model_dump()["description"] is None
 
 
 def test_the_event_list_resolves_the_file_the_unlock_writes_to(
@@ -1022,19 +1457,221 @@ def test_the_team_list_reports_counts_and_no_identifiers(signed_in: TestClient) 
     assert "workspace_id" not in str(body)
 
 
-def test_a_teams_detail_lists_settings_by_name_and_no_runs_yet(
-    signed_in: TestClient,
+_DETAIL = "/v1/exercise/instructor/workspaces/3"
+
+
+def _names(entries: list[dict[str, Any]]) -> list[str]:
+    return [entry["display_name"] for entry in entries]
+
+
+def test_a_teams_saved_setting_shows_its_four_numbers_and_its_list_of_names(
+    signed_in: TestClient, state: dict[str, Any]
 ) -> None:
-    response = signed_in.get("/v1/exercise/instructor/workspaces/3")
+    """Issue #319: "its saved settings with the four numbers, its list of names"."""
+    response = signed_in.get(_DETAIL)
 
     assert response.status_code == 200
     body = response.json()
     assert body["team_number"] == 3
     assert body["result_runs"] == []
-    assert [(row["event_key"], row["name"]) for row in body["saved_settings"]] == [
-        (_EVENT_KEY, "Wide net")
-    ]
-    assert "weights" not in body["saved_settings"][0]
+    (setting,) = body["saved_settings"]
+    assert (setting["event_key"], setting["name"]) == (_EVENT_KEY, "Wide net")
+    assert setting["event_name"] == "Northline Analytics"
+    assert setting["round"] == 1
+    assert setting["weights"] == _MAJOR_ONLY
+    # Major only: the two Marketing majors lead, and each name carries what the
+    # team's own list shows beside it.
+    assert _names(setting["invited"])[:2] == ["Avery Brooks", "Bao Nguyen"]
+    assert [entry["rank"] for entry in setting["invited"]] == [1, 2, 3, 4]
+    first = setting["invited"][0]
+    assert set(first) == {
+        "rank",
+        "profile_no",
+        "display_name",
+        "major",
+        "class_year",
+        "marker",
+        "reason",
+    }
+    assert first["marker"] == "completed_card"
+    assert first["reason"]
+    assert state["team_view"].reads == 1
+
+
+def test_each_setting_gets_the_list_its_own_weights_build(
+    signed_in: TestClient, state: dict[str, Any]
+) -> None:
+    """Two settings, two lists — and the profiles are read once for both."""
+    interest_only = {**dict.fromkeys(_MAJOR_ONLY, 0.0), "stated_interest_overlap": 1.0}
+    state["instructor"].saved_settings = (
+        InstructorSavedSetting(
+            event_key=_EVENT_KEY, name="Majors", created_at=_WHEN, weights=_MAJOR_ONLY
+        ),
+        InstructorSavedSetting(
+            event_key=_EVENT_KEY, name="Interested", created_at=_WHEN, weights=interest_only
+        ),
+    )
+
+    majors, interested = signed_in.get(_DETAIL).json()["saved_settings"]
+
+    assert set(_names(majors["invited"])[:2]) == {"Avery Brooks", "Bao Nguyen"}
+    assert set(_names(interested["invited"])[:2]) == {"Avery Brooks", "Cam Ellis"}
+    assert interested["weights"] == interest_only
+    assert state["team_view"].reads == 1
+
+
+def test_a_setting_saved_with_fewer_weights_still_shows_four_numbers(
+    signed_in: TestClient, state: dict[str, Any]
+) -> None:
+    """The stated weights over the equal defaults, exactly as the team's screen reports."""
+    state["instructor"].saved_settings = (
+        InstructorSavedSetting(
+            event_key=_EVENT_KEY, name="One slider", created_at=_WHEN, weights={"same_major": 0.6}
+        ),
+    )
+
+    (setting,) = signed_in.get(_DETAIL).json()["saved_settings"]
+
+    assert setting["weights"] == {
+        "same_major": 0.6,
+        "stated_interest_overlap": 0.25,
+        "career_goal_fit": 0.25,
+        "past_event_topic_overlap": 0.25,
+    }
+
+
+def _run(**changes: Any) -> InstructorResultRun:
+    values: dict[str, Any] = {
+        "event_key": _EVENT_KEY,
+        "round": 1,
+        "setting_name": "Wide net",
+        "invited_count": 3,
+        "signed_up_count": 2,
+        "attended_count": 1,
+        "seats_empty": 51,
+        "created_at": _WHEN,
+        "invited": _RUN_SNAPSHOT,
+        "signed_up_profile_nos": (1, 3),
+        "attended_profile_nos": (1,),
+        "setting_weights": _MAJOR_ONLY,
+    }
+    return InstructorResultRun(**{**values, **changes})
+
+
+def test_a_run_shows_who_was_invited_who_signed_up_and_who_attended(
+    signed_in: TestClient, state: dict[str, Any]
+) -> None:
+    """Issue #319: "its results for each event" — names, from the run's own snapshot."""
+    state["instructor"].result_runs = (_run(),)
+
+    (run,) = signed_in.get(_DETAIL).json()["result_runs"]
+
+    assert (run["event_key"], run["event_name"], run["round"]) == (
+        _EVENT_KEY,
+        "Northline Analytics",
+        1,
+    )
+    assert (run["invited_count"], run["signed_up_count"], run["attended_count"]) == (3, 2, 1)
+    assert run["seats_empty"] == 51
+    # The stored order is the run's rank order, not profile-number order, and
+    # the two shorter lists keep it.
+    assert _names(run["invited"]) == ["Cam Ellis", "Avery Brooks", "Bao Nguyen"]
+    assert _names(run["signed_up"]) == ["Cam Ellis", "Avery Brooks"]
+    assert _names(run["attended"]) == ["Avery Brooks"]
+    assert run["invited"][0]["reason"] == "said they are interested in this topic"
+    assert run["setting_weights"] == _MAJOR_ONLY
+    assert run["setting_deleted"] is False
+
+
+def test_a_runs_names_do_not_depend_on_the_saved_setting_still_existing(
+    signed_in: TestClient, state: dict[str, Any]
+) -> None:
+    """Issue #271 from the instructor's side: delete the setting, the run still names people."""
+    state["instructor"].result_runs = (_run(),)
+    state["instructor"].saved_settings = ()
+
+    body = signed_in.get(_DETAIL).json()
+
+    (run,) = body["result_runs"]
+    assert body["saved_settings"] == []
+    assert run["setting_name"] == "Wide net"
+    assert run["setting_deleted"] is True
+    assert _names(run["invited"]) == ["Cam Ellis", "Avery Brooks", "Bao Nguyen"]
+    assert run["setting_weights"] == _MAJOR_ONLY
+    assert state["team_view"].reads == 0, "nothing saved: no list to build, no profile read"
+
+
+def test_a_run_stored_with_fewer_weights_still_shows_four_numbers(
+    signed_in: TestClient, state: dict[str, Any]
+) -> None:
+    """Review round 2: a backfilled run holds the setting's raw stored overrides.
+
+    Revision 0046 copied what the saved setting had, which may be fewer than
+    four keys; a new run stores all four. Shown the same way either way: the
+    stated values over the equal defaults, as a saved setting is.
+    """
+    state["instructor"].result_runs = (_run(setting_weights={"same_major": 0.6}),)
+
+    (run,) = signed_in.get(_DETAIL).json()["result_runs"]
+
+    assert run["setting_weights"] == {
+        "same_major": 0.6,
+        "stated_interest_overlap": 0.25,
+        "career_goal_fit": 0.25,
+        "past_event_topic_overlap": 0.25,
+    }
+
+
+def test_a_run_stored_before_names_were_kept_answers_counts_and_no_invented_names(
+    signed_in: TestClient, state: dict[str, Any]
+) -> None:
+    """A backfilled row has names without rank, marker or reason; an unbackfilled one has none."""
+    backfilled = tuple(
+        InvitedProfile(profile_no=entry.profile_no, display_name=entry.display_name)
+        for entry in _RUN_SNAPSHOT
+    )
+    state["instructor"].result_runs = (
+        _run(invited=backfilled, setting_weights=None),
+        _run(event_key="past-analytics", round=2, invited=(), setting_weights=None),
+    )
+
+    old, older = signed_in.get(_DETAIL).json()["result_runs"]
+
+    assert _names(old["invited"]) == ["Cam Ellis", "Avery Brooks", "Bao Nguyen"]
+    assert {entry["rank"] for entry in old["invited"]} == {None}
+    assert {entry["marker"] for entry in old["invited"]} == {None}
+    assert {entry["reason"] for entry in old["invited"]} == {None}
+    assert _names(old["signed_up"]) == ["Cam Ellis", "Avery Brooks"]
+    assert old["setting_weights"] is None
+    assert (older["invited"], older["signed_up"], older["attended"]) == ([], [], [])
+    assert (older["invited_count"], older["signed_up_count"]) == (3, 2), "the counts still stand"
+
+
+def test_a_teams_way_of_asking_and_whether_it_has_refreshed_are_on_its_detail(
+    signed_in: TestClient, state: dict[str, Any]
+) -> None:
+    """Issue #319: "the way of asking it chose, and whether it has refreshed"."""
+    before = signed_in.get(_DETAIL).json()
+    state["instructor"].asking_choice = "small_reward"
+    state["instructor"].refreshed_at = _WHEN
+    after = signed_in.get(_DETAIL).json()
+
+    assert (before["asking_choice"], before["refreshed_at"]) == (None, None)
+    assert (after["asking_choice"], after["refreshed_at"]) == ("small_reward", _iso(_WHEN))
+
+
+def test_the_detail_carries_the_plain_words_for_the_four_numbers(
+    signed_in: TestClient,
+) -> None:
+    """So a screen never prints a factor key: the labels are Ann's, from the domain."""
+    labels = signed_in.get(_DETAIL).json()["factor_labels"]
+
+    assert labels == {
+        "same_major": "same major",
+        "stated_interest_overlap": "said they are interested in this topic",
+        "career_goal_fit": "career goal fits this event",
+        "past_event_topic_overlap": "went to similar events before",
+    }
 
 
 def test_a_team_that_has_not_entered_is_one_sentence(signed_in: TestClient) -> None:
@@ -1244,7 +1881,22 @@ _REFUSED_FIELD_NAMES = (
 )
 
 #: Substrings that would be a number about how well a team did (D8).
-_SCORE_SHAPED = ("score", "percent", "confidence", "probability", "weight")
+#:
+#: ``"weight"`` used to be on this list. It is not a score — it is the team's
+#: own input — and issue #319 requires two fields that carry it, so a blanket
+#: substring ban can no longer state the rule. It is replaced, not dropped, by
+#: :data:`_ALLOWED_WEIGHT_FIELDS` and the test beside it, which is stricter:
+#: it names the only two weight-shaped fields these models may have.
+_SCORE_SHAPED = ("score", "percent", "confidence", "probability", "likelihood", "share")
+
+#: The only fields on the instructor's responses whose name contains
+#: ``weight``, as ``(model, field)``. Both are a team's own four **stated**
+#: weights echoed back — ADR-0025 D8's carved exception — and nothing computed.
+#: A third weight-shaped field, on any model, fails
+#: ``test_the_only_weight_shaped_fields_are_a_teams_own_stated_weights``.
+_ALLOWED_WEIGHT_FIELDS = frozenset(
+    {("SavedSettingView", "weights"), ("ResultRunView", "setting_weights")}
+)
 
 
 #: The models that are *inputs*. A request may of course name the passcode —
@@ -1260,7 +1912,10 @@ _REQUEST_MODELS = frozenset({"InstructorLoginRequest", "InviteLimitRequest"})
 #: are named by the login module alone now, so a walk over
 #: ``exercise_instructor`` by itself would quietly stop checking them — which
 #: is the drift the results track's review named as carry-over item (a).
-_TRACK_MODULES = (exercise_instructor, exercise_instructor_session)
+#:
+#: A third since issue #319: ``exercise_instructor_detail`` serves one team's
+#: whole work, and names ``TeamDetailView``.
+_TRACK_MODULES = (exercise_instructor, exercise_instructor_session, exercise_instructor_detail)
 
 
 def _models(*, responses_only: bool = True) -> list[type[BaseModel]]:
@@ -1307,6 +1962,141 @@ def test_no_response_model_carries_anything_score_shaped() -> None:
         if shape in name.lower()
     ]
     assert offenders == []
+
+
+def _every_instructor_model() -> list[type[BaseModel]]:
+    """Every model the instructor's routes can serve, nested ones included.
+
+    ``_models()`` reads the router modules' namespaces, which hold the models a
+    handler names. ``SavedSettingView`` and ``ResultRunView`` are named by no
+    handler — they are fields of ``TeamDetailView`` — so the models module is
+    walked as well, or the two models this rule is about would go unread.
+    """
+    found = {
+        value
+        for module in (*_TRACK_MODULES, exercise_instructor_models)
+        for value in vars(module).values()
+        if isinstance(value, type)
+        and issubclass(value, BaseModel)
+        and value is not BaseModel
+        and value.__name__ not in _REQUEST_MODELS
+    }
+    return sorted(found, key=lambda model: model.__name__)
+
+
+def test_the_only_weight_shaped_fields_are_a_teams_own_stated_weights() -> None:
+    """A positive allowlist in place of the old ``"weight"`` substring ban.
+
+    Compared as a whole set, so the two required fields going missing fails as
+    loudly as a third appearing.
+    """
+    models = _every_instructor_model()
+    assert {"SavedSettingView", "ResultRunView", "TeamDetailView"} <= {
+        model.__name__ for model in models
+    }
+
+    weight_shaped = {
+        (model.__name__, name)
+        for model in models
+        for name in model.model_fields
+        if "weight" in name.lower()
+    }
+
+    assert weight_shaped == _ALLOWED_WEIGHT_FIELDS
+
+
+def test_no_instructor_model_nested_or_not_carries_a_refused_or_score_shaped_name() -> None:
+    """The two older walks, widened to the nested models the new fields live on."""
+    offenders = [
+        (model.__name__, name)
+        for model in _every_instructor_model()
+        for name in model.model_fields
+        if name in _REFUSED_FIELD_NAMES or any(shape in name.lower() for shape in _SCORE_SHAPED)
+    ]
+    assert offenders == []
+
+
+def _models_under(annotation: Any, found: set[type[BaseModel]]) -> None:
+    """Every model an annotation can hold, through unions, tuples and fields."""
+    if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+        if annotation in found:
+            return
+        found.add(annotation)
+        for field in annotation.model_fields.values():
+            _models_under(field.annotation, found)
+        return
+    for argument in get_args(annotation):
+        _models_under(argument, found)
+
+
+def _models_the_instructor_routes_serve() -> set[type[BaseModel]]:
+    """Read off the routers the exercise process really mounts, not a module list."""
+    found: set[type[BaseModel]] = set()
+    for router in routers_for(_settings()):
+        for route in router.routes:
+            if isinstance(route, APIRoute) and route.path.startswith("/v1/exercise/instructor"):
+                _models_under(route.response_model, found)
+    return found
+
+
+def test_no_model_an_instructor_route_can_serve_carries_a_score_shaped_name() -> None:
+    """The walk from the routes themselves, rather than from a list of modules.
+
+    Review round 2. The walks above read the modules this file names, so a
+    model nested under a ``response_model`` from a module nobody listed would
+    go unread. This one starts at every instructor route's ``response_model``
+    and follows each field's annotation to a fixed point.
+    """
+    served = _models_the_instructor_routes_serve()
+    assert {"TeamDetailView", "ResultRunView", "SavedSettingView", "InstructorEventsView"} <= {
+        model.__name__ for model in served
+    }, "the walk stopped following annotations"
+
+    offenders = [
+        (model.__name__, name)
+        for model in sorted(served, key=lambda model: model.__name__)
+        for name in model.model_fields
+        if name in EXERCISE_WITHHELD_FIELDS or any(shape in name.lower() for shape in _SCORE_SHAPED)
+    ]
+    assert offenders == []
+
+
+def test_the_weights_on_the_wire_name_the_four_factors_and_nothing_else(
+    signed_in: TestClient, state: dict[str, Any]
+) -> None:
+    """``dict[str, float]`` is an open map in the schema; the wire is what closes it.
+
+    A team's own four stated weights are the carved exception to D8. A fifth
+    key — a normalized weight, a total, a rank — would be an output riding in
+    on an input's field.
+    """
+    state["instructor"].saved_settings = (
+        InstructorSavedSetting(
+            event_key=_EVENT_KEY, name="One slider", created_at=_WHEN, weights={"same_major": 0.6}
+        ),
+    )
+    state["instructor"].result_runs = (_run(), _run(round=2, setting_weights={"same_major": 0.6}))
+
+    body = signed_in.get(_DETAIL).json()
+
+    maps = [setting["weights"] for setting in body["saved_settings"]]
+    maps += [run["setting_weights"] for run in body["result_runs"]]
+    assert len(maps) == 3
+    for weights in maps:
+        assert set(weights) <= set(EXERCISE_DEFAULT_WEIGHTS), weights
+        assert set(weights) == set(body["factor_labels"]), weights
+
+
+def test_the_team_detail_names_no_identifier_seed_or_withheld_value(
+    signed_in: TestClient, state: dict[str, Any]
+) -> None:
+    """The wire, with a run and a setting on it: names and weights, and nothing else new."""
+    state["instructor"].result_runs = (_run(),)
+
+    text = signed_in.get(_DETAIL).text
+
+    for forbidden in ("seed", "token", "workspace_id", "dataset_id", *EXERCISE_WITHHELD_FIELDS):
+        assert forbidden not in text, forbidden
 
 
 def test_no_route_response_mentions_the_withheld_column(signed_in: TestClient) -> None:
@@ -1455,6 +2245,18 @@ _EXPECTED_INSTRUCTOR_ROUTES: dict[tuple[str, str], tuple[int, str, tuple[str, ..
             "require_instructor_session",
         ),
     ),
+    ("POST", "/v1/exercise/instructor/events/{event_key}/lock"): (
+        200,
+        "LockView",
+        (
+            "get_exercise_session",
+            "get_instructor_repository",
+            "get_settings",
+            "get_workspace_secret",
+            "require_exercise_request_header",
+            "require_instructor_session",
+        ),
+    ),
     ("GET", "/v1/exercise/instructor/events"): (
         200,
         "InstructorEventsView",
@@ -1482,9 +2284,14 @@ _EXPECTED_INSTRUCTOR_ROUTES: dict[tuple[str, str], tuple[int, str, tuple[str, ..
         200,
         "TeamDetailView",
         (
+            # Issue #319: the route composes a ranked list per saved setting,
+            # so it reads the data file's events and the team's view of the
+            # profiles. Listed here so that widening is a deliberate edit.
+            "get_dataset_repository",
             "get_exercise_session",
             "get_instructor_repository",
             "get_settings",
+            "get_team_view_repository",
             "get_workspace_secret",
             "require_instructor_session",
         ),

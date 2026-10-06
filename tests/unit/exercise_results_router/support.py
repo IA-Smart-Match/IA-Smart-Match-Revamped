@@ -21,6 +21,7 @@ from smartmatch_api.errors import EXCEPTION_HANDLERS
 from smartmatch_api.exercise_dependencies import (
     EXERCISE_REQUEST_HEADER,
     INSTRUCTOR_COOKIE_NAME,
+    InvitedProfile,
     RefreshCandidate,
     RefreshCounts,
     ResultPanel,
@@ -66,6 +67,7 @@ from smartmatch_persistence.exercise.dataset_repository import (
 )
 from smartmatch_persistence.exercise.results_repository import (
     AlreadyRunError,
+    ResultsLockedError,
 )
 from smartmatch_persistence.exercise.settings_repository import SavedSetting
 from smartmatch_persistence.exercise.team_view_repository import TeamProfileRow
@@ -456,10 +458,15 @@ class _FakeResultsRepository:
         team: ResultPanel,
         email_everyone: ResultPanel,
         seats_empty: int,
+        invited: Sequence[InvitedProfile] = (),
+        setting_weights: Mapping[str, float] | None = None,
     ) -> StoredResultRun:
         assert dataset_id == _DATASET_ID
         if (workspace_id, event_key) in self.runs:
             raise AlreadyRunError
+        # Read again at the write, as the real repository does under its key.
+        if (dataset_id, event_key) not in self.unlocked:
+            raise ResultsLockedError
         stored = StoredResultRun(
             event_key=event_key,
             round=round_number,
@@ -468,6 +475,10 @@ class _FakeResultsRepository:
             email_everyone=email_everyone,
             seats_empty=seats_empty,
             created_at=_WHEN,
+            # Copied, as the real row is: what the run keeps is its own record
+            # and not a reference to anything a later request could change.
+            invited=tuple(invited),
+            setting_weights=None if setting_weights is None else dict(setting_weights),
         )
         self.runs[(workspace_id, event_key)] = stored
         return stored
@@ -565,6 +576,11 @@ class _Fakes:
     def unlock(self, *event_keys: str) -> None:
         for event_key in event_keys:
             self.results.unlocked.add((_DATASET_ID, event_key))
+
+    def lock(self, *event_keys: str) -> None:
+        """Close results again, as the instructor's lock route does."""
+        for event_key in event_keys:
+            self.results.unlocked.discard((_DATASET_ID, event_key))
 
 
 def _settings() -> Settings:

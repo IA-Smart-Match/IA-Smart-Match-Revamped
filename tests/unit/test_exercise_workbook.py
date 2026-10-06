@@ -150,6 +150,91 @@ def test_an_overlong_cell_is_refused_and_its_heading_is_quoted_safely() -> None:
     assert "`name x`" in refusal.message
 
 
+# ---------------------------------------------------------------------------
+# A longer limit for a named column (#325)
+# ---------------------------------------------------------------------------
+
+#: A made-up column and limit. The reader knows no column name: the caller
+#: says which column of which sheet may run longer, and how long.
+_LONG_COLUMN = "blurb"
+_LONG_LIMIT = 2_000
+_LIMITS = {"Events": {_LONG_COLUMN: _LONG_LIMIT}}
+
+
+def _events_bytes(*rows: tuple[object, ...]) -> bytes:
+    return _sheet_bytes(("event_id", "note", _LONG_COLUMN), *rows, title="Events")
+
+
+def _read_events(raw: bytes) -> tuple[SheetRows, ...] | IngestRefusal:
+    return read_sheets(raw, ("Events",), cell_limits=_LIMITS)
+
+
+@pytest.mark.parametrize("length", [MAX_CELL_CHARACTERS + 1, 571, _LONG_LIMIT])
+def test_a_column_given_a_longer_limit_may_run_up_to_it(length: int) -> None:
+    result = _read_events(_events_bytes(("E11", "short", "d" * length)))
+
+    assert not isinstance(result, IngestRefusal), result
+    assert len(result[0].rows[0][1][_LONG_COLUMN]) == length
+
+
+def test_a_cell_past_its_longer_limit_is_refused_and_the_sentence_says_that_limit() -> None:
+    result = _read_events(_events_bytes(("E11", "short", "d" * (_LONG_LIMIT + 1))))
+
+    assert isinstance(result, IngestRefusal), result
+    assert result.code == "cell_too_long"
+    assert result.message == (
+        "Row 2 of the `Events` sheet has more than 2000 characters in the column "
+        "`blurb`; please shorten it and upload again."
+    )
+
+
+def test_every_other_column_keeps_the_ordinary_limit() -> None:
+    result = _read_events(_events_bytes(("E11", "n" * (MAX_CELL_CHARACTERS + 1), "fine")))
+
+    assert isinstance(result, IngestRefusal), result
+    assert result.code == "cell_too_long"
+    assert result.message == (
+        f"Row 2 of the `Events` sheet has more than {MAX_CELL_CHARACTERS} characters in the "
+        "column `note`; please shorten it and upload again."
+    )
+
+
+def test_a_longer_limit_belongs_to_its_own_sheet() -> None:
+    raw = _sheet_bytes((_LONG_COLUMN,), ("d" * (MAX_CELL_CHARACTERS + 1),), title="Profiles")
+
+    result = read_sheets(raw, ("Profiles",), cell_limits=_LIMITS)
+
+    assert isinstance(result, IngestRefusal), result
+    assert result.code == "cell_too_long"
+
+
+def test_a_longer_limit_is_found_however_the_sheet_and_heading_are_spelled() -> None:
+    raw = _sheet_bytes((" Blurb ",), ("d" * _LONG_LIMIT,), title="events")
+
+    result = read_sheets(raw, ("Events",), cell_limits=_LIMITS)
+
+    assert not isinstance(result, IngestRefusal), result
+
+
+def test_a_longer_limit_never_lengthens_a_heading() -> None:
+    heading = "h" * (MAX_CELL_CHARACTERS + 1)
+    raw = _sheet_bytes((heading,), ("x",), title="Events")
+
+    result = read_sheets(raw, ("Events",), cell_limits={"Events": {heading: _LONG_LIMIT}})
+
+    assert isinstance(result, IngestRefusal), result
+    assert result.code == "column_name_too_long"
+
+
+def test_without_limits_every_cell_keeps_the_ordinary_limit() -> None:
+    result = read_sheets(
+        _events_bytes(("E11", "short", "d" * (MAX_CELL_CHARACTERS + 1))), ("Events",)
+    )
+
+    assert isinstance(result, IngestRefusal), result
+    assert result.code == "cell_too_long"
+
+
 def test_too_many_rows_is_refused_without_reading_them_all() -> None:
     rows = [("id",)] + [(f"P{index}",) for index in range(MAX_DATA_ROW_COUNT + 5)]
 

@@ -266,6 +266,15 @@ def test_event_carries_anns_columns(column_name: str):
     assert column_name in _table("exercise_event").columns
 
 
+def test_event_carries_a_nullable_free_text_description():
+    """Revision 0044 (#318): NULL is "the file said nothing", so no default."""
+    column = _table("exercise_event").columns["description"]
+
+    assert isinstance(column.type, sa.Text)
+    assert column.nullable is True
+    assert column.server_default is None
+
+
 def test_no_check_constrains_a_vocabulary():
     """The vocabularies are closed in code (owner ruling 2026-09-24), not in DDL.
 

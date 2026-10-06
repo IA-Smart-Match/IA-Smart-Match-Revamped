@@ -10,7 +10,19 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { CONFIRM_GUARD_MS } from "./desk";
 import { ExerciseResults } from "./ExerciseResults";
+
+/**
+ * Send the run: the first press arms the button ("Send this list? You get one
+ * results run for …"), the second sends it. The pause clears the guard that
+ * treats a double-click as one press (`CONFIRM_GUARD_MS`).
+ */
+async function pressRun(): Promise<void> {
+  fireEvent.click(screen.getByRole("button", { name: /run results/i }));
+  await new Promise((resolve) => setTimeout(resolve, CONFIRM_GUARD_MS + 20));
+  fireEvent.click(screen.getByRole("button", { name: /send this list/i }));
+}
 
 let calls: { url: string; init: RequestInit }[] = [];
 
@@ -57,7 +69,7 @@ const NONE_SAVED = { body: { event_key: "northline", settings: [], max_settings:
  */
 async function runWith(name: string): Promise<void> {
   fireEvent.click(await screen.findByRole("radio", { name }));
-  fireEvent.click(screen.getByRole("button", { name: /run results/i }));
+  await pressRun();
 }
 
 /**
@@ -426,41 +438,100 @@ describe("<ExerciseResults />", () => {
     expect(screen.queryByRole("radiogroup", { name: /final setting/i })).toBeNull();
   });
 
-  it("names the people from the list the final setting built", async () => {
-    stub({
-      [`GET ${RESULTS}`]: {
-        body: {
-          event_key: "northline",
-          event_name: "Northline Analytics",
-          round: 1,
-          setting_name: "Wide net",
-          team: panel(2, 1, 1),
-          email_everyone: panel(300, 40, 30),
-          seats_empty: 51,
-          event_seats: 60,
-          existing_signups: 8,
-          round_one: null,
-          created_at: "2026-09-21T10:00:00Z",
-        },
+  /** A stored run that carries the names it invited, as the server sends it. */
+  const NAMED_RUN = {
+    event_key: "northline",
+    event_name: "Northline Analytics",
+    round: 1,
+    setting_name: "Wide net",
+    team: panel(2, 1, 1),
+    email_everyone: panel(300, 40, 30),
+    seats_empty: 51,
+    event_seats: 60,
+    existing_signups: 8,
+    round_one: null,
+    invited_profiles: [
+      {
+        rank: 1,
+        profile_no: 2,
+        display_name: "Blake Example",
+        major: "Accounting",
+        class_year: "Senior",
+        marker: "completed_card",
+        reason: "said they are interested in this topic",
       },
-      [LIST]: {
-        body: {
-          entries: [
-            { profile_no: 1, display_name: "Avery Example" },
-            { profile_no: 2, display_name: "Blake Example" },
-          ],
-        },
+      {
+        rank: 2,
+        profile_no: 1,
+        display_name: "Avery Example",
+        major: "Finance",
+        class_year: "Junior",
+        marker: "major_only",
+        reason: "same major; nothing else on file",
       },
-      [ASKING]: NO_CHOICE,
-    });
+    ],
+    created_at: "2026-09-21T10:00:00Z",
+  };
+
+  /** The list route's answer once the run's saved setting has been deleted. */
+  const SETTING_GONE = {
+    body: {
+      error: {
+        code: "exercise_setting_unknown",
+        message: "Your team has no saved settings with that name.",
+      },
+    },
+    status: 404,
+  };
+
+  it("names the people from the run's own record, and asks no list for them", async () => {
+    stub({ [`GET ${RESULTS}`]: { body: NAMED_RUN }, [LIST]: SETTING_GONE, [ASKING]: NO_CHOICE });
     renderResults();
+
     await waitFor(() =>
       expect(
         document.querySelector('[data-slot="exercise-team-people"]')?.textContent,
       ).toContain("Avery Example"),
     );
-    const listCall = calls.find((call) => call.url.startsWith(LIST));
-    expect(listCall?.url).toBe(`${LIST}?setting=Wide+net`);
+    const people = document.querySelector('[data-slot="exercise-team-people"]') as HTMLElement;
+    expect(people.textContent).toContain("Blake Example");
+    expect(people.textContent).not.toMatch(/Profile \d/);
+    // Issue #271: the names never depended on the saved setting still existing.
+    expect(calls.some((call) => call.url.startsWith(LIST))).toBe(false);
+  });
+
+  it("still names everyone after the run's saved setting was deleted", async () => {
+    // The whole of issue #271: the list route refuses the deleted setting, and
+    // the people on the team's list are still named.
+    stub({ [`GET ${RESULTS}`]: { body: NAMED_RUN }, [LIST]: SETTING_GONE, [ASKING]: NO_CHOICE });
+    renderResults();
+
+    const chips = await waitFor(() => {
+      const found = Array.from(document.querySelectorAll('[data-slot="exercise-person-chip"]'));
+      expect(found.length).toBeGreaterThan(0);
+      return found;
+    });
+    expect(chips.map((chip) => chip.textContent)).toEqual([
+      "Avery Example",
+      "Blake Example",
+      "Avery Example",
+      "Avery Example",
+    ]);
+  });
+
+  it("shows the number for a run stored before names were kept", async () => {
+    stub({
+      [`GET ${RESULTS}`]: { body: { ...NAMED_RUN, invited_profiles: [] } },
+      [LIST]: SETTING_GONE,
+      [ASKING]: NO_CHOICE,
+    });
+    renderResults();
+
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-slot="exercise-team-people"]')?.textContent,
+      ).toContain("Profile 1"),
+    );
   });
 });
 
@@ -491,7 +562,7 @@ describe("<ExerciseResults /> once-only presses", () => {
     },
   };
 
-  it("sends one run for two presses in the same tick", async () => {
+  it("sends nothing for two presses in the same tick: a double-click only asks", async () => {
     stubBy((key) => {
       if (key === `GET ${RESULTS}`) return NOT_RUN;
       if (key === `POST ${RESULTS}`) return { body: RUN_VIEW };
@@ -503,6 +574,29 @@ describe("<ExerciseResults /> once-only presses", () => {
     renderResults();
     fireEvent.click(await screen.findByRole("radio", { name: "Wide net" }));
     const run = screen.getByRole("button", { name: /run results/i });
+    act(() => {
+      run.click();
+      run.click();
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(posts(RESULTS)).toBe(0);
+    expect(run.textContent).toContain("Send this list?");
+  });
+
+  it("sends one run for two confirming presses in the same tick", async () => {
+    stubBy((key) => {
+      if (key === `GET ${RESULTS}`) return NOT_RUN;
+      if (key === `POST ${RESULTS}`) return { body: RUN_VIEW };
+      if (key === `GET ${LIST}`) return NO_LIST;
+      if (key === `GET ${ASKING}`) return NO_CHOICE;
+      if (key === `GET ${SETTINGS}`) return TWO_SAVED;
+      return null;
+    });
+    renderResults();
+    fireEvent.click(await screen.findByRole("radio", { name: "Wide net" }));
+    const run = screen.getByRole("button", { name: /run results/i });
+    fireEvent.click(run);
+    await new Promise((resolve) => setTimeout(resolve, CONFIRM_GUARD_MS + 20));
     act(() => {
       run.click();
       run.click();

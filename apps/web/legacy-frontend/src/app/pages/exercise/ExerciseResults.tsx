@@ -17,6 +17,24 @@
  * that re-worded them, or that hid the button and implied the capability did
  * not exist, would be answering for the server.
  *
+ * **The run button has three states, read before anybody presses** (issue
+ * #328; Ann's checklist of 2026-10-02, section 5). The events read says
+ * whether results are open for this event and whether this team has already
+ * run them (`EventView.results_open` / `results_run`):
+ *
+ * - not open: grey, "Results not open yet.", with the lock panel saying why;
+ * - open: live. The first press asks, on the button itself — "Send this list?
+ *   You get one results run for {event}" — and a second press inside five
+ *   seconds sends it. Escape or waiting puts it back. No pop-up;
+ * - run: grey, "Results already run for this event.", above the stored
+ *   results. Run wins over open: results closed again after a run still read
+ *   as run.
+ *
+ * Grey is what the team is shown, never what is allowed: the server refuses a
+ * second run whatever this screen believes. A tab that was open before the
+ * run still has a live button; its press is answered 409, the sentence says
+ * why, and the screen reads again and lands on the right state.
+ *
  * `exercise_results_not_run` (404) on the read is not a refusal to display at
  * all — it simply means this team has not run yet, which is the screen's
  * ordinary first state.
@@ -28,10 +46,13 @@
  * team with none saved is told to save one first. The server refuses a run
  * without a final setting too; this screen only makes the step visible.
  *
- * Names for the team's own panels are joined from the ranked list by
- * `profile_no` (owner decision, 2026-09-21): the results routes carry numbers
- * and counts, and nothing here asks the backend for names. The list asked is
- * the one the run's final setting built, so the names match who was invited.
+ * **Names for the team's own panels come from the run itself** (issue #271).
+ * The run stores the names its list showed when it was made, and the results
+ * read carries them (`invited_profiles`). This screen used to ask the ranked
+ * list for the run's saved setting instead; a setting deleted after the run
+ * turned every name into "Profile 17". Nothing here asks a saved setting who
+ * a run invited any more. The ranked list is read only before a run, and only
+ * for Ann's words for the four weights on the final-setting cards.
  */
 import * as React from "react";
 import { Link, useParams } from "react-router";
@@ -40,6 +61,7 @@ import { ExerciseUnreachable, isRefusal, type ExerciseRefusal } from "../../../l
 import {
   EXERCISE_FACTOR_KEYS,
   readAskingChoice,
+  readEvents,
   readRankedList,
   readResults,
   readSavedSettings,
@@ -54,7 +76,13 @@ import {
   type SavedSettingsView,
 } from "../../../lib/exerciseClient";
 import { cn } from "../../components/ui/utils";
-import { Button, formatWeight } from "./desk";
+import {
+  Button,
+  ConfirmWindowUnderline,
+  formatWeight,
+  useConfirmWindow,
+  usePrefersReducedMotion,
+} from "./desk";
 import { ExerciseLoading, ExerciseNotice, ExerciseScreen } from "./ExerciseScreen";
 import { ResultPanels, type NamesByProfileNo } from "./ResultPanels";
 import { alreadyRefreshedLabel, refreshSummaryText } from "./refreshWording";
@@ -73,8 +101,35 @@ const NOT_RUN = "exercise_results_not_run";
 /** The run's 404 for a final setting this team no longer has (deleted in another tab). */
 const SETTING_UNKNOWN = "exercise_setting_unknown";
 
-/** The run's 409 while the instructor has not opened this event: the lock panel (§6.14). */
+/** The run's 409 while results for this event are not open: the lock panel (§6.14). */
 const LOCKED = "exercise_results_locked";
+
+/** The run's 409 for a second run: the team has had its one. */
+const ALREADY_RUN = "exercise_results_already_run";
+
+/** Says why the grey "Results not open yet." button is off. */
+const NOT_OPEN_REASON = "exercise-results-not-open-reason";
+
+/** Says why the grey "Results already run for this event." button is off. */
+const ALREADY_RUN_REASON = "exercise-results-already-run-reason";
+
+/** What this team's events read says about one event's results. */
+interface EventResultsState {
+  /** The event's label, for the sentences that name it. */
+  readonly name: string;
+  readonly open: boolean;
+  readonly run: boolean;
+}
+
+/** Ann's sentence for a press that cannot do anything yet (2026-10-02). */
+function notOpenSentence(eventName: string): string {
+  return `Results for ${eventName} are not open yet. Ask your instructor.`;
+}
+
+/** The question the run button asks before the one run (Ann's checklist, section 5). */
+function sendListQuestion(eventName: string | null): string {
+  return `Send this list? You get one results run for ${eventName ?? "this event"}`;
+}
 
 /** Says why the run button is off; the button points at it with `aria-describedby`. */
 const FINAL_SETTING_HINT = "exercise-final-setting-hint";
@@ -88,11 +143,16 @@ type FactorLabels = Readonly<Record<string, string>>;
 interface ResultsData {
   /** `null` until this team has run results for this event. */
   readonly results: ResultsView | null;
-  readonly names: NamesByProfileNo;
   readonly labels: FactorLabels;
   readonly asking: AskingStateView;
   /** This event's saved settings, to choose the final one from; `null` once run. */
   readonly saved: SavedSettingsView | null;
+  /**
+   * Whether results are open and already run, from the events read; `null`
+   * when that read could not say. Unknown is shown as open, so the run route
+   * answers instead of this screen guessing.
+   */
+  readonly event: EventResultsState | null;
 }
 
 export function ExerciseResults(): React.JSX.Element {
@@ -113,14 +173,16 @@ function EventResults({ eventKey }: { readonly eventKey: string }): React.JSX.El
           throw error;
         }
       }
-      // Independent reads, so they go together. The saved settings are only
-      // needed before the run: afterwards there is nothing left to choose.
-      const [list, asking, saved] = await Promise.all([
-        listForEvent(eventKey, results?.setting_name ?? null, signal),
+      // Independent reads, so they go together. The saved settings, and the
+      // words for their weights, are only needed before the run: afterwards
+      // there is nothing left to choose, and the run names its own people.
+      const [labels, asking, saved, event] = await Promise.all([
+        results === null ? factorLabels(eventKey, signal) : Promise.resolve({}),
         readAskingChoice(signal),
         results === null ? readSavedSettings(eventKey, signal) : Promise.resolve(null),
+        eventResultsState(eventKey, signal),
       ]);
-      return { results, names: list.names, labels: list.labels, asking, saved };
+      return { results, labels, asking, saved, event };
     },
     [eventKey],
   );
@@ -198,40 +260,60 @@ function EventResults({ eventKey }: { readonly eventKey: string }): React.JSX.El
 }
 
 /**
- * The names the ranked list gives this event's profile numbers, and Ann's
- * words for the four weights (for the final-setting cards).
+ * Ann's words for the four weights, for the final-setting cards.
  *
- * Asked of the list the run's final setting built, when there is a run, so the
- * team's own panel is named from the list it actually invited. A setting
- * deleted since the run is refused by the list route and falls back below.
+ * They ride on the ranked list, so the list is read once before a run, with
+ * the course's starting weights: the words are the same whatever the weights.
+ * It is **not** read for names, and never for the run's saved setting (issue
+ * #271): a run names its own people.
  *
- * A failure here is not a failure of the results screen: the counts and the
- * comparison are the lesson, and the names are the illustration. So a refusal
- * on the list leaves both maps empty and the panels fall back to profile
- * numbers (and the setting cards to their names alone), rather than taking the
- * whole screen down.
+ * A failure here is not a failure of the results screen. A refusal leaves the
+ * words empty and the cards show each setting's name alone, never a rulebook
+ * key, rather than taking the whole screen down.
  */
-async function listForEvent(
-  eventKey: string,
-  settingName: string | null,
-  signal: AbortSignal,
-): Promise<{ readonly names: NamesByProfileNo; readonly labels: FactorLabels }> {
-  const weighting: ListWeighting =
-    settingName === null ? { kind: "default" } : { kind: "setting", name: settingName };
+async function factorLabels(eventKey: string, signal: AbortSignal): Promise<FactorLabels> {
+  const weighting: ListWeighting = { kind: "default" };
   try {
     const list = await readRankedList(eventKey, weighting, signal);
-    return {
-      names: new Map(list.entries.map((entry) => [entry.profile_no, entry.display_name])),
-      labels: list.factor_labels ?? {},
-    };
+    return list.factor_labels ?? {};
   } catch (error) {
     // An abort is not a missing list — it is this load being replaced. It has
-    // to propagate, or a superseded load resolves with an empty map and the
-    // hook settles a stale answer over the live one.
+    // to propagate, or a superseded load resolves with nothing and the hook
+    // settles a stale answer over the live one.
     if (signal.aborted) {
       throw error;
     }
-    return { names: new Map(), labels: {} };
+    return {};
+  }
+}
+
+/**
+ * Whether results are open for this event and whether this team has run them,
+ * from the events read (issue #328).
+ *
+ * Like the names, this is not what the screen stands on: a read that fails, or
+ * a file that does not list the event, answers `null` and the run button
+ * behaves as it did before this read existed — live, with the server deciding.
+ * Losing access is different: that is the screen's refusal, and it propagates.
+ */
+async function eventResultsState(
+  eventKey: string,
+  signal: AbortSignal,
+): Promise<EventResultsState | null> {
+  try {
+    const { events } = await readEvents(signal);
+    const found = events.find((event) => event.event_key === eventKey);
+    if (found === undefined) {
+      return null;
+    }
+    // Compared with `false`/`true` so a server that predates the two fields
+    // reads as "open, not run", which is how the screen behaved then.
+    return { name: found.name, open: found.results_open !== false, run: found.results_run === true };
+  } catch (error) {
+    if (signal.aborted || isAccessRefusal(error)) {
+      throw error;
+    }
+    return null;
   }
 }
 
@@ -314,6 +396,12 @@ function ResultsBody({
               message: "The exercise could not be reached. Check the connection and try again.",
             },
       );
+      // "Not open" and "already run" mean this screen was behind: results
+      // were closed, or the run was used from another tab. The sentence says
+      // why nothing happened; the re-read puts the button in the right state.
+      if (isRefusal(error) && (error.code === LOCKED || error.code === ALREADY_RUN)) {
+        void onChanged();
+      }
     } finally {
       inFlight.current = false;
       setPending(null);
@@ -355,18 +443,51 @@ function ResultsBody({
     ? (data.asking.refreshed_at ?? own?.refreshed_at ?? null)
     : (own?.refreshed_at ?? null);
   const canRefresh = data.asking.choice !== null && !hasAsked;
-  const locked = refusal?.code === LOCKED && results === null;
+  // Run wins over open: results closed again after a run still read as run.
+  const hasRun = results !== null || data.event?.run === true;
+  const refusedAsLocked = refusal?.code === LOCKED;
+  const notOpen = !hasRun && (data.event === null ? refusedAsLocked : !data.event.open);
+  // The lock panel carries the sentence, so the notice does not repeat it.
+  const lockSentence =
+    data.event === null ? (refusal?.message ?? "") : notOpenSentence(data.event.name);
 
   return (
     <div className="flex flex-col gap-ce-6 md:gap-ce-7">
-      {refusal === null || locked ? null : <ExerciseNotice message={refusal.message} />}
+      {refusal === null || (refusedAsLocked && notOpen) ? null : (
+        <ExerciseNotice message={refusal.message} />
+      )}
 
-      {results === null ? (
+      {hasRun ? (
+        <div className="flex flex-col items-start gap-ce-2" data-slot="exercise-results-run-used">
+          <Button variant="primary" disabled describedBy={ALREADY_RUN_REASON}>
+            Results already run for this event.
+          </Button>
+          <p id={ALREADY_RUN_REASON} className="ce-type-meta text-ce-ink-muted">
+            A team runs results once per event.
+          </p>
+        </div>
+      ) : null}
+
+      {results !== null ? (
+        <ResultPanels results={results} reveal={justRan} />
+      ) : hasRun ? null : (
         <section className="flex flex-col gap-ce-5">
           {/* §7.8: before a run, the lock panel takes the seating chart's
-              place. It has no action; the Run button below is the only
-              retry, because a retry is the one-time run itself. */}
-          {locked && refusal !== null ? <ResultsLockPanel message={refusal.message} /> : null}
+              place. "Check again" is a read of the lock, never the run. */}
+          {notOpen ? (
+            <ResultsLockPanel message={lockSentence} messageId={NOT_OPEN_REASON}>
+              <Button
+                variant="secondary"
+                disabled={pending !== null}
+                onClick={() => {
+                  setRefusal(null);
+                  void onChanged();
+                }}
+              >
+                Check again
+              </Button>
+            </ResultsLockPanel>
+          ) : null}
           <p className="ce-type-body ce-measure text-ce-ink-muted">
             Your team has not run results for this event yet. A team runs them once.
           </p>
@@ -377,21 +498,22 @@ function ResultsBody({
             value={finalSetting}
             onChange={setFinalSetting}
           />
-          <div>
-            <Button
-              variant="primary"
-              disabled={finalSetting === "" || (pending !== null && pending !== "run")}
-              pending={pending === "run"}
-              pendingLabel="Running…"
-              describedBy={FINAL_SETTING_HINT}
-              onClick={runFinalSetting}
-            >
-              Run results for this event
-            </Button>
-          </div>
+          {notOpen ? (
+            <div>
+              <Button variant="primary" disabled describedBy={NOT_OPEN_REASON}>
+                Results not open yet.
+              </Button>
+            </div>
+          ) : (
+            <RunButton
+              eventName={data.event?.name ?? null}
+              finalSetting={finalSetting}
+              running={pending === "run"}
+              busy={pending !== null && pending !== "run"}
+              onRun={runFinalSetting}
+            />
+          )}
         </section>
-      ) : (
-        <ResultPanels results={results} names={data.names} reveal={justRan} />
       )}
 
       <section className="ce-card flex flex-col gap-ce-4 p-ce-4 md:p-ce-6">
@@ -438,6 +560,81 @@ function ResultsBody({
           </div>
         )}
       </section>
+    </div>
+  );
+}
+
+/**
+ * The live run button, with its inline confirm (`ce-confirm-window`, §5).
+ *
+ * Ann's checklist of 2026-10-02: "The screen asks “Send this list? You get one
+ * results run for Northline” before running." The first press arms the button
+ * and sends nothing; it then reads as that question, and a second press inside
+ * five seconds sends the run. Escape, waiting, or choosing a different final
+ * setting puts it back. A held Enter or Space never confirms: the run is once
+ * per team, and a key repeat must not spend it.
+ *
+ * Off until a final setting is chosen, with the picker's line as the reason.
+ */
+function RunButton({
+  eventName,
+  finalSetting,
+  running,
+  busy,
+  onRun,
+}: {
+  /** The event's label for the question, or `null` when the screen does not know it. */
+  readonly eventName: string | null;
+  readonly finalSetting: string;
+  /** The run is in flight. */
+  readonly running: boolean;
+  /** Another action on the screen is in flight. */
+  readonly busy: boolean;
+  readonly onRun: () => void;
+}): React.JSX.Element {
+  const reduced = usePrefersReducedMotion();
+  const confirm = useConfirmWindow({ onConfirm: onRun });
+  const { cancel } = confirm;
+  // The question is about the list on screen: a different setting is a
+  // different list, so it has to be asked again.
+  React.useEffect(() => cancel, [cancel, finalSetting]);
+  // Once the run is on its way the question has been answered; a stray press
+  // in the same tick must not leave the button armed for the next one.
+  React.useEffect(() => {
+    if (running) {
+      cancel();
+    }
+  }, [cancel, running]);
+  const armed = confirm.armed && !running;
+  const question = sendListQuestion(eventName);
+
+  return (
+    <div className="flex flex-col items-start gap-ce-2">
+      <Button
+        variant="primary"
+        disabled={finalSetting === "" || busy}
+        pending={running}
+        pendingLabel="Running…"
+        describedBy={FINAL_SETTING_HINT}
+        onClick={confirm.press}
+        onKeyDown={(event) => {
+          if (event.repeat && (event.key === "Enter" || event.key === " ")) {
+            event.preventDefault();
+            return;
+          }
+          confirm.onKeyDown(event);
+        }}
+      >
+        <span className="inline-flex flex-col items-stretch">
+          <span>{armed ? question : "Run results for this event"}</span>
+          <ConfirmWindowUnderline active={armed && !reduced} reduced={false} />
+        </span>
+      </Button>
+      <ConfirmWindowUnderline active={armed && reduced} reduced className="text-ce-ink-muted" />
+      {/* Always present, so the question is announced when the button arms. */}
+      <p role="status" data-slot="exercise-results-run-confirm" className="ce-type-meta text-ce-ink-muted">
+        {armed ? "Press again to send this list. Your team cannot run this event a second time." : ""}
+      </p>
     </div>
   );
 }

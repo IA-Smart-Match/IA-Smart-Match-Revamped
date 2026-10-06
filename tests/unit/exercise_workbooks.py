@@ -29,8 +29,10 @@ from smartmatch_domain.exercise.layout import EXERCISE_LAYOUT as LAYOUT
 
 __all__ = [
     "ANN_FULL_FILE",
+    "ANN_OCT02_FILE",
     "ANN_SAMPLE_FILE",
     "EVENT_HEADINGS",
+    "EVENT_HEADINGS_WITH_DESCRIPTION",
     "LAYOUT",
     "PROFILE_HEADINGS",
     "WITHHELD_GOAL",
@@ -50,6 +52,13 @@ _FIXTURES: Final[Path] = Path(__file__).resolve().parents[1] / "fixtures" / "exe
 #: Events sheets on 2026-09-25; every cell of those two sheets is as she sent it.
 ANN_FULL_FILE: Final[Path] = _FIXTURES / "SmartMatch_Student_Body_300.xlsx"
 ANN_SAMPLE_FILE: Final[Path] = _FIXTURES / "SmartMatch_Student_Body_Sample_20.xlsx"
+
+#: Ann's full file of 2026-10-02, cut to the same two sheets on 2026-10-06. It
+#: is the September file plus one last ``Events`` column, ``event_description``
+#: (571 characters on Northline, 561 on Harbor, blank on the ten past events).
+#: The September file stays as the pre-October shape: a file without the
+#: column must keep uploading (#325, #318).
+ANN_OCT02_FILE: Final[Path] = _FIXTURES / "SmartMatch_Student_Body_300_10022026.xlsx"
 
 
 @cache
@@ -101,6 +110,13 @@ EVENT_HEADINGS: Final[tuple[str, ...]] = (
     LAYOUT.target_majors_column,
     LAYOUT.is_exercise_event_column,
     LAYOUT.seats_column,
+)
+
+#: The Events headings of Ann's 2026-10-02 file: the same, plus the optional
+#: last column. :func:`event_rows` leaves its cells blank; a test fills them.
+EVENT_HEADINGS_WITH_DESCRIPTION: Final[tuple[str, ...]] = (
+    *EVENT_HEADINGS,
+    LAYOUT.event_description_column,
 )
 
 _MAJORS: Final[tuple[str, ...]] = (

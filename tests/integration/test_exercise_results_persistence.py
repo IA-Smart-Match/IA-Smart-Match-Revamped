@@ -45,8 +45,9 @@ from smartmatch_persistence.exercise.results_repository import (
     AlreadyRunError,
     ExerciseResultsRepository,
     ExerciseResultsWriteRefused,
+    ResultsLockedError,
 )
-from smartmatch_persistence.exercise.results_rows import ResultPanel
+from smartmatch_persistence.exercise.results_rows import InvitedProfile, ResultPanel
 from smartmatch_persistence.exercise.settings_repository import (
     SAVED_SETTING_LOCK_KEY,
     ExerciseSettingsRepository,
@@ -196,8 +197,14 @@ def _overlay_goals(session: Session, *, workspace_id: uuid.UUID) -> dict[int, st
     }
 
 
-def _classroom(session: Session, *, teams: int = 2) -> tuple[uuid.UUID, list[uuid.UUID]]:
-    """A data file, its two rounds, three profiles and ``teams`` workspaces on it."""
+def _classroom(
+    session: Session, *, teams: int = 2, open_: bool = True
+) -> tuple[uuid.UUID, list[uuid.UUID]]:
+    """A data file, its two rounds, three profiles and ``teams`` workspaces on it.
+
+    Both rounds are open unless ``open_`` is false: ``record_run`` reads the
+    lock itself (review round 2), so a classroom that can run is an open one.
+    """
     dataset_id = _insert_dataset(session, label="results")
     _insert_events(session, dataset_id=dataset_id)
     _insert_profiles(session, dataset_id=dataset_id)
@@ -208,6 +215,10 @@ def _classroom(session: Session, *, teams: int = 2) -> tuple[uuid.UUID, list[uui
         ).id
         for number in range(1, teams + 1)
     ]
+    for event_key in (_ROUND_ONE, _ROUND_TWO) if open_ else ():
+        ExerciseInstructorRepository().unlock_results(
+            session, dataset_id=dataset_id, event_key=event_key
+        )
     session.commit()
     return dataset_id, workspaces
 
@@ -252,7 +263,7 @@ def test_an_event_is_locked_until_the_instructor_unlocks_it(
     results = ExerciseResultsRepository()
     instructor = ExerciseInstructorRepository()
     with exercise_sessions() as session:
-        dataset_id, _ = _classroom(session)
+        dataset_id, _ = _classroom(session, open_=False)
 
         assert results.results_unlocked(session, dataset_id=dataset_id, event_key=_ROUND_ONE) is (
             False
@@ -285,6 +296,137 @@ def test_a_run_is_stored_and_read_back_panel_for_panel(
     assert stored.seats_empty == 51
     assert stored.round == 1
     assert stored.setting_name is None
+
+
+_SNAPSHOT = (
+    InvitedProfile(
+        rank=1,
+        profile_no=3,
+        display_name="Profile 3",
+        major="Alpha",
+        class_year="one",
+        marker="major_only",
+        reason="same major; nothing else on file",
+    ),
+    InvitedProfile(
+        rank=2,
+        profile_no=1,
+        display_name="Profile 1",
+        major="Alpha",
+        class_year="one",
+        marker="completed_card",
+        reason="said they are interested in this topic",
+    ),
+)
+
+_WEIGHTS = {
+    "same_major": 0.4,
+    "stated_interest_overlap": 0.3,
+    "career_goal_fit": 0.2,
+    "past_event_topic_overlap": 0.1,
+}
+
+
+def test_a_run_keeps_its_names_and_weights_when_its_saved_setting_is_deleted(
+    exercise_sessions: sessionmaker[Session],
+) -> None:
+    """Issues #271 and #319, at the row: the snapshot is the run's, not the setting's.
+
+    A real saved setting is written, the run is stored from it, and the setting
+    is then deleted. The run reads back with the same names, in the same order,
+    and the same four weights — through JSONB and back.
+    """
+    results = ExerciseResultsRepository()
+    settings = schema.exercise_saved_setting
+    with exercise_sessions() as session:
+        dataset_id, (workspace_id, other_id) = _classroom(session)
+        session.execute(
+            sa.insert(settings).values(
+                id=uuid.uuid4(),
+                workspace_id=workspace_id,
+                dataset_id=dataset_id,
+                event_key=_ROUND_ONE,
+                name="Wide net",
+                weights=_WEIGHTS,
+            )
+        )
+        results.record_run(
+            session,
+            dataset_id=dataset_id,
+            workspace_id=workspace_id,
+            event_key=_ROUND_ONE,
+            round_number=1,
+            setting_name="Wide net",
+            team=_TEAM,
+            email_everyone=_EVERYONE,
+            seats_empty=51,
+            invited=_SNAPSHOT,
+            setting_weights=_WEIGHTS,
+        )
+        session.commit()
+
+        session.execute(sa.delete(settings).where(settings.c.workspace_id == workspace_id))
+        session.commit()
+        session.expire_all()
+
+        kept = results.get_run(session, workspace_id=workspace_id, event_key=_ROUND_ONE)
+        other = results.get_run(session, workspace_id=other_id, event_key=_ROUND_ONE)
+        by_round = results.get_run_for_round(session, workspace_id=workspace_id, round_number=1)
+
+    assert kept is not None
+    assert kept.invited == _SNAPSHOT, "names, order, marker and reason line, exactly as stored"
+    assert kept.setting_weights == _WEIGHTS
+    assert kept.setting_name == "Wide net", "the label is history, not a foreign key"
+    assert by_round == kept
+    assert other is None, "another team's run is not selected, let alone its names"
+
+
+def test_a_run_stored_without_a_snapshot_reads_back_as_nobody_and_no_weights(
+    exercise_sessions: sessionmaker[Session],
+) -> None:
+    """A row from before revision 0046 that nothing could backfill: ``NULL``, read honestly.
+
+    And a backfilled one — names without ``rank``, ``marker`` or ``reason`` — reads
+    back with those three absent rather than invented.
+    """
+    results = ExerciseResultsRepository()
+    runs = schema.exercise_result_run
+    with exercise_sessions() as session:
+        dataset_id, (workspace_id, other_id) = _classroom(session)
+        for held_by, snapshot in (
+            (workspace_id, None),
+            (other_id, [{"profile_no": 3, "display_name": "Profile 3", "major": "Alpha"}]),
+        ):
+            session.execute(
+                sa.insert(runs).values(
+                    id=uuid.uuid4(),
+                    workspace_id=held_by,
+                    dataset_id=dataset_id,
+                    event_key=_ROUND_ONE,
+                    round=1,
+                    invited_profile_nos=[1, 2, 3],
+                    signed_up_profile_nos=[1],
+                    attended_profile_nos=[],
+                    email_everyone={},
+                    seats_empty=52,
+                    invited_profiles=snapshot,
+                    setting_weights=None,
+                )
+            )
+        session.commit()
+
+        legacy = results.get_run(session, workspace_id=workspace_id, event_key=_ROUND_ONE)
+        backfilled = results.get_run(session, workspace_id=other_id, event_key=_ROUND_ONE)
+
+    assert legacy is not None and backfilled is not None
+    assert legacy.invited == ()
+    assert legacy.setting_weights is None
+    assert legacy.team.invited_profile_nos == (1, 2, 3), "the numbers and counts still stand"
+    assert backfilled.invited == (
+        InvitedProfile(profile_no=3, display_name="Profile 3", major="Alpha"),
+    )
+    assert (backfilled.invited[0].rank, backfilled.invited[0].marker) == (None, None)
+    assert backfilled.invited[0].reason is None
 
 
 def test_a_second_run_is_refused_with_the_specs_own_sentence(
@@ -441,19 +583,28 @@ def test_one_team_may_run_both_rounds_and_another_team_the_same_event(
     assert other is not None
 
 
-def test_a_run_for_an_event_in_another_data_file_is_refused_as_one_sentence(
+def test_a_run_that_names_another_data_file_is_refused_as_one_sentence(
     exercise_sessions: sessionmaker[Session],
 ) -> None:
-    """The composite foreign key, scrubbed: one sentence, no driver text."""
+    """The composite foreign key, scrubbed: one sentence, no driver text.
+
+    A team on one data file, written against another whose event is open. It
+    used to be an event key in no file; since the write reads the lock itself
+    (review round 2), that is refused as locked before any insert.
+    """
     results = ExerciseResultsRepository()
     with exercise_sessions() as session:
-        dataset_id, (workspace_id, _) = _classroom(session)
+        _, (workspace_id, _) = _classroom(session)
+        other_dataset_id, _ = _classroom(session)
 
         with pytest.raises(ExerciseResultsWriteRefused) as refused:
+            _record(results, session, dataset_id=other_dataset_id, workspace_id=workspace_id)
+        session.rollback()
+        with pytest.raises(ResultsLockedError):
             _record(
                 results,
                 session,
-                dataset_id=dataset_id,
+                dataset_id=other_dataset_id,
                 workspace_id=workspace_id,
                 event_key="not-in-this-file",
             )
@@ -1040,6 +1191,61 @@ def test_a_results_write_takes_only_the_results_key(
         )
         writing.commit()
         assert _try_key(probe, RESULT_RUN_LOCK_KEY) is True, "committing releases it"
+
+
+def test_a_run_is_refused_once_the_event_is_closed_and_stores_nothing(
+    exercise_sessions: sessionmaker[Session],
+) -> None:
+    """Review round 2: the write reads the lock itself, under the results key.
+
+    The route reads "open" once, before the rule runs. A close that commits
+    after that read is seen here, so no run lands after a close.
+    """
+    results = ExerciseResultsRepository()
+    instructor = ExerciseInstructorRepository()
+    with exercise_sessions() as session:
+        dataset_id, (ran, late) = _classroom(session)
+        _record(results, session, dataset_id=dataset_id, workspace_id=ran)
+        instructor.lock_results(session, dataset_id=dataset_id, event_key=_ROUND_ONE)
+        session.commit()
+
+        with pytest.raises(ResultsLockedError):
+            _record(results, session, dataset_id=dataset_id, workspace_id=late)
+        session.rollback()
+        with pytest.raises(AlreadyRunError):
+            _record(results, session, dataset_id=dataset_id, workspace_id=ran)
+        session.rollback()
+
+        assert results.get_run(session, workspace_id=late, event_key=_ROUND_ONE) is None
+        assert results.get_run(session, workspace_id=ran, event_key=_ROUND_ONE) is not None
+
+
+def test_a_close_waits_for_a_run_that_holds_the_results_key(
+    exercise_sessions: sessionmaker[Session],
+) -> None:
+    """The other half: a close cannot commit between a run's re-read and its insert.
+
+    ``lock_results`` takes the results key and only that key, before its row —
+    the family's order — so while it is held no run can pass its re-read, and
+    while a run holds it the close waits.
+    """
+    instructor = ExerciseInstructorRepository()
+    with exercise_sessions() as closing, exercise_sessions() as probe:
+        dataset_id, _ = _classroom(closing)
+
+        recorded = _statement_log(closing)
+        instructor.lock_results(closing, dataset_id=dataset_id, event_key=_ROUND_ONE)
+        closing.info["_stop_recording"]()
+
+        assert _try_key(probe, RESULT_RUN_LOCK_KEY) is False, "the close must hold the results key"
+        assert _try_key(probe, SAVED_SETTING_LOCK_KEY) is True
+        assert _try_key(probe, WORKSPACE_MEMBERSHIP_LOCK_KEY) is True
+        closing.commit()
+        assert _try_key(probe, RESULT_RUN_LOCK_KEY) is True, "committing releases it"
+
+    row_locks = _row_locks_at(recorded)
+    assert row_locks, "the close took no row lock at all; this fixture proves nothing"
+    assert _acquired_at(recorded, RESULT_RUN_LOCK_KEY) < min(row_locks)
 
 
 def test_a_run_takes_the_results_key_before_any_row_lock(

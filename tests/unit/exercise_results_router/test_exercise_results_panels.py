@@ -6,6 +6,8 @@ Split by topic from ``tests/unit/test_exercise_results_router.py``; see
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 from fastapi.testclient import TestClient
 from smartmatch_api.routers.exercise_results_models import (
@@ -16,16 +18,20 @@ from smartmatch_api.routers.exercise_results_models import (
 from smartmatch_domain.exercise.asking import (
     AskingChoice,
 )
+from smartmatch_domain.exercise.registry import EXERCISE_DEFAULT_WEIGHTS
 from smartmatch_domain.exercise.simulation import (
     EVENT_SEATS,
     EXISTING_SIGNUPS,
     SimulationCoefficients,
 )
+from smartmatch_persistence.exercise.results_rows import InvitedProfile
 from smartmatch_persistence.exercise.settings_repository import SavedSetting
 
 from tests.unit.exercise_results_router.support import (
     _ASKING,
     _BASE,
+    _DATASET_ID,
+    _FINAL,
     _FINAL_BODY,
     _HEADER,
     _INVITE_LIMIT,
@@ -278,3 +284,149 @@ def test_a_body_naming_anything_else_is_refused(client: TestClient) -> None:
     response = client.post(_ASKING, json={"choice": "required", "team_number": 4}, headers=_HEADER)
 
     assert response.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# A run keeps the names it invited (issue #271)
+# ---------------------------------------------------------------------------
+
+
+def _ranked_entries(client: TestClient) -> list[dict[str, object]]:
+    """The team's own list for the final setting, as its screen shows it."""
+    listed = client.get(f"{_BASE}/events/round-one/list", params={"setting": _FINAL})
+    assert listed.status_code == 200, listed.text
+    return list(listed.json()["entries"])
+
+
+_SNAPSHOT_FIELDS = (
+    "rank",
+    "profile_no",
+    "display_name",
+    "major",
+    "class_year",
+    "marker",
+    "reason",
+)
+
+
+def test_a_run_answers_with_the_names_its_list_showed_in_list_order(
+    fakes: _Fakes, client: TestClient, confirmed: SimulationCoefficients
+) -> None:
+    """The names are the ranked list's own seven fields, and nothing else."""
+    fakes.unlock("round-one")
+    listed = _ranked_entries(client)
+
+    body = client.post(_RESULTS, json=_FINAL_BODY, headers=_HEADER).json()
+
+    invited = body["invited_profiles"]
+    assert len(invited) == _INVITE_LIMIT
+    assert [set(entry) for entry in invited] == [set(_SNAPSHOT_FIELDS)] * _INVITE_LIMIT
+    assert invited == [{name: entry[name] for name in _SNAPSHOT_FIELDS} for entry in listed]
+    assert [entry["rank"] for entry in invited] == list(range(1, _INVITE_LIMIT + 1))
+    assert sorted(entry["profile_no"] for entry in invited) == body["team"]["invited_profile_nos"]
+
+
+def test_the_stored_run_keeps_the_names_and_the_four_stated_weights(
+    fakes: _Fakes, client: TestClient, confirmed: SimulationCoefficients
+) -> None:
+    fakes.unlock("round-one")
+    listed = _ranked_entries(client)
+
+    assert client.post(_RESULTS, json=_FINAL_BODY, headers=_HEADER).status_code == 201
+
+    (stored,) = fakes.results.runs.values()
+    assert [entry.display_name for entry in stored.invited] == [
+        entry["display_name"] for entry in listed
+    ]
+    assert [entry.reason for entry in stored.invited] == [entry["reason"] for entry in listed]
+    assert stored.setting_weights == dict(EXERCISE_DEFAULT_WEIGHTS)
+
+
+def test_deleting_the_saved_setting_does_not_take_the_runs_names_with_it(
+    fakes: _Fakes, client: TestClient, confirmed: SimulationCoefficients
+) -> None:
+    """Issue #271, end to end: run, delete the setting, read the results again.
+
+    The list route now refuses that setting — which is what used to turn every
+    name on the results screen into "Profile 17" — and the results still name
+    everybody, because they never ask it.
+    """
+    fakes.unlock("round-one")
+    ran = client.post(_RESULTS, json=_FINAL_BODY, headers=_HEADER).json()
+    workspace = fakes.workspaces.rows[(_DATASET_ID, 1)]
+
+    del fakes.settings.rows[(workspace.id, "round-one", _FINAL)]
+
+    gone = client.get(f"{_BASE}/events/round-one/list", params={"setting": _FINAL})
+    again = client.get(_RESULTS)
+    assert gone.status_code == 404
+    assert gone.json()["error"]["code"] == "exercise_setting_unknown"
+    assert again.status_code == 200
+    assert again.json()["invited_profiles"] == ran["invited_profiles"]
+    assert all(entry["display_name"] for entry in again.json()["invited_profiles"])
+    assert again.json()["setting_name"] == _FINAL
+
+
+def test_saving_the_setting_again_with_other_weights_does_not_change_the_runs_names(
+    fakes: _Fakes, client: TestClient, confirmed: SimulationCoefficients
+) -> None:
+    """The same name over different weights is a different list — but not this run's."""
+    fakes.unlock("round-one")
+    ran = client.post(_RESULTS, json=_FINAL_BODY, headers=_HEADER).json()
+    workspace = fakes.workspaces.rows[(_DATASET_ID, 1)]
+    major_only = {**dict.fromkeys(EXERCISE_DEFAULT_WEIGHTS, 0.0), "past_event_topic_overlap": 1.0}
+
+    fakes.settings.rows[(workspace.id, "round-one", _FINAL)] = SavedSetting(
+        event_key="round-one", name=_FINAL, weights=major_only, created_at=_WHEN
+    )
+
+    now = _ranked_entries(client)
+    again = client.get(_RESULTS).json()
+    assert [entry["profile_no"] for entry in now] != [
+        entry["profile_no"] for entry in ran["invited_profiles"]
+    ], "the re-saved setting builds a different list, or this test proves nothing"
+    assert again["invited_profiles"] == ran["invited_profiles"]
+
+
+def test_a_run_stored_before_names_were_kept_reads_back_without_inventing_any(
+    fakes: _Fakes, client: TestClient, confirmed: SimulationCoefficients
+) -> None:
+    """A backfilled row: names, and no rank, marker or reason. An older one: nothing."""
+    fakes.unlock("round-one")
+    assert client.post(_RESULTS, json=_FINAL_BODY, headers=_HEADER).status_code == 201
+    ((key, stored),) = fakes.results.runs.items()
+
+    fakes.results.runs[key] = replace(
+        stored,
+        invited=tuple(
+            InvitedProfile(profile_no=entry.profile_no, display_name=entry.display_name)
+            for entry in stored.invited
+        ),
+        setting_weights=None,
+    )
+    backfilled = client.get(_RESULTS).json()["invited_profiles"]
+    fakes.results.runs[key] = replace(stored, invited=(), setting_weights=None)
+    older = client.get(_RESULTS)
+
+    assert [entry["display_name"] for entry in backfilled] == [
+        entry.display_name for entry in stored.invited
+    ]
+    assert {(entry["rank"], entry["marker"], entry["reason"]) for entry in backfilled} == {
+        (None, None, None)
+    }
+    assert older.status_code == 200
+    assert older.json()["invited_profiles"] == []
+    assert older.json()["team"]["invited_count"] == _INVITE_LIMIT, "the counts still stand"
+
+
+def test_everybody_in_the_file_stays_counts_only(
+    fakes: _Fakes, client: TestClient, confirmed: SimulationCoefficients
+) -> None:
+    """The names sit on the response, never on a panel: the 300 stay a number."""
+    fakes.unlock("round-one")
+
+    body = client.post(_RESULTS, json=_FINAL_BODY, headers=_HEADER).json()
+
+    for panel in (body["team"], body["email_everyone"]):
+        assert "invited_profiles" not in panel
+        assert "display_name" not in str(panel)

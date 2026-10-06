@@ -54,6 +54,19 @@ export interface EventView {
   readonly target_majors: string[];
   readonly is_exercise_event: boolean;
   readonly sequence: number;
+  /**
+   * The event's short description, as the data file wrote it (#318), or
+   * `null` when the file gives none: the past events, and any file from
+   * before 2026-10-02. Printed as it is; nothing stands in for a `null`.
+   */
+  readonly description: string | null;
+  /**
+   * Whether the instructor has results for this event open right now. What to
+   * show before a press; the run route still decides. `false` for past events.
+   */
+  readonly results_open: boolean;
+  /** Whether this team has already used its one results run for this event. */
+  readonly results_run: boolean;
 }
 
 export interface EventsView {
@@ -107,6 +120,8 @@ export interface ListCompositionView {
 export interface RankedListView {
   readonly event_key: string;
   readonly event_name: string;
+  /** That event's description from the data file, or `null` (see `EventView`). */
+  readonly event_description: string | null;
   readonly invite_limit: number;
   readonly setting_name: string | null;
   readonly weights: Record<string, number>;
@@ -190,6 +205,25 @@ export interface PreviousRoundView {
   readonly created_at: string;
 }
 
+/**
+ * One name a run invited, as that team's ranked list showed it at the time —
+ * `InvitedProfileView` in `exercise_results_models.py`.
+ *
+ * Stored with the run (issues #271, #319), so it does not change when the
+ * saved setting is deleted or saved again. `rank`, `marker` and `reason` are
+ * `null` only on a run stored before names were kept with the run: they could
+ * not be rebuilt, and nothing stands in for them.
+ */
+export interface InvitedProfileView {
+  readonly rank: number | null;
+  readonly profile_no: number;
+  readonly display_name: string;
+  readonly major: string | null;
+  readonly class_year: string | null;
+  readonly marker: string | null;
+  readonly reason: string | null;
+}
+
 export interface ResultsView {
   readonly event_key: string;
   readonly event_name: string;
@@ -202,6 +236,12 @@ export interface ResultsView {
   readonly existing_signups: number;
   /** `null` in round one; a populated panel in round two. */
   readonly round_one: PreviousRoundView | null;
+  /**
+   * The people this run invited, by name, in list order — the run's own
+   * record. Optional so fixtures from before issue #271 still type-check; a
+   * server from before it sends none, and the panels fall back to numbers.
+   */
+  readonly invited_profiles?: InvitedProfileView[];
   readonly created_at: string;
 }
 
@@ -338,34 +378,72 @@ export interface TeamListView {
   readonly active_dataset_label: string | null;
 }
 
+/** One saved setting: its four stated weights and the list of names it builds now. */
 export interface InstructorSavedSettingView {
   readonly event_key: string;
+  /** The event's label, as the data file spells it. */
+  readonly event_name: string;
+  /** 1 or 2, or `null` when the event is not one of the two rounds. */
+  readonly round: number | null;
   readonly name: string;
   readonly created_at: string;
+  /** The team's own four stated weights, by factor key. Never a score. */
+  readonly weights: Record<string, number>;
+  /** The list this setting builds right now, in order: what the team's screen shows. */
+  readonly invited: InvitedProfileView[];
 }
 
+/** One results run: who and how many. The names are the run's own record. */
 export interface ResultRunView {
   readonly event_key: string;
+  readonly event_name: string;
   readonly round: number;
   readonly setting_name: string | null;
+  /** The team no longer has a saved setting of that name; the run is unaffected. */
+  readonly setting_deleted: boolean;
+  /** The four stated weights the run's list was built with, or `null` when not recorded. */
+  readonly setting_weights: Record<string, number> | null;
   readonly invited_count: number;
   readonly signed_up_count: number;
   readonly attended_count: number;
   readonly seats_empty: number;
   readonly created_at: string;
+  /** Empty for a run stored before names were kept; the counts still stand. */
+  readonly invited: InvitedProfileView[];
+  readonly signed_up: InvitedProfileView[];
+  readonly attended: InvitedProfileView[];
 }
 
+/** `GET …/instructor/workspaces/{team_number}`: one team's whole work (issue #319). */
 export interface TeamDetailView {
   readonly team_number: number;
+  /** The way of asking the team chose, or `null` before it has chosen. */
+  readonly asking_choice: string | null;
+  /** ISO time of the team's one refresh, or `null` when it has not happened. */
+  readonly refreshed_at: string | null;
+  /** Ann's words for each factor key, to render the four numbers with. */
+  readonly factor_labels: Record<string, string>;
   readonly saved_settings: InstructorSavedSettingView[];
   readonly result_runs: ResultRunView[];
 }
 
-/** One event the teams run, and whether its results are already open. */
+/**
+ * One event the teams run, and whether its results are open right now.
+ *
+ * Three states off two timestamps (D16 amendment, 2026-10-06): never opened
+ * (both `null`), open (`unlocked`, `closed_at` `null`), closed again
+ * (`closed_at` set). `unlocked_at` is the most recent opening.
+ */
 export interface InstructorEventView {
   readonly event_key: string;
   readonly name: string;
   readonly unlocked: boolean;
+  /** ISO time results were last opened, or `null` when they never were. */
+  readonly unlocked_at: string | null;
+  /** ISO time results were closed again, or `null` while open or never opened. */
+  readonly closed_at: string | null;
+  /** The same description the teams read, or `null` (see `EventView`). */
+  readonly description: string | null;
 }
 
 /** `GET /v1/exercise/instructor/events`: the teams' data file and its events. */
@@ -379,6 +457,16 @@ export interface InstructorEventsView {
 export interface UnlockView {
   readonly event_key: string;
   readonly unlocked: boolean;
+  /** ISO time of this opening. */
+  readonly unlocked_at: string | null;
+}
+
+/** `POST …/instructor/events/{event_key}/lock`: results are closed again. */
+export interface LockView {
+  readonly event_key: string;
+  readonly unlocked: boolean;
+  /** ISO time of the close, or `null` when there was nothing open to close. */
+  readonly closed_at: string | null;
 }
 
 export interface RepointView {
@@ -638,6 +726,19 @@ export function unlockResults(eventKey: string, datasetId?: string, signal?: Abo
     `/instructor/events/${encodeURIComponent(eventKey)}/unlock`,
     { method: "POST", query: { dataset_id: datasetId }, signal },
   );
+}
+
+/**
+ * `POST /v1/exercise/instructor/events/{event_key}/lock` — close results for
+ * one event again. Nothing is deleted: teams that already ran keep their
+ * results; teams that have not are refused until the event is opened again.
+ */
+export function lockResults(eventKey: string, datasetId?: string, signal?: AbortSignal) {
+  return exerciseRequest<LockView>(`/instructor/events/${encodeURIComponent(eventKey)}/lock`, {
+    method: "POST",
+    query: { dataset_id: datasetId },
+    signal,
+  });
 }
 
 export function listTeamWorkspaces(signal?: AbortSignal) {

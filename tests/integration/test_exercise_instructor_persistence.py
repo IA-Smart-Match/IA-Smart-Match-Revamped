@@ -36,13 +36,14 @@ pytest.importorskip("sqlalchemy")
 
 import sqlalchemy as sa
 from migration_harness import alembic, connected, scratch_database
-from smartmatch_domain.exercise import EXERCISE_TEAM_NUMBERS
+from smartmatch_domain.exercise import EXERCISE_TEAM_NUMBERS, EXERCISE_WITHHELD_FIELDS
 from smartmatch_persistence.exercise import schema
 from smartmatch_persistence.exercise.instructor_repository import (
     MAX_WORKSPACE_LIST_ROWS,
     ExerciseInstructorRepository,
     ExerciseWriteRefused,
 )
+from smartmatch_persistence.exercise.results_repository import ExerciseResultsRepository
 from smartmatch_persistence.exercise.workspace_repository import (
     WORKSPACE_MEMBERSHIP_LOCK_KEY,
     ExerciseWorkspaceRepository,
@@ -342,6 +343,74 @@ def test_unlocking_twice_writes_one_row_and_moves_no_timestamp(
     assert stamp == after
 
 
+def _lock_row(session: Session) -> tuple[object, object]:
+    table = schema.exercise_result_unlock
+    row = session.execute(sa.select(table.c.unlocked_at, table.c.closed_at)).one()
+    return row.unlocked_at, row.closed_at
+
+
+def test_results_close_again_and_reopen_on_the_one_row(
+    exercise_sessions: sessionmaker[Session],
+) -> None:
+    """D16 amendment, 2026-10-06: open -> closed -> open, three states off one row.
+
+    Each write is its own transaction, so ``now()`` moves between them and the
+    timestamps can be ordered.
+    """
+    table = schema.exercise_result_unlock
+    results = ExerciseResultsRepository()
+
+    def is_open(session: Session, dataset_id: uuid.UUID) -> bool:
+        return results.results_unlocked(session, dataset_id=dataset_id, event_key=_EVENT_KEY)
+
+    with exercise_sessions() as session:
+        dataset_id = _insert_dataset(session, label="closing")
+        never_opened = REPOSITORY.lock_results(session, dataset_id=dataset_id, event_key=_EVENT_KEY)
+        session.commit()
+        rows_before = session.execute(sa.select(sa.func.count()).select_from(table)).scalar_one()
+
+        REPOSITORY.unlock_results(session, dataset_id=dataset_id, event_key=_EVENT_KEY)
+        session.commit()
+        opened_at, open_closed_at = _lock_row(session)
+        was_open = is_open(session, dataset_id)
+
+        closed = REPOSITORY.lock_results(session, dataset_id=dataset_id, event_key=_EVENT_KEY)
+        session.commit()
+        still_opened_at, closed_at = _lock_row(session)
+        was_closed = not is_open(session, dataset_id)
+        closed_again = REPOSITORY.lock_results(session, dataset_id=dataset_id, event_key=_EVENT_KEY)
+        session.commit()
+        _, closed_at_after_second_press = _lock_row(session)
+        listed_closed = REPOSITORY.list_exercise_events(session, dataset_id=dataset_id)
+
+        reopened = REPOSITORY.unlock_results(session, dataset_id=dataset_id, event_key=_EVENT_KEY)
+        session.commit()
+        reopened_at, reopened_closed_at = _lock_row(session)
+        listed_open = REPOSITORY.list_exercise_events(session, dataset_id=dataset_id)
+        rows_after = session.execute(sa.select(sa.func.count()).select_from(table)).scalar_one()
+        reopened_is_open = is_open(session, dataset_id)
+
+    assert never_opened is False, "closing an event never opened is a no-op, not an error"
+    assert rows_before == 0, "and it writes no row"
+    assert (was_open, open_closed_at) == (True, None)
+    assert (closed, closed_again) == (True, False)
+    assert was_closed
+    assert still_opened_at == opened_at, "closing moves no unlocked_at"
+    assert closed_at is not None and closed_at >= opened_at
+    assert closed_at_after_second_press == closed_at, "a second close moves no closed_at"
+    assert [(row.unlocked, row.unlocked_at, row.closed_at) for row in listed_closed] == [
+        (False, opened_at, closed_at)
+    ]
+    assert reopened is True
+    assert reopened_closed_at is None
+    assert reopened_at >= closed_at, "a reopening moves unlocked_at to the time it was done"
+    assert [(row.unlocked, row.unlocked_at, row.closed_at) for row in listed_open] == [
+        (True, reopened_at, None)
+    ]
+    assert rows_after == 1, "one row per (data file, event), whatever was pressed"
+    assert reopened_is_open
+
+
 def test_the_event_list_carries_the_unlock_row_and_only_exercise_events(
     exercise_sessions: sessionmaker[Session],
 ) -> None:
@@ -364,6 +433,7 @@ def test_the_event_list_carries_the_unlock_row_and_only_exercise_events(
                     name=name,
                     sequence=sequence,
                     is_exercise_event=is_round,
+                    description="A fictional later round." if key == "round-late" else None,
                 )
             )
         session.commit()
@@ -387,6 +457,8 @@ def test_the_event_list_carries_the_unlock_row_and_only_exercise_events(
         ("round-mid", "A middle round", False),
         ("round-late", "A later round", False),
     ]
+    # #318: the description beside each event, and nothing for one without.
+    assert [row.description for row in after] == [None, None, "A fictional later round."]
 
 
 def test_an_event_that_is_not_in_the_file_is_recognised_before_the_write(
@@ -449,25 +521,64 @@ def test_the_team_list_counts_a_teams_work_without_reading_it(
     assert rows[0].asking_choice is None
 
 
-def test_a_result_run_is_read_back_as_counts_and_never_as_profile_numbers(
+def test_a_teams_work_is_read_back_with_its_weights_and_the_names_each_run_invited(
     exercise_sessions: sessionmaker[Session],
 ) -> None:
-    """ADR-0025 D8 as a query: the arrays are counted in SQL, not fetched."""
+    """Issue #319: the instructor reads the four numbers and who, not only how many.
+
+    This test used to assert the opposite — that a run had no profile numbers
+    and a setting no weights. Ann's revisions of 2026-10-02 ask for both, so the
+    assertions are inverted on purpose, and what must still never be read is
+    asserted beside them: no identifier, no seed, nothing from a withheld column.
+    """
+    snapshot = [
+        {
+            "rank": 1,
+            "profile_no": 1,
+            "display_name": "A made-up person",
+            "major": None,
+            "class_year": None,
+            "marker": "major_only",
+            "reason": "same major; nothing else on file",
+        }
+    ]
     with exercise_sessions() as session:
         dataset_id = _insert_dataset(session, label="runs")
         workspace_id = _enter(session, dataset_id=dataset_id, team_number=6)
+        other_id = _enter(session, dataset_id=dataset_id, team_number=5)
         _give_the_team_some_work(session, dataset_id=dataset_id, workspace_id=workspace_id)
+        session.execute(
+            sa.update(schema.exercise_result_run)
+            .where(schema.exercise_result_run.c.workspace_id == workspace_id)
+            .values(invited_profiles=snapshot, setting_weights={"same_major": 0.25})
+        )
+        session.commit()
 
         runs = REPOSITORY.list_result_runs(session, workspace_id=workspace_id)
         settings = REPOSITORY.list_saved_settings(session, workspace_id=workspace_id)
+        other_runs = REPOSITORY.list_result_runs(session, workspace_id=other_id)
+        other_settings = REPOSITORY.list_saved_settings(session, workspace_id=other_id)
 
     assert [(run.invited_count, run.signed_up_count, run.attended_count) for run in runs] == [
         (1, 1, 0)
     ]
     assert runs[0].seats_empty == 52
-    assert [setting.name for setting in settings] == ["Wide net"]
-    assert not hasattr(runs[0], "invited_profile_nos")
-    assert not hasattr(settings[0], "weights")
+    assert [(entry.rank, entry.profile_no, entry.display_name) for entry in runs[0].invited] == [
+        (1, 1, "A made-up person")
+    ]
+    assert runs[0].invited[0].reason == "same major; nothing else on file"
+    assert runs[0].signed_up_profile_nos == (1,)
+    assert runs[0].attended_profile_nos == ()
+    assert runs[0].setting_weights == {"same_major": 0.25}
+    assert [(setting.name, dict(setting.weights)) for setting in settings] == [
+        ("Wide net", {"same_major": 0.25})
+    ]
+    assert (other_runs, other_settings) == ((), ()), "one team's work is not another's"
+    for value in (runs[0], settings[0], runs[0].invited[0]):
+        for forbidden in ("id", "workspace_id", "dataset_id", "seed", "email_everyone"):
+            assert not hasattr(value, forbidden), forbidden
+        for withheld in EXERCISE_WITHHELD_FIELDS:
+            assert not hasattr(value, withheld), withheld
 
 
 # ---------------------------------------------------------------------------

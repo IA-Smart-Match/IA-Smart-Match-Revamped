@@ -45,6 +45,7 @@ import {
 } from "../../../lib/exerciseClient";
 import { cn } from "../../components/ui/utils";
 import { Button, SkeletonRankedRows, SkeletonRegion } from "./desk";
+import { EventDescription } from "./EventDescription";
 import { ExerciseNotice, ExerciseScreen } from "./ExerciseScreen";
 import { ListCompositionTable } from "./ListCompositionTable";
 import { MatchingCompareView } from "./MatchingCompareView";
@@ -240,6 +241,11 @@ function EventMatching({ eventKey }: { readonly eventKey: string }): React.JSX.E
 
       {state.status !== "ready" || accessRefusal !== null ? null : (
         <div className="flex flex-col gap-ce-6 md:gap-ce-7">
+          {/*
+            #318: what the event is, at the top of its page and above the
+            sliders, in the data file's own words. Nothing when it has none.
+          */}
+          <EventDescription text={state.data.list.event_description} />
           {panelRefusal === null && listRefusal === null ? null : (
             <div className="flex flex-col gap-ce-3">
               {panelRefusal === null ? null : <ExerciseNotice message={panelRefusal} />}
