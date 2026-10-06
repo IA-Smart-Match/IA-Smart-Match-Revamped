@@ -31,6 +31,7 @@ import uuid
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import Any
 
 __all__ = [
     "InvitedProfile",
@@ -45,6 +46,7 @@ __all__ = [
     "invited_from_json",
     "panel_as_json",
     "panel_from_json",
+    "stored_run_from_row",
     "weights_as_json",
     "weights_from_json",
 ]
@@ -339,3 +341,28 @@ def weights_from_json(value: object) -> Mapping[str, float] | None:
         if isinstance(item, (int, float)) and not isinstance(item, bool)
     }
     return weights or None
+
+
+def stored_run_from_row(row: Any) -> StoredResultRun:
+    """One selected ``exercise_result_run`` row as a :class:`StoredResultRun`.
+
+    ``row`` is whatever ``results_repository._one`` selected — the eleven
+    columns it names, read here by attribute — typed loosely so this module
+    still imports no SQLAlchemy. The columns are chosen there; this is only the
+    conversion, kept beside the JSONB parsers it is made of.
+    """
+    return StoredResultRun(
+        event_key=row.event_key,
+        round=int(row.round),
+        setting_name=row.setting_name,
+        team=ResultPanel(
+            invited_profile_nos=int_tuple(row.invited_profile_nos),
+            signed_up_profile_nos=int_tuple(row.signed_up_profile_nos),
+            attended_profile_nos=int_tuple(row.attended_profile_nos),
+        ),
+        email_everyone=panel_from_json(row.email_everyone),
+        seats_empty=int(row.seats_empty),
+        created_at=row.created_at,
+        invited=invited_from_json(row.invited_profiles),
+        setting_weights=weights_from_json(row.setting_weights),
+    )

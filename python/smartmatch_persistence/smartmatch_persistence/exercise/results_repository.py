@@ -83,13 +83,10 @@ from smartmatch_persistence.exercise.results_rows import (
     StoredResultRun,
     TeamResultsState,
     WorkspaceRefreshStatus,
-    int_tuple,
     invited_as_json,
-    invited_from_json,
     panel_as_json,
-    panel_from_json,
+    stored_run_from_row,
     weights_as_json,
-    weights_from_json,
 )
 from smartmatch_persistence.exercise.schema import (
     exercise_dataset,
@@ -743,21 +740,7 @@ class ExerciseResultsRepository:
         ).one_or_none()
         if row is None:
             return None
-        return StoredResultRun(
-            event_key=row.event_key,
-            round=int(row.round),
-            setting_name=row.setting_name,
-            team=ResultPanel(
-                invited_profile_nos=int_tuple(row.invited_profile_nos),
-                signed_up_profile_nos=int_tuple(row.signed_up_profile_nos),
-                attended_profile_nos=int_tuple(row.attended_profile_nos),
-            ),
-            email_everyone=panel_from_json(row.email_everyone),
-            seats_empty=int(row.seats_empty),
-            created_at=row.created_at,
-            invited=invited_from_json(row.invited_profiles),
-            setting_weights=weights_from_json(row.setting_weights),
-        )
+        return stored_run_from_row(row)
 
     def _failure_for(
         self, error: SQLAlchemyError, *, dataset_id: uuid.UUID | None, refusal: str
