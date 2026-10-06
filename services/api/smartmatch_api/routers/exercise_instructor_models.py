@@ -551,8 +551,17 @@ def setting_view(
     )
 
 
-def run_view(row: InstructorResultRun, *, event_name: str, setting_deleted: bool) -> ResultRunView:
+def run_view(
+    row: InstructorResultRun,
+    *,
+    event_name: str,
+    setting_deleted: bool,
+    setting_weights: Mapping[str, float] | None,
+) -> ResultRunView:
     """One stored run, with the names behind its three counts.
+
+    ``setting_weights`` is the route's: the run's stored weights as four stated
+    numbers, or ``None`` for a run stored without any.
 
     ``signed_up`` and ``attended`` are the run's own invited entries, picked by
     profile number and kept in list order, so a name is described once and the
@@ -568,7 +577,7 @@ def run_view(row: InstructorResultRun, *, event_name: str, setting_deleted: bool
         round=row.round,
         setting_name=row.setting_name,
         setting_deleted=setting_deleted,
-        setting_weights=None if row.setting_weights is None else dict(row.setting_weights),
+        setting_weights=None if setting_weights is None else dict(setting_weights),
         invited_count=row.invited_count,
         signed_up_count=row.signed_up_count,
         attended_count=row.attended_count,

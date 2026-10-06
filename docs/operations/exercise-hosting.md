@@ -251,6 +251,14 @@ GRANT UPDATE ON exercise_result_unlock TO "<EXERCISE_DB_ROLE>";
 
 `DELETE` stays ungranted: closing sets a timestamp and removes no row.
 
+**Rolling back the application only, past this change, reopens every closed
+event.** The previous release's image ignores `closed_at`: it reads any row in
+`exercise_result_unlock` as open, so every closed event reads as open and a
+team that has not run can run. Before an application-only rollback, note which
+events are closed (`SELECT dataset_id, event_key FROM exercise_result_unlock
+WHERE closed_at IS NOT NULL`) and delete those rows as the table's owner, or
+accept that they are open until the new code serves again.
+
 ### Every statement, and the privilege it needs
 
 Re-derived by grepping `pg_insert`, `on_conflict_do_update`,

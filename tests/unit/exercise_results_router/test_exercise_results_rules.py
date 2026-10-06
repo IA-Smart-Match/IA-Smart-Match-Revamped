@@ -266,6 +266,37 @@ def test_closing_results_again_refuses_a_new_run_and_keeps_a_stored_one_readable
     assert kept.json()["team"] == stored.json()["team"]
 
 
+def test_a_close_that_lands_while_a_run_is_computing_still_refuses_the_run(
+    fakes: _Fakes, client: TestClient, confirmed: SimulationCoefficients
+) -> None:
+    """Review round 2: the route reads "open" once, before the rule runs.
+
+    The close here lands right after that read, as an instructor's press does
+    while a team's run is computing. The write re-reads the state under the
+    results key, so the run is refused with the same sentence and nothing is
+    stored. The real interleaving is the integration file's.
+    """
+    fakes.unlock("round-one")
+    read_open = fakes.results.results_unlocked
+
+    def open_then_closed(session: object, **where: object) -> bool:
+        answer = read_open(session, **where)  # type: ignore[arg-type]
+        fakes.lock("round-one")
+        return answer
+
+    fakes.results.results_unlocked = open_then_closed  # type: ignore[method-assign]
+
+    response = client.post(_RESULTS, json=_FINAL_BODY, headers=_HEADER)
+
+    assert response.status_code == 409
+    assert response.json()["error"] == {
+        "code": "exercise_results_locked",
+        "message": "Results for The first round are not open yet. Ask your instructor.",
+    }
+    assert "refresh" not in response.json()["error"]["message"].lower()
+    assert fakes.results.runs == {}, "a refused run must store nothing"
+
+
 def test_the_sentence_is_the_repositorys_and_is_not_restated_in_the_router() -> None:
     """One copy of the words, so a reword cannot change the spec in one place."""
     assert "already run results" not in _ROUTER_SOURCE.read_text(encoding="utf-8")

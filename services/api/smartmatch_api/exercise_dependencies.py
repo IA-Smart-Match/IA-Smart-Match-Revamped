@@ -132,6 +132,7 @@ from smartmatch_persistence.exercise.results_repository import (
     AlreadyRunError,
     ExerciseResultsRepository,
     ExerciseResultsWriteRefused,
+    ResultsLockedError,
 )
 from smartmatch_persistence.exercise.results_rows import (
     InvitedProfile,
@@ -203,6 +204,7 @@ __all__ = [
     "RefreshCandidate",
     "RefreshCounts",
     "ResultPanel",
+    "ResultsLockedError",
     "ResultsRepository",
     "SavedSetting",
     "SettingsRepository",

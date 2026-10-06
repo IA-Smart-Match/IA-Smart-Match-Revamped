@@ -66,6 +66,7 @@ from smartmatch_persistence.exercise.dataset_repository import (
 )
 from smartmatch_persistence.exercise.results_repository import (
     AlreadyRunError,
+    ResultsLockedError,
 )
 from smartmatch_persistence.exercise.settings_repository import SavedSetting
 from smartmatch_persistence.exercise.team_view_repository import TeamProfileRow
@@ -447,6 +448,9 @@ class _FakeResultsRepository:
         assert dataset_id == _DATASET_ID
         if (workspace_id, event_key) in self.runs:
             raise AlreadyRunError
+        # Read again at the write, as the real repository does under its key.
+        if (dataset_id, event_key) not in self.unlocked:
+            raise ResultsLockedError
         stored = StoredResultRun(
             event_key=event_key,
             round=round_number,
