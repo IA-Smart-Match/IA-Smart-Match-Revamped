@@ -109,6 +109,7 @@ __all__ = [
     "RefreshCandidate",
     "RefreshCounts",
     "ResultPanel",
+    "ResultsLockedError",
     "StoredResultRun",
     "TeamResultsState",
     "lock_result_runs",
@@ -215,6 +216,16 @@ class AlreadyRunError(Exception):
 
     def __init__(self, message: str = ALREADY_RUN_SENTENCE) -> None:
         super().__init__(message)
+
+
+class ResultsLockedError(Exception):
+    """A run for an event whose results are not open. Not a database failure.
+
+    Raised by :meth:`ExerciseResultsRepository.record_run` when the event was
+    closed between the route's own read and the write (D16 amendment,
+    2026-10-06). It carries no sentence: the route names the event, and the
+    words are the route's.
+    """
 
 
 def _constraint_name(error: SQLAlchemyError) -> str:
@@ -421,7 +432,7 @@ class ExerciseResultsRepository:
     ) -> StoredResultRun:
         """Store one run, or refuse a second with design spec §9's sentence.
 
-        The order of the three statements is the rule, not a style:
+        The order of the statements is the rule, not a style:
 
         1. :func:`lock_result_runs`, **first**, so a reset or a re-point cannot
            delete this team's runs between the check below and the insert. The
@@ -431,7 +442,13 @@ class ExerciseResultsRepository:
         2. Read this team's run for this event, so the ordinary second press of
            a button is answered with a sentence rather than with a constraint
            violation nobody planned for.
-        3. A plain ``INSERT``. It is still the constraint that decides: two
+        3. Read whether the event is still open (review round 2). The route
+           reads that once, before the rule runs; a close that commits in
+           between is seen here, because ``lock_results`` takes the same key
+           and so either finished before step 1 or waits for this commit.
+           Asked after step 2 for ``runnable_or_refusal``'s reason: a team
+           that has run is told so, open or closed.
+        4. A plain ``INSERT``. It is still the constraint that decides: two
            requests that both passed step 2 are serialised by the key, the
            second one's insert conflicts, and
            :meth:`_refused_or_already_run` turns that one constraint name into
@@ -465,6 +482,7 @@ class ExerciseResultsRepository:
 
         Raises:
             AlreadyRunError: For a second run on one ``(workspace, event)``.
+            ResultsLockedError: When the event's results are not open.
             ExerciseResultsWriteRefused: If the database refuses the write for
                 any other reason.
         """
@@ -472,6 +490,8 @@ class ExerciseResultsRepository:
         existing = self.get_run(session, workspace_id=workspace_id, event_key=event_key)
         if existing is not None:
             raise AlreadyRunError
+        if not self.results_unlocked(session, dataset_id=dataset_id, event_key=event_key):
+            raise ResultsLockedError
         self._execute(
             session,
             sa.insert(exercise_result_run).values(

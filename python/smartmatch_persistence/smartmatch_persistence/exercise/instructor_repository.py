@@ -448,10 +448,25 @@ class ExerciseInstructorRepository:
         never opened, or is already closed, matches no row — that is "already
         closed", not an error.
 
+        **Takes the results key first, before the row** (review round 2).
+        ``record_run`` holds that key from its own re-read of this state to its
+        commit, so a close either lands before a run's re-read, which then
+        refuses, or waits for the run to commit. Without the key a close could
+        commit between the two and a run would land after it. Third key, then
+        the row lock: the family's order, walked in
+        :data:`~smartmatch_persistence.exercise.settings_repository.SAVED_SETTING_LOCK_KEY`.
+        Through the scrubber, for :meth:`reset_workspace_children`'s reason.
+
         Returns:
             ``True`` when this call is what closed the event.
         """
         table = exercise_result_unlock
+        self._execute(
+            session,
+            sa.select(sa.func.pg_advisory_xact_lock(RESULT_RUN_LOCK_KEY)),
+            dataset_id=dataset_id,
+            refusal="The results for that event could not be closed.",
+        )
         closed = self._execute(
             session,
             sa.update(table)

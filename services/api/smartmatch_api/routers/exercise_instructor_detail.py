@@ -65,6 +65,7 @@ from smartmatch_api.exercise_dependencies import (
     ExerciseEventRow,
     ExerciseSession,
     InstructorRepository,
+    InstructorResultRun,
     InstructorSavedSetting,
     InvitedProfile,
     TeamViewRepository,
@@ -179,6 +180,7 @@ def read_team_workspace(
                     row.setting_name is not None
                     and (row.event_key, row.setting_name) not in still_saved
                 ),
+                setting_weights=_run_weights(row),
             )
             for row in runs
         ),
@@ -194,6 +196,18 @@ def _stated_weights(row: InstructorSavedSetting) -> Mapping[str, float]:
     output (ADR-0025 D8).
     """
     return effective_weights(validated(dict(row.weights)))
+
+
+def _run_weights(row: InstructorResultRun) -> Mapping[str, float] | None:
+    """A run's stored weights as four stated numbers, or ``None`` for none stored.
+
+    A run made since revision 0046 stores all four. A run backfilled by that
+    revision holds its saved setting's raw stored values, which may be fewer —
+    so it goes through :func:`_stated_weights`' two steps and reads the same.
+    """
+    if row.setting_weights is None:
+        return None
+    return effective_weights(validated(dict(row.setting_weights)))
 
 
 def _lists_by_setting(

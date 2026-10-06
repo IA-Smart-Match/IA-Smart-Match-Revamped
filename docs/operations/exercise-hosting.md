@@ -105,7 +105,7 @@ misused. Every CBA route answers 404 in this process.
 ### Never set `SMARTMATCH_EXERCISE_SEED_ON_START` on the VM
 
 `SMARTMATCH_EXERCISE_SEED_ON_START=true` makes the API store Ann's fixture file
-(`tests/fixtures/exercise/SmartMatch_Student_Body_300.xlsx`) as the active
+(`tests/fixtures/exercise/SmartMatch_Student_Body_300_10022026.xlsx`) as the active
 dataset at start-up when the database has none (CE-SEED, owner design "A",
 2026-09-25). It exists for developer machines, where every fresh database
 otherwise starts empty until someone uploads by hand. On the VM the instructor
@@ -250,6 +250,14 @@ GRANT UPDATE ON exercise_result_unlock TO "<EXERCISE_DB_ROLE>";
 ```
 
 `DELETE` stays ungranted: closing sets a timestamp and removes no row.
+
+**Rolling back the application only, past this change, reopens every closed
+event.** The previous release's image ignores `closed_at`: it reads any row in
+`exercise_result_unlock` as open, so every closed event reads as open and a
+team that has not run can run. Before an application-only rollback, note which
+events are closed (`SELECT dataset_id, event_key FROM exercise_result_unlock
+WHERE closed_at IS NOT NULL`) and delete those rows as the table's owner, or
+accept that they are open until the new code serves again.
 
 ### Every statement, and the privilege it needs
 

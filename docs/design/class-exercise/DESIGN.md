@@ -1167,6 +1167,7 @@ labels and the license line are unchanged and not listed.
 | Instructor, close confirm (#326) | "Close results for Northline Analytics? Teams that have not run results yet cannot run them until you open results again. Results already run stay on each team's screen." / "Close results now" / "Keep them open" |
 | Instructor, close confirm in progress (#326) | "Closing…" |
 | Instructor, a close the database refused (#326; server sentence, shown at the top of the page) | "The results for that event could not be closed." |
+| Instructor, an open or a close asked for a past event (#326 review; the server's existing sentence for a team's run on a past event, reachable only by a hand-written request — the panel lists the two rounds) | "Results are only run for the two rounds of the exercise." |
 | Instructor, a team's way of asking and whether it has asked (2026-10-06, #319; the page's existing words, with the time added) | "Way of asking: A small reward. Asked at 10:42 AM." / "Way of asking: A small reward. Has not asked yet." / "Has not picked a way of asking. Has not asked yet." / "Way of asking: A small reward. Has already asked." (when the time cannot be read) |
 | Instructor, a team's opened work, headings (#319) | "Saved settings" / "Results" |
 | Instructor, a team's opened work, which event (#319) | "Round 1 · Northline Analytics: Behind the Business" |

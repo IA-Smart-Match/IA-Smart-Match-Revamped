@@ -28,7 +28,7 @@ from smartmatch_api.exercise_seed import (
 )
 from smartmatch_domain.exercise import EXERCISE_WITHHELD_FIELDS
 
-from tests.unit.exercise_workbooks import ANN_FULL_FILE
+from tests.unit.exercise_workbooks import ANN_OCT02_FILE
 
 _LOCAL_URL = "postgresql+psycopg://smartmatch:smartmatch@localhost:5432/smartmatch"
 
@@ -72,7 +72,7 @@ def test_the_flag_is_off_by_default() -> None:
 
 
 def test_the_default_seed_file_is_anns_fixture() -> None:
-    assert DEFAULT_SEED_FILE == ANN_FULL_FILE
+    assert DEFAULT_SEED_FILE == ANN_OCT02_FILE
     assert DEFAULT_SEED_FILE.is_file()
 
 

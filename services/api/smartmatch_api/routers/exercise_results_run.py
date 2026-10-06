@@ -60,6 +60,7 @@ from smartmatch_api.exercise_dependencies import (
     ExerciseWorkspace,
     InvitedProfile,
     ResultPanel,
+    ResultsLockedError,
     ResultsRepository,
     SettingsRepository,
     StoredResultRun,
@@ -88,6 +89,7 @@ __all__ = [
     "invited_list",
     "invited_snapshot",
     "locked_sentence",
+    "not_a_round",
     "round_or_refusal",
     "run_the_rule",
     "runnable_or_refusal",
@@ -109,12 +111,21 @@ def round_or_refusal(events: Sequence[ExerciseEventRow], event_key: str) -> int:
     """
     number = round_of(events, event_key)
     if number is None:
-        raise ExerciseError(
-            status_code=status.HTTP_409_CONFLICT,
-            code="exercise_event_is_not_a_round",
-            message="Results are only run for the two rounds of the exercise.",
-        )
+        raise not_a_round()
     return number
+
+
+def not_a_round() -> ExerciseError:
+    """The refusal for an event that is in the file and is not a round.
+
+    Written once: a team's run and the instructor's open or close of a past
+    event are the same mistake, and are answered with the same sentence.
+    """
+    return ExerciseError(
+        status_code=status.HTTP_409_CONFLICT,
+        code="exercise_event_is_not_a_round",
+        message="Results are only run for the two rounds of the exercise.",
+    )
 
 
 def coefficients_or_refusal() -> SimulationCoefficients:
@@ -345,7 +356,12 @@ def store(
     invited: Sequence[InvitedProfile],
     weights: Mapping[str, float],
 ) -> StoredResultRun:
-    """Write the run, turning the repository's two refusals into two sentences.
+    """Write the run, turning each of the repository's refusals into a sentence.
+
+    "Locked" can still be the answer here, after :func:`runnable_or_refusal`
+    passed: that read is taken before the rule runs, and the repository reads
+    the state again under its advisory key (review round 2), so a close that
+    lands in between refuses the run with the same sentence.
 
     ``invited`` and ``weights`` are stored beside the run (revision 0046): the
     names its list showed, and the four **stated** weights it was built with
@@ -369,6 +385,8 @@ def store(
         )
     except AlreadyRunError:
         raise already_run() from None
+    except ResultsLockedError:
+        raise _locked(event.name) from None
     except ExerciseResultsWriteRefused as error:
         raise ExerciseError(
             status_code=status.HTTP_409_CONFLICT,
@@ -387,6 +405,15 @@ def locked_sentence(event_name: str) -> str:
     way the instructor is who opens it.
     """
     return f"Results for {event_name} are not open yet. Ask your instructor."
+
+
+def _locked(event_name: str) -> ExerciseError:
+    """The locked refusal, written once and raised from two places."""
+    return ExerciseError(
+        status_code=status.HTTP_409_CONFLICT,
+        code="exercise_results_locked",
+        message=locked_sentence(event_name),
+    )
 
 
 def already_run() -> ExerciseError:
@@ -452,11 +479,7 @@ def runnable_or_refusal(
     if not results.results_unlocked(
         session, dataset_id=workspace.dataset_id, event_key=event.event_key
     ):
-        raise ExerciseError(
-            status_code=status.HTTP_409_CONFLICT,
-            code="exercise_results_locked",
-            message=locked_sentence(event.name),
-        )
+        raise _locked(event.name)
     return events, event, round_number
 
 

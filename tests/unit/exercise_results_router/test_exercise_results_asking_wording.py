@@ -54,22 +54,39 @@ def _literal(node: ast.expr) -> str | None:
     return None
 
 
+def _returned_by_sentence_helper(node: ast.AST) -> Iterator[ast.expr]:
+    """What a ``*_sentence`` function returns: a sentence built by a helper.
+
+    ``message=locked_sentence(event.name)`` is a call, not a literal, so the
+    keyword scan alone never read those words (review round 2).
+    """
+    if isinstance(node, ast.FunctionDef) and node.name.endswith("_sentence"):
+        for inner in ast.walk(node):
+            if isinstance(inner, ast.Return) and inner.value is not None:
+                yield inner.value
+
+
+def _sentence_nodes(node: ast.AST) -> Iterator[ast.expr]:
+    if isinstance(node, ast.Call):
+        yield from (kw.value for kw in node.keywords if kw.arg in _SENTENCE_KEYWORDS)
+    yield from _returned_by_sentence_helper(node)
+
+
 def _sentences() -> Iterator[tuple[str, str]]:
     for path in _exercise_sources():
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-            if not isinstance(node, ast.Call):
-                continue
-            for keyword in node.keywords:
-                if keyword.arg in _SENTENCE_KEYWORDS:
-                    text = _literal(keyword.value)
-                    if text is not None:
-                        yield f"{path.name}:{keyword.value.lineno}", text
+            for value in _sentence_nodes(node):
+                text = _literal(value)
+                if text is not None:
+                    yield f"{path.name}:{value.lineno}", text
 
 
 def test_the_scan_reads_the_sentences_it_guards() -> None:
     found = dict(_sentences())
     assert len(found) > 20
     assert "Your team has already asked the people it invited." in found.values()
+    # A helper's sentence, with the event's name left out of the f-string.
+    assert "Results for  are not open yet. Ask your instructor." in found.values()
 
 
 def test_no_exercise_sentence_says_refresh() -> None:

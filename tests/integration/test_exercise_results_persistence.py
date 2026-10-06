@@ -45,6 +45,7 @@ from smartmatch_persistence.exercise.results_repository import (
     AlreadyRunError,
     ExerciseResultsRepository,
     ExerciseResultsWriteRefused,
+    ResultsLockedError,
 )
 from smartmatch_persistence.exercise.results_rows import InvitedProfile, ResultPanel
 from smartmatch_persistence.exercise.settings_repository import (
@@ -196,8 +197,14 @@ def _overlay_goals(session: Session, *, workspace_id: uuid.UUID) -> dict[int, st
     }
 
 
-def _classroom(session: Session, *, teams: int = 2) -> tuple[uuid.UUID, list[uuid.UUID]]:
-    """A data file, its two rounds, three profiles and ``teams`` workspaces on it."""
+def _classroom(
+    session: Session, *, teams: int = 2, open_: bool = True
+) -> tuple[uuid.UUID, list[uuid.UUID]]:
+    """A data file, its two rounds, three profiles and ``teams`` workspaces on it.
+
+    Both rounds are open unless ``open_`` is false: ``record_run`` reads the
+    lock itself (review round 2), so a classroom that can run is an open one.
+    """
     dataset_id = _insert_dataset(session, label="results")
     _insert_events(session, dataset_id=dataset_id)
     _insert_profiles(session, dataset_id=dataset_id)
@@ -208,6 +215,10 @@ def _classroom(session: Session, *, teams: int = 2) -> tuple[uuid.UUID, list[uui
         ).id
         for number in range(1, teams + 1)
     ]
+    for event_key in (_ROUND_ONE, _ROUND_TWO) if open_ else ():
+        ExerciseInstructorRepository().unlock_results(
+            session, dataset_id=dataset_id, event_key=event_key
+        )
     session.commit()
     return dataset_id, workspaces
 
@@ -252,7 +263,7 @@ def test_an_event_is_locked_until_the_instructor_unlocks_it(
     results = ExerciseResultsRepository()
     instructor = ExerciseInstructorRepository()
     with exercise_sessions() as session:
-        dataset_id, _ = _classroom(session)
+        dataset_id, _ = _classroom(session, open_=False)
 
         assert results.results_unlocked(session, dataset_id=dataset_id, event_key=_ROUND_ONE) is (
             False
@@ -572,19 +583,28 @@ def test_one_team_may_run_both_rounds_and_another_team_the_same_event(
     assert other is not None
 
 
-def test_a_run_for_an_event_in_another_data_file_is_refused_as_one_sentence(
+def test_a_run_that_names_another_data_file_is_refused_as_one_sentence(
     exercise_sessions: sessionmaker[Session],
 ) -> None:
-    """The composite foreign key, scrubbed: one sentence, no driver text."""
+    """The composite foreign key, scrubbed: one sentence, no driver text.
+
+    A team on one data file, written against another whose event is open. It
+    used to be an event key in no file; since the write reads the lock itself
+    (review round 2), that is refused as locked before any insert.
+    """
     results = ExerciseResultsRepository()
     with exercise_sessions() as session:
-        dataset_id, (workspace_id, _) = _classroom(session)
+        _, (workspace_id, _) = _classroom(session)
+        other_dataset_id, _ = _classroom(session)
 
         with pytest.raises(ExerciseResultsWriteRefused) as refused:
+            _record(results, session, dataset_id=other_dataset_id, workspace_id=workspace_id)
+        session.rollback()
+        with pytest.raises(ResultsLockedError):
             _record(
                 results,
                 session,
-                dataset_id=dataset_id,
+                dataset_id=other_dataset_id,
                 workspace_id=workspace_id,
                 event_key="not-in-this-file",
             )
@@ -1171,6 +1191,61 @@ def test_a_results_write_takes_only_the_results_key(
         )
         writing.commit()
         assert _try_key(probe, RESULT_RUN_LOCK_KEY) is True, "committing releases it"
+
+
+def test_a_run_is_refused_once_the_event_is_closed_and_stores_nothing(
+    exercise_sessions: sessionmaker[Session],
+) -> None:
+    """Review round 2: the write reads the lock itself, under the results key.
+
+    The route reads "open" once, before the rule runs. A close that commits
+    after that read is seen here, so no run lands after a close.
+    """
+    results = ExerciseResultsRepository()
+    instructor = ExerciseInstructorRepository()
+    with exercise_sessions() as session:
+        dataset_id, (ran, late) = _classroom(session)
+        _record(results, session, dataset_id=dataset_id, workspace_id=ran)
+        instructor.lock_results(session, dataset_id=dataset_id, event_key=_ROUND_ONE)
+        session.commit()
+
+        with pytest.raises(ResultsLockedError):
+            _record(results, session, dataset_id=dataset_id, workspace_id=late)
+        session.rollback()
+        with pytest.raises(AlreadyRunError):
+            _record(results, session, dataset_id=dataset_id, workspace_id=ran)
+        session.rollback()
+
+        assert results.get_run(session, workspace_id=late, event_key=_ROUND_ONE) is None
+        assert results.get_run(session, workspace_id=ran, event_key=_ROUND_ONE) is not None
+
+
+def test_a_close_waits_for_a_run_that_holds_the_results_key(
+    exercise_sessions: sessionmaker[Session],
+) -> None:
+    """The other half: a close cannot commit between a run's re-read and its insert.
+
+    ``lock_results`` takes the results key and only that key, before its row —
+    the family's order — so while it is held no run can pass its re-read, and
+    while a run holds it the close waits.
+    """
+    instructor = ExerciseInstructorRepository()
+    with exercise_sessions() as closing, exercise_sessions() as probe:
+        dataset_id, _ = _classroom(closing)
+
+        recorded = _statement_log(closing)
+        instructor.lock_results(closing, dataset_id=dataset_id, event_key=_ROUND_ONE)
+        closing.info["_stop_recording"]()
+
+        assert _try_key(probe, RESULT_RUN_LOCK_KEY) is False, "the close must hold the results key"
+        assert _try_key(probe, SAVED_SETTING_LOCK_KEY) is True
+        assert _try_key(probe, WORKSPACE_MEMBERSHIP_LOCK_KEY) is True
+        closing.commit()
+        assert _try_key(probe, RESULT_RUN_LOCK_KEY) is True, "committing releases it"
+
+    row_locks = _row_locks_at(recorded)
+    assert row_locks, "the close took no row lock at all; this fixture proves nothing"
+    assert _acquired_at(recorded, RESULT_RUN_LOCK_KEY) < min(row_locks)
 
 
 def test_a_run_takes_the_results_key_before_any_row_lock(

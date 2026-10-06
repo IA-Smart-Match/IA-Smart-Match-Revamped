@@ -128,6 +128,7 @@ from smartmatch_api.routers.exercise_instructor_models import (
     report_view,
     team_view,
 )
+from smartmatch_api.routers.exercise_results_run import not_a_round
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -478,8 +479,11 @@ def _change_lock(
     One body for both routes so the file resolution, the unknown-event sentence
     and the commit cannot drift apart between them. The row comes back from the
     same read the panel's list uses, so the time a press answers with is the
-    time a reload will show. ``None`` for a past event: it has no place on that
-    list, and its lock opens nothing a team can run.
+    time a reload will show.
+
+    A past event is refused **before any write** (review round 2): it has no
+    place on that list and its lock opens nothing a team can run, so writing
+    one and answering "unlocked" with no time said something untrue.
     """
     dataset = _teams_dataset(instructor, session, requested=requested)
     if not instructor.event_exists(session, dataset_id=dataset.dataset_id, event_key=event_key):
@@ -488,6 +492,9 @@ def _change_lock(
             code="exercise_event_unknown",
             message="That event is not in the data file the teams are working in.",
         )
+    rounds = instructor.list_exercise_events(session, dataset_id=dataset.dataset_id)
+    if all(row.event_key != event_key for row in rounds):
+        raise not_a_round()
     write = instructor.unlock_results if open_ else instructor.lock_results
     try:
         changed = write(session, dataset_id=dataset.dataset_id, event_key=event_key)

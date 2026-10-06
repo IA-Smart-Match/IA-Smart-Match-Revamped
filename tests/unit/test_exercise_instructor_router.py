@@ -33,10 +33,11 @@ from __future__ import annotations
 import uuid
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, get_args
 
 import pytest
 from fastapi import FastAPI
+from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 from pydantic import BaseModel
 from smartmatch_api.config import Settings, require_exercise_workspace_secret
@@ -74,6 +75,7 @@ from smartmatch_api.routers import (
 )
 from smartmatch_domain.exercise import EXERCISE_WITHHELD_FIELDS
 from smartmatch_domain.exercise.instructor_session import mint_instructor_session
+from smartmatch_domain.exercise.registry import EXERCISE_DEFAULT_WEIGHTS
 from smartmatch_domain.exercise.workspace_token import derive_workspace_token
 from smartmatch_persistence.exercise.dataset_repository import ExerciseEventRow
 from smartmatch_persistence.exercise.instructor_repository import (
@@ -384,7 +386,7 @@ class _FakeInstructorRepository:
 
     def event_exists(self, _session: object, *, dataset_id: uuid.UUID, event_key: str) -> bool:
         known = {_DATASET_ID, _TEAMS_DATASET_ID}
-        return dataset_id in known and event_key == _EVENT_KEY
+        return dataset_id in known and event_key in {_EVENT_KEY, _PAST_EVENT.event_key}
 
     def set_invite_limit(
         self, _session: object, *, dataset_id: uuid.UUID, invite_limit: int
@@ -1336,6 +1338,31 @@ def test_unlocking_an_event_that_is_not_in_the_file_is_one_sentence(
     )
 
 
+@pytest.mark.parametrize("action", ["unlock", "lock"])
+def test_opening_or_closing_a_past_event_is_refused_and_writes_nothing(
+    signed_in: TestClient, state: dict[str, Any], action: str
+) -> None:
+    """Review round 2: a past event is in the file and is not a round.
+
+    The write used to happen and the answer said "unlocked" with no time,
+    for a lock that opens nothing a team can run. Refused before any write,
+    with the sentence a team reads for the same mistake.
+    """
+    response = signed_in.post(
+        f"/v1/exercise/instructor/events/{_PAST_EVENT.event_key}/{action}",
+        headers={EXERCISE_REQUEST_HEADER: "1"},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["error"] == {
+        "code": "exercise_event_is_not_a_round",
+        "message": "Results are only run for the two rounds of the exercise.",
+    }
+    assert state["instructor"].unlocked == []
+    assert state["instructor"].opened_at == {}
+    assert state["session"].commits == 0
+
+
 def test_the_instructor_lists_the_teams_events_without_a_team_cookie(
     signed_in: TestClient,
 ) -> None:
@@ -1572,6 +1599,27 @@ def test_a_runs_names_do_not_depend_on_the_saved_setting_still_existing(
     assert _names(run["invited"]) == ["Cam Ellis", "Avery Brooks", "Bao Nguyen"]
     assert run["setting_weights"] == _MAJOR_ONLY
     assert state["team_view"].reads == 0, "nothing saved: no list to build, no profile read"
+
+
+def test_a_run_stored_with_fewer_weights_still_shows_four_numbers(
+    signed_in: TestClient, state: dict[str, Any]
+) -> None:
+    """Review round 2: a backfilled run holds the setting's raw stored overrides.
+
+    Revision 0046 copied what the saved setting had, which may be fewer than
+    four keys; a new run stores all four. Shown the same way either way: the
+    stated values over the equal defaults, as a saved setting is.
+    """
+    state["instructor"].result_runs = (_run(setting_weights={"same_major": 0.6}),)
+
+    (run,) = signed_in.get(_DETAIL).json()["result_runs"]
+
+    assert run["setting_weights"] == {
+        "same_major": 0.6,
+        "stated_interest_overlap": 0.25,
+        "career_goal_fit": 0.25,
+        "past_event_topic_overlap": 0.25,
+    }
 
 
 def test_a_run_stored_before_names_were_kept_answers_counts_and_no_invented_names(
@@ -1839,7 +1887,7 @@ _REFUSED_FIELD_NAMES = (
 #: substring ban can no longer state the rule. It is replaced, not dropped, by
 #: :data:`_ALLOWED_WEIGHT_FIELDS` and the test beside it, which is stricter:
 #: it names the only two weight-shaped fields these models may have.
-_SCORE_SHAPED = ("score", "percent", "confidence", "probability")
+_SCORE_SHAPED = ("score", "percent", "confidence", "probability", "likelihood", "share")
 
 #: The only fields on the instructor's responses whose name contains
 #: ``weight``, as ``(model, field)``. Both are a team's own four **stated**
@@ -1966,6 +2014,77 @@ def test_no_instructor_model_nested_or_not_carries_a_refused_or_score_shaped_nam
         if name in _REFUSED_FIELD_NAMES or any(shape in name.lower() for shape in _SCORE_SHAPED)
     ]
     assert offenders == []
+
+
+def _models_under(annotation: Any, found: set[type[BaseModel]]) -> None:
+    """Every model an annotation can hold, through unions, tuples and fields."""
+    if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+        if annotation in found:
+            return
+        found.add(annotation)
+        for field in annotation.model_fields.values():
+            _models_under(field.annotation, found)
+        return
+    for argument in get_args(annotation):
+        _models_under(argument, found)
+
+
+def _models_the_instructor_routes_serve() -> set[type[BaseModel]]:
+    """Read off the routers the exercise process really mounts, not a module list."""
+    found: set[type[BaseModel]] = set()
+    for router in routers_for(_settings()):
+        for route in router.routes:
+            if isinstance(route, APIRoute) and route.path.startswith("/v1/exercise/instructor"):
+                _models_under(route.response_model, found)
+    return found
+
+
+def test_no_model_an_instructor_route_can_serve_carries_a_score_shaped_name() -> None:
+    """The walk from the routes themselves, rather than from a list of modules.
+
+    Review round 2. The walks above read the modules this file names, so a
+    model nested under a ``response_model`` from a module nobody listed would
+    go unread. This one starts at every instructor route's ``response_model``
+    and follows each field's annotation to a fixed point.
+    """
+    served = _models_the_instructor_routes_serve()
+    assert {"TeamDetailView", "ResultRunView", "SavedSettingView", "InstructorEventsView"} <= {
+        model.__name__ for model in served
+    }, "the walk stopped following annotations"
+
+    offenders = [
+        (model.__name__, name)
+        for model in sorted(served, key=lambda model: model.__name__)
+        for name in model.model_fields
+        if name in EXERCISE_WITHHELD_FIELDS or any(shape in name.lower() for shape in _SCORE_SHAPED)
+    ]
+    assert offenders == []
+
+
+def test_the_weights_on_the_wire_name_the_four_factors_and_nothing_else(
+    signed_in: TestClient, state: dict[str, Any]
+) -> None:
+    """``dict[str, float]`` is an open map in the schema; the wire is what closes it.
+
+    A team's own four stated weights are the carved exception to D8. A fifth
+    key — a normalized weight, a total, a rank — would be an output riding in
+    on an input's field.
+    """
+    state["instructor"].saved_settings = (
+        InstructorSavedSetting(
+            event_key=_EVENT_KEY, name="One slider", created_at=_WHEN, weights={"same_major": 0.6}
+        ),
+    )
+    state["instructor"].result_runs = (_run(), _run(round=2, setting_weights={"same_major": 0.6}))
+
+    body = signed_in.get(_DETAIL).json()
+
+    maps = [setting["weights"] for setting in body["saved_settings"]]
+    maps += [run["setting_weights"] for run in body["result_runs"]]
+    assert len(maps) == 3
+    for weights in maps:
+        assert set(weights) <= set(EXERCISE_DEFAULT_WEIGHTS), weights
+        assert set(weights) == set(body["factor_labels"]), weights
 
 
 def test_the_team_detail_names_no_identifier_seed_or_withheld_value(
