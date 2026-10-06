@@ -682,6 +682,32 @@ open"); the team-side lock panel keeps its own chip (6.14). After either
 change lands, focus goes to the event's name and never to the opposite action,
 so a repeated Enter cannot undo what was just done.
 
+**Team row, opened — amended 2026-10-06 (issue #319).** "Open this team's
+work" used to list the names of a team's saved settings and one line of counts
+per run. Ann's revisions of 2026-10-02: the instructor leads the discussion
+from this page and needs the whole team. The opened view sits in the same sunk
+well, in this order:
+
+1. One status line: the way of asking the team chose and whether it has
+   asked, with the time ("Way of asking: A small reward. Asked at 10:42 AM.").
+2. **Saved settings.** Per setting: its name; "Round 1 · {event}"; **the four
+   numbers** as a two-column `dl` under Ann's words for the four factors
+   (never a factor key, never a score); and **"Its list (30)"** — the names
+   that setting builds now, an ordered list, each name followed by major,
+   year and the "how much we know" marker in words.
+3. **Results.** Per run: "Round 1 · {event}"; the setting it was built from,
+   and a sentence when that setting has been deleted since; the four numbers
+   the run used; the D8 seats sentence; then "Invited (30)", "Signed up (14)"
+   and "Attended (11)" as three lists of names.
+
+Each list is a native `<details>`, open by default, so thirty names can be
+folded away on a small screen without a pop-up. A run's names are the run's own
+record (issue #271): they do not change when the team edits or deletes the
+setting. A run stored before names were kept shows its counts and the line
+"Names were not kept for this run."; nothing is filled in, and names without a
+rank are a plain list, not a numbered one. Marking is in words, never colour
+alone (§8).
+
 ## 7. Page layouts
 
 Routes and file names are the current ones. Wireframes are schematic.
@@ -948,6 +974,16 @@ labels and the license line are unchanged and not listed.
 | Instructor, close button (#326) | "Close results" |
 | Instructor, close confirm (#326) | "Close results for Northline Analytics? Teams that have not run results yet cannot run them until you open results again. Results already run stay on each team's screen." / "Close results now" / "Keep them open" |
 | Instructor, close confirm in progress (#326) | "Closing…" |
+| Instructor, a team's way of asking and whether it has asked (2026-10-06, #319; the page's existing words, with the time added) | "Way of asking: A small reward. Asked at 10:42 AM." / "Way of asking: A small reward. Has not asked yet." / "Has not picked a way of asking. Has not asked yet." / "Way of asking: A small reward. Has already asked." (when the time cannot be read) |
+| Instructor, a team's opened work, headings (#319) | "Saved settings" / "Results" |
+| Instructor, a team's opened work, which event (#319) | "Round 1 · Northline Analytics: Behind the Business" |
+| Instructor, a team's opened work, list headings with their counts (#319) | "Its list (30)" / "Invited (30)" / "Signed up (14)" / "Attended (11)" |
+| Instructor, one name on a list (#319; major, year and marker as on file) | "Brandon Soto — Accounting, Senior, completed card" |
+| Instructor, a team's opened work, nothing there (#319) | "No saved settings yet." / "No results run yet." / "Nobody on this list." / "Nobody." |
+| Instructor, which setting a run was built from (#319) | "Built from the setting “Wide net”." / "Built without a saved setting." |
+| Instructor, a run whose setting was deleted afterwards (#319, #271) | "Built from the setting “Wide net”. The team has deleted that setting since; this run is unchanged." |
+| Instructor, a run's counts (#319; D8 wording, kept) | "Invited 30, signed up 14, attended 11. 46 seats are still open." |
+| Instructor, a run stored before names were kept (#319, #271) | "Names were not kept for this run." |
 | Instructor, upload in progress | "Uploading and checking the file…" |
 | Instructor, upload done (#325; composed on the page from the server's file name and counts) | "SmartMatch_Student_Body_300.xlsx — 300 profiles, 12 events loaded." |
 | Instructor, upload refused (#325; the server's sentence, now sent without backticks) | "The Events sheet is missing the column seats." |

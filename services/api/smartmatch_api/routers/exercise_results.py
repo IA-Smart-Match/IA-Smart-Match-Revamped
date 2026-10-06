@@ -209,7 +209,10 @@ def run_results(
 
     The answer carries three panels: your team's list, everybody in the data
     file through the same rule with the same seed, and — in round two — your
-    team's stored round-one result.
+    team's stored round-one result. It also carries the people your list
+    invited, by name, as the list showed them at this moment; they are stored
+    with the run, so deleting or changing the saved setting afterwards does not
+    change who it says you invited.
 
     The rule the answer comes from is written in plain words in
     ``smartmatch_domain/exercise/simulation.py`` and is the statement the course
@@ -241,7 +244,7 @@ def run_results(
     final_setting = final_setting_or_refusal(payload.setting_name)
     coefficients = coefficients_or_refusal()
     team_state = _team_state_or_refusal(session, results, workspace)
-    profiles, invited, setting_name = invited_list(
+    profiles, invited, setting_name, weights = invited_list(
         session,
         datasets=datasets,
         team_view=team_view,
@@ -257,7 +260,7 @@ def run_results(
         profiles=profiles,
         event=event,
         workspace=workspace,
-        invited=invited,
+        invited=[entry.profile_no for entry in invited],
         seed=team_state.seed,
         coefficients=coefficients,
     )
@@ -270,6 +273,8 @@ def run_results(
         setting_name=setting_name,
         team=team,
         everyone=everyone,
+        invited=invited,
+        weights=weights,
     )
     session.commit()
     return stored_results_view(

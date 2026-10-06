@@ -36,7 +36,7 @@ pytest.importorskip("sqlalchemy")
 
 import sqlalchemy as sa
 from migration_harness import alembic, connected, scratch_database
-from smartmatch_domain.exercise import EXERCISE_TEAM_NUMBERS
+from smartmatch_domain.exercise import EXERCISE_TEAM_NUMBERS, EXERCISE_WITHHELD_FIELDS
 from smartmatch_persistence.exercise import schema
 from smartmatch_persistence.exercise.instructor_repository import (
     MAX_WORKSPACE_LIST_ROWS,
@@ -521,25 +521,64 @@ def test_the_team_list_counts_a_teams_work_without_reading_it(
     assert rows[0].asking_choice is None
 
 
-def test_a_result_run_is_read_back_as_counts_and_never_as_profile_numbers(
+def test_a_teams_work_is_read_back_with_its_weights_and_the_names_each_run_invited(
     exercise_sessions: sessionmaker[Session],
 ) -> None:
-    """ADR-0025 D8 as a query: the arrays are counted in SQL, not fetched."""
+    """Issue #319: the instructor reads the four numbers and who, not only how many.
+
+    This test used to assert the opposite — that a run had no profile numbers
+    and a setting no weights. Ann's revisions of 2026-10-02 ask for both, so the
+    assertions are inverted on purpose, and what must still never be read is
+    asserted beside them: no identifier, no seed, nothing from a withheld column.
+    """
+    snapshot = [
+        {
+            "rank": 1,
+            "profile_no": 1,
+            "display_name": "A made-up person",
+            "major": None,
+            "class_year": None,
+            "marker": "major_only",
+            "reason": "same major; nothing else on file",
+        }
+    ]
     with exercise_sessions() as session:
         dataset_id = _insert_dataset(session, label="runs")
         workspace_id = _enter(session, dataset_id=dataset_id, team_number=6)
+        other_id = _enter(session, dataset_id=dataset_id, team_number=5)
         _give_the_team_some_work(session, dataset_id=dataset_id, workspace_id=workspace_id)
+        session.execute(
+            sa.update(schema.exercise_result_run)
+            .where(schema.exercise_result_run.c.workspace_id == workspace_id)
+            .values(invited_profiles=snapshot, setting_weights={"same_major": 0.25})
+        )
+        session.commit()
 
         runs = REPOSITORY.list_result_runs(session, workspace_id=workspace_id)
         settings = REPOSITORY.list_saved_settings(session, workspace_id=workspace_id)
+        other_runs = REPOSITORY.list_result_runs(session, workspace_id=other_id)
+        other_settings = REPOSITORY.list_saved_settings(session, workspace_id=other_id)
 
     assert [(run.invited_count, run.signed_up_count, run.attended_count) for run in runs] == [
         (1, 1, 0)
     ]
     assert runs[0].seats_empty == 52
-    assert [setting.name for setting in settings] == ["Wide net"]
-    assert not hasattr(runs[0], "invited_profile_nos")
-    assert not hasattr(settings[0], "weights")
+    assert [(entry.rank, entry.profile_no, entry.display_name) for entry in runs[0].invited] == [
+        (1, 1, "A made-up person")
+    ]
+    assert runs[0].invited[0].reason == "same major; nothing else on file"
+    assert runs[0].signed_up_profile_nos == (1,)
+    assert runs[0].attended_profile_nos == ()
+    assert runs[0].setting_weights == {"same_major": 0.25}
+    assert [(setting.name, dict(setting.weights)) for setting in settings] == [
+        ("Wide net", {"same_major": 0.25})
+    ]
+    assert (other_runs, other_settings) == ((), ()), "one team's work is not another's"
+    for value in (runs[0], settings[0], runs[0].invited[0]):
+        for forbidden in ("id", "workspace_id", "dataset_id", "seed", "email_everyone"):
+            assert not hasattr(value, forbidden), forbidden
+        for withheld in EXERCISE_WITHHELD_FIELDS:
+            assert not hasattr(value, withheld), withheld
 
 
 # ---------------------------------------------------------------------------

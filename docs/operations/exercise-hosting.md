@@ -73,6 +73,7 @@ Seven, all under `/v1/exercise`, all gated on `Capability.CLASS_EXERCISE`:
 | `exercise_matching` | `/v1/exercise/workspaces/current` | `main.py:635` |
 | `exercise_results` | `/v1/exercise/workspaces/current` | `main.py:647` |
 | `exercise_instructor_refresh` | `/v1/exercise/instructor` | `main.py:654` |
+| `exercise_instructor_detail` (one team's whole work, #319) | `/v1/exercise/instructor` | `main.py`, the row after `exercise_instructor_refresh` |
 
 ### No CBA authenticated router is registered
 

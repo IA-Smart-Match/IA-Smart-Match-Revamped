@@ -428,6 +428,15 @@ exercise_result_run = sa.Table(
     # constants are the case's and a later change to them must not silently
     # restate what a team was shown.
     sa.Column("seats_empty", sa.Integer, nullable=False),
+    # Revision 0046 (issues #271, #319): the invited list as the team's screen
+    # showed it at the moment of the run, in rank order, and the four stated
+    # weights it was built with. A run is a record, so it carries its own
+    # names instead of asking a saved setting that can be edited or deleted.
+    # Only fields a team already sees on its ranked list (ADR-0025 D6, D8).
+    # NULL on a run stored before 0046 that could not be backfilled; a
+    # backfilled row has names but no rank, marker or reason.
+    sa.Column("invited_profiles", postgresql.JSONB, nullable=True),
+    sa.Column("setting_weights", postgresql.JSONB, nullable=True),
     sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
     sa.PrimaryKeyConstraint("id", name="exercise_result_run_pkey"),
     # §9, the one-run rule, as a constraint rather than a check in code: a

@@ -46,10 +46,13 @@
  * team with none saved is told to save one first. The server refuses a run
  * without a final setting too; this screen only makes the step visible.
  *
- * Names for the team's own panels are joined from the ranked list by
- * `profile_no` (owner decision, 2026-09-21): the results routes carry numbers
- * and counts, and nothing here asks the backend for names. The list asked is
- * the one the run's final setting built, so the names match who was invited.
+ * **Names for the team's own panels come from the run itself** (issue #271).
+ * The run stores the names its list showed when it was made, and the results
+ * read carries them (`invited_profiles`). This screen used to ask the ranked
+ * list for the run's saved setting instead; a setting deleted after the run
+ * turned every name into "Profile 17". Nothing here asks a saved setting who
+ * a run invited any more. The ranked list is read only before a run, and only
+ * for Ann's words for the four weights on the final-setting cards.
  */
 import * as React from "react";
 import { Link, useParams } from "react-router";
@@ -81,7 +84,7 @@ import {
   usePrefersReducedMotion,
 } from "./desk";
 import { ExerciseLoading, ExerciseNotice, ExerciseScreen } from "./ExerciseScreen";
-import { ResultPanels, type NamesByProfileNo } from "./ResultPanels";
+import { ResultPanels } from "./ResultPanels";
 import { ProfileCardArt } from "./resultsArt";
 import { ResultsLockPanel } from "./ResultsLockPanel";
 import { isAccessRefusal, useExerciseResource } from "./useExerciseResource";
@@ -139,7 +142,6 @@ type FactorLabels = Readonly<Record<string, string>>;
 interface ResultsData {
   /** `null` until this team has run results for this event. */
   readonly results: ResultsView | null;
-  readonly names: NamesByProfileNo;
   readonly labels: FactorLabels;
   readonly asking: AskingStateView;
   /** This event's saved settings, to choose the final one from; `null` once run. */
@@ -170,15 +172,16 @@ function EventResults({ eventKey }: { readonly eventKey: string }): React.JSX.El
           throw error;
         }
       }
-      // Independent reads, so they go together. The saved settings are only
-      // needed before the run: afterwards there is nothing left to choose.
-      const [list, asking, saved, event] = await Promise.all([
-        listForEvent(eventKey, results?.setting_name ?? null, signal),
+      // Independent reads, so they go together. The saved settings, and the
+      // words for their weights, are only needed before the run: afterwards
+      // there is nothing left to choose, and the run names its own people.
+      const [labels, asking, saved, event] = await Promise.all([
+        results === null ? factorLabels(eventKey, signal) : Promise.resolve({}),
         readAskingChoice(signal),
         results === null ? readSavedSettings(eventKey, signal) : Promise.resolve(null),
         eventResultsState(eventKey, signal),
       ]);
-      return { results, names: list.names, labels: list.labels, asking, saved, event };
+      return { results, labels, asking, saved, event };
     },
     [eventKey],
   );
@@ -256,40 +259,30 @@ function EventResults({ eventKey }: { readonly eventKey: string }): React.JSX.El
 }
 
 /**
- * The names the ranked list gives this event's profile numbers, and Ann's
- * words for the four weights (for the final-setting cards).
+ * Ann's words for the four weights, for the final-setting cards.
  *
- * Asked of the list the run's final setting built, when there is a run, so the
- * team's own panel is named from the list it actually invited. A setting
- * deleted since the run is refused by the list route and falls back below.
+ * They ride on the ranked list, so the list is read once before a run, with
+ * the course's starting weights: the words are the same whatever the weights.
+ * It is **not** read for names, and never for the run's saved setting (issue
+ * #271): a run names its own people.
  *
- * A failure here is not a failure of the results screen: the counts and the
- * comparison are the lesson, and the names are the illustration. So a refusal
- * on the list leaves both maps empty and the panels fall back to profile
- * numbers (and the setting cards to their names alone), rather than taking the
- * whole screen down.
+ * A failure here is not a failure of the results screen. A refusal leaves the
+ * words empty and the cards show each setting's name alone, never a rulebook
+ * key, rather than taking the whole screen down.
  */
-async function listForEvent(
-  eventKey: string,
-  settingName: string | null,
-  signal: AbortSignal,
-): Promise<{ readonly names: NamesByProfileNo; readonly labels: FactorLabels }> {
-  const weighting: ListWeighting =
-    settingName === null ? { kind: "default" } : { kind: "setting", name: settingName };
+async function factorLabels(eventKey: string, signal: AbortSignal): Promise<FactorLabels> {
+  const weighting: ListWeighting = { kind: "default" };
   try {
     const list = await readRankedList(eventKey, weighting, signal);
-    return {
-      names: new Map(list.entries.map((entry) => [entry.profile_no, entry.display_name])),
-      labels: list.factor_labels ?? {},
-    };
+    return list.factor_labels ?? {};
   } catch (error) {
     // An abort is not a missing list — it is this load being replaced. It has
-    // to propagate, or a superseded load resolves with an empty map and the
-    // hook settles a stale answer over the live one.
+    // to propagate, or a superseded load resolves with nothing and the hook
+    // settles a stale answer over the live one.
     if (signal.aborted) {
       throw error;
     }
-    return { names: new Map(), labels: {} };
+    return {};
   }
 }
 
@@ -474,7 +467,7 @@ function ResultsBody({
       ) : null}
 
       {results !== null ? (
-        <ResultPanels results={results} names={data.names} reveal={justRan} />
+        <ResultPanels results={results} reveal={justRan} />
       ) : hasRun ? null : (
         <section className="flex flex-col gap-ce-5">
           {/* §7.8: before a run, the lock panel takes the seating chart's

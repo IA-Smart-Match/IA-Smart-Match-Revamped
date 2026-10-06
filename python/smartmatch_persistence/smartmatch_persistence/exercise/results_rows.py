@@ -1,4 +1,4 @@
-"""What the results routes hand back: five value types, no statements.
+"""What the results routes hand back: six value types, no statements.
 
 Split out of ``results_repository.py``, which had grown past this repository's
 800-line ceiling — the same cut ``instructor_rows.py`` took out of
@@ -11,7 +11,13 @@ carries a field of ``EXERCISE_WITHHELD_FIELDS`` (ADR-0025 D6) — design spec
 §13's card copy happens inside ``results_repository.apply_refresh`` and never
 reaches a value; none of these types has a place to put an interest term even if
 one tried. Nothing here carries a score, a percentage or a share either
-(ADR-0025 D8): a run is described by profile numbers and counts.
+(ADR-0025 D8): a run is described by profile numbers, counts, and — since
+revision 0046 — the names and reason lines its own ranked list showed.
+
+The two pairs of functions at the foot are the JSONB shapes of that snapshot.
+They are value conversions, not statements, and they are here rather than in
+``results_repository`` so that the instructor's read and the team's read parse
+one stored shape with one piece of code.
 
 The types travel through ``smartmatch_api.exercise_dependencies`` to the results
 routes: a router that may not import ``smartmatch_persistence`` may not import a
@@ -22,16 +28,53 @@ own single ``ignore_imports`` edge.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 
 __all__ = [
+    "InvitedProfile",
     "RefreshCandidate",
     "RefreshCounts",
     "ResultPanel",
     "StoredResultRun",
     "TeamResultsState",
+    "invited_as_json",
+    "invited_from_json",
+    "weights_as_json",
+    "weights_from_json",
 ]
+
+
+@dataclass(frozen=True, slots=True)
+class InvitedProfile:
+    """One name a run invited, as the team's ranked list showed it then.
+
+    The snapshot ``exercise_result_run.invited_profiles`` stores (issues #271
+    and #319). Every field is one a team already reads on its own ranked list;
+    there is no place here for a withheld column, a score or a weight
+    (ADR-0025 D6, D8).
+
+    Attributes:
+        profile_no: The profile's number in the data file.
+        display_name: The made-up name.
+        major: The major, or ``None`` when the file recorded none.
+        class_year: The year, as the data file spells it, or ``None``.
+        rank: Position on the invited list, from 1. ``None`` on a run stored
+            before revision 0046: its order depended on weights and a view of
+            the profiles that can no longer be rebuilt, so none is invented.
+        marker: The "how much we know" group at the moment of the run, or
+            ``None`` on such a run, for the same reason.
+        reason: The one-sentence reason line, or ``None`` on such a run.
+    """
+
+    profile_no: int
+    display_name: str
+    major: str | None = None
+    class_year: str | None = None
+    rank: int | None = None
+    marker: str | None = None
+    reason: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,6 +115,11 @@ class StoredResultRun:
         seats_empty: ``60 - 8 - attended`` as it was stored, not as it would be
             recomputed, so what a team keeps is what it was shown.
         created_at: When the row was written.
+        invited: The invited list as the team's screen showed it at the moment
+            of the run, in rank order. Empty for a run stored before revision
+            0046 that could not be backfilled.
+        setting_weights: The four stated weights the list was built with, or
+            ``None`` when they were not recorded.
     """
 
     event_key: str
@@ -81,6 +129,8 @@ class StoredResultRun:
     email_everyone: ResultPanel
     seats_empty: int
     created_at: datetime
+    invited: tuple[InvitedProfile, ...] = ()
+    setting_weights: Mapping[str, float] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -146,3 +196,88 @@ class RefreshCounts:
     cards_completed: int
     non_responding: int
     topics_added: int
+
+
+# ---------------------------------------------------------------------------
+# The stored shape of a run's snapshot (revision 0046)
+# ---------------------------------------------------------------------------
+
+
+def _text_or_none(value: object) -> str | None:
+    return value if isinstance(value, str) else None
+
+
+def _int_or_none(value: object) -> int | None:
+    # ``bool`` is an ``int`` in Python and is never a rank.
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def invited_as_json(invited: Sequence[InvitedProfile]) -> list[dict[str, object]]:
+    """A run's invited list as ``exercise_result_run.invited_profiles`` stores it."""
+    return [
+        {
+            "rank": entry.rank,
+            "profile_no": entry.profile_no,
+            "display_name": entry.display_name,
+            "major": entry.major,
+            "class_year": entry.class_year,
+            "marker": entry.marker,
+            "reason": entry.reason,
+        }
+        for entry in invited
+    ]
+
+
+def invited_from_json(value: object) -> tuple[InvitedProfile, ...]:
+    """``exercise_result_run.invited_profiles`` as values, in the stored order.
+
+    Defensive about the stored shape, for ``_panel_from_json``'s reason: the
+    column is JSONB, so a row written by an older version — or backfilled by
+    revision 0046 without ``rank``, ``marker`` and ``reason`` — is data this
+    version is reading. A missing key reads as ``None``; an entry with no
+    usable number or name is dropped rather than shown as a blank; ``NULL``
+    reads as nobody.
+    """
+    if not isinstance(value, list):
+        return ()
+    found: list[InvitedProfile] = []
+    for item in value:
+        if not isinstance(item, Mapping):
+            continue
+        profile_no = _int_or_none(item.get("profile_no"))
+        display_name = _text_or_none(item.get("display_name"))
+        if profile_no is None or display_name is None:
+            continue
+        found.append(
+            InvitedProfile(
+                profile_no=profile_no,
+                display_name=display_name,
+                major=_text_or_none(item.get("major")),
+                class_year=_text_or_none(item.get("class_year")),
+                rank=_int_or_none(item.get("rank")),
+                marker=_text_or_none(item.get("marker")),
+                reason=_text_or_none(item.get("reason")),
+            )
+        )
+    return tuple(found)
+
+
+def weights_as_json(weights: Mapping[str, float] | None) -> dict[str, float] | None:
+    """A run's stated weights as ``exercise_result_run.setting_weights`` stores them."""
+    return None if weights is None else {str(key): float(value) for key, value in weights.items()}
+
+
+def weights_from_json(value: object) -> Mapping[str, float] | None:
+    """``setting_weights`` as a mapping, or ``None`` when nothing usable is stored.
+
+    Non-numeric entries are dropped rather than raised on: the column is JSONB
+    and a backfilled row carries whatever the saved setting held.
+    """
+    if not isinstance(value, Mapping):
+        return None
+    weights = {
+        str(key): float(item)
+        for key, item in value.items()
+        if isinstance(item, (int, float)) and not isinstance(item, bool)
+    }
+    return weights or None

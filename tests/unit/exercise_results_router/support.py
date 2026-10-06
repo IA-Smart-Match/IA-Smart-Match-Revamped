@@ -21,6 +21,7 @@ from smartmatch_api.errors import EXCEPTION_HANDLERS
 from smartmatch_api.exercise_dependencies import (
     EXERCISE_REQUEST_HEADER,
     INSTRUCTOR_COOKIE_NAME,
+    InvitedProfile,
     RefreshCandidate,
     RefreshCounts,
     ResultPanel,
@@ -440,6 +441,8 @@ class _FakeResultsRepository:
         team: ResultPanel,
         email_everyone: ResultPanel,
         seats_empty: int,
+        invited: Sequence[InvitedProfile] = (),
+        setting_weights: Mapping[str, float] | None = None,
     ) -> StoredResultRun:
         assert dataset_id == _DATASET_ID
         if (workspace_id, event_key) in self.runs:
@@ -452,6 +455,10 @@ class _FakeResultsRepository:
             email_everyone=email_everyone,
             seats_empty=seats_empty,
             created_at=_WHEN,
+            # Copied, as the real row is: what the run keeps is its own record
+            # and not a reference to anything a later request could change.
+            invited=tuple(invited),
+            setting_weights=None if setting_weights is None else dict(setting_weights),
         )
         self.runs[(workspace_id, event_key)] = stored
         return stored

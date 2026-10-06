@@ -310,6 +310,9 @@ name = "Class exercise routers carry no principal or tenancy"
 type = "forbidden"
 source_modules = [
     "smartmatch_api.routers.exercise_instructor",
+    # Issue #319: one team's whole work, split out of `exercise_instructor` to
+    # keep it under the line ceiling. Listed by hand like every other one.
+    "smartmatch_api.routers.exercise_instructor_detail",
     "smartmatch_api.routers.exercise_instructor_models",
     # CE-RESULTS-API, instructor half. A router of its own because
     # `exercise_instructor` was past the 800-line ceiling, and it must be
@@ -396,6 +399,9 @@ name = "Class exercise routers do not touch SQLAlchemy directly"
 type = "forbidden"
 source_modules = [
     "smartmatch_api.routers.exercise_instructor",
+    # Issue #319: one team's whole work, split out of `exercise_instructor` to
+    # keep it under the line ceiling. Listed by hand like every other one.
+    "smartmatch_api.routers.exercise_instructor_detail",
     "smartmatch_api.routers.exercise_instructor_models",
     # CE-RESULTS-API, instructor half. A router of its own because
     # `exercise_instructor` was past the 800-line ceiling, and it must be

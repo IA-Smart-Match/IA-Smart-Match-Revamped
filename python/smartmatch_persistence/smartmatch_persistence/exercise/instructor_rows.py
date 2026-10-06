@@ -5,8 +5,9 @@ grown past this repository's 800-line ceiling. The cut is along the seam the
 module already had: everything here is a frozen value with no query in it, and
 what is left there is the statements.
 
-Nothing in this module imports SQLAlchemy or touches a table, and nothing in it
-carries a field of ``EXERCISE_WITHHELD_FIELDS`` (ADR-0025 D6) — the reads that
+Nothing in this module imports SQLAlchemy or touches a table (its one import
+from this package is ``results_rows.InvitedProfile``, another value type), and
+nothing in it carries a field of ``EXERCISE_WITHHELD_FIELDS`` (ADR-0025 D6) — the reads that
 build these values project through ``exercise_profile_public_columns()``, and
 none of these types has a place to put the withheld column even if one tried.
 
@@ -19,8 +20,11 @@ module gets its own single ``ignore_imports`` edge.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
+
+from smartmatch_persistence.exercise.results_rows import InvitedProfile
 
 __all__ = [
     "InstructorEventRow",
@@ -112,27 +116,43 @@ class InstructorEventRow:
 
 @dataclass(frozen=True, slots=True)
 class InstructorSavedSetting:
-    """One of a team's saved settings (design spec §6), without its weights.
+    """One of a team's saved settings (design spec §6), with its four weights.
 
-    The weights are the team's work and the instructor's screen lists what
-    exists rather than reproducing it; a later track that needs to *open* a
-    setting adds a read that names the column, at which point the exception is
-    visible at the call site.
+    This is the "later track that needs to *open* a setting" the earlier
+    version of this type deferred to: Ann's revisions of 2026-10-02 ask that
+    the instructor see each team's "saved settings with the four numbers"
+    (issue #319). The weights are the team's own stated input — the one number
+    ADR-0025 D8 lets a screen show — and never a normalized or computed one.
     """
 
     event_key: str
     name: str
     created_at: datetime
+    weights: Mapping[str, float]
 
 
 @dataclass(frozen=True, slots=True)
 class InstructorResultRun:
-    """One of a team's result runs (design spec §9/§10), summarised by counts.
+    """One of a team's result runs (design spec §9/§10): counts, and who.
 
     ``seats_empty`` is stored on the row rather than derived, so what is
     reported here is what the team was shown. No score, no percentage, no
-    confidence (ADR-0025 D8), and no profile number — a run is described by how
-    many, never by who.
+    confidence (ADR-0025 D8).
+
+    Since issue #319 a run is described by *who* as well as by how many: the
+    instructor leads the discussion from this page and needs each team's list
+    of names. ``invited`` is the snapshot the run stored of its own ranked list
+    (revision 0046), so it is what that team's screen showed, and the two
+    arrays say which of those names signed up and attended. Still no
+    identifier, seed or token, and nothing from a withheld column.
+
+    Attributes:
+        invited: The invited list in rank order; empty for a run stored before
+            revision 0046 that could not be backfilled.
+        signed_up_profile_nos: The profile numbers that signed up.
+        attended_profile_nos: The profile numbers that attended.
+        setting_weights: The four stated weights the list was built with, or
+            ``None`` when they were not recorded.
     """
 
     event_key: str
@@ -143,6 +163,10 @@ class InstructorResultRun:
     attended_count: int
     seats_empty: int
     created_at: datetime
+    invited: tuple[InvitedProfile, ...] = ()
+    signed_up_profile_nos: tuple[int, ...] = ()
+    attended_profile_nos: tuple[int, ...] = ()
+    setting_weights: Mapping[str, float] | None = None
 
 
 @dataclass(frozen=True, slots=True)

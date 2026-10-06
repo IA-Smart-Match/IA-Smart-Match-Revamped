@@ -46,7 +46,7 @@ from smartmatch_persistence.exercise.results_repository import (
     ExerciseResultsRepository,
     ExerciseResultsWriteRefused,
 )
-from smartmatch_persistence.exercise.results_rows import ResultPanel
+from smartmatch_persistence.exercise.results_rows import InvitedProfile, ResultPanel
 from smartmatch_persistence.exercise.settings_repository import (
     SAVED_SETTING_LOCK_KEY,
     ExerciseSettingsRepository,
@@ -285,6 +285,137 @@ def test_a_run_is_stored_and_read_back_panel_for_panel(
     assert stored.seats_empty == 51
     assert stored.round == 1
     assert stored.setting_name is None
+
+
+_SNAPSHOT = (
+    InvitedProfile(
+        rank=1,
+        profile_no=3,
+        display_name="Profile 3",
+        major="Alpha",
+        class_year="one",
+        marker="major_only",
+        reason="same major; nothing else on file",
+    ),
+    InvitedProfile(
+        rank=2,
+        profile_no=1,
+        display_name="Profile 1",
+        major="Alpha",
+        class_year="one",
+        marker="completed_card",
+        reason="said they are interested in this topic",
+    ),
+)
+
+_WEIGHTS = {
+    "same_major": 0.4,
+    "stated_interest_overlap": 0.3,
+    "career_goal_fit": 0.2,
+    "past_event_topic_overlap": 0.1,
+}
+
+
+def test_a_run_keeps_its_names_and_weights_when_its_saved_setting_is_deleted(
+    exercise_sessions: sessionmaker[Session],
+) -> None:
+    """Issues #271 and #319, at the row: the snapshot is the run's, not the setting's.
+
+    A real saved setting is written, the run is stored from it, and the setting
+    is then deleted. The run reads back with the same names, in the same order,
+    and the same four weights — through JSONB and back.
+    """
+    results = ExerciseResultsRepository()
+    settings = schema.exercise_saved_setting
+    with exercise_sessions() as session:
+        dataset_id, (workspace_id, other_id) = _classroom(session)
+        session.execute(
+            sa.insert(settings).values(
+                id=uuid.uuid4(),
+                workspace_id=workspace_id,
+                dataset_id=dataset_id,
+                event_key=_ROUND_ONE,
+                name="Wide net",
+                weights=_WEIGHTS,
+            )
+        )
+        results.record_run(
+            session,
+            dataset_id=dataset_id,
+            workspace_id=workspace_id,
+            event_key=_ROUND_ONE,
+            round_number=1,
+            setting_name="Wide net",
+            team=_TEAM,
+            email_everyone=_EVERYONE,
+            seats_empty=51,
+            invited=_SNAPSHOT,
+            setting_weights=_WEIGHTS,
+        )
+        session.commit()
+
+        session.execute(sa.delete(settings).where(settings.c.workspace_id == workspace_id))
+        session.commit()
+        session.expire_all()
+
+        kept = results.get_run(session, workspace_id=workspace_id, event_key=_ROUND_ONE)
+        other = results.get_run(session, workspace_id=other_id, event_key=_ROUND_ONE)
+        by_round = results.get_run_for_round(session, workspace_id=workspace_id, round_number=1)
+
+    assert kept is not None
+    assert kept.invited == _SNAPSHOT, "names, order, marker and reason line, exactly as stored"
+    assert kept.setting_weights == _WEIGHTS
+    assert kept.setting_name == "Wide net", "the label is history, not a foreign key"
+    assert by_round == kept
+    assert other is None, "another team's run is not selected, let alone its names"
+
+
+def test_a_run_stored_without_a_snapshot_reads_back_as_nobody_and_no_weights(
+    exercise_sessions: sessionmaker[Session],
+) -> None:
+    """A row from before revision 0046 that nothing could backfill: ``NULL``, read honestly.
+
+    And a backfilled one — names without ``rank``, ``marker`` or ``reason`` — reads
+    back with those three absent rather than invented.
+    """
+    results = ExerciseResultsRepository()
+    runs = schema.exercise_result_run
+    with exercise_sessions() as session:
+        dataset_id, (workspace_id, other_id) = _classroom(session)
+        for held_by, snapshot in (
+            (workspace_id, None),
+            (other_id, [{"profile_no": 3, "display_name": "Profile 3", "major": "Alpha"}]),
+        ):
+            session.execute(
+                sa.insert(runs).values(
+                    id=uuid.uuid4(),
+                    workspace_id=held_by,
+                    dataset_id=dataset_id,
+                    event_key=_ROUND_ONE,
+                    round=1,
+                    invited_profile_nos=[1, 2, 3],
+                    signed_up_profile_nos=[1],
+                    attended_profile_nos=[],
+                    email_everyone={},
+                    seats_empty=52,
+                    invited_profiles=snapshot,
+                    setting_weights=None,
+                )
+            )
+        session.commit()
+
+        legacy = results.get_run(session, workspace_id=workspace_id, event_key=_ROUND_ONE)
+        backfilled = results.get_run(session, workspace_id=other_id, event_key=_ROUND_ONE)
+
+    assert legacy is not None and backfilled is not None
+    assert legacy.invited == ()
+    assert legacy.setting_weights is None
+    assert legacy.team.invited_profile_nos == (1, 2, 3), "the numbers and counts still stand"
+    assert backfilled.invited == (
+        InvitedProfile(profile_no=3, display_name="Profile 3", major="Alpha"),
+    )
+    assert (backfilled.invited[0].rank, backfilled.invited[0].marker) == (None, None)
+    assert backfilled.invited[0].reason is None
 
 
 def test_a_second_run_is_refused_with_the_specs_own_sentence(

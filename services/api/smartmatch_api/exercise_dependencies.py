@@ -134,6 +134,7 @@ from smartmatch_persistence.exercise.results_repository import (
     ExerciseResultsWriteRefused,
 )
 from smartmatch_persistence.exercise.results_rows import (
+    InvitedProfile,
     RefreshCandidate,
     RefreshCounts,
     ResultPanel,
@@ -196,6 +197,7 @@ __all__ = [
     "InstructorResultRun",
     "InstructorSavedSetting",
     "InstructorWorkspaceRow",
+    "InvitedProfile",
     "MaybeActiveDataset",
     "MaybeDataset",
     "RefreshCandidate",

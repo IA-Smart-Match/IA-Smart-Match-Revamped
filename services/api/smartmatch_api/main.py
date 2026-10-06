@@ -65,6 +65,7 @@ from smartmatch_api.routers import (
     engagement,
     events,
     exercise_instructor,
+    exercise_instructor_detail,
     exercise_instructor_refresh,
     exercise_instructor_session,
     exercise_matching,
@@ -680,6 +681,12 @@ CAPABILITY_SCOPED_ROUTERS: Final[tuple[tuple[APIRouter, Capability], ...]] = (
     # router-level `require_instructor_session` dependency, so the gate is
     # structural here exactly as it is there.
     (exercise_instructor_refresh.router, Capability.CLASS_EXERCISE),
+    # Issue #319: `GET /v1/exercise/instructor/workspaces/{team_number}`, one
+    # team's whole work. A router of its own for the reason above — the handler
+    # grew to compose a ranked list per saved setting, and
+    # `exercise_instructor.py` is near the line ceiling — with the same
+    # router-level `require_instructor_session` dependency.
+    (exercise_instructor_detail.router, Capability.CLASS_EXERCISE),
     # B26 T6b-1: Speaker accounts. `SPEAKER_PORTAL` is off in every scope until
     # its turn-on rule clears, so none of these three mounts today. `router` is
     # the Connector's invite/revoke/access ({admin, coordinator}); the other two

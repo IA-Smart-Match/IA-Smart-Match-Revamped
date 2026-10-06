@@ -11,9 +11,15 @@ What a response may never carry (ADR-0025 D6, D8)
 
 No ``hidden_true_interests`` in any field, no workspace id, token, token hash
 or seed, and no score, percentage or confidence — a result run is described by
-how many were invited, signed up and attended, never by a number about how
-well a team did. ``tests/unit/test_exercise_instructor_router.py`` walks every
-model in the router's namespace and refuses all three classes by name.
+who was invited, signed up and attended and how many, never by a number about
+how well a team did. ``tests/unit/test_exercise_instructor_router.py`` walks
+every model in the router's namespace and refuses all three classes by name.
+
+**The one number that is not a count or a rank** is a team's own four stated
+weights, on ``SavedSettingView.weights`` and ``ResultRunView.setting_weights``
+(issue #319: "its saved settings with the four numbers"). They are the team's
+input, echoed — D8's carved exception — and that test names those two fields
+as the only weight-shaped fields these models may have.
 
 Why every view is built field by field
 ======================================
@@ -27,6 +33,7 @@ reaching a screen is a line somebody wrote.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Mapping, Sequence
 from datetime import datetime
 from typing import Final
 
@@ -39,6 +46,11 @@ from smartmatch_api.exercise_dependencies import (
     InstructorResultRun,
     InstructorSavedSetting,
     InstructorWorkspaceRow,
+    InvitedProfile,
+)
+from smartmatch_api.routers.exercise_results_models import (
+    InvitedProfileView,
+    invited_profile_view,
 )
 
 #: The longest passcode the login will read. A bound rather than a policy: the
@@ -263,41 +275,98 @@ class TeamListView(BaseModel):
 
 
 class SavedSettingView(BaseModel):
-    """One saved setting, by name. The weights are the team's own work."""
+    """One saved setting: its four weights and the list of names it builds.
+
+    Ann's revisions of 2026-10-02: the instructor sees each team's "saved
+    settings with the four numbers" and "its list of names".
+    """
 
     model_config = ConfigDict(extra="forbid")
 
     event_key: str
+    event_name: str = Field(description="That event's label, as the data file spells it.")
+    round: int | None = Field(
+        description="Which round that event is, 1 or 2, or null when it is not a round."
+    )
     name: str
     created_at: datetime
+    weights: dict[str, float] = Field(
+        description=(
+            "The four weights as the team stated them, by factor key. The "
+            "team's own input, never a normalized or computed number. Render "
+            "the keys through `factor_labels`."
+        )
+    )
+    invited: tuple[InvitedProfileView, ...] = Field(
+        description=(
+            "The list of names this setting builds right now, in order, from "
+            "the team's own view of the profiles. It is the list that team's "
+            "screen shows for this setting."
+        )
+    )
 
 
 class ResultRunView(BaseModel):
-    """One result run, by counts (ADR-0025 D8: no number about how well)."""
+    """One result run: who and how many (ADR-0025 D8: no number about how well)."""
 
     model_config = ConfigDict(extra="forbid")
 
     event_key: str
+    event_name: str = Field(description="That event's label, as the data file spells it.")
     round: int
     setting_name: str | None
+    setting_deleted: bool = Field(
+        description=(
+            "True when the team no longer has a saved setting of that name for "
+            "this event. The run's names and weights below are stored with the "
+            "run and are unaffected."
+        )
+    )
+    setting_weights: dict[str, float] | None = Field(
+        description=(
+            "The four weights the run's list was built with, as the team "
+            "stated them, or null when they were not recorded."
+        )
+    )
     invited_count: int
     signed_up_count: int
     attended_count: int
     seats_empty: int
     created_at: datetime
+    invited: tuple[InvitedProfileView, ...] = Field(
+        description=(
+            "The people the run invited, as the team's list showed them when "
+            "it ran, in list order. Empty for a run stored before names were "
+            "kept with the run; the counts still stand."
+        )
+    )
+    signed_up: tuple[InvitedProfileView, ...] = Field(
+        description="Those of the invited who signed up, in the same order."
+    )
+    attended: tuple[InvitedProfileView, ...] = Field(
+        description="Those of the sign-ups who attended, in the same order."
+    )
 
 
 class TeamDetailView(BaseModel):
-    """One team's saved settings and result runs, read-only.
+    """One team's whole work, read-only: what the instructor leads a discussion from.
 
-    ``result_runs`` is empty until the results track lands, and that is a real
-    answer rather than a gap: design spec §9's route does not exist yet, so no
-    team can have run results.
+    Saved settings with their four numbers and lists of names, results for each
+    event, the way of asking the team chose, and whether it has refreshed.
     """
 
     model_config = ConfigDict(extra="forbid")
 
     team_number: int
+    asking_choice: str | None = Field(
+        description="The way of asking the team chose, or null before it has chosen."
+    )
+    refreshed_at: datetime | None = Field(
+        description="When the team's one refresh happened, or null when it has not."
+    )
+    factor_labels: dict[str, str] = Field(
+        description="The plain words for each factor key, for a screen to render the weights with."
+    )
     saved_settings: tuple[SavedSettingView, ...]
     result_runs: tuple[ResultRunView, ...]
 
@@ -458,18 +527,58 @@ def event_view(row: InstructorEventRow) -> InstructorEventView:
     )
 
 
-def setting_view(row: InstructorSavedSetting) -> SavedSettingView:
-    return SavedSettingView(event_key=row.event_key, name=row.name, created_at=row.created_at)
+def setting_view(
+    row: InstructorSavedSetting,
+    *,
+    event_name: str,
+    round_number: int | None,
+    weights: Mapping[str, float],
+    invited: Sequence[InvitedProfile],
+) -> SavedSettingView:
+    """One saved setting with what the route worked out for it.
+
+    The route supplies the event's name and round, the four stated weights and
+    the ranked list; this function only names the fields.
+    """
+    return SavedSettingView(
+        event_key=row.event_key,
+        event_name=event_name,
+        round=round_number,
+        name=row.name,
+        created_at=row.created_at,
+        weights=dict(weights),
+        invited=tuple(invited_profile_view(entry) for entry in invited),
+    )
 
 
-def run_view(row: InstructorResultRun) -> ResultRunView:
+def run_view(row: InstructorResultRun, *, event_name: str, setting_deleted: bool) -> ResultRunView:
+    """One stored run, with the names behind its three counts.
+
+    ``signed_up`` and ``attended`` are the run's own invited entries, picked by
+    profile number and kept in list order, so a name is described once and the
+    same way in all three lists. A number the snapshot does not name — a run
+    stored before names were kept — contributes no entry: the count beside the
+    list still says how many, and nothing is invented for who.
+    """
+    signed_up = frozenset(row.signed_up_profile_nos)
+    attended = frozenset(row.attended_profile_nos)
     return ResultRunView(
         event_key=row.event_key,
+        event_name=event_name,
         round=row.round,
         setting_name=row.setting_name,
+        setting_deleted=setting_deleted,
+        setting_weights=None if row.setting_weights is None else dict(row.setting_weights),
         invited_count=row.invited_count,
         signed_up_count=row.signed_up_count,
         attended_count=row.attended_count,
         seats_empty=row.seats_empty,
         created_at=row.created_at,
+        invited=tuple(invited_profile_view(entry) for entry in row.invited),
+        signed_up=tuple(
+            invited_profile_view(entry) for entry in row.invited if entry.profile_no in signed_up
+        ),
+        attended=tuple(
+            invited_profile_view(entry) for entry in row.invited if entry.profile_no in attended
+        ),
     )

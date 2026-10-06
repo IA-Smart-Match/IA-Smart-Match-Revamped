@@ -76,11 +76,16 @@ from sqlalchemy.orm import Session
 
 from smartmatch_persistence.exercise.results_cards import copied_cards
 from smartmatch_persistence.exercise.results_rows import (
+    InvitedProfile,
     RefreshCandidate,
     RefreshCounts,
     ResultPanel,
     StoredResultRun,
     TeamResultsState,
+    invited_as_json,
+    invited_from_json,
+    weights_as_json,
+    weights_from_json,
 )
 from smartmatch_persistence.exercise.schema import (
     exercise_profile_overlay,
@@ -95,6 +100,7 @@ __all__ = [
     "AlreadyRunError",
     "ExerciseResultsRepository",
     "ExerciseResultsWriteRefused",
+    "InvitedProfile",
     "RefreshCandidate",
     "RefreshCounts",
     "ResultPanel",
@@ -387,6 +393,8 @@ class ExerciseResultsRepository:
         team: ResultPanel,
         email_everyone: ResultPanel,
         seats_empty: int,
+        invited: Sequence[InvitedProfile] = (),
+        setting_weights: Mapping[str, float] | None = None,
     ) -> StoredResultRun:
         """Store one run, or refuse a second with design spec §9's sentence.
 
@@ -423,6 +431,10 @@ class ExerciseResultsRepository:
             email_everyone: Design spec §10's second panel.
             seats_empty: ``60 - 8 - attended``, computed by the domain's
                 :func:`~smartmatch_domain.exercise.simulation.seats_empty`.
+            invited: The invited list as the team's ranked list showed it, in
+                rank order. Stored with the run (revision 0046) so its names
+                outlive the saved setting it was built from.
+            setting_weights: The four stated weights that list was built with.
 
         Returns:
             The stored run, read back so the caller reports what is in the table
@@ -451,6 +463,8 @@ class ExerciseResultsRepository:
                 attended_profile_nos=list(team.attended_profile_nos),
                 email_everyone=_panel_as_json(email_everyone),
                 seats_empty=seats_empty,
+                invited_profiles=invited_as_json(invited),
+                setting_weights=weights_as_json(setting_weights),
             ),
             dataset_id=dataset_id,
             refusal="Your results could not be stored.",
@@ -680,6 +694,8 @@ class ExerciseResultsRepository:
                 exercise_result_run.c.email_everyone,
                 exercise_result_run.c.seats_empty,
                 exercise_result_run.c.created_at,
+                exercise_result_run.c.invited_profiles,
+                exercise_result_run.c.setting_weights,
             ).where(*conditions)
         ).one_or_none()
         if row is None:
@@ -696,6 +712,8 @@ class ExerciseResultsRepository:
             email_everyone=_panel_from_json(row.email_everyone),
             seats_empty=int(row.seats_empty),
             created_at=row.created_at,
+            invited=invited_from_json(row.invited_profiles),
+            setting_weights=weights_from_json(row.setting_weights),
         )
 
     def _failure_for(

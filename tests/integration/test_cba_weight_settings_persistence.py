@@ -216,7 +216,11 @@ _PREVIOUS_REVISION = "0026_event_registration"
 #: ``0044_exercise_event_description`` and is the head. It adds one nullable
 #: ``exercise_result_unlock`` column and writes no rows, so this file's claims
 #: still hold through it.
-_HEAD_REVISION = "0045_exercise_unlock_closed_at"
+#: Moved again by #319 and #271: ``0046_exercise_run_snapshot`` chains to
+#: ``0045_exercise_unlock_closed_at`` and is the head. It adds two nullable
+#: ``exercise_result_run`` columns and backfills only those, so this file's
+#: claims still hold through it.
+_HEAD_REVISION = "0046_exercise_run_snapshot"
 
 NEED = "need-weight-settings-1"
 

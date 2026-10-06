@@ -22,6 +22,7 @@ from smartmatch_persistence.exercise.instructor_rows import (
     InstructorResultRun,
     InstructorSavedSetting,
 )
+from smartmatch_persistence.exercise.results_rows import invited_from_json, weights_from_json
 from smartmatch_persistence.exercise.schema import exercise_result_run, exercise_saved_setting
 
 __all__ = ["select_result_runs", "select_saved_settings"]
@@ -30,31 +31,50 @@ __all__ = ["select_result_runs", "select_saved_settings"]
 def select_saved_settings(
     session: Session, *, workspace_id: uuid.UUID
 ) -> tuple[InstructorSavedSetting, ...]:
-    """A team's saved settings, oldest first. Names only, never the weights."""
+    """A team's saved settings, oldest first, each with its four weights.
+
+    The weights column is named here on purpose (issue #319): the instructor's
+    page shows each team's "saved settings with the four numbers". They are
+    read as stored — the team's own stated values.
+    """
     statement = (
         sa.select(
             exercise_saved_setting.c.event_key,
             exercise_saved_setting.c.name,
             exercise_saved_setting.c.created_at,
+            exercise_saved_setting.c.weights,
         )
         .where(exercise_saved_setting.c.workspace_id == workspace_id)
         .order_by(exercise_saved_setting.c.created_at, exercise_saved_setting.c.name)
     )
     return tuple(
-        InstructorSavedSetting(event_key=row.event_key, name=row.name, created_at=row.created_at)
+        InstructorSavedSetting(
+            event_key=row.event_key,
+            name=row.name,
+            created_at=row.created_at,
+            weights=weights_from_json(row.weights) or {},
+        )
         for row in session.execute(statement).all()
     )
+
+
+def _ints(value: object) -> tuple[int, ...]:
+    """A PostgreSQL integer array as a tuple. ``NULL`` reads as empty."""
+    return tuple(int(item) for item in value) if isinstance(value, list) else ()
 
 
 def select_result_runs(
     session: Session, *, workspace_id: uuid.UUID
 ) -> tuple[InstructorResultRun, ...]:
-    """A team's result runs, by round.
+    """A team's result runs, by round, with the names each run invited.
 
-    Counted in SQL — ``cardinality`` over the three arrays — so the profile
-    numbers themselves are never fetched into this process, let alone
-    returned. That is cheaper and it is also the D8 boundary written as a
-    query rather than as a promise about what the caller does next.
+    The counts are still ``cardinality`` in SQL, so they are the stored
+    arrays' own lengths. Since issue #319 the read also fetches who: the
+    snapshot the run stored of its own invited list (revision 0046), the two
+    arrays that say which of those names signed up and attended, and the four
+    weights the list was built with. ``email_everyone`` is **not** selected —
+    the 300-person comparison stays a number on the team's own screen — and
+    neither is any identifier.
     """
     statement = (
         sa.select(
@@ -66,6 +86,10 @@ def select_result_runs(
             sa.func.cardinality(exercise_result_run.c.attended_profile_nos).label("attended"),
             exercise_result_run.c.seats_empty,
             exercise_result_run.c.created_at,
+            exercise_result_run.c.invited_profiles,
+            exercise_result_run.c.signed_up_profile_nos,
+            exercise_result_run.c.attended_profile_nos,
+            exercise_result_run.c.setting_weights,
         )
         .where(exercise_result_run.c.workspace_id == workspace_id)
         .order_by(exercise_result_run.c.round, exercise_result_run.c.created_at)
@@ -80,6 +104,10 @@ def select_result_runs(
             attended_count=row.attended,
             seats_empty=row.seats_empty,
             created_at=row.created_at,
+            invited=invited_from_json(row.invited_profiles),
+            signed_up_profile_nos=_ints(row.signed_up_profile_nos),
+            attended_profile_nos=_ints(row.attended_profile_nos),
+            setting_weights=weights_from_json(row.setting_weights),
         )
         for row in session.execute(statement).all()
     )

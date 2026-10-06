@@ -118,7 +118,6 @@ from smartmatch_api.routers.exercise_instructor_models import (
     InviteLimitRequest,
     LockView,
     RepointView,
-    TeamDetailView,
     TeamListView,
     TeamSummaryView,
     UnlockView,
@@ -127,8 +126,6 @@ from smartmatch_api.routers.exercise_instructor_models import (
     event_view,
     plain_sentence,
     report_view,
-    run_view,
-    setting_view,
     team_view,
 )
 
@@ -545,45 +542,11 @@ def list_team_workspaces(
     )
 
 
-@router.get(
-    "/workspaces/{team_number}",
-    response_model=TeamDetailView,
-    summary="One team's saved settings and result runs",
-)
-def read_team_workspace(
-    team_number: int,
-    session: ExerciseSession,
-    instructor: InstructorRepository,
-    dataset_id: _DatasetChoice = None,
-) -> TeamDetailView:
-    """Design spec §14's "open any team's saved settings and results". Read-only.
-
-    Addressed by *the data file the teams are on* (see :func:`_teams_dataset`),
-    not by the newest upload — which is why this no longer 404s on a team that
-    is plainly still working the moment a new file is uploaded.
-
-    ``result_runs`` is empty until the results track lands, which is a real
-    answer: design spec §9's route does not exist yet, so no team can have run
-    results.
-
-    Raises:
-        ExerciseError: 404 when that team has not entered its number, 422 for a
-            team number outside 1-6, 409 when no data file can be resolved.
-    """
-    dataset = _teams_dataset(instructor, session, requested=dataset_id)
-    workspace = _require_team(
-        instructor, session, dataset_id=dataset.dataset_id, team_number=team_number
-    )
-    return TeamDetailView(
-        team_number=workspace.team_number,
-        saved_settings=tuple(
-            setting_view(row)
-            for row in instructor.list_saved_settings(session, workspace_id=workspace.id)
-        ),
-        result_runs=tuple(
-            run_view(row) for row in instructor.list_result_runs(session, workspace_id=workspace.id)
-        ),
-    )
+# ``GET /workspaces/{team_number}`` — one team's whole work — is
+# ``routers/exercise_instructor_detail.py``. It composes a ranked list per saved
+# setting and reads each run's stored names, and this file is near the line
+# ceiling; it reaches :func:`_teams_dataset` and :func:`_require_team` below so
+# that "which file, which team" keeps one answer.
 
 
 @router.post(

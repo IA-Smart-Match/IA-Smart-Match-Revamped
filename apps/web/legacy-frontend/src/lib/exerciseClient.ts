@@ -194,6 +194,25 @@ export interface PreviousRoundView {
   readonly created_at: string;
 }
 
+/**
+ * One name a run invited, as that team's ranked list showed it at the time —
+ * `InvitedProfileView` in `exercise_results_models.py`.
+ *
+ * Stored with the run (issues #271, #319), so it does not change when the
+ * saved setting is deleted or saved again. `rank`, `marker` and `reason` are
+ * `null` only on a run stored before names were kept with the run: they could
+ * not be rebuilt, and nothing stands in for them.
+ */
+export interface InvitedProfileView {
+  readonly rank: number | null;
+  readonly profile_no: number;
+  readonly display_name: string;
+  readonly major: string | null;
+  readonly class_year: string | null;
+  readonly marker: string | null;
+  readonly reason: string | null;
+}
+
 export interface ResultsView {
   readonly event_key: string;
   readonly event_name: string;
@@ -206,6 +225,12 @@ export interface ResultsView {
   readonly existing_signups: number;
   /** `null` in round one; a populated panel in round two. */
   readonly round_one: PreviousRoundView | null;
+  /**
+   * The people this run invited, by name, in list order — the run's own
+   * record. Optional so fixtures from before issue #271 still type-check; a
+   * server from before it sends none, and the panels fall back to numbers.
+   */
+  readonly invited_profiles?: InvitedProfileView[];
   readonly created_at: string;
 }
 
@@ -303,25 +328,51 @@ export interface TeamListView {
   readonly active_dataset_label: string | null;
 }
 
+/** One saved setting: its four stated weights and the list of names it builds now. */
 export interface InstructorSavedSettingView {
   readonly event_key: string;
+  /** The event's label, as the data file spells it. */
+  readonly event_name: string;
+  /** 1 or 2, or `null` when the event is not one of the two rounds. */
+  readonly round: number | null;
   readonly name: string;
   readonly created_at: string;
+  /** The team's own four stated weights, by factor key. Never a score. */
+  readonly weights: Record<string, number>;
+  /** The list this setting builds right now, in order: what the team's screen shows. */
+  readonly invited: InvitedProfileView[];
 }
 
+/** One results run: who and how many. The names are the run's own record. */
 export interface ResultRunView {
   readonly event_key: string;
+  readonly event_name: string;
   readonly round: number;
   readonly setting_name: string | null;
+  /** The team no longer has a saved setting of that name; the run is unaffected. */
+  readonly setting_deleted: boolean;
+  /** The four stated weights the run's list was built with, or `null` when not recorded. */
+  readonly setting_weights: Record<string, number> | null;
   readonly invited_count: number;
   readonly signed_up_count: number;
   readonly attended_count: number;
   readonly seats_empty: number;
   readonly created_at: string;
+  /** Empty for a run stored before names were kept; the counts still stand. */
+  readonly invited: InvitedProfileView[];
+  readonly signed_up: InvitedProfileView[];
+  readonly attended: InvitedProfileView[];
 }
 
+/** `GET …/instructor/workspaces/{team_number}`: one team's whole work (issue #319). */
 export interface TeamDetailView {
   readonly team_number: number;
+  /** The way of asking the team chose, or `null` before it has chosen. */
+  readonly asking_choice: string | null;
+  /** ISO time of the team's one refresh, or `null` when it has not happened. */
+  readonly refreshed_at: string | null;
+  /** Ann's words for each factor key, to render the four numbers with. */
+  readonly factor_labels: Record<string, string>;
   readonly saved_settings: InstructorSavedSettingView[];
   readonly result_runs: ResultRunView[];
 }

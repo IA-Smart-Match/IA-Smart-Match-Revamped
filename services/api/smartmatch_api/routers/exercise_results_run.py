@@ -40,7 +40,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 
 from fastapi import status
-from smartmatch_domain.exercise.matching import exercise_ranked_list
+from smartmatch_domain.exercise.matching import ExerciseList, exercise_ranked_list
 from smartmatch_domain.exercise.simulation import (
     CoefficientsNotConfirmedError,
     InviteLimitExceededError,
@@ -58,6 +58,7 @@ from smartmatch_api.exercise_dependencies import (
     ExerciseResultsWriteRefused,
     ExerciseSession,
     ExerciseWorkspace,
+    InvitedProfile,
     ResultPanel,
     ResultsRepository,
     SettingsRepository,
@@ -67,11 +68,12 @@ from smartmatch_api.exercise_dependencies import (
 )
 from smartmatch_api.exercise_errors import ExerciseError
 from smartmatch_api.routers.exercise_matching_models import (
+    RankableSet,
     event_evidence,
     event_or_refusal,
     rankable_set,
 )
-from smartmatch_api.routers.exercise_matching_weights import validated
+from smartmatch_api.routers.exercise_matching_weights import effective_weights, validated
 from smartmatch_api.routers.exercise_results_models import (
     round_of,
     simulation_event,
@@ -84,6 +86,7 @@ __all__ = [
     "coefficients_or_refusal",
     "final_setting_or_refusal",
     "invited_list",
+    "invited_snapshot",
     "locked_sentence",
     "round_or_refusal",
     "run_the_rule",
@@ -198,7 +201,7 @@ def weights_or_refusal(
     return validated(dict(stored.weights)), name
 
 
-def _invited_profile_nos(
+def _invited_entries(
     session: ExerciseSession,
     *,
     datasets: DatasetRepository,
@@ -207,8 +210,8 @@ def _invited_profile_nos(
     event: ExerciseEventRow,
     workspace: ExerciseWorkspace,
     weights: Mapping[str, float],
-) -> tuple[int, ...]:
-    """The ranked list's profile numbers, in order — the team's invited set.
+) -> tuple[InvitedProfile, ...]:
+    """The ranked list's entries, in order — the team's invited set, with names.
 
     **Composed, never re-derived.** The order, the cut at the invite limit and
     the tie-break are ``exercise_ranked_list``'s, reached through the same
@@ -216,6 +219,14 @@ def _invited_profile_nos(
     names a team invited are the names its screen showed it. Re-deriving them
     here would be a second ranker, and the failure mode of two rankers is a team
     told it invited somebody it did not.
+
+    **The whole entry is kept, not only its number** (issues #271, #319). This
+    used to hand back profile numbers and throw the rest away, and every screen
+    that wanted a name then asked the saved setting — which can be deleted or
+    saved again. What is returned is what the run stores beside itself: rank,
+    number, name, major, year, marker and reason line, each a field the team
+    already reads on its ranked list (``ranked_list_view`` builds the same seven
+    from the same two values).
 
     The year rank is ``rankable_set``'s — ``EXERCISE_CLASS_YEAR_RANK``, seniors
     first; this module does not touch it.
@@ -236,7 +247,32 @@ def _invited_profile_nos(
         year_rank=rankable.year_rank,
         dataset_checksum=summary.checksum,
     )
-    return tuple(int(entry.profile_id) for entry in ranked.entries)
+    return invited_snapshot(ranked, rankable)
+
+
+def invited_snapshot(ranked: ExerciseList, rankable: RankableSet) -> tuple[InvitedProfile, ...]:
+    """A ranked list as the names a run keeps, or an instructor reads, in order.
+
+    One function for both uses — the snapshot a run stores and the live list
+    the instructor's page shows for a saved setting — so a name is described
+    the same way in each.
+    """
+    entries: list[InvitedProfile] = []
+    for entry in ranked.entries:
+        profile_no = int(entry.profile_id)
+        facts = rankable.facts[profile_no]
+        entries.append(
+            InvitedProfile(
+                rank=entry.rank,
+                profile_no=profile_no,
+                display_name=facts.display_name,
+                major=facts.major,
+                class_year=facts.class_year,
+                marker=str(entry.marker),
+                reason=entry.reason,
+            )
+        )
+    return tuple(entries)
 
 
 def run_the_rule(
@@ -306,8 +342,17 @@ def store(
     setting_name: str,
     team: ResultPanel,
     everyone: ResultPanel,
+    invited: Sequence[InvitedProfile],
+    weights: Mapping[str, float],
 ) -> StoredResultRun:
-    """Write the run, turning the repository's two refusals into two sentences."""
+    """Write the run, turning the repository's two refusals into two sentences.
+
+    ``invited`` and ``weights`` are stored beside the run (revision 0046): the
+    names its list showed, and the four **stated** weights it was built with
+    (``effective_weights`` — the team's values over the defaults, never the
+    normalized ones). They make the run a record that no later edit or delete
+    of the saved setting can rewrite.
+    """
     try:
         return results.record_run(
             session,
@@ -319,6 +364,8 @@ def store(
             team=team,
             email_everyone=everyone,
             seats_empty=seats_empty(len(team.attended_profile_nos)),
+            invited=invited,
+            setting_weights=effective_weights(weights),
         )
     except AlreadyRunError:
         raise already_run() from None
@@ -423,17 +470,21 @@ def invited_list(
     events: Sequence[ExerciseEventRow],
     event: ExerciseEventRow,
     requested_setting: str,
-) -> tuple[Sequence[TeamProfileRow], Sequence[int], str]:
-    """Who this team invited, and the name of the weighting it was built from.
+) -> tuple[Sequence[TeamProfileRow], tuple[InvitedProfile, ...], str, Mapping[str, float]]:
+    """Who this team invited, the weighting's name, and the weights themselves.
 
     The second half of ``run_results``'s preamble, extracted for the same reason
     as :func:`runnable_or_refusal` (review round 1, F3).
 
-    The profiles are returned beside the invited numbers because the run needs
+    The profiles are returned beside the invited entries because the run needs
     both: the team's own view is what the rule's non-responding set is read
     from, and reading three hundred rows joined to an overlay twice is the one
     expensive thing on this path. The simulation's own load is a separate read,
     because it carries the withheld column and that read has one caller.
+
+    The entries and the weights are returned whole because the run stores them
+    (issues #271, #319): the rule is handed the numbers, the row keeps the
+    names.
     """
     weights, setting_name = weights_or_refusal(
         session,
@@ -445,7 +496,7 @@ def invited_list(
     profiles = team_view.list_team_profiles(
         session, dataset_id=workspace.dataset_id, workspace_id=workspace.id
     )
-    invited = _invited_profile_nos(
+    invited = _invited_entries(
         session,
         datasets=datasets,
         profiles=profiles,
@@ -454,4 +505,4 @@ def invited_list(
         workspace=workspace,
         weights=weights,
     )
-    return profiles, invited, setting_name
+    return profiles, invited, setting_name, weights
