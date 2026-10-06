@@ -31,7 +31,7 @@ repository; only the owner's relay and the prototype are on record.
 
 **Decided by the owner (Danny), 2026-10-06:** weights are shown and set as whole
 numbers from 0 to 10, as in Dr. Wang's prototype (sliders `min 0`, `max 10`),
-starting at 3 / 3 / 2 / 2. This closes OQ-CE-19. The alternative — keeping the
+starting at 3 / 3 / 2 / 2. This closes OQ-CE-32. The alternative — keeping the
 0-to-1 scale and starting at 0.30 / 0.30 / 0.20 / 0.20 — was not chosen.
 
 What this changes from the screens as built:
@@ -101,9 +101,9 @@ numbers or keeps fractions and converts at the edge.
 
 | OQ | Question | Options | Recommended default | Who |
 |---|---|---|---|---|
-| **OQ-CE-19** | On what scale are 3/3/2/2 shown and stored? | — | **Closed 2026-10-06 (owner): whole numbers 0–10.** See "Display scale" above. | — |
-| **OQ-CE-20** | Does "P004 ranks 5th with the starting settings" still have to hold? | Re-state the expected rank under 3/3/2/2, or drop the pinned rank. | Recompute and send her the new rank for confirmation. | Dr. Wang; Chau for the number |
-| **OQ-CE-21** | When does the class module switch? | Before the 2026-10-16 run-through, or after it. | Before, so her run-through sees the ruled defaults. | Owner |
+| **OQ-CE-32** | On what scale are 3/3/2/2 shown and stored? | — | **Closed 2026-10-06 (owner): whole numbers 0–10.** See "Display scale" above. | — |
+| **OQ-CE-33** | Does "P004 ranks 5th with the starting settings" still have to hold? | Re-state the expected rank under 3/3/2/2, or drop the pinned rank. | Recompute and send her the new rank for confirmation. | Dr. Wang; Chau for the number |
+| **OQ-CE-34** | When does the class module switch? | Before the 2026-10-16 run-through, or after it. | Before, so her run-through sees the ruled defaults. | Owner |
 
 ## Related
 
@@ -111,3 +111,6 @@ numbers or keeps fractions and converts at the edge.
   weights decision is added with the implementing change, not by this record.
 - PR #337 (matching-rule changes) and the results-rule ruling of 2026-10-06 are
   separate decisions; neither sets the default weights.
+
+Open-question numbers 32–34 are used here because OQ-CE-19 to 31 are taken by the
+results-rule record of the same date (PR #348).
