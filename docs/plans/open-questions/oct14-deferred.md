@@ -22,7 +22,7 @@ window ends 2026-10-30.
 | **OQ-OCT14-01** | "Email everyone" baseline: each team's own chance draw, or one draw for the whole class? (#295) | Nothing | Each team's own draw (as built) | Ann; Chau for the seed source | 2026-10-16 to be seen in the run-through, else 2026-10-30 |
 | **OQ-OCT14-02** | The unused `license_line` column: retire it, or use it for wording per data file? (#273) | Nothing | Column stays, empty; the opening screen shows Ann's fixed line | Ann (one question); Danny (the migration) | 2026-10-30 |
 | **OQ-OCT14-03** | Oct-16 clean-up: which path, which build, and the go-ahead (#323) | Ann's run-through starting from a clean site | Nothing is run without a written go-ahead | Danny (owner) | 2026-10-13, to run on 2026-10-14 |
-| **OQ-OCT14-04** | Undecided career goal: is the Sept-25 D2 half credit superseded, and does that cover Harbor? | Merging #337; checklist §4 | `main` still gives the half credit until #337 merges | Chau (ruled 2026-10-05); Ann to confirm Harbor | 2026-10-14 |
+| **OQ-OCT14-04** | Undecided career goal: is the Sept-25 D2 half credit superseded, and does that cover Harbor? | Merging #337; checklist §4 | **Answered 2026-10-07 (Ann): option A, every event, Harbor included.** `main` still gives the half credit until #337 merges | Answered; Danny merges #337 | 2026-10-14 |
 | **OQ-OCT14-05** | When every team is switched to a new data file, does each team keep its chance seed? | Nothing | A switch still draws a new seed (as built) | Ann; Danny | 2026-10-30 |
 
 ---
@@ -173,6 +173,25 @@ workbook), #299 (Justin's evidence).
 ---
 
 ## OQ-OCT14-04 — the undecided career goal (Sept-25 D2 against the Oct-2 review)
+
+> **Answered 2026-10-07 — option A.** Ann Wang, by email to Danny: "yes. An
+> undecided career goal earns 0 on the career-goal factor for Harbor too, same
+> as Northline. Neither of the two test events is a broad event: Northline is
+> technology/information systems, and Harbor is retail/consumer goods and
+> supply chain. Please remove the 'undecided fits a broad event' rule so it
+> doesn't apply to any event, and check that the results rule treats undecided
+> the same way (no career-goal lift). Undecided students can still make the
+> list through major, stated interest, or past events."
+>
+> What this settles: D2's half credit is superseded on every event, in matching
+> and in the results rule. "Harbor" under "Still undecided" below is closed.
+> Checked on #337 with #342 (`origin/fix/pr337-audit-findings`): the results
+> rule lifts only when the goal's topic is one of the event's topics
+> (`exercise/simulation.py:509`), "Undecided" maps to no topic
+> (`exercise/vocabulary.py:133`), and
+> `test_undecided_earns_nothing_from_any_of_the_twelve_events` pins it. No new
+> code is needed for this answer; #337 still has to be rebased past the `0044`
+> migration collision before it can merge. Nothing on `main` changes until then.
 
 **The conflict.** D2 (2026-09-25, Ann): an "Undecided" career goal earns half
 credit on broad events, "Northline and Harbor included", in matching and in
