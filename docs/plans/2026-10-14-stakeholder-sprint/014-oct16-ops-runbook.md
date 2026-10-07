@@ -6,7 +6,7 @@
 
 - Deployed 2026-09-28 (backlog row, `docs/plans/backlog.md`): VM branch `deploy` at main `19b110eb`; `api-exercise` on `127.0.0.1:8090`, `web-exercise` on `127.0.0.1:5174`; tunnel `exercise.plated.blog` → `:5174`; Ann's September 300-row file uploaded. **Not re-verified since — verify on the VM.**
 - Ann's Oct-2 note: Northline results were left open and test work is saved under Teams 1–4 (checklist §10 row 12).
-- **No way to close results on `main`.** `exercise_result_unlock` is a presence row; the only write is the unlock insert (`instructor_repository.py:455-477`). The runtime role has `SELECT, INSERT` only on that table (`docs/operations/exercise-hosting.md:218`). #326 adds the close route and the `UPDATE` grant; it is not merged as of 2026-10-06.
+- **No way to close results on `main`.** `exercise_result_unlock` is a presence row; the only write is the unlock insert (`instructor_repository.py:455-477`). The runtime role has `SELECT, INSERT` only on that table (`docs/operations/exercise-hosting.md:218`). #326 adds the close route and the `UPDATE` grant; it merged in #345 on 2026-10-06 (this paragraph describes `main` before that). Deploying it and running the grant on the VM are still separate steps.
 - Clearing a team is per team: `POST /v1/exercise/instructor/workspaces/{team_number}/reset` (`exercise_instructor.py:532-533`). No bulk route.
 - A re-point (`POST /v1/exercise/instructor/datasets/{dataset_id}/repoint`, `exercise_instructor.py:301-302`) clears **all six** teams and the new file starts with both events closed. Ann also asked for exactly this switch to the Oct-2 file.
 - Seed after a clear: builds before #331 draw a new seed; builds with #331 keep it. Ann's checklist §8 passes only on a build with #331.
@@ -17,12 +17,12 @@
 Nothing here changes code. Each path is a different section of the runbook.
 
 **Path A — close route, then four clears (recommended when Teams 5–6 must stay untouched).**
-1. Merge and deploy #326 (close route + grant) and #331 (seed kept).
+1. Deploy #326 (merged in #345: close route + grant). Merge and deploy #331 (PR #344, seed kept).
 2. Run the grant change from #326 as the owner role (verify the exact statement in the merged PR).
 3. Runbook §§1–3 pre-flight → §4 close Northline, close Harbor → §5 clear Teams 1, 2, 3, 4 → §7 verify.
 
 **Path B — the Oct-2 file re-point does the cleanup (recommended when the Oct-2 file is going live anyway).**
-1. Merge and deploy #339 (accepts the Oct-2 workbook) and #331. #326 is not needed for the cleanup itself, but Ann's checklist §2 still needs it for "a way to close it again".
+1. Deploy #339 (merged; accepts the Oct-2 workbook). Merge and deploy #331 (PR #344). #326 is not needed for the cleanup itself, but Ann's checklist §2 still needs it for "a way to close it again".
 2. Pre-flight → upload the Oct-2 file → re-point → verify: six teams at the start, both events closed.
 3. Owner accepts that Teams 5–6 are cleared too. Issue #323 says "leave Teams 5 and 6 untouched"; a re-point cannot do that.
 

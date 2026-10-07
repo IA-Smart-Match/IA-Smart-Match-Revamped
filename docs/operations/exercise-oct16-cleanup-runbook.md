@@ -14,10 +14,10 @@ Source of the ask (Ann, 2026-10-02): "Danny: clear all test work under Teams 1 t
 
 Stop and do not write anything if any of these is true:
 
-1. No written go-ahead from the owner naming the date, the operator and the path (A, B or C below).
+1. No written go-ahead from the owner naming the date, the operator, the path (A, B or C below) and the release SHA to run against.
 2. `GET /v1/exercise` does not say `synthetic_data: true`, or the hostname is not `exercise.plated.blog`.
 3. The data file's checksum does not match the file you expect (§3.3).
-4. The release on `/api/health` is not the commit you meant to deploy (§2).
+4. The release on `/api/health` is not the SHA the owner named in the go-ahead (§2).
 5. Path A and the deployed build has no close route (#326 not deployed).
 6. No fresh backup (§3.6).
 
@@ -60,7 +60,7 @@ cat /opt/smartmatch/release.env
 curl -sS http://127.0.0.1:8090/api/health
 ```
 
-Pass: the three SHAs agree and the checkout is clean. The web container bind-mounts the checkout, so `rev-parse HEAD` is the frontend's version; `/api/health` is the API image's. They can differ if a deploy was done without `--build`. **VERIFY ON THE VM.**
+Pass: the three SHAs agree, they equal the SHA in the owner's go-ahead, and the checkout is clean. The web container bind-mounts the checkout, so `rev-parse HEAD` is the frontend's version; `/api/health` is the API image's. They can differ if a deploy was done without `--build`. **VERIFY ON THE VM.**
 
 2.3 **The build contains what the path needs.** On any clone with `origin` fetched (`<release>` = the SHA from 2.1):
 
@@ -140,6 +140,7 @@ Record per team: `dataset_label`, `saved_setting_count`, `result_run_count`, `as
 3.6 **Backup, on the VM, immediately before the first write.** Same shape as the dump `deploy.sh` takes (`scripts/vm/deploy.sh:359`). **VERIFY ON THE VM** — check the database URL variable and the owner role name in `/opt/smartmatch/app/.env` first; the host-side URL says `localhost`, inside the container the host is `db`.
 
 ```bash
+set -euo pipefail   # a failed pg_dump must fail the line, not hide behind gzip
 cd /opt/smartmatch/app
 STAMP=$(date -u +%Y%m%dT%H%M%SZ)
 docker compose -f docker-compose.yml -f docker-compose.vm.yml exec -T db \
@@ -148,10 +149,12 @@ docker compose -f docker-compose.yml -f docker-compose.vm.yml exec -T db \
 docker compose -f docker-compose.yml -f docker-compose.vm.yml exec -T db \
   pg_dump --data-only -U smartmatch -d smartmatch -t 'exercise_*' \
   | gzip -c > /opt/smartmatch/backups/exercise-only-$STAMP-pre-oct16-cleanup.sql.gz
+gzip -t /opt/smartmatch/backups/*-$STAMP-pre-oct16-cleanup.sql.gz
+zcat /opt/smartmatch/backups/smartmatch-$STAMP-pre-oct16-cleanup.sql.gz | tail -3
 ls -l /opt/smartmatch/backups | tail -3
 ```
 
-Pass: both files exist and are not empty. `deploy.sh` prunes that folder to the 14 newest dumps — copy these two somewhere else if a deploy may run before Oct 16.
+Pass: no command failed, both files pass `gzip -t`, and the full dump ends with `-- PostgreSQL database dump complete`. A file that is merely not empty is not a pass: without `pipefail`, `gzip` succeeds on a dump that died half-way. `deploy.sh` prunes that folder to the 14 newest dumps — copy these two somewhere else if a deploy may run before Oct 16.
 
 3.7 **Checklist §9 license line (for #273).** Open `https://exercise.plated.blog/` in a browser. Pass: the opening screen shows "For California State Polytechnic University, Pomona — College of Business Administration instructional use only. All student profiles are fictional."
 
@@ -198,16 +201,17 @@ Run it once as written: it rolls back and changes nothing. Read the output. Pass
 
 One team at a time. Each call clears that team's saved settings, lists, results, way of asking and refresh. Teams 5 and 6 are not named and are not touched.
 
+Run this once per team, with `n=1`, then `2`, `3`, `4`. Not in a loop: read each answer against the pass line before sending the next.
+
 ```bash
-for n in 1 2 3 4; do
-  curl -sS -b jar -X POST "$H/v1/exercise/instructor/workspaces/$n/reset" \
-    -H 'X-Exercise-Request: 1' | tee "clear-team-$n.json"; echo
-done
+n=1
+curl -sS -b jar -X POST "$H/v1/exercise/instructor/workspaces/$n/reset" \
+  -H 'X-Exercise-Request: 1' | tee "clear-team-$n.json"; echo
 ```
 
 Pass per team: the response shows `saved_setting_count: 0`, `result_run_count: 0`, `asking_choice: null`, `refreshed_at: null`. A team that never entered has no row to clear and is refused (**verify the exact answer on the VM**); record it.
 
-Stop at the first unexpected answer. Do not retry in a loop.
+Stop at the first unexpected answer. Do not send the next team's request, and do not retry.
 
 ## 6. Path B — switch every team to the Oct-2 file
 
@@ -283,11 +287,11 @@ Fill in and attach to #323 (and #299 for Justin's list).
 
 ## 10. What this runbook depends on
 
-| Issue | Why | State on 2026-10-06 |
+| Issue | Why | State on 2026-10-07 |
 |---|---|---|
-| #326 | The close route and its grant. Without it, path A is impossible | Open, not merged |
-| #331 | A cleared team keeps its chance seed, so checklist §8 passes | PR open |
-| #339 | The Oct-2 workbook is accepted at upload (path B) | PR open |
+| #326 | The close route and its grant. Without it, path A is impossible | Merged (#345). Still needs deploying, and the grant run on the VM |
+| #331 | A cleared team keeps its chance seed, so checklist §8 passes | PR #344 open, not merged |
+| #339 | The Oct-2 workbook is accepted at upload (path B) | Merged (#339). Still needs deploying |
 | #337 | Matching-rule changes; carries a migration. Deploying it is a schema change — do it before this runbook, never during | PR open |
 | #299 | Justin's test evidence uses this before/after record | Open |
 

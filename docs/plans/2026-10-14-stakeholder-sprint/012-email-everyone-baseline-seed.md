@@ -9,7 +9,7 @@
 - The contract says so on purpose: `ResultsView.email_everyone` in `exercise_results_models.py` ("the same rule with the same seed"), `run_email_everyone` docstring (`simulation.py:657`), design spec §10 (`docs/superpowers/specs/2026-09-16-class-exercise-design.md:287-288`).
 - Pinned by `tests/unit/exercise_results_router/test_exercise_results_panels.py:81` `test_email_everyone_uses_the_same_seed_as_the_teams_own_list` and `test_exercise_results_refresh.py:164` (a silenced profile signs up in neither panel).
 - Stored, not recomputed: `exercise_result_run.email_everyone` is written once. A change affects future runs only. No migration under any option.
-- Since #331 (plan 011) a cleared team keeps its seed, so its baseline no longer changes after a clear. That removes one cost of the status quo.
+- Once #331 (plan 011, PR #344 — open on 2026-10-07; `main` still draws a new seed) is merged and deployed, a cleared team keeps its seed, so its baseline no longer changes after a clear. That removes one cost of the status quo.
 
 ## Ordered change list — conditional on the answer
 
@@ -43,4 +43,4 @@
 - **Deferred to Ann** (Chau for the seed source if B). Not asked before; this sprint posts the question on #295.
 - **Default while unanswered: A.** Nothing changes; the Oct-16 run-through sees per-team baselines.
 - **Needed by:** 2026-10-16 to be seen in the run-through; otherwise it lands in the 2026-10-30 fix-up.
-- This differs from the brief, which recommends sending B-ii. Reason: A needs no code before Oct 16, the checklist does not ask for identical baselines, and #331 removed the reset side-effect. B-ii stays the answer if Ann wants one number on every projector.
+- This differs from the brief, which recommends sending B-ii. Reason: A needs no code before Oct 16, the checklist does not ask for identical baselines, and #331, once merged, removes the reset side-effect. B-ii stays the answer if Ann wants one number on every projector.

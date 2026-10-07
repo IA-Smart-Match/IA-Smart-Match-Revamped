@@ -48,8 +48,9 @@ Should it be one number for the whole class?
   still differ. Half a fix.
 
 **Recommended default.** A. It needs no change before Oct 16, the checklist
-asks only that the baseline sit beside the team's numbers, and since #331 a
-cleared team's baseline no longer changes. If Ann wants one number on every
+asks only that the baseline sit beside the team's numbers, and once #331
+(PR #344, open on 2026-10-07) is merged a cleared team's baseline no longer
+changes. If Ann wants one number on every
 projector, choose B-ii, not B-i.
 
 **Who answers.** Ann. If B: Chau confirms the draw is fixed by the data file's
@@ -261,9 +262,10 @@ team a new seed. Should the switch keep it too?
 
 **Options.**
 
-- **A. Leave it (as built).** A new file gets a new draw. On a new file the
-  results differ anyway, because the draw is also keyed on the event and the
-  profile.
+- **A. Leave it (as built).** A new file gets a new draw, because the switch
+  gives each team a new seed. The draw is keyed on the seed, the event, the
+  profile number and the purpose — not on the file — so the new seed is the
+  only reason results differ where those others match.
 - **B. Keep the seed across a switch.** Re-uploading the *same* file and
   switching to it would then give the same results as before.
 

@@ -21,22 +21,22 @@ Deadline model: **Oct-14 milestone board** (`#1 — Oct-14 stakeholder board`, d
 
 ## Issue status at a glance
 
-Sprint status column added 2026-10-06 (Oct-14 stakeholder sprint). "PR open" means built, independently reviewed, review fixes pushed, not merged. Plans: `docs/plans/2026-10-14-stakeholder-sprint/`. Deferred questions and defaults taken: `docs/plans/open-questions/oct14-deferred.md`.
+Sprint status column added 2026-10-06 (Oct-14 stakeholder sprint). "Landed" means merged to `main`. "PR open" means built, reviewed by an agent, not merged. Updated 2026-10-07; plans and this index are PR #347. Plans: `docs/plans/2026-10-14-stakeholder-sprint/`. Deferred questions and defaults taken: `docs/plans/open-questions/oct14-deferred.md`.
 
-| Issue | State | Gate | Sprint status 2026-10-06 |
+| Issue | State | Gate | Sprint status 2026-10-07 |
 |---|---|---|---|
-| #325 | Implementation-ready | Decide cap (recommend 2,000) + required-vs-optional column; coordinate scope split with #318 | **PR open** #339 — plan 001; defaults taken: 2,000 cap, optional column |
-| #318 | Implementation-ready, **hard-blocked by #325** | Column required vs optional; fixture commit (strip Read Me/Benchmark, force-add past `*.xlsx` ignore) | **PR open** #339 — plan 002; migration `0044_exercise_event_description`; `.accdb` rebuild is a manual step |
-| #319 + #271 | Implementation-ready | Snapshot contract shape; migration-number ordering | **PR open** #345 — plans 005, 006; migration `0046_exercise_run_snapshot` |
-| #321 | Ready w/ owner gates | Lock-read exposure (shared w/ #328), run/refresh confirm copy, band scope | **PR open** #346 — plan 010; stacked on #345 and #340; defaults taken: band on the four team pages, two-press team refresh |
-| #326 | Ready w/ decision note | D16 supersession + `unlocked_at` semantics + zero-teams ordering vs #323 | **PR open** #345 — plan 003; migration `0045_exercise_unlock_closed_at`; D16 amended 2026-10-06; needs `GRANT UPDATE ON exercise_result_unlock` at deploy |
-| #328 | Ready w/ owner gates | Same lock-read gate as #321; copy pins; #326 interaction (run > open precedence) | **PR open** #345 — plan 004; DESIGN.md §6.14 amended |
-| #329 | Ready w/ Chau gates | Mark-vs-exclude non-responders; "refreshed" vs "asked" wording; shared counts shape | **PR open** #340 — plan 007; defaults taken: mark non-responders, Ann's "Refreshed at" wording |
-| #330 | Ready w/ owner gates | Reason-code set; `dataset_label` in report; label copy | **PR open** #340 — plan 008 |
-| #331 | **Decision-gated** — checklist §8 says preserve seed; code + tests + docs say regenerate | Ann/Chau decision; then docs+test inversion | **PR open** #344 — plan 011; implemented on checklist §8 (owner ruling); D7 amended 2026-10-06; re-point still draws a new seed (OQ-OCT14-05) |
+| #325 | Implementation-ready | Decide cap (recommend 2,000) + required-vs-optional column; coordinate scope split with #318 | **Landed** — merged #339 — plan 001; defaults taken: 2,000 cap, optional column |
+| #318 | Implementation-ready, **hard-blocked by #325** | Column required vs optional; fixture commit (strip Read Me/Benchmark, force-add past `*.xlsx` ignore) | **Landed** — merged #339 — plan 002; migration `0044_exercise_event_description`; `.accdb` rebuild is a manual step |
+| #319 + #271 | Implementation-ready | Snapshot contract shape; migration-number ordering | **Landed** — merged #345 — plans 005, 006; migration `0046_exercise_run_snapshot` |
+| #321 | Ready w/ owner gates | Lock-read exposure (shared w/ #328), run/refresh confirm copy, band scope | **Planned, PR open** #346 — plan 010; stacked on #345 and #340; defaults taken: band on the four team pages, two-press team refresh |
+| #326 | Ready w/ decision note | D16 supersession + `unlocked_at` semantics + zero-teams ordering vs #323 | **Landed** — merged #345 — plan 003; migration `0045_exercise_unlock_closed_at`; D16 amended 2026-10-06; needs `GRANT UPDATE ON exercise_result_unlock` at deploy |
+| #328 | Ready w/ owner gates | Same lock-read gate as #321; copy pins; #326 interaction (run > open precedence) | **Landed** — merged #345 — plan 004; DESIGN.md §6.14 amended |
+| #329 | Ready w/ Chau gates | Mark-vs-exclude non-responders; "refreshed" vs "asked" wording; shared counts shape | **Planned, PR open** #340 — plan 007; defaults taken: mark non-responders, Ann's "Refreshed at" wording |
+| #330 | Ready w/ owner gates | Reason-code set; `dataset_label` in report; label copy | **Planned, PR open** #340 — plan 008 |
+| #331 | **Decision-gated** — checklist §8 says preserve seed; code + tests + docs say regenerate | Ann/Chau decision; then docs+test inversion | **Planned, PR open** #344 — plan 011; implemented on checklist §8 (owner ruling); D7 amended 2026-10-06; re-point still draws a new seed (OQ-OCT14-05) |
 | #273 | **Decision-gated** — retire `license_line` column vs per-file addendum | Owner decision; UI is a fixed constant either way | **Deferred** — plan 013; OQ-OCT14-02; issue comment posted |
 | #323 | **Ops, deployment-gated** — destructive, needs live env verification | Verify deploy target/commit/dataset checksum first; depends on #326 (close) and #331 (seed) | **Deferred (runbook written, nothing run)** — plan 014; `docs/operations/exercise-oct16-cleanup-runbook.md`; OQ-OCT14-03; owner picks path A/B/C |
-| #335 | Implementation-ready | None — plain labels + focused CSV negative test | **PR open** #338 — plan 009 |
+| #335 | Implementation-ready | None — plain labels + focused CSV negative test | **Landed** — merged #338 — plan 009 |
 | #295 | **Decision-gated** — per-team vs class-wide email-everyone baseline | Ann decision; docs+tests either way | **Deferred** — plan 012; OQ-OCT14-01; issue comment posted |
 | D2 undecided goal | Flagged in drafts | Dated decision superseding D2 | **Covered elsewhere** — issue #322 and PR #337 (its decision record supersedes D2); Harbor still needs Ann's written confirmation (OQ-OCT14-04) |
 
