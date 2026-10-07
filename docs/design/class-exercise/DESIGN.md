@@ -1141,6 +1141,7 @@ labels and the license line are unchanged and not listed.
 | Team status line, data file (#321; the file's own label) | "Data file: October file" |
 | Team status line, wrong team (#321) | "Not your team? Pick again" |
 | Team status line, loading and failing (#321) | "Reading your team's status…" / "Your team's status could not be read. Reload the page to read it again." / "This line could not be read again just now, so it may be out of date." |
+| Team status line, the region's name for a screen reader (#321) | "Your team's status" |
 | Opening `h1` | "Who should we invite?" |
 | Opening lead | "Your team is promoting a campus career event with 60 seats. Choose whom to invite, see what happened, then try again." |
 | Event picker, 390 past-events disclosure | "Show the {n} past events" / "Show the 1 past event" (same label when expanded) |
