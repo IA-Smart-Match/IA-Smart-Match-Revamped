@@ -22,7 +22,7 @@ amendment" at the end).
 | # | The question | The answer | Who decided, when |
 |---|---|---|---|
 | D1 | What file does the instructor upload? | Ann's `.xlsx`, exactly as she sends it. No converting to CSV first. | Danny (owner), 2026-09-24 |
-| D2 | Which events does each career goal fit? | Each "<field> role" fits its field. "Start my own business" fits Entrepreneurship. "Graduate school" fits no event topic. "Undecided" gets **half credit** on broad events (career fairs, industry panels, employer info sessions, employer talks — Northline and Harbor included). The results step treats undecided students the same way. | Danny drafted 2026-09-24; Ann confirmed and added the half-credit rule 2026-09-25 |
+| D2 | Which events does each career goal fit? | Each "<field> role" fits its field. "Start my own business" fits Entrepreneurship. "Graduate school" fits no event topic. "Undecided" gets **half credit** on broad events *(superseded 2026-10-02: fits no event)* (career fairs, industry panels, employer info sessions, employer talks — Northline and Harbor included). The results step treats undecided students the same way. | Danny drafted 2026-09-24; Ann confirmed and added the half-credit rule 2026-09-25 |
 | D3 | When two students tie all the way down, who comes first? | The fixed order in Ann's `tiebreak_order` column. | Danny (owner), 2026-09-24 |
 | D4 | Are Ann's files kept in the code repository? | Yes, as test data. The Read Me and Benchmark tabs were removed. | Danny (owner), 2026-09-24 and 2026-09-25 |
 | D5 | Can a team run results without choosing a final setting? | No. The team must pick one saved setting first. | Danny (owner), 2026-09-24, from Ann's flow |
@@ -43,7 +43,8 @@ amendment" at the end).
 - **The results screen works.** The numbers in D7 are live. A change is one
   line in `simulation.py`.
 - **Undecided students** now reach broad events at half strength, both in the
-  ranked list and in the simulated results (D2).
+  ranked list and in the simulated results (D2). *Superseded 2026-10-02: Ann
+  removed this rule. See [`class-exercise-factor-revisions-2026-10-02.md`](class-exercise-factor-revisions-2026-10-02.md).*
 - **Empty seats** will read as three short sentences (D8). This is being built
   now on branch `feat/ce-results-integration`.
 - **Nothing else visible changes.** D3, D5, D6, D11, D12, D13, D14 and D16 are
@@ -106,6 +107,13 @@ Every `file:line` below is on `origin/main` at `9339d5a4`. Paths are shortened:
      own sentences are unchanged.
 
 ## D2. Career goal → topic, and "Undecided" at half credit
+
+> **Superseded in part, 2026-10-02.** Ann's progress check and revisions (item
+> 4b) removed the half credit for "Undecided": it now fits no event, in
+> matching and in the results step, and `exercise_event.is_exploratory` is
+> no longer read or written (the column is kept until a later contract-phase
+> migration drops it). The role→topic table below stands. See [`class-exercise-factor-revisions-2026-10-02.md`](class-exercise-factor-revisions-2026-10-02.md).
+> The text below is left as it was recorded on 2026-09-25.
 
 - **Question.** Which event topic does each career-goal label fit? (OQ-CE-14)
 - **Options.** For "Undecided": (a) no topic, a measured miss (the owner's

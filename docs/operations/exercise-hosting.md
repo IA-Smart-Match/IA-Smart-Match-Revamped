@@ -801,11 +801,13 @@ checklist for real:
    (`db/migrations/versions/0044_exercise_event_description.py` sets its own
    `down_revision = "0043_exercise_event_exploratory"`; it adds the nullable
    text column `description` to `exercise_event`, read from Ann's
-   `event_description`. `0043` before it added the boolean `is_exploratory`,
-   read from her `event_type`).
-   **Re-upload Ann's file after these revisions**: a dataset stored before
-   `0043` has every event non-exploratory, so an undecided career goal earns
-   nothing on Northline or Harbor, and a dataset stored before `0044` shows no
+   `event_description`. `0043` before it added the boolean `is_exploratory`).
+   Nothing reads or writes `is_exploratory` since Ann's revisions of
+   2026-10-02; it stays in the table, `false` by default, so that rolling the
+   application back to the release before those revisions still works with no
+   schema step. Dropping it is a contract-phase revision for a later release,
+   after the 2026-10-16 run-through.
+   **Re-upload Ann's file after `0044`**: a dataset stored before it shows no
    event description. Fail: a revision is printed — the head has moved
    past `0044`; re-derive this step against the new file before continuing,
    since the tables the grant in [§3](#3-the-database-role) depends on may

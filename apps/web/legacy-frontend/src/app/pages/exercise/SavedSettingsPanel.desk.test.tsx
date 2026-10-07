@@ -17,7 +17,6 @@ const LABELS = {
   stated_interest_overlap: "said they are interested in this topic",
   career_goal_fit: "career goal fits this event",
   past_event_topic_overlap: "went to similar events before",
-  undecided_goal_half: "undecided goal suits a broad event",
 };
 
 const WEIGHTS = {
@@ -69,7 +68,6 @@ describe("<SavedSettingsPanel /> cards (§6.11)", () => {
     expect(within(card).getByText("0.60")).toBeDefined();
     expect(within(card).getByText("0.10")).toBeDefined();
     expect(card.textContent).not.toContain("same_major");
-    expect(card.textContent).not.toContain(LABELS.undecided_goal_half);
   });
 
   it("draws 'Open this list' as a secondary button (§6.3)", () => {

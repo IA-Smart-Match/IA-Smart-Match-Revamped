@@ -696,7 +696,10 @@ def test_an_overlay_changes_only_that_teams_view(fakes: _Fakes) -> None:
     """Design spec §2: a team's view is base ⟕ overlay, and the overlay is keyed."""
     with _entered(fakes, 4) as team_four, _entered(fakes, 5) as team_five:
         workspace = fakes.workspaces.rows[(_DATASET_ID, 4)]
-        base = _PROFILES[2]
+        # Bao Nguyen: a Senior, so on the list of four for both teams whatever
+        # the overlay says. A Junior with no card is one of four names tied for
+        # three places now that one shared interest is a whole fit.
+        base = _PROFILES[1]
         fakes.team_view.overlays[(workspace.id, base.profile_no)] = replace(
             base,
             overlay_card_interests=("analytics", "brand"),
@@ -705,7 +708,7 @@ def test_an_overlay_changes_only_that_teams_view(fakes: _Fakes) -> None:
         four = client_marker(team_four, base.profile_no)
         five = client_marker(team_five, base.profile_no)
     assert four == "completed_card"
-    assert five == "major_only"
+    assert five == "major_plus_events"
 
 
 def client_marker(client: TestClient, profile_no: int) -> str | None:
