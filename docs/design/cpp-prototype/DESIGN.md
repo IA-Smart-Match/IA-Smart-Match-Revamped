@@ -12,7 +12,7 @@ How to use this file:
 
 - **Builders:** Part 1 is the same for all three mockups. Build from sections 2 and 3 without opening her HTML. Part 2 has one section per direction; follow only yours.
 - **Auditor:** run section 11 against each mockup. Every item is pass or fail.
-- **Precedence:** her README's honesty rules (section 1.3), then Part 1, then the direction's section in Part 2. A direction may restyle anything. It may not change a word in section 2, a number in section 3, or drop an element from a screen.
+- **Precedence:** her README's honesty rules (section 1.3), then Part 1, then the direction's section in Part 2. A direction may restyle anything else. It may not change a word in section 2, a number in section 3, re-tone an honesty component (section 7.4), or drop an element from a screen.
 
 ---
 
@@ -32,7 +32,7 @@ Ann sent a clickable front end of where Smart Match is heading. Her note: "see t
 | About 15 minutes of demo on the front end, then Q&A | 9 stops (section 2.1), about 100 seconds each. Nothing may make a presenter wait |
 | Two student presenters: Chau and Janice | A presenter guide equal to Ann's (section 2.12) is in every mockup |
 | Projected in a lit room, read from the back row | Light theme by default; type and contrast floors in sections 5 and 6 |
-| Presenter-driven from a classroom laptop, possibly with a clicker, possibly with no internet | Opens by double-click, no network, PageDown and PageUp move between stops (section 7.16) |
+| Presenter-driven from a classroom laptop, possibly with a clicker, possibly with no internet | Opens by double-click, no network, PageDown and PageUp move between stops from any control except a text input (section 7.16) |
 | Q&A may send a board member's question to any screen | Any screen is reachable in at most two actions from any other; off-script clicks never break state |
 
 ### 1.3 Honesty rules (from Ann's README; non-negotiable)
@@ -618,6 +618,8 @@ Everything else follows her behaviour, including T4, T9 and T10.
 &reset=1                    clear saved state
 ```
 
+`theme=dark` turns dark on only in a direction that ships a dark theme (section 6.4). Where none ships, the parameter is ignored without error and the page stays light.
+
 ## 4. Wording rules
 
 | Rule | Detail |
@@ -634,7 +636,7 @@ Everything else follows her behaviour, including T4, T9 and T10.
 | Words to avoid in new strings | AI-powered, smart (outside the product name), intelligent, algorithm, real-time, live, predict, insight, optimize, seamless, user, score |
 | Button labels | Verb first, say what happens: "Send message", "Offer another talk". In-flight labels are not needed (nothing is sent) |
 | Reasons and names | Never truncated, never ellipsed, never hidden in a tooltip. They wrap |
-| Line length | Prose 45–70 characters per line at 1440. A screen description fits in 2 lines at 1440; a reason fits in 2 lines in the match table; a status label never wraps |
+| Line length | A screen description: at most 2 lines at 1440, with a measure of up to 100 characters. Body prose (help body, notes, footnotes, chat turns): 45–70 characters per line at 1440. A reason fits in 2 lines in the match table at 1440 and at 1280; a status label never wraps |
 | Outcome messages | Her sentence, as a persistent line next to the control that caused it (section 7.11) |
 
 ## 5. Layout and spacing system
@@ -662,7 +664,7 @@ More space above a heading than below it.
 | Name | Width | Columns | Gutter | Side margin | Shell |
 |---|---|---|---|---|---|
 | `xl` (audited) | 1440×900 | 12 | 24 | per direction | Full desktop shell |
-| `lg` | 1024–1439 | 12 | 24 | 32 | Desktop shell; must hold at 1280×720 |
+| `lg` | 1024–1439 | 12 | 24 | 32 | Desktop shell; must hold at 1280×720 (compact height, below) |
 | `md` | 640–1023 | 8 | 16 | 24 | Navigation collapses to a horizontal strip or a sheet |
 | `sm` (audited) | 390 | 4 | 16 | 16 | Single column; tables become stacked rows |
 
@@ -673,13 +675,25 @@ More space above a heading than below it.
 | Screen | Must be visible |
 |---|---|
 | every screen | Title, status label, marker N1, the way to switch portal |
-| `entry` | All three doors and the demo line |
+| `entry` | All three doors and the demo line. The entry does not scroll: the page is no taller than the viewport |
 | `interview` | The latest assistant turn in full, every reply option, and the whole profile card |
-| `recs` | All three event rows. After `Register`, the check-in card is brought into view (scroll, not a focus move) |
+| `recs` | All three event rows. After `Register`, the check-in card is brought into view by the smallest scroll that shows the code and the points (a scroll, not a focus move); the pressed button, its event title, the screen title and the status label stay on screen, clear of any sticky bar. A direction that places the card beside the list does not scroll at all |
 | `readiness` | The ring, the three tiles, the callout, and the four help buttons |
+| `growth` | The timeline, the topic bars and the closing line, whole (the closing line is the stop's point) |
 | `overview` | The four tiles and the first row of charts |
-| `match` | Event picker, four weight controls, the Grace line, and at least 5 ranked rows (so #4 is on screen) |
+| `match` | Event picker, four weight controls, the Grace line, Grace's row #4 whole and at least 5 full ranked rows |
 | `talk` | "Who was invited" and "How your talk filled" |
+
+- **Compact height.** The room may give 1280×720 (a 1920×1080 laptop at 150% display scale). Under `@media (max-height: 800px)` every mockup switches to a compact layout built from the same tokens: the screen title and description one step down the type scale (never under the floors of section 5.3), block gaps and card padding one step down the spacing scale, the ring at 150px, match-table cell padding 8 / 12, and any full-height stage sized as `100dvh` minus its fixed bars. Audited at 1280×720:
+
+| Screen | Must hold at 1280×720 |
+|---|---|
+| every screen | Title, status label, marker N1, the way to switch portal. Nothing interactive and no line of text rests under a fixed bar, under the stop rail or behind the guide button; whatever is below the fold is reached by ordinary scrolling and comes fully clear of them |
+| `entry` | All three doors and the demo line, whole, with no scroll |
+| `interview` | The latest assistant turn in full (the log is at least 240px tall; the page scrolls, the log does not shrink), every reply option, and the whole profile card down to its "Next step" value |
+| `recs` | Every `Register` button and match line on screen is whole; none is under a fixed bar |
+| `readiness` | The ring, the three tiles and the callout. The four help buttons are on screen or one scroll away, never under a fixed bar |
+| `match` | Event picker, four weight controls, the Grace line, and at least 4 full ranked rows with Grace's row #4 whole |
 
 ### 5.3 Type scale
 
@@ -703,14 +717,16 @@ Floors for the back row (at `lg` and up):
 | Content | Minimum | Her value |
 |---|---|---|
 | Any text at all | 14px | 11px |
-| Status label, marker N1, scripted line N2 | 14px, weight 600 | 11px |
-| Anything that carries data or that a presenter reads aloud: names, reasons, numbers, table cells, chat turns, bar labels | 16px (B) · 18px (A, C) | 12–15px |
+| Status label, scripted line N2 | 14px, weight 600 (A's mono uppercase status label: 500) | 11px |
+| Marker N1 | 16px, weight 600 | 11px |
+| Read-aloud body text: names, reasons, table cells, chat turns, bar labels and their numbers | 16px (B) · 18px (A, C) | 12–15px |
+| Chip labels (`sm-chip`) and the match line ("match 6 of 10") | 16px in every direction | 12–15px |
 | Body and descriptions | 16px (B) · 18px (A, C) | 16px |
 | Screen title | 28px | 28px |
 | Entry title | 48px | 56px |
 | Big figures (tiles, ring, points) | 28px | 30–40px |
 
-- `font-variant-numeric: tabular-nums` on ranks, IDs, counts, weights, percentages and points.
+- `font-variant-numeric: tabular-nums` on ranks, IDs, counts, weights, percentages and points. It is the computed value that counts: a later `font:` shorthand resets it, so declare it on `td`, `th`, `output`, the weight value and the tile figures after the component rules.
 - Weights used: 400, 500, 600, 700. No text under 400. No italic for empty values at small sizes; "Not yet" is muted, not italic.
 - Text fits its box at 1440 and 390 with the web fonts **and** with the fallback stack (section 10.4).
 
@@ -750,14 +766,18 @@ Rules:
 
 | Element | A · Blueprint | B · Workbench | C · Walkthrough |
 |---|---|---|---|
-| Table row height (single-line) | 52px | 44px | 60px |
-| Table cell padding (block / inline) | 12 / 16 | 8 / 12 | 16 / 16 |
+| Table row height (a single-line row; a row whose reason takes 2 lines is taller) | 52px | 44px | 60px |
+| Table cell padding (block / inline; 8 / 12 at compact height, section 5.2) | 12 / 16 | 8 / 12 | 16 / 16 |
 | Table text | 18px | 16px | 18px |
 | List row (event) padding | 16 | 12 | 24 |
-| Rows of the match table visible at 1440×900 | at least 6 | at least 10 | at least 5 |
-| Control height | 44px | 40px (hit area 44px) | 52px |
+| Control height, as drawn | 44px | 40px | 52px |
 
-In every direction: sticky table header inside a scrolling table box; numeric columns right-aligned only when they are compared down the column (the `#` and `Events` columns stay left-aligned as in hers); no zebra stripes; row dividers 1px `--sm-line`; Grace's row is the only tinted row.
+In every direction:
+
+- Sticky table header inside a scrolling table box; numeric columns right-aligned only when they are compared down the column (the `#` and `Events` columns stay left-aligned as in hers); no zebra stripes; row dividers 1px `--sm-line`; Grace's row is the only tinted row.
+- **Rows of the match table on screen:** Grace's row #4 whole and at least 5 full rows at 1440×900; at least 4 full rows, Grace's among them, at 1280×720. One number for all three directions. Reasons take 2 lines on this table, so the single-line heights above are not a row count; a denser direction may show more.
+- In both tables the student's name and the last column ("What we know", "Profile card") stay on one line at `lg` and up; the reason column takes the slack.
+- **Hit area:** at least 44×44px for every control, whatever height is drawn. The drawn box may be 40px tall for chips in any direction and for all controls in B.
 
 ## 6. Brand constraints and colour
 
@@ -768,16 +788,16 @@ Ann's tokens carry Cal Poly Pomona green `#005030` and gold `#fdb71e`. Both stay
 | Colour | Job (all directions) | Never |
 |---|---|---|
 | Green `#005030` | Primary action; current navigation item; "working" status; focus ring on light surfaces; data bars; the brand surface in C | Body text colour for long prose (ink is used); a second "decorative" green |
-| Gold `#fdb71e` | A highlighter: Grace's row and "new from the interview" (as the soft tint), the confirmed state "Registered", the target mark on the ring, "planned" status (as soft tint + gold-ink text), the third progress dot | Text on a light surface (1.75:1). A border or focus ring on a light surface. A button's resting state. More than one filled gold element per screen region |
+| Gold `#fdb71e` | A highlighter. **Honesty and data marks, the same in every direction:** "planned" status and the scripted line N2 (soft tint + gold-ink text), the gold bars of the two "gold" charts, the third progress dot, the future-term dot on the timeline (a gold ring), the target mark on the ring. **Highlights:** Grace's row (soft tint) and the confirmed state "Registered" in every direction; "new from the interview" pills, the reason chip, the callout and the guide's `Say:` line (soft tint) in A and C | Text on a light surface (1.75:1). A focus ring on a light surface. An outline on a light surface without a dark keyline beside it (the gold bars and the future-term dot carry a 1px `--sm-gold-ink` keyline, the target mark a 1px `--sm-ink` one). A button's resting state. More than one filled gold element per screen region (the bars of one chart, or one marker's dots, count as one) |
 | Blue `#2e5f8a` | "Partly built" status only | Links, actions, charts |
 
-How each direction may use them:
+How each direction may use them. Part 2 may re-tone a surface; it never re-tones an honesty component (section 7.4) or one of the honesty and data marks above:
 
 | Direction | Green | Gold |
 |---|---|---|
-| A · Blueprint | As Ann: filled buttons and the current menu item; green-tinted neutrals for page and lines | As Ann: avatar, Registered button, tints for planned and for Grace |
-| B · Workbench | One accent on a neutral grey workspace: primary button, current item marker, bars. No green-tinted surfaces except selected rows | Only Grace's row tint, the planned label, the ring's target mark, and "Registered" |
-| C · Walkthrough | Also a full brand surface: the entry stage and the stop rail are solid green with white text | Gold numerals and the active stop on the green surface (5.46:1), plus the same highlighter jobs as A |
+| A · Blueprint | As Ann: filled buttons and the current menu item; green-tinted neutrals for page and lines | As Ann: every job in the table above, plus the avatar |
+| B · Workbench | One accent on a neutral grey workspace: primary button, current item marker, bars. No green-tinted surfaces except selected rows, the "working" status label and bar tracks; the other surfaces section 7 draws on green-soft may be re-toned to `--b-sunk` (assistant turns are) | The honesty and data marks, Grace's row tint and "Registered". Nothing else: the reason chip, the callout, the `Say:` line and the "new" pills are neutral, on `--b-sunk` |
+| C · Walkthrough | Also a full brand surface: the entry stage and the stop rail are solid green with white text | Gold numerals and the active stop on the green surface (5.46:1), plus the same jobs as A |
 
 Note for the port: the app's theme uses `#FFB81C` for gold; Ann's file uses `#fdb71e`. The mockups use hers. Reconcile at build time (Appendix B, OQ-8).
 
@@ -801,7 +821,7 @@ Semantic tokens that every mockup defines. A's values are Ann's. B and C change 
 | `--sm-green-soft` | `#e1ede6` | Assistant turns, date tile, bar track, working label |
 | `--sm-gold` | `#fdb71e` | Brand gold |
 | `--sm-on-gold` | `#1d1503` | Text on gold |
-| `--sm-gold-soft` | `#fff1cc` | Grace's row, callout, planned label, "new" pill |
+| `--sm-gold-soft` | `#fff1cc` | Grace's row, planned label, scripted line N2; in A and C also the callout, reason chip, "new" pill and `Say:` line |
 | `--sm-gold-ink` | `#7a5600` | Gold-coded text on light |
 | `--sm-part` | `#2e5f8a` | Partly-built label text |
 | `--sm-part-soft` | `#e3edf7` | Partly-built label fill |
@@ -875,7 +895,7 @@ All four chart kinds in her prototype are single-series. Keep them that plain.
 | Horizontal bars (overview ×4, partner ×1, growth ×1) | Label · bar · value | Bars start at zero. The scale maximum is the one in section 2 (46, 100, 8, or max(3, n)); never rescale to make a bar look fuller. Every bar has its number printed beside it, tabular. Bar height 12–16px, track in `--sm-green-soft`, fill green; the "gold" variants use `--sm-gold` fill **with a 1px `--sm-gold-ink` outline** so the bar edge is 3:1 against the track |
 | Funnel (partner) | Three bars, widths 70% × value ÷ 30 with a 16% minimum, the number inside the bar, the label after it | Keep her arithmetic. The label is text, not a legend |
 | Ring (readiness) | One arc, 0–100% | Starts at 12 o'clock, clockwise. The number is in the centre and again in tile 1. Target mark: section 7.13 |
-| Progress dots (markers) | Three dots per marker | `aria-hidden`; the steps below carry the meaning in words |
+| Progress dots (markers) | Three dots per marker | `aria-hidden`; the steps below carry the meaning in words. When on, dots one and two are green and the third is gold, in every direction |
 
 No axes, gridlines, legends, 3D, gradients, pie or donut charts for comparison, or animation that overshoots the true value. Charts that are "illustrative" keep that word in their label. Each chart group has a text equivalent: the label and number pairs are real text in DOM order.
 
@@ -887,13 +907,14 @@ Conventions that apply to every component:
 
 - **Disabled is `aria-disabled="true"`**, never the `disabled` attribute. The control stays focusable, ignores activation, shows 45% opacity with a `not-allowed` cursor, and points at its reason with `aria-describedby` (N8).
 - **Loading:** nothing in a mockup is fetched, so no mockup shows a loading state. The L column says what the React port does; it is not audited.
-- **Focus-visible:** the ring of section 6.3 on every focusable element. Never removed, never replaced by a colour change alone.
+- **Focus-visible:** the ring of section 6.3 on every tab stop. Never removed, never replaced by a colour change alone. The screen title is not a tab stop: `h1[tabindex="-1"]` takes focus by script on a stop change and never draws a ring, whether the change came from the pointer, the keyboard or a clicker (a clicker is a keyboard).
+- **Hit area:** at least 44×44px; the drawn height is section 5.6's.
 - **Pressed:** scale 0.98 for 100ms on buttons, chips, doors and tiles (`sm-press`); colour change only under reduced motion.
 - **Class names:** `sm-<component>`, parts as `sm-<component>__<part>`, variants and states as attributes (`data-variant`, `data-state`, `aria-*`), the way Radix exposes state. Section 10.3 maps them to the app.
 
 ### 7.1 App shell and portal switcher (`sm-shell`)
 
-Holds the logo, portal name, identity line, `Switch portal`, the navigation, the main region, marker N1 and the guide button. The shape is per direction (Part 2). The switcher always offers the three portals with their door titles; the entry screen is itself the full-size switcher.
+Holds the logo, portal name, identity line, `Switch portal`, the navigation, the main region, marker N1 and the guide button. The shape is per direction (Part 2). The switcher always offers the three portals with their door titles; the entry screen is itself the full-size switcher. `Switch portal` returns to the entry: directly in A and C; in B through its popover, whose first option is the entry (section 13.4).
 
 | State | Treatment |
 |---|---|
@@ -929,19 +950,19 @@ A `<nav>` named after the portal, a list of buttons or links, one with `aria-cur
 
 - One primary per region. Where her layout puts two filled buttons side by side (the help panel, the partner "Stay involved" row), keep her variants: they are peers in a group, not competing calls to action.
 - L: port only; the label changes to the in-progress verb. E / X: n/a.
-- Target at least 44×44px at every width.
+- Hit area at least 44×44px at every width; the drawn height is section 5.6's (40px in B).
 
 ### 7.4 Status label (`sm-status`), marker N1 (`sm-marker`), scripted line N2 (`sm-scripted`)
 
-The three honesty components. They share rules: never interactive, never dismissible, never animated, never truncated, never under 14px, always icon **and** words.
+The three honesty components. They share rules: never interactive, never dismissible, never animated, never truncated, never under 14px (N1 never under 16px), always icon **and** words. Their colours are the ones in this table in every direction; Part 2 does not re-tone them.
 
 | Component | Content | Treatment |
 |---|---|---|
 | `sm-status[data-kind="working"]` | her string | `circle-check` icon, green on green-soft |
 | `sm-status[data-kind="partly"]` | her string | `circle-dot` icon, part on part-soft |
 | `sm-status[data-kind="planned"]` | her string | `circle-dashed` icon, gold-ink on gold-soft |
-| `sm-marker` | N1 | `info` icon, ink on gold-soft or on the direction's quiet surface; fixed in the shell so it is on screen in every state, including with the guide open |
-| `sm-scripted` | N2 | `info` icon, gold-ink on gold-soft, pinned to the top edge of the transcript, outside the scrolling log |
+| `sm-marker` | N1 | `info` icon, ink on gold-soft or on the direction's quiet surface, 16px or more; fixed in the shell so it is on screen in every state, including with the guide open |
+| `sm-scripted` | N2 | `info` icon, gold-ink on gold-soft in every direction, pinned to the top edge of the transcript, outside the scrolling log. It stays in the viewport, clear of any sticky header, whenever its transcript is in use (section 7.10) |
 
 States: D only. H, F, P, Dis, L, E, X are n/a: they are static text. The status label sits in the screen header, on the title's row at `xl` and directly under the title at `sm`; its width is its content (her check-in "Planned" label stretching full width is a bug).
 
@@ -961,9 +982,9 @@ States: D only. H, F, P, Dis, L, E, X are n/a: they are static text. The status 
 |---|---|---|
 | `sm-chip[data-kind="option"]` | Interview reply options, bot suggested questions, slots, resources | D outlined (line-strong), H green-soft fill, F ring, P `sm-press`. Not toggles: activating one acts at once |
 | `sm-chip[data-kind="toggle"]` | The 13 industries | `aria-pressed`. On: green fill, white label, **and a check icon** (not colour alone). Off: outlined |
-| `sm-pill` | Read-only values: interests on the card (`data-tone="new"` gold-soft / gold-ink), `Completed` (green-soft / green), tags `attended`, `registered`, `recorded later`, `+20 points` | D only |
+| `sm-pill` | Read-only values: interests on the card (`data-tone="new"`: gold-soft / gold-ink in A and C, `--b-sunk` / ink in B), `Completed` (green-soft / green), tags `attended`, `registered`, `recorded later`, `+20 points` | D only |
 
-Min height 40px with a 44px hit area; label 16px or more; pills 14px or more.
+Drawn min height 40px with a 44×44px hit area; chip label 16px or more in every direction; pills 14px or more.
 
 ### 7.7 Table (`sm-table`)
 
@@ -974,10 +995,10 @@ Real `<table>` with `<th scope="col">` at `md` and up. At `sm` each row becomes 
 | D | Section 5.6 |
 | H | Row wash `--sm-page` on pointer devices; rows are not interactive |
 | F | The scroll box is focusable (`tabindex="0"`, named by the table's caption) when it scrolls |
-| Highlight | Grace's row: `--sm-gold-soft` fill **and** an `id-card` icon with visually hidden text "Grace Delgado, the student from the demo" before her name |
+| Highlight | Grace's row: `--sm-gold-soft` fill **and** an `id-card` icon with visually hidden text "Grace Delgado, the student from the demo" before her name, with a space between the hidden text and the name |
 | P / Dis | n/a |
 | L | Port: 8 skeleton rows |
-| E | N6 or N7 in the table's place, in a quiet card; the header row stays |
+| E | N6 or N7 in the table's place, in a quiet card; the header row stays. On `match` the line "Showing 15 of the top 30." is hidden while N7 shows |
 | X | n/a |
 
 ### 7.8 Weight control (`sm-weight`)
@@ -995,17 +1016,20 @@ Four of them. A native `<input type="range" min="0" max="10" step="1">` with a v
 | E | All four at 0 → table empty state N7 |
 | X | n/a: the range cannot hold a bad value |
 
-Keyboard: arrows ±1, Page Up / Page Down ±2, Home 0, End 10. Page keys inside a slider do **not** change stop (section 7.16).
+Keyboard: arrows ±1, Home 0, End 10. `PageUp` and `PageDown` are not slider keys here: from inside a slider they change stop, as from any other control, and the weight does not move (section 7.16). The guide's `match` step 2 has the presenter move "Same major" with the pointer, which leaves focus on the slider; the next clicker press still goes to stop 9.
+
+Layout: the value sits clear of the thumb and of its focus ring at every value, 10 included; neighbouring controls are at least `--sm-space-6` apart, so one control's value never reads as part of the next label; a label never wraps onto a track (the four controls fall to two columns when their row is under 900px wide).
 
 ### 7.9 Event picker (`sm-event-picker`)
 
 Chooses one of five events on `match`. Label `Event`. Options are her five strings (section 2.10).
 
-| Direction | Form | Maps to |
+| Width | Form, in every direction | Maps to |
 |---|---|---|
-| A | Native `<select>` | Radix `Select` |
-| B | Native `<select>` in the page header, or a listbox popover; plus the same five in the command switcher | Radix `Select` / `Command` |
-| C | A row of five radio cards (date tile + title), one selected | Radix `RadioGroup` |
+| 640px and up | A native `<select>`, wide enough to show the longest option whole ("Northline Analytics: Behind the Business · Thu Mar 4, 2027") | Radix `Select` |
+| Under 640px | A radio list (`<fieldset>` with the legend `Event`), one option per row, so no option is cut: each row is a 24px control column, a 12px gap and the option text, padding 12 / 16, all five rows aligned alike | Radix `RadioGroup` |
+
+Where the picker sits is per direction (Part 2). B also lists the same five events in its command switcher (section 13.4). `PageDown` and `PageUp` on the focused picker change stop, not the event (section 7.16).
 
 States: D, H, F, P as for the control used. Dis, L, E, X: n/a.
 
@@ -1015,10 +1039,11 @@ One component, two uses: the interview, and the assistant bot panel.
 
 | Part | Rule |
 |---|---|
-| Container | `sm-scripted` (N2) pinned on top; below it the scrolling log; below that the reply area. The log scrolls so the newest turn is fully visible, starting at the top of a turn, never mid-line |
-| Assistant turn | Left, green-soft, speaker label above the text ("Smart Match assistant" / "CBACH assistant bot · AI") in muted 14px, text 18px (16px in B). May contain bold spans and one `inline` button |
+| Container | `sm-scripted` (N2) pinned on top; below it the scrolling log; below that the reply area. The log scrolls so the newest turn is fully visible, starting at the top of a turn, never mid-line; on returning to a finished interview (`PageUp`, a deep link, a reload) it opens at the top of the last assistant turn, not at the end of the log. The log is at least 240px tall: on a short viewport the page scrolls, the log does not shrink. Using the transcript never scrolls N2 or the newest turn out of the viewport or under a sticky header; a focus move made by script uses `focus({ preventScroll: true })` and then scrolls on purpose |
+| Assistant turn | Left, green-soft (B: `--b-sunk`), speaker label above the text ("Smart Match assistant" / "CBACH assistant bot · AI") in muted 14px, text 18px (16px in B). May contain bold spans and one `inline` button |
 | Student turn | Right, green fill, white text, with visually hidden prefix "Grace:" |
-| Reply area | Option chips, then (where section 2.4 allows) the free-text field and `Send`. On turn 2: the 13 toggle chips and `Done` |
+| Reply area | Option chips, then (where section 2.4 allows) the free-text field and `Send`. On turn 2: the 13 toggle chips and `Done`. After a bot suggested question is pressed, focus stays on that chip |
+| One press, one answer | A newly rendered turn's controls ignore activation for 350ms, and the second click of a double-click (`event.detail > 1`) is ignored. A rapid double-press therefore answers the current turn once and never activates the control of the next turn that lands under the pointer: it cannot toggle a third industry, answer "No thanks", or press "Show my events". The same guard covers the bot's chips |
 | Field | Visible or visually hidden label per section 2; placeholder as hers; `Send` is `aria-disabled` while the field is empty, described by N8; Enter submits |
 | Finished | "Interview finished." and `Start over` (secondary) |
 
@@ -1069,10 +1094,10 @@ L: port shows a skeleton. E, X, H, F, P, Dis: n/a.
 
 | Component | Parts | States |
 |---|---|---|
-| `sm-event` | Date tile (day 24px or more over month), title (`h3`), meta line, reason chip ("Why you:" in gold-ink 600, then the reason in ink, on gold-soft), `Register` button, match line (16px or more, tabular) | D. The button carries H / F / P and the `confirmed` variant. Not a link; the row itself is not clickable |
-| `sm-timeline` | An `<ol>` of five terms; past terms have a filled green dot, future terms an outlined gold dot **and** the tag "recorded later" (not colour alone) | D only |
+| `sm-event` | Date tile (day 24px or more over month), title (`h3`), meta line, reason chip ("Why you:" in gold-ink 600, then the reason in ink, on gold-soft; in B on `--b-sunk` with "Why you:" in ink or green), `Register` button, match line (16px or more in every direction, tabular) | D. The button carries H / F / P and the `confirmed` variant. Not a link; the row itself is not clickable |
+| `sm-timeline` | An `<ol>` of five terms; past terms have a filled green dot, future terms a gold ring with a 1px `--sm-gold-ink` keyline **and** the tag "recorded later" (not colour alone), in every direction | D only |
 | `sm-marker-card` | Name (`h3`), three dots (`aria-hidden`), three steps, two links | Step 1 checkbox: D, H, F, checked, with its level text "I checked myself". Steps 2 and 3: a state mark with visually hidden "done" or "not yet", and the level text |
-| `sm-help` | Avatar "CB" (`aria-hidden`), heading, body, two labelled groups of two buttons; each button has `aria-expanded` and `aria-controls` for its panel | D; the open panel's button shows a pressed style and `aria-expanded="true"` |
+| `sm-help` | Avatar "CB" (`aria-hidden`), heading, body, two labelled groups of two buttons; each button has `aria-expanded` and `aria-controls` for its panel | D; the open panel's button shows a pressed style and `aria-expanded="true"`. An opening panel is scrolled into view at every viewport, so its label (and, in the bot panel, N2) is on screen and clear of any sticky header |
 
 ### 7.15 Fields (`sm-field`)
 
@@ -1087,7 +1112,7 @@ Search (`records`), free text (`interview`, bot), message textarea, the share ch
 | E | Placeholder as hers; it is a hint, not the label |
 | X | n/a: no field can hold an invalid value. An empty send is handled by the `aria-disabled` Send button and N8 |
 
-Search keeps focus and caret while the table updates, and reports the count line ("14 of 300 records") in a polite status region, debounced 400ms.
+Search keeps focus and caret while the table updates, and reports the count line ("14 of 300 records") in a polite status region, debounced 400ms. Enter in the search field releases focus (the typed text and the filtered rows stay), so the next `PageDown` changes stop (section 7.16).
 
 ### 7.16 Presenter guide (`sm-guide`)
 
@@ -1095,10 +1120,10 @@ Equal to Ann's, plus stop controls.
 
 | Part | Rule |
 |---|---|
-| Button | Fixed bottom right, above the safe area: `Presenter guide` / `Hide presenter guide`, `aria-expanded`, shortcut `G` (when focus is not in a text field). It never covers a control: the main region keeps a bottom padding equal to the button's height plus 32px |
-| Panel | A non-modal `<aside aria-label="Presenter guide">`, width min(400px, 100vw − 32px), max height 70vh, own scroll. Content for the current screen from section 2.12: eyebrow, title, intent, numbered steps, the `Say:` line on gold-soft |
-| Stop controls (N4) | "Stop {n} of 9", `Back`, `Next`. They move through section 2.1's order and switch portal when needed. `Back` is `aria-disabled` on stop 1, `Next` on stop 9 |
-| Keys | `PageDown` / `PageUp` = next / previous stop, in every mockup, guide open or closed, unless focus is in a text field or a slider. `Esc` closes the panel and returns focus to the button |
+| Button | `Presenter guide` / `Hide presenter guide`, `aria-expanded`, shortcut `G` (when focus is not in a text input or textarea). Its words and behaviour are fixed; its place is per direction. **It never covers a control or a line of text, at 1440×900, 1280×720 or 390×844, at any scroll position;** bottom padding on the main region does not meet this on its own. So on portal screens it is docked in the shell: A in the top bar beside `Switch portal`, B at the foot of the sidebar (in the top strip at `md` and below), C at the right end of the rail. It may float at the bottom right, above the safe area, only where nothing sits behind it (the entry in A and B) |
+| Panel | A non-modal `<aside aria-label="Presenter guide">`, width min(400px, 100vw − 32px), max height 70vh, own scroll. Content for the current screen from section 2.12, in this order in every direction: eyebrow, title, intent, numbered steps, the `Say:` line (on gold-soft; in B on `--b-sunk`), then the stop controls, then reset and theme |
+| Stop controls (N4) | "Stop {n} of 9", `Back`, `Next`, below the `Say:` line. They move through section 2.1's order and switch portal when needed. `Back` is `aria-disabled` on stop 1, `Next` on stop 9 |
+| Keys | `PageDown` / `PageUp` = next / previous stop, always: in every mockup, guide open or closed, from any focused control (a weight slider, the event picker, a radio, a checkbox, a button). The one exception is a text input or a textarea, where the keys keep their native job. The handler calls `preventDefault()`, so the focused control's own value never changes on a Page key. Enter in the records search releases focus (section 7.15), so the clicker works again after the scripted search. `Esc` closes the panel and returns focus to the button |
 | Reset (N5) | `Reset demo`: first press changes the label to `Press again to reset` for 5 seconds with a shrinking underline; second press clears the state and goes to the entry; `Esc` or the lapse reverts. A held key never confirms |
 | Theme (N9) | A two-button group `Light` / `Dark`, `aria-pressed`, only if the direction ships dark |
 | Projection | The panel is for rehearsal. It opens closed on first load and remembers its state. It must not overlap the screen's hero region at 1440×900 (it may overlap secondary content) |
@@ -1114,8 +1139,8 @@ Her prototype has none, so the mockups have none: no modal, no confirm pop-up, n
 ### 8.1 Principles
 
 1. **Motion shows cause and effect.** A weight moves, the list re-sorts. An answer is given, the card fills. Nothing moves that the presenter did not cause.
-2. **The presenter never waits.** Every primary action is usable again within 400ms, and any click or key during an animation completes it at once and acts.
-3. **Fast in, faster out.** Exits take at most two thirds of the matching entrance.
+2. **The presenter never waits.** Every primary action is usable again within 400ms, and any click or key during an animation completes it at once and acts. One guard only: a new transcript turn's controls wait 350ms and drop the second click of a double-click (section 7.10), so one press gives one answer.
+3. **Fast in, faster out.** Exits take at most two thirds of the matching entrance. Table rows leaving a ranked list have no exit at all (`sm-rerank`).
 4. **Scripted things do not pretend.** No typing indicator, no streamed text, no "analysing" pause (H3).
 5. **Once, then rest.** Entrances and count-ups run once per arrival. No loops, no idle or ambient motion, no auto-advance.
 6. **Reduced motion keeps the meaning.** The end state is identical; only the travel is removed.
@@ -1155,15 +1180,15 @@ No bounce, elastic or back easing. No spring overshoot on data.
 | `sm-lift` | Hover on a door or hoverable card | translateY(-2px), elevation or border change | fast / out | Border or shadow change only |
 | `sm-screen` | Screen change inside a portal | Outgoing main: opacity → 0 (fast / in). Incoming main: opacity 0 → 1, y 8 → 0 (base / out). Focus moves to the new `h1` at once, not after the tween | fast + base | Opacity only, 150ms |
 | `sm-portal` | Entry → portal, portal → entry, portal → portal | Per direction (Part 2), built from these tokens, never over `max` | ≤ max | Opacity only, 150ms |
-| `sm-rerank` | A weight or the event changes on `match` | GSAP Flip: rows travel to their new positions (transform only); rows entering the visible 15 fade in (base); rows leaving fade out (fast); rank numerals change at the start, not mid-flight. A new change while rows are moving re-targets from where they are (`overwrite: true`); nothing queues | move / inOut | Rows swap at once; 150ms opacity cross-fade on the table body |
+| `sm-rerank` | A weight or the event changes on `match` | FLIP on transforms (GSAP Flip, `simple: true` allowed, or a hand-written FLIP on GSAP core; section 8.5): rows that stay in the visible 15 travel to their new positions (transform only); rows entering the visible 15 fade in (base); rows that drop out of the visible 15 are removed on the first frame, with no exit animation; rank numerals change at the start, not mid-flight. A new change while rows are moving re-targets from where they are (`overwrite: true`); nothing queues | move / inOut | Rows swap at once; 150ms opacity cross-fade on the table body |
 | `sm-wash` | A row lands in a new position; Grace's row always keeps its tint | Rows that entered get a gold-soft wash that fades out | wash / out | No wash |
 | `sm-count` | A figure changes because of the presenter's action (points, readiness %, tile counts, slider value) | The number tweens through whole values to the new value; tabular figures so the width holds | ≤ max / out | New value at once |
 | `sm-ring-draw` | First view of the ring; a self-check ticked | Arc length tweens via `stroke-dashoffset` (a paint-only property on one element; the one allowed exception to "transform and opacity") | max / out | Final arc at once |
 | `sm-bars-grow` | First view of a bar group | `scaleX` from 0, origin left, 30ms stagger; numbers are in place from the first frame | base / out | Final at once |
-| `sm-turn` | An interview or bot turn is added | Student turn: opacity + y 6 → 0 (fast). The assistant's reply follows 80ms later: opacity + y 6 → 0 (base), whole, with the reply options appearing in the same beat. Options are operable from the first frame | fast, then base | Opacity only, 150ms |
+| `sm-turn` | An interview or bot turn is added | Student turn: opacity + y 6 → 0 (fast). The assistant's reply follows 80ms later: opacity + y 6 → 0 (base), whole, with the reply options appearing in the same beat. Options are visible from the first frame and take activation once the 350ms double-press guard has passed (section 7.10) | fast, then base | Opacity only, 150ms |
 | `sm-card-fill` | A profile-card value changes | The "Not yet" text cross-fades to the value; a new interest pill scales 0.9 → 1 with opacity | base / out | Opacity only |
-| `sm-register` | `Register` pressed | Button cross-fades to the `confirmed` variant; the check icon draws in (fast). The check-in card enters (opacity + y 8 → 0, base) and the page scrolls it into view (≤ max) | ≤ max | Final at once; `scrollIntoView` with `behavior: "auto"` |
-| `sm-panel` | A help panel opens or closes | Opacity + y 8 → 0 in (base); out is fast. Layout below jumps to its new place and is FLIP-ed with a transform, not animated by height | base / fast | Opacity only |
+| `sm-register` | `Register` pressed | Button cross-fades to the `confirmed` variant; the check icon draws in (fast). The check-in card enters (opacity + y 8 → 0, base) and the page scrolls only as far as needed to show the code and the points (≤ max), keeping the pressed button and its event title on screen (section 5.2) | ≤ max | Final at once; `scrollIntoView` with `behavior: "auto"` |
+| `sm-panel` | A help panel opens or closes | Opacity + y 8 → 0 in (base); out is fast. Layout below jumps to its new place and is FLIP-ed with a transform, not animated by height. An opening panel is scrolled into view (≤ max; `behavior: "auto"` under reduced motion) | base / fast | Opacity only |
 | `sm-guide` | Guide opens or closes | Panel: opacity + y 12 → 0 and scale 0.98 → 1 from the button's corner (base / out); out fast. Content swaps on screen change with a 120ms cross-fade | base / fast | Opacity only |
 | `sm-toast` | Toast shows or hides | Opacity + y 8 → 0 (base); out fast | base / fast | Opacity only |
 | `sm-confirm` | `Reset demo` armed | A 2px underline shrinks from full width to 0 over 5 seconds, linear (`scaleX`) | 5000ms linear | No underline; the label alone carries it |
@@ -1184,7 +1209,7 @@ No bounce, elastic or back easing. No spring overshoot on data.
 - **GSAP 3.15.0** (the version on npm on 2026-10-06), core plus the **Flip** plugin. Nothing else: no ScrollTrigger, no SplitText, no Draggable.
 - **Vendored**, not linked: `shared/vendor/gsap/gsap.min.js` and `shared/vendor/gsap/Flip.min.js`, copied unmodified from the `gsap@3.15.0` package's `dist/`, plus `shared/vendor/gsap/LICENSE.md`.
 - **Licence note:** GSAP is not MIT. It ships under GreenSock's standard "no charge" licence, which since version 3.13 (2025, after Webflow acquired GreenSock) allows free use including commercial use and including the formerly paid plugins such as Flip. Keep the licence file beside the vendored copy and do not edit the library. Confirm the current terms at gsap.com before the real app adopts it; the app already ships `motion`, and the port may use that instead (section 10.3).
-- CSS transitions are fine for hover, press and colour. Everything in 8.3 that travels, staggers or can be interrupted uses GSAP so it can be killed, re-targeted or completed.
+- CSS transitions are fine for hover, press and colour. Everything in 8.3 that travels, staggers or can be interrupted uses GSAP so it can be killed, re-targeted or completed. For the table re-rank that means either the Flip plugin (`simple: true` is allowed, and is the cheaper path on table rows) or a hand-written FLIP (read positions, change the DOM, tween the inverse transform to zero) on GSAP core; both meet section 8.7.
 - One `gsap.matchMedia()` block per mockup switches every tween to its reduced-motion form.
 
 ### 8.6 Reduced motion
@@ -1196,9 +1221,9 @@ No bounce, elastic or back easing. No spring overshoot on data.
 | Budget | Limit |
 |---|---|
 | Properties animated | `transform` and `opacity` only (exception: the ring's `stroke-dashoffset`) |
-| Elements moving at once | 32 (15 table rows × 2 during a re-rank, plus chrome) |
-| Frame rate | 60 fps on a classroom laptop: in Chrome DevTools with 4× CPU throttle, dragging "Same major" from 3 to 10 produces no frame over 33ms and no long task over 50ms |
-| Layout thrash | One read phase, then one write phase per change (Flip's `getState` → DOM change → `Flip.from`). No forced reflow inside a loop |
+| Elements moving at once | 32 (a re-rank moves at most the 15 visible rows, since rows that leave are removed, not animated; the rest is room for chrome and staggered lists) |
+| Frame time | Measured on the classroom laptop, in Chrome DevTools with 4× CPU throttle: dragging "Same major" from 3 to 10 produces no frame over 50ms and no long task over 50ms |
+| Layout thrash | One read phase, then one write phase per change (Flip's `getState` → DOM change → `Flip.from`, or the same three steps by hand). No forced reflow inside a loop |
 | `will-change` | Set by GSAP for the tween's life only; never in the stylesheet at rest |
 | Re-rank work | `SMC.rankStudents` on every `input` event is cheap (300 rows); render at most once per animation frame |
 | Time to interactive | Under 1 second from double-click to the entry being clickable, from disk |
@@ -1209,12 +1234,12 @@ No bounce, elastic or back easing. No spring overshoot on data.
 ### 9.1 Structure and landmarks
 
 - One `<header>` (shell), one `<nav aria-label="{portal name}">`, one `<main id="main" tabindex="-1">`, one `<aside aria-label="Presenter guide">`. The entry has no `nav`.
-- One `<h1>` per screen (the screen title; on the entry, "Smart Match CPP"). Block labels are `<h2>`; event titles, marker names and card names are `<h3>`. No skipped levels.
+- One `<h1>` per screen (the screen title; on the entry, "Smart Match CPP"). Block labels are `<h2>`; event titles, marker names and card names are `<h3>`. Two screens have no visible block label, so: `recs` carries a visually hidden `<h2>` "Events for me" (its menu label, not a new string) before the event list, and on `interview` the profile card's name "Grace Delgado" is an `<h2>`. No skipped levels.
 - `<html lang="en">`, `<title>Smart Match CPP</title>`.
 
 ### 9.2 Keyboard order
 
-Tab order follows reading order: skip link (N3) → switch portal → navigation → main content in visual order → guide button → guide panel when open. Specifics:
+Tab order follows reading order: skip link (N3) → switch portal → navigation → main content in visual order → guide button → guide panel when open. A guide button docked in the shell (section 7.16) takes its place in the shell's reading order instead, with its panel straight after it. Specifics:
 
 | Screen | Order inside main |
 |---|---|
@@ -1226,16 +1251,16 @@ Tab order follows reading order: skip link (N3) → switch portal → navigation
 | `match` | Event picker, the four weights, the table scroll box, `Send personal invitations to top 30` |
 | `talk` | The three "Stay involved" buttons |
 
-- On a screen or portal change, focus goes to the new `<h1>` (programmatic, no visible ring unless reached by keyboard).
-- Opening a help panel moves focus to the panel's label. `Ask the assistant bot` on a marker card moves focus to the bot field. The booking button inside a bot turn moves focus to the booking panel's label.
+- On a screen or portal change, focus goes to the new `<h1>`. It is `tabindex="-1"`: a target for script, not a tab stop, and it never draws a focus ring (section 7).
+- Opening a help panel moves focus to the panel's label. `Ask the assistant bot` on a marker card moves focus to the bot field. The booking button inside a bot turn moves focus to the booking panel's label. Pressing a bot suggested question leaves focus on that chip. None of these moves may scroll N2 out of view (section 7.10).
 - After `Register`, focus stays on the button (now `confirmed`).
 - No keyboard trap anywhere; no positive `tabindex`.
-- Shortcuts are single keys (`G`, `PageDown`, `PageUp`, and in B `Ctrl`/`⌘`+`K`). They are off while focus is in a text field.
+- Shortcuts are single keys (`G`, `PageDown`, `PageUp`, and in B `Ctrl`/`⌘`+`K`). They are off only while focus is in a text input or a textarea; from every other control, sliders and the event picker included, `PageDown` and `PageUp` change stop (section 7.16).
 
 ### 9.3 Focus, targets, contrast
 
-- Focus-visible ring per section 6.3 on every focusable element, both themes.
-- Targets at least 44×44px (WCAG 2.2 asks 24; the room and the clicker ask more). Chips may draw 40px tall with a 44px hit area.
+- Focus-visible ring per section 6.3 on every tab stop, both themes. The screen title (`h1[tabindex="-1"]`) draws none.
+- Hit areas at least 44×44px, the skip link included (WCAG 2.2 asks 24; the room and the clicker ask more). The drawn box may be 40px tall for chips in any direction and for all controls in B (section 5.6).
 - Contrast per section 6.3; each direction lists its own neutrals in Part 2 and in its NOTES.
 
 ### 9.4 Live regions (announce once)
@@ -1260,7 +1285,7 @@ Never `aria-live` on a container that is re-rendered whole. Never `role="alert"`
 | Selected industry | Check icon + `aria-pressed` |
 | Grace's row | Icon + hidden text |
 | Step done | Check mark + hidden "done" |
-| Future term | Outlined dot + the tag "recorded later" |
+| Future term | Ring dot (not filled) + the tag "recorded later" |
 | Gold bars against green bars | They are separate charts with their own labels; colour is not the key |
 | Registered | Label change + check icon |
 | New from the interview | The group label "From the interview" |
@@ -1433,31 +1458,33 @@ Run each item against each mockup. Pass or fail; a fail names the screen and ele
 **Layout and type**
 
 26. Every computed `margin`, `padding` and `gap` is 0 or a value in section 5.1 (1px and 2px allowed on borders and outlines only).
-27. Every computed `font-size` is a value in section 5.3; none is under 14px at 1440; data and read-aloud text meet the floor for the direction.
+27. Every computed `font-size` is a value in section 5.3; none is under 14px at 1440; marker N1 is at least 16px; read-aloud body text meets the floor for the direction; chip labels and the match line are at least 16px.
 28. Every `border-radius` is a token of section 5.4; no surface has both a border and a shadow; no card nests more than one level.
 29. At 1440×900 each screen shows the "above the fold" content of section 5.2 without scrolling.
 30. At 390×844: no horizontal page scroll, tables are stacked rows, every control is reachable, text is at least 14px.
-31. At 1280×720 the `match` screen still shows the picker, the four weights, the Grace line and at least 3 rows without scrolling.
+31. At 1280×720 the `match` screen still shows the picker, the four weights, the Grace line and at least 4 full rows, Grace's row #4 whole among them, without scrolling.
 32. With web fonts blocked, no text overflows or overlaps at 1440 or 390.
 
 **Colour and contrast**
 
 33. `--sm-green` is `#005030` and `--sm-gold` is `#fdb71e`; the three status kinds use the shared colours of section 6.2.
 34. Every text and background pair on screen is in section 6.3 or the direction's NOTES table, with a computed ratio of at least 4.5:1 (5:1 for secondary text, 7:1 for body text).
-35. Gold is never text, a border or a focus ring on a light surface; the ring's target mark has a dark keyline and a text label.
+35. Gold is never text or a focus ring on a light surface, and never an outline there without a dark keyline: the gold bars and the future-term dot have their gold-ink keyline; the ring's target mark has a dark keyline and a text label. In every direction N2 is gold-ink on gold-soft and the third progress dot is gold.
 36. Control outlines, slider tracks and empty step rings are at least 3:1 against their background.
-37. The page is light when the OS is dark; dark appears only with `?theme=dark` or the theme control, and then passes section 6.4.
+37. Dark theme, in two parts:
+    - **37a** (all directions). The page is light when the OS is dark.
+    - **37b** (only where the direction ships a dark theme: A; B if kept). Dark appears only with `?theme=dark` or the theme control, and then passes section 6.4.
 38. No meaning is carried by colour alone: check each row of section 9.5.
 
 **Interaction and accessibility**
 
 39. Tab order on each screen matches section 9.2; a visible focus ring shows on every stop; nothing traps focus.
 40. The whole guided path, from the entry to `talk`, can be done with the keyboard only.
-41. `PageDown` and `PageUp` move through the nine stops in order from any screen; they do nothing while focus is in a text field or a slider. `G` toggles the guide.
-42. On a screen change, focus is on the new `<h1>`; there is exactly one `<h1>`, one `<main>`, one named `<nav>` (none on the entry).
+41. `PageDown` and `PageUp` move through the nine stops in order from any screen and from any focused control (a weight slider, the event picker, a checkbox, a button), without changing that control's value; they keep their native job only while focus is in a text input or a textarea. `G` toggles the guide.
+42. On a screen change, focus is on the new `<h1>`, which draws no focus ring (also after `PageDown`); there is exactly one `<h1>`, one `<main>`, one named `<nav>` (none on the entry); no heading level is skipped (section 9.1).
 43. No element uses the `disabled` attribute; disabled controls use `aria-disabled="true"` with a described reason.
 44. Each transcript announces only the newest assistant turn, once; toasts and outcome messages are `role="status"`; no `role="alert"`.
-45. Every target is at least 44×44px.
+45. Every target's hit area is at least 44×44px, the skip link included. The drawn box may be 40px tall for chips in any direction and for all controls in B.
 46. Outcomes (booked, sent, opens, partner actions, invitations) appear as persistent messages with her wording, not only as a toast.
 47. No modal dialog exists.
 
@@ -1465,8 +1492,8 @@ Run each item against each mockup. Pass or fail; a fail names the screen and ele
 
 48. With `prefers-reduced-motion: reduce` (or `?rm=1`) nothing translates or scales; end states are identical; figures show final values at once.
 49. No animation tied to a primary action runs longer than 400ms (only the 900ms wash and the 5-second confirm underline exceed it, and neither blocks input).
-50. Clicking or pressing a key during any animation completes it and acts; dragging a weight re-targets rows that are still moving.
-51. Only `transform` and `opacity` are animated (plus the ring's `stroke-dashoffset`); with 4× CPU throttle, dragging "Same major" from 3 to 10 shows no frame over 33ms.
+50. Clicking or pressing a key during any animation completes it and acts (the double-press guard of item 64 aside); dragging a weight re-targets rows that are still moving; rows that drop out of the visible 15 are gone on the first frame, with no exit animation.
+51. Only `transform` and `opacity` are animated (plus the ring's `stroke-dashoffset`); with 4× CPU throttle on the classroom laptop, dragging "Same major" from 3 to 10 shows no frame over 50ms and no long task over 50ms.
 52. Nothing animates on scroll, on a timer, or in a loop; status labels, N1, N2 and the logo never animate.
 
 **Engineering**
@@ -1478,7 +1505,22 @@ Run each item against each mockup. Pass or fail; a fail names the screen and ele
 57. `NOTES.md` follows section 10.6 and lists computed contrast for every pair the direction adds.
 58. The 19 screenshots of section 10.7 exist and show made-up data only.
 59. No logo, illustration, typeface or layout signature of another company appears; the Cal Poly Pomona logo is the unaltered `SMC.LOGO`.
-60. All deep links of section 3.7 work.
+60. All deep links of section 3.7 work. Where the direction ships no dark theme, `theme=dark` is ignored without error and the page stays light.
+
+**The room: 1280×720, the clicker, a hurried click**
+
+61. At 1280×720, on all nine screens, nothing interactive and no line of text rests under a fixed bar, under the stop rail or behind the guide button; the content of section 5.2's compact table is on screen without scrolling.
+62. The entry does not scroll at 1440×900 or at 1280×720: all three doors and the demo line are whole and no scrollbar shows.
+63. The guide button covers no control and no line of text on any screen at 1440×900, 1280×720 or 390×844, at any scroll position.
+64. A double-click on each interview reply option, on `Done` and on each bot chip answers one turn only: no control of the next turn is activated. After the guided path made with double-clicks, Grace's interests are Technology and Entertainment, her goal is "Exploring consulting or data roles", and she is #4 on `match`.
+65. After dragging "Same major" with the pointer, after choosing an event in the picker, and after typing `Delgado` and pressing Enter in the records search, one `PageDown` goes to the next stop and changes no value.
+66. Opening each of the four help panels brings its label into view at 1440×900 and at 1280×720. After a suggested question is pressed, N2 and the bot's answer are on screen, clear of any sticky header, and focus is still on the chip.
+67. After `Register`, the pressed button, its event title, the screen title and the status label are still on screen, together with the check-in code and the points.
+68. Returning to a finished interview (`PageUp` from stop 3, or a deep link) shows the last assistant turn from its first line.
+69. The computed `font-variant-numeric` includes `tabular-nums` on table cells, the weight values, tile figures and the match line.
+70. On `match` and `records` at 1440, no student name and no last-column value wraps; reasons take at most 2 lines at 1440 and at 1280; with all four weights at 0, "Showing 15 of the top 30." is hidden. A weight's value never touches the thumb's focus ring, at 10 included.
+71. The event picker is a native `<select>` from 640px up and a radio list below; no option is cut at either width.
+72. In the guide panel the stop controls sit below the `Say:` line; marker N1 is at least 16px on every screen.
 
 
 ---
@@ -1493,6 +1535,11 @@ Same content, same data, same honesty components, same motion tokens. What diffe
 | Shell | Centred column, top bar, 224px menu, one screen card | Full-bleed: 264px sidebar, page header, split panes | Full-bleed stage: slim top bar, big content, bottom rail |
 | Type | Bricolage Grotesque + Public Sans (hers) | Instrument Sans + JetBrains Mono | Source Serif 4 + Figtree |
 | Body size | 18px | 16px | 20px |
+| Gold, beyond the shared honesty and data marks (section 6.1) | Reason chip, callout, `Say:` line, "new" pills on gold-soft | None of those: they are neutral, on `--b-sunk` | As A, plus gold numerals on the green rail |
+| Match screen | Picker, weights in one row, table below | Weights pane left, table right | Control band over a full-width table |
+| Match rows on screen | Grace's row #4 whole and at least 5 full rows at 1440×900; at least 4 at 1280×720 | the same | the same |
+| Guide button on portal screens | Docked in the top bar | Docked at the foot of the sidebar | Docked on the rail |
+| Dark theme | Ships, opt-in | Optional, opt-in | None; `theme=dark` is ignored |
 | Best screen | Student interview | Match students to an event | Entry and the Grace story |
 | Risk | Looks like "the same thing" | Looks finished; small from the back row | Most to build by Thursday |
 
@@ -1519,16 +1566,16 @@ Shared tokens at Ann's values (section 6.2), nothing changed. Extensions:
 | Radius | buttons and menu items `md`, cards and the screen `lg`, doors and guide `xl`, status label `sm` | Hers were 9 / 10 / 12 / 14 / 16; snapped |
 | Small labels | Uppercase by CSS, 14px, 600, tracking 0.06em, muted | Her `.label` look, raised from 12px |
 
-Type roles: entry title `text-64`; screen title `text-28` (display 700); block label 14 uppercase; `h3` `text-20`; body, table and chat `text-18`; helper `text-16` muted; status label `text-14` mono 500 uppercase; tile figure `text-36`; ring figure `text-48`.
+Type roles: entry title `text-64`; screen title `text-28` (display 700); block label 14 uppercase; `h3` `text-20`; body, table and chat `text-18`; helper `text-16` muted; chip labels and the match line `text-16` or `text-18`; marker N1 `text-16`; status label `text-14` mono 500 uppercase (sentence case at 600 is also allowed, and reads better at distance); tile figure `text-36`; ring figure `text-48`.
 
 Dark theme: ships, with section 6.4's values (they are hers).
 
 ### 12.4 Shell and navigation
 
-- Content column max 1200px, centred. Top bar: logo plate, portal name (`text-24` display) over the identity line, then marker N1, then `Switch portal` (secondary) at the right.
+- Content column max 1200px, centred. Top bar: logo plate, portal name (`text-24` display) over the identity line, then marker N1, then the guide button and `Switch portal` (secondary) at the right. The guide button is docked here on every portal screen, so it covers nothing; the guide panel opens under it.
 - Below: a 224px menu (her buttons; the current one filled green with white text and `aria-current`) and one screen card, 24px apart. The menu is sticky.
 - At `md` and below the menu becomes a horizontally scrolling strip above the screen (hers), and N1 moves under the top bar at full width.
-- Entry: logo at 84px high with marker N1 on the same row at the right, the title, the lede, three doors in a row, the demo line. Otherwise as hers.
+- Entry: logo at 84px high with marker N1 on the same row at the right, the title, the lede, three doors in a row, the demo line; the guide button floats at the bottom right, where nothing sits behind it. Otherwise as hers.
 
 ### 12.5 Signature motion
 
@@ -1546,7 +1593,7 @@ Dark theme: ships, with section 6.4's values (they are hers).
 |---|---|
 | Student interview | Her two columns (5:4). Transcript left with N2 pinned on top; profile card right on `--sm-page`. The card's two group labels stay, so "already on file" versus "from the interview" is visible at a glance; new values arrive as gold-soft pills |
 | Events for me | Her rows: date tile, title, meta, reason chip, button, match line. The reason chip is `text-18`. The check-in card sits under the list with the points block at its right |
-| Match students to an event | Picker, then the four weights in one row, the Grace line, the table. Six or more rows on screen at 1440×900 |
+| Match students to an event | Picker, then the four weights in one row, the Grace line, the table. Grace's row #4 whole and at least five full rows on screen at 1440×900, at least four at 1280×720 (section 5.6) |
 | Career Hub overview | Four tiles in a row, then her 2 × 2 chart grid, then the data-handling card |
 | Partner portal | Her 2 × 2 grid: who was invited, how the talk filled, what students asked, stay involved. Outcome messages appear under the three buttons |
 
@@ -1564,7 +1611,7 @@ It may read as "the same thing Ann already made". Answer in the room: put her sc
 
 ### 13.1 Concept
 
-The staff tool, taken seriously. A calm, dense workspace: a full-height sidebar that always shows where you are, a command-style switcher that jumps between the three portals and their screens, a compact page header carrying the title and its status label, and tables that re-rank smoothly under the weights. Neutral greys do the background work; Cal Poly green appears only where something is active or true; gold appears only on Grace and on "planned". It shows the board what Career Hub staff would live in every day.
+The staff tool, taken seriously. A calm, dense workspace: a full-height sidebar that always shows where you are, a command-style switcher that jumps between the three portals and their screens, a compact page header carrying the title and its status label, and tables that re-rank smoothly under the weights. Neutral greys do the background work; Cal Poly green appears only where something is active or true; gold is kept for Grace, for "Registered", and for the honesty and data marks every direction shares ("planned", "scripted", the gold bars and dots, the target mark). It shows the board what Career Hub staff would live in every day.
 
 ### 13.2 Lineage and why it suits the board
 
@@ -1594,25 +1641,27 @@ Brand and status tokens as shared. Neutrals replaced:
 | Card style | 1px `--sm-line` hairline, no shadow; panes separated by hairlines, not gaps | Shadow (`--sm-elev-2`) only on the switcher popover and guide |
 | Radius | controls `sm` (6px), cards and panes `md` (10px), popover `lg` | Tighter than A |
 
-Type roles: entry title `text-48`; screen title `text-28` 600; block label `text-14` 600 muted, sentence case; `h3` `text-18` 600; body, table and chat `text-16`; helper `text-14` muted (never data); status label `text-14` 600; tile figure `text-28` mono; ring figure `text-36`.
+Type roles: entry title `text-48`; screen title `text-28` 600; block label `text-14` 600 muted, sentence case; `h3` `text-18` 600; body, table and chat `text-16`; helper `text-14` muted (never data); status label `text-14` 600; marker N1 `text-16` 600; tile figure `text-28` mono; ring figure `text-36`.
+
+Controls are drawn 40px tall with a 44×44px hit area (section 5.6).
 
 Dark theme: optional; if shipped, section 6.4's values.
 
 ### 13.4 Shell and navigation
 
-- **Sidebar, 264px, full height, `--b-sidebar`.** Top: the switcher button (logo plate, portal name, identity line, `chevrons-up-down`). Middle: the portal's menu items as rows (current row: `--sm-surface` fill, a 3px green bar at the row's inner left edge inside the row's radius, weight 600, `aria-current`). Bottom: marker N1, then the guide button docked here instead of floating.
-- **Switcher.** Pressing the switcher button, `Switch portal`, or `Ctrl`/`⌘`+`K` opens a non-modal popover: a field (N10) and a list grouped by portal name, each group listing its screens by their menu labels, plus the five events under "Match students to an event". Arrow keys move, Enter goes, Esc closes and returns focus. The button's accessible name is `Switch portal`. It is a combobox with a listbox (`aria-activedescendant`), not a dialog.
-- **Page header, sticky.** Screen title, status label on the same row, description beneath (max 70 characters per line).
+- **Sidebar, 264px, full height, `--b-sidebar`.** Top: the switcher button (logo plate, portal name, identity line, `chevrons-up-down`), with marker N1 directly under it at 16px. Middle: the portal's menu items as rows (current row: `--sm-surface` fill, a 3px green bar at the row's inner left edge inside the row's radius, weight 600, `aria-current`). Bottom: the guide button, docked here instead of floating.
+- **Switcher.** Pressing the switcher button, `Switch portal`, or `Ctrl`/`⌘`+`K` opens a non-modal popover: a field (N10) and a list. The first option is the entry, labelled with its title, "Smart Match CPP"; choosing it returns to the entry, which is what `Switch portal` does in section 2.2. Then come the groups, one per portal name, each listing its screens by their menu labels, plus the five events under "Match students to an event". Arrow keys move, Enter goes, Esc closes and returns focus. The button's accessible name is `Switch portal`. It is a combobox with a listbox (`aria-activedescendant`), not a dialog.
+- **Page header, sticky.** Screen title, status label on the same row, description beneath, in at most 2 lines (section 4).
 - **Main.** Split panes where the screen has two subjects: transcript | profile inspector (360px); weights (304px, sticky) | ranked table. Otherwise one column, max 1120px.
 - **Entry.** The same three doors, as three wide rows in a centred 720px column (eyebrow, title, body, action), under the title and lede, with the demo line below. No sidebar on the entry: marker N1 sits above the title and the guide button floats at the bottom right, as in A.
-- **`md` and below:** the sidebar becomes a top bar with the switcher and a horizontal menu strip; panes stack.
+- **`md` and below:** the sidebar becomes a top bar with the switcher, marker N1, the guide button and a horizontal menu strip; panes stack.
 
 ### 13.5 Signature motion
 
 | # | Moment | Spec |
 |---|---|---|
 | 1 | Command-style switch | Popover: opacity and scale 0.98 → 1 from the switcher button (`fast`, `out`). On Enter the popover leaves (`instant`), the main pane cross-fades (`fast` out, `base` in) and the sidebar rows cross-fade their labels (120ms). The sidebar itself never moves. ≤ 400ms |
-| 2 | Dense re-rank | `sm-rerank` on 10 or more visible rows; the `#` column's numerals update at the first frame while names travel; `sm-wash` on arrivals. The Grace line's number runs `sm-count` (#4 → #27) |
+| 2 | Dense re-rank | `sm-rerank` on the densest table of the three; rows that drop out of the visible 15 are removed on the first frame, like everywhere else; the `#` column's numerals update at the first frame while names travel; `sm-wash` on arrivals. The Grace line's number runs `sm-count` (#4 → #27) |
 | 3 | Search narrows | Rows that no longer match fade (`fast`); the rest close up with Flip (`move`); the count line updates at once |
 | 4 | Inspector fills | `sm-card-fill` in the profile inspector while the transcript advances with `sm-turn` |
 
@@ -1622,7 +1671,7 @@ Dark theme: optional; if shipped, section 6.4's values.
 |---|---|
 | Student interview | Transcript pane left, N2 pinned under the page header; profile inspector right as a definition list with two labelled groups. Reply options sit in a docked reply bar at the bottom of the transcript pane |
 | Events for me | A three-row list in one bordered pane: date tile, title and meta, reason, match line (mono), `Register`. The check-in card is a second pane to the right at `xl` (QR, sentence, "Planned", points), so nothing is below the fold |
-| Match students to an event | **The showpiece.** Weights pane left, sticky, with the event picker on top and the Grace line beneath the four controls; table right with 10 or more rows visible; the invitations button and its outcome message in a sticky footer of the table pane |
+| Match students to an event | **The showpiece.** Weights pane left, sticky, with the event picker on top and the Grace line beneath the four controls; table right, with Grace's row #4 whole and at least five full rows on screen at 1440×900 and at least four at 1280×720 (section 5.6; 44px rows usually show more); the invitations button and its outcome message in a sticky footer of the table pane |
 | Career Hub overview | A four-up tile strip with hairline dividers, not four boxes; charts in a 2 × 2 grid of panes; the data-handling list as a full-width pane |
 | Partner portal | Two panes on top (who was invited, how the talk filled), two below (questions, stay involved). The sidebar shows one item, "My talk" |
 
@@ -1630,12 +1679,12 @@ Dark theme: optional; if shipped, section 6.4's values.
 
 - No large type, no serif, no illustration, no brand-colour surfaces.
 - No floating cards with shadows; no rounded "bubbly" controls.
-- No gold except Grace's row, the planned label, the target mark and "Registered".
+- No gold except Grace's row, "Registered", and the honesty and data marks every direction keeps: the planned label, the scripted line N2 (gold-soft), the gold bars, the third progress dot, the future-term dot and the target mark. The reason chip, the callout, the `Say:` line and the "new" pills are neutral, on `--b-sunk`.
 - No keyboard shortcut beyond `Ctrl`/`⌘`+`K`, `G`, `PageDown`, `PageUp`.
 
 ### 13.8 Main risk
 
-Two. It looks the most like finished software, which pulls against rule H1; so N1 sits in the sidebar on every screen and the status label is in the sticky header where it cannot scroll away. And 16px tables are at the floor for a lit room; if the projector is weak, the back row loses the reasons. Check it projected before choosing it as the lead.
+Two. It looks the most like finished software, which pulls against rule H1; so N1 sits at the top of the sidebar, under the portal name, at 16px on every screen and the status label is in the sticky header where it cannot scroll away. And 16px tables are at the floor for a lit room; if the projector is weak, the back row loses the reasons. Check it projected before choosing it as the lead.
 
 ## 14. Direction C — Walkthrough (`c-walkthrough`)
 
@@ -1679,7 +1728,7 @@ Type roles: entry title `text-80`; screen title `text-48`; description `text-24`
 
 Focus ring: green on paper and white; gold on the green stage and rail.
 
-Dark theme: not shipped. A paper direction in a lit room has no use for it.
+Dark theme: not shipped. A paper direction in a lit room has no use for it. `?theme=dark` is ignored without error, and the guide panel shows no theme control.
 
 ### 14.4 Shell and navigation
 
@@ -1687,6 +1736,7 @@ Dark theme: not shipped. A paper direction in a lit room has no use for it.
 - **Stage:** everything between the bars; content max 1200px. The first screenful of each stop is its hero (section 14.6); the rest of Ann's content follows below by ordinary scrolling. No snapping, no pinned sections.
 - **Stop rail, 72px, fixed at the bottom, `--c-stage`:** at the left `Back`; in the middle the current portal's menu items as large tabs (her labels; the current one white on green with a gold bar beneath, `aria-current`), which is the portal's `<nav>`; at the right "Stop {n} of 9" in gold numerals and `Next`. The presenter's name for the current stop, taken from the guide title ("Chau" or "Janice"), sits beside the stop count.
 - The guide button docks at the rail's right end; the guide panel opens above the rail.
+- The rail takes its 72px out of the stage: the stage is sized as `100dvh` minus the top bar and the rail, so nothing rests under the rail, and whatever is below the fold scrolls fully clear of it. Under 800px of viewport height the compact layout of section 5.2 applies: entry title `text-64`, screen title `text-36`, description `text-20`, ring 150px.
 - **Entry:** a full-bleed green stage: logo on its white plate, "Smart Match CPP" in white at `text-80`, the lede in `--c-on-stage-soft`, three white doors, the demo line. Marker N1 stays in the top bar. The rail shows "Stop 1 of 9" and `Next` only.
 - **`md` and below:** the rail keeps `Back`, the stop count and `Next`; the tabs become a horizontally scrolling strip under the top bar.
 
@@ -1706,10 +1756,10 @@ Dark theme: not shipped. A paper direction in a lit room has no use for it.
 |---|---|---|
 | Student interview | Left: the latest assistant turn large, its reply options beneath as big chips, N2 above. Right: the profile card at hero size, two labelled groups. Earlier turns are in the scrollable log above the latest turn | — |
 | Events for me | The top event as a wide feature row (date tile, title `text-36`, reason in serif `text-24`, `Register`, match line), the other two as two half-width rows under it. All three visible | Check-in card (brought into view on `Register`) |
-| Match students to an event | Left third: the `Event` picker (five compact radio cards, date tile and title; a native select if the cards push the weights below the fold), the four weights, Grace's rank numeral and line. Right two thirds: the table, five or more rows | Rest of the 15 rows, invitations button |
+| Match students to an event | A control band across the top: the `Event` picker (a native select; section 7.9), the four weights in one row (two columns when the stage is under 900px wide), Grace's rank numeral and line. Under the band, the table at full width, so reasons fit in 2 lines: Grace's row #4 whole and at least five full rows at 1440×900, at least four at 1280×720 | Rest of the 15 rows, invitations button |
 | Career Hub overview | The four tiles at `text-48`, with "students never reached by an event" set apart as the widest tile (the guide's point), then chart row one | Chart row two, data handling |
 | Partner portal | "Who was invited" and "How your talk filled" side by side, with the funnel large and its mass-email note in serif | Questions as two large quotes, stay involved |
-| Readiness | Ring at 200px, three tiles, callout, and the four help buttons | The open help panel, then the six markers |
+| Readiness | Ring at 200px (150px at compact height), three tiles, callout, and the four help buttons | The open help panel, then the six markers |
 
 ### 14.7 Bree, the team's mascot
 
@@ -1742,12 +1792,13 @@ Build time. It has the most bespoke layout (nine hero arrangements, the rail, th
 | Alternate 1 | B · Workbench | Show its `match` and `records` screens if the board asks "what would staff use day to day?". Do not lead with it: it reads as finished software and is the hardest to read from the back row |
 | Alternate 2 | C · Walkthrough | The best fit for a projected story and the closest to the team's shipped exercise look, but the riskiest build. If it is finished and rehearsed by Wednesday evening, the owner may promote it to lead for the opening (entry, interview, events) and switch to A or B for the Career Hub screens |
 
-Build order inside every direction, so that a partial build is still presentable: shell with N1 and the guide → `entry` → `interview` → `recs` → `match` → `overview` → `talk` → `readiness` → `growth` → `records` → 390 layouts → dark (A only).
+Build order inside every direction, so that a partial build is still presentable: shell with N1 and the guide → `entry` → `interview` → `recs` → `match` → `overview` → `talk` → `readiness` → `growth` → `records` → 390 layouts → compact height (1280×720) → dark (A; B if kept).
 
 Builder notes that save time:
 
-- GSAP Flip on table rows: animate the `<tr>` elements (Chrome transforms table rows); give each row `data-flip-id` equal to the student id; call `Flip.getState(rows)` before re-rendering and `Flip.from(state, { duration: 0.28, ease: "power2.inOut", absolute: false, overwrite: true, onEnter, onLeave })` after.
+- GSAP Flip on table rows: animate the `<tr>` elements with a transform (Chrome transforms table rows; this is not a layout animation); give each row `data-flip-id` equal to the student id; call `Flip.getState(rows)` before re-rendering and `Flip.from(state, { duration: 0.28, ease: "power2.inOut", simple: true, absolute: false, overwrite: true, onEnter })` after. No `onLeave`: remove the rows that dropped out of the visible 15 before `Flip.from`, so they are gone on the first frame. A hand-written FLIP on GSAP core (one `gsap.fromTo` per row from its old offset to 0) is equally allowed if it holds the frame budget better.
 - Re-render the table body by re-ordering existing row nodes, not by replacing `innerHTML`, or Flip has nothing to match and the slider loses focus.
+- One `keydown` handler on `document` for `PageDown` / `PageUp`: return early only when the target is a text-entry `<input>` (text or search) or a `<textarea>`; otherwise `preventDefault()` and change stop. Do not give the sliders or the select a Page-key handler of their own.
 - Keep the weight inputs out of the re-rendered region so a drag is never interrupted.
 - The ring's circumference for a radius-66 circle is 414.69; the arc is that times the percentage.
 
@@ -1813,3 +1864,41 @@ Builder notes that save time:
 | C8 | Guide, `entry` | "each with its own sign-in" while the doors say "Enter as…": the README names CPP login as a later build step | Verbatim; no sign-in screen is added |
 | C9 | Term overview | Whether "students with a profile card" was meant to count Grace's interview as +1 on top of the file's 70 (true) or on top of the recount (her code, 72) | 71 (fix F1) |
 | C10 | Event ids | `E11` and `E12` continue the past-event numbering and carry the class exercise's two company names; `U1`–`U3` are a separate, made-up set | Ids used as given, never shown on screen |
+
+## Revision history
+
+**2026-10-06 — reconciled after the independent audit ([`audit/AUDIT.md`](audit/AUDIT.md), D-01 to D-14).** Where two sections asked for incompatible things, the document now states one rule. Section 2's copy, the data contract, the test vectors and every colour and contrast number are unchanged.
+
+| ID | Single rule | Sections changed |
+|---|---|---|
+| D-01 | Match table: Grace's row #4 whole and at least 5 full rows at 1440×900; at least 4 at 1280×720. The per-direction minimums (6 / 10 / 5) and "six or more" are gone | 5.2, 5.6, 12.6, 13.5, 13.6, 14.6, Part 2 table, item 31 |
+| D-02 | A screen description is at most 2 lines with a measure up to 100 characters; 45–70 characters is for body prose only | 4, 13.4 |
+| D-03 | Part 2 may re-tone a surface, never an honesty component. N2 gold-soft, gold bars, third dot and the future-term gold ring with a gold-ink keyline in every direction; chip, callout, `Say:` line and "new" pills neutral in B only | How to use, 6.1, 6.2, 6.5, 7.4, 7.6, 7.10, 7.14, 7.16, 9.5, 13.1, 13.7, Part 2 table, item 35 |
+| D-04 | The 44×44px rule measures the hit area; the drawn box may be 40px for chips and for all controls in B | 5.6, 7, 7.3, 7.6, 9.3, 13.3, item 45 |
+| D-05 | Rows leaving the visible 15 are removed on the first frame; no exit animation (was: rows leaving fade out) | 8.1, 8.3, 8.7, 13.5, 15, item 50 |
+| D-06 | Frame budget: no frame over 50ms and no long task over 50ms at 4× CPU throttle, on the classroom laptop (was 33ms). Flip with `simple: true` or a hand-written FLIP on GSAP core is allowed | 8.3, 8.5, 8.7, 15, item 51 |
+| D-07 | Item 37 split into 37a (light when the OS is dark, all directions) and 37b (only where a dark theme ships). `theme=dark` is ignored without error where none ships | 3.7, 14.3, 15, Part 2 table, items 37 and 60 |
+| D-08 | `PageDown` / `PageUp` always change stop, except in a text input or textarea; the slider exception is gone and sliders no longer use Page keys; Enter in the records search releases focus | 1.2, 7.8, 7.9, 7.15, 7.16, 9.2, 15, item 41 |
+| D-09 | `h1[tabindex="-1"]` never draws a focus ring | 7, 9.2, 9.3, item 42 |
+| D-10 | Event picker: a native select from 640px up, a radio list below, in every direction (the per-direction table is gone) | 7.9, 14.6, item 71 |
+| D-11 | C's Match layout is a control band over a full-width table | 14.6, Part 2 table |
+| D-12 | `recs` has a visually hidden `h2` "Events for me"; the profile card's name is an `h2` | 9.1, item 42 |
+| D-13 | B's `Switch portal` popover lists the entry first, by its title | 7.1, 13.4 |
+| D-14 | Chip labels and the match line may be 16px in every direction; the 18px floor (A, C) is for read-aloud body text | 5.3, 7.6, 7.14, 12.3, item 27 |
+
+Also folded in from the audit's findings (A-, B-, C- and X- ids):
+
+| Rule added | From | Sections changed |
+|---|---|---|
+| Compact layout under 800px of viewport height; nothing interactive under a fixed bar, the rail or the guide button at 1280×720; the entry never scrolls | A-05, A-06, A-13, A-16, B-03, C-02, C-03, C-04, C-12 | 5.2, 5.6, 14.4, 14.6, 15, items 61 and 62 |
+| The guide button is docked in the shell on portal screens and covers nothing | A-04, A-18, B-10 | 7.16, 9.2, 12.4, 13.4, item 63 |
+| One press, one answer: a double-press never activates the next turn's control | A-07, B-01, C-08 | 7.10, 8.1, 8.3, items 50 and 64 |
+| An opening help panel is scrolled into view; N2 stays on screen; focus stays on a pressed bot chip | A-03, B-02, B-08, X-11, X-14 | 7.4, 7.10, 7.14, 8.3, 9.2, item 66 |
+| After `Register` the pressed button and its title stay on screen | A-09, C-05, X-06 | 5.2, 8.3, item 67 |
+| A finished interview reopens at the top of the last assistant turn; the log is at least 240px tall | A-06, A-08 | 7.10, item 68 |
+| `growth` joins the above-the-fold list, with its closing line whole | C-07 | 5.2 |
+| `tabular-nums` is checked as a computed value | C-06 | 5.3, item 69 |
+| Names and the last table column stay on one line; weight controls are spaced so values and labels cannot collide; "Showing 15 of the top 30." hides with N7; a space follows Grace's hidden text | A-10, A-11, A-12, B-06, B-07, B-09, C-09, C-11, C-14, C-15, X-07 | 5.6, 7.7, 7.8, item 70 |
+| Marker N1 is at least 16px (B: under the portal name); guide stop controls sit below the `Say:` line; A's status label may be sentence case | B-05, X-08, X-09, X-10 | 5.3, 7.4, 7.16, 12.3, 13.3, 13.4, 13.8, item 72 |
+
+Checklist numbering: items 1–60 keep their numbers (37 is now 37a and 37b); items 61–72 are new.
