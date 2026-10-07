@@ -200,7 +200,7 @@ const fresh = () => ({
 let state = fresh();
 let students = SMC.makeStudents();
 /* Not saved: outcome messages, the armed reset, what was last shown (for count-ups). */
-const ui = { msgs: {}, armed: null, shown: {}, doorsDone: false, advText: "Hi, could someone review my resume? I'm an accounting junior interested in data and consulting roles.", advShare: true };
+const ui = { guard: 0, fresh: 0, msgs: {}, armed: null, shown: {}, doorsDone: false, advText: "Hi, could someone review my resume? I'm an accounting junior interested in data and consulting roles.", advShare: true };
 
 function load() {
   try {
@@ -333,13 +333,23 @@ function travel(fromRect, toEl) {
   M.track(gsap.fromTo(ghost, { x: fromRect.left - to.left, y: fromRect.top - to.top },
     { x: 0, y: 0, duration: D.move, ease: E.inOut, onComplete() { ghost.remove(); gsap.set(toEl, { clearProps: "opacity" }); } }));
 }
-function scrollToView(el, clear) {
-  const r = el.getBoundingClientRect(), top = 80, bottom = window.innerHeight - (clear || 88);
+/* The stage (main) is the only scroller. Brings el into view by the smallest scroll; `keep` lists groups of
+   elements that must stay on screen, most wanted first: the scroll stops short rather than push the first
+   group that can be honoured off the top. */
+function scrollToView(el, keep) {
+  const m = els.main, mr = m.getBoundingClientRect(), r = el.getBoundingClientRect(), edge = 8;
+  const top = mr.top + edge, bottom = mr.bottom - edge;
   if (r.top >= top && r.bottom <= bottom) return;
-  const y = window.scrollY + (r.bottom > bottom ? Math.min(r.top - top, r.bottom - bottom) : r.top - top);
-  if (M.reduced) { window.scrollTo(0, y); return; }
-  const o = { y: window.scrollY };
-  M.track(gsap.to(o, { y, duration: D.max, ease: E.out, onUpdate() { window.scrollTo(0, o.y); } }));
+  let dy = r.bottom > bottom ? Math.min(r.top - top, r.bottom - bottom) : r.top - top;
+  if (dy > 0 && keep) {
+    const room = keep.map(g => Math.min(...g.filter(Boolean).map(k => k.getBoundingClientRect().top)) - top);
+    const ok = room.find(v => v >= dy);
+    if (ok == null) dy = Math.max(0, room[room.length - 1]);
+  }
+  const y = m.scrollTop + dy;
+  if (M.reduced) { m.scrollTop = y; return; }
+  const o = { y: m.scrollTop };
+  M.track(gsap.to(o, { y, duration: D.max, ease: E.out, onUpdate() { m.scrollTop = o.y; } }));
 }
 
 /* ---------- toast and live regions ---------- */
@@ -434,7 +444,7 @@ function renderTable(o) {
   return { box: h("div", { class: "sm-table-box" }, table), body, row, empty };
 }
 const nameCell = s => s.id === SMC.GRACE_ID
-  ? h("span", { class: "sm-table__name" }, icon("id-card", 20), h("span", { class: "sm-vh", text: "Grace Delgado, the student from the demo" }), s.name)
+  ? h("span", { class: "sm-table__name" }, icon("id-card", 20), h("span", { class: "sm-vh", text: "Grace Delgado, the student from the demo" }), " ", h("span", { text: s.name }))
   : h("span", { class: "sm-table__name", text: s.name });
 function renderTurn(p) {
   return h("div", { class: "sm-turn", "data-who": p.who },
@@ -566,7 +576,12 @@ function renderHelpPanel(kind) {
 }
 
 /* ---------- actions inside the student screens ---------- */
+/* A rapid second press must not land on the turn that has only just rendered: activation is ignored for
+   350ms after a turn renders, and the second click of a double-click is dropped after any fresh render. */
+const GUARD_MS = 350;
+const guarded = () => performance.now() < ui.guard;
 function answer(text, fromEl) {
+  if (guarded()) return;
   const key = turnKey();
   const from = key === "t2" ? state.picks.map(t => { const c = $$(".sm-chip[data-topic]").find(x => x.dataset.topic === t); return [t, c && c.getBoundingClientRect()]; })
     : key === "t3" && fromEl ? [["goal", fromEl.getBoundingClientRect()]] : [];
@@ -577,6 +592,7 @@ function answer(text, fromEl) {
     return;
   }
   const node = update({ focus: ".sm-transcript__reply button, .sm-transcript__reply input" });
+  ui.guard = ui.fresh = performance.now() + GUARD_MS;
   const turns = $$(".sm-turn", node), ai = turns[turns.length - 1];
   /* The student turn, then the assistant's whole reply with its options 80ms later. Nothing streams. */
   M.enter([turns[turns.length - 2]], { y: 6, dur: D.fast });
@@ -585,6 +601,7 @@ function answer(text, fromEl) {
   els.ivLive.textContent = plain(IV[turnKey()].say);
 }
 function togglePick(t) {
+  if (guarded()) return;
   const i = state.picks.indexOf(t);
   if (i >= 0) state.picks.splice(i, 1); else state.picks.push(t);
   const node = update();
@@ -594,10 +611,17 @@ function register(id) {
   if (state.registered.includes(id)) return;
   state.registered.push(id); state.lastRegistered = id;
   toast("Registered. 10 points added.");
+  const rest = $$(".sm-event:not([data-feature])"), before = rest.length && rest[0].getBoundingClientRect().top;
   const node = update(), card = $(".sm-checkin", node);
+  /* Rows pushed down by the card are brought to their new place with a transform, never by animating height. */
+  const moved = $$(".sm-event:not([data-feature])", node), dy = moved.length ? before - moved[0].getBoundingClientRect().top : 0;
+  if (dy && !M.reduced) M.track(gsap.from(moved, { y: dy, duration: D.base, ease: E.out, clearProps: "transform" }));
   M.enter([$("[data-fid='reg-" + id + "'] .sm-icon", node)], { scale: 0.9, dur: D.fast });
   M.enter([card], { y: 8 });
-  scrollToView(card, 176); /* stays clear of the toast */
+  /* Smallest scroll that shows the code and the points. The title and status label stay if they can;
+     the pressed button and its event title always do (5.2). */
+  const btn = $("[data-fid='reg-" + id + "']", node), row = btn.closest(".sm-event");
+  scrollToView(card, [[$("h1", node), $(".sm-status", node), btn, $("h3", row)], [btn, $("h3", row)]]);
 }
 function selfCheck(k, on) {
   state.selfChecks[k] = on;
@@ -661,7 +685,7 @@ function screenInterview() {
   }
   const node = h("section", null, renderHead("interview"),
     h("div", { class: "c-interview" },
-      h("div", { class: "sm-transcript" }, renderScripted(), log, h("div", { class: "sm-transcript__reply" }, reply)),
+      h("div", { class: "sm-transcript" }, renderScripted(), log, h("div", { class: "sm-transcript__reply", "data-toggles": !state.ivDone && turn.toggles }, reply)),
       renderProfileCard()));
   node._mounted = () => fitLog(log);
   return node;
@@ -674,8 +698,10 @@ function screenRecs() {
     !done && h("div", { class: "sm-card c-callout", "data-tone": "gold" }, h("p", { text: "Finish the short interview to get better suggestions." }),
       renderButton({ label: "Activate my profile", "data-fid": "recs-go", onclick: () => go("interview") })),
     h("h2", { class: "sm-vh", text: "Events for me" }),
-    h("div", { class: "c-events" }, ranked.map((e, i) => renderEventRow({ ev: e, feature: i === 0, registered: state.registered.includes(e.id), onRegister: () => register(e.id) }))),
-    last && renderCheckin(last));
+    /* The check-in card sits directly under the top event when that is the one just registered, so the code
+       and the points show with no scroll and the pressed button, its title and the screen title stay (5.2). */
+    h("div", { class: "c-events" }, ranked.map((e, i) => [renderEventRow({ ev: e, feature: i === 0, registered: state.registered.includes(e.id), onRegister: () => register(e.id) }), i === 0 && last && last.id === e.id && renderCheckin(last)])),
+    last && last.id !== ranked[0].id && renderCheckin(last));
 }
 function screenReadiness() {
   const pct = readinessPct(), target = SMC.TARGET.Junior, gap = target - pct;
@@ -721,12 +747,12 @@ function screenGrowth() {
           h("li", { class: "sm-timeline__term", "data-state": future ? "future" : "past" }, h("span", { class: "sm-timeline__dot", "aria-hidden": "true" }),
             h("div", null, h("p", { class: "sm-timeline__when", text: when }),
               lines.map(([text, tag, tone]) => h("p", { class: "sm-timeline__line", "data-empty": !tag }, h("span", { text }), tag && renderPill(tag, tone))))))) ),
-      h("div", { class: "c-stack" },
+      h("div", { class: "c-stack", "data-gap": "5" },
         h("div", { class: "sm-card c-block", "data-anim": "bars" }, h("h2", { text: "Topics she has explored" }),
           renderBars({ rows, max: Math.max(3, ...rows.map(r => r[1])), labelW: 160 })),
+        h("p", { class: "c-closing", text: "An Accounting major whose events lean toward media and technology. Her record shows a path her major alone would never reveal." }),
         h("div", { class: "sm-card c-tiles", "data-cols": "2" },
-          renderStat({ value: 2 + state.registered.length, label: "events attended or registered" }), renderStat({ value: points(), count: "points", label: "career points" })))),
-    h("p", { class: "c-closing", text: "An Accounting major whose events lean toward media and technology. Her record shows a path her major alone would never reveal." }));
+          renderStat({ value: 2 + state.registered.length, label: "events attended or registered" }), renderStat({ value: points(), count: "points", label: "career points" })))));
 }
 
 /* ---------- screens: Career Hub and partner ---------- */
@@ -769,6 +795,8 @@ function screenRecords() {
   };
   /* Live on each keystroke; the field is outside the re-rendered region, so focus and caret stay. */
   input.addEventListener("input", () => { state.search = input.value; save(); announce(fill() + " of 300 records", 400); });
+  /* Enter releases the field (focus goes to the title), so the clicker's next press changes stop. */
+  input.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); $("h1", node).focus({ preventScroll: true }); } });
   fill();
   const node = h("section", null, renderHead("records"),
     h("div", { class: "c-records-top" }, h("div", { class: "sm-field" }, h("label", { class: "sm-field__label", for: "f-search", text: "Search by name, major or ID" }), input), count),
@@ -783,19 +811,12 @@ function renderWeight(p) {
   const fill = () => input.style.setProperty("--c-fill", "calc(12px + " + input.value / 10 + " * (100% - 24px))");
   fill();
   input.addEventListener("input", () => { val.textContent = input.value; fill(); p.onInput(Number(input.value)); });
-  /* Page keys move the weight by 2 and never change stop while a slider has focus (7.8). */
-  input.addEventListener("keydown", e => {
-    if (e.key !== "PageUp" && e.key !== "PageDown") return;
-    e.preventDefault();
-    input.value = Number(input.value) + (e.key === "PageUp" ? 2 : -2);
-    input.dispatchEvent(new Event("input", { bubbles: true }));
-  });
   return h("div", { class: "sm-weight" }, h("div", { class: "sm-weight__top" }, h("label", { for: id, text: p.label }), val), input);
 }
 function screenMatch() {
   const cols = ["#", "Student", "Major", "Why on the list", "What we know"];
   const T = renderTable({ caption: "Match students to an event", cols, ordered: true, fixed: true });
-  const pool = new Map(), slot = h("div");
+  const pool = new Map(), slot = h("div"), showing = h("span", { text: "Showing 15 of the top 30." });
   const rank = h("span", { class: "c-grace__rank", "aria-hidden": "true", "data-state": "closed" }), line = h("p", { class: "c-grace__line" });
   let lastRank = null, raf = 0, first = true;
   const pick = id => { state.hubEvent = id; delete ui.msgs.invite; refresh(true); };
@@ -862,6 +883,7 @@ function screenMatch() {
       Flip.from(fs, { targets: rows, duration: D.move, ease: E.inOut, absolute: false, overwrite: true, simple: true,
         onEnter: entered => { gsap.fromTo(entered, { opacity: 0 }, { opacity: 1, duration: D.base, ease: E.out, overwrite: true }); wash(entered); } });
     } else if (!same && animate && M.reduced) gsap.fromTo(T.body, { opacity: 0 }, { opacity: 1, duration: 0.15, ease: "none", overwrite: true });
+    showing.hidden = rows.length === 0;
     slot.replaceChildren(...[renderMessage("invite")].filter(Boolean));
     if (animate && !first) announce(text, 600);
     first = false;
@@ -873,7 +895,7 @@ function screenMatch() {
       h("div", { class: "c-grace" }, rank, line),
       h("div", { class: "c-weights" }, weights)),
     T.box,
-    h("div", { class: "c-under" }, h("span", { text: "Showing 15 of the top 30." }),
+    h("div", { class: "c-under" }, showing,
       renderButton({ label: "Send personal invitations to top 30", "data-fid": "invite", onclick: () => setMsg("invite", "In the full version, each student gets a personal invitation and a reminder.") })),
     slot);
   node._refresh = () => refresh(false);
@@ -1041,7 +1063,8 @@ function go(id, o) {
     if (!(o && o.boot)) M.enter([next]);
   }
   els.stage.append(next);
-  window.scrollTo(0, 0);
+  ui.fresh = performance.now() + GUARD_MS;
+  els.main.scrollTop = 0;
   mounted(next);
   if (!(o && o.boot)) $("h1", next).focus({ preventScroll: true });
   if (fs && bar.isConnected) Flip.from(fs, { duration: D.move, ease: E.inOut, overwrite: true });
@@ -1071,17 +1094,25 @@ function step(d) {
 }
 
 /* ---------- keys ---------- */
+const SCROLL_KEYS = { ArrowDown: 80, ArrowUp: -80, " ": 0, Home: -1e6, End: 1e6 };
 function onKey(e) {
   const t = e.target, tag = t.tagName;
   const typing = tag === "TEXTAREA" || t.isContentEditable || (tag === "INPUT" && !/^(checkbox|radio|range|button)$/.test(t.type));
-  const adjusting = tag === "SELECT" || (tag === "INPUT" && t.type === "range");
   if (e.key === "Escape") {
     if (ui.armed) disarm();
     else if (state.guideOpen) { setGuide(false); els.guideBtn.focus(); }
     return;
   }
   if (typing || e.ctrlKey || e.metaKey || e.altKey) return;
-  if ((e.key === "PageDown" || e.key === "PageUp") && !adjusting) {
+  /* The stage is the scroller, so the keys that used to scroll the page do so when nothing has focus yet. */
+  if (t === document.body && (e.key in SCROLL_KEYS)) {
+    e.preventDefault();
+    els.main.scrollBy(0, e.key === " " ? (e.shiftKey ? -0.85 : 0.85) * els.main.clientHeight : SCROLL_KEYS[e.key]);
+    return;
+  }
+  /* Page keys always change stop, from any control except a text field (D-08). preventDefault keeps a
+     focused slider or select from also taking the key; sliders keep arrows, Home and End. */
+  if (e.key === "PageDown" || e.key === "PageUp") {
     e.preventDefault();
     if (!e.repeat) step(e.key === "PageDown" ? 1 : -1);
   } else if ((e.key === "g" || e.key === "G") && tag !== "SELECT" && !e.repeat) setGuide(!state.guideOpen);
@@ -1123,6 +1154,7 @@ function boot() {
   els.toast.addEventListener("mouseenter", () => window.clearTimeout(toastTimer));
   els.toast.addEventListener("mouseleave", () => { toastTimer = window.setTimeout(hideToast, 4000); });
   document.addEventListener("pointerdown", M.finish, true);
+  els.stage.addEventListener("click", e => { if (e.detail > 1 && performance.now() < ui.fresh) { e.preventDefault(); e.stopPropagation(); } }, true);
   document.addEventListener("keydown", e => { if (!e.repeat) M.finish(); }, true);
   document.addEventListener("keydown", onKey);
   const relayout = () => { renderChrome(); update({ full: true }); };
