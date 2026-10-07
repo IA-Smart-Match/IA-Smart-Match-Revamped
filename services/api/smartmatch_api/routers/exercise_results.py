@@ -199,8 +199,8 @@ def run_results(
     Allowed **once** per team per event: the second attempt is refused with one
     sentence. Two presses arriving together cannot both succeed, because the
     write takes an advisory key and the table carries a UNIQUE constraint behind
-    it — a read alone would not be enough. Allowed at all only after the
-    instructor has unlocked this event.
+    it — a read alone would not be enough. Allowed at all only while the
+    instructor has results for this event open.
 
     The invited list is the ranked list this team's screen shows, built from the
     team's **final setting**: ``setting_name`` is required and names one of the
@@ -209,7 +209,10 @@ def run_results(
 
     The answer carries three panels: your team's list, everybody in the data
     file through the same rule with the same seed, and — in round two — your
-    team's stored round-one result.
+    team's stored round-one result. It also carries the people your list
+    invited, by name, as the list showed them at this moment; they are stored
+    with the run, so deleting or changing the saved setting afterwards does not
+    change who it says you invited.
 
     The rule the answer comes from is written in plain words in
     ``smartmatch_domain/exercise/simulation.py`` and is the statement the course
@@ -217,9 +220,10 @@ def run_results(
 
     The refusals come in this order, so the most useful sentence wins:
 
-    1. The event — unknown (404), not a round, locked, already run (409). These
-       say whether this event can be run at all, whatever the body says; telling
-       a team that has already run to choose a setting would invite a second try.
+    1. The event — unknown (404), not a round, already run, not open (409).
+       These say whether this event can be run at all, whatever the body says;
+       telling a team that has already run to choose a setting, or to wait for
+       results to open, would invite a second try.
     2. The final setting — left out or blank (422). The team's own step, so it
        is answered before anything the team cannot fix.
     3. The rule — no coefficient set (409). Only reachable if the approved set
@@ -240,7 +244,7 @@ def run_results(
     final_setting = final_setting_or_refusal(payload.setting_name)
     coefficients = coefficients_or_refusal()
     team_state = _team_state_or_refusal(session, results, workspace)
-    profiles, invited, setting_name = invited_list(
+    profiles, invited, setting_name, weights = invited_list(
         session,
         datasets=datasets,
         team_view=team_view,
@@ -256,7 +260,7 @@ def run_results(
         profiles=profiles,
         event=event,
         workspace=workspace,
-        invited=invited,
+        invited=[entry.profile_no for entry in invited],
         seed=team_state.seed,
         coefficients=coefficients,
     )
@@ -269,6 +273,8 @@ def run_results(
         setting_name=setting_name,
         team=team,
         everyone=everyone,
+        invited=invited,
+        weights=weights,
     )
     session.commit()
     return stored_results_view(

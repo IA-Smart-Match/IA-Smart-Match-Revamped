@@ -72,6 +72,9 @@ this module still matches the migrations, until a contract-phase revision drops
 it after the 2026-10-16 run-through — the release before this one selects and
 inserts it, and a VM rollback rebuilds that release without downgrading the
 schema.
+Revision ``0044_exercise_event_description`` added ``exercise_event.description``
+(#318): the file's ``event_description`` cell, ``NULL`` where the file says
+nothing.
 """
 
 from __future__ import annotations
@@ -219,6 +222,11 @@ exercise_event = sa.Table(
     # database; the drop is a contract-phase revision for a later release,
     # because the previous release still reads and inserts the column.
     sa.Column("is_exploratory", sa.Boolean, nullable=False, server_default=sa.text("false")),
+    # Revision 0044 (#318, Ann 2026-10-02): the short public description from
+    # the file's ``event_description`` column. NULL for a blank cell (the ten
+    # past events) and for a dataset stored before 0044, and a reader renders
+    # nothing for NULL.
+    sa.Column("description", sa.Text, nullable=True),
     sa.PrimaryKeyConstraint("dataset_id", "event_key", name="exercise_event_pkey"),
     # One event per position. The ten past events and the two rounds are an
     # ordered list in the case; two events claiming position 11 would make
@@ -427,6 +435,15 @@ exercise_result_run = sa.Table(
     # constants are the case's and a later change to them must not silently
     # restate what a team was shown.
     sa.Column("seats_empty", sa.Integer, nullable=False),
+    # Revision 0046 (issues #271, #319): the invited list as the team's screen
+    # showed it at the moment of the run, in rank order, and the four stated
+    # weights it was built with. A run is a record, so it carries its own
+    # names instead of asking a saved setting that can be edited or deleted.
+    # Only fields a team already sees on its ranked list (ADR-0025 D6, D8).
+    # NULL on a run stored before 0046 that could not be backfilled; a
+    # backfilled row has names but no rank, marker or reason.
+    sa.Column("invited_profiles", postgresql.JSONB, nullable=True),
+    sa.Column("setting_weights", postgresql.JSONB, nullable=True),
     sa.Column("created_at", _TS, nullable=False, server_default=sa.text("now()")),
     sa.PrimaryKeyConstraint("id", name="exercise_result_run_pkey"),
     # §9, the one-run rule, as a constraint rather than a check in code: a
@@ -455,10 +472,14 @@ exercise_result_unlock = sa.Table(
     METADATA,
     sa.Column("dataset_id", _UUID, nullable=False),
     sa.Column("event_key", sa.Text, nullable=False),
+    # When results were last opened. Moved on a reopening, not only written
+    # once: "the time it was done" (D16 amendment, 2026-10-06).
     sa.Column("unlocked_at", _TS, nullable=False, server_default=sa.text("now()")),
-    # §9: the absence of a row is "locked". A boolean column would need a row
-    # per event written at ingest to mean anything, and a missing row would
-    # then be a third state nobody defined.
+    # §9 as amended on 2026-10-06 (revision 0045): three states off one row.
+    # No row is "never opened"; a row with ``closed_at IS NULL`` is "open"; a
+    # row with ``closed_at`` set is "opened, then closed again". Both of the
+    # last two refuse nothing a stored run needs: closing deletes no run.
+    sa.Column("closed_at", _TS, nullable=True),
     sa.PrimaryKeyConstraint("dataset_id", "event_key", name="exercise_result_unlock_pkey"),
     sa.ForeignKeyConstraint(
         ["dataset_id", "event_key"],

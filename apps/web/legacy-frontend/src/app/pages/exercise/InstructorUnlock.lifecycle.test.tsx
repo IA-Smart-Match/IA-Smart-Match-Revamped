@@ -182,7 +182,7 @@ describe("<UnlockPanel /> keeps focus in the row", () => {
     answers[`GET ${EVENTS}`] = list(FIRST_FILE, true);
     fireEvent.click(screen.getByRole("button", { name: /^open results now$/i }));
 
-    await waitFor(() => expect(harborRow().textContent).toContain("Results are open"));
+    await waitFor(() => expect(harborRow().textContent).toContain("Results open"));
     await waitFor(() => expect(document.activeElement).not.toBe(document.body));
     expect(harborRow().contains(document.activeElement)).toBe(true);
     expect(document.activeElement?.getAttribute("tabindex")).toBe("-1");
@@ -234,7 +234,7 @@ describe("<UnlockPanel /> never takes focus from outside the row", () => {
 
     answers[`GET ${EVENTS}`] = list(FIRST_FILE, true);
     held.open();
-    await waitFor(() => expect(harborRow().textContent).toContain("Results are open"));
+    await waitFor(() => expect(harborRow().textContent).toContain("Results open"));
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(document.activeElement).toBe(outside);
   });

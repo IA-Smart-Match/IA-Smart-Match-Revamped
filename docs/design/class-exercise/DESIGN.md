@@ -396,8 +396,20 @@ Numbered place card, 112×112 desktop, 96×96 on 390, Transducer 44 numeral.
 ### 6.5 Event round card
 
 A wide card: round seal (circle with 1 or 2, from `round-journey.svg` geometry),
-event name in Proxima Sera 32, "Topics:" and "Aimed at:" lines, trailing
-`ChevronRight`. Past events render as a quiet list below, not cards.
+event name in Proxima Sera 32, the event's description when the data file has
+one, "Topics:" and "Aimed at:" lines, trailing `ChevronRight`. Past events
+render as a quiet list below, not cards.
+
+**Event description (#318, Ann 2026-10-02).** The data file's
+`event_description` text, printed as it arrives, at body size (`ce-type-body`,
+the size of the ranked list's names; her checklist asks for "no smaller than
+the list text"), `--ce-ink`, `ce-measure`. It sits under the event name on the
+round card, at the top of the matching page above the sliders (§7.4), and
+under the event name in the instructor's unlock row (§6.24). An event with no
+description shows nothing: no placeholder, no gap. No description is written
+in the frontend. On the card the link is named by the seal and the event name
+(`aria-labelledby`) and described by the rest (`aria-describedby`), so the
+link's name stays short.
 
 | State | Treatment |
 |---|---|
@@ -469,6 +481,11 @@ Pill, `--ce-type-meta`, three variants, each icon + words, never colour alone:
 
 Unknown values render their raw string in the neutral style. Not interactive.
 
+The list download uses the same words: its fifth column is headed
+"how much we know" and each cell holds one of the three phrases above, never
+the API key. The file has six columns — rank, name, major, year, how much we
+know, reason — and no others.
+
 ### 6.9 Composition table ("Who is on the list")
 
 Three small tables (by major, by year, by how much we know), each with columns
@@ -529,11 +546,34 @@ disabled until chosen, with that line as its description.
 
 ### 6.14 Results lock panel
 
-| State | Treatment |
-|---|---|
-| Locked | `invitation-envelope.svg`, `Lock` chip "Results are closed", and the server sentence. No action: teams have no read of the lock state, so any check would be the one-time run itself; the primary run button stays the only retry |
-| Unlocked, not run | `LockOpen` chip "Results are open", final-setting picker, primary "Run results for this event" |
-| Already run | results render; the run button is gone and a line says "A team runs results once per event." |
+**Amended 2026-10-06 (issue #328).** This section used to say that teams
+have no read of the lock, so the lock showed only after a refused press, the
+panel had no action, and the run button vanished after the run. That was
+deliberate, and it is reversed here on purpose: Ann's checklist of 2026-10-02
+(section 5) asks for a results button that is grey **before** it is pressed,
+that asks before the one run, and that stays on screen, grey, afterwards. The
+team's events read now carries `results_open` and `results_run` for each
+round, so the state is known on load.
+
+| State | Read | Treatment |
+|---|---|---|
+| Not open | `results_open` false, `results_run` false | `invitation-envelope.svg`, `Lock` chip "Results are closed", the sentence "Results for {event} are not open yet. Ask your instructor.", and a secondary "Check again" (a read of the lock, never the run). The final-setting picker stays, so a team can choose while it waits. Primary button, grey: "Results not open yet.", described by that sentence |
+| Open, not run | `results_open` true, `results_run` false | final-setting picker, primary "Run results for this event" (grey until a setting is chosen, described by the picker's line). **First press asks, on the button itself:** "Send this list? You get one results run for {event}", with the `ce-confirm-window` underline; a second press inside 5 s sends the run; Escape, the window lapsing, or choosing another setting puts it back. A held Enter or Space never confirms |
+| Already run | `results_run` true, or stored results on screen | primary button, grey: "Results already run for this event.", described by the line "A team runs results once per event."; the stored results render under it |
+
+Rules that go with the table:
+
+- **Run wins over open.** Results closed again after a team ran (issue #326)
+  read as "already run", with the results still on screen.
+- **Grey is `aria-disabled`, never the `disabled` attribute** (6.3), so the
+  button stays focusable and its reason stays reachable.
+- **Grey is what is shown, not what is allowed.** The server refuses a second
+  run whatever the screen believes. A tab that was open before the run, or
+  before results were closed, still has a live button; its press is answered
+  with the server's sentence, and the screen then reads again and lands on the
+  right state. That covers a second press, a reload, and a second tab.
+- If the events read cannot say (it failed, or does not list the event), the
+  button is live and the run route answers, as before this amendment.
 
 ### 6.15 Results reveal and seat figures (see [prompt](../../archive/design/class-exercise/prompts/components/results-reveal.md))
 
@@ -628,13 +668,50 @@ invite-limit stepper, team row (6), unlock row, ask-for-every-team panel. See
 
 | State | Dropzone | Unlock row | Team row |
 |---|---|---|---|
-| D | dashed 2px outline, `FileSpreadsheet`, "Drop Ann's workbook here, or choose a file" | event name + `Lock` chip + "Open results" secondary | team seal, file label, counts, actions |
+| D | dashed 2px outline, `FileSpreadsheet`, "Drop Ann's workbook here, or choose a file" | event name + `Lock` chip "Results closed" + "Open results" secondary; a closed-again event adds "Closed at 10:50 AM."; the event's description under them when the data file has one (§6.5) | team seal, file label, counts, actions |
 | H | outline primary, wash `--ce-primary-tint` | lift | lift |
 | F | ring | ring on button | ring on each action |
-| L | "Uploading and checking the file…" with determinate stages: Reading → Checking columns → Saved | "Opening…" | "Clearing…" |
+| L | "Uploading and checking the file…" with determinate stages: Reading → Checking columns → Saved | "Opening…" / "Closing…" | "Clearing…" |
 | E | "No data file has been uploaded yet." | "{file} has no events for the teams to run." | "No team has entered a number yet." |
-| X | server sentence under the zone, file name kept | server sentence inline | server sentence inline |
-| Dis | while uploading | once open: `LockOpen` chip "Results are open", no button | during a pending action |
+| X | server sentence under the zone, file name kept; the report of an earlier upload is removed (#325) | server sentence inline | server sentence inline |
+| Dis | while uploading | — (see the note below: an open row is no longer a dead end) | during a pending action |
+
+**Unlock row, amended 2026-10-06 (issue #326).** Ann's revisions of
+2026-10-02: "Opening or closing results for an event shows the time it was
+done, and results can be closed again." So an open row is `LockOpen` chip
+"Results open", the line "Opened at 10:42 AM.", and a secondary "Close
+results". Closing asks first, inline, in the same sunk well as opening:
+"Close results for {event}? …" with "Close results now" and "Keep them open".
+The chip words follow her checklist exactly ("Results closed" / "Results
+open"); the team-side lock panel keeps its own chip (6.14). After either
+change lands, focus goes to the event's name and never to the opposite action,
+so a repeated Enter cannot undo what was just done.
+
+**Team row, opened — amended 2026-10-06 (issue #319).** "Open this team's
+work" used to list the names of a team's saved settings and one line of counts
+per run. Ann's revisions of 2026-10-02: the instructor leads the discussion
+from this page and needs the whole team. The opened view sits in the same sunk
+well, in this order:
+
+1. One status line: the way of asking the team chose and whether it has
+   asked, with the time ("Way of asking: A small reward. Asked at 10:42 AM.").
+2. **Saved settings.** Per setting: its name; "Round 1 · {event}"; **the four
+   numbers** as a two-column `dl` under Ann's words for the four factors
+   (never a factor key, never a score); and **"Its list (30)"** — the names
+   that setting builds now, an ordered list, each name followed by major,
+   year and the "how much we know" marker in words.
+3. **Results.** Per run: "Round 1 · {event}"; the setting it was built from,
+   and a sentence when that setting has been deleted since; the four numbers
+   the run used; the D8 seats sentence; then "Invited (30)", "Signed up (14)"
+   and "Attended (11)" as three lists of names.
+
+Each list is a native `<details>`, open by default, so thirty names can be
+folded away on a small screen without a pop-up. A run's names are the run's own
+record (issue #271): they do not change when the team edits or deletes the
+setting. A run stored before names were kept shows its counts and the line
+"Names were not kept for this run."; nothing is filled in, and names without a
+rank are a plain list, not a numbered one. Marking is in words, never colour
+alone (§8).
 
 ## 7. Page layouts
 
@@ -674,6 +751,7 @@ Routes and file names are the current ones. Wireframes are schematic.
 │ ribbon                                                        │
 │ Northline Analytics (h1)            Team 4 · Choose another → │
 │ lead                                                          │
+│ The event's description, from the data file (§6.5)            │
 ├──────────────────┬────────────────────────────────────────────┤
 │ How much each    │ The list (h2)     Rebuilding…  Download ⤓  │
 │ thing counts     │ Cut at 30 names…                           │
@@ -735,7 +813,9 @@ Deferred this round (see 6.23).
 └───────────────────────────────────────────────────────────────┘
 ```
 
-Before a run: lock panel (6.14) in the seating-chart position.
+Before a run, while results are not open: lock panel (6.14) in the
+seating-chart position. After a run: the grey "Results already run for this
+event." button sits above the seating chart.
 - **390:** seating chart full width (10 per row, 26px seats), sentences below,
   the figures band stays three columns at 40px numerals, chart switches to horizontal
   bars.
@@ -863,6 +943,7 @@ labels and the license line are unchanged and not listed.
 | Matching, weight total | "Total weight: 1.00" |
 | Matching, weight total meaning | "What matters is how the weights compare: a factor set to 0.50 counts twice as much as one set to 0.25." |
 | Matching, 390 sticky bar | "Weights 0.40 · 0.25 · 0.25 · 0.10 · Total 1.00" and "Edit weights" |
+| Matching, downloaded list (CSV), fifth column | Header "how much we know" (was "marker"); cells "major only" / "major plus events attended" / "completed card" (were the API keys). No new wording: the same label and phrases as the marker chip (§6.8). |
 | Saved settings, field label | "Name these weights" (was "Call these weights") |
 | Saved settings, empty slot | "Slot 3 of 3 is free. Save the weights on screen to fill it." |
 | Saved settings, compare limit | "Two are chosen. Untick one to swap." |
@@ -874,6 +955,13 @@ labels and the license line are unchanged and not listed.
 | Results, seat headline | "8 were already coming. Your invitations added 6. 46 seats are still open." (pattern from the brief) |
 | Results, figures band | "Seats in the room", "Already coming", "Still open" |
 | Results, lock chips | "Results are closed" / "Results are open" |
+| Results, button before results are open (2026-10-06, #328; Ann's checklist wording) | "Results not open yet." |
+| Results, why it is not open (#328; Ann's example sentence, also the server's answer to a run) | "Results for Northline Analytics: Behind the Business are not open yet. Ask your instructor." |
+| Results, re-read the lock (#328) | "Check again" |
+| Results, question before the one run (#328; Ann's checklist wording, event name substituted) | "Send this list? You get one results run for Northline Analytics: Behind the Business" |
+| Results, spoken and shown hint while the question is up (#328) | "Press again to send this list. Your team cannot run this event a second time." |
+| Results, button after the run (#328; Ann's checklist wording) | "Results already run for this event." |
+| Results, why it cannot be run again (#328; 6.14's line, now on screen) | "A team runs results once per event." |
 | Results, table disclosure | "Show these counts as a table" |
 | Round two | "In round one your team's list left 46 seats empty." |
 | Asking, supporting lines | "Tell them a card helps us suggest events worth their evening." / "Offer something small for a completed card." / "Make the card a condition of hearing about events." |
@@ -887,4 +975,24 @@ labels and the license line are unchanged and not listed.
 | Instructor, dropzone | "Drop Ann's workbook here, or choose a file" |
 | Instructor, passcode show/hide toggle (accessible name; `aria-pressed` carries the state) | "Show what is typed" |
 | Instructor, unlock confirm in progress | "Opening…" |
+| Instructor, lock chips (2026-10-06, #326; Ann's checklist wording) | "Results closed" / "Results open" |
+| Instructor, when results were opened or closed (#326) | "Opened at 10:42 AM." / "Closed at 10:50 AM." |
+| Instructor, close button (#326) | "Close results" |
+| Instructor, close confirm (#326) | "Close results for Northline Analytics? Teams that have not run results yet cannot run them until you open results again. Results already run stay on each team's screen." / "Close results now" / "Keep them open" |
+| Instructor, close confirm in progress (#326) | "Closing…" |
+| Instructor, a close the database refused (#326; server sentence, shown at the top of the page) | "The results for that event could not be closed." |
+| Instructor, an open or a close asked for a past event (#326 review; the server's existing sentence for a team's run on a past event, reachable only by a hand-written request — the panel lists the two rounds) | "Results are only run for the two rounds of the exercise." |
+| Instructor, a team's way of asking and whether it has asked (2026-10-06, #319; the page's existing words, with the time added) | "Way of asking: A small reward. Asked at 10:42 AM." / "Way of asking: A small reward. Has not asked yet." / "Has not picked a way of asking. Has not asked yet." / "Way of asking: A small reward. Has already asked." (when the time cannot be read) |
+| Instructor, a team's opened work, headings (#319) | "Saved settings" / "Results" |
+| Instructor, a team's opened work, which event (#319) | "Round 1 · Northline Analytics: Behind the Business" |
+| Instructor, a team's opened work, list headings with their counts (#319) | "Its list (30)" / "Invited (30)" / "Signed up (14)" / "Attended (11)" |
+| Instructor, one name on a list (#319; major, year and marker as on file) | "Brandon Soto — Accounting, Senior, completed card" |
+| Instructor, a team's opened work, nothing there (#319) | "No saved settings yet." / "No results run yet." / "Nobody on this list." / "Nobody." |
+| Instructor, which setting a run was built from (#319) | "Built from the setting “Wide net”." / "Built without a saved setting." |
+| Instructor, a run whose setting was deleted afterwards (#319, #271) | "Built from the setting “Wide net”. The team has deleted that setting since; this run is unchanged." |
+| Instructor, a run's counts (#319; D8 wording, kept) | "Invited 30, signed up 14, attended 11. 46 seats are still open." |
+| Instructor, a run stored before names were kept (#319, #271) | "Names were not kept for this run." |
 | Instructor, upload in progress | "Uploading and checking the file…" |
+| Instructor, upload done (#325; composed on the page from the server's file name and counts) | "SmartMatch_Student_Body_300.xlsx — 300 profiles, 12 events loaded." |
+| Instructor, upload refused (#325; the server's sentence, now sent without backticks) | "The Events sheet is missing the column seats." |
+| Instructor, upload refused, a description too long (#325; server sentence) | "Row 12 of the Events sheet has more than 2000 characters in the column event_description; please shorten it and upload again." |

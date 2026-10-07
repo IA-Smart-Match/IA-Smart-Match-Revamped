@@ -16,7 +16,19 @@ import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { stubReducedMotion } from "./desk/testMatchMedia";
+import { CONFIRM_GUARD_MS } from "./desk";
 import { ExerciseResults } from "./ExerciseResults";
+
+/**
+ * Send the run: the first press arms the button ("Send this list? You get one
+ * results run for …"), the second sends it. The pause clears the guard that
+ * treats a double-click as one press (`CONFIRM_GUARD_MS`).
+ */
+async function pressRun(): Promise<void> {
+  fireEvent.click(screen.getByRole("button", { name: /run results/i }));
+  await new Promise((resolve) => setTimeout(resolve, CONFIRM_GUARD_MS + 20));
+  fireEvent.click(screen.getByRole("button", { name: /send this list/i }));
+}
 
 let calls: { url: string; init: RequestInit }[] = [];
 
@@ -177,7 +189,7 @@ describe("<ExerciseResults /> final-setting picker (§6.13)", () => {
     });
     renderResults();
     fireEvent.click(await screen.findByRole("radio", { name: "Balanced" }));
-    fireEvent.click(screen.getByRole("button", { name: /run results/i }));
+    await pressRun();
 
     await waitFor(() => expect(screen.getByText(sentence)).toBeDefined());
     expect(screen.getByText(sentence).closest('[data-slot="exercise-notice"]')).not.toBeNull();
@@ -187,7 +199,7 @@ describe("<ExerciseResults /> final-setting picker (§6.13)", () => {
 describe("<ExerciseResults /> lock panel (§6.14)", () => {
   const LOCKED = "Your instructor has not opened results for this event yet.";
 
-  it("shows a locked event as the calm lock panel, with no action of its own", async () => {
+  it("shows a locked event as the calm lock panel, with a read as its only action", async () => {
     stub({
       [`GET ${RESULTS}`]: NOT_RUN,
       [LIST]: LABELLED_LIST,
@@ -200,7 +212,7 @@ describe("<ExerciseResults /> lock panel (§6.14)", () => {
     });
     renderResults();
     fireEvent.click(await screen.findByRole("radio", { name: "Major first" }));
-    fireEvent.click(screen.getByRole("button", { name: /run results/i }));
+    await pressRun();
 
     await waitFor(() =>
       expect(document.querySelector('[data-slot="exercise-results-lock"]')).not.toBeNull(),
@@ -208,10 +220,16 @@ describe("<ExerciseResults /> lock panel (§6.14)", () => {
     const lock = document.querySelector('[data-slot="exercise-results-lock"]') as HTMLElement;
     expect(lock.textContent).toContain("Results are closed");
     expect(lock.textContent).toContain(LOCKED);
-    // Teams have no read of the lock, so the panel has nothing to press: a
-    // "check" would be the one-time run under another name.
-    expect(within(lock).queryAllByRole("button")).toHaveLength(0);
+    // The team can read the lock now (§6.14, amended 2026-10-06), so the
+    // panel offers "Check again": a read, never the one-time run.
+    const actions = within(lock).queryAllByRole("button");
+    expect(actions.map((button) => button.textContent)).toEqual(["Check again"]);
     expect(within(lock).queryAllByRole("link")).toHaveLength(0);
+    fireEvent.click(actions[0]);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(
+      calls.filter((call) => call.init.method === "POST" && call.url === RESULTS),
+    ).toHaveLength(1);
   });
 
   it("announces only the chip and the sentence, not the whole panel", async () => {
@@ -227,7 +245,7 @@ describe("<ExerciseResults /> lock panel (§6.14)", () => {
     });
     renderResults();
     fireEvent.click(await screen.findByRole("radio", { name: "Major first" }));
-    fireEvent.click(screen.getByRole("button", { name: /run results/i }));
+    await pressRun();
     await waitFor(() =>
       expect(document.querySelector('[data-slot="exercise-results-lock"]')).not.toBeNull(),
     );
@@ -239,7 +257,7 @@ describe("<ExerciseResults /> lock panel (§6.14)", () => {
     expect(status.querySelector("svg:not([aria-hidden='true'])")).toBeNull();
   });
 
-  it("leaves the Run button as the only control that sends the run", async () => {
+  it("leaves the confirmed Run button as the only control that sends the run", async () => {
     stub({
       [`GET ${RESULTS}`]: NOT_RUN,
       [LIST]: LABELLED_LIST,
@@ -252,15 +270,14 @@ describe("<ExerciseResults /> lock panel (§6.14)", () => {
     });
     renderResults();
     fireEvent.click(await screen.findByRole("radio", { name: "Major first" }));
-    const run = screen.getByRole("button", { name: /run results/i });
-    fireEvent.click(run);
+    await pressRun();
     await waitFor(() =>
       expect(document.querySelector('[data-slot="exercise-results-lock"]')).not.toBeNull(),
     );
 
-    // Press every other button on screen: none of them posts the run.
-    const others = screen.getAllByRole("button").filter((button) => button !== run);
-    for (const button of others) {
+    // Press every button now on screen — the grey "Results not open yet." and
+    // "Check again" among them: none of them posts the run.
+    for (const button of screen.getAllByRole("button")) {
       fireEvent.click(button);
     }
     await new Promise((resolve) => setTimeout(resolve, 50));
@@ -282,7 +299,7 @@ describe("<ExerciseResults /> lock panel (§6.14)", () => {
     });
     renderResults();
     fireEvent.click(await screen.findByRole("radio", { name: "Major first" }));
-    fireEvent.click(screen.getByRole("button", { name: /run results/i }));
+    await pressRun();
     await waitFor(() =>
       expect(document.querySelector('[data-slot="exercise-results-lock"]')).not.toBeNull(),
     );
@@ -317,7 +334,7 @@ describe("<ExerciseResults /> reveal (§5.1)", () => {
     });
     renderResults();
     fireEvent.click(await screen.findByRole("radio", { name: "Major first" }));
-    fireEvent.click(screen.getByRole("button", { name: /run results/i }));
+    await pressRun();
 
     await waitFor(() =>
       expect(document.querySelector('[data-slot="exercise-room"]')).not.toBeNull(),

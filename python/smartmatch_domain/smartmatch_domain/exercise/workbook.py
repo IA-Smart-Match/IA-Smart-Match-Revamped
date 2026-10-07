@@ -30,7 +30,11 @@ Untrusted input, in the order it is checked
 5. **Shape.** Rows come through :func:`itertools.islice` one past
    :data:`MAX_DATA_ROW_COUNT`, columns are read only up to one past
    :data:`MAX_COLUMN_COUNT`, and a cell longer than
-   :data:`MAX_CELL_CHARACTERS` is refused.
+   :data:`MAX_CELL_CHARACTERS` is refused. A caller may give named columns of
+   a named sheet a longer limit (``cell_limits``); the names and the numbers
+   are the caller's, every other cell and every heading keeps
+   :data:`MAX_CELL_CHARACTERS`, and the per-part and whole-file decompression
+   caps above still bound the total whatever a limit says.
 
 Formulas are never evaluated: ``data_only=True`` returns the value Excel
 cached, and a leading ``=`` in a text cell is text. External links are not
@@ -110,7 +114,9 @@ MAX_TOTAL_UNCOMPRESSED_BYTES: Final[int] = 4 * 1024 * 1024
 #: times the same bytes are parsed.
 MAX_SHEET_COUNT: Final[int] = 16
 
-#: The longest a single cell may be, in characters.
+#: The longest a single cell may be, in characters, unless the caller of
+#: :func:`read_sheets` names a longer limit for that cell's column. A heading
+#: is never longer than this.
 MAX_CELL_CHARACTERS: Final[int] = 500
 
 #: The most columns a sheet's heading row may carry. Ann's widest has 14.
@@ -172,7 +178,12 @@ def quote(text: str) -> str:
     return cleaned
 
 
-def read_sheets(raw: bytes, sheet_names: Sequence[str]) -> tuple[SheetRows, ...] | IngestRefusal:
+def read_sheets(
+    raw: bytes,
+    sheet_names: Sequence[str],
+    *,
+    cell_limits: Mapping[str, Mapping[str, int]] | None = None,
+) -> tuple[SheetRows, ...] | IngestRefusal:
     """Read the named sheets out of an uploaded workbook, in the order named.
 
     Args:
@@ -180,6 +191,10 @@ def read_sheets(raw: bytes, sheet_names: Sequence[str]) -> tuple[SheetRows, ...]
         sheet_names: The sheets to read. A sheet is found by its normalized
             name, so ``"profiles"`` finds ``Profiles``. Every other sheet is
             never iterated.
+        cell_limits: Sheet name to column heading to the most characters a
+            cell of that column may hold, for the columns that may run longer
+            than :data:`MAX_CELL_CHARACTERS`. Both names are compared
+            normalized. Absent, every cell keeps the ordinary limit.
 
     Returns:
         One :class:`SheetRows` per name, or the first refusal.
@@ -202,7 +217,7 @@ def read_sheets(raw: bytes, sheet_names: Sequence[str]) -> tuple[SheetRows, ...]
     if isinstance(workbook, IngestRefusal):
         return workbook
     try:
-        return _read_named(workbook, sheet_names)
+        return _read_named(workbook, sheet_names, cell_limits or {})
     except Exception as error:  # untrusted-parser boundary; see the module docstring
         _LOGGER.info("exercise workbook unreadable: %s", type(error).__name__)
         return IngestRefusal("unreadable_workbook", _UNREADABLE)
@@ -324,7 +339,9 @@ def _guard_zip(raw: bytes) -> IngestRefusal | None:
 
 
 def _read_named(
-    workbook: openpyxl.Workbook, sheet_names: Sequence[str]
+    workbook: openpyxl.Workbook,
+    sheet_names: Sequence[str],
+    cell_limits: Mapping[str, Mapping[str, int]],
 ) -> tuple[SheetRows, ...] | IngestRefusal:
     """Find each named sheet, then read it. The first failure is the answer."""
     by_name: dict[str, list[str]] = {}
@@ -350,14 +367,27 @@ def _read_named(
         # Sentences name the sheet the layout asked for, not the workbook's own
         # title: a title only has to *normalize* to ``profiles``, so it can carry
         # backticks, newlines or two million characters (security review, 4).
-        sheet = _read_sheet(wanted, worksheet)
+        sheet = _read_sheet(wanted, worksheet, _limits_for(wanted, cell_limits))
         if isinstance(sheet, IngestRefusal):
             return sheet
         read.append(sheet)
     return tuple(read)
 
 
-def _read_sheet(title: str, worksheet: ReadOnlyWorksheet) -> SheetRows | IngestRefusal:
+def _limits_for(sheet_name: str, cell_limits: Mapping[str, Mapping[str, int]]) -> Mapping[str, int]:
+    """One sheet's longer limits, keyed by normalized heading."""
+    wanted = normalize_header(sheet_name)
+    return {
+        normalize_header(heading): limit
+        for name, columns in cell_limits.items()
+        if normalize_header(name) == wanted
+        for heading, limit in columns.items()
+    }
+
+
+def _read_sheet(
+    title: str, worksheet: ReadOnlyWorksheet, limits: Mapping[str, int]
+) -> SheetRows | IngestRefusal:
     """The heading row and the data rows of one sheet, bounded.
 
     The heading row is the first non-blank row among the first
@@ -395,7 +425,7 @@ def _read_sheet(title: str, worksheet: ReadOnlyWorksheet) -> SheetRows | IngestR
             f"The `{title}` sheet has more than {MAX_DATA_ROW_COUNT} rows, which is "
             "more than this page reads.",
         )
-    return _collect_rows(title, header[1], headers, body)
+    return _collect_rows(title, header[1], headers, body, limits)
 
 
 def _header_map(title: str, cells: Sequence[str]) -> Mapping[str, str] | IngestRefusal:
@@ -431,8 +461,14 @@ def _collect_rows(
     heading_cells: Sequence[str],
     headers: Mapping[str, str],
     body: Sequence[tuple[int, Sequence[object]]],
+    limits: Mapping[str, int],
 ) -> SheetRows | IngestRefusal:
-    """Bound every cell, key it by its heading, and drop entirely blank rows."""
+    """Bound every cell, key it by its heading, and drop entirely blank rows.
+
+    ``limits`` names the columns of this sheet that may run longer than
+    :data:`MAX_CELL_CHARACTERS`, by normalized heading. The sentence states
+    the limit that applied to the cell it refuses.
+    """
     kept: list[tuple[int, Mapping[str, str]]] = []
     for number, values in body:
         cells = [_cell_text(value) for value in values[:MAX_COLUMN_COUNT]]
@@ -447,11 +483,12 @@ def _collect_rows(
                         "with no heading; please give the column a heading or clear it.",
                     )
                 continue
-            if len(text) > MAX_CELL_CHARACTERS:
+            limit = limits.get(normalize_header(heading), MAX_CELL_CHARACTERS)
+            if len(text) > limit:
                 return IngestRefusal(
                     "cell_too_long",
                     f"Row {number} of the `{title}` sheet has more than "
-                    f"{MAX_CELL_CHARACTERS} characters in the column "
+                    f"{limit} characters in the column "
                     f"`{quote(heading)}`; please shorten it and upload again.",
                 )
             row[heading] = text

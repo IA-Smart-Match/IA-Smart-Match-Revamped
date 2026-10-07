@@ -137,7 +137,9 @@ MAX_SAVED_SETTINGS_PER_EVENT: Final[int] = 3
 #: ``results_repository``
 #:
 #: * ``record_run`` — result runs → INSERT ``exercise_result_run``; FK FOR KEY
-#:   SHARE on ``exercise_team_workspace`` and on ``exercise_event``.
+#:   SHARE on ``exercise_team_workspace`` and on ``exercise_event``. Its re-read
+#:   of ``exercise_result_unlock`` under the key is a plain SELECT and takes no
+#:   row lock.
 #: * ``choose_asking`` — result runs → UPDATE ``exercise_team_workspace``.
 #: * ``apply_refresh`` — result runs → UPDATE ``exercise_team_workspace`` (the
 #:   ``refreshed_at`` claim, taken **before** any overlay write), then
@@ -167,7 +169,13 @@ MAX_SAVED_SETTINGS_PER_EVENT: Final[int] = 3
 #:   KEY UPDATE and does not conflict with the FK's FOR KEY SHARE.
 #: * ``unlock_results`` — none → INSERT ``exercise_result_unlock``; FK FOR KEY
 #:   SHARE on ``exercise_event``. It takes no key: the row it writes is the
-#:   instructor's own lock state, which nothing on a team path deletes.
+#:   instructor's own lock state, which nothing on a team path deletes. An
+#:   opening racing a run needs no ordering: the run is refused or stored, and
+#:   either is true of the moment it was read.
+#: * ``lock_results`` — result runs → UPDATE ``exercise_result_unlock``. It
+#:   takes the key so a close cannot commit between ``record_run``'s re-read
+#:   and its insert. ``unlock_results`` holds that row with no key and waits on
+#:   none, so the two cannot wait on each other.
 #: * ``refresh_all`` (the instructor router, through ``results_repository``) —
 #:   result runs, once → whatever ``apply_refresh`` takes, per workspace. The key
 #:   is re-entrant, so holding it across the loop costs one acquire.

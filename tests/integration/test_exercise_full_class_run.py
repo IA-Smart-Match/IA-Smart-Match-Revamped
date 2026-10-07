@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -60,6 +61,7 @@ from exercise_class_driver import (
     build_app,
     enter,
     instructor,
+    lock,
     numbers_of,
     panel_of,
     prepare_round,
@@ -119,9 +121,9 @@ class _ClassRun:
     undecided_profile_nos: frozenset[int] = frozenset()
 
 
-@pytest.fixture(scope="module")
-def sessions(engine: Engine) -> Iterator[sessionmaker[Session]]:
-    """A scratch database at head, seeded from Ann's file, for the module."""
+@contextmanager
+def _seeded_database(engine: Engine) -> Iterator[sessionmaker[Session]]:
+    """A scratch database at head, seeded from Ann's file, dropped afterwards."""
     with scratch_database(engine) as url:
         alembic(url, "head", expect_success=True)
         with connected(url) as scratch:
@@ -132,6 +134,13 @@ def sessions(engine: Engine) -> Iterator[sessionmaker[Session]]:
                 )
             assert getattr(outcome, "seeded", None) is True, outcome
             yield factory
+
+
+@pytest.fixture(scope="module")
+def sessions(engine: Engine) -> Iterator[sessionmaker[Session]]:
+    """The module's own seeded scratch database."""
+    with _seeded_database(engine) as factory:
+        yield factory
 
 
 def _body(response: Any) -> dict[str, Any]:
@@ -569,3 +578,47 @@ def test_the_undecided_outcomes_compared_are_not_all_empty(class_run: _ClassRun)
         for profile_no in answered[number]["email_everyone"]["signed_up_profile_nos"]
     }
     assert class_run.undecided_profile_nos & signed_up
+
+
+# ---------------------------------------------------------------------------
+# Closing results again (D16 amendment, 2026-10-06)
+# ---------------------------------------------------------------------------
+
+
+def _refusal_code(response: Any) -> tuple[int, str]:
+    return response.status_code, _body(response).get("error", {}).get("code", "")
+
+
+def test_closing_results_turns_away_only_the_teams_that_have_not_run(engine: Engine) -> None:
+    """Open, run, close, reopen — through the real routes, on its own database.
+
+    The class walk above never closes anything, and by its end every team has
+    run both rounds, so this case needs teams of its own. A close deletes
+    nothing: the team that ran keeps its results and its one run; the team
+    that had not is turned away until the instructor opens the event again.
+    """
+    with _seeded_database(engine) as own:
+        log: list[Exchange] = []
+        app = build_app(own)
+        teacher = instructor(app, log)
+        ran, late = enter(app, log, 1), enter(app, log, 2)
+        prepare_round(ran, ROUND_ONE, 1)
+        prepare_round(late, ROUND_ONE, 2)
+        results = f"{TEAM_BASE}/events/{ROUND_ONE}/results"
+
+        unlock(teacher, ROUND_ONE)
+        first = run(ran, ROUND_ONE, 1)
+        assert first.status_code == 201, first.text
+
+        lock(teacher, ROUND_ONE)
+        assert _refusal_code(run(late, ROUND_ONE, 2)) == (409, "exercise_results_locked")
+        assert _refusal_code(run(ran, ROUND_ONE, 1)) == (409, "exercise_results_already_run")
+        kept = ran.get(results)
+        assert kept.status_code == 200, kept.text
+        assert _body(kept) == _body(first)
+
+        unlock(teacher, ROUND_ONE)
+        second = run(late, ROUND_ONE, 2)
+        assert second.status_code == 201, second.text
+        assert _refusal_code(run(ran, ROUND_ONE, 1)) == (409, "exercise_results_already_run")
+        assert _body(ran.get(results)) == _body(first)

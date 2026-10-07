@@ -3,7 +3,8 @@
 Four questions, one table family, one advisory key:
 
 * **Is this event unlocked?** ``exercise_result_unlock`` has a row for
-  ``(dataset, event)``, or it does not. Absence is "locked" (design spec §9).
+  ``(dataset, event)`` whose ``closed_at`` is empty, or it does not. No row and
+  a closed row are both "locked" (design spec §9, D16 amendment 2026-10-06).
 * **What did this team run?** ``exercise_result_run``, at most one row per
   ``(workspace, event)`` — the one-run rule, which is
   ``uq_exercise_result_run_workspace_event`` rather than a count in code.
@@ -75,11 +76,16 @@ from sqlalchemy.orm import Session
 
 from smartmatch_persistence.exercise.results_cards import copied_cards
 from smartmatch_persistence.exercise.results_rows import (
+    InvitedProfile,
     RefreshCandidate,
     RefreshCounts,
     ResultPanel,
     StoredResultRun,
     TeamResultsState,
+    invited_as_json,
+    invited_from_json,
+    weights_as_json,
+    weights_from_json,
 )
 from smartmatch_persistence.exercise.schema import (
     exercise_profile_overlay,
@@ -94,9 +100,11 @@ __all__ = [
     "AlreadyRunError",
     "ExerciseResultsRepository",
     "ExerciseResultsWriteRefused",
+    "InvitedProfile",
     "RefreshCandidate",
     "RefreshCounts",
     "ResultPanel",
+    "ResultsLockedError",
     "StoredResultRun",
     "TeamResultsState",
     "lock_result_runs",
@@ -205,6 +213,16 @@ class AlreadyRunError(Exception):
         super().__init__(message)
 
 
+class ResultsLockedError(Exception):
+    """A run for an event whose results are not open. Not a database failure.
+
+    Raised by :meth:`ExerciseResultsRepository.record_run` when the event was
+    closed between the route's own read and the write (D16 amendment,
+    2026-10-06). It carries no sentence: the route names the event, and the
+    words are the route's.
+    """
+
+
 def _constraint_name(error: SQLAlchemyError) -> str:
     """The constraint a driver error names, or ``"unknown"``.
 
@@ -256,17 +274,18 @@ class ExerciseResultsRepository:
     # -----------------------------------------------------------------------
 
     def results_unlocked(self, session: Session, *, dataset_id: uuid.UUID, event_key: str) -> bool:
-        """Design spec §9's lock: whether the instructor has unlocked this event.
+        """Design spec §9's lock: whether results for this event are open now.
 
-        The absence of a row is "locked", which is why this is an existence
-        question and not a boolean column: a boolean would need a row per event
-        written at ingest to mean anything, and a missing row would then be a
-        third state nobody defined (``schema.py`` says the same).
+        Open is a row whose ``closed_at`` is empty. No row is "never opened"
+        and a row with ``closed_at`` set is "closed again" (D16 amendment,
+        2026-10-06); both answer ``False``. This is the one lock predicate a
+        team's routes consult.
         """
         found = session.execute(
             sa.select(exercise_result_unlock.c.event_key).where(
                 exercise_result_unlock.c.dataset_id == dataset_id,
                 exercise_result_unlock.c.event_key == event_key,
+                exercise_result_unlock.c.closed_at.is_(None),
             )
         ).one_or_none()
         return found is not None
@@ -385,10 +404,12 @@ class ExerciseResultsRepository:
         team: ResultPanel,
         email_everyone: ResultPanel,
         seats_empty: int,
+        invited: Sequence[InvitedProfile] = (),
+        setting_weights: Mapping[str, float] | None = None,
     ) -> StoredResultRun:
         """Store one run, or refuse a second with design spec §9's sentence.
 
-        The order of the three statements is the rule, not a style:
+        The order of the statements is the rule, not a style:
 
         1. :func:`lock_result_runs`, **first**, so a reset or a re-point cannot
            delete this team's runs between the check below and the insert. The
@@ -398,7 +419,13 @@ class ExerciseResultsRepository:
         2. Read this team's run for this event, so the ordinary second press of
            a button is answered with a sentence rather than with a constraint
            violation nobody planned for.
-        3. A plain ``INSERT``. It is still the constraint that decides: two
+        3. Read whether the event is still open (review round 2). The route
+           reads that once, before the rule runs; a close that commits in
+           between is seen here, because ``lock_results`` takes the same key
+           and so either finished before step 1 or waits for this commit.
+           Asked after step 2 for ``runnable_or_refusal``'s reason: a team
+           that has run is told so, open or closed.
+        4. A plain ``INSERT``. It is still the constraint that decides: two
            requests that both passed step 2 are serialised by the key, the
            second one's insert conflicts, and
            :meth:`_refused_or_already_run` turns that one constraint name into
@@ -421,6 +448,10 @@ class ExerciseResultsRepository:
             email_everyone: Design spec §10's second panel.
             seats_empty: ``60 - 8 - attended``, computed by the domain's
                 :func:`~smartmatch_domain.exercise.simulation.seats_empty`.
+            invited: The invited list as the team's ranked list showed it, in
+                rank order. Stored with the run (revision 0046) so its names
+                outlive the saved setting it was built from.
+            setting_weights: The four stated weights that list was built with.
 
         Returns:
             The stored run, read back so the caller reports what is in the table
@@ -428,6 +459,7 @@ class ExerciseResultsRepository:
 
         Raises:
             AlreadyRunError: For a second run on one ``(workspace, event)``.
+            ResultsLockedError: When the event's results are not open.
             ExerciseResultsWriteRefused: If the database refuses the write for
                 any other reason.
         """
@@ -435,6 +467,8 @@ class ExerciseResultsRepository:
         existing = self.get_run(session, workspace_id=workspace_id, event_key=event_key)
         if existing is not None:
             raise AlreadyRunError
+        if not self.results_unlocked(session, dataset_id=dataset_id, event_key=event_key):
+            raise ResultsLockedError
         self._execute(
             session,
             sa.insert(exercise_result_run).values(
@@ -449,6 +483,8 @@ class ExerciseResultsRepository:
                 attended_profile_nos=list(team.attended_profile_nos),
                 email_everyone=_panel_as_json(email_everyone),
                 seats_empty=seats_empty,
+                invited_profiles=invited_as_json(invited),
+                setting_weights=weights_as_json(setting_weights),
             ),
             dataset_id=dataset_id,
             refusal="Your results could not be stored.",
@@ -678,6 +714,8 @@ class ExerciseResultsRepository:
                 exercise_result_run.c.email_everyone,
                 exercise_result_run.c.seats_empty,
                 exercise_result_run.c.created_at,
+                exercise_result_run.c.invited_profiles,
+                exercise_result_run.c.setting_weights,
             ).where(*conditions)
         ).one_or_none()
         if row is None:
@@ -694,6 +732,8 @@ class ExerciseResultsRepository:
             email_everyone=_panel_from_json(row.email_everyone),
             seats_empty=int(row.seats_empty),
             created_at=row.created_at,
+            invited=invited_from_json(row.invited_profiles),
+            setting_weights=weights_from_json(row.setting_weights),
         )
 
     def _failure_for(

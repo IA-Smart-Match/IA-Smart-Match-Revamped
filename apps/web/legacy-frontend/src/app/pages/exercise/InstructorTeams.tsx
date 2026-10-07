@@ -9,6 +9,11 @@
  * passcode session. No team screen renders one, and a test over the source
  * tree keeps it that way.
  *
+ * **"Open this team's work" opens the whole team** (issue #319): its saved
+ * settings with the four numbers, the list of names each builds, its results
+ * for each event by name, the way of asking it chose and whether it has asked.
+ * That view is `InstructorTeamDetail.tsx`.
+ *
  * It clears one team's work and touches no other team — design spec §11's
  * "a reset per team that does not touch other teams", which is one of the four
  * things §18 calls easy to forget. It asks before it does it.
@@ -54,6 +59,7 @@ import { askingChoiceLabel } from "./askingChoices";
 import { Button } from "./desk";
 import { ExerciseNotice } from "./ExerciseScreen";
 import { useSignOutOnExpiredRead } from "./instructorSession";
+import { TeamDetail } from "./InstructorTeamDetail";
 import { INSTRUCTOR_WELL, PanelCard, PanelSkeleton } from "./instructorUi";
 import { INSTRUCTOR_SESSION_REQUIRED } from "./refusals";
 import { useExerciseResource } from "./useExerciseResource";
@@ -322,44 +328,6 @@ function TeamRow({
 
         {detailRefusal === null ? null : <ExerciseNotice message={detailRefusal} />}
         {detail === null ? null : <TeamDetail detail={detail} />}
-      </div>
-    </div>
-  );
-}
-
-function TeamDetail({ detail }: { readonly detail: TeamDetailView }): React.JSX.Element {
-  return (
-    <div className={cn(INSTRUCTOR_WELL, "ce-fade-rise flex flex-col gap-ce-4")}>
-      <div className="flex flex-col gap-ce-1">
-        <h4 className="ce-type-label text-ce-ink">Saved settings</h4>
-        {detail.saved_settings.length === 0 ? (
-          <p className="ce-type-body text-ce-ink-muted">None.</p>
-        ) : (
-          <ul className="ce-type-body flex flex-col gap-ce-1 text-ce-ink">
-            {detail.saved_settings.map((setting) => (
-              <li key={`${setting.event_key}-${setting.name}`}>
-                {setting.name} — for {setting.event_key}
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-      <div className="flex flex-col gap-ce-1">
-        <h4 className="ce-type-label text-ce-ink">Result runs</h4>
-        {detail.result_runs.length === 0 ? (
-          <p className="ce-type-body text-ce-ink-muted">None.</p>
-        ) : (
-          <ul className="ce-type-body ce-tabular flex flex-col gap-ce-1 text-ce-ink">
-            {detail.result_runs.map((run) => (
-              <li key={`${run.event_key}-${run.round}`}>
-                {/* D8: open seats in words, not "N seats empty". */}
-                Round {run.round} for {run.event_key}: invited {run.invited_count}, signed up{" "}
-                {run.signed_up_count}, attended {run.attended_count}. {run.seats_empty}{" "}
-                {run.seats_empty === 1 ? "seat is" : "seats are"} still open.
-              </li>
-            ))}
-          </ul>
-        )}
       </div>
     </div>
   );

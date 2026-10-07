@@ -40,7 +40,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 
 from fastapi import status
-from smartmatch_domain.exercise.matching import exercise_ranked_list
+from smartmatch_domain.exercise.matching import ExerciseList, exercise_ranked_list
 from smartmatch_domain.exercise.simulation import (
     CoefficientsNotConfirmedError,
     InviteLimitExceededError,
@@ -58,7 +58,9 @@ from smartmatch_api.exercise_dependencies import (
     ExerciseResultsWriteRefused,
     ExerciseSession,
     ExerciseWorkspace,
+    InvitedProfile,
     ResultPanel,
+    ResultsLockedError,
     ResultsRepository,
     SettingsRepository,
     StoredResultRun,
@@ -67,11 +69,12 @@ from smartmatch_api.exercise_dependencies import (
 )
 from smartmatch_api.exercise_errors import ExerciseError
 from smartmatch_api.routers.exercise_matching_models import (
+    RankableSet,
     event_evidence,
     event_or_refusal,
     rankable_set,
 )
-from smartmatch_api.routers.exercise_matching_weights import validated
+from smartmatch_api.routers.exercise_matching_weights import effective_weights, validated
 from smartmatch_api.routers.exercise_results_models import (
     round_of,
     simulation_event,
@@ -84,6 +87,9 @@ __all__ = [
     "coefficients_or_refusal",
     "final_setting_or_refusal",
     "invited_list",
+    "invited_snapshot",
+    "locked_sentence",
+    "not_a_round",
     "round_or_refusal",
     "run_the_rule",
     "runnable_or_refusal",
@@ -105,12 +111,21 @@ def round_or_refusal(events: Sequence[ExerciseEventRow], event_key: str) -> int:
     """
     number = round_of(events, event_key)
     if number is None:
-        raise ExerciseError(
-            status_code=status.HTTP_409_CONFLICT,
-            code="exercise_event_is_not_a_round",
-            message="Results are only run for the two rounds of the exercise.",
-        )
+        raise not_a_round()
     return number
+
+
+def not_a_round() -> ExerciseError:
+    """The refusal for an event that is in the file and is not a round.
+
+    Written once: a team's run and the instructor's open or close of a past
+    event are the same mistake, and are answered with the same sentence.
+    """
+    return ExerciseError(
+        status_code=status.HTTP_409_CONFLICT,
+        code="exercise_event_is_not_a_round",
+        message="Results are only run for the two rounds of the exercise.",
+    )
 
 
 def coefficients_or_refusal() -> SimulationCoefficients:
@@ -197,7 +212,7 @@ def weights_or_refusal(
     return validated(dict(stored.weights)), name
 
 
-def _invited_profile_nos(
+def _invited_entries(
     session: ExerciseSession,
     *,
     datasets: DatasetRepository,
@@ -206,8 +221,8 @@ def _invited_profile_nos(
     event: ExerciseEventRow,
     workspace: ExerciseWorkspace,
     weights: Mapping[str, float],
-) -> tuple[int, ...]:
-    """The ranked list's profile numbers, in order — the team's invited set.
+) -> tuple[InvitedProfile, ...]:
+    """The ranked list's entries, in order — the team's invited set, with names.
 
     **Composed, never re-derived.** The order, the cut at the invite limit and
     the tie-break are ``exercise_ranked_list``'s, reached through the same
@@ -215,6 +230,14 @@ def _invited_profile_nos(
     names a team invited are the names its screen showed it. Re-deriving them
     here would be a second ranker, and the failure mode of two rankers is a team
     told it invited somebody it did not.
+
+    **The whole entry is kept, not only its number** (issues #271, #319). This
+    used to hand back profile numbers and throw the rest away, and every screen
+    that wanted a name then asked the saved setting — which can be deleted or
+    saved again. What is returned is what the run stores beside itself: rank,
+    number, name, major, year, marker and reason line, each a field the team
+    already reads on its ranked list (``ranked_list_view`` builds the same seven
+    from the same two values).
 
     The year rank is ``rankable_set``'s — ``EXERCISE_CLASS_YEAR_RANK``, seniors
     first; this module does not touch it.
@@ -235,7 +258,32 @@ def _invited_profile_nos(
         year_rank=rankable.year_rank,
         dataset_checksum=summary.checksum,
     )
-    return tuple(int(entry.profile_id) for entry in ranked.entries)
+    return invited_snapshot(ranked, rankable)
+
+
+def invited_snapshot(ranked: ExerciseList, rankable: RankableSet) -> tuple[InvitedProfile, ...]:
+    """A ranked list as the names a run keeps, or an instructor reads, in order.
+
+    One function for both uses — the snapshot a run stores and the live list
+    the instructor's page shows for a saved setting — so a name is described
+    the same way in each.
+    """
+    entries: list[InvitedProfile] = []
+    for entry in ranked.entries:
+        profile_no = int(entry.profile_id)
+        facts = rankable.facts[profile_no]
+        entries.append(
+            InvitedProfile(
+                rank=entry.rank,
+                profile_no=profile_no,
+                display_name=facts.display_name,
+                major=facts.major,
+                class_year=facts.class_year,
+                marker=str(entry.marker),
+                reason=entry.reason,
+            )
+        )
+    return tuple(entries)
 
 
 def run_the_rule(
@@ -305,8 +353,22 @@ def store(
     setting_name: str,
     team: ResultPanel,
     everyone: ResultPanel,
+    invited: Sequence[InvitedProfile],
+    weights: Mapping[str, float],
 ) -> StoredResultRun:
-    """Write the run, turning the repository's two refusals into two sentences."""
+    """Write the run, turning each of the repository's refusals into a sentence.
+
+    "Locked" can still be the answer here, after :func:`runnable_or_refusal`
+    passed: that read is taken before the rule runs, and the repository reads
+    the state again under its advisory key (review round 2), so a close that
+    lands in between refuses the run with the same sentence.
+
+    ``invited`` and ``weights`` are stored beside the run (revision 0046): the
+    names its list showed, and the four **stated** weights it was built with
+    (``effective_weights`` — the team's values over the defaults, never the
+    normalized ones). They make the run a record that no later edit or delete
+    of the saved setting can rewrite.
+    """
     try:
         return results.record_run(
             session,
@@ -318,15 +380,40 @@ def store(
             team=team,
             email_everyone=everyone,
             seats_empty=seats_empty(len(team.attended_profile_nos)),
+            invited=invited,
+            setting_weights=effective_weights(weights),
         )
     except AlreadyRunError:
         raise already_run() from None
+    except ResultsLockedError:
+        raise _locked(event.name) from None
     except ExerciseResultsWriteRefused as error:
         raise ExerciseError(
             status_code=status.HTTP_409_CONFLICT,
             code="exercise_results_write_refused",
             message=str(error),
         ) from None
+
+
+def locked_sentence(event_name: str) -> str:
+    """What a team reads when results for an event are not open.
+
+    Ann's own example, from her revisions of 2026-10-02: "Results for Harbor are
+    not open yet. Ask your instructor." — a press that did nothing says why,
+    and says what to do next. The event is named as the data file spells it.
+    The same words cover an event never opened and one closed again: either
+    way the instructor is who opens it.
+    """
+    return f"Results for {event_name} are not open yet. Ask your instructor."
+
+
+def _locked(event_name: str) -> ExerciseError:
+    """The locked refusal, written once and raised from two places."""
+    return ExerciseError(
+        status_code=status.HTTP_409_CONFLICT,
+        code="exercise_results_locked",
+        message=locked_sentence(event_name),
+    )
 
 
 def already_run() -> ExerciseError:
@@ -351,19 +438,22 @@ def runnable_or_refusal(
     workspace: ExerciseWorkspace,
     event_key: str,
 ) -> tuple[Sequence[ExerciseEventRow], ExerciseEventRow, int]:
-    """The four gates a run must pass, in the order they cost least to fail.
+    """The four gates a run must pass: known event, a round, not yet run, open.
 
     Extracted from ``exercise_results.run_results`` (review round 1, F3), which
     had grown past the repository's fifty-line limit for a function.
-    Behaviour-preserving: the same four checks, in the same order, raising the
-    same sentences.
 
-    The order is load-bearing rather than tidy, for the matching router's
-    reason. The events of one data file are a dozen rows and everything after
-    this reads three hundred joined to an overlay, so the cheapest thing a
-    client can send — an unknown event key — is refused before any of that
-    happens. The unlock is one row; the already-run read is one row; the
-    coefficients and the ranked list come after.
+    The first two come first because they cost least: the events of one data
+    file are a dozen rows and everything after this reads three hundred joined
+    to an overlay, so the cheapest thing a client can send — an unknown event
+    key — is refused before any of that happens.
+
+    **Already run is asked before locked** (D16 amendment, 2026-10-06). Both
+    are one-row reads, so cost does not order them; what does is which sentence
+    is true for the team. Results can now be closed again, and a team that ran
+    while they were open and presses again after the close has not been locked
+    out of anything — it has had its one run. Telling it "not open yet" would
+    invite it to wait for a second try that will never come.
 
     The already-run read here is a **courtesy**, not the rule: it turns the
     ordinary second press of a button into a sentence instead of a constraint
@@ -378,22 +468,18 @@ def runnable_or_refusal(
 
     Raises:
         ExerciseError: 404 for an event that is not in this team's data file,
-            409 when it is not one of the two rounds, is still locked, or has
-            already been run.
+            409 when it is not one of the two rounds, has already been run, or
+            is not open.
     """
     events = datasets.list_events(session, dataset_id=workspace.dataset_id)
     event = event_or_refusal(events, event_key)
     round_number = round_or_refusal(events, event.event_key)
+    if results.get_run(session, workspace_id=workspace.id, event_key=event.event_key) is not None:
+        raise already_run()
     if not results.results_unlocked(
         session, dataset_id=workspace.dataset_id, event_key=event.event_key
     ):
-        raise ExerciseError(
-            status_code=status.HTTP_409_CONFLICT,
-            code="exercise_results_locked",
-            message="The instructor has not opened results for this event yet.",
-        )
-    if results.get_run(session, workspace_id=workspace.id, event_key=event.event_key) is not None:
-        raise already_run()
+        raise _locked(event.name)
     return events, event, round_number
 
 
@@ -407,17 +493,21 @@ def invited_list(
     events: Sequence[ExerciseEventRow],
     event: ExerciseEventRow,
     requested_setting: str,
-) -> tuple[Sequence[TeamProfileRow], Sequence[int], str]:
-    """Who this team invited, and the name of the weighting it was built from.
+) -> tuple[Sequence[TeamProfileRow], tuple[InvitedProfile, ...], str, Mapping[str, float]]:
+    """Who this team invited, the weighting's name, and the weights themselves.
 
     The second half of ``run_results``'s preamble, extracted for the same reason
     as :func:`runnable_or_refusal` (review round 1, F3).
 
-    The profiles are returned beside the invited numbers because the run needs
+    The profiles are returned beside the invited entries because the run needs
     both: the team's own view is what the rule's non-responding set is read
     from, and reading three hundred rows joined to an overlay twice is the one
     expensive thing on this path. The simulation's own load is a separate read,
     because it carries the withheld column and that read has one caller.
+
+    The entries and the weights are returned whole because the run stores them
+    (issues #271, #319): the rule is handed the numbers, the row keeps the
+    names.
     """
     weights, setting_name = weights_or_refusal(
         session,
@@ -429,7 +519,7 @@ def invited_list(
     profiles = team_view.list_team_profiles(
         session, dataset_id=workspace.dataset_id, workspace_id=workspace.id
     )
-    invited = _invited_profile_nos(
+    invited = _invited_entries(
         session,
         datasets=datasets,
         profiles=profiles,
@@ -438,4 +528,4 @@ def invited_list(
         workspace=workspace,
         weights=weights,
     )
-    return profiles, invited, setting_name
+    return profiles, invited, setting_name, weights

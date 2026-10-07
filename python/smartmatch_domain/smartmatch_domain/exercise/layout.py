@@ -24,6 +24,15 @@ accepted. ``event_type`` **is** read: it must be one of Ann's event types
 (:mod:`smartmatch_domain.exercise.vocabulary`), though nothing is stored from
 it.
 
+``event_description`` (Ann, 2026-10-02) is read and is **optional**: it is the
+new last column of the ``Events`` sheet, and a file without it — every file
+before that date — is still accepted and simply has no descriptions
+(:attr:`ExerciseFileLayout.optional_event_columns`). Its cells hold a paragraph
+rather than a label, so they alone may run to
+:data:`EVENT_DESCRIPTION_MAX_CHARACTERS` characters; every other cell of the
+file keeps the reader's ordinary limit
+(:attr:`ExerciseFileLayout.cell_character_limits`).
+
 ADR-0025 D6
 ===========
 ``hidden_true_interests`` and ``hidden_true_career_goal`` are fields of
@@ -36,10 +45,12 @@ for either at all.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Final
 
 __all__ = [
+    "EVENT_DESCRIPTION_MAX_CHARACTERS",
     "EXERCISE_LAYOUT",
     "ExerciseFileLayout",
     "IngestRefusal",
@@ -49,6 +60,12 @@ __all__ = [
     "ParsedEvent",
     "ParsedProfile",
 ]
+
+#: The most characters an event's description may hold (#325). Ann's two are
+#: 571 and 561; every other cell of the file is held to the workbook reader's
+#: ``MAX_CELL_CHARACTERS``. Bounded rather than open: at twelve events this is
+#: about 24 KB of text, far inside the reader's one-megabyte cap on a sheet.
+EVENT_DESCRIPTION_MAX_CHARACTERS: Final[int] = 2_000
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,6 +96,10 @@ class ExerciseFileLayout:
         target_majors_column: One major, or "All majors".
         is_exercise_event_column: Yes on the two rounds, No on the past events.
         seats_column: The seats of an exercise event.
+        event_description_column: The short public description of an event.
+            Optional: blank on the past events, absent from older files.
+        event_description_max_characters: The most characters one of its
+            cells may hold.
         list_cell_separator: What separates entries inside a list cell.
         true_values: Cell texts read as yes, compared case-insensitively after
             trimming.
@@ -108,6 +129,8 @@ class ExerciseFileLayout:
     target_majors_column: str
     is_exercise_event_column: str
     seats_column: str
+    event_description_column: str
+    event_description_max_characters: int
     list_cell_separator: str
     true_values: tuple[str, ...]
     false_values: tuple[str, ...]
@@ -144,6 +167,24 @@ class ExerciseFileLayout:
         )
 
     @property
+    def optional_event_columns(self) -> tuple[str, ...]:
+        """The ``Events`` columns that are read when present and not required."""
+        return (self.event_description_column,)
+
+    @property
+    def cell_character_limits(self) -> Mapping[str, Mapping[str, int]]:
+        """Sheet to column to character limit, for the cells that may run long.
+
+        Handed to the workbook reader, which knows no column name. A column
+        not named here keeps the reader's ordinary limit.
+        """
+        return {
+            self.events_sheet: {
+                self.event_description_column: self.event_description_max_characters
+            }
+        }
+
+    @property
     def withheld_columns(self) -> frozenset[str]:
         """The columns whose cells no refusal sentence may quote (ADR-0025 D6)."""
         return frozenset({self.hidden_interests_column, self.hidden_career_goal_column})
@@ -174,6 +215,8 @@ EXERCISE_LAYOUT: Final[ExerciseFileLayout] = ExerciseFileLayout(
     target_majors_column="target_major",
     is_exercise_event_column="exercise_event",
     seats_column="seats",
+    event_description_column="event_description",
+    event_description_max_characters=EVENT_DESCRIPTION_MAX_CHARACTERS,
     list_cell_separator=";",
     true_values=("yes", "y", "true"),
     false_values=("no", "n", "false", ""),
@@ -235,6 +278,9 @@ class ParsedEvent:
     "All majors", so "same major" is a plain membership test for every event.
     The ``event_type`` cell is checked at ingest and not kept, because nothing
     shows it and nothing scores it.
+    ``description`` is the file's ``event_description`` cell as written, or
+    ``None`` when the cell is blank or the file has no such column (#318). It
+    is the public paragraph a team reads, and is not a withheld value.
     """
 
     event_key: str
@@ -243,6 +289,7 @@ class ParsedEvent:
     target_majors: tuple[str, ...]
     is_exercise_event: bool
     sequence: int
+    description: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

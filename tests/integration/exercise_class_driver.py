@@ -224,6 +224,12 @@ def unlock(client: RecordingClient, event_key: str) -> None:
     assert response.status_code == 200, response.text
 
 
+def lock(client: RecordingClient, event_key: str) -> None:
+    """Close results for one event again, as the instructor's button does."""
+    response = client.post(f"{INSTRUCTOR_BASE}/events/{event_key}/lock", headers=HEADER)
+    assert response.status_code == 200, response.text
+
+
 @dataclass(frozen=True, slots=True)
 class WorkspaceRow:
     id: uuid.UUID
