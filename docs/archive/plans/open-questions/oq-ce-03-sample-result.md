@@ -9,6 +9,14 @@ numbers. OQ-CE-03 is closed
 [`class-exercise-decisions-2026-09-25.md`](../../../decisions/class-exercise-decisions-2026-09-25.md)).
 If Ann would like the numbers changed, each is one line in `simulation.py`.
 
+**Regenerated 2026-10-05.** Ann's progress check and revisions of 2026-10-02
+changed two matching factors and removed the half match for an undecided
+career goal (item 4b), in matching and in this rule. The result tables and
+"What this shows" below are recomputed under those rules; the coefficients
+Chau approved are unchanged. "What Chau decided" is left as it was written on
+2026-09-25, against the earlier tables. See
+[`class-exercise-factor-revisions-2026-10-02.md`](../../../decisions/class-exercise-factor-revisions-2026-10-02.md).
+
 ## What Ann asked for
 
 Ann was asked how strongly each of these should make a student more likely to
@@ -21,10 +29,9 @@ sign up. Her answers:
 | The event is aimed at the student's major | a little |
 | Random chance and individual circumstances | some randomness |
 
-She also said that a student whose career goal is undecided should count as a
-half match for broad, exploratory events (company talks, industry panels,
-career fairs), and that Northline and Harbor are both exploratory because they
-are company events.
+On 2026-09-25 she also said that a student whose career goal is undecided
+should count as a half match for broad, exploratory events. Her revisions of
+2026-10-02 removed that rule: an undecided career goal now fits no event.
 
 ## How her words became numbers
 
@@ -39,9 +46,8 @@ Every student starts with a 4 in 100 chance of signing up. On top of that:
 
 The "a lot" boost is split in two equal halves. One half comes when one of the
 student's true interests is a topic of the event. The other half comes when
-their career goal fits the event. A student whose career goal is undecided gets
-half of that second half from an exploratory event, so a student whose goal
-clearly fits still does better.
+their career goal fits the event. A student whose career goal is undecided, or
+is graduate school, gets none of that second half.
 
 A student's chance never goes below 0 or above 100 in 100. Each student who
 signs up has a 75 in 100 chance of attending. That matches Ann's own example,
@@ -84,17 +90,17 @@ are still open." (OQ-CE-16, approved by Chau 2026-09-25).
 
 | List | One team: signed up | One team: attended | One team: empty seats | A typical team: signed up | A typical team: attended |
 |---|---|---|---|---|---|
-| Equal weights | 8 | 7 | 45 | 9.5 | 7.1 |
+| Equal weights | 14 | 12 | 40 | 9.5 | 7.2 |
 | Said they are interested | 12 | 10 | 42 | 6.8 | 5.1 |
-| Same major | 7 | 6 | 46 | 8.1 | 6.0 |
+| Same major | 7 | 6 | 46 | 7.7 | 5.8 |
 
 ### Harbor
 
 | List | One team: signed up | One team: attended | One team: empty seats | A typical team: signed up | A typical team: attended |
 |---|---|---|---|---|---|
-| Equal weights | 8 | 6 | 46 | 7.5 | 5.6 |
-| Said they are interested | 11 | 7 | 45 | 8.9 | 6.7 |
-| Same major | 7 | 7 | 45 | 7.1 | 5.3 |
+| Equal weights | 9 | 6 | 46 | 8.0 | 6.0 |
+| Said they are interested | 11 | 7 | 45 | 8.6 | 6.4 |
+| Same major | 7 | 7 | 45 | 6.9 | 5.1 |
 
 ## What this shows
 
@@ -102,9 +108,10 @@ are still open." (OQ-CE-16, approved by Chau 2026-09-25).
    gets about 8 to 10 sign-ups and 6 to 7 attendees out of 30 invited.
 2. For Northline, the suggested list does best for a typical team. For Harbor,
    the "said they are interested" list does best.
-3. Luck can change the order for one team. The example team did best with "said
-   they are interested" on both events, although that list is the weakest of the
-   three for a typical team on Northline.
+3. Luck can change the order for one team. On Harbor the example team's "same
+   major" list brought as many attendees as its "said they are interested" list
+   (7 each), although "same major" is the weakest of the three for a typical
+   team.
 
 ## What Chau decided
 

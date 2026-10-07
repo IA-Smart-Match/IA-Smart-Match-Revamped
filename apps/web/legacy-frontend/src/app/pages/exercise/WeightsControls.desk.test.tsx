@@ -18,7 +18,6 @@ const LABELS = {
   stated_interest_overlap: "said they are interested in this topic",
   career_goal_fit: "career goal fits this event",
   past_event_topic_overlap: "went to similar events before",
-  undecided_goal_half: "undecided goal suits a broad event",
 };
 
 const WEIGHTS = {
@@ -68,14 +67,13 @@ afterEach(() => {
 });
 
 describe("<WeightsControls /> sliders (§6.6)", () => {
-  it("draws one slider per weight, named in the server's words, and none for the Undecided label", () => {
+  it("draws one slider per weight, named in the server's words", () => {
     render(<WeightsControls factorLabels={LABELS} weights={WEIGHTS} onChange={vi.fn()} />);
     const sliders = screen.getAllByRole("slider");
     expect(sliders).toHaveLength(4);
     expect(screen.getByRole("slider", { name: "same major" }).getAttribute("aria-valuenow")).toBe(
       "0.4",
     );
-    expect(screen.queryByRole("slider", { name: LABELS.undecided_goal_half })).toBeNull();
   });
 
   it("says when the list is rebuilt", () => {

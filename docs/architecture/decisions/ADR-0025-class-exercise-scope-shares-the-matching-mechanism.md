@@ -81,6 +81,12 @@ The four factors Ann names are implemented once, as pure functions over a
 | `career_goal_fit` | career goal fits this event | — |
 | `past_event_topic_overlap` | went to similar events before | — |
 
+*Note, 2026-10-05:* the shared `stated_interest_overlap` function is no longer a
+Jaccard overlap. Since Ann's revisions of 2026-10-02 it is 1.0 when any card
+interest is an event topic and 0.0 otherwise, and `past_event_topic_overlap`
+counts related past events. See
+[`class-exercise-factor-revisions-2026-10-02.md`](../../decisions/class-exercise-factor-revisions-2026-10-02.md).
+
 Two registries compose them, each a `FactorRegistry` from ADR-0024 D2:
 
 - **`EXERCISE_REGISTRY`** (this ADR): the four functions with Ann's labels,

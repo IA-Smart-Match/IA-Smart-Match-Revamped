@@ -30,7 +30,7 @@
 import * as React from "react";
 
 import type { ExerciseRefusal } from "../../../lib/exerciseApi";
-import { EXERCISE_FACTOR_KEYS, UNDECIDED_GOAL_HALF_LABEL_KEY } from "../../../lib/exerciseClient";
+import { EXERCISE_FACTOR_KEYS } from "../../../lib/exerciseClient";
 import {
   formatWeightTotal,
   strictDecimal,
@@ -113,15 +113,11 @@ export interface WeightsControlsProps {
  * The rulebook's four first, then anything else the server sent — so a fifth
  * factor appearing on the response is displayed rather than silently dropped,
  * and the four do not reshuffle when a key's order in the JSON changes.
- * {@link UNDECIDED_GOAL_HALF_LABEL_KEY} is a label for the ranked list, not a
- * weight, so it never gets a box.
  */
 export function orderedFactorKeys(factorLabels: Readonly<Record<string, string>>): string[] {
   const known = EXERCISE_FACTOR_KEYS.filter((key) => key in factorLabels);
   const extra = Object.keys(factorLabels).filter(
-    (key) =>
-      !(EXERCISE_FACTOR_KEYS as readonly string[]).includes(key) &&
-      key !== UNDECIDED_GOAL_HALF_LABEL_KEY,
+    (key) => !(EXERCISE_FACTOR_KEYS as readonly string[]).includes(key),
   );
   return [...known, ...extra];
 }

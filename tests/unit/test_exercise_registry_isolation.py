@@ -14,7 +14,7 @@ Follow-up recorded on PR #173 and relevant here: the match-runs router and the
 worker wrap only the bare gate calls in ``except (RegistryNotApprovedError,
 RegistryNotReadyError)``, not the ranking and explanation calls that would
 raise :class:`UnknownRegistryVersionError`. That handler widening is still not
-needed, and this file is why — a CBA process cannot resolve ``exercise-0.1.0``
+needed, and this file is why — a CBA process cannot resolve ``exercise-0.2.0``
 because it cannot produce a score that names it.
 """
 
@@ -25,7 +25,7 @@ import subprocess
 import sys
 import textwrap
 
-EXERCISE_PIN = "exercise-0.1.0"
+EXERCISE_PIN = "exercise-0.2.0"
 
 
 def _run(script: str) -> str:

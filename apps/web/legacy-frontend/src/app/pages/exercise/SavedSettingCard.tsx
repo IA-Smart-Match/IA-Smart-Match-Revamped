@@ -51,7 +51,7 @@ export function SavedSettingCard({
   const keepButton = React.useRef<HTMLButtonElement>(null);
   const nameId = `${id}-name`;
   // Ann's words for each weight the setting holds; a key with no label is
-  // dropped rather than printed, and the Undecided label is not a weight.
+  // dropped rather than printed.
   const rows = orderedFactorKeys(factorLabels).filter((key) => key in setting.weights);
 
   React.useEffect(() => {

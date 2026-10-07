@@ -68,6 +68,10 @@ INSTRUCTOR_BASE: Final[str] = "/v1/exercise/instructor"
 ROUND_ONE: Final[str] = "E11"
 ROUND_TWO: Final[str] = "E12"
 
+#: Ann's career-goal label for a profile that has not decided, as her file and
+#: ``vocabulary.EXERCISE_CAREER_GOAL_TOPICS`` spell it.
+_UNDECIDED_GOAL_LABEL: Final[str] = "Undecided"
+
 
 @dataclass(frozen=True, slots=True)
 class Exchange:
@@ -272,6 +276,26 @@ def rule_inputs(
         )
     silent = frozenset(profile.profile_no for profile in view if profile.non_responding)
     return simulation_profiles(rows, non_responding_profile_nos=silent), workspace
+
+
+def undecided_true_goal_profile_nos(
+    sessions: sessionmaker[Session], team_number: int
+) -> frozenset[int]:
+    """Whose withheld true career goal is ``Undecided``, by profile number.
+
+    Read from the stored withheld column the way :func:`rule_inputs` reads it,
+    and reduced to profile numbers here so that no caller holds the value. A
+    test uses the numbers to pick which outcomes to compare; the goal itself
+    never leaves this function.
+    """
+    workspace = workspace_row(sessions, team_number)
+    with sessions() as session:
+        rows = ExerciseDatasetRepository().load_simulation_profiles(
+            session, dataset_id=workspace.dataset_id
+        )
+    return frozenset(
+        row.profile_no for row in rows if row.hidden_true_career_goal == _UNDECIDED_GOAL_LABEL
+    )
 
 
 def rule_event(sessions: sessionmaker[Session], event_key: str) -> Any:

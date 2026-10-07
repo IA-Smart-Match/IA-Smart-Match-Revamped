@@ -88,8 +88,6 @@ export interface ListEntryView {
   readonly marker: string;
   readonly reason: string;
   readonly contributing_factor_keys: string[];
-  /** The career goal counted only as an undecided goal's half (OQ-CE-14). A flag, not a number. */
-  readonly undecided_goal_half: boolean;
 }
 
 export interface GroupCountsView {
@@ -119,10 +117,7 @@ export interface RankedListView {
   readonly invite_limit: number;
   readonly setting_name: string | null;
   readonly weights: Record<string, number>;
-  /**
-   * Ann's plain words for each factor key. The only thing a screen may print.
-   * Also carries {@link UNDECIDED_GOAL_HALF_LABEL_KEY}: a label, not a weight.
-   */
+  /** Ann's plain words for each factor key. The only thing a screen may print. */
   readonly factor_labels: Record<string, string>;
   readonly entries: ListEntryView[];
   readonly composition: ListCompositionView;
@@ -164,13 +159,6 @@ export const EXERCISE_FACTOR_KEYS = [
 ] as const;
 
 export type ExerciseFactorKey = (typeof EXERCISE_FACTOR_KEYS)[number];
-
-/**
- * The `factor_labels` key whose words replace the career-goal label on an
- * entry flagged `undecided_goal_half` (OQ-CE-14). The server sends the words so
- * the web keeps no copy. It names no weight, so the weights panel skips it.
- */
-export const UNDECIDED_GOAL_HALF_LABEL_KEY = "undecided_goal_half";
 
 // ---------------------------------------------------------------------------
 // Results — `exercise_results_models.py`

@@ -20,9 +20,9 @@ proves it by parsing a workbook with renamed columns through a
 Columns the parser does not read — ``events_attended_count`` and
 ``info_level`` (Ann: "can also be computed by the app"), and ``event_date``
 (nothing shows it) — are not on the layout, so a file without them is still
-accepted. ``event_type`` **is** read, since OQ-CE-14 was decided on 2026-09-25:
-it says whether an event is broad and exploratory, which an undecided career
-goal half-fits (:mod:`smartmatch_domain.exercise.vocabulary`).
+accepted. ``event_type`` **is** read: it must be one of Ann's event types
+(:mod:`smartmatch_domain.exercise.vocabulary`), though nothing is stored from
+it.
 
 ``event_description`` (Ann, 2026-10-02) is read and is **optional**: it is the
 new last column of the ``Events`` sheet, and a file without it — every file
@@ -90,8 +90,8 @@ class ExerciseFileLayout:
         hidden_career_goal_column: ADR-0025 D6's withheld career goal.
         event_key_column: The event's identifier.
         event_name_column: The event's label.
-        event_type_column: The kind of event; decides whether it is
-            exploratory (OQ-CE-14).
+        event_type_column: The kind of event; checked against Ann's event
+            types and not stored.
         topic_tags_column: A list cell of the event's topics.
         target_majors_column: One major, or "All majors".
         is_exercise_event_column: Yes on the two rounds, No on the past events.
@@ -276,9 +276,8 @@ class ParsedEvent:
     ``sequence`` is the event's row position on the ``Events`` sheet, from 1.
     ``target_majors`` holds all six majors for an event whose file cell says
     "All majors", so "same major" is a plain membership test for every event.
-    ``is_exploratory`` is read off the ``event_type`` cell through
-    :func:`~smartmatch_domain.exercise.vocabulary.event_type_is_exploratory`;
-    the type itself is not kept, because nothing shows it (OQ-CE-14).
+    The ``event_type`` cell is checked at ingest and not kept, because nothing
+    shows it and nothing scores it.
     ``description`` is the file's ``event_description`` cell as written, or
     ``None`` when the cell is blank or the file has no such column (#318). It
     is the public paragraph a team reads, and is not a withheld value.
@@ -290,7 +289,6 @@ class ParsedEvent:
     target_majors: tuple[str, ...]
     is_exercise_event: bool
     sequence: int
-    is_exploratory: bool = False
     description: str | None = None
 
 

@@ -11,7 +11,7 @@ module is the first thing to test it.
 
 Three separate things keep this rulebook out of the CBA process:
 
-1. **Its version cannot be mistaken for a CBA pin.** ``exercise-0.1.0`` shares
+1. **Its version cannot be mistaken for a CBA pin.** ``exercise-0.2.0`` shares
    no prefix, shape, or suffix with ``2.0.0-approved-oq-cba-004`` or
    ``1.1.1-approved-g1-m6j``, and ``factor_registry``'s impostor guard refuses
    any registry that claims one of those.
@@ -23,7 +23,7 @@ Three separate things keep this rulebook out of the CBA process:
    ``smartmatch_domain.explanation`` does not, and no CBA router or worker
    does. Until something imports
    :mod:`smartmatch_domain.exercise.registry`, ``registry_for_version(
-   "exercise-0.1.0")`` raises, which is the correct answer for a process that
+   "exercise-0.2.0")`` raises, which is the correct answer for a process that
    has no exercise in it. ``tests/unit/test_exercise_registry_isolation.py``
    pins that in a fresh interpreter.
 
@@ -89,8 +89,6 @@ __all__ = [
     "PAST_EVENT_TOPIC_OVERLAP_DEFAULT_WEIGHT",
     "SAME_MAJOR_DEFAULT_WEIGHT",
     "STATED_INTEREST_OVERLAP_DEFAULT_WEIGHT",
-    "UNDECIDED_GOAL_HALF_LABEL",
-    "UNDECIDED_GOAL_HALF_LABEL_KEY",
     "AllZeroExerciseWeightsError",
     "InvalidExerciseWeightError",
     "NegativeExerciseWeightError",
@@ -102,18 +100,23 @@ __all__ = [
 #: part: the ``exercise-`` prefix means no string comparison, prefix match, or
 #: human skim can confuse the two, and the registry's own impostor guard
 #: refuses anything that claims a CBA version without being the CBA registry.
-EXERCISE_REGISTRY_VERSION: Final[str] = "exercise-0.1.0"
+EXERCISE_REGISTRY_VERSION: Final[str] = "exercise-0.2.0"
 
+#: ``exercise-0.1.0`` was the rulebook of 2026-09-15: Jaccard overlap for the
+#: interest and past-event factors, and half credit for an undecided career
+#: goal on a broad event. ``exercise-0.2.0`` replaces all three on Ann's
+#: revisions of 2026-10-02.
+#:
 #: Approved on the authority of the requirements document, not of a gate: the
 #: exercise has no real person's data and so no privacy question to wait on
 #: (ADR-0025 D3).
 EXERCISE_STATUS: Final[str] = "approved"
 
 #: Named, because "approved" with no approver is a checkbox.
-EXERCISE_APPROVER: Final[str] = "Ann Wang, class-exercise requirements 2026-09-15"
+EXERCISE_APPROVER: Final[str] = "Ann Wang, progress check and revisions 2026-10-02"
 
-#: The date of the requirements document this rulebook is approved on.
-EXERCISE_APPROVED_ON: Final[str] = "2026-09-15"
+#: The date of the revisions document this rulebook is approved on.
+EXERCISE_APPROVED_ON: Final[str] = "2026-10-02"
 
 #: The exercise's one scoring mode. There is one event shape in the exercise —
 #: a room with seats — so there is one model, and the vocabulary that holds it
@@ -147,18 +150,6 @@ EXERCISE_FACTOR_LABELS: Final[Mapping[str, str]] = MappingProxyType(
     }
 )
 
-#: What an undecided career goal's half fit on an exploratory event is called
-#: (OQ-CE-14). "Career goal fits this event" would be false next to a card that
-#: says "Undecided". The team's wording, not Ann's; no number. The reason line
-#: uses it, and the list response sends it as a ``factor_labels`` entry under
-#: :data:`UNDECIDED_GOAL_HALF_LABEL_KEY` so a screen never keeps its own copy.
-UNDECIDED_GOAL_HALF_LABEL: Final[str] = "undecided goal suits a broad event"
-
-#: The ``factor_labels`` key for :data:`UNDECIDED_GOAL_HALF_LABEL`: the same
-#: name as the list entry's flag that says when to use it. Not a factor and not
-#: a weight, so it is deliberately absent from :data:`EXERCISE_FACTOR_LABELS`.
-UNDECIDED_GOAL_HALF_LABEL_KEY: Final[str] = "undecided_goal_half"
-
 #: The default weights by key (OQ-CE-02), bound to the four constants above
 #: rather than restating them.
 EXERCISE_DEFAULT_WEIGHTS: Final[Mapping[str, float]] = MappingProxyType(
@@ -178,15 +169,17 @@ _RATIONALE: Final[Mapping[str, str]] = MappingProxyType(
         ),
         STATED_INTEREST_OVERLAP_FACTOR_KEY: (
             "Requirements 'Matching': counts only for a profile with a completed "
-            "card; for everyone else the reason line says so."
+            "card, and counts in full when any stated interest is a topic of this "
+            "event; for everyone else the reason line says so."
         ),
         CAREER_GOAL_FIT_FACTOR_KEY: (
             "Requirements 'Matching': counts only for a profile with a completed "
             "card, where the stated career goal is a topic of this event."
         ),
         PAST_EVENT_TOPIC_OVERLAP_FACTOR_KEY: (
-            "Requirements 'Matching': topics of past events attended overlap this "
-            "event's topics; counts only for a profile that attended one."
+            "Requirements 'Matching': past events attended that share a topic with "
+            "this event; none counts nothing, one counts half, two or more count in "
+            "full. Counts only for a profile that attended an event."
         ),
     }
 )
@@ -211,8 +204,8 @@ EXERCISE_FACTORS: Final[tuple[FactorSpec, ...]] = tuple(
 )
 
 #: All four. Unlike the CBA registry, this rulebook declares nothing it does
-#: not score: it has no superseded set to keep readable, because it has never
-#: produced a stored score under any other version.
+#: not score: it has no superseded set to keep readable, because the same four
+#: keys were scored under ``exercise-0.1.0``.
 EXERCISE_APPROVED_SCORING_KEYS: Final[frozenset[str]] = frozenset(EXERCISE_DEFAULT_WEIGHTS)
 
 #: The exercise's one model.
@@ -238,7 +231,7 @@ EXERCISE_REGISTRY: Final[FactorRegistry] = FactorRegistry(
 )
 
 # Import-time, and only on importing *this* module. A stored exercise score
-# names ``exercise-0.1.0``; anything that reads one has necessarily imported
+# names ``exercise-0.2.0``; anything that reads one has necessarily imported
 # the exercise domain to have produced it, so the binding exists exactly where
 # it is needed and nowhere else.
 register_registry(EXERCISE_REGISTRY)

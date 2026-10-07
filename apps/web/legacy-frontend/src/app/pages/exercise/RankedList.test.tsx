@@ -1,11 +1,8 @@
 /**
- * The ranked list's "what counted" line, for the Undecided half (D2).
+ * The ranked list's "what counted" line.
  *
- * An undecided career goal earns half the career-goal factor on an
- * exploratory event. The server says so in the reason ("undecided goal suits a
- * broad event") and flags it as `undecided_goal_half`. The factor line under
- * the reason must say the same, rather than telling a class that an
- * "Undecided" card's goal fits the event.
+ * Under the reason, the factors that counted are named in the server's words,
+ * read from `factor_labels`. A key with no label is dropped, never printed raw.
  */
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -16,11 +13,9 @@ import { RankedList } from "./RankedList";
 const FACTOR_LABELS = {
   same_major: "same major",
   career_goal_fit: "career goal fits this event",
-  // Sent by the server beside the factor labels (OQ-CE-14).
-  undecided_goal_half: "undecided goal suits a broad event",
 };
 
-function entry(undecidedGoalHalf: boolean): ListEntryView {
+function entry(contributingFactorKeys: string[]): ListEntryView {
   return {
     rank: 1,
     profile_no: 12,
@@ -28,9 +23,8 @@ function entry(undecidedGoalHalf: boolean): ListEntryView {
     major: "Accounting",
     class_year: "second",
     marker: "completed_card",
-    reason: "Undecided goal suits a broad event; same major.",
-    contributing_factor_keys: ["career_goal_fit", "same_major"],
-    undecided_goal_half: undecidedGoalHalf,
+    reason: "What counted: career goal fits this event and same major.",
+    contributing_factor_keys: contributingFactorKeys,
   };
 }
 
@@ -42,14 +36,25 @@ function factorLine(): string {
 afterEach(cleanup);
 
 describe("<RankedList /> factor names", () => {
-  it("names the Undecided half as a broad-event fit, not a goal fit", () => {
-    render(<RankedList entries={[entry(true)]} factorLabels={FACTOR_LABELS} caption="List" />);
-    expect(factorLine()).toBe("undecided goal suits a broad event; same major");
-    expect(factorLine()).not.toContain("career goal fits this event");
+  it("names each factor that counted in the server's words", () => {
+    render(
+      <RankedList
+        entries={[entry(["career_goal_fit", "same_major"])]}
+        factorLabels={FACTOR_LABELS}
+        caption="List"
+      />,
+    );
+    expect(factorLine()).toBe("career goal fits this event; same major");
   });
 
-  it("keeps the server's label when the goal really fits", () => {
-    render(<RankedList entries={[entry(false)]} factorLabels={FACTOR_LABELS} caption="List" />);
-    expect(factorLine()).toBe("career goal fits this event; same major");
+  it("drops a key the server sent no label for", () => {
+    render(
+      <RankedList
+        entries={[entry(["past_event_topic_overlap", "same_major"])]}
+        factorLabels={FACTOR_LABELS}
+        caption="List"
+      />,
+    );
+    expect(factorLine()).toBe("same major");
   });
 });
