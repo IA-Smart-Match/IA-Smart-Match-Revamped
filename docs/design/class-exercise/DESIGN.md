@@ -481,6 +481,11 @@ Pill, `--ce-type-meta`, three variants, each icon + words, never colour alone:
 
 Unknown values render their raw string in the neutral style. Not interactive.
 
+The list download uses the same words: its fifth column is headed
+"how much we know" and each cell holds one of the three phrases above, never
+the API key. The file has six columns — rank, name, major, year, how much we
+know, reason — and no others.
+
 ### 6.9 Composition table ("Who is on the list")
 
 Three small tables (by major, by year, by how much we know), each with columns
@@ -938,6 +943,7 @@ labels and the license line are unchanged and not listed.
 | Matching, weight total | "Total weight: 1.00" |
 | Matching, weight total meaning | "What matters is how the weights compare: a factor set to 0.50 counts twice as much as one set to 0.25." |
 | Matching, 390 sticky bar | "Weights 0.40 · 0.25 · 0.25 · 0.10 · Total 1.00" and "Edit weights" |
+| Matching, downloaded list (CSV), fifth column | Header "how much we know" (was "marker"); cells "major only" / "major plus events attended" / "completed card" (were the API keys). No new wording: the same label and phrases as the marker chip (§6.8). |
 | Saved settings, field label | "Name these weights" (was "Call these weights") |
 | Saved settings, empty slot | "Slot 3 of 3 is free. Save the weights on screen to fill it." |
 | Saved settings, compare limit | "Two are chosen. Untick one to swap." |
