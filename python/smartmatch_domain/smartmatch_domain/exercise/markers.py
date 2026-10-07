@@ -48,6 +48,7 @@ from smartmatch_domain.student_factors import ProfileEvidence
 
 __all__ = [
     "INFORMATION_RANK",
+    "MARKER_WORDS",
     "GroupCounts",
     "InformationMarker",
     "ListComposition",
@@ -55,6 +56,7 @@ __all__ = [
     "information_rank",
     "list_composition",
     "marker_for",
+    "marker_words",
 ]
 
 
@@ -80,6 +82,41 @@ INFORMATION_RANK: Final[Mapping[InformationMarker, int]] = MappingProxyType(
         InformationMarker.MAJOR_ONLY: 0,
     }
 )
+
+
+#: The requirements' own three phrases, for anything the server writes that a
+#: person reads without a screen in between — today, the list download. The API
+#: still carries the keys; this is not a second vocabulary for the wire.
+#:
+#: The screen holds the same words in ``apps/web/legacy-frontend/src/app/pages/
+#: exercise/markers.ts`` (``MARKER_LABELS``), because a browser cannot import
+#: this module. ``tests/unit/test_exercise_matching_csv.py`` reads that file
+#: and compares it with this table, so the two cannot be reworded apart.
+MARKER_WORDS: Final[Mapping[InformationMarker, str]] = MappingProxyType(
+    {
+        InformationMarker.MAJOR_ONLY: "major only",
+        InformationMarker.MAJOR_PLUS_EVENTS: "major plus events attended",
+        InformationMarker.COMPLETED_CARD: "completed card",
+    }
+)
+
+
+def marker_words(marker: str) -> str:
+    """The plain words for one marker, or the marker itself if it is not one.
+
+    Args:
+        marker: An :class:`InformationMarker` or the key the API carries for it.
+
+    Returns:
+        One of the three phrases in :data:`MARKER_WORDS`. A value that is none
+        of the three comes back unchanged rather than as "unknown" or as one of
+        the three: design spec §7's rule that absent information is not
+        invented, and the same choice the screen makes.
+    """
+    try:
+        return MARKER_WORDS[InformationMarker(marker)]
+    except ValueError:
+        return str(marker)
 
 
 def derive_marker(profile: ProfileEvidence) -> InformationMarker:

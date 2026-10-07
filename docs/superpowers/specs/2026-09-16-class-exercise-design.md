@@ -259,6 +259,23 @@ name, major, year, marker, and reason. `csv.writer` into a `StringIO`, served
 as a `StreamingResponse` with `text/csv`; never written to disk, never via
 pandas.
 
+> **Correction, 6 October 2026.** The fifth column is no longer headed
+> "marker". The paragraph above is left as written; the download now reads:
+>
+> 1. **The header.** The six columns are `rank`, `name`, `major`, `year`,
+>    `how much we know`, `reason` — the fifth carries the words the screen puts
+>    over the same column, not the API's field name. Ann's test checklist of
+>    2 October 2026, section 4, "Download", names these six (issue #335).
+> 2. **The cells.** The fifth column holds the three phrases a participant
+>    reads on screen — "major only", "major plus events attended", "completed
+>    card" — not the keys `major_only`, `major_plus_events`, `completed_card`.
+>    A marker that is none of the three is written as itself (§7).
+>
+> The API still carries the keys. The words live in `MARKER_WORDS`
+> (`smartmatch_domain/exercise/markers.py`) and the header in
+> `CSV_LIST_COLUMNS` (`smartmatch_api/routers/exercise_matching_csv.py`);
+> `tests/unit/test_exercise_matching_csv.py` holds both to the screen's wording.
+
 ## 9. Results lock and the one-run rule
 
 `POST .../events/{event_key}/results` refuses with a sentence unless
