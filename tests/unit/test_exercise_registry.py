@@ -60,8 +60,8 @@ def test_the_registry_declares_the_four_shared_factors() -> None:
 
 def test_the_registry_is_approved_on_anns_authority() -> None:
     assert EXERCISE_STATUS == "approved"
-    assert EXERCISE_APPROVER == "Ann Wang, class-exercise requirements 2026-09-15"
-    assert EXERCISE_APPROVED_ON == "2026-09-15"
+    assert EXERCISE_APPROVER == "Ann Wang, progress check and revisions 2026-10-02"
+    assert EXERCISE_APPROVED_ON == "2026-10-02"
     assert EXERCISE_REGISTRY.approver == EXERCISE_APPROVER
     assert_registry_approved(registry=EXERCISE_REGISTRY)
 
@@ -112,7 +112,7 @@ def test_the_gates_pass_for_the_exercise_rulebook() -> None:
 
 
 def test_the_version_cannot_collide_with_or_resemble_a_cba_pin() -> None:
-    assert EXERCISE_REGISTRY_VERSION == "exercise-0.1.0"
+    assert EXERCISE_REGISTRY_VERSION == "exercise-0.2.0"
     assert EXERCISE_REGISTRY_VERSION not in {REGISTRY_VERSION, SUPERSEDED_REGISTRY_VERSION}
     for pin in (REGISTRY_VERSION, SUPERSEDED_REGISTRY_VERSION):
         assert not EXERCISE_REGISTRY_VERSION.startswith(pin[:3])

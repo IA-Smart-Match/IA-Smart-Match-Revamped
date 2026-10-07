@@ -18,7 +18,6 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 __all__ = [
-    "jaccard",
     "normalized_term",
     "normalized_terms",
 ]
@@ -39,25 +38,3 @@ def normalized_terms(terms: Iterable[str]) -> frozenset[str]:
     return frozenset(
         normalized for normalized in (normalized_term(term) for term in terms) if normalized
     )
-
-
-def jaccard(left: frozenset[str], right: frozenset[str]) -> float:
-    """The Jaccard index of two already-normalized term sets.
-
-    Args:
-        left: One normalized term set.
-        right: The other.
-
-    Returns:
-        The size of the intersection over the size of the union, or ``0.0``
-        when the union is
-        empty. An empty union means neither side recorded a term to compare,
-        which is an overlap of nothing rather than a division to perform; the
-        decision about whether *that* situation is unknown belongs to the
-        factor, which knows whether the record existed at all, and not to this
-        arithmetic.
-    """
-    union = left | right
-    if not union:
-        return 0.0
-    return len(left & right) / len(union)

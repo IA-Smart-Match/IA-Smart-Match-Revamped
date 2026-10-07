@@ -28,8 +28,6 @@ from smartmatch_domain.exercise.vocabulary import (
     canonical_major,
     canonical_topic,
     career_goal_topic,
-    event_type_is_exploratory,
-    goal_is_undecided,
     goal_topic_for_matching,
     is_all_majors,
 )
@@ -70,62 +68,39 @@ def _anns_events() -> tuple[dict[str, object], ...]:
 
 
 # ---------------------------------------------------------------------------
-# OQ-CE-14, decided 2026-09-25 (Ann Wang): which events are exploratory
+# Ann's event types: a closed list, checked at ingest
 # ---------------------------------------------------------------------------
 
-#: Ann's words mapped to her event types: company talks are Employer talk and
-#: Employer info session, industry panels are Industry panel, career fairs are
-#: Career fair. Workshop, Competition and Networking are not exploratory.
-_ANNS_EXPLORATORY_TYPES = frozenset(
+#: Ann's seven kinds of event, with the two bracketed spellings she writes the
+#: exercise events' type in.
+_ANNS_EVENT_TYPES = frozenset(
     {
+        "Workshop",
         "Career fair",
         "Employer info session",
         "Industry panel",
+        "Competition",
+        "Networking",
         "Employer talk",
         "Employer talk (exercise event 1)",
         "Employer talk (exercise event 2)",
     }
 )
-_ANNS_OTHER_TYPES = frozenset({"Workshop", "Competition", "Networking"})
 
 
 def test_every_event_type_in_anns_file_is_in_the_vocabulary() -> None:
     assert {e["event_type"] for e in _anns_events()} <= set(EXERCISE_EVENT_TYPES)
 
 
-def test_the_event_types_are_exactly_anns_and_classified_as_she_said() -> None:
-    assert set(EXERCISE_EVENT_TYPES) == _ANNS_EXPLORATORY_TYPES | _ANNS_OTHER_TYPES
-    for event_type in _ANNS_EXPLORATORY_TYPES:
-        assert event_type_is_exploratory(event_type), event_type
-    for event_type in _ANNS_OTHER_TYPES:
-        assert not event_type_is_exploratory(event_type), event_type
-
-
-def test_northline_and_harbor_are_exploratory_in_anns_file() -> None:
-    by_key = {e["event_id"]: e for e in _anns_events()}
-    assert event_type_is_exploratory(str(by_key["E11"]["event_type"]))
-    assert event_type_is_exploratory(str(by_key["E12"]["event_type"]))
+def test_the_event_types_are_exactly_anns() -> None:
+    assert set(EXERCISE_EVENT_TYPES) == _ANNS_EVENT_TYPES
+    assert len(EXERCISE_EVENT_TYPES) == len(_ANNS_EVENT_TYPES), "no type is listed twice"
 
 
 def test_an_event_type_is_matched_through_the_fold() -> None:
     assert canonical_event_type("  career FAIR ") == "Career fair"
     assert canonical_event_type("Hackathon") is None
     assert canonical_event_type("") is None
-
-
-def test_classifying_an_unknown_event_type_is_refused() -> None:
-    with pytest.raises(KeyError):
-        event_type_is_exploratory("Hackathon")
-
-
-def test_only_undecided_is_the_undecided_goal() -> None:
-    assert goal_is_undecided("Undecided")
-    assert goal_is_undecided(" undecided ")
-    assert not goal_is_undecided("Graduate school")
-    assert not goal_is_undecided("Start my own business")
-    assert not goal_is_undecided(None)
-    # A goal stored before the vocabulary closed is compared as written, never undecided.
-    assert not goal_is_undecided("analytics")
 
 
 def test_the_list_sizes_are_anns() -> None:
@@ -234,21 +209,12 @@ def test_goal_topic_for_matching_maps_a_label_and_keeps_a_legacy_goal_as_written
     assert goal_topic_for_matching("analytics") == "analytics"
 
 
-@pytest.mark.parametrize(
-    ("goal", "exploratory", "expected"),
-    [
-        # Owner ruling 2: a goal that points at no topic is a measured miss.
-        ("Graduate school", False, 0.0),
-        ("Undecided", False, 0.0),
-        # OQ-CE-14 (Ann, 2026-09-25): graduate school fits no event topic, even
-        # an exploratory one; undecided is half a fit for an exploratory event.
-        ("Graduate school", True, 0.0),
-        ("Undecided", True, 0.5),
-    ],
-)
-def test_a_goal_that_points_at_no_topic_is_measured_not_unknown(
-    goal: str, exploratory: bool, expected: float
-) -> None:
+# Owner ruling 2: a goal that points at no topic is a measured miss. Ann's
+# revisions of 2026-10-02 (item 4b) removed the half an undecided goal earned on
+# a broad event, so Undecided is as plain a miss as Graduate school — on
+# Northline too, which is the event she named.
+@pytest.mark.parametrize("goal", ["Graduate school", "Undecided"])
+def test_a_goal_that_points_at_no_topic_is_measured_not_unknown(goal: str) -> None:
     """Through the API's own row-to-evidence step."""
     from smartmatch_api.exercise_dependencies import ExerciseEventRow, TeamProfileRow
     from smartmatch_api.routers.exercise_matching_models import event_evidence, rankable_set
@@ -274,13 +240,12 @@ def test_a_goal_that_points_at_no_topic_is_measured_not_unknown(
         target_majors=("Computer Information Systems",),
         is_exercise_event=True,
         sequence=11,
-        is_exploratory=exploratory,
     )
 
     evidence = rankable_set((row,), (event,)).profiles[0].evidence
     fit = career_goal_fit(evidence, event_evidence(event))
 
-    assert fit.value == expected
+    assert fit.value == 0.0
     assert not fit.is_unknown
 
 
@@ -309,11 +274,9 @@ def test_the_results_rule_reads_the_hidden_goals_topic() -> None:
     assert "Technology" not in repr(profile), "derived from a withheld column"
 
 
-@pytest.mark.parametrize(
-    ("hidden_goal", "undecided"), [("Undecided", True), ("Graduate school", False)]
-)
-def test_the_results_rule_reads_an_undecided_hidden_goal(hidden_goal: str, undecided: bool) -> None:
-    """OQ-CE-14: "the results step should treat undecided students the same way"."""
+@pytest.mark.parametrize("hidden_goal", ["Undecided", "Graduate school"])
+def test_the_results_rule_reads_a_hidden_goal_with_no_topic_as_no_goal(hidden_goal: str) -> None:
+    """Undecided and Graduate school reach the rule alike: no topic to fit."""
     from smartmatch_api.exercise_dependencies import SimulationProfileRow
     from smartmatch_api.routers.exercise_results_models import simulation_profiles
 
@@ -334,5 +297,3 @@ def test_the_results_rule_reads_an_undecided_hidden_goal(hidden_goal: str, undec
     (profile,) = simulation_profiles(rows, non_responding_profile_nos=frozenset())
 
     assert profile.career_goal is None
-    assert profile.career_goal_undecided is undecided
-    assert "career_goal_undecided" not in repr(profile), "derived from a withheld column"

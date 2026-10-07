@@ -38,14 +38,11 @@ import { Link2, MailX, Sparkles } from "lucide-react";
 import { motion } from "motion/react";
 
 import { cn } from "../../components/ui/utils";
-import { type ListEntryView, UNDECIDED_GOAL_HALF_LABEL_KEY } from "../../../lib/exerciseClient";
+import type { ListEntryView } from "../../../lib/exerciseClient";
 import { CE_MOTION_MS, MarkerChip, ceMotion, usePrefersReducedMotion } from "./desk";
 import { EmptySlotArt } from "./EmptySlotArt";
 import { STOPPED_RESPONDING, refreshMarkLabel } from "./refreshWording";
 import { useNarrowViewport } from "./useNarrowViewport";
-
-/** The rulebook key for "career goal fits this event". Never rendered. */
-const CAREER_GOAL_FIT = "career_goal_fit";
 
 export interface RankedListProps {
   readonly entries: readonly ListEntryView[];
@@ -311,11 +308,7 @@ function ReasonLines({
   return (
     <>
       <p className="ce-type-reason mt-ce-1 text-ce-ink-muted">{entry.reason}</p>
-      <FactorNames
-        keys={entry.contributing_factor_keys}
-        labels={labels}
-        undecidedGoalHalf={entry.undecided_goal_half}
-      />
+      <FactorNames keys={entry.contributing_factor_keys} labels={labels} />
     </>
   );
 }
@@ -326,31 +319,16 @@ function ReasonLines({
  * A key with no label in `factor_labels` is dropped rather than printed raw:
  * showing `past_event_topic_overlap` to a marketing class would be showing a
  * column name, which is the thing §16 is asking not to happen.
- *
- * **The Undecided half (D2).** When `undecided_goal_half` is set, the
- * career-goal factor counted only because an undecided goal suits a broad
- * event. Printing "career goal fits this event" next to an "Undecided" card
- * would say the opposite, so that one factor takes the server's own words for
- * the half instead: the `factor_labels` entry under
- * `UNDECIDED_GOAL_HALF_LABEL_KEY`. Like any key without a label, it is dropped
- * if the server sends none — never replaced by the goal-fit label. The weight
- * slider's label is unchanged: it names the factor, not this person.
  */
 function FactorNames({
   keys,
   labels,
-  undecidedGoalHalf,
 }: {
   readonly keys: readonly string[];
   readonly labels: Readonly<Record<string, string>>;
-  readonly undecidedGoalHalf: boolean;
 }): React.JSX.Element | null {
   const named = keys
-    .map((key) =>
-      undecidedGoalHalf && key === CAREER_GOAL_FIT
-        ? labels[UNDECIDED_GOAL_HALF_LABEL_KEY]
-        : labels[key],
-    )
+    .map((key) => labels[key])
     .filter((label): label is string => label !== undefined);
   if (named.length === 0) {
     return null;

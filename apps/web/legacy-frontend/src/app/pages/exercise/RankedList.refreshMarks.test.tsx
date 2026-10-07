@@ -22,7 +22,6 @@ function entry(profileNo: number, name: string, marks?: readonly string[]): List
     marker: "completed_card",
     reason: "Same major.",
     contributing_factor_keys: ["same_major"],
-    undecided_goal_half: false,
     ...(marks === undefined ? {} : { refresh_marks: marks }),
   };
 }

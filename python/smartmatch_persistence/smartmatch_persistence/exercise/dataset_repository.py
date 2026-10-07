@@ -237,8 +237,6 @@ class ExerciseProfileRow:
 class ExerciseEventRow:
     """One of the twelve events, in the order the file put them in.
 
-    ``is_exploratory`` is ``False`` for a dataset stored before revision 0043,
-    which then ranks and simulates exactly as it did (OQ-CE-14).
     ``description`` is the file's short public text for the event, ``None``
     where the file gave none or the dataset was stored before revision 0044
     (#318). It is shown, never ranked on.
@@ -250,7 +248,6 @@ class ExerciseEventRow:
     target_majors: tuple[str, ...]
     is_exercise_event: bool
     sequence: int
-    is_exploratory: bool = False
     description: str | None = None
 
 
@@ -489,7 +486,6 @@ class ExerciseDatasetRepository:
                 exercise_event.c.target_majors,
                 exercise_event.c.is_exercise_event,
                 exercise_event.c.sequence,
-                exercise_event.c.is_exploratory,
                 exercise_event.c.description,
             )
             .where(exercise_event.c.dataset_id == dataset_id)
@@ -503,7 +499,6 @@ class ExerciseDatasetRepository:
                 target_majors=_tuple(row.target_majors),
                 is_exercise_event=row.is_exercise_event,
                 sequence=row.sequence,
-                is_exploratory=row.is_exploratory,
                 description=row.description,
             )
             for row in session.execute(statement).all()
@@ -637,6 +632,5 @@ def _event_values(dataset_id: uuid.UUID, event: ParsedEvent) -> dict[str, object
         "target_majors": list(event.target_majors),
         "is_exercise_event": event.is_exercise_event,
         "sequence": event.sequence,
-        "is_exploratory": event.is_exploratory,
         "description": event.description,
     }
