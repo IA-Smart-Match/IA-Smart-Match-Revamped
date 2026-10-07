@@ -117,13 +117,39 @@ Not changed in the mockups; her wording is kept. Full list in DESIGN.md §2.15.
 
 ## Verification so far
 
-Each builder ran the DESIGN.md §11 checklist on its own mockup (results in each
-`NOTES.md`): A 59 of 60, B 58 of 60, C 58 of 60. Those are self-reports. An
-independent audit of all three is recorded in `audit/AUDIT.md` when complete;
-treat its verdicts as the authority.
+1. **Builders' self-checks** against the DESIGN.md §11 checklist (in each
+   `NOTES.md`): A 59 of 60, B 58 of 60, C 58 of 60.
+2. **Independent audit** (`audit/AUDIT.md`, 2026-10-06), in a real browser at
+   1440×900, 1280×720 and 390 wide: no blockers; 14 high findings across the
+   three (6 in A, 4 in B, 4 in C). It found no string that differs from Dr.
+   Wang's copy, identical rankings across the three, no console errors, no
+   outside requests, and that all three open from disk.
+3. **Fix pass** (each `NOTES.md`, "Audit fixes (2026-10-06)"): every high finding
+   fixed and re-measured in a browser. The main ones: the clicker's PageDown now
+   changes stop after a slider drag (all three); a double-click on an interview
+   answer no longer skips a turn (in B it had moved Grace from #4 to #8); C's
+   rail no longer hides content at 1280×720; A's guide button is docked and its
+   assistant panel opens in view.
+4. **DESIGN.md reconciled** with the audit's 14 contradictions (revision history
+   at the end of the file).
 
-Not yet checked by anyone: a real projector, the presenting laptop, Edge or
-Firefox, and a screen reader.
+Left open after the fix pass:
+
+| Mockup | What |
+|---|---|
+| A | At 1280×720 the second readiness group and the overview chart row still need 90% zoom or an 800px-high window; "Profile card (AI interview)" wraps in Grace's row |
+| B, C | The presenter guide's stop controls are not yet below the `Say:` line (new checklist item 72); A's are |
+| A, B | The My growth closing line above the fold (checklist item 29) was measured only in C |
+| C | With the assistant panel open at 1280×720 the panel scrolls |
+| All | A toast covers a helper line for 4 seconds after `Register` (accepted by the auditor) |
+
+The fixes themselves have not had a second independent audit.
+
+Not yet checked by anyone: Windows Chrome or Edge with a real mouse and clicker,
+a real projector, the presenting laptop's frame rate, and a screen reader.
+
+Rehearsal note: interview answers are ignored for 350ms after a turn appears, so
+a very fast second click does nothing. That is the double-click guard.
 
 ## Decisions needed
 

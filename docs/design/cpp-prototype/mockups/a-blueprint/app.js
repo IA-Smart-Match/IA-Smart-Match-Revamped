@@ -80,6 +80,7 @@
 
   const smQuery = window.matchMedia("(max-width: 639px)");
   const isSm = () => smQuery.matches;
+  const lgQuery = window.matchMedia("(min-width: 1024px)");
 
   /* ------------------------------------------------------------------ motion */
 
@@ -542,6 +543,10 @@
   /* ------------------------------------------------------------------ screens */
 
   let mounted = [];   // callbacks run once the screen is in the document
+  let refit = null;   // re-fits the open transcript when the fonts land or the window changes
+  /* A double press on an interview answer must not also press what the next turn puts under the pointer. */
+  let guardUntil = 0;
+  const guard = () => { guardUntil = performance.now() + 350; };
 
   function screenEntry() {
     return h("div", { class: "sm-entry", "data-screen": "entry" },
@@ -565,6 +570,7 @@
     const log = h("div", { class: "sm-transcript__log" }, state.ivLog.map(t => renderTurn(t, SPEAKER)), spacer);
     const live = h("div", { class: "sm-vh", role: "log", "aria-live": "polite" });
     const reply = h("div", { class: "sm-transcript__reply" });
+    const box = h("section", { class: "sm-transcript", "data-variant": "interview", "aria-label": SCREENS.interview.title });
 
     const interestsDd = h("dd"), goalDd = h("dd");
     let shownPicks = [], shownGoal = null;
@@ -594,6 +600,7 @@
     function answer(text) {
       const before = log.children.length - 1;
       const done = ivAnswer(text);
+      guard();
       if (done) {
         navigate("student", "recs");
         toast("Profile card saved. 20 points added.");
@@ -603,7 +610,7 @@
       fresh.forEach(n => log.insertBefore(n, spacer));
       fillReply();
       fillCard(true);
-      fitLog(log, spacer);
+      fit();
       live.textContent = $("p", fresh[fresh.length - 1]).textContent;
       /* sm-turn: the student's line, then the scripted reply 80ms later, whole. Options work from the first frame. */
       fx.enter(fresh[0], { y: 6, dur: D.fast });
@@ -616,7 +623,7 @@
     function fillReply() {
       if (state.ivDone) {
         reply.replaceChildren(h("div", { class: "sm-finished" }, h("span", { text: "Interview finished." }),
-          renderButton({ label: "Start over", variant: "secondary", icon: "rotate-ccw", onClick: () => { ivReset(); refreshMain(); const b = $(".sm-transcript__reply button"); if (b) b.focus(); } })));
+          renderButton({ label: "Start over", variant: "secondary", icon: "rotate-ccw", onClick: () => { ivReset(); guard(); refreshMain(); const b = $(".sm-transcript__reply button"); if (b) b.focus(); } })));
         return;
       }
       const step = IV[state.ivStep];
@@ -640,8 +647,16 @@
         renderAskForm({ id: "iv-field", label: "Type an answer", placeholder: "Or type your own answer…", hint: "Type an answer first.", onSubmit: answer }));
     }
 
+    /* The newest turn is shown whole at any window height: if the log is too short for it, the transcript
+       grows and the page scrolls (never a question cut mid-line). */
+    function fit() {
+      const turns = [...log.children].filter(n => n !== spacer), last = turns[turns.length - 1];
+      box.style.setProperty("--need", last.offsetHeight + 42 + log.previousSibling.offsetHeight + reply.offsetHeight + "px");
+      fitLog(log, spacer);
+    }
     fillReply(); fillCard(false);
-    mounted.push(() => fitLog(log, spacer));
+    mounted.push(fit);
+    refit = fit;
 
     const card = h("section", { class: "sm-card sm-profile", "data-tone": "page" },
       h("div", { class: "sm-profile__person" }, h("span", { class: "sm-avatar", "aria-hidden": "true", text: "GD" }),
@@ -653,9 +668,8 @@
         h("dl", { class: "sm-kv" }, h("dt", { text: "Interests" }), interestsDd, h("dt", { text: "Next step" }), goalDd)),
       h("p", { class: "sm-helper", text: "Later: students can answer by voice or by typing." }));
 
-    return [h("div", { class: "sm-interview" },
-      h("section", { class: "sm-transcript", "data-variant": "interview", "aria-label": SCREENS.interview.title }, renderScripted(), log, reply, live),
-      card)];
+    add(box, [renderScripted(), log, reply, live]);
+    return [h("div", { class: "sm-interview" }, box, card)];
   }
 
   /* --- Student · Events for me --- */
@@ -719,7 +733,7 @@
       checkin.hidden = false; fillCheckin();
       fx.count(pointsFig, before, points());
       if (wasHidden) fx.enter(checkin);
-      scrollIntoView(checkin);
+      scrollIntoView(checkin, btn);
     }
     fillCheckin();
     /* Event titles are h3; the list gets its menu label as a hidden h2 so no heading level is skipped. */
@@ -727,12 +741,14 @@
     return out;
   }
 
-  /* Brings a node into view without moving focus (sm-register). */
-  function scrollIntoView(el) {
-    const r = el.getBoundingClientRect();
-    const over = r.bottom + 88 - window.innerHeight;
-    if (over <= 0) return;
-    const o = { y: window.scrollY }, to = window.scrollY + Math.min(over, r.top - 16);
+  /* Brings a node into view without moving focus (sm-register, help panels): far enough to show its
+     bottom edge, never so far that its top (or the pressed control, `keep`) goes under the sticky chrome. */
+  function scrollIntoView(el, keep) {
+    const r = el.getBoundingClientRect(), chrome = lgQuery.matches ? 104 : 56;
+    const over = r.bottom + 12 - window.innerHeight;
+    const by = r.top < chrome ? r.top - chrome : Math.max(0, Math.min(over, keep ? keep.getBoundingClientRect().top - chrome - 12 : r.top - chrome));
+    if (!by) return;
+    const o = { y: window.scrollY }, to = window.scrollY + by;
     if (fx.reduced()) { window.scrollTo(0, to); return; }
     fx.to(o, { y: to, duration: D.max, ease: E.out, onUpdate: () => window.scrollTo(0, o.y) });
   }
@@ -876,11 +892,13 @@
         const me = renderTurn({ who: "me", text: q }), ai = renderTurn(reply, SPEAKER, openBooking);
         log.insertBefore(me, spacer); log.insertBefore(ai, spacer);
         fitLog(log, spacer);
+        scrollIntoView(panelHost);                 // the answer and the reply area stay on screen; N2 stays too
         live.textContent = reply.text;
         fx.enter(me, { y: 6, dur: D.fast }); fx.enter(ai, { y: 6, delay: 0.08 });
         const field = $("#bot-field"); if (field) { field.value = ""; field.dispatchEvent(new Event("input")); }
       }
       mounted.push(() => fitLog(log, spacer));
+      refit = () => fitLog(log, spacer);
       return h("section", { class: "sm-panel" },
         h("h2", { class: "sm-label", tabindex: "-1", text: "CBACH assistant bot (AI) · for quick questions" }),
         h("div", { class: "sm-transcript", "data-variant": "bot" }, renderScripted(), log,
@@ -903,9 +921,10 @@
       mounted.forEach(fn => fn()); mounted = [];
       if (flip) fx.track(Flip.from(flip, { duration: D.move, ease: E.inOut, overwrite: true }));
       if (kind && panelHost.isConnected) {
-        fx.enter(panelHost.firstChild);
         const target = focus === "field" ? $("#bot-field", panelHost) : focus === "label" ? $("h2", panelHost) : null;
-        if (target) target.focus();
+        if (target) target.focus({ preventScroll: true });
+        if (focus) scrollIntoView(panelHost);      // the panel and its N2 line come into view
+        fx.enter(panelHost.firstChild);
       }
     }
     if (state.helpPanel) { const k = state.helpPanel; state.helpPanel = null; setHelp(k); }
@@ -965,7 +984,7 @@
 
   /* Grace's name in a list: tint plus an icon and hidden words, never colour alone. */
   const renderWho = s => s.id === SMC.GRACE_ID
-    ? h("span", { class: "sm-who" }, icon("id-card", 20), h("span", { class: "sm-vh", text: "Grace Delgado, the student from the demo " }), h("span", { "aria-hidden": "true", text: s.name }))
+    ? h("span", { class: "sm-who" }, icon("id-card", 16), h("span", { class: "sm-vh", text: "Grace Delgado, the student from the demo " }), h("span", { "aria-hidden": "true", text: s.name }))
     : s.name;
 
   /* sm-table: a real table from md up, stacked rows at sm. cols: [[label, cellFn, className]] */
@@ -1071,9 +1090,21 @@
     }
     const schedule = () => { if (!frame) frame = requestAnimationFrame(() => { frame = 0; update(true); }); };
 
-    const picker = h("select", { class: "sm-field sm-event-picker", id: "event" }, SMC.UPCOMING.map(e => h("option", { value: e.id, text: e.title + " · " + e.when })));
-    picker.value = state.hubEvent;
-    picker.addEventListener("change", () => { state.hubEvent = picker.value; save(); inviteMsg.replaceChildren(); schedule(); });
+    /* sm-event-picker: a native select from 640px, a radio list below it (names are never cut). */
+    const pick = id => { state.hubEvent = id; save(); inviteMsg.replaceChildren(); schedule(); };
+    const optText = e => e.title + " · " + e.when;
+    let pickerField;
+    if (sm) {
+      pickerField = h("fieldset", { class: "sm-radios sm-event-picker" }, h("legend", { class: "sm-field-label", text: "Event" }), SMC.UPCOMING.map(e => {
+        const r = h("input", { type: "radio", name: "event", id: "event-" + e.id, value: e.id, on: { change: () => pick(e.id) } });
+        r.checked = e.id === state.hubEvent;
+        return h("label", { class: "sm-radio", for: "event-" + e.id }, r, h("span", { text: optText(e) }));
+      }));
+    } else {
+      const picker = h("select", { class: "sm-field sm-event-picker", id: "event", on: { change: () => pick(picker.value) } }, SMC.UPCOMING.map(e => h("option", { value: e.id, text: optText(e) })));
+      picker.value = state.hubEvent;
+      pickerField = h("label", { class: "sm-field-label", for: "event" }, "Event", picker);
+    }
 
     const weights = [["major", "Same major"], ["interest", "Said they're interested"], ["goal", "Career goal fits"], ["past", "Went to similar events"]].map(([k, label]) => {
       const val = h("span", { class: "sm-weight__value", "aria-hidden": "true", text: state.weights[k] });
@@ -1082,13 +1113,14 @@
       input.value = state.weights[k]; paint();
       input.addEventListener("input", () => { state.weights[k] = Number(input.value); paint(); schedule(); });
       input.addEventListener("change", save);
-      return h("div", { class: "sm-weight" }, h("div", { class: "sm-weight__head" }, h("label", { for: "w-" + k, text: label }), val), input);
+      return h("div", { class: "sm-weight" }, h("label", { for: "w-" + k, text: label }), input, val);
     });
 
     update(false);
     mounted.push(t.fitScroll);
-    return [h("div", { class: "sm-controls" }, h("label", { class: "sm-field-label", for: "event" }, "Event", picker)),
-      h("div", { class: "sm-weights" }, weights), graceLine, t.box, under, inviteMsg, status];
+    /* The Grace line shares the picker's row, so the table starts higher and row #4 is on screen at 1280×720. */
+    return [h("div", { class: "sm-controls", "data-screen": "match" }, pickerField, graceLine),
+      h("div", { class: "sm-weights" }, weights), t.box, under, inviteMsg, status];
   }
 
   /* --- Partner · My talk --- */
@@ -1144,21 +1176,31 @@
       renderButton({ label: "Switch portal", variant: "secondary", onClick: () => navigate(null) }));
   }
 
+  /* The guide button is docked, never floating over content: under the menu from 1024px, in the top bar
+     below that and on the entry. */
+  function dockGuideButton() {
+    const side = $(".sm-side", body);
+    (side && lgQuery.matches ? side : topbar).append(guideButton);
+  }
+  lgQuery.addEventListener("change", dockGuideButton);
+
   function renderNav() {
-    const old = $("nav", body);
+    const old = $(".sm-side", body);
+    guideButton.remove();
     if (old) old.remove();
     const p = state.portal;
     body.dataset.portal = p || "none";
+    if (p) body.prepend(h("div", { class: "sm-side" }, h("nav", { class: "sm-nav", "aria-label": PORTALS[p].name }, h("ul", null, PORTALS[p].pages.map(([id, label]) =>
+      h("li", null, h("button", { type: "button", "aria-current": state.page[p] === id ? "page" : null, on: { click: () => navigate(p, id) } }, label)))))));
+    dockGuideButton();
     if (!p) return;
-    body.prepend(h("nav", { class: "sm-nav", "aria-label": PORTALS[p].name }, h("ul", null, PORTALS[p].pages.map(([id, label]) =>
-      h("li", null, h("button", { type: "button", "aria-current": state.page[p] === id ? "page" : null, on: { click: () => navigate(p, id) } }, label))))));
     /* The menu is a scrolling strip below 1024px: keep the current item in view. */
     const list = $("nav ul", body), cur = $('nav [aria-current="page"]', body);
     if (list.scrollWidth > list.clientWidth) list.scrollLeft = cur.parentNode.offsetLeft - 48;
   }
 
   function mountScreen() {
-    mounted = [];
+    mounted = []; refit = null;
     main.replaceChildren(renderScreen(currentScreen()));
     mounted.forEach(fn => fn());
     mounted = [];
@@ -1204,7 +1246,7 @@
     shell.append(ghost);
     fx.leave(ghost, () => ghost.remove());
 
-    const screen = main.firstElementChild, nav = $("nav", body);
+    const screen = main.firstElementChild, nav = $(".sm-side", body);
     if (reduced) { fx.enter(screen); return; }
     if (flip) {
       const target = to.portal ? $(".sm-topbar__name", topbar) : $('[data-flip-id="portal-' + from.portal + '"]', main);
@@ -1242,11 +1284,11 @@
     const content = h("div", { class: "sm-guide__content" },
       h("p", { class: "sm-label", text: "Presenter guide" }),
       h("h2", { text: g[0] }),
-      h("div", { class: "sm-guide__stops" }, h("span", { class: "sm-guide__stop", id: "guide-stop", text: "Stop " + (i + 1) + " of 9" }),
-        h("div", null, stopBtn("Back", -1, "chevron-left"), stopBtn("Next", 1, "chevron-right", true))),
       h("p", { text: g[1] }),
       h("ol", null, g[2].map(s => h("li", null, rich(s)))),
-      h("p", { class: "sm-guide__say" }, h("strong", { text: "Say:" }), " " + g[3]));
+      h("p", { class: "sm-guide__say" }, h("strong", { text: "Say:" }), " " + g[3]),
+      h("div", { class: "sm-guide__stops" }, h("span", { class: "sm-guide__stop", id: "guide-stop", text: "Stop " + (i + 1) + " of 9" }),
+        h("div", null, stopBtn("Back", -1, "chevron-left"), stopBtn("Next", 1, "chevron-right", true))));
     guide.replaceChildren(content, h("div", { class: "sm-guide__foot" }, reset, h("div", { class: "sm-segment" }, themeBtn("light", "Light", "sun"), themeBtn("dark", "Dark", "moon"))));
     if (swap && fx.arrival) gsap.fromTo(content, { opacity: 0 }, { opacity: 1, duration: 0.12, ease: "none", clearProps: "opacity" });
   }
@@ -1314,10 +1356,12 @@
   /* --- keys: PageDown / PageUp move between stops, G toggles the guide, Esc closes it --- */
   document.addEventListener("keydown", e => {
     const t = e.target, tag = t && t.tagName;
-    const inText = tag === "TEXTAREA" || (tag === "INPUT" && !["checkbox", "range"].includes(t.type));
-    const inSlider = tag === "INPUT" && t.type === "range";
+    const inText = tag === "TEXTAREA" || (tag === "INPUT" && !["checkbox", "radio", "range"].includes(t.type));
+    /* The clicker always works: page keys change stop from any control except a text input or textarea.
+       Sliders keep arrows, Home and End. Enter in the records search hands the keys back. */
+    if (e.key === "Enter" && t.id === "search") { t.blur(); return; }
     if (e.key === "PageDown" || e.key === "PageUp") {
-      if (inText || inSlider) return;
+      if (inText) return;
       e.preventDefault();
       stopBy(e.key === "PageDown" ? 1 : -1);
     } else if ((e.key === "g" || e.key === "G") && !e.ctrlKey && !e.metaKey && !e.altKey) {
@@ -1330,6 +1374,10 @@
   });
 
   $(".sm-skip").addEventListener("click", e => { e.preventDefault(); main.focus(); });
+
+  main.addEventListener("click", e => { if (performance.now() < guardUntil) { e.stopPropagation(); e.preventDefault(); } }, true);
+  window.addEventListener("resize", () => { if (refit) refit(); });
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { if (refit) refit(); });
 
   /* Tables are real tables from 640px up and stacked rows below: rebuild when the breakpoint is crossed. */
   smQuery.addEventListener("change", () => { if (["records", "match"].includes(currentScreen())) refreshMain(); });
