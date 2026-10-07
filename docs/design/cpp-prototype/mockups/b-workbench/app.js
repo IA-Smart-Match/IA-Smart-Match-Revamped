@@ -323,13 +323,13 @@
   function renderTable(p) {
     const sm = mq.sm.matches;
     const body = h(sm ? p.ordered ? "ol" : "ul" : "tbody", { class: sm ? "sm-rows" : null });
-    const cols = h("colgroup", null, p.cols.map(c => h("col", { style: "width:" + c.w })));
+    const cols = h("colgroup", null, p.cols.map(c => h("col", { "data-col": c.key, style: c.w && "width:" + c.w })));
     const table = sm ? body : h("table", { class: "sm-table" }, h("caption", { class: "sm-vh", text: p.caption }), cols,
       h("thead", null, h("tr", null, p.cols.map(c => h("th", { scope: "col", text: c.label })))), body);
     const empty = h("p", { class: "sm-empty", hidden: true, text: p.empty });
     const ghosts = h("div", { class: "sm-ghosts", "aria-hidden": "true" });
     const box = h("div", { class: "sm-tablebox", tabindex: "0", role: "region", "aria-label": p.caption }, table, empty, ghosts);
-    return { box, body, cols, empty, ghosts, sm, rows: new Map(), defs: p.cols, tl: null };
+    return { box, body, cols, empty, ghosts, sm, rows: new Map(), defs: p.cols, tl: null, fade: p.fade };
   }
   function tableRow(t, id, vals, hl) {
     let row = t.rows.get(id);
@@ -363,9 +363,12 @@
     let ref = body.firstChild;
     next.forEach(n => { if (n === ref) ref = ref.nextSibling; else body.insertBefore(n, ref); });
   }
-  /* Put `next` rows in the table. Rows that stay travel (GSAP Flip, transform only); rows that enter
-   * fade in and get the wash; rows that leave fade out as ghosts. A second call while rows are still
-   * moving starts from where they are: the state is read first, then the old flight is killed.
+  /* Put `next` rows in the table. Rows that stay travel (transform only); rows that enter fade in and
+   * get the wash. A second call while rows are still moving starts from where they are: positions are
+   * read first, then the old flight is killed. Two engines (audit D-05, D-06):
+   *  - match (the weight drag): a hand-written FLIP on one GSAP core tween; rows that leave the visible
+   *    15 are removed on the first frame. Measured lighter per change than the Flip plugin here.
+   *  - records search (t.fade): GSAP Flip with simple: true; rows that leave fade out as ghosts (13.5).
    * Cost per change is kept low by moving only the nodes that are out of place (reorder), one tween
    * for all washes, row nodes built ahead in idle time (warmTable) and storage written after the drag. */
   function setRows(t, next, instant) {
@@ -378,13 +381,14 @@
       return;
     }
     const keep = new Set(next), had = new Set(prev);
-    const leaving = prev.filter(n => !keep.has(n)), entering = next.filter(n => !had.has(n));
+    const leaving = prev.filter(n => !keep.has(n)), entering = next.filter(n => !had.has(n)), stay = next.filter(n => had.has(n));
     /* read */
-    const flipState = Flip.getState(prev, { simple: true });
-    const base = t.box.getBoundingClientRect(), sx = t.box.scrollLeft, sy = t.box.scrollTop;
-    const gone = leaving.map(n => { const r = n.getBoundingClientRect(); return [n, r.top - base.top + sy, r.left - base.left + sx, r.width]; });
+    const flipState = t.fade ? Flip.getState(prev, { simple: true }) : null;
+    const from = t.fade ? null : stay.map(n => n.getBoundingClientRect().top);
+    const base = t.fade && t.box.getBoundingClientRect(), sx = t.box.scrollLeft, sy = t.box.scrollTop;
+    const gone = t.fade ? leaving.map(n => { const r = n.getBoundingClientRect(); return [n, r.top - base.top + sy, r.left - base.left + sx, r.width]; }) : [];
     /* write */
-    if (t.tl && t.tl.isActive()) { /* interrupted mid-flight: the state above already holds where each row is */
+    if (t.tl && t.tl.isActive()) { /* interrupted mid-flight: the positions above already hold where each row is */
       t.tl.kill();
       gsap.killTweensOf(prev);
       gsap.set(prev, { clearProps: "transform,opacity" });
@@ -400,22 +404,29 @@
     });
     reorder(t.body, next, leaving);
     wash(entering);
-    t.tl = Flip.from(flipState, {
-      targets: next, duration: D.move, ease: E.inOut, absolute: false, simple: true, overwrite: true,
-      onEnter: els => gsap.fromTo(els, { opacity: 0 }, { opacity: 1, duration: D.base, ease: E.out, clearProps: "opacity" })
-    });
+    if (t.fade) {
+      t.tl = Flip.from(flipState, {
+        targets: next, duration: D.move, ease: E.inOut, absolute: false, simple: true, overwrite: true,
+        onEnter: els => gsap.fromTo(els, { opacity: 0 }, { opacity: 1, duration: D.base, ease: E.out, clearProps: "opacity" })
+      });
+      return;
+    }
+    const moved = [], dy = []; /* measure once, after every write */
+    stay.forEach((n, i) => { const d = from[i] - n.getBoundingClientRect().top; if (d) { moved.push(n); dy.push(d); } });
+    t.tl = gsap.timeline();
+    if (moved.length) t.tl.fromTo(moved, { y: i => dy[i] }, { y: 0, duration: D.move, ease: E.inOut, clearProps: "transform" }, 0);
+    if (entering.length) t.tl.fromTo(entering, { opacity: 0 }, { opacity: 1, duration: D.base, ease: E.out, clearProps: "opacity" }, 0);
   }
 
-  /* Builds the row nodes ahead of the first drag, in idle time, and runs Flip once on rows at rest,
-   * so the first real re-rank costs the same as every later one (8.7). */
+  /* Builds the row nodes ahead of the first drag, in idle time, so the first real re-rank costs the
+   * same as every later one (8.7). */
   function warmTable(t, make) {
     const idle = window.requestIdleCallback || (fn => setTimeout(fn, 60));
     let i = 0;
     const step = () => {
       if (!t.body.isConnected) return;
       for (const end = Math.min(i + 30, students.length); i < end; i++) make(students[i]);
-      if (i < students.length) return idle(step);
-      if (!reduced && !(t.tl && t.tl.isActive())) Flip.from(Flip.getState([...t.body.children], { simple: true }), { duration: 0, simple: true });
+      if (i < students.length) idle(step);
     };
     idle(step);
   }
@@ -457,7 +468,12 @@
     const log = s.ivLog.concat({ me: text }, step < 5 ? { ai: ivTurn(step, iv4).say } : []);
     return { ivStep: step, ivLog: log, picks, goal, iv4, ivDone: step === 5, cardPointsGiven: s.cardPointsGiven || step === 5 };
   }
+  /* A double-click, or a held key, must never answer the turn that has just appeared (audit B-01):
+   * activation inside <main> is ignored for 350ms after a turn or a screen renders. */
+  let lockUntil = 0;
+  const lock = () => { lockUntil = performance.now() + 350; };
   function ivAnswer(text) {
+    lock();
     const next = ivNext(state, text);
     ui.flash.iv = 2;
     ui.focus = ".sm-reply .sm-chip"; /* keyboard: carry on from the first reply option */
@@ -471,7 +487,7 @@
   function renderReply() {
     const step = state.ivStep;
     if (step >= 5) return h("div", { class: "sm-reply" }, h("p", { class: "sm-reply__done", text: "Interview finished." }),
-      renderButton({ label: "Start over", variant: "secondary", icon: "rotate-ccw", fk: "iv-over", onClick: () => { ui.flash.iv = 1; ui.focus = ".sm-reply .sm-chip"; setState(ivStart()); } }));
+      renderButton({ label: "Start over", variant: "secondary", icon: "rotate-ccw", fk: "iv-over", onClick: () => { lock(); ui.flash.iv = 1; ui.focus = ".sm-reply .sm-chip"; setState(ivStart()); } }));
     const t = ivTurn(step, state.iv4);
     if (t.multi) return h("div", { class: "sm-reply" }, h("div", { class: "sm-chips" }, SMC.TOPICS.map(topic =>
       renderChip({ label: SMC.short(topic), toggle: true, pressed: state.picks.includes(topic), fk: "pick-" + topic, onClick: () => togglePick(topic) }))),
@@ -569,6 +585,12 @@
     return o;
   }
   const readiness = st => Math.round(Object.values(st).reduce((a, s) => a + (s[0] ? 1 : 0) + (s[1] ? 1 : 0) + (s[2] ? 2 : 0), 0) / 24 * 100);
+  /* Puts a help panel just under the sticky header (or the N1 strip) when any of it is out of view. */
+  function reveal(node) {
+    const edge = n => (n && /sticky|fixed/.test(getComputedStyle(n).position) ? n.getBoundingClientRect().bottom : 0);
+    const top = Math.max(edge($(".sm-pagehead")), edge($("#marker"))) + 12, r = node.getBoundingClientRect();
+    if (r.top < top || r.bottom > window.innerHeight) window.scrollBy({ top: r.top - top, behavior: reduced ? "auto" : "smooth" });
+  }
   function openHelp(which, force) {
     const open = force || state.helpPanel !== which;
     ui.flash.panel = true;
@@ -577,8 +599,7 @@
     setState({ helpPanel: open ? which : null });
   }
   function botSay(me, ai, book) {
-    ui.flash.bot = me ? 2 : 1;
-    ui.focus = "#bot-text";
+    ui.flash.bot = me ? 2 : 1; /* focus stays where it was: on the pressed chip, or in the field */
     setState({ bot: state.bot.concat(me ? { me } : [], { ai, book: !!book, n: state.bot.length }) });
   }
   function botAsk(q) {
@@ -626,7 +647,7 @@
         renderMessage(ui.msg.panel), foot(FULL)];
     }
     const panel = h("section", { class: "sm-card sm-helppanel", id: "help-panel", "aria-labelledby": "help-label", "data-panel": which }, kids);
-    fx(() => { if (ui.flash.panel) enter(panel, 8, D.base); });
+    fx(() => { if (ui.flash.panel || ui.flash.bot) reveal(panel); if (ui.flash.panel) enter(panel, 8, D.base); });
     return panel;
   }
   function renderMarkerCard(p) {
@@ -732,12 +753,13 @@
     }), first);
   }
   function screenRecords() {
-    const t = renderTable({ caption: "Student records", empty: "No records match that search.", cols: [
+    const t = renderTable({ caption: "Student records", fade: true, empty: "No records match that search.", cols: [
       { key: "id", label: "ID", w: "9%" }, { key: "name", label: "Name", w: "21%" }, { key: "major", label: "Major", w: "32%" },
       { key: "year", label: "Year", w: "13%" }, { key: "events", label: "Events", w: "9%" }, { key: "card", label: "Profile card", w: "16%" }] });
     const input = h("input", { class: "sm-field__input", id: "search", type: "search", placeholder: "Try Delgado", autocomplete: "off", "data-fk": "search" });
     input.value = state.search;
     input.addEventListener("input", () => { state = Object.assign({}, state, { search: input.value }); save(); recordsUpdate(); });
+    input.addEventListener("keydown", e => { if (e.key === "Enter") $("#title").focus({ preventScroll: true }); }); /* Enter releases focus, so the clicker works again */
     rec = { t, count: h("p", { class: "b-count" }), sr: h("p", { class: "sm-vh", role: "status" }),
       more: h("p", { class: "sm-help-text b-more", text: "Showing the first 25. Search to narrow the list." }), timer: 0 };
     fx(() => recordsUpdate(true));
@@ -762,8 +784,9 @@
     const text = at < 0 ? mt.line.textContent : "Grace Delgado is #" + (at + 1) + " on this list" + (grace.viaAI ? " because of her interview answers." : ".");
     clearTimeout(mt.timer);
     mt.timer = setTimeout(() => { mt.sr.textContent = text; }, 600);
+    mt.count.hidden = !ranked.length;
     setRows(mt.t, ranked.slice(0, 15).map((r, i) => tableRow(mt.t, r.s.id,
-      [String(i + 1), r.s.name, r.s.major, r.reason, r.s.viaAI ? "Profile card (AI interview)" : r.info], r.s.id === SMC.GRACE_ID)), first);
+      [String(i + 1), r.s.name, r.s.major, r.reason, r.s.viaAI ? mt.ai : r.info], r.s.id === SMC.GRACE_ID)), first);
   }
   function matchChange(patch) { /* weights and event: state now, one render per animation frame (8.7) */
     state = Object.assign({}, state, patch);
@@ -778,12 +801,6 @@
     const input = h("input", { id, type: "range", min: "0", max: "10", step: "1", "data-fk": id, style: "--v:" + p.value });
     input.value = p.value;
     input.addEventListener("input", () => { out.textContent = input.value; input.style.setProperty("--v", input.value); p.onInput(+input.value); });
-    input.addEventListener("keydown", e => { /* Page keys move a weight by 2 and never change stop (7.8) */
-      if (e.key !== "PageUp" && e.key !== "PageDown") return;
-      e.preventDefault();
-      input.value = Math.max(0, Math.min(10, +input.value + (e.key === "PageUp" ? 2 : -2)));
-      input.dispatchEvent(new Event("input"));
-    });
     return h("div", { class: "sm-weight" }, h("div", { class: "sm-weight__head" }, h("label", { for: id, text: p.label }), out), input);
   }
   /* A native select from 640px up. At 390 the option text would be cut, so it is a radio list there. */
@@ -797,9 +814,11 @@
   }
   function screenMatch() {
     const t = renderTable({ caption: "Match students to an event", ordered: true, empty: "No student matches with these weights. Raise at least one weight above 0.", cols: [
-      { key: "rank", label: "#", w: "68px" }, { key: "name", label: "Student", w: "17%" }, { key: "major", label: "Major", w: "24%" },
-      { key: "why", label: "Why on the list", w: "43%" }, { key: "know", label: "What we know", w: "16%" }] });
-    mt = { t, line: h("span"), lineKey: "", num: null, sr: h("p", { class: "sm-vh", role: "status" }), msg: h("div", { class: "b-tablefoot__msg" }, renderMessage(ui.msg.invite)), timer: 0 };
+      { key: "rank", label: "#" }, { key: "name", label: "Student" }, { key: "major", label: "Major" },
+      { key: "why", label: "Why on the list" }, { key: "know", label: "What we know" }] }); /* widths: styles.css, by work-area width */
+    mt = { t, count: h("p", { class: "b-tablefoot__count", text: "Showing 15 of the top 30." }), /* her words; it may break only before the bracket */
+      ai: h("span", { class: "b-pair" }, h("span", { text: "Profile card" }), " ", h("span", { text: "(AI interview)" })),
+      line: h("span"), lineKey: "", num: null, sr: h("p", { class: "sm-vh", role: "status" }), msg: h("div", { class: "b-tablefoot__msg" }, renderMessage(ui.msg.invite)), timer: 0 };
     fx(() => { matchUpdate(true); warmTable(t, s => t.rows.has(s.id) || tableRow(t, s.id, ["", s.name, s.major, "", ""], s.id === SMC.GRACE_ID)); });
     return h("div", { class: "b-split", "data-split": "match" },
       h("div", { class: "b-weights" },
@@ -807,7 +826,7 @@
           onInput: v => matchChange({ weights: Object.assign({}, state.weights, { [w[0]]: v }) }) }))),
         h("p", { class: "b-graceline" }, icon("id-card", 20), mt.line), mt.sr),
       h("div", { class: "b-tablepane" }, t.box,
-        h("div", { class: "b-tablefoot" }, h("p", { class: "b-tablefoot__count", text: "Showing 15 of the top 30." }),
+        h("div", { class: "b-tablefoot" }, mt.count,
           renderButton({ label: "Send personal invitations to top 30", icon: "send", fk: "invite", onClick: () => {
             ui.msg = { invite: "In the full version, each student gets a personal invitation and a reminder." };
             mt.msg.replaceChildren(renderMessage(ui.msg.invite));
@@ -903,7 +922,7 @@
     const body = h("div", { class: "sm-body", "data-screen": id }, SCREENS[id].render());
     el.main.replaceChildren(h("div", { class: "sm-view" }, id !== "entry" && renderHead(id), body));
     window.scrollTo(0, 0);
-    if (!quiet) { $("#title").focus({ preventScroll: true }); enter(body, 8, D.base, wait); }
+    if (!quiet) { lock(); $("#title").focus({ preventScroll: true }); enter(body, 8, D.base, wait); }
     runFx(true);
     ui.flash = {};
   }
@@ -919,7 +938,7 @@
     if (desc && desc.textContent !== SCREENS[id].desc()) desc.textContent = SCREENS[id].desc();
     scrolls.forEach(s => { const n = $('[data-scroll="' + s[0] + '"]', body); if (n) n.scrollTop = s[1]; });
     const target = (ui.focus && $(ui.focus)) || (fk && $('[data-fk="' + CSS.escape(fk) + '"]', body));
-    if (target) target.focus({ preventScroll: !ui.focus });
+    if (target) target.focus({ preventScroll: !ui.focus || !!target.closest("#help-panel") });
     tops.forEach(tp => { /* sm-panel: what sits below jumps, then is FLIP-ed with a transform */
       const n = $('[data-shift="' + tp[0] + '"]', body), dy = n ? tp[1] - n.getBoundingClientRect().top : 0;
       if (dy) track(gsap.from(n, { y: dy, duration: D.move, ease: E.inOut, clearProps: "transform" }));
@@ -1066,10 +1085,13 @@
 
   /* ---------- keys (7.16, 9.2) ---------- */
   document.addEventListener("pointerdown", settle, true);
+  el.main.addEventListener("click", e => { /* see lock(): the second click of a double-click does nothing */
+    if (performance.now() < lockUntil || (e.detail > 1 && e.target.closest(".sm-reply"))) { e.preventDefault(); e.stopPropagation(); }
+  }, true);
   document.addEventListener("keydown", e => {
     const t = e.target, tag = t.tagName;
     const text = (tag === "INPUT" && !/^(range|checkbox|radio|button|submit)$/.test(t.type)) || tag === "TEXTAREA";
-    const slider = tag === "INPUT" && t.type === "range";
+    if (e.repeat && ((e.key === "Enter" && tag !== "TEXTAREA") || (e.key === " " && tag === "BUTTON"))) return e.preventDefault(); /* a held key activates once */
     if (e.key !== "Tab" && e.key !== "Shift") settle();
     if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === "k") {
       if (text && t !== el.switchInput) return;
@@ -1083,7 +1105,7 @@
       else if (state.guideOpen) toggleGuide(true);
       return;
     }
-    if (e.ctrlKey || e.metaKey || e.altKey || text || slider) return;
+    if (e.ctrlKey || e.metaKey || e.altKey || text) return; /* sliders keep arrows, Home and End; Page keys change stop */
     if (e.key === "PageDown" || e.key === "PageUp") { e.preventDefault(); if (!e.repeat) moveStop(e.key === "PageDown" ? 1 : -1); }
     else if ((e.key === "g" || e.key === "G") && tag !== "SELECT") toggleGuide(false);
   });
