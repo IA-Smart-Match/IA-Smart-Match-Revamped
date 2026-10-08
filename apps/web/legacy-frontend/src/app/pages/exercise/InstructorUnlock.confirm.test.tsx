@@ -10,6 +10,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { UnlockPanel } from "./InstructorUnlock";
+import { pastTheConfirmGuard } from "./inlineConfirmGuard.testkit";
 
 const EVENTS = "/v1/exercise/instructor/events";
 const TEAMS_FILE = "11111111-1111-1111-1111-111111111111";
@@ -97,6 +98,7 @@ describe("<UnlockPanel /> asks before it opens results", () => {
     renderPanel();
     const row = await harborRow();
     fireEvent.click(within(row).getByRole("button", { name: /^open results$/i }));
+    await pastTheConfirmGuard();
     fireEvent.click(within(row).getByRole("button", { name: /^open results now$/i }));
 
     await waitFor(() => expect(unlockPosts()).toBe(1));

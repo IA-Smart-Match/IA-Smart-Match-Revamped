@@ -17,6 +17,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ExerciseInstructor } from "./ExerciseInstructor";
 import { InstructorTeams, TEAMS_POLL_MS } from "./InstructorTeams";
+import { pastTheConfirmGuard } from "./inlineConfirmGuard.testkit";
 
 interface Answer {
   readonly body: unknown;
@@ -170,6 +171,8 @@ describe("the instructor page keeps the Teams panel current", () => {
 
     answers[`GET ${WORKSPACES}`] = teams(team(1, "2026-09-25T10:00:00Z"));
     fireEvent.click(screen.getByRole("button", { name: REFRESH_ALL_BUTTON }));
+    await pastTheConfirmGuard();
+    fireEvent.click(screen.getByRole("button", { name: "Refresh them now" }));
 
     await waitFor(() => expect(teamsPanel().textContent).toContain("Has already asked."));
   });
@@ -205,6 +208,8 @@ describe("the instructor page keeps the Teams panel current", () => {
     );
     renderPage();
     fireEvent.click(await screen.findByRole("button", { name: REFRESH_ALL_BUTTON }));
+    await pastTheConfirmGuard();
+    fireEvent.click(screen.getByRole("button", { name: "Refresh them now" }));
 
     await screen.findByText("Refreshed 1 team. Skipped 3 teams.");
     const lines = [...document.querySelectorAll('[data-slot="exercise-refresh-all-teams"] li')].map(
@@ -237,6 +242,8 @@ describe("the instructor page keeps the Teams panel current", () => {
     );
     renderPage();
     fireEvent.click(await screen.findByRole("button", { name: REFRESH_ALL_BUTTON }));
+    await pastTheConfirmGuard();
+    fireEvent.click(screen.getByRole("button", { name: "Refresh them now" }));
     await screen.findByText("Refreshed 0 teams. Skipped 2 teams.");
     const lines = [...document.querySelectorAll('[data-slot="exercise-refresh-all-teams"] li')].map(
       (line) => line.textContent,
@@ -268,6 +275,8 @@ describe("the instructor page keeps the Teams panel current", () => {
     );
     renderPage();
     fireEvent.click(await screen.findByRole("button", { name: REFRESH_ALL_BUTTON }));
+    await pastTheConfirmGuard();
+    fireEvent.click(screen.getByRole("button", { name: "Refresh them now" }));
     await screen.findByText("Refreshed 0 teams. Skipped 3 teams.");
     const lines = [...document.querySelectorAll('[data-slot="exercise-refresh-all-teams"] li')].map(
       (line) => line.textContent,
@@ -300,6 +309,8 @@ describe("the instructor page keeps the Teams panel current", () => {
     );
     renderPage();
     fireEvent.click(await screen.findByRole("button", { name: REFRESH_ALL_BUTTON }));
+    await pastTheConfirmGuard();
+    fireEvent.click(screen.getByRole("button", { name: "Refresh them now" }));
     await screen.findByText("Refreshed 0 teams. Skipped 2 teams.");
     const lines = [...document.querySelectorAll('[data-slot="exercise-refresh-all-teams"] li')].map(
       (line) => line.textContent,
@@ -320,6 +331,8 @@ describe("the instructor page keeps the Teams panel current", () => {
     );
     renderPage();
     fireEvent.click(await screen.findByRole("button", { name: REFRESH_ALL_BUTTON }));
+    await pastTheConfirmGuard();
+    fireEvent.click(screen.getByRole("button", { name: "Refresh them now" }));
     await screen.findByText("No team has entered a number yet, so there was nothing to refresh.");
     expect(document.querySelector('[data-slot="exercise-refresh-all-teams"]')).toBeNull();
   });
@@ -337,6 +350,7 @@ describe("the instructor page keeps the Teams panel current", () => {
     const before = teamReads();
 
     fireEvent.click(within(roundOne).getByRole("button", { name: /open results/i }));
+    await pastTheConfirmGuard();
     fireEvent.click(within(roundOne).getByRole("button", { name: /open results now/i }));
     await waitFor(() => expect(teamReads()).toBe(before + 1));
     await new Promise((resolve) => setTimeout(resolve, 20));

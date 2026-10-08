@@ -55,6 +55,7 @@ import {
   type RefreshView,
 } from "../../../lib/exerciseClient";
 import { askingChoiceConfirmHint, askingChoiceLabel } from "./askingChoices";
+import { AskOnceButton } from "./AskOnceButton";
 import {
   Button,
   SkeletonCard,
@@ -66,7 +67,9 @@ import {
 import { AskingChoiceCard, type AskingCardState } from "./ExerciseAskingChoiceCard";
 import { ExerciseNotice, ExerciseScreen } from "./ExerciseScreen";
 import { RefreshSummary } from "./RefreshSummary";
-import { alreadyRefreshedLabel, refreshSummaryText } from "./refreshWording";
+import { refreshSummaryText } from "./refreshWording";
+import { TeamStatusBand, useStatusRevision } from "./TeamStatusBand";
+import { askingWords } from "./teamStatusWording";
 import { isAccessRefusal, useExerciseResource } from "./useExerciseResource";
 import { workspaceRequiredNotice } from "./refusals";
 
@@ -146,6 +149,8 @@ export function ExerciseAskingForMore(): React.JSX.Element {
   const { state, reload } = useExerciseResource(readAskingChoice, [], {
     keepDataOnError: (error) => error instanceof ExerciseUnreachable,
   });
+  // A choice or a refresh changes the status line too: read it after the page.
+  const { revision, reloadWithStatus } = useStatusRevision(reload);
 
   /**
    * What this browser's own refresh press reported, held by the screen.
@@ -180,6 +185,7 @@ export function ExerciseAskingForMore(): React.JSX.Element {
           Back to the events
         </Link>
       }
+      status={<TeamStatusBand revision={revision} />}
     >
       {state.status === "loading" ? <AskingSkeleton /> : null}
       {state.status === "refused" ? workspaceRequiredNotice(state.refusal) : null}
@@ -202,7 +208,7 @@ export function ExerciseAskingForMore(): React.JSX.Element {
           )}
           <AskingPanels
             asking={state.data}
-            onChanged={reload}
+            onChanged={reloadWithStatus}
             refreshed={refreshed}
             onRefreshed={setRefreshed}
             confirmedChoice={confirmedChoice}
@@ -415,7 +421,12 @@ function AskingPanels({
               : ""}
         </p>
         {choice === null ? null : (
-          <p className="ce-type-body text-ce-ink-muted">A team picks once, so these are now fixed.</p>
+          // Read from the server's own word, so it is still here after a
+          // reload and until the team is cleared (issue #321).
+          <p data-slot="exercise-asking-chosen" className="ce-type-body text-ce-ink">
+            <span>{`You chose: ${askingWords(choice)}.`}</span>{" "}
+            <span className="text-ce-ink-muted">A team picks once, so these are now fixed.</span>
+          </p>
         )}
       </section>
 
@@ -425,15 +436,16 @@ function AskingPanels({
           This happens once. Everyone who attended the first event picks up its topics, and some of
           the people your team invited fill in a card.
         </p>
-        <div>
-          <Button
-            variant="primary"
-            pending={sending === REFRESH_ACTION}
-            disabled={pending || choice === null || hasAsked || !roundOneRun}
-            describedBy={
-              hasAsked || askShutReasons.length === 0 ? undefined : askShutReasons.join(" ")
-            }
-            onClick={() =>
+        <AskOnceButton
+          asked={hasAsked}
+          askedAt={refreshedAt}
+          pending={sending === REFRESH_ACTION}
+          disabled={(pending && sending !== REFRESH_ACTION) || choice === null || !roundOneRun}
+          describedBy={
+            hasAsked || askShutReasons.length === 0 ? undefined : askShutReasons.join(" ")
+          }
+          className="w-full md:w-auto"
+          onAsk={() =>
               void run(REFRESH_ACTION, async () => {
                 try {
                   onRefreshed(await refreshProfiles());
@@ -448,11 +460,7 @@ function AskingPanels({
                 await onChanged();
               })
             }
-            className="w-full md:w-auto"
-          >
-            {hasAsked ? alreadyRefreshedLabel(refreshedAt) : "Ask them now"}
-          </Button>
-        </div>
+        />
         {choice === null ? (
           <p id={`${ids}-pick-first`} className="ce-type-body text-ce-ink-muted">
             Pick a way of asking first.

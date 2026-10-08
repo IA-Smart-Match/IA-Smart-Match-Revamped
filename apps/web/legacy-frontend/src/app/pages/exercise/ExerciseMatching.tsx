@@ -49,8 +49,18 @@ import { EventDescription } from "./EventDescription";
 import { ExerciseNotice, ExerciseScreen } from "./ExerciseScreen";
 import { ListCompositionTable } from "./ListCompositionTable";
 import { MatchingCompareView } from "./MatchingCompareView";
+import {
+  COMPARISON_CLOSED,
+  LIST_UPDATED,
+  comparingSentence,
+  deletedSentence,
+  openedSentence,
+  savedSentence,
+  type PanelNote,
+} from "./matchingWording";
 import { RankedList } from "./RankedList";
 import { SavedSettingsPanel } from "./SavedSettingsPanel";
+import { TeamStatusBand } from "./TeamStatusBand";
 import { isAccessRefusal, useExerciseResource } from "./useExerciseResource";
 import { isWeightsRefusal, WeightsControls } from "./WeightsControls";
 import { workspaceRequiredNotice } from "./refusals";
@@ -115,6 +125,13 @@ function acceptedWeighting(list: RankedListView): ListWeighting {
     : { kind: "setting", name: list.setting_name };
 }
 
+/** An "Open this list" press whose list read has settled, landed or not. */
+interface SettledOpen {
+  readonly name: string;
+  /** `openToken` at the press, so a press overtaken by another list is dropped. */
+  readonly token: number;
+}
+
 /** Why the download and save are off, pointed at by both. */
 const NOT_CURRENT_REASON = "exercise-list-not-current";
 
@@ -130,13 +147,24 @@ function EventMatching({ eventKey }: { readonly eventKey: string }): React.JSX.E
   const [weighting, setWeighting] = React.useState<ListWeighting>({ kind: "default" });
   /** The side-by-side view, when a team has asked for one. */
   const [comparison, setComparison] = React.useState<CompareView | null>(null);
-  const [panelRefusal, setPanelRefusal] = React.useState<string | null>(null);
+  /**
+   * What the last saved-settings press did, or why it did nothing. It stays
+   * beside those buttons until the next press (issue #321).
+   */
+  const [panelNote, setPanelNote] = React.useState<PanelNote | null>(null);
   /** A save, delete or compare refused because this browser lost access. */
   const [accessRefusal, setAccessRefusal] = React.useState<ExerciseRefusal | null>(null);
   /** Whether a weight box holds text that has not been committed yet. */
   const [hasUnsent, setHasUnsent] = React.useState(false);
   /** Bumped to put every weight box back to the list's own weights. */
   const [controlsRevision, setControlsRevision] = React.useState(0);
+  /**
+   * An "Open this list" whose read has settled and has not been answered in
+   * the panel yet. See `onOpen` and the effect under `useExerciseResource`.
+   */
+  const [openSettled, setOpenSettled] = React.useState<SettledOpen | null>(null);
+  /** Which "Open this list" may still be answered; moved on by every later list request. */
+  const openToken = React.useRef(0);
 
   const load = React.useCallback(
     async (signal: AbortSignal): Promise<MatchingData> => ({
@@ -150,6 +178,49 @@ function EventMatching({ eventKey }: { readonly eventKey: string }): React.JSX.E
   const { state, reload } = useExerciseResource(load, [eventKey, weighting], {
     keepDataOnError: keepMatchingData,
   });
+
+  /**
+   * "Opened “A”. The list above is built from it." is said once that list
+   * is the one on screen, never at the press (PR #346 review): the read may be
+   * slow, and it may be refused — the setting deleted in another tab — which
+   * leaves the old list above a sentence saying otherwise. A read that failed
+   * is answered with its own sentence instead, beside the button that asked.
+   *
+   * It runs after the render that has the settled read, because the press's
+   * own `then` still holds the state from before it.
+   */
+  React.useEffect(() => {
+    if (openSettled === null) {
+      return;
+    }
+    if (openSettled.token !== openToken.current || state.status !== "ready") {
+      // Another list was asked for since, or the screen itself was refused
+      // and says so in the list's place.
+      setOpenSettled(null);
+      return;
+    }
+    if (state.refreshing) {
+      // A later read of the same list is out; answer when it lands.
+      return;
+    }
+    setOpenSettled(null);
+    const failed = state.refusal?.message ?? state.unreachable;
+    if (failed !== null) {
+      // The page's notice above the list announces it; this one is for the eye.
+      setPanelNote({ tone: "calm", text: failed, spoken: false });
+    } else if (state.data.list.setting_name === openSettled.name) {
+      setPanelNote({ tone: "done", text: openedSentence(openSettled.name), aboutList: true });
+    }
+  }, [openSettled, state]);
+
+  /**
+   * The team asked for a list by its weights: an open still in flight is no
+   * longer answered, and "The list above is built from it." comes down.
+   */
+  function leaveOpenedList(): void {
+    openToken.current += 1;
+    setPanelNote((note) => (note?.aboutList === true ? null : note));
+  }
 
   /** The list on screen answers the boxes: nothing typed and unsent, nothing asked and unanswered. */
   const listCurrent =
@@ -168,17 +239,20 @@ function EventMatching({ eventKey }: { readonly eventKey: string }): React.JSX.E
   const stale = state.status === "ready" && (state.refusal !== null || state.unreachable !== null);
 
   /**
-   * Run one action; show any refusal, and say whether it worked.
+   * Run one action; say what it did, or why it did nothing.
    *
    * The boolean matters. This used to swallow the refusal and resolve, which
    * from the saved-settings panel's side was indistinguishable from success —
-   * so a refused save still cleared the name box. The one error slot on this
-   * screen is `panelRefusal`; the outcome goes back to the caller.
+   * so a refused save still cleared the name box. The one slot for the
+   * outcome is `panelNote`: the sentence `action` resolves with when it
+   * worked, the server's own when it was refused.
    */
-  async function guard(action: () => Promise<void>): Promise<boolean> {
-    setPanelRefusal(null);
+  async function guard(action: () => Promise<string>): Promise<boolean> {
+    // The slot is this press's now: an open still in flight no longer writes to it.
+    openToken.current += 1;
+    setPanelNote(null);
     try {
-      await action();
+      setPanelNote({ tone: "done", text: await action() });
       return true;
     } catch (error) {
       if (isAccessRefusal(error)) {
@@ -187,11 +261,12 @@ function EventMatching({ eventKey }: { readonly eventKey: string }): React.JSX.E
         setAccessRefusal(error);
         return false;
       }
-      setPanelRefusal(
-        isRefusal(error)
+      setPanelNote({
+        tone: "calm",
+        text: isRefusal(error)
           ? error.message
           : "The exercise could not be reached. Check the connection and try again.",
-      );
+      });
       return false;
     }
   }
@@ -221,6 +296,7 @@ function EventMatching({ eventKey }: { readonly eventKey: string }): React.JSX.E
           Choose a different event
         </Link>
       }
+      status={<TeamStatusBand eventKey={eventKey} />}
     >
       {state.status === "loading" ? (
         // §6.21: shaped like the list, with the stated-loading sentence.
@@ -246,17 +322,12 @@ function EventMatching({ eventKey }: { readonly eventKey: string }): React.JSX.E
             sliders, in the data file's own words. Nothing when it has none.
           */}
           <EventDescription text={state.data.list.event_description} />
-          {panelRefusal === null && listRefusal === null ? null : (
-            <div className="flex flex-col gap-ce-3">
-              {panelRefusal === null ? null : <ExerciseNotice message={panelRefusal} />}
-              {listRefusal === null ? null : (
-                <ExerciseNotice
-                  id="exercise-list-refusal"
-                  message={listRefusal.message}
-                  tone="problem"
-                />
-              )}
-            </div>
+          {listRefusal === null ? null : (
+            <ExerciseNotice
+              id="exercise-list-refusal"
+              message={listRefusal.message}
+              tone="problem"
+            />
           )}
           {state.unreachable === null ? null : (
             // Asked again only when the team says so: no retry loop.
@@ -289,6 +360,7 @@ function EventMatching({ eventKey }: { readonly eventKey: string }): React.JSX.E
                 onUnsentChange={setHasUnsent}
                 onChange={(weights) => {
                   setComparison(null);
+                  leaveOpenedList();
                   setWeighting({ kind: "weights", weights });
                 }}
               />
@@ -330,6 +402,16 @@ function EventMatching({ eventKey }: { readonly eventKey: string }): React.JSX.E
                     >
                       This list is not built from the numbers above yet. Leave the box or press
                       Enter to rebuild it.
+                    </p>
+                  ) : settled && weighting.kind !== "default" ? (
+                    // A list the team asked for has landed. It stays until the
+                    // next change, which puts one of the two lines above here.
+                    <p
+                      role="status"
+                      data-slot="exercise-list-updated"
+                      className="ce-type-meta text-ce-ink-muted"
+                    >
+                      {LIST_UPDATED}
                     </p>
                   ) : null}
                 </div>
@@ -383,6 +465,7 @@ function EventMatching({ eventKey }: { readonly eventKey: string }): React.JSX.E
                     variant="secondary"
                     onClick={() => {
                       setComparison(null);
+                      leaveOpenedList();
                       setWeighting(acceptedWeighting(state.data.list));
                       setControlsRevision((value) => value + 1);
                     }}
@@ -427,32 +510,49 @@ function EventMatching({ eventKey }: { readonly eventKey: string }): React.JSX.E
                 ? null
                 : "Saving is off until the list is built from the numbers above."
             }
+            feedback={panelNote}
             onSave={(name) =>
               guard(async () => {
-                await saveSetting(eventKey, name, state.data.list.weights);
+                const after = await saveSetting(eventKey, name, state.data.list.weights);
                 // Held until the saved list is re-read, so the panel stays busy.
                 await reload();
+                return savedSentence(name, state.data.list.event_name, after);
               })
             }
             onDelete={(name) =>
               guard(async () => {
-                await deleteSetting(eventKey, name);
+                const after = await deleteSetting(eventKey, name);
                 await reload();
+                return deletedSentence(name, after);
               })
             }
             onOpen={(name) => {
               setComparison(null);
+              // The last press's sentence goes now; this press's is written
+              // when its list has landed, or has failed to.
+              setPanelNote(null);
+              const token = ++openToken.current;
               setWeighting({ kind: "setting", name });
+              // One request: the new weighting and this reload reach the
+              // hook in the same render. It resolves when that read settles.
+              void reload().then(() => setOpenSettled({ name, token }));
             }}
             onCompare={(a, b) => {
               void guard(async () => {
                 setComparison(await compareSettings(eventKey, a, b));
+                return comparingSentence(a, b);
               });
             }}
           />
 
           {comparison === null ? null : (
-            <MatchingCompareView comparison={comparison} onClose={() => setComparison(null)} />
+            <MatchingCompareView
+              comparison={comparison}
+              onClose={() => {
+                setComparison(null);
+                setPanelNote({ tone: "done", text: COMPARISON_CLOSED });
+              }}
+            />
           )}
 
           <p>

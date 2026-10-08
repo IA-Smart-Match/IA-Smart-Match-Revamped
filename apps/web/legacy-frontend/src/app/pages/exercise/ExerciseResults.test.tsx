@@ -13,6 +13,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CONFIRM_GUARD_MS } from "./desk";
 import { ExerciseResults } from "./ExerciseResults";
 
+// The status line makes three reads of its own and has its own tests
+// (`TeamStatusBand.test.tsx`, `TeamStatusBand.pages.test.tsx`). It is left out
+// here, so these tests count only the requests this page makes.
+vi.mock("./TeamStatusBand", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./TeamStatusBand")>()),
+  TeamStatusBand: () => null,
+}));
+
 /**
  * Send the run: the first press arms the button ("Send this list? You get one
  * results run for …"), the second sends it. The pause clears the guard that
@@ -644,6 +652,14 @@ describe("<ExerciseResults /> once-only presses", () => {
     expect(counts?.getAttribute("role")).toBe("status");
     expect(counts?.textContent).toBe("");
 
+    // The first press asks (issue #321); a double-click is one press and
+    // sends nothing. The confirming press, doubled, still sends once.
+    act(() => {
+      ask.click();
+      ask.click();
+    });
+    expect(posts(REFRESH)).toBe(0);
+    await new Promise((resolve) => setTimeout(resolve, CONFIRM_GUARD_MS + 20));
     act(() => {
       ask.click();
       ask.click();
@@ -697,7 +713,10 @@ describe("<ExerciseResults /> once-only presses", () => {
       return null;
     });
     renderResults();
-    fireEvent.click(await screen.findByRole("button", { name: /ask them now/i }));
+    const ask = await screen.findByRole("button", { name: /ask them now/i });
+    fireEvent.click(ask);
+    await new Promise((resolve) => setTimeout(resolve, CONFIRM_GUARD_MS + 20));
+    fireEvent.click(ask);
     const shut = await screen.findByRole("button", { name: "Already refreshed at 10:42 AM" });
     expect(isOff(shut)).toBe(true);
     expect(screen.queryByText("Your team has already asked the people it invited.")).toBeNull();

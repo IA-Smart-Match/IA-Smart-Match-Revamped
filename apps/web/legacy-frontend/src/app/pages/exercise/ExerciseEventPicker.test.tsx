@@ -13,6 +13,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ExerciseEventPicker } from "./ExerciseEventPicker";
 
+// The status line makes three reads of its own and has its own tests
+// (`TeamStatusBand.test.tsx`, `TeamStatusBand.pages.test.tsx`). It is left out
+// here, so these tests count only the requests this page makes.
+vi.mock("./TeamStatusBand", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./TeamStatusBand")>()),
+  TeamStatusBand: () => null,
+}));
+
 let calls: string[] = [];
 
 function answer(body: unknown, status = 200): void {

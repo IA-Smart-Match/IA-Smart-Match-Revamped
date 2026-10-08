@@ -191,6 +191,8 @@ export function InstructorDatasets({
                 onLimit={(limit) =>
                   run("limit", async () => {
                     await setInviteLimit(dataset.dataset_id, limit);
+                    // Ann's checklist, section 2: "You see “Limit set to 25.”"
+                    setDone(`Limit set to ${limit}.`);
                     reload();
                   })
                 }

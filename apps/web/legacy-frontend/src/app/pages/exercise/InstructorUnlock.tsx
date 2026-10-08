@@ -21,6 +21,7 @@ import { Button, Notice } from "./desk";
 import { EventDescription } from "./EventDescription";
 import { ExerciseNotice } from "./ExerciseScreen";
 import { clockTime } from "./exerciseTime";
+import { useInlineConfirmGuard } from "./inlineConfirmGuard";
 import { useSignOutOnExpiredRead } from "./instructorSession";
 import { INSTRUCTOR_WELL, PanelCard, PanelSkeleton } from "./instructorUi";
 import { INSTRUCTOR_SESSION_REQUIRED, TEAMS_SPAN_DATASETS } from "./refusals";
@@ -245,6 +246,10 @@ export function UnlockPanel({
  * changes, focus lands on the event's name, which takes focus only from code:
  * never on the opposite action, so a repeated Enter cannot undo what was just
  * done.
+ *
+ * Because focus moves to the confirming button, the press that asked must not
+ * also answer: a held Enter or Space is ignored there, and so is a press in
+ * the first moments after the question opens (`useInlineConfirmGuard`).
  */
 function UnlockRow({
   event,
@@ -273,6 +278,7 @@ function UnlockRow({
   const asking: LockAction | null =
     confirming === null ? null : (confirming === "open") === !event.unlocked ? confirming : null;
   const was = React.useRef({ asking, unlocked: event.unlocked });
+  const guard = useInlineConfirmGuard(asking !== null);
 
   React.useEffect(() => {
     const before = was.current;
@@ -372,7 +378,12 @@ function UnlockRow({
               pendingLabel={asking === "open" ? "Opening…" : "Closing…"}
               disabled={disabled && !pending}
               className="w-full sm:w-auto"
-              onClick={() => onConfirm(asking)}
+              onKeyDown={guard.onKeyDown}
+              onClick={() => {
+                if (!guard.tooSoon()) {
+                  onConfirm(asking);
+                }
+              }}
             >
               {asking === "open" ? "Open results now" : "Close results now"}
             </Button>
@@ -429,6 +440,12 @@ const SPLIT_ACROSS_FILES =
 /** What the every-team button does, on the button itself (DESIGN.md §11.1). */
 export const REFRESH_ALL_LABEL = "Refresh every team that has chosen how to ask";
 
+/** What the every-team button asks before it sends anything (issue #321). */
+export const REFRESH_ALL_QUESTION =
+  "Refresh every team that has chosen how to ask? Each of those teams is refreshed once, " +
+  "and that cannot be undone or done again. Teams that have not chosen, and teams already " +
+  "refreshed, are not changed.";
+
 /**
  * Refresh every team that has chosen a way of asking and is not refreshed yet.
  *
@@ -442,8 +459,22 @@ export const REFRESH_ALL_LABEL = "Refresh every team that has chosen how to ask"
  * It is one request and all or nothing: if it is refused, no team is changed.
  * An expired session signs the page out.
  *
- * No "Are you sure?" step here: that is a separate change. `send` is the one
- * place the request is made, so a confirm can sit in front of it.
+ * **It asks first, in the panel** (issue #321; Ann, 2026-10-02: buttons that
+ * change work for everyone "ask “Are you sure?” first, and say exactly what
+ * will change"). The button opens the question in a sunk well, as opening
+ * results does: the scope sentence, "Refresh them now" and "Not yet". Only
+ * "Refresh them now" reaches `send`, the one place the request is made.
+ * "Not yet" and Escape put the button back and send nothing. No pop-up, and
+ * no timer: the sentence is too long to read against a five-second window.
+ *
+ * **The press that asks cannot also answer.** Focus moves to "Refresh them
+ * now", so a held Enter or Space is ignored there, and so is any press in the
+ * first moments after the question opens (`useInlineConfirmGuard`).
+ *
+ * **The question is read with its answer.** The well is a group named by the
+ * scope sentence, so a screen reader that lands on "Refresh them now" reads
+ * what it will change first. Named once: the sentence is not also the
+ * button's description, and it is not a live region.
  */
 export function RefreshAllPanel({
   onDone,
@@ -456,6 +487,24 @@ export function RefreshAllPanel({
   const [pending, setPending] = React.useState(false);
   const [done, setDone] = React.useState<RefreshAllView | null>(null);
   const [refusal, setRefusal] = React.useState<string | null>(null);
+  /** The question is on screen and nothing has been sent. */
+  const [confirming, setConfirming] = React.useState(false);
+  const askButton = React.useRef<HTMLButtonElement>(null);
+  const confirmButton = React.useRef<HTMLButtonElement>(null);
+  const wasConfirming = React.useRef(false);
+  const guard = useInlineConfirmGuard(confirming);
+  const questionId = React.useId();
+
+  // Focus is never dropped (§8.5): to the confirming button when the
+  // question appears, back to the panel's own button when it goes.
+  React.useEffect(() => {
+    if (confirming && !wasConfirming.current) {
+      confirmButton.current?.focus();
+    } else if (!confirming && wasConfirming.current && focusWasDropped()) {
+      askButton.current?.focus();
+    }
+    wasConfirming.current = confirming;
+  }, [confirming]);
 
   function send(): void {
     setPending(true);
@@ -481,17 +530,56 @@ export function RefreshAllPanel({
         refreshed yet. Teams that are not ready are skipped, and the list below says why. If it
         cannot be done, no team is changed.
       </p>
-      <div>
-        <Button
-          variant="secondary"
-          pending={pending}
-          pendingLabel="Refreshing every team…"
-          className="w-full sm:w-auto"
-          onClick={send}
+      {confirming ? (
+        <div
+          data-slot="exercise-refresh-all-confirm"
+          role="group"
+          aria-labelledby={questionId}
+          className={cn(INSTRUCTOR_WELL, "ce-fade-rise flex flex-col gap-ce-3")}
+          onKeyDown={(keyEvent) => {
+            if (keyEvent.key === "Escape") {
+              keyEvent.preventDefault();
+              setConfirming(false);
+            }
+          }}
         >
-          {REFRESH_ALL_LABEL}
-        </Button>
-      </div>
+          <p id={questionId} className="ce-type-body text-ce-ink">
+            {REFRESH_ALL_QUESTION}
+          </p>
+          <div className="flex flex-wrap items-center gap-ce-3">
+            <Button
+              ref={confirmButton}
+              className="w-full sm:w-auto"
+              onKeyDown={guard.onKeyDown}
+              onClick={() => {
+                if (guard.tooSoon()) {
+                  return;
+                }
+                setConfirming(false);
+                send();
+              }}
+            >
+              Refresh them now
+            </Button>
+            <Button variant="quiet" onClick={() => setConfirming(false)}>
+              Not yet
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div>
+          <Button
+            ref={askButton}
+            variant="secondary"
+            pending={pending}
+            pendingLabel="Refreshing every team…"
+            className="w-full sm:w-auto"
+            onClick={() => setConfirming(true)}
+          >
+            {REFRESH_ALL_LABEL}
+          </Button>
+        </div>
+      )}
       {refusal === null ? null : <ExerciseNotice message={refusal} />}
       {done === null ? null : <RefreshAllReport done={done} />}
     </PanelCard>
