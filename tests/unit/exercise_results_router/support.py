@@ -27,6 +27,7 @@ from smartmatch_api.exercise_dependencies import (
     ResultPanel,
     StoredResultRun,
     TeamResultsState,
+    WorkspaceRefreshStatus,
     get_active_dataset,
     get_dataset_repository,
     get_exercise_session,
@@ -428,6 +429,21 @@ class _FakeResultsRepository:
             if workspace.id in self.choices and workspace.id not in self.refreshed
         )
 
+    def workspaces_refresh_status(self, _session: object) -> tuple[WorkspaceRefreshStatus, ...]:
+        """Every team that exists, in team-number order (one data file here)."""
+        return tuple(
+            WorkspaceRefreshStatus(
+                workspace_id=workspace.id,
+                dataset_id=workspace.dataset_id,
+                dataset_label=workspace.dataset_label,
+                team_number=workspace.team_number,
+                asking_choice=self.choices.get(workspace.id),
+                refreshed_at=self.refreshed.get(workspace.id),
+                seed=self.workspaces.seeds[workspace.id],
+            )
+            for workspace in sorted(self.workspaces.rows.values(), key=lambda row: row.team_number)
+        )
+
     # -- writes -------------------------------------------------------------
 
     def record_run(
@@ -653,6 +669,26 @@ def _prepare_refresh(
     first = client.post(_RESULTS, json=_FINAL_BODY, headers=_HEADER).json()
     assert client.post(_ASKING, json={"choice": choice}, headers=_HEADER).status_code == 200
     return first
+
+
+def _run_round_one(fakes: _Fakes, client: TestClient) -> Mapping[str, object]:
+    """Unlock and run round one, which a team needs before it may choose how to ask."""
+    fakes.unlock("round-one")
+    response = client.post(_RESULTS, json=_FINAL_BODY, headers=_HEADER)
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+def _seed_choice(fakes: _Fakes, team_number: int, choice: str = "required") -> None:
+    """Store a choice for a team **without** the route.
+
+    The route refuses a choice before round one's results (Oct-2 checklist §6),
+    so "chosen, but no round one" can no longer be reached through it. The state
+    still exists — a row written before the gate — and the two routes that meet
+    it must still answer it.
+    """
+    workspace = fakes.workspaces.rows[(_DATASET_ID, team_number)]
+    fakes.results.choices[workspace.id] = choice
 
 
 def _instructor(fakes: _Fakes) -> TestClient:

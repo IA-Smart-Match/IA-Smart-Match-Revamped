@@ -16,76 +16,72 @@ import { ExerciseAskingForMore } from "./ExerciseAskingForMore";
 
 let calls: { url: string; init: RequestInit }[] = [];
 
+const ASKING = "/v1/exercise/workspaces/current/asking-choice";
+const REFRESH = "/v1/exercise/workspaces/current/refresh";
+
+/** A local wall-clock time with no zone, so it reads "10:42 AM" in any zone. */
+const AT = "2026-10-16T10:42:00";
+
 /**
- * Answer the routes a test names. Unless it says otherwise, the team has run
- * its first round, so the refresh button is judged on what the test is about.
+ * The asking response's facts about the first round and the refresh, as the
+ * server sends them for a team that has run round one and not refreshed. A
+ * test's own body wins, so each test states only what it is about.
  */
-function stub(named: Record<string, { body: unknown; status?: number }>): void {
-  const answers: Record<string, { body: unknown; status?: number }> = {
-    ...ROUND_ONE_RUN,
-    ...named,
+const ASKING_DEFAULTS = {
+  refreshed_at: null,
+  refresh_counts: null,
+  first_round_results: true,
+  first_round_event_name: "Northline Career Fair",
+};
+
+/** An asking body with the defaults filled in; refusals pass through. */
+function asking(body: unknown): unknown {
+  if (typeof body !== "object" || body === null || "error" in body) {
+    return body;
+  }
+  return { ...ASKING_DEFAULTS, ...body };
+}
+
+/** The full counts shape, from the three a test cares about. */
+function counts(three: { cards_completed: number; non_responding: number; topics_added: number }) {
+  return {
+    ...three,
+    invited_without_card: 22,
+    marker_counts_before: { major_only: 166, major_plus_events: 64, completed_card: 70 },
+    marker_counts_after: {
+      major_only: 166 - three.topics_added,
+      major_plus_events: 64 + three.topics_added - three.cards_completed,
+      completed_card: 70 + three.cards_completed,
+    },
   };
+}
+
+/** `POST …/refresh`'s answer for three counts. */
+function refreshView(three: { cards_completed: number; non_responding: number; topics_added: number }) {
+  return { choice: "required", ...three, refreshed_at: AT, refresh_counts: counts(three) };
+}
+
+/** The body the fake server sends for one request: asking bodies get the defaults. */
+function sent(url: string, body: unknown): string {
+  return JSON.stringify(url === ASKING ? asking(body) : body);
+}
+
+/** Answer the routes a test names; anything else is a 404. */
+function stub(named: Record<string, { body: unknown; status?: number }>): void {
   vi.stubGlobal(
     "fetch",
     vi.fn((url: string, init: RequestInit) => {
       calls.push({ url, init });
       const key = `${init.method ?? "GET"} ${url}`;
-      const answer = answers[key] ??
-        answers[url] ?? {
+      const answer = named[key] ??
+        named[url] ?? {
           body: { error: { code: "test_unstubbed", message: key } },
           status: 404,
         };
-      return Promise.resolve(
-        new Response(JSON.stringify(answer.body), { status: answer.status ?? 200 }),
-      );
+      return Promise.resolve(new Response(sent(url, answer.body), { status: answer.status ?? 200 }));
     }),
   );
 }
-
-const ASKING = "/v1/exercise/workspaces/current/asking-choice";
-const REFRESH = "/v1/exercise/workspaces/current/refresh";
-const EVENTS = "/v1/exercise/workspaces/current/events";
-const ROUND_ONE_RESULTS = "/v1/exercise/workspaces/current/events/round-one/results";
-
-function event(key: string, name: string, isExerciseEvent: boolean, sequence: number) {
-  return {
-    event_key: key,
-    name,
-    topic_tags: [],
-    target_majors: [],
-    is_exercise_event: isExerciseEvent,
-    sequence,
-  };
-}
-
-/** A past event and the two rounds, deliberately out of file order. */
-const EVENTS_VIEW = {
-  events: [
-    event("round-two", "Harbor Industry Panel", true, 12),
-    event("past-one", "A past event", false, 1),
-    event("round-one", "Northline Career Fair", true, 11),
-  ],
-};
-
-/** The stubs for a team that has already run its first round. */
-const ROUND_ONE_RUN = {
-  [`GET ${EVENTS}`]: { body: EVENTS_VIEW },
-  [`GET ${ROUND_ONE_RESULTS}`]: { body: { event_key: "round-one", round: 1 } },
-};
-
-/** The stubs for a team that has not run its first round yet. */
-const ROUND_ONE_NOT_RUN = {
-  [`GET ${EVENTS}`]: { body: EVENTS_VIEW },
-  [`GET ${ROUND_ONE_RESULTS}`]: {
-    body: {
-      error: {
-        code: "exercise_results_not_run",
-        message: "Your team has not run results for this event yet.",
-      },
-    },
-    status: 404,
-  },
-};
 
 function renderAsking() {
   const router = createMemoryRouter(
@@ -122,9 +118,8 @@ function isShut(button: HTMLElement): boolean {
 }
 
 /**
- * Answer by `METHOD url` and call count, with the first round already run:
- * `"offline"` stands for a request that never reached the server, and `null`
- * falls through to a 404.
+ * Answer by `METHOD url` and call count: `"offline"` stands for a request that
+ * never reached the server, and `null` falls through to a 404.
  */
 function stubBy(
   answer: (key: string, count: number) => { body: unknown; status?: number } | "offline" | null,
@@ -137,8 +132,7 @@ function stubBy(
       const key = `${init.method ?? "GET"} ${url}`;
       const count = (counts.get(key) ?? 0) + 1;
       counts.set(key, count);
-      const roundOne: Record<string, { body: unknown; status?: number }> = ROUND_ONE_RUN;
-      const found = answer(key, count) ?? roundOne[key] ?? null;
+      const found = answer(key, count);
       if (found === "offline") {
         return Promise.reject(new TypeError("offline"));
       }
@@ -146,7 +140,7 @@ function stubBy(
         body: { error: { code: "test_unstubbed", message: key } },
         status: 404,
       };
-      return Promise.resolve(new Response(JSON.stringify(body), { status: status ?? 200 }));
+      return Promise.resolve(new Response(sent(url, body), { status: status ?? 200 }));
     }),
   );
 }
@@ -265,18 +259,13 @@ describe("<ExerciseAskingForMore />", () => {
   });
 
   it("keeps the once-only refresh counts on screen after the reload settles", async () => {
-    // F3. A team may refresh once, ever, and `GET …/asking-choice` reports only
-    // *that* it has — never what happened. So these three numbers exist in
-    // exactly one response and nothing can fetch them again.
+    // F3. The counts were once held by `AskingPanels`: the refresh called
+    // `onChanged()`, the reload dropped the hook to `loading`, and the panel
+    // unmounted, taking them with it. Asserting *after* the reload's own
+    // request has landed is what catches it.
     //
-    // Fails on the merged code: the counts were held by `AskingPanels`, the
-    // refresh called `onChanged()`, the reload dropped the hook to `loading`,
-    // and the panel unmounted — taking them with it. Asserting *after* the
-    // reload's own request has landed is what catches it; the old test looked
-    // at a DOM that was about to be thrown away.
-    //
-    // The reload here says `refreshed: true` with no `refresh_counts`, as a
-    // server from before B4 does: this browser's copy is then the only one.
+    // The reload here says `refreshed: true` with no `refresh_counts`, so this
+    // browser's copy of its own press is the only one and must stay.
     let refreshedOnServer = false;
     vi.stubGlobal(
       "fetch",
@@ -284,18 +273,15 @@ describe("<ExerciseAskingForMore />", () => {
         calls.push({ url, init });
         const method = init.method ?? "GET";
         const json = (body: unknown) =>
-          Promise.resolve(new Response(JSON.stringify(body), { status: 200 }));
+          Promise.resolve(new Response(sent(url, body), { status: 200 }));
         if (url === ASKING && method === "GET") {
           return json({ choice: "required", choices: ["required"], refreshed: refreshedOnServer });
         }
         if (url === REFRESH && method === "POST") {
           refreshedOnServer = true;
-          return json({ choice: "required", cards_completed: 14, non_responding: 3, topics_added: 22 });
+          return json(refreshView({ cards_completed: 14, non_responding: 3, topics_added: 22 }));
         }
-        const roundOne = ROUND_ONE_RUN[`${method} ${url}`];
-        return roundOne === undefined
-          ? Promise.resolve(new Response("{}", { status: 404 }))
-          : json(roundOne.body);
+        return Promise.resolve(new Response("{}", { status: 404 }));
       }),
     );
     renderAsking();
@@ -307,11 +293,11 @@ describe("<ExerciseAskingForMore />", () => {
     // Let the reload's answer settle before looking.
     await new Promise((resolve) => setTimeout(resolve, 50));
 
-    const counts = document.querySelector('[data-slot="exercise-refresh-counts"]');
-    expect(counts).not.toBeNull();
-    expect(counts?.textContent).toContain("14");
-    expect(counts?.textContent).toContain("3");
-    expect(counts?.textContent).toContain("22");
+    const band = document.querySelector('[data-slot="exercise-refresh-counts"]');
+    expect(band).not.toBeNull();
+    expect(band?.textContent).toContain("14");
+    expect(band?.textContent).toContain("3");
+    expect(band?.textContent).toContain("22");
     expect(document.body.textContent).not.toContain("%");
   });
 
@@ -335,7 +321,7 @@ describe("<ExerciseAskingForMore />", () => {
           if (getCount === 1) {
             return Promise.resolve(
               new Response(
-                JSON.stringify({ choice: "required", choices: ["required"], refreshed: false }),
+                sent(url, { choice: "required", choices: ["required"], refreshed: false }),
                 { status: 200 },
               ),
             );
@@ -345,20 +331,23 @@ describe("<ExerciseAskingForMore />", () => {
             releaseSecondGet = () =>
               resolve(
                 new Response(
-                  JSON.stringify({ choice: "required", choices: ["required"], refreshed: true }),
+                  sent(url, {
+                    choice: "required",
+                    choices: ["required"],
+                    refreshed: true,
+                    refreshed_at: AT,
+                  }),
                   { status: 200 },
                 ),
               );
           });
         }
-        const roundOne = ROUND_ONE_RUN[`${method} ${url}`];
-        if (roundOne !== undefined) {
-          return Promise.resolve(new Response(JSON.stringify(roundOne.body), { status: 200 }));
-        }
         if (url === REFRESH && method === "POST") {
           return Promise.resolve(
             new Response(
-              JSON.stringify({ choice: "required", cards_completed: 1, non_responding: 0, topics_added: 0 }),
+              JSON.stringify(
+                refreshView({ cards_completed: 1, non_responding: 0, topics_added: 0 }),
+              ),
               { status: 200 },
             ),
           );
@@ -386,7 +375,7 @@ describe("<ExerciseAskingForMore />", () => {
 
     releaseSecondGet?.();
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: /your team has already asked/i })).toBeDefined(),
+      expect(screen.getByRole("button", { name: "Already refreshed at 10:42 AM" })).toBeDefined(),
     );
     expect(calls.filter((call) => call.url === REFRESH).length).toBe(1);
   });
@@ -403,8 +392,8 @@ describe("<ExerciseAskingForMore />", () => {
         },
         status: 409,
       },
-      // `stub` answers that round one has run; the server disagrees by the
-      // time the press lands. Its sentence is still the answer.
+      // The read said round one has run; the server disagrees by the time
+      // the press lands. Its sentence is still the answer.
     });
     renderAsking();
     fireEvent.click(await screen.findByRole("button", { name: /ask them now/i }));
@@ -417,8 +406,14 @@ describe("<ExerciseAskingForMore />", () => {
 
   it("keeps the refresh shut until the team has run its first round, and says why", async () => {
     stub({
-      [`GET ${ASKING}`]: { body: { choice: "required", choices: ["required"], refreshed: false } },
-      ...ROUND_ONE_NOT_RUN,
+      [`GET ${ASKING}`]: {
+        body: {
+          choice: "required",
+          choices: ["required"],
+          refreshed: false,
+          first_round_results: false,
+        },
+      },
     });
     renderAsking();
     const ask = (await screen.findByRole("button", {
@@ -430,13 +425,35 @@ describe("<ExerciseAskingForMore />", () => {
       ).toBeDefined(),
     );
     expect(isShut(ask)).toBe(true);
-    expect(calls.some((call) => call.url === ROUND_ONE_RESULTS)).toBe(true);
+    // The asking response says it; the screen asks for nothing else.
+    expect(calls.map((call) => call.url)).toEqual([ASKING]);
+  });
+
+  it("shows the choice only after the team has its round-one results, and says why", async () => {
+    // Ann, 2026-10-02: "The choice appears only after the team has its
+    // round-one results."
+    stub({
+      [`GET ${ASKING}`]: {
+        body: {
+          choice: null,
+          choices: ["better_recommendations", "small_reward", "required"],
+          refreshed: false,
+          first_round_results: false,
+        },
+      },
+    });
+    renderAsking();
+    await screen.findByText(
+      "Your team picks a way of asking after it has its results for Northline Career Fair.",
+    );
+    expect(screen.queryByRole("radiogroup")).toBeNull();
+    expect(screen.queryByRole("button", { name: /choose this way/i })).toBeNull();
+    expect(calls.some((call) => call.init.method === "POST")).toBe(false);
   });
 
   it("opens the refresh once the first round's results exist", async () => {
     stub({
       [`GET ${ASKING}`]: { body: { choice: "required", choices: ["required"], refreshed: false } },
-      ...ROUND_ONE_RUN,
     });
     renderAsking();
     const ask = (await screen.findByRole("button", {
@@ -444,15 +461,21 @@ describe("<ExerciseAskingForMore />", () => {
     })) as HTMLButtonElement;
     await waitFor(() => expect(isShut(ask)).toBe(false));
     expect(screen.queryByText(/before asking\./i)).toBeNull();
-    // The round is read off the file by `is_exercise_event` and `sequence`,
-    // never by name, so the second round's results are never asked for.
-    expect(calls.some((call) => call.url.includes("/round-two/"))).toBe(false);
+    // Which event is round one is the server's answer; no event is read here.
+    expect(calls.map((call) => call.url)).toEqual([ASKING]);
   });
 
   it("names no event when the file has no rounds, and keeps the refresh shut", async () => {
     stub({
-      [`GET ${ASKING}`]: { body: { choice: "required", choices: ["required"], refreshed: false } },
-      [`GET ${EVENTS}`]: { body: { events: [event("past-one", "A past event", false, 1)] } },
+      [`GET ${ASKING}`]: {
+        body: {
+          choice: "required",
+          choices: ["required"],
+          refreshed: false,
+          first_round_results: false,
+          first_round_event_name: null,
+        },
+      },
     });
     renderAsking();
     const ask = (await screen.findByRole("button", {
@@ -462,54 +485,175 @@ describe("<ExerciseAskingForMore />", () => {
     expect(
       screen.getByText("Run your team's results for the first event before asking."),
     ).toBeDefined();
-    expect(calls.some((call) => call.url.endsWith("/results"))).toBe(false);
-  });
-
-  it("shows any other refusal from the first-round read as the screen's refusal", async () => {
-    stub({
-      [`GET ${ASKING}`]: { body: { choice: "required", choices: ["required"], refreshed: false } },
-      [`GET ${ROUND_ONE_RESULTS}`]: {
-        body: {
-          error: {
-            code: "exercise_workspace_required",
-            message: "Enter your team number to open your team's workspace.",
-          },
-        },
-        status: 401,
-      },
-    });
-    renderAsking();
-    await screen.findByText("Enter your team number to open your team's workspace.");
-    expect(screen.getByRole("link", { name: /enter your team number/i })).toBeDefined();
-    expect(screen.queryByRole("button", { name: /ask them now/i })).toBeNull();
   });
 
   it("shows the stored counts whenever the team has asked, after any reload (B4)", async () => {
     // M2 B4: the counts used to live only in the POST's answer, so a reload, a
-    // second browser, or the instructor's "Ask for every team" left a team
-    // with "already asked" and no idea what happened. The asking GET now
-    // carries them.
+    // second browser, or the instructor's every-team button left a team with
+    // a shut button and no idea what happened. The asking GET now carries them.
     stub({
       [`GET ${ASKING}`]: {
         body: {
           choice: "small_reward",
           choices: ["small_reward"],
           refreshed: true,
-          refresh_counts: { cards_completed: 9, non_responding: 0, topics_added: 17 },
+          refreshed_at: AT,
+          refresh_counts: counts({ cards_completed: 9, non_responding: 0, topics_added: 17 }),
         },
       },
     });
     renderAsking();
-    const counts = await waitFor(() => {
+    const band = await waitFor(() => {
       const found = document.querySelector('[data-slot="exercise-refresh-counts"]');
       expect(found).not.toBeNull();
       return found as HTMLElement;
     });
-    expect(counts.textContent).toContain("Cards filled in9");
-    expect(counts.textContent).toContain("Stopped opening messages0");
+    expect(band.textContent).toContain("Cards filled in9");
+    expect(band.textContent).toContain("Stopped opening messages0");
     // `topics_added` counts people who gained topics, not topics.
-    expect(counts.textContent).toContain("Picked up the first event's topics17");
+    expect(band.textContent).toContain("Picked up the first event's topics17");
     expect(calls.some((call) => call.init.method === "POST")).toBe(false);
+  });
+
+  it("says in plain words when the refresh happened and what it changed, after any reload", async () => {
+    // Ann, 2026-10-02, checklist section 6, word for word.
+    stub({
+      [`GET ${ASKING}`]: {
+        body: {
+          choice: "small_reward",
+          choices: ["small_reward"],
+          refreshed: true,
+          refreshed_at: AT,
+          first_round_event_name: "Northline",
+          refresh_counts: counts({ cards_completed: 12, non_responding: 0, topics_added: 9 }),
+        },
+      },
+    });
+    renderAsking();
+    const summary = await waitFor(() => {
+      const found = document.querySelector('[data-slot="exercise-refresh-summary"]');
+      expect(found).not.toBeNull();
+      return found as HTMLElement;
+    });
+    expect(summary.textContent).toContain(
+      "Refresh done at 10:42 AM. 9 people who came to Northline now count as having gone to a similar event. 12 of the 22 invited people with no card completed one. 0 people stopped responding.",
+    );
+    expect(document.body.textContent).not.toContain("%");
+  });
+
+  it("shows the how-much-we-know counts for every profile, before and after", async () => {
+    stub({
+      [`GET ${ASKING}`]: {
+        body: {
+          choice: "small_reward",
+          choices: ["small_reward"],
+          refreshed: true,
+          refreshed_at: AT,
+          refresh_counts: counts({ cards_completed: 12, non_responding: 0, topics_added: 9 }),
+        },
+      },
+    });
+    renderAsking();
+    const strip = await waitFor(() => {
+      const found = document.querySelector('[data-slot="exercise-refresh-before-after"]');
+      expect(found).not.toBeNull();
+      return found as HTMLElement;
+    });
+    expect(strip.textContent).toContain("How much we know, all 300 profiles, before and after");
+    const lines = [...strip.querySelectorAll("li")];
+    expect(lines.map((line) => line.getAttribute("data-marker"))).toEqual([
+      "completed_card",
+      "major_plus_events",
+      "major_only",
+    ]);
+    // What is drawn, and what a screen reader hears instead of the arrow.
+    expect(lines[0].textContent).toBe("Completed card: 70 → 8270 before, 82 after");
+    expect(lines[0].querySelector("[aria-hidden='true']")?.textContent).toBe("70 → 82");
+    expect(lines[0].querySelector(".sr-only")?.textContent).toBe("70 before, 82 after");
+  });
+
+  it("announces the summary once, in a live region that was there before the press", async () => {
+    // A notice that mounts already filled is often not read out; a line that
+    // is there first and then filled is. The notice itself is not a second one.
+    const said =
+      "Refresh done at 10:42 AM. 6 people who came to Northline now count as having gone to a similar event. 4 of the 22 invited people with no card completed one. 1 person stopped responding.";
+    const view = refreshView({ cards_completed: 4, non_responding: 1, topics_added: 6 });
+    const before = {
+      choice: "required",
+      choices: ["required"],
+      refreshed: false,
+      first_round_event_name: "Northline",
+    };
+    let pressed = false;
+    stubBy((key) => {
+      if (key === `GET ${ASKING}`) {
+        return {
+          body: pressed
+            ? { ...before, refreshed: true, refreshed_at: AT, refresh_counts: view.refresh_counts }
+            : before,
+        };
+      }
+      if (key === `POST ${REFRESH}`) {
+        pressed = true;
+        return { body: view };
+      }
+      return null;
+    });
+    renderAsking();
+    const ask = await screen.findByRole("button", { name: /ask them now/i });
+    const live = document.querySelector('[data-slot="exercise-refresh-announce"]');
+    expect(live?.getAttribute("aria-live")).toBe("polite");
+    expect(live?.className).toContain("sr-only");
+    expect(live?.textContent).toBe("");
+
+    fireEvent.click(ask);
+
+    await waitFor(() => expect(live?.textContent).toBe(said));
+    expect(document.querySelector('[data-slot="exercise-refresh-announce"]')).toBe(live);
+    const summary = document.querySelector('[data-slot="exercise-refresh-summary"]') as HTMLElement;
+    expect(summary.textContent).toContain(said);
+    expect(within(summary).queryByRole("status")).toBeNull();
+    expect(summary.querySelector("[aria-live]")).toBeNull();
+  });
+
+  it("answers a second press from another tab with the time, not an error", async () => {
+    // Ann: "Pressing refresh a second time does nothing and says 'Already
+    // refreshed at 10:42 AM.'" This tab's read predates the other tab's press.
+    stubBy((key, count) => {
+      if (key === `GET ${ASKING}`) {
+        return count === 1
+          ? { body: { choice: "required", choices: ["required"], refreshed: false } }
+          : {
+              body: {
+                choice: "required",
+                choices: ["required"],
+                refreshed: true,
+                refreshed_at: AT,
+                refresh_counts: counts({ cards_completed: 4, non_responding: 1, topics_added: 6 }),
+              },
+            };
+      }
+      if (key === `POST ${REFRESH}`) {
+        return {
+          body: {
+            error: {
+              code: "exercise_already_refreshed",
+              message: "Your team has already asked the people it invited.",
+            },
+          },
+          status: 409,
+        };
+      }
+      return null;
+    });
+    renderAsking();
+    fireEvent.click(await screen.findByRole("button", { name: /ask them now/i }));
+    const shut = await screen.findByRole("button", { name: "Already refreshed at 10:42 AM" });
+    expect(isShut(shut)).toBe(true);
+    expect(screen.queryByText("Your team has already asked the people it invited.")).toBeNull();
+    fireEvent.click(shut);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(postsTo(REFRESH)).toBe(1);
   });
 
   it("drops this browser's counts once the server says the team has not asked", async () => {
@@ -522,7 +666,7 @@ describe("<ExerciseAskingForMore />", () => {
         calls.push({ url, init });
         const method = init.method ?? "GET";
         const json = (body: unknown) =>
-          Promise.resolve(new Response(JSON.stringify(body), { status: 200 }));
+          Promise.resolve(new Response(sent(url, body), { status: 200 }));
         if (url === ASKING && method === "GET") {
           return json({
             choice: "required",
@@ -532,12 +676,9 @@ describe("<ExerciseAskingForMore />", () => {
           });
         }
         if (url === REFRESH && method === "POST") {
-          return json({ choice: "required", cards_completed: 4, non_responding: 1, topics_added: 6 });
+          return json(refreshView({ cards_completed: 4, non_responding: 1, topics_added: 6 }));
         }
-        const roundOne = ROUND_ONE_RUN[`${method} ${url}`];
-        return roundOne === undefined
-          ? Promise.resolve(new Response("{}", { status: 404 }))
-          : json(roundOne.body);
+        return Promise.resolve(new Response("{}", { status: 404 }));
       }),
     );
     renderAsking();
@@ -546,6 +687,8 @@ describe("<ExerciseAskingForMore />", () => {
     await waitFor(() => expect(calls.filter((call) => call.url === ASKING).length).toBe(2));
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(document.querySelector('[data-slot="exercise-refresh-counts"]')).toBeNull();
+    expect(document.querySelector('[data-slot="exercise-refresh-summary"]')).toBeNull();
+    expect(screen.getByRole("button", { name: /ask them now/i })).toBeDefined();
     expect(refreshedOnServer).toBe(false);
   });
 
@@ -558,14 +701,18 @@ describe("<ExerciseAskingForMore />", () => {
     renderAsking();
     await screen.findByRole("button", { name: /ask them now/i });
     expect(document.querySelector('[data-slot="exercise-refresh-counts"]')).toBeNull();
+    expect(document.querySelector('[data-slot="exercise-refresh-summary"]')).toBeNull();
   });
 
-  it("does not look for first-round results once the team has asked", async () => {
+  it("says so on the shut button itself, with the time, and reads nothing else", async () => {
     stub({
-      [`GET ${ASKING}`]: { body: { choice: "required", choices: ["required"], refreshed: true } },
+      [`GET ${ASKING}`]: {
+        body: { choice: "required", choices: ["required"], refreshed: true, refreshed_at: AT },
+      },
     });
     renderAsking();
-    await screen.findByRole("button", { name: /your team has already asked/i });
+    const shut = await screen.findByRole("button", { name: "Already refreshed at 10:42 AM" });
+    expect(isShut(shut)).toBe(true);
     expect(calls.map((call) => call.url)).toEqual([ASKING]);
   });
 
@@ -682,8 +829,14 @@ describe("<ExerciseAskingForMore /> — the invitation desk (§6.18, §6.19, §7
     first.unmount();
     // …and for want of a first-round run.
     stub({
-      ...ROUND_ONE_NOT_RUN,
-      [`GET ${ASKING}`]: { body: { choice: "required", choices: ["required"], refreshed: false } },
+      [`GET ${ASKING}`]: {
+        body: {
+          choice: "required",
+          choices: ["required"],
+          refreshed: false,
+          first_round_results: false,
+        },
+      },
     });
     renderAsking();
     await screen.findByText(/before asking\./i);
@@ -821,20 +974,21 @@ describe("<ExerciseAskingForMore /> — the invitation desk (§6.18, §6.19, §7
           choice: "small_reward",
           choices: ["small_reward"],
           refreshed: true,
-          refresh_counts: { cards_completed: 9, non_responding: 0, topics_added: 34 },
+          refreshed_at: AT,
+          refresh_counts: counts({ cards_completed: 9, non_responding: 0, topics_added: 34 }),
         },
       },
     });
     renderAsking();
-    const counts = await waitFor(() => {
+    const band = await waitFor(() => {
       const found = document.querySelector('[data-slot="exercise-refresh-counts"]');
       expect(found).not.toBeNull();
       return found as HTMLElement;
     });
     // The figure a screen reader hears is the final number, never the count-up.
-    const spoken = [...counts.querySelectorAll("dd .sr-only")].map((node) => node.textContent);
+    const spoken = [...band.querySelectorAll("dd .sr-only")].map((node) => node.textContent);
     expect(spoken).toEqual(["9", "0", "34"]);
-    for (const ticking of counts.querySelectorAll("dd [aria-hidden='true']")) {
+    for (const ticking of band.querySelectorAll("dd [aria-hidden='true']")) {
       expect(ticking.classList.contains("ce-type-display")).toBe(true);
     }
   });
@@ -842,7 +996,7 @@ describe("<ExerciseAskingForMore /> — the invitation desk (§6.18, §6.19, §7
 
 describe("<ExerciseAskingForMore /> — once-only presses the server confirmed", () => {
   const CHOSEN = { choice: "required", choices: ["required"], refreshed: false };
-  const COUNTS = { choice: "required", cards_completed: 8, non_responding: 2, topics_added: 5 };
+  const COUNTS = refreshView({ cards_completed: 8, non_responding: 2, topics_added: 5 });
 
   it("sends one refresh POST for two presses in the same tick", async () => {
     stubBy((key) => {
@@ -871,16 +1025,16 @@ describe("<ExerciseAskingForMore /> — once-only presses the server confirmed",
     fireEvent.click(await screen.findByRole("button", { name: /ask them now/i }));
 
     await waitFor(() => expect(screen.getByText(/could not be reached/i)).toBeDefined());
-    const shut = screen.getByRole("button", { name: /your team has already asked/i });
+    const shut = screen.getByRole("button", { name: "Already refreshed at 10:42 AM" });
     expect(isShut(shut)).toBe(true);
     fireEvent.click(shut);
     expect(postsTo(REFRESH)).toBe(1);
 
-    const counts = document.querySelector('[data-slot="exercise-refresh-counts"]');
-    expect(counts?.textContent).toContain("Cards filled in8");
-    // Announced once, in full, for a screen reader.
-    expect(document.querySelector('[data-slot="exercise-refresh-announce"]')?.textContent).toBe(
-      "Your team asked. Cards filled in: 8. Stopped opening messages: 2. Picked up the first event's topics: 5.",
+    const band = document.querySelector('[data-slot="exercise-refresh-counts"]');
+    expect(band?.textContent).toContain("Cards filled in8");
+    const summary = document.querySelector('[data-slot="exercise-refresh-summary"]') as HTMLElement;
+    expect(summary.textContent).toContain(
+      "Refresh done at 10:42 AM. 5 people who came to Northline Career Fair now count as having gone to a similar event. 8 of the 22 invited people with no card completed one. 2 people stopped responding.",
     );
 
     // "Try again" is the only way back to the server, and the server's word wins.

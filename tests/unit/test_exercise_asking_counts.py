@@ -35,6 +35,7 @@ from tests.unit.exercise_results_router.support import (
     _Fakes,
     _instructor,
     _prepare_refresh,
+    _run_round_one,
 )
 
 _COUNT_KEYS = ("cards_completed", "non_responding", "topics_added")
@@ -77,11 +78,8 @@ def test_the_counts_survive_a_reload(
 
     read = client.get(_ASKING).json()["refresh_counts"]
 
-    assert read == {
-        "cards_completed": posted["cards_completed"],
-        "non_responding": posted["non_responding"],
-        "topics_added": posted["topics_added"],
-    }
+    assert {key: read[key] for key in _COUNT_KEYS} == {key: posted[key] for key in _COUNT_KEYS}
+    assert read == posted["refresh_counts"]
     assert read["non_responding"] >= 1
 
 
@@ -110,7 +108,7 @@ def test_a_team_the_instructor_refreshed_reads_its_counts(
         read = two.get(_ASKING).json()["refresh_counts"]
 
     assert refreshed["refreshed_team_numbers"] == [2]
-    assert read == {key: by_hand[key] for key in _COUNT_KEYS}
+    assert read == by_hand["refresh_counts"]
     assert read["cards_completed"] >= 1
 
 
@@ -132,14 +130,15 @@ def test_a_round_one_with_no_topics_reports_no_topics_added_both_ways(
         read = client.get(_ASKING).json()["refresh_counts"]
 
     assert posted["topics_added"] == 0
-    assert read == {key: posted[key] for key in _COUNT_KEYS}
+    assert read == posted["refresh_counts"]
+    assert read["topics_added"] == 0
 
 
 def test_the_choice_route_answers_without_counts(
     fakes: _Fakes, client: TestClient, confirmed: SimulationCoefficients
 ) -> None:
     """Choosing happens before any refresh, so its answer carries none."""
-    fakes.unlock("round-one")
+    _run_round_one(fakes, client)
     response = client.post(_ASKING, json={"choice": "small_reward"}, headers=_HEADER)
     assert response.status_code == 200
     assert response.json()["refresh_counts"] is None

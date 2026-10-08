@@ -22,12 +22,12 @@ from fastapi.testclient import TestClient
 from smartmatch_domain.exercise.simulation import SimulationCoefficients
 
 from tests.unit.exercise_results_router.support import (
-    _ASKING,
     _FINAL_BODY,
     _HEADER,
     _REFRESH,
     _RESULTS,
     _Fakes,
+    _seed_choice,
 )
 
 #: Keyword arguments whose string is a sentence a person reads.
@@ -110,9 +110,10 @@ def test_asking_before_choosing_is_refused_in_the_products_words(
 
 
 def test_asking_before_the_first_round_is_refused_in_the_products_words(
+    fakes: _Fakes,
     client: TestClient,
 ) -> None:
-    assert client.post(_ASKING, json={"choice": "required"}, headers=_HEADER).status_code == 200
+    _seed_choice(fakes, 1)
 
     response = client.post(_REFRESH, json={}, headers=_HEADER)
 

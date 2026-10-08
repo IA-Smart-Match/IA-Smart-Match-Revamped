@@ -103,8 +103,10 @@ __all__ = [
     "SavedSettingsView",
     "event_evidence",
     "event_or_refusal",
+    "first_round_event",
     "rankable_set",
     "ranked_list_view",
+    "refresh_marks_for",
     "saved_setting_view",
 ]
 
@@ -142,12 +144,15 @@ class ProfileFacts:
         class_year: The year, as the data file spells it.
         marker: Which of design spec §7's three groups the profile is in, under
             *this team's* overlay.
+        refresh_marks: What this team's refresh changed about the profile, as
+            :func:`refresh_marks_for` names it. Empty before the refresh.
     """
 
     display_name: str
     major: str
     class_year: str
     marker: InformationMarker
+    refresh_marks: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -163,12 +168,15 @@ class RankableSet:
             data file records no major or no year for them. A count, not a
             score: it tells a team that the list is drawn from fewer than the
             whole file, which is a fact it would otherwise have to infer.
+        first_round_event_name: The first round's event, as the file spells it,
+            or ``None`` for a file with no round. What a ``new_event`` mark names.
     """
 
     profiles: tuple[ExerciseProfile, ...]
     facts: Mapping[int, ProfileFacts]
     year_rank: Mapping[str, int]
     unrankable_profile_count: int
+    first_round_event_name: str | None = None
 
 
 def event_or_refusal(events: Sequence[ExerciseEventRow], event_key: str) -> ExerciseEventRow:
@@ -203,6 +211,42 @@ def event_or_refusal(events: Sequence[ExerciseEventRow], event_key: str) -> Exer
         code="exercise_event_unknown",
         message="That event is not in your team's data file.",
     )
+
+
+def first_round_event(events: Sequence[ExerciseEventRow]) -> ExerciseEventRow | None:
+    """The first of the events the teams run, by its place in the data file.
+
+    Read off ``is_exercise_event`` and ``sequence``, never off a name: the
+    events' names are Ann's data and may change from one file to the next.
+    ``None`` for a file that carries no such event.
+    """
+    rounds = sorted((e for e in events if e.is_exercise_event), key=lambda e: e.sequence)
+    return rounds[0] if rounds else None
+
+
+#: The marks a list entry may carry, in the order they are listed. Wire values;
+#: the screen owns the words ("New card", "New: went to Northline", "Stopped
+#: responding").
+REFRESH_MARK_NEW_CARD: Final[str] = "new_card"
+REFRESH_MARK_NEW_EVENT: Final[str] = "new_event"
+REFRESH_MARK_STOPPED_RESPONDING: Final[str] = "stopped_responding"
+
+
+def refresh_marks_for(profile: TeamProfileRow) -> tuple[str, ...]:
+    """What this team's refresh changed about one profile (Ann, 2026-10-02).
+
+    Read from the overlay's own columns, which only the refresh writes and a
+    reset clears — so a mark is on one team's list and nobody else's, and says
+    *that* something changed, never what a card holds. A profile can carry more
+    than one: somebody who attended round one and then filled in a card gained
+    both, and the list says both rather than picking.
+    """
+    found = (
+        (REFRESH_MARK_NEW_CARD, profile.overlay_card_interests is not None),
+        (REFRESH_MARK_NEW_EVENT, bool(profile.overlay_added_event_topics)),
+        (REFRESH_MARK_STOPPED_RESPONDING, profile.non_responding),
+    )
+    return tuple(mark for mark, applies in found if applies)
 
 
 def event_evidence(event: ExerciseEventRow) -> EventEvidence:
@@ -291,6 +335,7 @@ def rankable_set(
     already accepted.
     """
     topics_by_event_key = {event.event_key: event.topic_tags for event in events}
+    first_round = first_round_event(events)
     ranked: list[ExerciseProfile] = []
     facts: dict[int, ProfileFacts] = {}
     unrankable = 0
@@ -313,12 +358,14 @@ def rankable_set(
             major=evidence.major,
             class_year=class_year,
             marker=derive_marker(evidence),
+            refresh_marks=refresh_marks_for(profile),
         )
     return RankableSet(
         profiles=tuple(ranked),
         facts=facts,
         year_rank=EXERCISE_CLASS_YEAR_RANK,
         unrankable_profile_count=unrankable,
+        first_round_event_name=None if first_round is None else first_round.name,
     )
 
 
@@ -412,6 +459,14 @@ class ListEntryView(BaseModel):
             "not numbers — render them through `factor_labels`."
         ),
     )
+    refresh_marks: list[str] = Field(
+        default_factory=list,
+        description=(
+            "What your team's refresh changed about this profile, if anything: "
+            "`new_card`, `new_event` (it attended the first round's event), "
+            "`stopped_responding`. Empty before the refresh. May hold several."
+        ),
+    )
 
 
 class GroupCountsView(BaseModel):
@@ -483,6 +538,13 @@ class RankedListView(BaseModel):
         description="The plain words for each factor key, for a screen to render."
     )
     entries: list[ListEntryView] = Field(description="The names, in order.")
+    first_round_event_name: str | None = Field(
+        default=None,
+        description=(
+            "The first round's event, as the data file spells it, so a "
+            "`new_event` mark can name it. Null when the file carries no round."
+        ),
+    )
     composition: ListCompositionView = Field(description='The "who is on the list" table.')
     unlisted_class_years: list[str] = Field(
         description=(
@@ -681,6 +743,7 @@ def ranked_list_view(
                 marker=str(entry.marker),
                 reason=entry.reason,
                 contributing_factor_keys=list(entry.contributing_factor_keys),
+                refresh_marks=list(facts.refresh_marks),
             )
         )
     return RankedListView(
@@ -692,6 +755,7 @@ def ranked_list_view(
         weights=dict(weights),
         factor_labels=dict(EXERCISE_FACTOR_LABELS),
         entries=entries,
+        first_round_event_name=rankable.first_round_event_name,
         composition=_composition_view(_composition_for(ranked, rankable)),
         unlisted_class_years=list(ranked.unlisted_class_years),
         unrankable_profile_count=rankable.unrankable_profile_count,
