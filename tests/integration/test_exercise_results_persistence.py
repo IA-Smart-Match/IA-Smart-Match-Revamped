@@ -983,7 +983,7 @@ def test_a_reset_clears_the_run_the_overlay_and_the_choice(
     assert after is not None
     assert after.asking_choice is None
     assert after.refreshed_at is None
-    assert after.seed != before.seed, "a reset regenerates the seed"
+    assert after.seed == before.seed, "a reset keeps the seed (checklist section 8)"
     assert overlay == 0
     assert run is None
     assert others_run is not None, "a reset reaches one team and no other"

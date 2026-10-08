@@ -250,7 +250,7 @@ def workspace_row(sessions: sessionmaker[Session], team_number: int) -> Workspac
 
 
 def set_seed(sessions: sessionmaker[Session], workspace_id: uuid.UUID, seed: int) -> None:
-    """Put a chosen seed on one team, the way a reset puts a random one."""
+    """Put a chosen seed on one team, in place of the random one entry drew."""
     table = schema.exercise_team_workspace
     with sessions() as session:
         session.execute(sa.update(table).where(table.c.id == workspace_id).values(seed=seed))

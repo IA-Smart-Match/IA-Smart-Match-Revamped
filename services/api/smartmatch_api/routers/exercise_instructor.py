@@ -579,9 +579,9 @@ def reset_team_workspace(
     **One team, and one set of statements.**
     ``ExerciseWorkspaceRepository.reset_team`` is reused rather than
     reimplemented, so "what a reset deletes" has one answer: this team's
-    overlay, saved settings and result runs, and a new seed. Every statement is
-    keyed on the workspace id resolved from ``(data file, team number)``, so no
-    other team's rows are reachable from here.
+    overlay, saved settings and result runs — and its seed kept (Ann's checklist,
+    2026-10-02, section 8). Every statement is keyed on the workspace id resolved
+    from ``(data file, team number)``, so no other team's rows are reachable.
 
     Addressed by the data file the teams are on (see :func:`_teams_dataset`),
     so a fresh upload does not make this 404 on a team that is still working.

@@ -13,13 +13,15 @@ the order Ann's flow gives (Ann to Chau, Discord, 2026-09-24):
    a second run is refused;
 5. each team chooses one of the three ways of asking for more and refreshes;
 6. the instructor unlocks Harbor (E12); each team runs round two;
-7. the instructor resets team 3; team 3 then repeats its work on its old seed.
+7. the instructor resets team 3; team 3 then repeats its work, and nothing
+   here puts its seed back — the reset itself keeps it.
 
 The tests below read the record of that walk. What they hold the class to:
 
 * **Determinism** — a stored result is the rule applied to the team's seed and
-  list; and after a reset, the same seed and the same list give the same
-  result, round one and round two.
+  list; and after a reset the team still has its seed, so the same list
+  gives the same result, round one and round two (Ann's checklist of
+  2026-10-02, section 8).
 * **Reset isolation** — resetting team 3 changes nothing any other team, or the
   instructor, can read about any other team.
 * **Nothing withheld leaks** — no ``hidden_true_*`` name and no ``OQ-CE-``
@@ -107,7 +109,7 @@ class _ClassRun:
     fourth_setting: tuple[int, dict[str, Any]] = (0, {})
     final_lists: dict[tuple[int, str], list[int]] = field(default_factory=dict)
     seeds_after_reset: dict[int, int] = field(default_factory=dict)
-    reset_seed_everyone: Any = None
+    other_seed_everyone: Any = None
     refresh: dict[int, dict[str, Any]] = field(default_factory=dict)
     asking_after_refresh: dict[int, dict[str, Any]] = field(default_factory=dict)
     recomputed: dict[tuple[int, str], tuple[Any, Any]] = field(default_factory=dict)
@@ -203,28 +205,36 @@ def _round_two(
         record.recomputed[(number, ROUND_TWO)] = recompute(sessions, number, ROUND_TWO, invited)
 
 
+def _another_seed(seed: int) -> int:
+    """A seed that is not ``seed``, inside the column's signed 64-bit range."""
+    return (seed + 1) % 2**63
+
+
 def _reset_and_repeat(
     record: _ClassRun,
     sessions: sessionmaker[Session],
     teams: dict[int, RecordingClient],
     teacher: RecordingClient,
 ) -> None:
-    """Reset team 3, snapshot everybody, then repeat team 3's work on its old seed."""
+    """Reset team 3, snapshot everybody, then repeat team 3's work.
+
+    The seed is never written back: the rerun below is the same list through
+    the same routes on whatever seed the reset left, which is the claim.
+    """
     record.before_reset = {n: team_snapshot(c, teacher, n) for n, c in teams.items()}
-    old = workspace_row(sessions, _RESET_TEAM)
     reset = teacher.post(f"{INSTRUCTOR_BASE}/workspaces/{_RESET_TEAM}/reset", headers=HEADER)
     assert reset.status_code == 200, reset.text
     record.after_reset = {n: team_snapshot(c, teacher, n) for n, c in teams.items()}
     record.seeds_after_reset = {n: workspace_row(sessions, n).seed for n in teams}
     record.reset_seed = record.seeds_after_reset[_RESET_TEAM]
-    # The rule on the new seed, same list, with the overlay cleared as it was
-    # before round one: the seed has to matter, or the rerun below proves nothing.
+    # The rule on a different seed, same list, with the overlay cleared as it
+    # was before round one: the seed has to matter, or the rerun below would
+    # match whatever the reset did to it and prove nothing.
     invited = record.round_one[_RESET_TEAM]["team"]["invited_profile_nos"]
-    _, record.reset_seed_everyone = recompute(
-        sessions, _RESET_TEAM, ROUND_ONE, invited, seed=record.reset_seed
+    _, record.other_seed_everyone = recompute(
+        sessions, _RESET_TEAM, ROUND_ONE, invited, seed=_another_seed(record.reset_seed)
     )
 
-    set_seed(sessions, old.id, old.seed)
     client = teams[_RESET_TEAM]
     prepare_round(client, ROUND_ONE, _RESET_TEAM)
     first = run(client, ROUND_ONE, _RESET_TEAM)
@@ -379,12 +389,12 @@ def test_each_team_invited_exactly_its_final_settings_list(
 
 
 def test_the_seed_changes_the_result(class_run: _ClassRun) -> None:
-    """Same list, new seed, different outcome — so the same-seed rerun means something."""
+    """Same list, another seed, different outcome — so the rerun means something."""
     original = numbers_of(class_run.round_one[_RESET_TEAM]["email_everyone"])
-    assert panel_of(class_run.reset_seed_everyone) != original
+    assert panel_of(class_run.other_seed_everyone) != original
 
 
-def test_after_a_reset_the_same_seed_and_list_give_the_same_round_one(
+def test_after_a_reset_the_same_list_gives_the_same_round_one(
     class_run: _ClassRun,
 ) -> None:
     assert _without_times(class_run.rerun_round_one) == _without_times(
@@ -392,13 +402,13 @@ def test_after_a_reset_the_same_seed_and_list_give_the_same_round_one(
     )
 
 
-def test_after_a_reset_the_same_seed_and_choice_give_the_same_refresh(
+def test_after_a_reset_the_same_choice_gives_the_same_refresh(
     class_run: _ClassRun,
 ) -> None:
     assert class_run.rerun_refresh == class_run.refresh[_RESET_TEAM]
 
 
-def test_after_a_reset_the_same_seed_and_list_give_the_same_round_two(
+def test_after_a_reset_the_same_list_gives_the_same_round_two(
     class_run: _ClassRun,
 ) -> None:
     assert _without_times(class_run.rerun_round_two) == _without_times(
@@ -426,7 +436,8 @@ def test_resetting_team_3_changes_no_other_teams_seed(class_run: _ClassRun) -> N
             assert class_run.seeds_after_reset[number] == class_run.seeds[number], number
 
 
-def test_the_reset_cleared_team_3_and_gave_it_a_new_seed(class_run: _ClassRun) -> None:
+def test_the_reset_cleared_team_3_and_kept_its_seed(class_run: _ClassRun) -> None:
+    """Checklist section 8: back at the start, with the chance part unchanged."""
     after = class_run.after_reset[_RESET_TEAM]
     for event_key in (ROUND_ONE, ROUND_TWO):
         status, body = after[f"results {event_key}"]
@@ -434,7 +445,7 @@ def test_the_reset_cleared_team_3_and_gave_it_a_new_seed(class_run: _ClassRun) -
         assert after[f"settings {event_key}"][1]["settings"] == []
     assert after["asking"][1]["choice"] is None
     assert after["asking"][1]["refreshed"] is False
-    assert class_run.reset_seed != class_run.seeds[_RESET_TEAM]
+    assert class_run.reset_seed == class_run.seeds[_RESET_TEAM]
 
 
 # ---------------------------------------------------------------------------

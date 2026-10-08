@@ -356,7 +356,26 @@ draft of that docstring.
 Coefficients as named constants: `TRUE_FIT_LIFT`, `FREQUENT_ATTENDER_LIFT`,
 `SAME_MAJOR_LIFT`, `CHANCE_SPREAD`, `ATTEND_GIVEN_SIGNUP`. The chance draw is
 `random.Random(workspace.seed ^ hash(event_key))`. A team's reset deletes its
-overlay, runs, and settings and regenerates its seed.
+overlay, runs, and settings and keeps its seed.
+
+> **Correction, 6 October 2026.** Two clauses of the paragraph above were
+> stale.
+>
+> 1. **The reset.** It read "and regenerates its seed". A reset now **keeps**
+>    the team's seed: Ann's test checklist of 2 October 2026, section 8, says
+>    "After clearing, run the same list again for that team. The result is the
+>    same as before (the chance part is fixed per team)." Owner ruling,
+>    2026-10-06; recorded under D7 in
+>    [the decision record](../../decisions/class-exercise-decisions-2026-09-25.md).
+>    A re-point to another data file (§3) still draws each moved team a new
+>    seed.
+> 2. **The draw.** The formula above is what this spec first wrote and is left
+>    as written. The shipped rule has never used it: `hash()` of a string
+>    differs between Python processes, so the same list would not give the same
+>    result. The draw is a SHA-256 stable digest over the seed, the event key,
+>    the profile number and what is being drawn
+>    (`smartmatch_domain/exercise/simulation.py`, "Determinism, and a deviation
+>    from design spec §11"; `determinism.py` `stable_digest`).
 
 **Decided 2026-09-25 (OQ-CE-03 closed; decision record D7):** the
 coefficient values below, translated by the team from Ann's answers and
