@@ -682,7 +682,8 @@ def test_the_coverage_notice_names_a_group_with_nobody_on_the_list(
     client: TestClient,
 ) -> None:
     """The #161 notice, composed from ``find_uncovered_groups`` rather than redone."""
-    body = client.get(_LIST, params={"same_major": 1.0}).json()
+    major_only = {**dict.fromkeys(EXERCISE_DEFAULT_WEIGHTS, 0), "same_major": 1}
+    body = client.get(_LIST, params=major_only).json()
     coverage = body["composition"]["coverage"]
     listed_majors = {entry["major"] for entry in body["entries"]}
     uncovered = {
@@ -1720,3 +1721,36 @@ def test_the_sequence_of_profiles_a_list_is_built_from_is_the_files_order() -> N
     rankable = rankable_set(_PROFILES, _EVENTS)
     assert [profile.profile_no for profile in rankable.profiles] == [1, 2, 3, 4, 5, 6, 7]
     assert rankable.unrankable_profile_count == 1
+
+
+def test_stored_weights_fill_a_legacy_partial_row_with_a_quarter() -> None:
+    from smartmatch_api.routers.exercise_matching_weights import stored_weights
+
+    filled = stored_weights({"same_major": 0.5})
+    assert filled["same_major"] == 0.5
+    assert sorted(filled.values()) == [0.25, 0.25, 0.25, 0.5]
+    assert set(stored_weights({}).values()) == {0.25}
+
+
+def test_a_saved_card_shows_a_missing_weight_as_the_quarter_it_ranked_with(
+    fakes: _Fakes, client: TestClient
+) -> None:
+    workspace = fakes.workspaces.rows[(_DATASET_ID, 1)]
+    fakes.settings.rows[(workspace.id, "northline", "old")] = SavedSetting(
+        event_key="northline",
+        name="old",
+        weights={"same_major": 0.5},
+        created_at=datetime(2026, 9, 19, 12, 0, tzinfo=UTC),
+    )
+    (card,) = client.get(_SETTINGS).json()["settings"]
+    assert card["weights"]["same_major"] == 0.5
+    assert card["weights"]["stated_interest_overlap"] == 0.25
+
+
+def test_the_list_query_string_refuses_a_fraction_and_a_value_above_10(
+    client: TestClient,
+) -> None:
+    for weight in (0.5, 11):
+        refused = client.get(_LIST, params={"same_major": weight})
+        assert refused.status_code == 422
+        assert "whole number from 0 to 10" in refused.text

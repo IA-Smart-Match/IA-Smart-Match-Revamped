@@ -641,7 +641,9 @@ def read_settings(
     stored = settings.list_settings(session, workspace_id=workspace.id, event_key=event.event_key)
     return SavedSettingsView(
         event_key=event.event_key,
-        settings=[saved_setting_view(setting) for setting in stored],
+        settings=[
+            saved_setting_view(setting, stored_weights(dict(setting.weights))) for setting in stored
+        ],
         max_settings=MAX_SAVED_SETTINGS_PER_EVENT,
     )
 
