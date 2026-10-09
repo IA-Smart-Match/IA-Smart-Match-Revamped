@@ -101,6 +101,7 @@ from smartmatch_api.routers.exercise_matching_models import (
 from smartmatch_api.routers.exercise_matching_weights import (
     effective_weights,
     requested_weights,
+    stored_weights,
     validated,
     weight_query,
 )
@@ -178,7 +179,7 @@ def _saved_weights_or_refusal(
             code="exercise_setting_unknown",
             message="Your team has no saved settings with that name.",
         )
-    return validated(dict(stored.weights))
+    return stored_weights(dict(stored.weights))
 
 
 def _build_list(
@@ -292,7 +293,7 @@ def _overrides_for(
             name,
         )
     if requested is not None:
-        return validated(dict(requested)), None
+        return validated(dict(requested), whole_numbers=True), None
     return None, None
 
 
@@ -640,7 +641,9 @@ def read_settings(
     stored = settings.list_settings(session, workspace_id=workspace.id, event_key=event.event_key)
     return SavedSettingsView(
         event_key=event.event_key,
-        settings=[saved_setting_view(setting) for setting in stored],
+        settings=[
+            saved_setting_view(setting, stored_weights(dict(setting.weights))) for setting in stored
+        ],
         max_settings=MAX_SAVED_SETTINGS_PER_EVENT,
     )
 
@@ -678,7 +681,7 @@ def save_setting(
             weight the rulebook refuses.
     """
     usable_name = _setting_name_or_refusal(name)
-    weights = validated(dict(payload.weights))
+    weights = validated(dict(payload.weights), whole_numbers=True)
     events = datasets.list_events(session, dataset_id=workspace.dataset_id)
     event = event_or_refusal(events, event_key)
     try:
@@ -688,7 +691,7 @@ def save_setting(
             workspace_id=workspace.id,
             event_key=event.event_key,
             name=usable_name,
-            weights=weights,
+            weights=dict(effective_weights(weights)),
         )
     except TooManySavedSettingsError as error:
         raise ExerciseError(

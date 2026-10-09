@@ -467,8 +467,11 @@ link's name stays short.
 ### 6.6 Weight slider (see [prompt](../../archive/design/class-exercise/prompts/components/weight-slider.md))
 
 Label (Ann's words, from `factor_labels`), track, thumb, and a paired 88px
-numeric field showing the value to two decimals. Range 0–1, step 0.05 on the
-slider; the field accepts any plain decimal and keeps the strict-decimal rule.
+numeric field showing the value ("3"). Whole numbers 0–10, step 1 on the
+slider (Dr. Wang's defaults are 3 / 3 / 2 / 2, ruling 2026-10-06, switched
+2026-10-09; OQ-CE-34); the field keeps the strict-decimal rule and the server
+refuses a fraction or a number above 10. A setting saved before the switch
+keeps its fractions (shown as "0.25").
 Commit on pointer-up, on Enter, or on field blur; never per drag tick.
 
 | State | Treatment |
@@ -483,12 +486,12 @@ Commit on pointer-up, on Enter, or on field blur; never per drag tick.
 | Dis | 45% opacity; never disabled during a refetch |
 
 **Total weight (owner ruling 2026-09-28).** Under the four sliders, above the
-"The list is rebuilt…" note, the card shows "Total weight: 1.00" (the sum of
-the four numbers as shown, two decimals, tabular numerals, updated live while
+"The list is rebuilt…" note, the card shows "Total weight: 10" (the sum of
+the four numbers as shown, a whole number, tabular numerals, updated live while
 dragging or typing) and one sentence: "What matters is how the weights
-compare: a factor set to 0.50 counts twice as much as one set to 0.25." The
-scorer divides each weight by the total, so the total is never forced to 1
-and the 0.25 defaults stay (OQ-CE-02). No percentage is shown anywhere
+compare: a factor set to 6 counts twice as much as one set to 3." The
+scorer divides each weight by the total, so the total is never forced to 10
+and the 3 / 3 / 2 / 2 defaults stay. No percentage is shown anywhere
 (ADR-0025 D8). When the total is 0 the card shows the server's own sentence,
 "At least one number must be above 0.", as `role="status"`, and not again
 while that refusal is already shown under a slider.
@@ -1119,7 +1122,7 @@ existing links still land here.
 | # | Item | Ruling | Ruled by | Where it now lives |
 |---|---|---|---|---|
 | 1 | Ribbon prefix | **"Fictional data —"** on exercise screens | Owner | 6.2; prompts README preambles |
-| 2 | Weights input | **Slider 0–1, step 0.05, plus a number box** for exact values | Owner | 6.6; `prompts/components/weight-slider.md` |
+| 2 | Weights input | **Slider 0–10, step 1, plus a number box** (was 0–1, step 0.05; changed 2026-10-09) | Owner | 6.6; `prompts/components/weight-slider.md` |
 | 3 | Asking-for-more confirm | **Inline confirm:** the button becomes "Confirm: <choice>?" for about 5 s; no pop-up | Owner | 6.18, motion `ce-confirm-window`; `prompts/components/asking-choice-cards.md`, `prompts/pages/09-asking-for-more.md` |
 | 4 | Points counter | **Deferred.** No page or mock-ups until an endpoint exists | Orchestrator | 6.23, 7.7; `prompts/pages/07-points-counter.md` marked deferred |
 | 5 | Shared components | **New variants, not copies** (`SyntheticDataBanner` `tone="quiet"` + `label`; a chart `variant="exercise"`) | Orchestrator | 6.2, 6.16 |
@@ -1147,9 +1150,11 @@ labels and the license line are unchanged and not listed.
 | Event picker, 390 past-events disclosure | "Show the {n} past events" / "Show the 1 past event" (same label when expanded) |
 | Matching, slider note | "The list is rebuilt when you let go of a slider or press Enter." |
 | Matching, after a rebuilt list lands (2026-10-06, #321; Ann's checklist §4 wording) | "List updated." |
-| Matching, weight total | "Total weight: 1.00" |
-| Matching, weight total meaning | "What matters is how the weights compare: a factor set to 0.50 counts twice as much as one set to 0.25." |
-| Matching, 390 sticky bar | "Weights 0.40 · 0.25 · 0.25 · 0.10 · Total 1.00" and "Edit weights" |
+| Matching, weight total | "Total weight: 10" |
+| Matching, weight total meaning | "What matters is how the weights compare: a factor set to 6 counts twice as much as one set to 3." |
+| Matching, 390 sticky bar | "Weights 3 · 3 · 2 · 2 · Total 10" and "Edit weights" |
+| Matching, a weight that is a fraction or above 10 (2026-10-09) | "A weight is a whole number from 0 to 10." |
+| Matching, a typed weight that is not a number (2026-10-09; was "Use digits and one decimal point, like 0.5.") | "\"abc\" is not a plain number. Use a whole number from 0 to 10, like 3." |
 | Matching, downloaded list (CSV), fifth column | Header "how much we know" (was "marker"); cells "major only" / "major plus events attended" / "completed card" (were the API keys). No new wording: the same label and phrases as the marker chip (§6.8). |
 | Saved settings, field label | "Name these weights" (was "Call these weights") |
 | Saved settings, empty slot | "Slot 3 of 3 is free. Save the weights on screen to fill it." |

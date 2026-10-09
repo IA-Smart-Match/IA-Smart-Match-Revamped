@@ -762,10 +762,10 @@ def ranked_list_view(
     )
 
 
-def saved_setting_view(setting: SavedSetting) -> SavedSettingView:
-    """One stored setting as a response."""
+def saved_setting_view(setting: SavedSetting, weights: Mapping[str, float]) -> SavedSettingView:
+    """One stored setting as a response, with its four weights as ranked."""
     return SavedSettingView(
         name=setting.name,
-        weights=dict(setting.weights),
+        weights=dict(weights),
         created_at=setting.created_at,
     )

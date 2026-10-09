@@ -159,11 +159,11 @@ def weightings(team_number: int) -> dict[str, dict[str, float]]:
             SAME_MAJOR_FACTOR_KEY: 1.0,
             STATED_INTEREST_OVERLAP_FACTOR_KEY: 1.0 + lean,
             CAREER_GOAL_FIT_FACTOR_KEY: 2.0,
-            PAST_EVENT_TOPIC_OVERLAP_FACTOR_KEY: 0.5,
+            PAST_EVENT_TOPIC_OVERLAP_FACTOR_KEY: 0.0,
         },
         "majors first": {
             SAME_MAJOR_FACTOR_KEY: 1.0 + lean,
-            STATED_INTEREST_OVERLAP_FACTOR_KEY: 0.5,
+            STATED_INTEREST_OVERLAP_FACTOR_KEY: 0.0,
             CAREER_GOAL_FIT_FACTOR_KEY: 1.0,
             PAST_EVENT_TOPIC_OVERLAP_FACTOR_KEY: 1.0,
         },

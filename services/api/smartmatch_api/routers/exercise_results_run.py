@@ -74,7 +74,7 @@ from smartmatch_api.routers.exercise_matching_models import (
     event_or_refusal,
     rankable_set,
 )
-from smartmatch_api.routers.exercise_matching_weights import effective_weights, validated
+from smartmatch_api.routers.exercise_matching_weights import effective_weights, stored_weights
 from smartmatch_api.routers.exercise_results_models import (
     round_of,
     simulation_event,
@@ -209,7 +209,7 @@ def weights_or_refusal(
             code="exercise_setting_unknown",
             message="Your team has no saved settings with that name.",
         )
-    return validated(dict(stored.weights)), name
+    return stored_weights(dict(stored.weights)), name
 
 
 def _invited_entries(

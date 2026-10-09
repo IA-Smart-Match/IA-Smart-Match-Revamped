@@ -61,13 +61,13 @@ GOLDEN_YEAR_RANK = {"Senior": 4, "Junior": 3, "Sophomore": 2, "First year": 1}
 # ---------------------------------------------------------------------------
 
 #: ``(case id, profile, composite, unknown keys)``. Every value is the exercise
-#: default weighting — 0.25 each (OQ-CE-02, closed 2026-09-25) — so a change to the
+#: default weighting — 3/3/2/2 of 10 (Ann Wang 2026-10-06) — so a change to the
 #: defaults is visible here rather than silent.
 FACTOR_CASES = [
     (
         "G-CE-01 major only",
         ProfileEvidence("p01", "Marketing"),
-        0.25,
+        0.3,
         ("stated_interest_overlap", "career_goal_fit", "past_event_topic_overlap"),
     ),
     (
@@ -91,26 +91,26 @@ FACTOR_CASES = [
     (
         "G-CE-04 empty card is measured, past events unknown",
         ProfileEvidence("p04", "Marketing", card=ProfileCard()),
-        0.25,
+        0.3,
         ("past_event_topic_overlap",),
     ),
     (
         "G-CE-05 one related past event is half of that factor",
-        # One past event, however many topics it shares: 0.25 + 0.25 * 0.5.
+        # One past event, however many topics it shares: 0.3 + 0.2 * 0.5.
         ProfileEvidence("p05", "Marketing", attended_event_topics=(("analytics", "careers"),)),
-        0.375,
+        0.4,
         ("stated_interest_overlap", "career_goal_fit"),
     ),
     (
         "G-CE-06 one shared interest is the whole interest factor",
         # interests {analytics, sports} vs topics {analytics, careers}: one is
-        # shared, and one is enough. The goal misses: 0.25 + 0.25.
+        # shared, and one is enough. The goal misses: 0.3 + 0.3.
         ProfileEvidence(
             "p06",
             "Marketing",
             card=ProfileCard(("analytics", "sports"), career_goal="law"),
         ),
-        0.5,
+        0.6,
         ("past_event_topic_overlap",),
     ),
     (
@@ -126,7 +126,7 @@ FACTOR_CASES = [
         # Same composite as G-CE-01, but the factor was measured: it is not
         # among the unknown keys.
         ProfileEvidence("p17", "Marketing", attended_event_topics=(("sports",),)),
-        0.25,
+        0.3,
         ("stated_interest_overlap", "career_goal_fit"),
     ),
 ]

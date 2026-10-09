@@ -71,7 +71,6 @@ from exercise_class_driver import (
     read_everything,
     recompute,
     run,
-    set_seed,
     team_snapshot,
     undecided_true_goal_profile_nos,
     unlock,
