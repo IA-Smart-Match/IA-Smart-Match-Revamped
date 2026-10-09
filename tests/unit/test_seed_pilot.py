@@ -329,7 +329,7 @@ def _speaker_rows(**window: object) -> list[SimpleNamespace]:
     return [
         SimpleNamespace(granted_path="pilot", role="volunteer", valid_from=None, valid_until=None),
         SimpleNamespace(
-            granted_path="iawest.portal",
+            granted_path="smartmatch.portal",
             role="speaker",
             valid_from=window.get("valid_from"),
             valid_until=window.get("valid_until"),

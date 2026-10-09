@@ -626,7 +626,7 @@ public-release planning) · the deferred CI gates listed at the bottom of
 image signing).
 
 **Architecturally implied** (the abstractions already anticipate it):
-- `ProductScope` with a second, retained value (`IA_WEST_LEGACY`) says
+- `ProductScope` with a second, retained value (`LEGACY_PILOT`) says
   multi-product is a live concern, not a hypothetical.
 - `TaskQueue`, `EmailProvider`, `RouteMatrixProvider`, `TokenVerifier` are
   ports with exactly one fixture implementation each — they exist to be

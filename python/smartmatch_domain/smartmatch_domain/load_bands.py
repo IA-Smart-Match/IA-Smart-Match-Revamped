@@ -5,7 +5,7 @@ and :data:`~smartmatch_domain.eli.Q7_LOAD_BAND_TABLE`. This module owns what the
 *registry* needs to say about that table and never edits T8b's types:
 
 * **Ownership.** :class:`LoadBandOwnership` records who decided the bands, when,
-  under which decision, and whether IA West has reviewed them. It is not hashed:
+  under which decision, and whether SmartMatch Platform has reviewed them. It is not hashed:
   approval must not move a ``registry_hash``.
 * **Hash coverage.** :func:`canonical_load_bands` renders the cut points, the
   multipliers and the ELI formula version so a 3.x ``registry_hash`` covers them
@@ -60,9 +60,9 @@ ENGAGEMENT_LOAD_FACTOR_KEY: Final[str] = "engagement_load"
 
 
 class LoadReviewStatus(StrEnum):
-    """Whether IA West has reviewed the band table (parent plan §10 row 3)."""
+    """Whether SmartMatch Platform has reviewed the band table (parent plan §10 row 3)."""
 
-    PENDING_IA_WEST_REVIEW = "pending_ia_west_review"
+    PENDING_OWNER_REVIEW = "pending_owner_review"
     REVIEWED = "reviewed"
 
 
@@ -79,7 +79,7 @@ class LoadBandOwnership:
         decided_by: The accountable person and role.
         decided_on: The decision date, as an ISO ``YYYY-MM-DD`` string.
         decision: The decision's name, e.g. ``"B26 Q7 = A (parent plan §9)"``.
-        review_status: Whether IA West has reviewed the table.
+        review_status: Whether SmartMatch Platform has reviewed the table.
     """
 
     decided_by: str
@@ -128,7 +128,7 @@ class RegisteredLoadBands:
             )
 
 
-#: The Q7 = A table, owned by the program owner of record, pending IA West review.
+#: The Q7 = A table, owned by the program owner of record, pending SmartMatch Platform review.
 Q7_REGISTERED_LOAD_BANDS: Final[RegisteredLoadBands] = RegisteredLoadBands(
     table=Q7_LOAD_BAND_TABLE,
     eli_formula_version=ELI_FORMULA_VERSION,
@@ -136,7 +136,7 @@ Q7_REGISTERED_LOAD_BANDS: Final[RegisteredLoadBands] = RegisteredLoadBands(
         decided_by="Danny Tran, Development Lead / program owner of record",
         decided_on="2026-09-22",
         decision="B26 Q7 = A (parent plan §9)",
-        review_status=LoadReviewStatus.PENDING_IA_WEST_REVIEW,
+        review_status=LoadReviewStatus.PENDING_OWNER_REVIEW,
     ),
 )
 

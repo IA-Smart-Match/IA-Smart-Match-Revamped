@@ -429,7 +429,7 @@ def tenant_id(engine: Engine) -> Iterator[uuid.UUID]:
 #: generated, which is what makes that function idempotent: every tenant gets one
 #: unit at this path and `uq_org_unit_tenant_path` is scoped per tenant, so two
 #: tests in the same tenant converge on the same row instead of colliding.
-JOB_OWNING_UNIT_PATH = "iawest.jobs"
+JOB_OWNING_UNIT_PATH = "smartmatch.jobs"
 
 
 def ensure_owning_unit(executor: Any, tenant_id: uuid.UUID) -> uuid.UUID:

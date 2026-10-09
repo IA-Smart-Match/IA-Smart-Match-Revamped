@@ -48,9 +48,9 @@ ACTOR_ID = uuid.UUID("33333333-3333-4333-8333-333333333333")
 BYSTANDER_ID = uuid.UUID("44444444-4444-4444-8444-444444444444")
 JOB_ID = uuid.UUID("66666666-6666-4666-8666-666666666666")
 
-OWNING_UNIT = "iawest.cpp.engineering.ie"
-SIBLING_UNIT = "iawest.cpp.engineering.cs"
-ORG_ROOT = "iawest"
+OWNING_UNIT = "smartmatch.cpp.engineering.ie"
+SIBLING_UNIT = "smartmatch.cpp.engineering.cs"
+ORG_ROOT = "smartmatch"
 
 #: The four operations, as the pair of entry points that serve them. Both job
 #: reads share one function and both job commands share the other, which is the
@@ -319,7 +319,7 @@ def test_a_job_with_no_owning_unit_path_is_denied(authorize):
 def test_a_malformed_owning_unit_path_is_denied(authorize):
     """A path the tree cannot parse must refuse, not raise."""
     principal = _principal(memberships=(_member(ORG_ROOT, "admin"),))
-    assert _denial(authorize, principal, _JobRow(owning_unit_path="iawest..ie")) == "no_grant"
+    assert _denial(authorize, principal, _JobRow(owning_unit_path="smartmatch..ie")) == "no_grant"
 
 
 # ---------------------------------------------------------------------------

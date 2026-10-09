@@ -42,11 +42,11 @@ DATABASE_URL = os.getenv(
     "postgresql+psycopg://smartmatch:smartmatch@localhost:5432/smartmatch",
 )
 
-UNIT_PATH = "iawest.requests"
+UNIT_PATH = "smartmatch.requests"
 #: A second department in the same tenant containing none of :data:`UNIT_PATH`.
 #: Neither route passes ``tenant_wide_roles``, so ordinary subtree containment
 #: applies and a coordinator here must not reach the requests unit.
-SIBLING_UNIT_PATH = "iawest.requestssibling"
+SIBLING_UNIT_PATH = "smartmatch.requestssibling"
 
 TITLE = "Analytics Careers Panel"
 ON_DATE = "2026-10-14"
@@ -646,7 +646,9 @@ def test_the_queue_is_scoped_to_its_unit(engine: Engine, request_context) -> Non
     """A request filed in one department is not a sibling's queue item."""
     client, unit_id, host_token, tenant_id = request_context
     _post(client, f"/v1/units/{unit_id}/speaker-requests", host_token, _body())
-    admin = _register_principal(engine, client, tenant_id, role="admin", membership_path="iawest")
+    admin = _register_principal(
+        engine, client, tenant_id, role="admin", membership_path="smartmatch"
+    )
 
     with engine.begin() as conn:
         sibling_unit_id = conn.execute(
@@ -976,7 +978,7 @@ def test_a_filer_whose_organization_is_in_another_unit_does_not_stamp(
     """
     client, unit_id, _, tenant_id = request_context
     roving = _register_principal(
-        engine, client, tenant_id, role="volunteer", membership_path="iawest"
+        engine, client, tenant_id, role="volunteer", membership_path="smartmatch"
     )
     with engine.begin() as conn:
         sibling_unit_id = conn.execute(

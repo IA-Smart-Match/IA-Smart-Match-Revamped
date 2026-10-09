@@ -660,7 +660,7 @@ def test_the_workspace_routes_are_mounted_only_under_the_exercise_scope() -> Non
         "/v1/exercise/workspaces",
         "/v1/exercise/workspaces/current",
     } <= mounted
-    for scope in (ProductScope.CBA, ProductScope.IA_WEST_LEGACY):
+    for scope in (ProductScope.CBA, ProductScope.LEGACY_PILOT):
         assert not any(path.startswith("/v1/exercise") for path in _paths_under(scope))
 
 
@@ -812,7 +812,7 @@ def test_the_refusal_quotes_no_part_of_the_configured_value() -> None:
     assert configured not in str(raised.value)
 
 
-@pytest.mark.parametrize("scope", [ProductScope.CBA, ProductScope.IA_WEST_LEGACY])
+@pytest.mark.parametrize("scope", [ProductScope.CBA, ProductScope.LEGACY_PILOT])
 def test_the_secret_is_required_in_no_other_scope(scope: ProductScope) -> None:
     """A deployment with no exercise routes must not be made to carry the key."""
     settings = Settings(product_scope=scope)

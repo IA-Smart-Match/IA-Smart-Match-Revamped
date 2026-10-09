@@ -15,7 +15,7 @@ example outside the five recorded names is still a valid, recognized
 opportunity-category shape.
 
 Recorded direction, not implemented here: the design's later session
-direction intends out-of-list raw examples to go to the IA West Coordinator
+direction intends out-of-list raw examples to go to the SmartMatch Platform Coordinator
 for review (design §9). That routing is unimplemented and gate-blocked behind
 T-28 identity/tenant/unit authorization and P6 persistence — this module
 encodes no routing behavior, no queue, no assignee, and no approve/reject

@@ -4442,7 +4442,7 @@
             "type": "boolean"
           },
           "org_unit_path": {
-            "description": "Dotted path in the org tree this membership covers, e.g. 'iawest.cpp.engineering'",
+            "description": "Dotted path in the org tree this membership covers, e.g. 'smartmatch.cpp.engineering'",
             "title": "Org Unit Path",
             "type": "string"
           },
@@ -8234,7 +8234,7 @@
     }
   },
   "info": {
-    "description": "IA West SmartMatch platform API \u2014 Foundation scaffold. OpenAPI is the source of truth; the TypeScript client is generated from it and never hand-maintained.",
+    "description": "SmartMatch Platform API \u2014 Foundation scaffold. OpenAPI is the source of truth; the TypeScript client is generated from it and never hand-maintained.",
     "title": "SmartMatch API",
     "version": "0.1.0"
   },

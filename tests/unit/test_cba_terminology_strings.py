@@ -23,7 +23,7 @@ clothing:
   and "never the backend ``membership`` record"
   (``docs/product/cba-capability-policy.md``). Renaming an authorization table
   is authorized by nothing.
-* The ``ia_west_legacy`` product scope and the ``ia_west_chapter`` outreach
+* The ``legacy_pilot`` product scope and the ``smartmatch_team`` outreach
   voice. Both are wire values in a server contract; the first exists *because*
   CBA is the other product.
 * The Member-Inquiry / membership-interest narrative. CBA does not rename this
@@ -115,9 +115,9 @@ def test_does_not_fire_on_the_backend_authorization_membership_record() -> None:
 
 def test_does_not_fire_on_wire_values_that_name_the_legacy_product() -> None:
     source = (
-        'export type OutreachEmailVoice = "school_coordinator" | "ia_west_chapter";\n'
+        'export type OutreachEmailVoice = "school_coordinator" | "smartmatch_team";\n'
         "  chapter_membership_dues: false,\n"
-        '  ia_west_legacy: "ia_west_legacy",\n'
+        '  legacy_pilot: "legacy_pilot",\n'
     )
     for rule in scan_cba_terminology.RULES:
         assert not rule.regex.search(source), (
@@ -237,3 +237,57 @@ def test_speaker_survives_the_sweep() -> None:
         assert re.search(r"\bSpeakers?\b", _read(relative), re.IGNORECASE), (
             f"{relative} lost its Speaker vocabulary"
         )
+
+
+# ---------------------------------------------------------------------------
+# Layer 3: the retired brand survives nowhere live (2026-10-09 rebrand)
+# ---------------------------------------------------------------------------
+
+#: Built from fragments so this file does not match its own pattern.
+_RETIRED_BRAND = re.compile("ia" + r"[ _-]?" + "west", re.IGNORECASE)
+
+#: Paths that keep the old name on purpose: history, stakeholder records, the
+#: external legacy repository's own name, and the guards that must spell the
+#: word to forbid it or to keep reading a deployed config value.
+_BRAND_EXEMPT_PREFIXES = (
+    "docs/archive/",
+    "docs/10-2-2026/",
+    "docs/design/cpp-prototype/",
+    "docs/decisions/",
+    "docs/status-report/",
+    "docs/plans/",
+    "docs/architecture/decisions/",
+    "docs/decision-packets/",
+    "docs/migration/migration-manifest.yaml",
+    "docs/product/cba-terminology.md",
+    "docs/product/cba-smart-match-customer-requirements.md",
+    "tools/scan_cba_terminology.py",
+    "tests/unit/test_cba_terminology_strings.py",
+    "tests/contract/test_portals_api.py",
+    "tests/unit/test_frontend_auth_contract.py",
+    "tests/unit/test_rewards_domain.py",
+    "tests/unit/test_role_presentation.py",
+    "apps/web/legacy-frontend/tests/roleLabels.test.ts",
+    "python/smartmatch_domain/smartmatch_domain/product_scope.py",
+)
+_LEGACY_REPO = "Nebiux-Team-IA-West-SmartMatch"
+
+
+def test_retired_brand_is_absent_from_live_source() -> None:
+    import subprocess
+
+    tracked = subprocess.run(
+        ["git", "ls-files"], cwd=REPO_ROOT, capture_output=True, text=True, check=True
+    ).stdout.splitlines()
+    offenders: list[str] = []
+    for rel in tracked:
+        if rel.startswith(_BRAND_EXEMPT_PREFIXES):
+            continue
+        try:
+            text = (REPO_ROOT / rel).read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError):
+            continue
+        for number, line in enumerate(text.splitlines(), 1):
+            if _RETIRED_BRAND.search(line.replace(_LEGACY_REPO, "")):
+                offenders.append(f"{rel}:{number}")
+    assert not offenders, "retired brand in live source:\n" + "\n".join(offenders[:20])

@@ -120,13 +120,13 @@ def test_no_other_router_rides_the_class_exercise_capability() -> None:
 
 def test_the_exercise_route_is_mounted_only_under_the_exercise_scope() -> None:
     assert "/v1/exercise" in _paths_under(ProductScope.CLASS_EXERCISE)
-    for scope in (ProductScope.CBA, ProductScope.IA_WEST_LEGACY):
+    for scope in (ProductScope.CBA, ProductScope.LEGACY_PILOT):
         assert "/v1/exercise" not in _paths_under(scope), (
             f"the exercise route must not be mounted under {scope}"
         )
 
 
-@pytest.mark.parametrize("scope", [ProductScope.CBA, ProductScope.IA_WEST_LEGACY])
+@pytest.mark.parametrize("scope", [ProductScope.CBA, ProductScope.LEGACY_PILOT])
 def test_the_exercise_route_answers_404_in_a_cba_process(scope: ProductScope) -> None:
     """ADR-0025 D1's other half, now that there is a route to be absent.
 
@@ -380,7 +380,7 @@ def test_startup_under_class_exercise_builds_no_token_verifier(
     assert app.state.session_factory is not None
 
 
-@pytest.mark.parametrize("scope", ["cba", "ia_west_legacy"])
+@pytest.mark.parametrize("scope", ["cba", "legacy_pilot"])
 def test_startup_under_a_login_scope_is_unchanged(
     booted: Callable[[str], FastAPI], scope: str
 ) -> None:

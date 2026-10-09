@@ -415,7 +415,7 @@ class TestTheListingIsBoundedScopedAndOrdered:
             sa.insert(schema.org_unit).values(
                 id=sibling_id,
                 tenant_id=tenant_id,
-                path=sa.cast(f"iawest.sibling{sibling_id.hex[:8]}", schema.LTree()),
+                path=sa.cast(f"smartmatch.sibling{sibling_id.hex[:8]}", schema.LTree()),
                 unit_type="department",
                 display_name="Sibling",
             )

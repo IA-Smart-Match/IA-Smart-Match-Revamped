@@ -33,10 +33,10 @@ DATABASE_URL = os.getenv(
     "SMARTMATCH_DATABASE_URL",
     "postgresql+psycopg://smartmatch:smartmatch@localhost:5432/smartmatch",
 )
-UNIT_PATH = "iawest.pipeline"
+UNIT_PATH = "smartmatch.pipeline"
 #: A second department in the same tenant containing none of the first. Rows
 #: written here must never be counted for :data:`UNIT_PATH`.
-OTHER_UNIT_PATH = "iawest.pipelineother"
+OTHER_UNIT_PATH = "smartmatch.pipelineother"
 
 #: How many records reach each stage in the seeded population. Chosen so the
 #: three conversions are distinct from each other and from 100%, and so the
@@ -417,7 +417,7 @@ def test_an_empty_unit_reports_measured_zeros_and_no_rates(engine: Engine) -> No
     user_id = uuid.uuid4()
     subject = f"sub-empty-{uuid.uuid4().hex}"
     token = f"tok-empty-{uuid.uuid4().hex}"
-    path = "iawest.pipelineempty"
+    path = "smartmatch.pipelineempty"
 
     with engine.begin() as conn:
         conn.execute(

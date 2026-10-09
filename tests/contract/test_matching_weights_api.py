@@ -52,11 +52,11 @@ DATABASE_URL = os.getenv(
     "postgresql+psycopg://smartmatch:smartmatch@localhost:5432/smartmatch",
 )
 
-UNIT_PATH = "iawest.weights"
+UNIT_PATH = "smartmatch.weights"
 #: A second department in the same tenant containing none of :data:`UNIT_PATH`.
 #: The authorizer passes no ``tenant_wide_roles``, so ordinary subtree
 #: containment applies and a coordinator here must not reach the weights unit.
-SIBLING_UNIT_PATH = "iawest.weightssibling"
+SIBLING_UNIT_PATH = "smartmatch.weightssibling"
 
 
 @pytest.fixture(scope="module")

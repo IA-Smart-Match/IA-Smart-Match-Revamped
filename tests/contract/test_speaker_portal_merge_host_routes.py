@@ -45,7 +45,7 @@ DATABASE_URL = os.getenv(
     "postgresql+psycopg://smartmatch:smartmatch@localhost:5432/smartmatch",
 )
 
-UNIT_PATH = "iawest.merge"
+UNIT_PATH = "smartmatch.merge"
 
 _CLEANUP = (
     "speaker_request_classification",

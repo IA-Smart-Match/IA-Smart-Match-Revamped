@@ -607,7 +607,7 @@ is genuinely mixed.
 | **Allowed deps** | (target) `clients/typescript` only. |
 | **Forbidden deps** | (target) a hand-written type for any `/v1` response. |
 | **Persistence** | None. |
-| **Domain concepts** | It is the largest surviving carrier of retired IA-West vocabulary — `Specialist` is a *type*, not copy, so `scan_cba_terminology.py` cannot see it, and the next agent will read it as current (`domain-model.md` §3.5). |
+| **Domain concepts** | It is the largest surviving carrier of retired legacy-chapter vocabulary — `Specialist` is a *type*, not copy, so `scan_cba_terminology.py` cannot see it, and the next agent will read it as current (`domain-model.md` §3.5). |
 | **Tests** | `tests/e2e/…::test_16_the_portal_pages_have_no_backend_in_this_repository` asserts the `/api/*` situation from the backend side. |
 | **Operational concerns** | Deleting it wholesale breaks seven routed pages that users can reach. |
 | **Disposition** | **become an adapter, then shrink.** Its `/v1` surface is re-expressed as thin forwarders over the generated client so that no `/v1` response type is transcribed anywhere in this file; each migrated page then imports the generated client directly and its forwarder goes. The `/api/*` half does not become an adapter over anything, because nothing serves it — it shrinks to zero when M8 deletes the seven pages (OQ-S2-002, answered 2026-09-08: delete with redirects). M3 migrates **one** page as the pattern; migrating 48 files (Stage 1 reported 49; recounted 2026-09-08) in one change is the failure mode R-02's remediation explicitly warns against. Cited: R-02, AP-07, ADR-0020. |

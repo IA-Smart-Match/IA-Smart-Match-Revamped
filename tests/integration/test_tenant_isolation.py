@@ -329,7 +329,7 @@ def test_ltree_subtree_query_works(engine, tenants):
     """The tree must actually be queryable by subtree containment."""
     tenant_a, _ = tenants
     with engine.begin() as conn:
-        for path in ("iawest", "iawest.cpp", "iawest.cpp.eng", "iawest.other"):
+        for path in ("smartmatch", "smartmatch.cpp", "smartmatch.cpp.eng", "smartmatch.other"):
             conn.execute(
                 text(
                     "INSERT INTO org_unit (id, tenant_id, path, unit_type, display_name) "
@@ -342,7 +342,7 @@ def test_ltree_subtree_query_works(engine, tenants):
             conn.execute(
                 text(
                     "SELECT path::text FROM org_unit "
-                    "WHERE tenant_id = :tenant_id AND path <@ 'iawest.cpp'::ltree "
+                    "WHERE tenant_id = :tenant_id AND path <@ 'smartmatch.cpp'::ltree "
                     "ORDER BY path"
                 ),
                 {"tenant_id": tenant_a},
@@ -351,7 +351,7 @@ def test_ltree_subtree_query_works(engine, tenants):
             .all()
         )
 
-    assert rows == ["iawest.cpp", "iawest.cpp.eng"]
+    assert rows == ["smartmatch.cpp", "smartmatch.cpp.eng"]
 
 
 def test_org_unit_path_is_unique_per_tenant_not_globally(engine, tenants):

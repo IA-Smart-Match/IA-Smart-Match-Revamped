@@ -142,7 +142,7 @@ def test_the_gate_is_scope_specific_not_a_blanket_disable() -> None:
     scope that owns them.
     """
     for capability in sorted(DISABLED_UNDER_CBA):
-        assert is_capability_enabled(ProductScope.IA_WEST_LEGACY, capability)
+        assert is_capability_enabled(ProductScope.LEGACY_PILOT, capability)
 
 
 def test_staged_off_capabilities_are_off_in_every_scope() -> None:

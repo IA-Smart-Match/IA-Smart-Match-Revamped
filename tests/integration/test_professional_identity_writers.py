@@ -295,7 +295,7 @@ def test_professional_ids_for_unit_returns_empty_for_a_unit_with_no_links(
     db_session_factory: sessionmaker[Session],
 ) -> None:
     with engine.begin() as conn:
-        unlinked_unit_id = _make_unit(conn, tenant_id, "iawest.profnolinks")
+        unlinked_unit_id = _make_unit(conn, tenant_id, "smartmatch.profnolinks")
         linked_unit_id = ensure_owning_unit(conn, tenant_id)
     kwargs = _account_kwargs("other-unit")
     professional_id = kwargs["subject_id"]

@@ -554,7 +554,7 @@ class TestDeliveryTimeRefusal:
                     "INSERT INTO org_unit (id, tenant_id, path, unit_type, display_name) "
                     "VALUES (:i, :t, CAST(:p AS ltree), 'school', 'Other')"
                 ),
-                {"i": other_unit, "t": tenant_id, "p": "iawest.other"},
+                {"i": other_unit, "t": tenant_id, "p": "smartmatch.other"},
             )
             conn.execute(
                 text("UPDATE job SET owning_unit_id = :u WHERE id = :i"),

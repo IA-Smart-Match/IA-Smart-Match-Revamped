@@ -17,7 +17,7 @@ repository evidence), **INFERRED** (conclusion from several observations),
 | Project | SmartMatch platform monorepo | `pyproject.toml` `[project].name = "smartmatch-platform"` |
 | Version | `0.1.0` ("Foundation scaffold, architecture v1.1") | `pyproject.toml` |
 | Product scope (default) | `CBA` — Cal Poly Pomona College of Business Administration speaker/event matching | `python/smartmatch_domain/smartmatch_domain/product_scope.py:101` |
-| Prior scope, retained | `IA_WEST_LEGACY` | `product_scope.py:83-97` |
+| Prior scope, retained | `LEGACY_PILOT` | `product_scope.py:83-97` |
 | Agent-memory ledger id | `f943437b-6a8f-47fe-9c0d-478988b70d9a` | `.agent-memory.yaml` |
 | Commits on `main` | 312, all dated 2026-09-05 → 2026-09-08 | `git log` |
 

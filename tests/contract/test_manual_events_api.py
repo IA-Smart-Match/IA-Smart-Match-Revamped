@@ -29,8 +29,8 @@ DATABASE_URL = os.getenv(
     "postgresql+psycopg://smartmatch:smartmatch@localhost:5432/smartmatch",
 )
 
-UNIT_PATH = "iawest.manualevents"
-SIBLING_UNIT_PATH = "iawest.manualeventsibling"
+UNIT_PATH = "smartmatch.manualevents"
+SIBLING_UNIT_PATH = "smartmatch.manualeventsibling"
 ZONE = "America/Los_Angeles"
 
 

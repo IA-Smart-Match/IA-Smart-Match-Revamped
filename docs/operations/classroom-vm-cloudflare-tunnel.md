@@ -291,7 +291,7 @@ it.
 ## Part 4 — What to send Wang
 
 - URL: `https://pilot.YOURDOMAIN`
-- “This is a **synthetic** coordinator session, not IA West SSO. Cloudflare
+- “This is a **synthetic** coordinator session, not real SSO. Cloudflare
   Access is only the door to the demo.”
 - If the UI still needs a token in env, that is already baked on the VM; he
   should not need `compose-api` unless you left it out of `.env.local`.

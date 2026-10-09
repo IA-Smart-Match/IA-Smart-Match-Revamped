@@ -215,7 +215,7 @@ def generate_ics(
     lines: list[str] = [
         "BEGIN:VCALENDAR",
         "VERSION:2.0",
-        "PRODID:-//IA West SmartMatch//Event Invite//EN",
+        "PRODID:-//SmartMatch Platform//Event Invite//EN",
         "CALSCALE:GREGORIAN",
         # No METHOD. A VCALENDAR carrying METHOD:REQUEST is an iTIP scheduling
         # message, and RFC 5546 §3.2.2 makes ORGANIZER and at least one ATTENDEE

@@ -45,12 +45,12 @@ evidence say so.
    A vocabulary that is deliberately append-only cannot be tidied by renaming.
 
 There is a fifth, narrower reason. `tools/scan_cba_terminology.py` already
-polices CBA-visible *copy* — it fails the build on "IA West", "chapter",
+polices CBA-visible *copy* — it fails the build on the legacy chapter brand, "chapter",
 "Member Portal", "volunteer opportunity", "membership/dues" — and it is
 deliberately **scoped** to the frontend source plus a named list of backend
 files whose string literals are rendered. That scoping exists precisely so the
 scanner does not demand renaming the authorization `membership` row or the
-`ia_west_legacy` product scope. The repository has already decided that *copy*
+`legacy_pilot` product scope. The repository has already decided that *copy*
 and *identifiers* are governed differently. This glossary is the identifier
 half of that decision.
 
@@ -63,7 +63,7 @@ half of that decision.
 | Context | Means | Does **not** mean | Anchor |
 |---|---|---|---|
 | Identity & Access / authz | A role assignment at an `OrgPath`, optionally covering the subtree. Assembled server-side into a `Principal` | Anything a user buys, renews, or lapses | `smartmatch_authz/policy.py:170`; table `membership` (`schema.py:165`); GiST index `ix_membership_path_gist` |
-| IA-West legacy product | Chapter dues — a **retired** product concept | Anything the CBA product does | `scan_cba_terminology.py` fails the build on this word in CBA-visible copy, and carves the authz row out of its scan explicitly |
+| Legacy chapter product | Chapter dues — a **retired** product concept | Anything the CBA product does | `scan_cba_terminology.py` fails the build on this word in CBA-visible copy, and carves the authz row out of its scan explicitly |
 
 **Rule.** In this repository `membership` is authorization, always. Dues
 vocabulary is a build failure in copy and does not exist in the schema.
@@ -96,7 +96,7 @@ are always written with their prefix, in prose as well as in code.
 | unbind | Speaker Portal (B26 T6b-5) | "Remove portal access": the `speaker` row ends and the binding clears; the login's other roles stay. A `new_login` binding's contact login is also retired (sessions revoked, credential deleted) | Deleting the person or their roster record | `DELETE …/speaker-contacts/{professional_id}/portal-access`; `speaker_portal_invitation.unbound_at` |
 | `login_accounts` | Identity & Access (B26 T6b-5) | The one module that writes `pilot_credential`: `find_or_add_role`, `rotate_own_password`, `retire_login`. Addresses are normalised once (`strip().lower()`) | A login service or an identity provider | `smartmatch_persistence/login_accounts.py`; `tests/unit/test_login_account_writers.py` |
 | portal switcher | Frontend (B26 T6b-5) | The disclosure in the Event Host and Speaker shells that links a two-portal login's portals, named by the server's `display_name` | A portal chooser at sign-in, or anything that grants a portal | `src/app/components/PortalSwitcher.tsx`; `src/lib/portalChoice.ts` |
-| `Specialist` | Frontend legacy types | **Retired IA-West term**, surviving as an exported TypeScript interface | Anything current. Also `CppEvent`, `CrawlerEvent` | `apps/web/legacy-frontend/src/lib/api.ts` |
+| `Specialist` | Frontend legacy types | **retired legacy-chapter term**, surviving as an exported TypeScript interface | Anything current. Also `CppEvent`, `CrawlerEvent` | `apps/web/legacy-frontend/src/lib/api.ts` |
 
 **Rule.** `Specialist`, `CppEvent` and `CrawlerEvent` are types, not copy, so
 the terminology scanner does not see them (`domain-model.md` §3.5). Read them
@@ -128,7 +128,7 @@ ambiguous and should not appear unqualified.
 
 | Term | Context | Means | Does **not** mean | Anchor |
 |---|---|---|---|---|
-| `ProductScope` | Product policy | **Which product this is**, and which named capabilities the customer's current phase includes | Any deployment or environment fact. It can enable no live provider, no live data and no cloud deploy | `domain/product_scope.py`; values include `IA_WEST_LEGACY` |
+| `ProductScope` | Product policy | **Which product this is**, and which named capabilities the customer's current phase includes | Any deployment or environment fact. It can enable no live provider, no live data and no cloud deploy | `domain/product_scope.py`; values include `LEGACY_PILOT` |
 | Authorization scope | Identity & Access | **Which org units** a principal reaches — an `ltree` path, subtree-covering or not | What the product offers. *Hiding a link removes a claim, not an access path* | `smartmatch_authz/policy.py:118 OrgPath`; two GiST indexes |
 
 ---

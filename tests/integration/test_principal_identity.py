@@ -179,7 +179,7 @@ def test_load_by_subject_resolves_the_one_account_that_holds_it(
                 "INSERT INTO membership (id, tenant_id, user_id, granted_path, role) "
                 "VALUES (:id, :tid, :uid, CAST(:path AS ltree), 'coordinator')"
             ),
-            {"id": uuid.uuid4(), "tid": tenant_id, "uid": user_id, "path": "iawest"},
+            {"id": uuid.uuid4(), "tid": tenant_id, "uid": user_id, "path": "smartmatch"},
         )
 
     with session_factory() as session:
@@ -191,7 +191,7 @@ def test_load_by_subject_resolves_the_one_account_that_holds_it(
     assert resolved.email == f"{subject}@example.edu"
     assert resolved.principal.suspended is False
     assert [m.role for m in resolved.principal.memberships] == ["coordinator"]
-    assert resolved.principal.memberships[0].granted_path == OrgPath.parse("iawest")
+    assert resolved.principal.memberships[0].granted_path == OrgPath.parse("smartmatch")
 
 
 def test_load_by_subject_returns_none_when_nothing_holds_the_subject(

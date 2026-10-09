@@ -82,7 +82,7 @@ def test_the_customer_personas_are_the_ones_shown() -> None:
     assert "Speaker Connector" in (visible_role_label("admin") or "")
 
 
-def test_no_ia_west_or_chapter_wording_survives_in_a_visible_label() -> None:
+def test_no_retired_brand_or_chapter_wording_survives_in_a_visible_label() -> None:
     """Customer §4 removes these words from anything a user reads."""
     shown = " ".join(
         f"{presentation_for_role(role).role_label} "

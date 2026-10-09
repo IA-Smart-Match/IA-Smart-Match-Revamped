@@ -40,9 +40,9 @@ DATABASE_URL = os.getenv(
     "postgresql+psycopg://smartmatch:smartmatch@localhost:5432/smartmatch",
 )
 
-UNIT_PATH = "iawest.duphint"
+UNIT_PATH = "smartmatch.duphint"
 #: A second department under the same tenant. The hint must not reach it.
-OTHER_UNIT_PATH = "iawest.duphintother"
+OTHER_UNIT_PATH = "smartmatch.duphintother"
 
 FULL_NAME = "Dana Reyes"
 TYPO_NAME = "Dana Ryes"
@@ -92,7 +92,7 @@ def engine() -> Engine:
 def hint_context(engine: Engine) -> Iterator[tuple[TestClient, uuid.UUID, uuid.UUID, str]]:
     """One tenant, two departments, and a Speaker Connector covering both.
 
-    The connector's membership is granted at ``iawest`` rather than at either
+    The connector's membership is granted at ``smartmatch`` rather than at either
     department, so the *only* thing keeping the hint inside one unit is the
     query's own scoping rather than an authorization failure. A fixture granting
     per-department would make
@@ -138,7 +138,7 @@ def hint_context(engine: Engine) -> Iterator[tuple[TestClient, uuid.UUID, uuid.U
                 "INSERT INTO membership (id, tenant_id, user_id, granted_path, role) "
                 "VALUES (:id, :tid, :uid, CAST(:path AS ltree), 'coordinator')"
             ),
-            {"id": uuid.uuid4(), "tid": tenant_id, "uid": user_id, "path": "iawest"},
+            {"id": uuid.uuid4(), "tid": tenant_id, "uid": user_id, "path": "smartmatch"},
         )
 
     verifier = FixtureTokenVerifier()

@@ -269,7 +269,7 @@ app = FastAPI(
     title="SmartMatch API",
     version="0.1.0",
     description=(
-        "IA West SmartMatch platform API — Foundation scaffold. "
+        "SmartMatch Platform API — Foundation scaffold. "
         "OpenAPI is the source of truth; the TypeScript client is generated from "
         "it and never hand-maintained."
     ),
@@ -317,7 +317,7 @@ app.add_middleware(MaxBodySizeMiddleware, max_bytes=MAX_REQUEST_BODY_BYTES)
 #: that statement false for five routers while the table made it true for the
 #: rest.
 #:
-#: Under both scopes that have a login — `cba` and `ia_west_legacy` — this
+#: Under both scopes that have a login — `cba` and `legacy_pilot` — this
 #: mounts exactly what mounting them unconditionally did, so the served contract
 #: is unchanged.
 #:
@@ -612,7 +612,7 @@ CAPABILITY_SCOPED_ROUTERS: Final[tuple[tuple[APIRouter, Capability], ...]] = (
     # `routers_for` drops the principal-bearing infrastructure with them, so
     # `get_current_principal` is not reachable in that process at all — which is
     # what D9 rejected the per-route bypass in favour of. Under `cba` and
-    # `ia_west_legacy` this row is off, so the CBA contract is unchanged and the
+    # `legacy_pilot` this row is off, so the CBA contract is unchanged and the
     # exercise route answers 404 there.
     #
     # The matching, results, and ingest routers join this row the same way,
@@ -794,7 +794,7 @@ def health() -> dict[str, Any]:
 #: scope that has outreach gets these pages without editing this line, and a
 #: later scope that does not, does not.
 #:
-#: Under ``cba`` and ``ia_west_legacy`` ``CONSENTED_OUTREACH`` is on, so the
+#: Under ``cba`` and ``legacy_pilot`` ``CONSENTED_OUTREACH`` is on, so the
 #: served contract is unchanged: same paths, same handlers, same documented
 #: responses, and the same place in the OpenAPI document — which is why the
 #: router is included *below* ``/api/health`` rather than joining

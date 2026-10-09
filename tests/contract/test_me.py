@@ -121,7 +121,7 @@ def _grant(
     tenant_id: uuid.UUID,
     user_id: uuid.UUID,
     *,
-    path: str = "iawest",
+    path: str = "smartmatch",
     role: str = "coordinator",
     valid_from: datetime | None = None,
     valid_until: datetime | None = None,
@@ -155,7 +155,7 @@ def test_me_returns_identity_and_a_membership(
 ):
     subject = _unique_subject("sub-me")
     user_id = _make_user(engine, tenant_id, subject=subject)
-    _grant(engine, tenant_id, user_id, path="iawest.cpp.engineering.ie", role="coordinator")
+    _grant(engine, tenant_id, user_id, path="smartmatch.cpp.engineering.ie", role="coordinator")
     client.verifier.register("tok-me", subject)  # type: ignore[attr-defined]
 
     response = client.get("/v1/me", headers={"Authorization": "Bearer tok-me"})
@@ -167,7 +167,7 @@ def test_me_returns_identity_and_a_membership(
     assert body["email"] == f"{subject}@example.edu"
     assert body["memberships"] == [
         {
-            "org_unit_path": "iawest.cpp.engineering.ie",
+            "org_unit_path": "smartmatch.cpp.engineering.ie",
             "role": "coordinator",
             "valid_from": None,
             "valid_until": None,
@@ -187,12 +187,12 @@ def test_me_reports_every_membership_and_its_validity_window(
     """
     subject = _unique_subject("sub-multi")
     user_id = _make_user(engine, tenant_id, subject=subject)
-    _grant(engine, tenant_id, user_id, path="iawest", role="admin")
+    _grant(engine, tenant_id, user_id, path="smartmatch", role="admin")
     _grant(
         engine,
         tenant_id,
         user_id,
-        path="iawest.cpp.engineering.cs",
+        path="smartmatch.cpp.engineering.cs",
         role="coordinator",
         valid_until=datetime.now(UTC) - timedelta(days=1),
     )

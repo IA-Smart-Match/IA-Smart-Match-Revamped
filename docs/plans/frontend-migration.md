@@ -47,7 +47,7 @@ Emotion declared but barely used in pages. Charts are Recharts. Motion is
 
 **Not in this copy.** No `node_modules`, no `dist` / `.next` / `build`. The
 legacy Streamlit UI (`Category 3…/src`) and the Figma mockup
-(`docs/mockup/V1.1/IA-West_UI`) were not copied; this directory is the Vite
+(the legacy V1.1 mockup directory) were not copied; this directory is the Vite
 app only.
 
 ### 1.1 Routes

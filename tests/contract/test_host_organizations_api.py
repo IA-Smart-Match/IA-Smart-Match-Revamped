@@ -51,16 +51,16 @@ DATABASE_URL = os.getenv(
     "postgresql+psycopg://smartmatch:smartmatch@localhost:5432/smartmatch",
 )
 
-UNIT_PATH = "iawest.hosts"
+UNIT_PATH = "smartmatch.hosts"
 #: A second department in the same tenant. None of the three routes passes
 #: ``tenant_wide_roles``, so ordinary subtree containment applies and an actor
-#: here must not reach the host unit — while a membership at ``iawest`` covers
+#: here must not reach the host unit — while a membership at ``smartmatch`` covers
 #: both, which is how one host comes to own an organization in the *wrong*
 #: unit for the conflict and cross-unit assertions.
-SIBLING_UNIT_PATH = "iawest.hostssibling"
+SIBLING_UNIT_PATH = "smartmatch.hostssibling"
 #: The ancestor both units sit under. A membership granted here reaches either
 #: — needed by the host whose organization files into the sibling.
-TENANT_ROOT_PATH = "iawest"
+TENANT_ROOT_PATH = "smartmatch"
 
 ORGANIZATION = {
     "name": "Accounting Society",

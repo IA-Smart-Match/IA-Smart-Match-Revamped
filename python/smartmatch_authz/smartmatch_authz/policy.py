@@ -157,7 +157,7 @@ class OrgPath:
         """Parse a dotted ltree-style path.
 
         Args:
-            raw: e.g. ``"iawest.cpp.engineering.ie"``.
+            raw: e.g. ``"smartmatch.cpp.engineering.ie"``.
 
         Returns:
             The parsed path.

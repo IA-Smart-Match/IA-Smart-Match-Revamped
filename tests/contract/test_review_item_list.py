@@ -64,8 +64,8 @@ DATABASE_URL = os.getenv(
 #: The unit whose queue is read. Its sibling below shares a parent and nothing
 #: else — the pair is what makes "unit scoping is a path question, not a role
 #: question" assertable rather than merely stated.
-UNIT_PATH = "iawest.review_list"
-SIBLING_PATH = "iawest.review_list_sibling"
+UNIT_PATH = "smartmatch.review_list"
+SIBLING_PATH = "smartmatch.review_list_sibling"
 
 #: Three pending rows, one accepted, one rejected. Three is enough to prove the
 #: filter selects rather than happens to match: a filter bug that returned

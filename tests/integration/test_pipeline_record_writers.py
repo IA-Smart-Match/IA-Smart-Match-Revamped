@@ -754,7 +754,7 @@ def test_record_matched_refuses_a_conflicting_owning_unit_id(
     """
     with engine.begin() as conn:
         unit_id = ensure_owning_unit(conn, tenant_id)
-        other_unit_id = _make_unit(conn, tenant_id, "iawest.pipelineconflict")
+        other_unit_id = _make_unit(conn, tenant_id, "smartmatch.pipelineconflict")
         subject_id = _make_user(conn, tenant_id)
     opportunity_id = uuid.uuid4()
 
