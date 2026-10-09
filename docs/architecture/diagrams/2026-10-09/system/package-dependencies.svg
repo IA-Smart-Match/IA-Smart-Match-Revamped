@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg viewBox="0 0 880 590" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="package-dependencies-title package-dependencies-desc" id="package-dependencies-root">
+        <title id="package-dependencies-title">Workspace package dependencies</title>
+        <desc id="package-dependencies-desc">Import graph between the six Smart Match workspace packages at d0b05adc: api and worker on top, persistence and providers in the middle, authz and domain as leaves; three edges are imported but missing from pyproject.</desc>
+        <defs>
+      <style>@import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&amp;family=Geist:wght@400;500;600&amp;family=Geist+Mono:wght@400;500;600&amp;family=Noto+Serif:ital@0;1&amp;family=Noto+Sans+KR:wght@400;500;600&amp;family=Noto+Serif+KR:wght@400&amp;family=Noto+Sans+TC:wght@400;500;600&amp;family=Noto+Serif+TC:wght@400&amp;display=swap');
+      #package-dependencies-root { --color-paper: #f5f5f5; --color-ink: #2d3142; --color-muted: #4f5d75; --color-accent: #eb6c36;
+      --font-sans: 'Geist', system-ui, sans-serif; --font-serif: 'Instrument Serif', serif; --font-mono: 'Geist Mono', ui-monospace, monospace; }
+      #package-dependencies-root { font-family: var(--font-sans); color: var(--color-ink); }
+      #package-dependencies-root .diagram-container { width: 100%; overflow-x: auto; }
+      #package-dependencies-root .caption { font-family: var(--font-mono); font-size: 0.72rem; color: var(--color-muted); margin-top: 1rem; line-height: 1.5; max-width: 90ch; }
+      #package-dependencies-root .diagram-container { overflow-x: visible; }</style>
+          <marker id="package-dependencies-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/></marker>
+          <marker id="package-dependencies-arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#eb6c36"/></marker>
+          <marker id="package-dependencies-arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#2e5aa8"/></marker>
+          <marker id="package-dependencies-arrow-open" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polyline points="0 0, 8 3, 0 6" fill="none" stroke="#4f5d75" stroke-width="1.2"/></marker>
+        </defs>
+        <rect width="100%" height="100%" fill="#f5f5f5"/>
+<path d="M 160,98 L 108,98 Q 100,98 100,106 L 100,350" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#package-dependencies-arrow)"/>
+<path d="M 320,110 L 412,110 Q 420,110 420,118 L 420,350" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#package-dependencies-arrow)"/>
+<path d="M 640,110 L 548,110 Q 540,110 540,118 L 540,350" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#package-dependencies-arrow)"/>
+<path d="M 300,266 L 300,370 Q 300,378 308,378 L 380,378" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#package-dependencies-arrow)"/>
+<path d="M 660,266 L 660,370 Q 660,378 652,378 L 580,378" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#package-dependencies-arrow)"/>
+<path d="M 300,70 L 300,48 Q 300,40 308,40 L 812,40 Q 820,40 820,48 L 820,230 Q 820,238 812,238 L 800,238" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#package-dependencies-arrow)"/>
+<path d="M 720,126 L 720,210" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#package-dependencies-arrow)"/>
+<path d="M 200,126 L 200,210" fill="none" stroke="#4f5d75" stroke-width="1" stroke-dasharray="5,4" marker-end="url(#package-dependencies-arrow)"/>
+<path d="M 180,266 L 180,350" fill="none" stroke="#4f5d75" stroke-width="1" stroke-dasharray="5,4" marker-end="url(#package-dependencies-arrow)"/>
+<path d="M 680,126 L 680,160 Q 680,168 672,168 L 548,168 a 8,8 0 0,0 -16,0 L 428,168 a 8,8 0 0,0 -16,0 L 268,168 Q 260,168 260,176 L 260,210" fill="none" stroke="#4f5d75" stroke-width="1" stroke-dasharray="5,4" marker-end="url(#package-dependencies-arrow)"/>
+<rect x="128.0" y="162" width="64.0" height="12" rx="2" fill="#f5f5f5"/><text x="160" y="171" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">UNDECLARED</text>
+<rect x="194.0" y="302" width="64.0" height="12" rx="2" fill="#f5f5f5"/><text x="226" y="311" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">UNDECLARED</text>
+<rect x="578.0" y="150" width="64.0" height="12" rx="2" fill="#f5f5f5"/><text x="610" y="159" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">UNDECLARED</text>
+<rect x="160" y="70" width="160" height="56" rx="6" fill="#f5f5f5"/>
+<rect x="160" y="70" width="160" height="56" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+<rect x="168" y="76" width="52" height="12" rx="2" fill="none" stroke="#4f5d75" stroke-opacity="0.4" stroke-width="0.8"/>
+<text x="194.0" y="85" fill="#4f5d75" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">SERVICE</text>
+<rect x="278" y="76" width="34" height="12" rx="2" fill="#f5f5f5" stroke="#4f5d75" stroke-opacity="0.4" stroke-width="0.8"/>
+<text x="295.0" y="85" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">0 in</text>
+<text x="240.0" y="102.0" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">smartmatch_api</text>
+<text x="240.0" y="116.0" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">services/api · FastAPI</text>
+<rect x="640" y="70" width="160" height="56" rx="6" fill="#f5f5f5"/>
+<rect x="640" y="70" width="160" height="56" rx="6" fill="#2d3142" fill-opacity="0.02" stroke="#2d3142" stroke-opacity="0.20" stroke-width="1" stroke-dasharray="4,3"/>
+<rect x="648" y="76" width="52" height="12" rx="2" fill="none" stroke="#4f5d75" stroke-opacity="0.4" stroke-width="0.8"/>
+<text x="674.0" y="85" fill="#4f5d75" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">SERVICE</text>
+<rect x="758" y="76" width="34" height="12" rx="2" fill="#f5f5f5" stroke="#4f5d75" stroke-opacity="0.4" stroke-width="0.8"/>
+<text x="775.0" y="85" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">0 in</text>
+<text x="720.0" y="102.0" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">smartmatch_worker</text>
+<text x="720.0" y="116.0" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">not in import-linter</text>
+<rect x="160" y="210" width="160" height="56" rx="6" fill="#f5f5f5"/>
+<rect x="160" y="210" width="160" height="56" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+<rect x="168" y="216" width="28" height="12" rx="2" fill="none" stroke="#4f5d75" stroke-opacity="0.4" stroke-width="0.8"/>
+<text x="182.0" y="225" fill="#4f5d75" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">PKG</text>
+<rect x="278" y="216" width="34" height="12" rx="2" fill="#f5f5f5" stroke="#4f5d75" stroke-opacity="0.4" stroke-width="0.8"/>
+<text x="295.0" y="225" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">2 in</text>
+<text x="240.0" y="242.0" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">smartmatch_persistence</text>
+<text x="240.0" y="256.0" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">SQLAlchemy · 62 tables</text>
+<rect x="640" y="210" width="160" height="56" rx="6" fill="#f5f5f5"/>
+<rect x="640" y="210" width="160" height="56" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+<rect x="648" y="216" width="28" height="12" rx="2" fill="none" stroke="#4f5d75" stroke-opacity="0.4" stroke-width="0.8"/>
+<text x="662.0" y="225" fill="#4f5d75" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">PKG</text>
+<rect x="758" y="216" width="34" height="12" rx="2" fill="#f5f5f5" stroke="#4f5d75" stroke-opacity="0.4" stroke-width="0.8"/>
+<text x="775.0" y="225" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">2 in</text>
+<text x="720.0" y="242.0" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">smartmatch_providers</text>
+<text x="720.0" y="256.0" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">fixtures + adapters</text>
+<rect x="40" y="350" width="160" height="56" rx="6" fill="#f5f5f5"/>
+<rect x="40" y="350" width="160" height="56" rx="6" fill="#2d3142" fill-opacity="0.05" stroke="#4f5d75" stroke-width="1"/>
+<rect x="48" y="356" width="28" height="12" rx="2" fill="none" stroke="#4f5d75" stroke-opacity="0.4" stroke-width="0.8"/>
+<text x="62.0" y="365" fill="#4f5d75" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">PKG</text>
+<rect x="158" y="356" width="34" height="12" rx="2" fill="#f5f5f5" stroke="#4f5d75" stroke-opacity="0.4" stroke-width="0.8"/>
+<text x="175.0" y="365" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">2 in</text>
+<text x="120.0" y="382.0" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">smartmatch_authz</text>
+<text x="120.0" y="396.0" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">policy · no deps</text>
+<rect x="380" y="350" width="200" height="56" rx="6" fill="#f5f5f5"/>
+<rect x="380" y="350" width="200" height="56" rx="6" fill="#2d3142" fill-opacity="0.05" stroke="#4f5d75" stroke-width="1"/>
+<rect x="388" y="356" width="28" height="12" rx="2" fill="none" stroke="#4f5d75" stroke-opacity="0.4" stroke-width="0.8"/>
+<text x="402.0" y="365" fill="#4f5d75" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">PKG</text>
+<rect x="538" y="356" width="34" height="12" rx="2" fill="#f5f5f5" stroke="#4f5d75" stroke-opacity="0.4" stroke-width="0.8"/>
+<text x="555.0" y="365" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">4 in</text>
+<text x="480.0" y="382.0" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">smartmatch_domain</text>
+<text x="480.0" y="396.0" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">pure · ortools, openpyxl</text>
+<text x="40" y="446" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="start">import-linter (lint-imports run 2026-10-09): 7 contracts KEPT, 0 broken, over 5 root packages.</text>
+<text x="40" y="462" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="start">Layers contract: persistence &gt; providers &gt; authz &gt; domain. Domain and authz forbid frameworks, os, providers, api.</text>
+<text x="40" y="478" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="start">smartmatch_api is constrained only by the 2 exercise-router contracts + being forbidden to the inner packages.</text>
+<text x="40" y="494" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="start">api ↔ worker: 0 imports either way (they meet through the job / outbox tables).</text>
+<line x1="30" y1="542" x2="850" y2="542" stroke="#2d3142" stroke-opacity="0.10" stroke-width="0.8"/>
+<text x="30" y="562" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">LEGEND</text>
+<rect x="100" y="553" width="24" height="12" rx="3" fill="#ffffff" stroke="#2d3142"/>
+<text x="132" y="562" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="start">linted service/package</text>
+<rect x="259.8" y="553" width="24" height="12" rx="3" fill="#2d3142" fill-opacity="0.02" stroke="#2d3142" stroke-opacity="0.20" stroke-dasharray="4,3"/>
+<text x="291.8" y="562" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="start">not in root_packages</text>
+<rect x="409.8" y="553" width="24" height="12" rx="3" fill="#2d3142" fill-opacity="0.05" stroke="#4f5d75"/>
+<text x="441.8" y="562" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="start">leaf (imports no workspace pkg)</text>
+<path d="M 613.7,559 L 637.7,559" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#package-dependencies-arrow)"/>
+<text x="645.7" y="562" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="start">declared dep</text>
+<path d="M 724.5,559 L 748.5,559" fill="none" stroke="#4f5d75" stroke-width="1" stroke-dasharray="5,4" marker-end="url(#package-dependencies-arrow)"/>
+<text x="756.5" y="562" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="start">imported, not declared</text>
+      </svg>
