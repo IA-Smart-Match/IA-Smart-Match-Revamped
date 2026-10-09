@@ -6,6 +6,8 @@ Read [`DESIGN.md`](DESIGN.md) before changing frontend UI or API integration. It
 
 The canonical backend contract is [`../../contracts/openapi/smartmatch.json`](../../contracts/openapi/smartmatch.json). Existing fixture-backed signed-in screens must keep their visible synthetic-data disclosures until they are wired to verified live endpoints.
 
+Two API clients live in `legacy-frontend/src/lib/`: `api.ts` (bearer token, `/api` and `/v1/*`, every portal) and `exerciseClient.ts` + `exerciseApi.ts` (cookies, `/v1/exercise/*`, class-exercise pages only). Route table, dormant pages and clients are mapped in the [frontend page map (2026-10-09)](../../docs/architecture/diagrams/2026-10-09/product/frontend-map.html).
+
 ## Local verification
 
 From `apps/web/legacy-frontend`:

@@ -68,7 +68,7 @@ claim: PostgreSQL was unavailable in the latest local run, so all 551
 integration tests skipped, including the 14 spend-reservation tests.
 The no-database run also did not complete in that environment because
 `tests/contract/test_api_health.py::test_health_reports_ok` blocked; see the
-[A1 verification record](docs/testing/adr0015-a1-spend-persistence-verification.md).
+[A1 verification record](docs/archive/testing/adr0015-a1-spend-persistence-verification.md).
 
 ### Proposed, scaffolded, or deliberately absent
 
@@ -84,13 +84,13 @@ The no-database run also did not complete in that environment because
 | Live/direct Calendar-provider integration | **Not implemented.** The authenticated ICS invite-download route is implemented and remains the supported calendar artifact; there is no direct provider sync or live Calendar API client | Gate G5 for direct Calendar authorization/integration |
 | Research agents / crawler | Threat model signed 2026-09-03; **no crawl code scaffolded** | R3 build; live production crawl (S6a) deferred in synthetic pilot |
 | Live paid extraction | **Absent/gated.** Only a synthetic provider and opt-in handler exist; `main.py` does not register them in the shipped worker | Live-provider/A3 confirmation, edition/config gate, credentials, and production ceilings |
-| `apps/web` frontend | **On hold** for the new product UI; the legacy-frontend is authorized for the synthetic pilot and now carries the CBA coordinator and volunteer surfaces — `/coordinator-portal/match-runs` (`CoordinatorMatchRuns.tsx`), `/coordinator-portal/invitations` (`CoordinatorInvitations.tsx`), and `/volunteer-portal/confirmed-speaker` (`VolunteerConfirmedSpeaker.tsx`). See [`apps/web/DESIGN.md`](apps/web/DESIGN.md) | Part 2 design decisions (D-1..D-11); owner assigned 2026-09-03 |
+| `apps/web` frontend | **On hold** for the new product UI; the legacy-frontend is authorized for the synthetic pilot and now carries the CBA coordinator and volunteer surfaces — `/coordinator-portal/match-runs` (`CoordinatorMatchRuns.tsx`), `/coordinator-portal/invitations` (`CoordinatorInvitations.tsx`), and `/volunteer-portal/confirmed-speaker` (`VolunteerConfirmedSpeaker.tsx`). See [`apps/web/DESIGN.md`](apps/web/DESIGN.md). *2026-10-09: `/volunteer-portal/confirmed-speaker` now redirects to `/volunteer-portal/my-requests`, and `VolunteerConfirmedSpeaker.tsx` has no route (dormant); see the [frontend page map](docs/architecture/diagrams/2026-10-09/product/frontend-map.html).* | Part 2 design decisions (D-1..D-11); owner assigned 2026-09-03 |
 | Terraform | Skeleton only; **nothing deployed** | Later |
 | Registration QR and attendance/check-in QR | **Absent/gated.** Registration currently uses the authenticated event action; no QR deep link is committed. Attendance can be written by a coordinator, but no check-in scanner/QR route is wired | OQ-SE-03 for registration QR; OQ-SC-04/D8 for attendance/check-in QR |
 | Disclosure consent and peer-visible attendance | **Schema/design only; no disclosure-consent repository, route, or peer-visible surface is committed.** Existing attendance reads do not implement ADR-0014 peer visibility | OQ-SC-04/D8 plus privacy, records, accessibility, and security decisions |
 | Live rewards catalog/content | **Operations exist, but no route-reachable catalog writer or live funded catalog content is committed.** The dev seed remains synthetic | OQ-SC-01 and funded, owner-approved catalog rows |
 | Student recommendation, digest, media, announcements, and Event Host edit/review flow | **Absent/gated.** There is no authoritative student scoring registry, scheduled digest producer, private engagement media plane, announcement flow, or filer-scoped Host draft/revision/review implementation | The [canonical student-engagement program](docs/plans/2026-09-14-student-engagement-program-plan.md) and its [open-question register](docs/plans/open-questions/student-engagement-deferred.md); W4 remains **STOPPED** under ADR-0011 |
-| Pipeline funnel — Matched → Contacted → Confirmed → Attended → Member Inquiry | **Every stage now has a writer, and each writer is a real act.** `pipeline_record` (migration `0011`) is read by the five ADR-0011 metrics through `pipeline_funnel_rows_v1`. Matched is opened by the review-accept path; Contacted is written by the outreach handler after a provider takes custody of a message, and **only when a send command names an existing journey**; Confirmed, Attended and Member Inquiry are recorded by a coordinator through `POST /v1/units/{unit_id}/pipeline-records/{record_id}/stages` with an explicit timestamp (`services/api/.../routers/pipeline.py`, plan [`docs/plans/2026-09-05-pipeline-stage-writers-plan.md`](docs/plans/2026-09-05-pipeline-stage-writers-plan.md)). That route cannot write Matched or Contacted — Contacted is the one machine-witnessed stage, and letting a human type it would erase the distinction the metric depends on. Attended cites a real `attendance_record` or is refused | A `pipeline_record` *creation* path, and a live calendar/RSVP source for Confirmed. Neither is invented here: an email to a professional is not a student's journey, and a coordinator's "confirmed" is that coordinator's claim rather than an RSVP — see OQ-101/OQ-102 in [`docs/plans/open-questions/pipeline-stage-writers-deferred.md`](docs/plans/open-questions/pipeline-stage-writers-deferred.md) |
+| Pipeline funnel — Matched → Contacted → Confirmed → Attended → Member Inquiry | **Every stage now has a writer, and each writer is a real act.** `pipeline_record` (migration `0011`) is read by the five ADR-0011 metrics through `pipeline_funnel_rows_v1`. Matched is opened by the review-accept path; Contacted is written by the outreach handler after a provider takes custody of a message, and **only when a send command names an existing journey**; Confirmed, Attended and Member Inquiry are recorded by a coordinator through `POST /v1/units/{unit_id}/pipeline-records/{record_id}/stages` with an explicit timestamp (`services/api/.../routers/pipeline.py`, plan [`docs/archive/plans/2026-09-05-pipeline-stage-writers-plan.md`](docs/archive/plans/2026-09-05-pipeline-stage-writers-plan.md)). That route cannot write Matched or Contacted — Contacted is the one machine-witnessed stage, and letting a human type it would erase the distinction the metric depends on. Attended cites a real `attendance_record` or is refused | A `pipeline_record` *creation* path, and a live calendar/RSVP source for Confirmed. Neither is invented here: an email to a professional is not a student's journey, and a coordinator's "confirmed" is that coordinator's claim rather than an RSVP — see OQ-101/OQ-102 in [`docs/plans/open-questions/pipeline-stage-writers-deferred.md`](docs/plans/open-questions/pipeline-stage-writers-deferred.md) |
 | Local `docker compose` appliance — db, migrate, seed, api, worker, scheduler sidecar | **Dev-only, local compose only.** The seed, the loopback task queue, the fixed bearer tokens, and `smartmatch_worker.local_scheduler` each refuse to start unless `SMARTMATCH_EDITION=dev`; they *emulate* Cloud Scheduler and Cloud Tasks and deploy nothing | Cloud Scheduler + OIDC provisioning, an IdP, and Terraform (F5) |
 | Redis, Pub/Sub, BigQuery | **Deliberately absent** | Adoption triggers in v1.1 §3.5 |
 
@@ -224,15 +224,24 @@ python/smartmatch_providers/   Provider interfaces + fixture adapters.
 python/smartmatch_persistence/ PostgreSQL schema and repositories.
 services/api/                  FastAPI HTTP boundary.
 services/worker/               Private Cloud Tasks target + outbox dispatcher.
-apps/web/                      Frontend. ON HOLD — see apps/web/DESIGN.md.
+apps/web/legacy-frontend/      The live React/Vite app (name is historical) — see apps/web/DESIGN.md.
 contracts/openapi/             Generated contract — source of truth for clients.
 db/migrations/                 Alembic, expand → migrate → contract.
 requirements/                  Hash-pinned dependency locks.
 infra/terraform/               Environment skeletons. Nothing deployed.
-tools/                         Verification scripts.
-tests/                         unit · golden · authz · contract · integration
-docs/                          architecture · migration · security · testing
+scripts/                       Compose health/smoke checks; scripts/vm/ = pilot VM bootstrap + deploy.sh.
+tools/                         Verification, scan, seed and dataset scripts.
+test_data/                     Class-exercise input CSVs.
+tests/                         unit · golden · authz · contract · integration · e2e
+docs/                          Start at docs/INDEX.md — architecture, decisions, plans, operations, product, design, archive
+docker-compose*.yml            Base appliance; vm.yml VM override; exercise.yml class-exercise overlay; demo.yml.
 ```
+
+> **Layout corrected 2026-10-09.** Earlier text called `apps/web/` "ON HOLD"
+> and listed `docs/` as architecture · migration · security · testing. The
+> legacy-frontend has been the active app since the synthetic pilot, and the
+> scaffold security and testing records moved to `docs/archive/`. Current maps:
+> [`docs/architecture/diagrams/README.md`](docs/architecture/diagrams/README.md).
 
 ### The boundary that matters
 
@@ -290,6 +299,8 @@ Contract-Refs: v1.1 §N.N
 
 | Document | Contents |
 |---|---|
+| [Docs index — read first](docs/INDEX.md) | One pointer per question: how it works, what was decided, how to build, operate, and what the product is |
+| [Architecture diagram index](docs/architecture/diagrams/README.md) | Dated diagram sets, including the 2026-10-09 product, frontend, docs and CI maps |
 | [Installation guide](INSTALL.md) | Fresh clone to a green run, database lane included, with troubleshooting |
 | [Local dev walkthrough](docs/operations/local-dev-walkthrough.md) | Bringing the CBA pilot appliance up by hand and clicking through it, command by command and why |
 | [Container operations](docs/operations/containers.md) | The images, the compose appliance, the launchers, and the health suite |
@@ -302,12 +313,12 @@ Contract-Refs: v1.1 §N.N
 | [Contract review and findings](docs/architecture/review/contract-findings.md) | Consistency checks, six findings, scaffold gate result |
 | [Migration manifest](docs/migration/migration-manifest.yaml) | Every legacy component: ported, blocked, or archived, with reasons |
 | [Rejected components](docs/migration/rejected-components.md) | What was deliberately not carried forward |
-| [Security review](docs/security/scaffold-security-review.md) | Scaffold security posture and residual risk |
-| [Verification record](docs/testing/scaffold-verification.md) | Every check run, with its exact result |
+| [Security review](docs/archive/security/scaffold-security-review.md) | Scaffold security posture and residual risk (archived) |
+| [Verification record](docs/archive/testing/scaffold-verification.md) | Every check run, with its exact result (archived) |
 | [Current planning index](docs/plans/README.md) | Navigation authority for current implementation truth, active contracts, accepted decisions, open registers, and historical plans |
 | [Student-engagement program](docs/plans/2026-09-14-student-engagement-program-plan.md) | Canonical current plan for the student-engagement program; documentation target only |
 | [Student-engagement decision register](docs/plans/open-questions/student-engagement-deferred.md) | Canonical open questions, safe defaults, owners, and closure evidence for that program |
-| [Remaining work](docs/plans/remaining-foundation-r1-work.md) | Foundation and R1 backlog in dependency order |
+| [Remaining work](docs/archive/plans/remaining-foundation-r1-work.md) | Foundation and R1 backlog in dependency order (archived; live ideas are in the [backlog](docs/plans/backlog.md)) |
 | [Frontend design brief](apps/web/DESIGN.md) | Constraints already settled, and the eleven decisions the redesign must make |
 
 ---

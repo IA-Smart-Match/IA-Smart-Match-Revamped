@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Documentation map</title>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root { --color-paper:#f5f5f5; --color-ink:#2d3142; --color-muted:#4f5d75; --color-accent:#eb6c36;
+  --font-sans:'Geist', system-ui, sans-serif; --font-serif:'Instrument Serif', serif; --font-mono:'Geist Mono', ui-monospace, monospace; }
+body { font-family:var(--font-sans); background:var(--color-paper); color:var(--color-ink); padding:3rem 2rem; }
+.frame { max-width:1240px; margin:0 auto; }
+.diagram-container { width:100%; overflow-x:auto; margin-bottom:2rem; }
+.eyebrow { font-family:var(--font-mono); font-size:0.66rem; font-weight:500; letter-spacing:0.18em; text-transform:uppercase; color:var(--color-muted); margin-bottom:0.5rem; }
+h1 { font-family:var(--font-serif); font-size:clamp(1.5rem,2.4vw + 0.75rem,2rem); font-weight:400; letter-spacing:-0.02em; line-height:1.15; margin-bottom:0.5rem; }
+.meta { font-family:var(--font-mono); font-size:0.7rem; color:var(--color-muted); margin-bottom:1.5rem; }
+svg { width:100%; display:block; }
+h2 { font-family:var(--font-serif); font-weight:400; font-size:1.35rem; margin:1.5rem 0 0.5rem; }
+.notes { font-size:0.85rem; line-height:1.5; color:var(--color-ink); }
+.notes table { border-collapse:collapse; width:100%; margin:0.5rem 0 1rem; font-size:0.8rem; }
+.notes th, .notes td { border-bottom:1px solid rgba(45,49,66,0.12); padding:4px 8px; text-align:left; vertical-align:top; }
+.notes th { font-family:var(--font-mono); font-size:0.68rem; letter-spacing:0.08em; text-transform:uppercase; color:var(--color-muted); }
+.notes code { font-family:var(--font-mono); font-size:0.78em; }
+.notes ul { padding-left:1.2rem; }
+@media print { .diagram-container { overflow-x:visible; } svg { min-width:0 !important; } }
+</style>
+</head>
+<body>
+<div class="frame">
+<p class="eyebrow">Index graph · Product map · 2026-10-09</p>
+<h1>Documentation map</h1>
+<p class="meta">Repository state at <code>origin/main</code> @ <code>d0b05adc</code> · drawn 2026-10-09 · point-in-time, decides nothing</p>
+<div class="diagram-container"><svg viewBox="0 0 1200 600" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="docs-map-title docs-map-desc" style="min-width:1200px;max-width:1200px"><title id="docs-map-title">Which index points where</title><desc id="docs-map-desc">Index graph of the repository documentation: the root README links the planning index and the frontend README and, from 2026-10-09, docs/INDEX.md, which points on to the ADR index, the open-question registers, the decision spine, the architecture orientation docs and the dated diagram index.</desc><defs><marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/></marker><marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#eb6c36"/></marker><marker id="arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#2e5aa8"/></marker></defs><rect width="100%" height="100%" fill="#f5f5f5"/><path d="M 210,286 L 262,286 Q 270,286 270,278 L 270,148 Q 270,140 278,140 L 330,140" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+<path d="M 210,300 L 330,300" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+<path d="M 210,314 L 262,314 Q 270,314 270,322 L 270,452 Q 270,460 278,460 L 330,460" fill="none" stroke="#eb6c36" stroke-width="1.2" marker-end="url(#arrow-accent)"/>
+<path d="M 530,286 L 582,286 Q 590,286 590,278 L 590,96 Q 590,88 598,88 L 680,88" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+<path d="M 530,314 L 597,314 Q 605,314 605,306 L 605,196 Q 605,188 613,188 L 680,188" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+<path d="M 530,446 L 612,446 Q 620,446 620,438 L 620,296 Q 620,288 628,288 L 680,288" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+<path d="M 530,460 L 627,460 Q 635,460 635,452 L 635,396 Q 635,388 643,388 L 680,388" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+<path d="M 530,474 L 642,474 Q 650,474 650,482 L 650,480 Q 650,488 658,488 L 680,488" fill="none" stroke="#eb6c36" stroke-width="1.2" marker-end="url(#arrow-accent)"/>
+<path d="M 795,260 L 795,216" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+<rect x="284.5" y="384" width="67" height="12" rx="2" fill="#f5f5f5"/><text x="318" y="393" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">ADDED 10-09</text>
+<rect x="808.5" y="232" width="35" height="12" rx="2" fill="#f5f5f5"/><text x="826" y="241" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">LISTS</text>
+<rect x="40" y="272" width="170" height="56" rx="6" fill="#f5f5f5"/><rect x="40" y="272" width="170" height="56" rx="6" fill="rgba(235,108,54,0.10)" stroke="#eb6c36" stroke-width="1"/><rect x="48" y="278" width="28" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/><text x="62.0" y="287" fill="rgba(45,49,66,0.8)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">ROOT</text><text x="125.0" y="304.0" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">README.md</text><text x="125.0" y="318.0" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">repo root · truth table</text>
+<rect x="330" y="112" width="200" height="56" rx="6" fill="#f5f5f5"/><rect x="330" y="112" width="200" height="56" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/><text x="430.0" y="138.0" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">apps/web/README.md</text><text x="430.0" y="152.0" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">→ DESIGN.md, AGENTS.md</text>
+<rect x="330" y="272" width="200" height="56" rx="6" fill="#f5f5f5"/><rect x="330" y="272" width="200" height="56" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/><text x="430.0" y="298.0" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">docs/plans/README.md</text><text x="430.0" y="312.0" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">planning navigation</text>
+<rect x="330" y="432" width="200" height="56" rx="6" fill="#f5f5f5"/><rect x="330" y="432" width="200" height="56" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/><text x="430.0" y="458.0" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">docs/INDEX.md</text><text x="430.0" y="472.0" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">read first · agents</text>
+<rect x="680" y="60" width="230" height="56" rx="6" fill="#f5f5f5"/><rect x="680" y="60" width="230" height="56" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1"/><text x="795.0" y="86.0" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">architecture/decisions/</text><text x="795.0" y="100.0" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">ADR 0001–0027 · CI-checked index</text>
+<rect x="680" y="160" width="230" height="56" rx="6" fill="#f5f5f5"/><rect x="680" y="160" width="230" height="56" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1"/><text x="795.0" y="186.0" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">plans/open-questions/</text><text x="795.0" y="200.0" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">11 OQ registers · authority</text>
+<rect x="680" y="260" width="230" height="56" rx="6" fill="#f5f5f5"/><rect x="680" y="260" width="230" height="56" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/><text x="795.0" y="286.0" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">decisions/INDEX.md</text><text x="795.0" y="300.0" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">decision spine · 22 records</text>
+<rect x="680" y="360" width="230" height="56" rx="6" fill="#f5f5f5"/><rect x="680" y="360" width="230" height="56" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1"/><text x="795.0" y="386.0" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">architecture/ (orientation)</text><text x="795.0" y="400.0" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">topology, command path, risks</text>
+<rect x="680" y="460" width="230" height="56" rx="6" fill="#f5f5f5"/><rect x="680" y="460" width="230" height="56" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1"/><text x="795.0" y="486.0" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">architecture/diagrams/</text><text x="795.0" y="500.0" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">dated diagram index</text>
+<text x="940" y="92" fill="#7a8399" font-size="9" font-family="'Geist Mono', monospace" text-anchor="start">also linked from docs/INDEX.md</text>
+<text x="940" y="192" fill="#7a8399" font-size="9" font-family="'Geist Mono', monospace" text-anchor="start">also linked from docs/INDEX.md</text>
+<text x="940" y="492" fill="#7a8399" font-size="9" font-family="'Geist Mono', monospace" text-anchor="start">had no inbound link before 10-09</text>
+<line x1="30" y1="556" x2="1170" y2="556" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+<text x="30" y="576" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">LEGEND</text>
+<rect x="100" y="567" width="22" height="12" rx="3" fill="rgba(235,108,54,0.10)" stroke="#eb6c36"/>
+<text x="130" y="576" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">entry point</text>
+<rect x="210" y="567" width="22" height="12" rx="3" fill="#ffffff" stroke="#2d3142"/>
+<text x="240" y="576" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">index file</text>
+<rect x="315" y="567" width="22" height="12" rx="3" fill="rgba(45,49,66,0.05)" stroke="#4f5d75"/>
+<text x="345" y="576" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">folder of records</text>
+<line x1="455" y1="573" x2="477" y2="573" stroke="#eb6c36" stroke-width="1.2"/>
+<text x="485" y="576" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">link added 2026-10-09</text>
+<line x1="615" y1="573" x2="637" y2="573" stroke="#4f5d75" stroke-width="1.2"/>
+<text x="645" y="576" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">existing link</text></svg></div>
+<div class="notes">
+<h2>Where each kind of document lives</h2><table><thead><tr><th>Kind</th><th>Folder</th><th>Files</th><th>Index</th></tr></thead><tbody><tr><td>Architecture decisions (ADRs)</td><td><code>docs/architecture/decisions/</code></td><td>27 + backlog</td><td><code>README.md</code>, checked by <code>tests/unit/test_adr_index.py</code></td></tr><tr><td>Decision records, rulings</td><td><code>docs/decisions/</code></td><td>22</td><td><code>INDEX.md</code></td></tr><tr><td>Open-question registers</td><td><code>docs/plans/open-questions/</code></td><td>11</td><td>listed in <code>docs/INDEX.md</code>, <code>decisions/INDEX.md</code>, <code>plans/README.md</code></td></tr><tr><td>Plans</td><td><code>docs/plans/</code> (+ <code>2026-10-14-stakeholder-sprint/</code>)</td><td>52</td><td><code>plans/README.md</code>; sprint has its own <code>README.md</code></td></tr><tr><td>Decision packets (workshop framing)</td><td><code>docs/decision-packets/</code></td><td>5</td><td><code>README.md</code></td></tr><tr><td>Runbooks</td><td><code>docs/operations/</code></td><td>10</td><td><code>docs/INDEX.md</code> § Operate</td></tr><tr><td>Product requirements</td><td><code>docs/product/</code></td><td>6</td><td><code>docs/INDEX.md</code> § Product</td></tr><tr><td>Design docs</td><td><code>docs/design/class-exercise/</code>, <code>docs/design/cpp-prototype/</code>, <code>apps/web/DESIGN.md</code></td><td>~290</td><td>none of their own</td></tr><tr><td>Stakeholder sources (never rewritten)</td><td><code>docs/10-2-2026/</code>, <code>docs/design/cpp-prototype/source/</code>, <code>decisions/stakeholder-correspondence-2026-09.md</code></td><td>14</td><td><code>10-2-2026/issue-briefs/INDEX.md</code></td></tr><tr><td>Status snapshots</td><td><code>docs/status-report/</code></td><td>5</td><td><code>README.md</code></td></tr><tr><td>Archive</td><td><code>docs/archive/</code> (mirrors original paths)</td><td>~185</td><td><code>archive/INDEX.md</code> (ID-namespace map)</td></tr></tbody></table><h2>Index problems found 2026-10-09</h2><ul><li>Root <code>README.md</code>: 5 links pointed at files since moved to <code>docs/archive/</code>; fixed in this change.</li><li>Root <code>README.md</code> never linked <code>docs/INDEX.md</code>, and nothing linked <code>docs/architecture/diagrams/README.md</code>; both links added.</li><li><code>docs/INDEX.md</code> listed merged PR #239 as open and omitted the <code>oct14-deferred</code> register; corrected with a dated note.</li><li><code>plans/README.md</code> header said updated 2026-09-16 but cites 2026-10-06 material; dated note added.</li></ul>
+</div>
+</div>
+</body>
+</html>
