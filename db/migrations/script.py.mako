@@ -7,7 +7,9 @@ Create Date: ${create_date}
 Migrations follow expand → migrate → contract (architecture v1.1 §4.2).
 A single revision must not both add and remove; the destructive contract step
 runs only after the release is fully promoted and stable, so application
-rollback never depends on reversing it.
+rollback never depends on reversing it. `make expand-contract` fails an
+upgrade() that drops or renames a table or column unless the revision sets
+`CONTRACT_PHASE = True` under a `# unused since: <release>` comment.
 
 Every tenant-owned table must carry `tenant_id`, a `(tenant_id, id)` unique
 constraint, and composite foreign keys `(tenant_id, parent_id)` — tenant

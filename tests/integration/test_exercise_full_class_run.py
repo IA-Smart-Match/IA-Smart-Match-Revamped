@@ -13,21 +13,26 @@ the order Ann's flow gives (Ann to Chau, Discord, 2026-09-24):
    a second run is refused;
 5. each team chooses one of the three ways of asking for more and refreshes;
 6. the instructor unlocks Harbor (E12); each team runs round two;
-7. the instructor resets team 3; team 3 then repeats its work on its old seed.
+7. the instructor resets team 3; team 3 then repeats its work, and nothing
+   here puts its seed back — the reset itself keeps it.
 
 The tests below read the record of that walk. What they hold the class to:
 
 * **Determinism** — a stored result is the rule applied to the team's seed and
-  list; and after a reset, the same seed and the same list give the same
-  result, round one and round two.
+  list; and after a reset the team still has its seed, so the same list
+  gives the same result, round one and round two (Ann's checklist of
+  2026-10-02, section 8).
 * **Reset isolation** — resetting team 3 changes nothing any other team, or the
   instructor, can read about any other team.
 * **Nothing withheld leaks** — no ``hidden_true_*`` name and no ``OQ-CE-``
   register ID in any response body of the whole class.
 * **Plausible figures** — 0 ≤ sign-ups ≤ 30, attended ⊆ signed up ⊆ invited,
   empty seats = 60 - 8 - attended.
-* **D2 reaches the rule** — an undecided career goal's half credit on an
-  exploratory event changes who signs up, through the route.
+* **An undecided true goal reaches the rule** — for every profile whose
+  withheld true career goal is "Undecided", the route answers exactly what the
+  rule answers on the same stored rows. Ann's revisions of 2026-10-02 removed
+  the half credit such a goal earned; this holds the route to the rule as it
+  now stands.
 
 Runs against its own scratch database, migrated to head and dropped afterwards;
 skipped where no PostgreSQL is reachable.
@@ -35,11 +40,11 @@ skipped where no PostgreSQL is reachable.
 
 from __future__ import annotations
 
-import dataclasses
 import json
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any
 
 import pytest
@@ -65,11 +70,9 @@ from exercise_class_driver import (
     prepare_round,
     read_everything,
     recompute,
-    rule_event,
-    rule_inputs,
     run,
-    set_seed,
     team_snapshot,
+    undecided_true_goal_profile_nos,
     unlock,
     weightings,
     workspace_row,
@@ -80,8 +83,6 @@ from smartmatch_domain.exercise import EXERCISE_TEAM_NUMBERS
 from smartmatch_domain.exercise.simulation import (
     EVENT_SEATS,
     EXISTING_SIGNUPS,
-    require_coefficients,
-    run_email_everyone,
 )
 from smartmatch_persistence.exercise import schema
 from sqlalchemy import Engine
@@ -93,14 +94,6 @@ pytestmark = pytest.mark.integration
 
 #: The team whose reset is checked against the other five.
 _RESET_TEAM = 3
-
-#: The team whose seed is chosen so the undecided half credit shows (D2).
-_D2_TEAM = 1
-
-#: How many seeds :func:`_seed_where_undecided_credit_shows` may try. Each is
-#: one "email everyone" run over 300 profiles, so this bounds the cost; the
-#: first seed that shows the effect is usually within the first handful.
-_D2_SEED_SEARCH = 500
 
 
 @dataclass
@@ -116,7 +109,7 @@ class _ClassRun:
     fourth_setting: tuple[int, dict[str, Any]] = (0, {})
     final_lists: dict[tuple[int, str], list[int]] = field(default_factory=dict)
     seeds_after_reset: dict[int, int] = field(default_factory=dict)
-    reset_seed_everyone: Any = None
+    other_seed_everyone: Any = None
     refresh: dict[int, dict[str, Any]] = field(default_factory=dict)
     asking_after_refresh: dict[int, dict[str, Any]] = field(default_factory=dict)
     recomputed: dict[tuple[int, str], tuple[Any, Any]] = field(default_factory=dict)
@@ -127,9 +120,7 @@ class _ClassRun:
     rerun_round_one: dict[str, Any] = field(default_factory=dict)
     rerun_refresh: dict[str, Any] = field(default_factory=dict)
     rerun_round_two: dict[str, Any] = field(default_factory=dict)
-    d2_with_credit: Any = None
-    d2_without_credit: Any = None
-    undecided_count: int = 0
+    undecided_profile_nos: frozenset[int] = frozenset()
 
 
 @contextmanager
@@ -159,37 +150,17 @@ def _body(response: Any) -> dict[str, Any]:
     return body
 
 
+#: When a row was written, which a repeat of the same work is free to change.
+_TIME_KEYS = frozenset({"created_at", "refreshed_at"})
+
+
 def _without_times(value: Any) -> Any:
-    """A response body with its ``created_at`` stamps removed, at any depth."""
+    """A response body with its time stamps removed, at any depth."""
     if isinstance(value, dict):
-        return {key: _without_times(item) for key, item in value.items() if key != "created_at"}
+        return {key: _without_times(item) for key, item in value.items() if key not in _TIME_KEYS}
     if isinstance(value, list):
         return [_without_times(item) for item in value]
     return value
-
-
-def _seed_where_undecided_credit_shows(
-    sessions: sessionmaker[Session], team_number: int
-) -> tuple[int, Any, Any]:
-    """A seed under which D2's half credit changes who signs up for Northline.
-
-    The rule is deterministic in the seed, so "does the half credit matter" is
-    a question with a fixed answer per seed. Searching for one where it does,
-    and then running the route on it, turns a probabilistic effect into an
-    exact assertion: the route's "email everyone" must equal the rule *with*
-    the credit and differ from the rule *without* it.
-    """
-    everybody, _ = rule_inputs(sessions, team_number)
-    stripped = tuple(dataclasses.replace(p, career_goal_undecided=False) for p in everybody)
-    event = rule_event(sessions, ROUND_ONE)
-    assert event.exploratory, "Northline is exploratory in Ann's file (D2)"
-    coefficients = require_coefficients()
-    for seed in range(1, _D2_SEED_SEARCH + 1):
-        with_credit = run_email_everyone(everybody, event, seed=seed, coefficients=coefficients)
-        without = run_email_everyone(stripped, event, seed=seed, coefficients=coefficients)
-        if with_credit.signed_up != without.signed_up:
-            return seed, with_credit, without
-    raise AssertionError(f"no seed in 1..{_D2_SEED_SEARCH} shows the undecided half credit")
 
 
 def _round_one(
@@ -238,28 +209,36 @@ def _round_two(
         record.recomputed[(number, ROUND_TWO)] = recompute(sessions, number, ROUND_TWO, invited)
 
 
+def _another_seed(seed: int) -> int:
+    """A seed that is not ``seed``, inside the column's signed 64-bit range."""
+    return (seed + 1) % 2**63
+
+
 def _reset_and_repeat(
     record: _ClassRun,
     sessions: sessionmaker[Session],
     teams: dict[int, RecordingClient],
     teacher: RecordingClient,
 ) -> None:
-    """Reset team 3, snapshot everybody, then repeat team 3's work on its old seed."""
+    """Reset team 3, snapshot everybody, then repeat team 3's work.
+
+    The seed is never written back: the rerun below is the same list through
+    the same routes on whatever seed the reset left, which is the claim.
+    """
     record.before_reset = {n: team_snapshot(c, teacher, n) for n, c in teams.items()}
-    old = workspace_row(sessions, _RESET_TEAM)
     reset = teacher.post(f"{INSTRUCTOR_BASE}/workspaces/{_RESET_TEAM}/reset", headers=HEADER)
     assert reset.status_code == 200, reset.text
     record.after_reset = {n: team_snapshot(c, teacher, n) for n, c in teams.items()}
     record.seeds_after_reset = {n: workspace_row(sessions, n).seed for n in teams}
     record.reset_seed = record.seeds_after_reset[_RESET_TEAM]
-    # The rule on the new seed, same list, with the overlay cleared as it was
-    # before round one: the seed has to matter, or the rerun below proves nothing.
+    # The rule on a different seed, same list, with the overlay cleared as it
+    # was before round one: the seed has to matter, or the rerun below would
+    # match whatever the reset did to it and prove nothing.
     invited = record.round_one[_RESET_TEAM]["team"]["invited_profile_nos"]
-    _, record.reset_seed_everyone = recompute(
-        sessions, _RESET_TEAM, ROUND_ONE, invited, seed=record.reset_seed
+    _, record.other_seed_everyone = recompute(
+        sessions, _RESET_TEAM, ROUND_ONE, invited, seed=_another_seed(record.reset_seed)
     )
 
-    set_seed(sessions, old.id, old.seed)
     client = teams[_RESET_TEAM]
     prepare_round(client, ROUND_ONE, _RESET_TEAM)
     first = run(client, ROUND_ONE, _RESET_TEAM)
@@ -288,13 +267,6 @@ def class_run(sessions: sessionmaker[Session]) -> _ClassRun:
     teacher = instructor(app, record.log)
     teams = {number: enter(app, record.log, number) for number in EXERCISE_TEAM_NUMBERS}
 
-    seed, record.d2_with_credit, record.d2_without_credit = _seed_where_undecided_credit_shows(
-        sessions, _D2_TEAM
-    )
-    set_seed(sessions, workspace_row(sessions, _D2_TEAM).id, seed)
-    everybody, _ = rule_inputs(sessions, _D2_TEAM)
-    record.undecided_count = sum(1 for profile in everybody if profile.career_goal_undecided)
-
     for number, client in teams.items():
         record.final_lists[(number, ROUND_ONE)] = prepare_round(client, ROUND_ONE, number)
         locked = run(client, ROUND_ONE, number)
@@ -314,6 +286,7 @@ def class_run(sessions: sessionmaker[Session]) -> _ClassRun:
     for client in teams.values():
         read_everything(client, teacher)
     record.seeds = {n: workspace_row(sessions, n).seed for n in EXERCISE_TEAM_NUMBERS}
+    record.undecided_profile_nos = undecided_true_goal_profile_nos(sessions, _RESET_TEAM)
     _reset_and_repeat(record, sessions, teams, teacher)
     return record
 
@@ -378,12 +351,36 @@ def test_round_two_carries_the_teams_own_round_one(class_run: _ClassRun) -> None
 def test_the_asking_route_reports_the_same_counts_the_refresh_did(
     class_run: _ClassRun,
 ) -> None:
-    """M2 B4: the counts survive a reload, read back from the stored overlay."""
+    """M2 B4: the counts survive a reload, read back from the stored overlay.
+
+    And, since Ann's review of 2026-10-02, so does everything else the summary
+    is written from: the time, the group that was asked, and the before-and-after
+    counts of every profile.
+    """
     for number in EXERCISE_TEAM_NUMBERS:
         posted = class_run.refresh[number]
-        assert class_run.asking_after_refresh[number]["refresh_counts"] == {
-            key: posted[key] for key in ("cards_completed", "non_responding", "topics_added")
-        }, number
+        read = class_run.asking_after_refresh[number]
+        assert read["refresh_counts"] == posted["refresh_counts"], number
+        assert {
+            key: read["refresh_counts"][key]
+            for key in ("cards_completed", "non_responding", "topics_added")
+        } == {key: posted[key] for key in ("cards_completed", "non_responding", "topics_added")}, (
+            number
+        )
+        assert datetime.fromisoformat(read["refreshed_at"]) == datetime.fromisoformat(
+            posted["refreshed_at"]
+        ), number
+        assert read["first_round_results"] is True, number
+
+
+def test_the_refresh_reports_every_profile_before_and_after(class_run: _ClassRun) -> None:
+    """Ann, 2026-10-02: the "how much we know" counts for all 300, before and after."""
+    for number in EXERCISE_TEAM_NUMBERS:
+        counts = class_run.refresh[number]["refresh_counts"]
+        before, after = counts["marker_counts_before"], counts["marker_counts_after"]
+        assert sum(before.values()) == sum(after.values()), number
+        assert after["completed_card"] == before["completed_card"] + counts["cards_completed"]
+        assert counts["cards_completed"] <= counts["invited_without_card"] <= 30, number
 
 
 def test_each_team_used_its_own_way_of_asking(class_run: _ClassRun) -> None:
@@ -420,12 +417,12 @@ def test_each_team_invited_exactly_its_final_settings_list(
 
 
 def test_the_seed_changes_the_result(class_run: _ClassRun) -> None:
-    """Same list, new seed, different outcome — so the same-seed rerun means something."""
+    """Same list, another seed, different outcome — so the rerun means something."""
     original = numbers_of(class_run.round_one[_RESET_TEAM]["email_everyone"])
-    assert panel_of(class_run.reset_seed_everyone) != original
+    assert panel_of(class_run.other_seed_everyone) != original
 
 
-def test_after_a_reset_the_same_seed_and_list_give_the_same_round_one(
+def test_after_a_reset_the_same_list_gives_the_same_round_one(
     class_run: _ClassRun,
 ) -> None:
     assert _without_times(class_run.rerun_round_one) == _without_times(
@@ -433,13 +430,13 @@ def test_after_a_reset_the_same_seed_and_list_give_the_same_round_one(
     )
 
 
-def test_after_a_reset_the_same_seed_and_choice_give_the_same_refresh(
+def test_after_a_reset_the_same_choice_gives_the_same_refresh(
     class_run: _ClassRun,
 ) -> None:
-    assert class_run.rerun_refresh == class_run.refresh[_RESET_TEAM]
+    assert _without_times(class_run.rerun_refresh) == _without_times(class_run.refresh[_RESET_TEAM])
 
 
-def test_after_a_reset_the_same_seed_and_list_give_the_same_round_two(
+def test_after_a_reset_the_same_list_gives_the_same_round_two(
     class_run: _ClassRun,
 ) -> None:
     assert _without_times(class_run.rerun_round_two) == _without_times(
@@ -467,7 +464,8 @@ def test_resetting_team_3_changes_no_other_teams_seed(class_run: _ClassRun) -> N
             assert class_run.seeds_after_reset[number] == class_run.seeds[number], number
 
 
-def test_the_reset_cleared_team_3_and_gave_it_a_new_seed(class_run: _ClassRun) -> None:
+def test_the_reset_cleared_team_3_and_kept_its_seed(class_run: _ClassRun) -> None:
+    """Checklist section 8: back at the start, with the chance part unchanged."""
     after = class_run.after_reset[_RESET_TEAM]
     for event_key in (ROUND_ONE, ROUND_TWO):
         status, body = after[f"results {event_key}"]
@@ -475,7 +473,7 @@ def test_the_reset_cleared_team_3_and_gave_it_a_new_seed(class_run: _ClassRun) -
         assert after[f"settings {event_key}"][1]["settings"] == []
     assert after["asking"][1]["choice"] is None
     assert after["asking"][1]["refreshed"] is False
-    assert class_run.reset_seed != class_run.seeds[_RESET_TEAM]
+    assert class_run.reset_seed == class_run.seeds[_RESET_TEAM]
 
 
 # ---------------------------------------------------------------------------
@@ -578,19 +576,47 @@ def test_the_class_as_a_whole_got_sign_ups(class_run: _ClassRun) -> None:
 
 
 # ---------------------------------------------------------------------------
-# D2: the undecided half credit reaches the results rule
+# An undecided true career goal, through the route
 # ---------------------------------------------------------------------------
 
-
-def test_the_file_has_undecided_profiles_and_the_rule_sees_them(class_run: _ClassRun) -> None:
-    """Ann's file carries 31 undecided true goals; each reaches the rule flagged."""
-    assert class_run.undecided_count == 31
+#: How many of Ann's 300 profiles have "Undecided" as their withheld true goal.
+_UNDECIDED_TRUE_GOALS = 31
 
 
-def test_the_undecided_half_credit_changes_the_routes_result(class_run: _ClassRun) -> None:
-    answered = numbers_of(class_run.round_one[_D2_TEAM]["email_everyone"])
-    assert answered == panel_of(class_run.d2_with_credit)
-    assert answered != panel_of(class_run.d2_without_credit)
+@pytest.mark.parametrize("event_key", [ROUND_ONE, ROUND_TWO])
+def test_an_undecided_true_goal_gets_from_the_route_what_the_rule_gives_it(
+    class_run: _ClassRun, event_key: str
+) -> None:
+    """Outcomes only: who signed up and who attended, among the undecided.
+
+    "Email everyone" invites all 300, so every undecided profile is in the
+    run. The recomputed result is the rule applied to the same stored rows,
+    seed and event outside the route.
+    """
+    undecided = class_run.undecided_profile_nos
+    assert len(undecided) == _UNDECIDED_TRUE_GOALS
+    answered = class_run.round_one if event_key == ROUND_ONE else class_run.round_two
+    for number in EXERCISE_TEAM_NUMBERS:
+        route = numbers_of(answered[number]["email_everyone"])
+        _, everyone = class_run.recomputed[(number, event_key)]
+        rule = panel_of(everyone)
+        assert undecided <= set(route["invited_profile_nos"]), number
+        for outcome in ("signed_up_profile_nos", "attended_profile_nos"):
+            assert undecided & set(route[outcome]) == undecided & set(rule[outcome]), (
+                number,
+                outcome,
+            )
+
+
+def test_the_undecided_outcomes_compared_are_not_all_empty(class_run: _ClassRun) -> None:
+    """Twelve runs in which no undecided profile signed up would compare nothing."""
+    signed_up = {
+        profile_no
+        for answered in (class_run.round_one, class_run.round_two)
+        for number in EXERCISE_TEAM_NUMBERS
+        for profile_no in answered[number]["email_everyone"]["signed_up_profile_nos"]
+    }
+    assert class_run.undecided_profile_nos & signed_up
 
 
 # ---------------------------------------------------------------------------

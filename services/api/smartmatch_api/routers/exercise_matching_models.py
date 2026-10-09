@@ -47,10 +47,9 @@ A card's career goal is one of Ann's sixteen labels; "career goal fits this
 event" compares the **topic** that label points at, through
 :func:`~smartmatch_domain.exercise.vocabulary.goal_topic_for_matching` — the
 one place that mapping is applied for the ranker. The stored and displayed
-goal stays Ann's label. An ``Undecided`` goal names no topic but is flagged
-(:func:`~smartmatch_domain.exercise.vocabulary.goal_is_undecided`), and the
-event carries ``is_exploratory``, so the factor gives it half a fit on a broad
-exploratory event (OQ-CE-14, decided 2026-09-25).
+goal stays Ann's label. An ``Undecided`` goal names no topic, so the factor
+gives it a measured zero on every event (Ann's revisions of 2026-10-02, item
+4b).
 """
 
 from __future__ import annotations
@@ -59,7 +58,6 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from http import HTTPStatus
-from types import MappingProxyType
 from typing import Final
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -71,14 +69,9 @@ from smartmatch_domain.exercise.markers import (
     list_composition,
 )
 from smartmatch_domain.exercise.matching import ExerciseList, ExerciseProfile
-from smartmatch_domain.exercise.registry import (
-    EXERCISE_FACTOR_LABELS,
-    UNDECIDED_GOAL_HALF_LABEL,
-    UNDECIDED_GOAL_HALF_LABEL_KEY,
-)
+from smartmatch_domain.exercise.registry import EXERCISE_FACTOR_LABELS
 from smartmatch_domain.exercise.vocabulary import (
     EXERCISE_CLASS_YEAR_RANK,
-    goal_is_undecided,
     goal_topic_for_matching,
 )
 from smartmatch_domain.exercise_list_coverage import ListCoverage
@@ -110,8 +103,10 @@ __all__ = [
     "SavedSettingsView",
     "event_evidence",
     "event_or_refusal",
+    "first_round_event",
     "rankable_set",
     "ranked_list_view",
+    "refresh_marks_for",
     "saved_setting_view",
 ]
 
@@ -149,12 +144,15 @@ class ProfileFacts:
         class_year: The year, as the data file spells it.
         marker: Which of design spec §7's three groups the profile is in, under
             *this team's* overlay.
+        refresh_marks: What this team's refresh changed about the profile, as
+            :func:`refresh_marks_for` names it. Empty before the refresh.
     """
 
     display_name: str
     major: str
     class_year: str
     marker: InformationMarker
+    refresh_marks: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -170,12 +168,15 @@ class RankableSet:
             data file records no major or no year for them. A count, not a
             score: it tells a team that the list is drawn from fewer than the
             whole file, which is a fact it would otherwise have to infer.
+        first_round_event_name: The first round's event, as the file spells it,
+            or ``None`` for a file with no round. What a ``new_event`` mark names.
     """
 
     profiles: tuple[ExerciseProfile, ...]
     facts: Mapping[int, ProfileFacts]
     year_rank: Mapping[str, int]
     unrankable_profile_count: int
+    first_round_event_name: str | None = None
 
 
 def event_or_refusal(events: Sequence[ExerciseEventRow], event_key: str) -> ExerciseEventRow:
@@ -212,13 +213,48 @@ def event_or_refusal(events: Sequence[ExerciseEventRow], event_key: str) -> Exer
     )
 
 
+def first_round_event(events: Sequence[ExerciseEventRow]) -> ExerciseEventRow | None:
+    """The first of the events the teams run, by its place in the data file.
+
+    Read off ``is_exercise_event`` and ``sequence``, never off a name: the
+    events' names are Ann's data and may change from one file to the next.
+    ``None`` for a file that carries no such event.
+    """
+    rounds = sorted((e for e in events if e.is_exercise_event), key=lambda e: e.sequence)
+    return rounds[0] if rounds else None
+
+
+#: The marks a list entry may carry, in the order they are listed. Wire values;
+#: the screen owns the words ("New card", "New: went to Northline", "Stopped
+#: responding").
+REFRESH_MARK_NEW_CARD: Final[str] = "new_card"
+REFRESH_MARK_NEW_EVENT: Final[str] = "new_event"
+REFRESH_MARK_STOPPED_RESPONDING: Final[str] = "stopped_responding"
+
+
+def refresh_marks_for(profile: TeamProfileRow) -> tuple[str, ...]:
+    """What this team's refresh changed about one profile (Ann, 2026-10-02).
+
+    Read from the overlay's own columns, which only the refresh writes and a
+    reset clears — so a mark is on one team's list and nobody else's, and says
+    *that* something changed, never what a card holds. A profile can carry more
+    than one: somebody who attended round one and then filled in a card gained
+    both, and the list says both rather than picking.
+    """
+    found = (
+        (REFRESH_MARK_NEW_CARD, profile.overlay_card_interests is not None),
+        (REFRESH_MARK_NEW_EVENT, bool(profile.overlay_added_event_topics)),
+        (REFRESH_MARK_STOPPED_RESPONDING, profile.non_responding),
+    )
+    return tuple(mark for mark, applies in found if applies)
+
+
 def event_evidence(event: ExerciseEventRow) -> EventEvidence:
     """One stored event as the four factors may read it."""
     return EventEvidence(
         event_key=event.event_key,
         topic_tags=event.topic_tags,
         target_majors=event.target_majors,
-        exploratory=event.is_exploratory,
     )
 
 
@@ -269,7 +305,6 @@ def _profile_evidence(
         ProfileCard(
             stated_interests=interests,
             career_goal=goal_topic_for_matching(career_goal),
-            career_goal_undecided=goal_is_undecided(career_goal),
         )
         if interests is not None
         else None
@@ -300,6 +335,7 @@ def rankable_set(
     already accepted.
     """
     topics_by_event_key = {event.event_key: event.topic_tags for event in events}
+    first_round = first_round_event(events)
     ranked: list[ExerciseProfile] = []
     facts: dict[int, ProfileFacts] = {}
     unrankable = 0
@@ -322,12 +358,14 @@ def rankable_set(
             major=evidence.major,
             class_year=class_year,
             marker=derive_marker(evidence),
+            refresh_marks=refresh_marks_for(profile),
         )
     return RankableSet(
         profiles=tuple(ranked),
         facts=facts,
         year_rank=EXERCISE_CLASS_YEAR_RANK,
         unrankable_profile_count=unrankable,
+        first_round_event_name=None if first_round is None else first_round.name,
     )
 
 
@@ -421,10 +459,12 @@ class ListEntryView(BaseModel):
             "not numbers — render them through `factor_labels`."
         ),
     )
-    undecided_goal_half: bool = Field(
+    refresh_marks: list[str] = Field(
+        default_factory=list,
         description=(
-            "True when the career goal counted only as an undecided goal's half "
-            "on a broad exploratory event. A flag, not a number."
+            "What your team's refresh changed about this profile, if anything: "
+            "`new_card`, `new_event` (it attended the first round's event), "
+            "`stopped_responding`. Empty before the refresh. May hold several."
         ),
     )
 
@@ -495,14 +535,16 @@ class RankedListView(BaseModel):
         ),
     )
     factor_labels: dict[str, str] = Field(
-        description=(
-            "The plain words for each factor key, for a screen to render, plus "
-            "one entry under `undecided_goal_half`: the words to use in place of "
-            "the career-goal label on an entry whose `undecided_goal_half` flag "
-            "is set. That entry is a label, not a weight."
-        )
+        description="The plain words for each factor key, for a screen to render."
     )
     entries: list[ListEntryView] = Field(description="The names, in order.")
+    first_round_event_name: str | None = Field(
+        default=None,
+        description=(
+            "The first round's event, as the data file spells it, so a "
+            "`new_event` mark can name it. Null when the file carries no round."
+        ),
+    )
     composition: ListCompositionView = Field(description='The "who is on the list" table.')
     unlisted_class_years: list[str] = Field(
         description=(
@@ -678,14 +720,6 @@ def _composition_for(ranked: ExerciseList, rankable: RankableSet) -> ListComposi
     return list_composition(listed, everyone)
 
 
-#: What every list response sends as ``factor_labels``: Ann's four factor
-#: labels, then the Undecided half's words (OQ-CE-14) so a screen reads them
-#: from the response instead of keeping a copy.
-_RESPONSE_FACTOR_LABELS: Final[Mapping[str, str]] = MappingProxyType(
-    {**EXERCISE_FACTOR_LABELS, UNDECIDED_GOAL_HALF_LABEL_KEY: UNDECIDED_GOAL_HALF_LABEL}
-)
-
-
 def ranked_list_view(
     ranked: ExerciseList,
     rankable: RankableSet,
@@ -709,7 +743,7 @@ def ranked_list_view(
                 marker=str(entry.marker),
                 reason=entry.reason,
                 contributing_factor_keys=list(entry.contributing_factor_keys),
-                undecided_goal_half=entry.undecided_goal_half,
+                refresh_marks=list(facts.refresh_marks),
             )
         )
     return RankedListView(
@@ -719,18 +753,19 @@ def ranked_list_view(
         invite_limit=ranked.invite_limit,
         setting_name=setting_name,
         weights=dict(weights),
-        factor_labels=dict(_RESPONSE_FACTOR_LABELS),
+        factor_labels=dict(EXERCISE_FACTOR_LABELS),
         entries=entries,
+        first_round_event_name=rankable.first_round_event_name,
         composition=_composition_view(_composition_for(ranked, rankable)),
         unlisted_class_years=list(ranked.unlisted_class_years),
         unrankable_profile_count=rankable.unrankable_profile_count,
     )
 
 
-def saved_setting_view(setting: SavedSetting) -> SavedSettingView:
-    """One stored setting as a response."""
+def saved_setting_view(setting: SavedSetting, weights: Mapping[str, float]) -> SavedSettingView:
+    """One stored setting as a response, with its four weights as ranked."""
     return SavedSettingView(
         name=setting.name,
-        weights=dict(setting.weights),
+        weights=dict(weights),
         created_at=setting.created_at,
     )

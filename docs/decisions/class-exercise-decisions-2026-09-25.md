@@ -25,7 +25,7 @@ the requirement and touches D2, D6 and D8. See the dated note under each, and
 | # | The question | The answer | Who decided, when |
 |---|---|---|---|
 | D1 | What file does the instructor upload? | Ann's `.xlsx`, exactly as she sends it. No converting to CSV first. | Danny (owner), 2026-09-24 |
-| D2 | Which events does each career goal fit? | Each "<field> role" fits its field. "Start my own business" fits Entrepreneurship. "Graduate school" fits no event topic. "Undecided" gets **half credit** on broad events (career fairs, industry panels, employer info sessions, employer talks — Northline and Harbor included). The results step treats undecided students the same way. | Danny drafted 2026-09-24; Ann confirmed and added the half-credit rule 2026-09-25 |
+| D2 | Which events does each career goal fit? | Each "<field> role" fits its field. "Start my own business" fits Entrepreneurship. "Graduate school" fits no event topic. "Undecided" gets **half credit** on broad events *(superseded 2026-10-02: fits no event)* (career fairs, industry panels, employer info sessions, employer talks — Northline and Harbor included). The results step treats undecided students the same way. | Danny drafted 2026-09-24; Ann confirmed and added the half-credit rule 2026-09-25 |
 | D3 | When two students tie all the way down, who comes first? | The fixed order in Ann's `tiebreak_order` column. | Danny (owner), 2026-09-24 |
 | D4 | Are Ann's files kept in the code repository? | Yes, as test data. The Read Me and Benchmark tabs were removed. | Danny (owner), 2026-09-24 and 2026-09-25 |
 | D5 | Can a team run results without choosing a final setting? | No. The team must pick one saved setting first. | Danny (owner), 2026-09-24, from Ann's flow |
@@ -46,7 +46,8 @@ the requirement and touches D2, D6 and D8. See the dated note under each, and
 - **The results screen works.** The numbers in D7 are live. A change is one
   line in `simulation.py`.
 - **Undecided students** now reach broad events at half strength, both in the
-  ranked list and in the simulated results (D2).
+  ranked list and in the simulated results (D2). *Superseded 2026-10-02: Ann
+  removed this rule. See [`class-exercise-factor-revisions-2026-10-02.md`](class-exercise-factor-revisions-2026-10-02.md).*
 - **Empty seats** will read as three short sentences (D8). This is being built
   now on branch `feat/ce-results-integration`.
 - **Nothing else visible changes.** D3, D5, D6, D11, D12, D13, D14 and D16 are
@@ -109,6 +110,13 @@ Every `file:line` below is on `origin/main` at `9339d5a4`. Paths are shortened:
      own sentences are unchanged.
 
 ## D2. Career goal → topic, and "Undecided" at half credit
+
+> **Superseded in part, 2026-10-02.** Ann's progress check and revisions (item
+> 4b) removed the half credit for "Undecided": it now fits no event, in
+> matching and in the results step, and `exercise_event.is_exploratory` is
+> no longer read or written (the column is kept until a later contract-phase
+> migration drops it). The role→topic table below stands. See [`class-exercise-factor-revisions-2026-10-02.md`](class-exercise-factor-revisions-2026-10-02.md).
+> The text below is left as it was recorded on 2026-09-25.
 
 - **Question.** Which event topic does each career-goal label fit? (OQ-CE-14)
 - **Options.** For "Undecided": (a) no topic, a measured miss (the owner's
@@ -268,6 +276,35 @@ Every `file:line` below is on `origin/main` at `9339d5a4`. Paths are shortened:
   `simulation.py:465-470` still reads "PLACEHOLDER (OQ-CE-03 … Chau to
   confirm …)". CODE-A removes that marker and states the approval. No number
   changes.
+- **Amendment, 2026-10-06. The chance part outlives a team's reset.** D7 sets
+  how big the chance part is (`chance_spread`); it never said how long a
+  team's draw lasts. Design spec §11 said a reset "regenerates its seed", and
+  the code, tests and hosting runbook followed it. Ann's test checklist of
+  2026-10-02, section 8, says the opposite in so many words: "After clearing,
+  run the same list again for that team. The result is the same as before (the
+  chance part is fixed per team)."
+  - **Decision.** Clearing one team's work keeps that team's seed. The same
+    list, run again after a clear, gives the same result.
+  - **Approved.** Danny (owner), 2026-10-06, implementing the checklist as
+    written. Source: `SmartMatch_User_Test_Checklist_10022026`, section 8
+    (and section 5: "Each team's result is fixed and repeatable").
+  - **Supersedes.** Design spec §11's "regenerates its seed" clause (corrected
+    in place, 2026-10-06) and the rationale in `reset_team`'s docstring.
+  - **Unchanged.** The numbers in the table above; the SHA-256 stable digest
+    that makes the draw; the seed stays off every screen and every response.
+    A **re-point** to another data file still draws each moved team a new
+    seed — the checklist speaks only about clearing one team.
+  - **What would reverse it.** A written change from Ann to checklist section
+    8 asking for a fresh draw after a clear. The change back is one line.
+  - **Code.** Issue #331.
+    `python/smartmatch_persistence/smartmatch_persistence/exercise/workspace_repository.py`
+    `reset_team` no longer writes `seed`. Pinned by
+    `tests/integration/test_exercise_workspace_persistence.py`
+    `test_a_reset_clears_one_team_and_nothing_else`,
+    `tests/integration/test_exercise_results_persistence.py`
+    `test_a_reset_clears_the_run_the_overlay_and_the_choice` and
+    `tests/integration/test_exercise_full_class_run.py`
+    `test_the_reset_cleared_team_3_and_kept_its_seed`.
 - **Superseded in part, 2026-10-06 (results rule).** Ann gave the rule's
   numbers herself, relayed by the owner on 2026-10-06: a notice step (75% for
   the team's list, 15% for "email everyone"); start 5%; +35 true interests;
@@ -324,6 +361,10 @@ Every `file:line` below is on `origin/main` at `9339d5a4`. Paths are shortened:
   P231 (295th), so P004 stays above them. (On the 20-profile sample: 1st → 2nd.)
 - **Approved.** Team recommendation A; **Chau approved**, 2026-09-25. Ann may
   revisit.
+- **Amendment 2026-10-09.** The "0.25" above was the default at the time. The
+  defaults are now 3 / 3 / 2 / 2 on a whole-number 0–10 scale (Ann Wang
+  2026-10-06; owner "switch now" 2026-10-09). The P004 ranks quoted here were
+  not re-run under the new defaults.
 - **Why.** P004's career goal ("Data, analytics or IT role") still fits
   Northline. With that factor off too, "more information on file first" is
   Ann's own tie-break. Both teach the lesson that information matters.

@@ -1,0 +1,150 @@
+Smart Match — User Test Checklist
+Prepared by Ann Wang, Oct 2, 2026. For the Smart Match team (Chau, Danny, Janice, Justin).
+Main issues at a glance
+The matching part works: the four weights, tie-break, 30-name limit, saved settings, and “who is on the list” table all run on the full 300-row file. What is not ready falls into four groups. Fix these before the Oct 16 run-through.
+Every press must visibly respond. Right now it is often unclear whether a button did anything. Every press should show a message saying what happened, used-up buttons should grey out, and each team page needs a status line showing where the team is (round, results used, way of asking, refresh done). See section 1.
+The instructor needs a full view of the class. The instructor page shows only the names of each team’s saved settings. It should show, per team, the lists, the results for each round, the way of asking chosen, and whether it has refreshed, so the instructor can follow and lead the discussion. See section 2.
+Key Session 2 parts are missing or unclear. There is no “email everyone” result next to the team’s result. The one-results-run-per-team rule is not enforced or shown. The refresh gives no sign that it happened or what it changed. See sections 5 and 6.
+The matching rules need correcting. A stated interest seems to get only partial credit (a third when someone lists three interests), which weakens the main lesson. An “undecided” career goal is counted as fitting Northline, which is not in the plan. Smaller fixes: one reason line per name, “nothing else on file” for major-only profiles, years in class order, and the browser tab name. See section 4 and the table in section 10.
+Also add a short description to each event page, saying what happens at the event and why someone would want to go. Without it, teams have nothing to reason about beyond major. Drafts are in section 3a.
+Use this checklist to test the Smart Match site as a class participant and as the instructor would use it, step by step through both sessions. Each line says what to do and what you should see. Tick a line only when you see exactly that. If you can’t tell whether something happened, it fails.
+Who tests: Justin leads, with two people working as two different teams at the same time. Ann runs the whole list once before the Oct 16 run-through. Write what failed, and on which screen, next to the line.
+The exercise in brief
+In Spring 2027, about 30 class participants in Dr. Lin’s AI in Marketing course work in 6 teams. Each team plays the person promoting two made-up campus career events, a few weeks apart. Each event has 60 seats and 8 people signed up. The team has time to personally invite only 30 more, chosen from 300 made-up student profiles.
+ || Round one (first event) || Round two (second event)
+Event || Northline Analytics: Behind the Business || Harbor Consumer Brands: Behind the Business
+Timing inside the made-up story || The talk is one week away when teams start || The talk comes three weeks after Northline
+When it happens in the real class (Spring 2027) || Lists built in Session 1; results shown at the start of Session 2 || Done entirely in Session 2, after the refresh
+Topic || Technology / information systems || Retail / consumer goods; supply chain
+Organizer assumed the audience was || Computer Information Systems majors || International Business & Marketing majors
+What the data actually holds || 78 profiles truly interested in technology; only 19 are CIS majors || 92 truly interested in retail or supply chain; only 20 are IBM majors
+“One week away” and “three weeks later” are dates inside the case story, not real dates.
+How it runs: in Session 1, teams set the four weights, build and compare lists for Northline, and draft invitations as homework. In Session 2, they see their Northline results next to “email everyone,” choose how to ask profiles for more information, refresh, and then build and run a Harbor list. The point participants should leave with: AI helps choose whom to reach, but the marketer decides what information matters, what message fits, and who is being overlooked.
+The “truly interested” figures are hidden from teams. Only the results rule uses them, and this gap is what the two rounds are meant to reveal.
+1. Every button must show what it did
+This rule applies to every button in the app, for teams and for the instructor. Right now it is often unclear whether a press did anything.
+☐ After any press, a message appears right next to the button saying what just happened, in words. Example: “Saved ‘Setting A’ for Northline. You have 2 of 3 slots left.”
+☐ The message stays on screen until the next action. It does not vanish after a second.
+☐ If the press did nothing (already done, not allowed yet, error), the message says why. Example: “Results for Harbor are not open yet. Ask your instructor.”
+☐ A button that can only be used once turns grey after use and says so on the button itself. Example: “Results already run for this event.”
+☐ Each team page has a status line at the top, always visible, showing: team number, which event, round one or round two, results used or not, way of asking chosen or not, refresh done or not.
+☐ Anything that changes saved work for a team shows the time it happened. Example: “Refreshed at 10:42 AM.”
+☐ Buttons that wipe or change work for everyone (clear a team, refresh every team at once, switch every team to a new file) ask “Are you sure?” first, and say exactly what will change.
+2. Instructor: setting up before class
+☐ Open the instructor page in a new browser window. It asks for the passcode. A wrong passcode shows “Wrong passcode” and nothing else.
+☐ Upload Ann’s 300-row workbook. You see a message: file name, “300 profiles, 12 events loaded.”
+☐ Upload a workbook with one column removed. You see a plain message naming the missing column, and the old file stays in use.
+☐ The page says clearly which data file every team is using right now.
+☐ Change the list limit from 30 to 25. You see “Limit set to 25.” A team page then cuts its list at 25. Set it back to 30.
+☐ Both events show “Results closed” at the start, with a button to open each.
+☐ Open results for Northline. The label changes to “Results open” and the time is shown. There is also a way to close it again.
+☐ “Open this team’s work” shows, for each team: its saved settings with the four numbers, its list of names, its results for each round, its way of asking, and whether it has refreshed.
+☐ “Clear team X’s work” asks first, then shows “Team X cleared.” The team’s page shows it is back at the start. Other teams are untouched.
+☐ Before the Oct 16 run-through, every test team is cleared and both events are closed.
+3. A team getting in
+☐ Go to the public address. No sign-in is asked for. The opening screen says what the exercise is in one or two sentences, plus the license line once Ann provides it.
+☐ Pick a team number (1 to 6). The next screen says “You are Team 3” at the top, and keeps saying it on every page.
+☐ There is a visible way to switch team number if someone picked the wrong one.
+☐ The events screen shows which event is round one (Northline) and which is round two (Harbor). The “Round” label currently appears with no number.
+☐ Harbor clearly says it opens after round one, so teams don’t start there by mistake.
+3a. Event descriptions shown in the app
+Each event page, for teams and on the instructor page, should open with a short description of the event: what happens there and why someone would want to go. Right now it shows only the name, topic, and “aimed at” major, which gives teams nothing to reason about beyond major. The two descriptions below are in the event_description column of the attached Excel file. Each is written so a careful reader can see the event appeals beyond the major the organizer assumed.
+☐ Northline and Harbor each show the description below at the top of the event page, above the sliders.
+☐ The same description appears on the instructor page next to each event.
+☐ The text is readable on the projector (no smaller than the list text).
+Northline Analytics: Behind the Business (round one)
+Northline Analytics helps mid-sized companies turn their sales, inventory and customer records into everyday decisions. In this 60-minute talk, two Northline managers walk through a real client project: how a regional grocery chain used its data to cut waste and keep shelves full. One started her career in accounting, the other in management. You’ll see the tools they use every day, the entry-level jobs they hire for (data analyst, business systems analyst, analytics consultant), and what got them in the door. Q&A and informal networking afterward. Snacks provided.
+Why someone would come: to see how technology is used inside ordinary business jobs, and to hear from managers who didn’t start in a tech major. This should draw Management, Accounting and Finance profiles with a technology interest, not only CIS majors. (In the data, Management & HR holds more of the profiles truly interested in technology than CIS does: 21 against 19.)
+Harbor Consumer Brands: Behind the Business (round two)
+Harbor Consumer Brands makes household and personal-care products sold at major retailers across the country. In this 60-minute talk, a brand manager and a supply chain planner tell the story of one product launch: deciding what to make, getting it from the factory to store shelves during shipping delays, and convincing retail buyers to give it space. Learn about Harbor’s entry-level roles (assistant brand manager, demand planner, sales analyst, logistics coordinator) and its paid summer internships. Q&A and informal networking afterward. Snacks provided.
+Why someone would come: to see how a product reaches the shelf, from both the marketing side and the operations side. This should draw Management, Accounting and Finance profiles with a retail or supply chain interest, not only International Business & Marketing majors. (In the data: Management & HR 27, IBM 20, Accounting 18, Finance 17.)
+The “why someone would come” notes are for the instructor and the team only. Teams see just the description.
+4. Session 1: building lists for Northline
+Matching
+☐ Open Northline. The four sliders are labeled in plain words and show their current number.
+☐ Move one slider and let go. A message says “List updated” and the list changes.
+☐ Each name has one short reason line, not two.
+☐ A profile known by major alone says “same major; nothing else on file.”
+☐ Tied names say “tied on major; ordered by year.”
+☐ The list stops at 30 and says so.
+☐ Test profile P004 (Brandon Soto, Accounting, stated a technology interest): with “said they are interested” turned up, he ranks above a plain Accounting major. With it set to zero, he does not.
+☐ A profile that lists technology among three interests still gets clear credit for “said they are interested.” Its credit is not cut to a third.
+☐ Nobody gets credit for an “undecided” career goal on Northline.
+Who is on the list
+☐ The table shows the list by major, by year, and by how much we know, next to all 300.
+☐ Years are in class order: Freshman, Sophomore, Junior, Senior.
+☐ A line names any major or year with nobody on the list.
+Saving and comparing
+☐ Name a setting and save it. A message says “Saved” with the name and slots left.
+☐ Save a fourth setting for the same event. A message says only three are allowed and nothing is lost.
+☐ Delete a setting. It asks first, then says “Deleted.”
+☐ Pick two saved settings to view side by side. Names on both lists are highlighted, and the screen shows how many are on both, on only one, and how many on each list are matched on major alone.
+Download
+☐ Download the list. The file opens in Excel with rank, name, major, year, how much we know, and the reason for each name. The two pink columns from the data file do not appear.
+5. Session 2, round one: results for Northline
+Results lock and one run per team
+☐ Before the instructor opens results, the results button is grey and says “Results not open yet.”
+☐ After the instructor opens results, the button becomes active on the team page (after a page reload at most).
+☐ The team chooses which saved setting to send. The screen asks “Send this list? You get one results run for Northline” before running.
+☐ After the run, the button turns grey and reads “Results already run for this event.”
+☐ Try to run again: by pressing the button, by reloading the page, and from a second browser tab as the same team. Each time, no second run happens and a message says why.
+☐ Changing the sliders after the run does not change the results already shown.
+What the results screen shows
+☐ Four numbers for the team: invited, signed up, attended, seats still empty (out of 60, counting the 8 already signed up).
+☐ Next to them, always: the result of emailing all 300, with the same four numbers.
+☐ Clear labels on both: “Your team’s 30” and “Email everyone (all 300).”
+☐ Readable from the back of the room on the projector. A bar chart is a bonus.
+☐ Run the same list for two different teams. Each team’s result is fixed and repeatable, but the two teams can differ a little because of chance.
+☐ The results come from the hidden true interests, not from what the app shows. Check: a list heavy on profiles whose true interest is technology does better than a list of CIS majors with other true interests.
+☐ Results stay on screen after a reload, and the instructor can see them.
+6. Asking for more, and the refresh
+Choosing how to ask
+☐ The choice appears only after the team has its round-one results.
+☐ Three options, each with one plain sentence: promise better recommendations; offer a small reward; make the questions required.
+☐ After choosing, a message says “You chose: small reward,” and the status line shows it.
+☐ It is clear whether the choice can still be changed before the refresh, and the screen says so.
+The refresh
+☐ The refresh button is grey until a way of asking has been chosen, and says why.
+☐ After pressing it, a summary appears in plain words. Example: “Refresh done at 10:42 AM. 9 people who came to Northline now count as having gone to a similar event. 12 of the 22 invited people with no card completed one. 0 people stopped responding.”
+☐ The “how much we know” counts for all 300 change, and the screen shows before and after. Example: “Completed card: 70 → 82.”
+☐ The changed profiles are marked in the list (for example “new card” or “new: went to Northline”), so a team can see who changed.
+☐ The three choices give roughly the set shares: about 30%, 55%, and 80% of invited profiles without a card complete one.
+☐ Under “required,” about 15% of those without a card are marked “stopped responding,” and the list shows this.
+☐ Pressing refresh a second time does nothing and says “Already refreshed at 10:42 AM.”
+☐ One team’s refresh changes nothing for any other team.
+☐ The instructor’s button that refreshes every team at once (now labeled “Ask for every team”) says, after running, which teams were refreshed and which were skipped and why.
+7. Round two: Harbor
+☐ Harbor’s list uses the refreshed profiles. Profiles with a new card now show “completed card” and can get credit for “said they are interested.”
+☐ Profiles marked “stopped responding” are either left off the list or clearly marked on it.
+☐ Results for Harbor stay locked until the instructor opens them, with one run per team, as in round one.
+☐ The Harbor results screen shows three results side by side: this team’s Harbor result, email everyone, and this team’s own Northline result.
+☐ A team that chose “small reward” or “required” can do noticeably better in round two than in round one. A team that only promised better recommendations gains less. If every team gets about the same, the lesson doesn’t show.
+8. Teams kept apart, reloads, and clearing
+☐ Two people, as Team 1 and Team 2, work at the same time. Neither sees the other’s settings, lists, results, or refresh.
+☐ Reload the page in the middle of each step. Nothing saved is lost, and the status line still shows where the team is.
+☐ Close the browser and come back as the same team. The saved work is still there.
+☐ Clear one team from the instructor page. That team goes back to the start; the others don’t change.
+☐ After clearing, run the same list again for that team. The result is the same as before (the chance part is fixed per team).
+☐ If the instructor switches teams to a new data file, the page warns that saved work tied to the old file will be affected, and each team page says which file it uses.
+9. Projector, speed, and opening screen
+☐ Each page loads in under 5 seconds in Chrome on a classroom computer. Time it on the actual room computer if possible.
+☐ At projector size, the list, the “who is on the list” table, and the results numbers can be read from the back row.
+☐ The browser tab says “Smart Match” or the exercise name, not “IA West SmartMatch CRM.”
+☐ The opening screen shows the license line once Ann provides it.
+☐ The instructor’s “five quick questions” card mock-up opens on one screen (a bonus item).
+10. Problems found so far (Oct 2)
+These came from Ann’s own use of the site and a review of the Northline page. Each one maps to a section above.
+# || Problem || Where || Section
+1 || No “email everyone” result next to the team’s result || Results screen || 5
+2 || Buttons give no clear sign that anything changed || Whole app || 1
+3 || One results run per team is not enforced or shown || Results screen || 5
+4 || No clear sign whether the refresh happened or what it changed || Refresh || 6
+5 || Stated interests and past events seem to get partial credit (a third for one of three interests), which weakens “said they are interested.” Chau to confirm || Northline list || 4
+6 || An “undecided” career goal is counted as fitting Northline, which is not in the plan || Northline list || 4
+7 || Major-only profiles don’t say “same major; nothing else on file” || Northline list || 4
+8 || Two reason lines per name || Northline list || 4
+9 || Year table in alphabetical order, not class order || Who is on the list || 4
+10 || Instructor sees only the names of a team’s settings, not its lists or results || Instructor page || 2
+11 || Browser tab reads “IA West SmartMatch CRM” || All pages || 9
+12 || Northline results left open and test work saved under Teams 1–4 || Instructor page || 2
+13 || Event pages show no description || Event pages || 3a

@@ -269,29 +269,29 @@ per statement, so the grant above can be rebuilt rather than trusted.
 
 | Statement | Table | Privilege |
 |---|---|---|
-| `dataset_repository.py:391` `sa.insert(exercise_dataset)` | `exercise_dataset` | INSERT |
-| `dataset_repository.py:401` `sa.insert(exercise_profile)` | `exercise_profile` | INSERT |
-| `dataset_repository.py:406` `sa.insert(exercise_event)` | `exercise_event` | INSERT |
+| `dataset_repository.py:405` `sa.insert(exercise_dataset)` | `exercise_dataset` | INSERT |
+| `dataset_repository.py:415` `sa.insert(exercise_profile)` | `exercise_profile` | INSERT |
+| `dataset_repository.py:420` `sa.insert(exercise_event)` | `exercise_event` | INSERT |
 | `instructor_repository.py:404` `sa.update(exercise_dataset)` | `exercise_dataset` | UPDATE |
 | `instructor_repository.py:430-436` `pg_insert(...).on_conflict_do_update` — open, and reopen | `exercise_result_unlock` | INSERT **+ UPDATE** |
-| `instructor_repository.py:457-464` `sa.update(exercise_result_unlock)` — close again | `exercise_result_unlock` | UPDATE |
-| `instructor_repository.py:535` `sa.delete(child)`, three children | `exercise_profile_overlay`, `exercise_saved_setting`, `exercise_result_run` | DELETE |
-| `instructor_repository.py:675-678` `sa.select(...).with_for_update()` | `exercise_team_workspace` | SELECT **+ UPDATE** (a row lock needs `UPDATE` beside `SELECT`) |
-| `instructor_repository.py:681-687` `sa.select(...).with_for_update()` | `exercise_team_workspace` | SELECT + UPDATE |
-| `instructor_repository.py:700-703` `sa.delete(exercise_team_workspace)` | `exercise_team_workspace` | DELETE |
-| `instructor_repository.py:710` `sa.update(exercise_team_workspace)` | `exercise_team_workspace` | UPDATE |
-| `results_repository.py:454` `sa.insert(exercise_result_run)` | `exercise_result_run` | INSERT |
-| `results_repository.py:497` `sa.update(exercise_team_workspace)` | `exercise_team_workspace` | UPDATE |
-| `results_repository.py:584` `sa.update(exercise_team_workspace)` | `exercise_team_workspace` | UPDATE |
-| `results_repository.py:659-665` `pg_insert(...).on_conflict_do_update` | `exercise_profile_overlay` | INSERT **+ UPDATE** |
-| `settings_repository.py:386-398` `pg_insert(...).on_conflict_do_update` | `exercise_saved_setting` | INSERT **+ UPDATE** |
-| `settings_repository.py:436` `sa.delete(exercise_saved_setting)` | `exercise_saved_setting` | DELETE |
+| `instructor_repository.py:472-479` `sa.update(exercise_result_unlock)` — close again | `exercise_result_unlock` | UPDATE |
+| `instructor_repository.py:551` `sa.delete(child)`, three children | `exercise_profile_overlay`, `exercise_saved_setting`, `exercise_result_run` | DELETE |
+| `instructor_repository.py:692-694` `sa.select(...).with_for_update()` | `exercise_team_workspace` | SELECT **+ UPDATE** (a row lock needs `UPDATE` beside `SELECT`) |
+| `instructor_repository.py:698-703` `sa.select(...).with_for_update()` | `exercise_team_workspace` | SELECT + UPDATE |
+| `instructor_repository.py:716-718` `sa.delete(exercise_team_workspace)` | `exercise_team_workspace` | DELETE |
+| `instructor_repository.py:726` `sa.update(exercise_team_workspace)` | `exercise_team_workspace` | UPDATE |
+| `results_repository.py:474` `sa.insert(exercise_result_run)` | `exercise_result_run` | INSERT |
+| `results_repository.py:517` `sa.update(exercise_team_workspace)` | `exercise_team_workspace` | UPDATE |
+| `results_repository.py:604` `sa.update(exercise_team_workspace)` | `exercise_team_workspace` | UPDATE |
+| `results_repository.py:679-685` `pg_insert(...).on_conflict_do_update` | `exercise_profile_overlay` | INSERT **+ UPDATE** |
+| `settings_repository.py:397-409` `pg_insert(...).on_conflict_do_update` | `exercise_saved_setting` | INSERT **+ UPDATE** |
+| `settings_repository.py:447` `sa.delete(exercise_saved_setting)` | `exercise_saved_setting` | DELETE |
 | `workspace_repository.py:272-282` `pg_insert(...).on_conflict_do_nothing` | `exercise_team_workspace` | INSERT |
 | `workspace_repository.py:449-452` `sa.update(table)` — the token-hash repair | `exercise_team_workspace` | UPDATE |
-| `workspace_repository.py:535-540` `sa.delete(child)`, three children | `exercise_profile_overlay`, `exercise_saved_setting`, `exercise_result_run` | DELETE |
-| `workspace_repository.py:543` `sa.update(table)` — reset regenerates the seed | `exercise_team_workspace` | UPDATE |
+| `workspace_repository.py:543-548` `sa.delete(child)`, three children | `exercise_profile_overlay`, `exercise_saved_setting`, `exercise_result_run` | DELETE |
+| `workspace_repository.py:551-554` `sa.update(table)` — reset clears the asking choice and the refresh time; the seed is kept | `exercise_team_workspace` | UPDATE |
 | every repository read (`sa.select`) | all eight | SELECT |
-| `sa.select(sa.func.pg_advisory_xact_lock(...))` (e.g. `instructor_repository.py:677`) | none | none — see below |
+| `sa.select(sa.func.pg_advisory_xact_lock(...))` (e.g. `instructor_repository.py:685`) | none | none — see below |
 
 **Advisory locks need no grant.** The exercise repositories serialize with
 `pg_advisory_xact_lock`, which is a function, not a table: `EXECUTE` on it is
@@ -684,8 +684,12 @@ session (the passcode) and sends `X-Exercise-Request`. Step 0 needs neither.
 5. **Reset one team if it needs it.** `POST
    /v1/exercise/instructor/workspaces/{team_number}/reset`
    (`exercise_instructor.py:532-533`). It deletes that workspace's overlay,
-   saved settings and result runs and regenerates its seed
-   (`workspace_repository.py:526-545`). **One team, and nothing else** — there
+   saved settings and result runs and **keeps its seed**
+   (`workspace_repository.py:543-554`), so the same list run again gives the
+   same result — Ann's checklist of 2026-10-02, section 8. Until 2026-10-06 a
+   reset drew a new seed; a build older than that still does, so check the
+   release on `/api/health` before promising a cleared team the same result.
+   **One team, and nothing else** — there
    is no team-facing reset; PR #186 removed it on the owner's ruling of
    2026-09-19.
 6. **Expect the results screen to answer with the approved numbers.** Since
@@ -801,11 +805,13 @@ checklist for real:
    (`db/migrations/versions/0044_exercise_event_description.py` sets its own
    `down_revision = "0043_exercise_event_exploratory"`; it adds the nullable
    text column `description` to `exercise_event`, read from Ann's
-   `event_description`. `0043` before it added the boolean `is_exploratory`,
-   read from her `event_type`).
-   **Re-upload Ann's file after these revisions**: a dataset stored before
-   `0043` has every event non-exploratory, so an undecided career goal earns
-   nothing on Northline or Harbor, and a dataset stored before `0044` shows no
+   `event_description`. `0043` before it added the boolean `is_exploratory`).
+   Nothing reads or writes `is_exploratory` since Ann's revisions of
+   2026-10-02; it stays in the table, `false` by default, so that rolling the
+   application back to the release before those revisions still works with no
+   schema step. Dropping it is a contract-phase revision for a later release,
+   after the 2026-10-16 run-through.
+   **Re-upload Ann's file after `0044`**: a dataset stored before it shows no
    event description. Fail: a revision is printed — the head has moved
    past `0044`; re-derive this step against the new file before continuing,
    since the tables the grant in [§3](#3-the-database-role) depends on may

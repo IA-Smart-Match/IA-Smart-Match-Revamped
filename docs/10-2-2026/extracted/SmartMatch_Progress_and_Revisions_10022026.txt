@@ -1,0 +1,68 @@
+Smart Match: Progress Check and Revisions Due Oct 16
+Prepared by Ann Wang, Oct 2, 2026. For the Smart Match team (Chau, Danny, Janice, Justin).
+Where we are
+The Oct 2 milestone is met. The matching part of the demo site works on the full 300-profile file, and it follows the plan closely. Thank you. Several Oct 16 items are already on screen too.
+What still needs work falls into five areas, plus the new Excel file and a clean-up of the site. All of it must be done before my run-through on Fri Oct 16, when I will go through both sessions start to finish using the test checklist.
+What is working
+I checked these on the site on Oct 2.
+Item || What I saw
+Four matching factors || In plain words, each with a slider. All start at 0.25.
+Tie-break || Works as written: more information first, then seniors first, then a fixed order.
+Invite limit || The list stops at 30. The instructor can change the limit.
+Saved settings || Up to three per event, with a side-by-side view. Justin: please check that names on both lists are highlighted.
+"How much we know" marker || Shown next to every name. Counts match the data file exactly (70 with a completed profile card, 64 with past events only, 166 with major only).
+"Who is on the list" table || By major, year and how much we know, next to all 300. It also names majors with nobody on the list.
+Test profile P004 || Brandon Soto (Accounting, stated a technology interest) ranks 5th with the starting settings.
+Started, but see the fixes below || Results lock per event, choice of how to ask, the instructor button that runs every team's refresh at once, download, clearing one team.
+What must be revised before Oct 16
+Leads follow the roles in the Sept 15 plan. Justin tests each area once it is done.
+1. Every press must show that it worked
+Right now it is often hard to tell whether a button did anything. This is the most important fix for class use. (Lead: Janice, with Danny.)
+After every press, a message appears next to the button saying what happened. Example: "Saved 'Setting A' for Northline. You have 2 of 3 slots left."
+If nothing happened, the message says why. Example: "Results for Harbor are not open yet. Ask your instructor."
+A button that can be used only once turns grey afterward and says so. Example: "Results already run for this event."
+Each team page has a line at the top that is always visible: team number, which event, results used or not, way of asking chosen or not, refresh done or not.
+Changes to a team's saved work show the time. Example: "Refreshed at 10:42 AM."
+Buttons that wipe or change work (clear a team, refresh every team at once, switch every team to a new file) ask "Are you sure?" first and say what will change.
+2. The instructor needs a full view of the class
+"Open this team's work" shows only the names of a team's saved settings. The instructor has to follow and lead the discussion from this page. (Lead: Danny, with Janice.)
+For each team, show: its saved settings with the four numbers, its list of names, its results for each event, the way of asking it chose, and whether it has refreshed.
+Opening or closing results for an event shows the time it was done, and results can be closed again.
+3. Session 2 parts that are missing or unclear
+(Leads: Chau for the rules and numbers, Danny for the lock and refresh, Janice for the screens.)
+"Email everyone" comparison. Not on the results screen yet. The team's numbers (invited, signed up, attended, seats still empty) must always sit next to the result of emailing all 300. For Harbor, the team's own Northline result is shown as well.
+One results run per team per event. Not blocked or shown yet. A second run must be blocked, including after a page reload or from a second browser tab, and the screen must say why.
+The refresh. There is no sign that it happened or what it changed. After the refresh, show a short summary in plain words, the "how much we know" counts before and after, and mark the profiles that changed. A second press says "Already refreshed." The instructor button that refreshes every team at once (now labeled "Ask for every team") should give the same kind of summary for each team, and its label should say what it does.
+4. Matching rules to correct
+(Lead: Chau. Items c, d and e: Janice for what shows on screen.)
+a. Partial credit. A stated interest appears to count for only part of its weight. Someone who lists three interests, one of them technology, seems to get about a third of the credit. Past events seem to work the same way. Chau, please confirm. If so, a matching interest should count in full. Otherwise profiles that said they are interested rank lower than they should, and the main lesson is weaker.
+b. "Undecided" career goal. It is being counted as fitting a "broad event." That rule is not in the plan, and Northline is not a broad event. Please remove it.
+c. Reason lines. One short reason line per name, not two. A profile known by major alone says "same major; nothing else on file." Tied names say "tied on major; ordered by year."
+d. Year order. In the "who is on the list" table, years should run Freshman, Sophomore, Junior, Senior, not alphabetically.
+e. Browser tab name. It still reads "IA West SmartMatch CRM." It should say Smart Match or the exercise name.
+5. Event descriptions
+Each event page currently shows only the name, topic and target major. That gives teams nothing to reason about except major. (Lead: Janice.)
+Show a short description at the top of the Northline and Harbor pages, above the sliders, and next to each event on the instructor page.
+The text is in the new event_description column of the attached Excel file. Take it from the file, so I can change it later by uploading a new file.
+The attached Excel file
+The attached file, SmartMatch_Student_Body_300.xlsx, replaces the earlier version I sent in September. It holds 300 made-up profiles and 12 made-up events. No real person is in it. The app reads everything from this file.
+The file has four sheets:
+Read Me explains every column in one sentence.
+Profiles has one row for each of the 300 profiles: name, major, year, past events attended, and profile card answers if the profile has a completed card.
+Events has one row for each event. The first ten are past events. The last two are Northline and Harbor, the two events teams build lists for.
+Benchmark compares the file with this fall's Career Readiness Survey. It is for my checking only. The app does not need it.
+One thing changed since the September version. The Events sheet has a new last column called event_description. It holds the short description for Northline and Harbor. It is blank for the ten past events. Nothing else in the file changed.
+What I need from the team:
+Danny: upload the new file on the instructor page and switch every team to it. Check that the upload works with the new column. Then remove a column on purpose and check that the app shows a plain error.
+Janice: show the descriptions from the new column, as in area 5 above.
+Everyone: the two pink columns on the Profiles sheet hold each profile's true interests and true career goal. The app must never show them and never use them to build a list. Only the results and the refresh use them.
+Everyone: do not share this Excel file with class participants. Anyone who opens it can see the pink columns.
+Danny: the list participants download from the app must leave out the two pink columns. Justin: please check this.
+Clean-up before Oct 16
+Danny: clear all test work under Teams 1 to 4, and set both events back to "results closed," so my run-through starts from a clean site.
+Next steps
+When || What
+Before Oct 16 || The five areas, the new file and the clean-up done. Justin sends his list of what he tested and what failed.
+Fri Oct 16 || Plan items due: results with lock, "email everyone" comparison, the same list always giving the same result, reset, the "asking for more" choice, per-team refresh, the Harbor event, download. I run both sessions start to finish with the test checklist and send a list of problems.
+Fri Oct 30 || Problems from Oct 16 fixed.
+The test checklist is attached (SmartMatch_User_Test_Checklist.docx). Quick questions on Teams are fine. Anything that changes the plan or the dates, please send by email so we have a record.

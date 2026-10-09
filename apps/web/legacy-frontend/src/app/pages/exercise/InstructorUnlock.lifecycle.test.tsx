@@ -13,6 +13,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { UnlockPanel } from "./InstructorUnlock";
+import { pastTheConfirmGuard } from "./inlineConfirmGuard.testkit";
 
 const EVENTS = "/v1/exercise/instructor/events";
 const FIRST_FILE = "11111111-1111-1111-1111-111111111111";
@@ -161,6 +162,7 @@ describe("<UnlockPanel /> keeps focus in the row", () => {
     stub();
     render(panel(0));
     await openConfirm();
+    await pastTheConfirmGuard();
     fireEvent.click(screen.getByRole("button", { name: /^open results now$/i }));
 
     await waitFor(() => expect(unlockPosts()).toHaveLength(1));
@@ -180,6 +182,7 @@ describe("<UnlockPanel /> keeps focus in the row", () => {
     render(panel(0));
     await openConfirm();
     answers[`GET ${EVENTS}`] = list(FIRST_FILE, true);
+    await pastTheConfirmGuard();
     fireEvent.click(screen.getByRole("button", { name: /^open results now$/i }));
 
     await waitFor(() => expect(harborRow().textContent).toContain("Results open"));
@@ -228,6 +231,7 @@ describe("<UnlockPanel /> never takes focus from outside the row", () => {
     stub();
     render(withOutside(0));
     await openConfirm();
+    await pastTheConfirmGuard();
     fireEvent.click(screen.getByRole("button", { name: /^open results now$/i }));
     const outside = screen.getByRole("button", { name: "Somewhere else" });
     outside.focus();
@@ -254,6 +258,7 @@ describe("<UnlockPanel /> sends one unlock per confirm", () => {
     render(panel(0));
     await openConfirm();
     const confirm = screen.getByRole("button", { name: /^open results now$/i });
+    await pastTheConfirmGuard();
     // Both presses land before React re-renders, so the Button's own pending
     // state cannot catch the second one: only the panel's in-flight guard can.
     act(() => {

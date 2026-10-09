@@ -478,8 +478,8 @@ class ExerciseWorkspaceRepository:
         )
 
     def reset_team(self, session: Session, *, workspace_id: uuid.UUID) -> None:
-        """Design spec §11: "A team's reset deletes its overlay, runs, and settings
-        and regenerates its seed."
+        """Design spec §11: a team's reset deletes its overlay, runs and settings,
+        and keeps its seed.
 
         Four statements, every one of them keyed on ``workspace_id`` and
         therefore incapable of reaching another team's rows — the isolation is a
@@ -487,10 +487,18 @@ class ExerciseWorkspaceRepository:
         itself survives, and so does its token: a reset is a team clearing its
         own work, not a team being logged out of the browser it is sitting at.
 
-        The seed is regenerated because the simulated-results rule is
-        deterministic in it. A reset that kept the seed would hand the team the
-        same "chance" results it just cleared, which is the one thing a reset in
-        a classroom is for.
+        **The seed is kept.** Until 2026-10-06 this method drew a new one, on
+        the reasoning that a reset which kept it would hand the team the same
+        "chance" results it had just cleared. Ann's test checklist of
+        2026-10-02, section 8, asks for exactly that: "After clearing, run the
+        same list again for that team. The result is the same as before (the
+        chance part is fixed per team)." The owner ruled on 2026-10-06 that the
+        checklist is implemented as written; the dated amendment is under D7 in
+        ``docs/decisions/class-exercise-decisions-2026-09-25.md``. So the
+        ``UPDATE`` below does not name ``seed``, and a team's chance element
+        lasts as long as its workspace row does. A re-point to another data
+        file is a different statement and still draws a new seed
+        (``ExerciseInstructorRepository.repoint_workspaces``).
 
         ``asking_choice`` and ``refreshed_at`` return to NULL together, which the
         table's ``ck_exercise_team_workspace_refresh_after_choice`` requires —
@@ -542,11 +550,7 @@ class ExerciseWorkspaceRepository:
         session.execute(
             sa.update(table)
             .where(table.c.id == workspace_id)
-            .values(
-                seed=new_workspace_seed(),
-                asking_choice=None,
-                refreshed_at=None,
-            )
+            .values(asking_choice=None, refreshed_at=None)
         )
 
     @staticmethod

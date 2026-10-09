@@ -5,22 +5,21 @@
 with Ann and Dr. Lin before the practice run*; ADR-0025 D7). The paragraph
 below states the rule with the numbers the code runs today. Its first and last
 sentences are design spec §11's draft; the middle is Ann's answer of 2026-09-25
-to OQ-CE-03 and OQ-CE-14, with the team's translation of her words into
-numbers, which Chau approved. When the code changes, this paragraph changes with it, and a test
-checks that every number in it is the number the code uses.
+to OQ-CE-03, with the team's translation of her words into numbers, which Chau
+approved. The half credit that answer gave an undecided career goal on a broad
+event was removed by Ann's revisions of 2026-10-02 (item 4b), here and in the
+matching factor together. When the code changes, this paragraph changes with
+it, and a test checks that every number in it is the number the code uses.
 
     For each invited profile the app decides whether the person signs up, then
     whether they attend. Everyone starts with a 4 in 100 chance of signing up.
     The biggest boost, 40 in 100, goes to a person when the event matches what
     they truly care about: half of it when one of their true interests is a
     topic of the event, and the other half when their career goal fits the
-    event. A person whose career goal is undecided gets half of that
-    career-goal half from a broad exploratory event (a company talk, an
-    industry panel or a career fair), so a person whose goal clearly fits still
-    does better. A person who has been to at least one past event gets a
-    medium boost of 10 in 100. Being in the major the event is aimed at gives a
-    small boost of 4 in 100. Then some chance is added, up to 10 in 100 either
-    way, and that chance is fixed for each team, so running the same list twice
+    event. A person who has been to at least one past event gets a medium
+    boost of 10 in 100. Being in the major the event is aimed at gives a small
+    boost of 4 in 100. Then some chance is added, up to 10 in 100 either way,
+    and that chance is fixed for each team, so running the same list twice
     gives the same answer. The total never goes below 0 or above 100 in 100.
     Each person who signs up has a 75 in 100 chance of attending. The app uses
     each profile's true interests for this, not what the profile has told the
@@ -68,12 +67,9 @@ For one profile and one event, with coefficients ``c``:
 * ``fit_share`` is ``c.true_interest_share_of_fit`` for a true-interest overlap
   with the event's topics, plus ``1.0 - c.true_interest_share_of_fit`` for a
   career goal that is one of the event's topics — so ``1.0`` when both hold and
-  ``0.0`` when neither does. An **undecided** career goal on an **exploratory**
-  event earns ``UNDECIDED_EXPLORATORY_GOAL_FIT`` (one half) of the career-goal
-  part instead (OQ-CE-14, Ann 2026-09-25: "the results step should treat
-  undecided students the same way"); that half is imported from
-  :mod:`smartmatch_domain.student_factors.factors`, so the rule and the
-  matching factor read one number. How the true-fit lift divides between the
+  ``0.0`` when neither does. A career goal that points at no topic
+  (``Undecided``, ``Graduate school``) earns none of the career-goal part on
+  any event. How the true-fit lift divides between the
   two parts is **not** a constant in this module: it is a coefficient, because
   choosing it decides whether Ann's "true interests and career goal" leans on
   interests or on goals (``true_interest_share_of_fit``, approved at one half).
@@ -192,7 +188,6 @@ from typing import Final
 # same digest for the fixed order and the same term rule for the four factors.
 # Two copies of "how a term is compared" is one more than the question has.
 from smartmatch_domain.exercise.determinism import stable_digest as _digest
-from smartmatch_domain.student_factors.factors import UNDECIDED_EXPLORATORY_GOAL_FIT
 from smartmatch_domain.student_factors.terms import normalized_term as _normalized
 
 __all__ = [
@@ -288,12 +283,6 @@ class SimulationProfile:
             (``Undecided``, ``Graduate school``). ``None`` contributes no fit
             and costs nothing. ``repr=False`` for the same reason as
             ``true_interests``: it is derived from a withheld column.
-        career_goal_undecided: ``True`` when the hidden true career goal is
-            ``Undecided`` (through
-            :func:`~smartmatch_domain.exercise.vocabulary.goal_is_undecided`,
-            the flag the matching factor reads too). Such a goal half-fits an
-            exploratory event (OQ-CE-14). ``career_goal`` is then ``None``.
-            ``repr=False``: it too is derived from a withheld column.
         past_event_count: How many past events this profile attended.
         non_responding: ``True`` for a profile that stopped opening messages
             after the ``required`` asking choice (design spec §13). Such a
@@ -306,19 +295,6 @@ class SimulationProfile:
     career_goal: str | None = field(default=None, repr=False)
     past_event_count: int = 0
     non_responding: bool = False
-    career_goal_undecided: bool = field(default=False, repr=False)
-
-    def __post_init__(self) -> None:
-        """Refuse an undecided goal that also names a topic.
-
-        The message names the field and never the value, since both are
-        derived from a withheld column.
-        """
-        if self.career_goal_undecided and self.career_goal is not None:
-            raise ValueError(
-                "career_goal_undecided: an undecided goal names no topic, so "
-                "career_goal must be None"
-            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -332,15 +308,11 @@ class SimulationEvent:
             team's seed give two different sets of results.
         topic_tags: The event's topics.
         target_majors: The majors the event is aimed at.
-        exploratory: ``True`` for a broad exploratory event (a company talk, an
-            industry panel, a career fair), which an undecided career goal
-            half-fits (OQ-CE-14). Northline and Harbor are both exploratory.
     """
 
     event_key: str
     topic_tags: frozenset[str] = frozenset()
     target_majors: frozenset[str] = frozenset()
-    exploratory: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -536,8 +508,6 @@ def _fit_share(
         share += coefficients.true_interest_share_of_fit
     if profile.career_goal is not None and _normalized(profile.career_goal) in topics:
         share += goal_share
-    elif profile.career_goal_undecided and event.exploratory:
-        share += goal_share * UNDECIDED_EXPLORATORY_GOAL_FIT
     return share
 
 

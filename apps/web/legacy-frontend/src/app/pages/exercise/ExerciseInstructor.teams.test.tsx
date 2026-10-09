@@ -17,6 +17,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ExerciseInstructor } from "./ExerciseInstructor";
 import { InstructorTeams, TEAMS_POLL_MS } from "./InstructorTeams";
+import { pastTheConfirmGuard } from "./inlineConfirmGuard.testkit";
 
 interface Answer {
   readonly body: unknown;
@@ -119,11 +120,49 @@ afterEach(() => {
   delete (document as { visibilityState?: unknown }).visibilityState;
 });
 
+/** The every-team button's label, which says what it does (DESIGN.md §11.1). */
+const REFRESH_ALL_BUTTON = "Refresh every team that has chosen how to ask";
+
+/** A team the every-team refresh refreshed. The time has no zone: "10:42 AM" anywhere. */
+const REFRESHED_TEAM = {
+  team_number: 1,
+  dataset_label: "October file",
+  outcome: "refreshed",
+  reason_code: null,
+  refreshed_at: "2026-10-16T10:42:00",
+  refresh_counts: {
+    cards_completed: 12,
+    non_responding: 0,
+    topics_added: 9,
+    invited_without_card: 22,
+    marker_counts_before: { major_only: 166, major_plus_events: 64, completed_card: 70 },
+    marker_counts_after: { major_only: 160, major_plus_events: 58, completed_card: 82 },
+  },
+  first_round_event_name: "Northline",
+};
+
+function skippedTeam(
+  teamNumber: number,
+  reasonCode: string,
+  refreshedAt: string | null = null,
+  datasetLabel = "October file",
+) {
+  return {
+    team_number: teamNumber,
+    dataset_label: datasetLabel,
+    outcome: "skipped",
+    reason_code: reasonCode,
+    refreshed_at: refreshedAt,
+    refresh_counts: null,
+    first_round_event_name: null,
+  };
+}
+
 describe("the instructor page keeps the Teams panel current", () => {
-  it("re-reads the teams after Ask for every team", async () => {
+  it("re-reads the teams after the every-team refresh", async () => {
     const answers = pageStubs({
       [`POST ${REFRESH_ALL}`]: {
-        body: { refreshed_team_numbers: [1], refreshed: 1, skipped: 0 },
+        body: { refreshed_team_numbers: [1], refreshed: 1, skipped: 0, teams: [REFRESHED_TEAM] },
       },
     });
     stub(answers);
@@ -131,41 +170,171 @@ describe("the instructor page keeps the Teams panel current", () => {
     await waitFor(() => expect(teamsPanel()?.textContent).toContain("Has not asked yet."));
 
     answers[`GET ${WORKSPACES}`] = teams(team(1, "2026-09-25T10:00:00Z"));
-    fireEvent.click(screen.getByRole("button", { name: /^ask for every team$/i }));
+    fireEvent.click(screen.getByRole("button", { name: REFRESH_ALL_BUTTON }));
+    await pastTheConfirmGuard();
+    fireEvent.click(screen.getByRole("button", { name: "Refresh them now" }));
 
     await waitFor(() => expect(teamsPanel().textContent).toContain("Has already asked."));
   });
 
-  it("says why a team was skipped", async () => {
-    stub(
-      pageStubs({
-        [`POST ${REFRESH_ALL}`]: {
-          body: { refreshed_team_numbers: [1], refreshed: 1, skipped: 1 },
-        },
-      }),
-    );
+  it("says on the button what it does", async () => {
+    // Ann, 2026-10-02: "its label should say what it does."
+    stub(pageStubs({}));
     renderPage();
-    fireEvent.click(await screen.findByRole("button", { name: /^ask for every team$/i }));
-    await screen.findByText(/skipped 1/i);
-    expect(screen.getByText(/skipped 1/i).textContent).toContain(
-      "has not run results for its first event yet",
-    );
+    expect(await screen.findByRole("button", { name: REFRESH_ALL_BUTTON })).toBeDefined();
+    expect(screen.queryByRole("button", { name: /^ask for every team$/i })).toBeNull();
+    expect(screen.getByRole("heading", { name: "Refresh every team at once" })).toBeDefined();
   });
 
-  it("says why several teams were skipped", async () => {
+  it("says which teams were refreshed and which were skipped, and why", async () => {
+    // Ann, 2026-10-02: "says, after running, which teams were refreshed and
+    // which were skipped and why", with "the same kind of summary for each team".
     stub(
       pageStubs({
         [`POST ${REFRESH_ALL}`]: {
-          body: { refreshed_team_numbers: [], refreshed: 0, skipped: 2 },
+          body: {
+            refreshed_team_numbers: [1],
+            refreshed: 1,
+            skipped: 1,
+            teams: [
+              REFRESHED_TEAM,
+              skippedTeam(2, "already_refreshed", "2026-10-16T10:31:00"),
+              skippedTeam(3, "no_asking_choice"),
+              skippedTeam(4, "no_round_one_run"),
+            ],
+          },
         },
       }),
     );
     renderPage();
-    fireEvent.click(await screen.findByRole("button", { name: /^ask for every team$/i }));
-    await screen.findByText(/skipped 2/i);
-    expect(screen.getByText(/skipped 2/i).textContent).toContain(
-      "those teams have not run results for their first event yet",
+    fireEvent.click(await screen.findByRole("button", { name: REFRESH_ALL_BUTTON }));
+    await pastTheConfirmGuard();
+    fireEvent.click(screen.getByRole("button", { name: "Refresh them now" }));
+
+    await screen.findByText("Refreshed 1 team. Skipped 3 teams.");
+    const lines = [...document.querySelectorAll('[data-slot="exercise-refresh-all-teams"] li')].map(
+      (line) => line.textContent,
     );
+    expect(lines).toEqual([
+      "Team 1: Refreshed at 10:42 AM. 9 people who came to Northline now count as having gone to a similar event. 12 of the 22 invited people with no card completed one. 0 people stopped responding. Completed card: 70 → 82.",
+      "Team 2: Skipped: it was already refreshed at 10:31 AM.",
+      "Team 3: Skipped: it has not chosen a way of asking.",
+      "Team 4: Skipped: it has not run results for its first event.",
+    ]);
+    expect(document.body.textContent).not.toContain("%");
+  });
+
+  it("names the data file when two teams share a number across two files", async () => {
+    stub(
+      pageStubs({
+        [`POST ${REFRESH_ALL}`]: {
+          body: {
+            refreshed_team_numbers: [],
+            refreshed: 0,
+            skipped: 0,
+            teams: [
+              skippedTeam(3, "no_asking_choice", null, "September file"),
+              skippedTeam(3, "no_asking_choice", null, "October file"),
+            ],
+          },
+        },
+      }),
+    );
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: REFRESH_ALL_BUTTON }));
+    await pastTheConfirmGuard();
+    fireEvent.click(screen.getByRole("button", { name: "Refresh them now" }));
+    await screen.findByText("Refreshed 0 teams. Skipped 2 teams.");
+    const lines = [...document.querySelectorAll('[data-slot="exercise-refresh-all-teams"] li')].map(
+      (line) => line.textContent,
+    );
+    expect(lines).toEqual([
+      "Team 3 (September file): Skipped: it has not chosen a way of asking.",
+      "Team 3 (October file): Skipped: it has not chosen a way of asking.",
+    ]);
+  });
+
+  it("names the file for a repeated team number even when the two files share a label", async () => {
+    // A file's label is not unique: two uploads may both be "October file".
+    const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    stub(
+      pageStubs({
+        [`POST ${REFRESH_ALL}`]: {
+          body: {
+            refreshed_team_numbers: [],
+            refreshed: 0,
+            skipped: 0,
+            teams: [
+              skippedTeam(3, "no_asking_choice"),
+              skippedTeam(3, "no_round_one_run"),
+              skippedTeam(4, "no_asking_choice"),
+            ],
+          },
+        },
+      }),
+    );
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: REFRESH_ALL_BUTTON }));
+    await pastTheConfirmGuard();
+    fireEvent.click(screen.getByRole("button", { name: "Refresh them now" }));
+    await screen.findByText("Refreshed 0 teams. Skipped 3 teams.");
+    const lines = [...document.querySelectorAll('[data-slot="exercise-refresh-all-teams"] li')].map(
+      (line) => line.textContent,
+    );
+    expect(lines).toEqual([
+      "Team 3 (October file): Skipped: it has not chosen a way of asking.",
+      "Team 3 (October file): Skipped: it has not run results for its first event.",
+      "Team 4 (October file): Skipped: it has not chosen a way of asking.",
+    ]);
+    // Two rows with one label and one number are still two rows to React.
+    expect(errors.mock.calls.flat().join(" ")).not.toContain("same key");
+    errors.mockRestore();
+  });
+
+  it("leaves the file out when the teams are in two files and no number repeats", async () => {
+    stub(
+      pageStubs({
+        [`POST ${REFRESH_ALL}`]: {
+          body: {
+            refreshed_team_numbers: [],
+            refreshed: 0,
+            skipped: 0,
+            teams: [
+              skippedTeam(3, "no_asking_choice", null, "September file"),
+              skippedTeam(4, "no_asking_choice", null, "October file"),
+            ],
+          },
+        },
+      }),
+    );
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: REFRESH_ALL_BUTTON }));
+    await pastTheConfirmGuard();
+    fireEvent.click(screen.getByRole("button", { name: "Refresh them now" }));
+    await screen.findByText("Refreshed 0 teams. Skipped 2 teams.");
+    const lines = [...document.querySelectorAll('[data-slot="exercise-refresh-all-teams"] li')].map(
+      (line) => line.textContent,
+    );
+    expect(lines).toEqual([
+      "Team 3: Skipped: it has not chosen a way of asking.",
+      "Team 4: Skipped: it has not chosen a way of asking.",
+    ]);
+  });
+
+  it("says so when there was no team to refresh", async () => {
+    stub(
+      pageStubs({
+        [`POST ${REFRESH_ALL}`]: {
+          body: { refreshed_team_numbers: [], refreshed: 0, skipped: 0, teams: [] },
+        },
+      }),
+    );
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: REFRESH_ALL_BUTTON }));
+    await pastTheConfirmGuard();
+    fireEvent.click(screen.getByRole("button", { name: "Refresh them now" }));
+    await screen.findByText("No team has entered a number yet, so there was nothing to refresh.");
+    expect(document.querySelector('[data-slot="exercise-refresh-all-teams"]')).toBeNull();
   });
 
   it("re-reads the teams after an unlock lands", async () => {
@@ -181,6 +350,7 @@ describe("the instructor page keeps the Teams panel current", () => {
     const before = teamReads();
 
     fireEvent.click(within(roundOne).getByRole("button", { name: /open results/i }));
+    await pastTheConfirmGuard();
     fireEvent.click(within(roundOne).getByRole("button", { name: /open results now/i }));
     await waitFor(() => expect(teamReads()).toBe(before + 1));
     await new Promise((resolve) => setTimeout(resolve, 20));

@@ -30,6 +30,7 @@ import { cn } from "../../components/ui/utils";
 import { Button, Skeleton, SkeletonCard, SkeletonRegion } from "./desk";
 import { EventDescription } from "./EventDescription";
 import { ExerciseNotice, ExerciseScreen } from "./ExerciseScreen";
+import { TeamStatusBand } from "./TeamStatusBand";
 import { useExerciseResource } from "./useExerciseResource";
 import { workspaceRequiredNotice } from "./refusals";
 
@@ -42,6 +43,7 @@ export function ExerciseEventPicker(): React.JSX.Element {
     <ExerciseScreen
       title="Choose an event"
       intro="Build your team's list for one of the two events in the exercise."
+      status={<TeamStatusBand />}
     >
       {state.status === "loading" ? <PickerSkeleton /> : null}
       {state.status === "refused" ? workspaceRequiredNotice(state.refusal) : null}

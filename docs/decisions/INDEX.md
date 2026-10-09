@@ -29,7 +29,9 @@ closes. (`docs/architecture/decisions/` ADRs have their own CI-gated index.)
 | `2026-08-31-session-ratification.md` | ratified | 8-31 authority matrix; 4-status model |
 | `a1b-idp-configuration-worksheet.md` | **OPEN gate** | IdP worksheet; no agent may fill; blocks A1–A4 |
 | `a1b-gcp-console-guide.md` | open how-to | console steps for the worksheet |
-| `class-exercise-decisions-2026-09-25.md` | current | D1–D16 for CLASS_EXERCISE; amends ADR-0025 |
+| `class-exercise-decisions-2026-09-25.md` | current; D2's undecided half superseded 2026-10-02 | D1–D16 for CLASS_EXERCISE; amends ADR-0025 |
+| `class-exercise-default-weights-2026-10-06.md` | current; class module implemented (#352), platform not | Default weights 3/3/2/2 on a whole-number 0–10 scale, class module and platform (Dr. Wang; scale: owner); supersedes OQ-CE-02's 0.25 each |
+| `class-exercise-factor-revisions-2026-10-02.md` | implemented | binary interest fit; related-past-event count (0 / 0.5 / 1); undecided half removed; `exercise-0.2.0` |
 | `class-exercise-results-rule-2026-10-06.md` | ruling recorded, not implemented | Ann's results rule (notice 75%/15%, sign-up points, 70% attend); supersedes D7's numbers as the requirement; raises OQ-CE-19…31 |
 | `d6-rewards-budget-decision-record.md` | closed | owner=Danny Tran; D7 tentative |
 | `f5-deploy-target-note-2026-09-03.md` | current | classroom=synthetic; `ALLOW_CLOUD_DEPLOY=false` |

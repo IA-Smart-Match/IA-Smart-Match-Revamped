@@ -1,17 +1,17 @@
 /**
- * Weight slider (DESIGN.md §6.6, owner ruling 2): a Radix slider 0–1, step
- * 0.05, paired with an 88px number box that holds the exact value.
+ * Weight slider (DESIGN.md §6.6, owner ruling 2): a Radix slider 0–10, step
+ * 1, paired with an 88px number box that holds the exact value.
  *
  * - Both controls are named by the server's factor label, verbatim.
  * - Dragging or typing moves the other control live; the weight is committed
  *   (`onCommit`) only on pointer-up, a key step, Enter, or leaving the box —
  *   never per drag tick.
- * - Keyboard: arrows ±0.05, Page Up/Down ±0.25, Home/End (§8.4).
+ * - Keyboard: arrows ±1, Page Up/Down ±5, Home/End (§8.4).
  * - The box keeps the strict-decimal rule; anything else is a field alert.
- *   A typed number outside 0–1 is committed as typed — the server refuses a
- *   negative weight in its own sentence and accepts one above 1 ("refuse,
- *   never repair") — and only the thumb's position is held on 0–1. Weights
- *   the slider itself produces (drag, keys) always stay on 0–1.
+ *   A typed number outside 0–10 or with a fraction is committed as typed —
+ *   the server refuses it in its own sentence ("refuse, never repair") — and
+ *   only the thumb's position is held on 0–10. Weights the slider itself
+ *   produces (drag, keys) always stay on whole steps of 0–10.
  * - `refusal` is the server's refusal for the latest commit — a fresh object
  *   per failed attempt, like `useExerciseResource`'s `ExerciseRefusal` — so
  *   the controls revert to `value` (the last accepted weight) on every
@@ -60,7 +60,7 @@ export interface WeightSliderProps {
   readonly value: number;
   /**
    * Called once per commit with the new weight: a typed number as typed
-   * (never clamped), or a slider value on 0–1.
+   * (never clamped), or a slider value on 0–10.
    */
   readonly onCommit: (value: number) => void;
   /**
@@ -213,7 +213,7 @@ export function WeightSlider({
           commit(clampWeight(next));
         }}
         onKeyDown={(event) => {
-          // Radix pages by 10 steps (0.5); §8.4 asks for ±0.25.
+          // Radix pages by 10 steps (the whole range); §8.4 asks for ±5.
           if (disabled || (event.key !== "PageUp" && event.key !== "PageDown")) {
             return;
           }

@@ -12,6 +12,7 @@ import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ExerciseInstructor } from "./ExerciseInstructor";
+import { pastTheConfirmGuard } from "./inlineConfirmGuard.testkit";
 
 /** Written out rather than imported, so a typo in the client's constant fails here. */
 const XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
@@ -316,6 +317,7 @@ describe("<ExerciseInstructor />", () => {
     answers[`GET ${INSTRUCTOR_EVENTS}`] = { body: eventsView(true) };
     fireEvent.click(roundTwo?.querySelector("button") as HTMLButtonElement);
     // §11.1: the first press asks; "Open results now" sends the unlock.
+    await pastTheConfirmGuard();
     fireEvent.click(within(roundTwo as HTMLElement).getByRole("button", { name: /open results now/i }));
 
     await waitFor(() =>
@@ -608,6 +610,7 @@ describe("<ExerciseInstructor />", () => {
     };
     const readsBefore = calls.filter((call) => call.url === INSTRUCTOR_EVENTS).length;
     fireEvent.click(roundOne?.querySelector("button") as HTMLButtonElement);
+    await pastTheConfirmGuard();
     fireEvent.click(within(roundOne as HTMLElement).getByRole("button", { name: /open results now/i }));
 
     // Refused, and the re-read is in flight: the sentence is up and every
@@ -656,6 +659,7 @@ describe("<ExerciseInstructor />", () => {
       status: 409,
     };
     fireEvent.click(roundOne?.querySelector("button") as HTMLButtonElement);
+    await pastTheConfirmGuard();
     fireEvent.click(within(roundOne as HTMLElement).getByRole("button", { name: /open results now/i }));
 
     await screen.findByText("No team has entered a number yet.");

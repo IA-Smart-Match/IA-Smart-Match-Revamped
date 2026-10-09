@@ -26,6 +26,7 @@ import textwrap
 
 import pytest
 from smartmatch_domain.exercise.determinism import exercise_permutation
+from smartmatch_domain.exercise.markers import InformationMarker, derive_marker
 from smartmatch_domain.exercise.matching import (
     ExerciseProfile,
     exercise_ranked_list,
@@ -56,17 +57,17 @@ GOLDEN_YEAR_RANK = {"Senior": 4, "Junior": 3, "Sophomore": 2, "First year": 1}
 
 
 # ---------------------------------------------------------------------------
-# G-CE-01 … G-CE-06: every factor, known and unknown
+# G-CE-01 … G-CE-06, G-CE-16, G-CE-17: every factor, known and unknown
 # ---------------------------------------------------------------------------
 
 #: ``(case id, profile, composite, unknown keys)``. Every value is the exercise
-#: default weighting — 0.25 each (OQ-CE-02, closed 2026-09-25) — so a change to the
+#: default weighting — 3/3/2/2 of 10 (Ann Wang 2026-10-06) — so a change to the
 #: defaults is visible here rather than silent.
 FACTOR_CASES = [
     (
         "G-CE-01 major only",
         ProfileEvidence("p01", "Marketing"),
-        0.25,
+        0.3,
         ("stated_interest_overlap", "career_goal_fit", "past_event_topic_overlap"),
     ),
     (
@@ -81,7 +82,8 @@ FACTOR_CASES = [
             "p03",
             "Marketing",
             card=ProfileCard(("analytics", "careers"), career_goal="analytics"),
-            attended_event_topics=(("analytics", "careers"),),
+            # Two related past events: one alone is half of that factor.
+            attended_event_topics=(("analytics", "careers"), ("analytics",)),
         ),
         1.0,
         (),
@@ -89,25 +91,43 @@ FACTOR_CASES = [
     (
         "G-CE-04 empty card is measured, past events unknown",
         ProfileEvidence("p04", "Marketing", card=ProfileCard()),
-        0.25,
+        0.3,
         ("past_event_topic_overlap",),
     ),
     (
-        "G-CE-05 past events only",
+        "G-CE-05 one related past event is half of that factor",
+        # One past event, however many topics it shares: 0.3 + 0.2 * 0.5.
         ProfileEvidence("p05", "Marketing", attended_event_topics=(("analytics", "careers"),)),
-        0.5,
+        0.4,
         ("stated_interest_overlap", "career_goal_fit"),
     ),
     (
-        "G-CE-06 card with a partial interest overlap",
-        # interests {analytics, sports} vs topics {analytics, careers}: 1/3.
+        "G-CE-06 one shared interest is the whole interest factor",
+        # interests {analytics, sports} vs topics {analytics, careers}: one is
+        # shared, and one is enough. The goal misses: 0.3 + 0.3.
         ProfileEvidence(
             "p06",
             "Marketing",
             card=ProfileCard(("analytics", "sports"), career_goal="law"),
         ),
-        0.25 + 0.25 * 0.3333,
+        0.6,
         ("past_event_topic_overlap",),
+    ),
+    (
+        "G-CE-16 two related past events are that whole factor",
+        ProfileEvidence(
+            "p16", "Marketing", attended_event_topics=(("analytics",), ("careers", "sports"))
+        ),
+        0.5,
+        ("stated_interest_overlap", "career_goal_fit"),
+    ),
+    (
+        "G-CE-17 a past event that is not related is measured, not unknown",
+        # Same composite as G-CE-01, but the factor was measured: it is not
+        # among the unknown keys.
+        ProfileEvidence("p17", "Marketing", attended_event_topics=(("sports",),)),
+        0.3,
+        ("stated_interest_overlap", "career_goal_fit"),
     ),
 ]
 
@@ -127,7 +147,20 @@ def test_factor_golden_case(
     score = score_exercise_pair(profile, GOLDEN_EVENT)
     assert score.value == pytest.approx(expected, abs=1e-6), case_id
     assert score.unknown_factor_keys == unknown, case_id
-    assert score.registry_version == "exercise-0.1.0"
+    assert score.registry_version == "exercise-0.2.0"
+
+
+@pytest.mark.golden
+def test_g_ce_17_an_unrelated_past_event_still_moves_the_profile_out_of_major_only() -> None:
+    """G-CE-01 and G-CE-17 compose to the same value and are not the same fact.
+
+    One has no attendance on file; the other attended an event that shares no
+    topic with this one. The marker tells them apart, and G-CE-08 pins that the
+    second wins the information tie-break.
+    """
+    by_id = {case[1].profile_id: case[1] for case in FACTOR_CASES}
+    assert derive_marker(by_id["p01"]) is InformationMarker.MAJOR_ONLY
+    assert derive_marker(by_id["p17"]) is InformationMarker.MAJOR_PLUS_EVENTS
 
 
 # ---------------------------------------------------------------------------
@@ -305,7 +338,7 @@ def test_g_ce_14_a_different_checksum_gives_a_different_order() -> None:
 
 @pytest.mark.golden
 def test_g_ce_15_the_cba_registry_is_unchanged_with_a_second_registry_present() -> None:
-    """ADR-0016's approved weights, asserted while ``exercise-0.1.0`` is bound."""
+    """ADR-0016's approved weights, asserted while ``exercise-0.2.0`` is bound."""
     assert EXERCISE_REGISTRY.version != CBA_REGISTRY.version
     physical = dict(normalize_weights(model=CBA_PHYSICAL_MODEL))
     assert physical == {

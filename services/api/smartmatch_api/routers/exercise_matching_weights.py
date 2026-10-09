@@ -30,6 +30,7 @@ from smartmatch_domain.exercise.registry import (
     AllZeroExerciseWeightsError,
     InvalidExerciseWeightError,
     NegativeExerciseWeightError,
+    WholeNumberExerciseWeightError,
     validate_exercise_weight_overrides,
 )
 
@@ -138,8 +139,11 @@ ALL_ZERO_WEIGHTS_SENTENCE = "At least one number must be above 0."
 #: screens never show column names.
 NEGATIVE_WEIGHT_SENTENCE = "A weight cannot be below 0."
 
+#: What a team reads when a new weight is a fraction or above 10.
+WHOLE_NUMBER_WEIGHT_SENTENCE = "A weight is a whole number from 0 to 10."
 
-def validated(raw: Mapping[str, object]) -> Mapping[str, float]:
+
+def validated(raw: Mapping[str, object], *, whole_numbers: bool = False) -> Mapping[str, float]:
     """Run a team's proposed weighting through the rulebook's own check.
 
     ``smartmatch_domain.weight_settings.validate_weight_overrides`` is the
@@ -159,10 +163,14 @@ def validated(raw: Mapping[str, object]) -> Mapping[str, float]:
     amplify the request whatever the validator decides to say. Both apply to
     weights arriving in a body and to weights arriving on a query string,
     because both arrive here.
+
+    ``whole_numbers`` is set for weights a team just sent (whole 0-10, the
+    3/3/2/2 scale) and left off for weights read back from storage, which may
+    be fractions saved before the change.
     """
     within_bounds_or_refusal(raw)
     try:
-        return validate_exercise_weight_overrides(raw)
+        return validate_exercise_weight_overrides(raw, whole_numbers=whole_numbers)
     except AllZeroExerciseWeightsError:
         # M2 B5: the domain's sentence is for an engineer; a team reads this.
         raise ExerciseError(
@@ -176,6 +184,12 @@ def validated(raw: Mapping[str, object]) -> Mapping[str, float]:
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             code="exercise_weights_invalid",
             message=NEGATIVE_WEIGHT_SENTENCE,
+        ) from None
+    except WholeNumberExerciseWeightError:
+        raise ExerciseError(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            code="exercise_weights_invalid",
+            message=WHOLE_NUMBER_WEIGHT_SENTENCE,
         ) from None
     except InvalidExerciseWeightError as error:
         raise ExerciseError(
@@ -192,10 +206,28 @@ def capped(detail: str) -> str:
     return f"{detail[:MAX_WEIGHT_REFUSAL_CHARACTERS].rstrip()}…"
 
 
+#: What a factor left out of a *stored* weighting meant before 3/3/2/2: the
+#: equal 0.25 that was the default then.
+LEGACY_EQUAL_WEIGHT = 0.25
+
+
+def stored_weights(raw: Mapping[str, object]) -> Mapping[str, float]:
+    """A saved weighting read back, all four factors, exactly as it was saved.
+
+    Rows saved before the 3/3/2/2 defaults may name fewer than four factors
+    (or none); each missing factor was then 0.25, so it is filled with 0.25
+    here and the list comes out the same. Fractions load as they were stored.
+    New saves always name all four (see :func:`effective_weights`), so a
+    partial row is always a legacy row.
+    """
+    stored = validated(raw)
+    return {key: stored.get(key, LEGACY_EQUAL_WEIGHT) for key in EXERCISE_DEFAULT_WEIGHTS}
+
+
 def effective_weights(overrides: Mapping[str, float] | None) -> Mapping[str, float]:
     """What a screen is told the list was built with.
 
-    The equal defaults (OQ-CE-02) with the team's own values written over
+    The defaults (3/3/2/2) with the team's own values written over
     them, so a team that moved one slider sees four numbers rather than one.
     These are the *stated* weights and not the normalized ones: normalizing is
     the composition's business, and a normalized weight is an output (ADR-0025

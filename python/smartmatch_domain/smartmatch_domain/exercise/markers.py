@@ -48,12 +48,15 @@ from smartmatch_domain.student_factors import ProfileEvidence
 
 __all__ = [
     "INFORMATION_RANK",
+    "MARKER_WORDS",
     "GroupCounts",
     "InformationMarker",
     "ListComposition",
     "derive_marker",
     "information_rank",
     "list_composition",
+    "marker_for",
+    "marker_words",
 ]
 
 
@@ -81,6 +84,41 @@ INFORMATION_RANK: Final[Mapping[InformationMarker, int]] = MappingProxyType(
 )
 
 
+#: The requirements' own three phrases, for anything the server writes that a
+#: person reads without a screen in between — today, the list download. The API
+#: still carries the keys; this is not a second vocabulary for the wire.
+#:
+#: The screen holds the same words in ``apps/web/legacy-frontend/src/app/pages/
+#: exercise/markers.ts`` (``MARKER_LABELS``), because a browser cannot import
+#: this module. ``tests/unit/test_exercise_matching_csv.py`` reads that file
+#: and compares it with this table, so the two cannot be reworded apart.
+MARKER_WORDS: Final[Mapping[InformationMarker, str]] = MappingProxyType(
+    {
+        InformationMarker.MAJOR_ONLY: "major only",
+        InformationMarker.MAJOR_PLUS_EVENTS: "major plus events attended",
+        InformationMarker.COMPLETED_CARD: "completed card",
+    }
+)
+
+
+def marker_words(marker: str) -> str:
+    """The plain words for one marker, or the marker itself if it is not one.
+
+    Args:
+        marker: An :class:`InformationMarker` or the key the API carries for it.
+
+    Returns:
+        One of the three phrases in :data:`MARKER_WORDS`. A value that is none
+        of the three comes back unchanged rather than as "unknown" or as one of
+        the three: design spec §7's rule that absent information is not
+        invented, and the same choice the screen makes.
+    """
+    try:
+        return MARKER_WORDS[InformationMarker(marker)]
+    except ValueError:
+        return str(marker)
+
+
 def derive_marker(profile: ProfileEvidence) -> InformationMarker:
     """Which of the three groups a profile is in.
 
@@ -96,9 +134,29 @@ def derive_marker(profile: ProfileEvidence) -> InformationMarker:
         all, are both "major only" — neither has an event to say anything
         about — and the difference between them stays on the evidence.
     """
-    if profile.card is not None:
+    return marker_for(
+        has_card=profile.card is not None,
+        attended_event_count=profile.attended_event_count or 0,
+    )
+
+
+def marker_for(*, has_card: bool, attended_event_count: int) -> InformationMarker:
+    """The three-group rule itself, for a caller that holds no evidence object.
+
+    :func:`derive_marker` reads these two facts off a :class:`ProfileEvidence`,
+    which refuses a profile with no major. A count over **every** row of a data
+    file — the upload report's, and the before-and-after counts a team is shown
+    once its profiles are updated — has rows no list can rank, and must still
+    put each of them in a group. Both go through here, so "how much we know"
+    has one definition.
+
+    Args:
+        has_card: Whether a card exists, however little is written on it.
+        attended_event_count: How many past events are on file. Zero for none.
+    """
+    if has_card:
         return InformationMarker.COMPLETED_CARD
-    if profile.attended_event_count:
+    if attended_event_count:
         return InformationMarker.MAJOR_PLUS_EVENTS
     return InformationMarker.MAJOR_ONLY
 

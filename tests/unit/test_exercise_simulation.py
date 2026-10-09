@@ -448,7 +448,6 @@ def test_the_shipped_set_counts_any_past_event_as_having_attended_before():
 def test_the_plain_words_paragraph_states_every_shipped_number():
     """Ann and Dr. Lin receive the paragraph; it must say what the code does."""
     from smartmatch_domain.exercise import simulation
-    from smartmatch_domain.student_factors import UNDECIDED_EXPLORATORY_GOAL_FIT
 
     shipped = _shipped()
     text = " ".join((simulation.__doc__ or "").split())
@@ -472,8 +471,9 @@ def test_the_plain_words_paragraph_states_every_shipped_number():
     assert "been to at least one past event" in text
     assert shipped.true_interest_share_of_fit == 0.5
     assert "half of it when one of their true interests" in text
-    assert UNDECIDED_EXPLORATORY_GOAL_FIT == 0.5
-    assert "gets half of that career-goal half" in text
+    # Ann's revisions of 2026-10-02 (item 4b) took the undecided half out of
+    # the rule, so the paragraph she receives must not still promise it.
+    assert "undecided" not in text.split("For each invited profile")[1].split("The total never")[0]
 
 
 def test_require_coefficients_refuses_while_the_set_is_none(monkeypatch):
@@ -485,56 +485,17 @@ def test_require_coefficients_refuses_while_the_set_is_none(monkeypatch):
     assert str(excinfo.value) == "The results rule has no confirmed coefficients yet."
 
 
-# --- OQ-CE-14: an undecided goal is half a fit for an exploratory event ----
-
-EXPLORATORY_EVENT = dataclasses.replace(EVENT, exploratory=True)
+# --- A goal that points at no topic earns none of the goal part -------------
 
 
-def _undecided(profile_no: int = 1) -> SimulationProfile:
-    return SimulationProfile(profile_no=profile_no, major="history", career_goal_undecided=True)
+def test_a_goal_with_no_topic_earns_nothing_from_the_goal_part():
+    """Undecided and Graduate school both reach the rule as no goal topic.
 
-
-def test_an_undecided_goal_earns_half_the_goal_part_on_an_exploratory_event():
-    all_on_goal = _with(true_interest_share_of_fit=0.0)
-    assert _fit_share(_undecided(), EXPLORATORY_EVENT, all_on_goal) == 0.5
-    assert _fit_share(_undecided(), EVENT, all_on_goal) == 0.0
-
-
-def test_the_half_is_the_same_half_the_matching_factor_gives():
-    """The rule and the factor must not disagree about what "undecided" earns."""
-    from smartmatch_domain.student_factors import UNDECIDED_EXPLORATORY_GOAL_FIT
-
-    split = _with(true_interest_share_of_fit=0.4)
-    assert _fit_share(_undecided(), EXPLORATORY_EVENT, split) == pytest.approx(
-        0.6 * UNDECIDED_EXPLORATORY_GOAL_FIT
-    )
-
-
-def test_a_goal_that_fits_outranks_undecided_on_an_exploratory_event():
-    fits = SimulationProfile(profile_no=1, major="history", career_goal="data_career")
-    split = _with(true_interest_share_of_fit=0.5)
-    assert _fit_share(fits, EXPLORATORY_EVENT, split) > _fit_share(
-        _undecided(), EXPLORATORY_EVENT, split
-    )
-
-
-def test_a_goal_with_no_topic_that_is_not_undecided_earns_nothing_on_an_exploratory_event():
-    """Graduate school: "no specific event topic" (Ann, 2026-09-25)."""
-    graduate = SimulationProfile(profile_no=1, major="history")
-    assert _fit_share(graduate, EXPLORATORY_EVENT, _with(true_interest_share_of_fit=0.0)) == 0.0
-
-
-def test_an_undecided_profile_has_no_goal_topic():
-    with pytest.raises(ValueError, match="career_goal_undecided"):
-        SimulationProfile(
-            profile_no=1, major="history", career_goal="data_career", career_goal_undecided=True
-        )
-
-
-def test_a_simulation_profile_never_prints_whether_its_hidden_goal_is_undecided():
-    """ADR-0025 D6: the flag is derived from ``hidden_true_career_goal``."""
-    assert "career_goal_undecided" not in repr(_undecided())
-    assert "True" not in repr(_undecided())
+    Ann's revisions of 2026-10-02 (item 4b) removed the half an undecided goal
+    used to earn on a broad event, so the two are the same input now.
+    """
+    no_topic = SimulationProfile(profile_no=1, major="history")
+    assert _fit_share(no_topic, EVENT, _with(true_interest_share_of_fit=0.0)) == 0.0
 
 
 # --- Seats -----------------------------------------------------------------

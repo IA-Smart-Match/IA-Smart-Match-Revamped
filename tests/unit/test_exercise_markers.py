@@ -4,10 +4,13 @@ from __future__ import annotations
 
 from smartmatch_domain.exercise.markers import (
     INFORMATION_RANK,
+    MARKER_WORDS,
     InformationMarker,
     derive_marker,
     information_rank,
     list_composition,
+    marker_for,
+    marker_words,
 )
 from smartmatch_domain.student_factors import ProfileCard, ProfileEvidence
 
@@ -53,6 +56,25 @@ def test_information_rank_orders_the_three_groups() -> None:
     assert set(INFORMATION_RANK) == set(InformationMarker)
 
 
+def test_every_marker_has_plain_words() -> None:
+    """The requirements' three phrases, written out so a reworded map fails here."""
+    assert dict(MARKER_WORDS) == {
+        InformationMarker.MAJOR_ONLY: "major only",
+        InformationMarker.MAJOR_PLUS_EVENTS: "major plus events attended",
+        InformationMarker.COMPLETED_CARD: "completed card",
+    }
+
+
+def test_marker_words_reads_the_wire_value_as_well_as_the_member() -> None:
+    assert marker_words(InformationMarker.COMPLETED_CARD) == "completed card"
+    assert marker_words("major_plus_events") == "major plus events attended"
+
+
+def test_an_unrecognised_marker_is_shown_as_itself() -> None:
+    """Design spec §7: a fourth marker is not folded into one of the three."""
+    assert marker_words("something_new") == "something_new"
+
+
 # ---------------------------------------------------------------------------
 # The "who is on the list" table
 # ---------------------------------------------------------------------------
@@ -96,3 +118,10 @@ def test_an_empty_list_leaves_every_group_uncovered() -> None:
     composition = list_composition([], EVERYONE)
     assert dict(composition.by_major.on_list) == {}
     assert composition.coverage.missing_majors == ("Marketing", "Finance", "History")
+
+
+def test_the_rule_can_be_asked_without_building_evidence() -> None:
+    """One rule for a ranked profile and for a row no list can rank."""
+    assert marker_for(has_card=False, attended_event_count=0) is InformationMarker.MAJOR_ONLY
+    assert marker_for(has_card=False, attended_event_count=2) is InformationMarker.MAJOR_PLUS_EVENTS
+    assert marker_for(has_card=True, attended_event_count=2) is InformationMarker.COMPLETED_CARD

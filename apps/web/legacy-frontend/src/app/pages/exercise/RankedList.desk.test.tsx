@@ -2,8 +2,7 @@
  * The ranked row with its reason line (DESIGN.md §6.7), the marker chip
  * (§6.8), and the 390 card view (§8.7).
  *
- * `RankedList.test.tsx` and `RankedList.undecidedLabel.test.tsx` pin the
- * words; this file pins where they sit: the reason under the name with no
+ * `RankedList.test.tsx` pins the words; this file pins where they sit: the reason under the name with no
  * "Why" column, the chip's icon and words, the overlap wash and chip, a
  * name new to the list, and the `<ol>` of cards on a phone.
  */
@@ -25,7 +24,6 @@ function entry(rank: number, profileNo: number, name: string): ListEntryView {
     marker: rank === 1 ? "completed_card" : "major_only",
     reason: `What counted: same major (${name}).`,
     contributing_factor_keys: ["same_major"],
-    undecided_goal_half: false,
   };
 }
 

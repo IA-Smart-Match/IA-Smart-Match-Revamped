@@ -31,6 +31,7 @@ import uuid
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import Any
 
 __all__ = [
     "InvitedProfile",
@@ -39,8 +40,13 @@ __all__ = [
     "ResultPanel",
     "StoredResultRun",
     "TeamResultsState",
+    "WorkspaceRefreshStatus",
+    "int_tuple",
     "invited_as_json",
     "invited_from_json",
+    "panel_as_json",
+    "panel_from_json",
+    "stored_run_from_row",
     "weights_as_json",
     "weights_from_json",
 ]
@@ -185,6 +191,30 @@ class RefreshCandidate:
 
 
 @dataclass(frozen=True, slots=True)
+class WorkspaceRefreshStatus:
+    """One team, as the instructor's every-team refresh has to report it.
+
+    **Every** workspace, not only the ones :class:`RefreshCandidate` selects:
+    the report says which teams were refreshed *and which were not, and why*, so
+    a team that has not chosen and a team that already refreshed each need a
+    row to be named from.
+
+    ``dataset_label`` is the data file's own label, carried so that two "Team
+    3"s in a classroom split across two files can be told apart on the report
+    without an identifier leaving the server. ``seed`` is ``repr=False`` for
+    :class:`RefreshCandidate`'s reason.
+    """
+
+    workspace_id: uuid.UUID
+    dataset_id: uuid.UUID
+    dataset_label: str
+    team_number: int
+    asking_choice: str | None
+    refreshed_at: datetime | None
+    seed: int = field(repr=False)
+
+
+@dataclass(frozen=True, slots=True)
 class RefreshCounts:
     """What one refresh changed, in three integers (ADR-0025 D8).
 
@@ -212,6 +242,36 @@ def _int_or_none(value: object) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) else None
 
 
+def int_tuple(value: object) -> tuple[int, ...]:
+    """A PostgreSQL integer array as a tuple. ``NULL`` reads as empty."""
+    return tuple(int(item) for item in value) if isinstance(value, list) else ()
+
+
+def panel_from_json(value: object) -> ResultPanel:
+    """``exercise_result_run.email_everyone`` as a :class:`ResultPanel`.
+
+    Defensive about the stored shape rather than trusting it: the column is
+    JSONB, so a row written by an older version of this module is data the
+    current one is reading, and a missing key is read as "nobody" rather than as
+    a crash on a screen.
+    """
+    stored = value if isinstance(value, Mapping) else {}
+    return ResultPanel(
+        invited_profile_nos=int_tuple(stored.get("invited")),
+        signed_up_profile_nos=int_tuple(stored.get("signed_up")),
+        attended_profile_nos=int_tuple(stored.get("attended")),
+    )
+
+
+def panel_as_json(panel: ResultPanel) -> dict[str, list[int]]:
+    """A :class:`ResultPanel` as the JSONB column stores it."""
+    return {
+        "invited": list(panel.invited_profile_nos),
+        "signed_up": list(panel.signed_up_profile_nos),
+        "attended": list(panel.attended_profile_nos),
+    }
+
+
 def invited_as_json(invited: Sequence[InvitedProfile]) -> list[dict[str, object]]:
     """A run's invited list as ``exercise_result_run.invited_profiles`` stores it."""
     return [
@@ -231,7 +291,7 @@ def invited_as_json(invited: Sequence[InvitedProfile]) -> list[dict[str, object]
 def invited_from_json(value: object) -> tuple[InvitedProfile, ...]:
     """``exercise_result_run.invited_profiles`` as values, in the stored order.
 
-    Defensive about the stored shape, for ``_panel_from_json``'s reason: the
+    Defensive about the stored shape, for :func:`panel_from_json`'s reason: the
     column is JSONB, so a row written by an older version — or backfilled by
     revision 0046 without ``rank``, ``marker`` and ``reason`` — is data this
     version is reading. A missing key reads as ``None``; an entry with no
@@ -281,3 +341,28 @@ def weights_from_json(value: object) -> Mapping[str, float] | None:
         if isinstance(item, (int, float)) and not isinstance(item, bool)
     }
     return weights or None
+
+
+def stored_run_from_row(row: Any) -> StoredResultRun:
+    """One selected ``exercise_result_run`` row as a :class:`StoredResultRun`.
+
+    ``row`` is whatever ``results_repository._one`` selected — the eleven
+    columns it names, read here by attribute — typed loosely so this module
+    still imports no SQLAlchemy. The columns are chosen there; this is only the
+    conversion, kept beside the JSONB parsers it is made of.
+    """
+    return StoredResultRun(
+        event_key=row.event_key,
+        round=int(row.round),
+        setting_name=row.setting_name,
+        team=ResultPanel(
+            invited_profile_nos=int_tuple(row.invited_profile_nos),
+            signed_up_profile_nos=int_tuple(row.signed_up_profile_nos),
+            attended_profile_nos=int_tuple(row.attended_profile_nos),
+        ),
+        email_everyone=panel_from_json(row.email_everyone),
+        seats_empty=int(row.seats_empty),
+        created_at=row.created_at,
+        invited=invited_from_json(row.invited_profiles),
+        setting_weights=weights_from_json(row.setting_weights),
+    )

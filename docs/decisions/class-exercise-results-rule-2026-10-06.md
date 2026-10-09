@@ -182,6 +182,9 @@ here.
   serves Ann's "the same list always gives the same result". Not merged on
   2026-10-06: `reset_team` on `main` still draws a new seed
   (`python/smartmatch_persistence/smartmatch_persistence/exercise/workspace_repository.py:546`).
+- **Update 2026-10-09.** #337 and #342 merged (as #351, 2026-10-07) and #344
+  merged (2026-10-08): on `main` the undecided half is gone and clearing a team
+  keeps its seed. R1 itself is still not implemented.
 
 ## Also in the same message
 

@@ -40,6 +40,7 @@ from tests.unit.exercise_results_router.support import (
     _WHEN,
     _entered,
     _Fakes,
+    _run_round_one,
 )
 
 # ---------------------------------------------------------------------------
@@ -235,8 +236,10 @@ def test_the_three_choices_come_from_the_domain(client: TestClient) -> None:
 
 @pytest.mark.parametrize("choice", [member.value for member in AskingChoice])
 def test_each_of_the_three_choices_is_accepted_and_stored(
-    fakes: _Fakes, client: TestClient, choice: str
+    fakes: _Fakes, client: TestClient, confirmed: SimulationCoefficients, choice: str
 ) -> None:
+    _run_round_one(fakes, client)
+
     response = client.post(_ASKING, json={"choice": choice}, headers=_HEADER)
 
     assert response.status_code == 200, response.text
@@ -245,8 +248,9 @@ def test_each_of_the_three_choices_is_accepted_and_stored(
 
 
 def test_a_second_choice_is_refused_rather_than_replacing_the_first(
-    fakes: _Fakes, client: TestClient
+    fakes: _Fakes, client: TestClient, confirmed: SimulationCoefficients
 ) -> None:
+    _run_round_one(fakes, client)
     assert client.post(_ASKING, json={"choice": "small_reward"}, headers=_HEADER).status_code == 200
 
     response = client.post(_ASKING, json={"choice": "required"}, headers=_HEADER)
@@ -426,3 +430,17 @@ def test_everybody_in_the_file_stays_counts_only(
     for panel in (body["team"], body["email_everyone"]):
         assert "invited_profiles" not in panel
         assert "display_name" not in str(panel)
+
+
+def test_a_results_run_from_an_old_fractional_setting_still_works(
+    fakes: _Fakes, client: TestClient, confirmed: SimulationCoefficients
+) -> None:
+    fakes.unlock("round-one")
+    workspace = fakes.workspaces.rows[(_DATASET_ID, 1)]
+    fakes.settings.rows[(workspace.id, "round-one", _FINAL)] = SavedSetting(
+        event_key="round-one",
+        name=_FINAL,
+        weights={"same_major": 0.5, "stated_interest_overlap": 0.25},
+        created_at=_WHEN,
+    )
+    assert client.post(_RESULTS, json=_FINAL_BODY, headers=_HEADER).status_code == 201

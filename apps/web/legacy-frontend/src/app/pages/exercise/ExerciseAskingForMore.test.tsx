@@ -5,6 +5,8 @@
  * the API offers it. Only the wording of each is local, because the asking
  * response carries no label per choice the way the list response carries
  * `factor_labels`.
+ *
+ * The once-only refresh has its own file, `ExerciseAskingForMore.refresh.test.tsx`.
  */
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
@@ -14,78 +16,76 @@ import { CONFIRM_GUARD_MS } from "./desk";
 import { stubReducedMotion } from "./desk/testMatchMedia";
 import { ExerciseAskingForMore } from "./ExerciseAskingForMore";
 
+// The status line makes three reads of its own and has its own tests
+// (`TeamStatusBand.test.tsx`, `TeamStatusBand.pages.test.tsx`). It is left out
+// here, so these tests count only the requests this page makes.
+vi.mock("./TeamStatusBand", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./TeamStatusBand")>()),
+  TeamStatusBand: () => null,
+}));
+
 let calls: { url: string; init: RequestInit }[] = [];
 
+const ASKING = "/v1/exercise/workspaces/current/asking-choice";
+
+/** A local wall-clock time with no zone, so it reads "10:42 AM" in any zone. */
+const AT = "2026-10-16T10:42:00";
+
 /**
- * Answer the routes a test names. Unless it says otherwise, the team has run
- * its first round, so the refresh button is judged on what the test is about.
+ * The asking response's facts about the first round and the refresh, as the
+ * server sends them for a team that has run round one and not refreshed. A
+ * test's own body wins, so each test states only what it is about.
  */
-function stub(named: Record<string, { body: unknown; status?: number }>): void {
-  const answers: Record<string, { body: unknown; status?: number }> = {
-    ...ROUND_ONE_RUN,
-    ...named,
+const ASKING_DEFAULTS = {
+  refreshed_at: null,
+  refresh_counts: null,
+  first_round_results: true,
+  first_round_event_name: "Northline Career Fair",
+};
+
+/** An asking body with the defaults filled in; refusals pass through. */
+function asking(body: unknown): unknown {
+  if (typeof body !== "object" || body === null || "error" in body) {
+    return body;
+  }
+  return { ...ASKING_DEFAULTS, ...body };
+}
+
+/** The full counts shape, from the three a test cares about. */
+function counts(three: { cards_completed: number; non_responding: number; topics_added: number }) {
+  return {
+    ...three,
+    invited_without_card: 22,
+    marker_counts_before: { major_only: 166, major_plus_events: 64, completed_card: 70 },
+    marker_counts_after: {
+      major_only: 166 - three.topics_added,
+      major_plus_events: 64 + three.topics_added - three.cards_completed,
+      completed_card: 70 + three.cards_completed,
+    },
   };
+}
+
+/** The body the fake server sends for one request: asking bodies get the defaults. */
+function sent(url: string, body: unknown): string {
+  return JSON.stringify(url === ASKING ? asking(body) : body);
+}
+
+/** Answer the routes a test names; anything else is a 404. */
+function stub(named: Record<string, { body: unknown; status?: number }>): void {
   vi.stubGlobal(
     "fetch",
     vi.fn((url: string, init: RequestInit) => {
       calls.push({ url, init });
       const key = `${init.method ?? "GET"} ${url}`;
-      const answer = answers[key] ??
-        answers[url] ?? {
+      const answer = named[key] ??
+        named[url] ?? {
           body: { error: { code: "test_unstubbed", message: key } },
           status: 404,
         };
-      return Promise.resolve(
-        new Response(JSON.stringify(answer.body), { status: answer.status ?? 200 }),
-      );
+      return Promise.resolve(new Response(sent(url, answer.body), { status: answer.status ?? 200 }));
     }),
   );
 }
-
-const ASKING = "/v1/exercise/workspaces/current/asking-choice";
-const REFRESH = "/v1/exercise/workspaces/current/refresh";
-const EVENTS = "/v1/exercise/workspaces/current/events";
-const ROUND_ONE_RESULTS = "/v1/exercise/workspaces/current/events/round-one/results";
-
-function event(key: string, name: string, isExerciseEvent: boolean, sequence: number) {
-  return {
-    event_key: key,
-    name,
-    topic_tags: [],
-    target_majors: [],
-    is_exercise_event: isExerciseEvent,
-    sequence,
-  };
-}
-
-/** A past event and the two rounds, deliberately out of file order. */
-const EVENTS_VIEW = {
-  events: [
-    event("round-two", "Harbor Industry Panel", true, 12),
-    event("past-one", "A past event", false, 1),
-    event("round-one", "Northline Career Fair", true, 11),
-  ],
-};
-
-/** The stubs for a team that has already run its first round. */
-const ROUND_ONE_RUN = {
-  [`GET ${EVENTS}`]: { body: EVENTS_VIEW },
-  [`GET ${ROUND_ONE_RESULTS}`]: { body: { event_key: "round-one", round: 1 } },
-};
-
-/** The stubs for a team that has not run its first round yet. */
-const ROUND_ONE_NOT_RUN = {
-  [`GET ${EVENTS}`]: { body: EVENTS_VIEW },
-  [`GET ${ROUND_ONE_RESULTS}`]: {
-    body: {
-      error: {
-        code: "exercise_results_not_run",
-        message: "Your team has not run results for this event yet.",
-      },
-    },
-    status: 404,
-  },
-};
 
 function renderAsking() {
   const router = createMemoryRouter(
@@ -119,40 +119,6 @@ async function pressTwice(button: HTMLElement): Promise<void> {
 /** Whether a desk Button is shut (it stays focusable: `aria-disabled`). */
 function isShut(button: HTMLElement): boolean {
   return button.getAttribute("aria-disabled") === "true";
-}
-
-/**
- * Answer by `METHOD url` and call count, with the first round already run:
- * `"offline"` stands for a request that never reached the server, and `null`
- * falls through to a 404.
- */
-function stubBy(
-  answer: (key: string, count: number) => { body: unknown; status?: number } | "offline" | null,
-): void {
-  const counts = new Map<string, number>();
-  vi.stubGlobal(
-    "fetch",
-    vi.fn((url: string, init: RequestInit) => {
-      calls.push({ url, init });
-      const key = `${init.method ?? "GET"} ${url}`;
-      const count = (counts.get(key) ?? 0) + 1;
-      counts.set(key, count);
-      const roundOne: Record<string, { body: unknown; status?: number }> = ROUND_ONE_RUN;
-      const found = answer(key, count) ?? roundOne[key] ?? null;
-      if (found === "offline") {
-        return Promise.reject(new TypeError("offline"));
-      }
-      const { body, status } = found ?? {
-        body: { error: { code: "test_unstubbed", message: key } },
-        status: 404,
-      };
-      return Promise.resolve(new Response(JSON.stringify(body), { status: status ?? 200 }));
-    }),
-  );
-}
-
-function postsTo(url: string): number {
-  return calls.filter((call) => call.url === url && call.init.method === "POST").length;
 }
 
 beforeEach(() => {
@@ -253,320 +219,26 @@ describe("<ExerciseAskingForMore />", () => {
     );
   });
 
-  it("keeps the refresh shut until a team has chosen", async () => {
-    stub({
-      [`GET ${ASKING}`]: { body: { choice: null, choices: ["required"], refreshed: false } },
-    });
-    renderAsking();
-    const ask = await screen.findByRole("button", { name: /ask them now/i });
-    expect(isShut(ask)).toBe(true);
-    const reason = screen.getByText(/pick a way of asking first/i);
-    expect(ask.getAttribute("aria-describedby")).toContain(reason.id);
-  });
-
-  it("keeps the once-only refresh counts on screen after the reload settles", async () => {
-    // F3. A team may refresh once, ever, and `GET …/asking-choice` reports only
-    // *that* it has — never what happened. So these three numbers exist in
-    // exactly one response and nothing can fetch them again.
-    //
-    // Fails on the merged code: the counts were held by `AskingPanels`, the
-    // refresh called `onChanged()`, the reload dropped the hook to `loading`,
-    // and the panel unmounted — taking them with it. Asserting *after* the
-    // reload's own request has landed is what catches it; the old test looked
-    // at a DOM that was about to be thrown away.
-    //
-    // The reload here says `refreshed: true` with no `refresh_counts`, as a
-    // server from before B4 does: this browser's copy is then the only one.
-    let refreshedOnServer = false;
-    vi.stubGlobal(
-      "fetch",
-      vi.fn((url: string, init: RequestInit) => {
-        calls.push({ url, init });
-        const method = init.method ?? "GET";
-        const json = (body: unknown) =>
-          Promise.resolve(new Response(JSON.stringify(body), { status: 200 }));
-        if (url === ASKING && method === "GET") {
-          return json({ choice: "required", choices: ["required"], refreshed: refreshedOnServer });
-        }
-        if (url === REFRESH && method === "POST") {
-          refreshedOnServer = true;
-          return json({ choice: "required", cards_completed: 14, non_responding: 3, topics_added: 22 });
-        }
-        const roundOne = ROUND_ONE_RUN[`${method} ${url}`];
-        return roundOne === undefined
-          ? Promise.resolve(new Response("{}", { status: 404 }))
-          : json(roundOne.body);
-      }),
-    );
-    renderAsking();
-    fireEvent.click(await screen.findByRole("button", { name: /ask them now/i }));
-
-    // The POST, then the reload's GET, have both been issued.
-    await waitFor(() => expect(calls.filter((call) => call.url === REFRESH).length).toBe(1));
-    await waitFor(() => expect(calls.filter((call) => call.url === ASKING).length).toBe(2));
-    // Let the reload's answer settle before looking.
-    await new Promise((resolve) => setTimeout(resolve, 50));
-
-    const counts = document.querySelector('[data-slot="exercise-refresh-counts"]');
-    expect(counts).not.toBeNull();
-    expect(counts?.textContent).toContain("14");
-    expect(counts?.textContent).toContain("3");
-    expect(counts?.textContent).toContain("22");
-    expect(document.body.textContent).not.toContain("%");
-  });
-
-  it("keeps the once-only button disabled until the reload after it settles", async () => {
-    // G3. Fails on the merged code: `run` cleared `pending` in its `finally`
-    // as soon as the refresh's own POST resolved, without waiting for the
-    // reload it triggers. `asking.refreshed` is still `false` — the stale
-    // value from before the refresh — until that reload's GET lands, so
-    // there was a real window where the button read enabled and a second
-    // click could fire a second, illegal refresh. This test holds that GET
-    // open and looks at the button while it is still in flight.
-    let releaseSecondGet: (() => void) | null = null;
-    let getCount = 0;
-    vi.stubGlobal(
-      "fetch",
-      vi.fn((url: string, init: RequestInit) => {
-        calls.push({ url, init });
-        const method = init.method ?? "GET";
-        if (url === ASKING && method === "GET") {
-          getCount += 1;
-          if (getCount === 1) {
-            return Promise.resolve(
-              new Response(
-                JSON.stringify({ choice: "required", choices: ["required"], refreshed: false }),
-                { status: 200 },
-              ),
-            );
-          }
-          // The reload triggered by the refresh: held open on purpose.
-          return new Promise<Response>((resolve) => {
-            releaseSecondGet = () =>
-              resolve(
-                new Response(
-                  JSON.stringify({ choice: "required", choices: ["required"], refreshed: true }),
-                  { status: 200 },
-                ),
-              );
-          });
-        }
-        const roundOne = ROUND_ONE_RUN[`${method} ${url}`];
-        if (roundOne !== undefined) {
-          return Promise.resolve(new Response(JSON.stringify(roundOne.body), { status: 200 }));
-        }
-        if (url === REFRESH && method === "POST") {
-          return Promise.resolve(
-            new Response(
-              JSON.stringify({ choice: "required", cards_completed: 1, non_responding: 0, topics_added: 0 }),
-              { status: 200 },
-            ),
-          );
-        }
-        return Promise.resolve(
-          new Response(JSON.stringify({ error: { code: "test_unstubbed", message: url } }), {
-            status: 404,
-          }),
-        );
-      }),
-    );
-
-    renderAsking();
-    const ask = (await screen.findByRole("button", {
-      name: /ask them now/i,
-    })) as HTMLButtonElement;
-    fireEvent.click(ask);
-
-    // The refresh POST has landed and the reload's GET is in flight, held
-    // open by `releaseSecondGet`.
-    await waitFor(() => expect(calls.some((call) => call.url === REFRESH)).toBe(true));
-    await waitFor(() => expect(getCount).toBe(2));
-
-    expect(isShut(ask)).toBe(true);
-
-    releaseSecondGet?.();
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: /your team has already asked/i })).toBeDefined(),
-    );
-    expect(calls.filter((call) => call.url === REFRESH).length).toBe(1);
-  });
-
-  it("renders a refresh refused before a first round as a state, not an error", async () => {
-    stub({
-      [`GET ${ASKING}`]: { body: { choice: "required", choices: ["required"], refreshed: false } },
-      [`POST ${REFRESH}`]: {
-        body: {
-          error: {
-            code: "exercise_no_first_round_results",
-            message: "Run the first event's results before asking anyone for more.",
-          },
-        },
-        status: 409,
-      },
-      // `stub` answers that round one has run; the server disagrees by the
-      // time the press lands. Its sentence is still the answer.
-    });
-    renderAsking();
-    fireEvent.click(await screen.findByRole("button", { name: /ask them now/i }));
-    await waitFor(() =>
-      expect(
-        screen.getByText("Run the first event's results before asking anyone for more."),
-      ).toBeDefined(),
-    );
-  });
-
-  it("keeps the refresh shut until the team has run its first round, and says why", async () => {
-    stub({
-      [`GET ${ASKING}`]: { body: { choice: "required", choices: ["required"], refreshed: false } },
-      ...ROUND_ONE_NOT_RUN,
-    });
-    renderAsking();
-    const ask = (await screen.findByRole("button", {
-      name: /ask them now/i,
-    })) as HTMLButtonElement;
-    await waitFor(() =>
-      expect(
-        screen.getByText("Run your team's results for Northline Career Fair before asking."),
-      ).toBeDefined(),
-    );
-    expect(isShut(ask)).toBe(true);
-    expect(calls.some((call) => call.url === ROUND_ONE_RESULTS)).toBe(true);
-  });
-
-  it("opens the refresh once the first round's results exist", async () => {
-    stub({
-      [`GET ${ASKING}`]: { body: { choice: "required", choices: ["required"], refreshed: false } },
-      ...ROUND_ONE_RUN,
-    });
-    renderAsking();
-    const ask = (await screen.findByRole("button", {
-      name: /ask them now/i,
-    })) as HTMLButtonElement;
-    await waitFor(() => expect(isShut(ask)).toBe(false));
-    expect(screen.queryByText(/before asking\./i)).toBeNull();
-    // The round is read off the file by `is_exercise_event` and `sequence`,
-    // never by name, so the second round's results are never asked for.
-    expect(calls.some((call) => call.url.includes("/round-two/"))).toBe(false);
-  });
-
-  it("names no event when the file has no rounds, and keeps the refresh shut", async () => {
-    stub({
-      [`GET ${ASKING}`]: { body: { choice: "required", choices: ["required"], refreshed: false } },
-      [`GET ${EVENTS}`]: { body: { events: [event("past-one", "A past event", false, 1)] } },
-    });
-    renderAsking();
-    const ask = (await screen.findByRole("button", {
-      name: /ask them now/i,
-    })) as HTMLButtonElement;
-    expect(isShut(ask)).toBe(true);
-    expect(
-      screen.getByText("Run your team's results for the first event before asking."),
-    ).toBeDefined();
-    expect(calls.some((call) => call.url.endsWith("/results"))).toBe(false);
-  });
-
-  it("shows any other refusal from the first-round read as the screen's refusal", async () => {
-    stub({
-      [`GET ${ASKING}`]: { body: { choice: "required", choices: ["required"], refreshed: false } },
-      [`GET ${ROUND_ONE_RESULTS}`]: {
-        body: {
-          error: {
-            code: "exercise_workspace_required",
-            message: "Enter your team number to open your team's workspace.",
-          },
-        },
-        status: 401,
-      },
-    });
-    renderAsking();
-    await screen.findByText("Enter your team number to open your team's workspace.");
-    expect(screen.getByRole("link", { name: /enter your team number/i })).toBeDefined();
-    expect(screen.queryByRole("button", { name: /ask them now/i })).toBeNull();
-  });
-
-  it("shows the stored counts whenever the team has asked, after any reload (B4)", async () => {
-    // M2 B4: the counts used to live only in the POST's answer, so a reload, a
-    // second browser, or the instructor's "Ask for every team" left a team
-    // with "already asked" and no idea what happened. The asking GET now
-    // carries them.
+  it("shows the choice only after the team has its round-one results, and says why", async () => {
+    // Ann, 2026-10-02: "The choice appears only after the team has its
+    // round-one results."
     stub({
       [`GET ${ASKING}`]: {
         body: {
-          choice: "small_reward",
-          choices: ["small_reward"],
-          refreshed: true,
-          refresh_counts: { cards_completed: 9, non_responding: 0, topics_added: 17 },
+          choice: null,
+          choices: ["better_recommendations", "small_reward", "required"],
+          refreshed: false,
+          first_round_results: false,
         },
       },
     });
     renderAsking();
-    const counts = await waitFor(() => {
-      const found = document.querySelector('[data-slot="exercise-refresh-counts"]');
-      expect(found).not.toBeNull();
-      return found as HTMLElement;
-    });
-    expect(counts.textContent).toContain("Cards filled in9");
-    expect(counts.textContent).toContain("Stopped opening messages0");
-    // `topics_added` counts people who gained topics, not topics.
-    expect(counts.textContent).toContain("Picked up the first event's topics17");
+    await screen.findByText(
+      "Your team picks a way of asking after it has its results for Northline Career Fair.",
+    );
+    expect(screen.queryByRole("radiogroup")).toBeNull();
+    expect(screen.queryByRole("button", { name: /choose this way/i })).toBeNull();
     expect(calls.some((call) => call.init.method === "POST")).toBe(false);
-  });
-
-  it("drops this browser's counts once the server says the team has not asked", async () => {
-    // An instructor reset after this browser's press: the next read says
-    // `refreshed: false`, and the counts from the old press must go with it.
-    let refreshedOnServer = false;
-    vi.stubGlobal(
-      "fetch",
-      vi.fn((url: string, init: RequestInit) => {
-        calls.push({ url, init });
-        const method = init.method ?? "GET";
-        const json = (body: unknown) =>
-          Promise.resolve(new Response(JSON.stringify(body), { status: 200 }));
-        if (url === ASKING && method === "GET") {
-          return json({
-            choice: "required",
-            choices: ["required"],
-            refreshed: refreshedOnServer,
-            refresh_counts: null,
-          });
-        }
-        if (url === REFRESH && method === "POST") {
-          return json({ choice: "required", cards_completed: 4, non_responding: 1, topics_added: 6 });
-        }
-        const roundOne = ROUND_ONE_RUN[`${method} ${url}`];
-        return roundOne === undefined
-          ? Promise.resolve(new Response("{}", { status: 404 }))
-          : json(roundOne.body);
-      }),
-    );
-    renderAsking();
-    fireEvent.click(await screen.findByRole("button", { name: /ask them now/i }));
-    // The reload after the press still says "not refreshed": a reset landed.
-    await waitFor(() => expect(calls.filter((call) => call.url === ASKING).length).toBe(2));
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(document.querySelector('[data-slot="exercise-refresh-counts"]')).toBeNull();
-    expect(refreshedOnServer).toBe(false);
-  });
-
-  it("shows no counts for a team that has not asked", async () => {
-    stub({
-      [`GET ${ASKING}`]: {
-        body: { choice: "required", choices: ["required"], refreshed: false, refresh_counts: null },
-      },
-    });
-    renderAsking();
-    await screen.findByRole("button", { name: /ask them now/i });
-    expect(document.querySelector('[data-slot="exercise-refresh-counts"]')).toBeNull();
-  });
-
-  it("does not look for first-round results once the team has asked", async () => {
-    stub({
-      [`GET ${ASKING}`]: { body: { choice: "required", choices: ["required"], refreshed: true } },
-    });
-    renderAsking();
-    await screen.findByRole("button", { name: /your team has already asked/i });
-    expect(calls.map((call) => call.url)).toEqual([ASKING]);
   });
 
   it("offers no way to clear this team's work", async () => {
@@ -678,12 +350,18 @@ describe("<ExerciseAskingForMore /> — the invitation desk (§6.18, §6.19, §7
     // Shut for want of a choice…
     stub(OPEN_CHOICES);
     const first = renderAsking();
-    fireEvent.click(await screen.findByRole("button", { name: /ask them now/i }));
+    await pressTwice(await screen.findByRole("button", { name: /ask them now/i }));
     first.unmount();
     // …and for want of a first-round run.
     stub({
-      ...ROUND_ONE_NOT_RUN,
-      [`GET ${ASKING}`]: { body: { choice: "required", choices: ["required"], refreshed: false } },
+      [`GET ${ASKING}`]: {
+        body: {
+          choice: "required",
+          choices: ["required"],
+          refreshed: false,
+          first_round_results: false,
+        },
+      },
     });
     renderAsking();
     await screen.findByText(/before asking\./i);
@@ -821,114 +499,22 @@ describe("<ExerciseAskingForMore /> — the invitation desk (§6.18, §6.19, §7
           choice: "small_reward",
           choices: ["small_reward"],
           refreshed: true,
-          refresh_counts: { cards_completed: 9, non_responding: 0, topics_added: 34 },
+          refreshed_at: AT,
+          refresh_counts: counts({ cards_completed: 9, non_responding: 0, topics_added: 34 }),
         },
       },
     });
     renderAsking();
-    const counts = await waitFor(() => {
+    const band = await waitFor(() => {
       const found = document.querySelector('[data-slot="exercise-refresh-counts"]');
       expect(found).not.toBeNull();
       return found as HTMLElement;
     });
     // The figure a screen reader hears is the final number, never the count-up.
-    const spoken = [...counts.querySelectorAll("dd .sr-only")].map((node) => node.textContent);
+    const spoken = [...band.querySelectorAll("dd .sr-only")].map((node) => node.textContent);
     expect(spoken).toEqual(["9", "0", "34"]);
-    for (const ticking of counts.querySelectorAll("dd [aria-hidden='true']")) {
+    for (const ticking of band.querySelectorAll("dd [aria-hidden='true']")) {
       expect(ticking.classList.contains("ce-type-display")).toBe(true);
     }
-  });
-});
-
-describe("<ExerciseAskingForMore /> — once-only presses the server confirmed", () => {
-  const CHOSEN = { choice: "required", choices: ["required"], refreshed: false };
-  const COUNTS = { choice: "required", cards_completed: 8, non_responding: 2, topics_added: 5 };
-
-  it("sends one refresh POST for two presses in the same tick", async () => {
-    stubBy((key) => {
-      if (key === `GET ${ASKING}`) return { body: CHOSEN };
-      if (key === `POST ${REFRESH}`) return { body: COUNTS };
-      return null;
-    });
-    renderAsking();
-    const ask = await screen.findByRole("button", { name: /ask them now/i });
-    act(() => {
-      ask.click();
-      ask.click();
-    });
-    await waitFor(() => expect(postsTo(REFRESH)).toBe(1));
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(postsTo(REFRESH)).toBe(1);
-  });
-
-  it("keeps a confirmed refresh shut, its counts on screen, when the re-read cannot be reached", async () => {
-    stubBy((key, count) => {
-      if (key === `GET ${ASKING}`) return count === 1 ? { body: CHOSEN } : "offline";
-      if (key === `POST ${REFRESH}`) return { body: COUNTS };
-      return null;
-    });
-    renderAsking();
-    fireEvent.click(await screen.findByRole("button", { name: /ask them now/i }));
-
-    await waitFor(() => expect(screen.getByText(/could not be reached/i)).toBeDefined());
-    const shut = screen.getByRole("button", { name: /your team has already asked/i });
-    expect(isShut(shut)).toBe(true);
-    fireEvent.click(shut);
-    expect(postsTo(REFRESH)).toBe(1);
-
-    const counts = document.querySelector('[data-slot="exercise-refresh-counts"]');
-    expect(counts?.textContent).toContain("Cards filled in8");
-    // Announced once, in full, for a screen reader.
-    expect(document.querySelector('[data-slot="exercise-refresh-announce"]')?.textContent).toBe(
-      "Your team asked. Cards filled in: 8. Stopped opening messages: 2. Picked up the first event's topics: 5.",
-    );
-
-    // "Try again" is the only way back to the server, and the server's word wins.
-    expect(screen.getByRole("button", { name: "Try again" })).toBeDefined();
-  });
-
-  it("keeps a confirmed choice fixed when the re-read cannot be reached", async () => {
-    stubBy((key, count) => {
-      if (key === `GET ${ASKING}`) return count === 1 ? OPEN_CHOICES[`GET ${ASKING}`] : "offline";
-      if (key === `POST ${ASKING}`) {
-        return {
-          body: { choice: "small_reward", choices: OPEN_CHOICES[`GET ${ASKING}`].body.choices, refreshed: false },
-        };
-      }
-      return null;
-    });
-    renderAsking();
-    await pressTwice(await chooseButton(/a small reward/));
-
-    await waitFor(() => expect(screen.getByText(/could not be reached/i)).toBeDefined());
-    expect(screen.queryByRole("button", { name: /choose this way/i })).toBeNull();
-    expect((screen.getByRole("radio", { name: /a small reward/i }) as HTMLInputElement).checked).toBe(
-      true,
-    );
-    expect(screen.getByText("A team picks once, so these are now fixed.")).toBeDefined();
-    expect(postsTo(ASKING)).toBe(1);
-    expect(document.querySelector('[data-slot="exercise-asking-confirm-live"]')?.textContent).toBe(
-      "Your team chose this: A small reward.",
-    );
-  });
-
-  it("takes the screen down when a refresh is refused for access", async () => {
-    stubBy((key) => {
-      if (key === `GET ${ASKING}`) return { body: CHOSEN };
-      if (key === `POST ${REFRESH}`) {
-        return {
-          body: { error: { code: "exercise_workspace_required", message: "Enter your team number." } },
-          status: 401,
-        };
-      }
-      return null;
-    });
-    renderAsking();
-    fireEvent.click(await screen.findByRole("button", { name: /ask them now/i }));
-    await waitFor(() =>
-      expect(screen.getByRole("link", { name: "Enter your team number" })).toBeDefined(),
-    );
-    expect(screen.queryByRole("radiogroup")).toBeNull();
-    expect(screen.queryByRole("button", { name: /ask them now/i })).toBeNull();
   });
 });

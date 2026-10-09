@@ -152,6 +152,18 @@ jobs:
       - name: Agent-memory ledger
         run: python tools/agent_memory_check.py
 
+      - name: Migrations only add to the schema (expand/contract)
+        # scripts/vm/deploy.sh rolls back by rebuilding the previous commit
+        # and never downgrades the schema, so the previous release has to run
+        # against whatever this one migrated to. Fails on a migration whose
+        # upgrade() drops or renames a table or column, unless the file is a
+        # marked contract-phase revision (CONTRACT_PHASE = True under an
+        # `# unused since: <release>` comment). Every migration is checked on
+        # every run against a closed baseline, so there is no merge base to
+        # get wrong. Stdlib only.
+        # Self-tested in tests/unit/test_migration_expand_contract_check.py.
+        run: python tools/migration_expand_contract_check.py
+
       - name: Terraform environments share no identifiers
         # The control behind architecture v1.1 §3.2 and the classroom boundary in
         # §3.3. A shared project, database, queue, bucket, service account, or
