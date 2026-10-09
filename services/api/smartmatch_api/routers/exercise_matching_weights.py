@@ -30,6 +30,7 @@ from smartmatch_domain.exercise.registry import (
     AllZeroExerciseWeightsError,
     InvalidExerciseWeightError,
     NegativeExerciseWeightError,
+    WholeNumberExerciseWeightError,
     validate_exercise_weight_overrides,
 )
 
@@ -138,6 +139,9 @@ ALL_ZERO_WEIGHTS_SENTENCE = "At least one number must be above 0."
 #: screens never show column names.
 NEGATIVE_WEIGHT_SENTENCE = "A weight cannot be below 0."
 
+#: What a team reads when a new weight is a fraction or above 10.
+WHOLE_NUMBER_WEIGHT_SENTENCE = "A weight is a whole number from 0 to 10."
+
 
 def validated(
     raw: Mapping[str, object], *, whole_numbers: bool = False
@@ -182,6 +186,12 @@ def validated(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             code="exercise_weights_invalid",
             message=NEGATIVE_WEIGHT_SENTENCE,
+        ) from None
+    except WholeNumberExerciseWeightError:
+        raise ExerciseError(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            code="exercise_weights_invalid",
+            message=WHOLE_NUMBER_WEIGHT_SENTENCE,
         ) from None
     except InvalidExerciseWeightError as error:
         raise ExerciseError(

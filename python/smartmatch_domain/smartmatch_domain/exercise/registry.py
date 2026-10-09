@@ -97,6 +97,7 @@ __all__ = [
     "STATED_INTEREST_OVERLAP_DEFAULT_WEIGHT",
     "AllZeroExerciseWeightsError",
     "InvalidExerciseWeightError",
+    "WholeNumberExerciseWeightError",
     "NegativeExerciseWeightError",
     "exercise_applied_weights",
     "validate_exercise_weight_overrides",
@@ -254,6 +255,10 @@ class InvalidExerciseWeightError(ValueError):
     """
 
 
+class WholeNumberExerciseWeightError(InvalidExerciseWeightError):
+    """A new weight that is not a whole number from 0 to 10 (3/3/2/2 scale)."""
+
+
 class AllZeroExerciseWeightsError(InvalidExerciseWeightError):
     """Every weight is zero, so nothing would rank anyone (M2 B5).
 
@@ -326,11 +331,13 @@ def validate_exercise_weight_overrides(
     """
     problems: list[str] = []
     only_negatives = True
+    only_whole = True
     weights: dict[str, float] = {}
 
     for key in sorted(raw):
         if key not in EXERCISE_APPROVED_SCORING_KEYS:
             only_negatives = False
+            only_whole = False
             problems.append(
                 f"{key}: is not one of the exercise's four factors; expected one of "
                 f"{sorted(EXERCISE_APPROVED_SCORING_KEYS)}"
@@ -339,11 +346,11 @@ def validate_exercise_weight_overrides(
         try:
             weights[key] = _coerce_weight(key, raw[key])
             if whole_numbers and weights[key] > EXERCISE_WEIGHT_MAX:
-                raise InvalidExerciseWeightError(
+                raise WholeNumberExerciseWeightError(
                     f"{key}: weight must be at most {EXERCISE_WEIGHT_MAX}, got {weights[key]:g}"
                 )
             if whole_numbers and weights[key] != int(weights[key]):
-                raise InvalidExerciseWeightError(
+                raise WholeNumberExerciseWeightError(
                     f"{key}: weight must be a whole number, got {weights[key]:g}"
                 )
         except InvalidExerciseWeightError as exc:
@@ -351,6 +358,7 @@ def validate_exercise_weight_overrides(
             # sees every problem at once instead of one per submission.
             problems.append(str(exc))
             only_negatives = only_negatives and isinstance(exc, NegativeExerciseWeightError)
+            only_whole = only_whole and isinstance(exc, WholeNumberExerciseWeightError)
 
     if not problems and weights:
         effective = dict(EXERCISE_DEFAULT_WEIGHTS)
@@ -366,6 +374,8 @@ def validate_exercise_weight_overrides(
         detail = "; ".join(problems)
         if only_negatives:
             raise NegativeExerciseWeightError(detail)
+        if only_whole:
+            raise WholeNumberExerciseWeightError(detail)
         raise InvalidExerciseWeightError(detail)
 
     return MappingProxyType(dict(weights))

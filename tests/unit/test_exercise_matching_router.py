@@ -760,8 +760,10 @@ def test_saving_over_a_name_the_team_already_has_is_allowed(client: TestClient) 
 
 
 def test_a_new_weight_must_be_a_whole_number_up_to_10(client: TestClient) -> None:
-    assert _save(client, "frac", {"same_major": 0.5}).status_code == 422
-    assert _save(client, "big", {"same_major": 11}).status_code == 422
+    for name, weight in (("frac", 0.5), ("big", 11)):
+        refused = _save(client, name, {"same_major": weight})
+        assert refused.status_code == 422
+        assert "whole number from 0 to 10" in refused.text
 
 
 def test_deleting_one_frees_a_slot(client: TestClient) -> None:

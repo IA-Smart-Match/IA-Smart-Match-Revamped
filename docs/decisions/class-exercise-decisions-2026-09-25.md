@@ -329,6 +329,10 @@ Every `file:line` below is on `origin/main` at `9339d5a4`. Paths are shortened:
   P231 (295th), so P004 stays above them. (On the 20-profile sample: 1st → 2nd.)
 - **Approved.** Team recommendation A; **Chau approved**, 2026-09-25. Ann may
   revisit.
+- **Amendment 2026-10-09.** The "0.25" above was the default at the time. The
+  defaults are now 3 / 3 / 2 / 2 on a whole-number 0–10 scale (Ann Wang
+  2026-10-06; owner "switch now" 2026-10-09). The P004 ranks quoted here were
+  not re-run under the new defaults.
 - **Why.** P004's career goal ("Data, analytics or IT role") still fits
   Northline. With that factor off too, "more information on file first" is
   Ann's own tie-break. Both teach the lesson that information matters.
