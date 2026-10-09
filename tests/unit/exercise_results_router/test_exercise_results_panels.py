@@ -430,3 +430,17 @@ def test_everybody_in_the_file_stays_counts_only(
     for panel in (body["team"], body["email_everyone"]):
         assert "invited_profiles" not in panel
         assert "display_name" not in str(panel)
+
+
+def test_a_results_run_from_an_old_fractional_setting_still_works(
+    fakes: _Fakes, client: TestClient, confirmed: SimulationCoefficients
+) -> None:
+    fakes.unlock("round-one")
+    workspace = fakes.workspaces.rows[(_DATASET_ID, 1)]
+    fakes.settings.rows[(workspace.id, "round-one", _FINAL)] = SavedSetting(
+        event_key="round-one",
+        name=_FINAL,
+        weights={"same_major": 0.5, "stated_interest_overlap": 0.25},
+        created_at=_WHEN,
+    )
+    assert client.post(_RESULTS, json=_FINAL_BODY, headers=_HEADER).status_code == 201
