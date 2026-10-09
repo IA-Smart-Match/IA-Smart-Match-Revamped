@@ -1,6 +1,7 @@
 # Class exercise — requirements for the Spring 2027 AI in Marketing module
 
-**Last updated:** 2026-09-28
+**Last updated:** 2026-10-06 (the results rule as Ann ruled it; see
+[The results rule](#the-results-rule-ann-relayed-2026-10-06))
 **Source:** Ann Wang, "Smart Match — Marketing Class Exercise and Minimum Build
 Requirements", 15 September 2026; her "Background Note" for class
 participants, same date; and her emails to the team
@@ -249,6 +250,70 @@ Where a row's text was later changed, see
   few people. The causal story: round one, realise information is missing, ask
   for it, round two improves — by how much depends on how you asked.
 
+## The results rule (Ann, relayed 2026-10-06)
+
+Ann gave the rule in answer to Chau's question of how sign-ups and attendance
+are decided. The owner relayed it on 2026-10-06; Ann's own send date was not
+given. Her words are in the
+[correspondence record, exchange D](../decisions/stakeholder-correspondence-2026-09.md#d-chaus-question-and-ann-wangs-results-rule).
+The decision record is
+[`class-exercise-results-rule-2026-10-06.md`](../decisions/class-exercise-results-rule-2026-10-06.md).
+
+This section records the rule as given. It does not fill the gaps in it; they
+are OQ-CE-19 to OQ-CE-31 in the
+[register](../plans/open-questions/class-exercise-open-questions.md).
+
+**The rule, in plain words.** For each person a team invites, the app decides
+three things in order.
+
+1. **Did they notice the invitation?** A personal invitation from the team is
+   noticed far more often than a mass email. On the team's list of 30, 75 in
+   100 notice. When everyone is emailed (all 300), 15 in 100 notice.
+2. **If they noticed, do they sign up?** Everyone starts at 5 in 100. Add 35
+   if their true interests match the event; this is the main driver. Add 15 if
+   their true career goal fits the event. Add 5 if they have been to 1 or 2
+   past events, or 10 if they have been to 3 or more. Add 5 if they are in the
+   same major.
+3. **If they signed up, do they attend?** 70 in 100 do.
+
+A small element of luck is added. It is fixed for each team, so the same list
+always gives the same result.
+
+Sign-up uses each student's true interests and true career goal (the hidden
+columns), so the rule works for all 300 students, with or without a card. For
+a student who has a card, the card already matches their true interests.
+
+**Requirement against the code** (`origin/main` at `783a1244`). Nothing is
+implemented; the code runs the 2026-09-25 numbers (D7).
+`simulation.py` = `python/smartmatch_domain/smartmatch_domain/exercise/simulation.py`.
+
+| # | Requirement | Code today | Status |
+|---|---|---|---|
+| R1-A1 | 75 in 100 of the team's list notice the invitation | No notice step (`simulation.py:558-581`) | **missing** |
+| R1-A2 | 15 in 100 notice when everyone is emailed | "Email everyone" runs the same rule with no separate rate (`simulation.py:647-661`) | **missing** |
+| R1-B1 | Start at 5 in 100 | 4 in 100 (`simulation.py:476`) | **differs** |
+| R1-B2 | +35 when true interests match the event | +20 (`simulation.py:477`, `:483`, `:535-536`) | **differs** |
+| R1-B3 | +15 when the true career goal fits the event | +20; an undecided goal also earns +10 on a broad event (`simulation.py:537-540`) | **differs** |
+| R1-B4 | +5 for 1–2 past events, +10 for 3 or more | +10 for one or more; one tier (`simulation.py:478`, `:482`, `:551-552`) | **differs** |
+| R1-B5 | +5 for the same major | +4 (`simulation.py:479`, `:553-554`) | **differs** |
+| R1-C1 | 70 in 100 of sign-ups attend | 75 in 100 (`simulation.py:481`, `:577-580`) | **differs** |
+| R1-L1 | Luck is fixed for each team: the same list always gives the same result | Every draw comes from the team's seed (`simulation.py:503-518`) | **matches** |
+| R1-L2 | The luck is small | Up to 10 in 100 either way on each person's chance (`simulation.py:480`, `:569-572`); Ann's size is not stated | **open** (OQ-CE-24) |
+| R1-H1 | Sign-up uses the hidden true interests and true career goal, for all 300 | It does (`services/api/smartmatch_api/routers/exercise_results_models.py:203-205`) | **matches** |
+| R1-H2 | A card on file matches the student's true interests | True of the committed 300-row file: 70 of 70 cards | **matches** |
+| R1-W1 | Justin adds a short plain-words description of this rule to the one-page write-up | No write-up file exists in the repository | **missing** |
+
+**What the numbers do** is worked through in the
+[impact analysis](../plans/2026-10-06-results-rule-impact-analysis.md), §5.
+One result there is a question for Ann, not a setting for the team: under
+these numbers "email everyone" draws about as many sign-ups as a typical list
+of 30 (OQ-CE-31).
+
+**Also in the same message.** The dean wants the team to present to the CBACH
+advisory board on Thursday 2026-10-08: two presenters including Chau, a
+30-minute slot between 1:00 and 4:30 pm, about 15 minutes of demo focused on
+the front end, not the back end, then about 15 minutes of questions.
+
 ## Who does what
 
 Every item is either "required" in the build table or something Ann owes the
@@ -358,6 +423,11 @@ Once the test plan is written he helps whoever is furthest behind.
    decides who signs up, what each "asking for more" choice does, and how the
    refresh works. Ann and Dr. Lin read it before the practice run; the
    instructor uses it for the Session 2 reveal.
+   **Added 2026-10-06 (Ann, relayed by the owner):** "Justin, please add a
+   short plain-words description of this rule to the one-page write-up." The
+   rule is in
+   [The results rule (Ann, relayed 2026-10-06)](#the-results-rule-ann-relayed-2026-10-06).
+   No write-up file exists in the repository yet (requirement R1-W1).
 
 ### Dr. Lin (course instructor)
 
@@ -414,6 +484,8 @@ The decision named in each row is the authority. Do not build from the
 | Profile card | "five quick questions" | Two questions (interests, career goal); major confirmed | OQ-CE-11; decision record D14 |
 | License line | Ann to provide | Fixed wording on the opening screen | OQ-CE-09; D13 |
 | Results-rule strengths | "only a little", "small lift", "small element of chance" | Ann's a lot / some / a little / some randomness, as numbers | OQ-CE-03; D7 |
+| Results rule, steps and numbers | (as the row above) | Ann's three steps with her numbers: notice 75 / 15 in 100; start 5; +35, +15, +5 or +10, +5; 70 in 100 attend. **Ruled, not yet built**: the code still runs D7's numbers | Ann, relayed 2026-10-06; [results-rule record](../decisions/class-exercise-results-rule-2026-10-06.md) |
+| "Email everyone" | all 300 run through the same rule | The same rule, but only 15 in 100 notice a mass email. **Ruled, not yet built** | Ann, relayed 2026-10-06; results-rule record |
 | Undecided career goal | not specified | Fits no event, in matching and results. (Half credit on broad events from 2026-09-25 until Ann removed it on 2026-10-02.) | Ann's revisions 2026-10-02, item 4b; supersedes OQ-CE-14 / D2 |
 | "Said they are interested" | not specified | Yes or no: counts in full when any stated interest is a topic of the event | Ann's revisions 2026-10-02 |
 | "Went to similar events before" | topics of past events overlap this event's topics | Count of past events sharing a topic: none, one (half), two or more (full) | Ann's revisions 2026-10-02; the half step is Chau's, 2026-10-04 |
@@ -447,4 +519,5 @@ correspondence record's alignment check.
 - Design spec: [`../superpowers/specs/2026-09-16-class-exercise-design.md`](../superpowers/specs/2026-09-16-class-exercise-design.md).
 - Visual system and owner rulings: [`../design/class-exercise/DESIGN.md`](../design/class-exercise/DESIGN.md).
 - Open questions for this scope: [`../plans/open-questions/class-exercise-open-questions.md`](../plans/open-questions/class-exercise-open-questions.md).
+- Results rule as Ann ruled it (2026-10-06): [`../decisions/class-exercise-results-rule-2026-10-06.md`](../decisions/class-exercise-results-rule-2026-10-06.md); impact analysis: [`../plans/2026-10-06-results-rule-impact-analysis.md`](../plans/2026-10-06-results-rule-impact-analysis.md).
 - Emails from Ann and the alignment check: [`../decisions/stakeholder-correspondence-2026-09.md`](../decisions/stakeholder-correspondence-2026-09.md).

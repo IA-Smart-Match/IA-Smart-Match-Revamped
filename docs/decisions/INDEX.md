@@ -9,7 +9,7 @@ closes. (`docs/architecture/decisions/` ADRs have their own CI-gated index.)
 |---|---|---|
 | `plans/open-questions/cba-phase-deferred.md` | CBA boundary, OQ-CBA-001…066 | ~36 open (011, 021, 044, 063–066 block soon) |
 | `plans/open-questions/student-engagement-deferred.md` | OQ-SC-01…13 + OQ-SE-01…22 | all 35 open |
-| `plans/open-questions/class-exercise-open-questions.md` | OQ-CE-01…16 | only CE-06 rate-limit half open |
+| `plans/open-questions/class-exercise-open-questions.md` | OQ-CE-01…16, OQ-CE-19…31 | CE-06 rate-limit half open; CE-19…31 open (results rule, 2026-10-06) |
 | `plans/open-questions/a1b-live-idp-deferred.md` | OQ-A1b-001…006 | all open (JWKS trust anchors) |
 | `plans/open-questions/architecture-stage-2-deferred.md` | OQ-S2-003…006 | open (S2-001/002 answered) |
 | `plans/open-questions/r4-outreach-deferred.md` | **OQ-R4**-001…009 | 001–008 open; 009 partial |
@@ -32,6 +32,7 @@ closes. (`docs/architecture/decisions/` ADRs have their own CI-gated index.)
 | `class-exercise-decisions-2026-09-25.md` | current; D2's undecided half superseded 2026-10-02 | D1–D16 for CLASS_EXERCISE; amends ADR-0025 |
 | `class-exercise-default-weights-2026-10-06.md` | current; class module implemented (#352), platform not | Default weights 3/3/2/2 on a whole-number 0–10 scale, class module and platform (Dr. Wang; scale: owner); supersedes OQ-CE-02's 0.25 each |
 | `class-exercise-factor-revisions-2026-10-02.md` | implemented | binary interest fit; related-past-event count (0 / 0.5 / 1); undecided half removed; `exercise-0.2.0` |
+| `class-exercise-results-rule-2026-10-06.md` | ruling recorded, not implemented | Ann's results rule (notice 75%/15%, sign-up points, 70% attend); supersedes D7's numbers as the requirement; raises OQ-CE-19…31 |
 | `d6-rewards-budget-decision-record.md` | closed | owner=Danny Tran; D7 tentative |
 | `f5-deploy-target-note-2026-09-03.md` | current | classroom=synthetic; `ALLOW_CLOUD_DEPLOY=false` |
 | `g3-crawler-decision.md` | signed | CPP-only scope; fail-closed |
@@ -44,7 +45,7 @@ closes. (`docs/architecture/decisions/` ADRs have their own CI-gated index.)
 | `pilot-decisions.md` | partial supersession | tentative register; student Qs moved to OQ-SE/SC register |
 | `pilot-login-decision-2026-09-04.md` | decided, implemented | DB login substitutes A1b for pilot |
 | `r3-signing-decisions-2026-09-03.md` | ratified | T-19/27/28/04/29/C-1/13/23; S6a open |
-| `stakeholder-correspondence-2026-09.md` | record | Ann Wang emails verbatim (speaker phase two, Friday check-in, dataset); alignment check 2026-09-28 |
+| `stakeholder-correspondence-2026-09.md` | record | Ann Wang emails verbatim (speaker phase two, Friday check-in, dataset); alignment check 2026-09-28; exchange D added 2026-10-06 (results rule) |
 | `student-recommender-decision-record.md` | dispositions recorded 09-16 | OQ-SE/SC product rows; ADR-0024 |
 | `synthetic-pilot-development-authorization-2026-09-03.md` | ratified | synthetic-only; deferred-gate map |
 
