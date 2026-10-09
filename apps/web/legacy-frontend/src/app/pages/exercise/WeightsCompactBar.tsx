@@ -8,7 +8,7 @@
  * the first one. On wider layouts the weights card is sticky beside the list,
  * so the bar never shows.
  *
- * Words from §11.1: "Weights 0.40 · 0.25 · 0.25 · 0.10 · Total 1.00" and
+ * Words from §11.1: "Weights 3 · 3 · 2 · 2 · Total 10" and
  * "Edit weights". The numbers are the team's own input, not a score (§1.2);
  * the total is their sum, never a percentage.
  */

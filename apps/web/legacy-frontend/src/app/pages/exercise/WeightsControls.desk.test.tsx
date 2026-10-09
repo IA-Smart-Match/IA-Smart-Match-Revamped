@@ -18,14 +18,13 @@ const LABELS = {
   stated_interest_overlap: "said they are interested in this topic",
   career_goal_fit: "career goal fits this event",
   past_event_topic_overlap: "went to similar events before",
-  undecided_goal_half: "undecided goal suits a broad event",
 };
 
 const WEIGHTS = {
-  same_major: 0.4,
-  stated_interest_overlap: 0.25,
-  career_goal_fit: 0.25,
-  past_event_topic_overlap: 0.1,
+  same_major: 3,
+  stated_interest_overlap: 3,
+  career_goal_fit: 2,
+  past_event_topic_overlap: 2,
 };
 
 type ObserverCallback = (entries: { isIntersecting: boolean }[]) => void;
@@ -68,14 +67,13 @@ afterEach(() => {
 });
 
 describe("<WeightsControls /> sliders (§6.6)", () => {
-  it("draws one slider per weight, named in the server's words, and none for the Undecided label", () => {
+  it("draws one slider per weight, named in the server's words", () => {
     render(<WeightsControls factorLabels={LABELS} weights={WEIGHTS} onChange={vi.fn()} />);
     const sliders = screen.getAllByRole("slider");
     expect(sliders).toHaveLength(4);
     expect(screen.getByRole("slider", { name: "same major" }).getAttribute("aria-valuenow")).toBe(
-      "0.4",
+      "3",
     );
-    expect(screen.queryByRole("slider", { name: LABELS.undecided_goal_half })).toBeNull();
   });
 
   it("says when the list is rebuilt", () => {
@@ -90,7 +88,7 @@ describe("<WeightsControls /> sliders (§6.6)", () => {
     render(<WeightsControls factorLabels={LABELS} weights={WEIGHTS} onChange={onChange} />);
     fireEvent.keyDown(screen.getByRole("slider", { name: "same major" }), { key: "ArrowRight" });
     expect(onChange).toHaveBeenCalledTimes(1);
-    expect(onChange).toHaveBeenCalledWith({ ...WEIGHTS, same_major: 0.45 });
+    expect(onChange).toHaveBeenCalledWith({ ...WEIGHTS, same_major: 4 });
   });
 
   it("puts a refused commit's sentence under that slider and returns it to the confirmed weight", () => {
@@ -116,9 +114,9 @@ describe("<WeightsControls /> sliders (§6.6)", () => {
     expect(shown[0].textContent).toBe("Those weights were not accepted.");
     expect(shown[0].getAttribute("role")).toBe("status");
     expect(screen.queryByRole("alert")).toBeNull();
-    expect(slider.getAttribute("aria-valuenow")).toBe("0.4");
+    expect(slider.getAttribute("aria-valuenow")).toBe("3");
     const box = screen.getByRole("textbox", { name: "same major" }) as HTMLInputElement;
-    expect(box.value).toBe("0.40");
+    expect(box.value).toBe("3");
   });
 
   it("shows a refusal of a several-weight commit once, and reverts every weight it changed", () => {
@@ -134,12 +132,12 @@ describe("<WeightsControls /> sliders (§6.6)", () => {
     fireEvent.keyDown(major, { key: "ArrowRight" });
     fireEvent.keyDown(interest, { key: "ArrowRight" });
     fireEvent.keyDown(goal, { key: "ArrowRight" });
-    const accepted = { ...WEIGHTS, same_major: 0.45 };
+    const accepted = { ...WEIGHTS, same_major: 4 };
     rerender(<WeightsControls factorLabels={LABELS} weights={accepted} onChange={onChange} />);
     expect(onChange).toHaveBeenLastCalledWith({
       ...accepted,
-      stated_interest_overlap: 0.3,
-      career_goal_fit: 0.3,
+      stated_interest_overlap: 4,
+      career_goal_fit: 3,
     });
 
     // The merged commit is refused.
@@ -156,12 +154,12 @@ describe("<WeightsControls /> sliders (§6.6)", () => {
     expect(screen.getAllByText("Those weights were not accepted.")).toHaveLength(1);
     const after = (name: string) =>
       screen.getByRole("slider", { name }).getAttribute("aria-valuenow");
-    expect(after(LABELS.stated_interest_overlap)).toBe("0.25");
-    expect(after(LABELS.career_goal_fit)).toBe("0.25");
+    expect(after(LABELS.stated_interest_overlap)).toBe("3");
+    expect(after(LABELS.career_goal_fit)).toBe("2");
     expect((screen.getByRole("textbox", { name: LABELS.career_goal_fit }) as HTMLInputElement).value).toBe(
-      "0.25",
+      "2",
     );
-    expect(after("same major")).toBe("0.45");
+    expect(after("same major")).toBe("4");
   });
 
   it("reverts an Enter commit refused while the team is still in the box, once they leave it", () => {
@@ -189,7 +187,7 @@ describe("<WeightsControls /> sliders (§6.6)", () => {
     );
 
     // Still in the box: its text stays, and the box names the sentence.
-    expect(box.value).toBe("-1.00");
+    expect(box.value).toBe("-1");
     const whileIn = document.querySelectorAll('[data-slot="exercise-weight-error"]');
     expect(whileIn).toHaveLength(1);
     expect(whileIn[0].id).not.toBe("");
@@ -198,8 +196,8 @@ describe("<WeightsControls /> sliders (§6.6)", () => {
 
     act(() => box.blur());
 
-    expect(box.value).toBe("0.40");
-    expect(slider.getAttribute("aria-valuenow")).toBe("0.4");
+    expect(box.value).toBe("3");
+    expect(slider.getAttribute("aria-valuenow")).toBe("3");
     const after = document.querySelectorAll('[data-slot="exercise-weight-error"]');
     expect(after).toHaveLength(1);
     expect(after[0].textContent).toBe("Those weights were not accepted.");
@@ -252,12 +250,12 @@ describe("<WeightsControls /> sliders (§6.6)", () => {
       fireEvent.pointerUp(root, { pointerId: 1, clientX: 70 });
 
       expect(onChange).toHaveBeenCalledTimes(1);
-      expect(onChange).toHaveBeenLastCalledWith({ ...WEIGHTS, same_major: 0.7 });
+      expect(onChange).toHaveBeenLastCalledWith({ ...WEIGHTS, same_major: 7 });
 
       rerender(
         <WeightsControls
           factorLabels={LABELS}
-          weights={{ ...WEIGHTS, same_major: 0.7 }}
+          weights={{ ...WEIGHTS, same_major: 7 }}
           onChange={onChange}
         />,
       );
@@ -287,10 +285,10 @@ describe("<WeightsControls /> total weight (§6.6, owner ruling 2026-09-28)", ()
 
   it("shows the total and what it means, and no percentage anywhere in the weights", () => {
     render(<WeightsControls factorLabels={LABELS} weights={WEIGHTS} onChange={vi.fn()} />);
-    expect(totalText()).toContain("Total weight: 1.00");
+    expect(totalText()).toContain("Total weight: 10");
     expect(
       screen.getByText(
-        "What matters is how the weights compare: a factor set to 0.50 counts twice as much as one set to 0.25.",
+        "What matters is how the weights compare: a factor set to 6 counts twice as much as one set to 3.",
       ),
     ).toBeDefined();
     const section = document.querySelector('[data-slot="exercise-weights"]');
@@ -301,15 +299,15 @@ describe("<WeightsControls /> total weight (§6.6, owner ruling 2026-09-28)", ()
   it("updates the total after a key step", () => {
     render(<WeightsControls factorLabels={LABELS} weights={WEIGHTS} onChange={vi.fn()} />);
     fireEvent.keyDown(screen.getByRole("slider", { name: "same major" }), { key: "ArrowRight" });
-    expect(totalText()).toContain("Total weight: 1.05");
+    expect(totalText()).toContain("Total weight: 11");
     expect(document.querySelector('[data-slot="exercise-weights"]')?.textContent).not.toContain("%");
   });
 
-  it("follows typing before anything is committed, and is not capped at 1", () => {
+  it("follows typing before anything is committed, and is not capped at 10", () => {
     const onChange = vi.fn();
     render(<WeightsControls factorLabels={LABELS} weights={WEIGHTS} onChange={onChange} />);
-    fireEvent.change(screen.getByRole("textbox", { name: "same major" }), { target: { value: "4" } });
-    expect(totalText()).toContain("Total weight: 4.60");
+    fireEvent.change(screen.getByRole("textbox", { name: "same major" }), { target: { value: "9" } });
+    expect(totalText()).toContain("Total weight: 16");
     expect(onChange).not.toHaveBeenCalled();
   });
 
@@ -318,14 +316,14 @@ describe("<WeightsControls /> total weight (§6.6, owner ruling 2026-09-28)", ()
     for (const box of screen.getAllByRole("textbox")) {
       fireEvent.change(box, { target: { value: "0" } });
     }
-    expect(totalText()).toContain("Total weight: 0.00");
+    expect(totalText()).toContain("Total weight: 0");
     const notice = screen.getByText("At least one number must be above 0.");
     expect(notice.getAttribute("role")).toBe("status");
   });
 
   it("does not repeat the zero sentence while the server's refusal is shown", () => {
     const zero = { same_major: 0, stated_interest_overlap: 0, career_goal_fit: 0, past_event_topic_overlap: 0 };
-    const start = { ...zero, same_major: 0.25 };
+    const start = { ...zero, same_major: 3 };
     const onChange = vi.fn();
     const { rerender } = render(
       <WeightsControls factorLabels={LABELS} weights={start} onChange={onChange} />,
@@ -346,7 +344,7 @@ describe("<WeightsControls /> total weight (§6.6, owner ruling 2026-09-28)", ()
         refusal={new ExerciseRefusal(422, "exercise_weights_invalid", "At least one number must be above 0.")}
       />,
     );
-    expect(totalText()).toContain("Total weight: 0.00");
+    expect(totalText()).toContain("Total weight: 0");
     const shown = screen.getAllByText("At least one number must be above 0.");
     expect(shown).toHaveLength(1);
     expect(shown[0].getAttribute("data-slot")).toBe("exercise-weight-error");
@@ -362,8 +360,8 @@ describe("<WeightsControls /> compact bar on 390 (§7.4)", () => {
     act(() => observed?.([{ isIntersecting: false }]));
 
     const bar = document.querySelector('[data-slot="exercise-weights-bar"]');
-    expect(bar?.textContent).toContain("Weights 0.40 · 0.25 · 0.25 · 0.10");
-    expect(bar?.textContent).toContain("Total 1.00");
+    expect(bar?.textContent).toContain("Weights 3 · 3 · 2 · 2");
+    expect(bar?.textContent).toContain("Total 10");
     expect(bar?.textContent).not.toContain("%");
     expect(screen.getByRole("button", { name: "Edit weights" })).toBeDefined();
 

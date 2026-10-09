@@ -36,7 +36,7 @@ shares and calls the selector, and restates neither.
 from __future__ import annotations
 
 import uuid
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -46,6 +46,7 @@ from smartmatch_domain.exercise.asking import (
     AskingChoice,
     select_share,
 )
+from smartmatch_domain.exercise.markers import InformationMarker, marker_for
 
 from smartmatch_api.exercise_dependencies import (
     ExerciseSession,
@@ -58,10 +59,13 @@ __all__ = [
     "CARD_COMPLETION_SALT",
     "NON_RESPONDING_SALT",
     "RefreshPlan",
+    "RefreshReport",
     "invited_without_a_card",
+    "marker_counts",
     "refresh_counts_from_view",
     "refresh_one_team",
     "refresh_plan",
+    "refresh_report",
 ]
 
 #: What is being drawn, as the salt design spec §13's two draws are separated
@@ -95,6 +99,29 @@ class RefreshPlan:
     topic_gainers: tuple[int, ...]
     card_completers: tuple[int, ...]
     non_responding: tuple[int, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class RefreshReport:
+    """What one team's refresh changed, as counts a screen can put in a sentence.
+
+    Counts of people only (ADR-0025 D8): no share and no fraction, so the course's
+    completion shares stay on the server. ``cards_completed`` beside
+    ``invited_without_card`` is "12 of the 22"; the screen writes the words.
+
+    Attributes:
+        counts: The three counts the refresh has always reported.
+        invited_without_card: How many of the people the team invited in round
+            one had no card in the data file — the group that was asked.
+        marker_counts_before: Every row of the data file by "how much we know",
+            as the file itself has it.
+        marker_counts_after: The same rows as this team sees them now.
+    """
+
+    counts: RefreshCounts
+    invited_without_card: int
+    marker_counts_before: Mapping[str, int]
+    marker_counts_after: Mapping[str, int]
 
 
 def invited_without_a_card(
@@ -190,6 +217,60 @@ def refresh_counts_from_view(profiles: Sequence[TeamProfileRow]) -> RefreshCount
         cards_completed=sum(1 for p in profiles if p.overlay_card_interests is not None),
         non_responding=sum(1 for p in profiles if p.non_responding),
         topics_added=sum(1 for p in profiles if p.overlay_added_event_topics),
+    )
+
+
+def marker_counts(profiles: Sequence[TeamProfileRow], *, with_overlay: bool) -> dict[str, int]:
+    """How many of **every** row are in each "how much we know" group.
+
+    ``with_overlay=False`` reads the data file's own columns and is the upload
+    report's rule exactly (``ingest._markers``): a card when the file recorded
+    interests, events when it recorded any past event, otherwise major only.
+    ``with_overlay=True`` reads the same rows as this team now sees them — a
+    card the team was given is a card, and added topics are one more event on
+    file, which is how ``exercise_matching_models._profile_evidence`` reads them.
+
+    Every row is counted, including one the file records no major for. That is
+    the difference from the ranked list's own table, whose whole-file side is
+    the rankable set: this count answers "all 300", and has to add up to it.
+
+    All three groups are always present, so a screen can print "70 → 82" for
+    a group nobody moved into without first checking a key exists.
+    """
+    counts = dict.fromkeys((str(marker) for marker in InformationMarker), 0)
+    for profile in profiles:
+        has_card = profile.stated_interests is not None
+        attended = len(profile.past_event_keys)
+        if with_overlay:
+            has_card = has_card or profile.overlay_card_interests is not None
+            attended += 1 if profile.overlay_added_event_topics else 0
+        counts[str(marker_for(has_card=has_card, attended_event_count=attended))] += 1
+    return counts
+
+
+def refresh_report(
+    profiles: Sequence[TeamProfileRow], invited_profile_nos: Sequence[int]
+) -> RefreshReport:
+    """Everything a screen says about one team's refresh, read from its view.
+
+    Derived, never stored — :func:`refresh_counts_from_view`'s reasoning, taken
+    two steps further. Given the team's view and the round-one invited list, the
+    answer is the same whether it is asked in the request that refreshed, on a
+    reload a week later, or for a team the instructor refreshed.
+
+    ``invited_without_card`` reads the **base** row only. Before the refresh it
+    equals ``len(invited_without_a_card(...))``, because a team has no overlay
+    cards yet. After it, that function's answer shrinks — the new cards now read
+    as cards — while this one stands, so "12 of the 22" keeps saying 22.
+    """
+    invited = set(invited_profile_nos)
+    return RefreshReport(
+        counts=refresh_counts_from_view(profiles),
+        invited_without_card=sum(
+            1 for p in profiles if p.profile_no in invited and p.stated_interests is None
+        ),
+        marker_counts_before=marker_counts(profiles, with_overlay=False),
+        marker_counts_after=marker_counts(profiles, with_overlay=True),
     )
 
 

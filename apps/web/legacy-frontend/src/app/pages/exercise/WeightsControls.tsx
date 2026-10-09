@@ -14,10 +14,9 @@
  * calculated about a person. A weight is the team's own input, and the whole
  * lesson turns on the team seeing what it chose.
  *
- * The starting values are the server's: equal weights (OQ-CE-02, closed
- * 2026-09-25 — "Teams should decide for themselves which factors matter
- * most"). This screen sends no weights at all until a team changes one, which
- * is what makes the server's equal defaults the defaults.
+ * The starting values are the server's: 3 / 3 / 2 / 2 (Dr. Wang, 2026-10-06),
+ * whole numbers 0–10. This screen sends no weights at all until a team changes
+ * one, which is what makes the server's defaults the defaults.
  *
  * **The controls are the desk's `WeightSlider` (DESIGN.md §6.6, owner ruling
  * 2).** Each one owns its slider, its number box, the strict-decimal rule and
@@ -25,12 +24,12 @@
  * pointer-up, a key step, Enter or leaving the box. The queue and in-flight
  * logic below is unchanged: one request in flight, one merged commit queued
  * behind it. A number typed in a box is sent exactly as typed, even outside
- * 0–1: the server refuses a negative weight in its own sentence.
+ * 0–10 or with a fraction: the server refuses it in its own sentence.
  */
 import * as React from "react";
 
 import type { ExerciseRefusal } from "../../../lib/exerciseApi";
-import { EXERCISE_FACTOR_KEYS, UNDECIDED_GOAL_HALF_LABEL_KEY } from "../../../lib/exerciseClient";
+import { EXERCISE_FACTOR_KEYS } from "../../../lib/exerciseClient";
 import {
   formatWeightTotal,
   strictDecimal,
@@ -47,7 +46,7 @@ import { WeightsCompactBar } from "./WeightsCompactBar";
  * to add up to 1, and no percentage is shown (ADR-0025 D8).
  */
 export const WEIGHT_TOTAL_MEANING =
-  "What matters is how the weights compare: a factor set to 0.50 counts twice as much as one set to 0.25.";
+  "What matters is how the weights compare: a factor set to 6 counts twice as much as one set to 3.";
 
 /** The server's sentence for an all-zero weighting (`exercise_matching_weights.py`), shown before it is sent. */
 export const WEIGHT_TOTAL_ZERO = "At least one number must be above 0.";
@@ -113,15 +112,11 @@ export interface WeightsControlsProps {
  * The rulebook's four first, then anything else the server sent — so a fifth
  * factor appearing on the response is displayed rather than silently dropped,
  * and the four do not reshuffle when a key's order in the JSON changes.
- * {@link UNDECIDED_GOAL_HALF_LABEL_KEY} is a label for the ranked list, not a
- * weight, so it never gets a box.
  */
 export function orderedFactorKeys(factorLabels: Readonly<Record<string, string>>): string[] {
   const known = EXERCISE_FACTOR_KEYS.filter((key) => key in factorLabels);
   const extra = Object.keys(factorLabels).filter(
-    (key) =>
-      !(EXERCISE_FACTOR_KEYS as readonly string[]).includes(key) &&
-      key !== UNDECIDED_GOAL_HALF_LABEL_KEY,
+    (key) => !(EXERCISE_FACTOR_KEYS as readonly string[]).includes(key),
   );
   return [...known, ...extra];
 }

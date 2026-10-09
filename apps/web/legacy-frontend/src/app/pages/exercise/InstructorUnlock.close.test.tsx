@@ -16,6 +16,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { clockTime } from "./exerciseTime";
 import { UnlockPanel } from "./InstructorUnlock";
+import { pastTheConfirmGuard } from "./inlineConfirmGuard.testkit";
 
 const EVENTS = "/v1/exercise/instructor/events";
 const TEAMS_FILE = "11111111-1111-1111-1111-111111111111";
@@ -166,6 +167,7 @@ describe("<UnlockPanel /> asks before it closes results", () => {
     renderPanel(onUnlocked);
     const northline = await row("Northline Analytics");
     fireEvent.click(within(northline).getByRole("button", { name: /^close results$/i }));
+    await pastTheConfirmGuard();
     fireEvent.click(within(northline).getByRole("button", { name: /^close results now$/i }));
 
     await waitFor(() =>
@@ -187,6 +189,7 @@ describe("<UnlockPanel /> asks before it closes results", () => {
     const northline = await row("Northline Analytics");
     fireEvent.click(within(northline).getByRole("button", { name: /^close results$/i }));
     await waitFor(() => expect(document.activeElement?.textContent).toBe("Close results now"));
+    await pastTheConfirmGuard();
     fireEvent.click(within(northline).getByRole("button", { name: /^close results now$/i }));
 
     await waitFor(() => expect(within(northlineRow()).getByText("Results closed")).toBeDefined());
@@ -218,6 +221,7 @@ describe("<UnlockPanel /> asks before it closes results", () => {
     renderPanel();
     const northline = await row("Northline Analytics");
     fireEvent.click(within(northline).getByRole("button", { name: /^open results$/i }));
+    await pastTheConfirmGuard();
     fireEvent.click(within(northline).getByRole("button", { name: /^open results now$/i }));
 
     await waitFor(() =>

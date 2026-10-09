@@ -46,7 +46,7 @@ lock: ## Recompile the dependency locks from requirements/*.in
 # ---------------------------------------------------------------------------
 
 .PHONY: check
-check: format-check lint typecheck imports test scan memory licenses infra-check ## Run every gate CI runs
+check: format-check lint typecheck imports test scan memory licenses infra-check expand-contract ## Run every gate CI runs
 
 .PHONY: format-check
 format-check: ## Verify formatting
@@ -142,6 +142,10 @@ sbom: ## Generate the CycloneDX 1.5 SBOM for the runtime lock (dist/ is gitignor
 .PHONY: infra-check
 infra-check: ## Assert Terraform environments share no identifiers and apply nothing
 	$(PY) tools/env_isolation_check.py
+
+.PHONY: expand-contract
+expand-contract: ## Fail on a migration whose upgrade() drops or renames outside a marked contract phase
+	$(PY) tools/migration_expand_contract_check.py
 
 # ---------------------------------------------------------------------------
 # Database

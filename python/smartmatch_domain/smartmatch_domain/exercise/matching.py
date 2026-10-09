@@ -1,6 +1,6 @@
 """The exercise's scorer, tie-break, and ranked list (design spec §4.3–§4.6).
 
-Importing this module is what puts ``exercise-0.1.0`` in the registry map: it
+Importing this module is what puts ``exercise-0.2.0`` in the registry map: it
 imports :mod:`smartmatch_domain.exercise.registry`, whose import-time
 :func:`~smartmatch_domain.factor_registry.register_registry` call is the only
 binding of that version anywhere. Nothing in the CBA composition imports this
@@ -82,7 +82,6 @@ from smartmatch_domain.student_factors import (
     PAST_EVENT_TOPIC_OVERLAP_FACTOR_KEY,
     SAME_MAJOR_FACTOR_KEY,
     STATED_INTEREST_OVERLAP_FACTOR_KEY,
-    UNDECIDED_EXPLORATORY_GOAL_FIT,
     EventEvidence,
     ProfileEvidence,
     career_goal_fit,
@@ -107,7 +106,7 @@ __all__ = [
 #: :data:`~smartmatch_domain.scoring.CBA_STAGE_B_FORMULA_VERSION`, because it
 #: composes unknowns differently from either and a stored score must say which
 #: rule produced it.
-EXERCISE_STAGE_B_FORMULA_VERSION: Final[str] = "1.0.0-exercise"
+EXERCISE_STAGE_B_FORMULA_VERSION: Final[str] = "1.1.0-exercise"
 
 
 @dataclass(frozen=True, slots=True)
@@ -152,10 +151,6 @@ class ExerciseListEntry:
         contributing_factor_keys: The factors that counted for this name, in
             registry order. Keys, not numbers: the screen renders them through
             :data:`~smartmatch_domain.exercise.registry.EXERCISE_FACTOR_LABELS`.
-        undecided_goal_half: ``True`` when "career goal fits this event"
-            counted, and counted only as an undecided goal's half on an
-            exploratory event (OQ-CE-14). A flag, not a number (ADR-0025 D8),
-            so the screen can mark the name.
     """
 
     rank: int
@@ -163,7 +158,6 @@ class ExerciseListEntry:
     marker: InformationMarker
     reason: str
     contributing_factor_keys: tuple[str, ...]
-    undecided_goal_half: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -195,13 +189,13 @@ def score_exercise_pair(
         profile: The profile's evidence.
         event: The event's evidence.
         weights: The team's weights, keyed by factor key. ``None`` uses the
-            equal defaults (OQ-CE-02). Validate a team's input through
+            3/3/2/2 defaults. Validate a team's input through
             :func:`~smartmatch_domain.exercise.registry.validate_exercise_weight_overrides`
             before it reaches here.
 
     Returns:
         A :class:`~smartmatch_domain.scoring.StageBScore` pinned to
-        ``exercise-0.1.0`` / ``exercise-1``, with ``subject_id`` holding the
+        ``exercise-0.2.0`` / ``exercise-1``, with ``subject_id`` holding the
         profile id (ADR-0025 D4). Every factor appears in ``factor_scores``,
         unknown ones included; an unknown contributes nothing to ``value`` and
         its weight is not re-spread.
@@ -415,21 +409,6 @@ def _contributing_keys(score: StageBScore) -> tuple[str, ...]:
     )
 
 
-def _goal_fit_is_undecided_half(score: StageBScore) -> bool:
-    """Whether "career goal fits this event" counted only as an undecided half.
-
-    OQ-CE-14: an undecided goal earns
-    :data:`~smartmatch_domain.student_factors.UNDECIDED_EXPLORATORY_GOAL_FIT` on
-    an exploratory event. The reason line must not tell a class participant
-    that an "Undecided" card's goal *fits*, so it names the half differently.
-    """
-    return any(
-        factor.factor_key == CAREER_GOAL_FIT_FACTOR_KEY
-        and factor.value == UNDECIDED_EXPLORATORY_GOAL_FIT
-        for factor in score.factor_scores
-    )
-
-
 def _fixed_order(profiles: Sequence[ExerciseProfile], dataset_checksum: str) -> Mapping[int, int]:
     """``{profile_no: position}`` for the last step of the tie-break.
 
@@ -573,11 +552,6 @@ def exercise_ranked_list(
     for position, entry in enumerate(entries[:invite_limit]):
         contributing = _contributing_keys(entry.score)
         tie = _tie_context(entries, position)
-        # Only when the goal factor actually counted: a weight of zero means
-        # the half added nothing, and a chip must not say it did.
-        undecided_half = CAREER_GOAL_FIT_FACTOR_KEY in contributing and (
-            _goal_fit_is_undecided_half(entry.score)
-        )
         listed.append(
             ExerciseListEntry(
                 rank=position + 1,
@@ -588,10 +562,8 @@ def exercise_ranked_list(
                     contributing_keys=contributing,
                     tie_break_key=tie.key,
                     tied_on_major=tie.on_major,
-                    undecided_goal=_goal_fit_is_undecided_half(entry.score),
                 ),
                 contributing_factor_keys=contributing,
-                undecided_goal_half=undecided_half,
             )
         )
     return ExerciseList(

@@ -13,6 +13,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CONFIRM_GUARD_MS } from "./desk";
 import { ExerciseResults } from "./ExerciseResults";
 
+// The status line makes three reads of its own and has its own tests
+// (`TeamStatusBand.test.tsx`, `TeamStatusBand.pages.test.tsx`). It is left out
+// here, so these tests count only the requests this page makes.
+vi.mock("./TeamStatusBand", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./TeamStatusBand")>()),
+  TeamStatusBand: () => null,
+}));
+
 /**
  * Send the run: the first press arms the button ("Send this list? You get one
  * results run for …"), the second sends it. The pause clears the guard that
@@ -537,8 +545,30 @@ describe("<ExerciseResults />", () => {
 
 describe("<ExerciseResults /> once-only presses", () => {
   const REFRESH = "/v1/exercise/workspaces/current/refresh";
-  const CHOSEN = { body: { choice: "required", choices: ["required"], refreshed: false } };
-  const COUNTS = { choice: "required", cards_completed: 8, non_responding: 2, topics_added: 5 };
+  const CHOSEN = {
+    body: {
+      choice: "required",
+      choices: ["required"],
+      refreshed: false,
+      refreshed_at: null,
+      refresh_counts: null,
+      first_round_results: true,
+      first_round_event_name: "Northline",
+    },
+  };
+  const THREE = { cards_completed: 8, non_responding: 2, topics_added: 5 };
+  // A wall-clock time with no zone, so it reads "10:42 AM" wherever this runs.
+  const COUNTS = {
+    choice: "required",
+    ...THREE,
+    refreshed_at: "2026-10-16T10:42:00",
+    refresh_counts: {
+      ...THREE,
+      invited_without_card: 22,
+      marker_counts_before: { major_only: 166, major_plus_events: 64, completed_card: 70 },
+      marker_counts_after: { major_only: 161, major_plus_events: 61, completed_card: 78 },
+    },
+  };
 
   it("sends nothing for two presses in the same tick: a double-click only asks", async () => {
     stubBy((key) => {
@@ -622,6 +652,14 @@ describe("<ExerciseResults /> once-only presses", () => {
     expect(counts?.getAttribute("role")).toBe("status");
     expect(counts?.textContent).toBe("");
 
+    // The first press asks (issue #321); a double-click is one press and
+    // sends nothing. The confirming press, doubled, still sends once.
+    act(() => {
+      ask.click();
+      ask.click();
+    });
+    expect(posts(REFRESH)).toBe(0);
+    await new Promise((resolve) => setTimeout(resolve, CONFIRM_GUARD_MS + 20));
     act(() => {
       ask.click();
       ask.click();
@@ -629,15 +667,65 @@ describe("<ExerciseResults /> once-only presses", () => {
 
     await waitFor(() => expect(screen.getByText(/could not be reached/i)).toBeDefined());
     expect(posts(REFRESH)).toBe(1);
-    const shut = screen.getByRole("button", { name: /your team has already asked/i });
+    // Ann, 2026-10-02: a used-up button says so on itself, with the time.
+    const shut = screen.getByRole("button", { name: "Already refreshed at 10:42 AM" });
     expect(isOff(shut)).toBe(true);
     fireEvent.click(shut);
     expect(posts(REFRESH)).toBe(1);
     expect(
       document.querySelector('[data-slot="exercise-results-refresh-counts"]')?.textContent,
     ).toBe(
-      "Your team asked. Cards filled in: 8. Stopped opening messages: 2. Picked up the first event's topics: 5.",
+      "Refresh done at 10:42 AM. 5 people who came to Northline now count as having gone to a similar event. 8 of the 22 invited people with no card completed one. 2 people stopped responding.",
     );
+  });
+
+  it("answers a second press from another tab with the time, not an error", async () => {
+    // Ann: "Pressing refresh a second time does nothing and says 'Already
+    // refreshed at 10:42 AM.'" This tab's read predates the other tab's press.
+    let pressed = false;
+    stubBy((key) => {
+      if (key === `GET ${RESULTS}`) return { body: RUN_VIEW };
+      if (key === `GET ${LIST}`) return NO_LIST;
+      if (key === `GET ${ASKING}`) {
+        return pressed
+          ? {
+              body: {
+                ...CHOSEN.body,
+                refreshed: true,
+                refreshed_at: COUNTS.refreshed_at,
+                refresh_counts: COUNTS.refresh_counts,
+              },
+            }
+          : CHOSEN;
+      }
+      if (key === `POST ${REFRESH}`) {
+        pressed = true;
+        return {
+          body: {
+            error: {
+              code: "exercise_already_refreshed",
+              message: "Your team has already asked the people it invited.",
+            },
+          },
+          status: 409,
+        };
+      }
+      return null;
+    });
+    renderResults();
+    const ask = await screen.findByRole("button", { name: /ask them now/i });
+    fireEvent.click(ask);
+    await new Promise((resolve) => setTimeout(resolve, CONFIRM_GUARD_MS + 20));
+    fireEvent.click(ask);
+    const shut = await screen.findByRole("button", { name: "Already refreshed at 10:42 AM" });
+    expect(isOff(shut)).toBe(true);
+    expect(screen.queryByText("Your team has already asked the people it invited.")).toBeNull();
+    expect(
+      document.querySelector('[data-slot="exercise-results-refresh-counts"]')?.textContent,
+    ).toContain("Refresh done at 10:42 AM.");
+    fireEvent.click(shut);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(posts(REFRESH)).toBe(1);
   });
 
   it("takes the screen down when a run is refused for access", async () => {

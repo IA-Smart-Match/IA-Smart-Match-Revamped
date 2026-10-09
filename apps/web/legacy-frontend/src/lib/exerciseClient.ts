@@ -88,8 +88,12 @@ export interface ListEntryView {
   readonly marker: string;
   readonly reason: string;
   readonly contributing_factor_keys: string[];
-  /** The career goal counted only as an undecided goal's half (OQ-CE-14). A flag, not a number. */
-  readonly undecided_goal_half: boolean;
+  /**
+   * What this team's refresh changed about the profile: `new_card`,
+   * `new_event`, `stopped_responding`. Empty before the refresh; may hold
+   * several. The server always sends it; optional so older fixtures type-check.
+   */
+  readonly refresh_marks?: readonly string[];
 }
 
 export interface GroupCountsView {
@@ -119,12 +123,14 @@ export interface RankedListView {
   readonly invite_limit: number;
   readonly setting_name: string | null;
   readonly weights: Record<string, number>;
-  /**
-   * Ann's plain words for each factor key. The only thing a screen may print.
-   * Also carries {@link UNDECIDED_GOAL_HALF_LABEL_KEY}: a label, not a weight.
-   */
+  /** Ann's plain words for each factor key. The only thing a screen may print. */
   readonly factor_labels: Record<string, string>;
   readonly entries: ListEntryView[];
+  /**
+   * The first round's event name, so a `new_event` mark can say which event.
+   * `null` when the file has no round. Optional for older fixtures.
+   */
+  readonly first_round_event_name?: string | null;
   readonly composition: ListCompositionView;
   readonly unlisted_class_years: string[];
   readonly unrankable_profile_count: number;
@@ -164,13 +170,6 @@ export const EXERCISE_FACTOR_KEYS = [
 ] as const;
 
 export type ExerciseFactorKey = (typeof EXERCISE_FACTOR_KEYS)[number];
-
-/**
- * The `factor_labels` key whose words replace the career-goal label on an
- * entry flagged `undecided_goal_half` (OQ-CE-14). The server sends the words so
- * the web keeps no copy. It names no weight, so the weights panel skips it.
- */
-export const UNDECIDED_GOAL_HALF_LABEL_KEY = "undecided_goal_half";
 
 // ---------------------------------------------------------------------------
 // Results — `exercise_results_models.py`
@@ -239,18 +238,34 @@ export interface AskingStateView {
   /** The three ways of asking, as the course names them. Never hard-coded. */
   readonly choices: string[];
   readonly refreshed: boolean;
+  /** When the team's one refresh happened (ISO, UTC), or `null` before it has. */
+  readonly refreshed_at: string | null;
   /**
    * What the team's refresh changed, read back from the server: `null` until
-   * the team is refreshed (by itself or by the instructor). Optional so older
-   * fixtures without it still type-check.
+   * the team is refreshed (by itself or by the instructor).
    */
-  readonly refresh_counts?: RefreshCountsView | null;
+  readonly refresh_counts: RefreshCountsView | null;
+  /** Whether the team has run round one's results. The choice opens only then. */
+  readonly first_round_results: boolean;
+  /** The first round's event name, or `null` when the file has no round. */
+  readonly first_round_event_name: string | null;
 }
 
+/**
+ * What one refresh changed, as counts of people. One shape for the team's own
+ * press, every later read, and each team's line in the instructor's report.
+ * The server sends no sentence: `refreshWording.ts` writes them.
+ */
 export interface RefreshCountsView {
   readonly cards_completed: number;
   readonly non_responding: number;
   readonly topics_added: number;
+  /** How many invited profiles had no card: "12 of the **22**". */
+  readonly invited_without_card: number;
+  /** Every profile by "how much we know", before the refresh. Keyed by marker. */
+  readonly marker_counts_before: Readonly<Record<string, number>>;
+  /** The same, as the team sees the profiles after it. */
+  readonly marker_counts_after: Readonly<Record<string, number>>;
 }
 
 export interface RefreshView {
@@ -258,12 +273,35 @@ export interface RefreshView {
   readonly cards_completed: number;
   readonly non_responding: number;
   readonly topics_added: number;
+  readonly refreshed_at: string;
+  readonly refresh_counts: RefreshCountsView;
+}
+
+/** Why the every-team refresh skipped a team. Codes; `refreshWording.ts` owns the words. */
+export type RefreshSkipReason = "no_asking_choice" | "no_round_one_run" | "already_refreshed";
+
+/** One team's line in the every-team refresh report. */
+export interface RefreshAllTeamView {
+  readonly team_number: number;
+  /** The team's data file, by label. Shown only when the report spans two files. */
+  readonly dataset_label: string;
+  readonly outcome: "refreshed" | "skipped";
+  /** `null` for a refreshed team. Typed loosely so a new code renders, not crashes. */
+  readonly reason_code: RefreshSkipReason | (string & {}) | null;
+  /** When it was refreshed: by this request, or earlier if `already_refreshed`. */
+  readonly refreshed_at: string | null;
+  /** What this request's refresh changed. `null` for a skipped team. */
+  readonly refresh_counts: RefreshCountsView | null;
+  readonly first_round_event_name: string | null;
 }
 
 export interface RefreshAllView {
   readonly refreshed_team_numbers: number[];
   readonly refreshed: number;
+  /** Teams that had chosen and still could not be refreshed. Not `teams`' skipped count. */
   readonly skipped: number;
+  /** Every team that exists, in the Teams panel's order. */
+  readonly teams: RefreshAllTeamView[];
 }
 
 // ---------------------------------------------------------------------------

@@ -14,6 +14,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ExerciseInstructor } from "./ExerciseInstructor";
 import { InstructorDatasets } from "./InstructorDatasets";
+import { pastTheConfirmGuard } from "./inlineConfirmGuard.testkit";
 
 interface Answer {
   readonly body: unknown;
@@ -153,14 +154,17 @@ describe("<ExerciseInstructor /> returns to the passcode form on a 401", () => {
     signedIn({ [`POST ${EVENTS}/round-one/unlock`]: [EXPIRED] });
     renderPage();
     fireEvent.click(await screen.findByRole("button", { name: /^open results$/i }));
+    await pastTheConfirmGuard();
     fireEvent.click(screen.getByRole("button", { name: /^open results now$/i }));
     await expectPasscodeForm();
   });
 
-  it("when Ask for every team is refused", async () => {
+  it("when the every-team refresh is refused", async () => {
     signedIn({ [`POST ${REFRESH_ALL}`]: [EXPIRED] });
     renderPage();
-    fireEvent.click(await screen.findByRole("button", { name: /^ask for every team$/i }));
+    fireEvent.click(await screen.findByRole("button", { name: "Refresh every team that has chosen how to ask" }));
+    await pastTheConfirmGuard();
+    fireEvent.click(screen.getByRole("button", { name: "Refresh them now" }));
     await expectPasscodeForm();
   });
 
@@ -202,7 +206,9 @@ describe("<ExerciseInstructor /> returns to the passcode form on a 401", () => {
   it("but not on any other refusal", async () => {
     signedIn({ [`POST ${REFRESH_ALL}`]: [NO_TEAMS_YET] });
     renderPage();
-    fireEvent.click(await screen.findByRole("button", { name: /^ask for every team$/i }));
+    fireEvent.click(await screen.findByRole("button", { name: "Refresh every team that has chosen how to ask" }));
+    await pastTheConfirmGuard();
+    fireEvent.click(screen.getByRole("button", { name: "Refresh them now" }));
     await screen.findByText("No team has entered a number yet.");
     expect(screen.getByRole("heading", { name: "Data files" })).toBeDefined();
     expect(screen.queryByRole("button", { name: /open the instructor page/i })).toBeNull();

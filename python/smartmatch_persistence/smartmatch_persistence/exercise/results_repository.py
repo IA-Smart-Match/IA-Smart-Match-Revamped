@@ -82,12 +82,14 @@ from smartmatch_persistence.exercise.results_rows import (
     ResultPanel,
     StoredResultRun,
     TeamResultsState,
+    WorkspaceRefreshStatus,
     invited_as_json,
-    invited_from_json,
+    panel_as_json,
+    stored_run_from_row,
     weights_as_json,
-    weights_from_json,
 )
 from smartmatch_persistence.exercise.schema import (
+    exercise_dataset,
     exercise_profile_overlay,
     exercise_result_run,
     exercise_result_unlock,
@@ -236,36 +238,6 @@ def _constraint_name(error: SQLAlchemyError) -> str:
     return str(name) if name else "unknown"
 
 
-def _ints(value: object) -> tuple[int, ...]:
-    """A PostgreSQL integer array as a tuple. ``NULL`` reads as empty."""
-    return tuple(int(item) for item in value) if isinstance(value, list) else ()
-
-
-def _panel_from_json(value: object) -> ResultPanel:
-    """``exercise_result_run.email_everyone`` as a :class:`ResultPanel`.
-
-    Defensive about the stored shape rather than trusting it: the column is
-    JSONB, so a row written by an older version of this module is data the
-    current one is reading, and a missing key is read as "nobody" rather than as
-    a crash on a screen.
-    """
-    stored = value if isinstance(value, Mapping) else {}
-    return ResultPanel(
-        invited_profile_nos=_ints(stored.get("invited")),
-        signed_up_profile_nos=_ints(stored.get("signed_up")),
-        attended_profile_nos=_ints(stored.get("attended")),
-    )
-
-
-def _panel_as_json(panel: ResultPanel) -> dict[str, list[int]]:
-    """A :class:`ResultPanel` as the JSONB column stores it."""
-    return {
-        "invited": list(panel.invited_profile_nos),
-        "signed_up": list(panel.signed_up_profile_nos),
-        "attended": list(panel.attended_profile_nos),
-    }
-
-
 class ExerciseResultsRepository:
     """Design spec §9–§13's reads and writes. Commits nothing."""
 
@@ -388,6 +360,54 @@ class ExerciseResultsRepository:
             for row in rows
         )
 
+    def workspaces_refresh_status(self, session: Session) -> tuple[WorkspaceRefreshStatus, ...]:
+        """Every team that exists, with what its refresh state is.
+
+        The read behind the instructor's per-team report. Unlike
+        :meth:`workspaces_awaiting_refresh` it filters nothing: a team that has
+        not chosen and a team that has already refreshed are both returned, so
+        the route can say so by name instead of leaving them out.
+
+        Ordered by the data file's upload time, then its id, then team number —
+        ``instructor_repository.list_workspaces``'s order — so the report reads
+        in the order the Teams panel beside it does, and a classroom split
+        across two files reads as two groups.
+        """
+        rows = session.execute(
+            sa.select(
+                exercise_team_workspace.c.id,
+                exercise_team_workspace.c.dataset_id,
+                exercise_dataset.c.label,
+                exercise_team_workspace.c.team_number,
+                exercise_team_workspace.c.asking_choice,
+                exercise_team_workspace.c.refreshed_at,
+                exercise_team_workspace.c.seed,
+            )
+            .select_from(
+                exercise_team_workspace.join(
+                    exercise_dataset,
+                    exercise_team_workspace.c.dataset_id == exercise_dataset.c.id,
+                )
+            )
+            .order_by(
+                exercise_dataset.c.uploaded_at,
+                exercise_dataset.c.id,
+                exercise_team_workspace.c.team_number,
+            )
+        ).all()
+        return tuple(
+            WorkspaceRefreshStatus(
+                workspace_id=row.id,
+                dataset_id=row.dataset_id,
+                dataset_label=str(row.label),
+                team_number=row.team_number,
+                asking_choice=row.asking_choice,
+                refreshed_at=row.refreshed_at,
+                seed=int(row.seed),
+            )
+            for row in rows
+        )
+
     # -----------------------------------------------------------------------
     # Writes
     # -----------------------------------------------------------------------
@@ -481,7 +501,7 @@ class ExerciseResultsRepository:
                 invited_profile_nos=list(team.invited_profile_nos),
                 signed_up_profile_nos=list(team.signed_up_profile_nos),
                 attended_profile_nos=list(team.attended_profile_nos),
-                email_everyone=_panel_as_json(email_everyone),
+                email_everyone=panel_as_json(email_everyone),
                 seats_empty=seats_empty,
                 invited_profiles=invited_as_json(invited),
                 setting_weights=weights_as_json(setting_weights),
@@ -720,21 +740,7 @@ class ExerciseResultsRepository:
         ).one_or_none()
         if row is None:
             return None
-        return StoredResultRun(
-            event_key=row.event_key,
-            round=int(row.round),
-            setting_name=row.setting_name,
-            team=ResultPanel(
-                invited_profile_nos=_ints(row.invited_profile_nos),
-                signed_up_profile_nos=_ints(row.signed_up_profile_nos),
-                attended_profile_nos=_ints(row.attended_profile_nos),
-            ),
-            email_everyone=_panel_from_json(row.email_everyone),
-            seats_empty=int(row.seats_empty),
-            created_at=row.created_at,
-            invited=invited_from_json(row.invited_profiles),
-            setting_weights=weights_from_json(row.setting_weights),
-        )
+        return stored_run_from_row(row)
 
     def _failure_for(
         self, error: SQLAlchemyError, *, dataset_id: uuid.UUID | None, refusal: str

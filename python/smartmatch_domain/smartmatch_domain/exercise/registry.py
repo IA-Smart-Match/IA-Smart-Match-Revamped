@@ -11,7 +11,7 @@ module is the first thing to test it.
 
 Three separate things keep this rulebook out of the CBA process:
 
-1. **Its version cannot be mistaken for a CBA pin.** ``exercise-0.1.0`` shares
+1. **Its version cannot be mistaken for a CBA pin.** ``exercise-0.2.0`` shares
    no prefix, shape, or suffix with ``2.0.0-approved-oq-cba-004`` or
    ``1.1.1-approved-g1-m6j``, and ``factor_registry``'s impostor guard refuses
    any registry that claims one of those.
@@ -23,17 +23,22 @@ Three separate things keep this rulebook out of the CBA process:
    ``smartmatch_domain.explanation`` does not, and no CBA router or worker
    does. Until something imports
    :mod:`smartmatch_domain.exercise.registry`, ``registry_for_version(
-   "exercise-0.1.0")`` raises, which is the correct answer for a process that
+   "exercise-0.2.0")`` raises, which is the correct answer for a process that
    has no exercise in it. ``tests/unit/test_exercise_registry_isolation.py``
    pins that in a fresh interpreter.
 
 ## Weights
 
-Equal weights — 0.25 each — are what the four named constants below carry.
-OQ-CE-02 closed 2026-09-25 (Ann Wang, email reply to the team's question
-list): *"Equal is fine. Teams should decide for themselves which factors matter
-most."* A team adjusts them per run through ``weights``, which is the
-requirement ("four adjustable factors").
+The four named constants below carry Dr. Wang's default weights, 3 / 3 / 2 / 2
+(same major, stated interest, career goal, past events; her 2026-10-06 ruling,
+owner "switch now" 2026-10-09, OQ-CE-34). They replace the equal 0.25 each
+that OQ-CE-02 (closed 2026-09-25) set. A team adjusts them per run through
+``weights``, which is the requirement ("four adjustable factors"), on whole
+numbers 0-10. The scorer divides each weight by the total, so only how the
+weights compare matters and the same ratios give the same list at any scale.
+Weights stored before the change (fractions such as 0.25) are not rewritten
+and still load: the whole-number rule applies only to a *new* request
+(``validate_exercise_weight_overrides(..., whole_numbers=True)``).
 
 ## Why this module validates weight overrides itself
 
@@ -86,14 +91,14 @@ __all__ = [
     "EXERCISE_SCORING_MODEL",
     "EXERCISE_SCORING_MODE_VERSION",
     "EXERCISE_STATUS",
+    "EXERCISE_WEIGHT_MAX",
     "PAST_EVENT_TOPIC_OVERLAP_DEFAULT_WEIGHT",
     "SAME_MAJOR_DEFAULT_WEIGHT",
     "STATED_INTEREST_OVERLAP_DEFAULT_WEIGHT",
-    "UNDECIDED_GOAL_HALF_LABEL",
-    "UNDECIDED_GOAL_HALF_LABEL_KEY",
     "AllZeroExerciseWeightsError",
     "InvalidExerciseWeightError",
     "NegativeExerciseWeightError",
+    "WholeNumberExerciseWeightError",
     "exercise_applied_weights",
     "validate_exercise_weight_overrides",
 ]
@@ -102,18 +107,23 @@ __all__ = [
 #: part: the ``exercise-`` prefix means no string comparison, prefix match, or
 #: human skim can confuse the two, and the registry's own impostor guard
 #: refuses anything that claims a CBA version without being the CBA registry.
-EXERCISE_REGISTRY_VERSION: Final[str] = "exercise-0.1.0"
+EXERCISE_REGISTRY_VERSION: Final[str] = "exercise-0.2.0"
 
+#: ``exercise-0.1.0`` was the rulebook of 2026-09-15: Jaccard overlap for the
+#: interest and past-event factors, and half credit for an undecided career
+#: goal on a broad event. ``exercise-0.2.0`` replaces all three on Ann's
+#: revisions of 2026-10-02.
+#:
 #: Approved on the authority of the requirements document, not of a gate: the
 #: exercise has no real person's data and so no privacy question to wait on
 #: (ADR-0025 D3).
 EXERCISE_STATUS: Final[str] = "approved"
 
 #: Named, because "approved" with no approver is a checkbox.
-EXERCISE_APPROVER: Final[str] = "Ann Wang, class-exercise requirements 2026-09-15"
+EXERCISE_APPROVER: Final[str] = "Ann Wang, progress check and revisions 2026-10-02"
 
-#: The date of the requirements document this rulebook is approved on.
-EXERCISE_APPROVED_ON: Final[str] = "2026-09-15"
+#: The date of the revisions document this rulebook is approved on.
+EXERCISE_APPROVED_ON: Final[str] = "2026-10-02"
 
 #: The exercise's one scoring mode. There is one event shape in the exercise —
 #: a room with seats — so there is one model, and the vocabulary that holds it
@@ -127,13 +137,13 @@ EXERCISE_SCORING_MODE_VERSION: Final[str] = "1.0.0"
 #: nameable here, which is the point (ADR-0016 Proposal 5).
 EXERCISE_MODE_VOCABULARY: Final[frozenset[str]] = frozenset({EXERCISE_SCORING_MODE})
 
-#: Equal weights, confirmed (OQ-CE-02 closed 2026-09-25), one named constant
-#: per factor so a later change replaces a number that has a name rather than
-#: one of four identical literals.
-SAME_MAJOR_DEFAULT_WEIGHT: Final[float] = 0.25
-STATED_INTEREST_OVERLAP_DEFAULT_WEIGHT: Final[float] = 0.25
-CAREER_GOAL_FIT_DEFAULT_WEIGHT: Final[float] = 0.25
-PAST_EVENT_TOPIC_OVERLAP_DEFAULT_WEIGHT: Final[float] = 0.25
+#: Dr. Wang's defaults, 3 / 3 / 2 / 2 on a whole-number 0-10 scale (ruling
+#: 2026-10-06; replaces OQ-CE-02's equal 0.25), one named constant per factor.
+EXERCISE_WEIGHT_MAX: Final[int] = 10
+SAME_MAJOR_DEFAULT_WEIGHT: Final[float] = 3.0
+STATED_INTEREST_OVERLAP_DEFAULT_WEIGHT: Final[float] = 3.0
+CAREER_GOAL_FIT_DEFAULT_WEIGHT: Final[float] = 2.0
+PAST_EVENT_TOPIC_OVERLAP_DEFAULT_WEIGHT: Final[float] = 2.0
 
 #: Ann's plain words, from the requirements "Matching" row, verbatim. These are
 #: the labels a class participant reads; the registry keys beside them are
@@ -147,19 +157,7 @@ EXERCISE_FACTOR_LABELS: Final[Mapping[str, str]] = MappingProxyType(
     }
 )
 
-#: What an undecided career goal's half fit on an exploratory event is called
-#: (OQ-CE-14). "Career goal fits this event" would be false next to a card that
-#: says "Undecided". The team's wording, not Ann's; no number. The reason line
-#: uses it, and the list response sends it as a ``factor_labels`` entry under
-#: :data:`UNDECIDED_GOAL_HALF_LABEL_KEY` so a screen never keeps its own copy.
-UNDECIDED_GOAL_HALF_LABEL: Final[str] = "undecided goal suits a broad event"
-
-#: The ``factor_labels`` key for :data:`UNDECIDED_GOAL_HALF_LABEL`: the same
-#: name as the list entry's flag that says when to use it. Not a factor and not
-#: a weight, so it is deliberately absent from :data:`EXERCISE_FACTOR_LABELS`.
-UNDECIDED_GOAL_HALF_LABEL_KEY: Final[str] = "undecided_goal_half"
-
-#: The default weights by key (OQ-CE-02), bound to the four constants above
+#: The default weights by key (3/3/2/2), bound to the four constants above
 #: rather than restating them.
 EXERCISE_DEFAULT_WEIGHTS: Final[Mapping[str, float]] = MappingProxyType(
     {
@@ -178,15 +176,17 @@ _RATIONALE: Final[Mapping[str, str]] = MappingProxyType(
         ),
         STATED_INTEREST_OVERLAP_FACTOR_KEY: (
             "Requirements 'Matching': counts only for a profile with a completed "
-            "card; for everyone else the reason line says so."
+            "card, and counts in full when any stated interest is a topic of this "
+            "event; for everyone else the reason line says so."
         ),
         CAREER_GOAL_FIT_FACTOR_KEY: (
             "Requirements 'Matching': counts only for a profile with a completed "
             "card, where the stated career goal is a topic of this event."
         ),
         PAST_EVENT_TOPIC_OVERLAP_FACTOR_KEY: (
-            "Requirements 'Matching': topics of past events attended overlap this "
-            "event's topics; counts only for a profile that attended one."
+            "Requirements 'Matching': past events attended that share a topic with "
+            "this event; none counts nothing, one counts half, two or more count in "
+            "full. Counts only for a profile that attended an event."
         ),
     }
 )
@@ -207,12 +207,14 @@ def _exercise_spec(key: str, weight: float) -> FactorSpec:
 #: The four specs, in the order the design spec's table states them — which is
 #: therefore the order a reason line names contributing factors in.
 EXERCISE_FACTORS: Final[tuple[FactorSpec, ...]] = tuple(
-    _exercise_spec(key, EXERCISE_DEFAULT_WEIGHTS[key]) for key in EXERCISE_DEFAULT_WEIGHTS
+    # The shared FactorSpec holds a share in [0, 1]; the team-facing scale is 0-10.
+    _exercise_spec(key, EXERCISE_DEFAULT_WEIGHTS[key] / sum(EXERCISE_DEFAULT_WEIGHTS.values()))
+    for key in EXERCISE_DEFAULT_WEIGHTS
 )
 
 #: All four. Unlike the CBA registry, this rulebook declares nothing it does
-#: not score: it has no superseded set to keep readable, because it has never
-#: produced a stored score under any other version.
+#: not score: it has no superseded set to keep readable, because the same four
+#: keys were scored under ``exercise-0.1.0``.
 EXERCISE_APPROVED_SCORING_KEYS: Final[frozenset[str]] = frozenset(EXERCISE_DEFAULT_WEIGHTS)
 
 #: The exercise's one model.
@@ -238,7 +240,7 @@ EXERCISE_REGISTRY: Final[FactorRegistry] = FactorRegistry(
 )
 
 # Import-time, and only on importing *this* module. A stored exercise score
-# names ``exercise-0.1.0``; anything that reads one has necessarily imported
+# names ``exercise-0.2.0``; anything that reads one has necessarily imported
 # the exercise domain to have produced it, so the binding exists exactly where
 # it is needed and nowhere else.
 register_registry(EXERCISE_REGISTRY)
@@ -251,6 +253,10 @@ class InvalidExerciseWeightError(ValueError):
     :class:`smartmatch_domain.weight_settings.InvalidWeightOverrideError`, so a
     caller that already refuses malformed domain input keeps refusing this too.
     """
+
+
+class WholeNumberExerciseWeightError(InvalidExerciseWeightError):
+    """A new weight that is not a whole number from 0 to 10 (3/3/2/2 scale)."""
 
 
 class AllZeroExerciseWeightsError(InvalidExerciseWeightError):
@@ -294,7 +300,9 @@ def _coerce_weight(key: str, raw: object) -> float:
     return value
 
 
-def validate_exercise_weight_overrides(raw: Mapping[str, object]) -> Mapping[str, float]:
+def validate_exercise_weight_overrides(
+    raw: Mapping[str, object], *, whole_numbers: bool = False
+) -> Mapping[str, float]:
     """Return ``raw`` as an admissible exercise weighting, or refuse it.
 
     The minimal exercise equivalent of
@@ -304,10 +312,14 @@ def validate_exercise_weight_overrides(raw: Mapping[str, object]) -> Mapping[str
 
     Args:
         raw: What a team proposed, keyed by factor key. An **empty mapping is
-            valid** and means "use the equal defaults"; a mapping that
+            valid** and means "use the 3/3/2/2 defaults"; a mapping that
             zeroes every factor is refused, because it says "score nothing"
             and every profile would then tie on 0.0 and be ordered by the
             tie-break alone.
+        whole_numbers: Also require each weight to be a whole number from 0
+            to :data:`EXERCISE_WEIGHT_MAX`. Set for a *new* request; left off
+            for weights read back from storage, which may be fractions saved
+            before the 3/3/2/2 scale.
 
     Returns:
         An immutable ``{factor_key: float}`` map with exactly the keys the
@@ -319,11 +331,13 @@ def validate_exercise_weight_overrides(raw: Mapping[str, object]) -> Mapping[str
     """
     problems: list[str] = []
     only_negatives = True
+    only_whole = True
     weights: dict[str, float] = {}
 
     for key in sorted(raw):
         if key not in EXERCISE_APPROVED_SCORING_KEYS:
             only_negatives = False
+            only_whole = False
             problems.append(
                 f"{key}: is not one of the exercise's four factors; expected one of "
                 f"{sorted(EXERCISE_APPROVED_SCORING_KEYS)}"
@@ -331,11 +345,20 @@ def validate_exercise_weight_overrides(raw: Mapping[str, object]) -> Mapping[str
             continue
         try:
             weights[key] = _coerce_weight(key, raw[key])
+            if whole_numbers and weights[key] > EXERCISE_WEIGHT_MAX:
+                raise WholeNumberExerciseWeightError(
+                    f"{key}: weight must be at most {EXERCISE_WEIGHT_MAX}, got {weights[key]:g}"
+                )
+            if whole_numbers and weights[key] != int(weights[key]):
+                raise WholeNumberExerciseWeightError(
+                    f"{key}: weight must be a whole number, got {weights[key]:g}"
+                )
         except InvalidExerciseWeightError as exc:
             # Collected rather than raised, so a team fixing a settings form
             # sees every problem at once instead of one per submission.
             problems.append(str(exc))
             only_negatives = only_negatives and isinstance(exc, NegativeExerciseWeightError)
+            only_whole = only_whole and isinstance(exc, WholeNumberExerciseWeightError)
 
     if not problems and weights:
         effective = dict(EXERCISE_DEFAULT_WEIGHTS)
@@ -351,6 +374,8 @@ def validate_exercise_weight_overrides(raw: Mapping[str, object]) -> Mapping[str
         detail = "; ".join(problems)
         if only_negatives:
             raise NegativeExerciseWeightError(detail)
+        if only_whole:
+            raise WholeNumberExerciseWeightError(detail)
         raise InvalidExerciseWeightError(detail)
 
     return MappingProxyType(dict(weights))
@@ -365,4 +390,10 @@ def exercise_applied_weights(
     :func:`~smartmatch_domain.factor_registry.normalize_weights` pinned to this
     rulebook and its one model, so no caller has to remember to pass both.
     """
-    return normalize_weights(overrides, model=EXERCISE_SCORING_MODEL, registry=EXERCISE_REGISTRY)
+    # Omitted factors take the 3/3/2/2 defaults, not the spec's share-scaled
+    # proposed_weight, so a partial request stays on one scale.
+    return normalize_weights(
+        {**EXERCISE_DEFAULT_WEIGHTS, **(overrides or {})},
+        model=EXERCISE_SCORING_MODEL,
+        registry=EXERCISE_REGISTRY,
+    )

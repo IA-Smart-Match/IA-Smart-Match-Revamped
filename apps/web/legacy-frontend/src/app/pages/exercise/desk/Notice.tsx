@@ -5,7 +5,8 @@
  * - `message` is the server's sentence, rendered verbatim: never re-cased,
  *   truncated or prefixed with "Error" (§9).
  * - Every tone is `role="status"` (§8.6: refusals are status, not alert;
- *   `alert` is for field errors only).
+ *   `alert` is for field errors only). `live={false}` drops the role for a
+ *   notice whose words are announced by a live region that was there first.
  * - Calm: surface card with shadow, `Info` in primary. Problem: surface card
  *   with a 2px danger outline and no shadow (a card has one or the other,
  *   §3.7), `TriangleAlert`. Done: avocado-tint wash, `CircleCheck`.
@@ -30,6 +31,8 @@ export interface NoticeProps {
   /** Lets another element point at this notice with `aria-describedby`. */
   readonly id?: string;
   readonly className?: string;
+  /** `false` when a live region elsewhere announces these words. Default `true`. */
+  readonly live?: boolean;
 }
 
 const TONE_CLASSES: Readonly<Record<NoticeTone, string>> = {
@@ -56,13 +59,14 @@ export function Notice({
   children,
   id,
   className,
+  live = true,
 }: NoticeProps): React.JSX.Element {
   const reduced = usePrefersReducedMotion();
   return (
     <motion.div
       {...ceMotion("notice-in", reduced)}
       id={id}
-      role="status"
+      role={live ? "status" : undefined}
       data-slot="exercise-notice"
       data-tone={tone}
       data-reduced-motion={reduced ? "true" : "false"}

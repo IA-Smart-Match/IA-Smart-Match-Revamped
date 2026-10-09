@@ -10,12 +10,11 @@ module that grew them would be building a deferred feature by accident.
 | Function | Value | Unknown when |
 |---|---|---|
 | :func:`same_major` | 1.0 if the major is a target major, else 0.0 | never |
-| :func:`stated_interest_overlap` | Jaccard of card interests and event topics | no card |
-| :func:`career_goal_fit` | 1.0 if the career goal is a topic of the event, else 0.0 (*) | no card |
-| :func:`past_event_topic_overlap` | Jaccard of past topics and this event's | no past events |
+| :func:`stated_interest_overlap` | 1.0 if any card interest is an event topic, else 0.0 | no card |
+| :func:`career_goal_fit` | 1.0 if the career goal is a topic of the event, else 0.0 | no card |
+| :func:`past_event_topic_overlap` | 0, 0.5, 1 for 0, 1, 2+ related past events | no past events |
 
-(*) An undecided career goal scores :data:`UNDECIDED_EXPLORATORY_GOAL_FIT`
-(0.5) on an exploratory event instead (OQ-CE-14).
+A past event is *related* when it shares at least one topic with this event.
 
 **Unknown is ``None``, never ``0.0`` (ADR-0011).** A profile with no card is
 not a profile whose interests verifiably miss this event, and the two must stay
@@ -38,15 +37,15 @@ from typing import Final
 from smartmatch_domain.factor_registry import PROHIBITED_INPUTS
 from smartmatch_domain.factors import FACTOR_SCORE_PRECISION, FactorScore
 from smartmatch_domain.student_factors.evidence import EventEvidence, ProfileEvidence
-from smartmatch_domain.student_factors.terms import jaccard
+from smartmatch_domain.student_factors.terms import normalized_terms
 
 __all__ = [
     "CAREER_GOAL_FIT_FACTOR_KEY",
+    "ONE_RELATED_PAST_EVENT_FIT",
     "PAST_EVENT_TOPIC_OVERLAP_FACTOR_KEY",
     "SAME_MAJOR_FACTOR_KEY",
     "STATED_INTEREST_OVERLAP_FACTOR_KEY",
     "STUDENT_FACTOR_KEYS",
-    "UNDECIDED_EXPLORATORY_GOAL_FIT",
     "career_goal_fit",
     "past_event_topic_overlap",
     "same_major",
@@ -71,14 +70,10 @@ STUDENT_FACTOR_KEYS: Final[tuple[str, ...]] = (
     PAST_EVENT_TOPIC_OVERLAP_FACTOR_KEY,
 )
 
-#: What an undecided career goal earns on a broad exploratory event: half of a
-#: goal that is one of the event's topics. OQ-CE-14, decided 2026-09-25, Ann
-#: Wang, email reply to the team's question list: undecided "should match broad
-#: exploratory events (company talks, industry panels, career fairs), at half
-#: credit, so a student whose goal clearly fits still ranks higher". The
-#: simulated-results rule reads this same number ("the results step should
-#: treat undecided students the same way").
-UNDECIDED_EXPLORATORY_GOAL_FIT: Final[float] = 0.5
+#: What one related past event earns on "went to similar events before": half
+#: of what two or more earn. The count rule is Ann Wang's (progress check and
+#: revisions, 2026-10-02); the middle step is Chau's refinement of it.
+ONE_RELATED_PAST_EVENT_FIT: Final[float] = 0.5
 
 # ADR-0025 D3: the prohibited-input set is *imported* from the registry, never
 # restated here, and it is used rather than merely referenced — a key that
@@ -132,8 +127,9 @@ def stated_interest_overlap(profile: ProfileEvidence, event: EventEvidence) -> F
         event: The event's evidence.
 
     Returns:
-        The Jaccard index of the card's interests and the event's topics, or
-        ``None`` when no card exists. A card that exists and lists nothing
+        ``1.0`` when any interest on the card is one of the event's topics,
+        otherwise a measured ``0.0``; ``None`` when no card exists. One shared
+        topic counts the same as several. A card that exists and lists nothing
         scores ``0.0`` — a measured zero, not an unknown.
     """
     if profile.card is None:
@@ -143,14 +139,11 @@ def stated_interest_overlap(profile: ProfileEvidence, event: EventEvidence) -> F
             basis="no profile card on file, so no stated interests to compare",
         )
     interests = profile.card.normalized_interests
-    value = jaccard(interests, event.normalized_topics)
+    matched = len(interests & event.normalized_topics)
     return FactorScore(
         STATED_INTEREST_OVERLAP_FACTOR_KEY,
-        _rounded(value),
-        basis=(
-            f"{len(interests)} stated interests on the card compared with "
-            f"{len(event.normalized_topics)} event topics"
-        ),
+        _rounded(1.0 if matched else 0.0),
+        basis=f"{matched} of {len(interests)} stated interests on the card match an event topic",
     )
 
 
@@ -163,26 +156,14 @@ def career_goal_fit(profile: ProfileEvidence, event: EventEvidence) -> FactorSco
 
     Returns:
         ``1.0`` when the card's career goal is one of the event's topics;
-        :data:`UNDECIDED_EXPLORATORY_GOAL_FIT` when the card's goal is
-        undecided and the event is exploratory; ``0.0`` otherwise, including
-        when the card exists with that field blank; and ``None`` when no card
-        exists at all.
+        ``0.0`` otherwise, including when the card exists with that field
+        blank or naming no topic; and ``None`` when no card exists at all.
     """
     if profile.card is None:
         return FactorScore(
             CAREER_GOAL_FIT_FACTOR_KEY,
             None,
             basis="no profile card on file, so no career goal to compare",
-        )
-    if profile.card.career_goal_undecided:
-        return FactorScore(
-            CAREER_GOAL_FIT_FACTOR_KEY,
-            UNDECIDED_EXPLORATORY_GOAL_FIT if event.exploratory else 0.0,
-            basis=(
-                "career goal on the card is undecided, and this is a broad exploratory event"
-                if event.exploratory
-                else "career goal on the card is undecided, and this event is not exploratory"
-            ),
         )
     goal = profile.card.normalized_career_goal
     if goal is None:
@@ -211,15 +192,19 @@ def past_event_topic_overlap(profile: ProfileEvidence, event: EventEvidence) -> 
         event: The event's evidence.
 
     Returns:
-        The Jaccard index of the union of the attended events' topics and this
-        event's topics, or ``None`` when the profile attended no past event.
-        Both "no attendance record on file" and "a record that names no event"
-        are unknown here: with no attended event there is no topic set to
-        compare, which is a missing input rather than a measured miss. A
-        profile that attended events whose topics simply do not overlap scores
-        a measured ``0.0``, and the two stay distinguishable.
+        ``0.0`` when no attended event is related to this one,
+        :data:`ONE_RELATED_PAST_EVENT_FIT` when exactly one is, and ``1.0``
+        when two or more are; ``None`` when the profile attended no past
+        event. A past event is related when it
+        shares at least one topic with this event, and each past event is read
+        on its own: one that shares every topic counts once, the same as one
+        that shares a single topic. Both "no attendance record on file" and "a
+        record that names no event" are unknown here: a count of related
+        events has no events to count, which is a missing input rather than a
+        measured miss. A profile that attended events none of which is related
+        scores a measured ``0.0``, and the two stay distinguishable.
     """
-    attended = profile.normalized_attended_topics
+    attended = profile.attended_event_topics
     count = profile.attended_event_count
     if attended is None or not count:
         return FactorScore(
@@ -231,12 +216,15 @@ def past_event_topic_overlap(profile: ProfileEvidence, event: EventEvidence) -> 
                 else "no attendance record on file, so there are no earlier topics to compare"
             ),
         )
-    value = jaccard(attended, event.normalized_topics)
+    related = sum(1 for topics in attended if normalized_terms(topics) & event.normalized_topics)
+    if related == 0:
+        value = 0.0
+    elif related == 1:
+        value = ONE_RELATED_PAST_EVENT_FIT
+    else:
+        value = 1.0
     return FactorScore(
         PAST_EVENT_TOPIC_OVERLAP_FACTOR_KEY,
         _rounded(value),
-        basis=(
-            f"topics of {count} past events attended compared with "
-            f"{len(event.normalized_topics)} event topics"
-        ),
+        basis=f"{related} of {count} past events attended share a topic with this event",
     )

@@ -18,6 +18,7 @@ target capability exists.
 | Student→event recommender (slice 6, proposed) | [ADR-0024](../architecture/decisions/ADR-0024-staged-student-event-recommender.md) (Accepted 2026-09-16), [decision record](../decisions/student-recommender-decision-record.md) (draft), [contracts](../architecture/student-recommender-contracts.md), [implementation plan](../archive/superpowers/plans/2026-09-14-student-recommender-v1-plan.md) with its [review-fixes plan](../archive/superpowers/plans/2026-09-14-student-recommender-review-fixes.md); gated on OQ-SC-02, OQ-SE-01, OQ-SE-02 |
 | Class exercise for Dr. Lin's Spring 2027 course (Ann Wang, second product scope, runs in parallel with the CBA track) | [Requirements](../product/class-exercise-requirements.md), [ADR-0025](../architecture/decisions/ADR-0025-class-exercise-scope-shares-the-matching-mechanism.md), [design spec](../superpowers/specs/2026-09-16-class-exercise-design.md), [scoped register](open-questions/class-exercise-open-questions.md), [decision record D1–D16 (2026-09-25)](../decisions/class-exercise-decisions-2026-09-25.md); ADR-0025 D6's engine-level enforcement is recorded in the [2026-09-19 `hide_parameters` plan](../archive/superpowers/plans/2026-09-19-engine-hide-parameters-plan.md) |
 | B26 — professionals correct their own availability | DECIDED 2026-09-22 (owner): option B — build self-service availability; plan at [`2026-09-22-b26-self-service-availability-plan.md`](2026-09-22-b26-self-service-availability-plan.md). Planning only; all six follow-ups answered 2026-09-22 (Speaker accounts, D2 centered utilization). Band penalties and the Host+Speaker single login decided the same day. Q8 (self-shortlisting) decided the same day: excluded. No owner question open |
+| Class exercise — Oct 2 stakeholder review vs. the code (conflicts, blast radius, issue map #325–#336) | [2026-10-05 conflict analysis](2026-10-05-oct-2-review-conflict-analysis.md); analysis only — the conflicts it lists stay open until the named owner records a dated decision |
 | Ideas logged but not scheduled | [Backlog](backlog.md) |
 | Whether any `TODO`/`FIXME` marker is outstanding in code | [TODO disposition register](todo-disposition-register.md) — a 2026-09-18 survey; it recommends only, and authorizes no change |
 | Which tests are skipped, why, and whether CI runs them | [Skip-site inventory 2026-09-18](skip-site-inventory-2026-09-18.md) — a dated snapshot of all 72 `skip`/`skipif`/`xfail` call sites; it authorizes no change and will drift |
@@ -44,6 +45,13 @@ For student engagement, the canonical register owns the open decisions. W4 is
 **STOPPED** until OQ-SE-04 through OQ-SE-08 close in a way that satisfies
 accepted ADR-0011, including one registered definition, one owning query, and
 authorized exact-row reconciliation.
+
+## Oct-14 stakeholder sprint (class exercise)
+
+The [2026-10-14 stakeholder sprint plans](2026-10-14-stakeholder-sprint/README.md)
+hold one plan per Oct-2 stakeholder issue, with the merge order and deploy steps.
+Deferred questions and defaults taken are in
+[`open-questions/oct14-deferred.md`](open-questions/oct14-deferred.md).
 
 ## Historical plans and status snapshots
 

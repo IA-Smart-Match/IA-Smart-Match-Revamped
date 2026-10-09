@@ -27,7 +27,6 @@ from smartmatch_domain.exercise.matching import (
 from smartmatch_domain.exercise.registry import (
     EXERCISE_REGISTRY_VERSION,
     EXERCISE_SCORING_MODE,
-    SAME_MAJOR_DEFAULT_WEIGHT,
 )
 from smartmatch_domain.student_factors import ProfileCard, ProfileEvidence
 from smartmatch_domain.student_factors.evidence import EventEvidence
@@ -55,7 +54,9 @@ def _full_card(profile_id: str) -> ProfileEvidence:
         profile_id,
         "Marketing",
         card=ProfileCard(("analytics", "careers"), career_goal="analytics"),
-        attended_event_topics=(("analytics", "careers"),),
+        # Two related past events: one alone is half of "went to similar events
+        # before" (Ann's revisions of 2026-10-02), and this card is the perfect one.
+        attended_event_topics=(("analytics", "careers"), ("analytics",)),
     )
 
 
@@ -66,7 +67,7 @@ def _full_card(profile_id: str) -> ProfileEvidence:
 
 def test_a_major_only_profile_gets_exactly_the_major_contribution() -> None:
     score = score_exercise_pair(_major_only("p1"), EVENT)
-    assert score.value == pytest.approx(SAME_MAJOR_DEFAULT_WEIGHT, abs=1e-9)
+    assert score.value == pytest.approx(0.3, abs=1e-9)
     assert score.unknown_factor_keys == (
         "stated_interest_overlap",
         "career_goal_fit",
@@ -98,7 +99,7 @@ def test_an_empty_card_scores_where_no_card_is_unknown() -> None:
     empty = ProfileEvidence("p1", "Marketing", card=ProfileCard())
     score = score_exercise_pair(empty, EVENT)
     assert score.unknown_factor_keys == ("past_event_topic_overlap",)
-    assert score.value == pytest.approx(SAME_MAJOR_DEFAULT_WEIGHT, abs=1e-9)
+    assert score.value == pytest.approx(0.3, abs=1e-9)
 
 
 def test_the_score_is_pinned_to_the_exercise_rulebook_and_mode() -> None:
@@ -112,7 +113,7 @@ def test_the_score_is_pinned_to_the_exercise_rulebook_and_mode() -> None:
 def test_team_weights_change_the_composition() -> None:
     heavy_major = score_exercise_pair(_major_only("p1"), EVENT, weights={"same_major": 4.0})
     assert heavy_major.value is not None
-    assert heavy_major.value > SAME_MAJOR_DEFAULT_WEIGHT
+    assert heavy_major.value > 0.3
 
 
 # ---------------------------------------------------------------------------

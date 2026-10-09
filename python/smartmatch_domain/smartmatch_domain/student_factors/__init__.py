@@ -33,13 +33,12 @@ from smartmatch_domain.student_factors.factors import (
     SAME_MAJOR_FACTOR_KEY,
     STATED_INTEREST_OVERLAP_FACTOR_KEY,
     STUDENT_FACTOR_KEYS,
-    UNDECIDED_EXPLORATORY_GOAL_FIT,
     career_goal_fit,
     past_event_topic_overlap,
     same_major,
     stated_interest_overlap,
 )
-from smartmatch_domain.student_factors.terms import jaccard, normalized_term, normalized_terms
+from smartmatch_domain.student_factors.terms import normalized_term, normalized_terms
 
 __all__ = [
     "CAREER_GOAL_FIT_FACTOR_KEY",
@@ -47,12 +46,10 @@ __all__ = [
     "SAME_MAJOR_FACTOR_KEY",
     "STATED_INTEREST_OVERLAP_FACTOR_KEY",
     "STUDENT_FACTOR_KEYS",
-    "UNDECIDED_EXPLORATORY_GOAL_FIT",
     "EventEvidence",
     "ProfileCard",
     "ProfileEvidence",
     "career_goal_fit",
-    "jaccard",
     "normalized_term",
     "normalized_terms",
     "past_event_topic_overlap",

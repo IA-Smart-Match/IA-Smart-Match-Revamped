@@ -16,6 +16,11 @@
  * nothing. Design spec §7: absent information is `unknown`, and an empty card
  * is not the same as no card — collapsing a fourth marker into one of these
  * three would be inventing an answer.
+ *
+ * The list download writes the same three phrases, and the same column label,
+ * from the server: `MARKER_WORDS` in `smartmatch_domain/exercise/markers.py`
+ * and `CSV_LIST_COLUMNS` in `exercise_matching_csv.py`. A server test reads
+ * this file and compares, so reword both sides in one change.
  */
 
 /** The three the requirements name, keyed by the value the API sends. */

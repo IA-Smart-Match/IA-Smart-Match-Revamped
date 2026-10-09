@@ -22,28 +22,21 @@ profile's first true interest is that field); ``Start my own business`` maps to
 topic (Ann: "no specific event topic: yes"), which scores a *measured* ``0.0``
 on "career goal fits this event", never unknown.
 
-``Undecided`` also points at no topic, but it is not a plain miss. Ann's
-answer: an undecided student "should match broad exploratory events (company
-talks, industry panels, career fairs), at half credit, so a student whose goal
-clearly fits still ranks higher", and "the results step should treat undecided
-students the same way". So :func:`goal_is_undecided` names it, and
-"exploratory" is a property of an event, read off its ``event_type`` through
-:data:`EXERCISE_EVENT_TYPES`. The half itself lives beside the factor
-(:data:`~smartmatch_domain.student_factors.UNDECIDED_EXPLORATORY_GOAL_FIT`), so
-the matching factor and the results rule read one number.
+``Undecided`` also points at no topic, and it is a plain miss like
+``Graduate school``. Ann's answer of 2026-09-25 gave it half credit on broad
+exploratory events; her progress check and revisions of 2026-10-02 (item 4b)
+took that back — "That rule is not in the plan … Please remove it." — so no
+event type earns an undecided goal anything, in matching or in the results
+step.
 
-Ann's event types, and which are exploratory
-============================================
-Her file's ``event_type`` column holds seven kinds of event. Her words map onto
-them as: *company talks* = ``Employer talk`` and ``Employer info session``;
-*industry panels* = ``Industry panel``; *career fairs* = ``Career fair``. The
-other three — ``Workshop``, ``Competition``, ``Networking`` — are not
-exploratory. Northline and Harbor are both ``Employer talk``, and Ann: "Treat
-both Northline and Harbor as exploratory, since they are company events."
+Ann's event types
+=================
+Her file's ``event_type`` column holds seven kinds of event. Northline and
+Harbor are both ``Employer talk``.
 
 Ann writes the two exercise events' type with a note in brackets —
 ``Employer talk (exercise event 1)`` and ``Employer talk (exercise event 2)``
-— and both spellings are in the table exactly as she wrote them, beside the
+— and both spellings are in the list exactly as she wrote them, beside the
 bare ``Employer talk`` they name. The vocabulary is closed like the other four:
 an ``event_type`` outside it is refused at ingest.
 """
@@ -65,15 +58,12 @@ __all__ = [
     "EXERCISE_EVENT_TYPES",
     "EXERCISE_MAJORS",
     "EXERCISE_TOPICS",
-    "UNDECIDED_CAREER_GOAL",
     "canonical_career_goal",
     "canonical_class_year",
     "canonical_event_type",
     "canonical_major",
     "canonical_topic",
     "career_goal_topic",
-    "event_type_is_exploratory",
-    "goal_is_undecided",
     "goal_topic_for_matching",
     "is_all_majors",
 ]
@@ -121,9 +111,9 @@ EXERCISE_TOPICS: Final[tuple[str, ...]] = (
 
 #: Each career-goal label, and the topic "career goal fits this event" compares
 #: with the event's topics. ``None`` means the goal points at no topic, which is
-#: a measured miss — except for :data:`UNDECIDED_CAREER_GOAL` on an exploratory
-#: event (see :func:`goal_is_undecided`). OQ-CE-14, decided 2026-09-25, Ann
-#: Wang, email reply to the team's question list.
+#: a measured miss. OQ-CE-14, decided 2026-09-25, Ann Wang, email reply to the
+#: team's question list; the half credit that answer gave ``Undecided`` was
+#: removed by her revisions of 2026-10-02 (item 4b).
 CAREER_GOAL_TOPICS: Final[Mapping[str, str | None]] = MappingProxyType(
     {
         "Accounting or audit role (CPA path)": "Accounting / professional services",
@@ -148,24 +138,18 @@ CAREER_GOAL_TOPICS: Final[Mapping[str, str | None]] = MappingProxyType(
 #: The sixteen career-goal labels, in the table's order.
 EXERCISE_CAREER_GOALS: Final[tuple[str, ...]] = tuple(CAREER_GOAL_TOPICS)
 
-#: The one career-goal label that half-fits an exploratory event (OQ-CE-14).
-UNDECIDED_CAREER_GOAL: Final[str] = "Undecided"
-
-#: Ann's event types, as her file spells them, and whether each is a broad
-#: exploratory event (OQ-CE-14, decided 2026-09-25, Ann Wang, email reply to the
-#: team's question list). See the module docstring for how her words map here.
-EXERCISE_EVENT_TYPES: Final[Mapping[str, bool]] = MappingProxyType(
-    {
-        "Workshop": False,
-        "Career fair": True,
-        "Employer info session": True,
-        "Industry panel": True,
-        "Competition": False,
-        "Networking": False,
-        "Employer talk": True,
-        "Employer talk (exercise event 1)": True,
-        "Employer talk (exercise event 2)": True,
-    }
+#: Ann's event types, as her file spells them. See the module docstring for
+#: the two bracketed spellings.
+EXERCISE_EVENT_TYPES: Final[tuple[str, ...]] = (
+    "Workshop",
+    "Career fair",
+    "Employer info session",
+    "Industry panel",
+    "Competition",
+    "Networking",
+    "Employer talk",
+    "Employer talk (exercise event 1)",
+    "Employer talk (exercise event 2)",
 )
 
 
@@ -181,10 +165,7 @@ _MAJORS: Final[Mapping[str, str]] = _index((*EXERCISE_MAJORS, ALL_MAJORS_LABEL))
 _YEARS: Final[Mapping[str, str]] = _index(EXERCISE_CLASS_YEARS)
 _TOPICS: Final[Mapping[str, str]] = _index(EXERCISE_TOPICS)
 _GOALS: Final[Mapping[str, str]] = _index(EXERCISE_CAREER_GOALS)
-_EVENT_TYPES: Final[Mapping[str, str]] = _index(tuple(EXERCISE_EVENT_TYPES))
-
-if UNDECIDED_CAREER_GOAL not in CAREER_GOAL_TOPICS:  # pragma: no cover
-    raise RuntimeError("the undecided career goal is not one of the career-goal labels")
+_EVENT_TYPES: Final[Mapping[str, str]] = _index(EXERCISE_EVENT_TYPES)
 
 if set(CAREER_GOAL_TOPICS.values()) - {None} - set(EXERCISE_TOPICS):  # pragma: no cover
     raise RuntimeError("a career goal points at a topic that is not in the topic list")
@@ -231,40 +212,6 @@ def canonical_career_goal(text: str) -> str | None:
 def canonical_event_type(text: str) -> str | None:
     """Ann's spelling of an event type, or ``None``."""
     return _lookup(_EVENT_TYPES, text)
-
-
-def event_type_is_exploratory(event_type: str) -> bool:
-    """Whether an event of this type is a broad exploratory event (OQ-CE-14).
-
-    Args:
-        event_type: An event type, in any spelling the fold accepts.
-
-    Returns:
-        ``True`` for a company talk, an industry panel or a career fair.
-
-    Raises:
-        KeyError: for a type that is not one of Ann's. Ingest refuses such a
-            type, so only a caller holding text from somewhere else reaches
-            this, and it decides what an unknown type means.
-    """
-    label = canonical_event_type(event_type)
-    if label is None:
-        raise KeyError("event type is not one of the exercise's event types")
-    return EXERCISE_EVENT_TYPES[label]
-
-
-def goal_is_undecided(career_goal: str | None) -> bool:
-    """Whether a stored career goal is Ann's ``Undecided`` (OQ-CE-14).
-
-    The flag the matching factor and the results rule read beside
-    :func:`goal_topic_for_matching`, so the two agree on who is undecided. The
-    label is matched through the same fold as every other term, so any stored
-    spelling of ``Undecided`` counts. A dataset stored before revision 0043 has
-    no exploratory event, so the flag changes nothing for it.
-    """
-    if career_goal is None:
-        return False
-    return canonical_career_goal(career_goal) == UNDECIDED_CAREER_GOAL
 
 
 def career_goal_topic(career_goal: str) -> str | None:

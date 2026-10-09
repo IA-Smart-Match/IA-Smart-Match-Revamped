@@ -34,17 +34,15 @@
  * it; the module boundary does not cross.
  */
 import * as React from "react";
-import { Link2 } from "lucide-react";
+import { Link2, MailX, Sparkles } from "lucide-react";
 import { motion } from "motion/react";
 
 import { cn } from "../../components/ui/utils";
-import { type ListEntryView, UNDECIDED_GOAL_HALF_LABEL_KEY } from "../../../lib/exerciseClient";
+import type { ListEntryView } from "../../../lib/exerciseClient";
 import { CE_MOTION_MS, MarkerChip, ceMotion, usePrefersReducedMotion } from "./desk";
 import { EmptySlotArt } from "./EmptySlotArt";
+import { STOPPED_RESPONDING, refreshMarkLabel } from "./refreshWording";
 import { useNarrowViewport } from "./useNarrowViewport";
-
-/** The rulebook key for "career goal fits this event". Never rendered. */
-const CAREER_GOAL_FIT = "career_goal_fit";
 
 export interface RankedListProps {
   readonly entries: readonly ListEntryView[];
@@ -59,6 +57,11 @@ export interface RankedListProps {
    * cards — the compare view's half-width columns (§6.12).
    */
   readonly layout?: "auto" | "cards";
+  /**
+   * The first round's event name, from the same list response, so a
+   * `new_event` mark can say "New: went to Northline". `null` names no event.
+   */
+  readonly firstRoundEventName?: string | null;
 }
 
 /**
@@ -97,6 +100,7 @@ export function RankedList({
   highlightProfileNos,
   caption,
   layout = "auto",
+  firstRoundEventName = null,
 }: RankedListProps): React.JSX.Element {
   const narrow = useNarrowViewport();
   const reduced = usePrefersReducedMotion();
@@ -151,6 +155,7 @@ export function RankedList({
                 <div className="flex flex-wrap items-center gap-ce-2">
                   <span className="ce-type-body font-semibold text-ce-ink">{entry.display_name}</span>
                   {state.onBoth ? <OnBothChip /> : null}
+                  <RefreshMarkChips marks={entry.refresh_marks} eventName={firstRoundEventName} />
                 </div>
                 <ReasonLines entry={entry} labels={factorLabels} />
                 <p className="ce-type-meta text-ce-ink-muted">
@@ -219,6 +224,7 @@ export function RankedList({
                   <div className="flex flex-wrap items-center gap-ce-2">
                     <span className="font-semibold">{entry.display_name}</span>
                     {state.onBoth ? <OnBothChip /> : null}
+                    <RefreshMarkChips marks={entry.refresh_marks} eventName={firstRoundEventName} />
                   </div>
                   <ReasonLines entry={entry} labels={factorLabels} />
                 </td>
@@ -249,6 +255,48 @@ function OnBothChip(): React.JSX.Element {
   );
 }
 
+/**
+ * What this team's refresh changed about a profile (§6.7), beside the name:
+ * "New card", "New: went to Northline", "Stopped responding". An icon and
+ * words on a ruled pill, never colour alone; a profile may carry several.
+ * Nothing is drawn before the refresh, when the server sends no marks.
+ */
+function RefreshMarkChips({
+  marks,
+  eventName,
+}: {
+  readonly marks: readonly string[] | undefined;
+  readonly eventName: string | null;
+}): React.JSX.Element | null {
+  if (marks === undefined || marks.length === 0) {
+    return null;
+  }
+  return (
+    <>
+      {marks.map((mark) => {
+        const stopped = mark === STOPPED_RESPONDING;
+        const Icon = stopped ? MailX : Sparkles;
+        return (
+          <span
+            key={mark}
+            data-slot="exercise-refresh-mark"
+            data-mark={mark}
+            className={cn(
+              "ce-type-meta inline-flex items-center gap-ce-1 rounded-ce-pill border px-ce-2 text-ce-ink",
+              stopped
+                ? "border-ce-line-strong bg-ce-surface-sunk"
+                : "border-ce-primary bg-ce-primary-tint",
+            )}
+          >
+            <Icon aria-hidden="true" className="size-4 shrink-0" />
+            {refreshMarkLabel(mark, eventName)}
+          </span>
+        );
+      })}
+    </>
+  );
+}
+
 /** The server's reason, verbatim (OQ-CE-12), then what counted in Ann's words. */
 function ReasonLines({
   entry,
@@ -260,11 +308,7 @@ function ReasonLines({
   return (
     <>
       <p className="ce-type-reason mt-ce-1 text-ce-ink-muted">{entry.reason}</p>
-      <FactorNames
-        keys={entry.contributing_factor_keys}
-        labels={labels}
-        undecidedGoalHalf={entry.undecided_goal_half}
-      />
+      <FactorNames keys={entry.contributing_factor_keys} labels={labels} />
     </>
   );
 }
@@ -275,31 +319,16 @@ function ReasonLines({
  * A key with no label in `factor_labels` is dropped rather than printed raw:
  * showing `past_event_topic_overlap` to a marketing class would be showing a
  * column name, which is the thing §16 is asking not to happen.
- *
- * **The Undecided half (D2).** When `undecided_goal_half` is set, the
- * career-goal factor counted only because an undecided goal suits a broad
- * event. Printing "career goal fits this event" next to an "Undecided" card
- * would say the opposite, so that one factor takes the server's own words for
- * the half instead: the `factor_labels` entry under
- * `UNDECIDED_GOAL_HALF_LABEL_KEY`. Like any key without a label, it is dropped
- * if the server sends none — never replaced by the goal-fit label. The weight
- * slider's label is unchanged: it names the factor, not this person.
  */
 function FactorNames({
   keys,
   labels,
-  undecidedGoalHalf,
 }: {
   readonly keys: readonly string[];
   readonly labels: Readonly<Record<string, string>>;
-  readonly undecidedGoalHalf: boolean;
 }): React.JSX.Element | null {
   const named = keys
-    .map((key) =>
-      undecidedGoalHalf && key === CAREER_GOAL_FIT
-        ? labels[UNDECIDED_GOAL_HALF_LABEL_KEY]
-        : labels[key],
-    )
+    .map((key) => labels[key])
     .filter((label): label is string => label !== undefined);
   if (named.length === 0) {
     return null;

@@ -1,6 +1,6 @@
 /**
  * The instructor's two class-wide actions: open or close results for an event,
- * and ask for every team at once. Moved out of `ExerciseInstructor.tsx` unchanged in
+ * and refresh every team at once. Moved out of `ExerciseInstructor.tsx` unchanged in
  * behaviour for the invitation-desk layout (DESIGN.md §6.24, §7.11).
  */
 import * as React from "react";
@@ -15,11 +15,13 @@ import {
   type InstructorEventView,
   type RefreshAllView,
 } from "../../../lib/exerciseClient";
+import { refreshAllHeadline, refreshAllTeamLine } from "./refreshWording";
 import { cn } from "../../components/ui/utils";
 import { Button, Notice } from "./desk";
 import { EventDescription } from "./EventDescription";
 import { ExerciseNotice } from "./ExerciseScreen";
 import { clockTime } from "./exerciseTime";
+import { useInlineConfirmGuard } from "./inlineConfirmGuard";
 import { useSignOutOnExpiredRead } from "./instructorSession";
 import { INSTRUCTOR_WELL, PanelCard, PanelSkeleton } from "./instructorUi";
 import { INSTRUCTOR_SESSION_REQUIRED, TEAMS_SPAN_DATASETS } from "./refusals";
@@ -244,6 +246,10 @@ export function UnlockPanel({
  * changes, focus lands on the event's name, which takes focus only from code:
  * never on the opposite action, so a repeated Enter cannot undo what was just
  * done.
+ *
+ * Because focus moves to the confirming button, the press that asked must not
+ * also answer: a held Enter or Space is ignored there, and so is a press in
+ * the first moments after the question opens (`useInlineConfirmGuard`).
  */
 function UnlockRow({
   event,
@@ -272,6 +278,7 @@ function UnlockRow({
   const asking: LockAction | null =
     confirming === null ? null : (confirming === "open") === !event.unlocked ? confirming : null;
   const was = React.useRef({ asking, unlocked: event.unlocked });
+  const guard = useInlineConfirmGuard(asking !== null);
 
   React.useEffect(() => {
     const before = was.current;
@@ -371,7 +378,12 @@ function UnlockRow({
               pendingLabel={asking === "open" ? "Opening…" : "Closing…"}
               disabled={disabled && !pending}
               className="w-full sm:w-auto"
-              onClick={() => onConfirm(asking)}
+              onKeyDown={guard.onKeyDown}
+              onClick={() => {
+                if (!guard.tooSoon()) {
+                  onConfirm(asking);
+                }
+              }}
             >
               {asking === "open" ? "Open results now" : "Close results now"}
             </Button>
@@ -425,12 +437,44 @@ const SPLIT_ACROSS_FILES =
   "The teams are working in more than one data file. Under Data files, press " +
   "“Move every team to this file” on the file the class should use. This list reads again on its own once they move.";
 
+/** What the every-team button does, on the button itself (DESIGN.md §11.1). */
+export const REFRESH_ALL_LABEL = "Refresh every team that has chosen how to ask";
+
+/** What the every-team button asks before it sends anything (issue #321). */
+export const REFRESH_ALL_QUESTION =
+  "Refresh every team that has chosen how to ask? Each of those teams is refreshed once, " +
+  "and that cannot be undone or done again. Teams that have not chosen, and teams already " +
+  "refreshed, are not changed.";
+
 /**
- * Refresh every team that has chosen and has not yet asked.
+ * Refresh every team that has chosen a way of asking and is not refreshed yet.
  *
- * It refreshes every team that has chosen a way of asking and has not yet
- * asked, skipping the rest, and reports both counts. An expired session signs
- * the page out.
+ * Ann's review of 2026-10-02: the button's label "should say what it does",
+ * and after running it "says … which teams were refreshed and which were
+ * skipped and why", with "the same kind of summary for each team". So the
+ * label names the action, and the answer is one line per team: the team's own
+ * refresh summary, or the reason it was skipped. The server sends an outcome,
+ * a reason code, a time and counts; `refreshWording.ts` writes the words.
+ *
+ * It is one request and all or nothing: if it is refused, no team is changed.
+ * An expired session signs the page out.
+ *
+ * **It asks first, in the panel** (issue #321; Ann, 2026-10-02: buttons that
+ * change work for everyone "ask “Are you sure?” first, and say exactly what
+ * will change"). The button opens the question in a sunk well, as opening
+ * results does: the scope sentence, "Refresh them now" and "Not yet". Only
+ * "Refresh them now" reaches `send`, the one place the request is made.
+ * "Not yet" and Escape put the button back and send nothing. No pop-up, and
+ * no timer: the sentence is too long to read against a five-second window.
+ *
+ * **The press that asks cannot also answer.** Focus moves to "Refresh them
+ * now", so a held Enter or Space is ignored there, and so is any press in the
+ * first moments after the question opens (`useInlineConfirmGuard`).
+ *
+ * **The question is read with its answer.** The well is a group named by the
+ * scope sentence, so a screen reader that lands on "Refresh them now" reads
+ * what it will change first. Named once: the sentence is not also the
+ * button's description, and it is not a live region.
  */
 export function RefreshAllPanel({
   onDone,
@@ -443,60 +487,134 @@ export function RefreshAllPanel({
   const [pending, setPending] = React.useState(false);
   const [done, setDone] = React.useState<RefreshAllView | null>(null);
   const [refusal, setRefusal] = React.useState<string | null>(null);
+  /** The question is on screen and nothing has been sent. */
+  const [confirming, setConfirming] = React.useState(false);
+  const askButton = React.useRef<HTMLButtonElement>(null);
+  const confirmButton = React.useRef<HTMLButtonElement>(null);
+  const wasConfirming = React.useRef(false);
+  const guard = useInlineConfirmGuard(confirming);
+  const questionId = React.useId();
+
+  // Focus is never dropped (§8.5): to the confirming button when the
+  // question appears, back to the panel's own button when it goes.
+  React.useEffect(() => {
+    if (confirming && !wasConfirming.current) {
+      confirmButton.current?.focus();
+    } else if (!confirming && wasConfirming.current && focusWasDropped()) {
+      askButton.current?.focus();
+    }
+    wasConfirming.current = confirming;
+  }, [confirming]);
+
+  function send(): void {
+    setPending(true);
+    setRefusal(null);
+    refreshAllWorkspaces()
+      .then((view) => {
+        setDone(view);
+        onDone();
+      })
+      .catch((error: unknown) => {
+        setRefusal(isRefusal(error) ? error.message : UNREACHABLE);
+        if (isRefusal(error) && error.code === INSTRUCTOR_SESSION_REQUIRED) {
+          onSignedOut();
+        }
+      })
+      .finally(() => setPending(false));
+  }
 
   return (
-    <PanelCard title="Ask for every team at once">
+    <PanelCard title="Refresh every team at once" slot="exercise-instructor-refresh-all">
       <p className="ce-type-body ce-measure text-ce-ink-muted">
-        This runs in one go for every team that has picked a way of asking and has not asked yet. If
-        it cannot be done, no team is changed.
+        This refreshes, in one go, every team that has chosen a way of asking and has not been
+        refreshed yet. Teams that are not ready are skipped, and the list below says why. If it
+        cannot be done, no team is changed.
       </p>
-      <div>
-        <Button
-          variant="secondary"
-          pending={pending}
-          pendingLabel="Asking for every team…"
-          className="w-full sm:w-auto"
-          onClick={() => {
-            setPending(true);
-            setRefusal(null);
-            refreshAllWorkspaces()
-              .then((view) => {
-                setDone(view);
-                onDone();
-              })
-              .catch((error: unknown) => {
-                setRefusal(isRefusal(error) ? error.message : UNREACHABLE);
-                if (isRefusal(error) && error.code === INSTRUCTOR_SESSION_REQUIRED) {
-                  onSignedOut();
-                }
-              })
-              .finally(() => setPending(false));
+      {confirming ? (
+        <div
+          data-slot="exercise-refresh-all-confirm"
+          role="group"
+          aria-labelledby={questionId}
+          className={cn(INSTRUCTOR_WELL, "ce-fade-rise flex flex-col gap-ce-3")}
+          onKeyDown={(keyEvent) => {
+            if (keyEvent.key === "Escape") {
+              keyEvent.preventDefault();
+              setConfirming(false);
+            }
           }}
         >
-          Ask for every team
-        </Button>
-      </div>
+          <p id={questionId} className="ce-type-body text-ce-ink">
+            {REFRESH_ALL_QUESTION}
+          </p>
+          <div className="flex flex-wrap items-center gap-ce-3">
+            <Button
+              ref={confirmButton}
+              className="w-full sm:w-auto"
+              onKeyDown={guard.onKeyDown}
+              onClick={() => {
+                if (guard.tooSoon()) {
+                  return;
+                }
+                setConfirming(false);
+                send();
+              }}
+            >
+              Refresh them now
+            </Button>
+            <Button variant="quiet" onClick={() => setConfirming(false)}>
+              Not yet
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div>
+          <Button
+            ref={askButton}
+            variant="secondary"
+            pending={pending}
+            pendingLabel="Refreshing every team…"
+            className="w-full sm:w-auto"
+            onClick={() => setConfirming(true)}
+          >
+            {REFRESH_ALL_LABEL}
+          </Button>
+        </div>
+      )}
       {refusal === null ? null : <ExerciseNotice message={refusal} />}
-      {done === null ? null : <Notice tone="done" message={refreshAllSentence(done)} />}
+      {done === null ? null : <RefreshAllReport done={done} />}
     </PanelCard>
   );
 }
 
 /**
- * "Asked for 1 team (2). Skipped 1: that team has not run results…".
- *
- * A chosen team with no round-one run is what the server skips. (It also
- * skips, rarely, a team that asked by itself in the same moment; that team
- * already shows "Has already asked" in the Teams panel.)
+ * What the every-team refresh did: a headline, then one line per team in the
+ * Teams panel's order. The team's name leads each line in bold so a row can be
+ * found by eye; the reason is words, never a colour.
  */
-function refreshAllSentence(done: RefreshAllView): string {
-  const numbers =
-    done.refreshed_team_numbers.length === 0 ? "" : ` (${done.refreshed_team_numbers.join(", ")})`;
-  const why =
-    done.skipped === 0
-      ? "."
-      : done.skipped === 1
-        ? ": that team has not run results for its first event yet."
-        : ": those teams have not run results for their first event yet.";
-  return `Asked for ${done.refreshed} ${done.refreshed === 1 ? "team" : "teams"}${numbers}. Skipped ${done.skipped}${why}`;
+function RefreshAllReport({ done }: { readonly done: RefreshAllView }): React.JSX.Element {
+  const teams = done.teams ?? [];
+  // A file's label is not unique, so the label says nothing about how many
+  // files there are. A repeated team number is what needs telling apart.
+  const repeated = new Set(teams.map((team) => team.team_number)).size < teams.length;
+  return (
+    <Notice tone="done" message={refreshAllHeadline(done)}>
+      {teams.length === 0 ? undefined : (
+        <ul data-slot="exercise-refresh-all-teams" className="ce-type-body flex flex-col gap-ce-2">
+          {teams.map((team, index) => {
+            const line = refreshAllTeamLine(team, { nameFile: repeated });
+            return (
+              <li
+                // The report is one fixed answer, so its order is its identity.
+                key={index}
+                data-outcome={team.outcome}
+                data-reason={team.reason_code ?? undefined}
+              >
+                <span className="font-semibold">{line.team}</span> {line.what}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </Notice>
+  );
 }

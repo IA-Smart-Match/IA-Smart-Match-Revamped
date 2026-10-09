@@ -455,7 +455,7 @@ _BASE = "/v1/exercise/workspaces/current"
 _LIST = f"{_BASE}/events/northline/list"
 _SETTINGS = f"{_BASE}/events/northline/settings"
 _HEADER = {EXERCISE_REQUEST_HEADER: "1"}
-_WEIGHTS = {"same_major": 0.5, "stated_interest_overlap": 0.5}
+_WEIGHTS = {"same_major": 5, "stated_interest_overlap": 5}
 
 
 # ---------------------------------------------------------------------------
@@ -682,7 +682,8 @@ def test_the_coverage_notice_names_a_group_with_nobody_on_the_list(
     client: TestClient,
 ) -> None:
     """The #161 notice, composed from ``find_uncovered_groups`` rather than redone."""
-    body = client.get(_LIST, params={"same_major": 1.0}).json()
+    major_only = {**dict.fromkeys(EXERCISE_DEFAULT_WEIGHTS, 0), "same_major": 1}
+    body = client.get(_LIST, params=major_only).json()
     coverage = body["composition"]["coverage"]
     listed_majors = {entry["major"] for entry in body["entries"]}
     uncovered = {
@@ -696,7 +697,10 @@ def test_an_overlay_changes_only_that_teams_view(fakes: _Fakes) -> None:
     """Design spec §2: a team's view is base ⟕ overlay, and the overlay is keyed."""
     with _entered(fakes, 4) as team_four, _entered(fakes, 5) as team_five:
         workspace = fakes.workspaces.rows[(_DATASET_ID, 4)]
-        base = _PROFILES[2]
+        # Bao Nguyen: a Senior, so on the list of four for both teams whatever
+        # the overlay says. A Junior with no card is one of four names tied for
+        # three places now that one shared interest is a whole fit.
+        base = _PROFILES[1]
         fakes.team_view.overlays[(workspace.id, base.profile_no)] = replace(
             base,
             overlay_card_interests=("analytics", "brand"),
@@ -705,7 +709,7 @@ def test_an_overlay_changes_only_that_teams_view(fakes: _Fakes) -> None:
         four = client_marker(team_four, base.profile_no)
         five = client_marker(team_five, base.profile_no)
     assert four == "completed_card"
-    assert five == "major_only"
+    assert five == "major_plus_events"
 
 
 def client_marker(client: TestClient, profile_no: int) -> str | None:
@@ -744,11 +748,23 @@ def test_saving_over_a_name_the_team_already_has_is_allowed(client: TestClient) 
     """Three names is a cap on names, not on saves."""
     for name in ("broad", "narrow", "balanced"):
         _save(client, name)
-    again = _save(client, "narrow", {"same_major": 0.9})
+    again = _save(client, "narrow", {"same_major": 9})
     assert again.status_code == 200
     stored = {setting["name"]: setting["weights"] for setting in again.json()["settings"]}
-    assert stored["narrow"] == {"same_major": 0.9}
+    assert stored["narrow"] == {
+        "same_major": 9,
+        "stated_interest_overlap": 3,
+        "career_goal_fit": 2,
+        "past_event_topic_overlap": 2,
+    }
     assert len(stored) == MAX_SAVED_SETTINGS_PER_EVENT
+
+
+def test_a_new_weight_must_be_a_whole_number_up_to_10(client: TestClient) -> None:
+    for name, weight in (("frac", 0.5), ("big", 11)):
+        refused = _save(client, name, {"same_major": weight})
+        assert refused.status_code == 422
+        assert "whole number from 0 to 10" in refused.text
 
 
 def test_deleting_one_frees_a_slot(client: TestClient) -> None:
@@ -1705,3 +1721,36 @@ def test_the_sequence_of_profiles_a_list_is_built_from_is_the_files_order() -> N
     rankable = rankable_set(_PROFILES, _EVENTS)
     assert [profile.profile_no for profile in rankable.profiles] == [1, 2, 3, 4, 5, 6, 7]
     assert rankable.unrankable_profile_count == 1
+
+
+def test_stored_weights_fill_a_legacy_partial_row_with_a_quarter() -> None:
+    from smartmatch_api.routers.exercise_matching_weights import stored_weights
+
+    filled = stored_weights({"same_major": 0.5})
+    assert filled["same_major"] == 0.5
+    assert sorted(filled.values()) == [0.25, 0.25, 0.25, 0.5]
+    assert set(stored_weights({}).values()) == {0.25}
+
+
+def test_a_saved_card_shows_a_missing_weight_as_the_quarter_it_ranked_with(
+    fakes: _Fakes, client: TestClient
+) -> None:
+    workspace = fakes.workspaces.rows[(_DATASET_ID, 1)]
+    fakes.settings.rows[(workspace.id, "northline", "old")] = SavedSetting(
+        event_key="northline",
+        name="old",
+        weights={"same_major": 0.5},
+        created_at=datetime(2026, 9, 19, 12, 0, tzinfo=UTC),
+    )
+    (card,) = client.get(_SETTINGS).json()["settings"]
+    assert card["weights"]["same_major"] == 0.5
+    assert card["weights"]["stated_interest_overlap"] == 0.25
+
+
+def test_the_list_query_string_refuses_a_fraction_and_a_value_above_10(
+    client: TestClient,
+) -> None:
+    for weight in (0.5, 11):
+        refused = client.get(_LIST, params={"same_major": weight})
+        assert refused.status_code == 422
+        assert "whole number from 0 to 10" in refused.text

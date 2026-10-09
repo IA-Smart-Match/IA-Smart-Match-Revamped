@@ -88,7 +88,10 @@ from smartmatch_api.exercise_dependencies import (
     require_exercise_request_header,
 )
 from smartmatch_api.exercise_errors import ExerciseError
-from smartmatch_api.routers.exercise_matching_models import event_or_refusal
+from smartmatch_api.routers.exercise_matching_models import (
+    event_or_refusal,
+    first_round_event,
+)
 from smartmatch_api.routers.exercise_results_models import (
     FIRST_ROUND,
     AskingChoiceRequest,
@@ -97,11 +100,12 @@ from smartmatch_api.routers.exercise_results_models import (
     ResultsView,
     RunResultsRequest,
     asking_state_view,
+    refresh_counts_view,
     stored_results_view,
 )
 from smartmatch_api.routers.exercise_results_refresh import (
-    refresh_counts_from_view,
     refresh_one_team,
+    refresh_report,
 )
 from smartmatch_api.routers.exercise_results_run import (
     coefficients_or_refusal,
@@ -339,6 +343,7 @@ def read_results(
 def read_asking_choice(
     session: ExerciseSession,
     workspace: CurrentWorkspace,
+    datasets: DatasetRepository,
     results: ResultsRepository,
     team_view: TeamViewRepository,
 ) -> AskingStateView:
@@ -348,24 +353,61 @@ def read_asking_choice(
     offered rather than writing them into a component, which is the same reason
     the settings route returns ``max_settings``.
 
-    ``refresh_counts`` is what the refresh changed, read back from the team's
-    view, so it survives a reload and reaches a team the instructor refreshed.
+    ``first_round_results`` says whether the choice may be made yet, so a screen
+    offers it only then instead of offering a press that would be refused.
+
+    ``refreshed_at`` and ``refresh_counts`` are when the refresh happened and
+    what it changed, read back from the team's stored state and its own view, so
+    both survive a reload and reach a team the instructor refreshed.
 
     Raises:
         ExerciseError: 401 when the cookie is absent or names no workspace.
     """
     team_state = _team_state_or_refusal(session, results, workspace)
-    refreshed = team_state.refreshed_at is not None
-    counts = (
-        refresh_counts_from_view(
+    first_round = results.get_run_for_round(
+        session, workspace_id=workspace.id, round_number=FIRST_ROUND
+    )
+    return _asking_view(
+        session,
+        workspace,
+        datasets=datasets,
+        team_view=team_view,
+        team_state=team_state,
+        first_round=first_round,
+    )
+
+
+def _asking_view(
+    session: ExerciseSession,
+    workspace: ExerciseWorkspace,
+    *,
+    datasets: DatasetRepository,
+    team_view: TeamViewRepository,
+    team_state: TeamResultsState,
+    first_round: StoredResultRun | None,
+) -> AskingStateView:
+    """One team's asking state, built the same way for the read and the choice.
+
+    The report needs the round-one invited list. A refreshed team always has
+    one — the refresh is refused without it — so the guard on ``first_round``
+    below is for a row nothing in this product writes.
+    """
+    event = first_round_event(datasets.list_events(session, dataset_id=workspace.dataset_id))
+    report = None
+    if team_state.refreshed_at is not None and first_round is not None:
+        report = refresh_report(
             team_view.list_team_profiles(
                 session, dataset_id=workspace.dataset_id, workspace_id=workspace.id
-            )
+            ),
+            first_round.team.invited_profile_nos,
         )
-        if refreshed
-        else None
+    return asking_state_view(
+        team_state.asking_choice,
+        refreshed_at=team_state.refreshed_at,
+        first_round_results=first_round is not None,
+        first_round_event_name=None if event is None else event.name,
+        report=report,
     )
-    return asking_state_view(team_state.asking_choice, refreshed=refreshed, counts=counts)
 
 
 @router.post(
@@ -378,6 +420,8 @@ def choose_asking(
     payload: AskingChoiceRequest,
     session: ExerciseSession,
     workspace: CurrentWorkspace,
+    datasets: DatasetRepository,
+    team_view: TeamViewRepository,
     results: ResultsRepository,
 ) -> AskingStateView:
     """Store your team's one choice of how to ask, which unlocks the refresh.
@@ -388,12 +432,24 @@ def choose_asking(
     refused rather than quietly replacing the first, because the share it decides
     is what the refresh then applies.
 
+    **Only after the first round's results** (Ann, 2026-10-02: "the choice
+    appears only after the team has its round-one results"). The choice is about
+    the people the team invited, and until round one has run there are none. An
+    unknown choice is still answered first, so a client that sends nonsense is
+    told that rather than told to run results.
+
     Raises:
         ExerciseError: 401 without a workspace cookie, 403 without the
-            ``X-Exercise-Request`` header, 409 when this team has already chosen,
-            422 for a choice that is not one of the three.
+            ``X-Exercise-Request`` header, 409 when this team has not run the
+            first round's results or has already chosen, 422 for a choice that
+            is not one of the three.
     """
     choice = _choice_or_refusal(payload.choice)
+    first_round = results.get_run_for_round(
+        session, workspace_id=workspace.id, round_number=FIRST_ROUND
+    )
+    if first_round is None:
+        raise _no_first_round_results()
     if not results.choose_asking(session, workspace_id=workspace.id, choice=choice.value):
         raise ExerciseError(
             status_code=status.HTTP_409_CONFLICT,
@@ -401,9 +457,13 @@ def choose_asking(
             message="Your team has already chosen how to ask.",
         )
     session.commit()
-    team_state = _team_state_or_refusal(session, results, workspace)
-    return asking_state_view(
-        team_state.asking_choice, refreshed=team_state.refreshed_at is not None
+    return _asking_view(
+        session,
+        workspace,
+        datasets=datasets,
+        team_view=team_view,
+        team_state=_team_state_or_refusal(session, results, workspace),
+        first_round=first_round,
     )
 
 
@@ -470,17 +530,14 @@ def refresh_profiles(
         session, workspace_id=workspace.id, round_number=FIRST_ROUND
     )
     if first_round is None:
-        raise ExerciseError(
-            status_code=status.HTTP_409_CONFLICT,
-            code="exercise_no_first_round_results",
-            message="Run the first round's results before asking.",
-        )
+        raise _no_first_round_results()
     events = datasets.list_events(session, dataset_id=workspace.dataset_id)
     event = event_or_refusal(events, first_round.event_key)
     profiles = team_view.list_team_profiles(
         session, dataset_id=workspace.dataset_id, workspace_id=workspace.id
     )
     choice = AskingChoice(team_state.asking_choice)
+    now = utc_now()
     applied = refresh_one_team(
         session,
         results,
@@ -492,17 +549,36 @@ def refresh_profiles(
         invited_profile_nos=first_round.team.invited_profile_nos,
         attended_profile_nos=first_round.team.attended_profile_nos,
         added_topics=event.topic_tags,
-        now=utc_now(),
+        now=now,
     )
     if applied is None:
         raise _already_refreshed()
     _, counts = applied
+    # Read back rather than worked out from the plan, so what this answer says
+    # and what every later read of the asking state says are one derivation.
+    report = refresh_report(
+        team_view.list_team_profiles(
+            session, dataset_id=workspace.dataset_id, workspace_id=workspace.id
+        ),
+        first_round.team.invited_profile_nos,
+    )
     session.commit()
     return RefreshView(
         choice=choice.value,
         cards_completed=counts.cards_completed,
         non_responding=counts.non_responding,
         topics_added=counts.topics_added,
+        refreshed_at=now,
+        refresh_counts=refresh_counts_view(report),
+    )
+
+
+def _no_first_round_results() -> ExerciseError:
+    """One sentence for a choice or a refresh that came before round one's results."""
+    return ExerciseError(
+        status_code=status.HTTP_409_CONFLICT,
+        code="exercise_no_first_round_results",
+        message="Run the first round's results before asking.",
     )
 
 
