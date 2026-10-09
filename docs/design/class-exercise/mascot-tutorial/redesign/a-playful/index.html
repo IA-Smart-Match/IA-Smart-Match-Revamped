@@ -1,0 +1,350 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Playful Learning Mockup</title>
+<meta name="description" content="Direction A of the SmartMatch class-exercise redesign: one decision per screen, a progress path, chunky buttons and Bree the mascot on every screen. Mockup for owner review, not app code.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600&family=Nunito:wght@500;600;700;800&display=swap" rel="stylesheet">
+<link rel="preload" as="image" href="../../mockup/assets/pose1-guide.webp" type="image/webp">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <!-- Icons: Lucide geometry (the app's icon set), stroke 2.2. -->
+  <symbol id="i-left" viewBox="0 0 24 24"><path d="m12 19-7-7 7-7M19 12H5"/></symbol>
+  <symbol id="i-right" viewBox="0 0 24 24"><path d="M5 12h14m-7-7 7 7-7 7"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+  <symbol id="i-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="i-dots" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4m4-5 5 5 5-5m-5 5V3"/></symbol>
+  <symbol id="i-users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
+  <symbol id="i-link" viewBox="0 0 24 24"><path d="M9 17H7A5 5 0 0 1 7 7h2M15 7h2a5 5 0 1 1 0 10h-2M8 12h8"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
+  <symbol id="i-unlock" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></symbol>
+  <symbol id="i-cap" viewBox="0 0 24 24"><path d="M22 10 12 5 2 10l10 5 10-5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></symbol>
+  <symbol id="i-heart" viewBox="0 0 24 24"><path d="M19 14c1.5-1.5 3-3.2 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.8 0-3 .5-4.5 2-1.5-1.5-2.7-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4 3 5.5l7 7z"/></symbol>
+  <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></symbol>
+  <symbol id="i-calendar" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></symbol>
+  <symbol id="i-circle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/></symbol>
+  <symbol id="i-calcheck" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18M9 16l2 2 4-4"/></symbol>
+  <symbol id="i-idcard" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2"/><circle cx="8" cy="12" r="2"/><path d="M14 10h4M14 14h4M5 16.5c.8-1.2 1.8-1.8 3-1.8s2.2.6 3 1.8"/></symbol>
+  <symbol id="i-megaphone" viewBox="0 0 24 24"><path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></symbol>
+  <symbol id="i-gift" viewBox="0 0 24 24"><rect x="3" y="8" width="18" height="4" rx="1"/><path d="M12 8v13M19 12v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-7M7.5 8a2.5 2.5 0 0 1 0-5C11 3 12 8 12 8s1-5 4.5-5a2.5 2.5 0 0 1 0 5"/></symbol>
+  <symbol id="i-clip" viewBox="0 0 24 24"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2M9 14l2 2 4-4"/></symbol>
+  <symbol id="i-laptop" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="11" rx="2"/><path d="M2 20h20M9 9l-2 2 2 2M15 9l2 2-2 2"/></symbol>
+  <symbol id="i-bag" viewBox="0 0 24 24"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4zM3 6h18M16 10a4 4 0 0 1-8 0"/></symbol>
+  <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M21 4h-7M10 4H3M21 12h-9M8 12H3M21 20h-5M12 20H3M14 2v4M8 10v4M16 18v4"/></symbol>
+  <symbol id="i-flag" viewBox="0 0 24 24"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1zM4 22v-7"/></symbol>
+</svg>
+
+<!-- ============ Review bar: mockup chrome for the owner, not the app ============ -->
+<header class="review">
+  <div class="review__in">
+    <div class="review__title">Direction A · Playful Learning <span>· mockup for owner review, not the app</span></div>
+    <nav class="review__nav" aria-label="Mockup screens">
+      <button type="button" data-jump="entry">1 Team</button>
+      <button type="button" data-jump="events">2 Event</button>
+      <button type="button" data-jump="weights">3 Weights + list</button>
+      <button type="button" data-jump="compare">4 Compare</button>
+      <button type="button" data-jump="locked">5 Results closed</button>
+      <button type="button" data-jump="open">6 Results open</button>
+      <button type="button" data-jump="ask">7 Ask for more</button>
+      <button type="button" data-jump="done">8 Done</button>
+    </nav>
+    <details class="review__ctl">
+      <summary><svg class="icon" aria-hidden="true" style="width:18px;height:18px"><use href="#i-sliders"/></svg>Review</summary>
+      <div class="review__panel">
+        <div>
+          <h2>States to check</h2>
+          <div class="chips">
+            <button type="button" class="chip-btn" data-state="loading">List loading</button>
+            <button type="button" class="chip-btn" data-state="error">Gentle error</button>
+            <button type="button" class="chip-btn" data-state="empty">Empty compare</button>
+            <button type="button" class="chip-btn" data-state="none">Normal</button>
+          </div>
+        </div>
+        <div>
+          <h2>Tour and display</h2>
+          <div class="chips">
+            <button type="button" class="chip-btn" id="rv-tour">Replay tour</button>
+            <button type="button" class="chip-btn" id="rv-forget">Forget "seen"</button>
+            <button type="button" class="chip-btn" id="rv-theme">Light / dark</button>
+            <button type="button" class="chip-btn" id="rv-rm" aria-pressed="false">Simulate reduced motion</button>
+          </div>
+        </div>
+      </div>
+    </details>
+  </div>
+</header>
+
+<!-- ============ Lesson bar: back, progress path, notices ============ -->
+<div class="lesson" id="lesson">
+  <div class="lesson__in">
+    <button type="button" class="icon-btn" id="back" aria-label="Back one step"><svg class="icon" aria-hidden="true"><use href="#i-left"/></svg></button>
+    <div class="path" data-tour="path">
+      <div class="path__track" role="progressbar" aria-label="Where you are in the exercise" aria-valuemin="1" aria-valuemax="6" aria-valuenow="1" aria-valuetext="Step 1 of 6: Team" id="path"><div class="path__fill" id="path-fill"></div></div>
+      <div class="path__label" id="path-label" aria-hidden="true">Step 1 of 6 · Team</div>
+    </div>
+    <div class="lesson__right">
+      <button type="button" class="pill pill--fiction" id="fiction-btn" aria-expanded="false" aria-controls="fiction-pop"><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg><span class="lbl">Fictional data</span><span class="sr-only">: about the data</span></button>
+      <span class="pill pill--team" id="team-pill" hidden>Team 4</span>
+      <button type="button" class="pill pill--tour" id="launcher" aria-label="Replay the tour"><img src="../../mockup/assets/face5-calm.webp" alt="" width="30" height="30"><span class="lbl">Tour</span></button>
+    </div>
+  </div>
+  <div class="popover" id="fiction-pop" role="note" hidden><strong>Fictional data</strong>All student profiles are fictional, shaped by overall survey percentages.</div>
+</div>
+
+<main class="app" id="app">
+
+  <!-- 1 Team entry -->
+  <section class="screen" data-screen="entry" aria-labelledby="h-entry">
+    <div class="coach coach--lg">
+      <div class="coach__art is-idle"><img src="../../mockup/assets/pose1-guide.webp" alt="" width="176" height="196"></div>
+      <p class="bubble" id="entry-bubble">Hi, I'm Bree. Your team is promoting a campus career event with 60 seats. Let's choose whom to invite.</p>
+    </div>
+    <h1 class="h1" id="h-entry" tabindex="-1">Which team are you?</h1>
+    <div class="tiles" role="radiogroup" aria-labelledby="h-entry" id="tiles" data-tour="teams"></div>
+    <p class="license">For California State Polytechnic University, Pomona — College of Business Administration instructional use only. All student profiles are fictional.</p>
+  </section>
+
+  <!-- 2 Event picker -->
+  <section class="screen" data-screen="events" aria-labelledby="h-events" hidden>
+    <div class="coach">
+      <div class="coach__art is-idle"><img src="../../mockup/assets/pose3-explore.webp" alt="" width="128" height="140" loading="lazy"></div>
+      <p class="bubble">Two events need guests. Each one gets its own list.</p>
+    </div>
+    <h1 class="h1" id="h-events" tabindex="-1">Choose an event</h1>
+    <div class="options" role="radiogroup" aria-labelledby="h-events" id="event-opts">
+      <div>
+        <button type="button" class="option" role="radio" aria-checked="false" data-event="northline" data-tour="event-1">
+          <span class="option__badge b-violet" aria-hidden="true"><svg class="icon"><use href="#i-laptop"/></svg></span>
+          <span><span class="option__title">Northline Analytics: Behind the Business</span><span class="option__line">Technology / information systems</span></span>
+          <span class="option__check" aria-hidden="true"><svg class="icon"><use href="#i-check"/></svg></span>
+        </button>
+        <p class="more" id="more-northline" hidden>Aimed at: Computer Information Systems</p>
+      </div>
+      <div>
+        <button type="button" class="option" role="radio" aria-checked="false" data-event="harbor">
+          <span class="option__badge b-coral" aria-hidden="true"><svg class="icon"><use href="#i-bag"/></svg></span>
+          <span><span class="option__title">Harbor Consumer Brands: Behind the Business</span><span class="option__line">Retail / consumer goods, Supply chain / logistics / operation</span></span>
+          <span class="option__check" aria-hidden="true"><svg class="icon"><use href="#i-check"/></svg></span>
+        </button>
+        <p class="more" id="more-harbor" hidden>Aimed at: International Business &amp; Marketing</p>
+      </div>
+    </div>
+    <div class="disclose">
+      <button type="button" class="link-btn" aria-expanded="false" aria-controls="past" id="past-btn">Show the 10 past events<svg class="icon" aria-hidden="true"><use href="#i-down"/></svg></button>
+      <div id="past" hidden>
+        <p class="small muted" style="margin:4px 0 0">You don't build a list for these. They are what “went to similar events before” reads.</p>
+        <ul class="past">
+          <li>Data Careers Panel</li><li>Retail Buyer Q&amp;A</li><li>Supply Chain Site Visit</li><li>Marketing Analytics Workshop</li><li>Resume Lab Night</li><li>Accounting Firms Meet-up</li><li>Startup Pitch Evening</li><li>HR Case Challenge</li><li>Global Trade Talk</li><li>Tech Sales Mixer</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- 3 Weights + list -->
+  <section class="screen screen--wide" data-screen="weights" aria-labelledby="h-weights" hidden>
+    <div class="head">
+      <h1 class="h1" id="h-weights" tabindex="-1">How much does each thing count?</h1>
+      <div class="coach coach--right">
+        <p class="bubble" id="w-bubble" aria-live="polite">The list is rebuilt when you let go of a slider or press Enter.</p>
+        <div class="coach__art is-idle" id="w-art"><img src="../../mockup/assets/pose4-worker.webp" alt="" width="128" height="140" loading="lazy"></div>
+      </div>
+    </div>
+    <div class="work">
+      <div class="card weights" data-tour="weights">
+        <div id="factors"></div>
+        <div class="total"><strong id="total">Total weight: 1.00</strong>What matters is how the weights compare: a factor set to 0.50 counts twice as much as one set to 0.25.</div>
+        <div class="oops" id="oops" role="alert" hidden><img src="../../mockup/assets/face2-surprised.webp" alt="" width="56" height="56"><span>All four weights are at 0, so nobody can be ranked. Move any slider above 0.</span></div>
+      </div>
+      <div class="card list" data-tour="list">
+        <div class="list__head">
+          <h2 class="h2">The list</h2>
+          <span class="count" title="Cut at 30 names, the limit set for this data file.">30 names · the invite limit</span>
+          <button type="button" class="btn btn--sky btn--sm" id="who-btn" aria-expanded="false" aria-controls="who" data-tour="who"><svg class="icon" aria-hidden="true" style="width:18px;height:18px"><use href="#i-users"/></svg>Who is on the list</button>
+          <div class="menu">
+            <button type="button" class="icon-btn" id="menu-btn" aria-label="More for this list" aria-expanded="false" aria-controls="menu"><svg class="icon" aria-hidden="true"><use href="#i-dots"/></svg></button>
+            <div class="menu__panel" id="menu" hidden><button type="button" id="dl-btn"><svg class="icon" aria-hidden="true"><use href="#i-download"/></svg>Download this list as a spreadsheet</button></div>
+          </div>
+        </div>
+        <div class="who" id="who" hidden>
+          <div class="tabs" role="tablist" aria-label="Count the list by">
+            <button type="button" role="tab" aria-selected="true" data-tab="know">How much we know</button>
+            <button type="button" role="tab" aria-selected="false" data-tab="major">Major</button>
+            <button type="button" role="tab" aria-selected="false" data-tab="year">Year</button>
+          </div>
+          <div id="who-body" role="tabpanel"></div>
+        </div>
+        <p class="status" id="list-status" aria-live="polite"></p>
+        <ol class="rows" id="rows" aria-label="The list, in order"></ol>
+        <div class="list__foot"><button type="button" class="link-btn" id="all-btn" aria-expanded="false">Show all 30<svg class="icon" aria-hidden="true"><use href="#i-down"/></svg></button></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4 Save and compare -->
+  <section class="screen screen--wide" data-screen="compare" aria-labelledby="h-compare" hidden>
+    <div class="head">
+      <h1 class="h1" id="h-compare" tabindex="-1">Compare two settings</h1>
+      <div class="coach coach--right coach--face">
+        <p class="bubble" id="cmp-bubble" aria-live="polite">Pick two saved settings. Names on both lists are marked.</p>
+        <div class="coach__art"><img src="../../mockup/assets/face3-curious.webp" alt="" width="92" height="92" loading="lazy"></div>
+      </div>
+    </div>
+    <div class="save-row" style="max-width:640px" data-tour="save">
+      <div class="field"><label for="save-name">Name these weights</label><input id="save-name" value="Major first" autocomplete="off"></div>
+      <button type="button" class="btn btn--ghost" id="save-btn">Save these weights</button>
+    </div>
+    <div class="slots" id="slots" role="group" aria-label="Saved settings to compare"></div>
+    <div id="cmp-body"></div>
+  </section>
+
+  <!-- 5/6 Results -->
+  <section class="screen" data-screen="results" aria-labelledby="h-results" hidden>
+    <div id="res-closed">
+      <div class="coach coach--lg">
+        <div class="coach__art is-idle"><img src="../../mockup/assets/pose2-chill.webp" alt="" width="176" height="196" loading="lazy"></div>
+        <p class="bubble">The instructor has not opened results for this event yet. I'll wait here with you.</p>
+      </div>
+      <h1 class="h1" id="h-results" tabindex="-1">Results are closed</h1>
+      <div class="card lockcard">
+        <div class="lock" id="lock"><svg class="icon" aria-hidden="true"><use href="#i-lock"/></svg><div class="burst" id="lock-burst" aria-hidden="true"></div></div>
+        <div><div class="h3">Northline Analytics</div><div class="muted">Your final setting is “Major first”. Each team gets one run.</div></div>
+      </div>
+      <div class="review-note"><button type="button" class="btn btn--review" id="unlock-btn">Mockup: the instructor opens results</button></div>
+    </div>
+  </section>
+
+  <section class="screen screen--wide" data-screen="open" aria-labelledby="h-open" hidden>
+    <div class="head">
+      <h1 class="headline num" id="h-open" tabindex="-1"><span><em>8</em> were already coming.</span> <span>Your invitations added <em>6</em>.</span> <span><em class="c">46</em> seats are still open.</span></h1>
+      <div class="coach coach--right">
+        <p class="bubble">Results are open. See who came, then talk with your team about why.</p>
+        <div class="coach__art is-idle"><img src="../../mockup/assets/pose3-explore.webp" alt="" width="128" height="140" loading="lazy"></div>
+      </div>
+    </div>
+    <div class="res">
+      <div class="card room">
+        <div class="front">Front of the room</div>
+        <div class="seats" id="seats" aria-hidden="true"></div>
+        <div class="legend"><span><i style="background:var(--seat-taken)"></i>Already coming</span><span><i style="background:var(--primary)"></i>Your invitations</span><span><i style="box-shadow:inset 0 0 0 2px var(--line-strong)"></i>Still open</span></div>
+      </div>
+      <div class="card vs" data-tour="vs">
+        <table>
+          <caption class="sr-only">Your team's list next to emailing everyone</caption>
+          <thead><tr><th scope="col"></th><th scope="col" class="team" style="text-align:right">Your team's list</th><th scope="col" style="text-align:right">If you emailed everyone</th></tr></thead>
+          <tbody>
+            <tr><th scope="row">Invited</th><td class="team">30</td><td>300</td></tr>
+            <tr><th scope="row">Signed up</th><td class="team">9</td><td>21</td></tr>
+            <tr><th scope="row">Attended</th><td class="team">6</td><td>9</td></tr>
+            <tr class="empty-row"><th scope="row">Seats still empty</th><td class="team">46</td><td>43</td></tr>
+          </tbody>
+        </table>
+        <button type="button" class="link-btn" aria-expanded="false" aria-controls="came" id="came-btn">See who came<svg class="icon" aria-hidden="true"><use href="#i-down"/></svg></button>
+        <div id="came" hidden>
+          <div class="small muted" style="font-weight:800">Attended · 6</div>
+          <div class="names"><span>Maya Tran</span><span>Omar Farouk</span><span>Wen Zhao</span><span>Priya Patel</span><span>Ravi Shah</span><span>Amara Nwosu</span></div>
+        </div>
+        <p class="small muted" style="margin:8px 0 0">Illustrative numbers in this mockup.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 7 Asking for more -->
+  <section class="screen" data-screen="ask" aria-labelledby="h-ask" hidden>
+    <div class="coach coach--face">
+      <div class="coach__art"><img src="../../mockup/assets/face5-calm.webp" alt="" width="92" height="92" loading="lazy"></div>
+      <p class="bubble">Ask the people your team invited to fill in a card. Your team picks once.</p>
+    </div>
+    <h1 class="h1" id="h-ask" tabindex="-1">How will your team ask?</h1>
+    <div class="options" role="radiogroup" aria-labelledby="h-ask" id="ask-opts" data-tour="ask">
+      <button type="button" class="option ask-card" role="radio" aria-checked="false" data-choice="Promise better recommendations.">
+        <span class="option__badge b-violet" aria-hidden="true"><svg class="icon"><use href="#i-megaphone"/></svg></span>
+        <span><span class="option__title">Promise better recommendations.</span><span class="option__line">Tell them a card helps us suggest events worth their evening.</span></span>
+        <span class="option__check" aria-hidden="true"><svg class="icon"><use href="#i-check"/></svg></span>
+      </button>
+      <button type="button" class="option ask-card" role="radio" aria-checked="false" data-choice="A small reward.">
+        <span class="option__badge b-coral" aria-hidden="true"><svg class="icon"><use href="#i-gift"/></svg></span>
+        <span><span class="option__title">A small reward.</span><span class="option__line">Offer something small for a completed card.</span></span>
+        <span class="option__check" aria-hidden="true"><svg class="icon"><use href="#i-check"/></svg></span>
+      </button>
+      <button type="button" class="option ask-card" role="radio" aria-checked="false" data-choice="Required.">
+        <span class="option__badge b-sky" aria-hidden="true"><svg class="icon"><use href="#i-clip"/></svg></span>
+        <span><span class="option__title">Required.</span><span class="option__line">Make the card a condition of hearing about events.</span></span>
+        <span class="option__check" aria-hidden="true"><svg class="icon"><use href="#i-check"/></svg></span>
+      </button>
+    </div>
+    <div class="disclose">
+      <button type="button" class="link-btn" aria-expanded="false" aria-controls="pcard" id="pcard-btn">What would the card ask?<svg class="icon" aria-hidden="true"><use href="#i-down"/></svg></button>
+      <div class="profile-card" id="pcard" hidden>
+        <span class="stamp">Mock-up only</span>
+        <ol><li>Which of these topics interest you?</li><li>What kind of job are you aiming for?</li></ol>
+        <p class="small muted" style="margin:10px 0 0">Major and year are already on file, and past events are recorded when someone attends. So the card asks only two things, and asks the person to confirm their major.</p>
+      </div>
+    </div>
+    <p class="sr-only" id="ask-live" aria-live="polite"></p>
+  </section>
+
+  <!-- 8 Done -->
+  <section class="screen screen--mid" data-screen="done" aria-labelledby="h-done" hidden>
+    <div class="done">
+      <div>
+        <div class="coach coach--face">
+          <div class="coach__art"><img src="../../mockup/assets/face4-laugh.webp" alt="" width="92" height="92" loading="lazy"></div>
+          <p class="bubble bubble--wide">That's round one. Next, the instructor runs the refresh, then your team tries Harbor Consumer Brands.</p>
+        </div>
+        <h1 class="h1" id="h-done" tabindex="-1">Round one is done</h1>
+        <ul class="recap" id="recap">
+          <li><span class="tick"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg></span><span>Team 4<small>Your saved work lives under that number</small></span></li>
+          <li><span class="tick"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg></span><span>Northline Analytics<small>Final setting “Major first”</small></span></li>
+          <li><span class="tick"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg></span><span>6 came from your invitations<small>46 seats were still open</small></span></li>
+          <li><span class="tick"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg></span><span id="recap-ask">Asked with “A small reward.”<small>The refresh shows who filled in a card</small></span></li>
+        </ul>
+      </div>
+      <div class="done__art" aria-hidden="true"><img class="hero" src="../../mockup/assets/pose5-celebrate.webp" alt="" width="280" height="300" loading="lazy"></div>
+    </div>
+  </section>
+</main>
+
+<!-- ============ Check bar: one primary action per screen, and the step-complete moment ============ -->
+<footer class="check" id="check">
+  <div class="check__in">
+    <div class="check__msg" aria-live="polite">
+      <span class="check__face"><img src="../../mockup/assets/face1-happy.webp" alt="" width="62" height="62"></span>
+      <span><span class="check__title" id="check-title"></span><span id="check-text" class="hint"></span></span>
+    </div>
+    <button type="button" class="btn btn--primary check__btn" id="check-btn" data-tour="next"><span id="check-label">Open this team's work</span><div class="burst" id="check-burst" aria-hidden="true"></div></button>
+  </div>
+</footer>
+
+<!-- ============ Tour ============ -->
+<div class="t-hole" id="t-hole" aria-hidden="true"></div>
+<div id="t-blocks" aria-hidden="true"></div>
+<section class="t-card" id="t-card" role="dialog" aria-modal="false" aria-labelledby="t-title" aria-describedby="t-text" hidden>
+  <div class="t-card__art" aria-hidden="true"><img id="t-img" src="../../mockup/assets/pose1-guide.webp" alt=""></div>
+  <div class="t-card__bubble">
+    <div class="t-top"><span id="t-count">Step 1 of 7</span><span class="t-dots" id="t-dots" aria-hidden="true"></span></div>
+    <h2 id="t-title" tabindex="-1">Hi, I'm Bree</h2>
+    <p id="t-text"></p>
+    <div class="t-actions">
+      <button type="button" class="btn btn--ghost" id="t-back"><svg class="icon" aria-hidden="true" style="width:18px;height:18px"><use href="#i-left"/></svg>Back</button>
+      <span class="spacer"></span>
+      <button type="button" class="btn btn--primary" id="t-next"><span id="t-next-label">Next</span><svg class="icon" aria-hidden="true" style="width:18px;height:18px"><use href="#i-right"/></svg></button>
+    </div>
+    <div class="t-foot">
+      <label><input type="checkbox" id="t-dont">Don't show this again</label>
+      <button type="button" class="link-btn" id="t-skip">Skip tutorial</button>
+    </div>
+  </div>
+</section>
+<div class="sr-only" aria-live="polite" id="t-live"></div>
+<div class="toast" id="toast" role="status" hidden><img id="toast-img" src="" alt=""><div><strong id="toast-title"></strong><span id="toast-text"></span></div></div>
+
+<script src="app.js" defer></script>
+</body>
+</html>
