@@ -190,9 +190,9 @@ def read_team_workspace(
 def _stated_weights(row: InstructorSavedSetting) -> Mapping[str, float]:
     """A saved setting's four weights as the team's own screen reports them.
 
-    ``effective_weights`` over the validated stored values: the team's numbers
-    written over the 3/3/2/2 defaults, so four numbers are shown even for a
-    setting saved with fewer — and never a normalized weight, which would be an
+    ``stored_weights`` over the validated stored values: all four numbers are
+    shown even for a setting saved with fewer (a missing factor reads as the
+    legacy 0.25 it ranked with) — and never a normalized weight, which would be an
     output (ADR-0025 D8).
     """
     return dict(stored_weights(dict(row.weights)))
