@@ -87,7 +87,7 @@ class ProductScope(StrEnum):
 
     ``CBA`` is the Cal Poly Pomona College of Business Administration
     career-readiness speaker/event matching product — the current phase.
-    ``IA_WEST_LEGACY`` is the earlier IA West / Insights Association chapter
+    ``LEGACY_PILOT`` is the earlier chapter-based (Insights Association) pilot
     product. It is kept as a named scope, rather than deleted, because the
     capabilities CBA gates are *out of the current product's scope*, not
     defective: the code, data, and history stay in the repository, and this
@@ -103,8 +103,16 @@ class ProductScope(StrEnum):
     """
 
     CBA = "cba"
-    IA_WEST_LEGACY = "ia_west_legacy"
+    LEGACY_PILOT = "legacy_pilot"
     CLASS_EXERCISE = "class_exercise"
+
+    @classmethod
+    def _missing_(cls, value: object) -> ProductScope | None:
+        # The scope was renamed in the 2026-10-09 rebrand. A deployed
+        # SMARTMATCH_PRODUCT_SCOPE may still carry the old value; keep reading it.
+        if value == "ia_west_legacy":
+            return cls.LEGACY_PILOT
+        return None
 
 
 #: The scope an unconfigured process runs. The narrower product, so a missing
@@ -284,7 +292,7 @@ _POLICY: Final[Mapping[ProductScope, Mapping[Capability, bool]]] = MappingProxyT
                 Capability.SPEAKER_PORTAL: False,
             }
         ),
-        ProductScope.IA_WEST_LEGACY: _classified(
+        ProductScope.LEGACY_PILOT: _classified(
             {
                 Capability.AUTHENTICATED_LOGIN: True,
                 Capability.EVENT_READS: True,

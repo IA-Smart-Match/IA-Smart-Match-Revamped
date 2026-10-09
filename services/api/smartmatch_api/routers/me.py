@@ -94,7 +94,7 @@ class MembershipResponse(BaseModel):
 
     org_unit_path: str = Field(
         description=(
-            "Dotted path in the org tree this membership covers, e.g. 'iawest.cpp.engineering'"
+            "Dotted path in the org tree this membership covers, e.g. 'smartmatch.cpp.engineering'"
         )
     )
     role: str = Field(description="The role held over that subtree")

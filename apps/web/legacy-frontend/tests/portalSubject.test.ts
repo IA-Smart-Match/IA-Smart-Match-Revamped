@@ -21,7 +21,7 @@ test("portal access comes only from the server-provided mapping", () => {
     display_name: "Event coordinator portal",
     home_path: "/coordinator-portal",
     role: "coordinator",
-    org_unit_path: "iawest.cpp",
+    org_unit_path: "smartmatch.cpp",
     units: [],
     default_unit_id: null,
   };

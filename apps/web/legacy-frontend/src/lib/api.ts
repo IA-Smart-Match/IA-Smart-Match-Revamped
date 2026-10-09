@@ -186,12 +186,12 @@ export interface OutreachEmailPayload {
   full_email: string;
 }
 
-export type OutreachEmailVoice = "school_coordinator" | "ia_west_chapter";
+export type OutreachEmailVoice = "school_coordinator" | "smartmatch_team";
 
 export interface OutreachEmailResponse {
   email: string;
   email_data: OutreachEmailPayload;
-  /** Present when the API resolved sender perspective (school vs IA West chapter). */
+  /** Present when the API resolved sender perspective (school vs SmartMatch team). */
   voice?: OutreachEmailVoice;
 }
 
