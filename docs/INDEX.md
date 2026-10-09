@@ -12,6 +12,7 @@ file contents. Dated material lives in `docs/archive/` — see
 - What hurts → `architecture/risk-register.md` (R-09 is the standing P0)
 - How stale the Stage-1 docs are → `architecture/CURRENT_ARCHITECTURE_AUDIT.md` §0
 - Target design → `architecture/TARGET_ARCHITECTURE.md` · principles → `ARCHITECTURE_PRINCIPLES.md` (AP-01…13)
+- Dated diagrams (product surface, exercise flow, frontend, docs, CI) → `architecture/diagrams/README.md`
 
 ## Decisions — "what was decided?"
 - ADR index (CI-checked, `test_adr_index.py`) → `architecture/decisions/README.md`
@@ -20,7 +21,8 @@ file contents. Dated material lives in `docs/archive/` — see
   register IS the authority — `cba-phase-deferred`, `student-engagement-deferred`,
   `class-exercise-open-questions`, `a1b-live-idp-deferred`, `architecture-stage-2-deferred`,
   `calendar-deferred`, `engagement-deferred`, `f5-deploy-deferred`,
-  `pipeline-stage-writers-deferred`, `r4-outreach-deferred`)
+  `pipeline-stage-writers-deferred`, `r4-outreach-deferred`, `oct14-deferred`
+  — the last added 2026-10-09)
 
 ## Build — "how do I add code here?"
 - `agents/architecture-implementation-guide.md` (M0–M8 increments, gates, hazards)
@@ -47,7 +49,7 @@ file contents. Dated material lives in `docs/archive/` — see
 ## In flight
 - B26 self-service availability → `plans/2026-09-22-b26-self-service-availability-plan.md` (per-track plans: `archive/plans/b26-tracks/`)
 - Registry 3.0.0 flip — gated on ADR-0027 (Proposed) → `architecture/decisions/`
-- Open PR #239 → branch `fix/ce-wave3-ui`
+- ~~Open PR #239 → branch `fix/ce-wave3-ui`~~ — merged 2026-09-26 (noted 2026-10-09); open work is on the GitHub Project board
 - MM-A09 legacy PII — CANNOT CLOSE → `plans/critical-path-legacy-pii.md`
 - Live ledgers → `plans/backlog.md`, `plans/frontend-broken-buttons.md` (B01–B42), `plans/todo-disposition-register.md`
 

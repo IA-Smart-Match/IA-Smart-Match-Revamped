@@ -1,6 +1,9 @@
 # Planning navigation authority
 
 **Status:** current navigation authority, updated 2026-09-16.
+*Note 2026-10-09: rows were added after that date (2026-10-05 conflict
+analysis, 2026-10-06 results rule, Oct-14 sprint) without moving the date
+above; the links below were re-checked on 2026-10-09 and all resolve.*
 
 This index tells contributors where current truth and planning authority live.
 It does not make a dated plan active, authorize implementation, or prove that a
@@ -20,6 +23,7 @@ target capability exists.
 | B26 — professionals correct their own availability | DECIDED 2026-09-22 (owner): option B — build self-service availability; plan at [`2026-09-22-b26-self-service-availability-plan.md`](2026-09-22-b26-self-service-availability-plan.md). Planning only; all six follow-ups answered 2026-09-22 (Speaker accounts, D2 centered utilization). Band penalties and the Host+Speaker single login decided the same day. Q8 (self-shortlisting) decided the same day: excluded. No owner question open |
 | Class exercise — Oct 2 stakeholder review vs. the code (conflicts, blast radius, issue map #325–#336) | [2026-10-05 conflict analysis](2026-10-05-oct-2-review-conflict-analysis.md); analysis only — the conflicts it lists stay open until the named owner records a dated decision |
 | Ideas logged but not scheduled | [Backlog](backlog.md) |
+| Maps of the product surface, exercise flow, frontend, docs and CI (2026-10-09) | [Diagram index](../architecture/diagrams/README.md); maps describe, they do not authorize |
 | Whether any `TODO`/`FIXME` marker is outstanding in code | [TODO disposition register](todo-disposition-register.md) — a 2026-09-18 survey; it recommends only, and authorizes no change |
 | Which tests are skipped, why, and whether CI runs them | [Skip-site inventory 2026-09-18](skip-site-inventory-2026-09-18.md) — a dated snapshot of all 72 `skip`/`skipif`/`xfail` call sites; it authorizes no change and will drift |
 

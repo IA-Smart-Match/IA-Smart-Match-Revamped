@@ -17,6 +17,7 @@ closes. (`docs/architecture/decisions/` ADRs have their own CI-gated index.)
 | `plans/open-questions/engagement-deferred.md` | OQ-E01…E07 | all open |
 | `plans/open-questions/f5-deploy-deferred.md` | OQ-F5-001…004 | all open |
 | `plans/open-questions/pipeline-stage-writers-deferred.md` | OQ-101…104 | 101/103/104 open |
+| `plans/open-questions/oct14-deferred.md` | Oct-14 stakeholder sprint (CLASS_EXERCISE), **OQ-OCT14**-01…12 | 04 answered 2026-10-07; the rest per the register *(row added 2026-10-09; the register existed but this index missed it)* |
 
 > **ID collision note (2026-09-26):** `calendar-deferred` and
 > `r4-outreach-deferred` both used bare `OQ-001…009` for different questions.
