@@ -143,9 +143,7 @@ NEGATIVE_WEIGHT_SENTENCE = "A weight cannot be below 0."
 WHOLE_NUMBER_WEIGHT_SENTENCE = "A weight is a whole number from 0 to 10."
 
 
-def validated(
-    raw: Mapping[str, object], *, whole_numbers: bool = False
-) -> Mapping[str, float]:
+def validated(raw: Mapping[str, object], *, whole_numbers: bool = False) -> Mapping[str, float]:
     """Run a team's proposed weighting through the rulebook's own check.
 
     ``smartmatch_domain.weight_settings.validate_weight_overrides`` is the
