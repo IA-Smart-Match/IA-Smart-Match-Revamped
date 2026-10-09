@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CI and release pipeline</title>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root { --color-paper:#f5f5f5; --color-ink:#2d3142; --color-muted:#4f5d75; --color-accent:#eb6c36;
+  --font-sans:'Geist', system-ui, sans-serif; --font-serif:'Instrument Serif', serif; --font-mono:'Geist Mono', ui-monospace, monospace; }
+body { font-family:var(--font-sans); background:var(--color-paper); color:var(--color-ink); padding:3rem 2rem; }
+.frame { max-width:1360px; margin:0 auto; }
+.diagram-container { width:100%; overflow-x:auto; margin-bottom:2rem; }
+.eyebrow { font-family:var(--font-mono); font-size:0.66rem; font-weight:500; letter-spacing:0.18em; text-transform:uppercase; color:var(--color-muted); margin-bottom:0.5rem; }
+h1 { font-family:var(--font-serif); font-size:clamp(1.5rem,2.4vw + 0.75rem,2rem); font-weight:400; letter-spacing:-0.02em; line-height:1.15; margin-bottom:0.5rem; }
+.meta { font-family:var(--font-mono); font-size:0.7rem; color:var(--color-muted); margin-bottom:1.5rem; }
+svg { width:100%; display:block; }
+h2 { font-family:var(--font-serif); font-weight:400; font-size:1.35rem; margin:1.5rem 0 0.5rem; }
+.notes { font-size:0.85rem; line-height:1.5; color:var(--color-ink); }
+.notes table { border-collapse:collapse; width:100%; margin:0.5rem 0 1rem; font-size:0.8rem; }
+.notes th, .notes td { border-bottom:1px solid rgba(45,49,66,0.12); padding:4px 8px; text-align:left; vertical-align:top; }
+.notes th { font-family:var(--font-mono); font-size:0.68rem; letter-spacing:0.08em; text-transform:uppercase; color:var(--color-muted); }
+.notes code { font-family:var(--font-mono); font-size:0.78em; }
+.notes ul { padding-left:1.2rem; }
+@media print { .diagram-container { overflow-x:visible; } svg { min-width:0 !important; } }
+</style>
+</head>
+<body>
+<div class="frame">
+<p class="eyebrow">Pipeline · Product map · 2026-10-09</p>
+<h1>CI and release pipeline</h1>
+<p class="meta">Repository state at <code>origin/main</code> @ <code>d0b05adc</code> · drawn 2026-10-09 · point-in-time, decides nothing</p>
+<div class="diagram-container"><svg viewBox="0 0 1320 600" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="ci-release-title ci-release-desc" style="min-width:1320px;max-width:1320px"><title id="ci-release-title">CI and release pipeline</title><desc id="ci-release-desc">Pipeline from a feature branch through a reviewed pull request and main, then a manual promote workflow that fast-forwards the deploy branch and dispatches the deploy workflow, which reaches the pilot VM over IAP and runs deploy.sh, optionally bringing up the exercise overlay.</desc><defs><marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/></marker><marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#eb6c36"/></marker><marker id="arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#2e5aa8"/></marker></defs><rect width="100%" height="100%" fill="#f5f5f5"/><path d="M 170,128 L 240,128" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+<path d="M 410,128 L 480,128" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+<path d="M 630,128 L 710,128" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+<path d="M 870,128 L 940,128" fill="none" stroke="#eb6c36" stroke-width="1.2" marker-end="url(#arrow-accent)"/>
+<path d="M 1080,128 L 1150,128" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+<path d="M 1220,156 L 1220,300" fill="none" stroke="#eb6c36" stroke-width="1.2" marker-end="url(#arrow-accent)"/>
+<path d="M 1150,328 L 1080,328" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+<path d="M 1220,356 L 1220,460" fill="none" stroke="#4f5d75" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+<path d="M 105,300 L 105,156" fill="none" stroke="#4f5d75" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+<rect x="182.0" y="110" width="46" height="12" rx="2" fill="#f5f5f5"/><text x="205" y="119" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">OPEN PR</text>
+<rect x="427.5" y="110" width="35" height="12" rx="2" fill="#f5f5f5"/><text x="445" y="119" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">MERGE</text>
+<rect x="639.0" y="110" width="62" height="12" rx="2" fill="#f5f5f5"/><text x="670" y="119" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">HUMAN RUNS</text>
+<rect x="882.0" y="110" width="46" height="12" rx="2" fill="#f5f5f5"/><text x="905" y="119" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">FF PUSH</text>
+<rect x="1089.5" y="110" width="51" height="12" rx="2" fill="#f5f5f5"/><text x="1115" y="119" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">DISPATCH</text>
+<rect x="1165.0" y="222" width="46" height="12" rx="2" fill="#f5f5f5"/><text x="1188" y="231" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">IAP SSH</text>
+<rect x="1092.0" y="310" width="46" height="12" rx="2" fill="#f5f5f5"/><text x="1115" y="319" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">COMPOSE</text>
+<rect x="1135.0" y="402" width="78" height="12" rx="2" fill="#f5f5f5"/><text x="1174" y="411" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">IF SECRET SET</text>
+<rect x="118.5" y="222" width="51" height="12" rx="2" fill="#f5f5f5"/><text x="144" y="231" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">ADVISORY</text>
+<rect x="40" y="100" width="130" height="56" rx="6" fill="#f5f5f5"/><rect x="40" y="100" width="130" height="56" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/><text x="105.0" y="126.0" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Branch</text><text x="105.0" y="140.0" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">feature/*, docs/*</text>
+<rect x="240" y="100" width="170" height="56" rx="6" fill="#f5f5f5"/><rect x="240" y="100" width="170" height="56" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/><text x="325.0" y="120.0" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Pull request</text><text x="325.0" y="134.0" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">verify.yml + build.yml</text><text x="325.0" y="146.0" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">1 review + code owner</text>
+<rect x="480" y="100" width="150" height="56" rx="6" fill="#f5f5f5"/><rect x="480" y="100" width="150" height="56" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/><text x="555.0" y="120.0" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">main</text><text x="555.0" y="134.0" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">same checks on push</text><text x="555.0" y="146.0" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">deploys nothing</text>
+<rect x="710" y="100" width="160" height="56" rx="6" fill="#f5f5f5"/><rect x="710" y="100" width="160" height="56" rx="6" fill="rgba(235,108,54,0.10)" stroke="#eb6c36" stroke-width="1"/><text x="790.0" y="120.0" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">promote.yml</text><text x="790.0" y="134.0" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">workflow_dispatch</text><text x="790.0" y="146.0" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">manual, ff-only</text>
+<rect x="940" y="100" width="140" height="56" rx="6" fill="#f5f5f5"/><rect x="940" y="100" width="140" height="56" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/><text x="1010.0" y="120.0" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">deploy branch</text><text x="1010.0" y="134.0" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">VM source of truth</text><text x="1010.0" y="146.0" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">absent on origin 10-09</text>
+<rect x="1150" y="100" width="140" height="56" rx="6" fill="#f5f5f5"/><rect x="1150" y="100" width="140" height="56" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/><text x="1220.0" y="120.0" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">deploy.yml</text><text x="1220.0" y="134.0" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">needs build + verify</text><text x="1220.0" y="146.0" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">env pilot-vm</text>
+<rect x="1150" y="300" width="140" height="56" rx="6" fill="#f5f5f5"/><rect x="1150" y="300" width="140" height="56" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/><text x="1220.0" y="320.0" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">VM deploy.sh</text><text x="1220.0" y="334.0" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">/opt/smartmatch/app</text><text x="1220.0" y="346.0" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">backup, migrate, health</text>
+<rect x="880" y="300" width="200" height="56" rx="6" fill="#f5f5f5"/><rect x="880" y="300" width="200" height="56" rx="6" fill="rgba(45,49,66,0.03)" stroke="rgba(45,49,66,0.30)" stroke-width="1"/><text x="980.0" y="326.0" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">pilot.plated.blog</text><text x="980.0" y="340.0" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">/api/health = deployed SHA</text>
+<rect x="1140" y="460" width="160" height="56" rx="6" fill="#f5f5f5"/><rect x="1140" y="460" width="160" height="56" rx="6" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.20)" stroke-width="1" stroke-dasharray="4,3"/><text x="1220.0" y="480.0" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">exercise overlay</text><text x="1220.0" y="494.0" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">exercise.plated.blog</text><text x="1220.0" y="506.0" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">api :8090 · web :5174</text>
+<rect x="40" y="300" width="130" height="56" rx="6" fill="#f5f5f5"/><rect x="40" y="300" width="130" height="56" rx="6" fill="rgba(79,93,117,0.10)" stroke="#7a8399" stroke-width="1"/><text x="105.0" y="320.0" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">make check</text><text x="105.0" y="334.0" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">local only</text><text x="105.0" y="346.0" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">no pre-commit hook</text>
+<line x1="30" y1="556" x2="1290" y2="556" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+<text x="30" y="576" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">LEGEND</text>
+<rect x="100" y="567" width="22" height="12" rx="3" fill="rgba(235,108,54,0.10)" stroke="#eb6c36"/>
+<text x="130" y="576" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">manual gate</text>
+<rect x="210" y="567" width="22" height="12" rx="3" fill="#ffffff" stroke="#2d3142"/>
+<text x="240" y="576" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">branch or workflow</text>
+<rect x="355" y="567" width="22" height="12" rx="3" fill="rgba(45,49,66,0.03)" stroke="rgba(45,49,66,0.30)"/>
+<text x="385" y="576" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">public URL</text>
+<rect x="460" y="567" width="22" height="12" rx="3" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.20)" stroke-dasharray="4,3"/>
+<text x="490" y="576" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">conditional</text>
+<rect x="570" y="567" width="22" height="12" rx="3" fill="rgba(79,93,117,0.10)" stroke="#7a8399"/>
+<text x="600" y="576" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">local</text>
+<line x1="650" y1="573" x2="672" y2="573" stroke="#eb6c36" stroke-width="1.2"/>
+<text x="680" y="576" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">moves production</text></svg></div>
+<div class="notes">
+<h2>Workflows (<code>.github/workflows/</code>)</h2><table><thead><tr><th>File</th><th>Runs on</th><th>Jobs</th></tr></thead><tbody><tr><td><code>verify.yml</code></td><td>every PR, push to main, called by deploy</td><td>python (ruff format/check, mypy, import-linter, alembic, pytest incl. integration on Postgres, OpenAPI check) · isolation (<code>scan_forbidden.py</code>, memory, expand-contract, env isolation, lock drift) · audit (pip-audit) · web (npm build, vitest, npm audit) · supply-chain (licenses, SBOM) · secrets (gitleaks, full history)</td></tr><tr><td><code>build.yml</code></td><td>every PR, push to main, called by deploy</td><td>images (api, worker; non-root, health probe) · compose-smoke (<code>./smartmatch.sh install</code> + <code>verify --full</code>) · pilot-e2e (<code>make e2e</code>)</td></tr><tr><td><code>promote.yml</code></td><td>workflow_dispatch only</td><td>fast-forward <code>deploy</code> to a ref (no force), then <code>gh workflow run deploy.yml</code></td></tr><tr><td><code>deploy.yml</code></td><td>push to <code>deploy</code>, workflow_dispatch</td><td>build + verify (reusable), then deploy: WIF/OIDC → IAP ssh → <code>scripts/vm/deploy.sh</code> → probe public URL</td></tr></tbody></table><h2>What blocks a merge to main (GitHub API, 2026-10-09)</h2><ul><li>Required: 1 approving review, code-owner review (<code>CODEOWNERS</code>: <code>* @BrooklynD23</code>), stale approvals dismissed; force-push and deletion blocked.</li><li><strong>Not required:</strong> status checks. A red verify or build does not block the merge button; reviewers must look. Admins are not enforced.</li></ul><h2>Gaps</h2><ul><li><code>make check</code> runs <code>tools/scan_cba_terminology.py</code>; CI does not. CI runs <code>openapi-check</code>, pip-audit, npm audit, gitleaks; <code>make check</code> does not.</li><li><code>promote.yml</code> moves <code>deploy</code> before deploy.yml's build/verify run, so a failed gate leaves <code>deploy</code> ahead of the VM.</li><li>GitHub reports no <code>deploy</code> branch on origin on 2026-10-09; the last <code>deploy.yml</code> run was a push to <code>deploy</code> on 2026-09-28. Why it is gone is unverified; the next promote recreates it.</li></ul>
+</div>
+</div>
+</body>
+</html>

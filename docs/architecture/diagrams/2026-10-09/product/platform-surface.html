@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CBA platform surface</title>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root { --color-paper:#f5f5f5; --color-ink:#2d3142; --color-muted:#4f5d75; --color-accent:#eb6c36;
+  --font-sans:'Geist', system-ui, sans-serif; --font-serif:'Instrument Serif', serif; --font-mono:'Geist Mono', ui-monospace, monospace; }
+body { font-family:var(--font-sans); background:var(--color-paper); color:var(--color-ink); padding:3rem 2rem; }
+.frame { max-width:1420px; margin:0 auto; }
+.diagram-container { width:100%; overflow-x:auto; margin-bottom:2rem; }
+.eyebrow { font-family:var(--font-mono); font-size:0.66rem; font-weight:500; letter-spacing:0.18em; text-transform:uppercase; color:var(--color-muted); margin-bottom:0.5rem; }
+h1 { font-family:var(--font-serif); font-size:clamp(1.5rem,2.4vw + 0.75rem,2rem); font-weight:400; letter-spacing:-0.02em; line-height:1.15; margin-bottom:0.5rem; }
+.meta { font-family:var(--font-mono); font-size:0.7rem; color:var(--color-muted); margin-bottom:1.5rem; }
+svg { width:100%; display:block; }
+h2 { font-family:var(--font-serif); font-weight:400; font-size:1.35rem; margin:1.5rem 0 0.5rem; }
+.notes { font-size:0.85rem; line-height:1.5; color:var(--color-ink); }
+.notes table { border-collapse:collapse; width:100%; margin:0.5rem 0 1rem; font-size:0.8rem; }
+.notes th, .notes td { border-bottom:1px solid rgba(45,49,66,0.12); padding:4px 8px; text-align:left; vertical-align:top; }
+.notes th { font-family:var(--font-mono); font-size:0.68rem; letter-spacing:0.08em; text-transform:uppercase; color:var(--color-muted); }
+.notes code { font-family:var(--font-mono); font-size:0.78em; }
+.notes ul { padding-left:1.2rem; }
+@media print { .diagram-container { overflow-x:visible; } svg { min-width:0 !important; } }
+</style>
+</head>
+<body>
+<div class="frame">
+<p class="eyebrow">Matrix · Product map · 2026-10-09</p>
+<h1>CBA platform surface</h1>
+<p class="meta">Repository state at <code>origin/main</code> @ <code>d0b05adc</code> · drawn 2026-10-09 · point-in-time, decides nothing</p>
+<div class="diagram-container"><svg viewBox="0 0 1380 724" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="platform-surface-title platform-surface-desc" style="min-width:1380px;max-width:1380px"><title id="platform-surface-title">CBA platform surface: persona to page to capability</title><desc id="platform-surface-desc">Matrix of the five personas against the fifteen product capabilities, naming the portal pages each persona uses, the API routers each capability mounts, and whether the capability is on in the cba, ia_west_legacy and class_exercise scopes.</desc><defs><marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/></marker><marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#eb6c36"/></marker><marker id="arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#2e5aa8"/></marker></defs><rect width="100%" height="100%" fill="#f5f5f5"/><line x1="40" y1="112" x2="1340" y2="112" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+<line x1="40" y1="156" x2="1340" y2="156" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+<line x1="40" y1="200" x2="1340" y2="200" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+<line x1="40" y1="244" x2="1340" y2="244" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+<line x1="40" y1="288" x2="1340" y2="288" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+<line x1="40" y1="332" x2="1340" y2="332" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+<line x1="40" y1="376" x2="1340" y2="376" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+<line x1="40" y1="420" x2="1340" y2="420" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+<line x1="40" y1="464" x2="1340" y2="464" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+<line x1="40" y1="508" x2="1340" y2="508" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+<line x1="40" y1="552" x2="1340" y2="552" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+<line x1="40" y1="596" x2="1340" y2="596" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+<line x1="40" y1="640" x2="1340" y2="640" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+<rect x="306" y="117" width="168" height="34" rx="4" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="0.8"/>
+<rect x="486" y="117" width="168" height="34" rx="4" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="0.8"/>
+<rect x="666" y="117" width="168" height="34" rx="4" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="0.8"/>
+<rect x="846" y="117" width="168" height="34" rx="4" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.30)" stroke-width="0.8" stroke-dasharray="4,3"/>
+<rect x="306" y="161" width="168" height="34" rx="4" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="0.8"/>
+<rect x="666" y="161" width="168" height="34" rx="4" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="0.8"/>
+<rect x="486" y="205" width="168" height="34" rx="4" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="0.8"/>
+<rect x="666" y="205" width="168" height="34" rx="4" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="0.8"/>
+<rect x="666" y="249" width="168" height="34" rx="4" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="0.8"/>
+<rect x="666" y="293" width="168" height="34" rx="4" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="0.8"/>
+<rect x="666" y="337" width="168" height="34" rx="4" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="0.8"/>
+<rect x="666" y="381" width="168" height="34" rx="4" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="0.8"/>
+<rect x="306" y="425" width="168" height="34" rx="4" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="0.8"/>
+<rect x="666" y="425" width="168" height="34" rx="4" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="0.8"/>
+<rect x="666" y="469" width="168" height="34" rx="4" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="0.8"/>
+<rect x="666" y="513" width="168" height="34" rx="4" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.30)" stroke-width="0.8" stroke-dasharray="4,3"/>
+<rect x="846" y="513" width="168" height="34" rx="4" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.30)" stroke-width="0.8" stroke-dasharray="4,3"/>
+<rect x="1026" y="557" width="168" height="34" rx="4" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.30)" stroke-width="0.8" stroke-dasharray="4,3"/>
+<rect x="666" y="601" width="168" height="34" rx="4" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.30)" stroke-width="0.8" stroke-dasharray="4,3"/>
+<text x="40" y="80" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="start">CAPABILITY · ROUTERS</text>
+<text x="390" y="78" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Student</text>
+<text x="390" y="94" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">role student</text>
+<text x="570" y="78" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Event Host</text>
+<text x="570" y="94" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">role volunteer</text>
+<text x="750" y="78" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Speaker Connector</text>
+<text x="750" y="94" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">coordinator + admin</text>
+<text x="930" y="78" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Speaker</text>
+<text x="930" y="94" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">role speaker</text>
+<text x="1110" y="78" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Exercise team</text>
+<text x="1110" y="94" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">no login · passcode</text>
+<text x="1265" y="78" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Scope</text>
+<text x="1265" y="94" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">cba · ia_west · exercise</text>
+<text x="40" y="131" fill="#2d3142" font-size="11" font-weight="600" font-family="'Geist', sans-serif">authenticated_login</text>
+<text x="40" y="145" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="start">auth · me · portals</text>
+<text x="390" y="137" fill="#2d3142" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">/login</text>
+<text x="570" y="137" fill="#2d3142" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">/login</text>
+<text x="750" y="137" fill="#2d3142" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">/login</text>
+<text x="930" y="137" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">invite link only</text>
+<text x="1110" y="138" fill="rgba(45,49,66,0.25)" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">—</text>
+<text x="1265" y="138" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">on · on · off</text>
+<text x="40" y="175" fill="#2d3142" font-size="11" font-weight="600" font-family="'Geist', sans-serif">event_reads</text>
+<text x="40" y="189" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="start">events · calendar · student_events</text>
+<text x="390" y="175" fill="#2d3142" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">events · history</text>
+<text x="390" y="186" fill="#2d3142" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">speaker-feedback</text>
+<text x="570" y="182" fill="rgba(45,49,66,0.25)" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">—</text>
+<text x="750" y="175" fill="#2d3142" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">events</text>
+<text x="750" y="186" fill="#2d3142" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">admin: event writes</text>
+<text x="930" y="182" fill="rgba(45,49,66,0.25)" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">—</text>
+<text x="1110" y="182" fill="rgba(45,49,66,0.25)" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">—</text>
+<text x="1265" y="182" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">on · on · off</text>
+<text x="40" y="219" fill="#2d3142" font-size="11" font-weight="600" font-family="'Geist', sans-serif">speaker_request_intake</text>
+<text x="40" y="233" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="start">speaker_requests · host_orgs</text>
+<text x="390" y="226" fill="rgba(45,49,66,0.25)" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">—</text>
+<text x="570" y="219" fill="#2d3142" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">speaker-request</text>
+<text x="570" y="230" fill="#2d3142" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">my-requests · organization</text>
+<text x="750" y="225" fill="#2d3142" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">speaker-requests</text>
+<text x="930" y="226" fill="rgba(45,49,66,0.25)" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">—</text>
+<text x="1110" y="226" fill="rgba(45,49,66,0.25)" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">—</text>
+<text x="1265" y="226" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">on · on · off</text>
+<text x="40" y="263" fill="#2d3142" font-size="11" font-weight="600" font-family="'Geist', sans-serif">speaker_contact_management</text>
+<text x="40" y="277" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="start">cba_contacts · meetings</text>
+<text x="390" y="270" fill="rgba(45,49,66,0.25)" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">—</text>
+<text x="570" y="270" fill="rgba(45,49,66,0.25)" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">—</text>
+<text x="750" y="263" fill="#2d3142" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">speaker-contacts</text>
+<text x="750" y="274" fill="#2d3142" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">meetings</text>
+<text x="930" y="270" fill="rgba(45,49,66,0.25)" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">—</text>
+<text x="1110" y="270" fill="rgba(45,49,66,0.25)" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">—</text>
+<text x="1265" y="270" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">on · on · off</text>
+<text x="40" y="307" fill="#2d3142" font-size="11" font-weight="600" font-family="'Geist', sans-serif">match_runs</text>
+<text x="40" y="321" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="start">match_runs · matching_weights</text>
+<text x="390" y="314" fill="rgba(45,49,66,0.25)" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">—</text>
+<text x="570" y="314" fill="rgba(45,49,66,0.25)" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">—</text>
+<text x="750" y="307" fill="#2d3142" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">match-runs</text>
+<text x="750" y="318" fill="#2d3142" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">matching-weights</text>
+<text x="930" y="314" fill="rgba(45,49,66,0.25)" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">—</text>
+<text x="1110" y="314" fill="rgba(45,49,66,0.25)" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">—</text>
+<text x="1265" y="314" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">on · on · off</text>
+<text x="40" y="351" fill="#2d3142" font-size="11" font-weight="600" font-family="'Geist', sans-serif">discovery_metrics</text>
+<text x="40" y="365" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="start">metrics · pipeline · attendance</text>
+<text x="390" y="358" fill="rgba(45,49,66,0.25)" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">—</text>
+<text x="570" y="358" fill="rgba(45,49,66,0.25)" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">—</text>
+<text x="750" y="351" fill="#2d3142" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">home dashboard</text>
+<text x="750" y="362" fill="#2d3142" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">admin: tenant total</text>
+<text x="930" y="358" fill="rgba(45,49,66,0.25)" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">—</text>
+<text x="1110" y="358" fill="rgba(45,49,66,0.25)" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">—</text>
+<text x="1265" y="358" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">on · on · off</text>
+<text x="40" y="395" fill="#2d3142" font-size="11" font-weight="600" font-family="'Geist', sans-serif">consented_outreach</text>
+<text x="40" y="409" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="start">outreach · cba_invitations</text>
+<text x="390" y="402" fill="rgba(45,49,66,0.25)" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">—</text>
+<text x="570" y="402" fill="rgba(45,49,66,0.25)" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">—</text>
+<text x="750" y="395" fill="#2d3142" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">outreach · invitations</text>
+<text x="750" y="406" fill="#2d3142" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">bookings</text>
+<text x="930" y="402" fill="rgba(45,49,66,0.25)" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">—</text>
+<text x="1110" y="402" fill="rgba(45,49,66,0.25)" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">—</text>
+<text x="1265" y="402" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">on · on · off</text>
+<text x="40" y="439" fill="#2d3142" font-size="11" font-weight="600" font-family="'Geist', sans-serif">rewards_ledger</text>
+<text x="40" y="453" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="start">rewards</text>
+<text x="390" y="445" fill="#2d3142" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">rewards</text>
+<text x="570" y="446" fill="rgba(45,49,66,0.25)" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">—</text>
+<text x="750" y="445" fill="#2d3142" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">redemptions</text>
+<text x="930" y="446" fill="rgba(45,49,66,0.25)" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">—</text>
+<text x="1110" y="446" fill="rgba(45,49,66,0.25)" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">—</text>
+<text x="1265" y="446" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">on · on · off</text>
+<text x="40" y="483" fill="#2d3142" font-size="11" font-weight="600" font-family="'Geist', sans-serif">operator_record_import</text>
+<text x="40" y="497" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="start">imports</text>
+<text x="390" y="490" fill="rgba(45,49,66,0.25)" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">—</text>
+<text x="570" y="490" fill="rgba(45,49,66,0.25)" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">—</text>
+<text x="750" y="483" fill="#2d3142" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">API only</text>
+<text x="750" y="494" fill="#2d3142" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">no page calls it</text>
+<text x="930" y="490" fill="rgba(45,49,66,0.25)" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">—</text>
+<text x="1110" y="490" fill="rgba(45,49,66,0.25)" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">—</text>
+<text x="1265" y="490" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">on · on · off</text>
+<text x="40" y="527" fill="#2d3142" font-size="11" font-weight="600" font-family="'Geist', sans-serif">speaker_portal</text>
+<text x="40" y="541" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="start">speaker_portal · speaker_self</text>
+<text x="390" y="534" fill="rgba(45,49,66,0.25)" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">—</text>
+<text x="570" y="534" fill="rgba(45,49,66,0.25)" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">—</text>
+<text x="750" y="533" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">Invite-to-portal button</text>
+<text x="930" y="527" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">5 pages</text>
+<text x="930" y="538" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">NotFound while off</text>
+<text x="1110" y="534" fill="rgba(45,49,66,0.25)" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">—</text>
+<text x="1265" y="534" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">off · off · off</text>
+<text x="40" y="571" fill="#2d3142" font-size="11" font-weight="600" font-family="'Geist', sans-serif">class_exercise</text>
+<text x="40" y="585" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="start">8 exercise_* routers</text>
+<text x="390" y="578" fill="rgba(45,49,66,0.25)" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">—</text>
+<text x="570" y="578" fill="rgba(45,49,66,0.25)" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">—</text>
+<text x="750" y="578" fill="rgba(45,49,66,0.25)" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">—</text>
+<text x="930" y="578" fill="rgba(45,49,66,0.25)" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">—</text>
+<text x="1110" y="571" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">/exercise/* · 7 pages</text>
+<text x="1110" y="582" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">own process (below)</text>
+<text x="1265" y="578" fill="#eb6c36" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">off · off · on</text>
+<text x="40" y="615" fill="#2d3142" font-size="11" font-weight="600" font-family="'Geist', sans-serif">4 IA West capabilities</text>
+<text x="40" y="629" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="start">no routers mounted</text>
+<text x="390" y="622" fill="rgba(45,49,66,0.25)" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">—</text>
+<text x="570" y="622" fill="rgba(45,49,66,0.25)" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">—</text>
+<text x="750" y="615" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">retired; /outreach</text>
+<text x="750" y="626" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">redirects</text>
+<text x="930" y="622" fill="rgba(45,49,66,0.25)" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">—</text>
+<text x="1110" y="622" fill="rgba(45,49,66,0.25)" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">—</text>
+<text x="1265" y="622" fill="#eb6c36" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">off · on · off</text>
+<line x1="30" y1="680" x2="1350" y2="680" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+<text x="30" y="700" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">LEGEND</text>
+<rect x="100" y="691" width="22" height="12" rx="3" fill="rgba(45,49,66,0.05)" stroke="#4f5d75"/>
+<text x="130" y="700" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">on in the CBA pilot</text>
+<rect x="250" y="691" width="22" height="12" rx="3" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.20)" stroke-dasharray="4,3"/>
+<text x="280" y="700" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">built, dormant in CBA</text></svg></div>
+<div class="diagram-container"><svg viewBox="0 0 1000 380" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="platform-scope-switch-title platform-scope-switch-desc" style="min-width:1000px;max-width:1000px"><title id="platform-scope-switch-title">One process runs one product scope</title><desc id="platform-scope-switch-desc">The SMARTMATCH_PRODUCT_SCOPE variable selects a column of the product_scope policy, so the pilot API runs scope cba and the separate exercise API runs class_exercise, while the frontend carries a hard-coded copy of the CBA column checked by a parity test.</desc><defs><marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/></marker><marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#eb6c36"/></marker><marker id="arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#2e5aa8"/></marker></defs><rect width="100%" height="100%" fill="#f5f5f5"/><path d="M 260,128 L 340,128" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+<path d="M 580,114 L 622,114 Q 630,114 630,106 L 630,76 Q 630,68 638,68 L 680,68" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+<path d="M 580,142 L 622,142 Q 630,142 630,150 L 630,180 Q 630,188 638,188 L 680,188" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+<path d="M 460,240 L 460,156" fill="none" stroke="#4f5d75" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+<rect x="468.5" y="192" width="67" height="12" rx="2" fill="#f5f5f5"/><text x="502" y="201" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">PARITY TEST</text>
+<rect x="40" y="100" width="220" height="56" rx="6" fill="#f5f5f5"/><rect x="40" y="100" width="220" height="56" rx="6" fill="rgba(79,93,117,0.10)" stroke="#7a8399" stroke-width="1"/><rect x="48" y="106" width="28" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/><text x="62.0" y="115" fill="rgba(45,49,66,0.8)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">ENV</text><text x="150.0" y="132.0" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">SMARTMATCH_PRODUCT_SCOPE</text><text x="150.0" y="146.0" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">env, read once at boot</text>
+<rect x="340" y="100" width="240" height="56" rx="6" fill="#f5f5f5"/><rect x="340" y="100" width="240" height="56" rx="6" fill="rgba(235,108,54,0.10)" stroke="#eb6c36" stroke-width="1"/><rect x="348" y="106" width="36" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/><text x="366.0" y="115" fill="rgba(45,49,66,0.8)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">DOMAIN</text><text x="460.0" y="132.0" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">product_scope.py policy</text><text x="460.0" y="146.0" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">15 capabilities × 3 scopes</text>
+<rect x="680" y="40" width="280" height="56" rx="6" fill="#f5f5f5"/><rect x="680" y="40" width="280" height="56" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/><rect x="688" y="46" width="28" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/><text x="702.0" y="55" fill="rgba(45,49,66,0.8)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">API</text><text x="820.0" y="72.0" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">API process · scope cba</text><text x="820.0" y="86.0" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">pilot.plated.blog · default</text>
+<rect x="680" y="160" width="280" height="56" rx="6" fill="#f5f5f5"/><rect x="680" y="160" width="280" height="56" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/><rect x="688" y="166" width="28" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/><text x="702.0" y="175" fill="rgba(45,49,66,0.8)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">API</text><text x="820.0" y="192.0" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">API process · class_exercise</text><text x="820.0" y="206.0" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">api-exercise :8090 · own compose file</text>
+<rect x="340" y="240" width="240" height="56" rx="6" fill="#f5f5f5"/><rect x="340" y="240" width="240" height="56" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1"/><rect x="348" y="246" width="28" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/><text x="362.0" y="255" fill="rgba(45,49,66,0.8)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">WEB</text><text x="460.0" y="272.0" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">productScope.ts mirror</text><text x="460.0" y="286.0" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">frontend; hard-coded CBA policy</text>
+<line x1="30" y1="336" x2="970" y2="336" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+<text x="30" y="356" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">LEGEND</text>
+<rect x="100" y="347" width="22" height="12" rx="3" fill="rgba(79,93,117,0.10)" stroke="#7a8399"/>
+<text x="130" y="356" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">config</text>
+<rect x="185" y="347" width="22" height="12" rx="3" fill="rgba(235,108,54,0.10)" stroke="#eb6c36"/>
+<text x="215" y="356" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">policy</text>
+<rect x="270" y="347" width="22" height="12" rx="3" fill="#ffffff" stroke="#2d3142"/>
+<text x="300" y="356" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">process</text>
+<rect x="360" y="347" width="22" height="12" rx="3" fill="rgba(45,49,66,0.05)" stroke="#4f5d75"/>
+<text x="390" y="356" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">copy</text>
+<line x1="435" y1="353" x2="457" y2="353" stroke="#4f5d75" stroke-width="1.2" stroke-dasharray="4,3"/>
+<text x="465" y="356" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">test-enforced</text></svg></div>
+<div class="notes">
+<h2>How to read it</h2><p>One row per capability in <code>python/smartmatch_domain/smartmatch_domain/product_scope.py</code> (scopes at :85, default <code>CBA</code> at :112, policy table :262–:349). <code>services/api/smartmatch_api/main.py</code> mounts a router only when its capability is on; the frontend gates pages in its layouts through <code>GET /v1/me/portals</code>. Dormant means built and kept, not dead (owner rule, 2026-10-08).</p><table><thead><tr><th>Persona</th><th>Stored role</th><th>Portal</th><th>Source</th></tr></thead><tbody><tr><td>Student</td><td><code>student</code></td><td><code>/student-portal</code></td><td><code>routers/portals.py:280</code></td></tr><tr><td>Event Host</td><td><code>volunteer</code></td><td><code>/volunteer-portal</code></td><td>same</td></tr><tr><td>Speaker Connector</td><td><code>coordinator</code>, <code>admin</code></td><td><code>/coordinator-portal</code> (admin adds the Administration section)</td><td><code>portals.py:288</code></td></tr><tr><td>Speaker</td><td><code>speaker</code> (invitation only)</td><td><code>/speaker-portal</code>, only mounted if <code>speaker_portal</code> is on</td><td><code>speakerPortalRoutes.tsx</code>, <code>productScope.ts:99</code></td></tr><tr><td>Exercise team / instructor</td><td>none; team cookie / instructor passcode</td><td><code>/exercise/*</code></td><td><code>exercise_dependencies.py</code></td></tr></tbody></table><h2>Unverified</h2><ul><li>Bookings page → <code>cba_handoff</code> router: inferred from <code>GET …/cba/confirmed-speakers</code> in <code>CoordinatorBookings.tsx:11</code>.</li><li>Role guards on <code>outreach_contacts</code>, <code>cba_contact_channels</code>, <code>speaker_availability</code>, <code>me_contact_channels</code> were not read.</li><li>Whether <code>services/worker</code> reads the product scope was not checked.</li></ul>
+</div>
+</div>
+</body>
+</html>
