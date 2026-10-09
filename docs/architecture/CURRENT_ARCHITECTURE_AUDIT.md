@@ -16,17 +16,17 @@ Companion documents (evidence lives there; this report summarises and links):
 ## 0. Baseline, and what has moved since
 
 **This report is a snapshot pinned to `c72dced`.** Every count and line reference
-below was read at that commit. `main` has advanced four times since, so the
+below was read at that commit. `main` has advanced five times since, so the
 counted facts below are stale *as statements about `main`* while remaining
 correct as statements about the audited baseline. The progression, re-measured
 at each move rather than carried forward:
 
-| Fact | `c72dced` (this report) | `5fca118` | `793678b` | `13ebaf2` | `a8398b0` | `8104a24` (current) |
-|---|---|---|---|---|---|---|
-| Alembic revisions | 33 (head `0033_event_filed_by`) | 34 | 34 | 34 | 34 | **36** (head `0036_host_organization`) |
-| Tables in `schema.py` | 44 | 45 | 45 | 45 | 45 | **50** |
-| API router modules | 26 | 27 | 27 | 27 | 27 | **31** |
-| OpenAPI paths / schemas | 57 / 120 | 59 / 125 | 59 / 125 | 59 / 125 | 59 / 125 | **66 / 140** |
+| Fact | `c72dced` (this report) | `5fca118` | `793678b` | `13ebaf2` | `a8398b0` | `8104a24` | `d0b05adc` (2026-10-09, current) |
+|---|---|---|---|---|---|---|---|
+| Alembic revisions | 33 (head `0033_event_filed_by`) | 34 | 34 | 34 | 34 | 36 (head `0036_host_organization`) | **46** (head `0046_exercise_run_snapshot`) |
+| Tables in `schema.py` | 44 | 45 | 45 | 45 | 45 | 50 | **54** (+ 8 `exercise_*` tables in `exercise/schema.py` = 62) |
+| API router modules | 26 | 27 | 27 | 27 | 27 | 31 | **50** (plus `__init__.py`) |
+| OpenAPI paths / schemas | 57 / 120 | 59 / 125 | 59 / 125 | 59 / 125 | 59 / 125 | 66 / 140 | **69 / 152** |
 
 The head at `c72dced` is `0033_event_filed_by`; an earlier revision of this table
 named it `0033_match_run_scoring_mode`, which conflated `0032`'s name with
@@ -137,6 +137,30 @@ move in five days to change the counted facts, and the largest: two migrations
 (`0035`, `0036_host_organization`), five tables, four routers, seven API paths.
 The table above is re-measured; the structural findings were re-checked and hold
 — R-05, R-06, R-02 and R-21 are untouched, and R-09 is sharpened as noted above.
+
+**Fifth move, `8104a24` → `d0b05adc`** (2026-10-09, re-measured for the
+system maps in `docs/architecture/diagrams/2026-10-09/system/`). The table above
+gains a column. Structural findings re-checked against the code:
+
+* **R-06 is narrowed, not closed.** `smartmatch_api` is now a root package
+  (`pyproject.toml:147`, added by CE-ROUTERS). Its 15 class-exercise routers are the
+  source of two contracts, and the domain, authz and persistence contracts
+  forbid importing it. The rest of the API, and all of `smartmatch_worker`, are still under
+  no contract. There are now **7** contracts, not 4, and `lint-imports` reports
+  7 kept, 0 broken.
+* **R-05 is unchanged in shape and larger in size.** `services/api` imports
+  `smartmatch_persistence` in 45 files and `services/worker` in 9. Neither
+  manifest declares it. `smartmatch_persistence` also imports `smartmatch_authz`
+  (`principals.py:19`) without declaring it.
+* **api ↔ worker imports: still 0 in both directions.**
+* **§3 step 4 is design, not executable.** `providers/registry.py:243` refuses a
+  live Cloud Tasks queue ("not implemented"). The only queue that delivers work
+  is the dev-only loopback `LocalPostgresHttpTaskQueue` (`local_tasks.py:207`).
+  The OIDC task verifier falls back to `UnconfiguredTaskVerifier` (`identity.py:539`).
+* **New since this report:** the class-exercise product scope (a second API
+  process, `api-exercise`, on its own tables) and the speaker portal. The speaker
+  portal is mounted only under `Capability.SPEAKER_PORTAL`, which is `False` in all
+  three scopes, so it is dormant (`product_scope.py:284,313,349`).
 
 **One correction to this report.** Earlier revisions of these documents said
 "43 tables" throughout. The count at `c72dced` was **44** — the error was a
@@ -306,7 +330,7 @@ Full detail: `domain-model.md`.
 
 ## 5. Dependency architecture
 
-**Enforced (and clean):**
+**Enforced (and clean):** *(Correction 2026-10-09: at `d0b05adc` there are seven contracts, not the four below. The three added ones keep tenancy out of `smartmatch_persistence.exercise` and keep authz, persistence and SQLAlchemy out of the 15 class-exercise routers. The domain, authz and persistence contracts also gained `smartmatch_api` as a forbidden import. See §0, fifth move.)*
 
 | Contract | Effect |
 |---|---|
