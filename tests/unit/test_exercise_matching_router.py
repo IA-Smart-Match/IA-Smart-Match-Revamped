@@ -455,7 +455,7 @@ _BASE = "/v1/exercise/workspaces/current"
 _LIST = f"{_BASE}/events/northline/list"
 _SETTINGS = f"{_BASE}/events/northline/settings"
 _HEADER = {EXERCISE_REQUEST_HEADER: "1"}
-_WEIGHTS = {"same_major": 0.5, "stated_interest_overlap": 0.5}
+_WEIGHTS = {"same_major": 5, "stated_interest_overlap": 5}
 
 
 # ---------------------------------------------------------------------------
@@ -747,11 +747,21 @@ def test_saving_over_a_name_the_team_already_has_is_allowed(client: TestClient) 
     """Three names is a cap on names, not on saves."""
     for name in ("broad", "narrow", "balanced"):
         _save(client, name)
-    again = _save(client, "narrow", {"same_major": 0.9})
+    again = _save(client, "narrow", {"same_major": 9})
     assert again.status_code == 200
     stored = {setting["name"]: setting["weights"] for setting in again.json()["settings"]}
-    assert stored["narrow"] == {"same_major": 0.9}
+    assert stored["narrow"] == {
+        "same_major": 9,
+        "stated_interest_overlap": 3,
+        "career_goal_fit": 2,
+        "past_event_topic_overlap": 2,
+    }
     assert len(stored) == MAX_SAVED_SETTINGS_PER_EVENT
+
+
+def test_a_new_weight_must_be_a_whole_number_up_to_10(client: TestClient) -> None:
+    assert _save(client, "frac", {"same_major": 0.5}).status_code == 422
+    assert _save(client, "big", {"same_major": 11}).status_code == 422
 
 
 def test_deleting_one_frees_a_slot(client: TestClient) -> None:

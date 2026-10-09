@@ -78,24 +78,43 @@ def test_the_factors_are_labelled_in_anns_plain_words() -> None:
         assert spec.display_label == EXERCISE_FACTOR_LABELS[spec.key]
 
 
-def test_default_weights_are_the_oq_ce_02_equal_set() -> None:
-    """OQ-CE-02 closed 2026-09-25: equal, named, and teams decide the rest."""
-    assert SAME_MAJOR_DEFAULT_WEIGHT == 0.25
-    assert STATED_INTEREST_OVERLAP_DEFAULT_WEIGHT == 0.25
-    assert CAREER_GOAL_FIT_DEFAULT_WEIGHT == 0.25
-    assert PAST_EVENT_TOPIC_OVERLAP_DEFAULT_WEIGHT == 0.25
-    assert set(EXERCISE_DEFAULT_WEIGHTS.values()) == {0.25}
+def test_default_weights_are_ann_3_3_2_2_on_a_whole_number_scale() -> None:
+    """Ann Wang, 2026-10-06; owner "switch now" 2026-10-09 (OQ-CE-34)."""
+    assert SAME_MAJOR_DEFAULT_WEIGHT == 3
+    assert STATED_INTEREST_OVERLAP_DEFAULT_WEIGHT == 3
+    assert CAREER_GOAL_FIT_DEFAULT_WEIGHT == 2
+    assert PAST_EVENT_TOPIC_OVERLAP_DEFAULT_WEIGHT == 2
+    assert sum(EXERCISE_DEFAULT_WEIGHTS.values()) == 10
+    assert exercise_applied_weights() == pytest.approx(
+        {
+            "same_major": 0.3,
+            "stated_interest_overlap": 0.3,
+            "career_goal_fit": 0.2,
+            "past_event_topic_overlap": 0.2,
+        }
+    )
+
+
+def test_a_new_request_must_be_whole_numbers_from_0_to_10() -> None:
+    assert validate_exercise_weight_overrides({"same_major": 7}, whole_numbers=True)
+    for bad in (0.5, 10.5, 11):
+        with pytest.raises(InvalidExerciseWeightError):
+            validate_exercise_weight_overrides({"same_major": bad}, whole_numbers=True)
+
+
+def test_stored_fractions_still_validate() -> None:
+    """Weights saved before 3/3/2/2 (0.25, 0.6) must keep loading."""
+    assert validate_exercise_weight_overrides({"same_major": 0.25, "career_goal_fit": 0.6})
 
 
 def test_the_default_weights_are_no_longer_marked_placeholders() -> None:
-    """Ann confirmed equal weights; a marker left behind would be untrue."""
+    """Ann confirmed her weights; a marker left behind would be untrue."""
     from pathlib import Path
 
     from smartmatch_domain.exercise import registry
 
     source = Path(registry.__file__).read_text(encoding="utf-8")
     assert "PLACEHOLDER (OQ-CE-02" not in source
-    assert "OQ-CE-02 closed 2026-09-25" in source
 
 
 def test_the_gates_pass_for_the_exercise_rulebook() -> None:

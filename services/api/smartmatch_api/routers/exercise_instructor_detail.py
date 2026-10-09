@@ -83,7 +83,7 @@ from smartmatch_api.routers.exercise_instructor_models import (
     setting_view,
 )
 from smartmatch_api.routers.exercise_matching_models import event_evidence, rankable_set
-from smartmatch_api.routers.exercise_matching_weights import effective_weights, validated
+from smartmatch_api.routers.exercise_matching_weights import stored_weights
 from smartmatch_api.routers.exercise_results_models import round_of
 from smartmatch_api.routers.exercise_results_run import invited_snapshot
 
@@ -191,11 +191,11 @@ def _stated_weights(row: InstructorSavedSetting) -> Mapping[str, float]:
     """A saved setting's four weights as the team's own screen reports them.
 
     ``effective_weights`` over the validated stored values: the team's numbers
-    written over the equal defaults, so four numbers are shown even for a
+    written over the 3/3/2/2 defaults, so four numbers are shown even for a
     setting saved with fewer — and never a normalized weight, which would be an
     output (ADR-0025 D8).
     """
-    return effective_weights(validated(dict(row.weights)))
+    return dict(stored_weights(dict(row.weights)))
 
 
 def _run_weights(row: InstructorResultRun) -> Mapping[str, float] | None:
@@ -207,7 +207,7 @@ def _run_weights(row: InstructorResultRun) -> Mapping[str, float] | None:
     """
     if row.setting_weights is None:
         return None
-    return effective_weights(validated(dict(row.setting_weights)))
+    return dict(stored_weights(dict(row.setting_weights)))
 
 
 def _lists_by_setting(
@@ -248,7 +248,7 @@ def _lists_by_setting(
         ranked = exercise_ranked_list(
             event_evidence(event),
             rankable.profiles,
-            weights=validated(dict(row.weights)),
+            weights=stored_weights(dict(row.weights)),
             invite_limit=summary.invite_limit,
             year_rank=rankable.year_rank,
             dataset_checksum=summary.checksum,

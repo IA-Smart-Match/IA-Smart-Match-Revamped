@@ -189,7 +189,7 @@ def score_exercise_pair(
         profile: The profile's evidence.
         event: The event's evidence.
         weights: The team's weights, keyed by factor key. ``None`` uses the
-            equal defaults (OQ-CE-02). Validate a team's input through
+            3/3/2/2 defaults. Validate a team's input through
             :func:`~smartmatch_domain.exercise.registry.validate_exercise_weight_overrides`
             before it reaches here.
 
