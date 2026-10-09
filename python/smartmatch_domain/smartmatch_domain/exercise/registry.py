@@ -390,4 +390,10 @@ def exercise_applied_weights(
     :func:`~smartmatch_domain.factor_registry.normalize_weights` pinned to this
     rulebook and its one model, so no caller has to remember to pass both.
     """
-    return normalize_weights(overrides, model=EXERCISE_SCORING_MODEL, registry=EXERCISE_REGISTRY)
+    # Omitted factors take the 3/3/2/2 defaults, not the spec's share-scaled
+    # proposed_weight, so a partial request stays on one scale.
+    return normalize_weights(
+        {**EXERCISE_DEFAULT_WEIGHTS, **(overrides or {})},
+        model=EXERCISE_SCORING_MODEL,
+        registry=EXERCISE_REGISTRY,
+    )

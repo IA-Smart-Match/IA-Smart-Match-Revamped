@@ -205,3 +205,12 @@ def test_zeroing_every_factor_is_refused_rather_than_normalized() -> None:
 def test_a_weight_that_is_not_a_finite_number_is_refused(bad: object) -> None:
     with pytest.raises(InvalidExerciseWeightError):
         validate_exercise_weight_overrides({"same_major": bad})
+
+
+def test_a_partial_request_is_ranked_on_the_same_scale_as_the_screen() -> None:
+    """Omitted factors take the 3/2 defaults, not the spec's 0.3/0.2 shares."""
+    applied = exercise_applied_weights({"same_major": 5})
+    reference = exercise_applied_weights({**EXERCISE_DEFAULT_WEIGHTS, "same_major": 5})
+    assert dict(applied) == pytest.approx(dict(reference))
+    assert applied["same_major"] == pytest.approx(5 / 12)
+    assert sum(applied.values()) == pytest.approx(1.0)
