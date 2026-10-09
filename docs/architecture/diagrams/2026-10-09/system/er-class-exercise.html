@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Class exercise data model</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root { --color-paper: #f5f5f5; --color-ink: #2d3142; --color-muted: #4f5d75; --color-accent: #eb6c36;
+      --font-sans: 'Geist', system-ui, sans-serif; --font-serif: 'Instrument Serif', serif; --font-mono: 'Geist Mono', ui-monospace, monospace; }
+    body { font-family: var(--font-sans); background: var(--color-paper); color: var(--color-ink); min-height: 100vh;
+      display: flex; align-items: center; justify-content: center; padding: 3rem 1rem; }
+    .frame { max-width: 1200px; width: 100%; }
+    .diagram-container { width: 100%; overflow-x: auto; }
+    .eyebrow { font-family: var(--font-mono); font-size: 0.66rem; font-weight: 500; letter-spacing: 0.18em; text-transform: uppercase; color: var(--color-muted); margin-bottom: 0.5rem; }
+    h1 { font-family: var(--font-serif); font-size: clamp(1.5rem, 2.4vw + 0.75rem, 2rem); font-weight: 400; letter-spacing: -0.02em; line-height: 1.15; margin-bottom: 1.5rem; }
+    .caption { font-family: var(--font-mono); font-size: 0.72rem; color: var(--color-muted); margin-top: 1rem; line-height: 1.5; max-width: 90ch; }
+    svg { width: 100%; min-width: 1160px; display: block; }
+    @media print { .diagram-container { overflow-x: visible; } svg { min-width: 0; } }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <p class="eyebrow">ER / data model · 2026-10-09 · d0b05adc</p>
+    <h1>Class exercise data model</h1>
+    <div class="diagram-container">
+      <svg viewBox="0 0 1160 720" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="er-class-exercise-title er-class-exercise-desc">
+        <title id="er-class-exercise-title">Class exercise data model</title>
+        <desc id="er-class-exercise-desc">Entity-relationship model of the eight class-exercise tables: a dataset owns profiles, events and team workspaces; workspaces own profile overlays, saved settings and one result run per event; events carry an optional result unlock.</desc>
+        <defs>
+          <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/></marker>
+          <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#eb6c36"/></marker>
+          <marker id="arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#2e5aa8"/></marker>
+          <marker id="arrow-open" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polyline points="0 0, 8 3, 0 6" fill="none" stroke="#4f5d75" stroke-width="1.2"/></marker>
+        </defs>
+        <rect width="100%" height="100%" fill="#f5f5f5"/>
+<path d="M 470,100 L 178,100 Q 170,100 170,108 L 170,210" fill="none" stroke="#4f5d75" stroke-width="1.2"/>
+<path d="M 560,134 L 560,210" fill="none" stroke="#4f5d75" stroke-width="1.2"/>
+<path d="M 710,100 L 962,100 Q 970,100 970,108 L 970,210" fill="none" stroke="#4f5d75" stroke-width="1.2"/>
+<path d="M 100,318 L 100,470" fill="none" stroke="#4f5d75" stroke-width="1.2"/>
+<path d="M 440,318 L 440,392 Q 440,400 432,400 L 228,400 Q 220,400 220,408 L 220,470" fill="none" stroke="#4f5d75" stroke-width="1.2"/>
+<path d="M 480,318 L 480,470" fill="none" stroke="#4f5d75" stroke-width="1.2"/>
+<path d="M 620,318 L 620,470" fill="none" stroke="#4f5d75" stroke-width="1.2"/>
+<path d="M 880,318 L 880,402 Q 880,410 872,410 L 628,410 a 8,8 0 0,0 -16,0 L 528,410 Q 520,410 520,418 L 520,470" fill="none" stroke="#4f5d75" stroke-width="1.2"/>
+<path d="M 920,318 L 920,428 Q 920,436 912,436 L 788,436 Q 780,436 780,444 L 780,470" fill="none" stroke="#4f5d75" stroke-width="1.2"/>
+<path d="M 1000,318 L 1000,470" fill="none" stroke="#4f5d75" stroke-width="1.2"/>
+<rect x="470" y="40" width="240" height="94" rx="6" fill="#f5f5f5"/>
+<rect x="470" y="40" width="240" height="94" rx="6" fill="#fdeee6" stroke="#eb6c36" stroke-width="1"/>
+<line x1="470" y1="68" x2="710" y2="68" stroke="#eb6c36" stroke-opacity="0.4" stroke-width="0.8"/>
+<rect x="478" y="48" width="40" height="12" rx="2" fill="none" stroke="#4f5d75" stroke-opacity="0.4" stroke-width="0.8"/>
+<text x="498" y="57" fill="#4f5d75" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">ENTITY</text>
+<text x="526" y="59" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif">exercise_dataset</text>
+<text x="482" y="86" fill="#eb6c36" font-size="9" font-family="'Geist Mono', monospace"># id</text>
+<text x="482" y="100" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace">label · source_filename</text>
+<text x="482" y="114" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace">row_count · checksum</text>
+<text x="482" y="128" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace">invite_limit</text>
+<rect x="40" y="210" width="260" height="108" rx="6" fill="#f5f5f5"/>
+<rect x="40" y="210" width="260" height="108" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+<line x1="40" y1="238" x2="300" y2="238" stroke="#2d3142" stroke-opacity="0.4" stroke-width="0.8"/>
+<rect x="48" y="218" width="40" height="12" rx="2" fill="none" stroke="#4f5d75" stroke-opacity="0.4" stroke-width="0.8"/>
+<text x="68" y="227" fill="#4f5d75" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">ENTITY</text>
+<text x="96" y="229" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif">exercise_profile</text>
+<text x="52" y="256" fill="#2d3142" font-size="9" font-family="'Geist Mono', monospace"># → dataset_id</text>
+<text x="52" y="270" fill="#2d3142" font-size="9" font-family="'Geist Mono', monospace"># profile_no</text>
+<text x="52" y="284" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace">display_name · major</text>
+<text x="52" y="298" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace">class_year · past_event_keys</text>
+<text x="52" y="312" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace">U (dataset_id, tiebreak_order)</text>
+<rect x="400" y="210" width="260" height="108" rx="6" fill="#f5f5f5"/>
+<rect x="400" y="210" width="260" height="108" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+<line x1="400" y1="238" x2="660" y2="238" stroke="#2d3142" stroke-opacity="0.4" stroke-width="0.8"/>
+<rect x="408" y="218" width="40" height="12" rx="2" fill="none" stroke="#4f5d75" stroke-opacity="0.4" stroke-width="0.8"/>
+<text x="428" y="227" fill="#4f5d75" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">ENTITY</text>
+<text x="456" y="229" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif">exercise_team_workspace</text>
+<text x="412" y="256" fill="#2d3142" font-size="9" font-family="'Geist Mono', monospace"># id</text>
+<text x="412" y="270" fill="#2d3142" font-size="9" font-family="'Geist Mono', monospace">→ dataset_id</text>
+<text x="412" y="284" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace">team_number · seed</text>
+<text x="412" y="298" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace">asking_choice</text>
+<text x="412" y="312" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace">U workspace_token_hash</text>
+<rect x="840" y="210" width="260" height="108" rx="6" fill="#f5f5f5"/>
+<rect x="840" y="210" width="260" height="108" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+<line x1="840" y1="238" x2="1100" y2="238" stroke="#2d3142" stroke-opacity="0.4" stroke-width="0.8"/>
+<rect x="848" y="218" width="40" height="12" rx="2" fill="none" stroke="#4f5d75" stroke-opacity="0.4" stroke-width="0.8"/>
+<text x="868" y="227" fill="#4f5d75" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">ENTITY</text>
+<text x="896" y="229" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif">exercise_event</text>
+<text x="852" y="256" fill="#2d3142" font-size="9" font-family="'Geist Mono', monospace"># → dataset_id</text>
+<text x="852" y="270" fill="#2d3142" font-size="9" font-family="'Geist Mono', monospace"># event_key</text>
+<text x="852" y="284" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace">name · topic_tags</text>
+<text x="852" y="298" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace">target_majors · is_exercise_event</text>
+<text x="852" y="312" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace">U (dataset_id, sequence)</text>
+<rect x="40" y="470" width="240" height="94" rx="6" fill="#f5f5f5"/>
+<rect x="40" y="470" width="240" height="94" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+<line x1="40" y1="498" x2="280" y2="498" stroke="#2d3142" stroke-opacity="0.4" stroke-width="0.8"/>
+<rect x="48" y="478" width="40" height="12" rx="2" fill="none" stroke="#4f5d75" stroke-opacity="0.4" stroke-width="0.8"/>
+<text x="68" y="487" fill="#4f5d75" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">ENTITY</text>
+<text x="96" y="489" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif">exercise_profile_overlay</text>
+<text x="52" y="516" fill="#2d3142" font-size="9" font-family="'Geist Mono', monospace"># → workspace_id</text>
+<text x="52" y="530" fill="#2d3142" font-size="9" font-family="'Geist Mono', monospace"># → profile_no</text>
+<text x="52" y="544" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace">added_event_topics</text>
+<text x="52" y="558" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace">card_interests · career_goal</text>
+<rect x="320" y="470" width="240" height="94" rx="6" fill="#f5f5f5"/>
+<rect x="320" y="470" width="240" height="94" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+<line x1="320" y1="498" x2="560" y2="498" stroke="#2d3142" stroke-opacity="0.4" stroke-width="0.8"/>
+<rect x="328" y="478" width="40" height="12" rx="2" fill="none" stroke="#4f5d75" stroke-opacity="0.4" stroke-width="0.8"/>
+<text x="348" y="487" fill="#4f5d75" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">ENTITY</text>
+<text x="376" y="489" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif">exercise_saved_setting</text>
+<text x="332" y="516" fill="#2d3142" font-size="9" font-family="'Geist Mono', monospace"># id</text>
+<text x="332" y="530" fill="#2d3142" font-size="9" font-family="'Geist Mono', monospace">→ workspace_id · → event_key</text>
+<text x="332" y="544" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace">name · weights</text>
+<text x="332" y="558" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace">U (workspace, event, name)</text>
+<rect x="600" y="470" width="240" height="108" rx="6" fill="#f5f5f5"/>
+<rect x="600" y="470" width="240" height="108" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+<line x1="600" y1="498" x2="840" y2="498" stroke="#2d3142" stroke-opacity="0.4" stroke-width="0.8"/>
+<rect x="608" y="478" width="40" height="12" rx="2" fill="none" stroke="#4f5d75" stroke-opacity="0.4" stroke-width="0.8"/>
+<text x="628" y="487" fill="#4f5d75" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">ENTITY</text>
+<text x="656" y="489" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif">exercise_result_run</text>
+<text x="612" y="516" fill="#2d3142" font-size="9" font-family="'Geist Mono', monospace"># id</text>
+<text x="612" y="530" fill="#2d3142" font-size="9" font-family="'Geist Mono', monospace">→ workspace_id · → event_key</text>
+<text x="612" y="544" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace">round ∈ {1,2} · setting_name</text>
+<text x="612" y="558" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace">invited_profile_nos</text>
+<text x="612" y="572" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace">U (workspace_id, event_key)</text>
+<rect x="880" y="470" width="240" height="66" rx="6" fill="#f5f5f5"/>
+<rect x="880" y="470" width="240" height="66" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+<line x1="880" y1="498" x2="1120" y2="498" stroke="#2d3142" stroke-opacity="0.4" stroke-width="0.8"/>
+<rect x="888" y="478" width="40" height="12" rx="2" fill="none" stroke="#4f5d75" stroke-opacity="0.4" stroke-width="0.8"/>
+<text x="908" y="487" fill="#4f5d75" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">ENTITY</text>
+<text x="936" y="489" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif">exercise_result_unlock</text>
+<text x="892" y="516" fill="#2d3142" font-size="9" font-family="'Geist Mono', monospace"># → (dataset_id, event_key)</text>
+<text x="892" y="530" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace">unlocked_at · closed_at</text>
+<text x="462" y="94" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="end">1</text>
+<text x="176" y="204" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="start">N</text>
+<text x="566" y="146" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="start">1</text>
+<text x="566" y="204" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="start">N</text>
+<text x="718" y="94" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="start">1</text>
+<text x="976" y="204" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="start">N</text>
+<text x="106" y="330" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="start">1</text>
+<text x="106" y="464" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="start">N</text>
+<text x="446" y="330" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="start">1</text>
+<text x="226" y="464" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="start">N</text>
+<text x="486" y="330" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="start">1</text>
+<text x="486" y="464" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="start">N</text>
+<text x="626" y="330" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="start">1</text>
+<text x="626" y="464" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="start">N</text>
+<text x="886" y="330" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="start">1</text>
+<text x="526" y="464" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="start">N</text>
+<text x="926" y="330" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="start">1</text>
+<text x="786" y="464" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="start">N</text>
+<text x="1006" y="330" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="start">1</text>
+<text x="1006" y="464" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="start">0..1</text>
+<text x="40" y="640" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="start">No tenant_id, no owning_unit_id, no FK to user_account (ADR-0025 D2; import-linter contract pyproject.toml:228).</text>
+<text x="40" y="654" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="start">Child FKs are composite (dataset_id, …) so a workspace can only point at its own dataset&#x27;s events and profiles.</text>
+<text x="40" y="668" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="start">Created by migration 0037_exercise_tables; changed in 0042–0046 (head revision 0046_exercise_run_snapshot).</text>
+<line x1="30" y1="682" x2="1130" y2="682" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+<text x="30" y="702" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">LEGEND</text>
+<rect x="100" y="693" width="24" height="12" rx="3" fill="#fdeee6" stroke="#eb6c36"/>
+<text x="132" y="702" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="start">aggregate root</text>
+<rect x="220.60000000000002" y="693" width="24" height="12" rx="3" fill="#ffffff" stroke="#2d3142"/>
+<text x="252.60000000000002" y="702" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="start">table</text>
+<path d="M 297.1,699 L 321.1,699" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+<text x="329.1" y="702" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="start">FK (1 → N)</text>
+      </svg>
+    </div>
+    <p class="caption">Source: python/smartmatch_persistence/smartmatch_persistence/exercise/schema.py:126-490 at d0b05adc. # = primary-key column, → = foreign key, U = unique constraint. Column types omitted.</p>
+  </div>
+</body>
+</html>

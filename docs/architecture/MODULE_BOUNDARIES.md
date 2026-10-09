@@ -1,4 +1,19 @@
-> **Drift note (2026-09-26):** counts below are pinned to the Stage-1 baseline. Current reality: ~55 tables, 43 migrations (head `0043`), ~50 router modules, **7 import-linter contracts over 5 root packages**. Verify against the tree before trusting a number.
+> **Drift note (2026-09-26, re-measured 2026-10-09 at `d0b05adc`):** counts below are pinned to the Stage-1 baseline. Current reality: **62 tables** (54 in `schema.py` + 8 `exercise_*`), **46 migrations** (head `0046_exercise_run_snapshot`), **50 router modules**, **7 import-linter contracts over 5 root packages** (the worker is not one). Verify against the tree before trusting a number.
+>
+> **Corrections (2026-10-09).** These statements below are contradicted by the code at `d0b05adc`. The target rules and decisions are unchanged.
+>
+> | Where | Says | Code says |
+> |---|---|---|
+> | §1 intro | `root_packages` names exactly the four `python/` packages; four contracts | Five root packages (`smartmatch_api` added by CE-ROUTERS, `pyproject.toml:147`); seven contracts, all kept |
+> | §1.4 Allowed deps | persistence imports domain in 14 files | 26 files |
+> | §1.4 Forbidden deps | "import-linter contract 4" | Storage-only is now contract **5**. Contract 4 is the class-exercise no-tenancy rule |
+> | §1.4a | "All 44 tables … one 2,691-line module" | 54 tables, 3,453 lines; 8 more in `exercise/schema.py` |
+> | §2 governing fact | `smartmatch_api` appears in no import contract; imports persistence in 33 files | Its 15 `exercise_*` routers are the source of two contracts, and three contracts forbid importing it. It imports persistence in 45 files, still undeclared |
+> | §2.10 | 25 router modules | 50 |
+> | §4.1 Forbidden deps | one violation, `generate_pilot_dataset.py:209` | Line 248, plus a second one: `tools/seed_pilot.py:25` imports `routers.portals` |
+> | §4.2 | 33 revisions, 0001→0033 | 46, 0001→0046, one head |
+>
+> Maps of the current graph: `docs/architecture/diagrams/2026-10-09/system/`.
 
 # Module Boundaries — Target Specification
 

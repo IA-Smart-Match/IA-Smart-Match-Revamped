@@ -1,4 +1,19 @@
-> **Drift note (2026-09-26):** counts below are pinned to the Stage-1 baseline. Current reality: ~55 tables, 43 migrations (head `0043`), ~50 router modules, **7 import-linter contracts over 5 root packages**. Verify against the tree before trusting a number.
+> **Drift note (2026-09-26, re-measured 2026-10-09 at `d0b05adc`):** counts below are pinned to the Stage-1 baseline. Current reality: **62 tables** (54 + 8 `exercise_*`), **46 migrations** (head `0046_exercise_run_snapshot`), **50 router modules**, **7 import-linter contracts over 5 root packages**, all kept (`lint-imports`, 2026-10-09). Verify against the tree before trusting a number.
+>
+> **Corrections (2026-10-09).** These "current state" statements below are contradicted by the code at `d0b05adc`. The target rules (§2) and the draft (§3) are unchanged.
+>
+> | Where | Says | Code says |
+> |---|---|---|
+> | §1.1 | `root_packages` has the four `python/` packages; four contracts | Five root packages: `smartmatch_api` was added by CE-ROUTERS (`pyproject.toml:147`). Seven contracts: 4 = class-exercise persistence has no tenancy, 5 = persistence is storage only, 6–7 = class-exercise routers. The worker is still absent |
+> | §1.1 | lint-imports runs with only the four `python/` roots on `PYTHONPATH` | `Makefile:69` adds `services/api` |
+> | §1.2 R-06 | `smartmatch_api` is in no root_package and in no contract | It is a root package. Its 15 `exercise_*` routers are the source of contracts 6–7, and contracts 1, 2 and 5 forbid importing it. Everything else in the API, and the whole worker, is still ungoverned |
+> | §1.2 R-05 | api imports persistence in 33 files, worker in 10; `main.py:47` | 45 and 9 files; `main.py:42`. Still undeclared in both manifests |
+> | §1.3 table | persistence→domain 14; api 29 / 21 / 5 / 31; worker 8 / — / 6 / 9 | persistence→domain 26 (and →authz 1, undeclared); api 56 / 26 / 7 / 45; worker 9 / 0 / 6 / 9; api↔worker still 0 |
+> | §1.3 tools | `generate_pilot_dataset.py:208/:209`; the one router import | `:247` / `:248`, and a second router import: `tools/seed_pilot.py:25` → `routers.portals` |
+> | §2 | 25 router modules | 50 |
+> | §3 | contracts 5–9 numbered as if appended | None of §3's additions has landed. The live file's contracts 4, 6 and 7 are other rules, so §3's numbers no longer match `pyproject.toml` |
+>
+> Diagram of the measured graph: `docs/architecture/diagrams/2026-10-09/system/package-dependencies.html`.
 
 # Dependency Rules
 
