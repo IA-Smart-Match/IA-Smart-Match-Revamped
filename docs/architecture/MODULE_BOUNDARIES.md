@@ -1,4 +1,19 @@
-> **Drift note (2026-09-26):** counts below are pinned to the Stage-1 baseline. Current reality: ~55 tables, 43 migrations (head `0043`), ~50 router modules, **7 import-linter contracts over 5 root packages**. Verify against the tree before trusting a number.
+> **Drift note (2026-09-26, re-measured 2026-10-09 at `d0b05adc`):** counts below are pinned to the Stage-1 baseline. Current reality: **62 tables** (54 in `schema.py` + 8 `exercise_*`), **46 migrations** (head `0046_exercise_run_snapshot`), **50 router modules**, **7 import-linter contracts over 5 root packages** (the worker is not one). Verify against the tree before trusting a number.
+>
+> **Corrections (2026-10-09).** These statements below are contradicted by the code at `d0b05adc`. The target rules and decisions are unchanged.
+>
+> | Where | Says | Code says |
+> |---|---|---|
+> | §1 intro | `root_packages` names exactly the four `python/` packages; four contracts | Five root packages (`smartmatch_api` added by CE-ROUTERS, `pyproject.toml:147`); seven contracts, all kept |
+> | §1.4 Allowed deps | persistence imports domain in 14 files | 26 files |
+> | §1.4 Forbidden deps | "import-linter contract 4" | Storage-only is now contract **5**. Contract 4 is the class-exercise no-tenancy rule |
+> | §1.4a | "All 44 tables … one 2,691-line module" | 54 tables, 3,453 lines; 8 more in `exercise/schema.py` |
+> | §2 governing fact | `smartmatch_api` appears in no import contract; imports persistence in 33 files | Its 15 `exercise_*` routers are the source of two contracts, and three contracts forbid importing it. It imports persistence in 45 files, still undeclared |
+> | §2.10 | 25 router modules | 50 |
+> | §4.1 Forbidden deps | one violation, `generate_pilot_dataset.py:209` | Line 248, plus a second one: `tools/seed_pilot.py:25` imports `routers.portals` |
+> | §4.2 | 33 revisions, 0001→0033 | 46, 0001→0046, one head |
+>
+> Maps of the current graph: `docs/architecture/diagrams/2026-10-09/system/`.
 
 # Module Boundaries — Target Specification
 
@@ -607,7 +622,7 @@ is genuinely mixed.
 | **Allowed deps** | (target) `clients/typescript` only. |
 | **Forbidden deps** | (target) a hand-written type for any `/v1` response. |
 | **Persistence** | None. |
-| **Domain concepts** | It is the largest surviving carrier of retired IA-West vocabulary — `Specialist` is a *type*, not copy, so `scan_cba_terminology.py` cannot see it, and the next agent will read it as current (`domain-model.md` §3.5). |
+| **Domain concepts** | It is the largest surviving carrier of retired legacy-chapter vocabulary — `Specialist` is a *type*, not copy, so `scan_cba_terminology.py` cannot see it, and the next agent will read it as current (`domain-model.md` §3.5). |
 | **Tests** | `tests/e2e/…::test_16_the_portal_pages_have_no_backend_in_this_repository` asserts the `/api/*` situation from the backend side. |
 | **Operational concerns** | Deleting it wholesale breaks seven routed pages that users can reach. |
 | **Disposition** | **become an adapter, then shrink.** Its `/v1` surface is re-expressed as thin forwarders over the generated client so that no `/v1` response type is transcribed anywhere in this file; each migrated page then imports the generated client directly and its forwarder goes. The `/api/*` half does not become an adapter over anything, because nothing serves it — it shrinks to zero when M8 deletes the seven pages (OQ-S2-002, answered 2026-09-08: delete with redirects). M3 migrates **one** page as the pattern; migrating 48 files (Stage 1 reported 49; recounted 2026-09-08) in one change is the failure mode R-02's remediation explicitly warns against. Cited: R-02, AP-07, ADR-0020. |

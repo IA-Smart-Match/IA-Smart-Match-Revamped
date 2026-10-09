@@ -41,7 +41,7 @@ from sqlalchemy.orm import Session, sessionmaker
 pytestmark = pytest.mark.integration
 
 _NOW = datetime.now(UTC).replace(microsecond=0)
-_PATH = "iawest.jobs"
+_PATH = "smartmatch.jobs"
 _BLOCK_SECONDS = 1.0
 
 

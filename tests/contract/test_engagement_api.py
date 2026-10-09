@@ -38,11 +38,11 @@ DATABASE_URL = os.getenv(
     "postgresql+psycopg://smartmatch:smartmatch@localhost:5432/smartmatch",
 )
 
-UNIT_PATH = "iawest.engagement"
+UNIT_PATH = "smartmatch.engagement"
 #: A second department in the same tenant containing none of :data:`UNIT_PATH`.
 #: The route passes no ``tenant_wide_roles``, so ordinary subtree containment
 #: applies and a coordinator here must not reach the engagement unit.
-SIBLING_UNIT_PATH = "iawest.sibling"
+SIBLING_UNIT_PATH = "smartmatch.sibling"
 
 ON_DATE = date(2026, 9, 1)
 FETCHED_AT = datetime(2026, 9, 3, 17, 0, tzinfo=UTC)
@@ -331,7 +331,7 @@ def test_the_sibling_departments_row_is_not_counted(engagement_context) -> None:
         engagement_context["tenant_id"],
         engagement_context["verifier"],
         role="admin",
-        membership_path="iawest",
+        membership_path="smartmatch",
     )
 
     response = _get(
@@ -373,7 +373,7 @@ def test_a_unit_with_no_attendance_reports_a_measured_zero(engagement_context) -
             {
                 "id": empty_unit_id,
                 "tid": engagement_context["tenant_id"],
-                "path": "iawest.empty",
+                "path": "smartmatch.empty",
             },
         )
     token = _register_principal(
@@ -381,7 +381,7 @@ def test_a_unit_with_no_attendance_reports_a_measured_zero(engagement_context) -
         engagement_context["tenant_id"],
         engagement_context["verifier"],
         role="coordinator",
-        membership_path="iawest.empty",
+        membership_path="smartmatch.empty",
     )
 
     response = _get(engagement_context["client"], _summary_path(empty_unit_id), token)

@@ -212,7 +212,7 @@ def test_each_stored_role_opens_its_portal_under_a_cba_label(
     assert [unit["roles"] for unit in descriptor["units"]] == [[role]]
 
 
-def test_no_visible_label_carries_ia_west_or_chapter_wording(
+def test_no_visible_label_carries_retired_brand_or_chapter_wording(
     client: TestClient, engine: Engine, tenant_id: uuid.UUID
 ) -> None:
     """Customer §4: the legacy institutional wording is gone from the wire."""

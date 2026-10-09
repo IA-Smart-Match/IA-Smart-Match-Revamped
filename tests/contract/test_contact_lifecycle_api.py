@@ -51,11 +51,11 @@ DATABASE_URL = os.getenv(
     "postgresql+psycopg://smartmatch:smartmatch@localhost:5432/smartmatch",
 )
 
-UNIT_PATH = "iawest.channels"
+UNIT_PATH = "smartmatch.channels"
 #: A second department holding none of :data:`UNIT_PATH`. A roster contact
 #: registered there must not be reachable through the unit under test, and its
 #: channels must not be either.
-SIBLING_UNIT_PATH = "iawest.channelssibling"
+SIBLING_UNIT_PATH = "smartmatch.channelssibling"
 
 FULL_NAME = "Dana Reyes"
 
@@ -261,13 +261,13 @@ def ctx(engine: Engine) -> Iterator[_Context]:
                 "email": f"{subject}@example.edu",
             },
         )
-        # Rooted at `iawest`, so one Connector covers both departments. The
+        # Rooted at `smartmatch`, so one Connector covers both departments. The
         # sibling unit proves *unit* scoping of the rows, not authorization,
         # which `tests/authz` owns.
         conn.execute(
             text(
                 "INSERT INTO membership (id, tenant_id, user_id, granted_path, role) "
-                "VALUES (:id, :tid, :uid, CAST('iawest' AS ltree), 'coordinator')"
+                "VALUES (:id, :tid, :uid, CAST('smartmatch' AS ltree), 'coordinator')"
             ),
             {"id": uuid.uuid4(), "tid": tenant_id, "uid": user_id},
         )

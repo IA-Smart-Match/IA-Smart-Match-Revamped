@@ -71,7 +71,7 @@ _ALL_STORAGE_BOUND_METRICS: tuple[str, ...] = (*_STAGE_METRIC_NAMES.values(), "o
 
 #: A second unit, sibling to the tenant's ordinary job-owning unit. Named once
 #: here so both the fixture and the isolation test agree on it.
-_OTHER_UNIT_PATH = "iawest.metrics-storage-other"
+_OTHER_UNIT_PATH = "smartmatch.metrics-storage-other"
 
 
 @pytest.fixture(autouse=True)

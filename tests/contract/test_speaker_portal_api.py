@@ -44,8 +44,8 @@ DATABASE_URL = os.getenv(
     "postgresql+psycopg://smartmatch:smartmatch@localhost:5432/smartmatch",
 )
 
-UNIT_PATH = "iawest.portal"
-SIBLING_UNIT_PATH = "iawest.portalsibling"
+UNIT_PATH = "smartmatch.portal"
+SIBLING_UNIT_PATH = "smartmatch.portalsibling"
 FROZEN_NOW = datetime(2026, 11, 2, 15, 0, tzinfo=UTC)
 
 _CLEANUP = (

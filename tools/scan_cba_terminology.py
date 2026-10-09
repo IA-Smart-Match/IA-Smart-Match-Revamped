@@ -9,7 +9,7 @@ West*, *Insights Association*, *chapter*, *Chapter Admin*, *Member Portal*,
 
 **Scope is the whole design.** A repository-wide grep for these words would be
 a blind global replace with a green tick attached: it would demand renaming the
-backend authorization ``membership`` record, the ``ia_west_legacy`` product
+backend authorization ``membership`` record, the ``legacy_pilot`` product
 scope that exists precisely because CBA is the *other* product, and the
 historical decision records that cite the legacy baseline by name. So this
 scanner reads exactly two things:
@@ -68,8 +68,8 @@ class Rule:
 
 #: Every pattern is deliberately narrower than the English word it names.
 #:
-#: The ``ia-west`` pattern does not match ``ia_west_legacy`` or
-#: ``ia_west_chapter``: those are wire values in a server contract, not copy.
+#: The ``ia-west`` pattern does not match ``legacy_pilot`` or
+#: ``smartmatch_team``: those are wire values in a server contract, not copy.
 #: The ``chapter`` pattern does not match ``chapter_membership_dues`` because
 #: ``_`` is a word character, so the capability identifier the policy defines
 #: survives the sweep that its own policy authorised. ``membership`` alone is
@@ -82,7 +82,7 @@ RULES: tuple[Rule, ...] = (
         replacement="CBA",
         message=(
             "The institutional name a CBA user reads is CBA (§4). The legacy "
-            "product name survives only as the `ia_west_legacy` product scope."
+            "product name survives only as the `legacy_pilot` product scope."
         ),
     ),
     Rule(
@@ -156,18 +156,10 @@ class Allow:
 #: documented in ``tests/unit/test_cba_terminology_strings.py``.
 ALLOWLIST: tuple[Allow, ...] = (
     Allow(
-        path="apps/web/legacy-frontend/src/lib/api.ts",
-        code="ia-west",
-        reason=(
-            "`ia_west_chapter` is a value of the server's `OutreachEmailVoice` "
-            "field. Changing it would change an API contract, not copy."
-        ),
-    ),
-    Allow(
         path="apps/web/legacy-frontend/src/lib/productScope.ts",
         code="*",
         reason=(
-            "The product-scope module names the legacy scope `ia_west_legacy` "
+            "The product-scope module names the legacy scope `legacy_pilot` "
             "and the gated `chapter_membership_dues` capability verbatim. It is "
             "the policy that authorises this sweep; it cannot be swept."
         ),

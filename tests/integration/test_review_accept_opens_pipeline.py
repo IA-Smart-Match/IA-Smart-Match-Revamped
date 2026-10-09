@@ -728,7 +728,7 @@ def test_a_provisioning_failure_rolls_back_the_decision(ctx: _Context) -> None:
     )
 
     with ctx.engine.begin() as conn:
-        conflicting_unit_id = _make_unit(conn, ctx.tenant_id, "iawest.reviewaccept.conflict")
+        conflicting_unit_id = _make_unit(conn, ctx.tenant_id, "smartmatch.reviewaccept.conflict")
 
     pipeline = PipelineRepository()
     with ctx.session_factory() as session:

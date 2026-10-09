@@ -310,7 +310,7 @@ class TestPersistenceRequiresApprovedProjection:
         refused: approval must come from a reviewed allowlist entry, never
         from a host merely looking trustworthy.
         """
-        validated = validate_static_url_shape("https://events.ia-west.example.edu/rsvp/abc123")
+        validated = validate_static_url_shape("https://events.smartmatch.example.edu/rsvp/abc123")
         assert isinstance(validated, StaticallyValidHttpsUrl)
 
         result = project_for_persistence(validated)

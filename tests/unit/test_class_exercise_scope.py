@@ -8,7 +8,7 @@ are true:
    **nothing else**. Every capability that implies an authenticated CBA router
    or a CBA datum is explicitly ``False`` there, so the exercise process cannot
    serve a real record even by accident.
-2. The CBA and ``IA_WEST_LEGACY`` columns are **bit-identical** to what they
+2. The CBA and ``LEGACY_PILOT`` columns are **bit-identical** to what they
    were before the scope existed. Adding a product must not re-decide another
    product, so the two pre-change columns are restated here as literals and
    compared value by value rather than trusted to a diff.
@@ -87,8 +87,8 @@ _CBA_BEFORE: dict[str, bool] = {
     "member_inquiry_narrative": False,
 }
 
-#: The ``ia_west_legacy`` column exactly as it stood before this track.
-_IA_WEST_LEGACY_BEFORE: dict[str, bool] = {name: True for name in _CBA_BEFORE}
+#: The ``legacy_pilot`` column exactly as it stood before this track.
+_LEGACY_PILOT_BEFORE: dict[str, bool] = {name: True for name in _CBA_BEFORE}
 
 #: Route-path prefixes that belong to authenticated CBA surfaces and must be
 #: absent from a process running the exercise scope. The first two are served by
@@ -257,18 +257,18 @@ def test_the_cba_column_is_bit_identical_to_before_this_track() -> None:
 
 
 def test_the_legacy_column_is_bit_identical_to_before_this_track() -> None:
-    decisions = capability_decisions(ProductScope.IA_WEST_LEGACY)
+    decisions = capability_decisions(ProductScope.LEGACY_PILOT)
     assert {
         capability.value: enabled
         for capability, enabled in decisions.items()
         if capability is not Capability.CLASS_EXERCISE and capability not in _ADDED_BY_LATER_TRACKS
-    } == _IA_WEST_LEGACY_BEFORE
+    } == _LEGACY_PILOT_BEFORE
 
 
 def test_the_only_new_capability_is_the_exercise_one() -> None:
     later = {c.value for c in _ADDED_BY_LATER_TRACKS}
     assert {c.value for c in Capability} == set(_CBA_BEFORE) | {"class_exercise"} | later
-    for scope in (ProductScope.CBA, ProductScope.IA_WEST_LEGACY):
+    for scope in (ProductScope.CBA, ProductScope.LEGACY_PILOT):
         assert not any(capability_decisions(scope)[c] for c in _ADDED_BY_LATER_TRACKS)
 
 
@@ -435,7 +435,7 @@ def test_the_application_level_residue_under_the_default_scope_is_unchanged() ->
         "/u/{token}",
         "/i/{token}",
     }
-    assert _app_level_paths_under(ProductScope.IA_WEST_LEGACY) == {
+    assert _app_level_paths_under(ProductScope.LEGACY_PILOT) == {
         "/api/health",
         "/u/{token}",
         "/i/{token}",
@@ -455,6 +455,4 @@ def test_the_exercise_scope_serves_no_cba_outreach_page() -> None:
 
 def test_the_legacy_scope_is_untouched_by_the_gating() -> None:
     """The one other scope that has authenticated login keeps every route."""
-    assert _mounted_paths_under(ProductScope.IA_WEST_LEGACY) >= _mounted_paths_under(
-        ProductScope.CBA
-    )
+    assert _mounted_paths_under(ProductScope.LEGACY_PILOT) >= _mounted_paths_under(ProductScope.CBA)

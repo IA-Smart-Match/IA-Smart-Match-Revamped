@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>System architecture — who calls whom</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root { --color-paper: #f5f5f5; --color-ink: #2d3142; --color-muted: #4f5d75; --color-accent: #eb6c36;
+      --font-sans: 'Geist', system-ui, sans-serif; --font-serif: 'Instrument Serif', serif; --font-mono: 'Geist Mono', ui-monospace, monospace; }
+    body { font-family: var(--font-sans); background: var(--color-paper); color: var(--color-ink); min-height: 100vh;
+      display: flex; align-items: center; justify-content: center; padding: 3rem 1rem; }
+    .frame { max-width: 1100px; width: 100%; }
+    .diagram-container { width: 100%; overflow-x: auto; }
+    .eyebrow { font-family: var(--font-mono); font-size: 0.66rem; font-weight: 500; letter-spacing: 0.18em; text-transform: uppercase; color: var(--color-muted); margin-bottom: 0.5rem; }
+    h1 { font-family: var(--font-serif); font-size: clamp(1.5rem, 2.4vw + 0.75rem, 2rem); font-weight: 400; letter-spacing: -0.02em; line-height: 1.15; margin-bottom: 1.5rem; }
+    .caption { font-family: var(--font-mono); font-size: 0.72rem; color: var(--color-muted); margin-top: 1rem; line-height: 1.5; max-width: 90ch; }
+    svg { width: 100%; min-width: 1060px; display: block; }
+    @media print { .diagram-container { overflow-x: visible; } svg { min-width: 0; } }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <p class="eyebrow">Architecture · 2026-10-09 · d0b05adc</p>
+    <h1>System architecture — who calls whom</h1>
+    <div class="diagram-container">
+      <svg viewBox="0 0 1060 760" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="system-architecture-title system-architecture-desc">
+        <title id="system-architecture-title">System architecture — who calls whom</title>
+        <desc id="system-architecture-desc">System architecture of Smart Match at d0b05adc: browser through Cloudflare to Vite, which proxies to the CBA api or the class-exercise api; both and the worker share one PostgreSQL; providers run as fixtures and live adapters are dormant.</desc>
+        <defs>
+          <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/></marker>
+          <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#eb6c36"/></marker>
+          <marker id="arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#2e5aa8"/></marker>
+          <marker id="arrow-open" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polyline points="0 0, 8 3, 0 6" fill="none" stroke="#4f5d75" stroke-width="1.2"/></marker>
+        </defs>
+        <rect width="100%" height="100%" fill="#f5f5f5"/>
+<rect x="560" y="50" width="210" height="350" rx="8" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/><rect x="572" y="54" width="232" height="12" rx="2" fill="#f5f5f5"/><text x="688.0" y="63" fill="rgba(45,49,66,0.55)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.14em">SERVICES · one api image, two scopes</text>
+<rect x="790" y="170" width="210" height="320" rx="8" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/><rect x="802" y="174" width="94" height="12" rx="2" fill="#f5f5f5"/><text x="849.0" y="183" fill="rgba(45,49,66,0.55)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.14em">DATA + WORKER</text>
+<path d="M 160,232 L 200,232" fill="none" stroke="#2e5aa8" stroke-width="1.2" marker-end="url(#arrow-link)"/>
+<path d="M 340,232 L 380,232" fill="none" stroke="#2e5aa8" stroke-width="1.2" marker-end="url(#arrow-link)"/>
+<path d="M 530,220 L 540,220 Q 548,220 548,212 L 548,124 Q 548,116 556,116 L 580,116" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+<path d="M 530,244 L 556,244 Q 564,244 564,252 L 564,340 Q 564,348 572,348 L 580,348" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+<path d="M 750,128 L 932,128 Q 940,128 940,136 L 940,196" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+<path d="M 750,100 L 1012,100 Q 1020,100 1020,108 L 1020,588 Q 1020,596 1012,596 L 980,596" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+<path d="M 750,340 L 842,340 Q 850,340 850,332 L 850,268" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+<path d="M 895,400 L 895,268" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+<path d="M 895,472 L 895,560" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+<path d="M 810,596 L 750,596" fill="none" stroke="#4f5d75" stroke-width="1" stroke-dasharray="5,4" marker-end="url(#arrow)"/>
+<rect x="515.9" y="162" width="26.2" height="12" rx="2" fill="#f5f5f5"/><text x="529" y="171" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">/V1</text>
+<rect x="482.6" y="294" width="74.8" height="12" rx="2" fill="#f5f5f5"/><text x="520" y="303" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">/V1/EXERCISE</text>
+<rect x="831.9" y="110" width="26.2" height="12" rx="2" fill="#f5f5f5"/><text x="845" y="119" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">SQL</text>
+<rect x="963.4" y="294" width="53.2" height="12" rx="2" fill="#f5f5f5"/><text x="990" y="303" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">FIXTURES</text>
+<rect x="768.0" y="322" width="64.0" height="12" rx="2" fill="#f5f5f5"/><text x="800" y="331" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">EXERCISE_*</text>
+<rect x="905.0" y="328" width="64.0" height="12" rx="2" fill="#f5f5f5"/><text x="937" y="337" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">OUTBOX/JOB</text>
+<rect x="930.2" y="510" width="31.6" height="12" rx="2" fill="#f5f5f5"/><text x="946" y="519" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">SEND</text>
+<rect x="30" y="196" width="130" height="72" rx="6" fill="#f5f5f5"/>
+<rect x="30" y="196" width="130" height="72" rx="6" fill="rgba(79,93,117,0.10)" stroke="#7a8399" stroke-width="1"/>
+<rect x="38" y="202" width="46" height="12" rx="2" fill="none" stroke="#4f5d75" stroke-opacity="0.4" stroke-width="0.8"/>
+<text x="61.0" y="211" fill="#4f5d75" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">CLIENT</text>
+<text x="95.0" y="236.0" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Browser</text>
+<text x="95.0" y="250.0" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">React SPA</text>
+<rect x="200" y="196" width="140" height="72" rx="6" fill="#f5f5f5"/>
+<rect x="200" y="196" width="140" height="72" rx="6" fill="rgba(45,49,66,0.03)" stroke="rgba(45,49,66,0.30)" stroke-width="1"/>
+<rect x="208" y="202" width="34" height="12" rx="2" fill="none" stroke="#4f5d75" stroke-opacity="0.4" stroke-width="0.8"/>
+<text x="225.0" y="211" fill="#4f5d75" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">EDGE</text>
+<text x="270.0" y="230.0" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">cloudflared</text>
+<text x="270.0" y="244.0" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">pilot / exercise</text>
+<text x="270.0" y="256.0" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">hostnames</text>
+<rect x="380" y="196" width="150" height="72" rx="6" fill="#f5f5f5"/>
+<rect x="380" y="196" width="150" height="72" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+<rect x="388" y="202" width="28" height="12" rx="2" fill="none" stroke="#4f5d75" stroke-opacity="0.4" stroke-width="0.8"/>
+<text x="402.0" y="211" fill="#4f5d75" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">WEB</text>
+<text x="455.0" y="230.0" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Vite dev server</text>
+<text x="455.0" y="244.0" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">web :5173</text>
+<text x="455.0" y="256.0" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">web-exercise :5174</text>
+<rect x="580" y="80" width="170" height="72" rx="6" fill="#f5f5f5"/>
+<rect x="580" y="80" width="170" height="72" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+<rect x="588" y="86" width="28" height="12" rx="2" fill="none" stroke="#4f5d75" stroke-opacity="0.4" stroke-width="0.8"/>
+<text x="602.0" y="95" fill="#4f5d75" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">API</text>
+<text x="665.0" y="114.0" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">smartmatch_api</text>
+<text x="665.0" y="128.0" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">scope cba · :8080</text>
+<text x="665.0" y="140.0" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">speaker portal: off</text>
+<rect x="580" y="312" width="170" height="72" rx="6" fill="#f5f5f5"/>
+<rect x="580" y="312" width="170" height="72" rx="6" fill="rgba(79,93,117,0.10)" stroke="#7a8399" stroke-width="1"/>
+<rect x="588" y="318" width="28" height="12" rx="2" fill="none" stroke="#4f5d75" stroke-opacity="0.4" stroke-width="0.8"/>
+<text x="602.0" y="327" fill="#4f5d75" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">API</text>
+<text x="665.0" y="346.0" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">api-exercise</text>
+<text x="665.0" y="360.0" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">scope class_exercise</text>
+<text x="665.0" y="372.0" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">:8090 · cookie, no login</text>
+<rect x="810" y="196" width="170" height="72" rx="6" fill="#f5f5f5"/>
+<rect x="810" y="196" width="170" height="72" rx="6" fill="#fdeee6" stroke="#eb6c36" stroke-width="1"/>
+<rect x="818" y="202" width="28" height="12" rx="2" fill="none" stroke="#4f5d75" stroke-opacity="0.4" stroke-width="0.8"/>
+<text x="832.0" y="211" fill="#4f5d75" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">DB</text>
+<text x="895.0" y="230.0" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">PostgreSQL 16</text>
+<text x="895.0" y="244.0" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">54 CBA + 8 exercise_*</text>
+<text x="895.0" y="256.0" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">head 0046</text>
+<rect x="810" y="400" width="170" height="72" rx="6" fill="#f5f5f5"/>
+<rect x="810" y="400" width="170" height="72" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+<rect x="818" y="406" width="46" height="12" rx="2" fill="none" stroke="#4f5d75" stroke-opacity="0.4" stroke-width="0.8"/>
+<text x="841.0" y="415" fill="#4f5d75" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">WORKER</text>
+<text x="895.0" y="434.0" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">smartmatch_worker</text>
+<text x="895.0" y="448.0" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">dispatch + execute</text>
+<text x="895.0" y="460.0" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">:8081</text>
+<rect x="810" y="560" width="170" height="72" rx="6" fill="#f5f5f5"/>
+<rect x="810" y="560" width="170" height="72" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1"/>
+<rect x="818" y="566" width="28" height="12" rx="2" fill="none" stroke="#4f5d75" stroke-opacity="0.4" stroke-width="0.8"/>
+<text x="832.0" y="575" fill="#4f5d75" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">PKG</text>
+<text x="895.0" y="594.0" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">providers · fixtures</text>
+<text x="895.0" y="608.0" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">email · token · classify</text>
+<text x="895.0" y="620.0" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">topics (flag off)</text>
+<rect x="580" y="560" width="170" height="72" rx="6" fill="#f5f5f5"/>
+<rect x="580" y="560" width="170" height="72" rx="6" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.20)" stroke-width="1" stroke-dasharray="4,3"/>
+<rect x="588" y="566" width="52" height="12" rx="2" fill="none" stroke="#4f5d75" stroke-opacity="0.4" stroke-width="0.8"/>
+<text x="614.0" y="575" fill="#4f5d75" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">DORMANT</text>
+<text x="665.0" y="594.0" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Built, not wired</text>
+<text x="665.0" y="608.0" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">Resend · Cloud Tasks</text>
+<text x="665.0" y="620.0" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">OIDC/JWKS · paid extr.</text>
+<text x="30" y="666" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="start">Dormant, not dead: speaker_portal / speaker_self / me_contact_channels routers need Capability.SPEAKER_PORTAL (False in all 3 scopes);</text>
+<text x="30" y="680" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="start">event_ingest.py is registered nowhere; extraction.paid_pages is composed only when all spend ceilings are set and no route enqueues it;</text>
+<text x="30" y="694" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="start">the worker OIDC verifier falls back to Unconfigured (401/501) without JWKS. No LLM vendor, SMTP, or object-storage call exists in python/ or services/.</text>
+<line x1="30" y1="712" x2="1030" y2="712" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+<text x="30" y="732" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">LEGEND</text>
+<rect x="100" y="723" width="24" height="12" rx="3" fill="#ffffff" stroke="#2d3142"/>
+<text x="132" y="732" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="start">CBA runtime</text>
+<rect x="205.9" y="723" width="24" height="12" rx="3" fill="rgba(79,93,117,0.10)" stroke="#7a8399"/>
+<text x="237.9" y="732" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="start">class exercise</text>
+<rect x="326.5" y="723" width="24" height="12" rx="3" fill="#fdeee6" stroke="#eb6c36"/>
+<text x="358.5" y="732" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="start">shared store</text>
+<rect x="437.3" y="723" width="24" height="12" rx="3" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.20)" stroke-dasharray="4,3"/>
+<text x="469.3" y="732" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="start">dormant</text>
+<path d="M 523.6,729 L 547.6,729" fill="none" stroke="#2e5aa8" stroke-width="1.2" marker-end="url(#arrow-link)"/>
+<text x="555.6" y="732" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="start">public ingress</text>
+<path d="M 644.2,729 L 668.2,729" fill="none" stroke="#4f5d75" stroke-width="1" stroke-dasharray="5,4" marker-end="url(#arrow)"/>
+<text x="676.2" y="732" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="start">not wired</text>
+      </svg>
+    </div>
+    <p class="caption">api and worker never import each other; they meet in PostgreSQL (job + outbox_record). The SPA also calls /api/portals/* and /api/outreach/agentic-workflow/stream, which no service serves (lib/api.ts:1469, :1694-1826). Sources: services/api/smartmatch_api/main.py:268-760, product_scope.py:255-374, worker main.py:326-823, providers/registry.py, docker-compose*.yml.</p>
+  </div>
+</body>
+</html>

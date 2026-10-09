@@ -323,7 +323,7 @@ def _host(
             conn.execute(
                 text(
                     "INSERT INTO membership (id, tenant_id, user_id, granted_path, role) "
-                    "VALUES (:id, :t, :u, CAST('iawest.jobs' AS ltree), :r)"
+                    "VALUES (:id, :t, :u, CAST('smartmatch.jobs' AS ltree), :r)"
                 ),
                 {"id": uuid.uuid4(), "t": tenant_id, "u": user_id, "r": role},
             )
@@ -434,7 +434,7 @@ def test_concurrent_new_login_and_seed_at_one_address_leave_one_credential(
                     environ={volunteer.email_var: address, volunteer.password_var: _new_pw()},
                     tenant_slug=slug,
                     tenant_name=slug,
-                    unit_path="iawest.jobs",
+                    unit_path="smartmatch.jobs",
                     unit_type="department",
                     unit_name="Test Jobs Unit",
                 )

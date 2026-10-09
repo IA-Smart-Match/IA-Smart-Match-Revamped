@@ -30,7 +30,7 @@ from sqlalchemy import text
 
 pytestmark = pytest.mark.integration
 
-UNIT_PATH = "iawest.cpp.engineering.ie"
+UNIT_PATH = "smartmatch.cpp.engineering.ie"
 
 
 @pytest.fixture
@@ -68,7 +68,7 @@ def _make_user(engine, tenant_id, *, subject: str, suspended: bool = False) -> u
     return user_id
 
 
-def _grant(engine, tenant_id, user_id, *, path: str = "iawest", role: str = "coordinator"):
+def _grant(engine, tenant_id, user_id, *, path: str = "smartmatch", role: str = "coordinator"):
     with engine.begin() as conn:
         conn.execute(
             text(
@@ -197,7 +197,7 @@ def test_membership_without_the_required_role_is_denied(client, engine, tenant_i
 def test_membership_on_a_sibling_subtree_is_denied(client, engine, tenant_id, unit_id):
     """A grant on one department does not reach another."""
     user_id = _make_user(engine, tenant_id, subject=unique_subject("sub-other-dept"))
-    _grant(engine, tenant_id, user_id, path="iawest.cpp.engineering.cs")
+    _grant(engine, tenant_id, user_id, path="smartmatch.cpp.engineering.cs")
     client.verifier.register("tok-other", unique_subject("sub-other-dept"))
 
     assert _post_import(client, unit_id, "tok-other", key="k1").status_code == 403
@@ -685,7 +685,7 @@ def test_expired_membership_denies_access(client, engine, tenant_id, unit_id):
             text(
                 "INSERT INTO membership "
                 "(id, tenant_id, user_id, granted_path, role, valid_until) "
-                "VALUES (:id, :tid, :uid, CAST('iawest' AS ltree), 'coordinator', :until)"
+                "VALUES (:id, :tid, :uid, CAST('smartmatch' AS ltree), 'coordinator', :until)"
             ),
             {
                 "id": uuid.uuid4(),
@@ -747,7 +747,7 @@ def test_tenant_member_without_an_oversight_role_cannot_read_a_job(
     job_id = _post_import(client, unit_id, coordinator, key="k1").json()["job_id"]
 
     user_id = _make_user(engine, tenant_id, subject=unique_subject("sub-elsewhere"))
-    _grant(engine, tenant_id, user_id, path="iawest", role="student")
+    _grant(engine, tenant_id, user_id, path="smartmatch", role="student")
     client.verifier.register("tok-elsewhere", unique_subject("sub-elsewhere"))
 
     response = client.get(f"/v1/jobs/{job_id}", headers={"Authorization": "Bearer tok-elsewhere"})

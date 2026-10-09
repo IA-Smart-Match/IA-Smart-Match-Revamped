@@ -86,11 +86,11 @@ DATABASE_URL = os.getenv(
     "postgresql+psycopg://smartmatch:smartmatch@localhost:5432/smartmatch",
 )
 
-UNIT_PATH = "iawest.matching"
+UNIT_PATH = "smartmatch.matching"
 #: A second department in the same tenant containing none of :data:`UNIT_PATH`.
 #: Neither operation passes ``tenant_wide_roles``, so ordinary subtree
 #: containment applies and a coordinator here must not reach the matching unit.
-SIBLING_UNIT_PATH = "iawest.matchingsibling"
+SIBLING_UNIT_PATH = "smartmatch.matchingsibling"
 
 #: The Speaker Request's targets. One sector and one role, so a speaker either
 #: matches or measurably does not — the two-valued factor customer §§7-8

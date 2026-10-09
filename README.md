@@ -1,6 +1,6 @@
 # SmartMatch Platform
 
-IA West SmartMatch — production platform, built to
+SmartMatch Platform — production platform, built to
 [Architecture v1.1](docs/architecture/review/contract-findings.md).
 
 > **Status: Foundation scaffold.** This repository is *not* production-ready and
@@ -349,7 +349,7 @@ readiness.
 
 ## Notice — private pilot, not open-source licensed
 
-> **This repository is a private pilot for IA West SmartMatch. It is not
+> **This repository is a private pilot for SmartMatch Platform. It is not
 > open-source licensed, and it carries no `LICENSE` file deliberately.**
 >
 > The absence of a `LICENSE` is a decision, not an oversight. No license is

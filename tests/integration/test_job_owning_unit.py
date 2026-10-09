@@ -41,7 +41,7 @@ pytestmark = pytest.mark.integration
 #: then asked to continue.
 REVISION_BEFORE = "0005_command_payload"
 
-UNIT_PATH = "iawest.cpp.engineering.ie"
+UNIT_PATH = "smartmatch.cpp.engineering.ie"
 
 
 # ---------------------------------------------------------------------------
@@ -277,8 +277,8 @@ def test_an_existing_0005_database_upgrades_through_0007(engine: Engine):
             with scratch.begin() as conn:
                 _insert_tenant(conn, first_tenant)
                 _insert_tenant(conn, second_tenant)
-                first_unit = _insert_unit(conn, first_tenant, path="iawest.one")
-                second_unit = _insert_unit(conn, second_tenant, path="iawest.two")
+                first_unit = _insert_unit(conn, first_tenant, path="smartmatch.one")
+                second_unit = _insert_unit(conn, second_tenant, path="smartmatch.two")
                 first_job = _insert_pre_0006_job(
                     conn, first_tenant, payload=f'{{"unit_id": "{first_unit}"}}'
                 )
@@ -329,7 +329,7 @@ def test_the_backfill_refuses_to_run_when_a_row_cannot_be_resolved(engine: Engin
             with scratch.begin() as conn:
                 _insert_tenant(conn, tenant)
                 _insert_tenant(conn, other_tenant)
-                good_unit = _insert_unit(conn, tenant, path="iawest.good")
+                good_unit = _insert_unit(conn, tenant, path="smartmatch.good")
                 foreign_unit = _insert_unit(conn, other_tenant, path="elsewhere.bad")
 
                 resolvable = _insert_pre_0006_job(

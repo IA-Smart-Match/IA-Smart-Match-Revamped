@@ -2,6 +2,8 @@
 
 **Stage 1 §4.** Evidence-based status for every capability. Commit `c72dced`.
 
+> **Correction (2026-10-09, `d0b05adc`):** §1 below lists 9 enabled capabilities. The `Capability` enum now has **two more**, `CLASS_EXERCISE` and `SPEAKER_PORTAL`, and six routers that §1 does not list now sit under existing capabilities. See §6.
+
 Status derived from code, routes, the published contract, and tests — **not**
 from README claims or checklists. Where the two disagree, the disagreement is
 itself recorded (§4).
@@ -35,7 +37,7 @@ Under the default `CBA` scope, every capability with a router is enabled.
 |---|---|---|
 | `EXTERNAL_SPEAKER_ACQUISITION` | **PLANNED (out of scope by decision)** | Owns no router at all. `main.py` states this explicitly: *"the capabilities CBA does gate own no router — they were never mounted"* |
 | Cold unknown-contact outreach | **PLANNED (out of scope)** | same |
-| Chapter dues | **DEPRECATED** — belongs to `IA_WEST_LEGACY` | `product_scope.py:83-97`; `scan_cba_terminology.py` fails the build if "dues" reaches CBA copy |
+| Chapter dues | **DEPRECATED** — belongs to `LEGACY_PILOT` | `product_scope.py:83-97`; `scan_cba_terminology.py` fails the build if "dues" reaches CBA copy |
 | `member_inquiry` narrative | **DEPRECATED** | same |
 
 **OBSERVED — this is a good pattern.** A gated-off capability here is *absent*,
@@ -136,3 +138,33 @@ were verified to authorize by delegation:
 `pytest --cov` names only the four `python/` packages. `services/api` (14k L)
 and `services/worker` (7k L) are **exercised but unmeasured**.
 → `risk-register.md` R-10.
+
+---
+
+## 6. Re-measured 2026-10-09 (`d0b05adc`)
+
+Added for the system maps in `docs/architecture/diagrams/2026-10-09/system/`.
+Sections 1–5 above are left as written for `c72dced`.
+
+**New capabilities** (`python/smartmatch_domain/smartmatch_domain/product_scope.py:230,245`):
+
+| Capability | Status | Entry point(s) | Scope decision | Evidence |
+|---|---|---|---|---|
+| `CLASS_EXERCISE` | **FUNCTIONAL** (separate process) | 8 router entries under `/v1/exercise…` (`main.py:620-689`): `exercise_public`, `exercise_workspace`, `exercise_instructor_session`, `exercise_instructor`, `exercise_matching`, `exercise_results`, `exercise_instructor_refresh`, `exercise_instructor_detail` | `True` only in `ProductScope.CLASS_EXERCISE` (`product_scope.py:348`), which runs as `api-exercise` (`docker-compose.exercise.yml:82`) | 8 `exercise_*` tables; import-linter contracts 4, 6, 7 |
+| `SPEAKER_PORTAL` | **DORMANT** (built, mounted nowhere) | `speaker_portal`, `speaker_self`, `me_contact_channels` (`main.py:695-702`) | `False` in all three scopes (`product_scope.py:284,313,349`); needs login, outreach and contact management (`:358-374`) | `speaker_portal_invitation` table (migration `0039`) |
+
+**Routers under existing capabilities that §1 does not list** (`main.py:359-705`):
+`speaker_pipeline` (`DISCOVERY_METRICS`), `host_organizations` (`SPEAKER_REQUEST_INTAKE`),
+`speaker_availability` and `meetings` (`SPEAKER_CONTACT_MANAGEMENT`), and `student_speaker_feedback` and
+`manual_events` (`EVENT_READS`). There are 50 router modules now (not 26). The published contract has
+69 paths and 152 schemas (`contracts/openapi/smartmatch.json`).
+
+**Infrastructure rows that still hold, with one sharpening:**
+
+- I2 / I3: the outbox is still exercised only against the fixture and dev-loopback queues. It is now explicit in
+  code that no live queue exists: `smartmatch_providers/registry.py:243` refuses a live Cloud Tasks queue
+  ("not implemented").
+- I8: `spend_sweeper.py` still has no caller outside `tests/unit/test_spend_sweeper.py`.
+- Dormant worker paths (owner rule: dormant, not dead): `extraction.paid_pages` is composed only when all
+  spend ceilings are set, and no route enqueues it. `event_ingest.py` is registered nowhere.
+

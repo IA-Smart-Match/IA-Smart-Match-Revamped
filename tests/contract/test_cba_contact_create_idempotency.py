@@ -59,11 +59,11 @@ DATABASE_URL = os.getenv(
     "postgresql+psycopg://smartmatch:smartmatch@localhost:5432/smartmatch",
 )
 
-UNIT_PATH = "iawest.idemcreate"
+UNIT_PATH = "smartmatch.idemcreate"
 #: A second department under the same tenant. A key is scoped by tenant and
 #: command type but *not* by unit, so this is where the fingerprint has to hold
 #: the line — see :func:`test_the_same_key_against_another_unit_is_a_conflict`.
-OTHER_UNIT_PATH = "iawest.idemcreateother"
+OTHER_UNIT_PATH = "smartmatch.idemcreateother"
 
 FULL_NAME = "Dana Reyes"
 COMPANY = "Reyes Analytics"
@@ -113,7 +113,7 @@ def engine() -> Engine:
 def idem_context(engine: Engine) -> Iterator[tuple[TestClient, uuid.UUID, uuid.UUID, str]]:
     """One tenant, two departments, and a Speaker Connector covering both.
 
-    The connector's membership is granted at ``iawest`` rather than at either
+    The connector's membership is granted at ``smartmatch`` rather than at either
     department, exactly as the duplicate-hint fixture does it and for the same
     reason: a caller authorized for only one unit would make the cross-unit test
     pass on a ``403`` instead of on the thing being asserted.
@@ -162,7 +162,7 @@ def idem_context(engine: Engine) -> Iterator[tuple[TestClient, uuid.UUID, uuid.U
                 "INSERT INTO membership (id, tenant_id, user_id, granted_path, role) "
                 "VALUES (:id, :tid, :uid, CAST(:path AS ltree), 'coordinator')"
             ),
-            {"id": uuid.uuid4(), "tid": tenant_id, "uid": user_id, "path": "iawest"},
+            {"id": uuid.uuid4(), "tid": tenant_id, "uid": user_id, "path": "smartmatch"},
         )
 
     verifier = FixtureTokenVerifier()

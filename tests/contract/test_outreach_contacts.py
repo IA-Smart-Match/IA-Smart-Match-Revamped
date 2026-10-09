@@ -40,10 +40,10 @@ DATABASE_URL = os.getenv(
     "postgresql+psycopg://smartmatch:smartmatch@localhost:5432/smartmatch",
 )
 
-UNIT_PATH = "iawest.contacts"
+UNIT_PATH = "smartmatch.contacts"
 #: A second department containing none of :data:`UNIT_PATH`, so a contact
 #: registered there must not be reachable from the unit under test.
-SIBLING_UNIT_PATH = "iawest.contactssibling"
+SIBLING_UNIT_PATH = "smartmatch.contactssibling"
 
 #: RFC 2606 reserved. Nothing this suite registers can address a real mailbox.
 ADDRESS = "contact-0000@synthetic.invalid"
@@ -167,13 +167,13 @@ def ctx(engine: Engine) -> Iterator[_Context]:
                 "email": f"{subject}@example.edu",
             },
         )
-        # Rooted at `iawest`, so the same coordinator covers both departments.
+        # Rooted at `smartmatch`, so the same coordinator covers both departments.
         # The sibling unit is here to prove *unit* scoping of the contact rows,
         # not to test authorization, which `tests/authz` owns.
         conn.execute(
             text(
                 "INSERT INTO membership (id, tenant_id, user_id, granted_path, role) "
-                "VALUES (:id, :tid, :uid, CAST('iawest' AS ltree), 'coordinator')"
+                "VALUES (:id, :tid, :uid, CAST('smartmatch' AS ltree), 'coordinator')"
             ),
             {"id": uuid.uuid4(), "tid": tenant_id, "uid": user_id},
         )

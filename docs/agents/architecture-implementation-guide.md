@@ -133,7 +133,7 @@ usual defaults instead.
    | `typecheck` | `mypy python/ services/` in strict mode. |
    | `imports` | `lint-imports` — a layer violation (domain importing IO, etc.). |
    | `test` | `pytest tests/ -m "not integration and not e2e"` — includes unit, contract, authz, golden **and `test_adr_index.py`**. |
-   | `scan` | `tools/scan_forbidden.py` (the twelve legacy anti-behaviours) and `tools/scan_cba_terminology.py` (retired IA-West vocabulary in CBA-visible copy). |
+   | `scan` | `tools/scan_forbidden.py` (the twelve legacy anti-behaviours) and `tools/scan_cba_terminology.py` (retired legacy-chapter vocabulary in CBA-visible copy). |
    | `memory` | `tools/agent_memory_check.py` — the agent-memory ledger's front matter and the git blob hashes its records cite. |
    | `licenses` | `tools/supply_chain.py licenses` — a dependency outside policy. |
    | `infra-check` | `tools/env_isolation_check.py` — Terraform environments share no identifier and nothing is applyable. |
@@ -333,7 +333,7 @@ it said? If not, bump the version constant and keep the superseded one.
 **Rule.** A path that exists for the *other* product or the *previous* rulebook
 is deleted only with evidence that nothing reads it.
 
-**Why here.** `ProductScope.IA_WEST_LEGACY`
+**Why here.** `ProductScope.LEGACY_PILOT`
 (`python/smartmatch_domain/smartmatch_domain/product_scope.py:96`, classified at
 `:240`) exists precisely because CBA is the other product — and
 `tools/scan_cba_terminology.py`'s header says so explicitly, which is why the
@@ -470,7 +470,7 @@ with a genuine `unknown`, and so weights are never re-spread per candidate.
 
 ### 3.15 The terminology scan will reject retired vocabulary in CBA-visible copy
 
-**Rule.** Copy a CBA user can read must not say *IA West*, *Insights
+**Rule.** Copy a CBA user can read must not say *the legacy chapter brand*, *Insights
 Association*, *chapter*, *Chapter Admin*, *Member Portal*, *volunteer
 opportunity*, or *membership / dues* as a product concept.
 

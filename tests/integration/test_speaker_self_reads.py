@@ -303,7 +303,7 @@ def test_find_bound_profile_returns_profile_and_unit_path(
     assert isinstance(bound, BoundSpeakerProfile)
     assert bound.professional_id == pid
     assert bound.owning_unit_id == db.run(ensure_owning_unit, tenant_id)
-    assert bound.owning_unit_path == "iawest.jobs"
+    assert bound.owning_unit_path == "smartmatch.jobs"
 
 
 def test_find_bound_profile_is_tenant_scoped(

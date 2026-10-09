@@ -411,7 +411,7 @@ def coordinator(client, engine, tenant_id) -> tuple[str, uuid.UUID]:
         conn.execute(
             text(
                 "INSERT INTO membership (id, tenant_id, user_id, granted_path, role) "
-                "VALUES (:id, :tid, :uid, CAST('iawest' AS ltree), 'coordinator')"
+                "VALUES (:id, :tid, :uid, CAST('smartmatch' AS ltree), 'coordinator')"
             ),
             {"id": uuid.uuid4(), "tid": tenant_id, "uid": user_id},
         )

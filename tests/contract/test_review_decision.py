@@ -59,7 +59,7 @@ DATABASE_URL = os.getenv(
     "SMARTMATCH_DATABASE_URL",
     "postgresql+psycopg://smartmatch:smartmatch@localhost:5432/smartmatch",
 )
-UNIT_PATH = "iawest.review-decision"
+UNIT_PATH = "smartmatch.review-decision"
 
 
 @pytest.fixture(scope="module")

@@ -58,7 +58,7 @@ DATABASE_URL = os.getenv(
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
-UNIT_PATH = "iawest.liftpaths"
+UNIT_PATH = "smartmatch.liftpaths"
 
 TEMPLATE_ID = "pilot.event_invitation.v1"
 VALUES = {
