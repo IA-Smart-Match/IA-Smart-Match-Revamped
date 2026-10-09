@@ -104,7 +104,7 @@
 #
 #      Whether `metro_region` should stay REQUIRED for a CBA export is a
 #      separate question this card does not answer: it was ratified for the
-#      IA West pilot, and §10 now measures proximity in miles from CPP using
+#      legacy chapter pilot, and §10 now measures proximity in miles from CPP using
 #      city and/or ZIP. De-ratifying a required column is a decision, not a
 #      refactor. Tracked as OQ-CBA-012; the safe default is to leave it.
 #
@@ -395,7 +395,7 @@ open_questions:
   - >-
     OPEN -- OQ-CBA-012, two questions this card deliberately did not settle
     about a CBA-era `professionals` export. (a) Should `metro_region` remain
-    REQUIRED? It was ratified for the IA West pilot; customer §10 now measures
+    REQUIRED? It was ratified for the legacy chapter pilot; customer §10 now measures
     proximity in miles from CPP using city and/or ZIP, and `location_city` /
     `location_postal_code` are declared optional above. A CBA export carrying
     a ZIP but no metro region currently fails `missing_required_columns`.

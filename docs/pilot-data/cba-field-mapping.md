@@ -75,7 +75,7 @@ contract does not declare is a terminal `dataset_contract_unknown`. An
 carries it.
 
 Whether `metro_region` should stay required for a CBA-era export is
-**OQ-CBA-012(a)**, deliberately unanswered: it was ratified for the IA West
+**OQ-CBA-012(a)**, deliberately unanswered: it was ratified for the legacy chapter
 pilot, and §10 now measures proximity from city and/or ZIP. De-ratifying a
 required column is a decision, not a refactor.
 

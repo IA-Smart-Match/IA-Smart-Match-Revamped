@@ -35,7 +35,7 @@ Under the default `CBA` scope, every capability with a router is enabled.
 |---|---|---|
 | `EXTERNAL_SPEAKER_ACQUISITION` | **PLANNED (out of scope by decision)** | Owns no router at all. `main.py` states this explicitly: *"the capabilities CBA does gate own no router — they were never mounted"* |
 | Cold unknown-contact outreach | **PLANNED (out of scope)** | same |
-| Chapter dues | **DEPRECATED** — belongs to `IA_WEST_LEGACY` | `product_scope.py:83-97`; `scan_cba_terminology.py` fails the build if "dues" reaches CBA copy |
+| Chapter dues | **DEPRECATED** — belongs to `LEGACY_PILOT` | `product_scope.py:83-97`; `scan_cba_terminology.py` fails the build if "dues" reaches CBA copy |
 | `member_inquiry` narrative | **DEPRECATED** | same |
 
 **OBSERVED — this is a good pattern.** A gated-off capability here is *absent*,

@@ -16,7 +16,7 @@ Two values, deliberately, and neither derives from the other:
 | | `Edition` | `ProductScope` |
 |---|---|---|
 | Question it answers | Which **deployment** is this? | Which **product** is this? |
-| Values | `dev`, `staging`, `classroom`, `production` | `cba`, `ia_west_legacy`, `class_exercise` |
+| Values | `dev`, `staging`, `classroom`, `production` | `cba`, `legacy_pilot`, `class_exercise` |
 | What it decides | Whether a provider credential may exist here; which adapters may be constructed | Which named capabilities the product offers |
 | Enforced by | [`config.py`](../../services/api/smartmatch_api/config.py) boot validation, the `smartmatch_providers` registry, [`tools/env_isolation_check.py`](../../tools/env_isolation_check.py) | The capability table below |
 | Environment variable | `SMARTMATCH_EDITION` | `SMARTMATCH_PRODUCT_SCOPE` |
@@ -39,7 +39,7 @@ gate that already has an owner, and a test refuses any capability name matching
 `cba` is the default. An unconfigured process runs the **narrower** product, so
 a missing environment variable cannot widen what the system offers.
 
-| Capability | `cba` | `ia_west_legacy` | `class_exercise` | Why |
+| Capability | `cba` | `legacy_pilot` | `class_exercise` | Why |
 |---|:--:|:--:|:--:|---|
 | `authenticated_login` | on | on | **off** | Customer §3: one standard login, no portal chooser, roles assigned in the backend. |
 | `event_reads` | on | on | **off** | Customer §22 preserves event browsing. |
@@ -54,7 +54,7 @@ a missing environment variable cannot widen what the system offers.
 | `cold_unknown_contact_outreach` | **off** | on | **off** | Customer §20: no cold outreach to unknown speakers, no external CRM/contact-acquisition system. |
 | `chapter_membership_dues` | **off** | on | **off** | Customer §4 and §20 remove chapter membership and dues **as a product concept**. |
 | `member_inquiry_narrative` | **off** | on | **off** | CBA has no approved equivalent outcome; the stored stage and its history are preserved, the narrative is not offered. |
-| `class_exercise` | **off** | **off** | on | ADR-0025 D1: the Spring 2027 class exercise — a no-login team surface and an instructor surface over the `exercise_` tables. Granted **only** in `class_exercise`, and that scope grants nothing else. Not a share of `match_runs`: a match run is an immutable, versioned, tenant-scoped run over records a principal entered, and the exercise has none of those four things. `off` under `ia_west_legacy` even though that is the *wider* scope, because "wider" means a superset of the same product's capabilities — the exercise was never part of that product. |
+| `class_exercise` | **off** | **off** | on | ADR-0025 D1: the Spring 2027 class exercise — a no-login team surface and an instructor surface over the `exercise_` tables. Granted **only** in `class_exercise`, and that scope grants nothing else. Not a share of `match_runs`: a match run is an immutable, versioned, tenant-scoped run over records a principal entered, and the exercise has none of those four things. `off` under `legacy_pilot` even though that is the *wider* scope, because "wider" means a superset of the same product's capabilities — the exercise was never part of that product. |
 | `speaker_portal` | **off** | **off** | **off** | B26 T6b-1: Speaker accounts — a Speaker Connector invites a contact, the contact activates a `speaker` login from a one-time `/s/{token}` link. Built and **staged off in every scope**. Turning it on is a reviewed edit to the policy rows, never an env var, seed or compose file. **Turn-on rule (C5, owner-confirmed):** T6b-5 merged **and** parent plan §10 rows 1 (Ann/Pia/Lisa), 2 (named privacy owner) and 4 (pilot hostname) cleared. Requires `authenticated_login`, `consented_outreach` and `speaker_contact_management` in the same scope (asserted at import). B26 T6b-2 adds the Speaker's own routes under the same capability, `{speaker}` only, subject always the profile bound to the login: `GET`/`PATCH /v1/me/availability`, `GET /v1/me/invitations`, `POST /v1/me/invitations/{invitation_id}/response`, `GET /v1/me/engagements`. |
 
 ### The third column is a third product
@@ -81,7 +81,7 @@ is the process mixing this column exists to prevent.
 The five infrastructure routers (`jobs`, `redrive`, `engagement`, `review`, and
 the unit-scoped review queue) are not a product capability of their own, but
 every route behind them resolves a principal — so they ride
-`authenticated_login`. Under `cba` and `ia_west_legacy` that mounts exactly what
+`authenticated_login`. Under `cba` and `legacy_pilot` that mounts exactly what
 mounting them unconditionally did; under `class_exercise` it is what makes the
 route table honest.
 
@@ -156,7 +156,7 @@ places" true rather than aspirational.
   `CBA-SCOPE-COMPOSITION` owns surface composition and is the first consumer of
   the frontend adapter.
 * It deletes no code, data, or history. Gated capabilities remain in the
-  repository under the scope that owns them, which is why `ia_west_legacy`
+  repository under the scope that owns them, which is why `legacy_pilot`
   exists as a named scope rather than the gated capabilities being deleted.
 
 ## Local and default behaviour
@@ -170,7 +170,7 @@ With no configuration at all:
   false. This document authorizes no change to any of them.
 
 To run the legacy product locally, set
-`SMARTMATCH_PRODUCT_SCOPE=ia_west_legacy`. That is a product-scope change only:
+`SMARTMATCH_PRODUCT_SCOPE=legacy_pilot`. That is a product-scope change only:
 it grants no credential, enables no live provider, and moves no deployment
 boundary.
 

@@ -155,15 +155,15 @@ most overloaded vocabulary in the repository:
 | "Speaker Connector" | customer §13 | The **role** that maintains the roster |
 | "Event Host" | customer §12 | The role that files a Speaker Request |
 | `cba_contacts` | domain + persistence + router | The CBA-scoped roster |
-| `Specialist` | `apps/web/.../lib/api.ts:1` | **Legacy IA-West term, still in frontend types** |
+| `Specialist` | `apps/web/.../lib/api.ts:1` | **Legacy chapter-product term, still in frontend types** |
 
 The repository is aware of this and gates it: `tools/scan_cba_terminology.py`
-fails the build when CBA-visible copy still says *IA West*, *Insights
+fails the build when CBA-visible copy still says *the legacy chapter brand*, *Insights
 Association*, *chapter*, *Chapter Admin*, *Member Portal*, *volunteer
 opportunity*, or *membership/dues*. Critically, the scanner is **scoped** — it
 reads the frontend source and a named list of backend files whose string
 literals are rendered — so it does not demand renaming the authorization
-`membership` row or the `ia_west_legacy` scope that exists precisely because CBA
+`membership` row or the `legacy_pilot` scope that exists precisely because CBA
 is the other product.
 
 **RISK (R-06).** `Specialist`, `CppEvent`, `CrawlerEvent` remain as exported TS
@@ -295,7 +295,7 @@ the writer and the reader of the same table are deliberately co-located.
 
 | Term | Distinct meanings | Where they collide |
 |---|---|---|
-| **membership** | (a) authz role assignment `membership`; (b) IA-West chapter dues, a *retired product concept* | `scan_cba_terminology.py` must carve (a) out of its scan explicitly |
+| **membership** | (a) authz role assignment `membership`; (b) legacy chapter dues, a *retired product concept* | `scan_cba_terminology.py` must carve (a) out of its scan explicitly |
 | **event** | (a) `event` — a real-world happening; (b) `job_event` — a job lifecycle record; (c) `delivery_event` — an email delivery signal; (d) `contact_channel_transition` — arguably a fourth | Four unrelated things called "event" in one schema |
 | **speaker / professional / contact / specialist** | see §3.5 | four names, overlapping referents |
 | **review** | (a) `review_item` — import quarantine; (b) `discovery_review_item` — event discovery quarantine | Two tables, two routers-worth of behaviour, one word |
