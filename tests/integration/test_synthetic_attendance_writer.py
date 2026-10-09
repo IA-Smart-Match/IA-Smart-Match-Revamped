@@ -456,7 +456,7 @@ def test_record_attendance_refuses_a_conflicting_owning_unit_id(
     """
     with engine.begin() as conn:
         unit_id = ensure_owning_unit(conn, tenant_id)
-        other_unit_id = _make_unit(conn, tenant_id, "iawest.attendanceconflict")
+        other_unit_id = _make_unit(conn, tenant_id, "smartmatch.attendanceconflict")
         subject_id = _make_user(conn, tenant_id)
         event_id = ensure_event(conn, tenant_id)
 

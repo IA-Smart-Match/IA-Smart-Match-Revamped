@@ -304,8 +304,8 @@ def test_the_unit_summary_does_not_claim_to_feed_matching(http) -> None:
 # ---------------------------------------------------------------------------
 
 
-_OWNING_UNIT = "iawest.cpp.engineering.ie"
-_SIBLING_UNIT = "iawest.cpp.engineering.cs"
+_OWNING_UNIT = "smartmatch.cpp.engineering.ie"
+_SIBLING_UNIT = "smartmatch.cpp.engineering.cs"
 
 
 @pytest.fixture

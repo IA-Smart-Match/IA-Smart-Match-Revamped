@@ -134,7 +134,7 @@ def test_the_same_professional_can_hold_concurrent_roles_at_two_different_units(
     with engine.begin() as conn:
         prof_id = uuid.uuid4()
         unit_a = ensure_owning_unit(conn, tenant_id)
-        unit_b = _insert_unit(conn, tenant_id, "iawest.relationships.second")
+        unit_b = _insert_unit(conn, tenant_id, "smartmatch.relationships.second")
         _insert_relationship(
             conn, tenant_id, professional_id=prof_id, unit_id=unit_a, board_role="Director"
         )

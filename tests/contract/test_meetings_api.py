@@ -50,11 +50,11 @@ DATABASE_URL = os.getenv(
     "postgresql+psycopg://smartmatch:smartmatch@localhost:5432/smartmatch",
 )
 
-UNIT_PATH = "iawest.meetings"
+UNIT_PATH = "smartmatch.meetings"
 #: A second department in the same tenant containing none of :data:`UNIT_PATH`.
 #: Neither route passes ``tenant_wide_roles``, so ordinary subtree containment
 #: applies and a coordinator here must not reach the meetings unit.
-SIBLING_UNIT_PATH = "iawest.meetingsibling"
+SIBLING_UNIT_PATH = "smartmatch.meetingsibling"
 
 #: The zone every meeting below is agreed in. A real IANA name, because the
 #: column stores the zone the people in the room used.

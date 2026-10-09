@@ -51,11 +51,11 @@ DATABASE_URL = os.getenv(
     "postgresql+psycopg://smartmatch:smartmatch@localhost:5432/smartmatch",
 )
 
-UNIT_PATH = "iawest.invites"
+UNIT_PATH = "smartmatch.invites"
 
 #: A second department containing none of :data:`UNIT_PATH`, so a batch composed
 #: there must not be reachable from the unit under test.
-SIBLING_UNIT_PATH = "iawest.invitessibling"
+SIBLING_UNIT_PATH = "smartmatch.invitessibling"
 
 #: The date as a Connector types it, and the reason the column is Text: this
 #: string is rendered into the message verbatim and never parsed.
@@ -513,13 +513,13 @@ def ctx(engine: Engine) -> Iterator[_Context]:
                 "email": f"{subject}@example.edu",
             },
         )
-        # Rooted at `iawest`, so the same Connector covers both departments. The
+        # Rooted at `smartmatch`, so the same Connector covers both departments. The
         # sibling unit is here to prove *unit* scoping of the batch rows, not to
         # test authorization, which `tests/authz` owns.
         conn.execute(
             text(
                 "INSERT INTO membership (id, tenant_id, user_id, granted_path, role) "
-                "VALUES (:id, :tid, :uid, CAST('iawest' AS ltree), 'coordinator')"
+                "VALUES (:id, :tid, :uid, CAST('smartmatch' AS ltree), 'coordinator')"
             ),
             {"id": uuid.uuid4(), "tid": tenant_id, "uid": user_id},
         )

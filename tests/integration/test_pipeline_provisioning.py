@@ -857,7 +857,7 @@ def test_conflicting_owning_unit_propagates_rather_than_being_absorbed(
     assert opportunity_event_id is not None
 
     with engine.begin() as conn:
-        other_unit_id = _make_second_org_unit(conn, tenant_id, "iawest.provisioning-conflict")
+        other_unit_id = _make_second_org_unit(conn, tenant_id, "smartmatch.provisioning-conflict")
 
     pipeline_repo = PipelineRepository()
     with (

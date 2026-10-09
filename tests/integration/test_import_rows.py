@@ -54,7 +54,7 @@ from sqlalchemy.exc import IntegrityError
 
 pytestmark = pytest.mark.integration
 
-UNIT_PATH = "iawest.imports.rows"
+UNIT_PATH = "smartmatch.imports.rows"
 
 # ---------------------------------------------------------------------------
 # Fixtures — the same local shape test_command_path.py uses; each integration
@@ -91,7 +91,7 @@ def _make_user(engine, tenant_id, *, subject: str) -> uuid.UUID:
     return user_id
 
 
-def _grant(engine, tenant_id, user_id, *, path: str = "iawest", role: str = "coordinator"):
+def _grant(engine, tenant_id, user_id, *, path: str = "smartmatch", role: str = "coordinator"):
     with engine.begin() as conn:
         conn.execute(
             text(

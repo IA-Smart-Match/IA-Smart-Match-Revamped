@@ -42,8 +42,8 @@ DATABASE_URL = os.getenv(
 
 ROUTER_MODULE = "smartmatch_api.routers.speaker_availability"
 
-UNIT_PATH = "iawest.availability"
-SIBLING_UNIT_PATH = "iawest.availabilitysibling"
+UNIT_PATH = "smartmatch.availability"
+SIBLING_UNIT_PATH = "smartmatch.availabilitysibling"
 OTHER_TENANT_UNIT_PATH = "elsewhere.availability"
 
 #: The pinned request clock. Its UTC date is ``TODAY``.
@@ -210,7 +210,7 @@ def ctx(engine: Engine, monkeypatch: pytest.MonkeyPatch) -> Iterator[_Context]:
             conn.execute(
                 text(
                     "INSERT INTO membership (id, tenant_id, user_id, granted_path, role) "
-                    "VALUES (:id, :tid, :uid, CAST('iawest' AS ltree), :role)"
+                    "VALUES (:id, :tid, :uid, CAST('smartmatch' AS ltree), :role)"
                 ),
                 {"id": uuid.uuid4(), "tid": tenant_id, "uid": user_id, "role": role},
             )

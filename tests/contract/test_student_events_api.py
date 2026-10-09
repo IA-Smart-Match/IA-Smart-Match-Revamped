@@ -62,9 +62,9 @@ DATABASE_URL = os.getenv(
     "postgresql+psycopg://smartmatch:smartmatch@localhost:5432/smartmatch",
 )
 
-UNIT_PATH = "iawest.studentevents"
+UNIT_PATH = "smartmatch.studentevents"
 #: A second department in the same tenant containing none of :data:`UNIT_PATH`.
-SIBLING_UNIT_PATH = "iawest.studenteventssibling"
+SIBLING_UNIT_PATH = "smartmatch.studenteventssibling"
 
 #: A resolved slot, ninety minutes long. Not an hour, for the reason
 #: ``test_calendar_ics.py`` gives: an hour is what a guessed duration looks like,

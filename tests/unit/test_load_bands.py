@@ -42,7 +42,7 @@ def _ownership(**changes: object) -> LoadBandOwnership:
         "decided_by": "Danny Tran, Development Lead / program owner of record",
         "decided_on": "2026-09-22",
         "decision": "B26 Q7 = A (parent plan §9)",
-        "review_status": LoadReviewStatus.PENDING_IA_WEST_REVIEW,
+        "review_status": LoadReviewStatus.PENDING_OWNER_REVIEW,
     }
     base.update(changes)
     return LoadBandOwnership(**base)  # type: ignore[arg-type]
@@ -82,7 +82,7 @@ def test_the_factor_key_and_the_declared_table():
     assert ownership.decided_by == "Danny Tran, Development Lead / program owner of record"
     assert ownership.decided_on == "2026-09-22"
     assert ownership.decision == "B26 Q7 = A (parent plan §9)"
-    assert ownership.review_status is LoadReviewStatus.PENDING_IA_WEST_REVIEW
+    assert ownership.review_status is LoadReviewStatus.PENDING_OWNER_REVIEW
 
 
 # 11

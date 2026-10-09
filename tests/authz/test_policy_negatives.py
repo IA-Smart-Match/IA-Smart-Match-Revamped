@@ -28,14 +28,14 @@ from smartmatch_authz import (
 
 NOW = datetime(2026, 8, 17, 12, 0, tzinfo=UTC)
 
-TENANT = "tenant-iawest"
+TENANT = "tenant-smartmatch"
 OTHER_TENANT = "tenant-someone-else"
 
 
 def _resource(
     *,
     tenant_id: str = TENANT,
-    path: str = "iawest.cpp.engineering.ie",
+    path: str = "smartmatch.cpp.engineering.ie",
     resource_id: str = "event-1",
 ) -> Resource:
     return Resource(
@@ -69,7 +69,7 @@ def test_wrong_role_is_denied():
     principal = Principal(
         user_id="u1",
         tenant_id=TENANT,
-        memberships=(_member("iawest.cpp", role="student"),),
+        memberships=(_member("smartmatch.cpp", role="student"),),
     )
     decision = evaluate(
         principal, _resource(), at=NOW, required_roles=frozenset({"coordinator", "admin"})
@@ -84,7 +84,7 @@ def test_wrong_tenant_is_denied_even_with_a_covering_membership():
     principal = Principal(
         user_id="u1",
         tenant_id=TENANT,
-        memberships=(_member("iawest.cpp"),),
+        memberships=(_member("smartmatch.cpp"),),
     )
     decision = evaluate(principal, _resource(tenant_id=OTHER_TENANT), at=NOW)
 
@@ -135,7 +135,7 @@ def test_expired_membership_is_denied():
     principal = Principal(
         user_id="u1",
         tenant_id=TENANT,
-        memberships=(_member("iawest.cpp", valid_until=NOW - timedelta(days=1)),),
+        memberships=(_member("smartmatch.cpp", valid_until=NOW - timedelta(days=1)),),
     )
     decision = evaluate(principal, _resource(), at=NOW)
 
@@ -148,7 +148,7 @@ def test_not_yet_valid_membership_is_denied():
     principal = Principal(
         user_id="u1",
         tenant_id=TENANT,
-        memberships=(_member("iawest.cpp", valid_from=NOW + timedelta(days=1)),),
+        memberships=(_member("smartmatch.cpp", valid_from=NOW + timedelta(days=1)),),
     )
     assert not evaluate(principal, _resource(), at=NOW).allowed
 
@@ -159,7 +159,7 @@ def test_membership_validity_window_is_half_open():
     principal = Principal(
         user_id="u1",
         tenant_id=TENANT,
-        memberships=(_member("iawest.cpp", valid_until=expires),),
+        memberships=(_member("smartmatch.cpp", valid_until=expires),),
     )
     assert not evaluate(principal, _resource(), at=expires).allowed
     assert evaluate(principal, _resource(), at=expires - timedelta(seconds=1)).allowed
@@ -175,7 +175,7 @@ def test_suspended_account_is_denied_immediately():
     principal = Principal(
         user_id="u1",
         tenant_id=TENANT,
-        memberships=(_member("iawest"),),
+        memberships=(_member("smartmatch"),),
         resource_grants=(ResourceGrant("event", "event-1", Effect.ALLOW),),
         suspended=True,
     )
@@ -195,7 +195,7 @@ def test_explicit_resource_deny_overrides_inherited_unit_grant():
     principal = Principal(
         user_id="u1",
         tenant_id=TENANT,
-        memberships=(_member("iawest"),),  # covers the whole org
+        memberships=(_member("smartmatch"),),  # covers the whole org
         resource_grants=(ResourceGrant("event", "event-1", Effect.DENY),),
     )
     decision = evaluate(principal, _resource(resource_id="event-1"), at=NOW)
@@ -230,9 +230,9 @@ def test_sibling_subtree_is_not_covered():
     principal = Principal(
         user_id="u1",
         tenant_id=TENANT,
-        memberships=(_member("iawest.cpp.engineering.ie"),),
+        memberships=(_member("smartmatch.cpp.engineering.ie"),),
     )
-    decision = evaluate(principal, _resource(path="iawest.cpp.engineering.cs"), at=NOW)
+    decision = evaluate(principal, _resource(path="smartmatch.cpp.engineering.cs"), at=NOW)
 
     assert not decision.allowed
 
@@ -242,9 +242,9 @@ def test_parent_resource_is_not_covered_by_a_child_grant():
     principal = Principal(
         user_id="u1",
         tenant_id=TENANT,
-        memberships=(_member("iawest.cpp.engineering.ie"),),
+        memberships=(_member("smartmatch.cpp.engineering.ie"),),
     )
-    assert not evaluate(principal, _resource(path="iawest.cpp"), at=NOW).allowed
+    assert not evaluate(principal, _resource(path="smartmatch.cpp"), at=NOW).allowed
 
 
 def test_label_prefix_does_not_imply_subtree_containment():
@@ -256,9 +256,9 @@ def test_label_prefix_does_not_imply_subtree_containment():
     principal = Principal(
         user_id="u1",
         tenant_id=TENANT,
-        memberships=(_member("iawest.cpp.eng"),),
+        memberships=(_member("smartmatch.cpp.eng"),),
     )
-    decision = evaluate(principal, _resource(path="iawest.cpp.english"), at=NOW)
+    decision = evaluate(principal, _resource(path="smartmatch.cpp.english"), at=NOW)
 
     assert not decision.allowed
 
@@ -268,7 +268,7 @@ def test_label_prefix_does_not_imply_subtree_containment():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("raw", ["", "   ", "iawest..cpp", ".cpp", "cpp."])
+@pytest.mark.parametrize("raw", ["", "   ", "smartmatch..cpp", ".cpp", "cpp."])
 def test_malformed_org_paths_are_rejected(raw: str):
     """An empty label would silently widen the subtree a grant covers."""
     with pytest.raises(ValueError):
@@ -343,7 +343,7 @@ def test_resource_grant_plus_qualifying_membership_is_allowed():
     principal = Principal(
         user_id="u1",
         tenant_id=TENANT,
-        memberships=(_member("iawest", role="coordinator"),),
+        memberships=(_member("smartmatch", role="coordinator"),),
         resource_grants=(ResourceGrant("event", "event-1", Effect.ALLOW),),
     )
     decision = evaluate(principal, _resource(), at=NOW, required_roles=frozenset({"coordinator"}))
@@ -379,7 +379,7 @@ def test_a_blank_role_membership_does_not_satisfy_an_operation_with_no_required_
     principal = Principal(
         user_id="u1",
         tenant_id=TENANT,
-        memberships=(_member("iawest.cpp", role=blank),),
+        memberships=(_member("smartmatch.cpp", role=blank),),
     )
 
     decision = evaluate(principal, _resource(), at=NOW, require_membership=True)
@@ -399,7 +399,7 @@ def test_a_blank_role_membership_is_skipped_even_without_require_membership() ->
     principal = Principal(
         user_id="u1",
         tenant_id=TENANT,
-        memberships=(_member("iawest.cpp", role=""),),
+        memberships=(_member("smartmatch.cpp", role=""),),
     )
 
     decision = evaluate(principal, _resource(), at=NOW)
@@ -419,7 +419,7 @@ def test_rule_six_is_inert_for_role_gated_operations() -> None:
     blank_only = Principal(
         user_id="u1",
         tenant_id=TENANT,
-        memberships=(_member("iawest.cpp", role=""),),
+        memberships=(_member("smartmatch.cpp", role=""),),
     )
     gated = evaluate(
         blank_only, _resource(), at=NOW, required_roles=frozenset({"admin", "coordinator"})
@@ -431,8 +431,8 @@ def test_rule_six_is_inert_for_role_gated_operations() -> None:
         user_id="u2",
         tenant_id=TENANT,
         memberships=(
-            _member("iawest.cpp", role="   "),
-            _member("iawest.cpp", role="coordinator"),
+            _member("smartmatch.cpp", role="   "),
+            _member("smartmatch.cpp", role="coordinator"),
         ),
     )
     permitted = evaluate(also_real, _resource(), at=NOW, require_membership=True)
@@ -451,7 +451,7 @@ def test_a_blank_role_membership_does_not_rescue_a_bare_resource_grant() -> None
     principal = Principal(
         user_id="u1",
         tenant_id=TENANT,
-        memberships=(_member("iawest.cpp", role=""),),
+        memberships=(_member("smartmatch.cpp", role=""),),
         resource_grants=(ResourceGrant("event", "event-1", Effect.ALLOW),),
     )
 
@@ -466,7 +466,7 @@ def test_assert_allowed_raises_for_a_blank_role_membership() -> None:
     principal = Principal(
         user_id="u1",
         tenant_id=TENANT,
-        memberships=(_member("iawest.cpp", role=" "),),
+        memberships=(_member("smartmatch.cpp", role=" "),),
     )
 
     with pytest.raises(AuthorizationError) as excinfo:
@@ -485,7 +485,7 @@ _EXCLUDED = frozenset({"speaker"})
 def test_an_excluded_role_is_refused_with_its_own_reason() -> None:
     """A covering, active ``speaker`` membership is skipped, and the denial says why."""
     principal = Principal(
-        user_id="u1", tenant_id=TENANT, memberships=(_member("iawest.cpp", role="speaker"),)
+        user_id="u1", tenant_id=TENANT, memberships=(_member("smartmatch.cpp", role="speaker"),)
     )
     decision = evaluate(
         principal, _resource(), at=NOW, require_membership=True, excluded_roles=_EXCLUDED
@@ -504,7 +504,7 @@ def test_an_excluded_role_is_refused_with_its_own_reason() -> None:
     elsewhere = Principal(
         user_id="u2",
         tenant_id=TENANT,
-        memberships=(_member("iawest.cpp.engineering.cs", role="speaker"),),
+        memberships=(_member("smartmatch.cpp.engineering.cs", role="speaker"),),
     )
     assert evaluate(elsewhere, _resource(), at=NOW, excluded_roles=_EXCLUDED).reason == "no_grant"
 
@@ -513,7 +513,7 @@ def test_an_excluded_role_is_refused_with_its_own_reason() -> None:
 
 
 def test_an_excluded_role_never_outranks_suspension_tenant_or_explicit_deny() -> None:
-    membership = (_member("iawest.cpp", role="speaker"),)
+    membership = (_member("smartmatch.cpp", role="speaker"),)
     suspended = Principal(user_id="u1", tenant_id=TENANT, memberships=membership, suspended=True)
     assert (
         evaluate(suspended, _resource(), at=NOW, excluded_roles=_EXCLUDED).reason
@@ -581,8 +581,8 @@ def test_a_second_non_excluded_membership_still_permits() -> None:
         user_id="u1",
         tenant_id=TENANT,
         memberships=(
-            _member("iawest.cpp", role="speaker"),
-            _member("iawest.cpp", role="volunteer"),
+            _member("smartmatch.cpp", role="speaker"),
+            _member("smartmatch.cpp", role="volunteer"),
         ),
     )
     decision = evaluate(
@@ -599,8 +599,8 @@ def test_a_second_non_excluded_membership_still_permits() -> None:
 
 def _host_and_speaker(**speaker_window: object) -> tuple[Membership, ...]:
     return (
-        _member("iawest.cpp", role="volunteer"),
-        _member("iawest.cpp", role="speaker", **speaker_window),
+        _member("smartmatch.cpp", role="volunteer"),
+        _member("smartmatch.cpp", role="speaker", **speaker_window),
     )
 
 

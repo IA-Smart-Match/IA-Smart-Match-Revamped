@@ -170,9 +170,9 @@ JOB_ID = uuid.UUID("66666666-6666-4666-8666-666666666666")
 #: not reach the other. Every job operation permitted it until A5 landed, which
 #: is why the sibling shape has a row of its own rather than being folded into
 #: "some other member".
-OWNING_UNIT = "iawest.cpp.engineering.ie"
-SIBLING_UNIT = "iawest.cpp.engineering.cs"
-ORG_ROOT = "iawest"
+OWNING_UNIT = "smartmatch.cpp.engineering.ie"
+SIBLING_UNIT = "smartmatch.cpp.engineering.cs"
+ORG_ROOT = "smartmatch"
 
 
 # ---------------------------------------------------------------------------
@@ -1696,7 +1696,7 @@ OPERATIONS: tuple[Operation, ...] = (
     # — approving, denying or fulfilling a reward is the same kind of
     # consequential act on a student's record that deciding a review item is —
     # and ``d6-rewards-budget-decision-record.md`` §2 puts operational
-    # administration of the rewards program with the IA West Coordinator by name.
+    # administration of the rewards program with the SmartMatch Platform Coordinator by name.
     Operation(
         key="redemption.decide",
         method="POST",

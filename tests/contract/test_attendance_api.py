@@ -44,11 +44,11 @@ DATABASE_URL = os.getenv(
     "postgresql+psycopg://smartmatch:smartmatch@localhost:5432/smartmatch",
 )
 
-UNIT_PATH = "iawest.attendance"
+UNIT_PATH = "smartmatch.attendance"
 #: A second department in the same tenant containing none of :data:`UNIT_PATH`.
 #: The route passes no ``tenant_wide_roles``, so ordinary subtree containment
 #: applies and a coordinator here must not reach the attendance unit.
-SIBLING_UNIT_PATH = "iawest.attsibling"
+SIBLING_UNIT_PATH = "smartmatch.attsibling"
 
 ON_DATE = date(2026, 9, 1)
 

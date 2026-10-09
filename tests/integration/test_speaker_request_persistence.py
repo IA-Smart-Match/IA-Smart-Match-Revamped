@@ -603,7 +603,7 @@ def test_the_read_is_scoped_to_its_unit(
     session.execute(
         text(
             "INSERT INTO org_unit (id, tenant_id, path, unit_type, display_name) "
-            "VALUES (:id, :tid, CAST('iawest.other' AS ltree), 'department', 'Other')"
+            "VALUES (:id, :tid, CAST('smartmatch.other' AS ltree), 'department', 'Other')"
         ),
         {"id": other_unit, "tid": tenant_id},
     )
@@ -793,7 +793,7 @@ def test_list_filed_by_is_scoped_to_its_unit_and_tenant(
     session.execute(
         text(
             "INSERT INTO org_unit (id, tenant_id, path, unit_type, display_name) "
-            "VALUES (:id, :tid, CAST('iawest.otherhost' AS ltree), 'department', 'Other')"
+            "VALUES (:id, :tid, CAST('smartmatch.otherhost' AS ltree), 'department', 'Other')"
         ),
         {"id": other_unit, "tid": tenant_id},
     )

@@ -47,11 +47,11 @@ DATABASE_URL = os.getenv(
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "pilot_events"
 
-UNIT_PATH = "iawest.events"
+UNIT_PATH = "smartmatch.events"
 #: A second department in the same tenant containing none of :data:`UNIT_PATH`.
 #: A coordinator here must not reach the events unit — neither of these routes
 #: passes ``tenant_wide_roles``, so ordinary subtree containment applies.
-SIBLING_UNIT_PATH = "iawest.sibling"
+SIBLING_UNIT_PATH = "smartmatch.sibling"
 
 SOURCE_ZONE = "America/Los_Angeles"
 FETCHED_AT = datetime(2026, 9, 3, 17, 0, tzinfo=UTC)
@@ -557,7 +557,9 @@ def test_the_events_of_one_unit_do_not_appear_under_another(engine: Engine, even
             text("SELECT id FROM org_unit WHERE tenant_id = :tid AND path = CAST(:path AS ltree)"),
             {"tid": tenant_id, "path": SIBLING_UNIT_PATH},
         ).scalar_one()
-    token = _register_principal(engine, client, tenant_id, role="admin", membership_path="iawest")
+    token = _register_principal(
+        engine, client, tenant_id, role="admin", membership_path="smartmatch"
+    )
 
     body = _get(client, f"/v1/units/{sibling_unit_id}/events", token).json()
 

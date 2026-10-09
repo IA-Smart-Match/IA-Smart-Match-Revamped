@@ -57,8 +57,8 @@ DATABASE_URL = os.getenv(
     "postgresql+psycopg://smartmatch:smartmatch@localhost:5432/smartmatch",
 )
 
-UNIT_PATH = "iawest.lifecycle"
-SIBLING_UNIT_PATH = "iawest.lifecyclesibling"
+UNIT_PATH = "smartmatch.lifecycle"
+SIBLING_UNIT_PATH = "smartmatch.lifecyclesibling"
 
 #: RFC 2606 reserved. Nothing this suite stores can address a real mailbox.
 ADDRESS = "dana.reyes@synthetic.invalid"
@@ -247,7 +247,7 @@ def ctx(engine: Engine) -> Iterator[_Context]:
         conn.execute(
             text(
                 "INSERT INTO membership (id, tenant_id, user_id, granted_path, role) "
-                "VALUES (:id, :tid, :uid, CAST('iawest' AS ltree), 'coordinator')"
+                "VALUES (:id, :tid, :uid, CAST('smartmatch' AS ltree), 'coordinator')"
             ),
             {"id": uuid.uuid4(), "tid": tenant_id, "uid": user_id},
         )

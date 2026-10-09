@@ -50,7 +50,7 @@ DATABASE_URL = os.getenv(
     "postgresql+psycopg://smartmatch:smartmatch@localhost:5432/smartmatch",
 )
 
-UNIT_PATH = "iawest.renamehint"
+UNIT_PATH = "smartmatch.renamehint"
 
 FULL_NAME = "Dana Reyes"
 TYPO_NAME = "Dana Ryes"
@@ -135,7 +135,7 @@ def rename_context(engine: Engine) -> Iterator[tuple[TestClient, uuid.UUID, str]
                 "INSERT INTO membership (id, tenant_id, user_id, granted_path, role) "
                 "VALUES (:id, :tid, :uid, CAST(:path AS ltree), 'coordinator')"
             ),
-            {"id": uuid.uuid4(), "tid": tenant_id, "uid": user_id, "path": "iawest"},
+            {"id": uuid.uuid4(), "tid": tenant_id, "uid": user_id, "path": "smartmatch"},
         )
 
     verifier = FixtureTokenVerifier()

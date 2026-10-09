@@ -50,10 +50,10 @@ DATABASE_URL = os.getenv(
     "postgresql+psycopg://smartmatch:smartmatch@localhost:5432/smartmatch",
 )
 
-UNIT_PATH = "iawest.pipelinestages"
+UNIT_PATH = "smartmatch.pipelinestages"
 #: A second department containing none of :data:`UNIT_PATH`, so a coordinator
 #: granted there must not reach this one's journeys.
-SIBLING_UNIT_PATH = "iawest.pipelinestagessibling"
+SIBLING_UNIT_PATH = "smartmatch.pipelinestagessibling"
 
 #: The one provenance string this repository writes for a coordinator-accepted
 #: row (``MATCH_PROVENANCE_SYNTHETIC_COORDINATOR``). Spelled here rather than

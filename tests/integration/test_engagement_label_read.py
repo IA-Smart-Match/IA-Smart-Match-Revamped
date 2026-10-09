@@ -137,7 +137,7 @@ def test_labels_carry_title_date_precision_unit_and_origin(
     """L1: every label field comes off the event row; a second unit and origin too."""
     subject = _user(engine, tenant_id)
     with engine.begin() as conn:
-        other_unit = _make_unit(conn, tenant_id, "iawest.labelread")
+        other_unit = _make_unit(conn, tenant_id, "smartmatch.labelread")
     own_event = _event(
         session_factory,
         tenant_id,

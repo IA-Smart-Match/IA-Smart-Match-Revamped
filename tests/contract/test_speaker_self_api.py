@@ -55,8 +55,8 @@ DATABASE_URL = os.getenv(
     "postgresql+psycopg://smartmatch:smartmatch@localhost:5432/smartmatch",
 )
 
-UNIT_PATH = "iawest.selfsvc"
-SIBLING_UNIT_PATH = "iawest.selfsvcsibling"
+UNIT_PATH = "smartmatch.selfsvc"
+SIBLING_UNIT_PATH = "smartmatch.selfsvcsibling"
 EVENT_DATE_TEXT = "Thursday 12 March 2027"
 #: The Speaker Request's own date, the one EVENT_DATE_TEXT spells (B26 T4).
 EVENT_DATE = date(2027, 3, 12)
@@ -164,7 +164,7 @@ class _Ctx:
                 t=self.tenant_id,
                 p=path,
             )
-        self.coordinator_id, self.coordinator = self.user("coordinator", path="iawest")
+        self.coordinator_id, self.coordinator = self.user("coordinator", path="smartmatch")
 
     # -- SQL ---------------------------------------------------------------
 

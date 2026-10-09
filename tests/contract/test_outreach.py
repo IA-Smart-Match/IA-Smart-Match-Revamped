@@ -51,10 +51,10 @@ DATABASE_URL = os.getenv(
     "postgresql+psycopg://smartmatch:smartmatch@localhost:5432/smartmatch",
 )
 
-UNIT_PATH = "iawest.outreach"
+UNIT_PATH = "smartmatch.outreach"
 #: A second department containing none of :data:`UNIT_PATH`, so a coordinator
 #: here must not reach the outreach unit.
-SIBLING_UNIT_PATH = "iawest.outreachsibling"
+SIBLING_UNIT_PATH = "smartmatch.outreachsibling"
 
 #: RFC 2606 reserved. Nothing this suite composes can address a real mailbox.
 ADDRESS = "professional-0000@synthetic.invalid"

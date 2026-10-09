@@ -16,7 +16,7 @@ LANDING_PAGE = (
 CANNED_LOGIN_EMAILS = (
     "alex.rivera@cal.edu",
     "jordan.lee@cpp.edu",
-    "admin@iawest.org",
+    "admin@smartmatch.example",
     "shana.demarinis@testset.com",
 )
 

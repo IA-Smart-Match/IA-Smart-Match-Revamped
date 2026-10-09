@@ -339,7 +339,7 @@ def test_one_units_funnel_does_not_count_another_units_records(engine: Engine, t
     """
     with engine.begin() as conn:
         mine = ensure_owning_unit(conn, tenant_id)
-        theirs = _make_unit(conn, tenant_id, "iawest.other")
+        theirs = _make_unit(conn, tenant_id, "smartmatch.other")
         _insert_pipeline_record(conn, tenant_id, reached="attended_at", owning_unit_id=mine)
         _insert_pipeline_record(conn, tenant_id, reached="attended_at", owning_unit_id=theirs)
 
@@ -598,7 +598,7 @@ def test_the_unit_that_owns_a_funnel_row_cannot_be_deleted_under_it(
     lists — invisible work, the shape this repository refuses elsewhere.
     """
     with engine.begin() as conn:
-        unit = _make_unit(conn, tenant_id, "iawest.doomed")
+        unit = _make_unit(conn, tenant_id, "smartmatch.doomed")
         _insert_pipeline_record(conn, tenant_id, owning_unit_id=unit)
 
     with pytest.raises(IntegrityError), engine.begin() as conn:

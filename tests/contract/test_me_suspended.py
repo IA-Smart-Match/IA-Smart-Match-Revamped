@@ -114,7 +114,7 @@ def _grant(
     tenant_id: uuid.UUID,
     user_id: uuid.UUID,
     *,
-    path: str = "iawest",
+    path: str = "smartmatch",
     role: str = "admin",
 ) -> None:
     with engine.begin() as conn:

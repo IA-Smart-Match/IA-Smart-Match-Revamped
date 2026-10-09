@@ -329,7 +329,7 @@ class TestBatchIdempotency:
             conn.execute(
                 text(
                     "INSERT INTO org_unit (id, tenant_id, path, unit_type, display_name) "
-                    "VALUES (:id, :t, CAST('iawest.otherinvites' AS ltree), "
+                    "VALUES (:id, :t, CAST('smartmatch.otherinvites' AS ltree), "
                     "'department', 'Other')"
                 ),
                 {"id": other_unit, "t": tenant_id},

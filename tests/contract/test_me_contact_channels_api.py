@@ -49,8 +49,8 @@ DATABASE_URL = os.getenv(
     "postgresql+psycopg://smartmatch:smartmatch@localhost:5432/smartmatch",
 )
 
-UNIT_PATH = "iawest.mychannels"
-SECOND_UNIT_PATH = "iawest.mychannelstwo"
+UNIT_PATH = "smartmatch.mychannels"
+SECOND_UNIT_PATH = "smartmatch.mychannelstwo"
 LIST = "/v1/me/contact-channels"
 
 _CLEANUP = (

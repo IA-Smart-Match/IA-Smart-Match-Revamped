@@ -425,7 +425,7 @@ def test_another_units_booking_counts(
     """L8 (OQ2): load is the person's, tenant-wide — every unit's booking counts."""
     subject = _user(engine, tenant_id)
     with engine.begin() as conn:
-        other_unit = _make_unit(conn, tenant_id, "iawest.loadread")
+        other_unit = _make_unit(conn, tenant_id, "smartmatch.loadread")
     home = _journey(
         engine,
         tenant_id,

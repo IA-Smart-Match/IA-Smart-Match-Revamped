@@ -47,9 +47,9 @@ DATABASE_URL = os.getenv(
     "postgresql+psycopg://smartmatch:smartmatch@localhost:5432/smartmatch",
 )
 
-UNIT_PATH = "iawest.calendar"
+UNIT_PATH = "smartmatch.calendar"
 #: A second department in the same tenant containing none of :data:`UNIT_PATH`.
-SIBLING_UNIT_PATH = "iawest.calendarsibling"
+SIBLING_UNIT_PATH = "smartmatch.calendarsibling"
 
 #: A resolved slot: both instants stated, ninety minutes apart. Deliberately not
 #: an hour, so a document that silently fell back to ``generate_ics``'s default

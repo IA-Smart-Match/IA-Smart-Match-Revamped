@@ -25,12 +25,12 @@ DATABASE_URL = os.getenv(
     "SMARTMATCH_DATABASE_URL",
     "postgresql+psycopg://smartmatch:smartmatch@localhost:5432/smartmatch",
 )
-UNIT_PATH = "iawest.metrics"
+UNIT_PATH = "smartmatch.metrics"
 #: A second department in the same tenant, sibling to :data:`UNIT_PATH` and
 #: containing none of it. A membership here reaches the metrics unit only if a
 #: rule says roles may reach outside their own subtree — which the ratified
 #: metrics-authorization decision (§4) says of ``admin``, for aggregates.
-SIBLING_UNIT_PATH = "iawest.sibling"
+SIBLING_UNIT_PATH = "smartmatch.sibling"
 
 
 @pytest.fixture(scope="module")

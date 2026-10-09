@@ -59,13 +59,13 @@ pytestmark = pytest.mark.integration
 
 #: A second department in the same tenant, containing none of the unit the
 #: principals below are granted at.
-SIBLING_UNIT_PATH = "iawest.rewards-sibling"
+SIBLING_UNIT_PATH = "smartmatch.rewards-sibling"
 
-#: The common ancestor of `JOB_OWNING_UNIT_PATH` ("iawest.jobs", what
+#: The common ancestor of `JOB_OWNING_UNIT_PATH` ("smartmatch.jobs", what
 #: `ensure_owning_unit` names `unit_id`) and `SIBLING_UNIT_PATH`. A membership
 #: granted here is a parent-unit grant over both, so a caller holding it can
 #: query the queue at `root_unit_id` and see both departments' tickets.
-ROOT_UNIT_PATH = "iawest"
+ROOT_UNIT_PATH = "smartmatch"
 
 #: D7's recorded tentative bands, used as fixture costs so no number in this file
 #: is one this file invented. ``docs/decisions/pilot-decisions.md`` §D7 records
@@ -309,7 +309,7 @@ def rewards_api(engine_or_skip: Engine) -> Iterator[Fixture]:
         )
 
         # A real ancestor row of both `unit_path` and `SIBLING_UNIT_PATH`
-        # ("iawest.jobs" and "iawest.rewards-sibling" respectively). The queue
+        # ("smartmatch.jobs" and "smartmatch.rewards-sibling" respectively). The queue
         # route authorizes a *read* against a real `org_unit` row named by
         # `unit_id`, so a caller who should see across both departments needs
         # somewhere to point the request at, not merely a wide-reaching grant.
@@ -985,8 +985,8 @@ def test_each_coordinator_sees_only_their_own_units_student(
 
     Owner decision, 2026-09-21 (PR #200 review): rows are scoped by the
     redeeming student's own membership path, not merely the read. `student` is
-    granted at `unit_path` ("iawest.jobs") and `sibling_student` at
-    `SIBLING_UNIT_PATH` ("iawest.rewards-sibling") — two branches under the
+    granted at `unit_path` ("smartmatch.jobs") and `sibling_student` at
+    `SIBLING_UNIT_PATH` ("smartmatch.rewards-sibling") — two branches under the
     same root but neither contains the other — so this is the row-level
     analogue of `test_a_student_in_a_sibling_department_is_refused`.
     """
@@ -1022,7 +1022,7 @@ def test_a_parent_unit_admin_sees_both_departments_tickets(
 ) -> None:
     """An admin granted at the common ancestor sees both departments' queues at once.
 
-    `root_admin` is granted `admin` at `ROOT_UNIT_PATH` ("iawest"), the
+    `root_admin` is granted `admin` at `ROOT_UNIT_PATH` ("smartmatch"), the
     ancestor of both `unit_path` and `SIBLING_UNIT_PATH`. Querying the queue at
     `root_unit_id` — a real `org_unit` row at that same ancestor path — returns
     both tickets, the same descendant containment
