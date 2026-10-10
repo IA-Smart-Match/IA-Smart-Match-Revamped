@@ -2217,3 +2217,35 @@ def test_no_candidate_load_number_reaches_the_wire_and_the_stored_payload_keeps_
     for entry in full:
         assert set(entry["load"]) >= LOAD_NUMBER_KEYS, entry["subject_id"]
         assert "unknown_hours_refs" in entry["load"], entry["subject_id"]
+
+
+# ---------------------------------------------------------------------------
+# Two-run scenario compare (#306): read-only, same scoping as the single read
+# ---------------------------------------------------------------------------
+
+
+def test_compare_reads_two_runs_and_fails_closed_on_a_missing_one(match_context, engine) -> None:
+    _, run = _submit_and_execute(match_context, engine)
+    unit = match_context.unit_id
+    base = f"/v1/units/{unit}/match-runs/compare?base={run['id']}"
+
+    same = _get(match_context, f"{base}&candidate={run['id']}")
+    assert same.status_code == 200, same.text
+    body = same.json()
+    assert body["registry_version_equal"] is True
+    assert {m["movement"] for m in body["shortlist_movement"]} == {"unchanged"}
+
+    missing = _get(match_context, f"{base}&candidate={uuid.uuid4()}")
+    assert missing.status_code == 404
+    assert missing.json()["error"]["code"] == "match_run_not_found"
+
+
+def test_compare_refuses_a_run_filed_under_another_unit(match_context, engine) -> None:
+    _, run = _submit_and_execute(match_context, engine)
+
+    response = _get(
+        match_context,
+        f"/v1/units/{uuid.uuid4()}/match-runs/compare?base={run['id']}&candidate={run['id']}",
+    )
+
+    assert response.status_code == 404
