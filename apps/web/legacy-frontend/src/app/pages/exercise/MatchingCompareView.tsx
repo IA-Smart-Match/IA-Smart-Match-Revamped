@@ -35,6 +35,23 @@ function settingName(list: RankedListView): string {
   return list.setting_name ?? "This list";
 }
 
+const MAJOR_ALONE = ["same_major"];
+
+/** Counts for the line under the summary sentence; keyed by `profile_no`, like the highlight. */
+function compareCounts(lists: readonly [RankedListView, RankedListView], overlap: readonly number[]): string {
+  const both = new Set(overlap);
+  const [a, b] = lists;
+  const only = (list: RankedListView) => list.entries.filter((e) => !both.has(e.profile_no)).length;
+  // ponytail: "matched on major alone" = only same_major counted at these weights (Ann to confirm).
+  const alone = (list: RankedListView) =>
+    list.entries.filter(
+      (e) =>
+        e.contributing_factor_keys.length === MAJOR_ALONE.length &&
+        e.contributing_factor_keys.every((key, i) => key === MAJOR_ALONE[i]),
+    ).length;
+  return `on both ${overlap.length}; only on ${settingName(a)} ${only(a)}; only on ${settingName(b)} ${only(b)}; matched on major alone: ${settingName(a)} ${alone(a)}, ${settingName(b)} ${alone(b)}`;
+}
+
 export function MatchingCompareView({
   comparison,
   onClose,
@@ -66,6 +83,9 @@ export function MatchingCompareView({
           : `${overlap.length} ${
               overlap.length === 1 ? "name is" : "names are"
             } on both lists, highlighted in each.`}
+      </p>
+      <p data-slot="exercise-compare-counts" className="ce-type-meta ce-tabular text-ce-ink-muted">
+        {compareCounts(lists, overlap)}
       </p>
       {narrow ? (
         <CompareTabs lists={lists} overlap={overlap} />

@@ -1167,6 +1167,7 @@ labels and the license line are unchanged and not listed.
 | Saved settings, after "Show them side by side" and after closing it (#321) | "Showing “Setting A” and “Setting B” side by side, below." / "Closed the side-by-side view." |
 | Saved settings, card chosen for compare | "Comparing" |
 | Compare, 390 | "Showing 10 of 30. Show all 30" |
+| Compare, counts line (2026-10-09, #333; pending Ann's sign-off; "matched on major alone" = only `same_major` counted at these weights, Ann to confirm) | "on both 3; only on Setting A 27; only on Setting B 27; matched on major alone: Setting A 4, Setting B 6" (the setting names are the saved names) |
 | Results, room | "The room", "Front of the room", legend "Already coming", "Your invitations", "Still open" |
 | Results, seat headline | "8 were already coming. Your invitations added 6. 46 seats are still open." (pattern from the brief) |
 | Results, figures band | "Seats in the room", "Already coming", "Still open" |
