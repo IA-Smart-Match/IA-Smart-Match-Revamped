@@ -1135,6 +1135,8 @@ labels and the license line are unchanged and not listed.
 
 | Where | New text |
 |---|---|
+| Event picker, each round card (#334; pending Ann's sign-off) | "Round one" / "Round two" |
+| Event picker, the round-two card (#334; pending Ann's sign-off) | "Opens after round one (Session 2)" |
 | Ribbon prefix (every screen) | "Fictional data —" |
 | Team status line, every team page (2026-10-06, #321; Ann's checklist §3 wording for the team) | "You are Team 3" |
 | Team status line, a round (#321; the instructor page's "Round 1 · …" form) | "Round 1 · Northline Analytics: Behind the Business:" / on that event's own pages "Round 1 · Northline Analytics: Behind the Business (this page):" |
