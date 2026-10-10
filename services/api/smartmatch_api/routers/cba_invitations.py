@@ -96,7 +96,6 @@ from smartmatch_domain.cba_invitations import (
     INVITATION_TEMPLATE_ID,
     MAX_BATCH_RECIPIENTS,
     RESPONSE_URL_SENTINEL,
-    SYNTHETIC_INVITATION_TOKEN_SECRET,
     InvitationResponseConflict,
     InvitationStatus,
     SkipReason,
@@ -136,7 +135,7 @@ from smartmatch_api.availability_reads import (
     request_for_run,
 )
 from smartmatch_api.commands import submit_command
-from smartmatch_api.config import get_settings
+from smartmatch_api.config import get_settings, resolve_api_invitation_secret
 from smartmatch_api.dependencies import CurrentPrincipal, DbSession, charge_quota
 from smartmatch_api.errors import ApiError
 from smartmatch_api.units import OrgUnitRow, load_unit_or_404
@@ -560,9 +559,19 @@ def _token_hash(token: str) -> str:
 
 
 def _invitation_secret() -> str:
-    """The HMAC key the response token is derived under (shared with the worker)."""
-    stored = get_settings().speaker_portal_token_secret
-    return stored.get_secret_value() if stored else SYNTHETIC_INVITATION_TOKEN_SECRET
+    """The HMAC key the response token is derived under (shared with the worker).
+
+    Raises:
+        ApiError: 503 when this edition has no usable key (never the public one).
+    """
+    secret = resolve_api_invitation_secret(get_settings())
+    if secret is None:
+        raise ApiError(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            code="speaker_invitation_secret_unconfigured",
+            message="Speaker invitations are unavailable: the token secret is not configured.",
+        )
+    return secret
 
 
 def _speaker_response(verb: str) -> SpeakerResponse:
@@ -799,6 +808,16 @@ def create_invitation_batch(
     unit = _authorize_speaker_invitations(session, principal, unit_id)
     key = _require_idempotency_key(idempotency_key)
     _require_distinct_recipients(body.professional_ids)
+    _invitation_secret()  # fail closed (503) before anything is reserved
+    if any(
+        RESPONSE_URL_SENTINEL in value
+        for value in (body.event_name, body.event_date, body.coordinator_name)
+    ):
+        raise ApiError(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            code="speaker_invitation_reserved_text",
+            message="A field contains text reserved by the system.",
+        )
 
     # Replay first (B26 T4 §4.2 step 0): a retry of a stored batch reports the
     # first submission, even one stored before `0041` or whose run can no longer

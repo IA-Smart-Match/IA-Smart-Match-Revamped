@@ -47,6 +47,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from smartmatch_api.config import (
     Settings,
+    check_invitation_startup,
     check_speaker_portal_startup,
     get_settings,
     require_exercise_workspace_secret,
@@ -747,6 +748,7 @@ if get_settings().capability_enabled(Capability.CLASS_EXERCISE):
 # B26 T6b-1 (§4.2, R10): refuse to boot with the capability on and no usable
 # token secret; with it off the secret is never read and this is `None`.
 app.state.speaker_portal_token_secret = check_speaker_portal_startup(get_settings())
+check_invitation_startup(get_settings())
 
 # B26 T6b-1 (R4): token-bearing paths (`/s`, `/i`, `/u`, `/q`) are redacted in
 # uvicorn's access log rather than the log being disabled. Idempotent.

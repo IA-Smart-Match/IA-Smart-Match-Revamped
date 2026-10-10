@@ -54,7 +54,9 @@ def _stored_hash(secret: str = _SECRET) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
 
-def _send(body: str, facts: Any = "ok") -> tuple[FixtureEmailProvider, Any]:
+def _send(
+    body: str, facts: Any = "ok", secret: str | None = _SECRET
+) -> tuple[FixtureEmailProvider, Any]:
     if facts == "ok":
         facts = (_INVITATION, _stored_hash())
     draft = replace(_draft(INVITATION_TEMPLATE_ID), body=body, subject="Panel invitation")
@@ -70,7 +72,7 @@ def _send(body: str, facts: Any = "ok") -> tuple[FixtureEmailProvider, Any]:
         pipeline=_Pipeline(),  # type: ignore[arg-type]
         portal=_Portal(invitation=None, asked=[]),  # type: ignore[arg-type]
         invitations=_Invitations(facts),  # type: ignore[arg-type]
-        invitation_token_secret=_SECRET,
+        invitation_token_secret=secret,
         clock=lambda: _NOW,
     )
     context = CommandContext(
@@ -115,6 +117,14 @@ def test_worker_refuses_what_it_cannot_render(body: str, facts: Any, reason: str
     provider, outcome = _send(body, facts)
     assert isinstance(outcome, PolicyFailure)
     assert reason in str(outcome.reason)
+    assert provider.sent == []
+
+
+def test_worker_refuses_to_sign_without_a_secret() -> None:
+    """#287: no key means no token and no send; never a public fallback key."""
+    provider, outcome = _send(RESPONSE_URL_SENTINEL, secret=None)
+    assert isinstance(outcome, PolicyFailure)
+    assert "speaker_invitation_secret_unconfigured" in str(outcome.reason)
     assert provider.sent == []
 
 

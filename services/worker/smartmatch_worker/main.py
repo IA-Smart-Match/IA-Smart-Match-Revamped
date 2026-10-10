@@ -196,6 +196,7 @@ from datetime import datetime, timedelta
 from fastapi import FastAPI, Header, HTTPException, Request, status
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, ValidationError
+from smartmatch_domain.cba_invitations import resolve_invitation_token_secret
 from smartmatch_domain.outreach import OUTREACH_SEND_COMMAND_TYPE
 from smartmatch_domain.product_scope import Capability, is_capability_enabled
 from smartmatch_persistence.engine import create_session_factory
@@ -476,14 +477,17 @@ def create_app(
             # usable token secret; `None` when off.
             portal_secret = check_worker_speaker_portal_startup(resolved)
             raw_invitation_secret = resolved.speaker_portal_token_secret
-            invitation_secret = (
-                raw_invitation_secret.get_secret_value() if raw_invitation_secret else None
+            invitation_secret = resolve_invitation_token_secret(
+                raw_invitation_secret.get_secret_value() if raw_invitation_secret else None,
+                edition=str(resolved.edition),
             )
-            if resolved.outreach_live_mode and not invitation_secret:
+            if invitation_secret is None and is_capability_enabled(
+                resolved.product_scope, Capability.CONSENTED_OUTREACH
+            ):
                 raise ValueError(
-                    "a live outreach deployment must configure "
-                    "SMARTMATCH_SPEAKER_PORTAL_TOKEN_SECRET: speaker-invitation links "
-                    "are derived under it and the synthetic fallback key is public."
+                    "SMARTMATCH_SPEAKER_PORTAL_TOKEN_SECRET is required, at least "
+                    "32 characters, outside edition dev/classroom: speaker-invitation "
+                    "links derive from it; the worker must hold the api's value."
                 )
             app.state.registry = with_outreach_send(
                 app.state.registry,

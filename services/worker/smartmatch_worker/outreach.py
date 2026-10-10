@@ -78,7 +78,6 @@ from typing import Any, Final
 from smartmatch_domain.cba_invitations import (
     INVITATION_TEMPLATE_ID,
     RESPONSE_URL_SENTINEL,
-    SYNTHETIC_INVITATION_TOKEN_SECRET,
     derive_response_token,
 )
 from smartmatch_domain.consent import ConsentSource, ConsentViolationError, ContactState
@@ -312,7 +311,6 @@ def build_outreach_send_handler(
     pipeline_repo = pipeline or PipelineRepository()
     portal_repo = portal or SpeakerPortalRepository()
     invitation_repo = invitations or InvitationRepository()
-    token_secret = invitation_token_secret or SYNTHETIC_INVITATION_TOKEN_SECRET
     base = public_base_url.rstrip("/")
 
     def invitation_body(
@@ -338,10 +336,12 @@ def build_outreach_send_handler(
         token = ""
         if count != 1 or RESPONSE_URL_SENTINEL in draft.subject:
             reason = "speaker_invitation_sentinel_invalid"
+        elif invitation_token_secret is None:
+            reason = "speaker_invitation_secret_unconfigured"
         elif facts is None or facts[1] is None:
             reason = "speaker_invitation_not_found"
         else:
-            token = derive_response_token(token_secret, facts[0])
+            token = derive_response_token(invitation_token_secret, facts[0])
             if not hmac.compare_digest(hashlib.sha256(token.encode("utf-8")).hexdigest(), facts[1]):
                 reason = "speaker_invitation_token_mismatch"
         if reason is not None:
