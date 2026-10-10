@@ -87,6 +87,20 @@ describe("<MatchingCompareView /> (§6.12)", () => {
     expect(screen.getAllByText("on both lists")).toHaveLength(2);
   });
 
+  it("counts both, only-on-one and matched on major alone per list", () => {
+    const a = list("Major first", "A", 30);
+    const b = list("Interests first", "B", 30);
+    // A's second entry has another factor besides same_major: not "major alone".
+    a.entries[1] = { ...a.entries[1], contributing_factor_keys: ["career_goal_fit", "same_major"] };
+    b.entries[2] = { ...b.entries[2], contributing_factor_keys: [] };
+    render(<MatchingCompareView comparison={{ a, b, on_both_profile_nos: [1] }} onClose={vi.fn()} />);
+    expect(
+      screen.getByText(
+        "on both 1; only on Major first 29; only on Interests first 29; matched on major alone: Major first 29, Interests first 29",
+      ),
+    ).toBeDefined();
+  });
+
   it("closes", () => {
     const onClose = vi.fn();
     render(<MatchingCompareView comparison={COMPARISON} onClose={onClose} />);
