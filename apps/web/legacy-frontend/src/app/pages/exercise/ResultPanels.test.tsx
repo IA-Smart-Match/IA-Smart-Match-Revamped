@@ -146,4 +146,16 @@ describe("ResultPanels", () => {
         "Your invitations added 1. 51 seats were still open.",
     );
   });
+
+  it("lists invited names in the run's rank order, unnamed numbers last (#269)", () => {
+    const team = { ...panel(3, 0, 0), invited_profile_nos: [1, 2, 3] };
+    const names = new Map([
+      [3, "Cy"],
+      [1, "Al"],
+    ]);
+    render(<ResultPanels results={results({ team })} names={names} />);
+
+    const chips = [...document.querySelectorAll('[data-slot="exercise-person-chip"]')];
+    expect(chips.map((chip) => chip.textContent)).toEqual(["Cy", "Al", "Profile 2"]);
+  });
 });

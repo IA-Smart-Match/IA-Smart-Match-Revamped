@@ -231,6 +231,12 @@ function PeopleList({
   readonly profileNos: readonly number[];
   readonly names: NamesByProfileNo;
 }): React.JSX.Element {
+  // Issue #269: read top-down like the ranked list. `names` is in the run's
+  // rank order; numbers it does not name (older runs) follow, by number.
+  const place = new Map([...names.keys()].map((no, index) => [no, index]));
+  const ordered = [...profileNos].sort(
+    (a, b) => (place.get(a) ?? Infinity) - (place.get(b) ?? Infinity) || a - b,
+  );
   return (
     <div className="flex min-w-0 flex-col gap-ce-3">
       <h3 className="ce-type-label text-ce-ink">
@@ -240,7 +246,7 @@ function PeopleList({
         <p className="ce-type-body text-ce-ink-muted">Nobody.</p>
       ) : (
         <ul className="flex flex-wrap gap-ce-2">
-          {profileNos.map((profileNo) => (
+          {ordered.map((profileNo) => (
             <li
               key={profileNo}
               data-slot="exercise-person-chip"
