@@ -47,7 +47,7 @@ Not in code: `STUDENT_REGISTRY`, `StudentRanker`, `EligibilityFilter`, `FeedPoli
 | OQ-SE-20 | Who promotes and rolls back a learned ranker | BrooklynD23 per `decision-record:182` | Learned stages only |
 | OQ-SE-21, OQ-SE-22 | Interaction matrix; logging with propensities | Records/privacy (`decision-record:185,195`) | Learned stages only |
 
-Stage A is eligibility only: published, in window, modality-compatible, no quarantined tag, not already registered, with excluded events counted (`ADR-0024:76-78`).
+Stage A is eligibility only: published, in window, modality-compatible, no quarantined tag, not already registered, with excluded events counted (`ADR-0024:77-80`, diagram).
 
 ## Optional minimal Stage-A skeleton (outline, no code)
 
@@ -62,5 +62,5 @@ Stage A is eligibility only: published, in window, modality-compatible, no quara
 1. Correct the issue text as above, or close #315 as stale? Danny.
 2. Build the Stage-A skeleton now, or wait for the three gates? Danny (program owner role per ADR-0024 ratifiers: BrooklynD23).
 3. Does a pure, storage-free filter fall inside ADR-0024's "licenses no scoring path" line? Danny/BrooklynD23.
-4. Records/privacy co-signature on OQ-SC-02: who holds it and when? BrooklynD23 (named owner of records/privacy in `ADR-0024:6`).
+4. Records/privacy co-signature on OQ-SC-02: who holds it and when? BrooklynD23 (named owner of records/privacy in `ADR-0024:5-6`).
 5. Is the ledger's "stale" reading (no ContentRanker or LearnedRanker) the one to record on the issue? Danny.
