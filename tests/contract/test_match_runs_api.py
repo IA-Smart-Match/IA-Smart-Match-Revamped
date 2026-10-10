@@ -2241,11 +2241,22 @@ def test_compare_reads_two_runs_and_fails_closed_on_a_missing_one(match_context,
 
 
 def test_compare_refuses_a_run_filed_under_another_unit(match_context, engine) -> None:
+    """A real second unit the caller covers: the run belongs to A, so B answers 404."""
     _, run = _submit_and_execute(match_context, engine)
+    other_unit = uuid.uuid4()
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO org_unit (id, tenant_id, path, unit_type, display_name) "
+                "VALUES (:id, :tid, CAST(:path AS ltree), 'department', 'Child')"
+            ),
+            {"id": other_unit, "tid": match_context.tenant_id, "path": f"{UNIT_PATH}.child"},
+        )
 
     response = _get(
         match_context,
-        f"/v1/units/{uuid.uuid4()}/match-runs/compare?base={run['id']}&candidate={run['id']}",
+        f"/v1/units/{other_unit}/match-runs/compare?base={run['id']}&candidate={run['id']}",
     )
 
     assert response.status_code == 404
+    assert response.json()["error"]["code"] == "match_run_not_found"

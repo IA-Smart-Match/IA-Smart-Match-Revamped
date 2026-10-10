@@ -3863,6 +3863,61 @@
         "title": "MatchRunAcceptedResponse",
         "type": "object"
       },
+      "MatchRunCompareResponse": {
+        "description": "A read-only diff of two runs. Nothing here is stored or gates anything.",
+        "properties": {
+          "base_run_id": {
+            "format": "uuid",
+            "title": "Base Run Id",
+            "type": "string"
+          },
+          "candidate_run_id": {
+            "format": "uuid",
+            "title": "Candidate Run Id",
+            "type": "string"
+          },
+          "registry_version_equal": {
+            "title": "Registry Version Equal",
+            "type": "boolean"
+          },
+          "shortlist_movement": {
+            "items": {
+              "$ref": "#/components/schemas/ShortlistMovement"
+            },
+            "title": "Shortlist Movement",
+            "type": "array"
+          },
+          "solver_version_equal": {
+            "title": "Solver Version Equal",
+            "type": "boolean"
+          },
+          "weight_deltas": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "description": "candidate minus base per factor; null when either run lacks the factor.",
+            "title": "Weight Deltas",
+            "type": "object"
+          }
+        },
+        "required": [
+          "base_run_id",
+          "candidate_run_id",
+          "registry_version_equal",
+          "solver_version_equal",
+          "weight_deltas",
+          "shortlist_movement"
+        ],
+        "title": "MatchRunCompareResponse",
+        "type": "object"
+      },
       "MatchRunRequest": {
         "description": "One match-run submission: who to consider, and against which request.\n\nCarries no tenant, actor, or unit: all three are derived server-side. The\nunit comes from the authorized path parameter, never from the body \u2014 a\ncaller naming the unit their run is filed under would be naming who may\nlater read it (MM-A01, and ``submit_command``'s ``owning_unit_id``\ncontract).\n\nIt also carries **no evidence**, and that is OQ-CBA-031's point. There is no\nfield here for a speaker's industry, role, topic text or location, and none\nfor the event's description or its physical/virtual switch: every one of\nthose is read from this tenant's own rows by\n:mod:`smartmatch_api.match_run_evidence`. A request body that could state a\nspeaker's expertise is a request body that can decide its own shortlist.",
         "properties": {
@@ -6067,6 +6122,50 @@
           "concluded_at"
         ],
         "title": "SendSummaryView",
+        "type": "object"
+      },
+      "ShortlistMovement": {
+        "description": "One speaker's place on the two shortlists. A rank is 1-based; null means absent.",
+        "properties": {
+          "base_rank": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Rank"
+          },
+          "candidate_rank": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidate Rank"
+          },
+          "movement": {
+            "description": "entered, left, moved, or unchanged.",
+            "title": "Movement",
+            "type": "string"
+          },
+          "subject_id": {
+            "title": "Subject Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "subject_id",
+          "base_rank",
+          "candidate_rank",
+          "movement"
+        ],
+        "title": "ShortlistMovement",
         "type": "object"
       },
       "SpeakerAvailabilityResponse": {
@@ -12665,6 +12764,156 @@
           }
         },
         "summary": "Submit a match-run command",
+        "tags": [
+          "match-runs"
+        ]
+      }
+    },
+    "/v1/units/{unit_id}/match-runs/compare": {
+      "get": {
+        "description": "Read both runs through ``read_match_run`` (same authz, tenant and unit scoping).\n\nRaises:\n    ApiError: 404 when either run is missing or filed under another unit.",
+        "operationId": "compare_match_runs_v1_units__unit_id__match_runs_compare_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "unit_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "base",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Base",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "candidate",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Candidate",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MatchRunCompareResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "summary": "Compare two match runs in one unit: weights, pins, shortlist movement",
         "tags": [
           "match-runs"
         ]
