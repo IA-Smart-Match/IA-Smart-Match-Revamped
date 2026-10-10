@@ -108,3 +108,22 @@ describe("<RankedList /> refresh marks", () => {
     ]);
   });
 });
+
+describe("<RankedList /> points counter (proposal #317)", () => {
+  it("renders the counter only for rows that carry points", () => {
+    const withPoints: ListEntryView = {
+      ...entry(1, "Brandon Soto"),
+      points: { total: 3, attendance_points: 2, card_points: 1, card_completion: "completed" },
+    };
+    render(
+      <RankedList
+        entries={[withPoints, entry(2, "Mei Tanaka")]}
+        factorLabels={{ same_major: "same major" }}
+        caption="List"
+        firstRoundEventName="Northline"
+      />,
+    );
+    expect(document.querySelectorAll('[data-testid="profile-points-counter"]')).toHaveLength(1);
+    expect(document.querySelector('[data-testid="profile-points-total"]')?.textContent).toContain("3");
+  });
+});

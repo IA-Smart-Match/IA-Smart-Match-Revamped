@@ -73,6 +73,13 @@ export interface EventsView {
   readonly events: EventView[];
 }
 
+export interface PointsView {
+  readonly total: number;
+  readonly attendance_points: number;
+  readonly card_points: number;
+  readonly card_completion: "unknown" | "not_completed" | "completed";
+}
+
 /**
  * One name on the list.
  *
@@ -94,6 +101,8 @@ export interface ListEntryView {
    * several. The server always sends it; optional so older fixtures type-check.
    */
   readonly refresh_marks?: readonly string[];
+  /** Proposal (#317): the profile's points counter; absent or null when not sent. */
+  readonly points?: PointsView | null;
 }
 
 export interface GroupCountsView {
