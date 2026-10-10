@@ -519,9 +519,10 @@ describe("<ExerciseResults />", () => {
       expect(found.length).toBeGreaterThan(0);
       return found;
     });
+    // Invited reads in rank order (#269): Blake is rank 1.
     expect(chips.map((chip) => chip.textContent)).toEqual([
-      "Avery Example",
       "Blake Example",
+      "Avery Example",
       "Avery Example",
       "Avery Example",
     ]);

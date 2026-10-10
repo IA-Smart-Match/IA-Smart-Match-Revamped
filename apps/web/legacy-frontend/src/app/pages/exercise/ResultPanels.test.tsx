@@ -146,4 +146,55 @@ describe("ResultPanels", () => {
         "Your invitations added 1. 51 seats were still open.",
     );
   });
+
+  it("lists invited names in the run's rank order, unnamed numbers last (#269)", () => {
+    const team = { ...panel(3, 0, 0), invited_profile_nos: [1, 2, 3] };
+    const names = new Map([
+      [3, "Cy"],
+      [1, "Al"],
+    ]);
+    render(<ResultPanels results={results({ team })} names={names} />);
+
+    const chips = [...document.querySelectorAll('[data-slot="exercise-person-chip"]')];
+    expect(chips.map((chip) => chip.textContent)).toEqual(["Cy", "Al", "Profile 2"]);
+  });
+});
+
+describe("ResultTiles (#327)", () => {
+  const everyone = { ...panel(300, 40, 30), seats_empty: 22 };
+
+  it("shows the team and email-everyone tiles with four numbers each", () => {
+    render(<ResultPanels results={results({ email_everyone: everyone })} names={new Map()} />);
+
+    const tiles = slotText("exercise-result-tiles");
+    expect(tiles).toContain("Your team's 30");
+    expect(tiles).toContain("Invited30Signed up8Attended6Still open46");
+    expect(tiles).toContain("Email everyone (all 300)");
+    expect(tiles).toContain("Invited300Signed up40Attended30Still open22");
+    expect(tiles).not.toContain("Northline result");
+  });
+
+  it("adds the team's Northline result on Harbor", () => {
+    render(
+      <ResultPanels
+        results={results({
+          round: 2,
+          email_everyone: everyone,
+          round_one: {
+            event_key: "E11",
+            round: 1,
+            setting_name: null,
+            team: panel(30, 2, 1),
+            seats_empty: 51,
+            created_at: "2026-09-25T09:00:00Z",
+          },
+        })}
+        names={new Map()}
+      />,
+    );
+
+    expect(slotText("exercise-result-tiles")).toContain(
+      "Your team's Northline resultInvited30Signed up2Attended1Still open51",
+    );
+  });
 });

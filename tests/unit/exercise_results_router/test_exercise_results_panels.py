@@ -444,3 +444,18 @@ def test_a_results_run_from_an_old_fractional_setting_still_works(
         created_at=_WHEN,
     )
     assert client.post(_RESULTS, json=_FINAL_BODY, headers=_HEADER).status_code == 201
+
+
+def test_email_everyone_panel_carries_seats_empty_derived_at_read(
+    fakes: _Fakes, client: TestClient, confirmed: SimulationCoefficients
+) -> None:
+    """Issue #327: the second panel has its own seats-still-empty number."""
+    fakes.unlock("round-one")
+
+    body = client.post(_RESULTS, json=_FINAL_BODY, headers=_HEADER).json()
+
+    everyone = body["email_everyone"]
+    assert everyone["seats_empty"] == max(
+        0, EVENT_SEATS - EXISTING_SIGNUPS - everyone["attended_count"]
+    )
+    assert body["team"]["seats_empty"] is None
