@@ -11,9 +11,9 @@ Classes: **sanitized** (domain-raised, message built in code), **logged-only** (
 | `services/api/smartmatch_api/errors.py:132` | ConsentViolationError str(exc) | response | sanitized | domain-raised, message built in code; no driver text |
 | `services/api/smartmatch_api/errors.py:142` | InvalidTransitionError str(exc) | response | sanitized | domain-raised, message built in code; no driver text |
 | `services/api/smartmatch_api/errors.py:187` | IdempotencyConflictError str(exc) | response | sanitized | domain-raised, message built in code; no driver text |
-| `services/api/smartmatch_api/exercise_seed.py:269,272` | type(error).__name__ and refusal code only | log | sanitized | class name only, never message |
+| `services/api/smartmatch_api/exercise_seed.py:269,272` | type(error).__name__ and refusal code only | log | logged-only | class name only, never message |
 | `services/api/smartmatch_api/exercise_seed.py:322` | ExerciseDatasetWriteError str to stderr | log (stderr) | sanitized | repository scrubs driver text before raising (instructor/dataset repos) |
-| `services/api/smartmatch_api/routers/cba_contacts.py:785,791,797` | UnknownNaicsSector / UnknownCbaRoleCategory / ValueError | response | sanitized | domain lookups; ValueError is from in-process validation, not a DB call (confirm no ORM call inside try) |
+| `services/api/smartmatch_api/routers/cba_contacts.py:785,791,797` | UnknownNaicsSector / UnknownCbaRoleCategory / ValueError | response | sanitized | domain; ValueError traced: the try wraps only `SpeakerContactDraft.create` in `_draft_or_400` (pure domain, no ORM call) |
 | `services/api/smartmatch_api/routers/cba_contacts.py:1385,1391,1397` | same three as above | response | sanitized | same note |
 | `services/api/smartmatch_api/routers/cba_handoff.py:454,460,466` | CbaAttendanceMismatch / PipelineStageOrder / ConflictingOwningUnit | response | sanitized | domain-raised, message built in code; no driver text |
 | `services/api/smartmatch_api/routers/cba_invitations.py:1114` | OutreachCompositionError | response | sanitized | values server-built; pragma no cover |
@@ -41,8 +41,8 @@ Classes: **sanitized** (domain-raised, message built in code), **logged-only** (
 | `services/api/smartmatch_api/routers/exercise_instructor_refresh.py:253` | ExerciseResultsWriteRefused | response | sanitized | refusal type |
 | `services/api/smartmatch_api/routers/exercise_instructor.py:236,242,291,342,505,609` | ExerciseDatasetLabelError / DatasetWriteError / ExerciseWriteRefused | response | sanitized | instructor_repository scrubs driver exceptions into these (cited in its docstring) |
 | `services/api/smartmatch_api/routers/manual_events.py:346-352,451-456; host_organizations.py:541-550; speaker_portal.py:348-352; speaker_portal_activation.py:379-381` | Haiku pre-survey candidates | response | needs check | not re-opened line by line in this pass; no str(exc) of a bare Exception found by grep at these lines |
-| `python/smartmatch_persistence/.../exercise/workspace_repository.py:508-530` | reset_team lets driver exception propagate (docstring) | response/log via caller | leaks | docstring admits it: PG DETAIL 'Failing row contains (...)' not covered by hide_parameters; sole caller instructor_repository.py:586-600 |
-| `python/smartmatch_persistence/.../exercise/instructor_repository.py:586-600` | caller of reset_team | response | needs check | docstring says it scrubs; scrub not re-read in this pass |
+| `python/smartmatch_persistence/.../exercise/workspace_repository.py:508-530` | reset_team lets driver exception propagate (docstring) | response/log via caller | leaks | docstring admits it: PG DETAIL 'Failing row contains (...)' not covered by hide_parameters; sole caller instructor_repository.py:586-600 Module-level leak; scrubbed by sole caller instructor_repository.py:589-597, so no response leak. |
+| `python/smartmatch_persistence/.../exercise/instructor_repository.py:586-600` | caller of reset_team | response | sanitized | 589-597 catch SQLAlchemyError and raise ExerciseWriteRefused via _failure_for; the driver exception never escapes (its docstring says so) |
 | `services/worker/smartmatch_worker/execution.py:310` | HandlerFailure str(exc) into job event detail | event | sanitized | handler-raised, message built in code |
 | `services/worker/smartmatch_worker/execution.py:327` | except Exception: type + str(exc) into job event detail | event | leaks | unclassified exception can be a SQLAlchemy DBAPIError; hide_parameters hides values, DETAIL line still renders |
 | `services/worker/smartmatch_worker/dispatcher.py:779` | TaskQueueError str(exc) to failure record | event | needs check | TaskQueueError is a provider error; confirm it never wraps a driver error |
@@ -62,9 +62,9 @@ Classes: **sanitized** (domain-raised, message built in code), **logged-only** (
 | classification | rows |
 |---|---|
 | sanitized | 36 |
-| logged-only | 0 |
+| logged-only | 1 |
 | leaks | 3 |
-| needs check | 9 |
+| needs check | 8 |
 | total | 48 |
 
 ## The three known gaps (from B-11)
