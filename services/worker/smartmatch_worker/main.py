@@ -478,15 +478,14 @@ def create_app(
             portal_secret = check_worker_speaker_portal_startup(resolved)
             raw_invitation_secret = resolved.speaker_portal_token_secret
             invitation_secret = resolve_invitation_token_secret(
-                raw_invitation_secret.get_secret_value() if raw_invitation_secret else None,
-                edition=str(resolved.edition),
+                raw_invitation_secret.get_secret_value() if raw_invitation_secret else None
             )
             if invitation_secret is None and is_capability_enabled(
                 resolved.product_scope, Capability.CONSENTED_OUTREACH
             ):
                 raise ValueError(
                     "SMARTMATCH_SPEAKER_PORTAL_TOKEN_SECRET is required, at least "
-                    "32 characters, outside edition dev/classroom: speaker-invitation "
+                    "32 characters, in every edition: speaker-invitation "
                     "links derive from it; the worker must hold the api's value."
                 )
             app.state.registry = with_outreach_send(

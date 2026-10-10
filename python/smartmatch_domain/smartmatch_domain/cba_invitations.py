@@ -79,7 +79,6 @@ __all__ = [
     "MINIMUM_INVITATION_SECRET_LENGTH",
     "RESPONSE_URL_SENTINEL",
     "SPEAKER_RESPONSE_VALUES",
-    "SYNTHETIC_INVITATION_TOKEN_SECRET",
     "ChannelFacts",
     "InvitationResponseConflict",
     "InvitationStatus",
@@ -109,31 +108,20 @@ INVITATION_TEMPLATE_ID: Final[str] = "cba.speaker_invitation.v1"
 #: ``ACTIVATION_URL_SENTINEL``.
 RESPONSE_URL_SENTINEL: Final[str] = "[[speaker-invitation-response-link]]"
 
-#: HMAC key used when no ``SMARTMATCH_SPEAKER_PORTAL_TOKEN_SECRET`` is set, so
-#: non-live editions keep working. Not a secret; the worker refuses it when live.
-SYNTHETIC_INVITATION_TOKEN_SECRET: Final[str] = "synthetic-invitation-token-key-not-a-secret"
-
-
 #: Shortest configured secret accepted (same bar as the /s/ portal secret).
 MINIMUM_INVITATION_SECRET_LENGTH: Final[int] = 32
 
-#: Editions where the public synthetic key is tolerated: nothing real is at stake.
-_SYNTHETIC_KEY_EDITIONS: Final[frozenset[str]] = frozenset({"dev", "classroom"})
 
-
-def resolve_invitation_token_secret(configured: str | None, *, edition: str) -> str | None:
+def resolve_invitation_token_secret(configured: str | None) -> str | None:
     """The key response tokens derive under, or ``None`` when none may be used.
 
     A configured key must be non-blank and at least
-    :data:`MINIMUM_INVITATION_SECRET_LENGTH` long. Otherwise only ``dev`` and
-    ``classroom`` fall back to the public synthetic key; every other edition gets
-    ``None`` and must refuse: the invitation id is visible to coordinators, so a
-    guessable key lets anyone forge the ``/i/`` token (#287).
+    :data:`MINIMUM_INVITATION_SECRET_LENGTH` long. There is no fallback in any
+    edition: the invitation id is visible to coordinators, so a guessable key
+    lets anyone forge the ``/i/`` token (#287). ``None`` means refuse.
     """
     if configured and configured.strip() and len(configured) >= MINIMUM_INVITATION_SECRET_LENGTH:
         return configured
-    if edition in _SYNTHETIC_KEY_EDITIONS:
-        return SYNTHETIC_INVITATION_TOKEN_SECRET
     return None
 
 

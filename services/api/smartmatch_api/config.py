@@ -335,8 +335,7 @@ def resolve_api_invitation_secret(settings: Settings) -> str | None:
     """The speaker-invitation token key for this edition, or ``None`` (#287)."""
     stored = settings.speaker_portal_token_secret
     return resolve_invitation_token_secret(
-        stored.get_secret_value() if stored is not None else None,
-        edition=str(settings.edition),
+        stored.get_secret_value() if stored is not None else None
     )
 
 
@@ -351,7 +350,7 @@ def check_invitation_startup(settings: Settings) -> None:
     ):
         raise ValueError(
             "SMARTMATCH_SPEAKER_PORTAL_TOKEN_SECRET is required, at least "
-            f"{MINIMUM_SPEAKER_PORTAL_SECRET_LENGTH} characters, outside edition dev/classroom "
+            f"{MINIMUM_SPEAKER_PORTAL_SECRET_LENGTH} characters, in every edition, "
             "when consented outreach is on (speaker-invitation links derive from it); the api "
             "and the worker must hold the same value."
         )

@@ -2092,17 +2092,14 @@ def _response_tokens(api: httpx.Client, unit_id: str, addresses: dict[str, str])
     #287: the composed draft no longer carries the link (a Connector can read
     drafts), only a sentinel, so this asserts that and derives the token from the
     invitation id under the stack's shared ``SMARTMATCH_SPEAKER_PORTAL_TOKEN_SECRET``
-    (the synthetic key when the stack sets none).
+    (required in every edition).
     """
     from smartmatch_domain.cba_invitations import (
         RESPONSE_URL_SENTINEL,
-        SYNTHETIC_INVITATION_TOKEN_SECRET,
         derive_response_token,
     )
 
-    secret = os.environ.get("SMARTMATCH_SPEAKER_PORTAL_TOKEN_SECRET") or (
-        SYNTHETIC_INVITATION_TOKEN_SECRET
-    )
+    secret = os.environ["SMARTMATCH_SPEAKER_PORTAL_TOKEN_SECRET"]
     listing = json_body(
         api.get(f"/v1/units/{unit_id}/outreach/drafts", params={"limit": 200, "offset": 0})
     )

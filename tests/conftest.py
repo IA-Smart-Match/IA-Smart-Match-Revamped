@@ -8,9 +8,16 @@ and reading them once is the point (CE-SEED).
 
 from __future__ import annotations
 
+import os
 from typing import TYPE_CHECKING
 
 import pytest
+
+# #287: the invitation-token secret is required in every edition, and the api
+# checks it at import. A test-only placeholder, not a secret.
+os.environ.setdefault(
+    "SMARTMATCH_SPEAKER_PORTAL_TOKEN_SECRET", "test-only-placeholder-invitation-token-secret-00"
+)
 
 if TYPE_CHECKING:
     from smartmatch_domain.exercise.ingest import IngestRefusal, ParsedDataset

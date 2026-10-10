@@ -239,6 +239,10 @@ jobs:
 
   compose-smoke:
     name: compose smoke — seeded queue, import, dispatch, review decision, metrics, web
+    # #287: the invitation-token secret is required in every edition. A CI-only
+    # placeholder (not a secret; this stack is never public).
+    env:
+      SMARTMATCH_SPEAKER_PORTAL_TOKEN_SECRET: ci-only-placeholder-invitation-token-secret-0000
     runs-on: ubuntu-24.04
     # 30 rather than 20: the stack now also builds and starts the `web`
     # service, whose first start runs `npm ci` into an empty volume. That is
@@ -420,6 +424,10 @@ jobs:
 
   pilot-e2e:
     name: pilot e2e — auth, columns contract, accept AND reject, metrics, match, events, rewards, outreach
+    # #287: the invitation-token secret is required in every edition. A CI-only
+    # placeholder (not a secret; this stack is never public).
+    env:
+      SMARTMATCH_SPEAKER_PORTAL_TOKEN_SECRET: ci-only-placeholder-invitation-token-secret-0000
     runs-on: ubuntu-24.04
     # Same 30 as compose-smoke and for the same reason: `web`'s first start
     # runs `npm ci` into an empty volume, which is minutes on a cold runner.
