@@ -188,6 +188,7 @@ jobs:
           docker run -d --name "$CONTAINER" \
             -e PORT="$PROBE_PORT" \
             -e SMARTMATCH_RELEASE=ci \
+            -e SMARTMATCH_SPEAKER_PORTAL_TOKEN_SECRET=ci-only-placeholder-invitation-token-secret-0000 \
             -p "$PROBE_PORT:$PROBE_PORT" \
             "${{ matrix.image }}"
 
