@@ -46,19 +46,23 @@ Pattern to mirror: `FixtureEmailProvider` records calls in a list and returns a 
 @runtime_checkable
 class AmpGovernanceProvider(Protocol):
     name: str
-    def start_instance(self, job_id: str) -> str: ...            # returns instance id
+
+    def start_instance(self, job_id: str) -> str: ...  # returns instance id
     def log(self, instance_id: str, event: str) -> None: ...
     def llm_trace(self, instance_id: str, prompt: str, answer: str) -> None: ...
     def set_state(self, instance_id: str, state: str) -> None: ...
     def request_hitl(self, instance_id: str, caller_id: str) -> str: ...  # workitem id
-    def poll_decision(self, caller_id: str) -> str | None: ...   # None = pending
+    def poll_decision(self, caller_id: str) -> str | None: ...  # None = pending
     def report_outcome(self, instance_id: str, outcome: str) -> None: ...
+
 
 class FixtureAmpProvider:
     name = "fixture-amp"
+
     def __init__(self, decisions: dict[str, str] | None = None) -> None:
-        self.calls: list[tuple[str, tuple]] = []   # recorded, never sent
-        self._decisions = decisions or {}          # scripted answers
+        self.calls: list[tuple[str, tuple]] = []  # recorded, never sent
+        self._decisions = decisions or {}  # scripted answers
+
     # each method appends to self.calls; ids are "fixture-<job_id>"
 ```
 
