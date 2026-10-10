@@ -59,9 +59,8 @@ KINDS = [
 
 
 def _stub(monkeypatch: pytest.MonkeyPatch, pilot: str | None, loaded: Any) -> list[str]:
-    from smartmatch_persistence.pilot_auth import PilotSessionRepository
-
     from smartmatch_api.dependencies import PrincipalRepository
+    from smartmatch_persistence.pilot_auth import PilotSessionRepository
 
     loads: list[str] = []
 
