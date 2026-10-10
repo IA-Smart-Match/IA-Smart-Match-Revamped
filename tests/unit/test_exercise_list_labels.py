@@ -118,3 +118,26 @@ def test_the_csv_download_keeps_its_six_columns() -> None:
     from smartmatch_api.routers.exercise_matching_csv import CSV_LIST_COLUMNS
 
     assert len(CSV_LIST_COLUMNS) == 6
+
+
+def test_each_list_row_carries_points_from_exercise_points() -> None:
+    from smartmatch_domain.exercise_points import ProfilePointsInput, profile_points
+
+    view = _view(_events()[0].event_key)
+    rows = {r.profile_no: r for r in _rows()}
+    for entry in view.entries:
+        assert entry.points is not None
+        expected = profile_points(
+            ProfilePointsInput(
+                attended_count=len(rows[entry.profile_no].past_event_keys),
+                card_completion=_completion(entry.marker),
+            )
+        )
+        assert entry.points.total == expected.total
+        assert entry.points.attendance_points == expected.attendance_points
+
+
+def _completion(marker: str):  # type: ignore[no-untyped-def]
+    from smartmatch_domain.exercise_points import CardCompletion
+
+    return CardCompletion.COMPLETED if marker == "completed_card" else CardCompletion.UNKNOWN

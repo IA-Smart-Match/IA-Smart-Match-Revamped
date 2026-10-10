@@ -75,6 +75,12 @@ from smartmatch_domain.exercise.vocabulary import (
     goal_topic_for_matching,
 )
 from smartmatch_domain.exercise_list_coverage import ListCoverage
+from smartmatch_domain.exercise_points import (
+    CardCompletion,
+    ProfilePoints,
+    ProfilePointsInput,
+    profile_points,
+)
 from smartmatch_domain.student_factors import EventEvidence, ProfileCard, ProfileEvidence
 
 from smartmatch_api.exercise_dependencies import (
@@ -95,6 +101,7 @@ __all__ = [
     "ListCompositionView",
     "ListCoverageView",
     "ListEntryView",
+    "PointsView",
     "ProfileFacts",
     "RankableSet",
     "RankedListView",
@@ -153,6 +160,7 @@ class ProfileFacts:
     class_year: str
     marker: InformationMarker
     refresh_marks: tuple[str, ...] = ()
+    points: ProfilePoints | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -359,6 +367,17 @@ def rankable_set(
             class_year=class_year,
             marker=derive_marker(evidence),
             refresh_marks=refresh_marks_for(profile),
+            points=profile_points(
+                ProfilePointsInput(
+                    attended_count=len(profile.past_event_keys),
+                    # A card on file is completed; no card is "not asked", never "declined".
+                    card_completion=(
+                        CardCompletion.COMPLETED
+                        if derive_marker(evidence) is InformationMarker.COMPLETED_CARD
+                        else CardCompletion.UNKNOWN
+                    ),
+                )
+            ),
         )
     return RankableSet(
         profiles=tuple(ranked),
@@ -434,6 +453,17 @@ class EventsView(BaseModel):
     events: list[EventView] = Field(description="Ten past events, then the two rounds.")
 
 
+class PointsView(BaseModel):
+    """One profile's class-exercise points (`exercise_points.profile_points`)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    total: int = Field(description="Attendance points plus card points.")
+    attendance_points: int = Field(description="The attendance part of the total.")
+    card_points: int = Field(description="The card-completion part of the total.")
+    card_completion: str = Field(description="`unknown`, `not_completed` or `completed`.")
+
+
 class ListEntryView(BaseModel):
     """One name on the list, as a class participant sees it (ADR-0025 D8)."""
 
@@ -466,6 +496,10 @@ class ListEntryView(BaseModel):
             "`new_card`, `new_event` (it attended the first round's event), "
             "`stopped_responding`. Empty before the refresh. May hold several."
         ),
+    )
+    points: PointsView | None = Field(
+        default=None,
+        description="Proposal (#317): this profile's points counter, or null.",
     )
 
 
@@ -744,6 +778,14 @@ def ranked_list_view(
                 reason=entry.reason,
                 contributing_factor_keys=list(entry.contributing_factor_keys),
                 refresh_marks=list(facts.refresh_marks),
+                points=None
+                if facts.points is None
+                else PointsView(
+                    total=facts.points.total,
+                    attendance_points=facts.points.attendance_points,
+                    card_points=facts.points.card_points,
+                    card_completion=facts.points.card_completion.value,
+                ),
             )
         )
     return RankedListView(

@@ -79,6 +79,13 @@ export interface EventsView {
  * `rank` is a position, not a score (ADR-0025 D8). `contributing_factor_keys`
  * are rulebook keys and are rendered only through `factor_labels`.
  */
+export interface PointsView {
+  readonly total: number;
+  readonly attendance_points: number;
+  readonly card_points: number;
+  readonly card_completion: "unknown" | "not_completed" | "completed";
+}
+
 export interface ListEntryView {
   readonly rank: number;
   readonly profile_no: number;
@@ -94,6 +101,8 @@ export interface ListEntryView {
    * several. The server always sends it; optional so older fixtures type-check.
    */
   readonly refresh_marks?: readonly string[];
+  /** Proposal (#317): the profile's points counter; absent or null when not sent. */
+  readonly points?: PointsView | null;
 }
 
 export interface GroupCountsView {
