@@ -469,7 +469,7 @@ def test_the_reset_cleared_team_3_and_kept_its_seed(class_run: _ClassRun) -> Non
     after = class_run.after_reset[_RESET_TEAM]
     for event_key in (ROUND_ONE, ROUND_TWO):
         status, body = after[f"results {event_key}"]
-        assert (status, body["error"]["code"]) == (404, "exercise_results_not_run")
+        assert (status, body) == (200, None)
         assert after[f"settings {event_key}"][1]["settings"] == []
     assert after["asking"][1]["choice"] is None
     assert after["asking"][1]["refreshed"] is False

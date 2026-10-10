@@ -35,9 +35,9 @@
  * run still has a live button; its press is answered 409, the sentence says
  * why, and the screen reads again and lands on the right state.
  *
- * `exercise_results_not_run` (404) on the read is not a refusal to display at
- * all — it simply means this team has not run yet, which is the screen's
- * ordinary first state.
+ * A `null` body on the read (200) is not a refusal to display at all — it
+ * simply means this team has not run yet, which is the screen's ordinary first
+ * state.
  *
  * **The team runs its final setting, and nothing else** (Ann to Chau, Discord,
  * 2026-09-24): set weights, save up to three settings and compare two, choose
@@ -98,9 +98,6 @@ import { workspaceRequiredNotice } from "./refusals";
 /** A link that looks like the desk's secondary button (§6.3). */
 const LINK_BUTTON =
   "ce-press ce-type-label inline-flex min-h-ce-control items-center justify-center rounded-ce-control border-2 border-ce-line-strong bg-ce-surface px-ce-5 text-ce-ink hover:border-ce-primary hover:bg-ce-primary-tint";
-
-/** The read's 404, which means "not run yet" rather than "something is wrong". */
-const NOT_RUN = "exercise_results_not_run";
 
 /** The run's 404 for a final setting this team no longer has (deleted in another tab). */
 const SETTING_UNKNOWN = "exercise_setting_unknown";
@@ -169,14 +166,7 @@ export function ExerciseResults(): React.JSX.Element {
 function EventResults({ eventKey }: { readonly eventKey: string }): React.JSX.Element {
   const load = React.useCallback(
     async (signal: AbortSignal): Promise<ResultsData> => {
-      let results: ResultsView | null = null;
-      try {
-        results = await readResults(eventKey, signal);
-      } catch (error) {
-        if (!(isRefusal(error) && error.code === NOT_RUN)) {
-          throw error;
-        }
-      }
+      const results: ResultsView | null = await readResults(eventKey, signal);
       // Independent reads, so they go together. The saved settings, and the
       // words for their weights, are only needed before the run: afterwards
       // there is nothing left to choose, and the run names its own people.

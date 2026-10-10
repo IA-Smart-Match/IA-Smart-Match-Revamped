@@ -88,10 +88,7 @@ function isOff(button: HTMLElement): boolean {
   return button.getAttribute("aria-disabled") === "true";
 }
 
-const NOT_RUN = {
-  body: { error: { code: "exercise_results_not_run", message: "No results yet." } },
-  status: 404,
-};
+const NOT_RUN = { body: null };
 
 const NO_LIST = {
   body: { error: { code: "exercise_workspace_required", message: "Enter your team number." } },
