@@ -306,6 +306,10 @@ def test_single_row_merge_matches_the_per_source_model(address_is_login: bool) -
         # U+212A KELVIN SIGN lowers to "k" in Python; it is a different mailbox.
         ("\u212aim@synthetic.invalid", "kim@synthetic.invalid", False),
         ("kim@synthetic.invalid", "\u212aim@synthetic.invalid", False),
+        # EAI: composed vs decomposed spelling of one mailbox is the same login.
+        ("jos\u00e9@synthetic.invalid", "jose\u0301@synthetic.invalid", True),
+        ("Jose\u0301@Synthetic.Invalid", "jos\u00e9@synthetic.invalid", True),
+        ("jos\u00e9@synthetic.invalid", "jose@synthetic.invalid", False),
     ],
 )
 def test_address_is_login_is_an_ascii_case_fold(
