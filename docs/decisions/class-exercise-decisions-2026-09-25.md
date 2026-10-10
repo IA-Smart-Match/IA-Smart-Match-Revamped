@@ -145,8 +145,8 @@ Every `file:line` below is on `origin/main` at `9339d5a4`. Paths are shortened:
   - `db/migrations/versions/0043_exercise_event_exploratory.py`
 - **See also, 2026-10-06 (results rule).** Ann's rule relayed on 2026-10-06
   gives "+15 if their true career goal fits the event" and does not mention an
-  undecided goal. Whether the results step keeps this row's half is open:
-  OQ-CE-21. This row is not superseded by that record. PR #337 (open) removes
+  undecided goal. Whether the results step keeps this row's half was open until 2026-10-07
+  (OQ-CE-21, closed option a). This row is not superseded by that record. PR #337 (merged 2026-10-07) removes
   the half on the strength of Ann's revisions of 2026-10-02. Record:
   [`class-exercise-results-rule-2026-10-06.md`](class-exercise-results-rule-2026-10-06.md).
 

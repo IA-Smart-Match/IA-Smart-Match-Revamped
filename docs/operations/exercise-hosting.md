@@ -795,25 +795,23 @@ checklist for real:
    diverged; resolve before promoting, per
    [`vm-deploy.md`](vm-deploy.md#promoting-a-commit-to-the-vm).
 
-2. **Confirm the migration head is `0044_exercise_event_description`.**
+2. **Confirm the migration head is `0046_exercise_run_snapshot`.**
    ```bash
-   grep -L 'down_revision = "0044_exercise_event_description"' /dev/null; \
-   grep -rl 'down_revision = "0044_exercise_event_description"' db/migrations/versions/*.py
+   grep -L 'down_revision = "0046_exercise_run_snapshot"' /dev/null; \
+   grep -rl 'down_revision = "0046_exercise_run_snapshot"' db/migrations/versions/*.py
    ```
    Pass: the second command prints **nothing** — no later revision points back
-   at `0044_exercise_event_description`, so it is the head
-   (`db/migrations/versions/0044_exercise_event_description.py` sets its own
-   `down_revision = "0043_exercise_event_exploratory"`; it adds the nullable
-   text column `description` to `exercise_event`, read from Ann's
-   `event_description`. `0043` before it added the boolean `is_exploratory`).
-   Nothing reads or writes `is_exploratory` since Ann's revisions of
-   2026-10-02; it stays in the table, `false` by default, so that rolling the
-   application back to the release before those revisions still works with no
-   schema step. Dropping it is a contract-phase revision for a later release,
-   after the 2026-10-16 run-through.
+   at `0046_exercise_run_snapshot`, so it is the head
+   (`db/migrations/versions/0046_exercise_result_run_snapshot.py` sets its own
+   `down_revision = "0045_exercise_unlock_closed_at"`). `is_exploratory`
+   (added by `0043`) is still in `exercise_event`, `false` by default, though
+   nothing reads or writes it since Ann's revisions of 2026-10-02; it stays so
+   that rolling the application back to the release before those revisions
+   still works with no schema step. Dropping it is a contract-phase revision
+   for a later release, after the 2026-10-16 run-through.
    **Re-upload Ann's file after `0044`**: a dataset stored before it shows no
    event description. Fail: a revision is printed — the head has moved
-   past `0044`; re-derive this step against the new file before continuing,
+   past `0046`; re-derive this step against the new file before continuing,
    since the tables the grant in [§3](#3-the-database-role) depends on may
    have changed shape.
 
