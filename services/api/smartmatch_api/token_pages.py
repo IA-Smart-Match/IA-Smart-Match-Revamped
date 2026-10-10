@@ -13,8 +13,7 @@ otherwise copy.
   rewrite ``/s/``, ``/i/``, ``/u/`` and ``/q/`` path tokens in uvicorn's access
   log to ``<redacted>`` and keep the line.
 
-Composition with T6a (#213): while #213 is unmerged, ``main.py``'s ``/i/`` code
-keeps its private copies; T6a's rebase deletes them and imports from here.
+``main.py``'s ``/i/`` routes import these helpers; there are no private copies.
 """
 
 from __future__ import annotations
