@@ -220,7 +220,9 @@ def validate_columns(
     findings.extend(_ragged_findings(dataset, normalized_rows, source_headers, required_normalized))
 
     # A required column that exists but is blank in every row is as unusable as
-    # a missing one; the legacy loader reported it as present and healthy.
+    # a missing one. The legacy loader flagged empty and literal 'nan' values
+    # as non-nullable violations; only whitespace-only values passed as healthy
+    # (port-verification F-12).
     # What counts as blank is resolved per column, not once for the dataset:
     # see ``blank_sentinels_by_column``.
     for norm, original in required_normalized.items():
