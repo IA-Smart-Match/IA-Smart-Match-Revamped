@@ -224,18 +224,14 @@ def test_cancelled_confirmed_future_counts_in_neither():
     _assert_nothing_counted(_run(_eng(5, 60, cancelled=True)))
 
 
-def test_cancelled_attended_past_counts_in_neither():
-    _assert_nothing_counted(_run(_eng(-5, 60, attended=True, cancelled=True)))
-
-
-def test_cancelled_attended_day_0_counts_in_neither():
-    _assert_nothing_counted(_run(_eng(0, 60, attended=True, cancelled=True)))
+def test_cancelled_and_attended_is_rejected():
+    # migration 0040 CHECK: cancelled_at IS NULL OR attended_at IS NULL
+    with pytest.raises(ValueError, match="cancelled"):
+        _eng(-5, 60, attended=True, cancelled=True)
 
 
 def test_cancelled_unknown_hours_does_not_make_unknown():
-    _assert_nothing_counted(
-        _run(_eng(5, None, cancelled=True), _eng(-5, None, attended=True, cancelled=True))
-    )
+    _assert_nothing_counted(_run(_eng(5, None, cancelled=True), _eng(-5, None, cancelled=True)))
 
 
 def test_unconfirmed_future_counts_in_neither():
