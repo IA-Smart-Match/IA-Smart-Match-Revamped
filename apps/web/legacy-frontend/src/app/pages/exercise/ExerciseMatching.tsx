@@ -498,7 +498,6 @@ function EventMatching({ eventKey }: { readonly eventKey: string }): React.JSX.E
           <ListCompositionTable
             composition={state.data.list.composition}
             unrankableProfileCount={state.data.list.unrankable_profile_count}
-            unlistedClassYears={state.data.list.unlisted_class_years}
           />
 
           <SavedSettingsPanel
