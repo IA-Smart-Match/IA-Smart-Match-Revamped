@@ -42,3 +42,16 @@ def test_startup_accepts_a_good_secret_in_any_edition() -> None:
         check_invitation_startup(
             Settings(edition=edition, speaker_portal_token_secret=SecretStr(_GOOD))
         )
+
+
+def test_app_startup_refuses_without_a_secret_but_import_does_not(monkeypatch) -> None:
+    from fastapi.testclient import TestClient
+    from smartmatch_api import main
+
+    monkeypatch.delenv("SMARTMATCH_SPEAKER_PORTAL_TOKEN_SECRET", raising=False)
+    main.get_settings.cache_clear()
+    try:
+        with pytest.raises(ValueError, match="SPEAKER_PORTAL_TOKEN_SECRET"), TestClient(main.app):
+            pass
+    finally:
+        main.get_settings.cache_clear()

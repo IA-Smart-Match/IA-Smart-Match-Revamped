@@ -76,11 +76,7 @@ RUN pip install --no-deps \
 # Fail the build here rather than at container start if the application cannot
 # be imported — a build that succeeds and produces an image that cannot boot is
 # a green result that means nothing.
-# The api refuses to import without the invitation-token secret (#287). This
-# one-shot value exists only for this RUN's environment, is not an ENV, and is
-# not in the image at runtime; the real secret is supplied at container start.
-RUN SMARTMATCH_SPEAKER_PORTAL_TOKEN_SECRET=build-time-import-check-only-not-a-secret-00 \
-    python -c "import smartmatch_api.main"
+RUN python -c "import smartmatch_api.main"
 
 # ---------------------------------------------------------------------------
 # Stage 2 — runtime. Carries the virtualenv and nothing else.

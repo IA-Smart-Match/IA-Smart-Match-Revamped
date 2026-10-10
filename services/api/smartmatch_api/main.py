@@ -242,6 +242,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     every production signal and never stops the process.
     """
     settings = get_settings()
+    # #287: refuse to start with outreach on and no invitation token key. At
+    # startup, not import, so tools that import the app (OpenAPI export, the
+    # image build smoke) need no secret.
+    check_invitation_startup(settings)
 
     app.state.settings = settings
     # The product-scope decisions this process booted with, resolved once so a
@@ -748,7 +752,6 @@ if get_settings().capability_enabled(Capability.CLASS_EXERCISE):
 # B26 T6b-1 (§4.2, R10): refuse to boot with the capability on and no usable
 # token secret; with it off the secret is never read and this is `None`.
 app.state.speaker_portal_token_secret = check_speaker_portal_startup(get_settings())
-check_invitation_startup(get_settings())
 
 # B26 T6b-1 (R4): token-bearing paths (`/s`, `/i`, `/u`, `/q`) are redacted in
 # uvicorn's access log rather than the log being disabled. Idempotent.

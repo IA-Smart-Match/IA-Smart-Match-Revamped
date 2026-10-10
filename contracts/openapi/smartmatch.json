@@ -1831,7 +1831,6 @@
           "template_id": {
             "description": "A key of the closed outreach template registry.",
             "examples": [
-              "cba.speaker_invitation.v1",
               "pilot.event_invitation.v1",
               "pilot.schedule_change.v1",
               "pilot.visit_confirmation.v1"
