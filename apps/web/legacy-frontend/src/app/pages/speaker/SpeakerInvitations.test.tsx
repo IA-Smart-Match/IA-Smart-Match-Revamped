@@ -187,6 +187,13 @@ afterEach(() => {
 });
 
 describe("<SpeakerInvitations />", () => {
+  it("exposes a single polite live region", async () => {
+    stub({ [`GET ${LIST}`]: list([MIXER, PANEL, LECTURE]) });
+    const { container } = renderPage();
+    await screen.findByText("Spring Mixer");
+    expect(container.querySelectorAll("[aria-live]")).toHaveLength(1);
+  });
+
   it("groups rows into Waiting for your answer and Answered", async () => {
     stub({ [`GET ${LIST}`]: list([MIXER, PANEL, LECTURE]) });
     renderPage();

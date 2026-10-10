@@ -135,3 +135,15 @@ describe("<VolunteerPortalLayout /> portal switcher", () => {
     );
   });
 });
+
+describe("<VolunteerPortalLayout /> drawer", () => {
+  it("while the drawer is open the page behind it is inert; Escape closes and clears it", () => {
+    renderShell();
+    const behind = screen.getByRole("main").parentElement;
+    expect(behind?.hasAttribute("inert")).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Open sidebar menu" }));
+    expect(behind?.hasAttribute("inert")).toBe(true);
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(behind?.hasAttribute("inert")).toBe(false);
+  });
+});
