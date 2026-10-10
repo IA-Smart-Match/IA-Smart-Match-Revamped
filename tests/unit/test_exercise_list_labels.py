@@ -10,6 +10,11 @@ row-to-input steps the route uses.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from smartmatch_domain.exercise_points import CardCompletion
+
 from functools import cache
 
 from smartmatch_api.exercise_dependencies import ExerciseEventRow, TeamProfileRow
@@ -135,9 +140,10 @@ def test_each_list_row_carries_points_from_exercise_points() -> None:
         )
         assert entry.points.total == expected.total
         assert entry.points.attendance_points == expected.attendance_points
+        assert entry.points.card_points == expected.card_points
 
 
-def _completion(marker: str):  # type: ignore[no-untyped-def]
+def _completion(marker: str) -> CardCompletion:
     from smartmatch_domain.exercise_points import CardCompletion
 
     return CardCompletion.COMPLETED if marker == "completed_card" else CardCompletion.UNKNOWN

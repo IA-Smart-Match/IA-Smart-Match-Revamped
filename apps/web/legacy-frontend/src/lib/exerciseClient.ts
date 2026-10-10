@@ -73,12 +73,6 @@ export interface EventsView {
   readonly events: EventView[];
 }
 
-/**
- * One name on the list.
- *
- * `rank` is a position, not a score (ADR-0025 D8). `contributing_factor_keys`
- * are rulebook keys and are rendered only through `factor_labels`.
- */
 export interface PointsView {
   readonly total: number;
   readonly attendance_points: number;
@@ -86,6 +80,12 @@ export interface PointsView {
   readonly card_completion: "unknown" | "not_completed" | "completed";
 }
 
+/**
+ * One name on the list.
+ *
+ * `rank` is a position, not a score (ADR-0025 D8). `contributing_factor_keys`
+ * are rulebook keys and are rendered only through `factor_labels`.
+ */
 export interface ListEntryView {
   readonly rank: number;
   readonly profile_no: number;
