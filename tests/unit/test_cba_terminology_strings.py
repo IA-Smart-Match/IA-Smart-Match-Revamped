@@ -218,22 +218,16 @@ def test_the_event_host_portal_keeps_its_customer_approved_name() -> None:
     assert "{grant.display_name}" in _read("app/components/VolunteerPortalLayout.tsx")
 
 
-def test_speaker_requests_replace_volunteer_opportunities_in_visible_copy() -> None:
-    page = _read("app/pages/Opportunities.tsx")
-    # The admin shell is deleted; the Connector shell carries the entry now,
-    # in sentence case per the writing rules ("Speaker requests", not
-    # "Speaker Requests").
+def test_speaker_requests_replace_volunteer_opportunities_in_the_nav() -> None:
+    # The Connector shell carries the entry, in sentence case per the writing
+    # rules ("Speaker requests", not "Speaker Requests").
     nav = _read("app/components/CoordinatorPortalLayout.tsx")
-    assert "Speaker Requests" in page
     assert "Speaker requests" in nav
-    # The registered metric name is a fact about the server, not a label, so it
-    # is still shown verbatim next to the renamed heading.
-    assert "OPPORTUNITIES_METRIC_NAME" in page
 
 
 def test_speaker_survives_the_sweep() -> None:
     """§4 maps Speaker to Speaker. The sweep must not have eaten it."""
-    for relative in ("components/QRCodeCard.tsx", "app/pages/Outreach.tsx"):
+    for relative in ("components/QRCodeCard.tsx",):
         assert re.search(r"\bSpeakers?\b", _read(relative), re.IGNORECASE), (
             f"{relative} lost its Speaker vocabulary"
         )

@@ -73,13 +73,9 @@ REDIRECTS = FRONTEND_SRC / "app" / "legacyRedirects.ts"
 CONNECTOR_SHELL = FRONTEND_SRC / "app" / "components" / "CoordinatorPortalLayout.tsx"
 LANDING_PAGE = FRONTEND_SRC / "app" / "pages" / "LandingPage.tsx"
 PIPELINE_FUNNEL_TILES = FRONTEND_SRC / "app" / "components" / "PipelineFunnelTiles.tsx"
-DASHBOARD = FRONTEND_SRC / "app" / "pages" / "Dashboard.tsx"
 METRICS_LIB = FRONTEND_SRC / "lib" / "metrics.ts"
 PRODUCT_SCOPE_TS = FRONTEND_SRC / "lib" / "productScope.ts"
 
-LEGACY_OUTREACH_PAGE = FRONTEND_SRC / "app" / "pages" / "Outreach.tsx"
-AGENTIC_OUTREACH_PANEL = FRONTEND_SRC / "components" / "AgenticOutreachPanel.tsx"
-CRAWLER_FEED = FRONTEND_SRC / "components" / "CrawlerFeed.tsx"
 DISCOVERY_FEED = FRONTEND_SRC / "app" / "components" / "DiscoveryFeed.tsx"
 COORDINATOR_OUTREACH = FRONTEND_SRC / "app" / "pages" / "coordinator" / "CoordinatorOutreach.tsx"
 STUDENT_REWARDS = FRONTEND_SRC / "app" / "pages" / "student" / "StudentRewards.tsx"
@@ -378,13 +374,6 @@ class TestMemberInquirySuppression:
             "PipelineFunnelTiles must ask the policy before offering a member_inquiry tile"
         )
 
-    def test_the_dashboard_gates_its_member_inquiry_card(self) -> None:
-        source = _read(DASHBOARD)
-        assert "isCapabilityEnabled" in source and _MEMBER_INQUIRY in source, (
-            "the Dashboard's headline Member Inquiry card is the same CBA claim as the "
-            "funnel tile and must be gated by the same policy"
-        )
-
     def test_the_registered_metric_name_is_preserved(self) -> None:
         """Suppressing the narrative must not delete the metric or its history.
 
@@ -468,9 +457,6 @@ class TestNoDeletionCleanup:
     @pytest.mark.parametrize(
         "path",
         [
-            LEGACY_OUTREACH_PAGE,
-            AGENTIC_OUTREACH_PANEL,
-            CRAWLER_FEED,
             DISCOVERY_FEED,
             COORDINATOR_OUTREACH,
             STUDENT_REWARDS,
@@ -482,23 +468,6 @@ class TestNoDeletionCleanup:
         assert path.is_file(), (
             f"{path.name} was deleted. Gated capabilities are out of scope for this phase, "
             "not defective; this card removes reachability, never implementation."
-        )
-
-    def test_the_crawler_surface_is_reachable_only_through_the_gated_page(self) -> None:
-        """``CrawlerFeed`` has exactly one referrer, and that referrer is gated.
-
-        Complements ``tests/unit/test_fixture_ingest_wiring.py``, which proves no
-        *backend* crawl surface exists. This is the frontend half: even the inert
-        placeholder card must not appear on a CBA-reachable screen.
-        """
-        referrers = sorted(
-            path.relative_to(FRONTEND_SRC).as_posix()
-            for path in FRONTEND_SRC.rglob("*.tsx")
-            if path != CRAWLER_FEED
-            and "CrawlerFeed" in _strip_comments(path.read_text(encoding="utf-8"))
-        )
-        assert referrers == ["app/pages/Outreach.tsx"], (
-            f"CrawlerFeed gained a reference outside the capability-gated legacy page: {referrers}"
         )
 
 

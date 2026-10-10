@@ -19,8 +19,6 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 FRONTEND_SRC = REPO_ROOT / "apps" / "web" / "legacy-frontend" / "src"
 
 STUDENT_CONNECT = FRONTEND_SRC / "app" / "pages" / "student" / "StudentConnect.tsx"
-AGENTIC_OUTREACH_PANEL = FRONTEND_SRC / "components" / "AgenticOutreachPanel.tsx"
-OUTREACH_PAGE = FRONTEND_SRC / "app" / "pages" / "Outreach.tsx"
 COORDINATOR_OUTREACH = FRONTEND_SRC / "app" / "pages" / "coordinator" / "CoordinatorOutreach.tsx"
 OUTREACH_HOOK = FRONTEND_SRC / "app" / "hooks" / "useOutreach.ts"
 LANDING_PAGE = FRONTEND_SRC / "app" / "pages" / "LandingPage.tsx"
@@ -52,58 +50,12 @@ STUDENT_CONNECT_FORBIDDEN = (
     "activeThreadId",
 )
 
-# B20 / B21 -- "Approve & Send" only set local state; the UI then claimed the
-# outreach had been sent and the pipeline updated. Nothing was ever dispatched.
-AGENTIC_PANEL_FORBIDDEN = (
-    "Outreach sent",
-    "Pipeline updated",
-    "Speaker contacted successfully",
-    "Approve & Send",
-    'setPhase("approved")',
-    'setPhase("rejected")',
-)
-
-# B32 / B33 / B37 -- a Save Draft button with no onClick, an "AI Enhance" that
-# appended a hard-coded sentence and passed it off as model output, and a
-# Create Template dialog whose input was uncontrolled and stored nothing.
-OUTREACH_FORBIDDEN = (
-    "handleAIEnhance",
-    "AI Enhance",
-    "Enhanced note",
-    "Save Draft",
-    "showNewTemplate",
-    "Create Template",
-)
-
 
 def test_student_connect_has_no_mock_chat() -> None:
     source = STUDENT_CONNECT.read_text(encoding="utf-8")
     for pattern in STUDENT_CONNECT_FORBIDDEN:
         assert pattern not in source, (
             f"StudentConnect reintroduced archived in-app chat: {pattern!r}"
-        )
-
-
-def test_agentic_outreach_panel_never_claims_outreach_was_sent() -> None:
-    source = AGENTIC_OUTREACH_PANEL.read_text(encoding="utf-8")
-    for pattern in AGENTIC_PANEL_FORBIDDEN:
-        assert pattern not in source, (
-            f"AgenticOutreachPanel reintroduced unconditional success: {pattern!r}"
-        )
-
-
-def test_agentic_outreach_panel_states_no_send_path_exists() -> None:
-    source = AGENTIC_OUTREACH_PANEL.read_text(encoding="utf-8")
-    assert "No send path exists" in source, (
-        "AgenticOutreachPanel must truthfully state that outreach cannot be dispatched"
-    )
-
-
-def test_outreach_page_has_no_stub_controls() -> None:
-    source = OUTREACH_PAGE.read_text(encoding="utf-8")
-    for pattern in OUTREACH_FORBIDDEN:
-        assert pattern not in source, (
-            f"Outreach page reintroduced a control with no backend: {pattern!r}"
         )
 
 

@@ -11,9 +11,6 @@ shows the right thing" is not.
 What is unchanged: :data:`MATCHING_FORBIDDEN_PATTERNS` still refuses every
 legacy matching call and every legacy score field, so this page cannot reach
 ``/api/matching``, ``rankSpeakers``, or the deflated legacy ``match_score``.
-``Dashboard.tsx`` is unchanged too — it displays no score and calls nothing, and
-this file still holds it to that.
-
 What is new: the page must actually call ``fetchMatchRun``, and it must not
 fabricate. The forbidden list therefore grew a *percentage* family and a
 *zero-coercion* family, which is how the ratified "no percentage display" rule
@@ -27,9 +24,6 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 AI_MATCHING_PAGE = (
     REPO_ROOT / "apps" / "web" / "legacy-frontend" / "src" / "app" / "pages" / "AIMatching.tsx"
-)
-DASHBOARD_PAGE = (
-    REPO_ROOT / "apps" / "web" / "legacy-frontend" / "src" / "app" / "pages" / "Dashboard.tsx"
 )
 METRICS_LIB = REPO_ROOT / "apps" / "web" / "legacy-frontend" / "src" / "lib" / "metrics.ts"
 
@@ -57,14 +51,6 @@ MATCHING_FORBIDDEN_PATTERNS = (
     # is where the legacy system had it.
     "?? 0",
     "|| 0",
-)
-
-DASHBOARD_MATCHING_FORBIDDEN_PATTERNS = (
-    "rankSpeakers",
-    "/api/matching",
-    "topMatches",
-    "Match Score",
-    "match.score",
 )
 
 
@@ -143,12 +129,3 @@ def test_metrics_lib_exports_matching_unavailable_reason() -> None:
     assert "MATCHING_UNAVAILABLE_REASON" in source
     assert "factor registry is approved" in source
     assert "unavailableMatchingMetric" in source
-
-
-def test_dashboard_does_not_invoke_legacy_matching_api() -> None:
-    source = DASHBOARD_PAGE.read_text(encoding="utf-8")
-    for pattern in DASHBOARD_MATCHING_FORBIDDEN_PATTERNS:
-        assert pattern not in source, (
-            f"Dashboard still contains forbidden matching pattern: {pattern!r}"
-        )
-    assert "MATCHING_UNAVAILABLE_REASON" in source

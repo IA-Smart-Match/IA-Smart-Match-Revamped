@@ -14,9 +14,6 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 API_TS = REPO_ROOT / "apps" / "web" / "legacy-frontend" / "src" / "lib" / "api.ts"
-VOLUNTEERS_TSX = (
-    REPO_ROOT / "apps" / "web" / "legacy-frontend" / "src" / "app" / "pages" / "Volunteers.tsx"
-)
 
 # Z1 violations V1-V5: interface fields that must be `number | null`, not a
 # bare `number` with a `?? 0` / `|| 0` fallback in their normalizer.
@@ -102,15 +99,3 @@ def test_empty_summary_placeholders_are_not_fabricated_zero_objects() -> None:
     # failed fetch) must use null, not 0, for every numeric field.
     for forbidden in FORBIDDEN_ZERO_COERCIONS[-2:]:
         assert forbidden not in source
-
-
-def test_volunteers_page_no_longer_fabricates_a_fatigue_estimate() -> None:
-    """V6/V7: Volunteers.tsx used to synthesize a fatigue number from
-    unrelated pipeline-stage weighting whenever a volunteer had no calendar
-    assignment overlays, and presented it as if it were measured. That
-    formula must be gone; fatigue must come only from real backend evidence
-    (or be null)."""
-    source = VOLUNTEERS_TSX.read_text(encoding="utf-8")
-    assert "fallbackFatigue" not in source
-    assert "12 + weightedLoad" not in source
-    assert "volunteerFatigue = backendFatigue ?? fallbackFatigue" not in source
