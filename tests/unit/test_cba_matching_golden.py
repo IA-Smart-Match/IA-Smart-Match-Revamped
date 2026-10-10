@@ -1049,8 +1049,9 @@ def test_g_cba_19_same_weights_different_registry_hash(registry_3):
     assert three.value == two.value == 0.97
 
 
-def test_the_load_cases_never_make_3_0_0_current():
-    from smartmatch_domain.factor_registry import current_cba_registry
+def test_the_load_cases_leave_3_0_0_current():
+    # Pre-staged flip (#297): 3.0.0 is current in this draft, 2.0.0 stays pinned.
+    from smartmatch_domain.factor_registry import CBA_REGISTRY_3, current_cba_registry
 
-    assert current_cba_registry() is CBA_REGISTRY
+    assert current_cba_registry() is CBA_REGISTRY_3
     assert copy.copy(REGISTRY_VERSION) == "2.0.0-approved-oq-cba-004"

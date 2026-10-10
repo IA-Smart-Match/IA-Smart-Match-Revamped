@@ -537,12 +537,12 @@ PINNED_1_1_1_G1_HASH = "sha256:9da5f1b1ccb6b0627759c77a472fb47d8b77ce634c21fffe9
 
 
 # 1
-def test_registry_3_is_declared_proposed():
+def test_registry_3_is_declared_approved_prestaged():
     assert REGISTRY_3_VERSION == "3.0.0-approved-b26-eli"
     assert CBA_REGISTRY_3.version == REGISTRY_3_VERSION
-    assert CBA_REGISTRY_3.status == "proposed"
-    assert CBA_REGISTRY_3.approver is None
-    assert CBA_REGISTRY_3.approved_on is None
+    assert CBA_REGISTRY_3.status == "approved"
+    assert CBA_REGISTRY_3.approver == "BrooklynD23"
+    assert CBA_REGISTRY_3.approved_on == "2026-10-09"
     assert CBA_REGISTRY_3.load_bands is Q7_REGISTERED_LOAD_BANDS
     assert CBA_REGISTRY_3.mode_vocabulary == CBA_SCORING_MODES
     assert registry_for_version(REGISTRY_3_VERSION) is CBA_REGISTRY_3
@@ -580,11 +580,11 @@ def test_registry_3_declares_engagement_load_as_weight_zero_penalty_in_no_model(
 
 
 # 3
-def test_current_registry_is_2_0_0():
-    assert current_cba_registry() is CBA_REGISTRY
-    assert factor_registry_module.CURRENT_CBA_REGISTRY is CBA_REGISTRY
+def test_current_registry_is_3_0_0():
+    assert current_cba_registry() is CBA_REGISTRY_3
+    assert factor_registry_module.CURRENT_CBA_REGISTRY is CBA_REGISTRY_3
     assert REGISTRY_VERSION == "2.0.0-approved-oq-cba-004"
-    assert current_cba_registry().version == REGISTRY_VERSION
+    assert current_cba_registry().version == REGISTRY_3_VERSION
     assert SUPERSEDED_REGISTRY_VERSION == "1.1.1-approved-g1-m6j"
     assert isinstance(SUPERSEDED_REGISTRY_VERSION, str)
 
@@ -596,13 +596,12 @@ def test_current_registry_is_read_per_call(monkeypatch):
 
 # 4
 def test_superseded_and_proposed_sets_derive_from_current():
-    assert frozenset({SUPERSEDED_REGISTRY_VERSION}) == SUPERSEDED_REGISTRY_VERSIONS
-    assert superseded_registry_versions() == frozenset({"1.1.1-approved-g1-m6j"})
-    assert proposed_registry_versions() == frozenset({"3.0.0-approved-b26-eli"})
-    assert superseded_registry_versions(CBA_REGISTRY_3) == frozenset(
-        {"1.1.1-approved-g1-m6j", "2.0.0-approved-oq-cba-004"}
-    )
-    assert proposed_registry_versions(CBA_REGISTRY_3) == frozenset()
+    both = frozenset({"1.1.1-approved-g1-m6j", "2.0.0-approved-oq-cba-004"})
+    assert both == SUPERSEDED_REGISTRY_VERSIONS
+    assert superseded_registry_versions() == both
+    assert proposed_registry_versions() == frozenset()
+    assert superseded_registry_versions(CBA_REGISTRY) == frozenset({"1.1.1-approved-g1-m6j"})
+    assert proposed_registry_versions(CBA_REGISTRY) == frozenset({"3.0.0-approved-b26-eli"})
 
 
 def test_the_derived_sets_refuse_a_registry_outside_the_lineage():
@@ -614,9 +613,8 @@ def test_the_derived_sets_refuse_a_registry_outside_the_lineage():
 
 
 # 5
-def test_registry_3_fails_the_approval_gate_and_passes_readiness():
-    with pytest.raises(RegistryNotApprovedError, match="proposed"):
-        assert_registry_approved(registry=CBA_REGISTRY_3)
+def test_registry_3_passes_the_approval_gate_and_readiness():
+    assert_registry_approved(registry=CBA_REGISTRY_3)
     assert_scoring_ready(registry=CBA_REGISTRY_3)
     assert implemented_scoring_keys(registry=CBA_REGISTRY_3) == APPROVED_SCORING_KEYS_3
     # And the 2.0.0 gate is untouched.
@@ -679,7 +677,7 @@ def test_no_production_module_imports_the_evaluation_helper_or_reassigns_current
     bindings = assignment.findall(source)
     assert len(bindings) == 1, bindings
     assert re.search(
-        r"^CURRENT_CBA_REGISTRY: Final\[FactorRegistry\] = CBA_REGISTRY\b",
+        r"^CURRENT_CBA_REGISTRY: Final\[FactorRegistry\] = CBA_REGISTRY_3\b",
         source,
         re.MULTILINE,
     )

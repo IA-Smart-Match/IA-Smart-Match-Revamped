@@ -1,6 +1,7 @@
 # ADR-0027 — Registry 3.0.0: engagement load as a Stage A cap and a Stage B multiplier
 
-**Status:** Proposed
+**Status:** Accepted
+**2026-10-09:** pre-staged as Accepted in an unmerged draft PR — NOT in force until IA West review + owner approval.
 **Date:** 23 September 2026
 **Owner of record:** Danny Tran, Development Lead / program owner of record
 **Decides:** how registry `3.0.0-approved-b26-eli` applies the Engagement Load Index (ELI 2.0.0): the Q7 band table and who owns it, a multiplier on the CBA composite, removal of a Full pair before the solve, what `registry_hash` covers for a 3.x run, and the one-line procedure that later makes 3.0.0 current.
