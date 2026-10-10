@@ -136,7 +136,7 @@ agrees with the first review instead of re-searching `bdce024`.
 - [ ] `behavior_retained` does not claim event cadence.
 - [ ] Time-based recency decay is **introduced**, not retained.
 - [ ] `eli.py` module docstring matches (F-4 copy; `a48408a` may have done
-      part of this — verify, do not assume).
+      part of this — verify, do not assume). Verified fixed: 7aa971ec, 44be45ac, PR #214.
 - [ ] F-6: cap uses unrounded utilization; test insensitive to display rounding.
 - [ ] F-7: blackout not in measured score; `score == 0.0` for idle+blackout.
 - [ ] F-8: one `frozenset` for score and snapshot.
