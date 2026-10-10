@@ -281,6 +281,92 @@ checkable rather than asserted.
 - It **authorizes nothing**. It proposes no test change, no workflow change and
   no status change, and it is not a production-readiness claim.
 
+## 8. Re-audit 2026-10-09 (#290)
+
+Tree: `origin/main` @ `122b01b0`. Read-only; no test or code file changed.
+
+### 8.1 Commands and raw counts
+
+```
+git grep -nE "pytest\.(mark\.)?(skip|skipif|xfail)" -- .                                    →  98
+git grep -nE "pytest\.mark\.(skip|skipif|xfail)|pytest\.(skip|xfail)\(|pytest\.importorskip" -- tests python services   →  162
+```
+
+| Command | `tests/` | `docs/` | `Makefile` | total |
+|---|---|---|---|---|
+| §1 original (83 on 2026-09-18) | 86 | 11 | 1 | **98** |
+| broader (adds `importorskip`, needs `(`) | 162 | 0 | 0 | **162** |
+
+Reconciling the two inside `tests/`: 162 − 82 `importorskip` = 80 call sites the
+original also matches, plus **6 prose hits** only the original sees
+(`tests/e2e/conftest.py:16`, `tests/e2e/test_pilot_clickthrough.py:62,78,176,1449`,
+`tests/integration/migration_harness.py:107` — docstrings/comments). `docs/` +
+`Makefile` 12 hits are prose, 4 of them this file. `python/` and `services/`: 0.
+
+The broader command's 162 were all checked with `ast`: every hit is a real
+`pytest.skip/skipif/xfail/importorskip` attribute reference in code (0 prose).
+The jump from the inventory's 72 call sites to 80 (+8) and the wip-analysis `1`
+to 162 is mostly **`importorskip`**, which the original regex never matched.
+
+### 8.2 Totals per directory
+
+| Dir | 2026-09-18 sites | 2026-10-09 sites | of which `importorskip` |
+|---|---|---|---|
+| `tests/contract` | 30 | 39 | 3 |
+| `tests/integration` | 5 | 83 | 76 |
+| `tests/unit` | 4 | 8 | 3 |
+| `tests/e2e` | 33 | 32 | 0 |
+| **total** | 72 | **162** | **82** |
+
+**Integration 5 → 83.** Pattern: one module-level line
+`pytest.importorskip("sqlalchemy")` in 70 integration files (incl.
+`conftest.py` and `test_tenant_isolation.py`), plus 6 function-level
+`importorskip("alembic.config"/"alembic.script")` lines in 3 files
+(`test_cba_contact_schema.py:222-223`, `test_cba_weight_settings_persistence.py:252-253`,
+`test_event_registration.py:150-151`). These
+were added as the CBA/exercise tables grew; each new DB-backed module copies
+the line. No shared `requires_postgres` marker or `skipif` exists. Real
+DB-unavailable skips in integration stay at 5 (`conftest.py:248`,
+`test_contact_lifecycle.py:204`, `test_engine_hide_parameters.py:119`,
+`test_rewards_api.py:277`, `test_tenant_isolation.py:44`).
+
+### 8.3 Classification (162)
+
+| Class | Count | Environment-conditional? |
+|---|---|---|
+| Optional dependency absent (`importorskip` sqlalchemy/alembic/fastapi) | 82 | yes |
+| PostgreSQL unreachable or not migrated (contract 36, integration 5) | 41 | yes |
+| e2e appliance not up / seed one-shot unfinished (`e2e/conftest.py:209,226`) | 2 | yes |
+| e2e appliance answers 503 `registry_not_ready` (`test_pilot_clickthrough.py:489`) | 1 | yes (deployment state) |
+| Platform/binary `skipif` (git, flock) (`test_vm_deploy_script.py:42`, `test_vm_deploy_rollback_schema_ahead.py:18`) | 2 | yes |
+| Other env: symlinks (`test_fixture_ingest.py:232`), greenlet (`test_supply_chain.py:413`), no CREATE DATABASE privilege (`migration_harness.py:95`), safety gate on DB name / `GITHUB_ACTIONS` (`test_exercise_dataset_repository.py:162`) | 4 | yes |
+| **Subtotal environment-conditional** | **132** | |
+| Prior-step cascade in `test_pilot_clickthrough.py` ("step N did not produce ...") | 27 | no, run-state; derives from an earlier step failing or skipping |
+| Helper `_skip_or_fail` (`test_pilot_clickthrough.py:183`), `pytest.fail` when `SMARTMATCH_E2E_REQUIRE_REWARDS` is set | 1 | conditional on caller and an env var |
+| Unconditional skip | 1 | no |
+| Data-conditional parametrised skip | 1 | no |
+| **Subtotal other** | **30** | |
+
+xfail: **0**. `skip` markers without a condition: **0**. Unconditional
+`pytest.mark.skip`: **0**.
+
+### 8.4 Sites that are not environment-conditional
+
+| Site | Reason |
+|---|---|
+| `tests/e2e/test_pilot_clickthrough.py:1538` | `test_16_the_portal_pages_have_no_backend_in_this_repository` always skips. Intentional and documented in its docstring (no `/api/portals/*` backend in repo; covered by `scripts/compose_smoke.sh` stage 16). Permanent, not a bug. |
+| `tests/unit/test_env_isolation_check.py:132` | Parametrised over `IDENTIFIER_KEYS`; skips the key that is null in the classroom environment by policy (`provider_secret_id`). Depends on config data, not on the machine. 1 case. |
+| `tests/e2e/test_pilot_clickthrough.py:183` | `_skip_or_fail` helper; skip-or-fail by `SMARTMATCH_E2E_REQUIRE_REWARDS`. Its callers decide the condition. |
+| `tests/e2e/test_pilot_clickthrough.py` 591, 703, 751, 793, 816, 853, 878, 919, 959, 1055, 1129, 1168, 1214, 1293, 1349, 1454, 1634, 1689, 1721, 1759, 1822, 1998, 2172, 2395, 2623, 2625, 2933 | 27 prior-step cascades: skip when an earlier step did not produce the unit id / match run / review item / outreach draft the step needs. Cascade state, so these hide a root failure as "skipped" unless `-ra` is read. |
+
+### 8.5 Verdict
+
+132 of 162 sites are environment-conditional. The other 30 are 27 run-state
+cascades, 1 documented permanent skip, 1 data-conditional case and 1 helper.
+No unconditional `pytest.mark.skip`, no `xfail`, and no skip that looks like a
+bug. Line numbers drift; `test_vm_deploy_script.py` is `:42` now (was `:38` in
+the `c72dced` figure).
+
 ## References
 
 - [`todo-disposition-register.md`](todo-disposition-register.md) — the 2026-09-18
