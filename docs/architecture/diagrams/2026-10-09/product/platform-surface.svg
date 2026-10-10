@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg viewBox="0 0 1380 724" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="platform-surface-title platform-surface-desc" style="min-width:1380px;max-width:1380px" id="platform-surface-root"><title id="platform-surface-title">CBA platform surface: persona to page to capability</title><desc id="platform-surface-desc">Matrix of the five personas against the fifteen product capabilities, naming the portal pages each persona uses, the API routers each capability mounts, and whether the capability is on in the cba, ia_west_legacy and class_exercise scopes.</desc><defs>
+<svg viewBox="0 0 1380 724" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="platform-surface-title platform-surface-desc" style="min-width:1380px;max-width:1380px" id="platform-surface-root"><title id="platform-surface-title">CBA platform surface: persona to page to capability</title><desc id="platform-surface-desc">Matrix of the five personas against the fifteen product capabilities, naming the portal pages each persona uses, the API routers each capability mounts, and whether the capability is on in the cba, legacy_pilot and class_exercise scopes.</desc><defs>
       <style>@import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&amp;family=Geist:wght@400;500;600&amp;family=Geist+Mono:wght@400;500;600&amp;family=Noto+Serif:ital@0;1&amp;family=Noto+Sans+KR:wght@400;500;600&amp;family=Noto+Serif+KR:wght@400&amp;family=Noto+Sans+TC:wght@400;500;600&amp;family=Noto+Serif+TC:wght@400&amp;display=swap');
       #platform-surface-root { --color-paper:#f5f5f5; --color-ink:#2d3142; --color-muted:#4f5d75; --color-accent:#eb6c36;
   --font-sans:'Geist', system-ui, sans-serif; --font-serif:'Instrument Serif', serif; --font-mono:'Geist Mono', ui-monospace, monospace; }
@@ -56,7 +56,7 @@
 <text x="1110" y="78" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Exercise team</text>
 <text x="1110" y="94" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">no login · passcode</text>
 <text x="1265" y="78" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Scope</text>
-<text x="1265" y="94" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">cba · ia_west · exercise</text>
+<text x="1265" y="94" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">cba · legacy_pilot · exercise</text>
 <text x="40" y="131" fill="#2d3142" font-size="11" font-weight="600" font-family="'Geist', sans-serif">authenticated_login</text>
 <text x="40" y="145" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="start">auth · me · portals</text>
 <text x="390" y="137" fill="#2d3142" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">/login</text>
@@ -155,7 +155,7 @@
 <text x="1110" y="571" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">/exercise/* · 7 pages</text>
 <text x="1110" y="582" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">own process (below)</text>
 <text x="1265" y="578" fill="#eb6c36" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">off · off · on</text>
-<text x="40" y="615" fill="#2d3142" font-size="11" font-weight="600" font-family="'Geist', sans-serif">4 IA West capabilities</text>
+<text x="40" y="615" fill="#2d3142" font-size="11" font-weight="600" font-family="'Geist', sans-serif">4 legacy-pilot capabilities</text>
 <text x="40" y="629" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="start">no routers mounted</text>
 <text x="390" y="622" fill="#2d3142" fill-opacity="0.25" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">—</text>
 <text x="570" y="622" fill="#2d3142" fill-opacity="0.25" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">—</text>
