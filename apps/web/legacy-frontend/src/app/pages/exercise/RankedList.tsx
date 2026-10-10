@@ -96,7 +96,6 @@ function useJoined(entries: readonly ListEntryView[]): ReadonlySet<number> {
 
 export function RankedList({
   entries,
-  factorLabels,
   highlightProfileNos,
   caption,
   layout = "auto",
@@ -157,7 +156,7 @@ export function RankedList({
                   {state.onBoth ? <OnBothChip /> : null}
                   <RefreshMarkChips marks={entry.refresh_marks} eventName={firstRoundEventName} />
                 </div>
-                <ReasonLines entry={entry} labels={factorLabels} />
+                <ReasonLines entry={entry} />
                 <p className="ce-type-meta text-ce-ink-muted">
                   {entry.major} · {entry.class_year}
                 </p>
@@ -226,7 +225,7 @@ export function RankedList({
                     {state.onBoth ? <OnBothChip /> : null}
                     <RefreshMarkChips marks={entry.refresh_marks} eventName={firstRoundEventName} />
                   </div>
-                  <ReasonLines entry={entry} labels={factorLabels} />
+                  <ReasonLines entry={entry} />
                 </td>
                 <td className="px-ce-2 py-ce-4">{entry.major}</td>
                 <td className="px-ce-2 py-ce-4">{entry.class_year}</td>
@@ -297,45 +296,7 @@ function RefreshMarkChips({
   );
 }
 
-/** The server's reason, verbatim (OQ-CE-12), then what counted in Ann's words. */
-function ReasonLines({
-  entry,
-  labels,
-}: {
-  readonly entry: ListEntryView;
-  readonly labels: Readonly<Record<string, string>>;
-}): React.JSX.Element {
-  return (
-    <>
-      <p className="ce-type-reason mt-ce-1 text-ce-ink-muted">{entry.reason}</p>
-      <FactorNames keys={entry.contributing_factor_keys} labels={labels} />
-    </>
-  );
-}
-
-/**
- * What counted, in Ann's words.
- *
- * A key with no label in `factor_labels` is dropped rather than printed raw:
- * showing `past_event_topic_overlap` to a marketing class would be showing a
- * column name, which is the thing §16 is asking not to happen.
- */
-function FactorNames({
-  keys,
-  labels,
-}: {
-  readonly keys: readonly string[];
-  readonly labels: Readonly<Record<string, string>>;
-}): React.JSX.Element | null {
-  const named = keys
-    .map((key) => labels[key])
-    .filter((label): label is string => label !== undefined);
-  if (named.length === 0) {
-    return null;
-  }
-  return (
-    <span data-slot="exercise-factor-names" className="ce-type-meta block text-ce-ink-muted">
-      {named.join("; ")}
-    </span>
-  );
+/** The server's reason, verbatim (OQ-CE-12): one line per profile. */
+function ReasonLines({ entry }: { readonly entry: ListEntryView }): React.JSX.Element {
+  return <p className="ce-type-reason mt-ce-1 text-ce-ink-muted">{entry.reason}</p>;
 }
