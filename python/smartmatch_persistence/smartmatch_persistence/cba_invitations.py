@@ -198,7 +198,8 @@ class SpeakerInvitationRow:
     delivery fact, recording user, professional or unit.
 
     ``event_local_date`` and ``event_time_zone`` come from the event row the batch
-    names (``speaker_request_id``); ``None`` when it names none, and ``event_date`` is the text the invitation carried.
+    names (``speaker_request_id``); ``None`` when it names none. ``event_date`` is
+    the text the invitation carried.
     """
 
     id: uuid.UUID
