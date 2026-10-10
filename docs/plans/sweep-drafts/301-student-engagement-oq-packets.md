@@ -46,7 +46,7 @@
 | OQ-SE-21 | Student x event interaction matrix | none in §3 | REC §4.8, "no" 09-16 |
 | OQ-SE-22 | Log decisions with propensities | none in §3 | REC §4.9, "no" 09-16 |
 
-Slice 3 (vertical flow) has no gate row of its own; it waits on slices 1-2 (`plan:53`). Slices 1 (SE-03) and 8 (SE-04..08, #302) are the only ones whose gates are not touched by an existing packet or REC disposition except metrics-authz (SE-08).
+Slice 3 (vertical flow) has no gate row of its own; it waits on slices 1-2 (`plan:53`). Of the first slice's gate (SE-03), no packet or disposition exists; of slice 8's (SE-04..08), only SE-08 has a packet (`metrics-authz.md`).
 
 ## First-slice gate: OQ-SE-03 (uncovered; highest leverage)
 
