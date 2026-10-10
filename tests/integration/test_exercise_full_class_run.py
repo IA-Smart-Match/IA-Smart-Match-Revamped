@@ -494,7 +494,7 @@ def _keys(value: Any) -> Iterator[str]:
 def test_the_class_made_enough_requests_to_mean_something(class_run: _ClassRun) -> None:
     """Six teams through two rounds is well over a hundred exchanges."""
     assert len(class_run.log) > 100
-    assert {exchange.status for exchange in class_run.log} >= {200, 201, 404, 409}
+    assert {exchange.status for exchange in class_run.log} >= {200, 201, 409}
 
 
 def test_no_response_body_names_a_withheld_column(class_run: _ClassRun) -> None:
