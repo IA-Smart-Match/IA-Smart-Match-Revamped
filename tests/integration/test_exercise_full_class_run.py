@@ -469,7 +469,7 @@ def test_the_reset_cleared_team_3_and_kept_its_seed(class_run: _ClassRun) -> Non
     after = class_run.after_reset[_RESET_TEAM]
     for event_key in (ROUND_ONE, ROUND_TWO):
         status, body = after[f"results {event_key}"]
-        assert (status, body["error"]["code"]) == (404, "exercise_results_not_run")
+        assert (status, body) == (200, None)
         assert after[f"settings {event_key}"][1]["settings"] == []
     assert after["asking"][1]["choice"] is None
     assert after["asking"][1]["refreshed"] is False
@@ -494,7 +494,7 @@ def _keys(value: Any) -> Iterator[str]:
 def test_the_class_made_enough_requests_to_mean_something(class_run: _ClassRun) -> None:
     """Six teams through two rounds is well over a hundred exchanges."""
     assert len(class_run.log) > 100
-    assert {exchange.status for exchange in class_run.log} >= {200, 201, 404, 409}
+    assert {exchange.status for exchange in class_run.log} >= {200, 201, 409}
 
 
 def test_no_response_body_names_a_withheld_column(class_run: _ClassRun) -> None:

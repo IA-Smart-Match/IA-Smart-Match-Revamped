@@ -198,11 +198,11 @@ def test_reading_the_run_back_gives_the_stored_panels(
     assert read_back == written
 
 
-def test_reading_a_run_this_team_has_not_made_is_not_found(client: TestClient) -> None:
+def test_reading_a_run_this_team_has_not_made_is_ok_and_null(client: TestClient) -> None:
     response = client.get(f"{_BASE}/events/round-one/results")
 
-    assert response.status_code == 404
-    assert response.json()["error"]["code"] == "exercise_results_not_run"
+    assert response.status_code == 200
+    assert response.json() is None
 
 
 def test_round_two_carries_the_stored_round_one_panel(

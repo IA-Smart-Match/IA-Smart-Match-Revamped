@@ -609,9 +609,9 @@ export function runResults(eventKey: string, settingName: string, signal?: Abort
   );
 }
 
-/** `GET …/events/{event_key}/results` — the stored run, read back. */
+/** `GET …/events/{event_key}/results` — the stored run, read back; `null` before the first run. */
 export function readResults(eventKey: string, signal?: AbortSignal) {
-  return exerciseRequest<ResultsView>(
+  return exerciseRequest<ResultsView | null>(
     `/workspaces/current/events/${encodeURIComponent(eventKey)}/results`,
     { signal },
   );
