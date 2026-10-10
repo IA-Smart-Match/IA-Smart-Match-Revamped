@@ -1681,11 +1681,11 @@ def test_a_team_that_has_not_entered_is_one_sentence(signed_in: TestClient) -> N
     assert response.json()["error"]["message"] == "That team has not entered its number yet."
 
 
-def test_a_team_number_outside_one_to_six_is_the_typo_it_is(signed_in: TestClient) -> None:
+def test_a_team_number_outside_one_to_eight_is_the_typo_it_is(signed_in: TestClient) -> None:
     response = signed_in.get("/v1/exercise/instructor/workspaces/9")
 
     assert response.status_code == 422
-    assert response.json()["error"]["message"] == "Pick a team number from 1 to 6."
+    assert response.json()["error"]["message"] == "Pick a team number from 1 to 8."
 
 
 def test_the_instructor_reset_clears_exactly_one_team(

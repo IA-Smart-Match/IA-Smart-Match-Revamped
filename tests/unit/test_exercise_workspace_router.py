@@ -555,8 +555,8 @@ def test_an_unknown_cookie_is_refused_the_same_way(client: TestClient) -> None:
     assert response.json()["error"]["code"] == "exercise_workspace_required"
 
 
-@pytest.mark.parametrize("team_number", [0, 7, -1, 99])
-def test_a_team_number_outside_one_to_six_is_refused_with_a_sentence(
+@pytest.mark.parametrize("team_number", [0, 9, -1, 99])
+def test_a_team_number_outside_one_to_eight_is_refused_with_a_sentence(
     client: TestClient, team_number: int
 ) -> None:
     response = _enter(client, team_number)
@@ -564,7 +564,7 @@ def test_a_team_number_outside_one_to_six_is_refused_with_a_sentence(
     assert response.json() == {
         "error": {
             "code": "exercise_team_number_unknown",
-            "message": "Pick a team number from 1 to 6.",
+            "message": "Pick a team number from 1 to 8.",
         }
     }
 

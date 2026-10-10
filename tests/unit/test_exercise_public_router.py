@@ -197,14 +197,14 @@ def test_the_route_answers_without_any_credential() -> None:
     assert response.status_code == 200
     assert response.json() == {
         "scope": "class_exercise",
-        "team_numbers": [1, 2, 3, 4, 5, 6],
+        "team_numbers": [1, 2, 3, 4, 5, 6, 7, 8],
         "synthetic_data": True,
     }
 
 
 def test_the_team_numbers_are_the_requirements_range() -> None:
-    """The requirements row "Getting in": *a team enters its team number (1–6)*."""
-    assert EXERCISE_TEAM_NUMBERS == (1, 2, 3, 4, 5, 6)
+    """The requirements row "Getting in": *a team enters its team number (1–8)*."""
+    assert EXERCISE_TEAM_NUMBERS == (1, 2, 3, 4, 5, 6, 7, 8)
 
 
 def test_the_response_model_forbids_extra_fields() -> None:

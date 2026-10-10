@@ -34,7 +34,7 @@ from typing import Final
 #: Every team number the exercise recognises, in the order a picker shows them.
 #: A tuple rather than a range so the value is literal at every read site and a
 #: test can compare it without reconstructing the bounds.
-EXERCISE_TEAM_NUMBERS: Final[tuple[int, ...]] = (1, 2, 3, 4, 5, 6)
+EXERCISE_TEAM_NUMBERS: Final[tuple[int, ...]] = (1, 2, 3, 4, 5, 6, 7, 8)
 
 #: Fields stored on an exercise row that leave the server in no response and
 #: appear in no exported contract (ADR-0025 D6).
