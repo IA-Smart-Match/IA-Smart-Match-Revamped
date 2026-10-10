@@ -22,7 +22,7 @@ Line numbers differ from the issue (284/313/349): all moved +8. Enum member is a
 
 ## Proposed row text (for Danny to place; I did NOT edit INDEX.md or backlog.md)
 For `docs/decisions/INDEX.md` open gate 3, replace line 66 with:
-> 3. SPEAKER_PORTAL turn-on — T6b-1 C5 rule, pending stakeholder rows (Ann/Pia/Lisa). Confirmed off 2026-10-09: `Capability.SPEAKER_PORTAL` is False in CBA, LEGACY_PILOT and CLASS_EXERCISE (`product_scope.py:292/321/357`). Owner confirmation: <TBD — Danny confirms keep-off and no real Speaker invited>.
+> 3. SPEAKER_PORTAL turn-on — T6b-1 C5 rule, pending stakeholder rows (Ann/Pia/Lisa). Code flag verified off 2026-10-09: `Capability.SPEAKER_PORTAL` is False in CBA, LEGACY_PILOT and CLASS_EXERCISE (`product_scope.py:292/321/357`). Owner confirmation: <TBD — Danny confirms keep-off and no real Speaker invited>.
 
 For `docs/plans/backlog.md` speaker row, append to Notes:
 > 2026-10-09: flag verified False in all three scopes; stays off until Pia and Lisa answer. <TBD — Danny confirms>.

@@ -11,7 +11,7 @@ Replaces nothing yet. It restates `docs/operations/exercise-oct16-cleanup-runboo
 | Ledger row: execution gated on Danny's 4 answers + #326 deploy state | issue #323 (last comment, BrooklynD23 2026-10-06) |
 | Four answers needed: path A/B/C; deployed commit; may Teams 5-6 be cleared; written go-ahead | same comment; `docs/plans/open-questions/oct14-deferred.md` (OQ-OCT14-03) |
 | Existing runbook, 298 lines, never run | `docs/operations/exercise-oct16-cleanup-runbook.md:3` |
-| #326 close route merged to main (PR #345, `98e52381`) | `git log origin/main` |
+| #326 close route merged to main (PR #345: merge `783a1244`, feature commit `98e52381`) | `git log origin/main` |
 | #331 seed-preserve merged to main (PR #344, `dd6df303`) | `git log origin/main` |
 | Close route is `POST /v1/exercise/instructor/events/{event_key}/lock` | `services/api/smartmatch_api/routers/exercise_instructor.py:439` |
 | Per-team clear is `POST .../workspaces/{team_number}/reset` | `exercise_instructor.py:559` |
@@ -59,7 +59,7 @@ Rules that hold on every path:
 | 2.3 build contains #326/#331/#339 | `git merge-base --is-ancestor <merge-sha> <release>` using `98e52381`/`3f9298cc` (#326), `dd6df303` (#331) | any clone | no |
 | 2.4 containers up | compose `ps` with all three `-f` files (existing runbook lines 77-84) | VM | yes, VM only |
 
-Health value `vm-unknown` or `dev` proves nothing (existing runbook line 52; `scripts/vm/deploy.sh:385`).
+Health value `vm-unknown` or `dev` proves nothing (existing runbook line 52; `scripts/vm/deploy.sh:431` exports the release; `release.env` is written at `:311`).
 
 ## 3. Record the state before (read-only)
 
@@ -75,7 +75,7 @@ cd docs/plans/sweep-drafts/323-preflight
 
 Each script is dry-run unless `--execute`; all issue GET only. They do not log in: the login is a POST and stays a manual step (existing runbook 3.1).
 
-3.6 Backup, VM only, immediately before the first write. Keep the `pipefail` form and the two dumps (full + `exercise_*` only) from the existing runbook lines 140-157. Verify on VM: DB URL variable, owner role name, `gzip -t` on both files. `deploy.sh` prunes to 14 dumps (`scripts/vm/deploy.sh:359` area): copy the two files elsewhere.
+3.6 Backup, VM only, immediately before the first write. Keep the `pipefail` form and the two dumps (full + `exercise_*` only) from the existing runbook lines 140-157. Verify on VM: DB URL variable, owner role name, `gzip -t` on both files. `deploy.sh` prunes to 14 dumps (`scripts/vm/deploy.sh:128` `BACKUP_RETAIN=14`, pg_dump at `:405`, prune at `:741-743`): copy the two files elsewhere.
 
 3.7 License line on the opening screen (checklist 9 / #273): browser check, no script.
 

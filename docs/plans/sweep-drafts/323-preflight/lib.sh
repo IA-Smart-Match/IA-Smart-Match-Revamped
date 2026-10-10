@@ -19,7 +19,11 @@ parse_args() {
   # No default host on purpose: the caller must name the target.
   [ -n "$BASE_URL" ] || { echo "error: --base-url URL is required (no default)" >&2; exit 2; }
   BASE_URL="${BASE_URL%/}"
-  case "$BASE_URL" in http://*|https://*) ;; *) echo "error: --base-url must start with http:// or https://" >&2; exit 2 ;; esac
+  # https only, except loopback: the instructor cookie must never cross the network in cleartext.
+  case "$BASE_URL" in
+    https://*|http://localhost|http://localhost:*|http://127.0.0.1|http://127.0.0.1:*) ;;
+    *) echo "error: --base-url must be https:// (http:// allowed only for localhost/127.0.0.1)" >&2; exit 2 ;;
+  esac
 }
 
 # need_cookie: instructor GET routes need the session cookie. Value comes from
@@ -39,7 +43,8 @@ get() {
     return 0
   fi
   if [ -n "$auth" ]; then
-    curl -sS --fail-with-body -X GET -H "Cookie: $EXERCISE_INSTRUCTOR_COOKIE" "$BASE_URL$path"
+    # Header via stdin (-H @-) so the cookie never appears in argv / ps.
+    printf 'Cookie: %s\n' "$EXERCISE_INSTRUCTOR_COOKIE" | curl -sS --fail-with-body -X GET -H @- "$BASE_URL$path"
   else
     curl -sS --fail-with-body -X GET "$BASE_URL$path"
   fi

@@ -15,7 +15,7 @@
 
 ## What it unblocks (with citations)
 1. Speaker accounts go-live / storing Speakers' real emails and passwords, self-service consent beyond the pilot: B26 plan §10 row 2 (`2026-09-22-b26-self-service-availability-plan.md:630`). Also needs Ann/Pia/Lisa (§10 row 1) and hostname (row 4); SPEAKER_PORTAL stays off meanwhile.
-2. OQ-CBA-011 (may SmartMatch store a speaker's personal Contact Email) and OQ-CBA-015 (keep or remove the field; shipped as keep-and-discard, "to be confirmed jointly with the privacy owner's OQ-CBA-011 answer"): `docs/plans/open-questions/cba-phase-deferred.md:23`, `:27`, `:146`.
+2. OQ-CBA-011 (may SmartMatch store a speaker's personal Contact Email) and OQ-CBA-015 (Decided at `:146` as keep-and-discard; only the privacy owner's confirmation is open — "to be confirmed jointly with the privacy owner's OQ-CBA-011 answer"): `docs/plans/open-questions/cba-phase-deferred.md:23`, `:27`, `:146`.
 3. OQ-CBA-035 (self-service opt-in) and OQ-CBA-043 name "the named privacy owner" as co-owner: `cba-phase-deferred.md:47`, `:54`.
 4. T6b-1 §11 risk "Connector self-invite": "The privacy owner (parent §10 row 2) decides whether the issuer must differ from the consent recorder." `docs/archive/plans/b26-tracks/T6b-1-plan.md:501`.
 5. Student-engagement rows that cite a records/privacy owner: OQ-SC-04, OQ-SC-13, OQ-SE-04, OQ-SE-19 (`docs/plans/open-questions/student-engagement-deferred.md:25`, `:34`, `:43`; OQ-SE-19 at `:58`; OQ-SC-04/13 are "OQ-SC" rows, the issue says "OQ-SE" loosely). Not exhaustive.
