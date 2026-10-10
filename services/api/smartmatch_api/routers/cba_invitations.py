@@ -84,7 +84,6 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import secrets
 import uuid
 from datetime import timedelta
 from typing import Annotated, Final, Literal
@@ -96,12 +95,14 @@ from smartmatch_domain.availability_verdict import StoredVerdict, as_of_utc
 from smartmatch_domain.cba_invitations import (
     INVITATION_TEMPLATE_ID,
     MAX_BATCH_RECIPIENTS,
+    RESPONSE_URL_SENTINEL,
     InvitationResponseConflict,
     InvitationStatus,
     SkipReason,
     SpeakerResponse,
     choose_invitation_channel,
     classify_recipient,
+    derive_response_token,
     record_response,
     skip_reason_for_availability,
 )
@@ -134,7 +135,7 @@ from smartmatch_api.availability_reads import (
     request_for_run,
 )
 from smartmatch_api.commands import submit_command
-from smartmatch_api.config import get_settings
+from smartmatch_api.config import get_settings, resolve_api_invitation_secret
 from smartmatch_api.dependencies import CurrentPrincipal, DbSession, charge_quota
 from smartmatch_api.errors import ApiError
 from smartmatch_api.units import OrgUnitRow, load_unit_or_404
@@ -557,13 +558,20 @@ def _token_hash(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
-def _response_url(token: str) -> str:
-    """The page an invitation links to, built from configured settings only.
+def _invitation_secret() -> str:
+    """The HMAC key the response token is derived under (shared with the worker).
 
-    Never from a request. See :class:`BatchCreateRequest` — a caller-supplied URL
-    in an institutional email to a consented address is a phishing primitive.
+    Raises:
+        ApiError: 503 when this edition has no usable key (never the public one).
     """
-    return f"{get_settings().outreach_public_base_url.rstrip('/')}/i/{token}"
+    secret = resolve_api_invitation_secret(get_settings())
+    if secret is None:
+        raise ApiError(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            code="speaker_invitation_secret_unconfigured",
+            message="Speaker invitations are unavailable: the token secret is not configured.",
+        )
+    return secret
 
 
 def _speaker_response(verb: str) -> SpeakerResponse:
@@ -800,6 +808,16 @@ def create_invitation_batch(
     unit = _authorize_speaker_invitations(session, principal, unit_id)
     key = _require_idempotency_key(idempotency_key)
     _require_distinct_recipients(body.professional_ids)
+    _invitation_secret()  # fail closed (503) before anything is reserved
+    if any(
+        RESPONSE_URL_SENTINEL in value
+        for value in (body.event_name, body.event_date, body.coordinator_name)
+    ):
+        raise ApiError(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            code="speaker_invitation_reserved_text",
+            message="A field contains text reserved by the system.",
+        )
 
     # Replay first (B26 T4 §4.2 step 0): a retry of a stored batch reports the
     # first submission, even one stored before `0041` or whose run can no longer
@@ -1065,7 +1083,10 @@ def _compose_one(
         )
         return
 
-    token = secrets.token_urlsafe(32)
+    # Derived, not random, so the worker re-creates it at send time (#287): the
+    # stored draft body holds RESPONSE_URL_SENTINEL, never the token.
+    invitation_id = uuid.uuid4()
+    token = derive_response_token(_invitation_secret(), invitation_id)
 
     try:
         composed = compose_draft(
@@ -1090,7 +1111,7 @@ def _compose_one(
                 "event_name": body.event_name,
                 "event_date": body.event_date,
                 "coordinator_name": body.coordinator_name,
-                "response_url": _response_url(token),
+                "response_url": RESPONSE_URL_SENTINEL,
             },
         )
     except ConsentViolationError:
@@ -1148,6 +1169,7 @@ def _compose_one(
         recipient_address=channel.address,
         outreach_draft_id=draft_id,
         response_token_hash=_token_hash(token),
+        invitation_id=invitation_id,
     )
 
 

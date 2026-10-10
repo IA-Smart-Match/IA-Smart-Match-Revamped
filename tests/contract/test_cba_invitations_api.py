@@ -601,6 +601,46 @@ class TestComposeBatch:
         assert stored.status == "pending"
         assert stored.recipient_address == ctx.address_of(professional_id)
 
+    def test_the_stored_draft_body_holds_the_sentinel_and_no_token(self, ctx: _Context):
+        """#287: a Connector-readable draft must not carry the /i/ token."""
+        professional_id = ctx.roster_contact(name="Sam Rivera")
+        response = ctx.create_batch([professional_id])
+        assert response.status_code == 201, response.text
+        invitation_id = response.json()["invitations"][0]["invitation_id"]
+
+        with ctx.engine.begin() as conn:
+            body = conn.execute(
+                text(
+                    "SELECT d.body FROM outreach_draft d JOIN cba_invitation i "
+                    "ON i.outreach_draft_id = d.id WHERE i.id = :i"
+                ),
+                {"i": invitation_id},
+            ).scalar_one()
+        assert "[[speaker-invitation-response-link]]" in body
+        assert "/i/" not in body
+
+    def test_a_production_edition_without_the_secret_refuses_to_compose(
+        self, ctx: _Context, monkeypatch: pytest.MonkeyPatch
+    ):
+        """#287: no public-key fallback outside dev/classroom; 503, nothing stored."""
+        from smartmatch_api.routers import cba_invitations as router
+
+        professional_id = ctx.roster_contact(name="Sam Rivera")
+        real = router.get_settings()
+        monkeypatch.setattr(
+            router,
+            "get_settings",
+            lambda: real.model_copy(
+                update={"edition": "production", "speaker_portal_token_secret": None}
+            ),
+        )
+
+        response = ctx.create_batch([professional_id])
+
+        assert response.status_code == 503, response.text
+        assert response.json()["error"]["code"] == "speaker_invitation_secret_unconfigured"
+        assert ctx.count_invitations() == 0
+
     def test_every_named_recipient_produces_an_outcome(self, ctx: _Context):
         """The assertion this card exists to make. A batch never shrinks.
 

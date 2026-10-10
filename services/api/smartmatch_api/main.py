@@ -47,6 +47,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from smartmatch_api.config import (
     Settings,
+    check_invitation_startup,
     check_speaker_portal_startup,
     get_settings,
     require_exercise_workspace_secret,
@@ -241,6 +242,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     every production signal and never stops the process.
     """
     settings = get_settings()
+    # #287: refuse to start with outreach on and no invitation token key. At
+    # startup, not import, so tools that import the app (OpenAPI export, the
+    # image build smoke) need no secret.
+    check_invitation_startup(settings)
 
     app.state.settings = settings
     # The product-scope decisions this process booted with, resolved once so a

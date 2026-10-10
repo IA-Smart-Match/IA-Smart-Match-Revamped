@@ -24,7 +24,7 @@ def test_invite_template_is_in_the_closed_registry() -> None:
 
 
 def test_invite_template_is_system_only() -> None:
-    assert frozenset({INVITE_TEMPLATE_ID}) == SYSTEM_ONLY_TEMPLATES
+    assert frozenset({INVITE_TEMPLATE_ID, "cba.speaker_invitation.v1"}) == SYSTEM_ONLY_TEMPLATES
     assert set(TEMPLATES) >= SYSTEM_ONLY_TEMPLATES
 
 

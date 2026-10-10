@@ -449,7 +449,9 @@ TEMPLATES: Final[Mapping[str, OutreachTemplate]] = MappingProxyType(
 #: send route refuses a draft that uses one (``409 outreach_draft_system_only``).
 #: Without this, a Connector could compose the portal invite with any
 #: ``activation_url`` — a phishing link in an institutional email.
-SYSTEM_ONLY_TEMPLATES: Final[frozenset[str]] = frozenset({"cba.speaker_portal_invite.v1"})
+SYSTEM_ONLY_TEMPLATES: Final[frozenset[str]] = frozenset(
+    {"cba.speaker_portal_invite.v1", "cba.speaker_invitation.v1"}
+)
 
 
 @dataclass(frozen=True, slots=True)

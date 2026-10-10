@@ -1030,6 +1030,10 @@ variable set to `false` there.
 
 ### Speaker portal token secret (B26 T6b-1)
 
+**Required in every edition (#287):** the VM `.env` must set this secret (32+
+characters) for both `api` and `worker`, or consented outreach refuses to boot
+and `/i/` invitation links cannot be issued. There is no dev fallback key.
+
 `SMARTMATCH_SPEAKER_PORTAL_TOKEN_SECRET` signs Speaker portal activation links.
 It matters only while the `speaker_portal` capability is on, and that is off in
 every scope today; turning it on is a reviewed code change, not this variable.

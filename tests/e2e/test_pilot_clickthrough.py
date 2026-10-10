@@ -2087,53 +2087,34 @@ def test_22_the_shortlist_is_composed_into_an_invitation_batch(
 
 
 def _response_tokens(api: httpx.Client, unit_id: str, addresses: dict[str, str]) -> dict[str, str]:
-    """Each invited speaker's response token, read out of the message composed for them.
+    """Each invited speaker's response token, re-derived the way the worker does.
 
-    The token is minted per invitation and stored only as a SHA-256 hash, so the
-    plaintext exists in exactly one readable place: the body of the draft the
-    batch composed, which ``GET /v1/units/{unit_id}/outreach/drafts`` returns.
-    That is a real surface a Connector reads, not a back door — and it is why
-    step 23 can follow the Speaker's own link where step 21 could not follow the
-    unsubscribe link (that token is minted inside the worker at delivery and
-    never lands in a row).
-
-    Paged rather than fetched in one shot, and bounded: a unit accumulates drafts
-    across sessions, and a single read that silently missed an older one would
-    fail this step with a confusing ``KeyError`` instead of a clear message.
+    #287: the composed draft no longer carries the link (a Connector can read
+    drafts), only a sentinel, so this asserts that and derives the token from the
+    invitation id under the stack's shared ``SMARTMATCH_SPEAKER_PORTAL_TOKEN_SECRET``
+    (required in every edition).
     """
-    wanted = {address: professional_id for professional_id, address in addresses.items()}
-    tokens: dict[str, str] = {}
+    from smartmatch_domain.cba_invitations import (
+        RESPONSE_URL_SENTINEL,
+        derive_response_token,
+    )
 
-    limit = 200
-    for page in range(10):
-        listing = json_body(
-            api.get(
-                f"/v1/units/{unit_id}/outreach/drafts",
-                params={"limit": limit, "offset": page * limit},
-            )
+    secret = os.environ["SMARTMATCH_SPEAKER_PORTAL_TOKEN_SECRET"]
+    listing = json_body(
+        api.get(f"/v1/units/{unit_id}/outreach/drafts", params={"limit": 200, "offset": 0})
+    )
+    wanted = set(addresses.values())
+    for draft in listing["drafts"]:
+        if draft["recipient_address"] in wanted and draft["template_id"] == INVITATION_TEMPLATE_ID:
+            assert _RESPONSE_LINK.search(draft["body"]) is None, "a draft body holds an /i/ link"
+            assert RESPONSE_URL_SENTINEL in draft["body"]
+    outcomes: dict[str, Any] = _INVITATION_STATE["outcomes"]
+    return {
+        professional_id: derive_response_token(
+            secret, uuid.UUID(outcomes[professional_id]["invitation_id"])
         )
-        drafts = listing["drafts"]
-        for draft in drafts:
-            professional_id = wanted.get(draft["recipient_address"])
-            if professional_id is None or professional_id in tokens:
-                continue
-            assert draft["template_id"] == INVITATION_TEMPLATE_ID, (
-                f"the draft for {draft['recipient_address']} was composed from "
-                f"{draft['template_id']!r}, not the invitation template"
-            )
-            found = _RESPONSE_LINK.search(draft["body"])
-            assert found is not None, (
-                f"the invitation composed for {draft['recipient_address']} carries "
-                f"no response link, so a Speaker has no way to answer it: "
-                f"{draft['body'][:400]}"
-            )
-            tokens[professional_id] = found.group(1)
-        if len(tokens) == len(addresses) or len(drafts) < limit:
-            break
-
-    missing = sorted(address for pid, address in addresses.items() if pid not in tokens)
-    assert not missing, f"no composed invitation was found for {missing}"
-    return tokens
+        for professional_id in addresses
+    }
 
 
 def test_23_the_speaker_answers_through_the_link_in_their_own_invitation(
