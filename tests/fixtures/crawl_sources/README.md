@@ -29,5 +29,7 @@ directory: `test_fixture_ingest.py` pins the exact recursive file list here).
   that is not built; live crawl stays gated on T-07/T-13).
 - Run: `.venv/bin/python -m pytest tests/unit/test_crawl_eval_corpus.py -q`.
   Floors: 100% per floored category, at least 90% whole set (xfail cases
-  excluded until their seam exists). No network: AST import checks plus
-  `socket.socket` raises during the run.
+  excluded until their seam exists). Network guard (narrow):
+  `socket.socket` raises only while the harness fixture ingests, and an AST
+  check bans network imports in the harness and four seam modules (direct
+  imports only, not transitive).

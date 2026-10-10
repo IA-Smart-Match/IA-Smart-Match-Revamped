@@ -1,8 +1,10 @@
 """Offline MP-1..5 evaluation corpus for the crawler (g3-crawler-decision section 7).
 
 Runs every fixture in `tests/fixtures/crawl_eval/` through the existing
-fixture-ingest seam and scores it against `manifest.json`. No network: the
-modules involved are import-checked and `socket.socket` raises during the run.
+fixture-ingest seam and scores it against `manifest.json`. No-network
+guard, as narrow as it is: `socket.socket` is patched to raise only while the
+`reports` fixture ingests, and an AST check bans network imports in the four
+seam modules listed below (direct imports only, not transitive).
 Cases whose seam does not exist yet are strict xfails, so building the seam
 flips them loudly. Live crawl stays gated on T-07/T-13.
 """
@@ -100,10 +102,14 @@ def _passes(case: dict[str, Any], report: IngestReport) -> bool:
     if kind == "no_contact":
         return not any(token in repr(report) for token in expect["forbidden"])
     if kind == "hosts":
+        # MP-2 seam contract: candidates must never carry a URL whose host is
+        # outside the allowlist (today source_url is passed through unchecked).
         urls = [e.candidate.source_url for e in events if e.candidate.source_url]
         return all(urlparse(u).hostname in expect["allowed"] for u in urls)
     if kind == "reports_incomplete":
-        return getattr(report, "complete", True) is False
+        # MP-5 seam contract: IngestReport must expose `complete: bool`.
+        assert hasattr(report, "complete"), "MP-5 seam: IngestReport must expose complete: bool"
+        return report.complete is False
     if kind == "count_unique":
         keys = {e.identity_key for e in events}
         return len(events) == expect["count"] and None not in keys and len(keys) == expect["count"]
