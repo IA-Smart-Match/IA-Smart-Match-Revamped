@@ -34,7 +34,6 @@ import enum
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Annotated, Any, Final, Literal
-from urllib.parse import parse_qs
 
 from fastapi import APIRouter, Depends, FastAPI, Request, status
 from fastapi.responses import HTMLResponse
@@ -42,7 +41,6 @@ from smartmatch_domain.product_scope import Capability
 from smartmatch_persistence.engine import create_session_factory
 from smartmatch_providers import build_token_verifier
 from starlette.datastructures import Headers
-from starlette.requests import ClientDisconnect
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from smartmatch_api.config import (
@@ -97,7 +95,13 @@ from smartmatch_api.routers import (
     student_events,
     student_speaker_feedback,
 )
-from smartmatch_api.token_pages import install_access_log_redaction
+from smartmatch_api.token_pages import (
+    FORM_MEDIA_TYPE,
+    FormReadOutcome,
+    install_access_log_redaction,
+    read_urlencoded_form,
+    token_page,
+)
 
 #: Most bytes any request body may occupy, enforced ahead of the FastAPI
 #: application entirely. Shares its value with
@@ -849,48 +853,14 @@ def unsubscribe_page(token: str) -> HTMLResponse:
     )
 
 
-#: Headers every ``/i/{token}`` response carries, on both methods (B26 T6a).
-#:
-#: ``no-store`` keeps a page reached through a secret link out of shared and
-#: browser caches; ``no-referrer`` keeps the token-bearing URL out of the
-#: ``Referer`` of anything the page leads to; ``noindex`` keeps a crawler that
-#: somehow holds the link from indexing it. The CSP allows nothing to load and
-#: the form to post only back to this origin, and forbids framing.
-_TOKEN_PAGE_HEADERS: Final[tuple[tuple[str, str], ...]] = (
-    ("Cache-Control", "no-store"),
-    ("Referrer-Policy", "no-referrer"),
-    ("X-Robots-Tag", "noindex"),
-    ("X-Content-Type-Options", "nosniff"),
-    (
-        "Content-Security-Policy",
-        "default-src 'none'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
-    ),
-)
-
 #: The largest ``POST /i/{token}`` body read. The form sends one short field,
 #: ``response=decline`` at most; 1 KiB is ample and bounds the parse.
 _TOKEN_FORM_MAX_BYTES: Final[int] = 1024
-
-#: The only body media type the form route accepts — what a browser sends for a
-#: ``<form method="post">`` with no ``enctype``.
-_FORM_MEDIA_TYPE: Final[str] = "application/x-www-form-urlencoded"
 
 #: ``parse_qs`` raises past this many fields. One is expected; the slack covers
 #: a browser or extension adding a stray field without letting a body of
 #: hundreds of ``&``-separated pairs be expanded.
 _TOKEN_FORM_MAX_FIELDS: Final[int] = 4
-
-
-def _token_page(title: str, heading: str, body_html: str, *, status_code: int) -> HTMLResponse:
-    """A complete, self-contained token page. Nothing in it depends on the token."""
-    return HTMLResponse(
-        '<!doctype html><html lang="en"><head><meta charset="utf-8">'
-        '<meta name="viewport" content="width=device-width, initial-scale=1">'
-        f"<title>{title}</title></head><body><main>"
-        f"<h1>{heading}</h1>{body_html}</main></body></html>",
-        status_code=status_code,
-        headers=dict(_TOKEN_PAGE_HEADERS),
-    )
 
 
 @token_pages_router.get(
@@ -926,7 +896,7 @@ def invitation_response_page(token: str) -> HTMLResponse:
     to every token. The bytes are the same for every token, and nothing here
     reads the database.
     """
-    return _token_page(
+    return token_page(
         "Speaker invitation",
         "Respond to this invitation",
         '<p id="i-help">Choose Accept or Decline. Neither choice changes whether '
@@ -953,41 +923,20 @@ class FormOutcome(enum.Enum):
 
 
 async def _read_answer_form(request: Request) -> FormOutcome:
-    """Read and classify the form body. **Never raises.**
+    """Classify the ``POST /i/{token}`` body. **Never raises.**
 
-    Async because reading a body is; everything that touches the database stays
-    in the sync route, which FastAPI runs in its threadpool. Hand-parsed with
-    :func:`urllib.parse.parse_qs` because ``python-multipart`` is not a runtime
-    dependency and FastAPI's ``Form()`` needs it (T6a plan §6 C2).
-
-    Every decision here depends on the request body and headers only, never on
-    the token, so none of them can say whether a token is real.
+    Thin wrapper over :func:`read_urlencoded_form`; every decision depends on the
+    request body and headers only, never on the token, so none can say whether a
+    token is real.
     """
-    declared = request.headers.get("content-length")
-    if declared is not None and declared.isdigit() and int(declared) > _TOKEN_FORM_MAX_BYTES:
+    form = await read_urlencoded_form(
+        request, max_bytes=_TOKEN_FORM_MAX_BYTES, max_fields=_TOKEN_FORM_MAX_FIELDS
+    )
+    if form.outcome is FormReadOutcome.TOO_LARGE:
         return FormOutcome.TOO_LARGE
-    try:
-        # Already buffered by MaxBodySizeMiddleware, so a chunked body with no
-        # Content-Length is bounded by the global cap before it gets here.
-        body = await request.body()
-    except ClientDisconnect:
+    if form.outcome is not FormReadOutcome.OK:
         return FormOutcome.INVALID
-    if len(body) > _TOKEN_FORM_MAX_BYTES:
-        return FormOutcome.TOO_LARGE
-
-    media_type = request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
-    if media_type != _FORM_MEDIA_TYPE:
-        return FormOutcome.INVALID
-    try:
-        fields = parse_qs(
-            body.decode("utf-8"),
-            keep_blank_values=True,
-            max_num_fields=_TOKEN_FORM_MAX_FIELDS,
-        )
-    except (UnicodeDecodeError, ValueError):
-        return FormOutcome.INVALID
-
-    answers = fields.get("response", [])
+    answers = form.fields.get("response", ())
     if len(answers) != 1:
         return FormOutcome.INVALID
     return {"accept": FormOutcome.ACCEPT, "decline": FormOutcome.DECLINE}.get(
@@ -1009,7 +958,7 @@ _FORM_RESPONSE_BODY_SCHEMA: Final[dict[str, Any]] = {
     openapi_extra={
         "requestBody": {
             "required": True,
-            "content": {_FORM_MEDIA_TYPE: {"schema": _FORM_RESPONSE_BODY_SCHEMA}},
+            "content": {FORM_MEDIA_TYPE: {"schema": _FORM_RESPONSE_BODY_SCHEMA}},
         }
     },
     # Per response, for `unsubscribe_page`'s reason. The three codes this
@@ -1060,14 +1009,14 @@ def answer_invitation_by_form(
     The edge rate limit is an ops follow-up.
     """
     if outcome is FormOutcome.TOO_LARGE:
-        return _token_page(
+        return token_page(
             "Speaker invitation",
             "Request too large",
             "<p>That request was too large. Go back and choose Accept or Decline.</p>",
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
         )
     if outcome is FormOutcome.INVALID:
-        return _token_page(
+        return token_page(
             "Speaker invitation",
             "Respond to this invitation",
             "<p>Choose Accept or Decline. Go back and use one of the two buttons.</p>",
@@ -1084,7 +1033,7 @@ def answer_invitation_by_form(
         )
         cba_invitations.answer_by_token(session, token, verb)
 
-    return _token_page(
+    return token_page(
         "Speaker invitation",
         "Thank you",
         "<p>Thank you. We have your answer.</p>",
