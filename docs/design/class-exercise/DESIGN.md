@@ -1181,6 +1181,9 @@ labels and the license line are unchanged and not listed.
 | Results, when the run was made (2026-10-06, #321; in front of the line above) | "Run at 10:42 AM." |
 | Results, after "Check again" finds results still closed (#321; browser's clock, to the second) | "Checked at 10:43:07 AM. Results are still not open." (no time known: "Checked. Results are still not open.") |
 | Results, after "Check again" when the read could not be made (2026-10-06, PR #346 review; the could-not-be-reached sentence, under the button) | "The exercise could not be reached. Check the connection and try again." |
+| Results, two tiles above the chart (2026-10-09, #327; Ann's checklist §5 and §7 labels, pending Ann's sign-off) | "Your team's 30" / "Email everyone (all 300)" |
+| Results, Harbor's third tile (#327; Ann's revisions §3, pending Ann's sign-off) | "Your team's Northline result" |
+| Results, the four numbers in each tile (#327; the chart's and figures band's existing labels, no new words) | "Invited" / "Signed up" / "Attended" / "Still open" |
 | Results, table disclosure | "Show these counts as a table" |
 | Round two | "In round one your team's list left 46 seats empty." |
 | Asking, supporting lines | "Tell them a card helps us suggest events worth their evening." / "Offer something small for a completed card." / "Make the card a condition of hearing about events." |

@@ -31,6 +31,7 @@ import {
 import type { ResultPanelView, ResultsView } from "../../../lib/exerciseClient";
 import { RoundJourneyArt } from "./resultsArt";
 import { ResultsReveal } from "./ResultsReveal";
+import { ResultTiles } from "./ResultTiles";
 
 /** `profile_no` → the name the run stored for it. */
 export type NamesByProfileNo = ReadonlyMap<number, string>;
@@ -116,6 +117,8 @@ export function ResultPanels({
           "now",
         )}
       />
+
+      <ResultTiles results={results} />
 
       <ExerciseResultsChart
         variant="exercise"
