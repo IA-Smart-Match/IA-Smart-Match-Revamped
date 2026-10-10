@@ -125,3 +125,20 @@ def test_the_rule_can_be_asked_without_building_evidence() -> None:
     assert marker_for(has_card=False, attended_event_count=0) is InformationMarker.MAJOR_ONLY
     assert marker_for(has_card=False, attended_event_count=2) is InformationMarker.MAJOR_PLUS_EVENTS
     assert marker_for(has_card=True, attended_event_count=2) is InformationMarker.COMPLETED_CARD
+
+
+def test_class_years_run_freshman_to_senior_whatever_the_file_order() -> None:
+    everyone = [
+        ("A", "Senior", InformationMarker.MAJOR_ONLY),
+        ("B", "Sophomore", InformationMarker.MAJOR_ONLY),
+        ("C", "Freshman", InformationMarker.MAJOR_ONLY),
+        ("D", "Junior", InformationMarker.MAJOR_ONLY),
+    ]
+    composition = list_composition(everyone[:1], everyone)
+    assert list(composition.by_class_year.all_profiles) == [
+        "Freshman",
+        "Sophomore",
+        "Junior",
+        "Senior",
+    ]
+    assert composition.coverage.missing_class_years == ("Freshman", "Sophomore", "Junior")

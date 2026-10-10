@@ -214,7 +214,7 @@ describe("<ExerciseMatching />", () => {
     );
   });
 
-  it("shows the unrankable count and the years with nobody on the list", async () => {
+  it("shows the unrankable count and no years-with-nobody row", async () => {
     stub();
     renderMatching();
     await waitFor(() =>
@@ -222,9 +222,7 @@ describe("<ExerciseMatching />", () => {
         "12",
       ),
     );
-    expect(
-      document.querySelector('[data-slot="exercise-unlisted-years"]')?.textContent,
-    ).toContain("fourth");
+    expect(document.querySelector('[data-slot="exercise-unlisted-years"]')).toBeNull();
   });
 
   it("offers the download as a plain link to the literal CSV path", async () => {

@@ -47,7 +47,6 @@ function renderTable() {
     <ListCompositionTable
       composition={COMPOSITION}
       unrankableProfileCount={0}
-      unlistedClassYears={[]}
     />,
   );
 }
@@ -64,6 +63,29 @@ describe("<ListCompositionTable /> (§6.9)", () => {
     expect(document.querySelector("details")).toBeNull();
     const grid = document.querySelector('[data-slot="exercise-composition-grid"]');
     expect(grid?.className).toContain("lg:grid-cols-3");
+  });
+
+  it("keeps class years in the order the server sent, not alphabetical", () => {
+    const { container } = render(
+      <ListCompositionTable
+        composition={{
+          ...COMPOSITION,
+          by_class_year: {
+            dimension: "class_year",
+            on_list: { Freshman: 1 },
+            all_profiles: { Freshman: 5, Sophomore: 4, Junior: 3, Senior: 2 },
+          },
+        }}
+        unrankableProfileCount={0}
+      />,
+    );
+    const table = container.querySelectorAll("table")[1] as HTMLElement;
+    expect(within(table).getAllByRole("rowheader").map((r) => r.textContent)).toEqual([
+      "Freshman",
+      "Sophomore",
+      "Junior",
+      "Senior",
+    ]);
   });
 
   it("shows a group with nobody on the list as 0, right-aligned in tabular numerals", () => {
