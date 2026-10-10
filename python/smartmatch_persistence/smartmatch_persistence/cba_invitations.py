@@ -408,6 +408,24 @@ class InvitationRepository:
         )
         return new_id
 
+    def get_token_facts_for_draft(
+        self, session: Session, *, tenant_id: uuid.UUID, draft_id: uuid.UUID
+    ) -> tuple[uuid.UUID, str | None] | None:
+        """``(invitation id, stored token hash)`` for the invitation owning a draft.
+
+        The worker's read (#287): it re-derives the response token from the id and
+        checks it against the hash before putting the link in a message.
+        """
+        row = session.execute(
+            sa.select(
+                schema.cba_invitation.c.id, schema.cba_invitation.c.response_token_hash
+            ).where(
+                schema.cba_invitation.c.tenant_id == tenant_id,
+                schema.cba_invitation.c.outreach_draft_id == draft_id,
+            )
+        ).first()
+        return None if row is None else (row.id, row.response_token_hash)
+
     def get_invitation(
         self, session: Session, *, tenant_id: uuid.UUID, invitation_id: uuid.UUID
     ) -> InvitationRow | None:

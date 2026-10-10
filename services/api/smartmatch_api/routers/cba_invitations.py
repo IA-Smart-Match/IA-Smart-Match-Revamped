@@ -84,7 +84,6 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import secrets
 import uuid
 from datetime import timedelta
 from typing import Annotated, Final, Literal
@@ -96,12 +95,15 @@ from smartmatch_domain.availability_verdict import StoredVerdict, as_of_utc
 from smartmatch_domain.cba_invitations import (
     INVITATION_TEMPLATE_ID,
     MAX_BATCH_RECIPIENTS,
+    RESPONSE_URL_SENTINEL,
+    SYNTHETIC_INVITATION_TOKEN_SECRET,
     InvitationResponseConflict,
     InvitationStatus,
     SkipReason,
     SpeakerResponse,
     choose_invitation_channel,
     classify_recipient,
+    derive_response_token,
     record_response,
     skip_reason_for_availability,
 )
@@ -557,13 +559,10 @@ def _token_hash(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
-def _response_url(token: str) -> str:
-    """The page an invitation links to, built from configured settings only.
-
-    Never from a request. See :class:`BatchCreateRequest` — a caller-supplied URL
-    in an institutional email to a consented address is a phishing primitive.
-    """
-    return f"{get_settings().outreach_public_base_url.rstrip('/')}/i/{token}"
+def _invitation_secret() -> str:
+    """The HMAC key the response token is derived under (shared with the worker)."""
+    stored = get_settings().speaker_portal_token_secret
+    return stored.get_secret_value() if stored else SYNTHETIC_INVITATION_TOKEN_SECRET
 
 
 def _speaker_response(verb: str) -> SpeakerResponse:
@@ -1065,7 +1064,10 @@ def _compose_one(
         )
         return
 
-    token = secrets.token_urlsafe(32)
+    # Derived, not random, so the worker re-creates it at send time (#287): the
+    # stored draft body holds RESPONSE_URL_SENTINEL, never the token.
+    invitation_id = uuid.uuid4()
+    token = derive_response_token(_invitation_secret(), invitation_id)
 
     try:
         composed = compose_draft(
@@ -1090,7 +1092,7 @@ def _compose_one(
                 "event_name": body.event_name,
                 "event_date": body.event_date,
                 "coordinator_name": body.coordinator_name,
-                "response_url": _response_url(token),
+                "response_url": RESPONSE_URL_SENTINEL,
             },
         )
     except ConsentViolationError:
@@ -1148,6 +1150,7 @@ def _compose_one(
         recipient_address=channel.address,
         outreach_draft_id=draft_id,
         response_token_hash=_token_hash(token),
+        invitation_id=invitation_id,
     )
 
 

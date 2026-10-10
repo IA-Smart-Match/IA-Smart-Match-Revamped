@@ -54,6 +54,10 @@ adding only *which* of its three conditions failed so the skip can say so.
 
 from __future__ import annotations
 
+import base64
+import hashlib
+import hmac
+import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import StrEnum
@@ -72,7 +76,9 @@ __all__ = [
     "DELIVERY_VOCABULARY",
     "INVITATION_TEMPLATE_ID",
     "MAX_BATCH_RECIPIENTS",
+    "RESPONSE_URL_SENTINEL",
     "SPEAKER_RESPONSE_VALUES",
+    "SYNTHETIC_INVITATION_TOKEN_SECRET",
     "ChannelFacts",
     "InvitationResponseConflict",
     "InvitationStatus",
@@ -82,6 +88,7 @@ __all__ = [
     "assert_response_vocabulary_is_disjoint_from_delivery",
     "choose_invitation_channel",
     "classify_recipient",
+    "derive_response_token",
     "record_response",
     "skip_reason_for_availability",
 ]
@@ -93,6 +100,31 @@ __all__ = [
 #: copy decisions are recorded. A caller choosing a template per batch would be a
 #: caller choosing what the institution says.
 INVITATION_TEMPLATE_ID: Final[str] = "cba.speaker_invitation.v1"
+
+#: What a stored invitation draft holds where the Speaker's ``/i/{token}`` link
+#: goes (#287). The worker renders the real link into the message it sends, so
+#: the token never sits in a body a Connector can read. Mirrors the portal's
+#: ``ACTIVATION_URL_SENTINEL``.
+RESPONSE_URL_SENTINEL: Final[str] = "[[speaker-invitation-response-link]]"
+
+#: HMAC key used when no ``SMARTMATCH_SPEAKER_PORTAL_TOKEN_SECRET`` is set, so
+#: non-live editions keep working. Not a secret; the worker refuses it when live.
+SYNTHETIC_INVITATION_TOKEN_SECRET: Final[str] = "synthetic-invitation-token-key-not-a-secret"
+
+
+def derive_response_token(secret: str, invitation_id: uuid.UUID) -> str:
+    """The ``/i/`` response token for ``invitation_id``: 43 URL-safe characters.
+
+    Derived rather than random so the worker can re-create it at send time from
+    the invitation row; only its SHA-256 is stored, as before.
+    """
+    digest = hmac.new(
+        secret.encode("utf-8"),
+        f"cba-invitation-response:v1:{invitation_id}".encode(),
+        hashlib.sha256,
+    ).digest()
+    return base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
+
 
 #: Most recipients one batch may name. §6 puts a shortlist at "approximately 2-3
 #: speaker candidates", so this is not a capacity ceiling — it is far above the

@@ -601,6 +601,24 @@ class TestComposeBatch:
         assert stored.status == "pending"
         assert stored.recipient_address == ctx.address_of(professional_id)
 
+    def test_the_stored_draft_body_holds_the_sentinel_and_no_token(self, ctx: _Context):
+        """#287: a Connector-readable draft must not carry the /i/ token."""
+        professional_id = ctx.roster_contact(name="Sam Rivera")
+        response = ctx.create_batch([professional_id])
+        assert response.status_code == 201, response.text
+        invitation_id = response.json()["invitations"][0]["invitation_id"]
+
+        with ctx.engine.begin() as conn:
+            body = conn.execute(
+                text(
+                    "SELECT d.body FROM outreach_draft d JOIN cba_invitation i "
+                    "ON i.outreach_draft_id = d.id WHERE i.id = :i"
+                ),
+                {"i": invitation_id},
+            ).scalar_one()
+        assert "[[speaker-invitation-response-link]]" in body
+        assert "/i/" not in body
+
     def test_every_named_recipient_produces_an_outcome(self, ctx: _Context):
         """The assertion this card exists to make. A batch never shrinks.
 

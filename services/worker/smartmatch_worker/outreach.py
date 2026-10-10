@@ -75,6 +75,12 @@ from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from typing import Any, Final
 
+from smartmatch_domain.cba_invitations import (
+    INVITATION_TEMPLATE_ID,
+    RESPONSE_URL_SENTINEL,
+    SYNTHETIC_INVITATION_TOKEN_SECRET,
+    derive_response_token,
+)
 from smartmatch_domain.consent import ConsentSource, ConsentViolationError, ContactState
 from smartmatch_domain.jobs import JobState
 from smartmatch_domain.outreach import (
@@ -93,6 +99,7 @@ from smartmatch_domain.speaker_portal import (
     derive_token,
     token_hash,
 )
+from smartmatch_persistence.cba_invitations import InvitationRepository
 from smartmatch_persistence.outreach import DraftRow, OutreachRepository
 from smartmatch_persistence.pipeline import PipelineRepository
 from smartmatch_persistence.speaker_portal import SpeakerPortalRepository
@@ -244,8 +251,10 @@ def build_outreach_send_handler(
     repository: OutreachRepository | None = None,
     pipeline: PipelineRepository | None = None,
     portal: SpeakerPortalRepository | None = None,
+    invitations: InvitationRepository | None = None,
     speaker_portal_token_secret: str | None = None,
     speaker_portal_enabled: bool = False,
+    invitation_token_secret: str | None = None,
     clock: Callable[[], datetime] = _utcnow,
 ) -> CommandHandler:
     """Build the handler that sends one approved draft.
@@ -302,7 +311,55 @@ def build_outreach_send_handler(
     repo = repository or OutreachRepository()
     pipeline_repo = pipeline or PipelineRepository()
     portal_repo = portal or SpeakerPortalRepository()
+    invitation_repo = invitations or InvitationRepository()
+    token_secret = invitation_token_secret or SYNTHETIC_INVITATION_TOKEN_SECRET
     base = public_base_url.rstrip("/")
+
+    def invitation_body(
+        own: Session,
+        context: CommandContext,
+        draft: DraftRow,
+        send_id: uuid.UUID,
+        now: datetime,
+    ) -> str:
+        """The batch invitation with its ``/i/{token}`` link rendered (#287).
+
+        The stored body holds ``RESPONSE_URL_SENTINEL``; the token is re-derived
+        from the invitation id and must match the stored hash. A body with no
+        sentinel predates this change and already carries its link: sent as is.
+        """
+        count = draft.body.count(RESPONSE_URL_SENTINEL)
+        if count == 0 and RESPONSE_URL_SENTINEL not in draft.subject:
+            return draft.body
+        facts = invitation_repo.get_token_facts_for_draft(
+            own, tenant_id=context.job.tenant_id, draft_id=draft.id
+        )
+        reason: str | None = None
+        token = ""
+        if count != 1 or RESPONSE_URL_SENTINEL in draft.subject:
+            reason = "speaker_invitation_sentinel_invalid"
+        elif facts is None or facts[1] is None:
+            reason = "speaker_invitation_not_found"
+        else:
+            token = derive_response_token(token_secret, facts[0])
+            if not hmac.compare_digest(hashlib.sha256(token.encode("utf-8")).hexdigest(), facts[1]):
+                reason = "speaker_invitation_token_mismatch"
+        if reason is not None:
+            _record_refusal(
+                repo,
+                own,
+                tenant_id=context.job.tenant_id,
+                send_id=send_id,
+                event_type=DeliveryEventType.BLOCKED,
+                disposition=SendDisposition.BLOCKED,
+                reason=reason,
+                now=now,
+            )
+            raise PolicyFailure(
+                f"the speaker invitation was refused at delivery time: {reason}",
+                reason=reason,
+            )
+        return draft.body.replace(RESPONSE_URL_SENTINEL, f"{base}/i/{token}")
 
     def portal_body(
         own: Session,
@@ -318,6 +375,8 @@ def build_outreach_send_handler(
         an invitation id in the payload. Every refusal is recorded as BLOCKED,
         is terminal, and sends nothing. The stored draft body is never changed.
         """
+        if draft.template_id == INVITATION_TEMPLATE_ID:
+            return invitation_body(own, context, draft, send_id, now)
         if draft.template_id not in SYSTEM_ONLY_TEMPLATES and (
             command.speaker_portal_invitation_id is None
         ):

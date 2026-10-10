@@ -475,6 +475,16 @@ def create_app(
             # B26 T6b-1 (R10): refuse to boot with SPEAKER_PORTAL on and no
             # usable token secret; `None` when off.
             portal_secret = check_worker_speaker_portal_startup(resolved)
+            raw_invitation_secret = resolved.speaker_portal_token_secret
+            invitation_secret = (
+                raw_invitation_secret.get_secret_value() if raw_invitation_secret else None
+            )
+            if resolved.outreach_live_mode and not invitation_secret:
+                raise ValueError(
+                    "a live outreach deployment must configure "
+                    "SMARTMATCH_SPEAKER_PORTAL_TOKEN_SECRET: speaker-invitation links "
+                    "are derived under it and the synthetic fallback key is public."
+                )
             app.state.registry = with_outreach_send(
                 app.state.registry,
                 build_outreach_send_handler(
@@ -493,6 +503,7 @@ def create_app(
                     unsubscribe_secret=secret.get_secret_value() if secret else None,
                     live_mode=resolved.outreach_live_mode,
                     speaker_portal_token_secret=portal_secret,
+                    invitation_token_secret=invitation_secret,
                     speaker_portal_enabled=is_capability_enabled(
                         resolved.product_scope, Capability.SPEAKER_PORTAL
                     ),
