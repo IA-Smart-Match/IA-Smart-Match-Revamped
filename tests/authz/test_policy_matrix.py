@@ -1369,6 +1369,18 @@ OPERATIONS: tuple[Operation, ...] = (
         unit_scoped=True,
     ),
     Operation(
+        key="match_run.compare",
+        method="GET",
+        path="/v1/units/{unit_id}/match-runs/compare",
+        module="smartmatch_api.routers.match_runs",
+        authorizer="_authorize_match_run",
+        roles_constant="_MATCH_RUN_ROLES",
+        authorizer_module=None,
+        required_roles=frozenset({"admin", "coordinator"}),
+        resource_type="org_unit",
+        unit_scoped=True,
+    ),
+    Operation(
         key="match_run.read",
         method="GET",
         path="/v1/units/{unit_id}/match-runs/{match_run_id}",
@@ -9196,6 +9208,10 @@ MATRIX: dict[str, dict[str, Cell]] = {
         ),
     },
 }
+
+# `match_run.compare` is a thin read over `match_run.read` and runs the same
+# authorizer against the same unit, so it answers cell for cell as read does.
+MATRIX["match_run.compare"] = MATRIX["match_run.read"]
 
 #: The Speaker Pipeline read is ``metrics.read``'s permit seen through a second
 #: route, so it is given the same row object rather than a copy of it.
