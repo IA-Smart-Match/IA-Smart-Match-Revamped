@@ -107,6 +107,8 @@ function EventLists({ events }: { readonly events: readonly EventView[] }): Reac
   );
 }
 
+const ROUND_WORDS: Readonly<Record<number, string>> = { 1: "one", 2: "two" };
+
 /**
  * One round (§6.5): a numbered seal, the event name in the serif, its topics
  * and majors as the server sends them, the data file's description when it
@@ -127,6 +129,8 @@ function RoundCard({
   // round-journey.svg geometry: round one is a tinted ring, later rounds a
   // filled disc.
   const first = roundNumber === 1;
+  // Only rounds one and two exist; any other number shows no word label.
+  const roundWord = ROUND_WORDS[roundNumber];
   const id = React.useId();
   return (
     <Link
@@ -146,10 +150,19 @@ function RoundCard({
         {roundNumber}
       </div>
       <div className="flex min-w-0 flex-1 flex-col gap-ce-2">
+        {roundWord === undefined ? null : (
+          // aria-hidden: the seal's sr-only "Round N" already names the card.
+          <p aria-hidden="true" className="ce-type-body text-ce-ink-muted">
+            Round {roundWord}
+          </p>
+        )}
         <p id={`${id}-name`} className="ce-type-h2 break-words text-ce-ink">
           {event.name}
         </p>
         <div id={`${id}-details`} className="flex flex-col gap-ce-2">
+          {roundNumber === 2 ? (
+            <p className="ce-type-body text-ce-ink-muted">Opens after round one (Session 2)</p>
+          ) : null}
           <EventDescription text={event.description} />
           {event.topic_tags.length === 0 ? null : (
             <p className="ce-type-body text-ce-ink">Topics: {event.topic_tags.join(", ")}</p>
