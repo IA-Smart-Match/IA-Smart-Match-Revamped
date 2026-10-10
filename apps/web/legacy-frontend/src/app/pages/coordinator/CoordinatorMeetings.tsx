@@ -73,6 +73,7 @@
  */
 
 import { useCallback, useState } from "react";
+import { visibleRoleLabel } from "../../../lib/roleLabels";
 import { CalendarClock, Info } from "lucide-react";
 
 import {
@@ -285,7 +286,7 @@ export function CoordinatorMeetings() {
         <h1 className="text-2xl font-semibold text-foreground">Meetings</h1>
         <p className="text-sm text-muted-foreground">Meetings booked with the CBA team.</p>
         <p className="text-xs text-muted-foreground">
-          Signed in as {principal.email} · {grant.role} · {grant.org_unit_path}
+          Signed in as {principal.email} · {visibleRoleLabel(grant.role) ?? "role not recognised"} · {grant.org_unit_path}
         </p>
       </header>
 

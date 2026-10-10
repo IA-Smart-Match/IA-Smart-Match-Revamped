@@ -47,6 +47,7 @@
  */
 
 import { useNavigate, useSearchParams } from "react-router";
+import { visibleRoleLabel } from "../../../lib/roleLabels";
 import { Building2, Inbox } from "lucide-react";
 
 import {
@@ -376,7 +377,7 @@ export function CoordinatorSpeakerRequests() {
           Requests event hosts have filed with your unit, as the server lists them.
         </p>
         <p className="text-xs text-muted-foreground">
-          Signed in as {principal.email} · {grant.role} · {grant.org_unit_path}
+          Signed in as {principal.email} · {visibleRoleLabel(grant.role) ?? "role not recognised"} · {grant.org_unit_path}
         </p>
       </header>
 
