@@ -19,12 +19,12 @@ R1 differs: a "did they notice" step (75% for the team's list, 15% for "email ev
 
 1. For each of the 30 invited students the app decides: sign up? then, attend?
 2. Everyone starts at 4 in 100 to sign up (`simulation.py:448`).
-3. Biggest boost, 40 in 100: the event matches what the student truly cares about. Half is for a true interest that is a topic of the event, half for a career goal that fits (`simulation.py:12-15`). An undecided career goal fits nothing (`oq-ce-03-sample-result.md`, "How her words became numbers").
-4. Medium boost, 10 in 100: been to at least one past event (`simulation.py:16-17`).
-5. Small boost, 4 in 100: in the major the event is aimed at (`simulation.py:17-18`).
-6. A little chance, up to 10 in 100 either way. It is fixed for each team, so the same list gives the same answer (`simulation.py:18-21`, `simulation.py:450-452`).
-7. Everyone who signs up has a 75 in 100 chance to attend (`simulation.py:22-23`).
-8. The rule reads each student's true interests, not the card the app shows. So a list built on the card can miss people (`simulation.py:23-26`).
+3. Biggest boost, 40 in 100: the event matches what the student truly cares about. Half is for a true interest that is a topic of the event, half for a career goal that fits (`simulation.py:14-25`). An undecided career goal fits nothing (`oq-ce-03-sample-result.md`, "How her words became numbers").
+4. Medium boost, 10 in 100: been to at least one past event (`simulation.py:14-25`).
+5. Small boost, 4 in 100: in the major the event is aimed at (`simulation.py:14-25`).
+6. A little chance, up to 10 in 100 either way. It is fixed for each team, so the same list gives the same answer (`simulation.py:14-25`, `simulation.py:450-452`).
+7. Everyone who signs up has a 75 in 100 chance to attend (`simulation.py:14-25`).
+8. The rule reads each student's true interests, not the card the app shows. So a list built on the card can miss people (`simulation.py:14-25`).
 
 Ann's words behind the numbers: "a lot" = 40, "some" = 10, "a little" = 4, "some randomness" = up to 10 either way. Chau approved the translation (`oq-ce-03-sample-result.md`).
 
@@ -36,7 +36,7 @@ After round one a team picks one way to ask the profiles that have no card for m
 |---|---|
 | Promise better recommendations | 30% |
 | A small reward | 55% |
-| Required | 80%, but 15% stop responding and never sign up in round two (`asking.py:94`) |
+| Required | 80%, but 15% stop responding and never sign up in round two (`asking.py:92`) |
 
 Halves round up (`asking.py:191-203`).
 
