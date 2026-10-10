@@ -708,7 +708,7 @@ def _require_team(
         raise ExerciseError(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             code="exercise_team_number_unknown",
-            message="Pick a team number from 1 to 6.",
+            message="Pick a team number from 1 to 8.",
         )
     workspace = instructor.find_workspace(session, dataset_id=dataset_id, team_number=team_number)
     if workspace is None:

@@ -54,7 +54,7 @@ function renderEntry() {
   return render(<RouterProvider router={router} />);
 }
 
-const SCOPE = { scope: "class_exercise", team_numbers: [1, 2, 3, 4, 5, 6], synthetic_data: true };
+const SCOPE = { scope: "class_exercise", team_numbers: [1, 2, 3, 4, 5, 6, 7, 8], synthetic_data: true };
 
 beforeEach(() => {
   calls = [];

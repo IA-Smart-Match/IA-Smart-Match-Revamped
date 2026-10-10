@@ -10,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { EXERCISE_LICENSE_LINE, ExerciseEntry } from "./ExerciseEntry";
 
-const SCOPE = { scope: "class_exercise", team_numbers: [1, 2, 3, 4, 5, 6], synthetic_data: true };
+const SCOPE = { scope: "class_exercise", team_numbers: [1, 2, 3, 4, 5, 6, 7, 8], synthetic_data: true };
 const NO_WORKSPACE = {
   body: { error: { code: "exercise_workspace_required", message: "Enter your team number." } },
   status: 401,
