@@ -319,9 +319,11 @@ to 162 is mostly **`importorskip`**, which the original regex never matched.
 | **total** | 72 | **162** | **82** |
 
 **Integration 5 → 83.** Pattern: one module-level line
-`pytest.importorskip("sqlalchemy")` at the top of ~74 integration modules, plus
-2 `importorskip("alembic.*")` in `test_cba_contact_schema.py:222-223` and one
-`sqlalchemy = pytest.importorskip(...)` in `test_tenant_isolation.py`. These
+`pytest.importorskip("sqlalchemy")` in 70 integration files (incl.
+`conftest.py` and `test_tenant_isolation.py`), plus 6 function-level
+`importorskip("alembic.config"/"alembic.script")` lines in 3 files
+(`test_cba_contact_schema.py:222-223`, `test_cba_weight_settings_persistence.py:252-253`,
+`test_event_registration.py:150-151`). These
 were added as the CBA/exercise tables grew; each new DB-backed module copies
 the line. No shared `requires_postgres` marker or `skipif` exists. Real
 DB-unavailable skips in integration stay at 5 (`conftest.py:248`,
