@@ -676,8 +676,8 @@ def test_invitation_json_carries_no_batch_or_other_speaker_field(ctx: _Ctx) -> N
     assert item["event"] == {
         "title": "Accounting Society Spring Mixer",
         "date_text": EVENT_DATE_TEXT,
-        "local_date": None,
-        "time_zone": None,
+        "local_date": EVENT_DATE.isoformat(),
+        "time_zone": "America/Los_Angeles",
     }
     assert item["status"] == "awaiting_response"
     assert item["answerable"] is True
