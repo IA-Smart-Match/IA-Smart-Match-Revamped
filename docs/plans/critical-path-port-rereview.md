@@ -17,7 +17,7 @@ Planning only.
 | Entry | 18 Aug review | After PR1 F9 | Still required |
 |---|---|---|---|
 | MM-001 ICS | `verified` with F-1..F-3 | F-1..F-3 fixed (`654e89f`) | None for the gate. Optional: re-reviewer glance at METHOD removal. |
-| MM-003 ELI | rejected (F-4, F-6, …) | Code fixed; YAML corrected | Independent re-review. `eli.py:10` docstring still wrong. F-9/D2 decision. |
+| MM-003 ELI | rejected (F-4, F-6, …) | Code fixed; YAML corrected | Independent re-review. `eli.py` docstring fixed (7aa971ec). F-9/D2 decision. |
 | MM-004 ingest | rejected (F-13, F-15, …) | Code fixed; YAML `characterization_tests: n/a` | Re-review. Route (a) still better. `ingest.py` F-12 copy OPEN. F-11 decision OPEN. |
 | MM-005 feedback | rejected (F-18, F-19, F-21, …) | Code fixed except **F-25** | Re-review. Must not promote while F-25 unspecified. Docstring copies OPEN. F-21 re-derive from `bdce024`. |
 
@@ -252,7 +252,7 @@ for `eli.py` (`defect-remediation.md` §1).
 |---|---|---|---|
 | MM-003 ELI | `ported_unverified` | Code fixes on PR1 branch; docstring copies may remain stale; D2/F-9 tentative | `verified except contract_refs` → `verified` once v1.1 vendored + docstrings closed |
 | MM-004 ingest | `ported_unverified` | Code fixed; characterization path honest | Same ceiling |
-| MM-005 feedback | `ported_unverified` | F-25 now decided (normalize on apply, 2026-09-03); implementation may proceed post-G1 | `verified except F-25 consumer` until M8 lands |
+| MM-005 feedback | `ported_unverified` | F-25 is OPEN (port-verification F-25; manifest MM-005 `ported_unverified`); do not implement until decided | `verified except F-25 consumer` until M8 lands |
 
 **CP-V11:** `docs/architecture/v1.1-pin-record.md` records pin-by-reference (2026-09-03). Full vendoring + section test still required for clean `verified`.
 

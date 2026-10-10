@@ -14,7 +14,7 @@ items from `remaining-foundation-r1-work.md` are unhyphenated (**F7**, **F8**,
 **F9**, **A5**). Findings from `docs/archive/migration/port-verification.md` are
 hyphenated (**F-7**, **F-8**, **F-9**). They are unrelated: backlog F7 is the
 schema drift test; finding F-7 is a blackout counted as workload. The backlog's
-own text still says "F-1..F-27"; the review ends at F-29.
+own text still says "F-1..F-27"; the review ends at F-30.
 
 ---
 
@@ -197,7 +197,7 @@ disproved.
 | `python/smartmatch_domain/smartmatch_domain/eli.py` | 10, 19 | F-4, F-10 |
 | `python/smartmatch_domain/smartmatch_domain/ingest.py` | 172 | F-12 |
 | `python/smartmatch_domain/smartmatch_domain/feedback.py` | 6, 14, 70 | F-18/F-19, F-22, F-21 |
-| `docs/archive/plans/remaining-foundation-r1-work.md` | F9 row | says "F-1..F-27"; there are 29 |
+| `docs/archive/plans/remaining-foundation-r1-work.md` | F9 row | says "F-1..F-27"; there are 30 |
 
 ### 3.3 Two manifest-schema changes worth making while it is open
 
@@ -417,7 +417,7 @@ attempts to defeat the control and recorded the outcomes:
 
 | Attempt | Outcome | What it proves |
 |---|---|---|
-| `p.requires_approval = False` | `TypeError` | `frozen=True` |
+| `p.requires_approval = False` | `TypeError` | the property has no setter (says nothing about `frozen=True`; see F-30) |
 | `object.__setattr__(p, 'requires_approval', False)` | `AttributeError: property has no setter` | no setter, and `slots=True` removed the `__dict__` that would absorb it |
 | `WeightProposal(..., requires_approval=False)` | `TypeError: unexpected keyword` | not a constructor field |
 | `dataclasses.replace(p, requires_approval=False)` | `TypeError: unexpected keyword` | not reachable through the dataclass API |
