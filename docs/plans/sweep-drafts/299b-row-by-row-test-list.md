@@ -39,8 +39,8 @@ No exercise end-to-end harness exists. Evidence:
 | 4 | "tied on major; ordered by year" | Tied names | Exact phrase | `test_exercise_reasons.py::test_a_year_tie_genuinely_on_major_gets_anns_sentence` |
 | 4 | Stops at 30 | Build list | 30 and says so | `test_exercise_matching_router.py::test_the_list_is_cut_at_the_data_files_invite_limit`; `exerciseListCoverageNotice.test.ts` (lead) |
 | 4 | P004 case | Weight up/zero "said interested" | Ranks above / not | `tests/unit/test_exercise_matching.py` (lead, case not confirmed); OQ-CE-15 per memory |
-| 4 | Interest credit not cut to a third | List with 3 interests | Clear credit | `test_exercise_matching.py` / `test_exercise_event_interest_fit_csv.py` (lead) |
-| 4 | No credit for undecided on Northline | Undecided profile | No career credit | `tests/unit/test_exercise_simulation.py::test_a_missing_career_goal_is_not_a_penalty` (simulation side only); matching side lead in `test_exercise_matching.py` |
+| 4 | Interest credit not cut to a third | List with 3 interests | Clear credit — **pending Chau to confirm** (checklist line 142) | `test_exercise_matching.py` / `test_exercise_event_interest_fit_csv.py` (lead) |
+| 4 | No credit for undecided on Northline | Undecided profile | No career credit | (lead, not covered) `tests/unit/test_exercise_simulation.py::test_a_missing_career_goal_is_not_a_penalty` tests "not a penalty", not "no credit"; matching side lead in `test_exercise_matching.py` |
 | 4 | Who-is-on-list table, class-order years | Read table | Freshman..Senior; empty groups named | `ListCompositionTable.desk.test.tsx` (lead) |
 | 4 | Save/4th refused/delete | Save 4 settings | "Saved", 3 limit, confirm delete | `tests/integration/test_exercise_full_class_run.py::test_a_fourth_saved_setting_is_refused`; `SavedSettingsPanel.desk.test.tsx` |
 | 4 | Compare two settings | Pick two | Highlights + counts | `MatchingCompareView.test.tsx` |

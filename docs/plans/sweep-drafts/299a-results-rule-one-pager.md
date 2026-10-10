@@ -42,7 +42,7 @@ Halves round up (`asking.py:191-203`).
 
 ## 4. The refresh
 
-Pressing refresh applies the chosen share, deterministically from the team's seed. Each selected profile gets a new card that copies its hidden true interests onto the visible card (`asking.py:96-101`, `simulation.py:142`). One team's refresh changes nothing for other teams. The checklist expects a before/after summary on screen (`docs/10-2-2026/extracted/SmartMatch_User_Test_Checklist_10022026.txt`, section 6).
+Pressing refresh applies the chosen share, deterministically from the team's seed. Each selected profile gets a new card that copies its hidden true interests onto the visible card (design spec §13; `asking.py:30-36` notes the copy itself is not in that module — `simulation.py:142` is a comment only). One team's refresh changes nothing for other teams. The checklist expects a before/after summary on screen (`docs/10-2-2026/extracted/SmartMatch_User_Test_Checklist_10022026.txt`, section 6).
 
 ## 5. Pointer, not fact
 

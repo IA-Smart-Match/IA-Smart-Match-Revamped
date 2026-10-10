@@ -8,7 +8,7 @@ Refs #315. Verified on branch `docs/sweep-2026-10-09-drafts` (based on main `122
 
 | Issue text | Finding | Evidence |
 |---|---|---|
-| "`content-1` serves" | False. `content-1` appears only in docs. No code, route, test or migration contains it. | `grep -rniE "ContentRanker\|LearnedRanker\|content-1" python services apps tests` returned no hits; doc hits: `docs/architecture/student-recommender-contracts.md:77,224,309`, `ADR-0024-staged-student-event-recommender.md:82,180` |
+| "`content-1` serves" | False. `content-1` appears only in docs. No code, route, test or migration contains it. | `grep -rniE "ContentRanker\|LearnedRanker\|content-1" python services apps tests` returned no hits; doc hits: `docs/architecture/student-recommender-contracts.md:77,224,309`, `docs/architecture/decisions/ADR-0024-staged-student-event-recommender.md:82,180` |
 | "`LearnedRanker` exists shadow-only" | False. No class by that name. Only a doc planning a test, `tests/unit/test_learned_ranker_fallback.py`, which is not in the tree. | `student-recommender-contracts.md:524,634`; `ls tests/unit` has no `*ranker*` or `*recommend*` file |
 | "ADR-0024 Accepted 2026-09-16" | Partly right. Status Accepted, drafted 14 Sep, ratified 16 Sep. The ADR says it "licenses no route, table, model artifact or scoring path". | `ADR-0024-staged-student-event-recommender.md:3-12` |
 | OQ-SC-02, OQ-SE-01, OQ-SE-02 gate forward motion | Right. The ADR says all three "still need their named owners". | `ADR-0024:7`; `docs/decisions/student-recommender-decision-record.md:8` |
@@ -16,7 +16,7 @@ Refs #315. Verified on branch `docs/sweep-2026-10-09-drafts` (based on main `122
 
 ## What exists in code
 
-1. `python/smartmatch_domain/smartmatch_domain/student_factors/` (four pure factors, ADR-0025 D3). Its docstring says there is "no registry here, no ranker, no `rank_events_for_student`" because OQ-SE-01 and OQ-SE-02 are deferred (`student_factors/factors.py:1-9`, `student_factors/__init__.py:12`).
+1. `python/smartmatch_domain/smartmatch_domain/student_factors/` (four pure factors, ADR-0025 D3). Its docstring says there is "no registry here, no ranker, no `rank_events_for_student`" because OQ-SE-01 and OQ-SE-02 are deferred (`student_factors/factors.py:1-9`; `student_factors/__init__.py:12` notes `STUDENT_REGISTRY` is deferred).
 2. `StageBScore` in `python/smartmatch_domain/smartmatch_domain/scoring.py:161`, the speaker matcher's result type, which ADR-0024 plans to reuse unchanged (`ADR-0024` D1 interface list).
 3. The class-exercise ranker `python/smartmatch_domain/smartmatch_domain/exercise/matching.py`, a separate fixed-weight list builder.
 
