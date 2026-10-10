@@ -110,13 +110,16 @@ def _seed_suppression_state(
     )
 
 
+_LEAK = "provider is down api_key=sk-live-SECRET to=someone@example.org"
+
+
 class _RecordingProvider:
     """An adapter that raises. Used to exercise the ProviderFailure branch."""
 
     name = "exploding-email"
 
     def send(self, request: Any) -> Any:
-        raise RuntimeError("the provider is down")
+        raise RuntimeError(_LEAK)
 
 
 @pytest.fixture
@@ -583,8 +586,11 @@ class TestProviderFailure:
     ):
         rows.build()
 
-        with pytest.raises(ProviderFailure, match="provider is down"):
+        with pytest.raises(ProviderFailure, match="the email provider failed") as info:
             _handler(session_factory, _RecordingProvider())(rows.context(session))
+        # The job event detail is str(exc): no provider text may reach it (#281).
+        assert "sk-live-SECRET" not in str(info.value)
+        assert isinstance(info.value.__cause__, RuntimeError)
 
     def test_the_failure_is_recorded_with_its_reason(
         self,
@@ -602,6 +608,8 @@ class TestProviderFailure:
         assert stored is not None
         assert stored.disposition == "failed"
         assert stored.provider_message_id is None
+        assert stored.failure_reason == "the email provider failed"
+        assert "SECRET" not in (stored.failure_reason or "")
 
 
 # ---------------------------------------------------------------------------
