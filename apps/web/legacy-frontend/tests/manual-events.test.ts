@@ -18,7 +18,7 @@ import { LEGACY_ROUTE_REDIRECTS } from "../src/app/legacyRedirects.ts";
 const read = (path: string) => readFileSync(new URL(path, import.meta.url), "utf8");
 const routes = read("../src/app/routes.tsx");
 const api = read("../src/lib/api.ts");
-const events = read("../src/app/pages/Events.tsx");
+const events = read("../src/app/pages/coordinator/CoordinatorEvents.tsx");
 const qr = read("../src/components/QRCodeCard.tsx");
 const shell = read("../src/app/components/CoordinatorPortalLayout.tsx");
 
@@ -58,7 +58,7 @@ test("manual event api.ts adapters cover create/get/patch/publish + feedback QR"
   assert.match(api, /\/feedback-qr/);
 });
 
-test("Events.tsx has no raw fetch, no third-party QR endpoint, and surfaces QR-opens wording", () => {
+test("CoordinatorEvents.tsx has no raw fetch, no third-party QR endpoint, and surfaces QR-opens wording", () => {
   assert.doesNotMatch(events, /\bfetch\(/);
   assert.doesNotMatch(events, /"\/api\/qr/);
   assert.match(qr, /QR opens/);
@@ -74,7 +74,7 @@ test("event feedback QR is local, external, stable-link aware, and reports opens
   assert.match(qr, /external website/i);
 });
 
-test("the referral QR variant used by Volunteers.tsx and Outreach.tsx is preserved", () => {
+test("the referral QR variant used by the volunteer and outreach pages is preserved", () => {
   assert.match(qr, /variant\?: "referral"/);
   assert.match(qr, /referral_code/);
 });
