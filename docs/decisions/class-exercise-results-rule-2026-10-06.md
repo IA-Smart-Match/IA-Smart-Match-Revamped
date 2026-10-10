@@ -176,7 +176,7 @@ here.
   undecided true career goal earns nothing from the career-goal part. It
   leaves D7's eight numbers as they are. R1 is silent on the undecided goal,
   so PR #337 and R1 do not conflict; R1's numbers would be a further change
-  on top of it. See OQ-CE-21.
+  on top of it. See OQ-CE-21 (closed 2026-10-07, option a).
 - **PR #342** (on top of #337). No change to the rule.
 - **PR #344** (keep the seed when the instructor clears a team, #331). It
   serves Ann's "the same list always gives the same result". Not merged on

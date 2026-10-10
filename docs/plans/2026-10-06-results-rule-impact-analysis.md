@@ -48,7 +48,7 @@ Paths are shortened:
 | B. Start | 5% | 0.04 | `sim:476` `base_signup_rate` | **differs** |
 | B. True interests match | +35 | +0.20: half of `true_fit_lift` 0.40. Any one true interest equal to any one event topic earns it. | `sim:477`, `:483`, `:535-536` | **differs** |
 | B. True career goal fits | +15 | +0.20: the other half. The goal's topic must be one of the event's topics. | `sim:537-538` | **differs** |
-| B. Undecided true goal | not mentioned | +0.10 on an exploratory event (half of the goal half). | `sim:539-540` | **differs** (OQ-CE-21) |
+| B. Undecided true goal | not mentioned | +0.10 on an exploratory event (half of the goal half). | `sim:539-540` | **matches since 2026-10-07** (OQ-CE-21 closed, option a) |
 | B. Past events | +5 for 1–2, +10 for 3 or more | +0.10 for one or more. One tier. Counts every past event on the file row. | `sim:478`, `:482`, `:551-552`; `api/exercise_results_models.py:206` | **differs** |
 | B. Same major | +5 | +0.04, for a major in the event's target majors. | `sim:479`, `:553-554` | **differs** |
 | B. Cap | not mentioned | Clamped to 0–1 after chance. | `sim:574` | OQ-CE-19 |
@@ -77,7 +77,7 @@ PR #337 (`chau-10-02-update-matching-algorithm`) is open and conflicts with
 | Start | 0.04 | 0.04 | 0.05 | +0.01 | +0.01 |
 | Interests match | 0.20 | 0.20 | 0.35 | +0.15 | +0.15 |
 | Goal fits | 0.20 | 0.20 | 0.15 | −0.05 | −0.05 |
-| Undecided goal | 0.10 on an exploratory event | 0 | not mentioned | open (OQ-CE-21) | none, if 0 is right |
+| Undecided goal | 0.10 on an exploratory event | 0 | not mentioned | closed 2026-10-07, option (a) (OQ-CE-21) | none; 0 is right |
 | Past events, 1–2 | 0.10 | 0.10 | 0.05 | −0.05 | −0.05 |
 | Past events, 3 or more | 0.10 | 0.10 | 0.10 | none | none |
 | Same major | 0.04 | 0.04 | 0.05 | +0.01 | +0.01 |
