@@ -37,6 +37,7 @@ from fastapi.testclient import TestClient
 from smartmatch_api.config import Settings
 from smartmatch_api.errors import EXCEPTION_HANDLERS
 from smartmatch_api.main import app, routers_for
+from smartmatch_api.routers.cba_invitations import SPEAKER_ALREADY_ANSWERED_MESSAGE
 from smartmatch_domain.cba_invitations import DELIVERY_VOCABULARY, SPEAKER_RESPONSE_VALUES
 from smartmatch_domain.product_scope import Capability
 from smartmatch_persistence.cba_invitations import InvitationRepository
@@ -1290,6 +1291,19 @@ class TestSpeakerRespondsThemselves:
         assert response.status_code == 200
         assert response.json() == {"recorded": True}
         assert ctx.stored(invitation_id).response_status == "awaiting_response"
+
+    def test_connector_conflict_with_speaker_link_answer_uses_fixed_wording(self, ctx: _Context):
+        """No domain text (OQ ids, internals) when the Speaker answered themselves."""
+        invitation_id, token = self._dispatched_with_token(ctx)
+        ctx.respond(token, "accept")
+
+        response = ctx.record(invitation_id, "decline")
+
+        assert response.status_code == 409, response.text
+        error = response.json()["error"]
+        assert error["code"] == "speaker_invitation_already_answered"
+        assert error["message"] == SPEAKER_ALREADY_ANSWERED_MESSAGE
+        assert "OQ-CBA" not in error["message"]
 
     def test_a_second_different_answer_is_refused_without_saying_so(self, ctx: _Context):
         """Telling a stranger a token has been used is telling them it is real."""
