@@ -1,0 +1,1 @@
+{"@context":"https://schema.org","@type":"Event","name":"Page 1 of many","startDate":"2026-10-25T09:00:00-07:00","description":"Response capped at 1 record; more at ?page=2 (not fetched)."}
