@@ -60,6 +60,7 @@
  */
 
 import { useCallback, useState } from "react";
+import { visibleRoleLabel } from "../../../lib/roleLabels";
 import { Info } from "lucide-react";
 
 import {
@@ -275,7 +276,7 @@ export function CoordinatorReviewQueue() {
           Imported records held for a decision before they enter the dataset.
         </p>
         <p className="text-xs text-muted-foreground">
-          Signed in as {principal.email} · {grant.role} · {grant.org_unit_path}
+          Signed in as {principal.email} · {visibleRoleLabel(grant.role) ?? "role not recognised"} · {grant.org_unit_path}
         </p>
       </header>
 
