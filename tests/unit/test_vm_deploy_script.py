@@ -365,7 +365,7 @@ def test_the_unit_and_the_script_share_the_same_lock_path() -> None:
 def test_the_systemd_unit_stops_rather_than_downs() -> None:
     unit = (REPO_ROOT / "scripts" / "vm" / "smartmatch.service").read_text(encoding="utf-8")
     stop = next(line for line in unit.splitlines() if line.startswith("ExecStop="))
-    assert stop.rstrip().endswith(" stop"), textwrap.dedent(
+    assert stop.rstrip().rstrip('"').endswith(" stop"), textwrap.dedent(
         f"""
         The unit's ExecStop must be `docker compose ... stop`. It is:
             {stop}
@@ -542,3 +542,52 @@ def test_rollback_re_resolves_the_scope_for_the_previous_checkout(vm: Deployment
     assert len(ups) == 2, ups
     assert EXERCISE_SCOPE in ups[0], ups[0]
     assert EXERCISE_SCOPE not in ups[1], ups[1]
+
+
+def _unit_snippet(directive: str) -> str:
+    """The sh -c script of a unit directive, with systemd's `$$` and `\\"` undone."""
+    unit = (REPO_ROOT / "scripts" / "vm" / "smartmatch.service").read_text(encoding="utf-8")
+    line = next(ln for ln in unit.splitlines() if ln.startswith(directive + "="))
+    body = line.split('/bin/sh -c "', 1)[1].rstrip()[:-1]
+    return body.replace("$$", "$").replace("\\\\", "\\").replace('\\"', '"')
+
+
+def test_the_boot_unit_loads_the_exercise_overlay_only_when_deploy_sh_would(tmp_path: Path) -> None:
+    unit = (REPO_ROOT / "scripts" / "vm" / "smartmatch.service").read_text(encoding="utf-8")
+    start = next(ln for ln in unit.splitlines() if ln.startswith("ExecStart="))
+    assert "/usr/bin/flock --wait 1500 /opt/smartmatch/deploy.lock" in start
+    assert "-f docker-compose.yml -f docker-compose.vm.yml" in start
+    assert "up -d --remove-orphans" in start
+
+    shim = tmp_path / "bin"
+    shim.mkdir()
+    (shim / "docker").write_text('#!/bin/sh\necho "$@"\n')
+    (shim / "docker").chmod(0o755)
+    env = {**os.environ, "PATH": f"{shim}:{os.environ['PATH']}"}
+
+    def run(directive: str, dotenv: str | None, overlay: bool) -> str:
+        work = tmp_path / f"w{directive}{dotenv!r}{overlay}".replace("'", "").replace(" ", "")
+        work.mkdir()
+        if dotenv is not None:
+            (work / ".env").write_text(dotenv)
+        if overlay:
+            (work / "docker-compose.exercise.yml").write_text("")
+        snippet = _unit_snippet(directive).replace("/usr/bin/docker", "docker")
+        subprocess.run(["sh", "-n", "-c", snippet], check=True)
+        out = subprocess.run(
+            ["sh", "-c", snippet], cwd=work, env=env, capture_output=True, text=True, check=True
+        )
+        return out.stdout
+
+    key = "SMARTMATCH_EXERCISE_WORKSPACE_SECRET"
+    for directive in ("ExecStart", "ExecStop"):
+        assert "-f docker-compose.exercise.yml --profile exercise" in run(
+            directive, f"{key}=abc\n", True
+        )
+        assert "-f docker-compose.exercise.yml --profile exercise" in run(
+            directive, f"export {key}='abc'\n", True
+        )
+        assert "exercise" not in run(directive, f"{key}=\n", True)
+        assert "exercise" not in run(directive, f"{key}=abc\n", False)
+        assert "exercise" not in run(directive, None, True)
+        assert "-f docker-compose.yml -f docker-compose.vm.yml" in run(directive, None, False)
