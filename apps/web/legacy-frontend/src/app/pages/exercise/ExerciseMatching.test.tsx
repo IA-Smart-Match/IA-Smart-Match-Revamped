@@ -436,8 +436,11 @@ describe("<ExerciseMatching />", () => {
     expect(screen.getAllByText("The data file is gone.")).toHaveLength(1);
     expect(document.querySelector('[data-slot="exercise-weight-error"]')).toBeNull();
     // The slider still goes back to the confirmed weight.
-    expect((screen.getByRole("textbox", { name: "same major" }) as HTMLInputElement).value).toBe(
-      "0.25",
+    // The revert lands in a later render than the notice, so wait for it.
+    await waitFor(() =>
+      expect((screen.getByRole("textbox", { name: "same major" }) as HTMLInputElement).value).toBe(
+        "0.25",
+      ),
     );
   });
 
