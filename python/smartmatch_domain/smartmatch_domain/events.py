@@ -48,7 +48,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from enum import StrEnum
 from typing import TypeAlias
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -261,7 +261,7 @@ class ExactTime:
             # better value. Admitting it would let that mistake reach a
             # calendar as a real-looking entry, so it is refused at the only
             # place that can still name the field that was wrong.
-            if self.ends_at <= self.starts_at:
+            if self.ends_at.astimezone(UTC) <= self.starts_at.astimezone(UTC):
                 raise ValueError("ends_at must be strictly after starts_at")
 
 
