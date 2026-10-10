@@ -29,6 +29,7 @@ address would hide that unsubscribe, and a later opt-in would lift it.
 
 from __future__ import annotations
 
+import unicodedata
 import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -176,16 +177,24 @@ def merge_suppression(
 
 
 def address_is_login(address: str, login_email: str | None) -> bool:
-    """Whether ``address`` is the Speaker's login address: trimmed, ASCII case fold.
+    """Whether ``address`` is the Speaker's login address (trimmed, NFC, case fold).
 
-    ASCII only: Python's Unicode ``lower()`` maps look-alikes (U+212A KELVIN
-    SIGN to ``k``), which would let a different mailbox count as the one the
-    invitation proved.
+    Non-ASCII input is matched on NFC form. Python's Unicode ``lower()`` maps
+    look-alikes (U+212A KELVIN SIGN to ``k``),
+    which would let a different mailbox count as the one the invitation proved.
     """
     if login_email is None:
         return False
     a, b = address.strip(), login_email.strip()
-    return a.isascii() and b.isascii() and a.lower() == b.lower()
+    if a.isascii() and b.isascii():
+        return a.lower() == b.lower()
+    # EAI (non-ASCII) logins: compare NFC forms, so composed and decomposed
+    # spellings of one mailbox match. A string that NFC turns into ASCII
+    # (U+212A KELVIN SIGN -> "K") is a look-alike, never a match.
+    na, nb = unicodedata.normalize("NFC", a), unicodedata.normalize("NFC", b)
+    if (na.isascii() and not a.isascii()) or (nb.isascii() and not b.isascii()):
+        return False
+    return na.lower() == nb.lower()
 
 
 def liftable_sources(*, address_is_login: bool) -> frozenset[SuppressionSource]:
