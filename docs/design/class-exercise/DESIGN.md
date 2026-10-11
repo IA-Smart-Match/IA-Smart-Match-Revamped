@@ -668,15 +668,22 @@ set as the screen's headline in Proxima Sera 40/48 (the Ledger's headline
 idea), numerals in `--ce-primary`. Under it a **ruled figures band**, not
 cards: three columns separated by 1px `--ce-line-strong` rules, each a
 `--ce-type-display` numeral over a label: "Seats in the room 60", "Already
-coming 8", "Still open 46". The "added" figure is the server's
-`team.attended_count` (the server stores `seats_empty = 60 - 8 - attended`);
-the client never subtracts. The seating chart is
+coming 8", "Still open 46". Since Ann Wang's email of 2026-10-10 the team
+panel is the mass email plus the CBACH emails, so its attendees include the
+ones the mass email alone would bring. The server stores
+`seats_empty = 60 - 8 - team.attended_count` (the union of both). "Already
+coming" is the 8 existing sign-ups plus the mass email's attendees
+(`email_everyone.attended_profile_nos`), and the "added" figure is the team's
+attendees the mass email missed (`seatCountsFor` in `ResultPanels.tsx`); the
+seat count itself is the server's, never recomputed. The seating chart is
 `aria-hidden`; the sentences and the band are the accessible content.
 
 ### 6.16 Results chart
 
-Recharts bar chart restyled to section 3.3 through a new `variant="exercise"` on `ExerciseResultsChart` (a variant, not a copy); panels in order: "Your team's
-list", "If you emailed everyone", and in round two "Your team, round one".
+Under the lead sentence sits the lift line (Ann Wang 2026-10-10 Q2, "the lift, not a contest"): "Mass email alone: N sign-ups. With your 30 CBACH emails: M. Your list added K." plus her debrief sentence (Q1): "Each team's numbers include its own luck. Look at your gap over the mass email, not just the raw number." K = team sign-ups not among the mass-email sign-ups.
+
+Recharts bar chart restyled to section 3.3 through a new `variant="exercise"` on `ExerciseResultsChart` (a variant, not a copy); panels in order: "With your N CBACH emails",
+"Mass email alone", and in round two "Your team, round one".
 Table fallback stays, visually as a quiet data table under a disclosure
 "Show these counts as a table" (open by default on 390).
 
