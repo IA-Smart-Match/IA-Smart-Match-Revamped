@@ -58,8 +58,9 @@ _APPROVED = SimulationCoefficients(
     true_fit_lift=0.40,
     frequent_attender_lift=0.10,
     same_major_lift=0.04,
-    chance_spread=0.20,
-    attend_given_signup=0.75,
+    mass_email_notice=0.20,
+    cbach_email_notice=0.60,
+    attend_given_signup=0.65,
     frequent_attender_events=1,
     true_interest_share_of_fit=0.5,
 )
