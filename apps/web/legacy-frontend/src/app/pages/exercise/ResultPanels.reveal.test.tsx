@@ -33,7 +33,7 @@ function results(overrides: Partial<ResultsView> = {}): ResultsView {
     round: 1,
     setting_name: "Wide net",
     team: panel(30, 8, 6),
-    email_everyone: panel(300, 40, 30),
+    email_everyone: panel(300, 40, 0),
     seats_empty: 46,
     event_seats: 60,
     existing_signups: 8,

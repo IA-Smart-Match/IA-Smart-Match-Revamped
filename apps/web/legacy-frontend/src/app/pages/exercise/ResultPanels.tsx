@@ -13,7 +13,7 @@
  * there — see {@link namesFromRun}. It used to join the panel's numbers
  * against the ranked list the run's saved setting builds (owner decision,
  * 2026-09-21), which named nobody once that setting was deleted, and named
- * the wrong people once it was saved again. The "email everyone" panel stays
+ * the wrong people once it was saved again. The "mass email alone" panel stays
  * counts only. So a team can see who its own decision reached; the 300-person
  * comparison stays a number, which is the point of it.
  *
@@ -93,6 +93,7 @@ export function ResultPanels({
   reveal = false,
 }: ResultPanelsProps): React.JSX.Element {
   const names = React.useMemo(() => given ?? namesFromRun(results), [given, results]);
+  const seatGroups = seatCountsFor(results);
   return (
     <div className="flex flex-col gap-ce-6 md:gap-ce-7">
       {results.round_one === null ? null : (
@@ -103,14 +104,14 @@ export function ResultPanels({
 
       <ResultsReveal
         eventSeats={results.event_seats}
-        alreadyComing={results.existing_signups}
-        added={results.team.attended_count}
+        alreadyComing={seatGroups.alreadyComing}
+        added={seatGroups.added}
         open={results.seats_empty}
         reveal={reveal}
         sentence={seatsSentence(
           {
-            alreadyComing: results.existing_signups,
-            added: results.team.attended_count,
+            alreadyComing: seatGroups.alreadyComing,
+            added: seatGroups.added,
             open: results.seats_empty,
           },
           "now",
@@ -196,6 +197,19 @@ export function liftCounts(results: ResultsView): { mass: number; withList: numb
   return { mass: mass.size, withList: mass.size + added, added };
 }
 
+/**
+ * The two seat groups of the current round. The team panel is the mass email
+ * plus the CBACH emails, so its attendees include everyone the mass email alone
+ * would bring (Ann Wang 2026-10-10, Q2). Those people were coming anyway:
+ * "already coming" is the existing sign-ups plus the mass email's attendees,
+ * and "added" is the team's attendees the mass email missed.
+ */
+export function seatCountsFor(results: ResultsView): { alreadyComing: number; added: number } {
+  const mass = new Set(results.email_everyone.attended_profile_nos);
+  const added = results.team.attended_profile_nos.filter((n) => !mass.has(n)).length;
+  return { alreadyComing: results.existing_signups + mass.size, added };
+}
+
 /** Ann Wang 2026-10-10 Q2: the lift, not a contest. */
 export function liftSentence(results: ResultsView): string {
   const { mass, withList, added } = liftCounts(results);
@@ -216,9 +230,9 @@ function LiftLine({ results }: { readonly results: ResultsView }): React.JSX.Ele
 
 /** The three numbers D8's sentence is built from, all read off the response. */
 export interface SeatCounts {
-  /** `existing_signups`: people coming before the team invited anyone. */
+  /** `existing_signups` plus the mass email's attendees: coming before the team's emails. */
   readonly alreadyComing: number;
-  /** The team panel's `attended_count`: people the team's list brought. */
+  /** People the team's list brought on top of the mass email alone (see {@link seatCountsFor}). */
   readonly added: number;
   /** `seats_empty`: chairs nobody fills. */
   readonly open: number;

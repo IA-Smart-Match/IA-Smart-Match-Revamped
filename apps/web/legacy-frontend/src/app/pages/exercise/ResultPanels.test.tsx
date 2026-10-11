@@ -11,7 +11,7 @@ import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { ResultPanelView, ResultsView } from "../../../lib/exerciseClient";
-import { liftCounts, liftSentence, ResultPanels, seatsSentence } from "./ResultPanels";
+import { liftCounts, liftSentence, ResultPanels, seatCountsFor, seatsSentence } from "./ResultPanels";
 
 function panel(invited: number, signedUp: number, attended: number): ResultPanelView {
   return {
@@ -31,7 +31,7 @@ function results(overrides: Partial<ResultsView> = {}): ResultsView {
     round: 1,
     setting_name: "Wide net",
     team: panel(30, 8, 6),
-    email_everyone: panel(300, 40, 30),
+    email_everyone: panel(300, 40, 0),
     seats_empty: 46,
     event_seats: 60,
     existing_signups: 8,
@@ -182,5 +182,16 @@ describe("liftCounts", () => {
     );
     render(<ResultPanels results={r} />);
     expect(slotText("exercise-lift")).toContain("Look at your gap over the mass email");
+  });
+});
+
+describe("seatCountsFor", () => {
+  it("counts the mass email's attendees as already coming and only the rest as added", () => {
+    const r = results({
+      team: { ...panel(30, 12, 9), attended_profile_nos: [1, 2, 3, 4, 5, 6, 7, 8, 9] },
+      email_everyone: { ...panel(300, 40, 4), attended_profile_nos: [1, 2, 3, 4] },
+      existing_signups: 8,
+    });
+    expect(seatCountsFor(r)).toEqual({ alreadyComing: 12, added: 5 });
   });
 });

@@ -668,9 +668,14 @@ set as the screen's headline in Proxima Sera 40/48 (the Ledger's headline
 idea), numerals in `--ce-primary`. Under it a **ruled figures band**, not
 cards: three columns separated by 1px `--ce-line-strong` rules, each a
 `--ce-type-display` numeral over a label: "Seats in the room 60", "Already
-coming 8", "Still open 46". The "added" figure is the server's
-`team.attended_count` (the server stores `seats_empty = 60 - 8 - attended`);
-the client never subtracts. The seating chart is
+coming 8", "Still open 46". Since Ann Wang's email of 2026-10-10 the team
+panel is the mass email plus the CBACH emails, so its attendees include the
+ones the mass email alone would bring. The server stores
+`seats_empty = 60 - 8 - team.attended_count` (the union of both). "Already
+coming" is the 8 existing sign-ups plus the mass email's attendees
+(`email_everyone.attended_profile_nos`), and the "added" figure is the team's
+attendees the mass email missed (`seatCountsFor` in `ResultPanels.tsx`); the
+seat count itself is the server's, never recomputed. The seating chart is
 `aria-hidden`; the sentences and the band are the accessible content.
 
 ### 6.16 Results chart
