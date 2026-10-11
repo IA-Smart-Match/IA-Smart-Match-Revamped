@@ -2,7 +2,9 @@
 
 Chau approved the team's translation of Ann's words — start 0.04, true fit
 +0.40 split half interests / half goal, past attendance +0.10 from one event,
-same major +0.04, chance up to 0.10 either way, attend given sign-up 0.75. This
+same major +0.04. (D7 also set chance up to 0.10 either way and show-up 0.75;
+Ann Wang, email 2026-10-10, replaced them: no extra luck, show-up 0.65, notice
+20 / 60 in 100.) This
 file pins two things that follow from that decision:
 
 * **The numbers did not move.** Approving a set is not changing it; the exact
@@ -58,8 +60,9 @@ _APPROVED = SimulationCoefficients(
     true_fit_lift=0.40,
     frequent_attender_lift=0.10,
     same_major_lift=0.04,
-    chance_spread=0.20,
-    attend_given_signup=0.75,
+    mass_email_notice=0.20,
+    cbach_email_notice=0.60,
+    attend_given_signup=0.65,
     frequent_attender_events=1,
     true_interest_share_of_fit=0.5,
 )

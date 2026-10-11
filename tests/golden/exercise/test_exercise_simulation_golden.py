@@ -30,7 +30,7 @@ from smartmatch_domain.exercise.simulation import (
     run_email_everyone,
 )
 
-GOLDEN_SEED = 20270333
+GOLDEN_SEED = 20270357
 GOLDEN_EVENT_KEY = "northline"
 
 # Test-only. NOT the shipped set.
@@ -39,7 +39,8 @@ GOLDEN_COEFFICIENTS = SimulationCoefficients(
     true_fit_lift=0.50,
     frequent_attender_lift=0.06,
     same_major_lift=0.09,
-    chance_spread=0.12,
+    mass_email_notice=0.50,
+    cbach_email_notice=0.60,
     attend_given_signup=0.85,
     frequent_attender_events=3,
     true_interest_share_of_fit=0.5,
@@ -86,7 +87,9 @@ def _golden_profiles() -> tuple[SimulationProfile, ...]:
 #: what Ann and Dr. Lin were told, and the docstring in ``simulation.py`` has to
 #: move with it.
 #:
-#: Regenerated once, deliberately, in review: the uniform draw moved from 64
+#: Repinned 2026-10-10 for the notice rule (Ann Wang, Q2/Q4): new draws, so the
+#: seed moved to one that keeps a sign-up that does not attend. Earlier: the uniform
+#: draw moved from 64
 #: bits over ``2 ** 64`` (which rounds the largest digests to exactly ``1.0``,
 #: so the documented half-open interval was false) to the top 53 bits over
 #: ``2 ** 53``, and the digest's fields became length-prefixed. Both change
@@ -95,8 +98,8 @@ def _golden_profiles() -> tuple[SimulationProfile, ...]:
 #: true-fit split a coefficient did **not** move these: at
 #: ``true_interest_share_of_fit=0.5`` it reproduces the previous values
 #: exactly, which was checked against the old draw before repinning.
-GOLDEN_SIGNED_UP = (1, 2, 6, 8, 9, 12)
-GOLDEN_ATTENDED = (1, 6, 8, 12)
+GOLDEN_SIGNED_UP = (1, 3, 8, 9, 12)
+GOLDEN_ATTENDED = (3, 8, 9, 12)
 
 
 @pytest.mark.golden
@@ -146,7 +149,8 @@ _SUBPROCESS_SOURCE = textwrap.dedent(
         true_fit_lift=0.50,
         frequent_attender_lift=0.06,
         same_major_lift=0.09,
-        chance_spread=0.12,
+        mass_email_notice=0.50,
+        cbach_email_notice=0.60,
         attend_given_signup=0.85,
         frequent_attender_events=3,
         true_interest_share_of_fit=0.5,

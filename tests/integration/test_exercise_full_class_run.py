@@ -564,9 +564,8 @@ def test_the_figures_are_plausible(class_run: _ClassRun) -> None:
             EVENT_SEATS,
             EXISTING_SIGNUPS,
         ), label
-        assert body["seats_empty"] == max(
-            0, EVENT_SEATS - EXISTING_SIGNUPS - team["attended_count"]
-        ), label
+        in_room = set(team["attended_profile_nos"]) | set(everyone["attended_profile_nos"])
+        assert body["seats_empty"] == max(0, EVENT_SEATS - EXISTING_SIGNUPS - len(in_room)), label
 
 
 def test_the_class_as_a_whole_got_sign_ups(class_run: _ClassRun) -> None:
