@@ -52,6 +52,8 @@ committed as test fixtures under decision D4
 > Let us know what you think, and are we still meeting on Friday?
 > I may not be available due to a meeting.
 
+> Superseded 2026-10-10: see [exchange E](#e-ann-wangs-reply-of-2026-10-10).
+
 ### What this settles
 
 Nothing on its own; it is the question list B answers. It is the origin of the
@@ -188,6 +190,15 @@ Thirteen gaps an implementer would have to guess, OQ-CE-19 to OQ-CE-31 in the
 [register](../plans/open-questions/class-exercise-open-questions.md). The
 impact analysis lists what would change in code, tests, golden files and
 documents.
+
+---
+
+## E. Ann Wang's reply of 2026-10-10
+
+The team's Oct 9 email "Smart Match: choices before your Oct 16 run-through" is
+not in the repository; its questions (Q1-Q6, Part 2) can be reconstructed from
+her reply. Her answers, verbatim, and what they settle are in
+[`class-exercise-results-rule-2026-10-10.md`](class-exercise-results-rule-2026-10-10.md). Same content as `WangQuestion10_10_26.pdf`.
 
 ---
 

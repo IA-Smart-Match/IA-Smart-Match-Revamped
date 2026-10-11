@@ -1,5 +1,7 @@
 # Class exercise: the results rule, as Ann ruled it (relayed 2026-10-06)
 
+> **Update 2026-10-10 (Ann Wang, email 2026-10-10).** **Superseded 2026-10-10.** The notice 75/15, the sign-up points 5/+35/+15/+5-10/+5 and 70% attend are replaced: mass email 20% and CBACH email 60% notice, the existing sign-up chances, 65% show up, no extra luck. Kept below as history, not rewritten. See [the decision record](class-exercise-results-rule-2026-10-10.md).
+
 **Status:** Ruling recorded. **Not implemented.** The code on `main` still runs
 the numbers of decision D7 (2026-09-25). This file changes no code, no test,
 no fixture and no coefficient.

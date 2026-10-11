@@ -1,5 +1,7 @@
 # 012 — "Email everyone" baseline: per-team seed or one class-wide draw (#295)
 
+> **Update 2026-10-10 (Ann Wang, email 2026-10-10).** Answered: "A", keep each team its own chance draw (Q1), with a debrief sentence. Mass email is now the baseline with a lift line (Q2). Option B and the "default while unanswered" text below are history. See [the decision record](../../decisions/class-exercise-results-rule-2026-10-10.md).
+
 **Deferred. No code in this sprint.** Open question: `docs/plans/open-questions/oct14-deferred.md` → OQ-OCT14-01. Seams verified against `origin/main` on 2026-10-06.
 
 ## Current behavior

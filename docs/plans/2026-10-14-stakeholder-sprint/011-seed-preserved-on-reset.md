@@ -1,5 +1,7 @@
 # 011 — Clearing one team's work preserves that team's chance seed (#331)
 
+> **Update 2026-10-10 (Ann Wang, email 2026-10-10).** Answered (Q6): a new data file gives a new chance draw, so the re-point behaviour recorded below stays as built. See [the decision record](../../decisions/class-exercise-results-rule-2026-10-10.md).
+
 Branch `oct14/seed-preserve-reset` → PR against `main`. No migration. Seams verified against `origin/main` on 2026-10-06.
 
 ## Current behavior

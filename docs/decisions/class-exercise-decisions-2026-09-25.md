@@ -1,5 +1,7 @@
 # Class exercise: decisions D1–D16 (wave 2)
 
+> **Update 2026-10-10 (Ann Wang, email 2026-10-10).** D7's numbers are superseded as the requirement by the 2026-10-10 rule (no extra luck, notice 20/60, 65% show up); D9 (P004 kept) is confirmed by Ann (Part 2). The text below is kept as written. See [the decision record](class-exercise-results-rule-2026-10-10.md).
+
 **Status:** Record of decisions already made. Every decision below was approved
 by the person named in its row, on the date named. This file decides nothing
 new; it writes the decisions down in one place.

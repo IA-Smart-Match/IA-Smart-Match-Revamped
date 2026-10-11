@@ -68,6 +68,7 @@ Matching
 ☐ Tied names say “tied on major; ordered by year.”
 ☐ The list stops at 30 and says so.
 ☐ Test profile P004 (Brandon Soto, Accounting, stated a technology interest): with “said they are interested” turned up, he ranks above a plain Accounting major. With it set to zero, he does not.
+   [Note 2026-10-10, Ann Wang, email 2026-10-10, Part 2: keep P004; reword to "he drops, but stays above a plain Accounting major".]
 ☐ A profile that lists technology among three interests still gets clear credit for “said they are interested.” Its credit is not cut to a third.
 ☐ Nobody gets credit for an “undecided” career goal on Northline.
 Who is on the list
@@ -93,6 +94,7 @@ What the results screen shows
 ☐ Four numbers for the team: invited, signed up, attended, seats still empty (out of 60, counting the 8 already signed up).
 ☐ Next to them, always: the result of emailing all 300, with the same four numbers.
 ☐ Clear labels on both: “Your team’s 30” and “Email everyone (all 300).”
+   [Note 2026-10-10, Ann Wang, email 2026-10-10, Q2: superseded by the lift line - "Mass email alone: N sign-ups. With your 30 CBACH emails: M. Your list added K."]
 ☐ Readable from the back of the room on the projector. A bar chart is a bonus.
 ☐ Run the same list for two different teams. Each team’s result is fixed and repeatable, but the two teams can differ a little because of chance.
 ☐ The results come from the hidden true interests, not from what the app shows. Check: a list heavy on profiles whose true interest is technology does better than a list of CIS majors with other true interests.
@@ -118,6 +120,7 @@ The refresh
 ☐ Profiles marked “stopped responding” are either left off the list or clearly marked on it.
 ☐ Results for Harbor stay locked until the instructor opens them, with one run per team, as in round one.
 ☐ The Harbor results screen shows three results side by side: this team’s Harbor result, email everyone, and this team’s own Northline result.
+   [Note 2026-10-10, Ann Wang, email 2026-10-10, Q2: superseded by the lift line, no separate "email everyone" result.]
 ☐ A team that chose “small reward” or “required” can do noticeably better in round two than in round one. A team that only promised better recommendations gains less. If every team gets about the same, the lesson doesn’t show.
 8. Teams kept apart, reloads, and clearing
 ☐ Two people, as Team 1 and Team 2, work at the same time. Neither sees the other’s settings, lists, results, or refresh.

@@ -145,6 +145,7 @@ In rough priority order. Re-plan after part 1.
 5. **Dr. Wang's results rule** — do not implement until she answers at least
    OQ-CE-24, 26 and 31 (PR #348). The impact analysis has an 11-step change list
    (about 27 hours), built on top of #337.
+   **Unblocked 2026-10-10 (Ann Wang, email 2026-10-10):** OQ-CE-24, 26 and 31 are answered, and the rule changed; see `docs/decisions/class-exercise-results-rule-2026-10-10.md`. Branches `feat/wang-2026-10-10-notice-rule` and `feat/wang-2026-10-10-lift-line`.
 6. **Oct-16 clean-up (#323)** — the owner picks path A, B or C in the runbook and
    gives a written go-ahead. You run nothing against the VM without it. Before it:
    `GRANT UPDATE ON exercise_result_unlock` to the exercise role, #344 deployed,
