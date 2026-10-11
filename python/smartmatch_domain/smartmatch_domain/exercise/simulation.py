@@ -39,8 +39,9 @@ credit removal of 2026-10-02, below.
 Ann's words were: the event matches what the student genuinely cares about,
 **a lot**; the student has attended events before, **some**; the event is
 targeted toward the student's major, **a little**; random chance, **some
-randomness**. "A lot", "some" and "a little" became 40, 10 and 4 in 100, and
-"some randomness" became up to 10 in 100 either way — the same size as "some".
+randomness**. "A lot", "some" and "a little" became 40, 10 and 4 in 100. "Some
+randomness" first became up to 10 in 100 either way; Ann removed that band on
+2026-10-10 (email, Q4): there is no extra luck, only the team's fixed draw.
 Ann left the numbers to Chau. The team translated her words, Chau approved the
 translation (wave-2 decision D7), and that closed OQ-CE-03. The sample result
 the numbers were checked against is
@@ -446,7 +447,10 @@ def _check_attender_threshold(value: object) -> None:
 
 #: The coefficients the exercise runs with: Ann's a lot / some / a little /
 #: some randomness, translated into numbers by the team and approved by Chau
-#: (wave-2 decision D7, which closed OQ-CE-03). Ann answered in words on
+#: (wave-2 decision D7, which closed OQ-CE-03). Ann Wang's email of 2026-10-10
+#: (Q2, Q4) replaced the notice and show-up rates and removed the luck band:
+#: 20 in 100 mass-email notice, 60 in 100 CBACH-email notice, 65 in 100 show up.
+#: Ann answered in words on
 #: 2026-09-25; each number and its reason is listed in this module's docstring,
 #: and the plain-words paragraph at the top states every one of them. Read it
 #: through :func:`require_coefficients`.
