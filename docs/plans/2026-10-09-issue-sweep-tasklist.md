@@ -93,9 +93,9 @@ Legend: effort S (<~1 file or few lines) / M (multi-file or new tests) / L (new 
 - [ ] #305 cloud deploy — all repo-side criteria met; needs Supabase project + OQ-F5 answers
 - [ ] #303 live outreach — code complete; all 9 OQ-R4 items external
 - [ ] #300 A1b IdP — scaffold done; worksheet fields external by design
-- [ ] #295 email-everyone seed — waiting on Ann (deadline passed; default A stands for Oct 16)
+- [x] #295 email-everyone seed — answered 2026-10-10 (Ann Wang, email 2026-10-10, Q1): A, each team its own chance draw; closed
 - [ ] #289 OQ-CE-17 factors — needs Ann's bucket answer (1 event = 0.5 or 1.0)
-- [ ] #273 license_line — needs Ann + Danny answers; Option C (status quo) in force
+- [x] #273 license_line — license line final (Ann Wang, email 2026-10-10, Part 2); no addendum; column retire-vs-keep stays Danny's call
 - [ ] #275/#276 — Cloudflare dashboard rules — external (comment with §5 spec to replicate)
 
 ## Closed — verified merged (no action)
