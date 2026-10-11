@@ -88,7 +88,8 @@ def _golden_profiles() -> tuple[SimulationProfile, ...]:
 #: move with it.
 #:
 #: Repinned 2026-10-10 for the notice rule (Ann Wang, Q2/Q4): new draws, so the
-#: seed moved to one that keeps a sign-up that does not attend. Earlier: the the uniform draw moved from 64
+#: seed moved to one that keeps a sign-up that does not attend. Earlier: the uniform
+#: draw moved from 64
 #: bits over ``2 ** 64`` (which rounds the largest digests to exactly ``1.0``,
 #: so the documented half-open interval was false) to the top 53 bits over
 #: ``2 ** 53``, and the digest's fields became length-prefixed. Both change

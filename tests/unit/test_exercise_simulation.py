@@ -714,7 +714,5 @@ def test_a_profile_off_the_list_never_draws_the_cbach_email():
     )
     profiles = tuple(_true_fit_profile(n) for n in range(1, 40))
     assert run_email_everyone(profiles, EVENT, seed=3, coefficients=only_cbach).signed_up == ()
-    listed = simulate_results(
-        profiles, EVENT, seed=3, coefficients=only_cbach, invite_limit=40
-    )
+    listed = simulate_results(profiles, EVENT, seed=3, coefficients=only_cbach, invite_limit=40)
     assert listed.signed_up

@@ -381,7 +381,7 @@ def store(
             email_everyone=everyone,
             # The room holds everyone the mass email brought plus the list's extra.
             seats_empty=seats_empty(
-                len(set(everyone.attended) | set(team.attended))
+                len(set(everyone.attended_profile_nos) | set(team.attended_profile_nos))
             ),
             invited=invited,
             setting_weights=effective_weights(weights),
