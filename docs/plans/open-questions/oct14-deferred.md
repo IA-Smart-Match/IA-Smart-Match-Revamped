@@ -329,7 +329,7 @@ small follow-up on the named PR.
 | **OQ-OCT14-08** | Ann's Oct-2 workbook is committed as a test fixture with both hidden-truth columns (PR #339), as the September fixture already is. Ann asked that the file not reach class participants. | Acceptable only while the repository is private to the team. | Danny |
 | **OQ-OCT14-09** | `event_description` is optional, so removing that column from an upload is accepted without a message. Ann's "remove a column on purpose" check shows the plain error only for a required column such as `seats`. | Optional (old files stay valid). | Ann |
 | **OQ-OCT14-10** | Deploy rollback (PR #343): after a tolerated rollback past a newer schema, a VM reboot runs a plain `up -d` and the old `migrate` step fails again. Follow-up before merge, or accept the gap? | Documented as a known gap in `docs/operations/deploy-runbook.md`. Not exercised on a real VM. | Danny |
-| **OQ-OCT14-11** | Two words for one act: team screens say "Refreshed at 10:42 AM" (Ann's wording, PR #340); instructor rows say "Has already asked." / "Asked at 10:42 AM." (PR #345). Unify? | Both kept. | Ann |
+| **OQ-OCT14-11** | Two words for one act: team screens say "Refreshed at 10:42 AM" (Ann's wording, PR #340); instructor rows say "Has already asked." / "Asked at 10:42 AM." (PR #345). Unify? | Both kept. | Ann **Answered 2026-10-10 (Ann Wang, email 2026-10-10, Part 2, "Times"):** the instructor page says "Refreshed at", not "Asked at". |
 | **OQ-OCT14-12** | The VM's `/opt/smartmatch/exercise-setup.sh` is outside the repository. If it re-applies the old `SELECT, INSERT` grants, every open/close press fails after #345 deploys. | Unverified — check on the VM (runbook step). | Danny |
 
 
@@ -610,7 +610,7 @@ Branch `oct14/status-band`, stacked on #339 → #345 and on #340. Every entry is
 
 - Options: (a) the four team pages; (b) also the opening screen; (c) also the instructor page.
 - Default taken: **(a)** event picker, matching, results, asking. Not the opening screen (no team yet; it already says "This browser is already in team N"). Not the instructor page (it lists every team itself).
-- Also taken: the line is at the top of each page and is **not pinned** while the page scrolls. The matching page already has a sticky weights panel and a sticky phone bar.
+- Also taken: the line is at the top of each page and is **not pinned** while the page scrolls. The matching page already has a sticky weights panel and a sticky phone bar. **Reversed 2026-10-10 (Ann Wang, email 2026-10-10, Part 2): the line is pinned.**
 - If different: (b)/(c) is one prop on that page's `ExerciseScreen`. Pinning is a CSS change plus a check against the two sticky elements on matching.
 
 ### F2 — What "which event, round one or round two" shows (Ann)

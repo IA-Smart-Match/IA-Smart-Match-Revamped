@@ -106,6 +106,10 @@ existing sign-ups:
 Per-team lift ranges 0-12. The implementation PRs confirm these; Danny sends
 Ann the numbers for a few teams.
 
+## Next step
+
+After #396 merges, send Ann the per-team check numbers (lift N/M/K for a few teams, Northline and Harbor) so she can confirm them (Ann Wang, email 2026-10-10, Q2).
+
 ## Answered by this email
 
 See the OQ table in the PR that added this file; rows are marked in the

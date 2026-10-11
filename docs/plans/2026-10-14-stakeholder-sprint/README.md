@@ -28,8 +28,8 @@ A plan is a point-in-time record; the PR and the code are the authority.
 | [009](009-download-plain-labels.md) | #335 download labels | #338 | **Merged** |
 | [010](010-status-band-and-feedback.md) | #321 status band and feedback | #346 | PR open, mergeable; merge after #340 |
 | [011](011-seed-preserved-on-reset.md) | #331 seed kept on clear | #344 | PR open, mergeable; merge first |
-| [012](012-email-everyone-baseline-seed.md) | #295 baseline seed | — | Deferred to Ann |
-| [013](013-license-line.md) | #273 license line | — | Deferred to owner |
+| [012](012-email-everyone-baseline-seed.md) | #295 baseline seed | — | Deferred to Ann **Decided 2026-10-10: A (Ann Wang, email 2026-10-10, Q1); rule built before Oct 16 (#396)** |
+| [013](013-license-line.md) | #273 license line | — | Deferred to owner **Decided 2026-10-10: license line final (Ann Wang, email 2026-10-10, Part 2)** |
 | [014](014-oct16-ops-runbook.md) | #323 Oct-16 clean-up | — | Runbook written; nothing run |
 
 ## Merge order

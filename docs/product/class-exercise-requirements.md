@@ -119,7 +119,7 @@ fill in a profile card themselves.
   (heavy weight on past events re-invites people who would have come anyway);
   known or overlooked customers (complete profiles get invited again and again;
   the only defense is a person who asks who is missing).
-- **Read results against "email everyone".** Outreach is a funnel (contacted →
+- **Read results against the mass email alone (the lift line).** Outreach is a funnel (contacted →
   signed up → showed up). The rate says how well targeting worked; the total
   says whether the effort was enough. Never read your own result alone.
 - **Two uses of AI, one human decision:** Smart Match helps choose the
@@ -171,7 +171,7 @@ review at the start of the next class.
 | Component | Points of 100 |
 |---|---|
 | Recommendation for the next event: weight setting, the 30-person list, and whether the tool confirmed or changed the team's first instinct | 25 |
-| Use of results from both rounds, including the "email everyone" comparison | 20 |
+| Use of results from both rounds, including the lift over the mass email alone | 20 |
 | How the team asked for more information, why, and what the marketer gave in return | 15 |
 | The two invitations, and where the fill-in-the-blanks version stopped fitting | 15 |
 | Who was left out (numbers from the "who is on the list" table) and how to reach them another way | 15 |
@@ -238,7 +238,7 @@ Where a row's text was later changed, see
     automatically;
   - major alone gives a small lift, so the organizer's assumption proves weak
     in a way teams can discover.
-- **"Email everyone" shows what targeting is worth; "seats still empty" shows
+- **The lift over the mass email alone shows what targeting is worth; "seats still empty" shows
   the cost of inviting too few.** With 52 empty seats and 30 invitations no
   team can fill the room by invitations alone, so the memo must say what else
   it would do.
@@ -445,7 +445,7 @@ joins one practice run with Ann in November.
 | Fri Sept 18 | Team confirms scope. Ann sends the 20-row sample with final column names and a one-line description of each. |
 | Fri Sept 25 | Ann sends the full 300-row file. (Arrived 2026-09-24.) |
 | Fri Oct 2 | Matching with the four factors, tie-break, cap, saved settings, markers, and the "who is on the list" table working **on the demo site** with the full data. Ann has confirmed the spring week and class size with Dr. Lin. |
-| Fri Oct 16 | Results with lock, "email everyone" comparison, repeatable runs, reset, "asking for more", per-team refresh, round two, and download working. Ann runs both sessions start to finish and sends a problem list. |
+| Fri Oct 16 | Results with lock, lift line over the mass email alone, repeatable runs, reset, "asking for more", per-team refresh, round two, and download working. Ann runs both sessions start to finish and sends a problem list. |
 | Fri Oct 30 | Problems fixed. Ann's case, background note, forms, and backup spreadsheet finished. |
 | Week of Nov 9 | Practice run with Ann, Dr. Lin, and five or six volunteer students from Ann's fall classes going through both rounds. Hidden rule and the three percentages reviewed. |
 | Fri Nov 20 | Fixes done. Team review. This version becomes the fall deliverable. Ann uploads the licensed materials to the course commons. Decision on the CBACH project. |
@@ -487,7 +487,7 @@ The decision named in each row is the authority. Do not build from the
 | Weight display | not specified | Total of the four weights plus the "counts twice as much" sentence; no percentages | Owner ruling 2026-09-28; ADR-0025 D8 |
 | Profile card | "five quick questions" | Two questions (interests, career goal); major confirmed | OQ-CE-11; decision record D14 |
 | License line | Ann to provide | Fixed wording on the opening screen | OQ-CE-09; D13 |
-| Results-rule strengths | "only a little", "small lift", "small element of chance" | Ann's a lot / some / a little / some randomness, as numbers | OQ-CE-03; D7 |
+| Results-rule strengths | "only a little", "small lift", "small element of chance" | Ann's a lot / some / a little / some randomness, as numbers | OQ-CE-03; D7 **"Some randomness" superseded 2026-10-10 (Ann Wang, email 2026-10-10, Q4): no extra luck; the fixed chance draw alone decides.** |
 | Results rule, steps and numbers | Ann's three steps, relayed 2026-10-06 | Mass email 20 in 100 notice; the team's 30 also get a CBACH email, 60 in 100 notice; then the existing sign-up chances; 65 in 100 show up. Supersedes the 2026-10-06 numbers (notice 75 / 15, start 5, +35, +15, +5 or +10, +5, 70 attend). **Ruled; code in flight** | Ann Wang, email 2026-10-10, Q2; [results-rule record 2026-10-10](../decisions/class-exercise-results-rule-2026-10-10.md) |
 | Luck | "a small element of chance" (up to 10 in 100 either way) | None. The team's fixed chance draw alone decides | Ann Wang, email 2026-10-10, Q4 |
 | "Email everyone" | a separate comparison; 15 in 100 notice (2026-10-06) | The baseline, not an option: what CPP already does. The screen shows the lift: "Mass email alone: N sign-ups. With your 30 CBACH emails: M. Your list added K." Each team keeps its own chance draw | Ann Wang, email 2026-10-10, Q1 and Q2 |

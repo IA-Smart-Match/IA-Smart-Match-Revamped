@@ -432,6 +432,7 @@ Every `file:line` below is on `origin/main` at `9339d5a4`. Paths are shortened:
   surfaced as always-null in `api/routers/exercise_instructor_models.py:137`).
   Whether to retire it or define it as a per-file addendum is a row in
   [`docs/plans/backlog.md`](../plans/backlog.md).
+- **Update 2026-10-10 (Ann Wang, email 2026-10-10, Part 2).** The license line is final; the per-file addendum is withdrawn. Whether to retire the unused column is still Danny's call.
 
 ## D14. The card asks two questions
 

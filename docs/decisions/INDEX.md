@@ -9,7 +9,7 @@ closes. (`docs/architecture/decisions/` ADRs have their own CI-gated index.)
 |---|---|---|
 | `plans/open-questions/cba-phase-deferred.md` | CBA boundary, OQ-CBA-001…066 | ~36 open (011, 021, 044, 063–066 block soon) |
 | `plans/open-questions/student-engagement-deferred.md` | OQ-SC-01…13 + OQ-SE-01…22 | all 35 open |
-| `plans/open-questions/class-exercise-open-questions.md` | OQ-CE-01…16, OQ-CE-19…31 | CE-06 rate-limit half open; CE-19…31 open (results rule, 2026-10-06) |
+| `plans/open-questions/class-exercise-open-questions.md` | OQ-CE-01…16, OQ-CE-19…31 | CE-06 rate-limit half open; CE-19…31 open (results rule, 2026-10-06); 2026-10-10 (Ann Wang, email 2026-10-10): CE-24, 26, 29, 30, 31 answered, CE-19 moot, CE-25 partly answered; still open CE-20, 22, 23, 27, 28 |
 | `plans/open-questions/a1b-live-idp-deferred.md` | OQ-A1b-001…006 | all open (JWKS trust anchors) |
 | `plans/open-questions/architecture-stage-2-deferred.md` | OQ-S2-003…006 | open (S2-001/002 answered) |
 | `plans/open-questions/r4-outreach-deferred.md` | **OQ-R4**-001…009 | 001–008 open; 009 partial |
@@ -47,7 +47,7 @@ closes. (`docs/architecture/decisions/` ADRs have their own CI-gated index.)
 | `pilot-decisions.md` | partial supersession | tentative register; student Qs moved to OQ-SE/SC register |
 | `pilot-login-decision-2026-09-04.md` | decided, implemented | DB login substitutes A1b for pilot |
 | `r3-signing-decisions-2026-09-03.md` | ratified | T-19/27/28/04/29/C-1/13/23; S6a open |
-| `stakeholder-correspondence-2026-09.md` | record | Ann Wang emails verbatim (speaker phase two, Friday check-in, dataset); alignment check 2026-09-28; exchange D added 2026-10-06 (results rule) |
+| `stakeholder-correspondence-2026-09.md` | record | Ann Wang emails verbatim (speaker phase two, Friday check-in, dataset); alignment check 2026-09-28; exchange D added 2026-10-06 (results rule); exchange E added 2026-10-10 (Ann Wang's reply, results rule and Part 2) |
 | `student-recommender-decision-record.md` | dispositions recorded 09-16 | OQ-SE/SC product rows; ADR-0024 |
 | `synthetic-pilot-development-authorization-2026-09-03.md` | ratified | synthetic-only; deferred-gate map |
 
