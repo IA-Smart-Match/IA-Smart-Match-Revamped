@@ -285,7 +285,7 @@ describe("<TeamDetail /> way of asking and whether it has asked", () => {
     render(<TeamDetail detail={detail({ asking_choice: "required", refreshed_at: at })} />);
 
     expect(within(view()).getByRole("status").textContent).toBe(
-      `Way of asking: Required. Asked at ${clockTime(at)}.`,
+      `Way of asking: Required. Refreshed at ${clockTime(at)}.`,
     );
   });
 });
