@@ -11,7 +11,7 @@ import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { ResultPanelView, ResultsView } from "../../../lib/exerciseClient";
-import { ResultPanels, seatsSentence } from "./ResultPanels";
+import { liftCounts, liftSentence, ResultPanels, seatsSentence } from "./ResultPanels";
 
 function panel(invited: number, signedUp: number, attended: number): ResultPanelView {
   return {
@@ -145,5 +145,42 @@ describe("ResultPanels", () => {
       "Built from your team's setting “First try”. 8 were already coming. " +
         "Your invitations added 1. 51 seats were still open.",
     );
+  });
+});
+
+describe("liftCounts", () => {
+  const withSignups = (team: number[], mass: number[]): ResultsView =>
+    results({
+      team: { ...panel(30, 0, 0), signed_up_profile_nos: team, signed_up_count: team.length },
+      email_everyone: {
+        ...panel(300, 0, 0),
+        signed_up_profile_nos: mass,
+        signed_up_count: mass.length,
+      },
+    });
+
+  it("counts only team sign-ups the mass email missed", () => {
+    expect(liftCounts(withSignups([1, 2, 9, 10], [1, 2, 3]))).toEqual({
+      mass: 3,
+      withList: 5,
+      added: 2,
+    });
+  });
+
+  it("adds nothing when the list only overlaps the mass email", () => {
+    expect(liftCounts(withSignups([1, 2], [1, 2, 3])).added).toBe(0);
+  });
+
+  it("handles empty panels", () => {
+    expect(liftCounts(withSignups([], []))).toEqual({ mass: 0, withList: 0, added: 0 });
+  });
+
+  it("renders the lift line and the debrief sentence", () => {
+    const r = withSignups([1, 2, 9, 10], [1, 2, 3]);
+    expect(liftSentence(r)).toBe(
+      "Mass email alone: 3 sign-ups. With your 30 CBACH emails: 5. Your list added 2.",
+    );
+    render(<ResultPanels results={r} />);
+    expect(slotText("exercise-lift")).toContain("Look at your gap over the mass email");
   });
 });

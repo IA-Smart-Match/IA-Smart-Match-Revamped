@@ -50,8 +50,8 @@ export function namesFromRun(results: ResultsView): NamesByProfileNo {
 /** The three panels, in §10's reading order, for the chart. */
 export function resultsSeries(results: ResultsView): ExerciseResultsSeries[] {
   const series: ExerciseResultsSeries[] = [
-    panelSeries("Your team's list", results.team),
-    panelSeries("If you emailed everyone", results.email_everyone),
+    panelSeries(`With your ${results.team.invited_count} CBACH emails`, results.team),
+    panelSeries("Mass email alone", results.email_everyone),
   ];
   if (results.round_one !== null) {
     series.push(panelSeries("Your team, round one", results.round_one.team));
@@ -117,14 +117,16 @@ export function ResultPanels({
         )}
       />
 
+      <LiftLine results={results} />
+
       <ExerciseResultsChart
         variant="exercise"
         series={resultsSeries(results)}
         title={`What happened for ${results.event_name}`}
         caption={
           results.round_one === null
-            ? "Your team's list beside contacting all 300."
-            : "Your team's list, contacting all 300, and your team's first round."
+            ? "Mass email alone beside your CBACH emails on top of it."
+            : "Mass email alone, your CBACH emails on top of it, and your team's first round."
         }
       />
 
@@ -159,7 +161,7 @@ export function ResultPanels({
         <div className="flex flex-wrap items-baseline justify-between gap-x-ce-5 gap-y-ce-2 border-b border-ce-line pb-ce-4">
           <h2 className="ce-type-h2 text-ce-ink">The people on your team's list</h2>
           <p className="ce-type-meta text-ce-ink-muted">
-            Contacting all 300 is shown as counts only.
+            The mass email alone is shown as counts only.
           </p>
         </div>
         <div className="grid gap-ce-5 md:grid-cols-3">
@@ -181,6 +183,34 @@ export function ResultPanels({
         </div>
       </section>
     </div>
+  );
+}
+
+/**
+ * `email_everyone` is the mass email alone; `team` is the mass email plus the
+ * team's CBACH emails. K counts team sign-ups the mass email alone did not get.
+ */
+export function liftCounts(results: ResultsView): { mass: number; withList: number; added: number } {
+  const mass = new Set(results.email_everyone.signed_up_profile_nos);
+  const added = results.team.signed_up_profile_nos.filter((n) => !mass.has(n)).length;
+  return { mass: mass.size, withList: mass.size + added, added };
+}
+
+/** Ann Wang 2026-10-10 Q2: the lift, not a contest. */
+export function liftSentence(results: ResultsView): string {
+  const { mass, withList, added } = liftCounts(results);
+  const n = results.team.invited_count;
+  return `Mass email alone: ${mass} sign-ups. With your ${n} CBACH emails: ${withList}. Your list added ${added}.`;
+}
+
+function LiftLine({ results }: { readonly results: ResultsView }): React.JSX.Element {
+  return (
+    <section data-slot="exercise-lift" className="flex flex-col gap-ce-2">
+      <p className="ce-type-h2 text-ce-ink">{liftSentence(results)}</p>
+      <p className="ce-type-body ce-measure text-ce-ink-muted">
+        Each team's numbers include its own luck. Look at your gap over the mass email, not just the raw number.
+      </p>
+    </section>
   );
 }
 

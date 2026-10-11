@@ -675,8 +675,10 @@ the client never subtracts. The seating chart is
 
 ### 6.16 Results chart
 
-Recharts bar chart restyled to section 3.3 through a new `variant="exercise"` on `ExerciseResultsChart` (a variant, not a copy); panels in order: "Your team's
-list", "If you emailed everyone", and in round two "Your team, round one".
+Under the lead sentence sits the lift line (Ann Wang 2026-10-10 Q2, "the lift, not a contest"): "Mass email alone: N sign-ups. With your 30 CBACH emails: M. Your list added K." plus her debrief sentence (Q1): "Each team's numbers include its own luck. Look at your gap over the mass email, not just the raw number." K = team sign-ups not among the mass-email sign-ups.
+
+Recharts bar chart restyled to section 3.3 through a new `variant="exercise"` on `ExerciseResultsChart` (a variant, not a copy); panels in order: "With your N CBACH emails",
+"Mass email alone", and in round two "Your team, round one".
 Table fallback stays, visually as a quiet data table under a disclosure
 "Show these counts as a table" (open by default on 390).
 

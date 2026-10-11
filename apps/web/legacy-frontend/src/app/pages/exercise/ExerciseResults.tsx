@@ -206,7 +206,7 @@ function EventResults({ eventKey }: { readonly eventKey: string }): React.JSX.El
   return (
     <ExerciseScreen
       title="Results"
-      intro="What your team's list did, next to what emailing all 300 would have done."
+      intro="What your team's list did, next to what the mass email alone would have done."
       aside={
         <Link to={`/exercise/events/${encodeURIComponent(eventKey)}`} className={LINK_BUTTON}>
           Back to your team's list
