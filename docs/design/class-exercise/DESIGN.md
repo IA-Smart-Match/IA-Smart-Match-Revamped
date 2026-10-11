@@ -366,7 +366,7 @@ is".
   for more), in the shell's `status` slot, so it is in the same place on each.
   Not on the opening screen, which comes before a team exists, and not on the
   instructor page, which is not a team's page and lists every team itself.
-  It is at the top of the page; it is not pinned while the page scrolls.
+  It is at the top of the page and is pinned (`sticky top-0`) so it stays on screen while the page scrolls.
 - **What:** a surface card (`ce-card`), body size (never smaller than the
   list text), a wrapping `dl`. First "You are Team 3" in semibold. Then, as
   "label: **value**" pairs: each round with its event ("Round 1 · Northline
