@@ -25,9 +25,13 @@ window ends 2026-10-30.
 | **OQ-OCT14-04** | Undecided career goal: is the Sept-25 D2 half credit superseded, and does that cover Harbor? | Merging #337; checklist §4 | **Answered 2026-10-07 (Ann): option A, every event, Harbor included.** `main` still gives the half credit until #337 merges | Answered; Danny merges #337 | 2026-10-14 |
 | **OQ-OCT14-05** | When every team is switched to a new data file, does each team keep its chance seed? | Nothing | A switch still draws a new seed (as built) | Ann; Danny | 2026-10-30 |
 
+**Answered 2026-10-10 (Ann Wang, email 2026-10-10):** OQ-OCT14-01 (Q1), -02 (license line final), -05 (Q6); detail in each section below and in [the decision record](../../decisions/class-exercise-results-rule-2026-10-10.md). OQ-OCT14-03 is still open.
+
 ---
 
 ## OQ-OCT14-01 — the "email everyone" baseline (#295)
+
+**ANSWERED 2026-10-10 (Ann Wang, email 2026-10-10, Q1):** "A", keep: each team its own chance draw; plus her debrief sentence. Mass email is now the baseline, not an option (Q2).
 
 **Question.** The results screen shows "email everyone (all 300)" next to the
 team's own result. Today that panel uses the team's own chance draw, so two
@@ -80,6 +84,8 @@ results do?"
 ---
 
 ## OQ-OCT14-02 — `exercise_dataset.license_line` (#273)
+
+**ANSWERED 2026-10-10 (Ann Wang, email 2026-10-10, Part 2):** "License line: ok (final)". The per-file addendum (option B) is withdrawn. Retire-vs-keep the column is still Danny's call.
 
 **Question.** Checklist §9 says "The opening screen shows the license line
 once Ann provides it." Ann provided it on 2026-09-25 and it is on the opening
@@ -275,6 +281,8 @@ under it: "Harbor: Ann's confirmation pending — OQ-OCT14-04."
 
 ## OQ-OCT14-05 — the chance seed when every team is switched to a new file
 
+**ANSWERED 2026-10-10 (Ann Wang, email 2026-10-10, Q6):** "A. New file gives new chance draw. Keep the fictional student data only. No upload for other instructors this semester."
+
 **Question.** Since #331 a per-team clear keeps the team's chance seed
 (checklist §8). A switch of every team to a new data file still draws each
 team a new seed. Should the switch keep it too?
@@ -339,6 +347,8 @@ Each entry: question, options, default taken, what changes if the answer differs
 - **If the answer differs.** (c) is one constant: `EVENT_DESCRIPTION_MAX_CHARACTERS` in `python/smartmatch_domain/smartmatch_domain/exercise/layout.py`, plus the `2000` in three test sentences and one DESIGN.md §11.1 row. (b) is `MAX_CELL_CHARACTERS` in `workbook.py` and removes the need for `cell_limits`.
 
 ### OQ-A-02 — Is `event_description` a required column?
+
+**ANSWERED 2026-10-10 (Ann Wang, email 2026-10-10, Part 2):** "Event description column optional: ok".
 
 - **Question.** Must every uploaded file carry the column?
 - **Options.** (a) Optional: a file without it uploads and shows no descriptions. (b) Required: a file without it is refused with "The Events sheet is missing the column event_description."
@@ -463,6 +473,8 @@ Each entry: the question, the options, the default taken, and what changes if th
 
 ### B-10. "Refreshed" or "asked" on the instructor's team view? (#319; shared with #329)
 
+**ANSWERED 2026-10-10 (Ann Wang, email 2026-10-10, Part 2, "Times"):** option (b); the instructor single-team page says "Refreshed at 10:42 AM", not "Asked at".
+
 - **Options.** (a) The page's existing words: "Has not asked yet." / "Asked at 10:42 AM." (b) Ann's word: "Refreshed at 10:42 AM."
 - **Default taken.** (a), to match the Teams row above it. Composed on the page, so the server's no-"refresh" rule is not involved.
 - **If the answer is (b).** One function, `askingSentence` in `InstructorTeamDetail.tsx`, and its three tests. Whatever #329 decides for the team side should be applied here too.
@@ -508,6 +520,8 @@ PR #340, branch `oct14/refresh-visibility`. Every entry is a brief-recommended d
 
 ### C4 — Before round one: hide the three choice cards, or show them greyed? (Ann)
 
+**ANSWERED 2026-10-10 (Ann Wang, email 2026-10-10, Part 2):** "Way of asking hidden before round one, one sentence stand-in: ok".
+
 - Checklist: "The choice appears only after the team has its round-one results."
 - Default taken: **hide**. One line stands in their place: "Your team picks a way of asking after it has its results for Northline."
 - If different: render the cards with a disabled state (the card component has none today).
@@ -539,6 +553,8 @@ PR #340, branch `oct14/refresh-visibility`. Every entry is a brief-recommended d
 - Default taken: every entry carries `dataset_label`; the screen shows it ("Team 3 (October file):") only when the report spans more than one file. `dataset_id` is never sent.
 
 ### C10 — Every-team button copy (Ann)
+
+**ANSWERED 2026-10-10 (Ann Wang, email 2026-10-10, Part 2):** "Instructor refresh every team (button text, confirm text, report with skip reasons): ok".
 
 - Default taken: title "Refresh every team at once"; button "Refresh every team that has chosen how to ask"; in progress "Refreshing every team…". Full list in DESIGN.md §11.1.
 - #321's "Are you sure?" confirm is not added here; `RefreshAllPanel.send` is the single place the request is made.
@@ -590,6 +606,8 @@ Branch `oct14/status-band`, stacked on #339 → #345 and on #340. Every entry is
 
 ### F1 — Which pages carry the status line? (Ann / Danny)
 
+**ANSWERED 2026-10-10 (Ann Wang, email 2026-10-10, Part 2):** "Team status line: ok (pin it - stays on screen while scrolling)". This reverses the default taken below.
+
 - Options: (a) the four team pages; (b) also the opening screen; (c) also the instructor page.
 - Default taken: **(a)** event picker, matching, results, asking. Not the opening screen (no team yet; it already says "This browser is already in team N"). Not the instructor page (it lists every team itself).
 - Also taken: the line is at the top of each page and is **not pinned** while the page scrolls. The matching page already has a sticky weights panel and a sticky phone bar.
@@ -609,6 +627,8 @@ Branch `oct14/status-band`, stacked on #339 → #345 and on #340. Every entry is
 
 ### F4 — Does the team's own refresh ask first? (Ann)
 
+**ANSWERED 2026-10-10 (Ann Wang, email 2026-10-10, Part 2):** "Team's own refresh two presses: OK (keep two presses)".
+
 - Checklist §6 says "After pressing it, a summary appears"; it asks for a confirm only on class-wide buttons. Brief #321 gate 4 recommends matching the choice and the run, which both ask.
 - Default taken: **ask**. First press: "Ask them now? Your team can ask only once" + "Press again to ask. Your team cannot ask a second time, and it cannot be undone." Second press inside 5 s sends. Same on Asking and Results (`AskOnceButton.tsx`).
 - This changes existing behavior (one press → two). It is the only such change in the lane.
@@ -622,6 +642,8 @@ Branch `oct14/status-band`, stacked on #339 → #345 and on #340. Every entry is
 - If different: swap the well for `useConfirmWindow` in `RefreshAllPanel`; the sentence would have to shrink to fit a button.
 
 ### F6 — "Refreshed" and "Asked" are both in use for the same act (Ann / Chau)
+
+**PARTLY ANSWERED 2026-10-10 (Ann Wang, email 2026-10-10, Part 2, "Times"):** the instructor single-team page uses "Refreshed" (see B-10). The rest of F6 is unchanged.
 
 - Where each is used now:
   - "Refreshed": team screens ("Already refreshed at 10:42 AM", "Refresh done at…"), the status line ("Refresh: Done at 10:42 AM"), the instructor's every-team panel and report.
