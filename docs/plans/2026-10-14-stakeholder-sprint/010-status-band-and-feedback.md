@@ -1,5 +1,7 @@
 # 010 — Team status line, every press says what it did, missing confirms (issue #321)
 
+> **Update 2026-10-10 (Ann Wang, email 2026-10-10).** Answered (Part 2): team status line ok, and pinned so it stays on screen while scrolling. This reverses the non-sticky default below. See [the decision record](../../decisions/class-exercise-results-rule-2026-10-10.md).
+
 Branch `oct14/status-band`, stacked on `oct14/results-lock-snapshot` (#345, which holds #339) and `oct14/refresh-visibility` (#340). No migration. No server change.
 
 ## Current behavior (verified on the merged base, 2026-10-06)

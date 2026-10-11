@@ -34,10 +34,10 @@ Sprint status column added 2026-10-06 (Oct-14 stakeholder sprint). "Landed" mean
 | #329 | Ready w/ Chau gates | Mark-vs-exclude non-responders; "refreshed" vs "asked" wording; shared counts shape | **Planned, PR open** #340 — plan 007; defaults taken: mark non-responders, Ann's "Refreshed at" wording |
 | #330 | Ready w/ owner gates | Reason-code set; `dataset_label` in report; label copy | **Planned, PR open** #340 — plan 008 |
 | #331 | **Decision-gated** — checklist §8 says preserve seed; code + tests + docs say regenerate | Ann/Chau decision; then docs+test inversion | **Planned, PR open** #344 — plan 011; implemented on checklist §8 (owner ruling); D7 amended 2026-10-06; re-point still draws a new seed (OQ-OCT14-05) |
-| #273 | **Decision-gated** — retire `license_line` column vs per-file addendum | Owner decision; UI is a fixed constant either way | **Deferred** — plan 013; OQ-OCT14-02; issue comment posted |
+| #273 | **Decision-gated** — retire `license_line` column vs per-file addendum | Owner decision; UI is a fixed constant either way | **Deferred** — plan 013; OQ-OCT14-02; issue comment posted **[Decided 2026-10-10 (Ann Wang, email 2026-10-10, Part 2): license line final; no per-file addendum, no change to the line.]** |
 | #323 | **Ops, deployment-gated** — destructive, needs live env verification | Verify deploy target/commit/dataset checksum first; depends on #326 (close) and #331 (seed) | **Deferred (runbook written, nothing run)** — plan 014; `docs/operations/exercise-oct16-cleanup-runbook.md`; OQ-OCT14-03; owner picks path A/B/C |
 | #335 | Implementation-ready | None — plain labels + focused CSV negative test | **Landed** — merged #338 — plan 009 |
-| #295 | **Decision-gated** — per-team vs class-wide email-everyone baseline | Ann decision; docs+tests either way | **Deferred** — plan 012; OQ-OCT14-01; issue comment posted |
+| #295 | **Decision-gated** — per-team vs class-wide email-everyone baseline | Ann decision; docs+tests either way | **Deferred** — plan 012; OQ-OCT14-01; issue comment posted **[Decided 2026-10-10 (Ann Wang, email 2026-10-10, Q1): A, each team its own chance draw. B-ii (class-wide draw) is not taken.]** |
 | D2 undecided goal | Flagged in drafts | Dated decision superseding D2 | **Covered elsewhere** — issue #322 and PR #337 (its decision record supersedes D2); Harbor still needs Ann's written confirmation (OQ-OCT14-04) |
 
 ## Blocking decision gates (resolve before code)
@@ -50,8 +50,8 @@ Sprint status column added 2026-10-06 (Oct-14 stakeholder sprint). "Landed" mean
 6. **#329 gates** — mark (recommended) vs exclude non-responders; "refreshed" vs product voice "asked" for the shut-state line (wording scan `test_exercise_results_asking_wording.py` bans "refresh" server-side — compose client-side).
 7. **#330 gates** — reason-code set (`no_asking_choice | no_round_one_run | already_refreshed`), whether never-entered teams appear, `dataset_label` for the two-file case (never `dataset_id`).
 8. **#331** — checklist §8 says clearing a team keeps its chance seed; current code + tests + docs regenerate it. Surface to Ann; do not silently flip.
-9. **#273** — retire `license_line` or keep as per-file addendum.
-10. **#295** — email-everyone baseline: per-team seed (current) vs class-wide draw for cross-team comparability.
+9. **#273** — retire `license_line` or keep as per-file addendum. **[Decided 2026-10-10 (Ann Wang, email 2026-10-10, Part 2): license line final; no per-file addendum, no change to the line.]**
+10. **#295** — email-everyone baseline: per-team seed (current) vs class-wide draw for cross-team comparability. **[Decided 2026-10-10 (Ann Wang, email 2026-10-10, Q1): A, each team its own chance draw. B-ii (class-wide draw) is not taken.]**
 11. **Undecided-goal conflict (no assigned issue; flagged in drafts)** — Sept-25 D2 counts undecided half-credit on exploratory events *including Northline*; Oct-2 review says Northline is not broad. **Do not touch `simulation.py` until a dated decision supersedes D2.**
 
 ## Migration-head collision — assign before branching

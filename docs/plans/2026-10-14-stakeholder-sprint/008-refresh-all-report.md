@@ -1,5 +1,7 @@
 # 008 — Instructor every-team refresh: honest label + per-team report (#330)
 
+> **Update 2026-10-10 (Ann Wang, email 2026-10-10).** Answered (Part 2): instructor refresh of every team (button text, confirm text, report with skip reasons): ok. See [the decision record](../../decisions/class-exercise-results-rule-2026-10-10.md).
+
 Lane C, branch `oct14/refresh-visibility`, PR #340. Builds on 007. No migration.
 
 ## Current behavior (verified against the worktree, 2026-10-06)

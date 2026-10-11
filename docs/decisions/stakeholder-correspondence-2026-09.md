@@ -52,6 +52,8 @@ committed as test fixtures under decision D4
 > Let us know what you think, and are we still meeting on Friday?
 > I may not be available due to a meeting.
 
+> Superseded 2026-10-10: see [exchange E](#e-ann-wangs-reply-of-2026-10-10).
+
 ### What this settles
 
 Nothing on its own; it is the question list B answers. It is the origin of the
@@ -191,6 +193,15 @@ documents.
 
 ---
 
+## E. Ann Wang's reply of 2026-10-10
+
+The team's Oct 9 email "Smart Match: choices before your Oct 16 run-through" is
+not in the repository; its questions (Q1-Q6, Part 2) can be reconstructed from
+her reply. Her answers, verbatim, and what they settle are in
+[`class-exercise-results-rule-2026-10-10.md`](class-exercise-results-rule-2026-10-10.md). Same content as `WangQuestion10_10_26.pdf`.
+
+---
+
 ## Alignment check (2026-09-28)
 
 Emails A–C and the 15 September requirements against `origin/main` at
@@ -215,8 +226,8 @@ items come first.
 | 8 | Weight display: total of the four weights plus "counts twice as much" sentence; no percentages; no forced sum of 1 | **partly** | Not on main; branch `feat/exercise-weight-total`. Weights are relative today (`domain/weight_settings.py:33` divides by the total); ADR-0025 D8 forbids percentages | Merge the separate PR. |
 | 9 | If time: per-profile points counter | **partly** | `web/ProfilePointsCounter.tsx:78` exists, not routed; `domain/exercise_points.py`; DESIGN.md §11 item 4 "Deferred" | None for Oct; backlog row stands. |
 | 10 | "Asking for more": 30 / 55 / 80 percent, 15 percent stop responding under "required" | **built** | `domain/exercise/asking.py:82-84` shares, `:92` `REQUIRED_NON_RESPONDING_SHARE = 0.15`, `:191` half-up count; OQ-CE-04 (Ann: "All good") | None. |
-| 11 | Results rule: true fit matters most; frequent attenders "only a little"; major a small lift; chance fixed per team | **built** (numbers per Ann's later words) | `domain/exercise/simulation.py:471` `EXERCISE_SIMULATION_COEFFICIENTS`; OQ-CE-03 / D7 (a lot +0.40, some +0.10 for ≥1 past event, a little +0.04) | None. Ann's 9-25 "some" supersedes the doc's "only a little". **Note, 2026-10-06:** Ann's rule in exchange D supersedes these numbers as the requirement; the code still runs them. See [`class-exercise-results-rule-2026-10-06.md`](class-exercise-results-rule-2026-10-06.md). |
-| 12 | Default weights (doc: "the default settings") | **built** | `domain/exercise/registry.py:133-136` 0.25 each; OQ-CE-02 (Ann, 2026-09-25) | None. |
+| 11 | Results rule: true fit matters most; frequent attenders "only a little"; major a small lift; chance fixed per team | **built** (numbers per Ann's later words) | `domain/exercise/simulation.py:471` `EXERCISE_SIMULATION_COEFFICIENTS`; OQ-CE-03 / D7 (a lot +0.40, some +0.10 for ≥1 past event, a little +0.04) | None. Ann's 9-25 "some" supersedes the doc's "only a little". **Note, 2026-10-06:** Ann's rule in exchange D supersedes these numbers as the requirement; the code still runs them. See [`class-exercise-results-rule-2026-10-06.md`](class-exercise-results-rule-2026-10-06.md). **Update 2026-10-10 (Ann Wang, email 2026-10-10, Q2/Q4):** numbers are now notice 20% (mass email) / 60% (CBACH email), existing sign-up chances, 65% show up; no extra luck. |
+| 12 | Default weights (doc: "the default settings") | **built** | `domain/exercise/registry.py:133-136` 0.25 each; OQ-CE-02 (Ann, 2026-09-25) | None. **Update 2026-10-10 (Ann Wang, email 2026-10-10, Part 2):** default weights are 3/3/2/2, whole steps 0-10 (shipped in #352). |
 | 13 | Getting in: no login, team number, per-team workspace surviving reload; instructor page behind passcode | **built** | `api/exercise_workspace.py:202` enter, `:177` httpOnly session cookie; `api/exercise_instructor_session.py:124` login; OQ-CE-07, OQ-CE-08 | None. |
 | 14 | Data: load Ann's file, instructor re-upload, plain error on a missing column | **built** | `api/exercise_instructor.py:189` upload; `domain/exercise/ingest.py:171`, `:201` missing-column refusal; `domain/exercise/workbook.py` (xlsx, D1) | None. |
 | 15 | "How much we know" marker and "who is on the list" table (+ if-time empty-group notice) | **built** | `domain/exercise/markers.py:60` `InformationMarker`, `:156` `list_composition`; `web/ListCompositionTable.tsx:48`, `web/ListCoverageNotice.tsx:33` | None. |
@@ -247,3 +258,4 @@ items come first.
    the app's placeholder limiter is proven today).
 4. **P004 (row 5).** Whether to tell Ann that the "turned off" half does not
    hold as built.
+   **Answered 2026-10-10 (Ann Wang, email 2026-10-10, Part 2):** keep P004; reword the checklist to "he drops, but stays above a plain Accounting major".

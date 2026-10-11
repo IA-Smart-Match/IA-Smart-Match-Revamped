@@ -20,6 +20,7 @@ Organizer assumed the audience was || Computer Information Systems majors || Int
 What the data actually holds || 78 profiles truly interested in technology; only 19 are CIS majors || 92 truly interested in retail or supply chain; only 20 are IBM majors
 “One week away” and “three weeks later” are dates inside the case story, not real dates.
 How it runs: in Session 1, teams set the four weights, build and compare lists for Northline, and draft invitations as homework. In Session 2, they see their Northline results next to “email everyone,” choose how to ask profiles for more information, refresh, and then build and run a Harbor list. The point participants should leave with: AI helps choose whom to reach, but the marketer decides what information matters, what message fits, and who is being overlooked.
+   [Note 2026-10-10, Ann Wang, email 2026-10-10, Q2: superseded by the lift line; mass email is the baseline, not a separate result.]
 The “truly interested” figures are hidden from teams. Only the results rule uses them, and this gap is what the two rounds are meant to reveal.
 1. Every button must show what it did
 This rule applies to every button in the app, for teams and for the instructor. Right now it is often unclear whether a press did anything.
@@ -43,6 +44,7 @@ This rule applies to every button in the app, for teams and for the instructor. 
 ☐ Before the Oct 16 run-through, every test team is cleared and both events are closed.
 3. A team getting in
 ☐ Go to the public address. No sign-in is asked for. The opening screen says what the exercise is in one or two sentences, plus the license line once Ann provides it.
+   [Note 2026-10-10, Ann Wang, email 2026-10-10, Part 2: license line provided and final.]
 ☐ Pick a team number (1 to 6). The next screen says “You are Team 3” at the top, and keeps saying it on every page.
 ☐ There is a visible way to switch team number if someone picked the wrong one.
 ☐ The events screen shows which event is round one (Northline) and which is round two (Harbor). The “Round” label currently appears with no number.
@@ -68,6 +70,7 @@ Matching
 ☐ Tied names say “tied on major; ordered by year.”
 ☐ The list stops at 30 and says so.
 ☐ Test profile P004 (Brandon Soto, Accounting, stated a technology interest): with “said they are interested” turned up, he ranks above a plain Accounting major. With it set to zero, he does not.
+   [Note 2026-10-10, Ann Wang, email 2026-10-10, Part 2: keep P004; reword to "he drops, but stays above a plain Accounting major".]
 ☐ A profile that lists technology among three interests still gets clear credit for “said they are interested.” Its credit is not cut to a third.
 ☐ Nobody gets credit for an “undecided” career goal on Northline.
 Who is on the list
@@ -93,6 +96,7 @@ What the results screen shows
 ☐ Four numbers for the team: invited, signed up, attended, seats still empty (out of 60, counting the 8 already signed up).
 ☐ Next to them, always: the result of emailing all 300, with the same four numbers.
 ☐ Clear labels on both: “Your team’s 30” and “Email everyone (all 300).”
+   [Note 2026-10-10, Ann Wang, email 2026-10-10, Q2: superseded by the lift line - "Mass email alone: N sign-ups. With your 30 CBACH emails: M. Your list added K."]
 ☐ Readable from the back of the room on the projector. A bar chart is a bonus.
 ☐ Run the same list for two different teams. Each team’s result is fixed and repeatable, but the two teams can differ a little because of chance.
 ☐ The results come from the hidden true interests, not from what the app shows. Check: a list heavy on profiles whose true interest is technology does better than a list of CIS majors with other true interests.
@@ -118,6 +122,7 @@ The refresh
 ☐ Profiles marked “stopped responding” are either left off the list or clearly marked on it.
 ☐ Results for Harbor stay locked until the instructor opens them, with one run per team, as in round one.
 ☐ The Harbor results screen shows three results side by side: this team’s Harbor result, email everyone, and this team’s own Northline result.
+   [Note 2026-10-10, Ann Wang, email 2026-10-10, Q2: superseded by the lift line, no separate "email everyone" result.]
 ☐ A team that chose “small reward” or “required” can do noticeably better in round two than in round one. A team that only promised better recommendations gains less. If every team gets about the same, the lesson doesn’t show.
 8. Teams kept apart, reloads, and clearing
 ☐ Two people, as Team 1 and Team 2, work at the same time. Neither sees the other’s settings, lists, results, or refresh.
@@ -131,6 +136,7 @@ The refresh
 ☐ At projector size, the list, the “who is on the list” table, and the results numbers can be read from the back row.
 ☐ The browser tab says “Smart Match” or the exercise name, not “IA West SmartMatch CRM.”
 ☐ The opening screen shows the license line once Ann provides it.
+   [Note 2026-10-10, Ann Wang, email 2026-10-10, Part 2: license line provided and final.]
 ☐ The instructor’s “five quick questions” card mock-up opens on one screen (a bonus item).
 10. Problems found so far (Oct 2)
 These came from Ann’s own use of the site and a review of the Northline page. Each one maps to a section above.

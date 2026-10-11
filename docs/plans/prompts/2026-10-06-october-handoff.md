@@ -1,5 +1,7 @@
 # Handoff — October stakeholder work on Smart Match (written 2026-10-06)
 
+> **Superseded in part, 2026-10-10 (Ann Wang, email 2026-10-10).** (1) The 2026-10-06 results rule below (notice 75/15, 5 + 35 + 15 + 5-10 + 5 points, 70% attend, luck) is replaced: mass email 20% notice, CBACH email 60% notice, the existing sign-up chances, 65% show up, no extra luck, with a lift line instead of an "email everyone" contest (PR #396, #394). (2) OQ-CE-24, 26, 29, 30, 31 are answered, OQ-CE-19 is moot, OQ-CE-25 is partly answered; see [the decision record](../../decisions/class-exercise-results-rule-2026-10-10.md). (3) 3/3/2/2 is already shipped via #352; the "Defaults are 0.25 each" lines below are history. (4) The license line is final (#273) and each team keeps its own chance draw (#295). The text below is kept as written.
+
 Paste everything below the line into a fresh agent session opened in the
 repository. It is written for an agent that has none of the prior context.
 
@@ -98,7 +100,7 @@ read matters; give them the code, not this document's conclusions.
    progress check and every checklist box, plus the three Oct-6 items → the PR or
    issue that covers it → status (on main / open PR / planned / not covered).
    Flag anything not covered. Known candidates for "not covered by BrooklynD23's
-   issues": Oct-2 area 4 (Chau, #337), the "email everyone" comparison and
+   issues": Oct-2 area 4 (Chau, #337), the "email everyone" comparison and [Superseded 2026-10-10: the comparison is now the lift line (Ann Wang, email 2026-10-10, Q2).]
    Harbor three-way panel, year order, browser tab name, reason lines, the
    license line on the opening screen.
 2. **Merged code does what it says.** For #339 and #345 on main: read the diffs,
@@ -108,9 +110,9 @@ read matters; give them the code, not this document's conclusions.
    fixes (key-repeat guard on inline confirms, "Check again" honesty, the
    "Opened" note) have had no second review; give it one.
 4. **Contradictions between her rulings and what is built or documented:**
-   - Defaults are 0.25 each in code (`python/smartmatch_domain/smartmatch_domain/exercise/registry.py`) against the 3/3/2/2 ruling.
-   - The results rule in `simulation.py` against her Oct-6 rule (no notice step; "email everyone" shares the team's rule and seed).
-   - Under her numbers the analysis found "email everyone" draws about as many sign-ups as a typical list of 30 (OQ-CE-31). Re-derive this independently before anyone relies on it; it decides whether her rule shows the lesson.
+   - Defaults are 0.25 each in code (`python/smartmatch_domain/smartmatch_domain/exercise/registry.py`) against the 3/3/2/2 ruling. [Done: 3/3/2/2 shipped via #352; reconfirmed by Ann Wang, email 2026-10-10.]
+   - The results rule in `simulation.py` against her Oct-6 rule (no notice step; "email everyone" shares the team's rule and seed). [Rule replaced 2026-10-10 (Ann Wang, email 2026-10-10, Q2); built in #396.]
+   - Under her numbers the analysis found "email everyone" draws about as many sign-ups as a typical list of 30 (OQ-CE-31). Re-derive this independently before anyone relies on it; it decides whether her rule shows the lesson. [Moot: OQ-CE-31 answered 2026-10-10; the lesson is the lift over the mass email.]
    - Her Oct-2 line "P004 ranks 5th with the starting settings" will move under 3/3/2/2.
 5. **Unverified claims carried forward.** No screen was checked in a real
    browser by a person; the rollback fix has not run on a VM; the `.accdb`
@@ -142,9 +144,10 @@ In rough priority order. Re-plan after part 1.
 4. **Default weights 3/3/2/2 on 0–10** — implement once the owner says whether
    the class module switches before or after Oct 16 (OQ-CE-34). Do it after
    Chau's #337 merges so golden files are regenerated once.
-5. **Dr. Wang's results rule** — do not implement until she answers at least
+5. **Dr. Wang's results rule** — do not implement until she answers at least [Answered and unblocked 2026-10-10, Ann Wang, email 2026-10-10.]
    OQ-CE-24, 26 and 31 (PR #348). The impact analysis has an 11-step change list
    (about 27 hours), built on top of #337.
+   **Unblocked 2026-10-10 (Ann Wang, email 2026-10-10):** OQ-CE-24, 26 and 31 are answered, and the rule changed; see `docs/decisions/class-exercise-results-rule-2026-10-10.md`. Branches `feat/wang-2026-10-10-notice-rule` and `feat/wang-2026-10-10-lift-line`.
 6. **Oct-16 clean-up (#323)** — the owner picks path A, B or C in the runbook and
    gives a written go-ahead. You run nothing against the VM without it. Before it:
    `GRANT UPDATE ON exercise_result_unlock` to the exercise role, #344 deployed,

@@ -1,7 +1,7 @@
 # Class exercise — requirements for the Spring 2027 AI in Marketing module
 
-**Last updated:** 2026-10-06 (the results rule as Ann ruled it; see
-[The results rule](#the-results-rule-ann-relayed-2026-10-06))
+**Last updated:** 2026-10-10 (Ann's 2026-10-10 email: the new results rule, no extra luck,
+the lift line; see [The results rule](#the-results-rule-ann-relayed-2026-10-06))
 **Source:** Ann Wang, "Smart Match — Marketing Class Exercise and Minimum Build
 Requirements", 15 September 2026; her "Background Note" for class
 participants, same date; and her emails to the team
@@ -119,7 +119,7 @@ fill in a profile card themselves.
   (heavy weight on past events re-invites people who would have come anyway);
   known or overlooked customers (complete profiles get invited again and again;
   the only defense is a person who asks who is missing).
-- **Read results against "email everyone".** Outreach is a funnel (contacted →
+- **Read results against the mass email alone (the lift line).** Outreach is a funnel (contacted →
   signed up → showed up). The rate says how well targeting worked; the total
   says whether the effort was enough. Never read your own result alone.
 - **Two uses of AI, one human decision:** Smart Match helps choose the
@@ -148,10 +148,10 @@ fill in a profile card themselves.
 | Minutes | Activity | Who / notes |
 |---|---|---|
 | 0–10 | Message review: teams swap and score on four points (written for this person; tied to a reason the app gave; clear next step; no filler). | Scores do not change results |
-| 10–22 | Round one: instructor unlocks results; each team runs its final Northline setting once. Screen shows invited / signed up / attended beside "email everyone" (all 300), and seats still empty. | One run per team per event |
+| 10–22 | Round one: instructor unlocks results; each team runs its final Northline setting once. Screen shows invited / signed up / attended and the lift over the mass email (all 300) alone, and seats still empty. | One run per team per event |
 | 22–34 | Asking for more: instructor shows the profile-card screen; discussion of why someone says yes or no and what the marketer gives back; each team picks better recommendations, a small reward, or required. | The choice has consequences |
 | 34–40 | Per-team refresh: Northline attendees pick up its topics; a share of invited profiles without a card complete one; markers change. | Team presses its own button |
-| 40–52 | Round two: Harbor Consumer Brands, invite 30. Results beside "email everyone" and the team's round-one result. | Side by side on the projector |
+| 40–52 | Round two: Harbor Consumer Brands, invite 30. Results with the lift over the mass email and the team's round-one result. | Side by side on the projector |
 | 52–62 | Why results differed; then the reveal, framed as "this simulated market behaved this way" (true fit mattered, frequent attenders only a little more likely, major mattered less than assumed); real marketers would have to test this. | Board column 4 |
 | 62–68 | Wrap-up: the three trade-offs and the one-sentence takeaway. | Instructor |
 | 68–75 | Memo outline in teams; memo due in 48 hours. | Ann provides the memo form |
@@ -171,7 +171,7 @@ review at the start of the next class.
 | Component | Points of 100 |
 |---|---|
 | Recommendation for the next event: weight setting, the 30-person list, and whether the tool confirmed or changed the team's first instinct | 25 |
-| Use of results from both rounds, including the "email everyone" comparison | 20 |
+| Use of results from both rounds, including the lift over the mass email alone | 20 |
 | How the team asked for more information, why, and what the marketer gave in return | 15 |
 | The two invitations, and where the fill-in-the-blanks version stopped fitting | 15 |
 | Who was left out (numbers from the "who is on the list" table) and how to reach them another way | 15 |
@@ -195,14 +195,14 @@ Where a row's text was later changed, see
 | Area | Required | If time allows | Not now |
 |---|---|---|---|
 | Getting in | No login. A public web address. Each browser tab keeps its own work; a team enters its team number (1–6) so its saved runs are labeled. An instructor page behind a simple passcode can open any team's saved runs, unlock results, and set the invite limit. | — | Accounts and roles; the four user types; invitation-only speaker accounts. |
-| Data | Load the made-up student body Ann provides as a spreadsheet, and let the instructor replace it from the instructor page. About 300 profiles and 12 events (10 past events for attendance history plus the 2 exercise events). Every profile has a made-up name, a major, and a year; about a third have attended one or more past events; about 70 have a completed profile card (stated interests and career goals), and of those a good share have interests that do not match Northline. Every profile also carries a hidden "true" set of interests that the app never shows and never uses for matching; only the results rule uses it. | — | Any connection to university records, Handshake, or real sign-ups; any real student data, even with names changed. |
+| Data | Load the made-up student body Ann provides as a spreadsheet, and let the instructor replace it from the instructor page (Ann and Danny only this semester; fictional student data only: Ann Wang, email 2026-10-10, Q6). About 300 profiles and 12 events (10 past events for attendance history plus the 2 exercise events). Every profile has a made-up name, a major, and a year; about a third have attended one or more past events; about 70 have a completed profile card (stated interests and career goals), and of those a good share have interests that do not match Northline. Every profile also carries a hidden "true" set of interests that the app never shows and never uses for matching; only the results rule uses it. | — | Any connection to university records, Handshake, or real sign-ups; any real student data, even with names changed. |
 | How much we know | Next to every profile, a simple marker: major only; major plus events attended; completed card. The "who is on the list" table also counts the list by these three groups. | — | — |
 | Matching | Match profiles to one chosen event using four adjustable factors, labeled in plain words: same major; said they are interested in this topic; career goal fits this event; went to similar events before (past events attended that share a topic with this event: none counts nothing, one counts half, two or more count in full). Major is always available. The other three count only for profiles that have that information; for everyone else the reason line says so ("same major; nothing else on file"). Ties are broken in a fixed order: more information on file first, then year (seniors first), then a fixed random order that never changes; the reason line says "tied on major; ordered by year." Ranked list capped at the invite limit (30 by default). A team can save up to three named settings per event and view any two side by side with shared names highlighted. | — | Machine-learning matching; speaker-to-event matching; checking calendars. |
 | Who is on the list | For the current list, a small table: count by major, by year, and by "how much we know" group, next to the same counts for all 300. | A one-line notice when a major or year that exists among the 300 has nobody on the list. | — |
 | Download | Download the current list with reasons as a spreadsheet file. | — | Writing messages in the app; AI writing in the app; sending email. |
 | Results lock | Results cannot be run until the instructor unlocks them for that event. Each team gets one results run per event. | — | — |
-| Comparison | The results screen always shows the "email everyone" result (all 300 contacted) next to the team's result, and in round two the team's own round-one result as well, plus seats still empty. | — | — |
-| Simulated results | A hidden rule that turns a list into results (invited, signed up, attended). It uses each profile's hidden true interests, not what the app has on file. (1) A profile is more likely to sign up when its true interests and career goal match the event. (2) Profiles that attended many past events are only a little more likely to sign up. (3) Same major alone gives only a small lift. (4) A small element of chance, fixed for each team so a repeated run gives the same result. (5) A reset per team that does not touch other teams. The rule is written in plain words in the code and shared with Ann and Dr. Lin before the practice run. Class participants hear it only as "how this simulated market behaved". | Results as a simple bar chart readable from the projector. | Real notifications or reminders; message quality changing results. |
+| Comparison | The results screen always shows the mass-email-alone result (all 300 get the usual mass email) and the lift from the team's 30 CBACH emails (Ann Wang, email 2026-10-10, Q2), and in round two the team's own round-one result as well, plus seats still empty. | — | — |
+| Simulated results | A hidden rule that turns a list into results (invited, signed up, attended). It uses each profile's hidden true interests, not what the app has on file. (1) A profile is more likely to sign up when its true interests and career goal match the event. (2) Profiles that attended many past events are only a little more likely to sign up. (3) Same major alone gives only a small lift. (4) No extra luck: each team's fixed chance draw alone decides who notices, signs up and shows up, so a repeated run gives the same result (Ann Wang, email 2026-10-10, Q4). Notice rates are 20 in 100 for the mass email and 60 in 100 for the team's CBACH email; 65 in 100 show up. (5) A reset per team that does not touch other teams. The rule is written in plain words in the code and shared with Ann and Dr. Lin before the practice run. Class participants hear it only as "how this simulated market behaved". | Results as a simple bar chart readable from the projector. | Real notifications or reminders; message quality changing results. |
 | Asking for more | Before the refresh, a team picks one of three ways to ask the profiles it invited to complete a card. Each has a set outcome, written in the code and shared with Ann: promise better recommendations (about 30 percent of invited profiles without a card complete one); small reward (about 55 percent); required (about 80 percent, but about 15 percent of those without a card stop opening messages and never sign up in round two). Numbers are illustrative; Ann confirms them before the practice run. | A one-screen mock-up of the "five quick questions" card for the instructor to show. | Real profile cards for real people. |
 | Profile refresh | A per-team button, available after the team has chosen how to ask: everyone who attended Northline picks up its topics as "went to similar events"; the chosen share of invited profiles complete a card copied from their hidden true interests; markers update. An instructor button runs every team's refresh at once. Each team's refresh changes only that team's copy of the 300 profiles. | — | Refresh from real behavior. |
 | Points | Not required. | A points counter per profile that rises with attendance and card completion. | Reward catalog, redeeming points, faculty extra credit. |
@@ -238,7 +238,7 @@ Where a row's text was later changed, see
     automatically;
   - major alone gives a small lift, so the organizer's assumption proves weak
     in a way teams can discover.
-- **"Email everyone" shows what targeting is worth; "seats still empty" shows
+- **The lift over the mass email alone shows what targeting is worth; "seats still empty" shows
   the cost of inviting too few.** With 52 empty seats and 30 invitations no
   team can fill the room by invitations alone, so the memo must say what else
   it would do.
@@ -250,64 +250,67 @@ Where a row's text was later changed, see
   few people. The causal story: round one, realise information is missing, ask
   for it, round two improves — by how much depends on how you asked.
 
-## The results rule (Ann, relayed 2026-10-06)
+<a id="the-results-rule-ann-relayed-2026-10-06"></a>
+## The results rule (Ann Wang, 2026-10-10)
 
-Ann gave the rule in answer to Chau's question of how sign-ups and attendance
-are decided. The owner relayed it on 2026-10-06; Ann's own send date was not
-given. Her words are in the
-[correspondence record, exchange D](../decisions/stakeholder-correspondence-2026-09.md#d-chaus-question-and-ann-wangs-results-rule).
-The decision record is
-[`class-exercise-results-rule-2026-10-06.md`](../decisions/class-exercise-results-rule-2026-10-06.md).
+Ann's email of 2026-10-10 replaced the rule she gave on 2026-10-06 (relayed by
+the owner). Her words are in the
+[decision record](../decisions/class-exercise-results-rule-2026-10-10.md). The
+2026-10-06 record
+([`class-exercise-results-rule-2026-10-06.md`](../decisions/class-exercise-results-rule-2026-10-06.md))
+is kept as history and is superseded.
 
-This section records the rule as given. It does not fill the gaps in it; they
-are OQ-CE-19 to OQ-CE-31 in the
-[register](../plans/open-questions/class-exercise-open-questions.md).
+**The rule, in plain words** (Ann Wang, email 2026-10-10, Q2 and Q4). Mass email is not
+a separate option: it is what CPP already does, and the team's list adds
+personal emails on top. For each person, the app decides four things in order.
 
-**The rule, in plain words.** For each person a team invites, the app decides
-three things in order.
+1. **Did they notice a message?** Everyone (all 300) gets the usual mass email
+   or post: 20 in 100 notice it. The team's matched 30 also get a personal
+   email from CBACH: 60 in 100 notice it. Getting both, about 68 in 100 notice
+   at least one.
+2. **If they noticed, do they sign up?** The team's existing sign-up chances
+   based on the match. *Interpretation, to confirm with Ann:* these are the
+   chances the app runs today (start at 4 in 100; 40 for true interests and
+   career goal, split 20 and 20; 10 for past events; 4 for the same major).
+   The points relayed on 2026-10-06 (5, +35, +15, +5 or +10, +5) are
+   superseded.
+3. **If they signed up, do they show up?** 65 in 100 do.
 
-1. **Did they notice the invitation?** A personal invitation from the team is
-   noticed far more often than a mass email. On the team's list of 30, 75 in
-   100 notice. When everyone is emailed (all 300), 15 in 100 notice.
-2. **If they noticed, do they sign up?** Everyone starts at 5 in 100. Add 35
-   if their true interests match the event; this is the main driver. Add 15 if
-   their true career goal fits the event. Add 5 if they have been to 1 or 2
-   past events, or 10 if they have been to 3 or more. Add 5 if they are in the
-   same major.
-3. **If they signed up, do they attend?** 70 in 100 do.
-
-A small element of luck is added. It is fixed for each team, so the same list
-always gives the same result.
+There is no extra luck (Ann Wang, email 2026-10-10, Q4): "The team's fixed chance draw alone decides
+who notices, signs up and shows up. Remove the extra ±10 points." The rates
+apply exactly, and the same list always gives the same result. Each team keeps
+its own chance draw, including for the mass-email baseline (Ann Wang, email 2026-10-10, Q1).
 
 Sign-up uses each student's true interests and true career goal (the hidden
-columns), so the rule works for all 300 students, with or without a card. For
-a student who has a card, the card already matches their true interests.
+columns), so the rule works for all 300 students, with or without a card.
 
-**Requirement against the code** (`origin/main` at `783a1244`). Nothing is
-implemented; the code runs the 2026-09-25 numbers (D7).
-`simulation.py` = `python/smartmatch_domain/smartmatch_domain/exercise/simulation.py`.
+**What the team sees** (Ann Wang, email 2026-10-10, Q2). The results screen shows the lift, not a
+contest: "Mass email alone: 11 sign-ups. With your 30 CBACH emails: 17. Your
+list added 6." Counts only (ADR-0025 D8). The lesson (Q3) is how much the list
+adds on top of CPP's mass email; the team's 30 receive both messages, so the
+old question of how the team's 30 are counted under a mass email (Q5) no longer
+applies. Debrief sentence (Ann Wang, email 2026-10-10, Q1): "Each team's numbers include its own luck.
+Look at your gap over the mass email, not just the raw number."
 
-| # | Requirement | Code today | Status |
-|---|---|---|---|
-| R1-A1 | 75 in 100 of the team's list notice the invitation | No notice step (`simulation.py:558-581`) | **missing** |
-| R1-A2 | 15 in 100 notice when everyone is emailed | "Email everyone" runs the same rule with no separate rate (`simulation.py:647-661`) | **missing** |
-| R1-B1 | Start at 5 in 100 | 4 in 100 (`simulation.py:476`) | **differs** |
-| R1-B2 | +35 when true interests match the event | +20 (`simulation.py:477`, `:483`, `:535-536`) | **differs** |
-| R1-B3 | +15 when the true career goal fits the event | +20; an undecided goal also earns +10 on a broad event (`simulation.py:537-540`) | **differs** |
-| R1-B4 | +5 for 1–2 past events, +10 for 3 or more | +10 for one or more; one tier (`simulation.py:478`, `:482`, `:551-552`) | **differs** |
-| R1-B5 | +5 for the same major | +4 (`simulation.py:479`, `:553-554`) | **differs** |
-| R1-C1 | 70 in 100 of sign-ups attend | 75 in 100 (`simulation.py:481`, `:577-580`) | **differs** |
-| R1-L1 | Luck is fixed for each team: the same list always gives the same result | Every draw comes from the team's seed (`simulation.py:503-518`) | **matches** |
-| R1-L2 | The luck is small | Up to 10 in 100 either way on each person's chance (`simulation.py:480`, `:569-572`); Ann's size is not stated | **open** (OQ-CE-24) |
-| R1-H1 | Sign-up uses the hidden true interests and true career goal, for all 300 | It does (`services/api/smartmatch_api/routers/exercise_results_models.py:203-205`) | **matches** |
-| R1-H2 | A card on file matches the student's true interests | True of the committed 300-row file: 70 of 70 cards | **matches** |
-| R1-W1 | Justin adds a short plain-words description of this rule to the one-page write-up | No write-up file exists in the repository | **missing** |
+**Requirement against the code.** The code on `main` runs the 2026-09-25
+numbers (D7) until the backend branch `feat/wang-2026-10-10-notice-rule` and
+the frontend branch `feat/wang-2026-10-10-lift-line` merge. No migration.
 
-**What the numbers do** is worked through in the
-[impact analysis](../plans/2026-10-06-results-rule-impact-analysis.md), §5.
-One result there is a question for Ann, not a setting for the team: under
-these numbers "email everyone" draws about as many sign-ups as a typical list
-of 30 (OQ-CE-31).
+| # | Requirement | Status |
+|---|---|---|
+| R2-A1 | 20 in 100 notice the mass email (all 300) | in flight (backend branch) |
+| R2-A2 | 60 in 100 of the team's 30 notice the CBACH email | in flight (backend branch) |
+| R2-B1 | Sign-up uses the existing chances (start 4; true fit 40 split 20/20; past events 10; same major 4) | matches today's code; interpretation to confirm |
+| R2-C1 | 65 in 100 of sign-ups show up | in flight (backend branch) |
+| R2-L1 | No extra luck; the same list always gives the same result | in flight (backend branch) |
+| R2-H1 | Sign-up uses the hidden true interests and career goal, for all 300 | matches |
+| R2-S1 | The results screen shows the lift line | in flight (frontend branch) |
+| R1-W1 | Justin adds a short plain-words description of this rule to the one-page write-up | missing (no write-up file in the repository) |
+
+**Check numbers** (Ann Wang, email 2026-10-10, Q2): on the Oct 2 file a suggested list of 30 should
+add about 6 sign-ups at Northline and 4-5 at Harbor. The audit prototype gives
+4.5 and 3.9 (mass alone 8.4 and 9.8). The implementation PRs confirm them and
+Danny sends Ann the numbers.
 
 **Also in the same message.** The dean wants the team to present to the CBACH
 advisory board on Thursday 2026-10-08: two presenters including Chau, a
@@ -381,6 +384,7 @@ them.
    file; one button to refresh every team.
 3. **Loading the data file**, including an instructor re-upload, with a plain
    error when a column is missing.
+   **Upload policy (Ann Wang, email 2026-10-10, Q6):** keep the fictional student data only; no upload for other instructors this semester. The upload sits behind the single shared instructor passcode, which only Ann and Danny hold. A new file gives every team a new chance draw.
 4. **The results lock and the one-run-per-event rule.**
 5. **The refresh between rounds**, per Chau's rules: Northline attendees pick up
    its topics; the chosen share get a card; under "required" the affected
@@ -405,7 +409,7 @@ Every screen, readable from the back of a classroom on a projector.
 4. **The "asking for more" choice screen** — one plain sentence per option; if
    time, the profile-card mock-up.
 5. **The results screen** — invited, signed up, attended, seats still empty;
-   always beside "email everyone"; in round two also the team's round-one
+   always with the lift over the mass email alone; in round two also the team's round-one
    result; if time, a bar chart.
 
 ### Justin (testing, the written explanation, and support)
@@ -441,7 +445,7 @@ joins one practice run with Ann in November.
 | Fri Sept 18 | Team confirms scope. Ann sends the 20-row sample with final column names and a one-line description of each. |
 | Fri Sept 25 | Ann sends the full 300-row file. (Arrived 2026-09-24.) |
 | Fri Oct 2 | Matching with the four factors, tie-break, cap, saved settings, markers, and the "who is on the list" table working **on the demo site** with the full data. Ann has confirmed the spring week and class size with Dr. Lin. |
-| Fri Oct 16 | Results with lock, "email everyone" comparison, repeatable runs, reset, "asking for more", per-team refresh, round two, and download working. Ann runs both sessions start to finish and sends a problem list. |
+| Fri Oct 16 | Results with lock, lift line over the mass email alone, repeatable runs, reset, "asking for more", per-team refresh, round two, and download working. Ann runs both sessions start to finish and sends a problem list. |
 | Fri Oct 30 | Problems fixed. Ann's case, background note, forms, and backup spreadsheet finished. |
 | Week of Nov 9 | Practice run with Ann, Dr. Lin, and five or six volunteer students from Ann's fall classes going through both rounds. Hidden rule and the three percentages reviewed. |
 | Fri Nov 20 | Fixes done. Team review. This version becomes the fall deliverable. Ann uploads the licensed materials to the course commons. Decision on the CBACH project. |
@@ -483,16 +487,19 @@ The decision named in each row is the authority. Do not build from the
 | Weight display | not specified | Total of the four weights plus the "counts twice as much" sentence; no percentages | Owner ruling 2026-09-28; ADR-0025 D8 |
 | Profile card | "five quick questions" | Two questions (interests, career goal); major confirmed | OQ-CE-11; decision record D14 |
 | License line | Ann to provide | Fixed wording on the opening screen | OQ-CE-09; D13 |
-| Results-rule strengths | "only a little", "small lift", "small element of chance" | Ann's a lot / some / a little / some randomness, as numbers | OQ-CE-03; D7 |
-| Results rule, steps and numbers | (as the row above) | Ann's three steps with her numbers: notice 75 / 15 in 100; start 5; +35, +15, +5 or +10, +5; 70 in 100 attend. **Ruled, not yet built**: the code still runs D7's numbers | Ann, relayed 2026-10-06; [results-rule record](../decisions/class-exercise-results-rule-2026-10-06.md) |
-| "Email everyone" | all 300 run through the same rule | The same rule, but only 15 in 100 notice a mass email. **Ruled, not yet built** | Ann, relayed 2026-10-06; results-rule record |
+| Results-rule strengths | "only a little", "small lift", "small element of chance" | Ann's a lot / some / a little / some randomness, as numbers | OQ-CE-03; D7 **"Some randomness" superseded 2026-10-10 (Ann Wang, email 2026-10-10, Q4): no extra luck; the fixed chance draw alone decides.** |
+| Results rule, steps and numbers | Ann's three steps, relayed 2026-10-06 | Mass email 20 in 100 notice; the team's 30 also get a CBACH email, 60 in 100 notice; then the existing sign-up chances; 65 in 100 show up. Supersedes the 2026-10-06 numbers (notice 75 / 15, start 5, +35, +15, +5 or +10, +5, 70 attend). **Ruled; code in flight** | Ann Wang, email 2026-10-10, Q2; [results-rule record 2026-10-10](../decisions/class-exercise-results-rule-2026-10-10.md) |
+| Luck | "a small element of chance" (up to 10 in 100 either way) | None. The team's fixed chance draw alone decides | Ann Wang, email 2026-10-10, Q4 |
+| "Email everyone" | a separate comparison; 15 in 100 notice (2026-10-06) | The baseline, not an option: what CPP already does. The screen shows the lift: "Mass email alone: N sign-ups. With your 30 CBACH emails: M. Your list added K." Each team keeps its own chance draw | Ann Wang, email 2026-10-10, Q1 and Q2 |
+| P004 checklist wording | rank 5th with the starting settings | "he drops, but stays above a plain Accounting major"; P004 is kept | Ann Wang, email 2026-10-10, Part 2 |
+| Data file upload | instructor re-upload | Ann and Danny only this semester; fictional student data only | Ann Wang, email 2026-10-10, Q6 |
 | Undecided career goal | not specified | Fits no event, in matching and results. (Half credit on broad events from 2026-09-25 until Ann removed it on 2026-10-02.) | Ann's revisions 2026-10-02, item 4b; supersedes OQ-CE-14 / D2 |
 | "Said they are interested" | not specified | Yes or no: counts in full when any stated interest is a topic of the event | Ann's revisions 2026-10-02 |
 | "Went to similar events before" | topics of past events overlap this event's topics | Count of past events sharing a topic: none, one (half), two or more (full) | Ann's revisions 2026-10-02; the half step is Chau's, 2026-10-04 |
 | "Asking for more" percentages | 30 / 55 / 80 + 15, "illustrative" | Confirmed; halves round up; non-responders drawn only from those without a card | OQ-CE-04; D12 |
 | Last tie-break step | "a fixed random order" | Ann's `tiebreak_order` column | D3; ADR-0025 amendment of 2026-09-25 |
 | Copied card on refresh | copied from hidden true interests | Hidden true interests **and** hidden true career goal | OQ-CE-13; D6 |
-| Test profile | an Accounting major interested in "product design" | Ann's P004 (interest in technology); kept as built | OQ-CE-15; D9 |
+| Test profile | an Accounting major interested in "product design" | Ann's P004 (interest in technology); kept as built | OQ-CE-15; D9; kept by Ann Wang, email 2026-10-10, Part 2 |
 | Empty seats | "seats still empty" | Show the 8 already coming and the team's attendees separately | OQ-CE-16; D8 |
 | Data file | "a spreadsheet file" | Ann's `.xlsx`, uploaded as sent | OQ-CE-05; D1 |
 | Stable address | "a stable web address" | `exercise.plated.blog` (rate-limit half still open) | OQ-CE-06 |
@@ -519,5 +526,6 @@ correspondence record's alignment check.
 - Design spec: [`../superpowers/specs/2026-09-16-class-exercise-design.md`](../superpowers/specs/2026-09-16-class-exercise-design.md).
 - Visual system and owner rulings: [`../design/class-exercise/DESIGN.md`](../design/class-exercise/DESIGN.md).
 - Open questions for this scope: [`../plans/open-questions/class-exercise-open-questions.md`](../plans/open-questions/class-exercise-open-questions.md).
-- Results rule as Ann ruled it (2026-10-06): [`../decisions/class-exercise-results-rule-2026-10-06.md`](../decisions/class-exercise-results-rule-2026-10-06.md); impact analysis: [`../plans/2026-10-06-results-rule-impact-analysis.md`](../plans/2026-10-06-results-rule-impact-analysis.md).
+- Results rule, Ann's answers of 2026-10-10: [`../decisions/class-exercise-results-rule-2026-10-10.md`](../decisions/class-exercise-results-rule-2026-10-10.md).
+- Results rule as Ann ruled it (2026-10-06, superseded): [`../decisions/class-exercise-results-rule-2026-10-06.md`](../decisions/class-exercise-results-rule-2026-10-06.md); impact analysis: [`../plans/2026-10-06-results-rule-impact-analysis.md`](../plans/2026-10-06-results-rule-impact-analysis.md).
 - Emails from Ann and the alignment check: [`../decisions/stakeholder-correspondence-2026-09.md`](../decisions/stakeholder-correspondence-2026-09.md).

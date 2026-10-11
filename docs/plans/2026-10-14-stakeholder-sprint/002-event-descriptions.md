@@ -1,5 +1,7 @@
 # 002 — Event descriptions end to end (#318)
 
+> **Update 2026-10-10 (Ann Wang, email 2026-10-10).** Answered (Part 2): event description column optional: ok (OQ-A-02). See [the decision record](../../decisions/class-exercise-results-rule-2026-10-10.md).
+
 Lane A, branch `oct14/event-descriptions`, one PR with #325. Seams verified against `origin/main` @ `ec471ba2` on 2026-10-06.
 
 ## Current behavior

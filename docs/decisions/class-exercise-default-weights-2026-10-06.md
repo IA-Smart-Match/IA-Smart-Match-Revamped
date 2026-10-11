@@ -1,5 +1,7 @@
 # Default weights are 3 / 3 / 2 / 2 — class module and Smart Match platform
 
+> **Update 2026-10-10 (Ann Wang, email 2026-10-10).** Ann reconfirmed 3/3/2/2, whole steps 0-10, total a whole number ("ok", Part 2): OQ-CE-32 stays closed. P004 is kept; the checklist is reworded to "he drops, but stays above a plain Accounting major", which closes OQ-CE-33. See [the decision record](class-exercise-results-rule-2026-10-10.md).
+
 **Date recorded:** 2026-10-06 · **Decided by:** Dr. Ann Wang · **Relayed by:** the
 owner (Danny) on 2026-10-06 · **Scope:** the class exercise (`ProductScope.CLASS_EXERCISE`)
 and the Smart Match CPP platform design · **Status:** class module **implemented** (PR #352, 2026-10-09); platform not yet implemented; display scale decided the same day (whole numbers 0–10)
@@ -101,8 +103,8 @@ numbers or keeps fractions and converts at the edge.
 
 | OQ | Question | Options | Recommended default | Who |
 |---|---|---|---|---|
-| **OQ-CE-32** | On what scale are 3/3/2/2 shown and stored? | — | **Closed 2026-10-06 (owner): whole numbers 0–10.** See "Display scale" above. | — |
-| **OQ-CE-33** | Does "P004 ranks 5th with the starting settings" still have to hold? | Re-state the expected rank under 3/3/2/2, or drop the pinned rank. | Recompute and send her the new rank for confirmation. **2026-10-09:** recomputed on her Oct-2 file — P004 ranks 5th of 300 under 3/3/2/2 (27th with stated interest at 0, still above every plain Accounting major). Not yet sent to her. | Dr. Wang; Chau for the number |
+| **OQ-CE-32** | On what scale are 3/3/2/2 shown and stored? | — | **Closed 2026-10-06 (owner): whole numbers 0–10.** See "Display scale" above. Reconfirmed (Ann Wang, email 2026-10-10, Part 2): "Weights 3,3,2,2, whole steps 0-10, total whole number: ok". | — |
+| **OQ-CE-33** | Does "P004 ranks 5th with the starting settings" still have to hold? | Re-state the expected rank under 3/3/2/2, or drop the pinned rank. | **CLOSED 2026-10-10 (Ann Wang, email 2026-10-10, Part 2):** "P004 Brandon Soto: OK (keep, reword checklist to 'he drops, but stays above a plain Accounting major')". The pinned rank is dropped from the checklist. Earlier: Recompute and send her the new rank for confirmation. **2026-10-09:** recomputed on her Oct-2 file — P004 ranks 5th of 300 under 3/3/2/2 (27th with stated interest at 0, still above every plain Accounting major). Not yet sent to her. | Dr. Wang; Chau for the number  |
 | **OQ-CE-34** | When does the class module switch? | Before the 2026-10-16 run-through, or after it. | **Closed 2026-10-09 (owner): before.** Implemented in PR #352. | — |
 
 ## Related

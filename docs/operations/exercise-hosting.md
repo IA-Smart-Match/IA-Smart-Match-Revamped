@@ -1105,7 +1105,7 @@ check result, and the date/SHA — in the evidence table above.
   [§7](#7-day-of-class-runbook) step 1 accepts only Ann's workbook layout and
   vocabularies. Nothing here asserts that the rankings it produces are the
   ones the class needs; OQ-CE-14 (the role→topic table) and OQ-CE-15 (Ann's
-  P004 test case, kept as built; Ann may revisit) both closed on 2026-09-25.
+  P004 test case, kept as built; Ann may revisit) both closed on 2026-09-25. P004 is kept (Ann Wang, email 2026-10-10, Part 2).
 * **The results coefficients are approved, not proven in class.** OQ-CE-03
   and OQ-CE-04 closed on 2026-09-25 — [§7](#7-day-of-class-runbook) step 6.
   Nothing here shows that the numbers feel right to a class; the practice run

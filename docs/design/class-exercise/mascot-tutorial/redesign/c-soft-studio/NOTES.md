@@ -1,5 +1,7 @@
 # Direction C: Soft Studio
 
+> **Superseded in part, 2026-10-10 (Ann Wang, email 2026-10-10, Q2).** The "email everyone" column in this design is replaced by the lift line ("Mass email alone: N sign-ups. With your 30 CBACH emails: M. Your list added K."). Kept as designed; not redrawn.
+
 Open it at `http://127.0.0.1:8765/redesign/c-soft-studio/`. This is a mockup for owner review, not app code.
 
 **Concept.** The whole module lives inside the mascot's own palette: blush coat, cocoa mane and cream paper. One cool periwinkle marks everything you can press. A pastel "studio band" runs across the top and ends in a gentle wave. Inside it sits a storybook deck: five tilted step cards (Team, Event, Your list, Results, Ask for more), and Bree walks along their top edge to the current step. Each view has one headline and one sentence. Everything else opens on demand (hints, weights, past events, the profile card). Bree carries the states the old mockup handled with text: waiting, loading, gentle errors, success and "you're done".

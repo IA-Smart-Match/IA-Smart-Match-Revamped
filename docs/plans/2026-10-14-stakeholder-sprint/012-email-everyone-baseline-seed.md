@@ -1,5 +1,7 @@
 # 012 — "Email everyone" baseline: per-team seed or one class-wide draw (#295)
 
+> **Update 2026-10-10 (Ann Wang, email 2026-10-10).** Answered: "A", keep each team its own chance draw (Q1), with a debrief sentence. Mass email is now the baseline with a lift line (Q2). Option B and the "default while unanswered" text below are history. See [the decision record](../../decisions/class-exercise-results-rule-2026-10-10.md).
+
 **Deferred. No code in this sprint.** Open question: `docs/plans/open-questions/oct14-deferred.md` → OQ-OCT14-01. Seams verified against `origin/main` on 2026-10-06.
 
 ## Current behavior
@@ -40,7 +42,7 @@
 
 ## Decision status
 
-- **Deferred to Ann** (Chau for the seed source if B). Not asked before; this sprint posts the question on #295.
+- **Deferred to Ann** (Chau for the seed source if B). Not asked before; this sprint posts the question on #295. **Decided 2026-10-10 (Ann Wang, email 2026-10-10, Q1): A.**
 - **Default while unanswered: A.** Nothing changes; the Oct-16 run-through sees per-team baselines.
-- **Needed by:** 2026-10-16 to be seen in the run-through; otherwise it lands in the 2026-10-30 fix-up.
+- **Needed by:** 2026-10-16 to be seen in the run-through; otherwise it lands in the 2026-10-30 fix-up. **Settled 2026-10-10 (Ann Wang, email 2026-10-10, Q2): the new rule is built before Oct 16 (PR #396); the 2026-10-30 fix-up no longer applies.**
 - This differs from the brief, which recommends sending B-ii. Reason: A needs no code before Oct 16, the checklist does not ask for identical baselines, and #331, once merged, removes the reset side-effect. B-ii stays the answer if Ann wants one number on every projector.

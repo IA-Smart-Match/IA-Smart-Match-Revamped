@@ -1,5 +1,7 @@
 # Class exercise design
 
+> **Update 2026-10-10 (Ann Wang, email 2026-10-10).** Section 11 (results panels, the "email everyone" comparison and the coefficients incl. the luck band) is superseded by the 2026-10-10 rule: the baseline is the mass email alone, the screen shows the lift, there is no extra luck. Text below is the 2026-09-16 design. See [the decision record](../decisions/class-exercise-results-rule-2026-10-10.md).
+
 **Date:** 2026-09-16
 **Status:** Approved for implementation. Ann's final data file arrived on
 2026-09-24 and closed the `PLACEHOLDER until 9/18` items of §2 and §3

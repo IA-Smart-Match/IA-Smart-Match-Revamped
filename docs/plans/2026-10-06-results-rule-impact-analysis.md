@@ -1,5 +1,7 @@
 # Results rule (Ann, relayed 2026-10-06): impact analysis
 
+> **Update 2026-10-10 (Ann Wang, email 2026-10-10).** **Superseded 2026-10-10.** What changed: (1) notice is 20% for the mass email and 60% for the team's 30 (about 68% for at least one), not 75/15; (2) sign-up uses the existing chances and attend is 65%, not the 2026-10-06 points and 70%; (3) no extra luck, and "email everyone" is the baseline with a lift line. New check numbers (Oct 2 file, suggested top 30 at 3/3/2/2, expected values): Northline mass alone 8.4, with list 12.9, lift 4.5 (Ann expected about 6); Harbor 9.8 / 13.7 / lift 3.9 (Ann expected 4-5). The analysis below is not re-derived. See [the decision record](../decisions/class-exercise-results-rule-2026-10-10.md).
+
 **Status:** analysis only. It changes no code, test, golden file, fixture or
 coefficient, and it decides nothing.
 **Written:** 2026-10-06, for Danny (owner) and Chau.
