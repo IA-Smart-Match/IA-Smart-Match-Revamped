@@ -121,6 +121,12 @@ describe("TeamStatusBand", () => {
     expect(document.querySelector('[data-slot="exercise-team-status-live"]')?.textContent).toBe("");
   });
 
+  it("is pinned: sticky so it stays on screen while scrolling", async () => {
+    renderBand();
+    await screen.findByText("You are Team 3");
+    expect(band()?.className).toContain("sticky");
+  });
+
   it("marks the round the page is about", async () => {
     renderBand({ eventKey: "harbor" });
     await screen.findByText("Round 2 · Harbor (this page):");

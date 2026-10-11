@@ -54,13 +54,9 @@ export function MatchingCompareView({
           Close this comparison
         </Button>
       </div>
-      <p
-        className={cn(
-          "ce-type-body text-ce-ink",
-          // §7.5: pinned above the segmented control on 390.
-          narrow && "sticky top-16 z-10 bg-ce-page py-ce-2",
-        )}
-      >
+      {/* Not sticky: the pinned team status band (z-20) can wrap taller than a
+          fixed offset on a narrow screen and would cover this line. */}
+      <p className="ce-type-body text-ce-ink">
         {overlap.length === 0
           ? "Nobody is on both lists."
           : `${overlap.length} ${
