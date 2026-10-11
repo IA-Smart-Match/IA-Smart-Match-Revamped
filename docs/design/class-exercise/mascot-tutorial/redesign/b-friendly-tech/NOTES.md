@@ -1,5 +1,7 @@
 # Direction B: Friendly Tech
 
+> **Superseded in part, 2026-10-10 (Ann Wang, email 2026-10-10, Q2).** The "email everyone" column in this design is replaced by the lift line ("Mass email alone: N sign-ups. With your 30 CBACH emails: M. Your list added K."). Kept as designed; not redrawn.
+
 **Open:** `http://127.0.0.1:8765/redesign/b-friendly-tech/` (the server on port 8765 serves `docs/design/class-exercise/mascot-tutorial`).
 **Status:** mockup for owner review. It is not app code. Nothing in `apps/` changed.
 **Files:** `index.html` (markup), `styles.css` (tokens and layout), `app.js` (behaviour, no libraries), `screenshots/`.

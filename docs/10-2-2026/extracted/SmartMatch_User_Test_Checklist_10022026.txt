@@ -20,6 +20,7 @@ Organizer assumed the audience was || Computer Information Systems majors || Int
 What the data actually holds || 78 profiles truly interested in technology; only 19 are CIS majors || 92 truly interested in retail or supply chain; only 20 are IBM majors
 “One week away” and “three weeks later” are dates inside the case story, not real dates.
 How it runs: in Session 1, teams set the four weights, build and compare lists for Northline, and draft invitations as homework. In Session 2, they see their Northline results next to “email everyone,” choose how to ask profiles for more information, refresh, and then build and run a Harbor list. The point participants should leave with: AI helps choose whom to reach, but the marketer decides what information matters, what message fits, and who is being overlooked.
+   [Note 2026-10-10, Ann Wang, email 2026-10-10, Q2: superseded by the lift line; mass email is the baseline, not a separate result.]
 The “truly interested” figures are hidden from teams. Only the results rule uses them, and this gap is what the two rounds are meant to reveal.
 1. Every button must show what it did
 This rule applies to every button in the app, for teams and for the instructor. Right now it is often unclear whether a press did anything.
@@ -43,6 +44,7 @@ This rule applies to every button in the app, for teams and for the instructor. 
 ☐ Before the Oct 16 run-through, every test team is cleared and both events are closed.
 3. A team getting in
 ☐ Go to the public address. No sign-in is asked for. The opening screen says what the exercise is in one or two sentences, plus the license line once Ann provides it.
+   [Note 2026-10-10, Ann Wang, email 2026-10-10, Part 2: license line provided and final.]
 ☐ Pick a team number (1 to 6). The next screen says “You are Team 3” at the top, and keeps saying it on every page.
 ☐ There is a visible way to switch team number if someone picked the wrong one.
 ☐ The events screen shows which event is round one (Northline) and which is round two (Harbor). The “Round” label currently appears with no number.
@@ -134,6 +136,7 @@ The refresh
 ☐ At projector size, the list, the “who is on the list” table, and the results numbers can be read from the back row.
 ☐ The browser tab says “Smart Match” or the exercise name, not “IA West SmartMatch CRM.”
 ☐ The opening screen shows the license line once Ann provides it.
+   [Note 2026-10-10, Ann Wang, email 2026-10-10, Part 2: license line provided and final.]
 ☐ The instructor’s “five quick questions” card mock-up opens on one screen (a bonus item).
 10. Problems found so far (Oct 2)
 These came from Ann’s own use of the site and a review of the Northline page. Each one maps to a section above.

@@ -65,5 +65,6 @@ Next steps
 When || What
 Before Oct 16 || The five areas, the new file and the clean-up done. Justin sends his list of what he tested and what failed.
 Fri Oct 16 || Plan items due: results with lock, "email everyone" comparison, the same list always giving the same result, reset, the "asking for more" choice, per-team refresh, the Harbor event, download. I run both sessions start to finish with the test checklist and send a list of problems.
+[Note 2026-10-10, Ann Wang, email 2026-10-10, Q2: the "email everyone" comparison in this row is replaced by the lift line ("Mass email alone: N sign-ups. With your 30 CBACH emails: M. Your list added K.").]
 Fri Oct 30 || Problems from Oct 16 fixed.
 The test checklist is attached (SmartMatch_User_Test_Checklist.docx). Quick questions on Teams are fine. Anything that changes the plan or the dates, please send by email so we have a record.

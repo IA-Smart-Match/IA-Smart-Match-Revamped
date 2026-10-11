@@ -1,3 +1,4 @@
+// SUPERSEDED 2026-10-10 (Ann Wang, email 2026-10-10, Q2): the 'If you emailed everyone' comparison group is replaced by the lift line ('Mass email alone: N sign-ups. With your 30 CBACH emails: M. Your list added K.'). Kept as the 2026-10 mockup; not redrawn.
 /* Direction B: Friendly Tech. Mockup behaviour for owner review, not app code.
    No libraries. Web Animations API + CSS only. */
 (() => {
