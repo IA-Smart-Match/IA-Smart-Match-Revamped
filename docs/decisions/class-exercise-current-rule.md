@@ -23,7 +23,8 @@ personal CBACH email. For each person, in order:
 | Baseline | Mass email alone, run on the team's own draw (same seed as the team's run) | Ann Wang, email 2026-10-10, Q1 | `exercise_results.py:268`; `exercise_results_run.py:321,331` |
 
 Undecided and Graduate-school career goals earn 0 on every event, in matching
-and in results (Ann Wang, 2026-10-07). Sign-up reads only the hidden true
+and in results. Graduate school fits no event topic (Ann confirmed D2,
+2026-09-25); Undecided earns nothing (Ann Wang, 2026-10-02 and 2026-10-07). Sign-up reads only the hidden true
 columns, for all 300, card or not. Students who stopped responding never sign
 up.
 
