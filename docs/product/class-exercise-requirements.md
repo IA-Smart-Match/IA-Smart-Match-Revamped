@@ -1,7 +1,7 @@
 # Class exercise — requirements for the Spring 2027 AI in Marketing module
 
-**Last updated:** 2026-10-10 (Ann's 2026-10-10 email: the new results rule, no extra luck,
-the lift line; see [The results rule](#the-results-rule-ann-relayed-2026-10-06))
+**Last updated:** 2026-10-11 (synced with all of Ann's rulings through her 2026-10-10 email: the new results rule, no extra luck,
+the lift line, weights 3/3/2/2; see [The results rule](#the-results-rule-ann-relayed-2026-10-06))
 **Source:** Ann Wang, "Smart Match — Marketing Class Exercise and Minimum Build
 Requirements", 15 September 2026; her "Background Note" for class
 participants, same date; and her emails to the team
@@ -204,30 +204,30 @@ Where a row's text was later changed, see
 | Comparison | The results screen always shows the mass-email-alone result (all 300 get the usual mass email) and the lift from the team's 30 CBACH emails (Ann Wang, email 2026-10-10, Q2), and in round two the team's own round-one result as well, plus seats still empty. | — | — |
 | Simulated results | A hidden rule that turns a list into results (invited, signed up, attended). It uses each profile's hidden true interests, not what the app has on file. (1) A profile is more likely to sign up when its true interests and career goal match the event. (2) Profiles that attended many past events are only a little more likely to sign up. (3) Same major alone gives only a small lift. (4) No extra luck: each team's fixed chance draw alone decides who notices, signs up and shows up, so a repeated run gives the same result (Ann Wang, email 2026-10-10, Q4). Notice rates are 20 in 100 for the mass email and 60 in 100 for the team's CBACH email; 65 in 100 show up. (5) A reset per team that does not touch other teams. The rule is written in plain words in the code and shared with Ann and Dr. Lin before the practice run. Class participants hear it only as "how this simulated market behaved". | Results as a simple bar chart readable from the projector. | Real notifications or reminders; message quality changing results. |
 | Asking for more | Before the refresh, a team picks one of three ways to ask the profiles it invited to complete a card. Each has a set outcome, written in the code and shared with Ann: promise better recommendations (about 30 percent of invited profiles without a card complete one); small reward (about 55 percent); required (about 80 percent, but about 15 percent of those without a card stop opening messages and never sign up in round two). Numbers are illustrative; Ann confirms them before the practice run. | A one-screen mock-up of the "five quick questions" card for the instructor to show. | Real profile cards for real people. |
-| Profile refresh | A per-team button, available after the team has chosen how to ask: everyone who attended Northline picks up its topics as "went to similar events"; the chosen share of invited profiles complete a card copied from their hidden true interests; markers update. An instructor button runs every team's refresh at once. Each team's refresh changes only that team's copy of the 300 profiles. | — | Refresh from real behavior. |
+| Profile refresh | A per-team button (two presses: press, then confirm), available after the team has chosen how to ask and shown as "Refreshed at" once done: everyone who attended Northline picks up its topics as "went to similar events"; the chosen share of invited profiles complete a card copied from their hidden true interests; markers update. An instructor button ("Refresh every team that has chosen how to ask", with a confirm and a report listing skip reasons) runs every team's refresh at once. Each team's refresh changes only that team's copy of the 300 profiles. | — | Refresh from real behavior. |
 | Points | Not required. | A points counter per profile that rises with attendance and card completion. | Reward catalog, redeeming points, faculty extra credit. |
 | Hosting and backup | A stable web address that loads in under 5 seconds in Chrome on classroom computers. A spreadsheet backup for Session 1 (Ann builds it: the 300 rows, four weight cells, a score column, a sort). Session 2 depends on the site; there is no backup for the simulation. | — | Mobile app; more CPP colors and styling than already exist. |
 
 ## Weights: defaults and how they are shown
 
-- **Default weights are 0.25 each.** Ann's 15 September document gives no
-  numbers; it says only that the instructor runs the match "with the default
-  settings". The equal default comes from Ann's email reply of 2026-09-25,
-  which closed OQ-CE-02: "Equal is fine. Teams should decide for themselves
-  which factors matter most." Code:
-  `python/smartmatch_domain/smartmatch_domain/exercise/registry.py` (four named
-  constants); record:
-  [`class-exercise-decisions-2026-09-25.md`](../decisions/class-exercise-decisions-2026-09-25.md)
-  and the [register](../plans/open-questions/class-exercise-open-questions.md).
-- **The weights are relative and need not sum to 1.** The matcher divides by
-  the total; only a total of zero is refused.
-- **Weight display (owner ruling, 2026-09-28).** The matching screen shows the
-  total of the four weights and this sentence: "What matters is how the weights
-  compare: a factor set to 0.50 counts twice as much as one set to 0.25." It
-  shows no percentages (ADR-0025 D8: no percentage, score, or confidence
-  reaches a class participant), and it does not force the weights to sum to 1.
-  This matches the background note's "twice as much" framing. Built on branch
-  `feat/exercise-weight-total` (separate PR).
+- **Default weights are 3 / 3 / 2 / 2** (same major 3, said they are interested
+  3, career goal fits 2, went to similar events 2). Ruled by Ann, relayed
+  2026-10-06, for the class exercise and the Smart Match platform, and
+  reconfirmed "ok" in her 2026-10-10 email (Part 2: "Weights 3,3,2,2, whole
+  steps 0-10, total whole number: ok"). The 0.25-each default (her email reply
+  of 2026-09-25, OQ-CE-02) is superseded. Record:
+  [`class-exercise-default-weights-2026-10-06.md`](../decisions/class-exercise-default-weights-2026-10-06.md);
+  shipped in PR #352.
+- **Whole steps from 0 to 10.** Weights are set in whole numbers, 0 to 10, and
+  the total is shown as a whole number.
+- **The weights are relative and need not sum to anything.** The matcher
+  divides by the total; only a total of zero is refused.
+- **Weight display.** The matching screen shows the total of the four weights
+  and, as shipped (`WeightsControls.tsx`), this sentence: "What matters is how
+  the weights compare: a factor set to 6 counts twice as much as one set to 3."
+  It shows no percentages (ADR-0025 D8: no percentage, score, or confidence
+  reaches a class participant). This matches the background note's "twice as
+  much" framing.
 
 ## Why the rule, the two rounds, and the choice of how to ask are built this way
 
@@ -427,10 +427,10 @@ Once the test plan is written he helps whoever is furthest behind.
    decides who signs up, what each "asking for more" choice does, and how the
    refresh works. Ann and Dr. Lin read it before the practice run; the
    instructor uses it for the Session 2 reveal.
-   **Added 2026-10-06 (Ann, relayed by the owner):** "Justin, please add a
+   **Added 2026-10-06 (Ann, relayed by the owner; the rule itself was replaced by her 2026-10-10 email):** "Justin, please add a
    short plain-words description of this rule to the one-page write-up." The
    rule is in
-   [The results rule (Ann, relayed 2026-10-06)](#the-results-rule-ann-relayed-2026-10-06).
+   [The results rule (Ann Wang, 2026-10-10)](#the-results-rule-ann-relayed-2026-10-06).
    No write-up file exists in the repository yet (requirement R1-W1).
 
 ### Dr. Lin (course instructor)
@@ -483,8 +483,8 @@ The decision named in each row is the authority. Do not build from the
 
 | Topic | 15 September text | Now | Authority |
 |---|---|---|---|
-| Default weights | "the default settings" (no numbers) | 0.25 each | OQ-CE-02 (Ann, 2026-09-25) |
-| Weight display | not specified | Total of the four weights plus the "counts twice as much" sentence; no percentages | Owner ruling 2026-09-28; ADR-0025 D8 |
+| Default weights | "the default settings" (no numbers) | 3 / 3 / 2 / 2, whole steps 0 to 10, total shown as a whole number. Supersedes 0.25 each (2026-09-25) | Ann Wang, relayed 2026-10-06; reconfirmed Ann Wang, email 2026-10-10, Part 2 |
+| Weight display | not specified | Total of the four weights plus "a factor set to 6 counts twice as much as one set to 3"; no percentages | Owner ruling 2026-09-28 (wording updated for the 0-10 scale); ADR-0025 D8 |
 | Profile card | "five quick questions" | Two questions (interests, career goal); major confirmed | OQ-CE-11; decision record D14 |
 | License line | Ann to provide | Fixed wording on the opening screen | OQ-CE-09; D13 |
 | Results-rule strengths | "only a little", "small lift", "small element of chance" | Ann's a lot / some / a little / some randomness, as numbers | OQ-CE-03; D7 **"Some randomness" superseded 2026-10-10 (Ann Wang, email 2026-10-10, Q4): no extra luck; the fixed chance draw alone decides.** |
@@ -493,7 +493,15 @@ The decision named in each row is the authority. Do not build from the
 | "Email everyone" | a separate comparison; 15 in 100 notice (2026-10-06) | The baseline, not an option: what CPP already does. The screen shows the lift: "Mass email alone: N sign-ups. With your 30 CBACH emails: M. Your list added K." Each team keeps its own chance draw | Ann Wang, email 2026-10-10, Q1 and Q2 |
 | P004 checklist wording | rank 5th with the starting settings | "he drops, but stays above a plain Accounting major"; P004 is kept | Ann Wang, email 2026-10-10, Part 2 |
 | Data file upload | instructor re-upload | Ann and Danny only this semester; fictional student data only | Ann Wang, email 2026-10-10, Q6 |
-| Undecided career goal | not specified | Fits no event, in matching and results. (Half credit on broad events from 2026-09-25 until Ann removed it on 2026-10-02.) | Ann's revisions 2026-10-02, item 4b; supersedes OQ-CE-14 / D2 |
+| Team status line | at the top of each page | Pinned: stays on screen while the page scrolls | Ann Wang, email 2026-10-10, Part 2 |
+| Refresh wording | "Asked at" on the instructor single-team page | "Refreshed at 10:42 AM" there, as on team screens | Ann Wang, email 2026-10-10, Part 2 ("Times") |
+| Team's own refresh | not specified | Two presses (press, then confirm); kept | Ann Wang, email 2026-10-10, Part 2 |
+| Instructor refresh of every team | not specified | Button text, confirm text and a report with skip reasons: approved | Ann Wang, email 2026-10-10, Part 2 |
+| Way of asking before round one | not specified | The three choices are hidden until the team has round-one results; one sentence stands in their place | Ann Wang, email 2026-10-10, Part 2 |
+| Event description column | not specified | Optional in the data file | Ann Wang, email 2026-10-10, Part 2 |
+| License line (final wording) | Ann to provide | Final; no per-file addendum | Ann Wang, email 2026-10-10, Part 2 |
+| New data file | not specified | A new file gives every team a new chance draw | Ann Wang, email 2026-10-10, Q6 |
+| Undecided career goal | not specified | Earns 0 on every event, Harbor included, in matching and in the results rule. (Half credit on broad events from 2026-09-25 until Ann removed it: Northline 2026-10-02, every event 2026-10-07.) | Ann's revisions 2026-10-02, item 4b; Ann Wang, email 2026-10-07; supersedes OQ-CE-14 / D2 |
 | "Said they are interested" | not specified | Yes or no: counts in full when any stated interest is a topic of the event | Ann's revisions 2026-10-02 |
 | "Went to similar events before" | topics of past events overlap this event's topics | Count of past events sharing a topic: none, one (half), two or more (full) | Ann's revisions 2026-10-02; the half step is Chau's, 2026-10-04 |
 | "Asking for more" percentages | 30 / 55 / 80 + 15, "illustrative" | Confirmed; halves round up; non-responders drawn only from those without a card | OQ-CE-04; D12 |
