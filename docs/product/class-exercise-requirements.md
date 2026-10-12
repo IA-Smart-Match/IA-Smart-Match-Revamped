@@ -288,7 +288,7 @@ old question of how the team's 30 are counted under a mass email (Q5) no longer
 applies. Debrief sentence (Ann Wang, email 2026-10-10, Q1): "Each team's numbers include its own luck.
 Look at your gap over the mass email, not just the raw number."
 
-**Requirement against the code.** The notice rule and the lift line are on `main`: backend #396, results-screen lift line #394 (also #392 "Refreshed at", #393 pinned status line). No migration.
+**Requirement against the code.** The notice rule, the lift line and Step B are on `main`: backend #396, results-screen lift line #394, Step B sign-up #398 (also #392 "Refreshed at", #393 pinned status line). No migration. One-page summary of every current number: [`class-exercise-current-rule.md`](../decisions/class-exercise-current-rule.md).
 
 | # | Requirement | Status |
 |---|---|---|
@@ -302,9 +302,13 @@ Look at your gap over the mass email, not just the raw number."
 | R1-W1 | Justin adds a short plain-words description of this rule to the one-page write-up | missing (no write-up file in the repository) |
 
 **Check numbers** (Ann Wang, email 2026-10-10, Q2): on the Oct 2 file a suggested list of 30 should
-add about 6 sign-ups at Northline and 4-5 at Harbor. The audit prototype gives
-4.5 and 3.9 (mass alone 8.4 and 9.8). The implementation PRs confirm them and
-Danny sends Ann the numbers.
+add about 6 sign-ups at Northline and 4-5 at Harbor. With Step B (PR #398, any
+past events; Oct 2 file, suggested 30 at 3/3/2/2, mean of 1,000 seeds) the code
+gives: Northline mass alone 10.5, list adds 6.4, with list 16.9; Harbor 12.1 /
+5.1 / 17.1 ([record](../decisions/class-exercise-results-rule-2026-10-10.md),
+"Check numbers"). The earlier 4.5 / 3.9 (mass alone 8.4 / 9.8) were computed
+with the set-aside chances and are history. Danny sends Ann the numbers for a
+few teams.
 
 **Also in the same message.** The dean wants the team to present to the CBACH
 advisory board on Thursday 2026-10-08: two presenters including Chau, a
@@ -482,7 +486,7 @@ The decision named in each row is the authority. Do not build from the
 | Profile card | "five quick questions" | Two questions (interests, career goal); major confirmed | OQ-CE-11; decision record D14 |
 | License line | Ann to provide | Fixed wording on the opening screen | OQ-CE-09; D13 |
 | Results-rule strengths | "only a little", "small lift", "small element of chance" | Ann's a lot / some / a little / some randomness, as numbers | OQ-CE-03; D7 **"Some randomness" superseded 2026-10-10 (Ann Wang, email 2026-10-10, Q4): no extra luck; the fixed chance draw alone decides.** |
-| Results rule, steps and numbers | Ann's three steps, relayed 2026-10-06 | Mass email 20 in 100 notice; the team's 30 also get a CBACH email, 60 in 100 notice; then the existing sign-up chances; 65 in 100 show up. Supersedes the 2026-10-06 numbers (notice 75 / 15, start 5, +35, +15, +5 or +10, +5, 70 attend). **Ruled; shipped (#394, #396)** | Ann Wang, email 2026-10-10, Q2; [results-rule record 2026-10-10](../decisions/class-exercise-results-rule-2026-10-10.md) |
+| Results rule, steps and numbers | Ann's three steps, relayed 2026-10-06 | Mass email 20 in 100 notice; the team's 30 also get a CBACH email, 60 in 100 notice; then the existing sign-up chances = Ann's Step B (start 5, +35, +15, +5 or +10, +5; owner ruling 2026-10-12, PR #398); 65 in 100 show up. Supersedes the rest of the 2026-10-06 rule (notice 75 / 15, flat 70 attend, luck); Step B is kept. **Ruled; shipped (#394, #396, #398)** | Ann Wang, email 2026-10-10, Q2; [results-rule record 2026-10-10](../decisions/class-exercise-results-rule-2026-10-10.md) |
 | Luck | "a small element of chance" (up to 10 in 100 either way) | None. The team's fixed chance draw alone decides | Ann Wang, email 2026-10-10, Q4 |
 | "Email everyone" | a separate comparison; 15 in 100 notice (2026-10-06) | The baseline, not an option: what CPP already does. The screen shows the lift: "Mass email alone: N sign-ups. With your 30 CBACH emails: M. Your list added K." Each team keeps its own chance draw | Ann Wang, email 2026-10-10, Q1 and Q2 |
 | P004 checklist wording | rank 5th with the starting settings | "he drops, but stays above a plain Accounting major"; P004 is kept | Ann Wang, email 2026-10-10, Part 2 |

@@ -679,8 +679,10 @@ session (the passcode) and sends `X-Exercise-Request`. Step 0 needs neither.
    refreshed in one transaction, so a refusal for one team rolls back all of
    them and nothing is half applied
    (`exercise_instructor_refresh.py:119-123`). Teams that have not chosen how
-   to ask are not visited; teams that have already refreshed have had their
-   one refresh. Pressing it again after a refusal starts from where it started.
+   to ask, or have no round-one run, or have already refreshed are skipped,
+   and the report lists each skipped team with its reason (`no_asking_choice`,
+   `no_round_one_run`, `already_refreshed`;
+   `exercise_instructor_refresh.py:155-190`). Pressing it again after a refusal starts from where it started.
 5. **Reset one team if it needs it.** `POST
    /v1/exercise/instructor/workspaces/{team_number}/reset`
    (`exercise_instructor.py:532-533`). It deletes that workspace's overlay,
@@ -692,10 +694,14 @@ session (the passcode) and sends `X-Exercise-Request`. Step 0 needs neither.
    **One team, and nothing else** — there
    is no team-facing reset; PR #186 removed it on the owner's ruling of
    2026-09-19.
-6. **Expect the results screen to answer with the approved numbers.** Since
-   CE-RESULTS-RULE (2026-09-25) the simulated-results rule ships the team's
-   translation of Ann's answer to **OQ-CE-03** (`EXERCISE_SIMULATION_COEFFICIENTS`
-   in `simulation.py:471`), so `POST
+6. **Expect the results screen to answer with the approved numbers.** The
+   rule now ships Ann's numbers: Step B sign-up (owner ruling 2026-10-12, PR
+   #398), notice 20% mass / 60% CBACH and 65% show-up, no extra luck (Ann
+   Wang, email 2026-10-10, PR #396); every value is on
+   [`class-exercise-current-rule.md`](../decisions/class-exercise-current-rule.md)
+   (`EXERCISE_SIMULATION_COEFFICIENTS` in `simulation.py:477`). History: from
+   2026-09-25 to 2026-10-10 it ran the team's translation of Ann's answer to
+   OQ-CE-03. `POST
    /v1/exercise/workspaces/current/events/{event_key}/results` runs once the
    round is unlocked. Chau approved the numbers on 2026-09-25 from
    [the sample result](../archive/plans/open-questions/oq-ce-03-sample-result.md), and

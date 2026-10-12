@@ -9,7 +9,8 @@ final; where earlier docs conflict, the earlier docs change.
 **Verbatim source:** the Oct 9 questions are not in the repo; they can be
 reconstructed from her reply below. Her reply is also `WangQuestion10_10_26.pdf`.
 **Supersedes:** [`class-exercise-results-rule-2026-10-06.md`](class-exercise-results-rule-2026-10-06.md)
-(the relayed sign-up points, notice 75/15 and 70% attend) and the "email
+(notice 75/15, 70% attend and the luck; the relayed sign-up points, Step B,
+are kept by the owner ruling of 2026-10-12) and the "email
 everyone as a separate option" idea in OQ-CE-24/26/29/30/31.
 
 ## Her answers, verbatim

@@ -325,9 +325,9 @@ succeeds (not on later visits, which show the final state).
 | Step | Time | What happens |
 |---|---|---|
 | 1 | 0–240ms | Seating chart fades in with all 60 seats as open outlines |
-| 2 | 240–600ms | The 8 "already coming" seats fill `--ce-seat-taken`, 12ms stagger, front row first. Line 1 fades in: "8 were already coming." |
-| 3 | 700–1300ms | The team's 6 seats fill `--ce-primary`, 60ms stagger, each with a 1→1.08→1 scale. Line 2: "Your invitations added 6." |
-| 4 | 1400–1800ms | The 46 open seats stay outlined; their outline brightens once. Line 3: "46 seats are still open." Figures count up (`ce-count-up`). |
+| 2 | 240–600ms | The 15 "already coming" seats (the 8 existing sign-ups plus the mass email's attendees) fill `--ce-seat-taken`, 12ms stagger, front row first. Line 1 fades in: "15 were already coming." |
+| 3 | 700–1300ms | The team's 4 added seats fill `--ce-primary`, 60ms stagger, each with a 1→1.08→1 scale. Line 2: "Your invitations added 4." |
+| 4 | 1400–1800ms | The 41 open seats stay outlined; their outline brightens once. Line 3: "41 seats are still open." Figures count up (`ce-count-up`). |
 
 Reduced motion: all seats in final state, the three lines and figures appear
 together with a 150ms opacity fade. The `aria-live="polite"` region announces
@@ -668,10 +668,10 @@ set as the screen's headline in Proxima Sera 40/48 (the Ledger's headline
 idea), numerals in `--ce-primary`. Under it a **ruled figures band**, not
 cards: three columns separated by 1px `--ce-line-strong` rules, each a
 `--ce-type-display` numeral over a label: "Seats in the room 60", "Already
-coming 8", "Still open 46". Since Ann Wang's email of 2026-10-10 the team
+coming 15", "Still open 41" (example numbers; see the seat rule below). Since Ann Wang's email of 2026-10-10 the team
 panel is the mass email plus the CBACH emails, so its attendees include the
 ones the mass email alone would bring. The server stores
-`seats_empty = 60 - 8 - team.attended_count` (the union of both). "Already
+`seats_empty = 60 - 8 - |mass-email attendees ∪ team attendees|` (`exercise_results_run.py:382-385`); the team panel is a superset of the mass-email panel, so in practice that union is `team.attended_count`. "Already
 coming" is the 8 existing sign-ups plus the mass email's attendees
 (`email_everyone.attended_profile_nos`), and the "added" figure is the team's
 attendees the mass email missed (`seatCountsFor` in `ResultPanels.tsx`); the
@@ -955,10 +955,10 @@ Routes and file names are the current ones. Wireframes are schematic.
 ├──────────────────┬────────────────────────────────────────────┤
 │ How much each    │ The list (h2)     Rebuilding…  Download ⤓  │
 │ thing counts     │ Cut at 30 names…                           │
-│ [slider] 0.40    │ 1  Maya Okafor              Accounting …   │
-│ [slider] 0.25    │    What counted: same major; said they …   │
-│ [slider] 0.25    │ 2  …                                       │
-│ [slider] 0.10    │ … 30 rows                                  │
+│ [slider] 3       │ 1  Maya Okafor              Accounting …   │
+│ [slider] 3       │    What counted: same major; said they …   │
+│ [slider] 2       │ 2  …                                       │
+│ [slider] 2       │ … 30 rows                                  │
 │ (sticky, 360px)  │                                            │
 ├──────────────────┴────────────────────────────────────────────┤
 │ Who is on the list (3 tables in a row)                        │
@@ -1002,10 +1002,10 @@ Deferred this round (see 6.23).
 │ Results (h1)                              ← Back to your list │
 │ lead                                                          │
 ├───────────────────────────────────┬───────────────────────────┤
-│ Seating chart 10×6                │ 8 were already coming.    │
-│ ▪▪▪▪▪▪▪▪■■                          │ Your invitations added 6. │
-│ ■■■■□□□□□□                          │ 46 seats are still open.  │
-│ □□□□□□□□□□ …                        │ 60 │ 8 │ 46  (figures band)│
+│ Seating chart 10×6                │ 15 were already coming.   │
+│ ▪▪▪▪▪▪▪▪■■                          │ Your invitations added 4. │
+│ ■■■■□□□□□□                          │ 41 seats are still open.  │
+│ □□□□□□□□□□ …                        │ 60 │ 15 │ 41 (figures band)│
 ├───────────────────────────────────┴───────────────────────────┤
 │ What happened for Northline Analytics (chart, 3 series × 2)   │
 │ The people on your team's list (chips)                        │
@@ -1038,8 +1038,8 @@ event." button sits above the seating chart.
 
 - **1280:** `round-journey.svg` strip at the top ("Round 1 → Round 2"), the
   seat chart for round two, then the chart with three series groups, then a
-  quiet line: "In round one your team's list left 46 seats empty." Round two
-  headline: "8 were already coming. Your invitations added 11. 41 seats are
+  quiet line: "In round one your team's list left 41 seats empty." Round two
+  headline: "16 were already coming. Your invitations added 5. 39 seats are
   still open."
 - **390:** as 7.8 with the extra panel as a third chart group.
 
@@ -1070,7 +1070,7 @@ event." button sits above the seating chart.
    text; seats have fill, mark and outline plus a legend and sentence; chart
    series have hatch/solid/open plus direct labels.
 4. **Keyboard:** team tiles are a radio group (arrow keys); sliders are Radix
-   `Slider` (arrows ±0.05, Page ±0.25, Home/End); choice cards are a radio group
+   `Slider` 0–10 whole steps (arrows ±1, Page ±5, Home/End; `desk/WeightSlider.tsx:9`); choice cards are a radio group
    with an explicit "Choose this way" confirm; every action reachable by Tab
    in visual order.
 5. **Focus:** 3px primary ring, 3px offset; never removed. Route change moves
@@ -1175,7 +1175,7 @@ labels and the license line are unchanged and not listed.
 | Saved settings, card chosen for compare | "Comparing" |
 | Compare, 390 | "Showing 10 of 30. Show all 30" |
 | Results, room | "The room", "Front of the room", legend "Already coming", "Your invitations", "Still open" |
-| Results, seat headline | "8 were already coming. Your invitations added 6. 46 seats are still open." (pattern from the brief) |
+| Results, seat headline | "15 were already coming. Your invitations added 4. 41 seats are still open." (pattern from the brief; "already coming" = 8 + the mass email's attendees since 2026-10-10) |
 | Results, figures band | "Seats in the room", "Already coming", "Still open" |
 | Results, lock chips | "Results are closed" / "Results are open" |
 | Results, button before results are open (2026-10-06, #328; Ann's checklist wording) | "Results not open yet." |
@@ -1189,7 +1189,7 @@ labels and the license line are unchanged and not listed.
 | Results, after "Check again" finds results still closed (#321; browser's clock, to the second) | "Checked at 10:43:07 AM. Results are still not open." (no time known: "Checked. Results are still not open.") |
 | Results, after "Check again" when the read could not be made (2026-10-06, PR #346 review; the could-not-be-reached sentence, under the button) | "The exercise could not be reached. Check the connection and try again." |
 | Results, table disclosure | "Show these counts as a table" |
-| Round two | "In round one your team's list left 46 seats empty." |
+| Round two | "In round one your team's list left 41 seats empty." |
 | Asking, supporting lines | "Tell them a card helps us suggest events worth their evening." / "Offer something small for a completed card." / "Make the card a condition of hearing about events." |
 | Asking, buttons | "Choose this way" → "Confirm: A small reward?" |
 | Asking, spoken hint | "Press again to confirm A small reward. Your team picks once." |
@@ -1228,7 +1228,7 @@ labels and the license line are unchanged and not listed.
 | Instructor, a team's opened work, nothing there (#319) | "No saved settings yet." / "No results run yet." / "Nobody on this list." / "Nobody." |
 | Instructor, which setting a run was built from (#319) | "Built from the setting “Wide net”." / "Built without a saved setting." |
 | Instructor, a run whose setting was deleted afterwards (#319, #271) | "Built from the setting “Wide net”. The team has deleted that setting since; this run is unchanged." |
-| Instructor, a run's counts (#319; D8 wording, kept) | "Invited 30, signed up 14, attended 11. 46 seats are still open." |
+| Instructor, a run's counts (#319; D8 wording, kept) | "Invited 30, signed up 14, attended 11. 41 seats are still open." |
 | Instructor, a run stored before names were kept (#319, #271) | "Names were not kept for this run." |
 | Instructor, after a team is cleared (2026-10-06, #321; Ann's checklist §2 "Team X cleared.", with the time and the scope) | "Team 3 cleared at 10:42:07 AM. It is back at the start. No other team was changed." (no time known: "Team 3 cleared. …") |
 | Instructor, when the Teams panel was last read (#321; browser's clock, to the second) | "Teams last read at 10:43:07 AM." |

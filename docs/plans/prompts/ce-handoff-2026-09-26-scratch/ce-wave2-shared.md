@@ -1,5 +1,7 @@
 # CE wave 2 — shared brief (read fully before starting)
 
+> **Historical (2026-09-26).** The D7 coefficients and D8 seat sentence below are superseded; current numbers: [`class-exercise-current-rule.md`](../../../decisions/class-exercise-current-rule.md).
+
 Output style: follow ~/.claude/rules/common/subagent-output.md (i-have-adhd)
 
 ## State
