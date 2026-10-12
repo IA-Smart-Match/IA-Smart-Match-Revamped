@@ -1,0 +1,9 @@
+BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Synthetic Eval//EN
+BEGIN:VEVENT
+UID:eval-flyer-0001@example.edu
+SUMMARY:Career Night
+DESCRIPTION:See the flyer for when and where.
+END:VEVENT
+END:VCALENDAR

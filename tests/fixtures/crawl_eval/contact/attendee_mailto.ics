@@ -1,0 +1,12 @@
+BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Synthetic Eval//EN
+BEGIN:VEVENT
+UID:eval-contact-0003@example.edu
+DTSTART;TZID=America/Los_Angeles:20261022T090000
+SUMMARY:Lab Tour
+ORGANIZER;CN=EVALORGNAME:mailto:evalorg@example.invalid
+ATTENDEE:tel:+1-555-0100
+DESCRIPTION:Write evalcontact@example.invalid to RSVP.
+END:VEVENT
+END:VCALENDAR
