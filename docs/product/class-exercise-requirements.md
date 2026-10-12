@@ -292,19 +292,17 @@ old question of how the team's 30 are counted under a mass email (Q5) no longer
 applies. Debrief sentence (Ann Wang, email 2026-10-10, Q1): "Each team's numbers include its own luck.
 Look at your gap over the mass email, not just the raw number."
 
-**Requirement against the code.** The code on `main` runs the 2026-09-25
-numbers (D7) until the backend branch `feat/wang-2026-10-10-notice-rule` and
-the frontend branch `feat/wang-2026-10-10-lift-line` merge. No migration.
+**Requirement against the code.** The notice rule and the lift line are on `main`: backend #396, results-screen lift line #394 (also #392 "Refreshed at", #393 pinned status line). No migration.
 
 | # | Requirement | Status |
 |---|---|---|
-| R2-A1 | 20 in 100 notice the mass email (all 300) | in flight (backend branch) |
-| R2-A2 | 60 in 100 of the team's 30 notice the CBACH email | in flight (backend branch) |
+| R2-A1 | 20 in 100 notice the mass email (all 300) | shipped (#396) |
+| R2-A2 | 60 in 100 of the team's 30 notice the CBACH email | shipped (#396) |
 | R2-B1 | Sign-up uses the existing chances (start 4; true fit 40 split 20/20; past events 10; same major 4) | matches today's code; interpretation to confirm |
-| R2-C1 | 65 in 100 of sign-ups show up | in flight (backend branch) |
-| R2-L1 | No extra luck; the same list always gives the same result | in flight (backend branch) |
+| R2-C1 | 65 in 100 of sign-ups show up | shipped (#396) |
+| R2-L1 | No extra luck; the same list always gives the same result | shipped (#396) |
 | R2-H1 | Sign-up uses the hidden true interests and career goal, for all 300 | matches |
-| R2-S1 | The results screen shows the lift line | in flight (frontend branch) |
+| R2-S1 | The results screen shows the lift line | shipped (#394) |
 | R1-W1 | Justin adds a short plain-words description of this rule to the one-page write-up | missing (no write-up file in the repository) |
 
 **Check numbers** (Ann Wang, email 2026-10-10, Q2): on the Oct 2 file a suggested list of 30 should
@@ -488,7 +486,7 @@ The decision named in each row is the authority. Do not build from the
 | Profile card | "five quick questions" | Two questions (interests, career goal); major confirmed | OQ-CE-11; decision record D14 |
 | License line | Ann to provide | Fixed wording on the opening screen | OQ-CE-09; D13 |
 | Results-rule strengths | "only a little", "small lift", "small element of chance" | Ann's a lot / some / a little / some randomness, as numbers | OQ-CE-03; D7 **"Some randomness" superseded 2026-10-10 (Ann Wang, email 2026-10-10, Q4): no extra luck; the fixed chance draw alone decides.** |
-| Results rule, steps and numbers | Ann's three steps, relayed 2026-10-06 | Mass email 20 in 100 notice; the team's 30 also get a CBACH email, 60 in 100 notice; then the existing sign-up chances; 65 in 100 show up. Supersedes the 2026-10-06 numbers (notice 75 / 15, start 5, +35, +15, +5 or +10, +5, 70 attend). **Ruled; code in flight** | Ann Wang, email 2026-10-10, Q2; [results-rule record 2026-10-10](../decisions/class-exercise-results-rule-2026-10-10.md) |
+| Results rule, steps and numbers | Ann's three steps, relayed 2026-10-06 | Mass email 20 in 100 notice; the team's 30 also get a CBACH email, 60 in 100 notice; then the existing sign-up chances; 65 in 100 show up. Supersedes the 2026-10-06 numbers (notice 75 / 15, start 5, +35, +15, +5 or +10, +5, 70 attend). **Ruled; shipped (#394, #396)** | Ann Wang, email 2026-10-10, Q2; [results-rule record 2026-10-10](../decisions/class-exercise-results-rule-2026-10-10.md) |
 | Luck | "a small element of chance" (up to 10 in 100 either way) | None. The team's fixed chance draw alone decides | Ann Wang, email 2026-10-10, Q4 |
 | "Email everyone" | a separate comparison; 15 in 100 notice (2026-10-06) | The baseline, not an option: what CPP already does. The screen shows the lift: "Mass email alone: N sign-ups. With your 30 CBACH emails: M. Your list added K." Each team keeps its own chance draw | Ann Wang, email 2026-10-10, Q1 and Q2 |
 | P004 checklist wording | rank 5th with the starting settings | "he drops, but stays above a plain Accounting major"; P004 is kept | Ann Wang, email 2026-10-10, Part 2 |
