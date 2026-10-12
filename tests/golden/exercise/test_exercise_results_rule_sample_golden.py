@@ -136,6 +136,8 @@ def sample_row(event_key: str, weighting: str) -> SampleRow:
 #: The pinned table: (event, list) -> (signed up, attended, seats empty,
 #: average signed up, average attended). Copied into the document.
 #:
+#: Repinned for Ann's 2026-10-06 Step B sign-up chances (5 / 35 / 15 / 5-10 / 5).
+#:
 #: Repinned 2026-10-10 for the notice rule (Ann Wang, email 2026-10-10, Q2/Q4):
 #: 20/60 in 100 notice, 65 in 100 attend, no extra luck.
 #:
@@ -144,12 +146,12 @@ def sample_row(event_key: str, weighting: str) -> SampleRow:
 #: undecided career goal no longer earns half the goal part in the rule, which
 #: lowers every average that had a hidden-undecided profile on its list.
 PINNED: Mapping[tuple[str, str], tuple[int, int, int, float, float]] = {
-    ("E11", "equal weights"): (8, 6, 46, 6.5, 4.2),
-    ("E11", "said they are interested"): (9, 6, 46, 4.6, 3.0),
-    ("E11", "same major"): (1, 1, 51, 5.2, 3.4),
-    ("E12", "equal weights"): (6, 4, 48, 5.4, 3.5),
-    ("E12", "said they are interested"): (7, 5, 47, 5.9, 3.8),
-    ("E12", "same major"): (4, 3, 49, 4.7, 3.0),
+    ("E11", "equal weights"): (11, 8, 44, 9.0, 5.8),
+    ("E11", "said they are interested"): (8, 6, 46, 5.9, 3.8),
+    ("E11", "same major"): (4, 3, 49, 7.2, 4.7),
+    ("E12", "equal weights"): (6, 4, 48, 7.1, 4.5),
+    ("E12", "said they are interested"): (7, 5, 47, 8.0, 5.1),
+    ("E12", "same major"): (4, 3, 49, 5.4, 3.4),
 }
 
 

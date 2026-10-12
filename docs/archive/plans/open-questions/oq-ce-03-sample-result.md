@@ -37,14 +37,21 @@ should count as a half match for broad, exploratory events. Her revisions of
 
 ## How her words became numbers
 
-Every student starts with a 4 in 100 chance of signing up. On top of that:
+DRAFT, owner to confirm: these are Ann's own numbers from her 2026-10-06
+reply to Chau (Step B), which replace the team's first translation (4 / 40 / 10 / 4).
 
-| What | Ann's word | Extra chance of signing up |
-|---|---|---|
-| The event matches what they truly care about | a lot | 40 in 100 |
-| They have been to at least one past event | some | 10 in 100 |
-| The event is aimed at their major | a little | 4 in 100 |
-| Chance | some randomness | none (dropped 2026-10-10) |
+Every student starts with a 5 in 100 chance of signing up. On top of that:
+
+| What | Extra chance of signing up |
+|---|---|
+| One of their true interests is a topic of the event | 35 in 100 |
+| Their true career goal fits the event | 15 in 100 |
+| They have been to 1 or 2 past events | 5 in 100 |
+| They have been to 3 or more past events | 10 in 100 |
+| The event is aimed at their major | 5 in 100 |
+| Chance | none (dropped 2026-10-10) |
+
+(Superseded text follows, kept for history.)
 
 The "a lot" boost is split in two equal halves. One half comes when one of the
 student's true interests is a topic of the event. The other half comes when
@@ -91,17 +98,17 @@ are still open." (OQ-CE-16, approved by Chau 2026-09-25).
 
 | List | One team: signed up | One team: attended | One team: empty seats | A typical team: signed up | A typical team: attended |
 |---|---|---|---|---|---|
-| Equal weights | 8 | 6 | 46 | 6.5 | 4.2 |
-| Said they are interested | 9 | 6 | 46 | 4.6 | 3.0 |
-| Same major | 1 | 1 | 51 | 5.2 | 3.4 |
+| Equal weights | 11 | 8 | 44 | 9.0 | 5.8 |
+| Said they are interested | 8 | 6 | 46 | 5.9 | 3.8 |
+| Same major | 4 | 3 | 49 | 7.2 | 4.7 |
 
 ### Harbor
 
 | List | One team: signed up | One team: attended | One team: empty seats | A typical team: signed up | A typical team: attended |
 |---|---|---|---|---|---|
-| Equal weights | 6 | 4 | 48 | 5.4 | 3.5 |
-| Said they are interested | 7 | 5 | 47 | 5.9 | 3.8 |
-| Same major | 4 | 3 | 49 | 4.7 | 3.0 |
+| Equal weights | 6 | 4 | 48 | 7.1 | 4.5 |
+| Said they are interested | 7 | 5 | 47 | 8.0 | 5.1 |
+| Same major | 4 | 3 | 49 | 5.4 | 3.4 |
 
 ## What this shows
 

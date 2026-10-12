@@ -1,10 +1,10 @@
 """The results-rule numbers are approved (wave-2 decision D7, closes OQ-CE-03).
 
-Chau approved the team's translation of Ann's words — start 0.04, true fit
-+0.40 split half interests / half goal, past attendance +0.10 from one event,
-same major +0.04. (D7 also set chance up to 0.10 either way and show-up 0.75;
-Ann Wang, email 2026-10-10, replaced them: no extra luck, show-up 0.65, notice
-20 / 60 in 100.) This
+Ann Wang's 2026-10-06 Step B (reply to Chau) sets the sign-up chances — start
+0.05, +0.35 true interests, +0.15 true career goal, +0.05 for 1-2 past events
+and +0.10 for 3 or more, +0.05 same major. They replace Chau's D7 translation
+(0.04 / 0.40 / 0.10 / 0.04). Her email of 2026-10-10 set no extra luck, show-up
+0.65, notice 20 / 60 in 100. This
 file pins two things that follow from that decision:
 
 * **The numbers did not move.** Approving a set is not changing it; the exact
@@ -56,15 +56,17 @@ _OPEN_QUESTION_MARKERS: tuple[str, ...] = (
 
 #: D7, exactly as the owner approved it.
 _APPROVED = SimulationCoefficients(
-    base_signup_rate=0.04,
-    true_fit_lift=0.40,
-    frequent_attender_lift=0.10,
-    same_major_lift=0.04,
+    base_signup_rate=0.05,
+    true_fit_lift=0.50,
+    frequent_attender_lift=0.05,
+    same_major_lift=0.05,
     mass_email_notice=0.20,
     cbach_email_notice=0.60,
     attend_given_signup=0.65,
     frequent_attender_events=1,
-    true_interest_share_of_fit=0.5,
+    true_interest_share_of_fit=0.7,
+    many_attender_lift=0.10,
+    many_attender_events=3,
 )
 
 

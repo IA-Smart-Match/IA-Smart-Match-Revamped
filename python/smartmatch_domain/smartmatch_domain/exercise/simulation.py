@@ -17,12 +17,13 @@ it, and a test checks that every number in it is the number the code uses.
     get a personal CBACH email, and 60 in 100 notice that one, so about 68 in
     100 notice at least one of the two. Someone who notices nothing does not
     sign up. Someone who notices has the sign-up chance below. Everyone starts
-    with a 4 in 100 chance of signing up. The biggest boost, 40 in 100, goes to
-    a person when the event matches what they truly care about: half of it
-    when one of their true interests is a topic of the event, and the other
-    half when their career goal fits the event. A person who has been to at
-    least one past event gets a medium boost of 10 in 100. Being in the major
-    the event is aimed at gives a small boost of 4 in 100. The total never goes
+    with a 5 in 100 chance of signing up. The biggest boosts go to a person
+    when the event matches what they truly care about: 35 in 100 when one of
+    their true interests is a topic of the event, and 15 in 100 more when
+    their career goal fits the event. A person who has been to 1 or 2 past
+    events gets a small boost of 5 in 100, and one who has been to 3 or more
+    gets 10 in 100. Being in the major the event is aimed at gives 5 in 100
+    more. The total never goes
     below 0 or above 100 in 100. Each person who signs up has a 65 in 100
     chance of attending. There is no extra luck: the team's fixed draw alone
     decides who notices, signs up and shows up, so running the same list twice
@@ -31,15 +32,18 @@ it, and a test checks that every number in it is the number the code uses.
     uses each profile's true interests for this, not what the profile has told
     the app, which is why a list built on what the app knows can miss people.
 
-Source: Ann Wang, email 2026-10-10 (Q2, Q4). It supersedes the rule relayed on
-2026-10-06 (15 in 100 notice, 5 in 100 base, 70 in 100 attend, and the extra
-luck). The sign-up chances come from her words of 2026-09-25 and the half
-credit removal of 2026-10-02, below.
+Source: Ann Wang, email 2026-10-10 (Q2, Q4) for notice, show-up and no luck;
+her 2026-10-06 reply to Chau (Step B) for the sign-up chances: start at 5,
+add 35 / 15 / 5 or 10 / 5. The 2026-10-10 email supersedes only the rest of the
+2026-10-06 rule (15 in 100 notice, 70 in 100 attend, the extra luck). It says
+"the team's existing sign-up chances", which the team had read as the older
+code numbers (4 / 40 / 10 / 4); OWNER CONFIRM that it means Step B.
 
-Ann's words were: the event matches what the student genuinely cares about,
-**a lot**; the student has attended events before, **some**; the event is
-targeted toward the student's major, **a little**; random chance, **some
-randomness**. "A lot", "some" and "a little" became 40, 10 and 4 in 100. "Some
+Ann's words of 2026-09-25 were: the event matches what the student genuinely
+cares about, **a lot**; the student has attended events before, **some**; the
+event is targeted toward the student's major, **a little**; random chance,
+**some randomness**. The team first turned them into 40, 10 and 4 in 100; her
+2026-10-06 numbers (35 + 15, 5 or 10, 5) replace that translation. "Some
 randomness" first became up to 10 in 100 either way; Ann removed that band on
 2026-10-10 (email, Q4): there is no extra luck, only the team's fixed draw.
 Ann left the numbers to Chau. The team translated her words, Chau approved the
@@ -171,21 +175,21 @@ The register names four quantities. The rule needs **nine**, and the five it
 adds are named here rather than invented as constants. The shipped value and
 where it comes from:
 
-1. ``true_fit_lift`` — 0.40. Ann's "a lot".
-2. ``frequent_attender_lift`` — 0.10. Ann's "some".
-3. ``same_major_lift`` — 0.04. Ann's "a little".
+1. ``true_fit_lift`` — 0.50, split 0.35 interests / 0.15 career goal by
+   ``true_interest_share_of_fit`` 0.7. Ann's Step B, 2026-10-06.
+2. ``frequent_attender_lift`` — 0.05 for 1-2 past events, and
+   ``many_attender_lift`` — 0.10 from ``many_attender_events`` = 3. Every
+   past event counts, as in her "1-2 past events". Ann's Step B.
+3. ``same_major_lift`` — 0.05. Ann's Step B.
 4. ``mass_email_notice`` — 0.20 and ``cbach_email_notice`` — 0.60. Ann's
    email of 2026-10-10 (Q2). No chance band: her Q4 is "no extra luck".
 5. ``attend_given_signup`` — 0.65. Ann's email of 2026-10-10 (Q2).
-6. ``base_signup_rate`` — 0.04. The rule cannot say "more likely to sign up"
-   without something to be more likely *than*; chosen so a top-30 list on
-   equal weights lands near Ann's example of 8 sign-ups.
+6. ``base_signup_rate`` — 0.05. Ann's Step B "start at 5%".
 7. ``frequent_attender_events`` — 1. Ann's (b) is "has attended events
    before", so one past event is enough.
-8. ``true_interest_share_of_fit`` — 0.5. How the true-fit lift divides between
-   the interest overlap and the career goal, and so the ceiling for a profile
-   with no career goal on file. Ann named the two together as one thing ("what
-   the student genuinely cares about"), so they share it equally.
+8. ``true_interest_share_of_fit`` — 0.7. How the true-fit lift divides between
+   the interest overlap (35) and the career goal (15), and so the ceiling for
+   a profile with no career goal on file. Ann's Step B.
 """
 
 from __future__ import annotations
@@ -390,6 +394,10 @@ class SimulationCoefficients:
     attend_given_signup: float
     frequent_attender_events: int
     true_interest_share_of_fit: float
+    #: Ann's tiers (2026-10-06 Step B): +5 for 1-2 past events, +10 for 3 or
+    #: more. ``None`` means no second tier (``frequent_attender_lift`` for all).
+    many_attender_lift: float | None = None
+    many_attender_events: int = 3
 
     def __post_init__(self) -> None:
         """Refuse a set that is not usable, before any result is drawn."""
@@ -405,6 +413,17 @@ class SimulationCoefficients:
         ):
             _check_unit_interval(name, getattr(self, name))
         _check_attender_threshold(self.frequent_attender_events)
+        if self.many_attender_lift is not None:
+            _check_unit_interval("many_attender_lift", self.many_attender_lift)
+            if not self.true_fit_lift > self.many_attender_lift:
+                raise SimulationCoefficientsError(
+                    "true_fit_lift must be greater than many_attender_lift. Got "
+                    f"{self.true_fit_lift} and {self.many_attender_lift}."
+                )
+        if self.many_attender_events < self.frequent_attender_events:
+            raise SimulationCoefficientsError(
+                "many_attender_events must be at least frequent_attender_events."
+            )
         if not self.true_fit_lift > self.frequent_attender_lift:
             raise SimulationCoefficientsError(
                 "true_fit_lift must be greater than frequent_attender_lift: the "
@@ -455,15 +474,17 @@ def _check_attender_threshold(value: object) -> None:
 #: and the plain-words paragraph at the top states every one of them. Read it
 #: through :func:`require_coefficients`.
 EXERCISE_SIMULATION_COEFFICIENTS: SimulationCoefficients | None = SimulationCoefficients(
-    base_signup_rate=0.04,
-    true_fit_lift=0.40,
-    frequent_attender_lift=0.10,
-    same_major_lift=0.04,
+    base_signup_rate=0.05,
+    true_fit_lift=0.50,
+    frequent_attender_lift=0.05,
+    same_major_lift=0.05,
     mass_email_notice=0.20,
     cbach_email_notice=0.60,
     attend_given_signup=0.65,
     frequent_attender_events=1,
-    true_interest_share_of_fit=0.5,
+    true_interest_share_of_fit=0.7,
+    many_attender_lift=0.10,
+    many_attender_events=3,
 )
 
 
@@ -530,7 +551,11 @@ def _sign_up_lift(
     """The lift above the base rate, before chance and before the clamp."""
     lift = coefficients.true_fit_lift * _fit_share(profile, event, coefficients)
     if profile.past_event_count >= coefficients.frequent_attender_events:
-        lift += coefficients.frequent_attender_lift
+        many = coefficients.many_attender_lift
+        if many is not None and profile.past_event_count >= coefficients.many_attender_events:
+            lift += many
+        else:
+            lift += coefficients.frequent_attender_lift
     if _normalized(profile.major) in {_normalized(major) for major in event.target_majors}:
         lift += coefficients.same_major_lift
     return lift
