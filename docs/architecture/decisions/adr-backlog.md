@@ -173,7 +173,7 @@ still needed" column is satisfied and its owner has answered.
   subject, then load the principal server-side, with no branch that skips the
   server-side load — so that A1b is a swap rather than a rewrite, and neither
   mechanism can become a third path.
-- **Why not now:** the property appears to hold already (`dependencies.py:86,119`,
+- **Why not now:** the property appears to hold already (`dependencies.py:99-129,196-204`,
   per `wip-analysis.md` §1.4), and an ADR asserting a property that has not been
   verified against a second real issuer would be recording a hope. The
   configuration it depends on — issuer URL, audience, claim mapping, tenant
@@ -181,6 +181,7 @@ still needed" column is satisfied and its owner has answered.
 - **Evidence still needed:** verification that no branch skips the server-side
   load, ideally as a test; the institution's issuer configuration.
 - **Owner:** institution (configuration), engineering (the seam).
+- **Evidence (2026-10-09):** `tests/unit/test_principal_server_side_load_seam.py`.
 - **Related:** `wip-analysis.md` §1.4, `docs/plans/open-questions/a1b-live-idp-deferred.md`,
   non-negotiable 4 (identity is never caller-supplied).
 
@@ -294,6 +295,8 @@ still needed" column is satisfied and its owner has answered.
   exception into a log line or a response body, CBA included, with what each
   one currently publishes. None exists; the 2026-09-19 inventory covered the
   engines and the assertion sites, not the log sites.
+- **Evidence (2026-10-09):** `docs/architecture/review/db-exception-surface-survey.md`
+  (engineering's survey; not a resolution).
 - **Owner:** program owner of record (Danny Tran), as the CBA side is a
   data-handling question, with engineering to supply the survey.
 - **Related:** ADR-0025 D6 and its 19 September 2026 implementation note;

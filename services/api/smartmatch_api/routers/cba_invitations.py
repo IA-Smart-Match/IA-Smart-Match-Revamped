@@ -140,6 +140,11 @@ from smartmatch_api.errors import ApiError
 from smartmatch_api.units import OrgUnitRow, load_unit_or_404
 from smartmatch_api.utils import utc_now
 
+SPEAKER_ALREADY_ANSWERED_MESSAGE = (
+    "This person already answered through their own invitation link, and their "
+    "answer stands. Ask them to reply to you directly if they want to change it."
+)
+
 router = APIRouter(prefix="/v1/units", tags=["speaker-invitations"])
 
 _log = logging.getLogger(__name__)
@@ -1490,7 +1495,11 @@ def record_invitation_response(
         raise ApiError(
             status_code=status.HTTP_409_CONFLICT,
             code="speaker_invitation_already_answered",
-            message=str(exc),
+            message=(
+                SPEAKER_ALREADY_ANSWERED_MESSAGE
+                if invitation.response_channel == "speaker_link"
+                else str(exc)
+            ),
         ) from exc
 
     if changed:
