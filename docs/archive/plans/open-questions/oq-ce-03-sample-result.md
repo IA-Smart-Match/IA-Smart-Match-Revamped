@@ -37,7 +37,7 @@ should count as a half match for broad, exploratory events. Her revisions of
 
 ## How her words became numbers
 
-DRAFT, owner to confirm: these are Ann's own numbers from her 2026-10-06
+Owner ruling 2026-10-12: Ann's Oct 6 Step B; past events = any past event (to confirm with Ann). These are Ann's own numbers from her 2026-10-06
 reply to Chau (Step B), which replace the team's first translation (4 / 40 / 10 / 4).
 
 Every student starts with a 5 in 100 chance of signing up. On top of that:
