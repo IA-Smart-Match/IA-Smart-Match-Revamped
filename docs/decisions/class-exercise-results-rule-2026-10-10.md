@@ -1,12 +1,11 @@
 # Class exercise: Ann Wang's answers of 2026-10-10 (results rule, luck, Part 2, data file)
 
-**Status:** Ruling recorded. Code is in flight: backend branch
-`feat/wang-2026-10-10-notice-rule`, frontend branch
-`feat/wang-2026-10-10-lift-line`, plus #392 and #393. No migration.
+**Status:** Ruling recorded. Code merged to main: #396 (notice rule), #394 (lift line), #392, #393. No migration. **Step B question OPEN (2026-10-12): Ann's 2026-10-10 words say "the team's existing sign-up chances"; the team read that as the code's numbers, which Ann never saw. The only sign-up numbers she gave are her 2026-10-06 Step B (5 / +35 / +15 / +5 or +10 / +5). Recomputed on the Oct 2 file at 3/3/2/2, the app's suggested 30, 1,000 seeds: the code's numbers add 4.6 (Northline) and 3.9 (Harbor); Step B adds 6.4 and 5.1, which is Ann's "about 6 and 4-5". Draft PR #398 implements Step B; the owner confirms with Ann before it merges.**
 **Decided by:** Ann Wang, email reply received 2026-10-10 to the team's Oct 9
 email "Smart Match: choices before your Oct 16 run-through". Her words are
 final; where earlier docs conflict, the earlier docs change.
 **Issues:** #295 #327 #293 #273 #299 #336 #390 #391.
+**Related source:** Ann's 2026-10-06 reply to Chau (Step B numbers), verbatim in [`stakeholder-correspondence-2026-09.md`](stakeholder-correspondence-2026-09.md) exchange D; owner pasted the full text again 2026-10-11.
 **Verbatim source:** the Oct 9 questions are not in the repo; they can be
 reconstructed from her reply below. Her reply is also `WangQuestion10_10_26.pdf`.
 **Supersedes:** [`class-exercise-results-rule-2026-10-06.md`](class-exercise-results-rule-2026-10-06.md)
@@ -72,10 +71,12 @@ fictional student data only. No upload for other instructors this semester.
 2. The team's 30: also a personal CBACH email; 60% notice (about 68% notice at
    least one).
 3. Then the team's **existing sign-up chances based on the match**.
-   *Interpretation, to be confirmed with Ann:* we read "existing sign-up
-   chances" as the chances the app runs today (base 4, true-fit 40 split 20/20,
-   past events 10, same major 4, out of 100). The relayed 2026-10-06 points (5 /
-   +35 / +15 / +5 or +10 / +5), notice 75/15 and 70% attend are superseded.
+   **OPEN, owner to confirm with Ann.** Reading 1 (what #396 shipped): the
+   chances the app ran before (base 4, true-fit 40 split 20/20, past events 10,
+   same major 4, out of 100); Ann never saw those numbers. Reading 2 (draft PR
+   #398): her own 2026-10-06 Step B (base 5, +35 true interests, +15 true
+   career goal, +5 for 1-2 past events or +10 for 3 or more, +5 same major).
+   Only notice 75/15 and 70% attend are certainly superseded. Numbers below.
 4. Then 65% show up.
 5. No extra plus or minus 10 luck. The team's fixed draw alone decides; same
    list gives the same result.
@@ -88,23 +89,23 @@ sign-ups. With your 30 CBACH emails: M. Your list added K."
 | Earlier text | Now |
 |---|---|
 | 2026-10-06 notice 75% (list) / 15% (mass) | 60% CBACH email / 20% mass email |
-| 2026-10-06 sign-up points 5 / +35 / +15 / +5-10 / +5 | the existing sign-up chances (see interpretation note) |
+| 2026-10-06 sign-up points 5 / +35 / +15 / +5-10 / +5 | OPEN: replaced by "existing sign-up chances" only if the owner confirms reading 1; reading 2 keeps them (PR #398) |
 | 2026-10-06 70% attend | 65% show up |
 | luck band of up to 10 in 100 (D7, R1-L2) | none |
 | "Email everyone" as a separate option and contest | baseline; screen shows the lift |
 
-## Check numbers (audit prototype, not yet confirmed by the PRs)
+## Check numbers (real code path, mean of 1,000 seeds)
 
-Oct 2 file, suggested top 30 at 3/3/2/2, expected values, excluding the 8
-existing sign-ups:
+Oct 2 file, suggested top 30 at 3/3/2/2, excluding the 8 existing sign-ups.
+N = mass email alone, K = sign-ups the list adds, M = N + K.
 
-| Event | Mass email alone | With the list | Lift | Ann expected |
-|---|---|---|---|---|
-| Northline | 8.4 | 12.9 | 4.5 | about 6 |
-| Harbor | 9.8 | 13.7 | 3.9 | 4-5 |
+| Sign-up reading | Northline N / K / M | Harbor N / K / M | Matches Ann's about 6 / 4-5? |
+|---|---|---|---|
+| 1. Code's old chances (4 / 40 / 10 / 4), shipped in #396 | 8.5 / 4.6 / 13.1 | 9.7 / 3.9 / 13.6 | Northline low |
+| 2. Ann's Step B, any past events (PR #398) | 10.5 / 6.4 / 16.9 | 12.1 / 5.1 / 17.1 | yes |
+| 2b. Step B, related past events only | 9.5 / 6.1 / 15.5 | 11.0 / 4.8 / 15.8 | yes |
 
-Per-team lift ranges 0-12. The implementation PRs confirm these; Danny sends
-Ann the numbers for a few teams.
+Reading 2 also reproduces her mock-up line ("Mass email alone: 11. With your 30 CBACH emails: 17. Your list added 6") at Northline: 10.5 to 16.9. Per-team lift ranges 0-12. Danny sends Ann the numbers for a few teams.
 
 ## Next step
 
@@ -115,4 +116,4 @@ After #396 merges, send Ann the per-team check numbers (lift N/M/K for a few tea
 See the OQ table in the PR that added this file; rows are marked in the
 [register](../plans/open-questions/class-exercise-open-questions.md) and
 [`oct14-deferred.md`](../plans/open-questions/oct14-deferred.md). Still open:
-OQ-CE-19, 20, 22, 23, 25, 27, 28; OQ-OCT14-03.
+the Step B question (OQ-CE-19, 22, 29 reopened), OQ-CE-20, 23, 27, 28; OQ-OCT14-03.

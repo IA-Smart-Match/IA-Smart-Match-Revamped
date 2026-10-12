@@ -9,7 +9,7 @@ closes. (`docs/architecture/decisions/` ADRs have their own CI-gated index.)
 |---|---|---|
 | `plans/open-questions/cba-phase-deferred.md` | CBA boundary, OQ-CBA-001…066 | ~36 open (011, 021, 044, 063–066 block soon) |
 | `plans/open-questions/student-engagement-deferred.md` | OQ-SC-01…13 + OQ-SE-01…22 | all 35 open |
-| `plans/open-questions/class-exercise-open-questions.md` | OQ-CE-01…16, OQ-CE-19…31 | CE-06 rate-limit half open; CE-19…31 open (results rule, 2026-10-06); 2026-10-10 (Ann Wang, email 2026-10-10): CE-24, 26, 29, 30, 31 answered, CE-19 moot, CE-25 partly answered; still open CE-20, 22, 23, 27, 28 |
+| `plans/open-questions/class-exercise-open-questions.md` | OQ-CE-01…16, OQ-CE-19…31 | CE-06 rate-limit half open; results rule 2026-10-06, replaced in part 2026-10-10 (Ann Wang, email 2026-10-10): CE-24, 26, 30, 31 answered, CE-25 partly answered; CE-19, 22, 29 (Step B: Ann's 2026-10-06 numbers or the code's old ones) REOPENED 2026-10-12, draft PR #398; still open CE-20, 23, 27, 28 |
 | `plans/open-questions/a1b-live-idp-deferred.md` | OQ-A1b-001…006 | all open (JWKS trust anchors) |
 | `plans/open-questions/architecture-stage-2-deferred.md` | OQ-S2-003…006 | open (S2-001/002 answered) |
 | `plans/open-questions/r4-outreach-deferred.md` | **OQ-R4**-001…009 | 001–008 open; 009 partial |
@@ -34,7 +34,7 @@ closes. (`docs/architecture/decisions/` ADRs have their own CI-gated index.)
 | `class-exercise-default-weights-2026-10-06.md` | current; class module implemented (#352), platform not | Default weights 3/3/2/2 on a whole-number 0–10 scale, class module and platform (Dr. Wang; scale: owner); supersedes OQ-CE-02's 0.25 each |
 | `class-exercise-factor-revisions-2026-10-02.md` | implemented | binary interest fit; related-past-event count (0 / 0.5 / 1); undecided half removed; `exercise-0.2.0` |
 | `class-exercise-results-rule-2026-10-06.md` | **superseded 2026-10-10** | Ann's relayed results rule (notice 75%/15%, sign-up points, 70% attend); replaced by the 2026-10-10 record below; raised OQ-CE-19…31 |
-| `class-exercise-results-rule-2026-10-10.md` | ruling recorded; code in flight | Ann's 2026-10-10 answers: mass email 20% + CBACH email 60%, existing sign-up chances, 65% show up, no extra luck, lift line, Part 2 and data-file answers |
+| `class-exercise-results-rule-2026-10-10.md` | ruling recorded; merged #392–#396; sign-up numbers OPEN (Step B, draft #398) | Ann's 2026-10-10 answers: mass email 20% + CBACH email 60%, existing sign-up chances, 65% show up, no extra luck, lift line, Part 2 and data-file answers |
 | `d6-rewards-budget-decision-record.md` | closed | owner=Danny Tran; D7 tentative |
 | `f5-deploy-target-note-2026-09-03.md` | current | classroom=synthetic; `ALLOW_CLOUD_DEPLOY=false` |
 | `g3-crawler-decision.md` | signed | CPP-only scope; fail-closed |
