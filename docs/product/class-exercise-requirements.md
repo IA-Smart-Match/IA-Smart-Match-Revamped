@@ -269,14 +269,7 @@ personal emails on top. For each person, the app decides four things in order.
    email from CBACH: 60 in 100 notice it. Getting both, about 68 in 100 notice
    at least one.
 2. **If they noticed, do they sign up?** The team's existing sign-up chances
-   based on the match. **OPEN, owner to confirm with Ann.** Reading 1 (shipped,
-   #396): the chances the app ran before (start at 4 in 100; 40 for true
-   interests and career goal, split 20 and 20; 10 for past events; 4 for the
-   same major), numbers Ann never saw. Reading 2 (draft PR #398): her own
-   Step B of 2026-10-06 (start at 5; +35 true interests; +15 true career goal;
-   +5 for 1 or 2 past events, +10 for 3 or more; +5 same major). Reading 2
-   gives the lift she expects (about 6 Northline, 4-5 Harbor); reading 1 gives
-   4.6 and 3.9.
+   based on the match. **DECIDED. Owner ruling 2026-10-12: Step B (Ann, 2026-10-06) is the sign-up step; past events = any past event, to confirm with Ann.** Step B: start at 5; +35 true interests; +15 true career goal; +5 for 1 or 2 past events, +10 for 3 or more; +5 same major (PR #398). Evidence, Oct 2 file at 3/3/2/2, suggested 30, 1,000 seeds: Step B gives the lift Ann expects (about 6 Northline, 4-5 Harbor); the set-aside chances give 4.6 and 3.9 (Step B: 6.4 and 5.1).
 3. **If they signed up, do they show up?** 65 in 100 do.
 
 There is no extra luck (Ann Wang, email 2026-10-10, Q4): "The team's fixed chance draw alone decides
@@ -301,7 +294,7 @@ Look at your gap over the mass email, not just the raw number."
 |---|---|---|
 | R2-A1 | 20 in 100 notice the mass email (all 300) | shipped (#396) |
 | R2-A2 | 60 in 100 of the team's 30 notice the CBACH email | shipped (#396) |
-| R2-B1 | Sign-up uses "the team's existing sign-up chances": reading 1 (start 4; true fit 40 split 20/20; past events 10; same major 4) or reading 2, Ann's Step B (start 5; 35 + 15; 5 or 10; 5) | OPEN: #396 ships reading 1; draft #398 is reading 2; owner confirms with Ann |
+| R2-B1 | Sign-up uses "the team's existing sign-up chances" = Ann's Step B (start 5; 35 + 15; 5 or 10; 5) | DECIDED: owner ruling 2026-10-12; PR #398 implements it; past events = any past event, to confirm with Ann |
 | R2-C1 | 65 in 100 of sign-ups show up | shipped (#396) |
 | R2-L1 | No extra luck; the same list always gives the same result | shipped (#396) |
 | R2-H1 | Sign-up uses the hidden true interests and career goal, for all 300 | matches |

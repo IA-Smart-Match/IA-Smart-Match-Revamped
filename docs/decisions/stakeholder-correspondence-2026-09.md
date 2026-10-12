@@ -144,7 +144,7 @@ invite-only speaker proposal.
   not given. The channel was not given.
 - **Attachments:** none recorded
 
-*Pasted again by the owner 2026-10-11 as Ann's reply to Chau; Step B below is the only sign-up rule Ann has given in numbers. Open 2026-10-12: Ann's 2026-10-10 words say "the team's existing sign-up chances"; the team read that as the code's numbers, which Ann never saw. The only sign-up numbers she gave are her 2026-10-06 Step B (5 / +35 / +15 / +5 or +10 / +5). Recomputed on the Oct 2 file at 3/3/2/2, the app's suggested 30, 1,000 seeds: the code's numbers add 4.6 (Northline) and 3.9 (Harbor); Step B adds 6.4 and 5.1, which is Ann's "about 6 and 4-5". Draft PR #398 implements Step B; the owner confirms with Ann before it merges.*
+*Pasted again by the owner 2026-10-11 as Ann's reply to Chau; Step B below is the only sign-up rule Ann has given in numbers. Decided 2026-10-12 (Owner ruling 2026-10-12: Step B (Ann, 2026-10-06) is the sign-up step; past events = any past event, to confirm with Ann.) Background: Ann's 2026-10-10 words say "the team's existing sign-up chances"; the team read that as the code's numbers, which Ann never saw. The only sign-up numbers she gave are her 2026-10-06 Step B (5 / +35 / +15 / +5 or +10 / +5). Recomputed on the Oct 2 file at 3/3/2/2, the app's suggested 30, 1,000 seeds: the code's numbers add 4.6 (Northline) and 3.9 (Harbor); Step B adds 6.4 and 5.1, which is Ann's "about 6 and 4-5". PR #398 implements Step B.*
 
 Chau asked:
 

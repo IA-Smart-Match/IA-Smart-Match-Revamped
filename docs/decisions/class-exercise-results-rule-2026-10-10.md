@@ -1,6 +1,6 @@
 # Class exercise: Ann Wang's answers of 2026-10-10 (results rule, luck, Part 2, data file)
 
-**Status:** Ruling recorded. Code merged to main: #396 (notice rule), #394 (lift line), #392, #393. No migration. **Step B question OPEN (2026-10-12): Ann's 2026-10-10 words say "the team's existing sign-up chances"; the team read that as the code's numbers, which Ann never saw. The only sign-up numbers she gave are her 2026-10-06 Step B (5 / +35 / +15 / +5 or +10 / +5). Recomputed on the Oct 2 file at 3/3/2/2, the app's suggested 30, 1,000 seeds: the code's numbers add 4.6 (Northline) and 3.9 (Harbor); Step B adds 6.4 and 5.1, which is Ann's "about 6 and 4-5". Draft PR #398 implements Step B; the owner confirms with Ann before it merges.**
+**Status:** Ruling recorded. Code merged to main: #396 (notice rule), #394 (lift line), #392, #393. No migration. **Step B DECIDED (2026-10-12). Owner ruling 2026-10-12: Step B (Ann, 2026-10-06) is the sign-up step; past events = any past event, to confirm with Ann. Background: Ann's 2026-10-10 words say "the team's existing sign-up chances"; the team read that as the code's numbers, which Ann never saw. The only sign-up numbers she gave are her 2026-10-06 Step B (5 / +35 / +15 / +5 or +10 / +5). Recomputed on the Oct 2 file at 3/3/2/2, the app's suggested 30, 1,000 seeds: the code's numbers add 4.6 (Northline) and 3.9 (Harbor); Step B adds 6.4 and 5.1, which is Ann's "about 6 and 4-5". PR #398 implements Step B.**
 **Decided by:** Ann Wang, email reply received 2026-10-10 to the team's Oct 9
 email "Smart Match: choices before your Oct 16 run-through". Her words are
 final; where earlier docs conflict, the earlier docs change.
@@ -71,11 +71,10 @@ fictional student data only. No upload for other instructors this semester.
 2. The team's 30: also a personal CBACH email; 60% notice (about 68% notice at
    least one).
 3. Then the team's **existing sign-up chances based on the match**.
-   **OPEN, owner to confirm with Ann.** Reading 1 (what #396 shipped): the
-   chances the app ran before (base 4, true-fit 40 split 20/20, past events 10,
-   same major 4, out of 100); Ann never saw those numbers. Reading 2 (draft PR
-   #398): her own 2026-10-06 Step B (base 5, +35 true interests, +15 true
-   career goal, +5 for 1-2 past events or +10 for 3 or more, +5 same major).
+   **DECIDED. Owner ruling 2026-10-12: Step B (Ann, 2026-10-06) is the sign-up step; past events = any past event, to confirm with Ann.** Her 2026-10-06 Step B (base 5, +35 true interests, +15 true
+   career goal, +5 for 1-2 past events or +10 for 3 or more, +5 same major) is
+   what PR #398 implements. Set aside: the chances #396 shipped (base 4,
+   true-fit 40 split 20/20, past events 10, same major 4), which Ann never saw.
    Only notice 75/15 and 70% attend are certainly superseded. Numbers below.
 4. Then 65% show up.
 5. No extra plus or minus 10 luck. The team's fixed draw alone decides; same
@@ -89,7 +88,7 @@ sign-ups. With your 30 CBACH emails: M. Your list added K."
 | Earlier text | Now |
 |---|---|
 | 2026-10-06 notice 75% (list) / 15% (mass) | 60% CBACH email / 20% mass email |
-| 2026-10-06 sign-up points 5 / +35 / +15 / +5-10 / +5 | OPEN: replaced by "existing sign-up chances" only if the owner confirms reading 1; reading 2 keeps them (PR #398) |
+| 2026-10-06 sign-up points 5 / +35 / +15 / +5-10 / +5 | KEPT: "existing sign-up chances" = Step B (owner ruling 2026-10-12, PR #398); to confirm with Ann |
 | 2026-10-06 70% attend | 65% show up |
 | luck band of up to 10 in 100 (D7, R1-L2) | none |
 | "Email everyone" as a separate option and contest | baseline; screen shows the lift |
@@ -116,4 +115,4 @@ After #396 merges, send Ann the per-team check numbers (lift N/M/K for a few tea
 See the OQ table in the PR that added this file; rows are marked in the
 [register](../plans/open-questions/class-exercise-open-questions.md) and
 [`oct14-deferred.md`](../plans/open-questions/oct14-deferred.md). Still open:
-the Step B question (OQ-CE-19, 22, 29 reopened), OQ-CE-20, 23, 27, 28; OQ-OCT14-03.
+OQ-CE-20, 23, 27, 28; OQ-OCT14-03.
