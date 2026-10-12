@@ -430,7 +430,9 @@ def test_the_shipped_set_honours_anns_a_lot_some_a_little():
     """OQ-CE-03, Ann 2026-09-25: true fit "a lot", attended before "some",
     same major "a little", and "some randomness"."""
     shipped = _shipped()
-    assert shipped.true_fit_lift > shipped.frequent_attender_lift > shipped.same_major_lift > 0
+    # Step B (2026-10-06): 1-2 past events (+5) equals same major (+5); 3 or more (+10) is above.
+    assert shipped.true_fit_lift > shipped.many_attender_lift > shipped.same_major_lift > 0
+    assert shipped.frequent_attender_lift >= shipped.same_major_lift
     assert shipped.mass_email_notice < shipped.cbach_email_notice
 
 
@@ -453,9 +455,11 @@ def test_the_plain_words_paragraph_states_every_shipped_number():
     # that happen to be equal cannot stand in for each other.
     for sentence in (
         f"Everyone starts with a {per_100(shipped.base_signup_rate)} in 100 chance",
-        f"The biggest boost, {per_100(shipped.true_fit_lift)} in 100",
-        f"medium boost of {per_100(shipped.frequent_attender_lift)} in 100",
-        f"small boost of {per_100(shipped.same_major_lift)} in 100",
+        f"{per_100(shipped.true_fit_lift * shipped.true_interest_share_of_fit)} in 100 when one",
+        f"{per_100(shipped.true_fit_lift * (1 - shipped.true_interest_share_of_fit))} in 100 more",
+        f"1 or 2 past events gets a small boost of {per_100(shipped.frequent_attender_lift)} in 100",  # noqa: E501
+        f"3 or more gets {per_100(shipped.many_attender_lift or 0)} in 100",
+        f"Being in the major the event is aimed at gives {per_100(shipped.same_major_lift)} in 100",
         f"{per_100(shipped.mass_email_notice)} in 100 notice it",
         f"{per_100(shipped.cbach_email_notice)} in 100 notice that one",
         f"{per_100(shipped.attend_given_signup)} in 100 chance of attending",
@@ -464,9 +468,8 @@ def test_the_plain_words_paragraph_states_every_shipped_number():
     ):
         assert sentence in text, sentence
     assert shipped.frequent_attender_events == 1
-    assert "been to at least one past event" in text
-    assert shipped.true_interest_share_of_fit == 0.5
-    assert "half of it when one of their true interests" in text
+    assert shipped.many_attender_events == 3
+    assert shipped.true_interest_share_of_fit == 0.7
     # Ann's revisions of 2026-10-02 (item 4b) took the undecided half out of
     # the rule, so the paragraph she receives must not still promise it.
     assert "undecided" not in text.split("For each profile")[1].split("The total never")[0]
@@ -716,3 +719,32 @@ def test_a_profile_off_the_list_never_draws_the_cbach_email():
     assert run_email_everyone(profiles, EVENT, seed=3, coefficients=only_cbach).signed_up == ()
     listed = simulate_results(profiles, EVENT, seed=3, coefficients=only_cbach, invite_limit=40)
     assert listed.signed_up
+
+
+def test_step_b_past_event_tiers_and_exact_chance():
+    """Ann 2026-10-06: 5 base, +35 interests, +15 goal, +5 for 1-2 / +10 for 3+ events, +5 major."""
+    from smartmatch_domain.exercise.simulation import _sign_up_lift
+
+    c = _shipped()
+    ev = SimulationEvent(
+        "E", topic_tags=frozenset({"Finance"}), target_majors=frozenset({"Accounting"})
+    )
+
+    def lift(**kw):
+        base = {"profile_no": 1, "major": "Biology"}
+        return _sign_up_lift(SimulationProfile(**{**base, **kw}), ev, c)
+
+    assert lift() == 0
+    assert lift(true_interests=frozenset({"Finance"})) == pytest.approx(0.35)
+    assert lift(career_goal="Finance") == pytest.approx(0.15)
+    assert lift(past_event_count=1) == pytest.approx(0.05)
+    assert lift(past_event_count=2) == pytest.approx(0.05)
+    assert lift(past_event_count=3) == pytest.approx(0.10)
+    assert lift(major="Accounting") == pytest.approx(0.05)
+    full = lift(
+        true_interests=frozenset({"Finance"}),
+        career_goal="Finance",
+        past_event_count=3,
+        major="Accounting",
+    )
+    assert c.base_signup_rate + full == pytest.approx(0.05 + 0.35 + 0.15 + 0.10 + 0.05)
