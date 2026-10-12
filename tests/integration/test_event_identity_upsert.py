@@ -704,3 +704,48 @@ def test_every_deliberately_cut_candidate_reaches_the_queue(
             {"id": event_id},
         ).scalars()
     assert sorted(queued) == sorted(cut)
+
+
+def test_extraction_upsert_keeps_a_coordinator_entry_origin_and_provenance(
+    repo: EventRepository,
+    db_session_factory: sessionmaker[Session],
+    engine: Engine,
+    tenant_id: uuid.UUID,
+    unit_id: uuid.UUID,
+) -> None:
+    """#286: a later extraction on the same key must not relabel a typed row."""
+    when = DateOnlyTime(on_date=ON_DATE, time_zone=ZONE)
+    with db_session_factory() as session:
+        first = repo.upsert_returning_outcome(
+            session,
+            tenant_id=tenant_id,
+            host_org_unit_id=unit_id,
+            title="Typed By Hand",
+            event_time=when,
+            origin=ORIGIN_COORDINATOR_ENTRY,
+        )
+        second = repo.upsert_returning_outcome(
+            session,
+            tenant_id=tenant_id,
+            host_org_unit_id=unit_id,
+            title="Typed By Hand",
+            event_time=when,
+            origin=ORIGIN_EXTRACTION,
+            provenance=CALENDAR_SOURCE,
+            description="from the calendar",
+        )
+        session.commit()
+
+    assert second.event_id == first.event_id
+    assert not second.created
+    with engine.begin() as conn:
+        row = conn.execute(
+            text(
+                "SELECT origin, source_url, fetched_at, extractor_version, description "
+                "FROM event WHERE id = :id"
+            ),
+            {"id": first.event_id},
+        ).one()
+    assert row.origin == ORIGIN_COORDINATOR_ENTRY
+    assert (row.source_url, row.fetched_at, row.extractor_version) == (None, None, None)
+    assert row.description == "from the calendar"

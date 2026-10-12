@@ -405,6 +405,12 @@ class EventRepository:
                 "filed_by_user_id",
             )
         }
+        # A human-typed row keeps its origin and provenance (#286): an
+        # extraction landing on the same key must not relabel a coordinator's
+        # request as extracted. Conditional, so extraction rows still refresh.
+        keep_manual = schema.event.c.origin == ORIGIN_COORDINATOR_ENTRY
+        for key in ("origin", "source_url", "fetched_at", "extractor_version"):
+            updated[key] = sa.case((keep_manual, schema.event.c[key]), else_=columns[key])
         updated["updated_at"] = sa.func.now()
         row = session.execute(
             insert.on_conflict_do_update(constraint="uq_event_identity", set_=updated).returning(
