@@ -115,9 +115,9 @@ class DeclineReason(StrEnum):
     """Why a coordinator declined a proposal.
 
     A closed vocabulary, ported from the legacy ``DECLINE_REASONS`` list. Free
-    text is deliberately not a reason code: it cannot be aggregated, and the
-    legacy's attempt to map free text to factors by substring matching was the
-    source of its noisiest weight suggestions.
+    text is deliberately not a reason code: it cannot be aggregated. (The legacy
+    mappers used exact lookups on a closed list, so the earlier claim of a
+    substring-matching defect does not reproduce; port-verification F-21.)
     """
 
     WRONG_TOPIC = "wrong_topic"
