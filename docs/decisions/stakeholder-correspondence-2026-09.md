@@ -167,6 +167,8 @@ then about 15 minutes of questions.
 
 ### What this settles
 
+> **Update 2026-10-12.** Items 1-2 below describe the code as of 2026-10-06 and are history. Today the code runs Step B (start 5, +35, +15, +5 or +10, +5; PR #398, owner ruling 2026-10-12) with notice 20% mass / 60% CBACH and 65% show-up (Ann Wang, email 2026-10-10, PR #396); Step A's 75/15, Step C's 70% and the luck were replaced by that email. See [`class-exercise-current-rule.md`](class-exercise-current-rule.md).
+
 1. **The results rule has three steps and Ann's numbers** — decision record
    [`class-exercise-results-rule-2026-10-06.md`](class-exercise-results-rule-2026-10-06.md)
    (R1). It supersedes the numbers of D7 as the requirement. **The code is

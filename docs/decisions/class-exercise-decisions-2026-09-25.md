@@ -314,7 +314,9 @@ Every `file:line` below is on `origin/main` at `9339d5a4`. Paths are shortened:
   major; 70% of sign-ups attend. As the **requirement**, those replace the
   values in the table above, this row's "Why" figures (9.5 / 7.1 and
   7.5 / 5.6) and the sample result. **The code is unchanged**: the table above
-  is still what `simulation.py` runs. What stands: the order a lot > some > a
+  is still what `simulation.py` runs. *(True on 2026-10-06 only. Since #396
+  and #398 the code runs Step B, 20/60 notice and 65% show-up; see
+  [`class-exercise-current-rule.md`](class-exercise-current-rule.md).)* What stands: the order a lot > some > a
   little, chance fixed per team, and hidden truth deciding outcomes. What is
   open: the size of the chance (`chance_spread`), OQ-CE-24, and whether the
   new numbers replace this set outright, OQ-CE-29. Record:
