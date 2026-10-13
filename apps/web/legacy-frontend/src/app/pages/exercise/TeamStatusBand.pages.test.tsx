@@ -118,7 +118,7 @@ function answer(key: string): Answer {
   if (key === `GET ${RESULTS}`) {
     return server.run
       ? { body: RUN_VIEW }
-      : { body: { error: { code: "exercise_results_not_run", message: "No results yet." } }, status: 404 };
+      : { body: null };
   }
   if (key === `GET ${SETTINGS}`) {
     return {

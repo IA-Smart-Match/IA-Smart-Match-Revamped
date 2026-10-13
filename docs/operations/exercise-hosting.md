@@ -36,7 +36,7 @@ away and why it is acceptable for this scope and not for the other one.
 | Gap | Why | Consequence |
 |---|---|---|
 | ~~No compose service runs this scope~~ **Closed.** | `docker-compose.exercise.yml` (a THIRD `-f` file, loaded only when named) defines an `api-exercise` service running `SMARTMATCH_PRODUCT_SCOPE=class_exercise`, gated behind the `exercise` compose profile, bound to `127.0.0.1:8090`, with its own restart policy and `SMARTMATCH_EXERCISE_COOKIE_SECURE=true` pinned in the same file. `docker-compose.yml` and `docker-compose.vm.yml` are untouched — an earlier version of this lived inside `docker-compose.yml` and broke `docker compose up` for the whole CBA stack (Compose evaluates required-secret interpolation for every service in a loaded file, profile or no profile). `tests/unit/test_exercise_compose_service.py` pins its shape. The same file also defines `web-exercise`, the Vite server the tunnel points at (`127.0.0.1:5174`, [§4a](#4a-the-tunnel-and-why-there-is-no-access-policy)). | Steps 7-10 and 18 of [§9](#9-deploy-and-verify-checklist) are runnable by an operator; see that section for the exact commands. |
-| ~~**A CI deploy removes the exercise containers**~~ **Closed.** | `scripts/vm/deploy.sh` runs `up -d --remove-orphans`. It used to load only the two CBA files, so `api-exercise` and `web-exercise` (same compose project) were deleted as orphans on every deploy. It now adds `-f docker-compose.exercise.yml --profile exercise` whenever the VM's `.env` gives `SMARTMATCH_EXERCISE_WORKSPACE_SECRET` a value, and logs `compose scope: CBA + class exercise`. | Keep that secret in `/opt/smartmatch/app/.env`, not only in a shell export, or the deploy treats the VM as CBA-only. The boot unit (`scripts/vm/smartmatch.service`) still names only the two CBA files; see [§9](#9-deploy-and-verify-checklist) step 18. |
+| ~~**A CI deploy removes the exercise containers**~~ **Closed.** | `scripts/vm/deploy.sh` runs `up -d --remove-orphans`. It used to load only the two CBA files, so `api-exercise` and `web-exercise` (same compose project) were deleted as orphans on every deploy. It now adds `-f docker-compose.exercise.yml --profile exercise` whenever the VM's `.env` gives `SMARTMATCH_EXERCISE_WORKSPACE_SECRET` a value, and logs `compose scope: CBA + class exercise`. | Keep that secret in `/opt/smartmatch/app/.env`, not only in a shell export, or the deploy treats the VM as CBA-only. The boot unit (`scripts/vm/smartmatch.service`) now loads the overlay under the same condition, so a reboot keeps the exercise containers. |
 | ~~**The Vite dev server rejects `exercise.plated.blog`**~~ **Closed.** | `vite.config.ts` `allowedHosts` includes both `pilot.plated.blog` and `exercise.plated.blog` (server and preview). | — |
 | **No proxy rate-limit config is in the repository** | The only front door is a dashboard-managed Cloudflare Tunnel (`vm-deploy.md:87-96`); there is no nginx/Caddy/Traefik config checked in | The per-client limit on the instructor login has to be built in the Cloudflare dashboard by hand, and cannot be reviewed in git. With no Access policy on this host, that rule is the **only** edge protection. See [§5](#5-rate-limiting-belongs-at-the-proxy-oq-ce-06). |
 
@@ -679,8 +679,10 @@ session (the passcode) and sends `X-Exercise-Request`. Step 0 needs neither.
    refreshed in one transaction, so a refusal for one team rolls back all of
    them and nothing is half applied
    (`exercise_instructor_refresh.py:119-123`). Teams that have not chosen how
-   to ask are not visited; teams that have already refreshed have had their
-   one refresh. Pressing it again after a refusal starts from where it started.
+   to ask, or have no round-one run, or have already refreshed are skipped,
+   and the report lists each skipped team with its reason (`no_asking_choice`,
+   `no_round_one_run`, `already_refreshed`;
+   `exercise_instructor_refresh.py:155-190`). Pressing it again after a refusal starts from where it started.
 5. **Reset one team if it needs it.** `POST
    /v1/exercise/instructor/workspaces/{team_number}/reset`
    (`exercise_instructor.py:532-533`). It deletes that workspace's overlay,
@@ -692,10 +694,14 @@ session (the passcode) and sends `X-Exercise-Request`. Step 0 needs neither.
    **One team, and nothing else** — there
    is no team-facing reset; PR #186 removed it on the owner's ruling of
    2026-09-19.
-6. **Expect the results screen to answer with the approved numbers.** Since
-   CE-RESULTS-RULE (2026-09-25) the simulated-results rule ships the team's
-   translation of Ann's answer to **OQ-CE-03** (`EXERCISE_SIMULATION_COEFFICIENTS`
-   in `simulation.py:471`), so `POST
+6. **Expect the results screen to answer with the approved numbers.** The
+   rule now ships Ann's numbers: Step B sign-up (owner ruling 2026-10-12, PR
+   #398), notice 20% mass / 60% CBACH and 65% show-up, no extra luck (Ann
+   Wang, email 2026-10-10, PR #396); every value is on
+   [`class-exercise-current-rule.md`](../decisions/class-exercise-current-rule.md)
+   (`EXERCISE_SIMULATION_COEFFICIENTS` in `simulation.py:477`). History: from
+   2026-09-25 to 2026-10-10 it ran the team's translation of Ann's answer to
+   OQ-CE-03. `POST
    /v1/exercise/workspaces/current/events/{event_key}/results` runs once the
    round is unlocked. Chau approved the numbers on 2026-09-25 from
    [the sample result](../archive/plans/open-questions/oq-ce-03-sample-result.md), and
@@ -795,25 +801,23 @@ checklist for real:
    diverged; resolve before promoting, per
    [`vm-deploy.md`](vm-deploy.md#promoting-a-commit-to-the-vm).
 
-2. **Confirm the migration head is `0044_exercise_event_description`.**
+2. **Confirm the migration head is `0046_exercise_run_snapshot`.**
    ```bash
-   grep -L 'down_revision = "0044_exercise_event_description"' /dev/null; \
-   grep -rl 'down_revision = "0044_exercise_event_description"' db/migrations/versions/*.py
+   grep -L 'down_revision = "0046_exercise_run_snapshot"' /dev/null; \
+   grep -rl 'down_revision = "0046_exercise_run_snapshot"' db/migrations/versions/*.py
    ```
    Pass: the second command prints **nothing** — no later revision points back
-   at `0044_exercise_event_description`, so it is the head
-   (`db/migrations/versions/0044_exercise_event_description.py` sets its own
-   `down_revision = "0043_exercise_event_exploratory"`; it adds the nullable
-   text column `description` to `exercise_event`, read from Ann's
-   `event_description`. `0043` before it added the boolean `is_exploratory`).
-   Nothing reads or writes `is_exploratory` since Ann's revisions of
-   2026-10-02; it stays in the table, `false` by default, so that rolling the
-   application back to the release before those revisions still works with no
-   schema step. Dropping it is a contract-phase revision for a later release,
-   after the 2026-10-16 run-through.
+   at `0046_exercise_run_snapshot`, so it is the head
+   (`db/migrations/versions/0046_exercise_result_run_snapshot.py` sets its own
+   `down_revision = "0045_exercise_unlock_closed_at"`). `is_exploratory`
+   (added by `0043`) is still in `exercise_event`, `false` by default, though
+   nothing reads or writes it since Ann's revisions of 2026-10-02; it stays so
+   that rolling the application back to the release before those revisions
+   still works with no schema step. Dropping it is a contract-phase revision
+   for a later release, after the 2026-10-16 run-through.
    **Re-upload Ann's file after `0044`**: a dataset stored before it shows no
    event description. Fail: a revision is printed — the head has moved
-   past `0044`; re-derive this step against the new file before continuing,
+   past `0046`; re-derive this step against the new file before continuing,
    since the tables the grant in [§3](#3-the-database-role) depends on may
    have changed shape.
 
@@ -1028,7 +1032,7 @@ to be live. All are **VERIFY ON VM** until then.
     | Does a CI deploy keep the exercise containers? | **Yes**, when `/opt/smartmatch/app/.env` gives `SMARTMATCH_EXERCISE_WORKSPACE_SECRET` a value and the checkout has `docker-compose.exercise.yml`. It then adds that file and `--profile exercise` to every compose call, so `build` rebuilds `api-exercise` and `up -d --remove-orphans` recreates both services instead of deleting them. The deploy log says `compose scope: CBA + class exercise`. Otherwise it logs `compose scope: CBA only` and behaves exactly as before. |
     | Does the health gate check the exercise services? | **No.** `scripts/compose_health.sh` checks the CBA services only. If `api-exercise` or `web-exercise` fails to *start*, `up -d` exits nonzero and the whole release rolls back; if one starts and then fails, the deploy stays green. Check step 11 and step 12 by hand after a promote. |
     | Does the rollback keep them? | **Yes.** The scope is re-read for the rolled-back checkout; a release older than `web-exercise` just starts `api-exercise`, and one older than `docker-compose.exercise.yml` falls back to CBA-only. |
-    | Does a VM reboot keep them? | **No, not yet.** `scripts/vm/smartmatch.service` runs `up -d --remove-orphans` with only the two CBA files, so a boot removes both exercise containers. Re-run step 7 after a reboot, or run a deploy. |
+    | Does a VM reboot keep them? | **Yes.** `scripts/vm/smartmatch.service` adds `-f docker-compose.exercise.yml --profile exercise` under the same `.env` condition as `deploy.sh`. Re-install the unit once: `sudo cp scripts/vm/smartmatch.service /etc/systemd/system/ && sudo systemctl daemon-reload`. |
 
 ### Post-class teardown / reset
 
@@ -1107,7 +1111,7 @@ check result, and the date/SHA — in the evidence table above.
   [§7](#7-day-of-class-runbook) step 1 accepts only Ann's workbook layout and
   vocabularies. Nothing here asserts that the rankings it produces are the
   ones the class needs; OQ-CE-14 (the role→topic table) and OQ-CE-15 (Ann's
-  P004 test case, kept as built; Ann may revisit) both closed on 2026-09-25.
+  P004 test case, kept as built; Ann may revisit) both closed on 2026-09-25. P004 is kept (Ann Wang, email 2026-10-10, Part 2).
 * **The results coefficients are approved, not proven in class.** OQ-CE-03
   and OQ-CE-04 closed on 2026-09-25 — [§7](#7-day-of-class-runbook) step 6.
   Nothing here shows that the numbers feel right to a class; the practice run

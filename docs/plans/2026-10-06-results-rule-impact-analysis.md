@@ -1,5 +1,7 @@
 # Results rule (Ann, relayed 2026-10-06): impact analysis
 
+> **Update 2026-10-10 (Ann Wang, email 2026-10-10).** **Superseded 2026-10-10.** What changed: (1) notice is 20% for the mass email and 60% for the team's 30 (about 68% for at least one), not 75/15; (2) attend is 65%, not 70%; (3) no extra luck, and "email everyone" is the baseline with a lift line. **Update 2026-10-12:** sign-up = Ann's Step B points (owner ruling, PR #398), so the 2026-10-06 sign-up points are kept. Current check numbers (Oct 2 file, suggested 30 at 3/3/2/2, 1,000 seeds): Northline mass alone 10.5, list adds 6.4, with list 16.9; Harbor 12.1 / 5.1 / 17.1. The 4.5 / 3.9 lifts once quoted here used the set-aside chances. Current rule: [`class-exercise-current-rule.md`](../decisions/class-exercise-current-rule.md). The analysis below is not re-derived. See [the decision record](../decisions/class-exercise-results-rule-2026-10-10.md).
+
 **Status:** analysis only. It changes no code, test, golden file, fixture or
 coefficient, and it decides nothing.
 **Written:** 2026-10-06, for Danny (owner) and Chau.
@@ -48,7 +50,7 @@ Paths are shortened:
 | B. Start | 5% | 0.04 | `sim:476` `base_signup_rate` | **differs** |
 | B. True interests match | +35 | +0.20: half of `true_fit_lift` 0.40. Any one true interest equal to any one event topic earns it. | `sim:477`, `:483`, `:535-536` | **differs** |
 | B. True career goal fits | +15 | +0.20: the other half. The goal's topic must be one of the event's topics. | `sim:537-538` | **differs** |
-| B. Undecided true goal | not mentioned | +0.10 on an exploratory event (half of the goal half). | `sim:539-540` | **differs** (OQ-CE-21) |
+| B. Undecided true goal | not mentioned | +0.10 on an exploratory event (half of the goal half). | `sim:539-540` | **differs** as of 2026-10-06; **matches since 2026-10-07**: OQ-CE-21 closed (option a) and PR #337 removed the +0.10, so `main` now earns 0 |
 | B. Past events | +5 for 1–2, +10 for 3 or more | +0.10 for one or more. One tier. Counts every past event on the file row. | `sim:478`, `:482`, `:551-552`; `api/exercise_results_models.py:206` | **differs** |
 | B. Same major | +5 | +0.04, for a major in the event's target majors. | `sim:479`, `:553-554` | **differs** |
 | B. Cap | not mentioned | Clamped to 0–1 after chance. | `sim:574` | OQ-CE-19 |
@@ -77,7 +79,7 @@ PR #337 (`chau-10-02-update-matching-algorithm`) is open and conflicts with
 | Start | 0.04 | 0.04 | 0.05 | +0.01 | +0.01 |
 | Interests match | 0.20 | 0.20 | 0.35 | +0.15 | +0.15 |
 | Goal fits | 0.20 | 0.20 | 0.15 | −0.05 | −0.05 |
-| Undecided goal | 0.10 on an exploratory event | 0 | not mentioned | open (OQ-CE-21) | none, if 0 is right |
+| Undecided goal | 0.10 on an exploratory event | 0 | not mentioned | closed 2026-10-07, option (a) (OQ-CE-21) | none; 0 is right |
 | Past events, 1–2 | 0.10 | 0.10 | 0.05 | −0.05 | −0.05 |
 | Past events, 3 or more | 0.10 | 0.10 | 0.10 | none | none |
 | Same major | 0.04 | 0.04 | 0.05 | +0.01 | +0.01 |

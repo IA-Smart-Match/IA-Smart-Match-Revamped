@@ -263,6 +263,8 @@ class Engagement:
             raise ValueError("an attended engagement must be confirmed")
         if self.cancelled and not self.confirmed:
             raise ValueError("a cancelled engagement must be confirmed")
+        if self.attended and self.cancelled:
+            raise ValueError("an engagement cannot be both attended and cancelled")
 
     @classmethod
     def from_event_time(

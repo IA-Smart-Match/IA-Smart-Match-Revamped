@@ -9,7 +9,7 @@ import {
   Menu,
   X,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ScrollToTop } from "./ScrollToTop";
 import { SessionGate } from "./SessionGate";
 import { PortalGate, grantedPortal } from "./PortalGate";
@@ -49,6 +49,23 @@ export function VolunteerPortalLayout() {
   const location = useLocation();
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const pageRef = useRef<HTMLDivElement>(null);
+
+  // Drawer open (below `lg`): page behind is `inert` and Escape closes, as in
+  // SpeakerPortalLayout. React 18 has no `inert` prop.
+  useEffect(() => {
+    const page = pageRef.current;
+    if (page === null || !sidebarOpen) return undefined;
+    page.setAttribute("inert", "");
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setSidebarOpen(false);
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      page.removeAttribute("inert");
+    };
+  }, [sidebarOpen]);
 
   const session = useSession();
   // The account-to-portal mapping, from `GET /v1/me/portals`. The shell used
@@ -185,7 +202,7 @@ export function VolunteerPortalLayout() {
       </aside>
 
       {/* Main content */}
-      <div className="lg:pl-64">
+      <div ref={pageRef} className="lg:pl-64">
         {/* Mobile header */}
         <header className="sticky top-0 z-30 border-b border-sidebar-border bg-sidebar px-4 py-3 lg:hidden">
           <div className="flex items-center justify-between">

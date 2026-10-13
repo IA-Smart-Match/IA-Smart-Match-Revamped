@@ -1,3 +1,5 @@
+> Note 2026-10-10: the table below is repinned for Ann's mass-email and CBACH notice rule (email 2026-10-10, Q2/Q4); it shows the team's list alone, not the lift over the mass email.
+
 # Sample result for the results rule (OQ-CE-03)
 
 **For:** Ann, for information. Chau used it to approve the numbers.
@@ -35,14 +37,21 @@ should count as a half match for broad, exploratory events. Her revisions of
 
 ## How her words became numbers
 
-Every student starts with a 4 in 100 chance of signing up. On top of that:
+Owner ruling 2026-10-12: Ann's Oct 6 Step B; past events = any past event (to confirm with Ann). These are Ann's own numbers from her 2026-10-06
+reply to Chau (Step B), which replace the team's first translation (4 / 40 / 10 / 4).
 
-| What | Ann's word | Extra chance of signing up |
-|---|---|---|
-| The event matches what they truly care about | a lot | 40 in 100 |
-| They have been to at least one past event | some | 10 in 100 |
-| The event is aimed at their major | a little | 4 in 100 |
-| Chance | some randomness | up to 10 in 100, either way |
+Every student starts with a 5 in 100 chance of signing up. On top of that:
+
+| What | Extra chance of signing up |
+|---|---|
+| One of their true interests is a topic of the event | 35 in 100 |
+| Their true career goal fits the event | 15 in 100 |
+| They have been to 1 or 2 past events | 5 in 100 |
+| They have been to 3 or more past events | 10 in 100 |
+| The event is aimed at their major | 5 in 100 |
+| Chance | none (dropped 2026-10-10) |
+
+(Superseded text follows, kept for history.)
 
 The "a lot" boost is split in two equal halves. One half comes when one of the
 student's true interests is a topic of the event. The other half comes when
@@ -50,8 +59,7 @@ their career goal fits the event. A student whose career goal is undecided, or
 is graduate school, gets none of that second half.
 
 A student's chance never goes below 0 or above 100 in 100. Each student who
-signs up has a 75 in 100 chance of attending. That matches Ann's own example,
-where 6 of 8 attended.
+signs up has a 65 in 100 chance of attending. Ann set this on 2026-10-10.
 
 The rule uses each student's true interests and true career goal, not what the
 student has told the app. That is why a list built only on what the app knows
@@ -90,17 +98,17 @@ are still open." (OQ-CE-16, approved by Chau 2026-09-25).
 
 | List | One team: signed up | One team: attended | One team: empty seats | A typical team: signed up | A typical team: attended |
 |---|---|---|---|---|---|
-| Equal weights | 14 | 12 | 40 | 9.5 | 7.2 |
-| Said they are interested | 12 | 10 | 42 | 6.8 | 5.1 |
-| Same major | 7 | 6 | 46 | 7.7 | 5.8 |
+| Equal weights | 11 | 8 | 44 | 9.0 | 5.8 |
+| Said they are interested | 8 | 6 | 46 | 5.9 | 3.8 |
+| Same major | 4 | 3 | 49 | 7.2 | 4.7 |
 
 ### Harbor
 
 | List | One team: signed up | One team: attended | One team: empty seats | A typical team: signed up | A typical team: attended |
 |---|---|---|---|---|---|
-| Equal weights | 9 | 6 | 46 | 8.0 | 6.0 |
-| Said they are interested | 11 | 7 | 45 | 8.6 | 6.4 |
-| Same major | 7 | 7 | 45 | 6.9 | 5.1 |
+| Equal weights | 6 | 4 | 48 | 7.1 | 4.5 |
+| Said they are interested | 7 | 5 | 47 | 8.0 | 5.1 |
+| Same major | 4 | 3 | 49 | 5.4 | 3.4 |
 
 ## What this shows
 
@@ -120,9 +128,7 @@ approved the numbers as shown and the team's recommendation for empty seats,
 which answers all three.
 
 1. **Are these sizes believable?** The numbers stand as shown.
-2. **Is the randomness the right size?** It stays at up to 10 in 100 either
-   way. At this size one team's luck can flip which list looks best, as the
-   example team shows.
+2. **Is the randomness the right size?** Superseded: Ann's email of 2026-10-10 (Q4) removed the extra luck.
 3. **How should empty seats be counted?** Show both groups: the 8 who had
    already signed up, and the invited students who attended. So 6 attendees
    leave 46 seats open. An earlier example of ours read "54 seats remained

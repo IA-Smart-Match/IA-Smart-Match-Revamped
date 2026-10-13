@@ -269,7 +269,7 @@ Status key: ✅ done · 🟡 partial · ❌ missing · ⚠️ conflict (see §1)
 
 | Requirement | Status | Current behaviour | Issue |
 |---|---|---|---|
-| "Email everyone" four numbers always beside the team's | 🟡 | Computed and stored (minus seats empty); shown only in the chart and a collapsed table. | #327, #295 |
+| "Email everyone" four numbers always beside the team's | 🟡 | Computed and stored (minus seats empty); shown only in the chart and a collapsed table. | #327, #295 **Superseded 2026-10-10 (Ann Wang, email 2026-10-10, Q2): replaced by the lift line ("Mass email alone: N sign-ups. With your 30 CBACH emails: M. Your list added K.").** |
 | Harbor three-way view | 🟡 | Wired into the chart only. | #327 |
 | One run per team per event (button, reload, second tab) | ✅ server / ❌ screen ⚠️ C6 | Enforced by a UNIQUE constraint plus an advisory lock. The screen does not show it, and a stale tab does not re-read. | #328 |
 | Confirm "Send this list? You get one results run…" | ❌ | Posts immediately. | #328 |

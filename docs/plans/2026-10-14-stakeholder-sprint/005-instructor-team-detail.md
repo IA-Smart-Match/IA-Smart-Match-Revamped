@@ -1,5 +1,7 @@
 # 005 — "Open this team's work" shows the whole team (#319)
 
+> **Update 2026-10-10 (Ann Wang, email 2026-10-10).** Answered (Part 2, "Times"): the instructor single-team page says "Refreshed at 10:42 AM", not "Asked at". See [the decision record](../../decisions/class-exercise-results-rule-2026-10-10.md).
+
 Lane B, branch `oct14/results-lock-snapshot`. Shares one fix with plan 006 (#271): the run-time snapshot on `exercise_result_run`. This file stands on its own; 006 holds the migration and the write path in full.
 Seams are `file:line` on `origin/main` @ `ec471ba2`.
 

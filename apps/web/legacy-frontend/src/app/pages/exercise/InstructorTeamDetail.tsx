@@ -91,8 +91,8 @@ export function TeamDetail({ detail }: { readonly detail: TeamDetailView }): Rea
 }
 
 /**
- * "Way of asking: A small reward. Asked at 10:42 AM." — the page's own words
- * for the refresh ("asked"), with the time it was done.
+ * "Way of asking: A small reward. Refreshed at 10:42 AM." — the page's own words
+ * for the refresh, with the time it was done.
  */
 function askingSentence(detail: TeamDetailView): string {
   const way =
@@ -103,7 +103,7 @@ function askingSentence(detail: TeamDetailView): string {
     return `${way} Has not asked yet.`;
   }
   const at = clockTime(detail.refreshed_at);
-  return at === null ? `${way} Has already asked.` : `${way} Asked at ${at}.`;
+  return at === null ? `${way} Has already asked.` : `${way} Refreshed at ${at}.`;
 }
 
 function SavedSetting({

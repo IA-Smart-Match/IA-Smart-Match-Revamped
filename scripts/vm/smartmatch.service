@@ -35,6 +35,13 @@ WorkingDirectory=/opt/smartmatch/app
 # actually running rather than the `vm-unknown` default.
 EnvironmentFile=-/opt/smartmatch/release.env
 
+# EXERCISE OVERLAY: the same conditional as scripts/vm/deploy.sh
+# resolve_compose_scope(). docker-compose.exercise.yml is added (with
+# `--profile exercise`) only when .env sets SMARTMATCH_EXERCISE_WORKSPACE_SECRET
+# AND the file exists. It must stay conditional (the file uses `${VAR:?}`), and
+# it must match deploy.sh, or `--remove-orphans` deletes api-exercise and
+# web-exercise on every boot. In this file `$$` is a literal `$`.
+#
 # SHARED LOCK: scripts/vm/deploy.sh serializes itself on a flock over
 # $SMARTMATCH_LOCK_FILE (default ${SMARTMATCH_STATE_DIR:-/opt/smartmatch}/deploy.lock).
 # This unit's ExecStart must take that SAME lock file, or a boot can race an
@@ -45,12 +52,12 @@ EnvironmentFile=-/opt/smartmatch/release.env
 # comfortably under TimeoutStartSec below, so a stuck deployment fails this
 # unit's start with a clear timeout (flock's own nonzero exit) instead of an
 # infinite hang.
-ExecStart=/usr/bin/flock --wait 1500 /opt/smartmatch/deploy.lock /usr/bin/docker compose -f docker-compose.yml -f docker-compose.vm.yml up -d --remove-orphans
+ExecStart=/usr/bin/flock --wait 1500 /opt/smartmatch/deploy.lock /bin/sh -c "f=; if [ -f .env ] && grep -Eq \"^[[:space:]]*(export[[:space:]]+)?SMARTMATCH_EXERCISE_WORKSPACE_SECRET=[\\\"']?[^\\\"'[:space:]]\" .env && [ -f docker-compose.exercise.yml ]; then f='-f docker-compose.exercise.yml --profile exercise'; fi; exec /usr/bin/docker compose -f docker-compose.yml -f docker-compose.vm.yml $$f up -d --remove-orphans"
 
 # `stop`, never `down`, and never `-v`. `down` would remove the containers and
 # `down -v` would discard the database volume; a machine reboot must do
 # neither.
-ExecStop=/usr/bin/docker compose -f docker-compose.yml -f docker-compose.vm.yml stop
+ExecStop=/bin/sh -c "f=; if [ -f .env ] && grep -Eq \"^[[:space:]]*(export[[:space:]]+)?SMARTMATCH_EXERCISE_WORKSPACE_SECRET=[\\\"']?[^\\\"'[:space:]]\" .env && [ -f docker-compose.exercise.yml ]; then f='-f docker-compose.exercise.yml --profile exercise'; fi; exec /usr/bin/docker compose -f docker-compose.yml -f docker-compose.vm.yml $$f stop"
 
 TimeoutStartSec=1800
 

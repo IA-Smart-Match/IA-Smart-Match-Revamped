@@ -94,7 +94,7 @@ def test_every_refusal_code_is_the_exercises_own(
         client.post(f"{_BASE}/events/nope/results", json={}, headers=_HEADER),
         client.post(_ASKING, json={"choice": "nope"}, headers=_HEADER),
         client.post(_REFRESH, json={}, headers=_HEADER),
-        client.get(f"{_BASE}/events/round-one/results"),
+        client.get(f"{_BASE}/events/nope/results"),
     ]
 
     for response in refusals:

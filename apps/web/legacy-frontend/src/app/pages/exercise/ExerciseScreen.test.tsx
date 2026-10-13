@@ -13,6 +13,14 @@ import {
 afterEach(cleanup);
 
 describe("ExerciseScreen (§6.1)", () => {
+  it("names the tab '<title> · Class exercise' and restores it on unmount (#267)", () => {
+    document.title = "before";
+    const { unmount } = render(<ExerciseScreen title="Results">body</ExerciseScreen>);
+    expect(document.title).toBe("Results · Class exercise");
+    unmount();
+    expect(document.title).toBe("before");
+  });
+
   it("wraps the screen in the exercise token scope", () => {
     const { container } = render(<ExerciseScreen title="Choose an event">body</ExerciseScreen>);
     expect(container.querySelector(".ce-root")).not.toBeNull();

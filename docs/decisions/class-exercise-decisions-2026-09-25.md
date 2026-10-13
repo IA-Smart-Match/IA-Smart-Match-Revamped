@@ -1,5 +1,7 @@
 # Class exercise: decisions D1–D16 (wave 2)
 
+> **Update 2026-10-10 (Ann Wang, email 2026-10-10).** D7's numbers are superseded as the requirement by the 2026-10-10 rule (no extra luck, notice 20/60, 65% show up); D9 (P004 kept) is confirmed by Ann (Part 2). The text below is kept as written. See [the decision record](class-exercise-results-rule-2026-10-10.md).
+
 **Status:** Record of decisions already made. Every decision below was approved
 by the person named in its row, on the date named. This file decides nothing
 new; it writes the decisions down in one place.
@@ -145,8 +147,8 @@ Every `file:line` below is on `origin/main` at `9339d5a4`. Paths are shortened:
   - `db/migrations/versions/0043_exercise_event_exploratory.py`
 - **See also, 2026-10-06 (results rule).** Ann's rule relayed on 2026-10-06
   gives "+15 if their true career goal fits the event" and does not mention an
-  undecided goal. Whether the results step keeps this row's half is open:
-  OQ-CE-21. This row is not superseded by that record. PR #337 (open) removes
+  undecided goal. Whether the results step keeps this row's half was open until 2026-10-07
+  (OQ-CE-21, closed option a). This row is not superseded by that record. PR #337 (merged 2026-10-07) removes
   the half on the strength of Ann's revisions of 2026-10-02. Record:
   [`class-exercise-results-rule-2026-10-06.md`](class-exercise-results-rule-2026-10-06.md).
 
@@ -312,7 +314,9 @@ Every `file:line` below is on `origin/main` at `9339d5a4`. Paths are shortened:
   major; 70% of sign-ups attend. As the **requirement**, those replace the
   values in the table above, this row's "Why" figures (9.5 / 7.1 and
   7.5 / 5.6) and the sample result. **The code is unchanged**: the table above
-  is still what `simulation.py` runs. What stands: the order a lot > some > a
+  is still what `simulation.py` runs. *(True on 2026-10-06 only. Since #396
+  and #398 the code runs Step B, 20/60 notice and 65% show-up; see
+  [`class-exercise-current-rule.md`](class-exercise-current-rule.md).)* What stands: the order a lot > some > a
   little, chance fixed per team, and hidden truth deciding outcomes. What is
   open: the size of the chance (`chance_spread`), OQ-CE-24, and whether the
   new numbers replace this set outright, OQ-CE-29. Record:
@@ -430,6 +434,7 @@ Every `file:line` below is on `origin/main` at `9339d5a4`. Paths are shortened:
   surfaced as always-null in `api/routers/exercise_instructor_models.py:137`).
   Whether to retire it or define it as a per-file addendum is a row in
   [`docs/plans/backlog.md`](../plans/backlog.md).
+- **Update 2026-10-10 (Ann Wang, email 2026-10-10, Part 2).** The license line is final; the per-file addendum is withdrawn. Whether to retire the unused column is still Danny's call.
 
 ## D14. The card asks two questions
 

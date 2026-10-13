@@ -197,9 +197,9 @@ class SpeakerInvitationRow:
     id, match run, template, other recipient, skip reason, address, send job,
     delivery fact, recording user, professional or unit.
 
-    ``event_local_date`` and ``event_time_zone`` come from the event row once a
-    batch names one (T4's ``speaker_request_id``); until then they are ``None``
-    and ``event_date`` is the text the invitation carried.
+    ``event_local_date`` and ``event_time_zone`` come from the event row the batch
+    names (``speaker_request_id``); ``None`` when it names none. ``event_date`` is
+    the text the invitation carried.
     """
 
     id: uuid.UUID
@@ -682,14 +682,15 @@ def _speaker_invitation_select(tenant_id: uuid.UUID, professional_id: uuid.UUID)
     """Own dispatched invitations joined to their batch, in one tenant."""
     invitation = schema.cba_invitation
     batch = schema.cba_invitation_batch
+    event = schema.event
     return (
         sa.select(
             invitation.c.id,
             batch.c.event_name,
             batch.c.event_date,
-            # C3: null until T4 links a batch to an event (`speaker_request_id`).
-            sa.null().label("event_local_date"),
-            sa.null().label("event_time_zone"),
+            # C3: from the batch's event (`speaker_request_id`); NULL when unlinked.
+            event.c.resolved_date.label("event_local_date"),
+            event.c.time_zone.label("event_time_zone"),
             invitation.c.dispatched_at,
             invitation.c.response_status,
             invitation.c.response_recorded_at,
@@ -701,6 +702,12 @@ def _speaker_invitation_select(tenant_id: uuid.UUID, professional_id: uuid.UUID)
                 sa.and_(
                     batch.c.tenant_id == invitation.c.tenant_id,
                     batch.c.id == invitation.c.batch_id,
+                ),
+            ).outerjoin(
+                event,
+                sa.and_(
+                    event.c.tenant_id == batch.c.tenant_id,
+                    event.c.id == batch.c.speaker_request_id,
                 ),
             )
         )

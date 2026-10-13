@@ -74,7 +74,7 @@ import { Bar, BarChart, CartesianGrid, LabelList, Legend, XAxis, YAxis } from "r
  */
 export type ExerciseHeadCount = number | null;
 
-/** One panel of the results screen — a team's list, "email everyone", or a stored round. */
+/** One panel of the results screen — a team's list, "the mass email alone", or a stored round. */
 export interface ExerciseResultsSeries {
   /** What this panel is, in the words a participant reads. */
   readonly label: string;
@@ -89,7 +89,7 @@ export interface ExerciseResultsSeries {
 export interface ExerciseResultsChartProps {
   /**
    * The panels to compare, in the order they should read left to right. The
-   * §10 comparison view passes the team's list, "email everyone", and — in
+   * §10 comparison view passes the team's list, "the mass email alone", and — in
    * round two — the team's stored round one.
    */
   readonly series: readonly ExerciseResultsSeries[];

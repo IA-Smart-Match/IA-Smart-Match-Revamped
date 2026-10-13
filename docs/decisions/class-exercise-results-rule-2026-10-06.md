@@ -1,5 +1,7 @@
 # Class exercise: the results rule, as Ann ruled it (relayed 2026-10-06)
 
+> **Update 2026-10-10 (Ann Wang, email 2026-10-10).** **Superseded 2026-10-10.** The notice 75/15 (Step A), 70% attend (Step C) and the luck are replaced: mass email 20% and CBACH email 60% notice, 65% show up, no extra luck. **Addendum 2026-10-12 (owner ruling): Step B, the sign-up points 5/+35/+15/+5-10/+5, is NOT superseded; it is the "existing sign-up chances" and ships in PR #398 (any past event, to confirm with Ann).** Current numbers on one page: [`class-exercise-current-rule.md`](class-exercise-current-rule.md). Kept below as history, not rewritten. See [the decision record](class-exercise-results-rule-2026-10-10.md).
+
 **Status:** Ruling recorded. **Not implemented.** The code on `main` still runs
 the numbers of decision D7 (2026-09-25). This file changes no code, no test,
 no fixture and no coefficient.
@@ -176,7 +178,7 @@ here.
   undecided true career goal earns nothing from the career-goal part. It
   leaves D7's eight numbers as they are. R1 is silent on the undecided goal,
   so PR #337 and R1 do not conflict; R1's numbers would be a further change
-  on top of it. See OQ-CE-21.
+  on top of it. See OQ-CE-21 (closed 2026-10-07, option a).
 - **PR #342** (on top of #337). No change to the rule.
 - **PR #344** (keep the seed when the instructor clears a team, #331). It
   serves Ann's "the same list always gives the same result". Not merged on

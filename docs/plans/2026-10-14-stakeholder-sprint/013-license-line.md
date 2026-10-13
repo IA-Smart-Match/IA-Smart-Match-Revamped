@@ -1,5 +1,7 @@
 # 013 — `exercise_dataset.license_line`: retire or keep as a per-file addendum (#273)
 
+> **Update 2026-10-10 (Ann Wang, email 2026-10-10).** Answered: "License line: ok (final)" (Part 2). Option B (per-file addendum) is withdrawn; retire-vs-keep the column stays Danny's call. See [the decision record](../../decisions/class-exercise-results-rule-2026-10-10.md).
+
 **Deferred. No code in this sprint.** Open question: `docs/plans/open-questions/oct14-deferred.md` → OQ-OCT14-02. Seams verified against `origin/main` on 2026-10-06.
 
 ## Current behavior
@@ -48,6 +50,6 @@
 
 ## Decision status
 
-- **Deferred.** Ann answers one question (fixed wording vs wording per file). The owner (Danny) answers whether to drop the column and when.
+- **Deferred.** Ann answers one question (fixed wording vs wording per file). The owner (Danny) answers whether to drop the column and when. **Decided 2026-10-10 (Ann Wang, email 2026-10-10, Part 2): license line final; no addendum.**
 - **Default while unanswered: C in effect** (nothing changes). Recommended once answered: A, after the run-through.
 - **Needed by:** nothing before 2026-10-16. Target the 2026-10-30 fix-up.

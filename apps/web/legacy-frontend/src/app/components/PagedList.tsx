@@ -141,6 +141,8 @@ export interface PagedListProps<TItem> {
    * `null`, nothing about paging changes.
    */
   revealIndex?: number | null;
+  /** Set false when the page already owns a live region, so only one announces. */
+  announce?: boolean;
   /**
    * Renders the visible slice.
    *
@@ -309,6 +311,7 @@ export function PagedList<TItem>({
   idPrefix,
   initialPageSize = DEFAULT_PAGE_SIZE,
   revealIndex = null,
+  announce = true,
   children,
 }: PagedListProps<TItem>) {
   const [pageSize, setPageSize] = useState<PageSizeOption>(initialPageSize);
@@ -380,7 +383,7 @@ export function PagedList<TItem>({
         Where a page also renders a server `truncated` notice, that notice is
         the one that speaks about the second quantity, and it stays.
       */}
-      <p className="text-xs text-muted-foreground" aria-live="polite">
+      <p className="text-xs text-muted-foreground" aria-live={announce ? "polite" : undefined}>
         Showing {firstIndex + 1}&ndash;{firstIndex + visibleItems.length} of {items.length} loaded{" "}
         {label.toLowerCase()}.
       </p>

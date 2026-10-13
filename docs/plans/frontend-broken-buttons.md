@@ -13,7 +13,7 @@ Effort: **S** = wire to an existing contract or delete a stub (hours);
 **L** = blocked on a gate, ADR, or program-owner decision (weeks+).
 
 **Count: 42 controls. Last surveyed 2026-09-22** against `main` at `012080f1`
-(PR #205 merged): **41 closed, 1 still open** (B26 — DECIDED 2026-09-22: option B, self-service availability, still open until built; B09, B41 and B42 closed by `fix/open-broken-buttons`). No new
+(PR #205 merged): **42 closed, 0 open** (updated 2026-10-09: B26 built — wave merged 2026-09-24/25 via PRs #210–#225; B09, B41 and B42 closed by `fix/open-broken-buttons`). No new
 dead control was found on any coordinator page — see *Coordinator re-survey*
 below for what was checked.
 
@@ -108,8 +108,8 @@ My requests, Organization, Profile).
 
 | ID | Location | Current behavior | Expected behavior | Backend needed | Fix approach | Effort |
 |---|---|---|---|---|---|---|
-| B26 *DECIDED 2026-09-22: option B — still open until built* | `volunteer/VolunteerProfile.tsx` **(missing Save)** | Still no editor. The page now shows only the signed-in principal and a `PortalDatasetUnavailable` panel for `/api/portals/volunteers/{id}` — the fabricated region / board role / fatigue % display is gone (`131b6793`). The host’s *organization* is editable on `VolunteerOrganization.tsx`; the person’s own availability and workload are not. | Professionals must correct the data used about them (DESIGN.md §1.6). | ELI + profile write: **none** (eli.py proposed; D2). | **DECIDED 2026-09-22: option B (build self-service availability); planned on branch `docs/b26-self-service-availability-plan`. Still open until built.** The owner chose a new availability table, `PATCH /v1/me/availability`, and a Profile-page form feeding ELI. Until that ships the page keeps its current read-only state; add no editor ahead of the write API. | L |
-| B27 ✅ *closed — page retired* | `volunteer/VolunteerAssignments.tsx` | **Unrouted.** `/volunteer-portal/assignments` redirects to `/volunteer-portal` (`app/legacyRedirects.ts`); the file is an unmounted `PortalDatasetUnavailable` stub. Event Hosts file and track speaker requests instead of accepting assignments. | Accept/decline command; ICS from `ics.py`; rest/availability feeds ELI. | Speaker-side accept/decline now exists as `/v1/speaker-invitations/respond` and the coordinator-recorded response (B17 page). | **Closed by `e76fcd26`** (redirect). Delete the orphan file. | S to delete file |
+| B26 ✅ *built 2026-09-24/25 (PRs #210–#225)* | `volunteer/VolunteerProfile.tsx` **(missing Save)** | Still no editor. The page now shows only the signed-in principal and a `PortalDatasetUnavailable` panel for `/api/portals/volunteers/{id}` — the fabricated region / board role / fatigue % display is gone (`131b6793`). The host’s *organization* is editable on `VolunteerOrganization.tsx`; the person’s own availability and workload are not. | Professionals must correct the data used about them (DESIGN.md §1.6). | ELI + profile write: **none** (eli.py proposed; D2). | **Built (merged 2026-09-24/25, PRs #210–#225; checked 2026-10-09).** Availability editing is on the Speaker portal behind the `SPEAKER_PORTAL` capability (`python/smartmatch_domain/smartmatch_domain/product_scope.py:253`, off by default). Decided 2026-09-22: option B (new availability table, `PATCH /v1/me/availability`, form feeding ELI). | L |
+| B27 ✅ *closed — page retired* | `volunteer/VolunteerAssignments.tsx` | **Unrouted.** `/volunteer-portal/assignments` redirects to `/volunteer-portal` (`app/legacyRedirects.ts`); the file is an unmounted `PortalDatasetUnavailable` stub. Event Hosts file and track speaker requests instead of accepting assignments. | Accept/decline command; ICS from `ics.py`; rest/availability feeds ELI. | Speaker-side accept/decline now exists as `/v1/speaker-invitations/respond` and the coordinator-recorded response (B17 page). | **Closed by `e76fcd26`** (redirect). Done: orphan file deleted (gone from `main`, checked 2026-10-09). | done |
 | B28 ✅ *closed — nav targets are real* | `volunteer/VolunteerHome.tsx:106`, `:217`, `:221`, `:249`, `:275` | Links go to Organization, Request a speaker and My requests — all `/v1`-backed pages. No link to Assignments remains. | Keep nav; pair with B26/B27. | — | **Closed by `98440ce3`** (PR #156). | — |
 
 ---
@@ -154,7 +154,7 @@ Each still calls a legacy `/api/*` path that is not in `smartmatch.json`.
 | `app/pages/Dashboard.tsx`, `DashboardSections.tsx` | links to `/calendar`, `/ai-matching` (now redirects) | B29, B41 |
 | `app/pages/Pipeline.tsx`, `Opportunities.tsx`, `Events.tsx`, `Calendar.tsx`, `Volunteers.tsx` | legacy admin reads | B40, B42 |
 | `components/AgenticOutreachPanel.tsx`, `components/FeedbackForm.tsx`, `components/OutreachWorkflowModal.tsx` | `/api/outreach/agentic-workflow/stream`, `/api/feedback/submit`, `/api/outreach/workflow` | B19–B21, B29–B31 |
-| `app/pages/volunteer/VolunteerAssignments.tsx` | none (stub) | B27 |
+| `app/pages/volunteer/VolunteerAssignments.tsx` | deleted (B27 done) | B27 |
 
 ---
 

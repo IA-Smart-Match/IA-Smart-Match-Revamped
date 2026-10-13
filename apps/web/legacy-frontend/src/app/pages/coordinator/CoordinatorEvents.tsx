@@ -115,6 +115,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { visibleRoleLabel } from "../../../lib/roleLabels";
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { Link } from "react-router";
 import { CalendarDays, List, Plus, Save } from "lucide-react";
@@ -495,7 +496,7 @@ export function CoordinatorEvents() {
             external feedback QR.
           </p>
           <p className="text-xs text-muted-foreground">
-            Signed in as {principal.email} · {grant.role} · {grant.org_unit_path}
+            Signed in as {principal.email} · {visibleRoleLabel(grant.role) ?? "role not recognised"} · {grant.org_unit_path}
           </p>
         </div>
         <button

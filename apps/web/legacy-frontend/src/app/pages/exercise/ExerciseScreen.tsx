@@ -89,6 +89,15 @@ export function ExerciseScreen({
     }
   }, []);
 
+  // #267: name the browser tab after the screen; restore on leave.
+  React.useEffect(() => {
+    const previous = document.title;
+    document.title = `${title} · Class exercise`;
+    return () => {
+      document.title = previous;
+    };
+  }, [title]);
+
   return (
     <div className="ce-root min-h-screen">
       <MotionConfig reducedMotion="user">

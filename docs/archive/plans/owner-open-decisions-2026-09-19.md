@@ -1,5 +1,7 @@
 # Owner open decisions — 2026-09-19
 
+> **Superseded 2026-09-21.** Items 1–4 were decided by the owner on 2026-09-21: item 1 (cookie Secure, workspace secret, DB role) and item 2 (site address) → `docs/operations/exercise-hosting.md`; item 3 (raw text/csv body) → `docs/decisions/class-exercise-decisions-2026-09-25.md`; item 4 (12-hour signed cookie) → `docs/operations/exercise-hosting.md`. Kept for history.
+
 **Decide #1 now: reply "Yes to all three — set `SMARTMATCH_EXERCISE_COOKIE_SECURE=true`, generate the workspace secret, create the `exercise_*`-only DB role."**
 
 Twenty-one decisions are open across PRs #155–#184. Ten are yours alone, two are

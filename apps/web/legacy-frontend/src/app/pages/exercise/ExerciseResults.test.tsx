@@ -88,10 +88,7 @@ function isOff(button: HTMLElement): boolean {
   return button.getAttribute("aria-disabled") === "true";
 }
 
-const NOT_RUN = {
-  body: { error: { code: "exercise_results_not_run", message: "No results yet." } },
-  status: 404,
-};
+const NOT_RUN = { body: null };
 
 const NO_LIST = {
   body: { error: { code: "exercise_workspace_required", message: "Enter your team number." } },
@@ -286,7 +283,7 @@ describe("<ExerciseResults />", () => {
     expect(document.querySelector('[data-slot="exercise-round-one"]')).not.toBeNull();
     // Twice on purpose: the chart's axis label and the accessible table's row
     // header, which is how a projector screen and a screen reader each get it.
-    expect(screen.getAllByText(/if you emailed everyone/i).length).toBe(2);
+    expect(screen.getAllByText("Mass email alone").length).toBe(2);
   });
 
   it("falls back to profile numbers when the list cannot name someone", async () => {

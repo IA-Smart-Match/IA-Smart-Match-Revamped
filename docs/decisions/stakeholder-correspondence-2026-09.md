@@ -52,6 +52,8 @@ committed as test fixtures under decision D4
 > Let us know what you think, and are we still meeting on Friday?
 > I may not be available due to a meeting.
 
+> Superseded 2026-10-10: see [exchange E](#e-ann-wangs-reply-of-2026-10-10).
+
 ### What this settles
 
 Nothing on its own; it is the question list B answers. It is the origin of the
@@ -142,6 +144,8 @@ invite-only speaker proposal.
   not given. The channel was not given.
 - **Attachments:** none recorded
 
+*Pasted again by the owner 2026-10-11 as Ann's reply to Chau; Step B below is the only sign-up rule Ann has given in numbers. Decided 2026-10-12 (Owner ruling 2026-10-12: Step B (Ann, 2026-10-06) is the sign-up step; past events = any past event, to confirm with Ann.) Background: Ann's 2026-10-10 words say "the team's existing sign-up chances"; the team read that as the code's numbers, which Ann never saw. The only sign-up numbers she gave are her 2026-10-06 Step B (5 / +35 / +15 / +5 or +10 / +5). Recomputed on the Oct 2 file at 3/3/2/2, the app's suggested 30, 1,000 seeds: the code's numbers add 4.6 (Northline) and 3.9 (Harbor); Step B adds 6.4 and 5.1, which is Ann's "about 6 and 4-5". PR #398 implements Step B.*
+
 Chau asked:
 
 > we haven't decided yet how we'll determine who among the 30 people will sign up for the event and, from those who sign up, who will actually attend.
@@ -162,6 +166,8 @@ dean wants the team to present to the CBACH advisory board on Thursday
 then about 15 minutes of questions.
 
 ### What this settles
+
+> **Update 2026-10-12.** Items 1-2 below describe the code as of 2026-10-06 and are history. Today the code runs Step B (start 5, +35, +15, +5 or +10, +5; PR #398, owner ruling 2026-10-12) with notice 20% mass / 60% CBACH and 65% show-up (Ann Wang, email 2026-10-10, PR #396); Step A's 75/15, Step C's 70% and the luck were replaced by that email. See [`class-exercise-current-rule.md`](class-exercise-current-rule.md).
 
 1. **The results rule has three steps and Ann's numbers** — decision record
    [`class-exercise-results-rule-2026-10-06.md`](class-exercise-results-rule-2026-10-06.md)
@@ -191,6 +197,15 @@ documents.
 
 ---
 
+## E. Ann Wang's reply of 2026-10-10
+
+The team's Oct 9 email "Smart Match: choices before your Oct 16 run-through" is
+not in the repository; its questions (Q1-Q6, Part 2) can be reconstructed from
+her reply. Her answers, verbatim, and what they settle are in
+[`class-exercise-results-rule-2026-10-10.md`](class-exercise-results-rule-2026-10-10.md). Same content as `WangQuestion10_10_26.pdf`.
+
+---
+
 ## Alignment check (2026-09-28)
 
 Emails A–C and the 15 September requirements against `origin/main` at
@@ -215,8 +230,8 @@ items come first.
 | 8 | Weight display: total of the four weights plus "counts twice as much" sentence; no percentages; no forced sum of 1 | **partly** | Not on main; branch `feat/exercise-weight-total`. Weights are relative today (`domain/weight_settings.py:33` divides by the total); ADR-0025 D8 forbids percentages | Merge the separate PR. |
 | 9 | If time: per-profile points counter | **partly** | `web/ProfilePointsCounter.tsx:78` exists, not routed; `domain/exercise_points.py`; DESIGN.md §11 item 4 "Deferred" | None for Oct; backlog row stands. |
 | 10 | "Asking for more": 30 / 55 / 80 percent, 15 percent stop responding under "required" | **built** | `domain/exercise/asking.py:82-84` shares, `:92` `REQUIRED_NON_RESPONDING_SHARE = 0.15`, `:191` half-up count; OQ-CE-04 (Ann: "All good") | None. |
-| 11 | Results rule: true fit matters most; frequent attenders "only a little"; major a small lift; chance fixed per team | **built** (numbers per Ann's later words) | `domain/exercise/simulation.py:471` `EXERCISE_SIMULATION_COEFFICIENTS`; OQ-CE-03 / D7 (a lot +0.40, some +0.10 for ≥1 past event, a little +0.04) | None. Ann's 9-25 "some" supersedes the doc's "only a little". **Note, 2026-10-06:** Ann's rule in exchange D supersedes these numbers as the requirement; the code still runs them. See [`class-exercise-results-rule-2026-10-06.md`](class-exercise-results-rule-2026-10-06.md). |
-| 12 | Default weights (doc: "the default settings") | **built** | `domain/exercise/registry.py:133-136` 0.25 each; OQ-CE-02 (Ann, 2026-09-25) | None. |
+| 11 | Results rule: true fit matters most; frequent attenders "only a little"; major a small lift; chance fixed per team | **built** (numbers per Ann's later words) | `domain/exercise/simulation.py:471` `EXERCISE_SIMULATION_COEFFICIENTS`; OQ-CE-03 / D7 (a lot +0.40, some +0.10 for ≥1 past event, a little +0.04) | None. Ann's 9-25 "some" supersedes the doc's "only a little". **Note, 2026-10-06:** Ann's rule in exchange D supersedes these numbers as the requirement; the code still runs them. See [`class-exercise-results-rule-2026-10-06.md`](class-exercise-results-rule-2026-10-06.md). **Update 2026-10-10 (Ann Wang, email 2026-10-10, Q2/Q4):** numbers are now notice 20% (mass email) / 60% (CBACH email), existing sign-up chances, 65% show up; no extra luck. |
+| 12 | Default weights (doc: "the default settings") | **built** | `domain/exercise/registry.py:133-136` 0.25 each; OQ-CE-02 (Ann, 2026-09-25) | None. **Update 2026-10-10 (Ann Wang, email 2026-10-10, Part 2):** default weights are 3/3/2/2, whole steps 0-10 (shipped in #352). |
 | 13 | Getting in: no login, team number, per-team workspace surviving reload; instructor page behind passcode | **built** | `api/exercise_workspace.py:202` enter, `:177` httpOnly session cookie; `api/exercise_instructor_session.py:124` login; OQ-CE-07, OQ-CE-08 | None. |
 | 14 | Data: load Ann's file, instructor re-upload, plain error on a missing column | **built** | `api/exercise_instructor.py:189` upload; `domain/exercise/ingest.py:171`, `:201` missing-column refusal; `domain/exercise/workbook.py` (xlsx, D1) | None. |
 | 15 | "How much we know" marker and "who is on the list" table (+ if-time empty-group notice) | **built** | `domain/exercise/markers.py:60` `InformationMarker`, `:156` `list_composition`; `web/ListCompositionTable.tsx:48`, `web/ListCoverageNotice.tsx:33` | None. |
@@ -247,3 +262,4 @@ items come first.
    the app's placeholder limiter is proven today).
 4. **P004 (row 5).** Whether to tell Ann that the "turned off" half does not
    hold as built.
+   **Answered 2026-10-10 (Ann Wang, email 2026-10-10, Part 2):** keep P004; reword the checklist to "he drops, but stays above a plain Accounting major".

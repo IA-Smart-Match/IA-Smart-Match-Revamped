@@ -17,7 +17,19 @@ files under `python/`, `services/`, `apps/`, `tools/`, `db/`, `infra/` found:
 | `HACK` | **0** |
 | `XXX` | **0** |
 | `NotImplementedError` | **0** |
-| skipped/xfail tests | **1** (`test_vm_deploy_script.py:38`, a platform `skipif`) |
+| skipped/xfail tests | **162** call sites in `tests/` (2026-10-09; `c72dced` figure was 1) |
+
+**Updated 2026-10-09 (#290).** On `origin/main` @ `122b01b0`:
+
+```
+git grep -nE "pytest\.mark\.(skip|skipif|xfail)|pytest\.(skip|xfail)\(|pytest\.importorskip" -- tests python services   →  162
+```
+
+All 162 are real call sites (0 xfail; 82 are `importorskip`). The 2026-09-18
+command below returns **98** today (80 call sites + 6 prose mentions in `tests/`,
+11 `docs/`, 1 `Makefile`); it misses `importorskip`. Per-site audit, all
+environment-conditional except 30 listed there:
+[`../plans/skip-site-inventory-2026-09-18.md` §8](../plans/skip-site-inventory-2026-09-18.md).
 
 **Updated 2026-09-18 — the "skipped/xfail tests" row is a point-in-time figure
 for commit `c72dced` and is left as written.** Beside it, as of 2026-09-18 on

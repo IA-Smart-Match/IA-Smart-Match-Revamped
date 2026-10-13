@@ -56,6 +56,7 @@
  */
 
 import { AlertCircle, Clock, Mail, Send, UserCheck } from "lucide-react";
+import { visibleRoleLabel } from "../../../lib/roleLabels";
 
 import {
   fetchOutreachSends,
@@ -604,7 +605,7 @@ export function CoordinatorOutreach() {
         <h1 className="text-2xl font-semibold text-foreground">CBA contact</h1>
         <p className="text-sm text-muted-foreground">Your outreach conversations with the CBA team.</p>
         <p className="text-xs text-muted-foreground">
-          Signed in as {principal.email} · {grant.role} · {grant.org_unit_path}
+          Signed in as {principal.email} · {visibleRoleLabel(grant.role) ?? "role not recognised"} · {grant.org_unit_path}
         </p>
       </header>
 

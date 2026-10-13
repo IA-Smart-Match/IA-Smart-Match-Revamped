@@ -88,7 +88,8 @@ export function useStatusRevision(reload: () => Promise<void>): {
   return { revision, reloadWithStatus };
 }
 
-const BAND = "ce-card ce-type-body flex flex-col gap-ce-2 p-ce-3 text-ce-ink md:px-ce-5 md:py-ce-4";
+// Pinned (Dr. Wang 2026-10-10): stays on screen while scrolling; .ce-card is opaque.
+const BAND = "sticky top-0 z-20 ce-card ce-type-body flex flex-col gap-ce-2 p-ce-3 text-ce-ink md:px-ce-5 md:py-ce-4";
 
 export interface TeamStatusBandProps {
   /** The event this page is about, so the line can mark its round. */

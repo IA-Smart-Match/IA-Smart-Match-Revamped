@@ -82,6 +82,7 @@
  */
 
 import { Info, Users } from "lucide-react";
+import { visibleRoleLabel } from "../../../lib/roleLabels";
 import { useQueryClient } from "@tanstack/react-query";
 
 import {
@@ -259,7 +260,7 @@ export function CoordinatorSpeakerFeedback() {
           How students rated the speakers on your roster, in aggregate.
         </p>
         <p className="text-xs text-muted-foreground">
-          Signed in as {principal.email} · {grant.role} · {grant.org_unit_path}
+          Signed in as {principal.email} · {visibleRoleLabel(grant.role) ?? "role not recognised"} · {grant.org_unit_path}
         </p>
       </header>
 

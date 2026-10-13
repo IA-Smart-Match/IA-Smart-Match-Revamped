@@ -100,8 +100,8 @@ Decision line → code + tests + spec + runbook in one change → note in #323 r
 
 ## 3. What must change / decision framing
 
-1. **Option A — Retire the column (recommended if §9 is confirmed satisfied).** Migration drops column; remove field from `DatasetView`/`DatasetSummary`, `exerciseClient.ts`, `InstructorDatasets.tsx:355-357`, tests, OpenAPI; dated amendment line on D13's "Left over" note. ~10 file touches + one migration.
-2. **Option B — Per-file addendum.** Needs Ann-approved wording *per upload*, a new upload field (route param → `create_dataset` → insert), persistence, and unchanged conditional UI. Only if Ann actually wants per-file text — she hasn't asked; D13 (a) was rejected.
+1. **Option A — Retire the column (recommended if §9 is confirmed satisfied).** Migration drops column; remove field from `DatasetView`/`DatasetSummary`, `exerciseClient.ts`, `InstructorDatasets.tsx:355-357`, tests, OpenAPI; dated amendment line on D13's "Left over" note. ~10 file touches + one migration. **[Decided 2026-10-10 (Ann Wang, email 2026-10-10, Part 2): license line final; no per-file addendum, no change to the line.]**
+2. **Option B — Per-file addendum.** Needs Ann-approved wording *per upload*, a new upload field (route param → `create_dataset` → insert), persistence, and unchanged conditional UI. Only if Ann actually wants per-file text — she hasn't asked; D13 (a) was rejected. **[Decided 2026-10-10 (Ann Wang, email 2026-10-10, Part 2): license line final; no per-file addendum, no change to the line.]**
 3. **Option C — Status quo.** Dead nullable column stays; zero cost; §9 still needs live verification.
 
 ## 4. Impact radius

@@ -31,6 +31,7 @@ Opening or closing results for an event shows the time it was done, and results 
 3. Session 2 parts that are missing or unclear
 (Leads: Chau for the rules and numbers, Danny for the lock and refresh, Janice for the screens.)
 "Email everyone" comparison. Not on the results screen yet. The team's numbers (invited, signed up, attended, seats still empty) must always sit next to the result of emailing all 300. For Harbor, the team's own Northline result is shown as well.
+[Note 2026-10-10, Ann Wang, email 2026-10-10, Q2: superseded by the lift line; mass email is the baseline, not a separate result.]
 One results run per team per event. Not blocked or shown yet. A second run must be blocked, including after a page reload or from a second browser tab, and the screen must say why.
 The refresh. There is no sign that it happened or what it changed. After the refresh, show a short summary in plain words, the "how much we know" counts before and after, and mark the profiles that changed. A second press says "Already refreshed." The instructor button that refreshes every team at once (now labeled "Ask for every team") should give the same kind of summary for each team, and its label should say what it does.
 4. Matching rules to correct
@@ -64,5 +65,6 @@ Next steps
 When || What
 Before Oct 16 || The five areas, the new file and the clean-up done. Justin sends his list of what he tested and what failed.
 Fri Oct 16 || Plan items due: results with lock, "email everyone" comparison, the same list always giving the same result, reset, the "asking for more" choice, per-team refresh, the Harbor event, download. I run both sessions start to finish with the test checklist and send a list of problems.
+[Note 2026-10-10, Ann Wang, email 2026-10-10, Q2: the "email everyone" comparison in this row is replaced by the lift line ("Mass email alone: N sign-ups. With your 30 CBACH emails: M. Your list added K.").]
 Fri Oct 30 || Problems from Oct 16 fixed.
 The test checklist is attached (SmartMatch_User_Test_Checklist.docx). Quick questions on Teams are fine. Anything that changes the plan or the dates, please send by email so we have a record.

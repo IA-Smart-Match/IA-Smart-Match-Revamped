@@ -39,7 +39,8 @@ TEST_ONLY_COEFFICIENTS = SimulationCoefficients(
     true_fit_lift=0.60,
     frequent_attender_lift=0.05,
     same_major_lift=0.08,
-    chance_spread=0.10,
+    mass_email_notice=1.0,
+    cbach_email_notice=1.0,
     attend_given_signup=0.90,
     frequent_attender_events=3,
     true_interest_share_of_fit=0.5,
@@ -385,7 +386,8 @@ def test_the_requirements_ordering_is_enforced_by_validation(overrides: dict[str
         "true_fit_lift",
         "frequent_attender_lift",
         "same_major_lift",
-        "chance_spread",
+        "mass_email_notice",
+        "cbach_email_notice",
         "attend_given_signup",
         "true_interest_share_of_fit",
     ],
@@ -404,20 +406,12 @@ def test_the_frequent_attender_threshold_must_be_a_positive_whole_number(bad: ob
 
 def test_a_non_numeric_coefficient_is_refused():
     with pytest.raises(SimulationCoefficientsError, match="must be a number"):
-        SimulationCoefficients(**{**_valid_kwargs(), "chance_spread": "wide"})
-
-
-def test_zero_chance_spread_is_allowed_and_removes_the_chance():
-    steady = SimulationCoefficients(**{**_valid_kwargs(), "chance_spread": 0.0})
-    profiles = tuple(_true_fit_profile(n) for n in range(1, 50))
-    assert run_email_everyone(profiles, EVENT, seed=1, coefficients=steady) == (
-        run_email_everyone(profiles, EVENT, seed=1, coefficients=steady)
-    )
+        SimulationCoefficients(**{**_valid_kwargs(), "mass_email_notice": "wide"})
 
 
 def test_coefficients_are_frozen():
     with pytest.raises(dataclasses.FrozenInstanceError):
-        TEST_ONLY_COEFFICIENTS.chance_spread = 0.5  # type: ignore[misc]
+        TEST_ONLY_COEFFICIENTS.mass_email_notice = 0.5  # type: ignore[misc]
 
 
 # --- The shipped set (the team's translation, approved as D7) -------------
@@ -436,8 +430,10 @@ def test_the_shipped_set_honours_anns_a_lot_some_a_little():
     """OQ-CE-03, Ann 2026-09-25: true fit "a lot", attended before "some",
     same major "a little", and "some randomness"."""
     shipped = _shipped()
-    assert shipped.true_fit_lift > shipped.frequent_attender_lift > shipped.same_major_lift > 0
-    assert shipped.chance_spread > 0
+    # Step B (2026-10-06): 1-2 past events (+5) equals same major (+5); 3 or more (+10) is above.
+    assert shipped.true_fit_lift > shipped.many_attender_lift > shipped.same_major_lift > 0
+    assert shipped.frequent_attender_lift >= shipped.same_major_lift
+    assert shipped.mass_email_notice < shipped.cbach_email_notice
 
 
 def test_the_shipped_set_counts_any_past_event_as_having_attended_before():
@@ -459,21 +455,24 @@ def test_the_plain_words_paragraph_states_every_shipped_number():
     # that happen to be equal cannot stand in for each other.
     for sentence in (
         f"Everyone starts with a {per_100(shipped.base_signup_rate)} in 100 chance",
-        f"The biggest boost, {per_100(shipped.true_fit_lift)} in 100",
-        f"medium boost of {per_100(shipped.frequent_attender_lift)} in 100",
-        f"small boost of {per_100(shipped.same_major_lift)} in 100",
-        f"up to {per_100(shipped.chance_spread / 2)} in 100 either way",
-        f"a {per_100(shipped.attend_given_signup)} in 100 chance of attending",
+        f"{per_100(shipped.true_fit_lift * shipped.true_interest_share_of_fit)} in 100 when one",
+        f"{per_100(shipped.true_fit_lift * (1 - shipped.true_interest_share_of_fit))} in 100 more",
+        f"1 or 2 past events gets a small boost of {per_100(shipped.frequent_attender_lift)} in 100",  # noqa: E501
+        f"3 or more gets {per_100(shipped.many_attender_lift or 0)} in 100",
+        f"Being in the major the event is aimed at gives {per_100(shipped.same_major_lift)} in 100",
+        f"{per_100(shipped.mass_email_notice)} in 100 notice it",
+        f"{per_100(shipped.cbach_email_notice)} in 100 notice that one",
+        f"{per_100(shipped.attend_given_signup)} in 100 chance of attending",
+        "There is no extra luck",
         "never goes below 0 or above 100 in 100",
     ):
         assert sentence in text, sentence
     assert shipped.frequent_attender_events == 1
-    assert "been to at least one past event" in text
-    assert shipped.true_interest_share_of_fit == 0.5
-    assert "half of it when one of their true interests" in text
+    assert shipped.many_attender_events == 3
+    assert shipped.true_interest_share_of_fit == 0.7
     # Ann's revisions of 2026-10-02 (item 4b) took the undecided half out of
     # the rule, so the paragraph she receives must not still promise it.
-    assert "undecided" not in text.split("For each invited profile")[1].split("The total never")[0]
+    assert "undecided" not in text.split("For each profile")[1].split("The total never")[0]
 
 
 def test_require_coefficients_refuses_while_the_set_is_none(monkeypatch):
@@ -529,7 +528,7 @@ BEHAVIOUR_PHRASES = [
     # (3) same major alone gives only a small lift
     "Same major alone gives only a small lift",
     # (4) a small element of chance, fixed per team
-    "A small element of chance, fixed for each team",
+    "Chance is the team's fixed draw, nothing more",
     # (5) a reset per team that does not touch other teams
     "A reset per team touches no other team",
 ]
@@ -549,8 +548,8 @@ def test_the_module_docstring_keeps_the_design_spec_draft_paragraph():
     assert simulation.__doc__ is not None
     text = " ".join(simulation.__doc__.split())
     assert (
-        "For each invited profile the app decides whether the person signs up, "
-        "then whether they attend." in text
+        "For each profile the app decides whether the person notices the event, "
+        "then whether they sign up, then whether they attend." in text
     )
     assert (
         "The app uses each profile's true interests for this, not what the "
@@ -567,12 +566,12 @@ def test_the_module_docstring_records_the_hash_deviation():
     assert "SHA-256" in text
 
 
-def test_the_module_docstring_lists_all_eight_quantities_oq_ce_03_must_supply():
+def test_the_module_docstring_lists_all_nine_quantities_oq_ce_03_must_supply():
     from smartmatch_domain.exercise import simulation
 
     assert simulation.__doc__ is not None
     text = " ".join(simulation.__doc__.split())
-    assert "The rule needs **eight**" in text
+    assert "The rule needs **nine**" in text
     for field in dataclasses.fields(SimulationCoefficients):
         assert f"``{field.name}``" in text
 
@@ -590,8 +589,8 @@ def test_the_split_decides_whether_interests_or_the_goal_carry_the_fit():
         profile_no=1, major="history", true_interests=frozenset({"analytics"})
     )
     goal_only = SimulationProfile(profile_no=1, major="history", career_goal="data_career")
-    all_on_interests = _with(true_interest_share_of_fit=1.0, chance_spread=0.0)
-    all_on_goal = _with(true_interest_share_of_fit=0.0, chance_spread=0.0)
+    all_on_interests = _with(true_interest_share_of_fit=1.0)
+    all_on_goal = _with(true_interest_share_of_fit=0.0)
 
     assert _fit_share(interests_only, EVENT, all_on_interests) == 1.0
     assert _fit_share(goal_only, EVENT, all_on_interests) == 0.0
@@ -648,7 +647,7 @@ def test_a_certain_profile_signs_up_even_on_the_largest_digest(monkeypatch):
     from smartmatch_domain.exercise import simulation
 
     monkeypatch.setattr(simulation, "_digest", lambda *fields: b"\xff" * 32)
-    certain = _with(base_signup_rate=1.0, chance_spread=0.0, attend_given_signup=1.0)
+    certain = _with(base_signup_rate=1.0, attend_given_signup=1.0)
     result = simulate_results(
         (_true_fit_profile(1),), EVENT, seed=1, coefficients=certain, invite_limit=30
     )
@@ -688,3 +687,64 @@ def test_event_keys_containing_a_colon_are_ordinary_keys():
     )
     assert first != second
     assert first == again
+
+
+# --- Mass email baseline + CBACH email (Ann Wang, 2026-10-10, Q2/Q4) -------
+
+
+def test_the_list_only_adds_to_the_mass_email_alone():
+    """Shared draws: a listed profile's mass-alone outcome is unchanged."""
+    from smartmatch_domain.exercise.simulation import EXERCISE_SIMULATION_COEFFICIENTS as shipped
+
+    assert shipped is not None
+    profiles = tuple(_true_fit_profile(n) for n in range(1, 301))
+    listed = profiles[:30]
+    for seed in range(1, 6):
+        alone = run_email_everyone(profiles, EVENT, seed=seed, coefficients=shipped)
+        with_list = simulate_results(
+            listed, EVENT, seed=seed, coefficients=shipped, invite_limit=30
+        )
+        listed_nos = {p.profile_no for p in listed}
+        assert set(alone.signed_up) & listed_nos <= set(with_list.signed_up)
+        assert set(alone.attended) & listed_nos <= set(with_list.attended)
+        # Off the list nobody is touched: the baseline is what the room already had.
+        assert set(with_list.signed_up) - set(alone.signed_up) <= listed_nos
+
+
+def test_a_profile_off_the_list_never_draws_the_cbach_email():
+    only_cbach = SimulationCoefficients(
+        **{**_valid_kwargs(), "mass_email_notice": 0.0, "cbach_email_notice": 1.0}
+    )
+    profiles = tuple(_true_fit_profile(n) for n in range(1, 40))
+    assert run_email_everyone(profiles, EVENT, seed=3, coefficients=only_cbach).signed_up == ()
+    listed = simulate_results(profiles, EVENT, seed=3, coefficients=only_cbach, invite_limit=40)
+    assert listed.signed_up
+
+
+def test_step_b_past_event_tiers_and_exact_chance():
+    """Ann 2026-10-06: 5 base, +35 interests, +15 goal, +5 for 1-2 / +10 for 3+ events, +5 major."""
+    from smartmatch_domain.exercise.simulation import _sign_up_lift
+
+    c = _shipped()
+    ev = SimulationEvent(
+        "E", topic_tags=frozenset({"Finance"}), target_majors=frozenset({"Accounting"})
+    )
+
+    def lift(**kw):
+        base = {"profile_no": 1, "major": "Biology"}
+        return _sign_up_lift(SimulationProfile(**{**base, **kw}), ev, c)
+
+    assert lift() == 0
+    assert lift(true_interests=frozenset({"Finance"})) == pytest.approx(0.35)
+    assert lift(career_goal="Finance") == pytest.approx(0.15)
+    assert lift(past_event_count=1) == pytest.approx(0.05)
+    assert lift(past_event_count=2) == pytest.approx(0.05)
+    assert lift(past_event_count=3) == pytest.approx(0.10)
+    assert lift(major="Accounting") == pytest.approx(0.05)
+    full = lift(
+        true_interests=frozenset({"Finance"}),
+        career_goal="Finance",
+        past_event_count=3,
+        major="Accounting",
+    )
+    assert c.base_signup_rate + full == pytest.approx(0.05 + 0.35 + 0.15 + 0.10 + 0.05)

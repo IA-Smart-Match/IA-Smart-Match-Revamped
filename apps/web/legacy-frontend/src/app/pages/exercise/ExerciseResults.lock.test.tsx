@@ -114,10 +114,7 @@ const RUN_VIEW = {
   created_at: "2026-10-16T17:42:00Z",
 };
 
-const NOT_RUN: Answer = {
-  body: { error: { code: "exercise_results_not_run", message: "No results yet." } },
-  status: 404,
-};
+const NOT_RUN: Answer = { body: null };
 const NO_CHOICE: Answer = { body: { choice: null, choices: ["required"], refreshed: false } };
 const SAVED: Answer = {
   body: {

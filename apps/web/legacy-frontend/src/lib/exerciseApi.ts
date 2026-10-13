@@ -228,9 +228,11 @@ export async function exerciseRequest<T>(
   // 204 has no body; every other exercise route answers with one.
   const text = response.status === 204 ? "" : await response.text();
   let payload: unknown = null;
+  let isJson = false;
   if (text !== "") {
     try {
       payload = JSON.parse(text) as unknown;
+      isJson = true;
     } catch {
       payload = null;
     }
@@ -239,8 +241,8 @@ export async function exerciseRequest<T>(
   if (!response.ok) {
     throw refusalFrom(response.status, payload);
   }
-  if (response.status !== 204 && payload === null) {
-    // A 200 whose body is not JSON is not an exercise response at all. The way
+  if (response.status !== 204 && !isJson) {
+    // A 200 whose body is not JSON (a literal `null` is JSON: "not run yet") is not an exercise response at all. The way
     // this happens is mundane and total: a dev server that proxies `/api` but
     // not `/v1` answers every exercise call with the SPA's `index.html` at
     // status 200, and returning `null as T` from here let that HTML travel on

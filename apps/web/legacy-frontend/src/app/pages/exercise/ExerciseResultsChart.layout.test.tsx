@@ -19,7 +19,7 @@ import { ExerciseResultsChart } from "./ExerciseResultsChart";
 
 const series = [
   { label: "Your team's list", invited: 30, signedUp: 8, attended: 6 },
-  { label: "If you emailed everyone", invited: 300, signedUp: 46, attended: 30 },
+  { label: "Mass email alone", invited: 300, signedUp: 46, attended: 30 },
 ];
 
 afterEach(cleanup);
@@ -88,7 +88,7 @@ describe("<ExerciseResultsChart /> fallback table", () => {
     render(<ExerciseResultsChart title="Northline results" series={series} />);
 
     const row = within(screen.getByTestId("exercise-results-table")).getByRole("row", {
-      name: /emailed everyone/,
+      name: /Mass email alone/,
     });
     expect(row.textContent).toContain("300");
     expect(row.textContent).toContain("46");

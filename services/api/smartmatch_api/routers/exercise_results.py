@@ -292,7 +292,7 @@ def run_results(
 
 @router.get(
     "/events/{event_key}/results",
-    response_model=ResultsView,
+    response_model=ResultsView | None,
     summary="Your team's stored results for one event",
 )
 def read_results(
@@ -301,26 +301,23 @@ def read_results(
     datasets: DatasetRepository,
     results: ResultsRepository,
     event_key: str = Path(description="An event key from this team's data file."),
-) -> ResultsView:
+) -> ResultsView | None:
     """The run your team kept for this event, with the same three panels.
 
     Read from the stored row rather than recomputed, so a reload shows what the
     team was shown. That is what the one-run rule is for: the numbers are a
-    record, not a recomputation.
+    record, not a recomputation. A team that has not run yet gets 200 with a
+    null body: that is the screen's ordinary first state, not an error.
 
     Raises:
         ExerciseError: 401 without a workspace cookie, 404 for an event that is
-            not in this team's data file or for an event this team has not run.
+            not in this team's data file.
     """
     events = datasets.list_events(session, dataset_id=workspace.dataset_id)
     event = event_or_refusal(events, event_key)
     stored = results.get_run(session, workspace_id=workspace.id, event_key=event.event_key)
     if stored is None:
-        raise ExerciseError(
-            status_code=status.HTTP_404_NOT_FOUND,
-            code="exercise_results_not_run",
-            message="Your team has not run results for this event yet.",
-        )
+        return None
     return stored_results_view(
         stored,
         event=event,

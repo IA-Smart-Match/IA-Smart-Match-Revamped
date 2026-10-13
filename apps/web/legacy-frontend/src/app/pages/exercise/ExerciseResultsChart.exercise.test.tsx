@@ -15,7 +15,7 @@ import { ExerciseResultsChart } from "./ExerciseResultsChart";
 
 const series = [
   { label: "Your team's list", invited: 30, signedUp: 6, attended: 4 },
-  { label: "If you emailed everyone", invited: 300, signedUp: 41, attended: 27 },
+  { label: "Mass email alone", invited: 300, signedUp: 41, attended: 27 },
 ];
 
 function stubWidth(narrow: boolean): void {
@@ -106,7 +106,7 @@ describe('<ExerciseResultsChart variant="exercise" />', () => {
     render(<ExerciseResultsChart title="Northline" series={series} variant="exercise" />);
 
     const row = within(screen.getByTestId("exercise-results-table")).getByRole("row", {
-      name: /emailed everyone/,
+      name: /Mass email alone/,
     });
     expect(within(row).getAllByRole("cell").map((cell) => cell.textContent)).toEqual([
       "300",

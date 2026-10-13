@@ -206,6 +206,7 @@ export function SpeakerInvitations() {
               label="answered invitations"
               idPrefix="answered-invitations"
               revealIndex={revealAt >= 0 ? revealAt : null}
+              announce={false}
             >
               {(visibleAnswered) => <ul className="space-y-3">{visibleAnswered.map(renderRow)}</ul>}
             </PagedList>

@@ -70,6 +70,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import logging
 import uuid
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
@@ -115,6 +116,8 @@ __all__ = [
     "unsubscribe_token",
     "with_outreach_send",
 ]
+
+logger = logging.getLogger(__name__)
 
 #: The HMAC key used when no real one is configured. Named, constant, and
 #: obviously not a secret — which is the point: a token minted with it is
@@ -494,6 +497,15 @@ def build_outreach_send_handler(
             try:
                 result = provider.send(request)
             except Exception as exc:
+                # Provider text can carry addresses, keys or account details, and
+                # both failure_reason and the job event are readable via the API.
+                # Keep the detail in logs and the chained cause only (#281).
+                logger.warning(
+                    "outreach send %s: provider failed (%s)",
+                    reservation.send_id,
+                    type(exc).__name__,
+                    exc_info=True,
+                )
                 _record_refusal(
                     repo,
                     own,
@@ -501,11 +513,11 @@ def build_outreach_send_handler(
                     send_id=reservation.send_id,
                     event_type=DeliveryEventType.FAILED,
                     disposition=SendDisposition.FAILED,
-                    reason=f"{type(exc).__name__}: {exc}",
+                    reason="the email provider failed",
                     now=now,
                 )
                 raise ProviderFailure(
-                    f"the email provider failed: {exc}",
+                    "the email provider failed",
                     reason="outreach_provider_failed",
                 ) from exc
 

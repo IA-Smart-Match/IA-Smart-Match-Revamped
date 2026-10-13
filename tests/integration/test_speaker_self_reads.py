@@ -377,6 +377,33 @@ def test_invitations_are_own_dispatched_rows_only(
     assert row.response_status == "awaiting_response"
 
 
+def test_invitation_carries_event_date_and_zone_when_batch_names_an_event(
+    db: Any,
+    tenant_id: uuid.UUID,
+    session_factory: sessionmaker[Session],
+) -> None:
+    actor = db.run(_user, tenant_id)
+    me = db.run(_profile, tenant_id)
+    batch = db.run(_batch, tenant_id, actor)
+    event_id = db.run(_event, tenant_id, on=AS_OF)
+    db.run(
+        lambda c: c.execute(
+            text("UPDATE cba_invitation_batch SET speaker_request_id = :e WHERE id = :b"),
+            {"e": event_id, "b": batch},
+        )
+    )
+    db.run(_invitation, tenant_id, batch, me, actor)
+    rows = _read(
+        session_factory,
+        INVITES.list_for_professional,
+        tenant_id=tenant_id,
+        professional_id=me,
+        limit=50,
+    )
+    assert rows[0].event_local_date == AS_OF
+    assert rows[0].event_time_zone == "America/Los_Angeles"
+
+
 def test_invitations_order_newest_first_and_honour_limit(
     db: Any, tenant_id: uuid.UUID, session_factory: sessionmaker[Session]
 ) -> None:

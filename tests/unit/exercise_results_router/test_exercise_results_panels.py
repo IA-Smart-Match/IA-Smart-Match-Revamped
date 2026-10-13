@@ -88,7 +88,7 @@ def test_two_teams_with_different_seeds_are_free_to_differ(
 def test_email_everyone_uses_the_same_seed_as_the_teams_own_list(
     fakes: _Fakes, client: TestClient, confirmed: SimulationCoefficients
 ) -> None:
-    """The whole point of the comparison: a shared profile has one outcome.
+    """The whole point of the comparison: the list only adds to the mass email.
 
     If the two panels were run on different seeds a team would read the
     difference between *two simulations* rather than the difference between
@@ -102,7 +102,7 @@ def test_email_everyone_uses_the_same_seed_as_the_teams_own_list(
     for panel in ("signed_up_profile_nos", "attended_profile_nos"):
         team = set(body["team"][panel])
         everyone = set(body["email_everyone"][panel])
-        assert team == everyone & invited, f"{panel} disagrees between the panels"
+        assert everyone & invited <= team, f"{panel}: the list lost someone the mass email brought"
 
 
 def test_seats_empty_is_the_cases_own_arithmetic(
@@ -115,9 +115,10 @@ def test_seats_empty_is_the_cases_own_arithmetic(
 
     assert body["event_seats"] == EVENT_SEATS
     assert body["existing_signups"] == EXISTING_SIGNUPS
-    assert body["seats_empty"] == max(
-        0, EVENT_SEATS - EXISTING_SIGNUPS - body["team"]["attended_count"]
+    in_room = set(body["team"]["attended_profile_nos"]) | set(
+        body["email_everyone"]["attended_profile_nos"]
     )
+    assert body["seats_empty"] == max(0, EVENT_SEATS - EXISTING_SIGNUPS - len(in_room))
 
 
 def test_the_panels_nest_the_way_the_rule_promises(
@@ -198,11 +199,11 @@ def test_reading_the_run_back_gives_the_stored_panels(
     assert read_back == written
 
 
-def test_reading_a_run_this_team_has_not_made_is_not_found(client: TestClient) -> None:
+def test_reading_a_run_this_team_has_not_made_is_ok_and_null(client: TestClient) -> None:
     response = client.get(f"{_BASE}/events/round-one/results")
 
-    assert response.status_code == 404
-    assert response.json()["error"]["code"] == "exercise_results_not_run"
+    assert response.status_code == 200
+    assert response.json() is None
 
 
 def test_round_two_carries_the_stored_round_one_panel(

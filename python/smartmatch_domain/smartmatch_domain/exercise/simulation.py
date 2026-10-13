@@ -11,25 +11,42 @@ event was removed by Ann's revisions of 2026-10-02 (item 4b), here and in the
 matching factor together. When the code changes, this paragraph changes with
 it, and a test checks that every number in it is the number the code uses.
 
-    For each invited profile the app decides whether the person signs up, then
-    whether they attend. Everyone starts with a 4 in 100 chance of signing up.
-    The biggest boost, 40 in 100, goes to a person when the event matches what
-    they truly care about: half of it when one of their true interests is a
-    topic of the event, and the other half when their career goal fits the
-    event. A person who has been to at least one past event gets a medium
-    boost of 10 in 100. Being in the major the event is aimed at gives a small
-    boost of 4 in 100. Then some chance is added, up to 10 in 100 either way,
-    and that chance is fixed for each team, so running the same list twice
-    gives the same answer. The total never goes below 0 or above 100 in 100.
-    Each person who signs up has a 75 in 100 chance of attending. The app uses
-    each profile's true interests for this, not what the profile has told the
-    app, which is why a list built on what the app knows can miss people.
+    For each profile the app decides whether the person notices the event,
+    then whether they sign up, then whether they attend. Everyone gets the
+    usual mass email, and 20 in 100 notice it. The team's listed students also
+    get a personal CBACH email, and 60 in 100 notice that one, so about 68 in
+    100 notice at least one of the two. Someone who notices nothing does not
+    sign up. Someone who notices has the sign-up chance below. Everyone starts
+    with a 5 in 100 chance of signing up. The biggest boosts go to a person
+    when the event matches what they truly care about: 35 in 100 when one of
+    their true interests is a topic of the event, and 15 in 100 more when
+    their career goal fits the event. A person who has been to 1 or 2 past
+    events gets a small boost of 5 in 100, and one who has been to 3 or more
+    gets 10 in 100. Being in the major the event is aimed at gives 5 in 100
+    more. The total never goes
+    below 0 or above 100 in 100. Each person who signs up has a 65 in 100
+    chance of attending. There is no extra luck: the team's fixed draw alone
+    decides who notices, signs up and shows up, so running the same list twice
+    gives the same answer. The list's sign-ups include everyone the mass email
+    alone would have brought, plus the ones the personal email added. The app
+    uses each profile's true interests for this, not what the profile has told
+    the app, which is why a list built on what the app knows can miss people.
 
-Ann's words were: the event matches what the student genuinely cares about,
-**a lot**; the student has attended events before, **some**; the event is
-targeted toward the student's major, **a little**; random chance, **some
-randomness**. "A lot", "some" and "a little" became 40, 10 and 4 in 100, and
-"some randomness" became up to 10 in 100 either way — the same size as "some".
+Source: Ann Wang, email 2026-10-10 (Q2, Q4) for notice, show-up and no luck;
+her 2026-10-06 reply to Chau (Step B) for the sign-up chances: start at 5,
+add 35 / 15 / 5 or 10 / 5. The 2026-10-10 email supersedes only the rest of the
+2026-10-06 rule (15 in 100 notice, 70 in 100 attend, the extra luck). It says
+"the team's existing sign-up chances", which the team had read as the older
+code numbers (4 / 40 / 10 / 4). Owner ruling 2026-10-12: Ann's Oct 6 Step B;
+past events = any past event (to confirm with Ann).
+
+Ann's words of 2026-09-25 were: the event matches what the student genuinely
+cares about, **a lot**; the student has attended events before, **some**; the
+event is targeted toward the student's major, **a little**; random chance,
+**some randomness**. The team first turned them into 40, 10 and 4 in 100; her
+2026-10-06 numbers (35 + 15, 5 or 10, 5) replace that translation. "Some
+randomness" first became up to 10 in 100 either way; Ann removed that band on
+2026-10-10 (email, Q4): there is no extra luck, only the team's fixed draw.
 Ann left the numbers to Chau. The team translated her words, Chau approved the
 translation (wave-2 decision D7), and that closed OQ-CE-03. The sample result
 the numbers were checked against is
@@ -45,7 +62,7 @@ changing a number is a one-line edit to :data:`EXERCISE_SIMULATION_COEFFICIENTS`
     smaller than the true-fit lift.
 (3) **Same major alone gives only a small lift.** Being in the event's target
     majors, and nothing else, moves the number a little.
-(4) **A small element of chance, fixed for each team.** The chance is drawn
+(4) **Chance is the team's fixed draw, nothing more.** The draws come
     from the team's seed, so a repeated run of the same list gives the same
     result — in any process, on any machine.
 (5) **A reset per team touches no other team.** The team's seed is the only
@@ -78,13 +95,14 @@ For one profile and one event, with coefficients ``c``:
   ``c.frequent_attender_events`` past events,
   ``+ c.same_major_lift`` if the profile's major is one of the event's target
   majors.
-* ``chance = u * c.chance_spread - c.chance_spread / 2`` for a uniform ``u`` in
-  ``[0, 1)`` — a band of width ``chance_spread`` centred on zero.
-* ``p = clamp(c.base_signup_rate + lift + chance, 0.0, 1.0)``. The clamp is
+* ``noticed`` is ``mass_notice < c.mass_email_notice`` for a uniform draw, or,
+  for a profile on the team's list only, ``cbach_notice <
+  c.cbach_email_notice``. Not noticed means no sign-up.
+* ``p = clamp(c.base_signup_rate + lift, 0.0, 1.0)``. The clamp is
   what keeps the number a probability when the lifts add past one; it is a
   ceiling, never a re-spread of weight.
-* The profile signs up when a second uniform draw is below ``p``, and attends
-  when a third is below ``c.attend_given_signup``.
+* A noticing profile signs up when the ``signup`` draw is below ``p``, and
+  attends when the ``attend`` draw is below ``c.attend_given_signup``.
 
 Terms are compared as exact strings after ``strip()`` and ``casefold()``.
 The vocabularies are closed at ingest
@@ -154,27 +172,25 @@ it (wave-2 decision D7), which closed OQ-CE-03.
 :func:`require_coefficients` still refuses if the value is ever ``None``.
 Tests construct their own sets, clearly labelled as test-only.
 
-The register names four quantities. The rule needs **eight**, and the four it
+The register names four quantities. The rule needs **nine**, and the five it
 adds are named here rather than invented as constants. The shipped value and
 where it comes from:
 
-1. ``true_fit_lift`` — 0.40. Ann's "a lot".
-2. ``frequent_attender_lift`` — 0.10. Ann's "some".
-3. ``same_major_lift`` — 0.04. Ann's "a little".
-4. ``chance_spread`` — 0.20, so up to 0.10 either way. Ann's "some
-   randomness", the same size as her "some".
-5. ``attend_given_signup`` — 0.75. Named in design spec §11's constant list,
-   but not in the register row; Ann's example result ("8 of your 30 invited
-   students signed up, 6 attended") is three in four.
-6. ``base_signup_rate`` — 0.04. The rule cannot say "more likely to sign up"
-   without something to be more likely *than*; chosen so a top-30 list on
-   equal weights lands near Ann's example of 8 sign-ups.
+1. ``true_fit_lift`` — 0.50, split 0.35 interests / 0.15 career goal by
+   ``true_interest_share_of_fit`` 0.7. Ann's Step B, 2026-10-06.
+2. ``frequent_attender_lift`` — 0.05 for 1-2 past events, and
+   ``many_attender_lift`` — 0.10 from ``many_attender_events`` = 3. Every
+   past event counts, as in her "1-2 past events". Ann's Step B.
+3. ``same_major_lift`` — 0.05. Ann's Step B.
+4. ``mass_email_notice`` — 0.20 and ``cbach_email_notice`` — 0.60. Ann's
+   email of 2026-10-10 (Q2). No chance band: her Q4 is "no extra luck".
+5. ``attend_given_signup`` — 0.65. Ann's email of 2026-10-10 (Q2).
+6. ``base_signup_rate`` — 0.05. Ann's Step B "start at 5%".
 7. ``frequent_attender_events`` — 1. Ann's (b) is "has attended events
    before", so one past event is enough.
-8. ``true_interest_share_of_fit`` — 0.5. How the true-fit lift divides between
-   the interest overlap and the career goal, and so the ceiling for a profile
-   with no career goal on file. Ann named the two together as one thing ("what
-   the student genuinely cares about"), so they share it equally.
+8. ``true_interest_share_of_fit`` — 0.7. How the true-fit lift divides between
+   the interest overlap (35) and the career goal (15), and so the ceiling for
+   a profile with no career goal on file. Ann's Step B.
 """
 
 from __future__ import annotations
@@ -218,13 +234,6 @@ EVENT_SEATS: Final[int] = 60
 #: Sign-ups the event already had before anybody was invited, from the same
 #: sentence of the case. Also a case fact.
 EXISTING_SIGNUPS: Final[int] = 8
-
-#: The centre of the symmetric chance band, as a structural fact rather than a
-#: coefficient: the band runs from ``-spread / 2`` to ``+spread / 2``, so half
-#: of it is below zero and half above. Nothing about the exercise decides this
-#: number — moving it would make the chance term a bias, which is not what
-#: "a small element of chance" means.
-_CHANCE_BAND_CENTRE: Final[float] = 0.5
 
 #: How many bits of a digest become a uniform draw. 53 is the width of a
 #: float's significand, so every value below is exact and the quotient is
@@ -359,9 +368,10 @@ class SimulationCoefficients:
             ``frequent_attender_events`` past events.
         same_major_lift: Added for a profile in one of the event's target
             majors.
-        chance_spread: The width of the chance band. The chance term runs from
-            ``-chance_spread / 2`` to ``+chance_spread / 2``, so ``0.0`` means
-            no chance at all and the rule becomes fully determined by fit.
+        mass_email_notice: The chance a profile notices the usual mass email.
+            Everyone gets it (Ann Wang, email 2026-10-10, Q2).
+        cbach_email_notice: The chance a profile notices the personal CBACH
+            email. Only the team's listed profiles get it.
         attend_given_signup: The chance that a profile that signed up attends.
         frequent_attender_events: How many past events count as "many". A
             seventh quantity the register row did not name: the requirements
@@ -380,10 +390,15 @@ class SimulationCoefficients:
     true_fit_lift: float
     frequent_attender_lift: float
     same_major_lift: float
-    chance_spread: float
+    mass_email_notice: float
+    cbach_email_notice: float
     attend_given_signup: float
     frequent_attender_events: int
     true_interest_share_of_fit: float
+    #: Ann's tiers (2026-10-06 Step B): +5 for 1-2 past events, +10 for 3 or
+    #: more. ``None`` means no second tier (``frequent_attender_lift`` for all).
+    many_attender_lift: float | None = None
+    many_attender_events: int = 3
 
     def __post_init__(self) -> None:
         """Refuse a set that is not usable, before any result is drawn."""
@@ -392,12 +407,24 @@ class SimulationCoefficients:
             "true_fit_lift",
             "frequent_attender_lift",
             "same_major_lift",
-            "chance_spread",
+            "mass_email_notice",
+            "cbach_email_notice",
             "attend_given_signup",
             "true_interest_share_of_fit",
         ):
             _check_unit_interval(name, getattr(self, name))
         _check_attender_threshold(self.frequent_attender_events)
+        if self.many_attender_lift is not None:
+            _check_unit_interval("many_attender_lift", self.many_attender_lift)
+            if not self.true_fit_lift > self.many_attender_lift:
+                raise SimulationCoefficientsError(
+                    "true_fit_lift must be greater than many_attender_lift. Got "
+                    f"{self.true_fit_lift} and {self.many_attender_lift}."
+                )
+        if self.many_attender_events < self.frequent_attender_events:
+            raise SimulationCoefficientsError(
+                "many_attender_events must be at least frequent_attender_events."
+            )
         if not self.true_fit_lift > self.frequent_attender_lift:
             raise SimulationCoefficientsError(
                 "true_fit_lift must be greater than frequent_attender_lift: the "
@@ -440,19 +467,25 @@ def _check_attender_threshold(value: object) -> None:
 
 #: The coefficients the exercise runs with: Ann's a lot / some / a little /
 #: some randomness, translated into numbers by the team and approved by Chau
-#: (wave-2 decision D7, which closed OQ-CE-03). Ann answered in words on
+#: (wave-2 decision D7, which closed OQ-CE-03). Ann Wang's email of 2026-10-10
+#: (Q2, Q4) replaced the notice and show-up rates and removed the luck band:
+#: 20 in 100 mass-email notice, 60 in 100 CBACH-email notice, 65 in 100 show up.
+#: Ann answered in words on
 #: 2026-09-25; each number and its reason is listed in this module's docstring,
 #: and the plain-words paragraph at the top states every one of them. Read it
 #: through :func:`require_coefficients`.
 EXERCISE_SIMULATION_COEFFICIENTS: SimulationCoefficients | None = SimulationCoefficients(
-    base_signup_rate=0.04,
-    true_fit_lift=0.40,
-    frequent_attender_lift=0.10,
-    same_major_lift=0.04,
-    chance_spread=0.20,
-    attend_given_signup=0.75,
+    base_signup_rate=0.05,
+    true_fit_lift=0.50,
+    frequent_attender_lift=0.05,
+    same_major_lift=0.05,
+    mass_email_notice=0.20,
+    cbach_email_notice=0.60,
+    attend_given_signup=0.65,
     frequent_attender_events=1,
-    true_interest_share_of_fit=0.5,
+    true_interest_share_of_fit=0.7,
+    many_attender_lift=0.10,
+    many_attender_events=3,
 )
 
 
@@ -519,7 +552,11 @@ def _sign_up_lift(
     """The lift above the base rate, before chance and before the clamp."""
     lift = coefficients.true_fit_lift * _fit_share(profile, event, coefficients)
     if profile.past_event_count >= coefficients.frequent_attender_events:
-        lift += coefficients.frequent_attender_lift
+        many = coefficients.many_attender_lift
+        if many is not None and profile.past_event_count >= coefficients.many_attender_events:
+            lift += many
+        else:
+            lift += coefficients.frequent_attender_lift
     if _normalized(profile.major) in {_normalized(major) for major in event.target_majors}:
         lift += coefficients.same_major_lift
     return lift
@@ -530,25 +567,30 @@ def _outcome(
     event: SimulationEvent,
     seed: int,
     coefficients: SimulationCoefficients,
+    *,
+    on_list: bool,
 ) -> tuple[bool, bool]:
-    """Whether one profile signs up, and whether it then attends."""
+    """Whether one profile notices, signs up, and then attends.
+
+    Every profile gets the mass email; a listed profile also gets the CBACH
+    email. All draws are the team's fixed draws, so a profile's mass-alone
+    outcome is the same with or without the list (the list only adds).
+    """
     if profile.non_responding:
         return False, False
-    # A band of width `chance_spread` centred on zero, written so the only
-    # bare number is the band's centre and not a share of anything.
-    chance = (
-        _uniform(seed, event.event_key, profile.profile_no, "chance") * coefficients.chance_spread
-        - coefficients.chance_spread * _CHANCE_BAND_CENTRE
-    )
-    probability = coefficients.base_signup_rate + _sign_up_lift(profile, event, coefficients)
-    probability = min(1.0, max(0.0, probability + chance))
-    if _uniform(seed, event.event_key, profile.profile_no, "signup") >= probability:
+
+    def draw(purpose: str) -> float:
+        return _uniform(seed, event.event_key, profile.profile_no, purpose)
+
+    noticed = draw("mass_notice") < coefficients.mass_email_notice
+    if on_list and draw("cbach_notice") < coefficients.cbach_email_notice:
+        noticed = True
+    if not noticed:
         return False, False
-    attends = (
-        _uniform(seed, event.event_key, profile.profile_no, "attend")
-        < coefficients.attend_given_signup
-    )
-    return True, attends
+    probability = coefficients.base_signup_rate + _sign_up_lift(profile, event, coefficients)
+    if draw("signup") >= min(1.0, max(0.0, probability)):
+        return False, False
+    return True, draw("attend") < coefficients.attend_given_signup
 
 
 def _run(
@@ -556,6 +598,8 @@ def _run(
     event: SimulationEvent,
     seed: int,
     coefficients: SimulationCoefficients,
+    *,
+    on_list: bool,
 ) -> SimulationResult:
     """Apply the rule to every profile given and collect the three sets."""
     invited: set[int] = set()
@@ -563,7 +607,7 @@ def _run(
     attended: set[int] = set()
     for profile in profiles:
         invited.add(profile.profile_no)
-        signs_up, attends = _outcome(profile, event, seed, coefficients)
+        signs_up, attends = _outcome(profile, event, seed, coefficients, on_list=on_list)
         if signs_up:
             signed_up.add(profile.profile_no)
         if attends:
@@ -584,6 +628,8 @@ def simulate_results(
     invite_limit: int,
 ) -> SimulationResult:
     """Turn one team's invited list into invited, signed up, and attended.
+
+    The listed profiles get the mass email and the personal CBACH email.
 
     Args:
         profiles: The profiles the team invited. Order does not matter and
@@ -611,7 +657,7 @@ def simulate_results(
             f"This list has {len(distinct)} profiles on it, and the invite limit "
             f"is {invite_limit}. Take some names off the list and run it again."
         )
-    return _run(profiles, event, seed, coefficients)
+    return _run(profiles, event, seed, coefficients, on_list=True)
 
 
 def run_email_everyone(
@@ -621,20 +667,21 @@ def run_email_everyone(
     seed: int,
     coefficients: SimulationCoefficients,
 ) -> SimulationResult:
-    """Run the same rule over everybody, for the comparison panel (§10).
+    """The mass email alone over everybody: the baseline the list adds to.
 
-    No invite limit applies: contacting all 300 is the point of the
-    comparison. The same seed is used as the team's own run, so any profile on
-    both lists has the same outcome in both — which is what makes the two
-    panels comparable rather than two different simulations.
+    No invite limit applies and no CBACH email is drawn. The same seed is used
+    as the team's own run, so every profile's mass-alone outcome is identical
+    in both runs and the team's sign-ups are a superset of the baseline's for
+    the same profiles (Ann Wang, email 2026-10-10, Q2).
     """
-    return _run(profiles, event, seed, coefficients)
+    return _run(profiles, event, seed, coefficients, on_list=False)
 
 
 def seats_empty(attended_count: int) -> int:
     """Seats still empty after a run, floored at zero.
 
-    ``60 - 8 - attended``, with both numbers from the case in the requirements
+    ``60 - 8 - attended``, where the caller passes everyone in the room: the
+    mass email's show-ups plus the list's extra. Both numbers from the case in the requirements
     (60 seats, 8 sign-ups already). Floored because a full room is a full room;
     a negative chair count would be a number nobody can act on.
 

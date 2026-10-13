@@ -23,16 +23,18 @@ was kept, what was rejected, and why.
 
 | Capability | Where | Tests |
 |---|---|---|
+| Class-exercise scope (`ProductScope.CLASS_EXERCISE`, ADR-0025; `SMARTMATCH_PRODUCT_SCOPE=class_exercise`) — capability grants only in that scope; requirements in `docs/product/class-exercise-requirements.md` | `smartmatch_domain.product_scope` | see `docs/product/class-exercise-requirements.md` |
+| Class-exercise simulation, asking-for-more rule and matching on the shared mechanism | `smartmatch_domain.exercise.simulation`, `smartmatch_domain.exercise.asking`, `smartmatch_domain.exercise.matching` | see `docs/product/class-exercise-requirements.md` |
 | Engagement Load Index — hard cap + soft penalty | `smartmatch_domain.eli` | 18 |
 | RFC 5545 ICS generation, folded and timezone-correct | `smartmatch_domain.ics` | 15 golden |
 | Contact-confidence lifecycle and send eligibility | `smartmatch_domain.consent` | 20 |
 | Durable job state machine | `smartmatch_domain.jobs` | 14 |
 | Import validation and normalization | `smartmatch_domain.ingest` | 13 |
 | Shadow-mode feedback → weight proposals | `smartmatch_domain.feedback` | 16 |
-| Factor registry — now `2.0.0-approved-oq-cba-004`, the four weighted CBA factors (`industry_match`, `role_match`, `cba_semantic_topic`, `proximity`), all `implemented=True`; the G1 pair (`topic_relevance`, `travel_burden`) stays declared and implemented at `retired_in_version="2.0.0-approved-oq-cba-004"`, so a run pinned to `1.1.1-approved-g1-m6j` is still reproducible | `smartmatch_domain.factor_registry`, `smartmatch_domain.factors` | `tests/unit/test_factor_registry.py` (39 test functions) + `tests/golden/matching/cba` (11 golden cases) |
+| Factor registry — now `2.0.0-approved-oq-cba-004`, the four weighted CBA factors (`industry_match`, `role_match`, `cba_semantic_topic`, `proximity`), all `implemented=True`; the G1 pair (`topic_relevance`, `travel_burden`) stays declared and implemented at `retired_in_version="2.0.0-approved-oq-cba-004"`, so a run pinned to `1.1.1-approved-g1-m6j` is still reproducible | `smartmatch_domain.factor_registry`, `smartmatch_domain.factors` | `tests/unit/test_factor_registry.py` (39 test functions) + `tests/golden/matching/cba` (19 golden cases) |
 | Deny-by-default authorization policy | `smartmatch_authz.policy` | 32 |
 | Provider interfaces + fixture adapters + classroom isolation | `smartmatch_providers` | 16 |
-| Tenant-safe schema, enforced by composite keys — 46 Alembic revisions, head `0046_exercise_run_snapshot` | `db/migrations` | 11 integration |
+| Tenant-safe schema, enforced by composite keys — 46 Alembic revisions, head `0046_exercise_result_run_snapshot` | `db/migrations` | 11 integration |
 | Schema matches migration — foreign keys, nullability, types, PK/UQ/CHECK constraint names, per table (ADR-0004 amendment) | `smartmatch_persistence.schema`, `db/migrations` | 493 integration |
 | `job.status` CHECK constraint matches `smartmatch_domain.jobs.JobState` | `db/migrations`, `smartmatch_domain.jobs` | 13 integration |
 | Transactional outbox + dispatcher, parking a job at attempt exhaustion | `smartmatch_worker.dispatcher` | 41 integration |
