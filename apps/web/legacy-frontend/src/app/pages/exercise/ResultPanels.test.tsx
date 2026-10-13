@@ -78,6 +78,12 @@ describe("seatsSentence", () => {
     );
   });
 
+  it("leaves the invitations clause out when added is not given", () => {
+    expect(seatsSentence({ alreadyComing: 8, open: 51 }, "then")).toBe(
+      "8 were already coming. 51 seats were still open.",
+    );
+  });
+
   it("says the room is full rather than 0 seats open", () => {
     expect(seatsSentence({ alreadyComing: 8, added: 52, open: 0 }, "now")).toBe(
       "8 were already coming. Your invitations added 52. Every seat is taken.",
@@ -123,7 +129,7 @@ describe("ResultPanels", () => {
     expect(slotText("exercise-room")).toContain("Your invitations (6)");
   });
 
-  it("says round one's seats the same way, in the past tense", () => {
+  it("recaps round one's seats in the past tense without the overstated 'invitations added' line", () => {
     render(
       <ResultPanels
         results={results({
@@ -141,10 +147,13 @@ describe("ResultPanels", () => {
       />,
     );
 
-    expect(slotText("exercise-round-one")).toContain(
-      "Built from your team's setting “First try”. 8 were already coming. " +
-        "Your invitations added 1. 51 seats were still open.",
+    const recap = slotText("exercise-round-one");
+    expect(recap).toContain(
+      "Built from your team's setting “First try”. 8 were already coming. 51 seats were still open.",
     );
+    expect(recap).not.toContain("invitations added");
+    // The current round's sentence keeps Dr. Wang's wording.
+    expect(slotText("exercise-seats-sentence")).toContain("Your invitations added");
   });
 });
 
