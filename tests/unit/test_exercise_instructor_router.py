@@ -692,6 +692,29 @@ def test_the_attempt_allowance_is_spent_by_wrong_passcodes(client: TestClient) -
     assert refused.json()["error"]["code"] == "exercise_instructor_login_rate_limited"
 
 
+def test_a_classroom_of_mistyped_passcodes_does_not_lock_the_instructor_out(
+    client: TestClient,
+) -> None:
+    """Behind the pilot proxy every caller is one client address (OQ-CE-06).
+
+    Twelve wrong passcodes from a shared address (more than the old bound of
+    ten) must leave room for the instructor's own correct one.
+    """
+    for _ in range(12):
+        assert _login(client, "wrong-passcode-entirely").status_code == 401
+
+    assert _login(client).status_code == 200
+
+
+def test_brute_force_is_still_limited_after_the_bound_was_raised(client: TestClient) -> None:
+    """Raising the per-client bound must not remove it: the next guess is refused."""
+    for _ in range(INSTRUCTOR_LOGIN_ATTEMPTS_PER_CLIENT):
+        assert _login(client, "wrong-passcode-entirely").status_code == 401
+
+    assert _login(client, "wrong-passcode-entirely").status_code == 429
+    assert _login(client).status_code == 429
+
+
 def test_a_correct_passcode_gets_in_while_the_global_window_is_spent(
     state: dict[str, Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:
