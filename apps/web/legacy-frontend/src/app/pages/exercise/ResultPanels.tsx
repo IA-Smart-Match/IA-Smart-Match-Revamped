@@ -56,7 +56,7 @@ export function inRankOrder(results: ResultsView, profileNos: readonly number[])
     (results.invited_profiles ?? []).map((entry) => [entry.profile_no, entry.rank]),
   );
   const key = (no: number): number => rankOf.get(no) ?? Number.POSITIVE_INFINITY;
-  return [...profileNos].sort((a, b) => key(a) - key(b));
+  return [...profileNos].sort((a, b) => (key(a) === key(b) ? 0 : key(a) - key(b)));
 }
 
 /** The three panels, in §10's reading order, for the chart. */

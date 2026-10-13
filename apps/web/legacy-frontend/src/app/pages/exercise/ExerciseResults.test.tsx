@@ -517,8 +517,8 @@ describe("<ExerciseResults />", () => {
       return found;
     });
     expect(chips.map((chip) => chip.textContent)).toEqual([
-      "Avery Example",
       "Blake Example",
+      "Avery Example",
       "Avery Example",
       "Avery Example",
     ]);
