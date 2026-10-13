@@ -68,11 +68,14 @@ __all__ = [
 ]
 
 #: Attempts one client address may spend on the instructor login per window.
-#: Ten in five minutes is ``routers/auth.py``'s ``LOGIN_RATE_LIMIT``, copied
-#: rather than invented: the population it bounds is the same one — somebody
-#: who mistyped a passcode, or somebody guessing one — and a second number for
-#: the same question would be a second thing to tune.
-INSTRUCTOR_LOGIN_ATTEMPTS_PER_CLIENT: Final[int] = 10
+#: Thirty in five minutes (was ten, copied from ``routers/auth.py``). Behind the
+#: pilot's Cloudflare tunnel -> Vite -> API chain the socket peer is the proxy,
+#: so every caller in the room is one "client" and ten was a whole class's
+#: allowance (and ~30 students may also share one public IP, so keying on a
+#: forwarded address would not help). Thirty stays at half of
+#: :data:`INSTRUCTOR_LOGIN_ATTEMPTS_TOTAL`, so guessing remains bounded at 360
+#: wrong passcodes an hour per process, each costing a PBKDF2 derivation.
+INSTRUCTOR_LOGIN_ATTEMPTS_PER_CLIENT: Final[int] = 30
 
 #: Attempts *every* caller together may spend per window. There is one
 #: instructor and one passcode, so a process seeing more than this many login
