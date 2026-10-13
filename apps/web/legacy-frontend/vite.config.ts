@@ -51,7 +51,8 @@ export default defineConfig({
     // docs/operations/exercise-hosting.md) forwards requests with the public
     // hostname in the Host header; Vite's dev-server host check rejects
     // anything not in this list.
-    allowedHosts: ["pilot.plated.blog", "exercise.plated.blog"],
+    // ".smartmatch.cloud" covers the domain and all its subdomains (Vite 6).
+    allowedHosts: ["pilot.plated.blog", "exercise.plated.blog", ".smartmatch.cloud"],
     proxy: {
       "/api": {
         // Use IPv4 literal so Windows + Node do not prefer ::1 when the API binds 127.0.0.1 only.
@@ -88,7 +89,7 @@ export default defineConfig({
   },
   preview: {
     port: 4173,
-    allowedHosts: ["pilot.plated.blog", "exercise.plated.blog"],
+    allowedHosts: ["pilot.plated.blog", "exercise.plated.blog", ".smartmatch.cloud"],
     proxy: {
       "/api": {
         target: apiProxyTarget,
