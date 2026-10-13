@@ -529,7 +529,10 @@ def download_ranked_list(
         content=ranked_list_csv(view),
         media_type="text/csv; charset=utf-8",
         headers={
-            "Content-Disposition": f'attachment; filename="{csv_download_filename(event_key)}"'
+            "Content-Disposition": f'attachment; filename="{csv_download_filename(event_key)}"',
+            # Same URL for every team (team comes from the cookie); a shared cache
+            # such as Cloudflare, which caches .csv by default, must never store it.
+            "Cache-Control": "no-store",
         },
     )
 
