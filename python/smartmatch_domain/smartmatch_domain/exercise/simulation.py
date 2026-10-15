@@ -25,8 +25,8 @@ it, and a test checks that every number in it is the number the code uses.
     Being in the major the event is aimed at gives 5 in 100 more. The total
     never goes below 0 or above 100 in 100. Each person who signs up has a
     65 in 100 chance of attending. The 8 students already signed up attend
-    at that same 65 in 100, from the same fixed draw. There is no extra luck: the team's fixed draw alone
-    decides who notices, signs up and shows up, so running the same list twice
+    at that same 65 in 100, from the same fixed draw. There is no extra luck: the team's fixed
+    draw alone decides who notices, signs up and shows up, so running the same list twice
     gives the same answer. The list's sign-ups include everyone the mass email
     alone would have brought, plus the ones the personal email added. The app
     uses each profile's true interests for this, not what the profile has told
