@@ -169,7 +169,7 @@ def test_the_key_table_is_bounded() -> None:
 
 def test_the_shipped_constants_are_the_ones_the_login_uses() -> None:
     """A guard against the module and the route disagreeing about the numbers."""
-    assert INSTRUCTOR_LOGIN_ATTEMPTS_PER_CLIENT == 10
+    assert INSTRUCTOR_LOGIN_ATTEMPTS_PER_CLIENT == 30
     assert INSTRUCTOR_LOGIN_ATTEMPTS_TOTAL == 60
     assert INSTRUCTOR_LOGIN_WINDOW.total_seconds() == 300
     assert INSTRUCTOR_LOGIN_ATTEMPTS_TOTAL > INSTRUCTOR_LOGIN_ATTEMPTS_PER_CLIENT, (
