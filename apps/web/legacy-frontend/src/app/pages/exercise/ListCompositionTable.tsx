@@ -13,10 +13,6 @@
  *   ranked for this event at all. They are in the "all profiles" column and
  *   can never be in the "on this list" one, and saying so is the difference
  *   between a table that adds up and one that seems to have lost people.
- * - **`unlisted_class_years`** — years in the file that the server's class-year
- *   order does not name. With Ann's four years (2026-09-24) this is empty for
- *   her file; a dataset stored earlier may still carry one. It is shown as what
- *   the server said, without a claim about why.
  *
  * No vocabulary is written here. Majors and years are keys of the maps the
  * server sent, rendered as the file spells them. The vocabularies are closed
@@ -42,13 +38,11 @@ import { useNarrowViewport } from "./useNarrowViewport";
 export interface ListCompositionTableProps {
   readonly composition: ListCompositionView;
   readonly unrankableProfileCount: number;
-  readonly unlistedClassYears: readonly string[];
 }
 
 export function ListCompositionTable({
   composition,
   unrankableProfileCount,
-  unlistedClassYears,
 }: ListCompositionTableProps): React.JSX.Element {
   const narrow = useNarrowViewport();
   const groups: readonly { counts: GroupCountsView; label?: (value: string) => string }[] = [
@@ -101,11 +95,6 @@ export function ListCompositionTable({
             } in this data file could not be ranked for this event, so nobody among them can be on the list.`}
       </p>
 
-      <p className="ce-type-body ce-measure text-ce-ink" data-slot="exercise-unlisted-years">
-        {unlistedClassYears.length === 0
-          ? "Every year in this data file has somebody on the list."
-          : `Years with nobody on the list: ${unlistedClassYears.join(", ")}.`}
-      </p>
     </section>
   );
 }
@@ -131,7 +120,9 @@ function GroupTable({
 }): React.JSX.Element {
   const groups = [
     ...new Set([...Object.keys(counts.all_profiles), ...Object.keys(counts.on_list)]),
-  ].sort((a, b) => a.localeCompare(b));
+  ];
+  // The server sends class years in class order (Freshman to Senior); only majors are alphabetical.
+  if (counts.dimension !== "class_year") groups.sort((a, b) => a.localeCompare(b));
   const dimension = dimensionLabel(counts.dimension);
 
   return (

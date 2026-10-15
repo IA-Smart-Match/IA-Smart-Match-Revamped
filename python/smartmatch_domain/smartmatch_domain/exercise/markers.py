@@ -34,11 +34,12 @@ nothing here needs to know the list.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import StrEnum
 from types import MappingProxyType
 from typing import Final
 
+from smartmatch_domain.exercise.vocabulary import EXERCISE_CLASS_YEARS
 from smartmatch_domain.exercise_list_coverage import (
     GroupValues,
     ListCoverage,
@@ -211,6 +212,21 @@ def _counted(labels: Sequence[str], *, seed: Sequence[str] = ()) -> Mapping[str,
     return MappingProxyType(counts)
 
 
+def _in_class_order(labels: Sequence[str]) -> list[str]:
+    """Freshman to Senior, then any year the vocabulary does not name, as met.
+
+    Display order only: independent of the senior-first tie-break. No zero rows
+    are added, so a year nobody in the file holds stays absent, as for majors.
+    """
+    rank = {year: i for i, year in enumerate(EXERCISE_CLASS_YEARS)}
+    return sorted(labels, key=lambda label: rank.get(label, len(rank)))
+
+
+def _counted_by_year(labels: Sequence[str]) -> Mapping[str, int]:
+    counts = _counted(labels)
+    return MappingProxyType({year: counts[year] for year in _in_class_order(list(counts))})
+
+
 def list_composition(
     listed: Sequence[tuple[str, str, InformationMarker]],
     everyone: Sequence[tuple[str, str, InformationMarker]],
@@ -233,6 +249,19 @@ def list_composition(
     all_majors = [major for major, _, _ in everyone]
     all_years = [year for _, year, _ in everyone]
 
+    coverage = find_uncovered_groups(
+        majors=GroupValues(
+            dimension="major",
+            all_profiles=tuple(all_majors),
+            on_list=tuple(listed_majors),
+        ),
+        class_years=GroupValues(
+            dimension="class_year",
+            all_profiles=tuple(all_years),
+            on_list=tuple(listed_years),
+        ),
+    )
+
     return ListComposition(
         by_major=GroupCounts(
             dimension="major",
@@ -241,24 +270,15 @@ def list_composition(
         ),
         by_class_year=GroupCounts(
             dimension="class_year",
-            on_list=_counted(listed_years),
-            all_profiles=_counted(all_years),
+            on_list=_counted_by_year(listed_years),
+            all_profiles=_counted_by_year(all_years),
         ),
         by_marker=GroupCounts(
             dimension="marker",
             on_list=_counted([str(marker) for _, _, marker in listed], seed=marker_labels),
             all_profiles=_counted([str(marker) for _, _, marker in everyone], seed=marker_labels),
         ),
-        coverage=find_uncovered_groups(
-            majors=GroupValues(
-                dimension="major",
-                all_profiles=tuple(all_majors),
-                on_list=tuple(listed_majors),
-            ),
-            class_years=GroupValues(
-                dimension="class_year",
-                all_profiles=tuple(all_years),
-                on_list=tuple(listed_years),
-            ),
+        coverage=replace(
+            coverage, missing_class_years=tuple(_in_class_order(coverage.missing_class_years))
         ),
     )
