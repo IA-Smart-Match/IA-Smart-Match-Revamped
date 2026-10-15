@@ -170,7 +170,7 @@ from datetime import date, datetime, timedelta
 from typing import Annotated, Any, Final, cast
 
 import sqlalchemy as sa
-from fastapi import APIRouter, Header, Path, status
+from fastapi import APIRouter, Header, Path, Query, status
 from pydantic import BaseModel, Field
 from smartmatch_authz import OrgPath, Resource, assert_allowed
 from smartmatch_domain.availability_verdict import (
@@ -1599,6 +1599,85 @@ def _availability_views(
             changed_since_run=None if now is None else changed_since(verdict, now),
         )
     return views
+
+
+class ShortlistMovement(BaseModel):
+    """One speaker's place on the two shortlists. A rank is 1-based; null means absent."""
+
+    subject_id: str
+    base_rank: int | None
+    candidate_rank: int | None
+    movement: str = Field(description="entered, left, moved, or unchanged.")
+
+
+class MatchRunCompareResponse(BaseModel):
+    """A read-only diff of two runs. Nothing here is stored or gates anything."""
+
+    base_run_id: uuid.UUID
+    candidate_run_id: uuid.UUID
+    registry_version_equal: bool
+    solver_version_equal: bool
+    weight_deltas: dict[str, float | None] = Field(
+        description="candidate minus base per factor; null when either run lacks the factor."
+    )
+    shortlist_movement: list[ShortlistMovement]
+
+
+def compare_runs(base: MatchRunResponse, candidate: MatchRunResponse) -> MatchRunCompareResponse:
+    """Pure diff of two already-authorized run reads."""
+    factors = sorted(set(base.weights) | set(candidate.weights))
+    deltas = {
+        name: (
+            candidate.weights[name] - base.weights[name]
+            if name in base.weights and name in candidate.weights
+            else None
+        )
+        for name in factors
+    }
+    base_rank = {e.subject_id: i + 1 for i, e in enumerate(base.shortlist)}
+    cand_rank = {e.subject_id: i + 1 for i, e in enumerate(candidate.shortlist)}
+    moves = []
+    for subject in [*base_rank, *(s for s in cand_rank if s not in base_rank)]:
+        b, c = base_rank.get(subject), cand_rank.get(subject)
+        kind = (
+            "entered" if b is None else "left" if c is None else "moved" if b != c else "unchanged"
+        )
+        moves.append(
+            ShortlistMovement(subject_id=subject, base_rank=b, candidate_rank=c, movement=kind)
+        )
+    return MatchRunCompareResponse(
+        base_run_id=base.id,
+        candidate_run_id=candidate.id,
+        registry_version_equal=base.registry_version == candidate.registry_version,
+        solver_version_equal=base.solver_version == candidate.solver_version,
+        weight_deltas=deltas,
+        shortlist_movement=moves,
+    )
+
+
+# Declared before `/{match_run_id}` so the literal segment is matched first.
+@router.get(
+    "/{unit_id}/match-runs/compare",
+    response_model=MatchRunCompareResponse,
+    summary="Compare two match runs in one unit: weights, pins, shortlist movement",
+)
+def compare_match_runs(
+    principal: CurrentPrincipal,
+    session: DbSession,
+    unit_id: Annotated[uuid.UUID, Path()],
+    base: Annotated[uuid.UUID, Query()],
+    candidate: Annotated[uuid.UUID, Query()],
+) -> MatchRunCompareResponse:
+    """Read both runs through ``read_match_run`` (same authz, tenant and unit scoping).
+
+    Raises:
+        ApiError: 404 when either run is missing or filed under another unit.
+    """
+    _authorize_match_run(session, principal, unit_id)
+    return compare_runs(
+        read_match_run(principal, session, unit_id, base),
+        read_match_run(principal, session, unit_id, candidate),
+    )
 
 
 @router.get(
