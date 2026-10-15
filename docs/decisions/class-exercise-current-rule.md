@@ -17,7 +17,7 @@ personal CBACH email. For each person, in order:
 | Step | Rule | Ruled by | Code |
 |---|---|---|---|
 | 1. Notice | Mass email 20 in 100 (all 300). CBACH email 60 in 100 (the team's 30 only). Both: about 68 in 100 notice at least one | Ann Wang, email 2026-10-10, Q2 | `simulation.py:482-483,585-586` |
-| 2. Sign up (Step B) | Start at 5. +35 if the hidden true interests match the event. +15 if the hidden true career goal fits. +5 for 1-2 past events, +10 for 3 or more (**any** past event on the file row; refresh-added topics do not count). +5 if the event targets the student's major. Points are added; the most anyone can reach is 70; 5 is the floor | Ann Wang 2026-10-06 Step B, kept by the owner ruling of 2026-10-12 ("any past event" to confirm with Ann) | `simulation.py:477-489,540-559`; `exercise_results_models.py:205` |
+| 2. Sign up (Step B) | Start at 5. +35 if the hidden true interests match the event. +15 if the hidden true career goal fits. +5 per past event, capped at +15 (**any** past event on the file row; refresh-added topics never count). +5 if the event targets the student's major. Points are added; the most anyone can reach is 75; 5 is the floor | Ann Wang 2026-10-06 Step B, kept by the owner ruling of 2026-10-12; past-event points and "any past event" ruled by Ann Wang, reply 2026-10-15, Q1 ([record](class-exercise-ann-reply-2026-10-15.md)). Code still on the old +5/+10 tiers until the follow-up code PR | `simulation.py:477-489,540-559`; `exercise_results_models.py:205` |
 | 3. Show up | 65 in 100 of sign-ups | Ann Wang, email 2026-10-10, Q2 and Q4 | `simulation.py:484,593` |
 | Luck | None. Each team's fixed chance draw alone decides; same list, same result | Ann Wang, email 2026-10-10, Q4 | `simulation.py:508-523` (4 draws only) |
 | Baseline | Mass email alone, run on the team's own draw (same seed as the team's run) | Ann Wang, email 2026-10-10, Q1 | `exercise_results.py:268`; `exercise_results_run.py:321,331` |
@@ -26,7 +26,7 @@ Undecided and Graduate-school career goals earn 0 on every event, in matching
 and in results. Graduate school fits no event topic (Ann confirmed D2,
 2026-09-25); Undecided earns nothing (Ann Wang, 2026-10-02 and 2026-10-07). Sign-up reads only the hidden true
 columns, for all 300, card or not. Students who stopped responding never sign
-up.
+up and notice nothing, mass email included (Ann Wang, reply 2026-10-15, Q3).
 
 **Not superseded:** Step B. From Ann's 2026-10-06 message only Step B
 survives. Its Step A (notice 75 / 15), Step C (flat 70% show-up) and the
@@ -40,24 +40,26 @@ survives. Its Step A (notice 75 / 15), Step C (flat 70% show-up) and the
 - Debrief line, verbatim: "Each team's numbers include its own luck. Look at
   your gap over the mass email, not just the raw number." (Q1;
   `ResultPanels.tsx:225`).
-- Seats: 60 seats, 8 already signed up before any invitation. Seats still
-  open = 60 − 8 − (everyone who attended from the mass email **or** the team's
-  list). "Already coming" = the 8 plus the mass email's attendees; "Your
+- Seats: 60 seats, 8 already signed up before any invitation. The 8 attend at
+  the 65% show-up rate (Ann Wang, reply 2026-10-15, Q2; code still counts all 8
+  until the follow-up code PR). Seats still open = 60 − attending-of-8 −
+  (everyone who attended from the mass email **or** the team's list). The
+  lift line uses sign-ups; the seats sentence and the round-one recap use
+  attendance. "Already coming" = the 8 plus the mass email's attendees; "Your
   invitations added" = the team's attendees the mass email missed.
   (`simulation.py:232,236,680-693`; `exercise_results_run.py:382-385`;
   `ResultPanels.tsx:207-211`). Example: "15 were already coming. Your
   invitations added 4. 41 seats are still open."
 
-## Check numbers (Oct 2 file, suggested 30 at 3/3/2/2, mean of 1,000 seeds)
+## Check numbers (SUPERSEDED 2026-10-15: past-event cap changes them; rerun pending; Oct 2 file, suggested 30 at 3/3/2/2, mean of 1,000 seeds)
 
 | Event | Mass email alone (N) | List adds (K) | With list (M) | Ann expected |
 |---|---|---|---|---|
 | Northline | ~10.5 | 6.4 | 16.9 | about 6 |
 | Harbor | ~12.1 | 5.1 | 17.1 | 4-5 |
 
-Source: [`class-exercise-results-rule-2026-10-10.md`](class-exercise-results-rule-2026-10-10.md)
-"Check numbers". These are not pinned by a test. Ann still has to see them for
-a few teams (Q2).
+**Superseded by the 2026-10-15 change; 5,000-run rerun pending, new numbers owed to Ann** ([record](class-exercise-ann-reply-2026-10-15.md)). Old source: [`class-exercise-results-rule-2026-10-10.md`](class-exercise-results-rule-2026-10-10.md)
+"Check numbers". These are not pinned by a test. 
 
 ## Matching (building the list)
 
@@ -71,7 +73,7 @@ a few teams (Q2).
 | Hidden columns | Never shown on screen, in the list, the CSV or any response | ADR-0025 D6 | `exercise/__init__.py:39-43` |
 
 Note the two different "past events": the matching factor counts **related**
-events (0 / 0.5 / 1); the sign-up rule counts **any** past events (+5 / +10).
+events (0 / 0.5 / 1); the sign-up rule counts **any** past events (+5 each, max +15).
 
 ## Asking for more, and the refresh
 
@@ -87,11 +89,12 @@ code `asking.py:82-84,92,191-203`.
 
 ## Still open (to confirm with Ann)
 
-- Step B "any past event" reading (owner ruling 2026-10-12).
+- Q1 follow-up (2026-10-15): her "highest chance is about 20%, not 40%" may mean
+  an overall cap near 20%; the code implements the literal +5-per-event rule.
 - OQ-CE-20 (several true interests), OQ-CE-23 (same major = event's target
-  majors), OQ-CE-27 (notice drawn per event), OQ-CE-28 (round-two gain is
-  small: 0.2-1.6 vs a team spread of about 2.4), OQ-CE-25 second half (do the 8
-  attend for certain). The code runs the recommended default (a) for each.
+  majors), OQ-CE-27 (notice drawn per event). The code runs the recommended
+  default (a) for each.
+- OQ-CE-28 first half (round two improves only through a better list): no reply.
 - Register: [`class-exercise-open-questions.md`](../plans/open-questions/class-exercise-open-questions.md).
 
 Paths: `simulation.py`, `asking.py`, `registry.py`, `matching.py`,
