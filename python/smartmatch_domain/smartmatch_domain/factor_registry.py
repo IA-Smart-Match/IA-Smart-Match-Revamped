@@ -10,11 +10,11 @@ Status: **APPROVED** — registry ``2.0.0-approved-oq-cba-004``, accepted
 of 2026-09-03 (registry ``1.1.1-approved-g1-m6j``) is **superseded, not
 deleted** — see "What supersession means here", below.
 
-Registry ``3.0.0-approved-b26-eli`` (B26 T8c, ADR-0027) is **declared with
-status ``proposed`` and is not current.** It adds the ``engagement_load``
-penalty and the Q7 band table. :data:`CURRENT_CBA_REGISTRY` is still
-:data:`CBA_REGISTRY`, so every new run scores under 2.0.0; the approval gate
-refuses 3.0.0 until an approval is recorded here. See "Current, superseded,
+Registry ``3.0.0-approved-b26-eli`` (B26 T8c, ADR-0027) is **pre-staged as
+``approved`` and current in an unmerged draft PR (#297); NOT in force until
+IA West review + owner approval.** It adds the ``engagement_load``
+penalty and the Q7 band table. :data:`CURRENT_CBA_REGISTRY` is
+:data:`CBA_REGISTRY_3` in this draft, so new runs would score under 3.0.0. See "Current, superseded,
 proposed", below.
 
 Legacy evidence (Nebiux-Team-IA-West-SmartMatch@bdce024, verified):
@@ -839,13 +839,14 @@ CBA_3_VIRTUAL_MODEL: Final[ScoringModel] = ScoringModel(
     mode_vocabulary=CBA_SCORING_MODES,
 )
 
-#: Registry 3.0.0. ``proposed``, with no approver: :func:`assert_registry_approved`
-#: refuses it until an approval is recorded here (ADR-0027, "The flip").
+#: Registry 3.0.0. PRE-STAGED as ``approved`` in an unmerged draft PR (#297):
+#: NOT in force until IA West review + owner approval. The approver and date
+#: below are placeholders to be confirmed or corrected at merge (ADR-0027, "The flip").
 CBA_REGISTRY_3: Final[FactorRegistry] = FactorRegistry(
     version=REGISTRY_3_VERSION,
-    status="proposed",
-    approver=None,
-    approved_on=None,
+    status="approved",
+    approver="BrooklynD23",
+    approved_on="2026-10-09",
     factors=PROPOSED_FACTORS_3,
     approved_scoring_keys=APPROVED_SCORING_KEYS_3,
     scoring_modes={
@@ -890,7 +891,7 @@ CBA_LINEAGE_VERSIONS: Final[frozenset[str]] = frozenset(_DECLARED_BY_VERSION)
 #: reads it, through :func:`current_cba_registry`. Making 3.0.0 current is this
 #: one line, after approval (ADR-0027, "The flip"); flipped without approval,
 #: the create route fails closed with ``503 registry_not_ready``.
-CURRENT_CBA_REGISTRY: Final[FactorRegistry] = CBA_REGISTRY
+CURRENT_CBA_REGISTRY: Final[FactorRegistry] = CBA_REGISTRY_3
 
 
 def current_cba_registry() -> FactorRegistry:

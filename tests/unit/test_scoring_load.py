@@ -142,12 +142,9 @@ def test_the_loads_are_the_bands_they_claim():
     assert UNKNOWN.assessment.reason is LoadReason.CAPACITY_NOT_STATED
 
 
-def test_3_x_scoring_is_refused_by_the_real_gate():
-    """No helper: the proposed registry fails closed."""
-    from smartmatch_domain.factor_registry import RegistryNotApprovedError
-
-    with pytest.raises(RegistryNotApprovedError):
-        _score3(_evidence("SYNTH-LOAD-GATE", load=LIGHT))
+def test_3_x_scoring_passes_the_real_gate():
+    """No helper: the pre-staged approved registry (#297) scores without one."""
+    _score3(_evidence("SYNTH-LOAD-GATE", load=LIGHT))
 
 
 # 18
