@@ -1,8 +1,6 @@
 /**
- * The ranked list's "what counted" line.
- *
- * Under the reason, the factors that counted are named in the server's words,
- * read from `factor_labels`. A key with no label is dropped, never printed raw.
+ * The ranked list's reason line: one concise line per profile (the server's
+ * reason, verbatim). The separate "what counted" factor-names line is gone.
  */
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -28,15 +26,10 @@ function entry(contributingFactorKeys: string[]): ListEntryView {
   };
 }
 
-function factorLine(): string {
-  // The "what counted" line sits under the name (DESIGN.md §6.7).
-  return document.querySelector('[data-slot="exercise-factor-names"]')?.textContent ?? "";
-}
-
 afterEach(cleanup);
 
-describe("<RankedList /> factor names", () => {
-  it("names each factor that counted in the server's words", () => {
+describe("<RankedList /> reason line", () => {
+  it("shows one reason line per entry and no factor-names line", () => {
     render(
       <RankedList
         entries={[entry(["career_goal_fit", "same_major"])]}
@@ -44,17 +37,7 @@ describe("<RankedList /> factor names", () => {
         caption="List"
       />,
     );
-    expect(factorLine()).toBe("career goal fits this event; same major");
-  });
-
-  it("drops a key the server sent no label for", () => {
-    render(
-      <RankedList
-        entries={[entry(["past_event_topic_overlap", "same_major"])]}
-        factorLabels={FACTOR_LABELS}
-        caption="List"
-      />,
-    );
-    expect(factorLine()).toBe("same major");
+    expect(document.querySelectorAll(".ce-type-reason")).toHaveLength(1);
+    expect(document.querySelector('[data-slot="exercise-factor-names"]')).toBeNull();
   });
 });
