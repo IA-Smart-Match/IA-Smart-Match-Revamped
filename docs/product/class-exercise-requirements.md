@@ -269,8 +269,8 @@ personal emails on top. For each person, the app decides four things in order.
    email from CBACH: 60 in 100 notice it. Getting both, about 68 in 100 notice
    at least one.
 2. **If they noticed, do they sign up?** The team's existing sign-up chances
-   based on the match. **DECIDED. Owner ruling 2026-10-12: Step B (Ann, 2026-10-06) is the sign-up step; past events = any past event, to confirm with Ann.** Step B: start at 5; +35 true interests; +15 true career goal; +5 for 1 or 2 past events, +10 for 3 or more; +5 same major (PR #398). Evidence, Oct 2 file at 3/3/2/2, suggested 30, 1,000 seeds: Step B gives the lift Ann expects (about 6 Northline, 4-5 Harbor); the set-aside chances give 4.6 and 3.9 (Step B: 6.4 and 5.1).
-3. **If they signed up, do they show up?** 65 in 100 do.
+   based on the match. **DECIDED. Owner ruling 2026-10-12: Step B (Ann, 2026-10-06) is the sign-up step; past events = any past event, to confirm with Ann.** Step B: start at 5; +35 true interests; +15 true career goal; +5 per past event, capped at +15 (Ann Wang, reply 2026-10-15, Q1; was +5 for 1-2 / +10 for 3+); +5 same major; max 75 (PR #398, cap follows in a code PR). Past events = any past event, confirmed by Ann 2026-10-15. Evidence, Oct 2 file at 3/3/2/2, suggested 30, 1,000 seeds: Step B gives the lift Ann expects (about 6 Northline, 4-5 Harbor); the set-aside chances give 4.6 and 3.9 (Step B: 6.4 and 5.1).
+3. **If they signed up, do they show up?** 65 in 100 do, including the 8 already signed up (Ann Wang, reply 2026-10-15, Q2).
 
 There is no extra luck (Ann Wang, email 2026-10-10, Q4): "The team's fixed chance draw alone decides
 who notices, signs up and shows up. Remove the extra ±10 points." The rates
