@@ -38,6 +38,7 @@ import { Link2, MailX, Sparkles } from "lucide-react";
 import { motion } from "motion/react";
 
 import { cn } from "../../components/ui/utils";
+import { ProfilePointsCounter } from "./ProfilePointsCounter";
 import type { ListEntryView } from "../../../lib/exerciseClient";
 import { CE_MOTION_MS, MarkerChip, ceMotion, usePrefersReducedMotion } from "./desk";
 import { EmptySlotArt } from "./EmptySlotArt";
@@ -227,6 +228,15 @@ export function RankedList({
                     <RefreshMarkChips marks={entry.refresh_marks} eventName={firstRoundEventName} />
                   </div>
                   <ReasonLines entry={entry} labels={factorLabels} />
+                  {entry.points ? (
+                    <ProfilePointsCounter
+                      profileName={entry.display_name}
+                      total={entry.points.total}
+                      attendancePoints={entry.points.attendance_points}
+                      cardPoints={entry.points.card_points}
+                      cardCompletion={entry.points.card_completion}
+                    />
+                  ) : null}
                 </td>
                 <td className="px-ce-2 py-ce-4">{entry.major}</td>
                 <td className="px-ce-2 py-ce-4">{entry.class_year}</td>
