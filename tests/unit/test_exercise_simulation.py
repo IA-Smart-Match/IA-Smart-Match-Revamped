@@ -769,7 +769,7 @@ def test_a_profile_off_the_list_never_draws_the_cbach_email():
 
 
 def test_step_b_past_event_tiers_and_exact_chance():
-    """Ann 2026-10-06: 5 base, +35 interests, +15 goal, +5 per past event up to +15, +5 major (2026-10-15)."""
+    """Ann 2026-10-06 Step B: 5, +35, +15, +5 per past event up to +15 (10-15), +5 major."""
     from smartmatch_domain.exercise.simulation import _sign_up_lift
 
     c = _shipped()

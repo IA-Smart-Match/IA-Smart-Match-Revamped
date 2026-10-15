@@ -34,7 +34,8 @@ it, and a test checks that every number in it is the number the code uses.
 
 Source: Ann Wang, email 2026-10-10 (Q2, Q4) for notice, show-up and no luck;
 her 2026-10-06 reply to Chau (Step B) for the sign-up chances: start at 5,
-add 35 / 15 / 5 per past event up to 15 (her 2026-10-15 reply) / 5. The 2026-10-10 email supersedes only the rest of the
+add 35 / 15 / 5 per past event up to 15 (her 2026-10-15 reply) / 5.
+The 2026-10-10 email supersedes only the rest of the
 2026-10-06 rule (15 in 100 notice, 70 in 100 attend, the extra luck). It says
 "the team's existing sign-up chances", which the team had read as the older
 code numbers (4 / 40 / 10 / 4). Owner ruling 2026-10-12: Ann's Oct 6 Step B;
