@@ -853,6 +853,7 @@ def test_the_csv_carries_the_six_columns_and_the_lists_rows(client: TestClient) 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/csv")
     assert response.headers["content-disposition"] == 'attachment; filename="northline-list.csv"'
+    assert response.headers["cache-control"] == "no-store"
     rows = response.text.strip().split("\r\n")
     assert rows[0] == ",".join(CSV_LIST_COLUMNS)
     assert len(rows) == _INVITE_LIMIT + 1
