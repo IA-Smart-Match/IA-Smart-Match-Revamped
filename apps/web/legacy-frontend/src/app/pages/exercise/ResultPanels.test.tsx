@@ -219,7 +219,7 @@ describe("round-one recap sums to the room", () => {
   it.each([
     [8, 1, 51],
     [5, 12, 43],
-    [0, 20, 40],
+    [2, 18, 40],
   ])("%i of the 8 + %i in the room + %i open = 60", (came, inRoom, open) => {
     const r = results({
       round: 2,
