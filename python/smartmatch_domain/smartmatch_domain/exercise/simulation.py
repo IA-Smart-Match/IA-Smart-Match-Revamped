@@ -219,9 +219,9 @@ __all__ = [
     "SimulationEvent",
     "SimulationProfile",
     "SimulationResult",
+    "existing_attended",
     "require_coefficients",
     "run_email_everyone",
-    "existing_attended",
     "seats_empty",
     "simulate_results",
 ]

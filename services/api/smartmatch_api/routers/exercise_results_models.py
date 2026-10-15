@@ -58,9 +58,9 @@ from smartmatch_domain.exercise.asking import AskingChoice
 from smartmatch_domain.exercise.simulation import (
     EVENT_SEATS,
     EXISTING_SIGNUPS,
-    existing_attended,
     SimulationEvent,
     SimulationProfile,
+    existing_attended,
 )
 from smartmatch_domain.exercise.vocabulary import goal_topic_for_matching
 

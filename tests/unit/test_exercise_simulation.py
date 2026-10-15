@@ -536,9 +536,7 @@ def test_the_eight_attend_from_a_fixed_draw_shared_by_every_run():
     assert 8 * rate - 0.3 < mean < 8 * rate + 0.3
 
 
-@pytest.mark.parametrize(
-    ("events", "lift"), [(0, 0.0), (1, 0.05), (2, 0.10), (3, 0.15), (5, 0.15)]
-)
+@pytest.mark.parametrize(("events", "lift"), [(0, 0.0), (1, 0.05), (2, 0.10), (3, 0.15), (5, 0.15)])
 def test_each_past_event_adds_five_up_to_fifteen(events: int, lift: float):
     shipped = _shipped()
     profile = SimulationProfile(profile_no=1, major="history", past_event_count=events)
@@ -551,7 +549,10 @@ def test_the_highest_sign_up_chance_is_seventy_five():
         event_key="E", topic_tags=frozenset({"data"}), target_majors=frozenset({"history"})
     )
     profile = SimulationProfile(
-        profile_no=1, major="history", past_event_count=9, true_interests=frozenset({"data"}),
+        profile_no=1,
+        major="history",
+        past_event_count=9,
+        true_interests=frozenset({"data"}),
         career_goal="data",
     )
     assert shipped.base_signup_rate + _sign_up_lift(profile, event, shipped) == pytest.approx(0.75)
