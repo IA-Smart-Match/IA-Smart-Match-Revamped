@@ -33,7 +33,8 @@
 #                          answer 401, so three of the four portals cannot be
 #                          entered — a failure a stakeholder would otherwise
 #                          find by clicking.
-#   seed-review-exited-ok  The one-shot demo review queue seed exited 0. It
+#   seed-review-exited-ok  The one-shot demo review queue seed exited 0 (skipped, passing, when no
+#                          fixture identity is deployed: it needs a fixture token). It
 #                          drives a real import through dispatch, so its exit
 #                          code is a statement about the pipeline, not the data.
 #   api-health             GET /api/health is 200, status=ok, and the release
@@ -294,6 +295,21 @@ check_one_shot_exited_ok() {
   fi
 }
 
+check_seed_review_exited_ok() {
+  # seed-review submits the demo import with the compose fixture bearer token.
+  # A deployment with no fixture identity (SMARTMATCH_DEV_PRINCIPALS empty or
+  # {}, the VM appliance) answers that token 401 by design, so the one-shot can
+  # only fail there and requiring it would roll back a healthy release. Same
+  # signal check_frontend_api_proxy uses; fixture identities present: unchanged.
+  local principals
+  principals="$(deployed_dev_principals)"
+  if [ -z "$principals" ] || [ "$principals" = "{}" ]; then
+    pass seed-review-exited-ok "skipped: no fixture identity deployed (SMARTMATCH_DEV_PRINCIPALS empty), seed-review needs a fixture bearer token"
+    return
+  fi
+  check_one_shot_exited_ok seed-review-exited-ok seed-review
+}
+
 check_api_health() {
   local body status release
   http_get "${API_BASE}/api/health"
@@ -503,7 +519,7 @@ run_all_checks() {
   check_one_shot_exited_ok migrate-exited-ok migrate
   check_one_shot_exited_ok seed-exited-ok seed
   check_one_shot_exited_ok seed-principals-exited-ok seed-principals
-  check_one_shot_exited_ok seed-review-exited-ok seed-review
+  check_seed_review_exited_ok
   check_api_health
   check_worker_health
   check_scheduler_heartbeat
