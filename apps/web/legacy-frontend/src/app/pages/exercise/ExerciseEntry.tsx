@@ -147,12 +147,12 @@ export function ExerciseEntry(): React.JSX.Element {
   );
 }
 
-/** §6.4 L: six tile-shaped blocks, with the stated loading line. */
+/** §6.4 L: eight tile-shaped blocks, with the stated loading line. */
 function TileSkeletons(): React.JSX.Element {
   return (
     <SkeletonRegion label="Loading the exercise…">
       <div className="grid w-fit grid-cols-3 gap-ce-4 md:flex md:flex-wrap">
-        {Array.from({ length: 6 }, (_, index) => (
+        {Array.from({ length: 8 }, (_, index) => (
           <div key={index} data-slot="exercise-team-tile-skeleton">
             <Skeleton className="size-24 rounded-ce-card lg:size-28" />
           </div>

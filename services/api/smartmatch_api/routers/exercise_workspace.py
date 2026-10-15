@@ -255,7 +255,7 @@ def enter_team_workspace(
         raise ExerciseError(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             code="exercise_team_number_unknown",
-            message="Pick a team number from 1 to 6.",
+            message="Pick a team number from 1 to 8.",
         )
     dataset_id = repository.entry_dataset_for(session, team_number=payload.team_number)
     # Defensive, and **unreachable today** (review round 2, F5). Since PR #188
