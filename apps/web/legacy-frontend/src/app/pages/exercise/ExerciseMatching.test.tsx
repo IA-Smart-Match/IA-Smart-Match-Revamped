@@ -833,7 +833,7 @@ describe("<ExerciseMatching />", () => {
     // The desk button stays focusable when disabled (§6.3): `aria-disabled`.
     expect(save.getAttribute("aria-disabled")).toBe("true");
     const reason = screen.getByText(
-      "Your team has 3 saved settings for this event. Type one of those names to save over it, or delete one first.",
+      "Your team can save only 3 settings for this event, and nothing was lost. Type one of those names to save over it, or delete one first.",
     );
     expect(save.getAttribute("aria-describedby")).toBe(reason.id);
 

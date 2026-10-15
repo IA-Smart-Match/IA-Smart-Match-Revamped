@@ -63,6 +63,7 @@ import { SavedSettingsPanel } from "./SavedSettingsPanel";
 import { TeamStatusBand } from "./TeamStatusBand";
 import { isAccessRefusal, useExerciseResource } from "./useExerciseResource";
 import { isWeightsRefusal, WeightsControls } from "./WeightsControls";
+import { clockNow } from "./exerciseTime";
 import { workspaceRequiredNotice } from "./refusals";
 
 /** A link drawn as the desk's secondary button (DESIGN.md §6.3). */
@@ -516,7 +517,7 @@ function EventMatching({ eventKey }: { readonly eventKey: string }): React.JSX.E
                 const after = await saveSetting(eventKey, name, state.data.list.weights);
                 // Held until the saved list is re-read, so the panel stays busy.
                 await reload();
-                return savedSentence(name, state.data.list.event_name, after);
+                return savedSentence(name, state.data.list.event_name, after, clockNow());
               })
             }
             onDelete={(name) =>

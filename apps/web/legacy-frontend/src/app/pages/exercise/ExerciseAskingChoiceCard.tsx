@@ -69,6 +69,7 @@ export function AskingChoiceCard({
       data-slot="exercise-asking-card"
       data-state={state}
       data-armed={armed ? "true" : undefined}
+      aria-disabled={state === "dimmed" ? true : undefined}
       className={cn(
         "relative flex flex-col gap-ce-3 rounded-ce-card p-ce-4 md:p-ce-5 lg:min-h-[200px]",
         "transition-[background-color,box-shadow,opacity] duration-[240ms] ease-[cubic-bezier(0.16,1,0.3,1)]",
@@ -114,6 +115,15 @@ export function AskingChoiceCard({
             Your team chose this.
           </p>
         </>
+      ) : null}
+
+      {state === "dimmed" ? (
+        <p
+          data-slot="exercise-asking-not-chosen"
+          className="ce-type-label mt-auto border-t border-ce-line pt-ce-3 text-ce-ink-muted"
+        >
+          Not chosen.
+        </p>
       ) : null}
 
       {state === "open" ? (

@@ -11,7 +11,7 @@ import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { ResultPanelView, ResultsView } from "../../../lib/exerciseClient";
-import { liftCounts, liftSentence, ResultPanels, seatCountsFor, seatsSentence } from "./ResultPanels";
+import { liftCounts, liftSentence, ResultPanels, resultsSeries, seatCountsFor, seatsSentence } from "./ResultPanels";
 
 function panel(invited: number, signedUp: number, attended: number): ResultPanelView {
   return {
@@ -209,5 +209,18 @@ describe("seatCountsFor", () => {
       existing_signups: 8,
     });
     expect(seatCountsFor(r)).toEqual({ alreadyComing: 12, added: 5 });
+  });
+});
+
+describe("resultsSeries round-one label (A85)", () => {
+  const roundTwo = results({
+    round_one: { event_key: "northline", round: 1, setting_name: null, team: panel(30, 10, 5), seats_empty: 1, created_at: "2026-10-16T14:00:00Z" },
+  });
+  it("names the round-one event when known", () => {
+    expect(resultsSeries(roundTwo, "Northline")[2]?.label).toBe("Your team, Northline (round one)");
+  });
+  it("keeps the old label as the fallback", () => {
+    expect(resultsSeries(roundTwo)[2]?.label).toBe("Your team, round one");
+    expect(resultsSeries(roundTwo, null)[2]?.label).toBe("Your team, round one");
   });
 });

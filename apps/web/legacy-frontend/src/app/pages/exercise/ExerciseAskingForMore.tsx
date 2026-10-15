@@ -71,6 +71,7 @@ import { refreshSummaryText } from "./refreshWording";
 import { TeamStatusBand, useStatusRevision } from "./TeamStatusBand";
 import { askingWords } from "./teamStatusWording";
 import { isAccessRefusal, useExerciseResource } from "./useExerciseResource";
+import { clockNow } from "./exerciseTime";
 import { workspaceRequiredNotice } from "./refusals";
 
 /** The refusal a second refresh gets. The screen answers it with the time. */
@@ -257,6 +258,8 @@ function AskingPanels({
   const ids = React.useId();
   const reduced = usePrefersReducedMotion();
   const [pending, setPending] = React.useState(false);
+  /** When this browser's own choice was answered; unknown after a reload. */
+  const [chosenAt, setChosenAt] = React.useState<string | null>(null);
   const [refusal, setRefusal] = React.useState<string | null>(null);
   /** Which action is in flight: a choice value, or `REFRESH_ACTION`. */
   const [sending, setSending] = React.useState<string | null>(null);
@@ -330,7 +333,9 @@ function AskingPanels({
       }
       const picked = target;
       void run(picked, async () => {
-        onChoiceConfirmed((await chooseAsking(picked)).choice ?? picked);
+        const answered = await chooseAsking(picked);
+        setChosenAt(clockNow());
+        onChoiceConfirmed(answered.choice ?? picked);
         await onChanged();
       });
     },
@@ -424,7 +429,7 @@ function AskingPanels({
           // Read from the server's own word, so it is still here after a
           // reload and until the team is cleared (issue #321).
           <p data-slot="exercise-asking-chosen" className="ce-type-body text-ce-ink">
-            <span>{`You chose: ${askingWords(choice)}.`}</span>{" "}
+            <span>{`You chose: ${askingWords(choice)}${chosenAt === null ? "" : ` at ${chosenAt}`}.`}</span>{" "}
             <span className="text-ce-ink-muted">A team picks once, so these are now fixed.</span>
           </p>
         )}

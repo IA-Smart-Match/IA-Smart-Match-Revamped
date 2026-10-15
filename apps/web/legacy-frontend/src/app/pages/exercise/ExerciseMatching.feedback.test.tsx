@@ -137,6 +137,12 @@ describe("the sentences", () => {
     );
   });
 
+  it("add the clock time to the save message when one is given", () => {
+    expect(savedSentence("Setting A", "Northline", null, "10:43:07 AM")).toBe(
+      "Saved “Setting A” for Northline at 10:43:07 AM.",
+    );
+  });
+
   it("leave the count out rather than invent one when the answer does not carry it", () => {
     expect(savedSentence("Setting A", "Northline", null)).toBe("Saved “Setting A” for Northline.");
     expect(deletedSentence("Setting A", {} as never)).toBe("Deleted “Setting A”.");
@@ -160,7 +166,7 @@ describe("<ExerciseMatching /> says what each press did", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save these weights" }));
 
     const said = await within(panel()).findByText(
-      "Saved “Setting A” for Northline. You have 2 of 3 slots left.",
+      /^Saved “Setting A” for Northline at \d{1,2}:\d{2}:\d{2} [AP]M\. You have 2 of 3 slots left\.$/,
     );
     const notice = said.closest('[data-slot="exercise-notice"]') as HTMLElement;
     expect(notice.dataset.tone).toBe("done");

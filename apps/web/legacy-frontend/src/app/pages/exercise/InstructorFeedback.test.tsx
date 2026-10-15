@@ -167,7 +167,7 @@ describe("clearing a team says it was cleared", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Clear team 3's work" }));
     // The question names the scope, and nothing is sent yet.
     expect(
-      screen.getByText(/This clears team 3's saved settings and result runs\. No other\s+team is touched\./),
+      screen.getByText(/This clears team 3's saved settings, result runs, way of asking\s+and refresh, including the topics the refresh added\..*No other team is touched\./s),
     ).toBeDefined();
     expect(sent(`POST ${WORKSPACES}/3/reset`)).toBe(0);
     expect(screen.queryByText(/^Team 3 cleared/)).toBeNull();

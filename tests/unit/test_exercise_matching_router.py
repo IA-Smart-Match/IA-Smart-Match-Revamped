@@ -329,8 +329,8 @@ class _FakeSettingsRepository:
             setting.name == name for setting in existing
         ):
             raise TooManySavedSettingsError(
-                f"Your team can keep {MAX_SAVED_SETTINGS_PER_EVENT} saved settings for "
-                "this event. Delete one before saving another."
+                f"Your team can save only {MAX_SAVED_SETTINGS_PER_EVENT} settings for "
+                "this event, and nothing was lost. Delete one before saving another."
             )
         stored = SavedSetting(
             event_key=event_key,

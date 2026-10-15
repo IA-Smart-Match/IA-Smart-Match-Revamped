@@ -41,13 +41,14 @@ function slotsLeft(after: SavedSettingsView | null | undefined): string {
   return ` You have ${Math.max(0, cap - used)} of ${cap} slots left.`;
 }
 
-/** "Saved “Setting A” for Northline. You have 2 of 3 slots left." */
+/** "Saved “Setting A” for Northline at 10:43:07 AM. You have 2 of 3 slots left." */
 export function savedSentence(
   name: string,
   eventName: string,
   after: SavedSettingsView | null | undefined,
+  at: string | null = null,
 ): string {
-  return `Saved “${name}” for ${eventName}.${slotsLeft(after)}`;
+  return `Saved “${name}” for ${eventName}${at === null ? "" : ` at ${at}`}.${slotsLeft(after)}`;
 }
 
 /** "Deleted “Setting A”. You have 3 of 3 slots left." */
