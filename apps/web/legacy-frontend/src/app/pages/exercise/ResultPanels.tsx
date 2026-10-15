@@ -47,6 +47,18 @@ export function namesFromRun(results: ResultsView): NamesByProfileNo {
   );
 }
 
+/**
+ * Profile numbers in the run's rank order (issue #269). A number with no
+ * stored rank goes last, keeping its original order (Array sort is stable).
+ */
+export function inRankOrder(results: ResultsView, profileNos: readonly number[]): number[] {
+  const rankOf = new Map(
+    (results.invited_profiles ?? []).map((entry) => [entry.profile_no, entry.rank]),
+  );
+  const key = (no: number): number => rankOf.get(no) ?? Number.POSITIVE_INFINITY;
+  return [...profileNos].sort((a, b) => (key(a) === key(b) ? 0 : key(a) - key(b)));
+}
+
 /** The three panels, in §10's reading order, for the chart. */
 export function resultsSeries(results: ResultsView): ExerciseResultsSeries[] {
   const series: ExerciseResultsSeries[] = [
@@ -168,7 +180,7 @@ export function ResultPanels({
         <div className="grid gap-ce-5 md:grid-cols-3">
           <PeopleList
             heading="Invited"
-            profileNos={results.team.invited_profile_nos}
+            profileNos={inRankOrder(results, results.team.invited_profile_nos)}
             names={names}
           />
           <PeopleList
