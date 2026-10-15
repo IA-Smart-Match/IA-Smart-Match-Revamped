@@ -7,11 +7,11 @@ email alone."
 The ruled rule: the mass email reaches all 300 and 20 in 100 notice it; the
 team's 30 also get the CBACH email and 60 in 100 notice it; a profile that
 noticed signs up by Step B (5 in 100 to start, +35 true interest, +15 true
-goal, +5 for 1-2 past events or +10 for 3 or more, +5 same major); 65 in 100
+goal, +5 per past event up to +15, +5 same major); 65 in 100
 of those show up; no extra luck; one seed per team.
 
 On her Oct 2 file, with the app's suggested 30 at weights 3/3/2/2, this gives
-(mean of 1,000 seeds) K = 6.4 at Northline and 5.1 at Harbor. N is the
+(mean of 5,000 seeds, after the 2026-10-15 rule) K = 6.3 at Northline and 5.2 at Harbor. N is the
 mass-email-alone sign-ups, K the sign-ups the list adds, M = N + K.
 
 If this test fails, the rule drifted from Ann's ruling - do not re-pin without
@@ -41,13 +41,13 @@ from tests.golden.exercise.test_exercise_results_rule_sample_golden import (
 )
 
 #: Ann's default weights 3/3/2/2 (the app's own default when weights is None).
-#: Seeds averaged in CI; the 1,000-seed means (6.4 / 5.1) are in the docs.
+#: Seeds averaged in CI; the 5,000-seed means (6.3 / 5.2) are in the docs.
 MEAN_SEEDS = 200
 
 #: Exact (N, K, M) per seed 1-5, from the real code path.
 PINNED_SEEDS = {
-    "E11": {1: (10, 5, 15), 2: (4, 9, 13), 3: (11, 10, 21), 4: (7, 8, 15), 5: (14, 6, 20)},
-    "E12": {1: (14, 1, 15), 2: (12, 6, 18), 3: (13, 2, 15), 4: (10, 4, 14), 5: (5, 4, 9)},
+    "E11": {1: (10, 5, 15), 2: (5, 9, 14), 3: (11, 10, 21), 4: (7, 8, 15), 5: (14, 6, 20)},
+    "E12": {1: (15, 2, 17), 2: (12, 6, 18), 3: (13, 2, 15), 4: (10, 4, 14), 5: (5, 4, 9)},
 }
 
 

@@ -108,7 +108,7 @@ def test_email_everyone_uses_the_same_seed_as_the_teams_own_list(
 def test_seats_empty_is_the_cases_own_arithmetic(
     fakes: _Fakes, client: TestClient, confirmed: SimulationCoefficients
 ) -> None:
-    """``60 - 8 - attended``, from the two named constants and not from a literal."""
+    """``60 - (the 8 who came) - attended``, from the two named constants and not from a literal."""
     fakes.unlock("round-one")
 
     body = client.post(_RESULTS, json=_FINAL_BODY, headers=_HEADER).json()
@@ -118,7 +118,12 @@ def test_seats_empty_is_the_cases_own_arithmetic(
     in_room = set(body["team"]["attended_profile_nos"]) | set(
         body["email_everyone"]["attended_profile_nos"]
     )
-    assert body["seats_empty"] == max(0, EVENT_SEATS - EXISTING_SIGNUPS - len(in_room))
+    assert 0 <= body["existing_attended"] <= EXISTING_SIGNUPS
+    assert body["seats_empty"] == max(0, EVENT_SEATS - body["existing_attended"] - len(in_room))
+    # The three parts the screen shows add up to the room.
+    mass = set(body["email_everyone"]["attended_profile_nos"])
+    added = set(body["team"]["attended_profile_nos"]) - mass
+    assert body["existing_attended"] + len(mass) + len(added) + body["seats_empty"] == EVENT_SEATS
 
 
 def test_the_panels_nest_the_way_the_rule_promises(

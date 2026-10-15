@@ -17,8 +17,9 @@ personal CBACH email. For each person, in order:
 | Step | Rule | Ruled by | Code |
 |---|---|---|---|
 | 1. Notice | Mass email 20 in 100 (all 300). CBACH email 60 in 100 (the team's 30 only). Both: about 68 in 100 notice at least one | Ann Wang, email 2026-10-10, Q2 | `simulation.py:482-483,585-586` |
-| 2. Sign up (Step B) | Start at 5. +35 if the hidden true interests match the event. +15 if the hidden true career goal fits. +5 for 1-2 past events, +10 for 3 or more (**any** past event on the file row; refresh-added topics do not count). +5 if the event targets the student's major. Points are added; the most anyone can reach is 70; 5 is the floor | Ann Wang 2026-10-06 Step B, kept by the owner ruling of 2026-10-12 ("any past event" to confirm with Ann) | `simulation.py:477-489,540-559`; `exercise_results_models.py:205` |
+| 2. Sign up (Step B) | Start at 5. +35 if the hidden true interests match the event. +15 if the hidden true career goal fits. +5 per past event, up to +15 (**any** past event on the file row; refresh-added topics do not count). +5 if the event targets the student's major. Points are added; the most anyone can reach is 75; 5 is the floor | Ann Wang 2026-10-06 Step B; past events per Ann Wang 2026-10-15 (any past event counts; +5 each, cap +15; profile updates do not count) | `simulation.py:477-489,540-559`; `exercise_results_models.py:205` |
 | 3. Show up | 65 in 100 of sign-ups | Ann Wang, email 2026-10-10, Q2 and Q4 | `simulation.py:484,593` |
+| 3b. The 8 pre-registered | Each of the 8 attends at 65 in 100 too, from a fixed draw (team seed + event), the same in the mass-only and the team run. Seats open = 60 - (the 8 who came) - everyone else who attended | Ann Wang 2026-10-15, Q2 | `simulation.py` `existing_attended`, `seats_empty` |
 | Luck | None. Each team's fixed chance draw alone decides; same list, same result | Ann Wang, email 2026-10-10, Q4 | `simulation.py:508-523` (4 draws only) |
 | Baseline | Mass email alone, run on the team's own draw (same seed as the team's run) | Ann Wang, email 2026-10-10, Q1 | `exercise_results.py:268`; `exercise_results_run.py:321,331` |
 
