@@ -65,8 +65,7 @@ _APPROVED = SimulationCoefficients(
     attend_given_signup=0.65,
     frequent_attender_events=1,
     true_interest_share_of_fit=0.7,
-    many_attender_lift=0.10,
-    many_attender_events=3,
+    past_event_lift_cap=0.15,
 )
 
 

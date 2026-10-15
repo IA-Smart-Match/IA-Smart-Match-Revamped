@@ -20,12 +20,12 @@ it, and a test checks that every number in it is the number the code uses.
     with a 5 in 100 chance of signing up. The biggest boosts go to a person
     when the event matches what they truly care about: 35 in 100 when one of
     their true interests is a topic of the event, and 15 in 100 more when
-    their career goal fits the event. A person who has been to 1 or 2 past
-    events gets a small boost of 5 in 100, and one who has been to 3 or more
-    gets 10 in 100. Being in the major the event is aimed at gives 5 in 100
-    more. The total never goes
-    below 0 or above 100 in 100. Each person who signs up has a 65 in 100
-    chance of attending. There is no extra luck: the team's fixed draw alone
+    their career goal fits the event. A person gets a boost of 5 in 100
+    for each past event they have been to, up to 15 in 100 for 3 or more.
+    Being in the major the event is aimed at gives 5 in 100 more. The total
+    never goes below 0 or above 100 in 100. Each person who signs up has a
+    65 in 100 chance of attending. The 8 students already signed up attend
+    at that same 65 in 100, from the same fixed draw. There is no extra luck: the team's fixed draw alone
     decides who notices, signs up and shows up, so running the same list twice
     gives the same answer. The list's sign-ups include everyone the mass email
     alone would have brought, plus the ones the personal email added. The app
@@ -34,7 +34,7 @@ it, and a test checks that every number in it is the number the code uses.
 
 Source: Ann Wang, email 2026-10-10 (Q2, Q4) for notice, show-up and no luck;
 her 2026-10-06 reply to Chau (Step B) for the sign-up chances: start at 5,
-add 35 / 15 / 5 or 10 / 5. The 2026-10-10 email supersedes only the rest of the
+add 35 / 15 / 5 per past event up to 15 (her 2026-10-15 reply) / 5. The 2026-10-10 email supersedes only the rest of the
 2026-10-06 rule (15 in 100 notice, 70 in 100 attend, the extra luck). It says
 "the team's existing sign-up chances", which the team had read as the older
 code numbers (4 / 40 / 10 / 4). Owner ruling 2026-10-12: Ann's Oct 6 Step B;
@@ -91,8 +91,9 @@ For one profile and one event, with coefficients ``c``:
   choosing it decides whether Ann's "true interests and career goal" leans on
   interests or on goals (``true_interest_share_of_fit``, approved at one half).
 * ``lift = c.true_fit_lift * fit_share``
-  ``+ c.frequent_attender_lift`` if the profile attended at least
-  ``c.frequent_attender_events`` past events,
+  ``+ min(c.past_event_lift_cap, c.frequent_attender_lift * past_events)``
+  if the profile attended at least ``c.frequent_attender_events`` past events
+  (without a cap: the flat ``c.frequent_attender_lift``),
   ``+ c.same_major_lift`` if the profile's major is one of the event's target
   majors.
 * ``noticed`` is ``mass_notice < c.mass_email_notice`` for a uniform draw, or,
