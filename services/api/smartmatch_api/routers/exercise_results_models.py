@@ -60,6 +60,7 @@ from smartmatch_domain.exercise.simulation import (
     EXISTING_SIGNUPS,
     SimulationEvent,
     SimulationProfile,
+    seats_empty,
 )
 from smartmatch_domain.exercise.vocabulary import goal_topic_for_matching
 
@@ -320,6 +321,14 @@ class ResultPanelView(BaseModel):
     invited_count: int = Field(description="How many were invited.")
     signed_up_count: int = Field(description="How many signed up.")
     attended_count: int = Field(description="How many attended.")
+    seats_empty: int | None = Field(
+        default=None,
+        description=(
+            "Seats still empty after this panel's attendees, derived at read. "
+            "Set on the email-everyone panel only (issue #327); the team's own "
+            "figure is the response's top-level seats_empty."
+        ),
+    )
 
 
 class InvitedProfileView(BaseModel):
@@ -609,7 +618,7 @@ class RefreshAllView(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-def panel_view(panel: ResultPanel) -> ResultPanelView:
+def panel_view(panel: ResultPanel, *, with_seats_empty: bool = False) -> ResultPanelView:
     """One stored or freshly run panel as a response.
 
     The counts are derived here rather than stored, which is the opposite of
@@ -624,6 +633,7 @@ def panel_view(panel: ResultPanel) -> ResultPanelView:
         invited_count=len(panel.invited_profile_nos),
         signed_up_count=len(panel.signed_up_profile_nos),
         attended_count=len(panel.attended_profile_nos),
+        seats_empty=seats_empty(len(panel.attended_profile_nos)) if with_seats_empty else None,
     )
 
 
@@ -676,7 +686,7 @@ def stored_results_view(
         round=run.round,
         setting_name=run.setting_name,
         team=panel_view(run.team),
-        email_everyone=panel_view(run.email_everyone),
+        email_everyone=panel_view(run.email_everyone, with_seats_empty=True),
         seats_empty=run.seats_empty,
         event_seats=EVENT_SEATS,
         existing_signups=EXISTING_SIGNUPS,

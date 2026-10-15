@@ -182,6 +182,8 @@ export interface ResultPanelView {
   readonly invited_count: number;
   readonly signed_up_count: number;
   readonly attended_count: number;
+  /** Set on `email_everyone` only (#327); the team's is the response's `seats_empty`. */
+  readonly seats_empty?: number | null;
 }
 
 export interface PreviousRoundView {
