@@ -17,7 +17,8 @@ const panel = (nos: number[]) => ({
 const run = {
   event_key: "E11", event_name: "Northline", round: 1, setting_name: "x",
   team: panel([3, 1, 2, 4]), email_everyone: panel([]), seats_empty: 0, event_seats: 10,
-  existing_signups: 0, round_one: null, created_at: "2026-09-25T10:00:00Z",
+  existing_signups: 0,
+  existing_attended: 0, round_one: null, created_at: "2026-09-25T10:00:00Z",
   invited_profiles: [person(1, 3, "Cara"), person(2, 1, "Ann"), person(3, 2, "Bo"), person(4, null, "Dee")],
 } as unknown as ResultsView;
 

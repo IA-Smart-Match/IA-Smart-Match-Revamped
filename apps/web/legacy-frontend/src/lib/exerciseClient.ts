@@ -190,6 +190,8 @@ export interface PreviousRoundView {
   readonly setting_name: string | null;
   readonly team: ResultPanelView;
   readonly seats_empty: number;
+  /** How many of that event's pre-registered students came (fixed draw). */
+  readonly existing_attended: number;
   readonly created_at: string;
 }
 
@@ -222,6 +224,8 @@ export interface ResultsView {
   readonly seats_empty: number;
   readonly event_seats: number;
   readonly existing_signups: number;
+  /** How many of the `existing_signups` came, at the 65% show-up rate (Ann Wang 2026-10-15). */
+  readonly existing_attended: number;
   /** `null` in round one; a populated panel in round two. */
   readonly round_one: PreviousRoundView | null;
   /**

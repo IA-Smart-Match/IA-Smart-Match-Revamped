@@ -113,6 +113,7 @@ const RUN_DONE = {
   seats_empty: 46,
   event_seats: 60,
   existing_signups: 8,
+  existing_attended: 8,
   round_one: null,
   created_at: "2026-09-26T10:00:00Z",
 };

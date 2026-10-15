@@ -178,9 +178,10 @@ where it comes from:
 
 1. ``true_fit_lift`` — 0.50, split 0.35 interests / 0.15 career goal by
    ``true_interest_share_of_fit`` 0.7. Ann's Step B, 2026-10-06.
-2. ``frequent_attender_lift`` — 0.05 for 1-2 past events, and
-   ``many_attender_lift`` — 0.10 from ``many_attender_events`` = 3. Every
-   past event counts, as in her "1-2 past events". Ann's Step B.
+2. ``frequent_attender_lift`` — 0.05 for each past event, up to
+   ``past_event_lift_cap`` — 0.15 (3 or more events). Every past event on the
+   file row counts. Ann's email of 2026-10-15 (Q1) replaced the 5 / 10 tiers.
+   The most any profile can reach is 0.05 + 0.35 + 0.15 + 0.15 + 0.05 = 0.75.
 3. ``same_major_lift`` — 0.05. Ann's Step B.
 4. ``mass_email_notice`` — 0.20 and ``cbach_email_notice`` — 0.60. Ann's
    email of 2026-10-10 (Q2). No chance band: her Q4 is "no extra luck".
@@ -219,6 +220,7 @@ __all__ = [
     "SimulationResult",
     "require_coefficients",
     "run_email_everyone",
+    "existing_attended",
     "seats_empty",
     "simulate_results",
 ]
@@ -395,10 +397,10 @@ class SimulationCoefficients:
     attend_given_signup: float
     frequent_attender_events: int
     true_interest_share_of_fit: float
-    #: Ann's tiers (2026-10-06 Step B): +5 for 1-2 past events, +10 for 3 or
-    #: more. ``None`` means no second tier (``frequent_attender_lift`` for all).
-    many_attender_lift: float | None = None
-    many_attender_events: int = 3
+    #: Ann's rule (2026-10-15 Q1): ``frequent_attender_lift`` for EACH past
+    #: event, up to this cap. ``None`` means no per-event rule: the flat
+    #: ``frequent_attender_lift`` once ``frequent_attender_events`` is reached.
+    past_event_lift_cap: float | None = None
 
     def __post_init__(self) -> None:
         """Refuse a set that is not usable, before any result is drawn."""
@@ -414,17 +416,8 @@ class SimulationCoefficients:
         ):
             _check_unit_interval(name, getattr(self, name))
         _check_attender_threshold(self.frequent_attender_events)
-        if self.many_attender_lift is not None:
-            _check_unit_interval("many_attender_lift", self.many_attender_lift)
-            if not self.true_fit_lift > self.many_attender_lift:
-                raise SimulationCoefficientsError(
-                    "true_fit_lift must be greater than many_attender_lift. Got "
-                    f"{self.true_fit_lift} and {self.many_attender_lift}."
-                )
-        if self.many_attender_events < self.frequent_attender_events:
-            raise SimulationCoefficientsError(
-                "many_attender_events must be at least frequent_attender_events."
-            )
+        if self.past_event_lift_cap is not None:
+            _check_unit_interval("past_event_lift_cap", self.past_event_lift_cap)
         if not self.true_fit_lift > self.frequent_attender_lift:
             raise SimulationCoefficientsError(
                 "true_fit_lift must be greater than frequent_attender_lift: the "
@@ -484,8 +477,7 @@ EXERCISE_SIMULATION_COEFFICIENTS: SimulationCoefficients | None = SimulationCoef
     attend_given_signup=0.65,
     frequent_attender_events=1,
     true_interest_share_of_fit=0.7,
-    many_attender_lift=0.10,
-    many_attender_events=3,
+    past_event_lift_cap=0.15,
 )
 
 
@@ -552,11 +544,11 @@ def _sign_up_lift(
     """The lift above the base rate, before chance and before the clamp."""
     lift = coefficients.true_fit_lift * _fit_share(profile, event, coefficients)
     if profile.past_event_count >= coefficients.frequent_attender_events:
-        many = coefficients.many_attender_lift
-        if many is not None and profile.past_event_count >= coefficients.many_attender_events:
-            lift += many
-        else:
+        cap = coefficients.past_event_lift_cap
+        if cap is None:
             lift += coefficients.frequent_attender_lift
+        else:
+            lift += min(cap, coefficients.frequent_attender_lift * profile.past_event_count)
     if _normalized(profile.major) in {_normalized(major) for major in event.target_majors}:
         lift += coefficients.same_major_lift
     return lift
@@ -677,17 +669,32 @@ def run_email_everyone(
     return _run(profiles, event, seed, coefficients, on_list=False)
 
 
-def seats_empty(attended_count: int) -> int:
+def existing_attended(seed: int, event_key: str, attend_rate: float) -> int:
+    """How many of the 8 pre-registered students show up (Ann Wang 2026-10-15, Q2).
+
+    Each attends at the same show-up rate as everyone else, from a fixed draw
+    keyed by the team seed and event (profile numbers 1..8 stand for the 8), so
+    the mass-only baseline and the team's run share it and a reload repeats it.
+    """
+    return sum(
+        _uniform(seed, event_key, number, "existing_attend") < attend_rate
+        for number in range(1, EXISTING_SIGNUPS + 1)
+    )
+
+
+def seats_empty(attended_count: int, existing_attended_count: int) -> int:
     """Seats still empty after a run, floored at zero.
 
-    ``60 - 8 - attended``, where the caller passes everyone in the room: the
-    mass email's show-ups plus the list's extra. Both numbers from the case in the requirements
-    (60 seats, 8 sign-ups already). Floored because a full room is a full room;
-    a negative chair count would be a number nobody can act on.
+    ``60 - (pre-registered students who came) - attended``, where the caller
+    passes everyone else in the room: the mass email's show-ups plus the
+    list's extra. Floored because a full room is a full room; a negative chair
+    count would be a number nobody can act on.
 
     Raises:
-        ValueError: If ``attended_count`` is negative.
+        ValueError: If either count is negative.
     """
-    if attended_count < 0:
-        raise ValueError(f"attended_count must not be negative; got {attended_count}.")
-    return max(0, EVENT_SEATS - EXISTING_SIGNUPS - attended_count)
+    if attended_count < 0 or existing_attended_count < 0:
+        raise ValueError(
+            f"counts must not be negative; got {attended_count} and {existing_attended_count}."
+        )
+    return max(0, EVENT_SEATS - existing_attended_count - attended_count)

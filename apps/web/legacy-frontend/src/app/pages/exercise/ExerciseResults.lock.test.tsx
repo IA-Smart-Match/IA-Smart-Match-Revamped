@@ -109,6 +109,7 @@ const RUN_VIEW = {
   seats_empty: 50,
   event_seats: 60,
   existing_signups: 8,
+  existing_attended: 8,
   round_one: null,
   invited_profiles: [],
   created_at: "2026-10-16T17:42:00Z",

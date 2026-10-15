@@ -273,6 +273,8 @@ def run_results(
         results,
         workspace=workspace,
         event=event,
+        seed=team_state.seed,
+        coefficients=coefficients,
         round_number=round_number,
         setting_name=setting_name,
         team=team,
@@ -287,6 +289,8 @@ def run_results(
         round_one=_round_one_or_none(
             session, results, workspace=workspace, round_number=round_number
         ),
+        seed=team_state.seed,
+        attend_rate=coefficients.attend_given_signup,
     )
 
 
@@ -324,6 +328,8 @@ def read_results(
         round_one=_round_one_or_none(
             session, results, workspace=workspace, round_number=stored.round
         ),
+        seed=_team_state_or_refusal(session, results, workspace).seed,
+        attend_rate=coefficients_or_refusal().attend_given_signup,
     )
 
 
