@@ -148,6 +148,7 @@ describe("ResultPanels", () => {
             team: panel(30, 2, 1),
             seats_empty: 51,
             existing_attended: 8,
+            attended_in_room: 1,
             created_at: "2026-09-25T09:00:00Z",
           },
         })}
@@ -211,6 +212,33 @@ describe("seat counts when only some of the 8 pre-registered students came", () 
     expect(seatsSentence({ alreadyComing, added, open: r.seats_empty }, "now")).toMatch(
       /^\d+ were already coming\./,
     );
+  });
+});
+
+describe("round-one recap sums to the room", () => {
+  it.each([
+    [8, 1, 51],
+    [5, 12, 43],
+    [0, 20, 40],
+  ])("%i of the 8 + %i in the room + %i open = 60", (came, inRoom, open) => {
+    const r = results({
+      round: 2,
+      round_one: {
+        event_key: "E11",
+        round: 1,
+        setting_name: null,
+        team: panel(30, 2, 1),
+        seats_empty: open,
+        existing_attended: came,
+        attended_in_room: inRoom,
+        created_at: "2026-09-25T09:00:00Z",
+      },
+    });
+    render(<ResultPanels results={r} />);
+    expect(slotText("exercise-round-one")).toContain(
+      `${came} were already coming. ${inRoom} more attended. ${open} seats were still open.`,
+    );
+    expect(came + inRoom + open).toBe(r.event_seats);
   });
 });
 

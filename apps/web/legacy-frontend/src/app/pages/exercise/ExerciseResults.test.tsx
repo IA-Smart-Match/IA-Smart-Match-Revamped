@@ -271,6 +271,7 @@ describe("<ExerciseResults />", () => {
             team: panel(5, 2, 1),
             seats_empty: 51,
             existing_attended: 8,
+            attended_in_room: 1,
             created_at: "2026-09-20T10:00:00Z",
           },
           created_at: "2026-09-21T10:00:00Z",

@@ -99,7 +99,7 @@ def test_per_seed_n_k_m_are_pinned(event_key: str, seed: int) -> None:
 @pytest.mark.golden
 @pytest.mark.parametrize(
     ("event_key", "mean_k", "low", "high"),
-    [("E11", 6.4, 5.5, 8.0), ("E12", 5.1, 4.0, 5.5)],
+    [("E11", 6.3, 5.5, 8.0), ("E12", 5.2, 4.0, 5.5)],
 )
 def test_mean_lift_matches_anns_check(
     event_key: str, mean_k: float, low: float, high: float

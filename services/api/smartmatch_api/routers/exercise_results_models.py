@@ -383,6 +383,9 @@ class PreviousRoundView(BaseModel):
     existing_attended: int = Field(
         description="How many of that event's pre-registered students came, from the fixed draw."
     )
+    attended_in_room: int = Field(
+        description="Everyone in the room from the mass email and the list: the union of attendees."
+    )
     created_at: datetime = Field(description="When that round was run.")
 
 
@@ -666,6 +669,9 @@ def previous_round_view(
         team=panel_view(run.team),
         seats_empty=run.seats_empty,
         existing_attended=existing_attended(seed, run.event_key, attend_rate),
+        attended_in_room=len(
+            set(run.team.attended_profile_nos) | set(run.email_everyone.attended_profile_nos)
+        ),
         created_at=run.created_at,
     )
 

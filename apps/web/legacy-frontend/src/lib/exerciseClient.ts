@@ -192,6 +192,8 @@ export interface PreviousRoundView {
   readonly seats_empty: number;
   /** How many of that event's pre-registered students came (fixed draw). */
   readonly existing_attended: number;
+  /** Mass-email and list attendees together; with the 8 who came and `seats_empty` it sums to 60. */
+  readonly attended_in_room: number;
   readonly created_at: string;
 }
 

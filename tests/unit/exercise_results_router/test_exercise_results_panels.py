@@ -225,6 +225,11 @@ def test_round_two_carries_the_stored_round_one_panel(
     assert second["round_one"]["round"] == FIRST_ROUND
     assert second["round_one"]["team"] == first["team"]
     assert second["round_one"]["seats_empty"] == first["seats_empty"]
+    recap = second["round_one"]
+    assert (
+        recap["existing_attended"] + recap["attended_in_room"] + recap["seats_empty"]
+        == EVENT_SEATS
+    )
 
 
 # ---------------------------------------------------------------------------

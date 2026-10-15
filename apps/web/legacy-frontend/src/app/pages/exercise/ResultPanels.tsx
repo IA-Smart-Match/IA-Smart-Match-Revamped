@@ -168,7 +168,7 @@ export function ResultPanels({
               {
                 // Of the 8 pre-registered students, only those who came count.
                 alreadyComing: results.round_one.existing_attended,
-                attended: results.round_one.team.attended_count,
+                attended: results.round_one.attended_in_room,
                 open: results.round_one.seats_empty,
               },
               "then",

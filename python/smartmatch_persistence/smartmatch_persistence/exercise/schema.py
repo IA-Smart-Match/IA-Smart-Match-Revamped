@@ -431,7 +431,7 @@ exercise_result_run = sa.Table(
     # the same seed. Stored as written rather than recomputed on read, so the
     # comparison a team saw is the comparison it keeps.
     sa.Column("email_everyone", postgresql.JSONB, nullable=False),
-    # §10: ``60 - 8 - attended``. Stored rather than derived because the two
+    # §10: ``60 - (the 8 who came) - attended``. Stored rather than derived because the two
     # constants are the case's and a later change to them must not silently
     # restate what a team was shown.
     sa.Column("seats_empty", sa.Integer, nullable=False),

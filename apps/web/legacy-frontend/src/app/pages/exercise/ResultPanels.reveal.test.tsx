@@ -205,6 +205,7 @@ describe("ResultPanels chart and people", () => {
             team: panel(30, 2, 1),
             seats_empty: 51,
             existing_attended: 8,
+            attended_in_room: 1,
             created_at: "2026-09-25T09:00:00Z",
           },
         })}
