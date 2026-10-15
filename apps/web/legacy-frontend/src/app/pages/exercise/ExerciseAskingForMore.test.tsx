@@ -490,6 +490,11 @@ describe("<ExerciseAskingForMore /> — the invitation desk (§6.18, §6.19, §7
     expect(
       document.querySelectorAll('[data-slot="exercise-asking-card"][data-state="dimmed"]').length,
     ).toBe(2);
+    // A6: the dimmed cards say so in words and in state.
+    expect(screen.getAllByText("Not chosen.").length).toBe(2);
+    expect(
+      document.querySelectorAll('[data-slot="exercise-asking-card"][aria-disabled="true"]').length,
+    ).toBe(2);
   });
 
   it("gives the refresh counts as a ruled band whose numbers are read once, in full", async () => {

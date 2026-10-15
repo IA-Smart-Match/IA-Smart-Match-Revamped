@@ -60,13 +60,21 @@ export function inRankOrder(results: ResultsView, profileNos: readonly number[])
 }
 
 /** The three panels, in §10's reading order, for the chart. */
-export function resultsSeries(results: ResultsView): ExerciseResultsSeries[] {
+export function resultsSeries(
+  results: ResultsView,
+  roundOneName: string | null = null,
+): ExerciseResultsSeries[] {
   const series: ExerciseResultsSeries[] = [
     panelSeries(`With your ${results.team.invited_count} CBACH emails`, results.team),
     panelSeries("Mass email alone", results.email_everyone),
   ];
   if (results.round_one !== null) {
-    series.push(panelSeries("Your team, round one", results.round_one.team));
+    series.push(panelSeries(
+        roundOneName === null || roundOneName === ""
+          ? "Your team, round one"
+          : `Your team, ${roundOneName} (round one)`,
+        results.round_one.team,
+      ));
   }
   return series;
 }
@@ -93,6 +101,8 @@ export interface ResultPanelsProps {
    * final state.
    */
   readonly reveal?: boolean;
+  /** The first round's event name, for the chart's round-one label. */
+  readonly roundOneName?: string | null;
 }
 
 /**
@@ -103,6 +113,7 @@ export function ResultPanels({
   results,
   names: given,
   reveal = false,
+  roundOneName = null,
 }: ResultPanelsProps): React.JSX.Element {
   const names = React.useMemo(() => given ?? namesFromRun(results), [given, results]);
   const seatGroups = seatCountsFor(results);
@@ -134,7 +145,7 @@ export function ResultPanels({
 
       <ExerciseResultsChart
         variant="exercise"
-        series={resultsSeries(results)}
+        series={resultsSeries(results, roundOneName)}
         title={`What happened for ${results.event_name}`}
         caption={
           results.round_one === null

@@ -207,7 +207,7 @@ export function SavedSettingsPanel({
           {saveBlockedReason !== null
             ? saveBlockedReason
             : atCapForNewName
-            ? `Your team has ${saved.max_settings} saved settings for this event. Type one of those names to save over it, or delete one first.`
+            ? `Your team can save only ${saved.max_settings} settings for this event, and nothing was lost. Type one of those names to save over it, or delete one first.`
             : `Saves the ${Object.keys(weights).length} numbers now on screen.`}
         </span>
       </form>

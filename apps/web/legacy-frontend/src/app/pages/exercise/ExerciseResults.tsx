@@ -472,7 +472,11 @@ function ResultsBody({
       ) : null}
 
       {results !== null ? (
-        <ResultPanels results={results} reveal={justRan} />
+        <ResultPanels
+          results={results}
+          reveal={justRan}
+          roundOneName={data.asking.first_round_event_name}
+        />
       ) : hasRun ? null : (
         <section className="flex flex-col gap-ce-5">
           {/* §7.8: before a run, the lock panel takes the seating chart's

@@ -335,8 +335,9 @@ function TeamRow({
         {confirming ? (
           <div className={cn(INSTRUCTOR_WELL, "flex flex-col gap-ce-3")}>
             <p className="ce-type-body text-ce-ink">
-              This clears team {team.team_number}&apos;s saved settings and result runs. No other
-              team is touched.
+              This clears team {team.team_number}&apos;s saved settings, result runs, way of asking
+              and refresh, including the topics the refresh added. The team can then choose and ask
+              again; its chance results stay the same. No other team is touched.
             </p>
             <div className="flex flex-wrap items-center gap-ce-3">
               <Button

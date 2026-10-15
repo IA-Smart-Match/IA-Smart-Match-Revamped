@@ -233,8 +233,9 @@ describe("the status line follows the page's own presses", () => {
 
     await waitFor(() => expect(value("asking")).toBe("A small reward"));
     const chosen = document.querySelector('[data-slot="exercise-asking-chosen"]');
-    expect(chosen?.textContent).toBe(
-      "You chose: A small reward. A team picks once, so these are now fixed.",
+    // A8: the time is this browser's own clock, so it is matched, not fixed.
+    expect(chosen?.textContent).toMatch(
+      /^You chose: A small reward( at \d{1,2}:\d{2}:\d{2} [AP]M)?\. A team picks once, so these are now fixed\.$/,
     );
   });
 
