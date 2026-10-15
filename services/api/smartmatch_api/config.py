@@ -16,6 +16,7 @@ from typing import Final
 
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from smartmatch_domain.cba_invitations import resolve_invitation_token_secret
 from smartmatch_domain.exercise.workspace_token import MINIMUM_WORKSPACE_SECRET_LENGTH
 from smartmatch_domain.product_scope import (
     DEFAULT_PRODUCT_SCOPE,
@@ -328,6 +329,31 @@ def check_speaker_portal_startup(settings: Settings) -> str | None:
             "one with `python -c 'import secrets; print(secrets.token_urlsafe(48))'`."
         )
     return secret
+
+
+def resolve_api_invitation_secret(settings: Settings) -> str | None:
+    """The speaker-invitation token key for this edition, or ``None`` (#287)."""
+    stored = settings.speaker_portal_token_secret
+    return resolve_invitation_token_secret(
+        stored.get_secret_value() if stored is not None else None
+    )
+
+
+def check_invitation_startup(settings: Settings) -> None:
+    """Refuse to boot with outreach on and no usable invitation token key.
+
+    Raises:
+        ValueError: naming the variable and minimum length, quoting no value.
+    """
+    if settings.capability_enabled(Capability.CONSENTED_OUTREACH) and (
+        resolve_api_invitation_secret(settings) is None
+    ):
+        raise ValueError(
+            "SMARTMATCH_SPEAKER_PORTAL_TOKEN_SECRET is required, at least "
+            f"{MINIMUM_SPEAKER_PORTAL_SECRET_LENGTH} characters, in every edition, "
+            "when consented outreach is on (speaker-invitation links derive from it); the api "
+            "and the worker must hold the same value."
+        )
 
 
 @lru_cache(maxsize=1)
