@@ -146,6 +146,7 @@ export function ResultPanels({
                 // Round one carries no `existing_signups` of its own: the case's
                 // existing sign-ups are the same number for both events.
                 alreadyComing: results.existing_signups,
+                attended: results.round_one.team.attended_count,
                 open: results.round_one.seats_empty,
               },
               "then",
@@ -233,6 +234,8 @@ export interface SeatCounts {
   readonly alreadyComing: number;
   /** People the team's list brought on top of the mass email alone (see {@link seatCountsFor}). */
   readonly added?: number;
+  /** Round-one recap only: everyone who attended, mass email and list together, uncredited. */
+  readonly attended?: number;
   /** `seats_empty`: chairs nobody fills. */
   readonly open: number;
 }
@@ -251,7 +254,8 @@ export function seatsSentence(counts: SeatCounts, tense: "now" | "then"): string
     counts.added === undefined
       ? ""
       : `Your invitations added ${counts.added === 0 ? "nobody" : counts.added}. `;
-  return `${coming} ${added}${openSeats(counts.open, tense)}`;
+  const more = counts.attended ? `${counts.attended} more attended. ` : "";
+  return `${coming} ${added}${more}${openSeats(counts.open, tense)}`;
 }
 
 function alreadyComing(count: number): string {

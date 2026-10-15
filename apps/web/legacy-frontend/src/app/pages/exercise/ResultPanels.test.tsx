@@ -78,6 +78,12 @@ describe("seatsSentence", () => {
     );
   });
 
+  it("omits 'more attended' when nobody attended", () => {
+    expect(seatsSentence({ alreadyComing: 8, attended: 0, open: 52 }, "then")).toBe(
+      "8 were already coming. 52 seats were still open.",
+    );
+  });
+
   it("leaves the invitations clause out when added is not given", () => {
     expect(seatsSentence({ alreadyComing: 8, open: 51 }, "then")).toBe(
       "8 were already coming. 51 seats were still open.",
@@ -149,8 +155,9 @@ describe("ResultPanels", () => {
 
     const recap = slotText("exercise-round-one");
     expect(recap).toContain(
-      "Built from your team's setting “First try”. 8 were already coming. 51 seats were still open.",
+      "Built from your team's setting “First try”. 8 were already coming. 1 more attended. 51 seats were still open.",
     );
+    expect(8 + 1 + 51).toBe(60);
     expect(recap).not.toContain("invitations added");
     // The current round's sentence keeps Dr. Wang's wording.
     expect(slotText("exercise-seats-sentence")).toContain("Your invitations added");
