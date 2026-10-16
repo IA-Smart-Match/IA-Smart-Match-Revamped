@@ -37,6 +37,7 @@ function results(overrides: Partial<ResultsView> = {}): ResultsView {
     seats_empty: 46,
     event_seats: 60,
     existing_signups: 8,
+    existing_attended: 8,
     round_one: null,
     created_at: "2026-09-25T10:00:00Z",
     ...overrides,
@@ -203,6 +204,8 @@ describe("ResultPanels chart and people", () => {
             setting_name: "First try",
             team: panel(30, 2, 1),
             seats_empty: 51,
+            existing_attended: 8,
+            attended_in_room: 1,
             created_at: "2026-09-25T09:00:00Z",
           },
         })}

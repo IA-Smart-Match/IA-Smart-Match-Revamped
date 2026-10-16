@@ -25,7 +25,8 @@ it, and a test checks that every number in it is the number the code uses.
     gets 10 in 100. Being in the major the event is aimed at gives 5 in 100
     more. The total never goes
     below 0 or above 100 in 100. Each person who signs up has a 65 in 100
-    chance of attending. There is no extra luck: the team's fixed draw alone
+    chance of attending. The 8 students already signed up attend at that same
+    65 in 100, from the same fixed draw. There is no extra luck: the team's fixed draw alone
     decides who notices, signs up and shows up, so running the same list twice
     gives the same answer. The list's sign-ups include everyone the mass email
     alone would have brought, plus the ones the personal email added. The app
@@ -217,6 +218,7 @@ __all__ = [
     "SimulationEvent",
     "SimulationProfile",
     "SimulationResult",
+    "existing_attended",
     "require_coefficients",
     "run_email_everyone",
     "seats_empty",
@@ -677,17 +679,32 @@ def run_email_everyone(
     return _run(profiles, event, seed, coefficients, on_list=False)
 
 
-def seats_empty(attended_count: int) -> int:
+def existing_attended(seed: int, event_key: str, attend_rate: float) -> int:
+    """How many of the 8 pre-registered students show up (Ann Wang 2026-10-15, Q2).
+
+    Each attends at the same show-up rate as everyone else, from a fixed draw
+    keyed by the team seed and event (profile numbers 1..8 stand for the 8), so
+    the mass-only baseline and the team's run share it and a reload repeats it.
+    """
+    return sum(
+        _uniform(seed, event_key, number, "existing_attend") < attend_rate
+        for number in range(1, EXISTING_SIGNUPS + 1)
+    )
+
+
+def seats_empty(attended_count: int, existing_attended_count: int) -> int:
     """Seats still empty after a run, floored at zero.
 
-    ``60 - 8 - attended``, where the caller passes everyone in the room: the
-    mass email's show-ups plus the list's extra. Both numbers from the case in the requirements
-    (60 seats, 8 sign-ups already). Floored because a full room is a full room;
-    a negative chair count would be a number nobody can act on.
+    ``60 - (pre-registered students who came) - attended``, where the caller
+    passes everyone else in the room: the mass email's show-ups plus the
+    list's extra. Floored because a full room is a full room; a negative chair
+    count would be a number nobody can act on.
 
     Raises:
-        ValueError: If ``attended_count`` is negative.
+        ValueError: If either count is negative.
     """
-    if attended_count < 0:
-        raise ValueError(f"attended_count must not be negative; got {attended_count}.")
-    return max(0, EVENT_SEATS - EXISTING_SIGNUPS - attended_count)
+    if attended_count < 0 or existing_attended_count < 0:
+        raise ValueError(
+            f"counts must not be negative; got {attended_count} and {existing_attended_count}."
+        )
+    return max(0, EVENT_SEATS - existing_attended_count - attended_count)

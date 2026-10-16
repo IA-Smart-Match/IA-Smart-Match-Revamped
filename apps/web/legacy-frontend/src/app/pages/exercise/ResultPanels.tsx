@@ -166,10 +166,9 @@ export function ResultPanels({
               : `Built from your team's setting “${results.round_one.setting_name}”.`}{" "}
             {seatsSentence(
               {
-                // Round one carries no `existing_signups` of its own: the case's
-                // existing sign-ups are the same number for both events.
-                alreadyComing: results.existing_signups,
-                attended: results.round_one.team.attended_count,
+                // Of the 8 pre-registered students, only those who came count.
+                alreadyComing: results.round_one.existing_attended,
+                attended: results.round_one.attended_in_room,
                 open: results.round_one.seats_empty,
               },
               "then",
@@ -224,13 +223,13 @@ export function liftCounts(results: ResultsView): { mass: number; withList: numb
  * The two seat groups of the current round. The team panel is the mass email
  * plus the CBACH emails, so its attendees include everyone the mass email alone
  * would bring (Ann Wang 2026-10-10, Q2). Those people were coming anyway:
- * "already coming" is the existing sign-ups plus the mass email's attendees,
+ * "already coming" is the pre-registered students who came plus the mass email's attendees,
  * and "added" is the team's attendees the mass email missed.
  */
 export function seatCountsFor(results: ResultsView): { alreadyComing: number; added: number } {
   const mass = new Set(results.email_everyone.attended_profile_nos);
   const added = results.team.attended_profile_nos.filter((n) => !mass.has(n)).length;
-  return { alreadyComing: results.existing_signups + mass.size, added };
+  return { alreadyComing: results.existing_attended + mass.size, added };
 }
 
 /** Ann Wang 2026-10-10 Q2: the lift, not a contest. */
@@ -253,7 +252,7 @@ function LiftLine({ results }: { readonly results: ResultsView }): React.JSX.Ele
 
 /** The three numbers D8's sentence is built from, all read off the response. */
 export interface SeatCounts {
-  /** `existing_signups` plus the mass email's attendees: coming before the team's emails. */
+  /** `existing_attended` plus the mass email's attendees: coming before the team's emails. */
   readonly alreadyComing: number;
   /** People the team's list brought on top of the mass email alone (see {@link seatCountsFor}). */
   readonly added?: number;

@@ -35,6 +35,7 @@ function results(overrides: Partial<ResultsView> = {}): ResultsView {
     seats_empty: 46,
     event_seats: 60,
     existing_signups: 8,
+    existing_attended: 8,
     round_one: null,
     created_at: "2026-09-25T10:00:00Z",
     ...overrides,
@@ -112,7 +113,7 @@ describe("ResultPanels", () => {
   it("reads each number from the API rather than from the case", () => {
     render(
       <ResultPanels
-        results={results({ existing_signups: 5, team: panel(30, 4, 3), seats_empty: 52 })}
+        results={results({ existing_signups: 5, existing_attended: 5, team: panel(30, 4, 3), seats_empty: 52 })}
         names={new Map()}
       />,
     );
@@ -146,6 +147,8 @@ describe("ResultPanels", () => {
             setting_name: "First try",
             team: panel(30, 2, 1),
             seats_empty: 51,
+            existing_attended: 8,
+            attended_in_room: 1,
             created_at: "2026-09-25T09:00:00Z",
           },
         })}
@@ -201,12 +204,51 @@ describe("liftCounts", () => {
   });
 });
 
+describe("seat counts when only some of the 8 pre-registered students came", () => {
+  it("counts the ones who came, so the parts still add to the room", () => {
+    const r = results({ existing_attended: 5, team: panel(30, 4, 3), seats_empty: 52 });
+    const { alreadyComing, added } = seatCountsFor(r);
+    expect(alreadyComing + added + r.seats_empty).toBe(r.event_seats);
+    expect(seatsSentence({ alreadyComing, added, open: r.seats_empty }, "now")).toMatch(
+      /^\d+ were already coming\./,
+    );
+  });
+});
+
+describe("round-one recap sums to the room", () => {
+  it.each([
+    [8, 1, 51],
+    [5, 12, 43],
+    [2, 18, 40],
+  ])("%i of the 8 + %i in the room + %i open = 60", (came, inRoom, open) => {
+    const r = results({
+      round: 2,
+      round_one: {
+        event_key: "E11",
+        round: 1,
+        setting_name: null,
+        team: panel(30, 2, 1),
+        seats_empty: open,
+        existing_attended: came,
+        attended_in_room: inRoom,
+        created_at: "2026-09-25T09:00:00Z",
+      },
+    });
+    render(<ResultPanels results={r} />);
+    expect(slotText("exercise-round-one")).toContain(
+      `${came} were already coming. ${inRoom} more attended. ${open} seats were still open.`,
+    );
+    expect(came + inRoom + open).toBe(r.event_seats);
+  });
+});
+
 describe("seatCountsFor", () => {
   it("counts the mass email's attendees as already coming and only the rest as added", () => {
     const r = results({
       team: { ...panel(30, 12, 9), attended_profile_nos: [1, 2, 3, 4, 5, 6, 7, 8, 9] },
       email_everyone: { ...panel(300, 40, 4), attended_profile_nos: [1, 2, 3, 4] },
       existing_signups: 8,
+      existing_attended: 8,
     });
     expect(seatCountsFor(r)).toEqual({ alreadyComing: 12, added: 5 });
   });
@@ -214,7 +256,7 @@ describe("seatCountsFor", () => {
 
 describe("resultsSeries round-one label (A85)", () => {
   const roundTwo = results({
-    round_one: { event_key: "northline", round: 1, setting_name: null, team: panel(30, 10, 5), seats_empty: 1, created_at: "2026-10-16T14:00:00Z" },
+    round_one: { event_key: "northline", round: 1, setting_name: null, team: panel(30, 10, 5), seats_empty: 1, existing_attended: 8, created_at: "2026-10-16T14:00:00Z" },
   });
   it("names the round-one event when known", () => {
     expect(resultsSeries(roundTwo, "Northline")[2]?.label).toBe("Your team, Northline (round one)");

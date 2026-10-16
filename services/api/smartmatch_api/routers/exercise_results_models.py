@@ -60,6 +60,7 @@ from smartmatch_domain.exercise.simulation import (
     EXISTING_SIGNUPS,
     SimulationEvent,
     SimulationProfile,
+    existing_attended,
 )
 from smartmatch_domain.exercise.vocabulary import goal_topic_for_matching
 
@@ -379,6 +380,12 @@ class PreviousRoundView(BaseModel):
     )
     team: ResultPanelView = Field(description="That round's invited, signed up and attended.")
     seats_empty: int = Field(description="The seats still empty after that round.")
+    existing_attended: int = Field(
+        description="How many of that event's pre-registered students came, from the fixed draw."
+    )
+    attended_in_room: int = Field(
+        description="Everyone in the room from the mass email and the list: the union of attendees."
+    )
     created_at: datetime = Field(description="When that round was run.")
 
 
@@ -416,6 +423,12 @@ class ResultsView(BaseModel):
     event_seats: int = Field(description="Seats in the room, from the case.")
     existing_signups: int = Field(
         description="Sign-ups the event already had before anybody was invited, from the case."
+    )
+    existing_attended: int = Field(
+        description=(
+            "How many of those sign-ups came, at the same show-up rate as "
+            "everyone else (Ann Wang 2026-10-15), from a fixed draw."
+        ),
     )
     round_one: PreviousRoundView | None = Field(
         default=None, description="Your team's stored round-one result, in round two."
@@ -645,7 +658,9 @@ def invited_profile_view(entry: InvitedProfile) -> InvitedProfileView:
     )
 
 
-def previous_round_view(run: StoredResultRun) -> PreviousRoundView:
+def previous_round_view(
+    run: StoredResultRun, *, seed: int, attend_rate: float
+) -> PreviousRoundView:
     """A stored earlier run as design spec §10's third panel."""
     return PreviousRoundView(
         event_key=run.event_key,
@@ -653,6 +668,10 @@ def previous_round_view(run: StoredResultRun) -> PreviousRoundView:
         setting_name=run.setting_name,
         team=panel_view(run.team),
         seats_empty=run.seats_empty,
+        existing_attended=existing_attended(seed, run.event_key, attend_rate),
+        attended_in_room=len(
+            set(run.team.attended_profile_nos) | set(run.email_everyone.attended_profile_nos)
+        ),
         created_at=run.created_at,
     )
 
@@ -662,6 +681,8 @@ def stored_results_view(
     *,
     event: ExerciseEventRow,
     round_one: StoredResultRun | None,
+    seed: int,
+    attend_rate: float,
 ) -> ResultsView:
     """One stored run as the full three-panel response.
 
@@ -680,7 +701,12 @@ def stored_results_view(
         seats_empty=run.seats_empty,
         event_seats=EVENT_SEATS,
         existing_signups=EXISTING_SIGNUPS,
-        round_one=previous_round_view(round_one) if round_one is not None else None,
+        existing_attended=existing_attended(seed, run.event_key, attend_rate),
+        round_one=(
+            previous_round_view(round_one, seed=seed, attend_rate=attend_rate)
+            if round_one is not None
+            else None
+        ),
         invited_profiles=[invited_profile_view(entry) for entry in run.invited],
         created_at=run.created_at,
     )

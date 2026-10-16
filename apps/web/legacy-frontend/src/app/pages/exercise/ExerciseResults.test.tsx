@@ -132,6 +132,7 @@ const RUN_VIEW = {
   seats_empty: 50,
   event_seats: 60,
   existing_signups: 8,
+  existing_attended: 8,
   round_one: null,
   created_at: "2026-09-21T10:00:00Z",
 };
@@ -262,12 +263,15 @@ describe("<ExerciseResults />", () => {
           seats_empty: 50,
           event_seats: 60,
           existing_signups: 8,
+          existing_attended: 8,
           round_one: {
             event_key: "northline",
             round: 1,
             setting_name: "First try",
             team: panel(5, 2, 1),
             seats_empty: 51,
+            existing_attended: 8,
+            attended_in_room: 1,
             created_at: "2026-09-20T10:00:00Z",
           },
           created_at: "2026-09-21T10:00:00Z",
@@ -299,6 +303,7 @@ describe("<ExerciseResults />", () => {
           seats_empty: 51,
           event_seats: 60,
           existing_signups: 8,
+          existing_attended: 8,
           round_one: null,
           created_at: "2026-09-21T10:00:00Z",
         },
@@ -427,6 +432,7 @@ describe("<ExerciseResults />", () => {
           seats_empty: 51,
           event_seats: 60,
           existing_signups: 8,
+          existing_attended: 8,
           round_one: null,
           created_at: "2026-09-21T10:00:00Z",
         },
@@ -454,6 +460,7 @@ describe("<ExerciseResults />", () => {
     seats_empty: 51,
     event_seats: 60,
     existing_signups: 8,
+    existing_attended: 8,
     round_one: null,
     invited_profiles: [
       {

@@ -10,7 +10,7 @@
  * **Every count is the server's.** Taken seats are `existing_signups`; the
  * team's seats are the team panel's `attended_count`, the same number D8's
  * sentence says "added", and the one the server computes `seats_empty` from
- * (`60 - 8 - attended`); open seats are what is left of `event_seats`. The
+ * (`60 - (the 8 who came) - attended`); open seats are what is left of `event_seats`. The
  * client never subtracts to find a figure it shows.
  *
  * **The seats fill once.** `reveal` is true only on the first render after

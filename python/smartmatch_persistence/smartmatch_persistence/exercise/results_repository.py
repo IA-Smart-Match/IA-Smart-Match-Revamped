@@ -466,7 +466,7 @@ class ExerciseResultsRepository:
             setting_name: The saved weighting the list came from, or ``None``.
             team: The team's own list through the rule.
             email_everyone: Design spec §10's second panel.
-            seats_empty: ``60 - 8 - attended``, computed by the domain's
+            seats_empty: ``60 - (the 8 who came) - attended``, computed by the domain's
                 :func:`~smartmatch_domain.exercise.simulation.seats_empty`.
             invited: The invited list as the team's ranked list showed it, in
                 rank order. Stored with the run (revision 0046) so its names

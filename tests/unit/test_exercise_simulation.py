@@ -26,6 +26,8 @@ from smartmatch_domain.exercise.simulation import (
     SimulationProfile,
     SimulationResult,
     _fit_share,
+    _outcome,
+    existing_attended,
     require_coefficients,
     run_email_everyone,
     seats_empty,
@@ -510,12 +512,34 @@ def test_the_seat_constants_are_the_case_facts():
     [(0, 52), (10, 42), (52, 0), (53, 0), (200, 0)],
 )
 def test_seats_empty_counts_down_and_floors_at_zero(attended: int, expected: int):
-    assert seats_empty(attended) == expected
+    assert seats_empty(attended, EXISTING_SIGNUPS) == expected
 
 
 def test_seats_empty_refuses_a_negative_count():
     with pytest.raises(ValueError, match="must not be negative"):
-        seats_empty(-1)
+        seats_empty(-1, 8)
+
+
+def test_seats_empty_counts_only_the_pre_registered_who_came():
+    assert seats_empty(10, 5) == 45
+
+
+def test_the_eight_attend_from_a_fixed_draw_shared_by_every_run():
+    rate = 0.65
+    assert existing_attended(7, "northline", rate) == existing_attended(7, "northline", rate)
+    assert existing_attended(7, "northline", 0.0) == 0
+    assert existing_attended(7, "northline", 1.0) == 8
+    counts = {existing_attended(seed, "northline", rate) for seed in range(200)}
+    assert len(counts) > 1 and counts <= set(range(9))
+    mean = sum(existing_attended(s, "harbor", rate) for s in range(2000)) / 2000
+    assert 8 * rate - 0.3 < mean < 8 * rate + 0.3
+
+
+def test_a_student_who_stopped_responding_notices_nothing_not_even_the_mass_email():
+    silent = SimulationProfile(profile_no=1, major="history", non_responding=True)
+    shipped = _shipped()
+    for on_list in (False, True):
+        assert _outcome(silent, EVENT, 3, shipped, on_list=on_list) == (False, False)
 
 
 # --- The plain-words statement ---------------------------------------------

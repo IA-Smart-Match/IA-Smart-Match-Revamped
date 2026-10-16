@@ -45,6 +45,7 @@ from smartmatch_domain.exercise.simulation import (
     CoefficientsNotConfirmedError,
     InviteLimitExceededError,
     SimulationCoefficients,
+    existing_attended,
     require_coefficients,
     run_email_everyone,
     seats_empty,
@@ -349,6 +350,8 @@ def store(
     *,
     workspace: ExerciseWorkspace,
     event: ExerciseEventRow,
+    seed: int,
+    coefficients: SimulationCoefficients,
     round_number: int,
     setting_name: str,
     team: ResultPanel,
@@ -379,9 +382,11 @@ def store(
             setting_name=setting_name,
             team=team,
             email_everyone=everyone,
-            # The room holds everyone the mass email brought plus the list's extra.
+            # The room holds the pre-registered students who came (fixed draw),
+            # everyone the mass email brought, and the list's extra.
             seats_empty=seats_empty(
-                len(set(everyone.attended_profile_nos) | set(team.attended_profile_nos))
+                len(set(everyone.attended_profile_nos) | set(team.attended_profile_nos)),
+                existing_attended(seed, event.event_key, coefficients.attend_given_signup),
             ),
             invited=invited,
             setting_weights=effective_weights(weights),

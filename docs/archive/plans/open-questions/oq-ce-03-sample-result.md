@@ -98,17 +98,17 @@ are still open." (OQ-CE-16, approved by Chau 2026-09-25).
 
 | List | One team: signed up | One team: attended | One team: empty seats | A typical team: signed up | A typical team: attended |
 |---|---|---|---|---|---|
-| Equal weights | 11 | 8 | 44 | 9.0 | 5.8 |
-| Said they are interested | 8 | 6 | 46 | 5.9 | 3.8 |
-| Same major | 4 | 3 | 49 | 7.2 | 4.7 |
+| Equal weights | 11 | 8 | 46 | 9.0 | 5.8 |
+| Said they are interested | 8 | 6 | 48 | 5.9 | 3.8 |
+| Same major | 4 | 3 | 51 | 7.2 | 4.7 |
 
 ### Harbor
 
 | List | One team: signed up | One team: attended | One team: empty seats | A typical team: signed up | A typical team: attended |
 |---|---|---|---|---|---|
-| Equal weights | 6 | 4 | 48 | 7.1 | 4.5 |
-| Said they are interested | 7 | 5 | 47 | 8.0 | 5.1 |
-| Same major | 4 | 3 | 49 | 5.4 | 3.4 |
+| Equal weights | 6 | 4 | 51 | 7.1 | 4.5 |
+| Said they are interested | 7 | 5 | 50 | 8.0 | 5.1 |
+| Same major | 4 | 3 | 52 | 5.4 | 3.4 |
 
 ## What this shows
 

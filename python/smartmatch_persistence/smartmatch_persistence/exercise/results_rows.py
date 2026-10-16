@@ -118,7 +118,7 @@ class StoredResultRun:
             afterwards must not rewrite what was run.
         team: The team's own invited list through the rule.
         email_everyone: Design spec §10's second panel — everybody, same seed.
-        seats_empty: ``60 - 8 - attended`` as it was stored, not as it would be
+        seats_empty: ``60 - (the 8 who came) - attended`` as it was stored, not as it would be
             recomputed, so what a team keeps is what it was shown.
         created_at: When the row was written.
         invited: The invited list as the team's screen showed it at the moment

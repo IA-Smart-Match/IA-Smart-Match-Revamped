@@ -269,7 +269,7 @@ personal emails on top. For each person, the app decides four things in order.
    email from CBACH: 60 in 100 notice it. Getting both, about 68 in 100 notice
    at least one.
 2. **If they noticed, do they sign up?** The team's existing sign-up chances
-   based on the match. **DECIDED. Owner ruling 2026-10-12: Step B (Ann, 2026-10-06) is the sign-up step; past events = any past event, to confirm with Ann.** Step B: start at 5; +35 true interests; +15 true career goal; +5 per past event, capped at +15 (Ann Wang, reply 2026-10-15, Q1; was +5 for 1-2 / +10 for 3+); +5 same major; max 75 (PR #398, cap follows in a code PR). Past events = any past event, confirmed by Ann 2026-10-15. Evidence, Oct 2 file at 3/3/2/2, suggested 30, 1,000 seeds: Step B gives the lift Ann expects (about 6 Northline, 4-5 Harbor); the set-aside chances give 4.6 and 3.9 (Step B: 6.4 and 5.1).
+   based on the match. **DECIDED. Owner ruling 2026-10-12: Step B (Ann, 2026-10-06) is the sign-up step; past events = any past event, to confirm with Ann.** Step B: start at 5; +35 true interests; +15 true career goal; +5 for 1–2 past events, +10 for 3 or more (confirmed by Ann Wang, second reply 2026-10-15); +5 same major; max 70 (PR #398). Past events = any past event, confirmed by Ann 2026-10-15. Evidence, Oct 2 file at 3/3/2/2, suggested 30, 1,000 seeds: Step B gives the lift Ann expects (about 6 Northline, 4-5 Harbor); the set-aside chances give 4.6 and 3.9 (Step B: 6.4 and 5.1).
 3. **If they signed up, do they show up?** 65 in 100 do, including the 8 already signed up (Ann Wang, reply 2026-10-15, Q2).
 
 There is no extra luck (Ann Wang, email 2026-10-10, Q4): "The team's fixed chance draw alone decides
@@ -302,12 +302,10 @@ Look at your gap over the mass email, not just the raw number."
 | R1-W1 | Justin adds a short plain-words description of this rule to the one-page write-up | missing (no write-up file in the repository) |
 
 **Check numbers** (Ann Wang, email 2026-10-10, Q2): on the Oct 2 file a suggested list of 30 should
-add about 6 sign-ups at Northline and 4-5 at Harbor. With Step B (PR #398, any
-past events; Oct 2 file, suggested 30 at 3/3/2/2, mean of 1,000 seeds) the code
-gives: Northline mass alone 10.5, list adds 6.4, with list 16.9; Harbor 12.1 /
-5.1 / 17.1 ([record](../decisions/class-exercise-results-rule-2026-10-10.md),
-"Check numbers"). The earlier 4.5 / 3.9 (mass alone 8.4 / 9.8) were computed
-with the set-aside chances and are history. Danny sends Ann the numbers for a
+add about 6 sign-ups at Northline and 4-5 at Harbor. Code (PR #398/#410, any
+past events; Oct 2 file, suggested 30 at 3/3/2/2, mean of 5,000 seeds):
+Northline mass alone 10.5, list adds 6.2, with list 16.7; Harbor 12.1 / 5.1 /
+17.2 ([record](../decisions/class-exercise-ann-reply-2026-10-15.md)). Danny sends Ann the numbers for a
 few teams.
 
 **Also in the same message.** The dean wants the team to present to the CBACH
