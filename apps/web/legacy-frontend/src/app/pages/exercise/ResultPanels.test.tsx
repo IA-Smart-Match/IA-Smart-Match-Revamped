@@ -266,3 +266,23 @@ describe("resultsSeries round-one label (A85)", () => {
     expect(resultsSeries(roundTwo, null)[2]?.label).toBe("Your team, round one");
   });
 });
+
+describe("results from an API older than #410 (B1)", () => {
+  const { existing_attended: _a, ...legacy } = results({ existing_signups: 8 });
+  const old = legacy as unknown as ResultsView;
+
+  it("falls back to existing_signups for already coming", () => {
+    expect(seatCountsFor(old).alreadyComing).toBe(8 + 0);
+  });
+
+  it("renders no NaN, including a round-one recap without the new fields", () => {
+    const twoRound = {
+      ...old,
+      round: 2,
+      round_one: { event_key: "northline", round: 1, setting_name: null, team: panel(30, 10, 5), seats_empty: 1, created_at: "2026-10-16T14:00:00Z" },
+    } as unknown as ResultsView;
+    const { container } = render(<ResultPanels results={twoRound} />);
+    expect(container.textContent).not.toMatch(/NaN/i);
+    expect(slotText("exercise-round-one")).toContain("8 were already coming");
+  });
+});
