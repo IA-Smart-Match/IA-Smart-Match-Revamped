@@ -1,5 +1,5 @@
 /**
- * The compare view (DESIGN.md §6.12, §7.5): two lists side by side on
+ * The compare view (DESIGN.md §6.12, §7.5): two lists, stacked on
  * desktop, a segmented control on 390 with ten rows and "Show all".
  */
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
@@ -78,7 +78,8 @@ describe("<MatchingCompareView /> (§6.12)", () => {
     expect(screen.getByRole("heading", { name: "Interests first" })).toBeDefined();
     const tables = screen.getAllByRole("table");
     expect(tables).toHaveLength(2);
-    expect(screen.queryAllByRole("listitem")).toHaveLength(0);
+    // Only the three counts lines are list items; the lists are tables, not cards.
+    expect(screen.queryAllByRole("listitem")).toHaveLength(3);
     for (const table of tables) {
       const heads = within(table).getAllByRole("columnheader").map((head) => head.textContent);
       expect(heads).toEqual(["Rank", "Name", "Major", "Year", "How much we know"]);
@@ -94,11 +95,16 @@ describe("<MatchingCompareView /> (§6.12)", () => {
     a.entries[1] = { ...a.entries[1], contributing_factor_keys: ["career_goal_fit", "same_major"] };
     b.entries[2] = { ...b.entries[2], contributing_factor_keys: [] };
     render(<MatchingCompareView comparison={{ a, b, on_both_profile_nos: [1] }} onClose={vi.fn()} />);
-    expect(
-      screen.getByText(
-        "on both 1; only on Major first 29; only on Interests first 29; matched on major alone: Major first 29, Interests first 29",
-      ),
-    ).toBeDefined();
+    const counts = document.querySelector('[data-slot="exercise-compare-counts"]');
+    expect(counts?.className).toContain("ce-type-body");
+    expect([...(counts?.querySelectorAll("li") ?? [])].map((li) => li.textContent)).toEqual([
+      "On both lists: 1",
+      "Only on “Major first”: 29; only on “Interests first”: 29",
+      "Matched on major alone: “Major first” 29, “Interests first” 29",
+    ]);
+    expect(screen.getByRole("heading", { name: "Two settings compared" }).textContent).not.toContain(
+      "side by side",
+    );
   });
 
   it("closes", () => {

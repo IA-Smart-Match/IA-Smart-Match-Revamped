@@ -38,7 +38,7 @@ function settingName(list: RankedListView): string {
 const MAJOR_ALONE = ["same_major"];
 
 /** Counts for the line under the summary sentence; keyed by `profile_no`, like the highlight. */
-function compareCounts(lists: readonly [RankedListView, RankedListView], overlap: readonly number[]): string {
+function compareCounts(lists: readonly [RankedListView, RankedListView], overlap: readonly number[]): readonly string[] {
   const both = new Set(overlap);
   const [a, b] = lists;
   const only = (list: RankedListView) => list.entries.filter((e) => !both.has(e.profile_no)).length;
@@ -49,7 +49,12 @@ function compareCounts(lists: readonly [RankedListView, RankedListView], overlap
         e.contributing_factor_keys.length === MAJOR_ALONE.length &&
         e.contributing_factor_keys.every((key, i) => key === MAJOR_ALONE[i]),
     ).length;
-  return `on both ${overlap.length}; only on ${settingName(a)} ${only(a)}; only on ${settingName(b)} ${only(b)}; matched on major alone: ${settingName(a)} ${alone(a)}, ${settingName(b)} ${alone(b)}`;
+  const q = (list: RankedListView) => `“${settingName(list)}”`;
+  return [
+    `On both lists: ${overlap.length}`,
+    `Only on ${q(a)}: ${only(a)}; only on ${q(b)}: ${only(b)}`,
+    `Matched on major alone: ${q(a)} ${alone(a)}, ${q(b)} ${alone(b)}`,
+  ];
 }
 
 export function MatchingCompareView({
@@ -66,7 +71,7 @@ export function MatchingCompareView({
   return (
     <section data-slot="exercise-compare" className="flex flex-col gap-ce-4">
       <div className="flex flex-wrap items-baseline justify-between gap-ce-3">
-        <h2 className="ce-type-h2 text-ce-ink">Two settings, side by side</h2>
+        <h2 className="ce-type-h2 text-ce-ink">Two settings compared</h2>
         <Button variant="quiet" leadingIcon={<X />} onClick={onClose} className="underline">
           Close this comparison
         </Button>
@@ -80,9 +85,11 @@ export function MatchingCompareView({
               overlap.length === 1 ? "name is" : "names are"
             } on both lists, highlighted in each.`}
       </p>
-      <p data-slot="exercise-compare-counts" className="ce-type-meta ce-tabular text-ce-ink-muted">
-        {compareCounts(lists, overlap)}
-      </p>
+      <ul data-slot="exercise-compare-counts" className="ce-type-body ce-tabular text-ce-ink flex flex-col gap-ce-1">
+        {compareCounts(lists, overlap).map((line) => (
+          <li key={line}>{line}</li>
+        ))}
+      </ul>
       {narrow ? (
         <CompareTabs lists={lists} overlap={overlap} />
       ) : (
