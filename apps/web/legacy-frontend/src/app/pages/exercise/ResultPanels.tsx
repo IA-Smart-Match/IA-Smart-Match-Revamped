@@ -186,6 +186,9 @@ export function ResultPanels({
           <p className="ce-type-meta text-ce-ink-muted">
             The mass email alone is shown as counts only.
           </p>
+          <p className="ce-type-meta text-ce-ink-muted" data-slot="exercise-run-record">
+            {runRecordLine(results)}
+          </p>
         </div>
         <div className="grid gap-ce-5 md:grid-cols-3">
           <PeopleList
@@ -207,6 +210,13 @@ export function ResultPanels({
       </section>
     </div>
   );
+}
+
+/** Says which list this stored run used; later setting or limit changes do not re-run it. */
+export function runRecordLine(results: ResultsView): string {
+  const n = results.team.invited_count;
+  const from = results.setting_name === null ? `a list of ${n} invited` : `your setting “${results.setting_name}”: ${n} invited`;
+  return `These results are from ${from}. Changing the setting or the invite limit now will not re-run them.`;
 }
 
 /**
