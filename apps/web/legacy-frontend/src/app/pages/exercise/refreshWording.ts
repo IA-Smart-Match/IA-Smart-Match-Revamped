@@ -122,7 +122,7 @@ export const STOPPED_RESPONDING = "stopped_responding";
 
 /**
  * The words for one mark on a list entry: "New card", "New: went to
- * Northline", "Stopped responding". An unrecognised mark renders as itself,
+ * Northline" (the event name up to its first colon), "Stopped responding". An unrecognised mark renders as itself,
  * as an unrecognised marker does.
  */
 export function refreshMarkLabel(mark: string, eventName: string | null | undefined): string {
@@ -130,7 +130,8 @@ export function refreshMarkLabel(mark: string, eventName: string | null | undefi
     return "New card";
   }
   if (mark === "new_event") {
-    return `New: went to ${eventName ?? "the first event"}`;
+    const short = eventName?.split(":")[0]?.trim();
+    return `New: went to ${short || "the first event"}`;
   }
   if (mark === STOPPED_RESPONDING) {
     return "Stopped responding";

@@ -282,7 +282,7 @@ function RefreshMarkChips({
             data-slot="exercise-refresh-mark"
             data-mark={mark}
             className={cn(
-              "ce-type-meta inline-flex items-center gap-ce-1 rounded-ce-pill border px-ce-2 text-ce-ink",
+              "ce-type-meta inline-flex max-w-full items-center gap-ce-1 rounded-ce-control border px-ce-2 py-ce-1 text-ce-ink",
               stopped
                 ? "border-ce-line-strong bg-ce-surface-sunk"
                 : "border-ce-primary bg-ce-primary-tint",
