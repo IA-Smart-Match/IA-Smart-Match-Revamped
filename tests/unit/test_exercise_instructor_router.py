@@ -659,7 +659,7 @@ def test_a_wrong_passcode_is_one_sentence_and_no_cookie(client: TestClient, pres
     response = _login(client, presented)
 
     assert response.status_code == 401
-    assert response.json()["error"]["message"] == "That passcode was not recognised."
+    assert response.json()["error"]["message"] == "Wrong passcode."
     assert INSTRUCTOR_COOKIE_NAME not in response.cookies
 
 
@@ -673,7 +673,7 @@ def test_an_unconfigured_or_unusable_passcode_is_a_shut_door(
         response = _login(client, _TEST_PASSCODE)
 
     assert response.status_code == 401
-    assert response.json()["error"]["message"] == "That passcode was not recognised."
+    assert response.json()["error"]["message"] == "Wrong passcode."
 
 
 def test_the_login_requires_the_exercise_request_header(client: TestClient) -> None:

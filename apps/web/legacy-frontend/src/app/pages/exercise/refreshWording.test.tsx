@@ -159,6 +159,12 @@ describe("the marks on a list entry", () => {
     expect(refreshMarkLabel("stopped_responding", "Northline")).toBe("Stopped responding");
   });
 
+  it("shortens a full event name to the text before the colon", () => {
+    expect(refreshMarkLabel("new_event", "Northline Analytics: Behind the Business")).toBe(
+      "New: went to Northline Analytics",
+    );
+  });
+
   it("falls back to plain words without an event name, and to the value for an unknown mark", () => {
     expect(refreshMarkLabel("new_event", null)).toBe("New: went to the first event");
     expect(refreshMarkLabel("a_fourth_mark", "Northline")).toBe("a_fourth_mark");

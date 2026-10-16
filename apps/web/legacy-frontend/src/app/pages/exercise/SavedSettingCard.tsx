@@ -13,6 +13,7 @@ import type { SavedSettingView } from "../../../lib/exerciseClient";
 import { cn } from "../../components/ui/utils";
 import { Button, formatWeight } from "./desk";
 import { EmptySlotArt } from "./EmptySlotArt";
+import { clockTime } from "./exerciseTime";
 import { orderedFactorKeys } from "./WeightsControls";
 
 export interface SavedSettingCardProps {
@@ -50,6 +51,7 @@ export function SavedSettingCard({
   const deleteButton = React.useRef<HTMLButtonElement>(null);
   const keepButton = React.useRef<HTMLButtonElement>(null);
   const nameId = `${id}-name`;
+  const savedAt = clockTime(setting.created_at);
   // Ann's words for each weight the setting holds; a key with no label is
   // dropped rather than printed.
   const rows = orderedFactorKeys(factorLabels).filter((key) => key in setting.weights);
@@ -77,9 +79,14 @@ export function SavedSettingCard({
       )}
     >
       <div className="flex items-start justify-between gap-ce-3">
-        <h3 id={nameId} className="ce-type-h3 min-w-0 break-words text-ce-ink">
-          {setting.name}
-        </h3>
+        <div className="flex min-w-0 flex-col gap-ce-1">
+          <h3 id={nameId} className="ce-type-h3 min-w-0 break-words text-ce-ink">
+            {setting.name}
+          </h3>
+          {savedAt === null ? null : (
+            <p className="ce-type-meta text-ce-ink-muted">First saved at {savedAt}</p>
+          )}
+        </div>
         {comparing ? (
           <span className="ce-type-meta shrink-0 rounded-ce-pill bg-ce-primary-tint px-ce-3 py-ce-1 text-ce-on-primary-tint">
             Comparing

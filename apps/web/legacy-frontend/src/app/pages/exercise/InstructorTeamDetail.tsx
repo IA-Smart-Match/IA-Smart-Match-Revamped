@@ -114,6 +114,7 @@ function SavedSetting({
   readonly labels: FactorLabels;
 }): React.JSX.Element {
   const invited = setting.invited ?? [];
+  const savedAt = clockTime(setting.created_at);
   return (
     <article className="flex flex-col gap-ce-2 border-t border-ce-line pt-ce-3">
       <div className="flex flex-col gap-ce-1">
@@ -121,6 +122,9 @@ function SavedSetting({
         <p className="ce-type-meta text-ce-ink-muted">
           {eventLine(setting.round ?? null, setting.event_name ?? setting.event_key)}
         </p>
+        {savedAt === null ? null : (
+          <p className="ce-type-meta text-ce-ink-muted">First saved at {savedAt}</p>
+        )}
       </div>
       <FourNumbers weights={setting.weights ?? {}} labels={labels} />
       <NameList

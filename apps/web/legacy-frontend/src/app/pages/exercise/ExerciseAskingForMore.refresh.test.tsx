@@ -406,7 +406,7 @@ describe("<ExerciseAskingForMore /> — the refresh", () => {
       return found as HTMLElement;
     });
     expect(band.textContent).toContain("Cards filled in9");
-    expect(band.textContent).toContain("Stopped opening messages0");
+    expect(band.textContent).toContain("Stopped responding0");
     // `topics_added` counts people who gained topics, not topics.
     expect(band.textContent).toContain("Picked up the first event's topics17");
     expect(calls.some((call) => call.init.method === "POST")).toBe(false);

@@ -128,6 +128,12 @@ function names(block: HTMLElement): string[] {
 afterEach(cleanup);
 
 describe("<TeamDetail /> saved settings", () => {
+  it("shows when a setting was first saved", () => {
+    const saved = [setting({ created_at: "2026-10-16T17:43:00Z" })];
+    render(<TeamDetail detail={detail({ result_runs: [], saved_settings: saved })} />);
+    expect(view().textContent).toMatch(/First saved at \d{1,2}:\d{2} (AM|PM)/);
+  });
+
   it("shows each setting's four numbers under Ann's words, never a factor key", () => {
     render(<TeamDetail detail={detail({ result_runs: [] })} />);
     const numbers = view().querySelector(

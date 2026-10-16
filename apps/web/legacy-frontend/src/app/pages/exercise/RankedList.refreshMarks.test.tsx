@@ -88,6 +88,21 @@ describe("<RankedList /> refresh marks", () => {
     expect(marksIn(rowFor("Mei Tanaka"))).toEqual(["New: went to the first event"]);
   });
 
+  it("shortens the event name and keeps a rounded-rect chip", () => {
+    render(
+      <RankedList
+        entries={ENTRIES}
+        factorLabels={{}}
+        caption="List"
+        firstRoundEventName="Northline Analytics: Behind the Business"
+      />,
+    );
+    const chip = rowFor("Mei Tanaka")?.querySelector('[data-slot="exercise-refresh-mark"]');
+    expect(chip?.textContent).toBe("New: went to Northline Analytics");
+    expect(chip?.className).toContain("rounded-ce-control");
+    expect(chip?.className).not.toContain("rounded-ce-pill");
+  });
+
   it("marks them in the card layout too", () => {
     render(
       <RankedList
