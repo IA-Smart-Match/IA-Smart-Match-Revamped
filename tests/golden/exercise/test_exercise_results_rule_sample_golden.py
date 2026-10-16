@@ -146,8 +146,7 @@ def sample_row(event_key: str, weighting: str) -> SampleRow:
 #:
 #: Repinned for Ann's 2026-10-06 Step B sign-up chances (5 / 35 / 15 / 5-10 / 5).
 #:
-#: Repinned 2026-10-15 for Ann's past-event cap (+5 each, up to +15) and the
-#: 8 pre-registered students attending at 65 in 100 (seats empty changes).
+#: Repinned 2026-10-15: the 8 attend at 65 in 100 (seats empty changes).
 #:
 #: Repinned 2026-10-10 for the notice rule (Ann Wang, email 2026-10-10, Q2/Q4):
 #: 20/60 in 100 notice, 65 in 100 attend, no extra luck.
@@ -157,12 +156,12 @@ def sample_row(event_key: str, weighting: str) -> SampleRow:
 #: undecided career goal no longer earns half the goal part in the rule, which
 #: lowers every average that had a hidden-undecided profile on its list.
 PINNED: Mapping[tuple[str, str], tuple[int, int, int, float, float]] = {
-    ("E11", "equal weights"): (11, 8, 46, 9.1, 5.9),
-    ("E11", "said they are interested"): (8, 6, 48, 6.1, 4.0),
-    ("E11", "same major"): (4, 3, 51, 7.3, 4.7),
-    ("E12", "equal weights"): (7, 5, 50, 7.3, 4.7),
-    ("E12", "said they are interested"): (8, 6, 49, 8.2, 5.3),
-    ("E12", "same major"): (5, 4, 51, 5.6, 3.6),
+    ("E11", "equal weights"): (11, 8, 46, 9.0, 5.8),
+    ("E11", "said they are interested"): (8, 6, 48, 5.9, 3.8),
+    ("E11", "same major"): (4, 3, 51, 7.2, 4.7),
+    ("E12", "equal weights"): (6, 4, 51, 7.1, 4.5),
+    ("E12", "said they are interested"): (7, 5, 50, 8.0, 5.1),
+    ("E12", "same major"): (4, 3, 52, 5.4, 3.4),
 }
 
 

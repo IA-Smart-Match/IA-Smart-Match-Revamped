@@ -20,13 +20,14 @@ it, and a test checks that every number in it is the number the code uses.
     with a 5 in 100 chance of signing up. The biggest boosts go to a person
     when the event matches what they truly care about: 35 in 100 when one of
     their true interests is a topic of the event, and 15 in 100 more when
-    their career goal fits the event. A person gets a boost of 5 in 100
-    for each past event they have been to, up to 15 in 100 for 3 or more.
-    Being in the major the event is aimed at gives 5 in 100 more. The total
-    never goes below 0 or above 100 in 100. Each person who signs up has a
-    65 in 100 chance of attending. The 8 students already signed up attend
-    at that same 65 in 100, from the same fixed draw. There is no extra luck: the team's fixed
-    draw alone decides who notices, signs up and shows up, so running the same list twice
+    their career goal fits the event. A person who has been to 1 or 2 past
+    events gets a small boost of 5 in 100, and one who has been to 3 or more
+    gets 10 in 100. Being in the major the event is aimed at gives 5 in 100
+    more. The total never goes
+    below 0 or above 100 in 100. Each person who signs up has a 65 in 100
+    chance of attending. The 8 students already signed up attend at that same
+    65 in 100, from the same fixed draw. There is no extra luck: the team's fixed draw alone
+    decides who notices, signs up and shows up, so running the same list twice
     gives the same answer. The list's sign-ups include everyone the mass email
     alone would have brought, plus the ones the personal email added. The app
     uses each profile's true interests for this, not what the profile has told
@@ -34,8 +35,7 @@ it, and a test checks that every number in it is the number the code uses.
 
 Source: Ann Wang, email 2026-10-10 (Q2, Q4) for notice, show-up and no luck;
 her 2026-10-06 reply to Chau (Step B) for the sign-up chances: start at 5,
-add 35 / 15 / 5 per past event up to 15 (her 2026-10-15 reply) / 5.
-The 2026-10-10 email supersedes only the rest of the
+add 35 / 15 / 5 or 10 / 5. The 2026-10-10 email supersedes only the rest of the
 2026-10-06 rule (15 in 100 notice, 70 in 100 attend, the extra luck). It says
 "the team's existing sign-up chances", which the team had read as the older
 code numbers (4 / 40 / 10 / 4). Owner ruling 2026-10-12: Ann's Oct 6 Step B;
@@ -92,9 +92,8 @@ For one profile and one event, with coefficients ``c``:
   choosing it decides whether Ann's "true interests and career goal" leans on
   interests or on goals (``true_interest_share_of_fit``, approved at one half).
 * ``lift = c.true_fit_lift * fit_share``
-  ``+ min(c.past_event_lift_cap, c.frequent_attender_lift * past_events)``
-  if the profile attended at least ``c.frequent_attender_events`` past events
-  (without a cap: the flat ``c.frequent_attender_lift``),
+  ``+ c.frequent_attender_lift`` if the profile attended at least
+  ``c.frequent_attender_events`` past events,
   ``+ c.same_major_lift`` if the profile's major is one of the event's target
   majors.
 * ``noticed`` is ``mass_notice < c.mass_email_notice`` for a uniform draw, or,
@@ -180,10 +179,9 @@ where it comes from:
 
 1. ``true_fit_lift`` — 0.50, split 0.35 interests / 0.15 career goal by
    ``true_interest_share_of_fit`` 0.7. Ann's Step B, 2026-10-06.
-2. ``frequent_attender_lift`` — 0.05 for each past event, up to
-   ``past_event_lift_cap`` — 0.15 (3 or more events). Every past event on the
-   file row counts. Ann's email of 2026-10-15 (Q1) replaced the 5 / 10 tiers.
-   The most any profile can reach is 0.05 + 0.35 + 0.15 + 0.15 + 0.05 = 0.75.
+2. ``frequent_attender_lift`` — 0.05 for 1-2 past events, and
+   ``many_attender_lift`` — 0.10 from ``many_attender_events`` = 3. Every
+   past event counts, as in her "1-2 past events". Ann's Step B.
 3. ``same_major_lift`` — 0.05. Ann's Step B.
 4. ``mass_email_notice`` — 0.20 and ``cbach_email_notice`` — 0.60. Ann's
    email of 2026-10-10 (Q2). No chance band: her Q4 is "no extra luck".
@@ -399,10 +397,10 @@ class SimulationCoefficients:
     attend_given_signup: float
     frequent_attender_events: int
     true_interest_share_of_fit: float
-    #: Ann's rule (2026-10-15 Q1): ``frequent_attender_lift`` for EACH past
-    #: event, up to this cap. ``None`` means no per-event rule: the flat
-    #: ``frequent_attender_lift`` once ``frequent_attender_events`` is reached.
-    past_event_lift_cap: float | None = None
+    #: Ann's tiers (2026-10-06 Step B): +5 for 1-2 past events, +10 for 3 or
+    #: more. ``None`` means no second tier (``frequent_attender_lift`` for all).
+    many_attender_lift: float | None = None
+    many_attender_events: int = 3
 
     def __post_init__(self) -> None:
         """Refuse a set that is not usable, before any result is drawn."""
@@ -418,8 +416,17 @@ class SimulationCoefficients:
         ):
             _check_unit_interval(name, getattr(self, name))
         _check_attender_threshold(self.frequent_attender_events)
-        if self.past_event_lift_cap is not None:
-            _check_unit_interval("past_event_lift_cap", self.past_event_lift_cap)
+        if self.many_attender_lift is not None:
+            _check_unit_interval("many_attender_lift", self.many_attender_lift)
+            if not self.true_fit_lift > self.many_attender_lift:
+                raise SimulationCoefficientsError(
+                    "true_fit_lift must be greater than many_attender_lift. Got "
+                    f"{self.true_fit_lift} and {self.many_attender_lift}."
+                )
+        if self.many_attender_events < self.frequent_attender_events:
+            raise SimulationCoefficientsError(
+                "many_attender_events must be at least frequent_attender_events."
+            )
         if not self.true_fit_lift > self.frequent_attender_lift:
             raise SimulationCoefficientsError(
                 "true_fit_lift must be greater than frequent_attender_lift: the "
@@ -479,7 +486,8 @@ EXERCISE_SIMULATION_COEFFICIENTS: SimulationCoefficients | None = SimulationCoef
     attend_given_signup=0.65,
     frequent_attender_events=1,
     true_interest_share_of_fit=0.7,
-    past_event_lift_cap=0.15,
+    many_attender_lift=0.10,
+    many_attender_events=3,
 )
 
 
@@ -546,11 +554,11 @@ def _sign_up_lift(
     """The lift above the base rate, before chance and before the clamp."""
     lift = coefficients.true_fit_lift * _fit_share(profile, event, coefficients)
     if profile.past_event_count >= coefficients.frequent_attender_events:
-        cap = coefficients.past_event_lift_cap
-        if cap is None:
-            lift += coefficients.frequent_attender_lift
+        many = coefficients.many_attender_lift
+        if many is not None and profile.past_event_count >= coefficients.many_attender_events:
+            lift += many
         else:
-            lift += min(cap, coefficients.frequent_attender_lift * profile.past_event_count)
+            lift += coefficients.frequent_attender_lift
     if _normalized(profile.major) in {_normalized(major) for major in event.target_majors}:
         lift += coefficients.same_major_lift
     return lift

@@ -27,7 +27,6 @@ from smartmatch_domain.exercise.simulation import (
     SimulationResult,
     _fit_share,
     _outcome,
-    _sign_up_lift,
     existing_attended,
     require_coefficients,
     run_email_everyone,
@@ -433,8 +432,8 @@ def test_the_shipped_set_honours_anns_a_lot_some_a_little():
     """OQ-CE-03, Ann 2026-09-25: true fit "a lot", attended before "some",
     same major "a little", and "some randomness"."""
     shipped = _shipped()
-    # Ann 2026-10-15: +5 per past event up to +15; one event equals same major (+5).
-    assert shipped.true_fit_lift > shipped.past_event_lift_cap > shipped.same_major_lift > 0
+    # Step B (2026-10-06): 1-2 past events (+5) equals same major (+5); 3 or more (+10) is above.
+    assert shipped.true_fit_lift > shipped.many_attender_lift > shipped.same_major_lift > 0
     assert shipped.frequent_attender_lift >= shipped.same_major_lift
     assert shipped.mass_email_notice < shipped.cbach_email_notice
 
@@ -460,8 +459,8 @@ def test_the_plain_words_paragraph_states_every_shipped_number():
         f"Everyone starts with a {per_100(shipped.base_signup_rate)} in 100 chance",
         f"{per_100(shipped.true_fit_lift * shipped.true_interest_share_of_fit)} in 100 when one",
         f"{per_100(shipped.true_fit_lift * (1 - shipped.true_interest_share_of_fit))} in 100 more",
-        f"boost of {per_100(shipped.frequent_attender_lift)} in 100 for each past event",
-        f"up to {per_100(shipped.past_event_lift_cap or 0)} in 100 for 3 or more",
+        f"1 or 2 past events gets a small boost of {per_100(shipped.frequent_attender_lift)} in 100",  # noqa: E501
+        f"3 or more gets {per_100(shipped.many_attender_lift or 0)} in 100",
         f"Being in the major the event is aimed at gives {per_100(shipped.same_major_lift)} in 100",
         f"{per_100(shipped.mass_email_notice)} in 100 notice it",
         f"{per_100(shipped.cbach_email_notice)} in 100 notice that one",
@@ -471,7 +470,7 @@ def test_the_plain_words_paragraph_states_every_shipped_number():
     ):
         assert sentence in text, sentence
     assert shipped.frequent_attender_events == 1
-    assert shipped.past_event_lift_cap == 0.15
+    assert shipped.many_attender_events == 3
     assert shipped.true_interest_share_of_fit == 0.7
     # Ann's revisions of 2026-10-02 (item 4b) took the undecided half out of
     # the rule, so the paragraph she receives must not still promise it.
@@ -534,28 +533,6 @@ def test_the_eight_attend_from_a_fixed_draw_shared_by_every_run():
     assert len(counts) > 1 and counts <= set(range(9))
     mean = sum(existing_attended(s, "harbor", rate) for s in range(2000)) / 2000
     assert 8 * rate - 0.3 < mean < 8 * rate + 0.3
-
-
-@pytest.mark.parametrize(("events", "lift"), [(0, 0.0), (1, 0.05), (2, 0.10), (3, 0.15), (5, 0.15)])
-def test_each_past_event_adds_five_up_to_fifteen(events: int, lift: float):
-    shipped = _shipped()
-    profile = SimulationProfile(profile_no=1, major="history", past_event_count=events)
-    assert _sign_up_lift(profile, EVENT, shipped) == pytest.approx(lift)
-
-
-def test_the_highest_sign_up_chance_is_seventy_five():
-    shipped = _shipped()
-    event = SimulationEvent(
-        event_key="E", topic_tags=frozenset({"data"}), target_majors=frozenset({"history"})
-    )
-    profile = SimulationProfile(
-        profile_no=1,
-        major="history",
-        past_event_count=9,
-        true_interests=frozenset({"data"}),
-        career_goal="data",
-    )
-    assert shipped.base_signup_rate + _sign_up_lift(profile, event, shipped) == pytest.approx(0.75)
 
 
 def test_a_student_who_stopped_responding_notices_nothing_not_even_the_mass_email():
@@ -769,7 +746,7 @@ def test_a_profile_off_the_list_never_draws_the_cbach_email():
 
 
 def test_step_b_past_event_tiers_and_exact_chance():
-    """Ann 2026-10-06 Step B: 5, +35, +15, +5 per past event up to +15 (10-15), +5 major."""
+    """Ann 2026-10-06: 5 base, +35 interests, +15 goal, +5 for 1-2 / +10 for 3+ events, +5 major."""
     from smartmatch_domain.exercise.simulation import _sign_up_lift
 
     c = _shipped()
@@ -785,8 +762,8 @@ def test_step_b_past_event_tiers_and_exact_chance():
     assert lift(true_interests=frozenset({"Finance"})) == pytest.approx(0.35)
     assert lift(career_goal="Finance") == pytest.approx(0.15)
     assert lift(past_event_count=1) == pytest.approx(0.05)
-    assert lift(past_event_count=2) == pytest.approx(0.10)
-    assert lift(past_event_count=3) == pytest.approx(0.15)
+    assert lift(past_event_count=2) == pytest.approx(0.05)
+    assert lift(past_event_count=3) == pytest.approx(0.10)
     assert lift(major="Accounting") == pytest.approx(0.05)
     full = lift(
         true_interests=frozenset({"Finance"}),
@@ -794,4 +771,4 @@ def test_step_b_past_event_tiers_and_exact_chance():
         past_event_count=3,
         major="Accounting",
     )
-    assert c.base_signup_rate + full == pytest.approx(0.05 + 0.35 + 0.15 + 0.15 + 0.05)
+    assert c.base_signup_rate + full == pytest.approx(0.05 + 0.35 + 0.15 + 0.10 + 0.05)
