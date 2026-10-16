@@ -111,7 +111,7 @@ _LOGIN_LIMITER: Final[FixedWindowLimiter] = FixedWindowLimiter(
 #: differences are real — an unconfigured passcode, a blank one, a wrong one —
 #: and are deliberately not reported, so the response cannot be used to learn
 #: whether this deployment has an instructor page at all.
-_LOGIN_REFUSED: Final[str] = "That passcode was not recognised."
+_LOGIN_REFUSED: Final[str] = "Wrong passcode."
 
 
 def _client_key(request: Request) -> str:

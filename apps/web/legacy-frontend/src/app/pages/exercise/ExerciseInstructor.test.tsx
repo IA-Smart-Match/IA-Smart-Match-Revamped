@@ -216,7 +216,7 @@ describe("<ExerciseInstructor />", () => {
         body: {
           error: {
             code: "exercise_instructor_passcode_refused",
-            message: "That passcode was not recognised.",
+            message: "Wrong passcode.",
           },
         },
         status: 401,
@@ -225,7 +225,7 @@ describe("<ExerciseInstructor />", () => {
     renderInstructor();
     fireEvent.change(await screen.findByLabelText(/passcode/i), { target: { value: "wrong" } });
     fireEvent.click(screen.getByRole("button", { name: /open the instructor page/i }));
-    await waitFor(() => expect(screen.getByText("That passcode was not recognised.")).toBeDefined());
+    await waitFor(() => expect(screen.getByText("Wrong passcode.")).toBeDefined());
   });
 
   it("carries the one per-team reset, which no team screen has", async () => {
