@@ -17,7 +17,7 @@ personal CBACH email. For each person, in order:
 | Step | Rule | Ruled by | Code |
 |---|---|---|---|
 | 1. Notice | Mass email 20 in 100 (all 300). CBACH email 60 in 100 (the team's 30 only). Both: about 68 in 100 notice at least one | Ann Wang, email 2026-10-10, Q2 | `simulation.py:482-483,585-586` |
-| 2. Sign up (Step B) | Start at 5. +35 if the hidden true interests match the event. +15 if the hidden true career goal fits. +5 per past event, capped at +15 (**any** past event on the file row; refresh-added topics never count). +5 if the event targets the student's major. Points are added; the most anyone can reach is 75; 5 is the floor | Ann Wang 2026-10-06 Step B, kept by the owner ruling of 2026-10-12; past-event points and "any past event" ruled by Ann Wang, reply 2026-10-15, Q1 ([record](class-exercise-ann-reply-2026-10-15.md)) | `simulation.py:477-489,540-559`; `exercise_results_models.py:205` |
+| 2. Sign up (Step B) | Start at 5. +35 if the hidden true interests match the event. +15 if the hidden true career goal fits. +5 for 1–2 past events, +10 for 3 or more (**any** past event on the file row; refresh-added topics never count). +5 if the event targets the student's major. Points are added; the most anyone can reach is 70; 5 is the floor | Ann Wang 2026-10-06 Step B, kept by the owner ruling of 2026-10-12; past-event points and "any past event" ruled by Ann Wang, second reply 2026-10-15 ([record](class-exercise-ann-reply-2026-10-15.md)) | `simulation.py:477-489,540-559`; `exercise_results_models.py:205` |
 | 3. Show up | 65 in 100 of sign-ups | Ann Wang, email 2026-10-10, Q2 and Q4 | `simulation.py:484,593` |
 | 3b. The 8 pre-registered | Each of the 8 attends at 65 in 100 too, from a fixed draw (team seed + event), the same in the mass-only and the team run. Seats open = 60 - (the 8 who came) - everyone else who attended | Ann Wang 2026-10-15, Q2 | `simulation.py` `existing_attended`, `seats_empty` |
 | Luck | None. Each team's fixed chance draw alone decides; same list, same result | Ann Wang, email 2026-10-10, Q4 | `simulation.py:508-523` (5 draws only) |
@@ -52,12 +52,12 @@ survives. Its Step A (notice 75 / 15), Step C (flat 70% show-up) and the
   `ResultPanels.tsx:207-211`). Example: "15 were already coming. Your
   invitations added 4. 41 seats are still open."
 
-## Check numbers (after the 2026-10-15 change; Oct 2 file, suggested 30 at 3/3/2/2, mean of 5,000 seeds)
+## Check numbers (Oct 2 file, suggested 30 at 3/3/2/2, mean of 5,000 seeds)
 
 | Event | Mass email alone (N) | List adds (K) | With list (M) | Ann expected |
 |---|---|---|---|---|
-| Northline | 10.84 | 6.32 | 17.16 | about 6 |
-| Harbor | 12.45 | 5.24 | 17.70 | 4-5 |
+| Northline | 10.48 | 6.22 | 16.70 | about 6 |
+| Harbor | 12.10 | 5.05 | 17.15 | 4-5 |
 
 Pinned per seed by `tests/golden/exercise/test_exercise_ann_check_numbers_golden.py`
 ([record](class-exercise-ann-reply-2026-10-15.md)). The older 1,000-seed table
@@ -75,7 +75,7 @@ Pinned per seed by `tests/golden/exercise/test_exercise_ann_check_numbers_golden
 | Hidden columns | Never shown on screen, in the list, the CSV or any response | ADR-0025 D6 | `exercise/__init__.py:39-43` |
 
 Note the two different "past events": the matching factor counts **related**
-events (0 / 0.5 / 1); the sign-up rule counts **any** past events (+5 each, max +15).
+events (0 / 0.5 / 1); the sign-up rule counts **any** past events (+5 for 1–2, +10 for 3 or more).
 
 ## Asking for more, and the refresh
 
@@ -91,8 +91,6 @@ code `asking.py:82-84,92,191-203`.
 
 ## Still open (to confirm with Ann)
 
-- Q1 follow-up (2026-10-15): her "highest chance is about 20%, not 40%" may mean
-  an overall cap near 20%; the code implements the literal +5-per-event rule.
 - OQ-CE-20 (several true interests), OQ-CE-23 (same major = event's target
   majors), OQ-CE-27 (notice drawn per event). The code runs the recommended
   default (a) for each.
