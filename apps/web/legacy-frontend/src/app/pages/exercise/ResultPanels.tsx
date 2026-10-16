@@ -167,7 +167,7 @@ export function ResultPanels({
             {seatsSentence(
               {
                 // Of the 8 pre-registered students, only those who came count.
-                alreadyComing: results.round_one.existing_attended,
+                alreadyComing: results.round_one.existing_attended ?? results.existing_signups,
                 attended: results.round_one.attended_in_room,
                 open: results.round_one.seats_empty,
               },
@@ -229,7 +229,7 @@ export function liftCounts(results: ResultsView): { mass: number; withList: numb
 export function seatCountsFor(results: ResultsView): { alreadyComing: number; added: number } {
   const mass = new Set(results.email_everyone.attended_profile_nos);
   const added = results.team.attended_profile_nos.filter((n) => !mass.has(n)).length;
-  return { alreadyComing: results.existing_attended + mass.size, added };
+  return { alreadyComing: (results.existing_attended ?? results.existing_signups) + mass.size, added };
 }
 
 /** Ann Wang 2026-10-10 Q2: the lift, not a contest. */
