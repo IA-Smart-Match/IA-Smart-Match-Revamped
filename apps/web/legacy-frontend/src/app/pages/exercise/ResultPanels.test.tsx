@@ -290,12 +290,12 @@ describe("results from an API older than #410 (B1)", () => {
 describe("runRecordLine (B2)", () => {
   it("names the setting", () => {
     expect(runRecordLine(results({ setting_name: "Wide net", team: panel(5, 1, 1) }))).toBe(
-      "These results are from your setting “Wide net”: 5 invited. Changing the setting or the invite limit now will not re-run them.",
+      "These results are saved from your setting “Wide net”, with 5 invited. Changing your setting or the name limit now will not change them.",
     );
   });
   it("falls back when there is no setting", () => {
     expect(runRecordLine(results({ setting_name: null, team: panel(30, 1, 1) }))).toBe(
-      "These results are from a list of 30 invited. Changing the setting or the invite limit now will not re-run them.",
+      "These results are saved from a list built without a saved setting, with 30 invited. Changing your setting or the name limit now will not change them.",
     );
   });
   it("renders the line in the team section", () => {
