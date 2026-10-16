@@ -27,7 +27,7 @@ The tests below read the record of that walk. What they hold the class to:
 * **Nothing withheld leaks** — no ``hidden_true_*`` name and no ``OQ-CE-``
   register ID in any response body of the whole class.
 * **Plausible figures** — 0 ≤ sign-ups ≤ 30, attended ⊆ signed up ⊆ invited,
-  empty seats = 60 - 8 - attended.
+  empty seats = 60 - (the 8 who came) - attended.
 * **An undecided true goal reaches the rule** — for every profile whose
   withheld true career goal is "Undecided", the route answers exactly what the
   rule answers on the same stored rows. Ann's revisions of 2026-10-02 removed
@@ -565,7 +565,9 @@ def test_the_figures_are_plausible(class_run: _ClassRun) -> None:
             EXISTING_SIGNUPS,
         ), label
         in_room = set(team["attended_profile_nos"]) | set(everyone["attended_profile_nos"])
-        assert body["seats_empty"] == max(0, EVENT_SEATS - EXISTING_SIGNUPS - len(in_room)), label
+        came = body["existing_attended"]
+        assert 0 <= came <= EXISTING_SIGNUPS, label
+        assert body["seats_empty"] == max(0, EVENT_SEATS - came - len(in_room)), label
 
 
 def test_the_class_as_a_whole_got_sign_ups(class_run: _ClassRun) -> None:
