@@ -70,6 +70,19 @@ describe("<SavedSettingsPanel /> cards (§6.11)", () => {
     expect(card.textContent).not.toContain("same_major");
   });
 
+  it("says when a setting was first saved, and nothing when the time is unreadable", () => {
+    renderPanel({
+      ...saved(["Major first", "Interests first"]),
+      settings: [
+        { name: "Major first", weights: WEIGHTS, created_at: "2026-10-16T17:43:00Z" },
+        { name: "Interests first", weights: WEIGHTS, created_at: "not a time" },
+      ],
+    });
+    const [first, second] = Array.from(document.querySelectorAll('[data-slot="exercise-setting-card"]'));
+    expect(first?.textContent).toMatch(/First saved at \d{1,2}:\d{2} (AM|PM)/);
+    expect(second?.textContent).not.toContain("First saved");
+  });
+
   it("draws 'Open this list' as a secondary button (§6.3)", () => {
     const { onOpen } = renderPanel(saved(["Major first"]));
     const open = screen.getByRole("button", { name: /open this list/i });
