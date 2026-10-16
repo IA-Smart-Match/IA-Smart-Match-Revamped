@@ -11,7 +11,7 @@ import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { ResultPanelView, ResultsView } from "../../../lib/exerciseClient";
-import { liftCounts, liftSentence, ResultPanels, resultsSeries, seatCountsFor, seatsSentence } from "./ResultPanels";
+import { liftCounts, liftSentence, ResultPanels, resultsSeries, runRecordLine, seatCountsFor, seatsSentence } from "./ResultPanels";
 
 function panel(invited: number, signedUp: number, attended: number): ResultPanelView {
   return {
@@ -264,5 +264,42 @@ describe("resultsSeries round-one label (A85)", () => {
   it("keeps the old label as the fallback", () => {
     expect(resultsSeries(roundTwo)[2]?.label).toBe("Your team, round one");
     expect(resultsSeries(roundTwo, null)[2]?.label).toBe("Your team, round one");
+  });
+});
+
+describe("results from an API older than #410 (B1)", () => {
+  const { existing_attended: _a, ...legacy } = results({ existing_signups: 8 });
+  const old = legacy as unknown as ResultsView;
+
+  it("falls back to existing_signups for already coming", () => {
+    expect(seatCountsFor(old).alreadyComing).toBe(8 + 0);
+  });
+
+  it("renders no NaN, including a round-one recap without the new fields", () => {
+    const twoRound = {
+      ...old,
+      round: 2,
+      round_one: { event_key: "northline", round: 1, setting_name: null, team: panel(30, 10, 5), seats_empty: 1, created_at: "2026-10-16T14:00:00Z" },
+    } as unknown as ResultsView;
+    const { container } = render(<ResultPanels results={twoRound} />);
+    expect(container.textContent).not.toMatch(/NaN/i);
+    expect(slotText("exercise-round-one")).toContain("8 were already coming");
+  });
+});
+
+describe("runRecordLine (B2)", () => {
+  it("names the setting", () => {
+    expect(runRecordLine(results({ setting_name: "Wide net", team: panel(5, 1, 1) }))).toBe(
+      "These results are saved from your setting “Wide net”, with 5 invited. Changing your setting or the name limit now will not change them.",
+    );
+  });
+  it("falls back when there is no setting", () => {
+    expect(runRecordLine(results({ setting_name: null, team: panel(30, 1, 1) }))).toBe(
+      "These results are saved from a list built without a saved setting, with 30 invited. Changing your setting or the name limit now will not change them.",
+    );
+  });
+  it("renders the line in the team section", () => {
+    render(<ResultPanels results={results({ team: panel(5, 1, 1) })} />);
+    expect(slotText("exercise-run-record")).toContain("5 invited");
   });
 });

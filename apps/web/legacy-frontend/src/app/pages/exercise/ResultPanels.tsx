@@ -167,7 +167,7 @@ export function ResultPanels({
             {seatsSentence(
               {
                 // Of the 8 pre-registered students, only those who came count.
-                alreadyComing: results.round_one.existing_attended,
+                alreadyComing: results.round_one.existing_attended ?? results.existing_signups,
                 attended: results.round_one.attended_in_room,
                 open: results.round_one.seats_empty,
               },
@@ -187,6 +187,9 @@ export function ResultPanels({
             The mass email alone is shown as counts only.
           </p>
         </div>
+        <p className="ce-type-meta text-ce-ink-muted" data-slot="exercise-run-record">
+          {runRecordLine(results)}
+        </p>
         <div className="grid gap-ce-5 md:grid-cols-3">
           <PeopleList
             heading="Invited"
@@ -209,6 +212,16 @@ export function ResultPanels({
   );
 }
 
+/** Says which list this stored run used; later setting or limit changes do not re-run it. */
+export function runRecordLine(results: ResultsView): string {
+  const n = results.team.invited_count;
+  const from =
+    results.setting_name === null
+      ? "a list built without a saved setting"
+      : `your setting “${results.setting_name}”`;
+  return `These results are saved from ${from}, with ${n} invited. Changing your setting or the name limit now will not change them.`;
+}
+
 /**
  * `email_everyone` is the mass email alone; `team` is the mass email plus the
  * team's CBACH emails. K counts team sign-ups the mass email alone did not get.
@@ -229,7 +242,7 @@ export function liftCounts(results: ResultsView): { mass: number; withList: numb
 export function seatCountsFor(results: ResultsView): { alreadyComing: number; added: number } {
   const mass = new Set(results.email_everyone.attended_profile_nos);
   const added = results.team.attended_profile_nos.filter((n) => !mass.has(n)).length;
-  return { alreadyComing: results.existing_attended + mass.size, added };
+  return { alreadyComing: (results.existing_attended ?? results.existing_signups) + mass.size, added };
 }
 
 /** Ann Wang 2026-10-10 Q2: the lift, not a contest. */
