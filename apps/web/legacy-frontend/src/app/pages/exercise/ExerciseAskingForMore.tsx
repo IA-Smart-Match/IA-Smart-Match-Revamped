@@ -514,7 +514,7 @@ function RefreshCounts({
       data-slot="exercise-refresh-counts"
     >
       <Count label="Cards filled in" value={counts.cards_completed} reduced={reduced} />
-      <Count label="Stopped opening messages" value={counts.non_responding} reduced={reduced} />
+      <Count label="Stopped responding" value={counts.non_responding} reduced={reduced} />
       <Count
         label="Picked up the first event's topics"
         value={counts.topics_added}
