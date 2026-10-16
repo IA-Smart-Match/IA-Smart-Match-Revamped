@@ -11,7 +11,7 @@ import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { ResultPanelView, ResultsView } from "../../../lib/exerciseClient";
-import { liftCounts, liftSentence, ResultPanels, resultsSeries, seatCountsFor, seatsSentence } from "./ResultPanels";
+import { liftCounts, liftSentence, ResultPanels, resultsSeries, runRecordLine, seatCountsFor, seatsSentence } from "./ResultPanels";
 
 function panel(invited: number, signedUp: number, attended: number): ResultPanelView {
   return {
@@ -284,5 +284,22 @@ describe("results from an API older than #410 (B1)", () => {
     const { container } = render(<ResultPanels results={twoRound} />);
     expect(container.textContent).not.toMatch(/NaN/i);
     expect(slotText("exercise-round-one")).toContain("8 were already coming");
+  });
+});
+
+describe("runRecordLine (B2)", () => {
+  it("names the setting", () => {
+    expect(runRecordLine(results({ setting_name: "Wide net", team: panel(5, 1, 1) }))).toBe(
+      "These results are from your setting “Wide net”: 5 invited. Changing the setting or the invite limit now will not re-run them.",
+    );
+  });
+  it("falls back when there is no setting", () => {
+    expect(runRecordLine(results({ setting_name: null, team: panel(30, 1, 1) }))).toBe(
+      "These results are from a list of 30 invited. Changing the setting or the invite limit now will not re-run them.",
+    );
+  });
+  it("renders the line in the team section", () => {
+    render(<ResultPanels results={results({ team: panel(5, 1, 1) })} />);
+    expect(slotText("exercise-run-record")).toContain("5 invited");
   });
 });
