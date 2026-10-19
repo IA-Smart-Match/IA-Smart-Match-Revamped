@@ -673,7 +673,7 @@ describe("<ExerciseAskingForMore /> — once-only presses the server confirmed",
     expect(band?.textContent).toContain("Cards filled in8");
     const summary = document.querySelector('[data-slot="exercise-refresh-summary"]') as HTMLElement;
     expect(summary.textContent).toContain(
-      "Updated at 10:42 AM. 5 people who came to Northline Career Fair now count as having gone to a similar event. This counts only toward events on the same topic as Northline. 8 of the 22 invited people with no card completed one. 2 people stopped responding: they stop opening messages and will not sign up for anything, mass email included.",
+      "Updated at 10:42 AM. 5 people who came to Northline Career Fair now count as having gone to a similar event. This counts only toward events on the same topic as Northline Career Fair. 8 of the 22 invited people with no card completed one. 2 people stopped responding: they stop opening messages and will not sign up for anything, mass email included.",
     );
 
     // "Try again" is the only way back to the server, and the server's word wins.
