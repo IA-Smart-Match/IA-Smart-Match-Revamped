@@ -265,7 +265,7 @@ describe("the status line follows the page's own presses", () => {
             cards_completed: 1,
             non_responding: 0,
             topics_added: 1,
-            invited_without_card: 2,
+            asked_without_card: 2,
             marker_counts_before: {},
             marker_counts_after: {},
           },

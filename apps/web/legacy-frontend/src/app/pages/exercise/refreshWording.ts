@@ -60,11 +60,13 @@ export function refreshChangeSentences(
   const noun = asked === 1 ? "student" : "students";
   const verb = asked === 1 ? "was" : "were";
   const askedLine = `${asked} ${noun} without a card ${verb} asked. ${counts.cards_completed} completed a card. ${people(counts.non_responding)} stopped responding.`;
-  return [askedLine, `${went} ${SAME_TOPIC_NOTE}`];
+  return [askedLine, `${went} ${sameTopicNote(event)}`];
 }
 
 /** Ann, 2026-10-18: the Northline note must say it only counts on the same topic. */
-export const SAME_TOPIC_NOTE = "This only counts toward events on the same topic as Northline.";
+export function sameTopicNote(event: string): string {
+  return `This only counts toward events on the same topic as ${event.split(":")[0]?.trim() || event}.`;
+}
 
 /**
  * What "stopped responding" means, in plain words. Ann's Sept 25 build table:

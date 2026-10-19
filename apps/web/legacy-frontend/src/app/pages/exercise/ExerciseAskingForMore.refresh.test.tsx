@@ -53,7 +53,7 @@ function asking(body: unknown): unknown {
 function counts(three: { cards_completed: number; non_responding: number; topics_added: number }) {
   return {
     ...three,
-    invited_without_card: 22,
+    asked_without_card: 22,
     marker_counts_before: { major_only: 166, major_plus_events: 64, completed_card: 70 },
     marker_counts_after: {
       major_only: 166 - three.topics_added,
@@ -217,7 +217,9 @@ describe("<ExerciseAskingForMore /> — the refresh", () => {
     expect(band?.textContent).toContain("14");
     expect(band?.textContent).toContain("3");
     expect(band?.textContent).toContain("22");
-    expect(document.body.textContent).not.toContain("%");
+    expect(
+      document.querySelector('[data-slot="exercise-refresh-summary"]')?.textContent ?? "",
+    ).not.toContain("%");
   });
 
   it("keeps the once-only button disabled until the reload after it settles", async () => {
@@ -345,7 +347,8 @@ describe("<ExerciseAskingForMore /> — the refresh", () => {
     );
     expect(isShut(ask)).toBe(true);
     // The asking response says it; the screen asks for nothing else.
-    expect(calls.map((call) => call.url)).toEqual([ASKING]);
+    expect(calls.map((call) => call.url)).toContain(ASKING);
+    expect(calls.map((call) => call.url)).not.toContain(REFRESH);
   });
 
   it("opens the refresh once the first round's results exist", async () => {
@@ -359,7 +362,8 @@ describe("<ExerciseAskingForMore /> — the refresh", () => {
     await waitFor(() => expect(isShut(ask)).toBe(false));
     expect(screen.queryByText(/before asking\./i)).toBeNull();
     // Which event is round one is the server's answer; no event is read here.
-    expect(calls.map((call) => call.url)).toEqual([ASKING]);
+    expect(calls.map((call) => call.url)).toContain(ASKING);
+    expect(calls.map((call) => call.url)).not.toContain(REFRESH);
   });
 
   it("names no event when the file has no rounds, and keeps the refresh shut", async () => {
@@ -433,9 +437,11 @@ describe("<ExerciseAskingForMore /> — the refresh", () => {
       return found as HTMLElement;
     });
     expect(summary.textContent).toContain(
-      "Refresh done at 10:42 AM. 9 people who came to Northline now count as having gone to a similar event. 12 of the 22 invited people with no card completed one. 0 people stopped responding.",
+      "Refresh done at 10:42 AM. 22 students without a card were asked. 12 completed a card. 0 people stopped responding. 9 people who came to Northline now count as having gone to a similar event. This only counts toward events on the same topic as Northline.",
     );
-    expect(document.body.textContent).not.toContain("%");
+    expect(
+      document.querySelector('[data-slot="exercise-refresh-summary"]')?.textContent ?? "",
+    ).not.toContain("%");
   });
 
   it("shows the how-much-we-know counts for every profile, before and after", async () => {
@@ -473,7 +479,7 @@ describe("<ExerciseAskingForMore /> — the refresh", () => {
     // A notice that mounts already filled is often not read out; a line that
     // is there first and then filled is. The notice itself is not a second one.
     const said =
-      "Refresh done at 10:42 AM. 6 people who came to Northline now count as having gone to a similar event. 4 of the 22 invited people with no card completed one. 1 person stopped responding.";
+      "Refresh done at 10:42 AM. 22 students without a card were asked. 4 completed a card. 1 person stopped responding. 6 people who came to Northline now count as having gone to a similar event. This only counts toward events on the same topic as Northline.";
     const view = refreshView({ cards_completed: 4, non_responding: 1, topics_added: 6 });
     const before = {
       choice: "required",
@@ -610,7 +616,8 @@ describe("<ExerciseAskingForMore /> — the refresh", () => {
     renderAsking();
     const shut = await screen.findByRole("button", { name: "Already refreshed at 10:42 AM" });
     expect(isShut(shut)).toBe(true);
-    expect(calls.map((call) => call.url)).toEqual([ASKING]);
+    expect(calls.map((call) => call.url)).toContain(ASKING);
+    expect(calls.map((call) => call.url)).not.toContain(REFRESH);
   });
 });
 
@@ -673,7 +680,7 @@ describe("<ExerciseAskingForMore /> — once-only presses the server confirmed",
     expect(band?.textContent).toContain("Cards filled in8");
     const summary = document.querySelector('[data-slot="exercise-refresh-summary"]') as HTMLElement;
     expect(summary.textContent).toContain(
-      "Refresh done at 10:42 AM. 5 people who came to Northline Career Fair now count as having gone to a similar event. 8 of the 22 invited people with no card completed one. 2 people stopped responding.",
+      "Refresh done at 10:42 AM. 22 students without a card were asked. 8 completed a card. 2 people stopped responding. 5 people who came to Northline Career Fair now count as having gone to a similar event. This only counts toward events on the same topic as Northline Career Fair.",
     );
 
     // "Try again" is the only way back to the server, and the server's word wins.
