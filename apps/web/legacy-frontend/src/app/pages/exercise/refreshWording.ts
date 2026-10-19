@@ -148,14 +148,15 @@ function teams(count: number): string {
   return count === 1 ? "1 team" : `${count} teams`;
 }
 
-/** The report's first line: "Refreshed 2 teams. Skipped 3 teams." */
+/** The report's first line: "Asked for more for 2 teams. Skipped 3 teams." */
 export function refreshAllHeadline(done: RefreshAllView): string {
   const all = done.teams ?? [];
   if (all.length === 0) {
     return "No team has entered a number yet, so there was no one to ask.";
   }
   const skipped = all.filter((team) => team.outcome === "skipped").length;
-  return `Asked for more for ${teams(done.refreshed)}. Skipped ${teams(skipped)}.`;
+  const asked = teams(done.refreshed);
+  return `Asked for more for ${asked}. Skipped ${teams(skipped)}.`;
 }
 
 /** Why a team was skipped, in words, from the server's reason code. */
