@@ -31,6 +31,7 @@ import {
 import type { ResultPanelView, ResultsView } from "../../../lib/exerciseClient";
 import { RoundJourneyArt } from "./resultsArt";
 import { ResultsReveal } from "./ResultsReveal";
+import { HarborBeforeAfter } from "./HarborBeforeAfter";
 
 /** `profile_no` → the name the run stored for it. */
 export type NamesByProfileNo = ReadonlyMap<number, string>;
@@ -142,6 +143,7 @@ export function ResultPanels({
       />
 
       <LiftLine results={results} />
+      <HarborBeforeAfter beforeAfter={results.before_after} />
 
       <ExerciseResultsChart
         variant="exercise"
