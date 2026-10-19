@@ -77,6 +77,7 @@ from smartmatch_api.routers.exercise_matching_models import (
 )
 from smartmatch_api.routers.exercise_matching_weights import effective_weights, stored_weights
 from smartmatch_api.routers.exercise_results_models import (
+    FIRST_ROUND,
     round_of,
     simulation_event,
     simulation_profiles,
@@ -92,6 +93,8 @@ __all__ = [
     "locked_sentence",
     "not_a_round",
     "round_or_refusal",
+    "round_two_lock_or_refusal",
+    "round_two_open",
     "run_the_rule",
     "runnable_or_refusal",
     "store",
@@ -125,7 +128,7 @@ def not_a_round() -> ExerciseError:
     return ExerciseError(
         status_code=status.HTTP_409_CONFLICT,
         code="exercise_event_is_not_a_round",
-        message="Results are only run for the two rounds of the exercise.",
+        message="Results run only for Round 1 (Northline) and Round 2 (Harbor).",
     )
 
 
@@ -438,6 +441,44 @@ def already_run() -> ExerciseError:
     )
 
 
+def round_two_open(
+    session: ExerciseSession, results: ResultsRepository, *, workspace: ExerciseWorkspace
+) -> bool:
+    """Whether this team has its Northline (round-one) results, so round two may start."""
+    return (
+        results.get_run_for_round(session, workspace_id=workspace.id, round_number=FIRST_ROUND)
+        is not None
+    )
+
+
+def round_two_lock_or_refusal(
+    session: ExerciseSession,
+    results: ResultsRepository,
+    *,
+    workspace: ExerciseWorkspace,
+    round_number: int | None,
+) -> None:
+    """Refuse (409 ``exercise_round_two_locked``) any round-two write before round one.
+
+    The one shared gate for every round-two write: the Harbor results run, the
+    asking choice and a saved Harbor setting. A past event (``None``) and round
+    one pass untouched. Server-enforced: the screen only mirrors it through
+    ``round_two_open``.
+
+    **Order:** callers ask this *before* "already run" and "locked by the
+    instructor", because "run Northline first" is the one sentence that is
+    always true and always actionable for a team without round-one results.
+    """
+    if round_number is None or round_number == FIRST_ROUND:
+        return
+    if not round_two_open(session, results, workspace=workspace):
+        raise ExerciseError(
+            status_code=status.HTTP_409_CONFLICT,
+            code="exercise_round_two_locked",
+            message=("Round 2 opens after your team has its Round 1 results."),
+        )
+
+
 def runnable_or_refusal(
     session: ExerciseSession,
     results: ResultsRepository,
@@ -482,6 +523,7 @@ def runnable_or_refusal(
     events = datasets.list_events(session, dataset_id=workspace.dataset_id)
     event = event_or_refusal(events, event_key)
     round_number = round_or_refusal(events, event.event_key)
+    round_two_lock_or_refusal(session, results, workspace=workspace, round_number=round_number)
     if results.get_run(session, workspace_id=workspace.id, event_key=event.event_key) is not None:
         raise already_run()
     if not results.results_unlocked(

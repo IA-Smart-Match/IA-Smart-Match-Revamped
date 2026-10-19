@@ -230,7 +230,7 @@ def test_the_choice_is_refused_before_round_one_has_results(
     assert response.status_code == 409
     assert response.json()["error"] == {
         "code": "exercise_no_first_round_results",
-        "message": "Run the first round's results before asking.",
+        "message": "Run your Round 1 results before asking for more.",
     }
     assert fakes.results.choices == {}, "a refused choice must store nothing"
 

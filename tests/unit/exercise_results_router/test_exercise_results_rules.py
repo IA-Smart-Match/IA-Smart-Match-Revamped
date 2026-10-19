@@ -220,7 +220,10 @@ def test_a_second_run_is_refused_with_the_specs_own_sentence(
     assert response.status_code == 409
     body = response.json()["error"]
     assert body["code"] == "exercise_results_already_run"
-    assert body["message"] == "This team has already run results for this event."
+    assert (
+        body["message"]
+        == "Your team already ran results for this event. You get one run per event."
+    )
     assert body["message"] == ALREADY_RUN_SENTENCE
 
 

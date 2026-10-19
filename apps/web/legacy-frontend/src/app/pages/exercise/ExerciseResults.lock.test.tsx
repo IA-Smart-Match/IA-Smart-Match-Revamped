@@ -34,7 +34,7 @@ const SETTINGS = `${BASE}/events/northline/settings`;
 const EVENT_NAME = "Northline Analytics: Behind the Business";
 const NOT_OPEN = `Results for ${EVENT_NAME} are not open yet. Ask your instructor.`;
 const QUESTION = `Send ‘Wide net’? You get one results run for ${EVENT_NAME}.`;
-const ALREADY_RUN = "This team has already run results for this event.";
+const ALREADY_RUN = "Your team already ran results for this event. You get one run per event.";
 
 type Answer = { body: unknown; status?: number };
 
