@@ -99,7 +99,8 @@ def before_after_or_none(
             profiles=rows,
             event=event,
             workspace=workspace,
-            invited=[entry.profile_no for entry in invited],
+            # Cut at the run's own length: the limit may have changed since (#419 moved 30 to 60).
+            invited=[entry.profile_no for entry in invited][: len(run.team.invited_profile_nos)],
             seed=seed,
             coefficients=coefficients,
         )
