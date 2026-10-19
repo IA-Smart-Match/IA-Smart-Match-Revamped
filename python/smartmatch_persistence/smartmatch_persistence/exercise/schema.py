@@ -448,7 +448,7 @@ exercise_result_run = sa.Table(
     sa.PrimaryKeyConstraint("id", name="exercise_result_run_pkey"),
     # §9, the one-run rule, as a constraint rather than a check in code: a
     # second run for the same team and event hits this and is refused with
-    # "This team has already run results for this event."
+    # "Your team already ran results for this event. You get one run per event."
     sa.UniqueConstraint("workspace_id", "event_key", name="uq_exercise_result_run_workspace_event"),
     sa.ForeignKeyConstraint(
         ["dataset_id", "workspace_id"],

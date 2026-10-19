@@ -120,5 +120,5 @@ def test_asking_before_the_first_round_is_refused_in_the_products_words(
     assert response.status_code == 409
     assert response.json()["error"] == {
         "code": "exercise_no_first_round_results",
-        "message": "Run the first round's results before asking.",
+        "message": "Run your Round 1 results before asking for more.",
     }

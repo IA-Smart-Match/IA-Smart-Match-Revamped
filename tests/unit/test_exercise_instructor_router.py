@@ -1379,7 +1379,7 @@ def test_opening_or_closing_a_past_event_is_refused_and_writes_nothing(
     assert response.status_code == 409
     assert response.json()["error"] == {
         "code": "exercise_event_is_not_a_round",
-        "message": "Results are only run for the two rounds of the exercise.",
+        "message": "Results run only for Round 1 (Northline) and Round 2 (Harbor).",
     }
     assert state["instructor"].unlocked == []
     assert state["instructor"].opened_at == {}
