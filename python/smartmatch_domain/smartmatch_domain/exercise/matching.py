@@ -486,7 +486,7 @@ def rank_profiles_for_event(
         event: The event being promoted.
         profiles: Every profile in the dataset.
         weights: The team's weights, or ``None`` for the placeholder defaults.
-        invite_limit: The dataset's invite limit (30 by default, set by the
+        invite_limit: The dataset's invite limit (60 by default, set by the
             instructor). Must be positive.
         year_rank: ``{class_year: rank}``, higher first, supplied by the
             caller — ``vocabulary.EXERCISE_CLASS_YEAR_RANK`` in production. A

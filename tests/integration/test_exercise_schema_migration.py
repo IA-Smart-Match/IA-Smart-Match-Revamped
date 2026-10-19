@@ -81,7 +81,7 @@ REVISION = "0037_exercise_tables"
 #: ``0045_exercise_unlock_closed_at`` and is the head. It adds two nullable
 #: ``exercise_result_run`` columns and backfills only those, so this file's
 #: claims still hold through it.
-HEAD_REVISION = "0046_exercise_run_snapshot"
+HEAD_REVISION = "0047_exercise_invite_sixty"
 
 #: Design spec §2's eight tables.
 EXERCISE_TABLES = (
@@ -292,7 +292,7 @@ def test_two_workspaces_for_one_team_are_refused(engine: Engine):
     assert "uq_exercise_team_workspace_dataset_team" in str(raised.value)
 
 
-def test_the_invite_limit_defaults_to_thirty(engine: Engine):
+def test_the_invite_limit_defaults_to_sixty(engine: Engine):
     """§5, read back from a row nobody gave a limit to."""
     with scratch_database(engine) as url:
         alembic(url, "head", expect_success=True)
@@ -308,7 +308,7 @@ def test_the_invite_limit_defaults_to_thirty(engine: Engine):
                     {"id": dataset_id},
                 ).scalar_one()
 
-    assert limit == 30
+    assert limit == 60
 
 
 def test_class_year_and_career_goal_carry_no_check(engine: Engine):

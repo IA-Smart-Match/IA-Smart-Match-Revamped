@@ -1153,7 +1153,7 @@ def test_the_dataset_list_is_behind_the_session_and_names_the_file(
     assert response.json()[0]["invite_limit"] == 30
 
 
-@pytest.mark.parametrize("limit", [0, -1, 1_000_000])
+@pytest.mark.parametrize("limit", [0, -1, 61, 1_000_000])
 def test_an_invite_limit_outside_its_bounds_is_one_sentence(
     signed_in: TestClient, limit: int
 ) -> None:

@@ -154,7 +154,7 @@ class TeamWorkspaceView(BaseModel):
     )
     invite_limit: int = Field(
         description=(
-            "How many names a ranked list may hold for this dataset (30 by "
+            "How many names a ranked list may hold for this dataset (60 by "
             "default). The instructor page changes it; a team reads it."
         ),
     )
