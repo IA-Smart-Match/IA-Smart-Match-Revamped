@@ -721,3 +721,25 @@ def test_harbor_results_are_refused_until_the_team_has_asked(
         "code": "exercise_ask_first",
         "message": "Ask students for more information before running Harbor results.",
     }
+
+
+def test_refresh_all_names_each_team_asked_or_skipped_with_a_reason(
+    fakes: _Fakes, confirmed: SimulationCoefficients
+) -> None:
+    """Checklist row 80: the instructor sees who was asked, who was skipped, and why."""
+    fakes.unlock("round-one")
+    with _entered(fakes, 1) as one, _entered(fakes, 2) as two, _entered(fakes, 3) as three:
+        for client in (one, two, three):
+            client.post(_RESULTS, json=_FINAL_BODY, headers=_HEADER)
+        one.post(_ASKING, json={"choice": "required"}, headers=_HEADER)
+        two.post(_ASKING, json={"choice": "small_reward"}, headers=_HEADER)
+        two.post(_REFRESH, json={}, headers=_HEADER)
+        # team three never chooses
+
+        with _instructor(fakes) as instructor:
+            body = instructor.post(_REFRESH_ALL, headers=_HEADER).json()
+
+    by_team = {team["team_number"]: team for team in body["teams"]}
+    assert by_team[1]["outcome"] == "refreshed"
+    assert (by_team[2]["outcome"], by_team[2]["reason_code"]) == ("skipped", "already_refreshed")
+    assert (by_team[3]["outcome"], by_team[3]["reason_code"]) == ("skipped", "no_asking_choice")
