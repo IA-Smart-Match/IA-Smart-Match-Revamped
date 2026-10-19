@@ -422,7 +422,6 @@ function DatasetRow({
             id={limitId}
             type="number"
             min={1}
-            max={60}
             value={limit}
             onChange={(event) => setLimit(event.target.value)}
             className={`${INSTRUCTOR_INPUT} ce-tabular w-24`}
