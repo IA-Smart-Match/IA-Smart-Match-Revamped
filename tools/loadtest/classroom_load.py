@@ -309,6 +309,9 @@ class Student:
                 await call(self.client, "GET events", "GET", f"{WS}/events")
 
     async def settings_names(self, event: str) -> list[str]:
+        # Check reads are spread over 3 s like real screens; 150 reads in the same
+        # millisecond would test the checker, not the class (they did trip F5/F6).
+        await asyncio.sleep(self.rng.uniform(0, 3))
         resp = await call(self.client, "GET settings", "GET", f"{WS}/events/{event}/settings")
         return (
             [s["name"] for s in resp.json()["settings"]]
@@ -375,6 +378,7 @@ class Student:
         return status, code
 
     async def asking_state(self) -> dict:
+        await asyncio.sleep(self.rng.uniform(0, 3))
         resp = await call(self.client, "GET asking-choice", "GET", f"{WS}/asking-choice")
         return resp.json() if resp is not None and resp.status_code == 200 else {}
 
