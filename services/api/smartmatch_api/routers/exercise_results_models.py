@@ -379,6 +379,10 @@ class PreviousRoundView(BaseModel):
         default=None, description="The saved setting that run's list came from, or null."
     )
     team: ResultPanelView = Field(description="That round's invited, signed up and attended.")
+    email_everyone: ResultPanelView | None = Field(
+        default=None,
+        description="That round's mass-email-alone panel, so the recap matches the live screen.",
+    )
     seats_empty: int = Field(description="The seats still empty after that round.")
     existing_attended: int = Field(
         description="How many of that event's pre-registered students came, from the fixed draw."
@@ -667,6 +671,7 @@ def previous_round_view(
         round=run.round,
         setting_name=run.setting_name,
         team=panel_view(run.team),
+        email_everyone=panel_view(run.email_everyone),
         seats_empty=run.seats_empty,
         existing_attended=existing_attended(seed, run.event_key, attend_rate),
         attended_in_room=len(

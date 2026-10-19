@@ -3,15 +3,15 @@
  *
  * The class case has 60 seats and 8 existing sign-ups. A bare "46 seats still
  * empty" hides what the team's list changed, so the screen says it in words:
- * "8 were already coming. Your invitations added 6. 46 seats are still open."
+ * "8 were already coming. 6 came because of your list. 46 seats are still open."
  * Every number comes from the API response — `existing_signups`, the team
  * panel's `attended_count`, `seats_empty` — never from a constant here.
  */
-import { cleanup, render } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { ResultPanelView, ResultsView } from "../../../lib/exerciseClient";
-import { liftCounts, liftSentence, ResultPanels, resultsSeries, runRecordLine, seatCountsFor, seatsSentence } from "./ResultPanels";
+import { liftCounts, liftSentence, listSignupsSentence, ResultPanels, resultsSeries, runRecordLine, seatCountsFor, seatsSentence } from "./ResultPanels";
 
 function panel(invited: number, signedUp: number, attended: number): ResultPanelView {
   return {
@@ -51,31 +51,31 @@ afterEach(cleanup);
 describe("seatsSentence", () => {
   it("says D8's example sentence for the class case", () => {
     expect(seatsSentence({ alreadyComing: 8, added: 6, open: 46 }, "now")).toBe(
-      "8 were already coming. Your invitations added 6. 46 seats are still open.",
+      "8 were already coming. 6 came because of your list. 46 seats are still open.",
     );
   });
 
   it("speaks of a finished round in the past tense", () => {
     expect(seatsSentence({ alreadyComing: 8, added: 1, open: 51 }, "then")).toBe(
-      "8 were already coming. Your invitations added 1. 51 seats were still open.",
+      "8 were already coming. 1 came because of your list. 51 seats were still open.",
     );
   });
 
   it("uses the singular for one person and one seat", () => {
     expect(seatsSentence({ alreadyComing: 1, added: 1, open: 1 }, "now")).toBe(
-      "1 was already coming. Your invitations added 1. 1 seat is still open.",
+      "1 was already coming. 1 came because of your list. 1 seat is still open.",
     );
   });
 
   it("says plainly when nobody was already coming", () => {
     expect(seatsSentence({ alreadyComing: 0, added: 6, open: 54 }, "now")).toBe(
-      "Nobody was already coming. Your invitations added 6. 54 seats are still open.",
+      "Nobody was already coming. 6 came because of your list. 54 seats are still open.",
     );
   });
 
   it("says plainly when the invitations added nobody", () => {
     expect(seatsSentence({ alreadyComing: 8, added: 0, open: 52 }, "now")).toBe(
-      "8 were already coming. Your invitations added nobody. 52 seats are still open.",
+      "8 were already coming. Nobody came because of your list. 52 seats are still open.",
     );
   });
 
@@ -93,10 +93,10 @@ describe("seatsSentence", () => {
 
   it("says the room is full rather than 0 seats open", () => {
     expect(seatsSentence({ alreadyComing: 8, added: 52, open: 0 }, "now")).toBe(
-      "8 were already coming. Your invitations added 52. Every seat is taken.",
+      "8 were already coming. 52 came because of your list. Every seat is taken.",
     );
     expect(seatsSentence({ alreadyComing: 8, added: 52, open: 0 }, "then")).toBe(
-      "8 were already coming. Your invitations added 52. Every seat was taken.",
+      "8 were already coming. 52 came because of your list. Every seat was taken.",
     );
   });
 });
@@ -106,7 +106,7 @@ describe("ResultPanels", () => {
     render(<ResultPanels results={results()} names={new Map()} />);
 
     expect(slotText("exercise-seats-sentence")).toBe(
-      "8 were already coming. Your invitations added 6. 46 seats are still open.",
+      "8 were already coming. 6 came because of your list. 46 seats are still open.",
     );
   });
 
@@ -119,7 +119,7 @@ describe("ResultPanels", () => {
     );
 
     expect(slotText("exercise-seats-sentence")).toBe(
-      "5 were already coming. Your invitations added 3. 52 seats are still open.",
+      "5 were already coming. 3 came because of your list. 52 seats are still open.",
     );
   });
 
@@ -128,12 +128,12 @@ describe("ResultPanels", () => {
 
     // DESIGN.md §6.15 / §11.1: the ruled band is "Seats in the room",
     // "Already coming", "Still open"; the team's 6 is said by the sentence
-    // above it and the room's legend, "Your invitations (6)".
+    // above it and the room's legend, "Came because of your list (6)".
     const figures = slotText("exercise-seats");
     expect(figures).toContain("Seats in the room60");
     expect(figures).toContain("Already coming8");
     expect(figures).toContain("Still open46");
-    expect(slotText("exercise-room")).toContain("Your invitations (6)");
+    expect(slotText("exercise-room")).toContain("Came because of your list (6)");
   });
 
   it("recaps round one's seats in the past tense without the overstated 'invitations added' line", () => {
@@ -146,6 +146,7 @@ describe("ResultPanels", () => {
             round: 1,
             setting_name: "First try",
             team: panel(30, 2, 1),
+            email_everyone: panel(300, 2, 1),
             seats_empty: 51,
             existing_attended: 8,
             attended_in_room: 1,
@@ -157,13 +158,11 @@ describe("ResultPanels", () => {
     );
 
     const recap = slotText("exercise-round-one");
-    expect(recap).toContain(
-      "Built from your team's setting “First try”. 8 were already coming. 1 more attended. 51 seats were still open.",
-    );
-    expect(8 + 1 + 51).toBe(60);
-    expect(recap).not.toContain("invitations added");
-    // The current round's sentence keeps Dr. Wang's wording.
-    expect(slotText("exercise-seats-sentence")).toContain("Your invitations added");
+    // B4 item 3: same helpers, same wording as the round-one screen.
+    expect(recap).toContain("Built from your team's setting “First try”.");
+    expect(recap).toContain("Your list brought 0 extra sign-ups; 0 of them came.");
+    expect(recap).toContain("Nobody came because of your list.");
+    expect(recap).toContain("51 seats were still open.");
   });
 });
 
@@ -183,6 +182,8 @@ describe("liftCounts", () => {
       mass: 3,
       withList: 5,
       added: 2,
+      own: 4,
+      anyway: 2,
     });
   });
 
@@ -191,13 +192,14 @@ describe("liftCounts", () => {
   });
 
   it("handles empty panels", () => {
-    expect(liftCounts(withSignups([], []))).toEqual({ mass: 0, withList: 0, added: 0 });
+    expect(liftCounts(withSignups([], []))).toEqual({ mass: 0, withList: 0, added: 0, own: 0, anyway: 0 });
   });
 
   it("renders the lift line and the debrief sentence", () => {
     const r = withSignups([1, 2, 9, 10], [1, 2, 3]);
-    expect(liftSentence(r)).toBe(
-      "Mass email alone: 3 sign-ups. With your 30 CBACH emails: 5. Your list added 2.",
+    expect(liftSentence(r)).toBe("Your list brought 2 extra sign-ups; 0 of them came.");
+    expect(listSignupsSentence(r)).toBe(
+      "4 people on your list signed up. 2 of them would have signed up from the mass email anyway, so your list added 2.",
     );
     render(<ResultPanels results={r} />);
     expect(slotText("exercise-lift")).toContain("Look at your gap over the mass email");
@@ -228,6 +230,7 @@ describe("round-one recap sums to the room", () => {
         round: 1,
         setting_name: null,
         team: panel(30, 2, 1),
+        email_everyone: panel(300, 2, 1),
         seats_empty: open,
         existing_attended: came,
         attended_in_room: inRoom,
@@ -236,9 +239,63 @@ describe("round-one recap sums to the room", () => {
     });
     render(<ResultPanels results={r} />);
     expect(slotText("exercise-round-one")).toContain(
-      `${came} were already coming. ${inRoom} more attended. ${open} seats were still open.`,
+      `${came + 1} were already coming. Nobody came because of your list. ${open} seats were still open.`,
     );
-    expect(came + inRoom + open).toBe(r.event_seats);
+  });
+});
+
+describe("round-one recap parity (B4 item 3)", () => {
+  it("says what the round-one screen said, from the same stored panels", () => {
+    const team = { ...panel(30, 11, 9), signed_up_profile_nos: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], attended_profile_nos: [1, 2, 3, 4, 5, 6, 7, 8, 9] };
+    const mass = { ...panel(300, 8, 5), signed_up_profile_nos: [1, 2, 3, 4, 5, 6, 7, 8], attended_profile_nos: [1, 2, 3, 4, 5] };
+    const roundOne = results({ team, email_everyone: mass, existing_attended: 8, seats_empty: 38 });
+    const screen = render(<ResultPanels results={roundOne} />);
+    const lift = slotText("exercise-lift");
+    const seats = slotText("exercise-seats-sentence");
+    screen.unmount();
+    render(
+      <ResultPanels
+        results={results({
+          round: 2,
+          round_one: { event_key: "northline", round: 1, setting_name: null, team, email_everyone: mass, seats_empty: 38, existing_attended: 8, created_at: "2026-10-16T14:00:00Z" },
+        })}
+      />,
+    );
+    const recap = slotText("exercise-round-one");
+    expect(lift).toContain("11 people on your list signed up. 8 of them would have signed up from the mass email anyway, so your list added 3.");
+    for (const sentence of [
+      "Your list brought 3 extra sign-ups; 4 of them came.",
+      "11 people on your list signed up. 8 of them would have signed up from the mass email anyway, so your list added 3.",
+      "13 were already coming. 4 came because of your list. 38 seats were still open.",
+    ]) {
+      expect(recap).toContain(sentence);
+    }
+    expect(seats).toContain("13 were already coming. 4 came because of your list.");
+  });
+});
+
+describe("chart caption (B4 item 5)", () => {
+  it("says Ann's light/dark sentence and orders the series mass first", () => {
+    render(<ResultPanels results={results()} names={new Map()} />);
+    expect(screen.getByTestId("exercise-results-chart").textContent).toContain(
+      "Light bar: mass email alone. Dark bar: mass email plus your CBACH emails.",
+    );
+    expect(resultsSeries(results())[0]?.label).toBe("Mass email alone");
+  });
+});
+
+describe("chart dark bar is mass plus list (review fix)", () => {
+  it("never draws the dark bar below the light one", () => {
+    // Harbor-like: list's own sign-ups (11) are fewer than the mass email's (19).
+    const r = results({
+      team: { ...panel(30, 11, 9), signed_up_profile_nos: Array.from({ length: 11 }, (_, i) => i + 1), attended_profile_nos: [1, 2, 3, 4, 5, 6, 7, 8, 9] },
+      email_everyone: { ...panel(300, 19, 12), signed_up_profile_nos: Array.from({ length: 19 }, (_, i) => i + 1), attended_profile_nos: Array.from({ length: 12 }, (_, i) => i + 1) },
+    });
+    const [light, dark] = resultsSeries(r);
+    expect(dark?.signedUp).toBe(19);
+    expect(dark?.attended).toBe(12);
+    expect(dark!.signedUp as number).toBeGreaterThanOrEqual(light!.signedUp as number);
+    expect(dark!.attended as number).toBeGreaterThanOrEqual(light!.attended as number);
   });
 });
 
