@@ -31,7 +31,7 @@
 # `--profile exercise` still does not start `api-exercise` on a bare `up`.
 #
 # WHAT THIS FILE CHANGES. It adds two services, `api-exercise` and
-# `web-exercise`, and one volume, `web-exercise-node-modules`. It does not
+# `web-exercise`. It does not
 # touch `api`, `worker`, `web`, or any other service in docker-compose.yml or
 # docker-compose.vm.yml.
 #
@@ -133,7 +133,7 @@ services:
         condition: service_completed_successfully
 
   # -------------------------------------------------------------------------
-  # Web-exercise — a second Vite dev server that serves the SPA's /exercise
+  # Web-exercise — a built-bundle Vite preview server that serves the SPA's /exercise
   # pages and proxies /v1 to `api-exercise`. It exists because the base `web`
   # service proxies /v1 to the CBA `api`, which does not mount the exercise
   # routers (every exercise call there is a 404), and `api-exercise` itself
@@ -141,33 +141,27 @@ services:
   # exercise points here (127.0.0.1:5174), not at :8090 —
   # docs/operations/exercise-hosting.md §4a.
   #
-  # Same pinned image and start command as `web` in docker-compose.yml.
+  # Same pinned node image as `web` in docker-compose.yml (see Dockerfile.exercise).
   # -------------------------------------------------------------------------
   web-exercise:
     profiles:
       - "exercise"
-    image: node@sha256:2cf067cfed83d5ea958367df9f966191a942351a2df77d6f0193e162b5febfc0
-    working_dir: /app
+    # Built bundle (`vite build` at image build, `vite preview` at run), not a
+    # dev server on a bind-mounted working copy: editing the checkout cannot
+    # reload or break a running class (Dr. Wang, 2026-10; load-test plan F8).
+    build:
+      context: ./apps/web/legacy-frontend
+      dockerfile: Dockerfile.exercise
+      args:
+        # Deliberately empty: the CBA dev bearer token must never be bundled
+        # into pages served on the public exercise hostname.
+        VITE_SMARTMATCH_BEARER_TOKEN: ""
     restart: unless-stopped
-    command:
-      - "sh"
-      - "-c"
-      - "[ -x node_modules/.bin/vite ] || npm ci; exec npm run dev -- --host 0.0.0.0"
     environment:
       SMARTMATCH_API_PROXY_TARGET: "http://api-exercise:8080"
-      # Deliberately empty: the CBA dev bearer token must never be bundled
-      # into pages served on the public exercise hostname.
-      VITE_SMARTMATCH_BEARER_TOKEN: ""
     ports:
       - "127.0.0.1:5174:5173"
-    volumes:
-      - ./apps/web/legacy-frontend:/app
-      # Its own volume, not `web-node-modules`: two Vite servers must not
-      # share one node_modules (and its .vite cache).
-      - web-exercise-node-modules:/app/node_modules
     depends_on:
       api-exercise:
         condition: service_started
 
-volumes:
-  web-exercise-node-modules:

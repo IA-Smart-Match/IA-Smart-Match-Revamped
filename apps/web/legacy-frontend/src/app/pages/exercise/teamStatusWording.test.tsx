@@ -71,13 +71,13 @@ describe("the words for each fact", () => {
   });
 
   it("says whether results were used, and whether they could be", () => {
-    expect(resultsWords({ open: false, run: false })).toBe("Results not used yet (not open yet)");
-    expect(resultsWords({ open: true, run: false })).toBe("Results not used yet (open now)");
-    expect(resultsWords({ open: true, run: true })).toBe("Results used");
+    expect(resultsWords({ open: false, run: false })).toBe("Results not open yet");
+    expect(resultsWords({ open: true, run: false })).toBe("Results open, not run yet");
+    expect(resultsWords({ open: true, run: true })).toBe("Results run");
   });
 
   it("lets a run win over a lock closed again afterwards", () => {
-    expect(resultsWords({ open: false, run: true })).toBe("Results used");
+    expect(resultsWords({ open: false, run: true })).toBe("Results run");
   });
 
   it("names the way of asking, or says none is chosen", () => {
@@ -103,15 +103,16 @@ describe("teamStatusItems", () => {
       {
         key: "round-1",
         label: "Round 1 · Northline Analytics: Behind the Business",
-        value: "Results not used yet (not open yet)",
+        value: "Results not open yet",
       },
       {
         key: "round-2",
         label: "Round 2 · Harbor Consumer Brands: Behind the Business",
-        value: "Results not used yet (not open yet)",
+        value: "Results not open yet",
       },
       { key: "asking", label: "Way of asking", value: "Not chosen yet" },
       { key: "refresh", label: "Asked for more", value: "Not done yet" },
+      { key: "file", label: "Data file", value: "October file" },
     ]);
   });
 
@@ -128,16 +129,17 @@ describe("teamStatusItems", () => {
       { choice: "required", refreshed: true, refreshed_at: "2026-10-16T10:42:00" },
     );
     expect(items.map((item) => item.value)).toEqual([
-      "Results used",
-      "Results not used yet (open now)",
+      "Results run",
+      "Results open, not run yet",
       "Required",
       "Asked at 10:42 AM",
+      "October file",
     ]);
   });
 
   it("still says the rest when the file has no exercise events", () => {
     const items = teamStatusItems(WORKSPACE, [PAST], NOT_ASKED);
-    expect(items.map((item) => item.key)).toEqual(["asking", "refresh"]);
+    expect(items.map((item) => item.key)).toEqual(["asking", "refresh", "file"]);
   });
 });
 
@@ -145,8 +147,8 @@ describe("teamStatusSentence", () => {
   it("reads the whole line as sentences", () => {
     const items = teamStatusItems(WORKSPACE, [NORTHLINE], NOT_ASKED);
     expect(teamStatusSentence(3, items)).toBe(
-      "You are Team 3. Round 1 · Northline Analytics: Behind the Business: Results not used yet (not open yet). " +
-        "Way of asking: Not chosen yet. Asked for more: Not done yet.",
+      "You are Team 3. Round 1 · Northline Analytics: Behind the Business: Results not open yet. " +
+        "Way of asking: Not chosen yet. Asked for more: Not done yet. Data file: October file.",
     );
   });
 });

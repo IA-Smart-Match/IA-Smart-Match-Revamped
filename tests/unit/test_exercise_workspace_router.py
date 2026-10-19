@@ -259,6 +259,7 @@ def test_entering_a_team_number_opens_a_workspace_and_sets_a_cookie(
         "team_number": 3,
         "dataset_label": _DATASET.label,
         "invite_limit": 30,
+        "round_two_open": False,
     }
     assert client.cookies.get(WORKSPACE_COOKIE_NAME, path="/v1/exercise")
 
@@ -278,6 +279,7 @@ def test_a_reload_with_the_same_cookie_returns_the_same_workspace(
             "team_number": 4,
             "dataset_label": _DATASET.label,
             "invite_limit": 30,
+            "round_two_open": False,
         }
     )
 
@@ -353,6 +355,7 @@ def test_a_team_with_a_workspace_re_enters_it_after_a_new_file_is_uploaded(
         "team_number": 3,
         "dataset_label": _DATASET.label,
         "invite_limit": _DATASET.invite_limit,
+        "round_two_open": False,
     }
     assert list(repository.rows) == [(_DATASET.id, 3)], "no second workspace was minted"
 
@@ -388,6 +391,7 @@ def test_the_first_team_of_the_lesson_lands_on_the_newest_file(
         "team_number": 2,
         "dataset_label": _NEWER_DATASET.label,
         "invite_limit": _NEWER_DATASET.invite_limit,
+        "round_two_open": False,
     }
 
 
@@ -542,7 +546,7 @@ def test_a_request_with_no_cookie_is_refused_with_a_sentence(client: TestClient)
     assert response.json() == {
         "error": {
             "code": "exercise_workspace_required",
-            "message": "Enter your team number to open your team's workspace.",
+            "message": "Enter your team number to open your team's work.",
         }
     }
 

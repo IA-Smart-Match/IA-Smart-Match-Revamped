@@ -105,9 +105,9 @@ describe("TeamStatusBand", () => {
     renderBand();
     await screen.findByText("You are Team 3");
     expect(screen.getByText("Round 1 · Northline:")).toBeDefined();
-    expect(value("round-1")).toBe("Results not used yet (not open yet)");
+    expect(value("round-1")).toBe("Results not open yet");
     expect(screen.getByText("Round 2 · Harbor:")).toBeDefined();
-    expect(value("round-2")).toBe("Results not used yet (not open yet)");
+    expect(value("round-2")).toBe("Results not open yet");
     expect(value("asking")).toBe("Not chosen yet");
     expect(value("refresh")).toBe("Not done yet");
   });
@@ -151,8 +151,8 @@ describe("TeamStatusBand", () => {
     // The reload: a fresh mount, nothing carried over in the browser.
     renderBand();
     await screen.findByText("You are Team 3");
-    expect(value("round-1")).toBe("Results used");
-    expect(value("round-2")).toBe("Results not used yet (open now)");
+    expect(value("round-1")).toBe("Results run");
+    expect(value("round-2")).toBe("Results open, not run yet");
     expect(value("asking")).toBe("A small reward");
     expect(value("refresh")).toBe("Asked at 10:42 AM");
     expect(calls.filter((url) => url === WORKSPACE)).toHaveLength(2);

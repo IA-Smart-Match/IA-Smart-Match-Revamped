@@ -227,6 +227,23 @@ true once. The README records what that costs when it slips.
 
 ---
 
+## Class-exercise copy (Claude Code and Codex)
+
+Any change to a sentence a student sees in the class exercise
+(`apps/web/legacy-frontend/src/app/pages/exercise/`) goes through the copy audit
+in [`.claude/skills/exercise-copy-audit/SKILL.md`](.claude/skills/exercise-copy-audit/SKILL.md).
+Claude Code loads it as the `exercise-copy-audit` skill. Codex and anyone else:
+read that file and run its checks from the repo root:
+
+```bash
+node .claude/skills/exercise-copy-audit/extract-copy.mjs --verbatim   # Dr. Wang's exact wording present
+node .claude/skills/exercise-copy-audit/extract-copy.mjs --banned     # internal words, "Step"
+```
+
+Dr. Wang's wording in `ann-verbatim.md` is final; the rubric never overrides it.
+
+---
+
 ## Commits
 
 `git log` uses Conventional Commit subjects — `docs:`, `feat(api):`,
