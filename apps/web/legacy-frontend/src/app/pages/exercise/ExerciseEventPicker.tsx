@@ -85,7 +85,7 @@ function EventLists({ events }: { readonly events: readonly EventView[] }): Reac
 
   if (rounds.length === 0) {
     return (
-      <ExerciseNotice message="This data file has no exercise events in it yet. The instructor can upload a file that does." />
+      <ExerciseNotice message="No exercise rounds are set up yet. Ask your instructor to open the exercise." />
     );
   }
 
