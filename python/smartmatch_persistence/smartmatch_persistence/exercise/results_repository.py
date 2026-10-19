@@ -114,12 +114,14 @@ __all__ = [
 
 _LOGGER = logging.getLogger(__name__)
 
-#: Design spec §9, word for word: *"a second run hits the UNIQUE constraint and
-#: is refused with 'This team has already run results for this event.'"* Stored
+#: Design spec §9: a second run hits the UNIQUE constraint and is refused with
+#: one sentence (reworded 2026-10-19 per the copy audit, row 94). Stored
 #: as a constant because the sentence is the specified behaviour and a test
 #: compares it byte for byte — a handler that reworded it would be changing the
 #: spec in a string literal.
-ALREADY_RUN_SENTENCE: Final[str] = "This team has already run results for this event."
+ALREADY_RUN_SENTENCE: Final[str] = (
+    "Your team already ran results for this event. You get one run per event."
+)
 
 #: The advisory-lock key every statement that changes a team's **results state**
 #: takes: a result run, an asking choice, a refresh, and the deletes that clear

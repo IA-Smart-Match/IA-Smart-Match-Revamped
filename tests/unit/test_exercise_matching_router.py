@@ -376,6 +376,12 @@ class _FakeResultsRepository:
         self.asked.append(("run", event_key))
         return object() if (workspace_id, event_key) in self.ran else None
 
+    def get_run_for_round(
+        self, _session: object, *, workspace_id: uuid.UUID, round_number: int
+    ) -> object | None:
+        """Round one counts as run, so the round-two lock stays out of these tests."""
+        return object()
+
 
 class _FakeSession:
     """A session that can be committed and answers every read with nothing."""
