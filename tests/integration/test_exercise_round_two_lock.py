@@ -90,6 +90,10 @@ def test_round_two_writes_are_refused_until_northline_results_then_allowed(
         f"{TEAM_BASE}/asking-choice", json={"choice": asking_choice(1).value}, headers=HEADER
     )
     assert chosen.status_code == 200, chosen.text
+    # Northline results exist but the team has not asked yet: ask first.
+    assert _error(run(team, ROUND_TWO, 1))["code"] == "exercise_ask_first"
+    asked = team.post(f"{TEAM_BASE}/refresh", json={}, headers=HEADER)
+    assert asked.status_code == 200, asked.text
     assert run(team, ROUND_TWO, 1).status_code == 201
 
 
