@@ -58,6 +58,8 @@ import {
   savedSentence,
   type PanelNote,
 } from "./matchingWording";
+// Explicit extension: `ListCoverageNotice.tsx` and `listCoverageNotice.ts` differ only in casing (TS1149).
+import { ListCoverageNotice } from "./ListCoverageNotice.tsx";
 import { FilledListNote } from "./FilledListNote";
 import { RankedList } from "./RankedList";
 import { SavedSettingsPanel } from "./SavedSettingsPanel";
@@ -483,6 +485,11 @@ function EventMatching({ eventKey }: { readonly eventKey: string }): React.JSX.E
                   : ` Built from your team's setting “${state.data.list.setting_name}”.`}
               </p>
               {/* §5 ce-list-rebuilding: dim while a new list is fetched, or stale after a refusal. */}
+              {/* Directly above the list, beside the filled-list line. */}
+              <ListCoverageNotice
+                missingMajors={state.data.list.composition.coverage.missing_majors}
+                missingClassYears={state.data.list.composition.coverage.missing_class_years}
+              />
               <FilledListNote entries={state.data.list.entries} />
               <div
                 aria-busy={state.refreshing ? "true" : undefined}

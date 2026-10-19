@@ -28,10 +28,6 @@ import * as React from "react";
 import { ChevronDown } from "lucide-react";
 
 import type { GroupCountsView, ListCompositionView } from "../../../lib/exerciseClient";
-// The extension is explicit: `ListCoverageNotice.tsx` and its helper
-// `listCoverageNotice.ts` differ only in casing, which an extensionless
-// specifier cannot tell apart on a case-insensitive filesystem (TS1149).
-import { ListCoverageNotice } from "./ListCoverageNotice.tsx";
 import { dimensionLabel, markerLabel } from "./markers";
 import { useNarrowViewport } from "./useNarrowViewport";
 
@@ -54,12 +50,6 @@ export function ListCompositionTable({
   return (
     <section data-slot="exercise-list-composition" className="flex flex-col gap-ce-4">
       <h2 className="ce-type-h2 text-ce-ink">Who is on the list</h2>
-
-      {/* PR #161's one-line notice, wired to the coverage the list route reports. */}
-      <ListCoverageNotice
-        missingMajors={composition.coverage.missing_majors}
-        missingClassYears={composition.coverage.missing_class_years}
-      />
 
       <div
         data-slot="exercise-composition-grid"
