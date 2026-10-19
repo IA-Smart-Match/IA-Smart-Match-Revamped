@@ -7,7 +7,8 @@ character. Curly quotes and apostrophes are written as plain `'` here; the
 checker treats `&apos;` and `\'` in source as `'`.
 
 `node extract-copy.mjs --verbatim` checks that every line shaped `- "..."`
-below appears in the exercise sources. Text in `{braces}` on screen is a live
+below appears in the exercise sources, the domain's reason lines, or an exercise
+`*.test.tsx` that asserts the rendered text (for strings built from pieces). Text in `{braces}` on screen is a live
 number, so only the fixed parts are listed.
 
 ## Event page: saved settings (Ann's "Wording for item 1", all 9 rows)

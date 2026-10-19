@@ -49,11 +49,11 @@ export const WARN = [
   [/\b(ranked|invitations|profiles?|invitees)\b/i, "R1 glossary: check the word (list, CBACH emails, students)"],
 ];
 
-function walk(d, ext = /\.(tsx|ts)$/) {
+function walk(d, ext = /\.(tsx|ts)$/, skip = true) {
   if (!statSync(d, { throwIfNoEntry: false })) return [];
   return readdirSync(d).flatMap((name) => {
     const p = join(d, name);
-    return statSync(p).isDirectory() ? walk(p, ext) : ext.test(name) && !SKIP_FILE.test(p) ? [p] : [];
+    return statSync(p).isDirectory() ? walk(p, ext, skip) : ext.test(name) && !(skip && SKIP_FILE.test(p)) ? [p] : [];
   });
 }
 
@@ -135,7 +135,9 @@ if (mode === "table") {
   process.exitCode = hits ? 1 : 0;
 } else {
   // Reason lines are built server side, so the domain's exercise package counts as source too.
-  const files = [...walk(dir), ...walk(DOMAIN, /\.py$/)];
+  // A test that asserts the exact rendered text proves a string built from template pieces.
+  const tests = walk(join(ROOT, "apps/web/legacy-frontend/src/app/pages/exercise"), /\.test\.tsx$/, false);
+  const files = [...walk(dir), ...walk(DOMAIN, /\.py$/), ...tests];
   const source = files.map((f) => readFileSync(f, "utf8")).join("\n").replace(/&apos;|\\'/g, "'");
   const missing = verbatim.filter((w) => !source.includes(w));
   for (const w of missing) console.log(`MISSING: "${w}"`);
