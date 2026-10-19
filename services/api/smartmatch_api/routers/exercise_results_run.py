@@ -128,7 +128,7 @@ def not_a_round() -> ExerciseError:
     return ExerciseError(
         status_code=status.HTTP_409_CONFLICT,
         code="exercise_event_is_not_a_round",
-        message="Results are only run for the two rounds of the exercise.",
+        message="Results run only for Round 1 (Northline) and Round 2 (Harbor).",
     )
 
 
@@ -475,10 +475,7 @@ def round_two_lock_or_refusal(
         raise ExerciseError(
             status_code=status.HTTP_409_CONFLICT,
             code="exercise_round_two_locked",
-            message=(
-                "Round two opens after your team has its Northline results. "
-                "Run Northline results first."
-            ),
+            message=("Round 2 opens after your team has its Round 1 results."),
         )
 
 

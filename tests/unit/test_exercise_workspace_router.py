@@ -546,7 +546,7 @@ def test_a_request_with_no_cookie_is_refused_with_a_sentence(client: TestClient)
     assert response.json() == {
         "error": {
             "code": "exercise_workspace_required",
-            "message": "Enter your team number to open your team's workspace.",
+            "message": "Enter your team number to open your team's work.",
         }
     }
 

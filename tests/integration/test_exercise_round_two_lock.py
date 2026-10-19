@@ -39,9 +39,7 @@ from sqlalchemy.orm import Session, sessionmaker
 pytestmark = pytest.mark.integration
 
 _LOCKED = "exercise_round_two_locked"
-_SENTENCE = (
-    "Round two opens after your team has its Northline results. Run Northline results first."
-)
+_SENTENCE = "Round 2 opens after your team has its Round 1 results."
 
 
 @pytest.fixture(scope="module")
