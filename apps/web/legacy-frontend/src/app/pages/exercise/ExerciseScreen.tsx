@@ -92,7 +92,7 @@ export function ExerciseScreen({
   // #267: name the browser tab after the screen; restore on leave.
   React.useEffect(() => {
     const previous = document.title;
-    document.title = `${title} · Class exercise`;
+    document.title = `${title} · Smart Match`;
     return () => {
       document.title = previous;
     };

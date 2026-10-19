@@ -523,3 +523,69 @@ def test_before_after_has_three_labelled_rows(
         "after asking",
     ]
     assert rows[2]["label"].startswith("Major first")
+
+
+def test_before_after_rows_keep_the_stored_runs_invite_count_when_the_limit_changes(
+    fakes: _Fakes,
+    client: TestClient,
+    confirmed: SimulationCoefficients,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A run stored at 6 invitees stays 6 in every row once the limit moves to 12."""
+    from smartmatch_api.routers import exercise_results_compare as compare
+
+    _prepare_refresh(fakes, client)
+    assert client.post(_REFRESH, json={}, headers=_HEADER).status_code == 200
+    stored = client.post(_RESULTS_TWO, json=_FINAL_BODY, headers=_HEADER).json()
+    assert stored["team"]["invited_count"] == _INVITE_LIMIT
+    key = (_DATASET_ID, 1)
+    fakes.workspaces.rows[key] = replace(fakes.workspaces.rows[key], invite_limit=_INVITE_LIMIT * 2)
+
+    sizes: list[int] = []
+    real = compare.run_the_rule
+
+    def spy(*args: object, **kwargs: object):
+        sizes.append(len(kwargs["invited"]))  # type: ignore[arg-type]
+        return real(*args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(compare, "run_the_rule", spy)
+    assert client.get(_RESULTS_TWO).status_code == 200
+    assert sizes == [_INVITE_LIMIT, _INVITE_LIMIT], (
+        "before and major-first cut at the run's own size"
+    )
+
+
+def test_before_row_differs_from_after_row_on_the_same_seed(
+    fakes: _Fakes,
+    client: TestClient,
+    confirmed: SimulationCoefficients,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Fixed seed. The 12-row fixture signs everyone up, so counts cannot differ;
+    the before row must still be simulated on a different invited list than the stored run."""
+    from smartmatch_api.routers import exercise_results_compare as compare
+
+    _prepare_refresh(fakes, client, "required")
+    workspace = fakes.workspaces.rows[(_DATASET_ID, 1)]
+    for profile_no in range(1, 13):
+        fakes.results._patch(
+            workspace.id,
+            profile_no,
+            overlay_added_event_topics=("brand", "outreach"),
+            overlay_card_interests=("brand", "outreach"),
+        )
+    body = client.post(_RESULTS_TWO, json=_FINAL_BODY, headers=_HEADER).json()
+    runs_before = dict(fakes.results.runs)
+    seen: list[tuple[list[int], int]] = []
+    real = compare.run_the_rule
+
+    def spy(*args: object, **kwargs: object):
+        seen.append((list(kwargs["invited"]), kwargs["seed"]))  # type: ignore[arg-type]
+        return real(*args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(compare, "run_the_rule", spy)
+    assert client.get(_RESULTS_TWO).status_code == 200
+    before_invited, before_seed = seen[0]
+    assert before_invited != body["team"]["invited_profile_nos"]
+    assert before_seed == fakes.workspaces.seeds[workspace.id], "same seed as the stored run"
+    assert fakes.results.runs == runs_before, "one run row per team and event; the read stored none"

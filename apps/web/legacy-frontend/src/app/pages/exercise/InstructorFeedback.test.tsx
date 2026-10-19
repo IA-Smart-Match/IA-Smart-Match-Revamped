@@ -104,7 +104,7 @@ describe("refresh every team at once asks first", () => {
     await pastTheConfirmGuard();
     fireEvent.click(screen.getByRole("button", { name: "Refresh them now" }));
 
-    await screen.findByText("No team has entered a number yet, so there was nothing to refresh.");
+    await screen.findByText("No team has entered a number yet, so there was no one to ask.");
     expect(sent(`POST ${REFRESH_ALL}`)).toBe(1);
     expect(onDone).toHaveBeenCalledTimes(1);
     expect(question()).toBeNull();
@@ -140,7 +140,7 @@ describe("refresh every team at once asks first", () => {
     fireEvent.click(screen.getByRole("button", { name: REFRESH_ALL_LABEL }));
     await pastTheConfirmGuard();
     fireEvent.click(screen.getByRole("button", { name: "Refresh them now" }));
-    await screen.findByText("No team has entered a number yet, so there was nothing to refresh.");
+    await screen.findByText("No team has entered a number yet, so there was no one to ask.");
 
     fireEvent.click(screen.getByRole("button", { name: REFRESH_ALL_LABEL }));
     expect(question()).not.toBeNull();
