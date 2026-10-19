@@ -90,6 +90,8 @@ def before_after_or_none(
             event=event,
             workspace=workspace,
             weights=weights,
+            # Cut at the run's own length: the limit may have moved since, either way.
+            invite_limit=len(run.team.invited_profile_nos),
         )
         return run_the_rule(
             session,
@@ -97,8 +99,7 @@ def before_after_or_none(
             profiles=rows,
             event=event,
             workspace=workspace,
-            # Cut at the run's own length: the limit may have changed since (#419 moved 30 to 60).
-            invited=[entry.profile_no for entry in invited][: len(run.team.invited_profile_nos)],
+            invited=[entry.profile_no for entry in invited],
             seed=seed,
             coefficients=coefficients,
         )
