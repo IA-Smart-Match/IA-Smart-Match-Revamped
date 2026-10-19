@@ -86,6 +86,11 @@ describe("<SavedSettingsPanel /> cards (§6.11)", () => {
     expect(onOpen).toHaveBeenCalledWith("Major first");
   });
 
+  it("notes when the numbers on screen equal a saved setting", () => {
+    renderPanel(saved(["Major first"], 3));
+    expect(screen.getByText("This setting is the same as “Major first.”")).toBeDefined();
+  });
+
   it("labels the name box 'Give this setting a name'", () => {
     renderPanel(saved([]));
     expect(screen.getByLabelText("Give this setting a name")).toBeDefined();

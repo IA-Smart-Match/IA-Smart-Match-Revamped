@@ -133,6 +133,13 @@ export function SavedSettingsPanel({
     settings.length >= saved.max_settings &&
     trimmed !== "" &&
     !settings.some((setting) => setting.name === trimmed);
+  const same = settings.find((setting) => {
+    const keys = Object.keys(weights);
+    return (
+      keys.length === Object.keys(setting.weights).length &&
+      keys.every((key) => setting.weights[key] === weights[key])
+    );
+  });
   const saveBlocked = pending || trimmed === "" || atCapForNewName || saveBlockedReason !== null;
   // A deleted setting cannot stay ticked.
   const chosen = ticked.filter((picked) => settings.some((setting) => setting.name === picked));
@@ -212,6 +219,11 @@ export function SavedSettingsPanel({
             ? `Your team can save only ${saved.max_settings} settings for this event, and nothing was lost. Type one of those names to save over it, or delete one first.`
             : "Saves the four slider numbers at the top of this page under this name."}
         </span>
+        {same === undefined ? null : (
+          <span data-slot="exercise-same-setting" className="ce-type-meta basis-full text-ce-ink-muted">
+            This setting is the same as “{same.name}.”
+          </span>
+        )}
       </form>
 
       {feedback === null ? null : (
