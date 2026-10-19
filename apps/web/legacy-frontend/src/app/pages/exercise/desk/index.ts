@@ -42,6 +42,7 @@ export {
 } from "./motion";
 export {
   CONFIRM_GUARD_MS,
+  ConfirmLabel,
   ConfirmWindowUnderline,
   confirmWindowHelper,
   useConfirmWindow,

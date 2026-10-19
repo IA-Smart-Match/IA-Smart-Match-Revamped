@@ -17,11 +17,12 @@ import { Check } from "lucide-react";
 import { cn } from "../../components/ui/utils";
 import {
   askingChoiceConfirmHint,
+  askingChoiceChosenLabel,
   askingChoiceConfirmLabel,
   askingChoiceLabel,
   askingChoiceLine,
 } from "./askingChoices";
-import { Button, ConfirmWindowUnderline } from "./desk";
+import { Button, ConfirmLabel, ConfirmWindowUnderline } from "./desk";
 
 /** Open: still choosable. Chosen: the team's pick. Dimmed: not picked. */
 export type AskingCardState = "open" | "chosen" | "dimmed";
@@ -114,6 +115,10 @@ export function AskingChoiceCard({
           <p className="ce-type-label mt-auto border-t border-ce-line pt-ce-3 text-ce-primary">
             Your team chose this.
           </p>
+          {/* The choice is once-only: the button stays, grey, and says why. */}
+          <Button variant="secondary" disabled data-slot="exercise-asking-chosen-button" className="w-full">
+            {askingChoiceChosenLabel(choice)}
+          </Button>
         </>
       ) : null}
 
@@ -145,10 +150,10 @@ export function AskingChoiceCard({
             // Three buttons read "Choose this way"; the name says which card.
             // It starts with the visible words (WCAG 2.5.3, label in name).
             aria-label={armed ? askingChoiceConfirmLabel(choice) : `Choose this way: ${label}`}
-            className="w-full"
+            className={cn("w-full", armed && "border-2 border-transparent")}
           >
             <span className="inline-flex flex-col items-stretch">
-              <span>{armed ? askingChoiceConfirmLabel(choice) : "Choose this way"}</span>
+              <ConfirmLabel armed={armed} idle="Choose this way" armedLabel={askingChoiceConfirmLabel(choice)} />
               <ConfirmWindowUnderline active={armed && !reduced} reduced={false} />
             </span>
           </Button>

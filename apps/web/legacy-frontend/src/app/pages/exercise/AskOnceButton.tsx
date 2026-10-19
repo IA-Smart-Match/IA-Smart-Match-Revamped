@@ -6,7 +6,7 @@
  * run and the choice of how to ask. Those two already ask on the button
  * itself (`ce-confirm-window`, §5); this one sent on the first press. Now the
  * first press arms the button and sends nothing: it reads as the question,
- * and a second press inside five seconds asks. Escape or waiting puts it
+ * and a second press inside ten seconds asks. Escape or waiting puts it
  * back. A held Enter or Space never confirms. No pop-up.
  *
  * Used on both screens that offer the refresh (Asking for more, and Results),
@@ -19,6 +19,7 @@ import * as React from "react";
 
 import {
   Button,
+  ConfirmLabel,
   ConfirmWindowUnderline,
   useConfirmWindow,
   usePrefersReducedMotion,
@@ -92,7 +93,11 @@ export function AskOnceButton({
         }}
       >
         <span className="inline-flex flex-col items-stretch">
-          <span>{asked ? alreadyRefreshedLabel(askedAt) : armed ? ASK_QUESTION : ASK_LABEL}</span>
+          {asked ? (
+            <span>{alreadyRefreshedLabel(askedAt)}</span>
+          ) : (
+            <ConfirmLabel armed={armed} idle={ASK_LABEL} armedLabel={ASK_QUESTION} />
+          )}
           <ConfirmWindowUnderline active={armed && !reduced} reduced={false} />
         </span>
       </Button>
