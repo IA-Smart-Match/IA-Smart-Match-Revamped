@@ -1,14 +1,16 @@
 # Student walkthrough recorder
 
-Records the student flow (pick team, pick event, read the list, open results) as a 1280x720 .webm with Playwright. No captions.
+Records the student flow (pick team, Northline, save a setting, send the list, ask once, Harbor, results) as a 1280x720 .webm with Playwright. No captions.
 
 ```
-WALKTHROUGH_BASE_URL=http://localhost:5273 WALKTHROUGH_OUT_DIR=/path/to/video npx -p playwright node tools/walkthrough/record_student_flow.mjs
+cd tools/walkthrough
+npm install && npx playwright install chromium
+WALKTHROUGH_BASE_URL=http://localhost:5273 WALKTHROUGH_OUT_DIR=/path/to/video node record_student_flow.mjs
 ```
 
 Environment only (nothing is stored in the repo):
 - `WALKTHROUGH_BASE_URL` (required)
-- `WALKTHROUGH_OUT_DIR`, `WALKTHROUGH_TEAM` (default 1), `WALKTHROUGH_PAUSE_MS` (default 4000; tune for a 3 to 5 minute video)
-- `EXERCISE_INSTRUCTOR_PASSCODE` (optional; unlocks instructor results in an unrecorded window first)
+- `WALKTHROUGH_OUT_DIR`, `WALKTHROUGH_TEAM` (default 1), `WALKTHROUGH_PAUSE_MS` (default 7000), `WALKTHROUGH_MIN_MS` (default 210000; the recording is padded to at least this)
+- `EXERCISE_INSTRUCTOR_PASSCODE` (optional; signs in on the instructor page in an unrecorded window and opens results for every event. Without it, open results on the instructor page before recording)
 
-Needs Chromium installed (`npx playwright install chromium`).
+Not yet run end to end: the selectors follow the exercise pages; first run may need small fixes.
