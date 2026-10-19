@@ -8,7 +8,7 @@
  * know". No second ranker. A failed read says so and leaves the run alone.
  */
 import * as React from "react";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 
 import { readRankedList, type RankedListView } from "../../../lib/exerciseClient";
 import { ListCompositionTable } from "./ListCompositionTable";
@@ -32,7 +32,7 @@ export function ChosenListSummary({
     }
     const controller = new AbortController();
     readRankedList(eventKey, { kind: "setting", name: settingName }, controller.signal).then(
-      (read) => setList(read),
+      (read) => (read?.composition ? setList(read) : setFailed(true)),
       () => {
         if (!controller.signal.aborted) {
           setFailed(true);

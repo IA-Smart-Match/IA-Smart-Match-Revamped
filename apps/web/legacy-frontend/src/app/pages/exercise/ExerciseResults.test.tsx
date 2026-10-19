@@ -29,7 +29,7 @@ vi.mock("./TeamStatusBand", async (importOriginal) => ({
 async function pressRun(): Promise<void> {
   fireEvent.click(screen.getByRole("button", { name: /run results/i }));
   await new Promise((resolve) => setTimeout(resolve, CONFIRM_GUARD_MS + 20));
-  fireEvent.click(screen.getByRole("button", { name: /send this list/i }));
+  fireEvent.click(screen.getByRole("button", { name: /^send ‘.+’\?/i }));
 }
 
 let calls: { url: string; init: RequestInit }[] = [];
