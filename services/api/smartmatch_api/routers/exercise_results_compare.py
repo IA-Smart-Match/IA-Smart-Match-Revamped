@@ -33,6 +33,13 @@ _MAJOR_FIRST: Mapping[str, float] = {
     key: (EXERCISE_DEFAULT_WEIGHTS[key] if key == SAME_MAJOR_FACTOR_KEY else 0.0)
     for key in EXERCISE_DEFAULT_WEIGHTS
 }
+#: Rows per stored run. A stored run never changes (one per team and event; a
+#: reset deletes it and the next one has a new ``created_at``), so the two
+#: simulations behind its rows are worked out once, not on every page read.
+# ponytail: per-process dict wiped at 512 entries (a class is 6 teams x 1 round-two run);
+# with uvicorn --workers each process keeps its own copy. Shared cache if that ever matters.
+_MEMO: dict[tuple[object, ...], BeforeAfterView | None] = {}
+_MEMO_CEILING = 512
 
 
 def _row(label: str, team: ResultPanel, everyone: ResultPanel) -> BeforeAfterRowView:
@@ -68,6 +75,37 @@ def before_after_or_none(
     """
     if run.round != COMPARED_ROUND or run.setting_weights is None:
         return None
+    key = (workspace.id, run.event_key, run.created_at, seed, coefficients)
+    if key not in _MEMO:
+        if len(_MEMO) >= _MEMO_CEILING:
+            _MEMO.clear()
+        _MEMO[key] = _before_after(
+            session,
+            datasets=datasets,
+            profiles=profiles,
+            events=events,
+            event=event,
+            workspace=workspace,
+            run=run,
+            seed=seed,
+            coefficients=coefficients,
+        )
+    return _MEMO[key]
+
+
+def _before_after(
+    session: ExerciseSession,
+    *,
+    datasets: DatasetRepository,
+    profiles: Sequence[TeamProfileRow],
+    events: Sequence[ExerciseEventRow],
+    event: ExerciseEventRow,
+    workspace: ExerciseWorkspace,
+    run: StoredResultRun,
+    seed: int,
+    coefficients: SimulationCoefficients,
+) -> BeforeAfterView:
+    """The three rows, simulated. Called once per stored run (``_MEMO``)."""
     cleared = tuple(
         replace(
             p,
