@@ -324,7 +324,7 @@ function EventMatching({ eventKey }: { readonly eventKey: string }): React.JSX.E
         <div className="flex flex-col gap-ce-6 md:gap-ce-7">
           {/*
             #318: what the event is, at the top of its page and above the
-            sliders, in the data file's own words. Nothing when it has none.
+            sliders, in the event file's own words. Nothing when it has none.
           */}
           <EventDescription text={state.data.list.event_description} />
           {listRefusal === null ? null : (
