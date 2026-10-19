@@ -10,22 +10,23 @@ owner's OK first.
 
 ## What one run does
 
-It replays the run of show with real think times (6–20 s between slider moves). `--scale 10`
-shortens only the phases; the request rate per student stays real.
+It replays the run of show with real think times (6–20 s between slider moves). `--scale 6`
+(default, the plan's 10 s class minute) shortens only the phases; the request rate per student
+stays real.
 
 | Phase | What the fake students do | Checked after it |
 |---|---|---|
 | B1 cold load | Lognormal arrivals (median 6 s, p90 20 s). Each student loads the page assets, enters its team, loads events, list and settings. A page with no list after 8 s is reloaded (max 3) | Instructor lists all 6 teams |
 | S1 matching (Northline, E11) | Slider moves (list + settings), keyboard bursts, saves under `tN-A/B/C` plus random names (hits the 3-name cap), compare, CSV, full refreshes | Every student and the instructor detail see only their own team's settings |
+| B6 CSV | 60 % of students download the Northline CSV within 90 s ("save both top-30 lists") | latency only |
 | B2 refresh | Everyone reloads the page | latency only |
-| B3 run Northline | Instructor unlocks E11; all students press Run within 10 s | Per team exactly 1 × 201 and the rest 409 `exercise_results_already_run`; every device sees the same run; instructor shows 1 run |
+| B3 run Northline | Instructor unlocks E11; all students press Run within 10 s, then load the results page | Per team exactly 1 × 201 and the rest 409 `exercise_results_already_run`; every device sees the same run; instructor shows 1 run |
 | B4 asking | All students post an asking choice within 10 s | Per team 1 × 200, the rest 409 `exercise_asking_already_chosen` |
-| B5 refresh | All students press refresh while the instructor presses refresh-all | Each team refreshed exactly once; all devices agree on choice + refreshed |
+| B5 refresh | Teams 1–3 press refresh and race the instructor's refresh-all (sent in the first second); teams 4–6 rely on refresh-all | Each team refreshed exactly once; all devices agree on choice + refreshed |
 | S2 + B3 Harbor (E12) | Matching block, then the round-two run burst | Same as S1 and B3 |
-| B6 CSV | 60 % of students download the CSV within 90 s | latency only |
 | final | — | Instructor: every team has 2 runs, an asking choice and a refresh |
 
-Background the whole time: the instructor projector (teams page every 15 s + one team detail),
+Background the whole time: the instructor projector (teams page every 15 s, a team detail every 60 s),
 a canary (1 req/s `GET /workspaces/current`, shows lock waiters starving the app) and a 1 s
 sampler (API / web / load-generator CPU and RSS, host load, DB connections by state,
 advisory-lock waiters).
@@ -79,16 +80,18 @@ advisory-lock waiters).
    ```bash
    export LOADTEST_INSTRUCTOR_PASSCODE=$SMARTMATCH_EXERCISE_INSTRUCTOR_PASSCODE
    .venv/bin/python tools/loadtest/classroom_load.py --base http://127.0.0.1:4174 \
-     --students 100 --scale 10 --out runs/v1-100-built --label v1-100-built \
+     --students 100 --out runs/v1-100-built --label v1-100-built \
      --api-pid <uvicorn pid> --web-pid <vite node pid> \
      --pg-dsn postgresql://smartmatch:smartmatch@localhost:5432/smartmatch_loadtest_1
    ```
 
    - `--base http://127.0.0.1:5274` = Vite dev server (what the VM serves today); `:4174` = built
      bundle; `:8191` = API only (no proxy, no assets).
-   - `--students 150` for V3. A run takes about 7 minutes at `--scale 10`; `--scale 1` is the
-     real-time soak (about 50 minutes).
+   - `--students 150` for V3. A run takes about 10 minutes at the default `--scale 6`;
+     `--scale 1` is the real-time soak (about 35 minutes).
    - The run resets teams 1–6 and locks E11/E12 at start and end (`--keep-state` to inspect).
+     Guards: the host must be `127.0.0.1`/`localhost`, and `/api/health` must report a
+     `loadtest-*` release (the env file above sets it), so a typo cannot reset a real class.
    - Exit code 0 = every check and target passed.
 
 ## How to read the results

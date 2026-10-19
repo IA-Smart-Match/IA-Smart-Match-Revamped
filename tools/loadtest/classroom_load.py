@@ -31,6 +31,7 @@ from pathlib import Path
 import httpx
 
 TEAMS = range(1, 7)
+LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1"}  # Plan B/C need the owner's OK first
 ROUND1, ROUND2 = "E11", "E12"  # Northline, Harbor in Ann's fixture file
 FACTORS = ("same_major", "stated_interest_overlap", "career_goal_fit", "past_event_topic_overlap")
 HDR = {"X-Exercise-Request": "1"}
@@ -93,7 +94,10 @@ async def call(
             resp = await client.request(method, url, headers=HDR, **kw)
         except httpx.RemoteProtocolError:
             # The server closed an idle keep-alive socket as we reused it; browsers
-            # retry this once, so do the same and mark it.
+            # retry an idempotent request once, so do the same and mark it. A POST
+            # may have committed, so it is never resent.
+            if method != "GET":
+                raise
             code = "keepalive_retry"
             resp = await client.request(method, url, headers=HDR, **kw)
         status = resp.status_code
@@ -246,7 +250,10 @@ class Student:
         RECORDS.append(_row("page_load", "PAGE", t0, 0, "gave_up", False))
 
     def _weights(self) -> dict[str, int]:
-        return {f: self.rng.randint(0, 10) for f in FACTORS}
+        while True:  # all four at 0 is a 422 the slider UI cannot send
+            w = {f: self.rng.randint(0, 10) for f in FACTORS}
+            if any(w.values()):
+                return w
 
     async def save(self, event: str, name: str) -> None:
         resp = await call(
@@ -263,7 +270,8 @@ class Student:
             RECORDS[-1]["ok"] = False  # only the 3-name cap is an expected 409
 
     async def matching(self, event: str, until: float) -> None:
-        await self.save(event, self.prefix + "A")  # the name the results run uses
+        if self.idx < len(TEAMS):  # one device per team saves the name the results run uses
+            await self.save(event, self.prefix + "A")
         while time.perf_counter() < until:
             # Think time stays real (plan 1.3): --scale shortens phases, never the request rate.
             await asyncio.sleep(self.rng.uniform(6, 20))
@@ -324,6 +332,13 @@ class Student:
         if status == 409 and code != "exercise_results_already_run":
             RECORDS[-1]["ok"] = False
         got = await call(self.client, "GET results", "GET", f"{WS}/events/{event}/results")
+        ev = f"{WS}/events/{event}"
+        await asyncio.gather(  # the rest of the results page (plan 1.3)
+            call(self.client, "GET list", "GET", f"{ev}/list"),
+            call(self.client, "GET settings", "GET", f"{ev}/settings"),
+            call(self.client, "GET asking-choice", "GET", f"{WS}/asking-choice"),
+            call(self.client, "GET events", "GET", f"{WS}/events"),
+        )
         stamp = (
             (got.json() or {}).get("created_at")
             if got is not None and got.status_code == 200
@@ -409,11 +424,12 @@ class Instructor:
         return resp.json() if resp is not None and resp.status_code == 200 else {}
 
     async def poll(self, stop: asyncio.Event, every: float) -> None:
-        """The projector: teams page every 15 s, one team detail each time."""
+        """The projector: teams page every 15 s, one team detail every 60 s."""
         n = 0
         while not stop.is_set():
             await self.teams()
-            await self.detail(TEAMS[n % 6])
+            if n % 4 == 0:
+                await self.detail(TEAMS[n // 4 % 6])
             n += 1
             with contextlib.suppress(TimeoutError):
                 await asyncio.wait_for(stop.wait(), every)
@@ -497,6 +513,17 @@ def check(name: str, ok: bool, detail: str = "") -> None:
     print(f"  [{'PASS' if ok else 'FAIL'}] {BURST['name']}: {name} {detail}", flush=True)
 
 
+def once_per_team(student_wins: int, instructor_won: bool) -> bool:
+    """Exactly one write per team, whoever made it."""
+    return student_wins + int(instructor_won) == 1
+
+
+def one_winner(statuses: list[int], win: int) -> bool:
+    """1 x `win` and every other device refused with 409."""
+    c = Counter(statuses)
+    return c[win] == 1 and c[409] == len(statuses) - 1
+
+
 def by_team(students: list[Student], results: list) -> dict[int, list]:
     out: dict[int, list] = defaultdict(list)
     for s, r in zip(students, results, strict=True):
@@ -530,7 +557,7 @@ async def results_burst(students, ins, event: str, window: float) -> None:
         stamps = {ts for _, _, ts in rows}
         check(
             f"team {team}: 1 x 201, rest 409 already_run",
-            created[201] == 1 and created[409] == len(rows) - 1,
+            one_winner([st for st, _, _ in rows], 201),
             f"{dict(created)}",
         )
         check(
@@ -554,13 +581,17 @@ async def asking_and_refresh(students, ins, window: float) -> None:
         c = Counter(st for st, _ in rows)
         check(
             f"team {team}: asking 1 x 200, rest 409",
-            c[200] == 1 and c[409] == len(rows) - 1,
+            one_winner([st for st, _ in rows], 200),
             f"{dict(c)}",
         )
     phase("B5 refresh + refresh-all")
 
+    # Teams 1-3 press refresh themselves and race the instructor's refresh-all, sent
+    # inside their first second; teams 4-6 wait for the instructor (plan B5b).
+    racers = [s for s in students if s.team <= 3]
+
     async def refresh_all() -> list[int]:
-        await asyncio.sleep(window / 2)
+        await asyncio.sleep(random.uniform(0.2, 1.0))
         resp = await call(ins.client, "POST refresh-all", "POST", f"{INS}/refresh-all")
         return (
             resp.json().get("refreshed_team_numbers", [])
@@ -569,14 +600,15 @@ async def asking_and_refresh(students, ins, window: float) -> None:
         )
 
     res, by_instructor = await asyncio.gather(
-        asyncio.gather(*(s.refresh(window) for s in students)), refresh_all()
+        asyncio.gather(*(s.refresh(window) for s in racers)), refresh_all()
     )
-    for team, rows in sorted(by_team(students, res).items()):
-        done = Counter(st for st, _ in rows)[200] + (team in by_instructor)
+    pressed = by_team(racers, res)
+    for team in TEAMS:
+        student_200 = Counter(st for st, _ in pressed.get(team, []))[200]
         check(
             f"team {team}: refreshed exactly once (students+instructor)",
-            done == 1,
-            f"student_200={done - (team in by_instructor)} instructor={team in by_instructor}",
+            once_per_team(student_200, team in by_instructor),
+            f"student_200={student_200} instructor={team in by_instructor}",
         )
     states = await asyncio.gather(*(s.asking_state() for s in students))
     for team, rows in sorted(by_team(students, states).items()):
@@ -589,6 +621,13 @@ async def asking_and_refresh(students, ins, window: float) -> None:
 
 
 async def run(args) -> int:
+    async with httpx.AsyncClient(base_url=args.base, timeout=10) as c:
+        release = (await c.get("/api/health")).json().get("release", "")
+    if not release.startswith("loadtest-") and not args.allow_any_release:
+        sys.exit(
+            f"target reports release {release!r}, not 'loadtest-*'; this run resets teams 1-6,"
+            " so it only runs against a stack started for load tests (--allow-any-release)"
+        )
     rng = random.Random(args.seed)
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -635,6 +674,14 @@ async def run(args) -> int:
         until = time.perf_counter() + 20 * 60 / scale
         await asyncio.gather(*(s.matching(ROUND1, until) for s in students))
         await check_isolation(students, ins, ROUND1)
+        phase("B6 CSV")
+        picked = [s for s in students if s.rng.random() < 0.6]
+
+        async def csv_once(s: Student) -> None:
+            await asyncio.sleep(s.rng.uniform(0, 90))
+            await call(s.client, "GET list.csv", "GET", f"{WS}/events/{ROUND1}/list.csv")
+
+        await asyncio.gather(*(csv_once(s) for s in picked))
         phase("B2 refresh load")
         await asyncio.gather(*(arrive(s, ROUND1) for s in students))
         phase("B3 run Northline")
@@ -646,14 +693,6 @@ async def run(args) -> int:
         await check_isolation(students, ins, ROUND2)
         phase("B3 run Harbor")
         await results_burst(students, ins, ROUND2, 10)
-        phase("B6 CSV")
-        picked = [s for s in students if s.rng.random() < 0.6]
-
-        async def csv_once(s: Student) -> None:
-            await asyncio.sleep(s.rng.uniform(0, 90))
-            await call(s.client, "GET list.csv", "GET", f"{WS}/events/{ROUND2}/list.csv")
-
-        await asyncio.gather(*(csv_once(s) for s in picked))
         phase("final")
         teams = {t["team_number"]: t for t in await ins.teams()}
         for n in TEAMS:
@@ -708,7 +747,7 @@ def summarize(records: list[dict]) -> list[dict]:
                 "unexpected": sum(1 for r in rs if not r["ok"] and r["status"] != -1),
                 "status": dict(
                     Counter(
-                        f"{r['status']}{':' + r['code'] if r['code'] and r['status'] >= 400 else ''}"  # noqa: E501
+                        f"{r['status']}{':' + r['code'] if r['code'] and (r['status'] >= 400 or r['code'] == 'keepalive_retry') else ''}"  # noqa: E501
                         for r in rs
                     )
                 ),
@@ -844,7 +883,7 @@ def main() -> None:
     p.add_argument(
         "--scale",
         type=float,
-        default=10.0,
+        default=6.0,
         help="phase-length compression (10 = 20-min matching block in 2 min); rates stay real",
     )
     p.add_argument("--seed", type=int, default=20261019)
@@ -859,10 +898,15 @@ def main() -> None:
     )
     p.add_argument("--no-assets", action="store_true", help="API only; skip static asset replay")
     p.add_argument("--keep-state", action="store_true", help="do not reset teams 1-6 at the end")
+    p.add_argument(
+        "--allow-any-release",
+        action="store_true",
+        help="run although /api/health release is not loadtest-* (still local hosts only)",
+    )
     args = p.parse_args()
-    if "smartmatch.cloud" in args.base or "plated.blog" in args.base:
+    if httpx.URL(args.base).host not in LOCAL_HOSTS:
         sys.exit(
-            "refusing a live hostname: Plan B/C need the owner's OK"
+            f"refusing non-local host {httpx.URL(args.base).host!r}: Plan B/C need the owner's OK"
             " (docs/operations/exercise-load-test.md)"
         )
     sys.exit(asyncio.run(run(args)))

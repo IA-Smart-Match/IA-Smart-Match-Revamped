@@ -39,3 +39,17 @@ def test_verdicts_flag_slow_writes_and_b3_errors() -> None:
     assert not by_target["API write p95 <= 2 s"]
     assert not by_target["no 5xx / transport errors"]
     assert not by_target["0 unexpected errors in B3"]
+
+
+def test_one_winner_per_team() -> None:
+    assert cl.one_winner([201] + [409] * 16, 201)
+    assert not cl.one_winner([201, 201] + [409] * 15, 201)  # two runs: correctness bug
+    assert not cl.one_winner([409] * 17, 201)  # nobody won
+    assert not cl.one_winner([201, 500] + [409] * 15, 201)  # an error hides in the rest
+
+
+def test_refresh_once_counts_students_and_instructor() -> None:
+    assert cl.once_per_team(1, False)
+    assert cl.once_per_team(0, True)
+    assert not cl.once_per_team(1, True)
+    assert not cl.once_per_team(0, False)
