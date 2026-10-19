@@ -211,13 +211,13 @@ describe("the instructor page keeps the Teams panel current", () => {
     await pastTheConfirmGuard();
     fireEvent.click(screen.getByRole("button", { name: "Refresh them now" }));
 
-    await screen.findByText("Refreshed 1 team. Skipped 3 teams.");
+    await screen.findByText("Asked for more for 1 team. Skipped 3 teams.");
     const lines = [...document.querySelectorAll('[data-slot="exercise-refresh-all-teams"] li')].map(
       (line) => line.textContent,
     );
     expect(lines).toEqual([
-      "Team 1: Refreshed at 10:42 AM. 9 people who came to Northline now count as having gone to a similar event. 12 of the 22 invited people with no card completed one. 0 people stopped responding. Completed card: 70 → 82.",
-      "Team 2: Skipped: it was already refreshed at 10:31 AM.",
+      "Team 1: Asked for more at 10:42 AM. 9 people who came to Northline now count as having gone to a similar event. 12 of the 22 invited people with no card completed one. 0 people stopped responding. Completed card: 70 → 82.",
+      "Team 2: Skipped: it already asked at 10:31 AM.",
       "Team 3: Skipped: it has not chosen a way of asking.",
       "Team 4: Skipped: it has not run results for its first event.",
     ]);
@@ -244,7 +244,7 @@ describe("the instructor page keeps the Teams panel current", () => {
     fireEvent.click(await screen.findByRole("button", { name: REFRESH_ALL_BUTTON }));
     await pastTheConfirmGuard();
     fireEvent.click(screen.getByRole("button", { name: "Refresh them now" }));
-    await screen.findByText("Refreshed 0 teams. Skipped 2 teams.");
+    await screen.findByText("Asked for more for 0 teams. Skipped 2 teams.");
     const lines = [...document.querySelectorAll('[data-slot="exercise-refresh-all-teams"] li')].map(
       (line) => line.textContent,
     );
@@ -277,7 +277,7 @@ describe("the instructor page keeps the Teams panel current", () => {
     fireEvent.click(await screen.findByRole("button", { name: REFRESH_ALL_BUTTON }));
     await pastTheConfirmGuard();
     fireEvent.click(screen.getByRole("button", { name: "Refresh them now" }));
-    await screen.findByText("Refreshed 0 teams. Skipped 3 teams.");
+    await screen.findByText("Asked for more for 0 teams. Skipped 3 teams.");
     const lines = [...document.querySelectorAll('[data-slot="exercise-refresh-all-teams"] li')].map(
       (line) => line.textContent,
     );
@@ -311,7 +311,7 @@ describe("the instructor page keeps the Teams panel current", () => {
     fireEvent.click(await screen.findByRole("button", { name: REFRESH_ALL_BUTTON }));
     await pastTheConfirmGuard();
     fireEvent.click(screen.getByRole("button", { name: "Refresh them now" }));
-    await screen.findByText("Refreshed 0 teams. Skipped 2 teams.");
+    await screen.findByText("Asked for more for 0 teams. Skipped 2 teams.");
     const lines = [...document.querySelectorAll('[data-slot="exercise-refresh-all-teams"] li')].map(
       (line) => line.textContent,
     );
@@ -333,7 +333,7 @@ describe("the instructor page keeps the Teams panel current", () => {
     fireEvent.click(await screen.findByRole("button", { name: REFRESH_ALL_BUTTON }));
     await pastTheConfirmGuard();
     fireEvent.click(screen.getByRole("button", { name: "Refresh them now" }));
-    await screen.findByText("No team has entered a number yet, so there was nothing to refresh.");
+    await screen.findByText("No team has entered a number yet, so there was no one to ask.");
     expect(document.querySelector('[data-slot="exercise-refresh-all-teams"]')).toBeNull();
   });
 
