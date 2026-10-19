@@ -41,11 +41,10 @@ export function alreadyRefreshedLabel(at: string | null | undefined): string {
 }
 
 /**
- * What the refresh changed, in three plain sentences.
+ * What the refresh changed, in two plain sentences.
  *
  * `topics_added` counts the people who attended the first round's event; they
- * now have one more event on file. `cards_completed` of `invited_without_card`
- * is "12 of the 22". `eventName` is the first round's event as the data file
+ * now have one more event on file. `asked_without_card` is every student with no card. `eventName` is the first round's event as the data file
  * spells it; without one the sentence says "the first event".
  */
 export function refreshChangeSentences(
@@ -57,13 +56,28 @@ export function refreshChangeSentences(
     counts.topics_added === 1
       ? `1 person who came to ${event} now counts as having gone to a similar event.`
       : `${counts.topics_added} people who came to ${event} now count as having gone to a similar event.`;
-  const asked = counts.invited_without_card;
-  const cards =
-    asked === 0
-      ? "Everyone your team invited already had a card."
-      : `${counts.cards_completed} of the ${asked} invited ${asked === 1 ? "person" : "people"} with no card completed one.`;
-  return [went, cards, `${people(counts.non_responding)} stopped responding.`];
+  const asked = counts.asked_without_card;
+  const noun = asked === 1 ? "student" : "students";
+  const verb = asked === 1 ? "was" : "were";
+  const askedLine = `${asked} ${noun} without a card ${verb} asked. ${counts.cards_completed} completed a card. ${people(counts.non_responding)} stopped responding.`;
+  return [askedLine, `${went} ${SAME_TOPIC_NOTE}`];
 }
+
+/** Ann, 2026-10-18: the Northline note must say it only counts on the same topic. */
+export const SAME_TOPIC_NOTE = "This only counts toward events on the same topic as Northline.";
+
+/**
+ * What "stopped responding" means, in plain words. Ann's Sept 25 build table:
+ * under "required" about 15% of those asked who had no card stop opening
+ * messages. The 15% is the published rule text, so it is said here and
+ * nowhere else; the summary itself uses counts.
+ */
+export const STOPPED_RESPONDING_MEANING =
+  "Stopped responding means about 15% of the students asked who had no card stop opening our messages and never sign up for Harbor, not even from the mass email.";
+
+/** The summary's own plain-words line, no percentage: counts only (ADR-0025 D8). Not Ann's wording. */
+export const STOPPED_RESPONDING_PLAIN =
+  "Stopped responding means students who were asked and had no card stopped opening our messages and never sign up for Harbor, not even from the mass email.";
 
 /** The summary as one string, for a line that has no room for a list. */
 export function refreshSummaryText(

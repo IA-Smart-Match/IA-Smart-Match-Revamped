@@ -24,6 +24,8 @@
  * outcome a team sees is the count the refresh actually produced.
  */
 
+import { STOPPED_RESPONDING_MEANING } from "./refreshWording";
+
 /** Ann's words per stored choice value. */
 const ASKING_CHOICE_LABELS: Readonly<Record<string, string>> = {
   better_recommendations: "Promise better recommendations.",
@@ -47,7 +49,7 @@ export function askingChoiceLabel(choice: string): string {
 const ASKING_CHOICE_LINES: Readonly<Record<string, string>> = {
   better_recommendations: "Tell them a card helps us suggest events worth their evening.",
   small_reward: "Offer something small for a completed card.",
-  required: "Make the card a condition of hearing about events.",
+  required: `Make the card a condition of hearing about events. ${STOPPED_RESPONDING_MEANING}`,
 };
 
 /** The supporting line for a choice, or `null` for a value the server adds. */

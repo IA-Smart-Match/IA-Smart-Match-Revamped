@@ -180,7 +180,7 @@ export function ExerciseAskingForMore(): React.JSX.Element {
   return (
     <ExerciseScreen
       title="Asking for more"
-      intro="Pick one way to ask the people your team invited to fill in a card. Your team picks once."
+      intro="Pick one way to ask every student without a card to fill one in. Your team picks once."
       aside={
         <Link to="/exercise/events" className={BACK_LINK}>
           Back to the events
@@ -436,10 +436,11 @@ function AskingPanels({
       </section>
 
       <section className="flex flex-col gap-ce-4">
-        <h2 className="ce-type-h2 text-ce-ink">Ask the people your team invited</h2>
+        <h2 className="ce-type-h2 text-ce-ink">Ask students without a card</h2>
         <p className="ce-type-body ce-measure text-ce-ink-muted">
-          This happens once. Everyone who attended the first event picks up its topics, and some of
-          the people your team invited fill in a card.
+          This happens once. It goes to every student without a card, not only the people your team
+          invited. Everyone who attended the first event picks up its topics, and some of the
+          students asked fill in a card.
         </p>
         <AskOnceButton
           asked={hasAsked}
@@ -484,6 +485,13 @@ function AskingPanels({
           <RefreshSummary at={refreshedAt} counts={counts} eventName={roundOneName} />
         ) : null}
         <RefreshCounts counts={counts} reduced={reduced} />
+        {hasAsked ? (
+          <p data-slot="exercise-asking-next">
+            <Link to={harborHref} className={BACK_LINK}>
+              Next: build the Harbor list
+            </Link>
+          </p>
+        ) : null}
         {/* Always present, so the summary is announced when it arrives. */}
         <p aria-live="polite" data-slot="exercise-refresh-announce" className="sr-only">
           {hasAsked ? refreshSummaryText(refreshedAt, counts, roundOneName) : ""}

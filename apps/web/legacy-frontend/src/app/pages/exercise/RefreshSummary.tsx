@@ -21,6 +21,7 @@ import {
   markerCountTotal,
   refreshChangeSentences,
   refreshDoneLine,
+  STOPPED_RESPONDING_PLAIN,
 } from "./refreshWording";
 
 export function RefreshSummary({
@@ -35,7 +36,13 @@ export function RefreshSummary({
   /** The first round's event name, or `null`. */
   readonly eventName: string | null;
 }): React.JSX.Element {
-  const sentences = counts === null ? [] : refreshChangeSentences(counts, eventName);
+  const sentences =
+    counts === null
+      ? []
+      : [
+          ...refreshChangeSentences(counts, eventName),
+          ...(counts.non_responding > 0 ? [STOPPED_RESPONDING_PLAIN] : []),
+        ];
   const lines = counts === null ? [] : markerCountLines(counts);
   return (
     <div data-slot="exercise-refresh-summary">
@@ -68,6 +75,39 @@ export function MarkerCountsBeforeAfter({
             <span aria-hidden="true">{`${line.before} → ${line.after}`}</span>
             <span className="sr-only">{`${line.before} before, ${line.after} after`}</span>
           </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/**
+ * Round one's table: "How much we know, all 300 profiles", before anyone is
+ * asked (Ann, 2026-10-18). Round two shows it again as before and after.
+ */
+export function MarkerCountsBefore({
+  before,
+}: {
+  readonly before: Readonly<Record<string, number>>;
+}): React.JSX.Element | null {
+  const lines = markerCountLines({
+    cards_completed: 0,
+    non_responding: 0,
+    topics_added: 0,
+    asked_without_card: 0,
+    marker_counts_before: before,
+    marker_counts_after: before,
+  });
+  if (lines.length === 0) {
+    return null;
+  }
+  const total = Object.values(before).reduce((sum, value) => sum + value, 0);
+  return (
+    <div data-slot="exercise-marker-counts-before" className="flex flex-col gap-ce-2">
+      <p className="ce-type-label text-ce-ink">{`How much we know, all ${total} profiles`}</p>
+      <ul className="ce-type-body flex flex-col gap-ce-1 text-ce-ink">
+        {lines.map((line) => (
+          <li key={line.marker} data-marker={line.marker}>{`${line.label}: ${line.before}`}</li>
         ))}
       </ul>
     </div>
