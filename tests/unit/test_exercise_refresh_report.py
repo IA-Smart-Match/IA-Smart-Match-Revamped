@@ -108,3 +108,31 @@ def test_the_asked_count_does_not_shrink_once_new_cards_land() -> None:
 
     assert report.asked_without_card == 10
     assert report.counts.cards_completed == 1
+
+
+def test_anns_300_file_asks_230_students_without_a_card() -> None:
+    """Ann, 2026-10-18: the ask goes to all 230 without a card, not only invitees."""
+    from smartmatch_persistence.exercise.team_view_repository import TeamProfileRow
+
+    from tests.unit.exercise_workbooks import ann_full_parsed
+
+    rows = tuple(
+        TeamProfileRow(
+            profile_no=p.profile_no,
+            display_name=p.display_name,
+            major=p.major,
+            class_year=p.class_year,
+            past_event_keys=p.past_event_keys,
+            stated_interests=p.stated_interests,
+            career_goal=p.career_goal,
+            overlay_added_event_topics=(),
+            overlay_card_interests=None,
+            overlay_card_career_goal=None,
+            non_responding=False,
+            tiebreak_order=p.tiebreak_order,
+        )
+        for p in ann_full_parsed().profiles
+    )
+
+    assert len(rows) == 300
+    assert refresh_report(rows).asked_without_card == 230
