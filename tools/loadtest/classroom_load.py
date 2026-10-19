@@ -33,6 +33,8 @@ import httpx
 TEAMS = range(1, 7)
 LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1"}  # Plan B/C need the owner's OK first
 ROUND1, ROUND2 = "E11", "E12"  # Northline, Harbor in Ann's fixture file
+INVITE_LIMIT = 60  # #419: 60 personalized emails in both rounds
+ASKED_WITHOUT_CARD = 230  # Ann's 300: students with no card, all asked by the refresh (#423)
 FACTORS = ("same_major", "stated_interest_overlap", "career_goal_fit", "past_event_topic_overlap")
 HDR = {"X-Exercise-Request": "1"}
 WS = "/v1/exercise/workspaces/current"
@@ -553,6 +555,62 @@ async def check_isolation(students: list[Student], ins: Instructor, event: str) 
         check(f"instructor detail team {n}: only own settings", not bad, f"{sorted(mine)}")
 
 
+def first_per_team(students) -> list:
+    return [next(s for s in students if s.team == n) for n in TEAMS]
+
+
+async def probe_code(s, event: str, expected: str) -> tuple[int, str]:
+    """One round-two run press that must be refused with ``expected`` (no state change)."""
+    resp = await call(
+        s.client,
+        "POST results probe",
+        "POST",
+        f"{WS}/events/{event}/results",
+        expect=(409,),
+        json={"setting_name": s.prefix + "A"},
+    )
+    status, code = (resp.status_code, error_code(resp)) if resp is not None else (0, "transport")
+    if code != expected:
+        RECORDS[-1]["ok"] = False
+    return status, code
+
+
+async def check_list_limit(students, event: str) -> None:
+    for s in first_per_team(students):
+        resp = await call(s.client, "GET list", "GET", f"{WS}/events/{event}/list")
+        body = resp.json() if resp is not None and resp.status_code == 200 else {}
+        n = len(body.get("entries", []))
+        check(
+            f"team {s.team}: list limit {INVITE_LIMIT}",
+            body.get("invite_limit") == INVITE_LIMIT and n == INVITE_LIMIT,
+            f"invite_limit={body.get('invite_limit')} entries={n}",
+        )
+
+
+async def check_round_two_locked(students) -> None:
+    for s in first_per_team(students):
+        status, code = await probe_code(s, ROUND2, "exercise_round_two_locked")
+        check(
+            f"team {s.team}: Harbor run before Northline refused",
+            status == 409 and code == "exercise_round_two_locked",
+            f"{status} {code}",
+        )
+
+
+async def check_ask_first(students, ins) -> None:
+    await ins.unlock(ROUND2)
+    try:
+        for s in first_per_team(students):
+            status, code = await probe_code(s, ROUND2, "exercise_ask_first")
+            check(
+                f"team {s.team}: Harbor run before the refresh refused",
+                status == 409 and code == "exercise_ask_first",
+                f"{status} {code}",
+            )
+    finally:
+        await call(ins.client, "POST lock", "POST", f"{INS}/events/{ROUND2}/lock")
+
+
 async def results_burst(students, ins, event: str, window: float) -> None:
     await ins.unlock(event)
     res = await asyncio.gather(*(s.run_results(event, window) for s in students))
@@ -588,6 +646,7 @@ async def asking_and_refresh(students, ins, window: float) -> None:
             one_winner([st for st, _ in rows], 200),
             f"{dict(c)}",
         )
+    await check_ask_first(students, ins)
     phase("B5 refresh + refresh-all")
 
     # Teams 1-3 press refresh themselves and race the instructor's refresh-all, sent
@@ -621,6 +680,12 @@ async def asking_and_refresh(students, ins, window: float) -> None:
             f"team {team}: all devices agree on asking + refreshed",
             len(choices) == 1 and None not in choices and all(r.get("refreshed") for r in rows),
             f"choices={choices}",
+        )
+        asked = {(r.get("refresh_counts") or {}).get("asked_without_card") for r in rows}
+        check(
+            f"team {team}: {ASKED_WITHOUT_CARD} without a card asked",
+            asked == {ASKED_WITHOUT_CARD},
+            f"asked={asked}",
         )
 
 
@@ -674,6 +739,8 @@ async def run(args) -> int:
             sorted(t["team_number"] for t in teams) == list(TEAMS),
             f"{[t['team_number'] for t in teams]}",
         )
+        await check_list_limit(students, ROUND1)
+        await check_round_two_locked(students)
         phase("S1 matching Northline")
         until = time.perf_counter() + 20 * 60 / scale
         await asyncio.gather(*(s.matching(ROUND1, until) for s in students))
