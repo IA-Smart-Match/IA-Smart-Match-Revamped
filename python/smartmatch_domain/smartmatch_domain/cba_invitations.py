@@ -54,6 +54,10 @@ adding only *which* of its three conditions failed so the skip can say so.
 
 from __future__ import annotations
 
+import base64
+import hashlib
+import hmac
+import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import StrEnum
@@ -72,6 +76,8 @@ __all__ = [
     "DELIVERY_VOCABULARY",
     "INVITATION_TEMPLATE_ID",
     "MAX_BATCH_RECIPIENTS",
+    "MINIMUM_INVITATION_SECRET_LENGTH",
+    "RESPONSE_URL_SENTINEL",
     "SPEAKER_RESPONSE_VALUES",
     "ChannelFacts",
     "InvitationResponseConflict",
@@ -82,7 +88,9 @@ __all__ = [
     "assert_response_vocabulary_is_disjoint_from_delivery",
     "choose_invitation_channel",
     "classify_recipient",
+    "derive_response_token",
     "record_response",
+    "resolve_invitation_token_secret",
     "skip_reason_for_availability",
 ]
 
@@ -93,6 +101,43 @@ __all__ = [
 #: copy decisions are recorded. A caller choosing a template per batch would be a
 #: caller choosing what the institution says.
 INVITATION_TEMPLATE_ID: Final[str] = "cba.speaker_invitation.v1"
+
+#: What a stored invitation draft holds where the Speaker's ``/i/{token}`` link
+#: goes (#287). The worker renders the real link into the message it sends, so
+#: the token never sits in a body a Connector can read. Mirrors the portal's
+#: ``ACTIVATION_URL_SENTINEL``.
+RESPONSE_URL_SENTINEL: Final[str] = "[[speaker-invitation-response-link]]"
+
+#: Shortest configured secret accepted (same bar as the /s/ portal secret).
+MINIMUM_INVITATION_SECRET_LENGTH: Final[int] = 32
+
+
+def resolve_invitation_token_secret(configured: str | None) -> str | None:
+    """The key response tokens derive under, or ``None`` when none may be used.
+
+    A configured key must be non-blank and at least
+    :data:`MINIMUM_INVITATION_SECRET_LENGTH` long. There is no fallback in any
+    edition: the invitation id is visible to coordinators, so a guessable key
+    lets anyone forge the ``/i/`` token (#287). ``None`` means refuse.
+    """
+    if configured and configured.strip() and len(configured) >= MINIMUM_INVITATION_SECRET_LENGTH:
+        return configured
+    return None
+
+
+def derive_response_token(secret: str, invitation_id: uuid.UUID) -> str:
+    """The ``/i/`` response token for ``invitation_id``: 43 URL-safe characters.
+
+    Derived rather than random so the worker can re-create it at send time from
+    the invitation row; only its SHA-256 is stored, as before.
+    """
+    digest = hmac.new(
+        secret.encode("utf-8"),
+        f"cba-invitation-response:v1:{invitation_id}".encode(),
+        hashlib.sha256,
+    ).digest()
+    return base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
+
 
 #: Most recipients one batch may name. §6 puts a shortlist at "approximately 2-3
 #: speaker candidates", so this is not a capacity ceiling — it is far above the
