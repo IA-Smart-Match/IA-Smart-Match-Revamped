@@ -66,17 +66,34 @@ export function resultsSeries(
 ): ExerciseResultsSeries[] {
   const series: ExerciseResultsSeries[] = [
     panelSeries("Mass email alone", results.email_everyone),
-    panelSeries(`Mass email plus your ${results.team.invited_count} CBACH emails`, results.team),
+    unionSeries(`Mass email plus your ${results.team.invited_count} CBACH emails`, results),
   ];
   if (results.round_one !== null) {
     series.push(panelSeries(
         roundOneName === null || roundOneName === ""
           ? "Your team, round one"
           : `Your team, ${roundOneName} (round one)`,
-        results.round_one.team,
+        results.round_one.email_everyone === undefined
+          ? results.round_one.team
+          : unionPanel({ team: results.round_one.team, email_everyone: results.round_one.email_everyone, existing_signups: results.existing_signups }),
       ));
   }
   return series;
+}
+
+/** Mass email plus the list: what the dark bar shows, never the list's own panel alone. */
+function unionPanel(round: RoundPanels): ResultPanelView {
+  const { withList } = liftCounts(round);
+  const attended = round.email_everyone.attended_profile_nos.length + seatCountsFor(round).added;
+  return {
+    ...round.team,
+    signed_up_count: withList,
+    attended_count: attended,
+  };
+}
+
+function unionSeries(label: string, round: RoundPanels): ExerciseResultsSeries {
+  return panelSeries(label, unionPanel(round));
 }
 
 function panelSeries(label: string, panel: ResultPanelView): ExerciseResultsSeries {

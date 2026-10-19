@@ -284,6 +284,21 @@ describe("chart caption (B4 item 5)", () => {
   });
 });
 
+describe("chart dark bar is mass plus list (review fix)", () => {
+  it("never draws the dark bar below the light one", () => {
+    // Harbor-like: list's own sign-ups (11) are fewer than the mass email's (19).
+    const r = results({
+      team: { ...panel(30, 11, 9), signed_up_profile_nos: Array.from({ length: 11 }, (_, i) => i + 1), attended_profile_nos: [1, 2, 3, 4, 5, 6, 7, 8, 9] },
+      email_everyone: { ...panel(300, 19, 12), signed_up_profile_nos: Array.from({ length: 19 }, (_, i) => i + 1), attended_profile_nos: Array.from({ length: 12 }, (_, i) => i + 1) },
+    });
+    const [light, dark] = resultsSeries(r);
+    expect(dark?.signedUp).toBe(19);
+    expect(dark?.attended).toBe(12);
+    expect(dark!.signedUp as number).toBeGreaterThanOrEqual(light!.signedUp as number);
+    expect(dark!.attended as number).toBeGreaterThanOrEqual(light!.attended as number);
+  });
+});
+
 describe("seatCountsFor", () => {
   it("counts the mass email's attendees as already coming and only the rest as added", () => {
     const r = results({
