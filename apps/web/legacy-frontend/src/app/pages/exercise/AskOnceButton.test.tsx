@@ -5,7 +5,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ASK_HINT, ASK_LABEL, ASK_QUESTION, AskOnceButton } from "./AskOnceButton";
-import { CONFIRM_GUARD_MS } from "./desk";
+import { CE_MOTION_MS, CONFIRM_GUARD_MS } from "./desk";
 
 const AT = "2026-10-16T10:42:00";
 
@@ -41,6 +41,21 @@ describe("<AskOnceButton />", () => {
     fireEvent.click(button);
     vi.advanceTimersByTime(CONFIRM_GUARD_MS + 20);
     fireEvent.click(button);
+    expect(onAsk).toHaveBeenCalledTimes(1);
+  });
+
+  it("arms the same button in place and holds the window for at least 10 seconds", () => {
+    const onAsk = vi.fn();
+    render(<AskOnceButton asked={false} askedAt={null} disabled={false} pending={false} onAsk={onAsk} />);
+    const button = screen.getByRole("button", { name: ASK_LABEL });
+    fireEvent.click(button);
+    const armed = screen.getByRole("button", { name: ASK_QUESTION });
+    expect(armed).toBe(button);
+    // The armed words are reserved while idle, and the idle words while armed.
+    expect(armed.querySelector('[data-slot="ce-confirm-label"]')?.getAttribute("data-sizer")).toBe(ASK_LABEL);
+    expect(CE_MOTION_MS.confirmWindow).toBeGreaterThanOrEqual(10_000);
+    vi.advanceTimersByTime(9_900);
+    fireEvent.click(armed);
     expect(onAsk).toHaveBeenCalledTimes(1);
   });
 

@@ -195,8 +195,8 @@ describe("every team page carries the status line", () => {
     renderAt(path);
     await screen.findByText("You are Team 3");
     expect(bandIsUnderTheHeading()).toBe(true);
-    expect(value("round-1")).toBe("Results not used yet (not open yet)");
-    expect(value("round-2")).toBe("Results not used yet (not open yet)");
+    expect(value("round-1")).toBe("Results not open yet");
+    expect(value("round-2")).toBe("Results not open yet");
     expect(value("asking")).toBe("Not chosen yet");
     expect(value("refresh")).toBe("Not done yet");
     expect(screen.getByText(marked ?? "Round 1 · Northline:")).toBeDefined();
@@ -212,7 +212,7 @@ describe("every team page carries the status line", () => {
 
     renderAt("/exercise/events");
     await screen.findByText("You are Team 3");
-    expect(value("round-1")).toBe("Results used");
+    expect(value("round-1")).toBe("Results run");
     expect(value("asking")).toBe("Required");
     expect(value("refresh")).toBe("Asked at 10:42 AM");
   });
@@ -288,13 +288,13 @@ describe("the status line follows the page's own presses", () => {
     };
     renderAt("/exercise/events/northline/results");
     await screen.findByText("You are Team 3");
-    expect(value("round-1")).toBe("Results not used yet (open now)");
+    expect(value("round-1")).toBe("Results open, not run yet");
 
     fireEvent.click(await screen.findByRole("radio", { name: "Wide net" }));
     const run = screen.getByRole("button", { name: /run results/i });
     await pressTwice(run);
 
-    await waitFor(() => expect(value("round-1")).toBe("Results used"));
+    await waitFor(() => expect(value("round-1")).toBe("Results run"));
     const shut = screen.getByRole("button", { name: "Results already run for this event." });
     expect(shut.getAttribute("aria-disabled")).toBe("true");
     expect(document.querySelector('[data-slot="exercise-results-run-at"]')?.textContent).toBe(
@@ -353,6 +353,6 @@ describe("“Check again” says what it found", () => {
 
     await waitFor(() => expect(screen.queryByRole("button", { name: "Check again" })).toBeNull());
     expect(document.querySelector('[data-slot="exercise-results-checked"]')).toBeNull();
-    await waitFor(() => expect(value("round-1")).toBe("Results not used yet (open now)"));
+    await waitFor(() => expect(value("round-1")).toBe("Results open, not run yet"));
   });
 });

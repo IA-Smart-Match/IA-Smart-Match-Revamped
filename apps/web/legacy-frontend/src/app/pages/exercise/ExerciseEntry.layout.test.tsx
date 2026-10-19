@@ -171,7 +171,7 @@ describe("<ExerciseEntry /> layout", () => {
       expect(document.querySelector('[data-slot="exercise-entry-current"]')).not.toBeNull(),
     );
     const line = document.querySelector('[data-slot="exercise-entry-current"]');
-    expect(line?.textContent).toBe("This browser is already in team 4, working in Autumn draft.");
+    expect(line?.textContent).toBe("This computer is already open as Team 4.");
     const badge = line?.parentElement?.querySelector("svg");
     expect(badge?.getAttribute("aria-hidden")).toBe("true");
   });

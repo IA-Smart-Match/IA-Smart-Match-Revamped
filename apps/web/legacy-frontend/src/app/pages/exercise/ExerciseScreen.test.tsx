@@ -13,10 +13,10 @@ import {
 afterEach(cleanup);
 
 describe("ExerciseScreen (§6.1)", () => {
-  it("names the tab '<title> · Class exercise' and restores it on unmount (#267)", () => {
+  it("names the tab '<title> · Smart Match' and restores it on unmount (#267)", () => {
     document.title = "before";
     const { unmount } = render(<ExerciseScreen title="Results">body</ExerciseScreen>);
-    expect(document.title).toBe("Results · Class exercise");
+    expect(document.title).toBe("Results · Smart Match");
     unmount();
     expect(document.title).toBe("before");
   });

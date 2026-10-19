@@ -76,9 +76,9 @@ export function roundLabel(round: RoundStatus, onThisPage: boolean): string {
  */
 export function resultsWords(round: Pick<RoundStatus, "open" | "run">): string {
   if (round.run) {
-    return "Results used";
+    return "Results run";
   }
-  return round.open ? "Results not used yet (open now)" : "Results not used yet (not open yet)";
+  return round.open ? "Results open, not run yet" : "Results not open yet";
 }
 
 /** "A small reward" / "Not chosen yet". */
@@ -104,7 +104,7 @@ export function refreshWords(refreshed: boolean, at: string | null | undefined):
  * page; `eventKey` marks the one the page is about.
  */
 export function teamStatusItems(
-  _workspace: TeamWorkspaceView,
+  workspace: TeamWorkspaceView,
   events: readonly EventView[],
   asking: Pick<AskingStateView, "choice" | "refreshed" | "refreshed_at">,
   eventKey?: string,
@@ -117,6 +117,7 @@ export function teamStatusItems(
     })),
     { key: "asking", label: "Way of asking", value: askingWords(asking.choice) },
     { key: "refresh", label: "Asked for more", value: refreshWords(asking.refreshed, asking.refreshed_at) },
+    { key: "file", label: "Data file", value: workspace.dataset_label },
   ];
 }
 

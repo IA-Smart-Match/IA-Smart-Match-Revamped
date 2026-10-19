@@ -64,7 +64,7 @@ export function LectureHallArt({ className }: ArtProps): React.JSX.Element {
   );
 }
 
-/** `team-badge.svg`: at 32px beside "This browser is already in team …" (§7.2). */
+/** `team-badge.svg`: at 32px beside "This computer is already open as Team …" (§7.2). */
 export function TeamBadgeArt({ className }: ArtProps): React.JSX.Element {
   return (
     <svg

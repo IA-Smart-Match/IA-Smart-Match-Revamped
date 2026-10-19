@@ -37,7 +37,7 @@
  * **The invitation desk (DESIGN.md §6.18, §6.19, §7.9).** The choices are
  * radio cards (`ExerciseAskingChoiceCard.tsx`) with an inline confirm, owner
  * ruling 3: the first press on "Choose this way" arms that same button as
- * "Confirm: A small reward?" for about five seconds (`useConfirmWindow`); a
+ * "Confirm: A small reward?" for about ten seconds (`useConfirmWindow`); a
  * second press sends the choice; Escape, the window lapsing, or another card
  * reverts it. No pop-up. The counts are a ruled figures band that counts up
  * once; a screen reader hears only the final number.

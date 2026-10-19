@@ -194,7 +194,7 @@ describe("the instructor's every-team report", () => {
   it("gives a refreshed team the summary that team reads itself", () => {
     expect(refreshAllTeamLine(REFRESHED, { nameFile: false })).toEqual({
       team: "Team 2:",
-      what: "Refreshed at 10:42 AM. 9 people who came to Northline now count as having gone to a similar event. This counts only toward events on the same topic as Northline. 12 of the 22 invited people with no card completed one. 0 people stopped responding: they stop opening messages and will not sign up for anything, mass email included. Completed card: 70 → 82.",
+      what: "Asked for more at 10:42 AM. 9 people who came to Northline now count as having gone to a similar event. This counts only toward events on the same topic as Northline. 12 of the 22 invited people with no card completed one. 0 people stopped responding: they stop opening messages and will not sign up for anything, mass email included. Completed card: 70 → 82.",
     });
   });
 
@@ -205,9 +205,9 @@ describe("the instructor's every-team report", () => {
     expect(why("no_asking_choice")).toBe("Skipped: it has not chosen a way of asking.");
     expect(why("no_round_one_run")).toBe("Skipped: it has not run results for its first event.");
     expect(why("already_refreshed", "2026-10-16T10:31:00")).toBe(
-      "Skipped: it was already refreshed at 10:31 AM.",
+      "Skipped: it already asked at 10:31 AM.",
     );
-    expect(why("already_refreshed")).toBe("Skipped: it was already refreshed.");
+    expect(why("already_refreshed")).toBe("Skipped: it had already asked.");
   });
 
   it("invents no reason for a code it does not know", () => {
@@ -223,10 +223,10 @@ describe("the instructor's every-team report", () => {
   it("counts both outcomes in the headline, and says when there was no team", () => {
     const view = { refreshed_team_numbers: [2], refreshed: 1, skipped: 0 };
     expect(refreshAllHeadline({ ...view, teams: [REFRESHED, SKIPPED] })).toBe(
-      "Refreshed 1 team. Skipped 1 team.",
+      "Asked for more for 1 team. Skipped 1 team.",
     );
     expect(refreshAllHeadline({ ...view, refreshed: 0, refreshed_team_numbers: [], teams: [] })).toBe(
-      "No team has entered a number yet, so there was nothing to refresh.",
+      "No team has entered a number yet, so there was no one to ask.",
     );
   });
 });
