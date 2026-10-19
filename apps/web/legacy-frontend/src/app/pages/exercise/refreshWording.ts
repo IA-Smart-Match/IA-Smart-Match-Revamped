@@ -164,14 +164,15 @@ function teams(count: number): string {
   return count === 1 ? "1 team" : `${count} teams`;
 }
 
-/** The report's first line: "Refreshed 2 teams. Skipped 3 teams." */
+/** The report's first line: "Asked for more for 2 teams. Skipped 3 teams." */
 export function refreshAllHeadline(done: RefreshAllView): string {
   const all = done.teams ?? [];
   if (all.length === 0) {
-    return "No team has entered a number yet, so there was nothing to refresh.";
+    return "No team has entered a number yet, so there was no one to ask.";
   }
   const skipped = all.filter((team) => team.outcome === "skipped").length;
-  return `Refreshed ${teams(done.refreshed)}. Skipped ${teams(skipped)}.`;
+  const asked = teams(done.refreshed);
+  return `Asked for more for ${asked}. Skipped ${teams(skipped)}.`;
 }
 
 /** Why a team was skipped, in words, from the server's reason code. */
@@ -185,8 +186,8 @@ function skipReason(team: RefreshAllTeamView): string {
   if (team.reason_code === "already_refreshed") {
     const time = clockTime(team.refreshed_at);
     return time === null
-      ? "Skipped: it was already refreshed."
-      : `Skipped: it was already refreshed at ${time}.`;
+      ? "Skipped: it had already asked."
+      : `Skipped: it already asked at ${time}.`;
   }
   // A reason this screen does not know: say it was skipped and invent no why.
   return "Skipped.";
@@ -214,7 +215,7 @@ export function refreshAllTeamLine(
   const counts = team.refresh_counts;
   const cards = counts === null ? undefined : markerCountLines(counts)[0];
   const parts = [
-    time === null ? "Refreshed." : `Refreshed at ${time}.`,
+    time === null ? "Asked for more." : `Asked for more at ${time}.`,
     ...(counts === null ? [] : refreshChangeSentences(counts, team.first_round_event_name)),
     ...(cards === undefined ? [] : [`${cards.label}: ${cards.before} → ${cards.after}.`]),
   ];

@@ -62,6 +62,11 @@ function bareLabel(choice: string): string {
   return askingChoiceLabel(choice).replace(/\.$/, "");
 }
 
+/** A used choice button's label: it says what happened, on the button. */
+export function askingChoiceChosenLabel(choice: string): string {
+  return `Way of asking chosen: ${bareLabel(choice)}`;
+}
+
 /** The armed button's label (§6.18, §11.1): "Confirm: A small reward?". */
 export function askingChoiceConfirmLabel(choice: string): string {
   return `Confirm: ${bareLabel(choice)}?`;

@@ -245,13 +245,21 @@ def test_web_exercise_is_not_in_the_default_stack(
     assert WEB_SERVICE_NAME not in vm_compose_document.get("services", {})
 
 
-def test_web_exercise_matches_the_base_web_image_and_command(
+def test_web_exercise_is_a_built_bundle_on_the_base_web_image(
     compose_document: dict, web_service: dict
 ) -> None:
-    base_web = compose_document["services"]["web"]
-    assert web_service["image"] == base_web["image"]
-    assert web_service["working_dir"] == "/app"
-    assert web_service["command"] == base_web["command"]
+    # Dr. Wang 2026-10-16: class runs from a fixed copy. The image is built from
+    # the checkout once (vite build) and served with vite preview: no dev
+    # server, no HMR, no source mounted from the VM checkout.
+    assert "image" not in web_service
+    assert "command" not in web_service
+    build = web_service["build"]
+    assert build["context"] == "./apps/web/legacy-frontend"
+    assert build["dockerfile"] == "Dockerfile.exercise"
+    dockerfile = (REPO_ROOT / "apps/web/legacy-frontend/Dockerfile.exercise").read_text()
+    assert f"FROM {compose_document['services']['web']['image']}" in dockerfile
+    assert "vite build" in dockerfile or "npm run build" in dockerfile
+    assert '"preview"' in dockerfile
 
 
 def test_web_exercise_proxies_to_api_exercise(web_service: dict) -> None:
@@ -263,7 +271,8 @@ def test_web_exercise_proxies_to_api_exercise(web_service: dict) -> None:
 def test_web_exercise_ships_no_bearer_token(web_service: dict) -> None:
     # VITE_* values are bundled into what the browser runs. The CBA dev bearer
     # token must never reach pages served on the public exercise hostname.
-    assert web_service["environment"]["VITE_SMARTMATCH_BEARER_TOKEN"] == ""
+    assert web_service["build"]["args"]["VITE_SMARTMATCH_BEARER_TOKEN"] == ""
+    assert "VITE_SMARTMATCH_BEARER_TOKEN" not in web_service.get("environment", {})
 
 
 def test_web_exercise_binds_loopback_5174(web_service: dict) -> None:
@@ -278,15 +287,10 @@ def test_web_exercise_does_not_reuse_the_web_port(
     assert not (web_ports & exercise_ports)
 
 
-def test_web_exercise_has_its_own_node_modules_volume(
-    exercise_compose_document: dict, web_service: dict
-) -> None:
-    # Two Vite servers must not share one node_modules (and its .vite cache).
-    volumes = web_service["volumes"]
-    assert "./apps/web/legacy-frontend:/app" in volumes
-    assert f"{WEB_NODE_MODULES_VOLUME}:/app/node_modules" in volumes
-    assert not any(v.startswith("web-node-modules:") for v in volumes)
-    assert WEB_NODE_MODULES_VOLUME in exercise_compose_document["volumes"]
+def test_web_exercise_mounts_no_source(exercise_compose_document: dict, web_service: dict) -> None:
+    # Editing the VM checkout must not change what the class sees.
+    assert "volumes" not in web_service
+    assert WEB_NODE_MODULES_VOLUME not in (exercise_compose_document.get("volumes") or {})
 
 
 def test_web_exercise_is_gated_behind_the_exercise_profile(web_service: dict) -> None:
