@@ -304,7 +304,7 @@ describe("<ExerciseAskingForMore /> — the invitation desk (§6.18, §6.19, §7
     fireEvent.click(button);
     expect(button.textContent).toContain("Confirm: A small reward?");
     act(() => {
-      vi.advanceTimersByTime(5000);
+      vi.advanceTimersByTime(10_000);
     });
     expect(button.textContent).toContain("Choose this way");
     expect(button.textContent).not.toContain("Confirm:");
@@ -464,7 +464,7 @@ describe("<ExerciseAskingForMore /> — the invitation desk (§6.18, §6.19, §7
     fireEvent.click(button);
     expect(document.querySelector('[data-slot="ce-confirm-underline"]')).toBeNull();
     expect(document.querySelector('[data-slot="ce-confirm-helper"]')?.textContent).toBe(
-      "5 seconds",
+      "10 seconds",
     );
   });
 
@@ -485,6 +485,8 @@ describe("<ExerciseAskingForMore /> — the invitation desk (§6.18, §6.19, §7
       expect((radio as HTMLInputElement).disabled).toBe(true);
     }
     expect(screen.getByText("Your team chose this.")).toBeDefined();
+    const used = screen.getByRole("button", { name: "Way of asking chosen: A small reward" });
+    expect(used.getAttribute("aria-disabled")).toBe("true");
     expect(screen.getByText("A team picks once, so these are now fixed.")).toBeDefined();
     expect(screen.queryByRole("button", { name: /choose this way/i })).toBeNull();
     expect(
