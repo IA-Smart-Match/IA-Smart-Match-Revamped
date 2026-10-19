@@ -79,6 +79,8 @@ __all__ = [
     "MAX_ASKING_CHOICE_CHARACTERS",
     "AskingChoiceRequest",
     "AskingStateView",
+    "BeforeAfterRowView",
+    "BeforeAfterView",
     "InvitedProfileView",
     "PreviousRoundView",
     "RefreshAllTeamView",
@@ -389,6 +391,26 @@ class PreviousRoundView(BaseModel):
     created_at: datetime = Field(description="When that round was run.")
 
 
+class BeforeAfterRowView(BaseModel):
+    """One row of the Harbor before-and-after table. Counts of people only."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    label: str = Field(description="What the row shows.")
+    mass_email_signups: int = Field(description="Sign-ups from the mass email alone.")
+    with_list_signups: int = Field(description="Sign-ups with your list on top.")
+    list_added: int = Field(description="Sign-ups your list added to the mass email.")
+    list_added_came: int = Field(description="How many of those added sign-ups came.")
+
+
+class BeforeAfterView(BaseModel):
+    """Same event, same seed: before asking, after asking, and major first."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    rows: list[BeforeAfterRowView] = Field(description="Three rows, in display order.")
+
+
 class ResultsView(BaseModel):
     """One team's results for one event: design spec §10's three panels.
 
@@ -432,6 +454,10 @@ class ResultsView(BaseModel):
     )
     round_one: PreviousRoundView | None = Field(
         default=None, description="Your team's stored round-one result, in round two."
+    )
+    before_after: BeforeAfterView | None = Field(
+        default=None,
+        description="Round two only: the same setting before and after asking, computed on read.",
     )
     invited_profiles: list[InvitedProfileView] = Field(
         default_factory=list,
@@ -683,6 +709,7 @@ def stored_results_view(
     round_one: StoredResultRun | None,
     seed: int,
     attend_rate: float,
+    before_after: BeforeAfterView | None = None,
 ) -> ResultsView:
     """One stored run as the full three-panel response.
 
@@ -707,6 +734,7 @@ def stored_results_view(
             if round_one is not None
             else None
         ),
+        before_after=before_after,
         invited_profiles=[invited_profile_view(entry) for entry in run.invited],
         created_at=run.created_at,
     )

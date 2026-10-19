@@ -92,6 +92,7 @@ from smartmatch_api.routers.exercise_matching_models import (
     event_or_refusal,
     first_round_event,
 )
+from smartmatch_api.routers.exercise_results_compare import before_after_or_none
 from smartmatch_api.routers.exercise_results_models import (
     FIRST_ROUND,
     AskingChoiceRequest,
@@ -291,6 +292,17 @@ def run_results(
         ),
         seed=team_state.seed,
         attend_rate=coefficients.attend_given_signup,
+        before_after=before_after_or_none(
+            session,
+            datasets=datasets,
+            profiles=profiles,
+            events=events,
+            event=event,
+            workspace=workspace,
+            run=stored,
+            seed=team_state.seed,
+            coefficients=coefficients,
+        ),
     )
 
 
@@ -303,6 +315,7 @@ def read_results(
     session: ExerciseSession,
     workspace: CurrentWorkspace,
     datasets: DatasetRepository,
+    team_view: TeamViewRepository,
     results: ResultsRepository,
     event_key: str = Path(description="An event key from this team's data file."),
 ) -> ResultsView | None:
@@ -322,14 +335,29 @@ def read_results(
     stored = results.get_run(session, workspace_id=workspace.id, event_key=event.event_key)
     if stored is None:
         return None
+    seed = _team_state_or_refusal(session, results, workspace).seed
+    coefficients = coefficients_or_refusal()
     return stored_results_view(
         stored,
         event=event,
         round_one=_round_one_or_none(
             session, results, workspace=workspace, round_number=stored.round
         ),
-        seed=_team_state_or_refusal(session, results, workspace).seed,
-        attend_rate=coefficients_or_refusal().attend_given_signup,
+        seed=seed,
+        attend_rate=coefficients.attend_given_signup,
+        before_after=before_after_or_none(
+            session,
+            datasets=datasets,
+            profiles=team_view.list_team_profiles(
+                session, dataset_id=workspace.dataset_id, workspace_id=workspace.id
+            ),
+            events=events,
+            event=event,
+            workspace=workspace,
+            run=stored,
+            seed=seed,
+            coefficients=coefficients,
+        ),
     )
 
 

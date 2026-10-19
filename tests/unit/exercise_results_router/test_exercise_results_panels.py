@@ -35,11 +35,13 @@ from tests.unit.exercise_results_router.support import (
     _FINAL_BODY,
     _HEADER,
     _INVITE_LIMIT,
+    _REFRESH,
     _RESULTS,
     _RESULTS_TWO,
     _WHEN,
     _entered,
     _Fakes,
+    _prepare_refresh,
     _run_round_one,
 )
 
@@ -454,3 +456,54 @@ def test_a_results_run_from_an_old_fractional_setting_still_works(
         created_at=_WHEN,
     )
     assert client.post(_RESULTS, json=_FINAL_BODY, headers=_HEADER).status_code == 201
+
+
+# ---------------------------------------------------------------------------
+# Before and after asking (Ann Wang, Oct 2026): computed on read, round two only
+# ---------------------------------------------------------------------------
+
+
+def _lift_row(body: dict[str, object]) -> dict[str, object]:
+    mass = set(body["email_everyone"]["signed_up_profile_nos"])  # type: ignore[index]
+    added = [n for n in body["team"]["signed_up_profile_nos"] if n not in mass]  # type: ignore[index]
+    return {"mass_email_signups": len(mass), "list_added": len(added)}
+
+
+def test_before_after_is_null_in_round_one(
+    fakes: _Fakes, client: TestClient, confirmed: SimulationCoefficients
+) -> None:
+    body = _run_round_one(fakes, client)
+    assert body["before_after"] is None
+
+
+def test_before_after_rows_in_round_two(
+    fakes: _Fakes, client: TestClient, confirmed: SimulationCoefficients
+) -> None:
+    _prepare_refresh(fakes, client)
+    assert client.post(_REFRESH, json={}, headers=_HEADER).status_code == 200
+    posted = client.post(_RESULTS_TWO, json=_FINAL_BODY, headers=_HEADER).json()
+    rows = posted["before_after"]["rows"]
+    assert len(rows) == 3
+    # After asking is the stored run, exactly.
+    after = rows[1]
+    assert (after["mass_email_signups"], after["list_added"]) == tuple(_lift_row(posted).values())
+    assert after["with_list_signups"] == after["mass_email_signups"] + after["list_added"]
+    assert after["list_added_came"] <= after["list_added"]
+    # Reading twice gives the posted rows, byte for byte: no second run.
+    assert client.get(_RESULTS_TWO).json()["before_after"]["rows"] == rows
+    assert client.get(_RESULTS_TWO).json()["before_after"]["rows"] == rows
+
+
+def test_before_row_uses_no_overlay(
+    fakes: _Fakes, client: TestClient, confirmed: SimulationCoefficients
+) -> None:
+    """Team 1's before row equals what an untouched team on the same seed gets."""
+    _prepare_refresh(fakes, client)
+    assert client.post(_REFRESH, json={}, headers=_HEADER).status_code == 200
+    mine = client.post(_RESULTS_TWO, json=_FINAL_BODY, headers=_HEADER).json()
+    with _entered(fakes, 2) as plain:
+        fakes.unlock("round-two")
+        theirs = plain.post(_RESULTS_TWO, json=_FINAL_BODY, headers=_HEADER).json()
+    assert mine["before_after"]["rows"][0] == theirs["before_after"]["rows"][1] | {
+        "label": mine["before_after"]["rows"][0]["label"]
+    }
