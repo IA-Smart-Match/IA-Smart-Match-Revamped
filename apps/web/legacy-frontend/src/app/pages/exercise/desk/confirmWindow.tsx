@@ -1,12 +1,12 @@
 /**
  * `ce-confirm-window` (DESIGN.md §5, §6.18, ruling 3): a press arms an action
- * for five seconds; a second press inside the window commits it; the window
+ * for ten seconds; a second press inside the window commits it; the window
  * lapsing, Escape, or `cancel()` reverts it. No pop-up, no second button.
  *
  * The hook owns the timing only. The caller owns the words — "Choose this
  * way" / "Confirm: A small reward?" and the spoken hint come from DESIGN.md
  * §11.1 and are rendered by the page, so this module holds no copy beyond
- * the reduced-motion helper §5 names ("5 seconds").
+ * the reduced-motion helper §5 names ("10 seconds").
  */
 import * as React from "react";
 
@@ -23,6 +23,31 @@ export const CONFIRM_GUARD_MS = 300;
 export function confirmWindowHelper(windowMs: number): string {
   const seconds = Math.max(1, Math.round(windowMs / 1000));
   return seconds === 1 ? "1 second" : `${seconds} seconds`;
+}
+
+/**
+ * The words on a two-press button. The button keeps one width whichever words
+ * are showing: the other state's words are laid out invisibly after the
+ * visible ones (CSS `attr()` sizer), so arming never moves or resizes it.
+ */
+export function ConfirmLabel({
+  armed,
+  idle,
+  armedLabel,
+}: {
+  readonly armed: boolean;
+  readonly idle: string;
+  readonly armedLabel: string;
+}): React.JSX.Element {
+  return (
+    <span
+      data-slot="ce-confirm-label"
+      data-sizer={armed ? idle : armedLabel}
+      className="text-center after:invisible after:block after:h-0 after:overflow-hidden after:content-[attr(data-sizer)]"
+    >
+      {armed ? armedLabel : idle}
+    </span>
+  );
 }
 
 export interface ConfirmWindowOptions {
@@ -101,7 +126,7 @@ export interface ConfirmWindowUnderlineProps {
   readonly windowMs?: number;
   /**
    * Shown instead of the underline under reduced motion (DESIGN.md §5).
-   * Defaults to the window's length in words ("5 seconds").
+   * Defaults to the window's length in words ("10 seconds").
    */
   readonly reducedHelper?: string;
   readonly className?: string;

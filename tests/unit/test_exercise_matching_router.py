@@ -76,7 +76,6 @@ from smartmatch_api.routers.exercise_matching_models import (
 )
 from smartmatch_domain.exercise import EXERCISE_WITHHELD_FIELDS
 from smartmatch_domain.exercise.matching import exercise_ranked_list
-from smartmatch_domain.exercise.reasons import ANN_TIED_ON_YEAR_PHRASE, phrase_as_sentence
 from smartmatch_domain.exercise.registry import (
     EXERCISE_APPROVED_SCORING_KEYS,
     EXERCISE_DEFAULT_WEIGHTS,
@@ -1466,14 +1465,14 @@ def test_a_tie_on_major_alone_is_now_settled_by_the_year_and_says_so() -> None:
 
     assert [entry.profile_id for entry in listing.entries] == ["2", "1"]
     assert {entry.reason for entry in listing.entries} == {
-        phrase_as_sentence(ANN_TIED_ON_YEAR_PHRASE)
+        "Same major; nothing else on file; ordered by year."
     }
 
 
 def test_a_tie_the_year_cannot_settle_falls_to_the_fixed_order(client: TestClient) -> None:
     """(b) Two profiles of one major, one marker and one year are separated by the
     fixed order, and the line says so."""
-    fixed_order_sentence = phrase_as_sentence("tied; placed in a fixed order that never changes")
+    fixed_order_sentence = "Same major; nothing else on file; placed by a fixed random order."
     reasons = [entry["reason"] for entry in client.get(_LIST).json()["entries"]]
     assert fixed_order_sentence in reasons, (
         "no name was placed by the fixed order; this fixture no longer exercises the branch"

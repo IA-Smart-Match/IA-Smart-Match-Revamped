@@ -225,8 +225,7 @@ function EntryForm({ data }: { readonly data: EntryData }): React.JSX.Element {
         <div className="flex items-center gap-ce-3 md:w-0 md:min-w-full">
           <TeamBadgeArt className="size-8 shrink-0 text-ce-primary" />
           <p className="ce-type-body text-ce-ink" data-slot="exercise-entry-current">
-            This browser is already in team {data.workspace.team_number}, working in{" "}
-            <strong>{data.workspace.dataset_label}</strong>.
+            This computer is already open as Team {data.workspace.team_number}.
           </p>
         </div>
       )}

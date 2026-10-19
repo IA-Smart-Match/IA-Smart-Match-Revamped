@@ -46,8 +46,8 @@ describe("ceMotion", () => {
     expect(ceMotion("row-reorder", true).transition).toMatchObject({ layout: { duration: 0 } });
   });
 
-  it("keeps the confirm window at five seconds", () => {
-    expect(CE_MOTION_MS.confirmWindow).toBe(5000);
+  it("keeps the confirm window at ten seconds", () => {
+    expect(CE_MOTION_MS.confirmWindow).toBe(10_000);
   });
 });
 
@@ -98,13 +98,13 @@ describe("useConfirmWindow", () => {
     expect(onConfirm).not.toHaveBeenCalled();
   });
 
-  it("reverts when the five-second window lapses", () => {
+  it("reverts when the ten-second window lapses", () => {
     vi.useFakeTimers();
     const onConfirm = vi.fn();
     const { result } = renderHook(() => useConfirmWindow({ onConfirm }));
     act(() => result.current.press());
     act(() => {
-      vi.advanceTimersByTime(4999);
+      vi.advanceTimersByTime(9999);
     });
     expect(result.current.armed).toBe(true);
     act(() => {
@@ -130,14 +130,14 @@ describe("ConfirmWindowUnderline", () => {
     const line = document.querySelector('[data-slot="ce-confirm-underline"]') as HTMLElement;
     expect(line).not.toBeNull();
     expect(line.getAttribute("aria-hidden")).toBe("true");
-    expect(line.style.animationDuration).toBe("5000ms");
-    expect(screen.queryByText("5 seconds")).toBeNull();
+    expect(line.style.animationDuration).toBe("10000ms");
+    expect(screen.queryByText("10 seconds")).toBeNull();
   });
 
   it("swaps the underline for a static helper under reduced motion", () => {
     render(<ConfirmWindowUnderline active reduced />);
     expect(document.querySelector('[data-slot="ce-confirm-underline"]')).toBeNull();
-    expect(screen.getByText("5 seconds")).toBeDefined();
+    expect(screen.getByText("10 seconds")).toBeDefined();
   });
 
   it("derives the reduced-motion helper from the window length", () => {
