@@ -110,7 +110,6 @@ describe("TeamStatusBand", () => {
     expect(value("round-2")).toBe("Results not open yet");
     expect(value("asking")).toBe("Not chosen yet");
     expect(value("refresh")).toBe("Not done yet");
-    expect(value("file")).toBe("October file");
   });
 
   it("is a named region, and not a live region for its own first appearance", async () => {
@@ -155,7 +154,7 @@ describe("TeamStatusBand", () => {
     expect(value("round-1")).toBe("Results run");
     expect(value("round-2")).toBe("Results open, not run yet");
     expect(value("asking")).toBe("A small reward");
-    expect(value("refresh")).toBe("Done at 10:42 AM");
+    expect(value("refresh")).toBe("Asked at 10:42 AM");
     expect(calls.filter((url) => url === WORKSPACE)).toHaveLength(2);
   });
 

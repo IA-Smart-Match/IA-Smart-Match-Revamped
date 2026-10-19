@@ -72,7 +72,7 @@ export function WeightsCompactBar({
         <p className="ce-type-meta ce-tabular flex min-w-0 items-center gap-ce-2 text-ce-ink">
           <SlidersHorizontal aria-hidden="true" className="size-5 shrink-0 text-ce-primary" />
           <span>
-            Weights {values.map((value) => formatWeight(value)).join(" · ")} · Total{" "}
+            Slider numbers {values.map((value) => formatWeight(value)).join(" · ")} · Total{" "}
             {formatWeightTotal(weightTotal(values))}
           </span>
         </p>
@@ -84,7 +84,7 @@ export function WeightsCompactBar({
             onEdit();
           }}
         >
-          Edit weights
+          Change slider numbers
         </Button>
       </div>
     </div>

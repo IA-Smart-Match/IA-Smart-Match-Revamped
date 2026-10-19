@@ -12,7 +12,7 @@
  * Used on both screens that offer the refresh (Asking for more, and Results),
  * so the question is the same words in both places.
  *
- * Once asked, the button is grey and says so itself: "Already refreshed at
+ * Once asked, the button is grey and says so itself: "Already asked at
  * 10:42 AM" (`aria-disabled`, never `disabled`, so it stays focusable).
  */
 import * as React from "react";
@@ -28,10 +28,10 @@ import {
 import { alreadyRefreshedLabel } from "./refreshWording";
 
 /** The button before it is pressed. */
-export const ASK_LABEL = "Ask them now";
+export const ASK_LABEL = "Ask students now";
 
 /** The button while it waits for the second press. */
-export const ASK_QUESTION = "Ask them now? Your team can ask only once";
+export const ASK_QUESTION = "Ask students now? Your team can ask only once.";
 
 /** Shown and spoken while the question is up. */
 export const ASK_HINT = "Press again to ask. Your team cannot ask a second time, and it cannot be undone.";

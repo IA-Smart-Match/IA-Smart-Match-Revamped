@@ -81,8 +81,8 @@ describe("a server timestamp, which carries its offset", () => {
     const utc = "2026-10-16T17:42:00+00:00";
     const pacific = await inRoom("America/Los_Angeles");
     expect(pacific.clockTime(utc)).toBe("10:42 AM");
-    expect(pacific.alreadyRefreshedLabel(utc)).toBe("Already refreshed at 10:42 AM");
-    expect(pacific.refreshDoneLine(utc)).toBe("Refresh done at 10:42 AM.");
+    expect(pacific.alreadyRefreshedLabel(utc)).toBe("Already asked at 10:42 AM");
+    expect(pacific.refreshDoneLine(utc)).toBe("Updated at 10:42 AM.");
 
     const eastern = await inRoom("America/New_York");
     expect(eastern.clockTime(utc)).toBe("1:42 PM");
@@ -92,16 +92,16 @@ describe("a server timestamp, which carries its offset", () => {
 describe("the refresh summary", () => {
   it("is Ann's example, word for word", () => {
     expect(refreshSummaryText(AT, COUNTS, "Northline")).toBe(
-      "Refresh done at 10:42 AM. 9 people who came to Northline now count as having gone to a similar event. 12 of the 22 invited people with no card completed one. 0 people stopped responding.",
+      "Updated at 10:42 AM. 9 people who came to Northline now count as having gone to a similar event. This counts only toward events on the same topic as Northline. 12 of the 22 invited people with no card completed one. 0 people stopped responding: they stop opening messages and will not sign up for anything, mass email included.",
     );
   });
 
   it("uses the singular for one person", () => {
     const one = { ...COUNTS, topics_added: 1, non_responding: 1, invited_without_card: 1, cards_completed: 1 };
     expect(refreshChangeSentences(one, "Northline")).toEqual([
-      "1 person who came to Northline now counts as having gone to a similar event.",
+      "1 person who came to Northline now counts as having gone to a similar event. This counts only toward events on the same topic as Northline.",
       "1 of the 1 invited person with no card completed one.",
-      "1 person stopped responding.",
+      "1 person stopped responding: they stop opening messages and will not sign up for anything, mass email included.",
     ]);
   });
 
@@ -114,10 +114,10 @@ describe("the refresh summary", () => {
 
   it("names no event it was not given, and leaves out a time it does not have", () => {
     expect(refreshChangeSentences(COUNTS, null)[0]).toBe(
-      "9 people who came to the first event now count as having gone to a similar event.",
+      "9 people who came to the first event now count as having gone to a similar event. This counts only toward events on the same topic as the first event.",
     );
-    expect(refreshDoneLine(null)).toBe("Refresh done.");
-    expect(refreshSummaryText(null, null, null)).toBe("Refresh done.");
+    expect(refreshDoneLine(null)).toBe("Updated.");
+    expect(refreshSummaryText(null, null, null)).toBe("Updated.");
   });
 
   it("never writes a percentage", () => {
@@ -127,8 +127,8 @@ describe("the refresh summary", () => {
 
 describe("the shut button", () => {
   it("says when the refresh happened", () => {
-    expect(alreadyRefreshedLabel(AT)).toBe("Already refreshed at 10:42 AM");
-    expect(alreadyRefreshedLabel(null)).toBe("Already refreshed");
+    expect(alreadyRefreshedLabel(AT)).toBe("Already asked at 10:42 AM");
+    expect(alreadyRefreshedLabel(null)).toBe("Already asked");
   });
 });
 
@@ -194,7 +194,7 @@ describe("the instructor's every-team report", () => {
   it("gives a refreshed team the summary that team reads itself", () => {
     expect(refreshAllTeamLine(REFRESHED, { nameFile: false })).toEqual({
       team: "Team 2:",
-      what: "Asked for more at 10:42 AM. 9 people who came to Northline now count as having gone to a similar event. 12 of the 22 invited people with no card completed one. 0 people stopped responding. Completed card: 70 → 82.",
+      what: "Asked for more at 10:42 AM. 9 people who came to Northline now count as having gone to a similar event. This counts only toward events on the same topic as Northline. 12 of the 22 invited people with no card completed one. 0 people stopped responding: they stop opening messages and will not sign up for anything, mass email included. Completed card: 70 → 82.",
     });
   });
 

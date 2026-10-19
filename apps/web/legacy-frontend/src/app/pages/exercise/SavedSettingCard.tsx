@@ -106,7 +106,7 @@ export function SavedSettingCard({
       {confirming ? (
         <div role="group" aria-labelledby={`${id}-confirm`} className="flex flex-col gap-ce-3">
           <p id={`${id}-confirm`} className="ce-type-body text-ce-ink">
-            Delete {setting.name}? It cannot be brought back.
+            Delete “{setting.name}”? You cannot undo this.
           </p>
           <div className="flex flex-wrap gap-ce-3">
             <Button
@@ -175,7 +175,7 @@ export function FreeSettingSlot({
     >
       <EmptySlotArt className="w-20" />
       <p className="ce-type-meta ce-measure text-ce-ink-muted">
-        Slot {slot} of {of} is free. Save the weights on screen to fill it.
+        Empty. Save a setting to fill this slot.
       </p>
     </li>
   );
