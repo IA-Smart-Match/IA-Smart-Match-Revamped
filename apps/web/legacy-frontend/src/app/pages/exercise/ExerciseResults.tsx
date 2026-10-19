@@ -79,6 +79,7 @@ import { cn } from "../../components/ui/utils";
 import { AskOnceButton } from "./AskOnceButton";
 import {
   Button,
+  ConfirmLabel,
   ConfirmWindowUnderline,
   formatWeight,
   useConfirmWindow,
@@ -575,7 +576,7 @@ function ResultsBody({
  * Ann's checklist of 2026-10-02: "The screen asks “Send this list? You get one
  * results run for Northline” before running." The first press arms the button
  * and sends nothing; it then reads as that question, and a second press inside
- * five seconds sends the run. Escape, waiting, or choosing a different final
+ * ten seconds sends the run. Escape, waiting, or choosing a different final
  * setting puts it back. A held Enter or Space never confirms: the run is once
  * per team, and a key repeat must not spend it.
  *
@@ -631,7 +632,7 @@ function RunButton({
         }}
       >
         <span className="inline-flex flex-col items-stretch">
-          <span>{armed ? question : "Run results for this event"}</span>
+          <ConfirmLabel armed={armed} idle="Run results for this event" armedLabel={question} />
           <ConfirmWindowUnderline active={armed && !reduced} reduced={false} />
         </span>
       </Button>

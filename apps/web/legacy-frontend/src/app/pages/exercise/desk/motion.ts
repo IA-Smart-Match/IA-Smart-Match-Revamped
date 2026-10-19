@@ -36,7 +36,7 @@ export const CE_MOTION_MS = {
   overlapPulse: 600,
   overlapStagger: 30,
   confirmSwap: 150,
-  confirmWindow: 5000,
+  confirmWindow: 10_000,
   choiceCommit: 240,
   unlock: 300,
   seatFill: 1800,
