@@ -497,13 +497,29 @@ def test_before_after_rows_in_round_two(
 def test_before_row_uses_no_overlay(
     fakes: _Fakes, client: TestClient, confirmed: SimulationCoefficients
 ) -> None:
-    """Team 1's before row equals what an untouched team on the same seed gets."""
-    _prepare_refresh(fakes, client)
+    """Two teams, same seed, different asking choices: equal before rows."""
+    _prepare_refresh(fakes, client, "required")
     assert client.post(_REFRESH, json={}, headers=_HEADER).status_code == 200
     mine = client.post(_RESULTS_TWO, json=_FINAL_BODY, headers=_HEADER).json()
-    with _entered(fakes, 2) as plain:
-        fakes.unlock("round-two")
-        theirs = plain.post(_RESULTS_TWO, json=_FINAL_BODY, headers=_HEADER).json()
-    assert mine["before_after"]["rows"][0] == theirs["before_after"]["rows"][1] | {
-        "label": mine["before_after"]["rows"][0]["label"]
-    }
+    with _entered(fakes, 2) as other:
+        _prepare_refresh(fakes, other, "small_reward")
+        assert other.post(_REFRESH, json={}, headers=_HEADER).status_code == 200
+        theirs = other.post(_RESULTS_TWO, json=_FINAL_BODY, headers=_HEADER).json()
+    strip = lambda row: {k: v for k, v in row.items() if k != "label"}  # noqa: E731
+    assert strip(mine["before_after"]["rows"][0]) == strip(theirs["before_after"]["rows"][0])
+
+
+def test_before_after_has_three_labelled_rows(
+    fakes: _Fakes, client: TestClient, confirmed: SimulationCoefficients
+) -> None:
+    _prepare_refresh(fakes, client)
+    assert client.post(_REFRESH, json={}, headers=_HEADER).status_code == 200
+    rows = client.post(_RESULTS_TWO, json=_FINAL_BODY, headers=_HEADER).json()["before_after"][
+        "rows"
+    ]
+    assert [r["label"].split(", ")[-1] for r in rows] == [
+        "before asking",
+        "after asking",
+        "after asking",
+    ]
+    assert rows[2]["label"].startswith("Major first")
