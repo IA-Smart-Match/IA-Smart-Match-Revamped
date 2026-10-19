@@ -262,10 +262,11 @@ class Student:
         elif resp is not None and error_code(resp) != "exercise_too_many_settings":
             RECORDS[-1]["ok"] = False  # only the 3-name cap is an expected 409
 
-    async def matching(self, event: str, until: float, scale: float) -> None:
+    async def matching(self, event: str, until: float) -> None:
         await self.save(event, self.prefix + "A")  # the name the results run uses
         while time.perf_counter() < until:
-            await asyncio.sleep(self.rng.uniform(6, 20) / scale)
+            # Think time stays real (plan 1.3): --scale shortens phases, never the request rate.
+            await asyncio.sleep(self.rng.uniform(6, 20))
             r = self.rng.random()
             ev = f"{WS}/events/{event}"
             if r < 0.70:
@@ -408,7 +409,7 @@ class Instructor:
         return resp.json() if resp is not None and resp.status_code == 200 else {}
 
     async def poll(self, stop: asyncio.Event, every: float) -> None:
-        """The projector: teams page every 15 s (scaled), one team detail each time."""
+        """The projector: teams page every 15 s, one team detail each time."""
         n = 0
         while not stop.is_set():
             await self.teams()
@@ -613,7 +614,7 @@ async def run(args) -> int:
     bg = [
         asyncio.create_task(sampler(stop, pids, args.pg_dsn)),
         asyncio.create_task(canary(args.base, stop)),
-        asyncio.create_task(ins.poll(stop, 15 / scale)),
+        asyncio.create_task(ins.poll(stop, 15)),
     ]
     t_start = time.perf_counter()
 
@@ -632,7 +633,7 @@ async def run(args) -> int:
         )
         phase("S1 matching Northline")
         until = time.perf_counter() + 20 * 60 / scale
-        await asyncio.gather(*(s.matching(ROUND1, until, scale) for s in students))
+        await asyncio.gather(*(s.matching(ROUND1, until) for s in students))
         await check_isolation(students, ins, ROUND1)
         phase("B2 refresh load")
         await asyncio.gather(*(arrive(s, ROUND1) for s in students))
@@ -641,7 +642,7 @@ async def run(args) -> int:
         await asking_and_refresh(students, ins, 10)
         phase("S2 matching Harbor")
         until = time.perf_counter() + 8 * 60 / scale
-        await asyncio.gather(*(s.matching(ROUND2, until, scale) for s in students))
+        await asyncio.gather(*(s.matching(ROUND2, until) for s in students))
         await check_isolation(students, ins, ROUND2)
         phase("B3 run Harbor")
         await results_burst(students, ins, ROUND2, 10)
@@ -649,7 +650,7 @@ async def run(args) -> int:
         picked = [s for s in students if s.rng.random() < 0.6]
 
         async def csv_once(s: Student) -> None:
-            await asyncio.sleep(s.rng.uniform(0, 90 / scale))
+            await asyncio.sleep(s.rng.uniform(0, 90))
             await call(s.client, "GET list.csv", "GET", f"{WS}/events/{ROUND2}/list.csv")
 
         await asyncio.gather(*(csv_once(s) for s in picked))
@@ -841,7 +842,10 @@ def main() -> None:
     )
     p.add_argument("--students", type=int, default=100)
     p.add_argument(
-        "--scale", type=float, default=10.0, help="time compression (10 = 20-min block in 2 min)"
+        "--scale",
+        type=float,
+        default=10.0,
+        help="phase-length compression (10 = 20-min matching block in 2 min); rates stay real",
     )
     p.add_argument("--seed", type=int, default=20261019)
     p.add_argument("--out", required=True)
