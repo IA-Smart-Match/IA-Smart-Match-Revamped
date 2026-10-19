@@ -214,7 +214,13 @@ describe("<ExerciseResults />", () => {
     });
     renderResults();
     await runWith("Wide net");
-    await waitFor(() => expect(screen.getByText(sentence)).toBeDefined());
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          "Your instructor has not opened results yet. You can still pick your setting and review its list. Press Check again once your instructor says results are open.",
+        ),
+      ).toBeDefined(),
+    );
   });
 
   it("renders an already-run event as a state, with the spec's own sentence", async () => {
@@ -356,7 +362,7 @@ describe("<ExerciseResults />", () => {
 
     await runWith("Only majors");
 
-    await waitFor(() => expect(screen.getByText("Not open yet.")).toBeDefined());
+    await waitFor(() => expect(screen.getByText(/^Your instructor has not opened results yet\./)).toBeDefined());
     const posted = calls.find((call) => call.init.method === "POST");
     expect(JSON.parse(String(posted?.init.body))).toEqual({ setting_name: "Only majors" });
   });
