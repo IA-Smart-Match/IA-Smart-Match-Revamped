@@ -68,6 +68,7 @@ import { AskingChoiceCard, type AskingCardState } from "./ExerciseAskingChoiceCa
 import { ExerciseNotice, ExerciseScreen } from "./ExerciseScreen";
 import { RefreshSummary } from "./RefreshSummary";
 import { refreshSummaryText } from "./refreshWording";
+import { RoundBanner } from "./RoundBanner";
 import { TeamStatusBand, useStatusRevision } from "./TeamStatusBand";
 import { askingWords } from "./teamStatusWording";
 import { isAccessRefusal, useExerciseResource } from "./useExerciseResource";
@@ -186,7 +187,7 @@ export function ExerciseAskingForMore(): React.JSX.Element {
           Back to the events
         </Link>
       }
-      status={<TeamStatusBand revision={revision} />}
+      status={<><RoundBanner page="asking" revision={revision} /><TeamStatusBand revision={revision} /></>}
     >
       {state.status === "loading" ? <AskingSkeleton /> : null}
       {state.status === "refused" ? workspaceRequiredNotice(state.refusal) : null}

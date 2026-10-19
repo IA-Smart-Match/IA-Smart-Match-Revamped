@@ -158,8 +158,8 @@ describe("<ExerciseAskingForMore />", () => {
         document.querySelectorAll('[data-slot="exercise-asking-choices"] button').length,
       ).toBe(3),
     );
-    expect(calls[0].url).toBe(ASKING);
-    expect(calls[0].url.includes("/api/")).toBe(false);
+    expect(calls.some((c) => c.url === ASKING)).toBe(true);
+    expect(calls.every((c) => !c.url.includes("/api/"))).toBe(true);
   });
 
   it("shows a choice the server invents rather than swallowing it", async () => {

@@ -127,3 +127,34 @@ export function teamStatusSentence(teamNumber: number, items: readonly TeamStatu
     .map((part) => `${part}.`)
     .join(" ");
 }
+
+/** Which student page a round banner sits on. */
+export type RoundPage = "event" | "asking" | "results";
+
+/** "Northline Analytics: Behind the Business" -> "Northline". */
+export function shortEventName(name: string): string {
+  return name.trim().split(/[\s:]+/)[0] ?? name;
+}
+
+/** Dr. Wang 2026-10-23: "Round 1 of 2: Northline". */
+export function roundBannerTitle(round: RoundStatus, total: number): string {
+  return `Round ${round.round} of ${total}: ${shortEventName(round.name)}`;
+}
+
+/** The one line on what to do, per page (each at most 20 words). */
+export function roundBannerLine(page: RoundPage, round: RoundStatus): string {
+  if (page === "asking") {
+    return "Start by choosing how to ask students for more information.";
+  }
+  if (page === "results") {
+    return "See how your list did.";
+  }
+  return round.round === 1
+    ? "Build your list of students for CBACH to email, then choose one setting and see results."
+    : `Build your ${shortEventName(round.name)} list with what you now know, then choose one setting and see results.`;
+}
+
+/** Shown once round 1's results exist. */
+export function roundOneDoneLine(next: RoundStatus): string {
+  return `Round 1 done. Next: Round ${next.round}, ${shortEventName(next.name)}. Start by choosing how to ask students for more information.`;
+}
