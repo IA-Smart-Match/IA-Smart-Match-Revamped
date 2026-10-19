@@ -68,6 +68,29 @@ import { useExerciseResource } from "./useExerciseResource";
 /** How often the list is re-read while the tab is visible. Gentle: one small GET. */
 export const TEAMS_POLL_MS = 15_000;
 
+/** The exercise has six teams; the list always shows all six. */
+const TEAM_NUMBERS = [1, 2, 3, 4, 5, 6] as const;
+
+/** Which file the teams are on now, and whether the newest upload is a different one. */
+export function filesSentence(
+  teams: readonly TeamSummaryView[],
+  newest: string | null,
+): string {
+  if (newest === null) {
+    return "No data file has been uploaded yet.";
+  }
+  const used = [...new Set(teams.map((team) => team.dataset_label))];
+  if (used.length === 0) {
+    return `The newest data file is ${newest}. No team has entered on it yet.`;
+  }
+  const using = `Teams are using: ${used.join(", ")}.`;
+  return used.includes(newest) && used.length === 1
+    ? using
+    : used.includes(newest)
+      ? `${using} The newest upload is ${newest}.`
+      : `${using} The newest upload, ${newest}, is not in use yet. Teams stay on ${used.join(", ")} until you move them.`;
+}
+
 /** The page's sentence for a request that never landed. */
 const UNREACHABLE = "The exercise could not be reached. Check the connection and try again.";
 
@@ -203,20 +226,26 @@ export function InstructorTeams({
       {state.status === "ready" ? (
         <>
           <p className="ce-type-body ce-measure text-ce-ink-muted">
-            {state.data.active_dataset_label === null
-              ? "No data file has been uploaded yet."
-              : `The newest data file is ${state.data.active_dataset_label}. A team stays in the file it entered on until it is moved.`}
+            {filesSentence(state.data.teams, state.data.active_dataset_label)}
           </p>
           {checkedAt === null ? null : (
             <p data-slot="exercise-teams-checked" className="ce-type-meta ce-tabular text-ce-ink-muted">
               {`Teams last read at ${checkedAt}.`}
             </p>
           )}
-          {state.data.teams.length === 0 ? (
-            <p className="ce-type-body text-ce-ink-muted">No team has entered a number yet.</p>
-          ) : (
-            <ul className="flex flex-col divide-y divide-ce-line">
-              {state.data.teams.map((team) => (
+          <ul className="flex flex-col divide-y divide-ce-line">
+            {TEAM_NUMBERS.flatMap((number) => {
+              const rows = state.data.teams.filter((team) => team.team_number === number);
+              if (rows.length === 0) {
+                return [
+                  <li key={`none-${number}`} className="py-ce-4 first:pt-ce-2 last:pb-0">
+                    <p className="ce-type-body text-ce-ink-muted">
+                      {`Team ${number} has not entered its number on this server yet.`}
+                    </p>
+                  </li>,
+                ];
+              }
+              return rows.map((team) => (
                 <li
                   key={`${team.dataset_id}-${team.team_number}`}
                   className="py-ce-4 first:pt-ce-2 last:pb-0"
@@ -234,9 +263,9 @@ export function InstructorTeams({
                     }
                   />
                 </li>
-              ))}
-            </ul>
-          )}
+              ));
+            })}
+          </ul>
         </>
       ) : null}
     </PanelCard>
