@@ -1,0 +1,583 @@
+"""Classroom load test for the class exercise: 6 teams x ~17 devices (Plan A, local).
+
+Replays the run-of-show bursts B1-B6 from the load-test plan against a running
+exercise stack (frontend server that proxies /v1, or api-exercise directly) and
+checks correctness after every burst, not just latency.
+
+    python tools/loadtest/classroom_load.py --base http://127.0.0.1:4174 \
+        --students 100 --out runs/v1-built --api-pid 1234 --pg-dsn postgresql://...
+
+The instructor passcode is read from LOADTEST_INSTRUCTOR_PASSCODE and never printed.
+Stdlib + httpx (already a repo dependency) + optional psycopg for DB sampling.
+See docs/operations/exercise-load-test.md.
+"""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+import csv
+import json
+import math
+import os
+import random
+import re
+import statistics
+import sys
+import time
+from collections import Counter, defaultdict
+from pathlib import Path
+
+import httpx
+
+TEAMS = range(1, 7)
+ROUND1, ROUND2 = "E11", "E12"  # Northline, Harbor in Ann's fixture file
+FACTORS = ("same_major", "stated_interest_overlap", "career_goal_fit", "past_event_topic_overlap")
+HDR = {"X-Exercise-Request": "1"}
+WS = "/v1/exercise/workspaces/current"
+INS = "/v1/exercise/instructor"
+IMPATIENT_S = 8.0  # a page with no first row after 8 s gets reloaded (plan 1.1)
+MAX_RELOADS = 3
+# Plan 4.2 targets (seconds).
+READ_P95, WRITE_P95, ANY_P99, PAGE_P95 = 1.5, 2.0, 4.0, 5.0
+
+RECORDS: list[dict] = []  # one row per request
+SAMPLES: list[dict] = []  # one row per resource sample
+BURST = {"name": "setup"}
+
+
+def lognormal_delay(rng: random.Random, median: float = 6.0, p90: float = 20.0) -> float:
+    """Arrival offset: lognormal with the plan's median 6 s / p90 20 s."""
+    sigma = (math.log(p90) - math.log(median)) / 1.2816
+    return rng.lognormvariate(math.log(median), sigma)
+
+
+def pct(values: list[float], q: float) -> float:
+    """Nearest-rank percentile; 0.0 for an empty list."""
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    return ordered[min(len(ordered) - 1, max(0, math.ceil(q / 100 * len(ordered)) - 1))]
+
+
+def error_code(resp: httpx.Response) -> str:
+    try:
+        body = resp.json()
+    except ValueError:
+        return ""
+    if isinstance(body, dict) and isinstance(body.get("error"), dict):
+        return str(body["error"].get("code", ""))
+    return ""
+
+
+async def call(client: httpx.AsyncClient, name: str, method: str, url: str,
+               expect: tuple[int, ...] = (200,), **kw) -> httpx.Response | None:
+    """One timed request. Status outside `expect` (or a transport error) is unexpected."""
+    t0 = time.perf_counter()
+    status, code, resp = 0, "", None
+    try:
+        resp = await client.request(method, url, headers=HDR, **kw)
+        status = resp.status_code
+        code = error_code(resp) if status >= 400 else ""
+    except (httpx.HTTPError, asyncio.TimeoutError) as exc:
+        code = type(exc).__name__
+    except asyncio.CancelledError:
+        RECORDS.append(_row(name, method, t0, -1, "cancelled", False))
+        raise
+    RECORDS.append(_row(name, method, t0, status, code, status in expect))
+    return resp
+
+
+def _row(name, method, t0, status, code, ok) -> dict:
+    return {"burst": BURST["name"], "name": name, "method": method, "t": round(t0, 3),
+            "latency": round(time.perf_counter() - t0, 4), "status": status, "code": code, "ok": ok}
+
+
+# ---------------------------------------------------------------- static assets
+
+IMPORT_RE = re.compile(r"""(?:\bfrom\s*|\bimport\s*\(?\s*)["'](/[^"']+)["']""")
+DYN_RE = re.compile(r"""import\(\s*["'](/[^"']+)["']""")
+BUILT_RE = re.compile(r"""["'/](assets/[\w.\-]+\.(?:js|css))["']""")
+
+
+async def capture_assets(base: str) -> list[str]:
+    """Same-origin files a cold load of /exercise fetches (dev: module graph; built: chunks).
+
+    ponytail: regex crawl, keeps static imports + exercise lazy routes; a Playwright
+    capture is exact (plan 2.1) if this proves too far off.
+    """
+    async with httpx.AsyncClient(base_url=base, timeout=60) as c:
+        html = (await c.get("/exercise")).text
+        queue = re.findall(r'(?:src|href)="(/[^"]+)"', html)
+        seen: list[str] = []
+        while queue:
+            path = queue.pop(0)
+            if path in seen or path.startswith(("/v1", "/api")):
+                continue
+            seen.append(path)
+            text = (await c.get(path)).text
+            if not re.search(r"\.(m?js|tsx?|jsx|css)(\?|$)|/@|/node_modules/", path):
+                continue
+            dyn = set(DYN_RE.findall(text))
+            queue += [m for m in IMPORT_RE.findall(text) if m not in dyn or "xercise" in m]
+            queue += ["/" + m for m in BUILT_RE.findall(text) if "xercise" in m or "vendor" in m]
+        return seen
+
+
+# ---------------------------------------------------------------- actors
+
+class Student:
+    def __init__(self, idx: int, team: int, base: str, rng: random.Random, assets: list[str]):
+        self.idx, self.team, self.rng, self.assets = idx, team, rng, assets
+        self.client = httpx.AsyncClient(base_url=base, timeout=60,
+                                        limits=httpx.Limits(max_connections=6))
+        self.prefix = f"t{team}-"
+        self.wrote: set[tuple[str, str]] = set()
+        self.reloads = 0
+
+    async def _assets(self) -> None:
+        sem = asyncio.Semaphore(6)  # browser-like parallelism per device
+
+        async def one(path: str) -> None:
+            async with sem:
+                await call(self.client, "asset", "GET", path)
+
+        await asyncio.gather(*(one(p) for p in self.assets))
+
+    async def _page_once(self, event: str) -> None:
+        await self._assets()
+        await call(self.client, "GET /v1/exercise", "GET", "/v1/exercise")
+        cur = await call(self.client, "GET current", "GET", WS, expect=(200, 401))
+        if cur is None or cur.status_code != 200:
+            await call(self.client, "POST workspaces", "POST", "/v1/exercise/workspaces",
+                       json={"team_number": self.team})
+            await call(self.client, "GET current", "GET", WS)
+        await asyncio.gather(call(self.client, "GET events", "GET", f"{WS}/events"),
+                             call(self.client, "GET events", "GET", f"{WS}/events"))
+        await asyncio.gather(call(self.client, "GET list", "GET", f"{WS}/events/{event}/list"),
+                             call(self.client, "GET settings", "GET", f"{WS}/events/{event}/settings"))
+
+    async def page_load(self, event: str = ROUND1) -> None:
+        """Full page load to first list row; reloaded when it takes over 8 s."""
+        t0 = time.perf_counter()
+        for attempt in range(MAX_RELOADS + 1):
+            try:
+                await asyncio.wait_for(self._page_once(event), IMPATIENT_S if attempt < MAX_RELOADS else None)
+                RECORDS.append(_row("page_load", "PAGE", t0, 200, f"reloads={attempt}", True))
+                return
+            except asyncio.TimeoutError:
+                self.reloads += 1
+
+    def _weights(self) -> dict[str, int]:
+        return {f: self.rng.randint(0, 10) for f in FACTORS}
+
+    async def save(self, event: str, name: str) -> None:
+        resp = await call(self.client, "PUT settings", "PUT", f"{WS}/events/{event}/settings/{name}",
+                          expect=(200, 409), json={"weights": self._weights()})
+        if resp is not None and resp.status_code == 200:
+            self.wrote.add((event, name))
+        elif resp is not None and error_code(resp) != "exercise_too_many_settings":
+            RECORDS[-1]["ok"] = False  # only the 3-name cap is an expected 409
+
+    async def matching(self, event: str, until: float, scale: float) -> None:
+        await self.save(event, self.prefix + "A")  # the name the results run uses
+        while time.perf_counter() < until:
+            await asyncio.sleep(self.rng.uniform(6, 20) / scale)
+            r = self.rng.random()
+            ev = f"{WS}/events/{event}"
+            if r < 0.70:
+                for _ in range(3 if self.rng.random() < 0.10 else 1):  # keyboard: 3 commits
+                    w = self._weights()
+                    await asyncio.gather(call(self.client, "GET list", "GET", f"{ev}/list", params=w),
+                                         call(self.client, "GET settings", "GET", f"{ev}/settings"))
+                    await asyncio.sleep(0.3)
+            elif r < 0.80:
+                name = self.prefix + (self.rng.choice("ABC") if self.rng.random() < 0.6
+                                      else f"x{self.rng.randint(0, 99)}")
+                await self.save(event, name)
+            elif r < 0.88:
+                await call(self.client, "GET compare", "GET", f"{ev}/settings/compare", expect=(200, 404),
+                           params={"a": self.prefix + "A", "b": self.prefix + "B"})
+            elif r < 0.92:
+                await call(self.client, "GET list.csv", "GET", f"{ev}/list.csv")
+            elif r < 0.97:
+                await self.page_load(event)
+            else:
+                await call(self.client, "GET events", "GET", f"{WS}/events")
+
+    async def settings_names(self, event: str) -> list[str]:
+        resp = await call(self.client, "GET settings", "GET", f"{WS}/events/{event}/settings")
+        return [s["name"] for s in resp.json()["settings"]] if resp is not None and resp.status_code == 200 else []
+
+    async def run_results(self, event: str, window: float) -> tuple[int, str, str | None]:
+        await asyncio.sleep(self.rng.uniform(0, window))
+        resp = await call(self.client, "POST results", "POST", f"{WS}/events/{event}/results",
+                          expect=(201, 409), json={"setting_name": self.prefix + "A"})
+        status, code = (resp.status_code, error_code(resp)) if resp is not None else (0, "transport")
+        if status == 409 and code != "exercise_results_already_run":
+            RECORDS[-1]["ok"] = False
+        got = await call(self.client, "GET results", "GET", f"{WS}/events/{event}/results")
+        stamp = (got.json() or {}).get("created_at") if got is not None and got.status_code == 200 else None
+        return status, code, stamp
+
+    async def ask(self, window: float) -> tuple[int, str]:
+        await asyncio.sleep(self.rng.uniform(0, window))
+        choice = self.rng.choice(["better_recommendations", "small_reward", "required"])
+        resp = await call(self.client, "POST asking-choice", "POST", f"{WS}/asking-choice",
+                          expect=(200, 409), json={"choice": choice})
+        status, code = (resp.status_code, error_code(resp)) if resp is not None else (0, "transport")
+        if status == 409 and code != "exercise_asking_already_chosen":
+            RECORDS[-1]["ok"] = False
+        return status, code
+
+    async def refresh(self, window: float) -> tuple[int, str]:
+        await asyncio.sleep(self.rng.uniform(0, window))
+        resp = await call(self.client, "POST refresh", "POST", f"{WS}/refresh", expect=(200, 409))
+        status, code = (resp.status_code, error_code(resp)) if resp is not None else (0, "transport")
+        if status == 409 and code != "exercise_already_refreshed":
+            RECORDS[-1]["ok"] = False
+        return status, code
+
+    async def asking_state(self) -> dict:
+        resp = await call(self.client, "GET asking-choice", "GET", f"{WS}/asking-choice")
+        return resp.json() if resp is not None and resp.status_code == 200 else {}
+
+
+class Instructor:
+    def __init__(self, base: str):
+        self.client = httpx.AsyncClient(base_url=base, timeout=60)
+
+    async def login(self) -> None:
+        passcode = os.environ.get("LOADTEST_INSTRUCTOR_PASSCODE", "")
+        if not passcode:
+            sys.exit("LOADTEST_INSTRUCTOR_PASSCODE is not set")
+        resp = await call(self.client, "POST instructor login", "POST", f"{INS}/login",
+                          json={"passcode": passcode})
+        if resp is None or resp.status_code != 200:
+            sys.exit(f"instructor login refused: {resp.status_code if resp else 'no response'}"
+                     " (server needs SMARTMATCH_EXERCISE_COOKIE_SECURE=false on plain http)")
+
+    async def reset_all(self) -> None:
+        for n in TEAMS:
+            await call(self.client, "POST reset", "POST", f"{INS}/workspaces/{n}/reset", expect=(200, 404, 409))
+        for ev in (ROUND1, ROUND2):
+            await call(self.client, "POST lock", "POST", f"{INS}/events/{ev}/lock")
+
+    async def unlock(self, ev: str) -> None:
+        await call(self.client, "POST unlock", "POST", f"{INS}/events/{ev}/unlock")
+
+    async def teams(self) -> list[dict]:
+        resp = await call(self.client, "GET instructor workspaces", "GET", f"{INS}/workspaces")
+        return resp.json()["teams"] if resp is not None and resp.status_code == 200 else []
+
+    async def detail(self, n: int) -> dict:
+        resp = await call(self.client, "GET instructor detail", "GET", f"{INS}/workspaces/{n}")
+        return resp.json() if resp is not None and resp.status_code == 200 else {}
+
+    async def poll(self, stop: asyncio.Event, every: float) -> None:
+        """The projector: teams page every 15 s (scaled), one team detail each time."""
+        n = 0
+        while not stop.is_set():
+            await self.teams()
+            await self.detail(TEAMS[n % 6])
+            n += 1
+            try:
+                await asyncio.wait_for(stop.wait(), every)
+            except asyncio.TimeoutError:
+                pass
+
+
+async def canary(base: str, stop: asyncio.Event) -> None:
+    """1 req/s cheap read: shows lock waiters starving the pool or thread pool (H10)."""
+    async with httpx.AsyncClient(base_url=base, timeout=60) as c:
+        await c.post("/v1/exercise/workspaces", headers=HDR, json={"team_number": 1})
+        while not stop.is_set():
+            await call(c, "canary GET current", "GET", WS)
+            await asyncio.sleep(1)
+
+
+# ---------------------------------------------------------------- sampling
+
+def _proc_cpu(pid: int) -> tuple[float, int]:
+    fields = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()
+    ticks = int(fields[11]) + int(fields[12])
+    rss_pages = int(fields[21])
+    return ticks / os.sysconf("SC_CLK_TCK"), rss_pages * os.sysconf("SC_PAGE_SIZE") // 2**20
+
+
+async def sampler(stop: asyncio.Event, pids: dict[str, int], dsn: str | None) -> None:
+    """Every 1 s: CPU % and RSS per process, DB connections by state and advisory-lock waiters."""
+    conn = None
+    if dsn:
+        import psycopg  # repo dependency; only needed for DB sampling
+
+        conn = await psycopg.AsyncConnection.connect(dsn, autocommit=True)
+    last = {k: (_proc_cpu(p)[0], time.perf_counter()) for k, p in pids.items()}
+    while not stop.is_set():
+        await asyncio.sleep(1)
+        row = {"t": round(time.perf_counter(), 3), "burst": BURST["name"]}
+        for k, p in pids.items():
+            try:
+                cpu, rss = _proc_cpu(p)
+            except (FileNotFoundError, ProcessLookupError):
+                row[f"{k}_cpu"] = -1
+                continue
+            prev_cpu, prev_t = last[k]
+            now = time.perf_counter()
+            row[f"{k}_cpu"] = round(100 * (cpu - prev_cpu) / (now - prev_t), 1)
+            row[f"{k}_rss_mb"] = rss
+            last[k] = (cpu, now)
+        if conn is not None:
+            cur = await conn.execute(
+                "SELECT count(*) FILTER (WHERE state='active'), count(*) FILTER (WHERE state='idle'),"
+                " count(*) FILTER (WHERE state LIKE 'idle in transaction%'),"
+                " count(*) FILTER (WHERE wait_event_type='Lock' AND wait_event='advisory'), count(*)"
+                " FROM pg_stat_activity WHERE datname = current_database() AND pid <> pg_backend_pid()")
+            active, idle, idle_tx, adv, total = await cur.fetchone()
+            row.update(db_active=active, db_idle=idle, db_idle_tx=idle_tx, db_advisory_waiters=adv, db_total=total)
+        SAMPLES.append(row)
+    if conn is not None:
+        await conn.close()
+
+
+# ---------------------------------------------------------------- run of show
+
+CHECKS: list[dict] = []
+
+
+def check(name: str, ok: bool, detail: str = "") -> None:
+    CHECKS.append({"burst": BURST["name"], "check": name, "ok": bool(ok), "detail": detail})
+    print(f"  [{'PASS' if ok else 'FAIL'}] {BURST['name']}: {name} {detail}", flush=True)
+
+
+def by_team(students: list[Student], results: list) -> dict[int, list]:
+    out: dict[int, list] = defaultdict(list)
+    for s, r in zip(students, results):
+        out[s.team].append(r)
+    return out
+
+
+async def check_isolation(students: list[Student], ins: Instructor, event: str) -> None:
+    names = await asyncio.gather(*(s.settings_names(event) for s in students))
+    leaks = [(s.team, n) for s, ns in zip(students, names) for n in ns if not n.startswith(s.prefix)]
+    check("every student sees only own team's settings", not leaks, f"leaks={leaks[:5]}")
+    for n in TEAMS:
+        d = await ins.detail(n)
+        mine = {x["name"] for x in d.get("saved_settings", []) if x.get("event_key", event) == event}
+        bad = [x for x in mine if not x.startswith(f"t{n}-")]
+        check(f"instructor detail team {n}: only own settings", not bad, f"{sorted(mine)}")
+
+
+async def results_burst(students, ins, event: str, window: float) -> None:
+    await ins.unlock(event)
+    res = await asyncio.gather(*(s.run_results(event, window) for s in students))
+    for team, rows in sorted(by_team(students, res).items()):
+        created = Counter(st for st, _, _ in rows)
+        stamps = {ts for _, _, ts in rows}
+        check(f"team {team}: 1 x 201, rest 409 already_run",
+              created[201] == 1 and created[409] == len(rows) - 1, f"{dict(created)}")
+        check(f"team {team}: every device sees the same run", len(stamps) == 1 and None not in stamps,
+              f"distinct_created_at={len(stamps)}")
+        d = await ins.detail(team)
+        runs = [r for r in d.get("result_runs", []) if r.get("event_key") == event]
+        check(f"team {team}: instructor shows exactly 1 run for {event}", len(runs) == 1, f"runs={len(runs)}")
+
+
+async def asking_and_refresh(students, ins, window: float) -> None:
+    BURST["name"] = "B4 asking"
+    res = await asyncio.gather(*(s.ask(window) for s in students))
+    for team, rows in sorted(by_team(students, res).items()):
+        c = Counter(st for st, _ in rows)
+        check(f"team {team}: asking 1 x 200, rest 409", c[200] == 1 and c[409] == len(rows) - 1, f"{dict(c)}")
+    BURST["name"] = "B5 refresh + refresh-all"
+
+    async def refresh_all() -> list[int]:
+        await asyncio.sleep(window / 2)
+        resp = await call(ins.client, "POST refresh-all", "POST", f"{INS}/refresh-all")
+        return resp.json().get("refreshed_team_numbers", []) if resp is not None and resp.status_code == 200 else []
+
+    res, by_instructor = await asyncio.gather(asyncio.gather(*(s.refresh(window) for s in students)), refresh_all())
+    for team, rows in sorted(by_team(students, res).items()):
+        done = Counter(st for st, _ in rows)[200] + (team in by_instructor)
+        check(f"team {team}: refreshed exactly once (students+instructor)", done == 1,
+              f"student_200={done - (team in by_instructor)} instructor={team in by_instructor}")
+    states = await asyncio.gather(*(s.asking_state() for s in students))
+    for team, rows in sorted(by_team(students, states).items()):
+        choices = {r.get("choice") for r in rows}
+        check(f"team {team}: all devices agree on asking + refreshed",
+              len(choices) == 1 and None not in choices and all(r.get("refreshed") for r in rows),
+              f"choices={choices}")
+
+
+async def run(args) -> int:
+    rng = random.Random(args.seed)
+    out = Path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
+    scale = args.scale
+    assets = [] if args.no_assets else await capture_assets(args.base)
+    print(f"assets per cold load: {len(assets)}; students: {args.students}; scale: {scale}x", flush=True)
+    ins = Instructor(args.base)
+    await ins.login()
+    await ins.reset_all()
+    students = [Student(i, TEAMS[i % 6], args.base, random.Random(rng.random()), assets)
+                for i in range(args.students)]
+    stop = asyncio.Event()
+    pids = {k: v for k, v in (("api", args.api_pid), ("web", args.web_pid)) if v}
+    bg = [asyncio.create_task(sampler(stop, pids, args.pg_dsn)), asyncio.create_task(canary(args.base, stop)),
+          asyncio.create_task(ins.poll(stop, 15 / scale))]
+    t_start = time.perf_counter()
+
+    async def arrive(s: Student, event: str) -> None:
+        await asyncio.sleep(lognormal_delay(s.rng))
+        await s.page_load(event)
+
+    try:
+        BURST["name"] = "B1 cold load"
+        await asyncio.gather(*(arrive(s, ROUND1) for s in students))
+        teams = await ins.teams()
+        check("instructor lists all 6 teams", sorted(t["team_number"] for t in teams) == list(TEAMS),
+              f"{[t['team_number'] for t in teams]}")
+        BURST["name"] = "S1 matching Northline"
+        until = time.perf_counter() + 20 * 60 / scale
+        await asyncio.gather(*(s.matching(ROUND1, until, scale) for s in students))
+        await check_isolation(students, ins, ROUND1)
+        BURST["name"] = "B2 refresh load"
+        await asyncio.gather(*(arrive(s, ROUND1) for s in students))
+        BURST["name"] = "B3 run Northline"
+        await results_burst(students, ins, ROUND1, 10)
+        await asking_and_refresh(students, ins, 10)
+        BURST["name"] = "S2 matching Harbor"
+        until = time.perf_counter() + 8 * 60 / scale
+        await asyncio.gather(*(s.matching(ROUND2, until, scale) for s in students))
+        await check_isolation(students, ins, ROUND2)
+        BURST["name"] = "B3 run Harbor"
+        await results_burst(students, ins, ROUND2, 10)
+        BURST["name"] = "B6 CSV"
+        picked = [s for s in students if s.rng.random() < 0.6]
+
+        async def csv_once(s: Student) -> None:
+            await asyncio.sleep(s.rng.uniform(0, 90 / scale))
+            await call(s.client, "GET list.csv", "GET", f"{WS}/events/{ROUND2}/list.csv")
+
+        await asyncio.gather(*(csv_once(s) for s in picked))
+        BURST["name"] = "final"
+        teams = {t["team_number"]: t for t in await ins.teams()}
+        for n in TEAMS:
+            t = teams.get(n, {})
+            check(f"instructor team {n}: 2 runs, asked, refreshed",
+                  t.get("result_run_count") == 2 and t.get("asking_choice") and t.get("refreshed_at"),
+                  f"runs={t.get('result_run_count')} asking={t.get('asking_choice')} refreshed={bool(t.get('refreshed_at'))}")
+    finally:
+        stop.set()
+        await asyncio.gather(*bg, return_exceptions=True)
+        for s in students:
+            await s.client.aclose()
+        if not args.keep_state:
+            await ins.reset_all()
+        await ins.client.aclose()
+    meta = {"base": args.base, "students": args.students, "scale": scale, "seed": args.seed,
+            "assets_per_load": len(assets), "reloads": sum(s.reloads for s in students),
+            "wall_s": round(time.perf_counter() - t_start, 1), "label": args.label}
+    return write_report(out, meta)
+
+
+# ---------------------------------------------------------------- report
+
+def summarize(records: list[dict]) -> list[dict]:
+    groups: dict[tuple[str, str, str], list[dict]] = defaultdict(list)
+    for r in records:
+        groups[(r["burst"], r["name"], r["method"])].append(r)
+    rows = []
+    for (burst, name, method), rs in groups.items():
+        lat = [r["latency"] for r in rs if r["status"] > 0]
+        rows.append({"burst": burst, "name": name, "method": method, "n": len(rs),
+                     "p50": round(pct(lat, 50), 3), "p95": round(pct(lat, 95), 3), "p99": round(pct(lat, 99), 3),
+                     "max": round(max(lat, default=0), 3),
+                     "unexpected": sum(1 for r in rs if not r["ok"] and r["status"] != -1),
+                     "status": dict(Counter(f"{r['status']}{':' + r['code'] if r['code'] and r['status'] >= 400 else ''}" for r in rs))})
+    return sorted(rows, key=lambda r: (r["burst"], -r["p95"]))
+
+
+def verdicts(records: list[dict]) -> list[dict]:
+    api = [r for r in records if r["name"] not in ("asset", "page_load") and r["status"] > 0]
+    reads = [r["latency"] for r in api if r["method"] == "GET"]
+    writes = [r["latency"] for r in api if r["method"] in ("POST", "PUT", "DELETE")]
+    pages = [r["latency"] for r in records if r["name"] == "page_load"]
+    counted = [r for r in records if r["status"] != -1]
+    unexpected = sum(1 for r in counted if not r["ok"])
+    fivexx = sum(1 for r in counted if r["status"] >= 500 or r["status"] == 0)
+    b3 = sum(1 for r in counted if r["burst"].startswith("B3") and not r["ok"])
+    return [
+        {"target": "API read p95 <= 1.5 s", "value": pct(reads, 95), "ok": pct(reads, 95) <= READ_P95},
+        {"target": "API write p95 <= 2 s", "value": pct(writes, 95), "ok": pct(writes, 95) <= WRITE_P95},
+        {"target": "API any p99 <= 4 s", "value": pct(reads + writes, 99), "ok": pct(reads + writes, 99) <= ANY_P99},
+        {"target": "page load to first list p95 <= 5 s", "value": pct(pages, 95), "ok": pct(pages, 95) <= PAGE_P95},
+        {"target": "unexpected errors < 1 %", "value": round(100 * unexpected / max(1, len(counted)), 2),
+         "ok": unexpected / max(1, len(counted)) < 0.01},
+        {"target": "no 5xx / transport errors", "value": fivexx, "ok": fivexx == 0},
+        {"target": "0 unexpected errors in B3", "value": b3, "ok": b3 == 0},
+    ]
+
+
+def write_report(out: Path, meta: dict) -> int:
+    rows, verd = summarize(RECORDS), verdicts(RECORDS)
+    peaks: dict[str, float] = {}
+    for s in SAMPLES:
+        for k, v in s.items():
+            if isinstance(v, (int, float)) and k != "t":
+                peaks[k] = max(peaks.get(k, v), v)
+    burst_peaks: dict[str, dict] = defaultdict(dict)
+    for s in SAMPLES:
+        for k, v in s.items():
+            if isinstance(v, (int, float)) and k != "t":
+                burst_peaks[s["burst"]][k] = max(burst_peaks[s["burst"]].get(k, v), v)
+    with open(out / "requests.csv", "w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=list(RECORDS[0]))
+        w.writeheader()
+        w.writerows(RECORDS)
+    if SAMPLES:
+        keys = sorted({k for s in SAMPLES for k in s})
+        with open(out / "samples.csv", "w", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=keys)
+            w.writeheader()
+            w.writerows(SAMPLES)
+    failed = [c for c in CHECKS if not c["ok"]]
+    summary = {"meta": meta, "verdicts": verd, "checks_failed": failed, "checks_total": len(CHECKS),
+               "peaks": peaks, "burst_peaks": burst_peaks, "endpoints": rows}
+    (out / "summary.json").write_text(json.dumps(summary, indent=1, default=str))
+    lines = [f"# Load run {meta['label']}: {meta['students']} students", "",
+             f"`{json.dumps(meta)}`", "", "## Targets", "", "| target | value | pass |", "|---|---|---|"]
+    lines += [f"| {v['target']} | {round(v['value'], 3)} | {'PASS' if v['ok'] else 'FAIL'} |" for v in verd]
+    lines += ["", f"## Correctness: {len(CHECKS) - len(failed)}/{len(CHECKS)} checks pass", ""]
+    lines += [f"- FAIL {c['burst']}: {c['check']} {c['detail']}" for c in failed] or ["- all pass"]
+    lines += ["", "## Resource peaks per phase", "", "```", json.dumps(burst_peaks, indent=1), "```",
+              "", "## Endpoints (by phase, slowest p95 first)", "",
+              "| phase | name | n | p50 | p95 | p99 | max | unexpected | status mix |", "|---|---|---|---|---|---|---|---|---|"]
+    lines += [f"| {r['burst']} | {r['name']} | {r['n']} | {r['p50']} | {r['p95']} | {r['p99']} | {r['max']} | {r['unexpected']} | {r['status']} |" for r in rows]
+    (out / "report.md").write_text("\n".join(lines) + "\n")
+    print(f"\nwrote {out}/report.md; checks {len(CHECKS) - len(failed)}/{len(CHECKS)} pass; "
+          f"targets {sum(v['ok'] for v in verd)}/{len(verd)} pass", flush=True)
+    return 0 if not failed and all(v["ok"] for v in verd) else 1
+
+
+def main() -> None:
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--base", required=True, help="frontend server (proxies /v1) or api-exercise URL")
+    p.add_argument("--students", type=int, default=100)
+    p.add_argument("--scale", type=float, default=10.0, help="time compression (10 = 20-min block in 2 min)")
+    p.add_argument("--seed", type=int, default=20261019)
+    p.add_argument("--out", required=True)
+    p.add_argument("--label", default="")
+    p.add_argument("--api-pid", type=int, default=0, help="pid to sample CPU/RSS for (uvicorn)")
+    p.add_argument("--web-pid", type=int, default=0, help="pid to sample CPU/RSS for (vite)")
+    p.add_argument("--pg-dsn", default=os.environ.get("LOADTEST_PG_DSN"), help="libpq DSN for pg_stat_activity sampling")
+    p.add_argument("--no-assets", action="store_true", help="API only; skip static asset replay")
+    p.add_argument("--keep-state", action="store_true", help="do not reset teams 1-6 at the end")
+    args = p.parse_args()
+    if "smartmatch.cloud" in args.base or "plated.blog" in args.base:
+        sys.exit("refusing a live hostname: Plan B/C need the owner's OK (docs/operations/exercise-load-test.md)")
+    sys.exit(asyncio.run(run(args)))
+
+
+if __name__ == "__main__":
+    main()
