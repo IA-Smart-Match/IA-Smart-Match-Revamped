@@ -23,8 +23,9 @@ and must be replaced.
 ## Never in student copy (internal words)
 
 slot (except Ann's verbatim "Empty. Save a setting to fill this slot."), workspace,
-factor, refresh, sequence, cap, payload, server, fixture, dataset (instructor page only),
-"the model", "the algorithm".
+factor, refresh, sequence, cap, payload, server, fixture, data file / dataset (instructor page only),
+ranked / ranking (say "on the list"), profiles (say "students"), invitations (say "CBACH emails"),
+"the model", "the algorithm". `--banned` fails on the first six; the rest are warn rows to read.
 
 ## Numbers
 

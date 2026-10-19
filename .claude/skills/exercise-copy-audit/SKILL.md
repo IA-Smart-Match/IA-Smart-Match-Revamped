@@ -34,8 +34,9 @@ Files in this folder:
 2. `node .claude/skills/exercise-copy-audit/extract-copy.mjs --banned` — internal words and "Step" (FAIL, exit 1) plus model-talk tells (warn).
 3. `node .claude/skills/exercise-copy-audit/extract-copy.mjs --verbatim` — every Ann string present? (exit 1 if any missing).
 4. Read the table from step 1 page by page against the rubric below. The script finds words; only reading finds semantic gaps.
-5. For server sentences, `grep -rn 'detail=' services/api/smartmatch_api/routers/exercise_*.py` and read the reason builders.
-6. Write the report in the shape under "Output".
+5. Server sentences: `--banned` lists refusal `message=`/`detail=` lines from `routers/exercise_*.py` as warn. Read each and decide if a student sees it. Read `reasons.py` phrases too.
+6. Skip components no page renders: `grep -rn "<ComponentName" apps/web/legacy-frontend/src` before auditing one.
+7. Write the report in the shape under "Output".
 
 ## Rubric
 
@@ -62,8 +63,10 @@ explain it, those words belong on screen. If you would drop words, drop them.
 Save as Markdown. Shape:
 
 1. **Verdict line**: `PASS` or `FAIL — N must-fix, M later`, plus the three command exit codes.
-2. **Findings table**: `| file:line | current text | rule | problem | proposed text | owner |`.
+2. **Findings table**: `| # | file:line | current text | rule | severity | problem | proposed text | owner |`.
    One row per string. Proposed text is a full sentence ready to paste. Ann's verbatim text, where it exists, is the proposed text.
+   - severity `must`: a `--banned` FAIL, a missing verbatim string, an R2/R3/R6 finding, or a sentence that is false about the app. Otherwise `later`.
+   - owner: whoever owns the file or behaviour now (team, track or person). When unsure, name the screen and leave owner blank.
 3. **Verbatim check**: the `--verbatim` output.
 4. **Out of scope**: rows for files another person or track owns, so they can pick them up.
 
