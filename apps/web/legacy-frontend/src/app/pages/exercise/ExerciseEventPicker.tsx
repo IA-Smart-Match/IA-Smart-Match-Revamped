@@ -42,7 +42,7 @@ export function ExerciseEventPicker(): React.JSX.Element {
   return (
     <ExerciseScreen
       title="Choose an event"
-      intro="Build your team's list for one of the two events in the exercise."
+      intro="Start with Round 1, Northline. Round 2, Harbor, opens after your Round 1 results."
       status={<TeamStatusBand />}
     >
       {state.status === "loading" ? <PickerSkeleton /> : null}
@@ -92,7 +92,7 @@ function EventLists({ events }: { readonly events: readonly EventView[] }): Reac
   return (
     <div className="flex flex-col gap-ce-6 md:gap-ce-7">
       <section className="flex flex-col gap-ce-4">
-        <h2 className="ce-type-h2 text-ce-ink">The two events you can work on</h2>
+        <h2 className="ce-type-h2 text-ce-ink">The two rounds, in order</h2>
         <ul className="flex flex-col gap-ce-4 md:gap-ce-5">
           {rounds.map((event, index) => (
             <li key={event.event_key}>
@@ -185,8 +185,7 @@ function PastEvents({ past }: { readonly past: readonly EventView[] }): React.JS
     <section className="flex flex-col gap-ce-3">
       <h2 className="ce-type-h2 text-ce-ink">Past events, for attendance history</h2>
       <p className="ce-type-body ce-measure text-ce-ink-muted">
-        These are not events you build a list for. They are what “went to similar events before”
-        reads.
+        You do not build lists for these. They count when a student went to a similar event before.
       </p>
       {count === 0 ? (
         <p className="ce-type-body text-ce-ink-muted">This data file carries no past events.</p>

@@ -92,7 +92,7 @@ export function refreshWords(refreshed: boolean, at: string | null | undefined):
     return "Not done yet";
   }
   const time = clockTime(at);
-  return time === null ? "Done" : `Done at ${time}`;
+  return time === null ? "Done" : `Asked at ${time}`;
 }
 
 /**
@@ -104,7 +104,7 @@ export function refreshWords(refreshed: boolean, at: string | null | undefined):
  * page; `eventKey` marks the one the page is about.
  */
 export function teamStatusItems(
-  workspace: TeamWorkspaceView,
+  _workspace: TeamWorkspaceView,
   events: readonly EventView[],
   asking: Pick<AskingStateView, "choice" | "refreshed" | "refreshed_at">,
   eventKey?: string,
@@ -116,8 +116,7 @@ export function teamStatusItems(
       value: resultsWords(round),
     })),
     { key: "asking", label: "Way of asking", value: askingWords(asking.choice) },
-    { key: "refresh", label: "Refresh", value: refreshWords(asking.refreshed, asking.refreshed_at) },
-    { key: "file", label: "Data file", value: workspace.dataset_label },
+    { key: "refresh", label: "Asked for more", value: refreshWords(asking.refreshed, asking.refreshed_at) },
   ];
 }
 
