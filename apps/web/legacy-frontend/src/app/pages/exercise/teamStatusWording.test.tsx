@@ -8,6 +8,9 @@ import type { EventView } from "../../../lib/exerciseClient";
 import {
   askingWords,
   refreshWords,
+  roundBannerLine,
+  roundBannerTitle,
+  roundOneDoneLine,
   resultsWords,
   roundsOf,
   teamLine,
@@ -129,7 +132,6 @@ describe("teamStatusItems", () => {
       "Results not used yet (open now)",
       "Required",
       "Asked at 10:42 AM",
-      "October file",
     ]);
   });
 
@@ -146,5 +148,25 @@ describe("teamStatusSentence", () => {
       "You are Team 3. Round 1 · Northline Analytics: Behind the Business: Results not used yet (not open yet). " +
         "Way of asking: Not chosen yet. Asked for more: Not done yet.",
     );
+  });
+});
+
+describe("the round banner words", () => {
+  const [one, two] = roundsOf([HARBOR, NORTHLINE]);
+
+  it("titles each round with its number, the total and the short name", () => {
+    expect(roundBannerTitle(one!, 2)).toBe("Round 1 of 2: Northline");
+    expect(roundBannerTitle(two!, 2)).toBe("Round 2 of 2: Harbor");
+  });
+
+  it("says Round 1 is done and what to do next", () => {
+    expect(roundOneDoneLine(two!)).toBe(
+      "Round 1 done. Next: Round 2, Harbor. Start by choosing how to ask students for more information.",
+    );
+  });
+
+  it("gives one short line per page", () => {
+    expect(roundBannerLine("asking", two!)).toBe("Start by choosing how to ask students for more information.");
+    expect(roundBannerLine("results", one!)).toBe("See how your list did.");
   });
 });
