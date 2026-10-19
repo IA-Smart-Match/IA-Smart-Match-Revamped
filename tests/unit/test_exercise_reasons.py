@@ -14,7 +14,6 @@ from smartmatch_domain.exercise.markers import InformationMarker
 from smartmatch_domain.exercise.reasons import (
     ANN_MAJOR_ONLY_PHRASE,
     ANN_TIED_ON_YEAR_PHRASE,
-    TIE_LINE_WINS_OVER_MAJOR_ONLY_LINE,
     TieBreakKey,
     exercise_reason,
     phrase_as_sentence,
@@ -85,7 +84,7 @@ def test_a_year_tie_genuinely_on_major_gets_anns_sentence() -> None:
         tie_break_key=TieBreakKey.YEAR,
         tied_on_major=True,
     )
-    assert reason == "Tied on major; ordered by year."
+    assert reason == "Same major; nothing else on file; ordered by year."
 
 
 @pytest.mark.parametrize(
@@ -130,7 +129,7 @@ def test_an_information_tie_says_information_decided(tied_on_major: bool) -> Non
         tie_break_key=TieBreakKey.INFORMATION,
         tied_on_major=tied_on_major,
     )
-    assert reason == "Tied; more information on file first."
+    assert reason == "Tied; students we know more about go first."
 
 
 @pytest.mark.parametrize("tied_on_major", [True, False])
@@ -141,7 +140,9 @@ def test_a_fixed_order_tie_says_the_fixed_order_decided(tied_on_major: bool) -> 
         tie_break_key=TieBreakKey.FIXED_ORDER,
         tied_on_major=tied_on_major,
     )
-    assert reason == "Tied; placed in a fixed order that never changes."
+    assert (
+        reason == "Tied on everything on file; placed by a fixed random order that never changes."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -149,16 +150,15 @@ def test_a_fixed_order_tie_says_the_fixed_order_decided(tied_on_major: bool) -> 
 # ---------------------------------------------------------------------------
 
 
-def test_the_tie_line_wins_over_the_major_only_line_and_says_so_in_one_place() -> None:
-    """A question for Ann; flipping it is a one-line change to the flag."""
-    assert TIE_LINE_WINS_OVER_MAJOR_ONLY_LINE is True
+def test_a_major_only_tie_keeps_anns_phrase_and_adds_the_tie() -> None:
+    """Ann's 2026-10-16 feedback: her major-only phrase leads, the tie follows."""
     reason = exercise_reason(
         marker=InformationMarker.MAJOR_ONLY,
         contributing_keys=("same_major",),
         tie_break_key=TieBreakKey.YEAR,
         tied_on_major=True,
     )
-    assert reason == "Tied on major; ordered by year."
+    assert reason == "Same major; nothing else on file; ordered by year."
 
 
 # ---------------------------------------------------------------------------
@@ -272,13 +272,13 @@ def test_the_approved_wording_is_no_longer_marked_pending():
             TieBreakKey.INFORMATION,
             ("stated_interest_overlap",),
             False,
-            "Tied; more information on file first.",
+            "Tied; students we know more about go first.",
         ),
         (
             TieBreakKey.FIXED_ORDER,
             ("stated_interest_overlap",),
             False,
-            "Tied; placed in a fixed order that never changes.",
+            "Tied on everything on file; placed by a fixed random order that never changes.",
         ),
     ],
 )
@@ -312,8 +312,3 @@ def test_the_approved_single_factor_rendering():
         )
         == "What counted: same major."
     )
-
-
-def test_the_tie_line_still_wins_over_the_major_only_line():
-    """Approved as built: the tie line wins when both lines fit."""
-    assert TIE_LINE_WINS_OVER_MAJOR_ONLY_LINE is True

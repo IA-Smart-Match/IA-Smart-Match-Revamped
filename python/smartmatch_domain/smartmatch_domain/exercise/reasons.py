@@ -46,12 +46,10 @@ other tie gets a sentence that names what actually happened.
 5. Nothing contributed although something is on file — said plainly rather
    than left blank.
 
-Rules 1 and 2 can both be true of one name: a major-only profile whose place
-was decided by the year. The requirements list both lines as things "the
-reason line says" and do not say which wins, so the choice is
-:data:`TIE_LINE_WINS_OVER_MAJOR_ONLY_LINE` — one flag, one line to flip,
-rather than a precedence buried in an ``if``. The tie line wins, as approved
-(OQ-CE-12 closed 2026-09-25).
+A major-only profile whose place a tie decided gets both: Ann's phrase first,
+verbatim, then the tie ("Same major; nothing else on file; ordered by year.").
+Ann's 2026-10-16 feedback asked for the major-only wording to show; it
+supersedes the 2026-09-25 "tie line wins" approval.
 
 **OQ-CE-12 closed 2026-09-25.** Decided by Ann Wang, email reply to the
 team's question list: every reason line is approved as written — Ann's two
@@ -79,7 +77,6 @@ from smartmatch_domain.one_sentence import assert_one_sentence
 __all__ = [
     "ANN_MAJOR_ONLY_PHRASE",
     "ANN_TIED_ON_YEAR_PHRASE",
-    "TIE_LINE_WINS_OVER_MAJOR_ONLY_LINE",
     "TieBreakKey",
     "exercise_reason",
     "phrase_as_sentence",
@@ -102,16 +99,15 @@ _TIED_ON_WHAT_COUNTED_YEAR_PHRASE: Final[str] = "tied on what counted; ordered b
 #: claiming nothing about the major. Phrases, not sentences, so they go through
 #: the same rendering Ann's two do. Approved as written (OQ-CE-12 closed
 #: 2026-09-25).
-_TIED_ON_INFORMATION_PHRASE: Final[str] = "tied; more information on file first"
-_TIED_ON_FIXED_ORDER_PHRASE: Final[str] = "tied; placed in a fixed order that never changes"
-
-#: Whether a tie line replaces Ann's major-only line when both apply — a
-#: major-only profile whose place the tie-break decided. The requirements name
-#: both lines and rank neither, so the choice is stated here, in one place.
-#: ``True``, approved (OQ-CE-12 closed 2026-09-25): the tie line wins, because
-#: it is the more specific account of *why this name is here rather than one
-#: row lower*.
-TIE_LINE_WINS_OVER_MAJOR_ONLY_LINE: Final[bool] = True
+# Ann 2026-10-16 ("Explain what decides the fixed order"): the information tie
+# is said in the glossary's words, since it is what puts a card holder first.
+_TIED_ON_INFORMATION_PHRASE: Final[str] = "tied; students we know more about go first"
+# Ann's 2026-10-16 feedback ("Explain what decides the fixed order") replaces
+# the older "placed in a fixed order that never changes" (OQ-CE-12). The order
+# is Ann's fixed random order (or one seeded from the data file): student words.
+_TIED_ON_FIXED_ORDER_PHRASE: Final[str] = (
+    "tied on everything on file; placed by a fixed random order that never changes"
+)
 
 #: Said when a profile has a card or past events on file and none of it
 #: overlapped this event. Not blank, and not Ann's major-only line, which would
@@ -130,6 +126,14 @@ class TieBreakKey(StrEnum):
     YEAR = "year"
     #: Equal on everything the data says, and the fixed order decided.
     FIXED_ORDER = "fixed_order"
+
+
+#: What follows Ann's major-only phrase when a tie also decided the place.
+_MAJOR_ONLY_TIE_SUFFIX: Final[Mapping[TieBreakKey, str]] = {
+    TieBreakKey.INFORMATION: "students we know more about go first",
+    TieBreakKey.YEAR: "ordered by year",
+    TieBreakKey.FIXED_ORDER: "placed by a fixed random order",
+}
 
 
 #: The phrase for each tie-break key that makes no claim about the major.
@@ -207,7 +211,13 @@ def exercise_reason(
         appears in it (ADR-0025 D8).
     """
     tied = tie_break_key is not TieBreakKey.NONE
-    if tied and (TIE_LINE_WINS_OVER_MAJOR_ONLY_LINE or marker is not InformationMarker.MAJOR_ONLY):
+    if tied and marker is InformationMarker.MAJOR_ONLY and contributing_keys:
+        # A major that missed scores zero: it keeps the tie line, never "same major".
+        # Ann's phrase first, verbatim; the tie follows it (2026-10-16).
+        return phrase_as_sentence(
+            f"{ANN_MAJOR_ONLY_PHRASE}; {_MAJOR_ONLY_TIE_SUFFIX[tie_break_key]}"
+        )
+    if tied:
         if tie_break_key is TieBreakKey.YEAR:
             return phrase_as_sentence(
                 ANN_TIED_ON_YEAR_PHRASE if tied_on_major else _TIED_ON_WHAT_COUNTED_YEAR_PHRASE
