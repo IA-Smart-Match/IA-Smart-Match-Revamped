@@ -27,10 +27,10 @@ import {
 import { alreadyRefreshedLabel } from "./refreshWording";
 
 /** The button before it is pressed. */
-export const ASK_LABEL = "Ask them now";
+export const ASK_LABEL = "Ask students now";
 
 /** The button while it waits for the second press. */
-export const ASK_QUESTION = "Ask them now? Your team can ask only once";
+export const ASK_QUESTION = "Ask students now? Your team can ask only once.";
 
 /** Shown and spoken while the question is up. */
 export const ASK_HINT = "Press again to ask. Your team cannot ask a second time, and it cannot be undone.";

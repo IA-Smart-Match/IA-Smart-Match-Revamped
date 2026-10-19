@@ -59,7 +59,7 @@ export function MarkerCountsBeforeAfter({
   return (
     <div data-slot="exercise-refresh-before-after" className="flex flex-col gap-ce-2">
       <p className="ce-type-label text-ce-ink">
-        {`How much we know, all ${total} profiles, before and after`}
+        {`How much we know about all ${total} students, before and after asking`}
       </p>
       <ul className="ce-type-body flex flex-col gap-ce-1 text-ce-ink">
         {lines.map((line) => (

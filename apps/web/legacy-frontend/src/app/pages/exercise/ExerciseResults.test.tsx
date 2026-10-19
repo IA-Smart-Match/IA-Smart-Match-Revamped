@@ -651,7 +651,7 @@ describe("<ExerciseResults /> once-only presses", () => {
       return null;
     });
     renderResults();
-    const ask = await screen.findByRole("button", { name: /ask them now/i });
+    const ask = await screen.findByRole("button", { name: /ask students now/i });
     const counts = document.querySelector('[data-slot="exercise-results-refresh-counts"]');
     expect(counts?.getAttribute("role")).toBe("status");
     expect(counts?.textContent).toBe("");
@@ -717,7 +717,7 @@ describe("<ExerciseResults /> once-only presses", () => {
       return null;
     });
     renderResults();
-    const ask = await screen.findByRole("button", { name: /ask them now/i });
+    const ask = await screen.findByRole("button", { name: /ask students now/i });
     fireEvent.click(ask);
     await new Promise((resolve) => setTimeout(resolve, CONFIRM_GUARD_MS + 20));
     fireEvent.click(ask);

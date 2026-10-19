@@ -567,7 +567,7 @@ describe("<ExerciseMatching />", () => {
     expect(csvLink().getAttribute("aria-disabled")).toBe("true");
     expect(saveButton().getAttribute("aria-disabled")).toBe("true");
     expect(
-      screen.getByText("Saving is off until the list is built from the numbers above."),
+      screen.getByText("You can save once the list below matches the slider numbers."),
     ).toBeDefined();
 
     (release as (() => void) | null)?.();
@@ -591,7 +591,7 @@ describe("<ExerciseMatching />", () => {
     await waitFor(() => expect(screen.getByText(/could not be reached/i)).toBeDefined());
     expect(screen.getByText("Rosa Villalobos")).toBeDefined();
     expect(document.querySelector('[data-slot="exercise-list-stale"]')?.textContent).toContain(
-      "could not be rebuilt",
+      "could not reach the exercise",
     );
     expect(csvLink().getAttribute("href")).toBeNull();
     // The box keeps the number the team asked for: nothing refused it.
@@ -789,17 +789,15 @@ describe("<ExerciseMatching />", () => {
     // §6.11: a "Compare" toggle on each saved-setting card, two at most.
     fireEvent.click(await screen.findByRole("checkbox", { name: "Compare Wide net" }));
     fireEvent.click(screen.getByRole("checkbox", { name: "Compare Majors first" }));
-    fireEvent.click(screen.getByRole("button", { name: /show them side by side/i }));
+    fireEvent.click(screen.getByRole("button", { name: /compare the two lists side by side/i }));
 
     const grid = await waitFor(() => {
       const found = document.querySelector('[data-slot="exercise-compare-grid"]');
       expect(found).not.toBeNull();
       return found as HTMLElement;
     });
-    // Owner ruling 2026-09-27: real tables at 768 and up (§8.7). Two
-    // five-column tables do not fit half of the 1152px page with major, year
-    // and marker visible, so they stack, each in its own scroll box.
-    expect(grid.className).not.toMatch(/grid-cols-2/);
+    // Dr. Wang (2026-10): the two settings sit left and right at 768 and up.
+    expect(grid.className).toMatch(/md:grid-cols-2/);
     const tables = [...grid.querySelectorAll("table")];
     expect(tables).toHaveLength(2);
     for (const table of tables) {
@@ -831,7 +829,7 @@ describe("<ExerciseMatching />", () => {
     // The desk button stays focusable when disabled (§6.3): `aria-disabled`.
     expect(save.getAttribute("aria-disabled")).toBe("true");
     const reason = screen.getByText(
-      "Your team can save only 3 settings for this event, and nothing was lost. Type one of those names to save over it, or delete one first.",
+      "You have saved 3 settings, the most for this event. Delete one, or type a saved name to replace it.",
     );
     expect(save.getAttribute("aria-describedby")).toBe(reason.id);
 

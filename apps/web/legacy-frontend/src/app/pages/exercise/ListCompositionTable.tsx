@@ -79,10 +79,10 @@ export function ListCompositionTable({
 
       <p className="ce-type-body ce-measure text-ce-ink" data-slot="exercise-unrankable">
         {unrankableProfileCount === 0
-          ? "Everyone in this data file could be ranked for this event."
+          ? "Every student can be placed on a list for this event."
           : `${unrankableProfileCount} ${
-              unrankableProfileCount === 1 ? "profile" : "profiles"
-            } in this data file could not be ranked for this event, so nobody among them can be on the list.`}
+              unrankableProfileCount === 1 ? "student has" : "students have"
+            } nothing on file for this event, so they cannot be on any list.`}
       </p>
 
     </section>
@@ -134,7 +134,7 @@ function GroupTable({
               On this list
             </th>
             <th scope="col" className="rounded-r-ce-control px-ce-3 py-ce-2 text-right">
-              In the whole data file
+              All students
             </th>
           </tr>
         </thead>

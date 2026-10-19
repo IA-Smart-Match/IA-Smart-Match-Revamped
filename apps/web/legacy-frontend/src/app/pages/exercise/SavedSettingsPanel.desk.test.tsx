@@ -98,7 +98,7 @@ describe("<SavedSettingsPanel /> cards (§6.11)", () => {
 
   it("caps Compare at two, says why, and compares in the order ticked", () => {
     const { onCompare } = renderPanel(saved(["Major first", "Interests first", "Balanced"]));
-    const show = screen.getByRole("button", { name: /show them side by side/i });
+    const show = screen.getByRole("button", { name: /compare the two lists side by side/i });
     expect(show.getAttribute("aria-disabled")).toBe("true");
 
     fireEvent.click(screen.getByRole("checkbox", { name: "Compare Interests first" }));
@@ -106,7 +106,7 @@ describe("<SavedSettingsPanel /> cards (§6.11)", () => {
 
     const third = screen.getByRole("checkbox", { name: "Compare Balanced" }) as HTMLInputElement;
     expect(third.disabled).toBe(true);
-    const why = screen.getByText("Two are chosen. Untick one to swap.");
+    const why = screen.getByText("Two settings are ticked. Untick one to compare a different one.");
     expect(third.getAttribute("aria-describedby")).toBe(why.id);
     expect(screen.getAllByText("Comparing")).toHaveLength(2);
 
@@ -117,11 +117,11 @@ describe("<SavedSettingsPanel /> cards (§6.11)", () => {
   it("asks before deleting, and 'Keep it' keeps it", async () => {
     const { onDelete } = renderPanel(saved(["Balanced"]));
     fireEvent.click(screen.getByRole("button", { name: "Delete Balanced" }));
-    expect(screen.getByText("Delete Balanced? It cannot be brought back.")).toBeDefined();
+    expect(screen.getByText("Delete “Balanced”? You cannot undo this.")).toBeDefined();
 
     fireEvent.click(screen.getByRole("button", { name: "Keep it" }));
     expect(onDelete).not.toHaveBeenCalled();
-    expect(screen.queryByText("Delete Balanced? It cannot be brought back.")).toBeNull();
+    expect(screen.queryByText("Delete “Balanced”? You cannot undo this.")).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Delete Balanced" }));
     fireEvent.click(screen.getByRole("button", { name: "Delete it" }));

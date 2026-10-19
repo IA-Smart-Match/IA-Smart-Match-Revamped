@@ -216,7 +216,7 @@ export function SavedSettingsPanel({
           {saveBlockedReason !== null
             ? saveBlockedReason
             : atCapForNewName
-            ? `Your team can save only ${saved.max_settings} settings for this event, and nothing was lost. Type one of those names to save over it, or delete one first.`
+            ? `You have saved ${saved.max_settings} settings, the most for this event. Delete one, or type a saved name to replace it.`
             : "Saves the four slider numbers at the top of this page under this name."}
         </span>
         {same === undefined ? null : (
@@ -280,11 +280,11 @@ export function SavedSettingsPanel({
             disabled={!twoChosen}
             onClick={() => onCompare(chosen[0], chosen[1])}
           >
-            Show them side by side
+            Compare the two lists side by side
           </Button>
           {twoChosen && settings.length > 2 ? (
             <p id={COMPARE_NOTE_ID} className="ce-type-meta text-ce-ink-muted">
-              Two are chosen. Untick one to swap.
+              Two settings are ticked. Untick one to compare a different one.
             </p>
           ) : null}
         </div>

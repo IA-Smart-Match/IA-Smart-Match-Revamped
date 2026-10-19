@@ -58,7 +58,7 @@ export function deletedSentence(name: string, after: SavedSettingsView | null | 
 
 /** After "Open this list". */
 export function openedSentence(name: string): string {
-  return `Opened “${name}”. The list above is built from it.`;
+  return `Showing the list for your setting “${name}” above.`;
 }
 
 /** After "Show them side by side". */

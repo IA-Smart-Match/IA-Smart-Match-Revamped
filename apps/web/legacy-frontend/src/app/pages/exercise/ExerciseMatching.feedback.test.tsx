@@ -149,7 +149,7 @@ describe("the sentences", () => {
   });
 
   it("name what was opened and what is being compared", () => {
-    expect(openedSentence("Wide net")).toBe("Opened “Wide net”. The list above is built from it.");
+    expect(openedSentence("Wide net")).toBe("Showing the list for your setting “Wide net” above.");
     expect(comparingSentence("A", "B")).toBe("Showing “A” and “B” side by side, below.");
   });
 });
@@ -213,7 +213,7 @@ describe("<ExerciseMatching /> says what each press did", () => {
     stub(saved, { [`DELETE ${BASE}/settings/Setting%20A`]: { body: settings() } });
     renderMatching();
     fireEvent.click(await screen.findByRole("button", { name: "Delete Setting A" }));
-    expect(screen.getByText("Delete Setting A? It cannot be brought back.")).toBeDefined();
+    expect(screen.getByText("Delete “Setting A”? You cannot undo this.")).toBeDefined();
     expect(within(panel()).queryByText(/^Deleted/)).toBeNull();
 
     saved.current = settings();
@@ -226,7 +226,7 @@ describe("<ExerciseMatching /> says what each press did", () => {
     stub(saved, { [`DELETE ${BASE}/settings/Setting%20A`]: { body: settings() } });
     renderMatching();
     fireEvent.click(await screen.findByRole("button", { name: "Open this list" }));
-    await within(panel()).findByText("Opened “Setting A”. The list above is built from it.");
+    await within(panel()).findByText("Showing the list for your setting “Setting A” above.");
 
     fireEvent.click(screen.getByRole("button", { name: "Delete Setting A" }));
     saved.current = settings();
@@ -250,7 +250,7 @@ describe("<ExerciseMatching /> says what each press did", () => {
     const boxes = await screen.findAllByRole("checkbox");
     fireEvent.click(boxes[0]);
     fireEvent.click(boxes[1]);
-    fireEvent.click(screen.getByRole("button", { name: "Show them side by side" }));
+    fireEvent.click(screen.getByRole("button", { name: "Compare the two lists side by side" }));
     await within(panel()).findByText("Showing “A” and “B” side by side, below.");
 
     fireEvent.click(await screen.findByRole("button", { name: "Close this comparison" }));
@@ -288,7 +288,7 @@ describe("<ExerciseMatching /> says what each press did", () => {
     const boxes = await screen.findAllByRole("checkbox");
     fireEvent.click(boxes[0]);
     fireEvent.click(boxes[1]);
-    fireEvent.click(screen.getByRole("button", { name: "Show them side by side" }));
+    fireEvent.click(screen.getByRole("button", { name: "Compare the two lists side by side" }));
 
     const said = await within(panel()).findByText("Your team has no saved setting with that name.");
     expect((said.closest('[data-slot="exercise-notice"]') as HTMLElement).dataset.tone).toBe("calm");
@@ -322,7 +322,7 @@ describe("<ExerciseMatching /> says what each press did", () => {
  * stops being true (PR #346 review).
  */
 describe("<ExerciseMatching /> says “Opened” only while the list is built from that setting", () => {
-  const OPENED = "Opened “Setting A”. The list above is built from it.";
+  const OPENED = "Showing the list for your setting “Setting A” above.";
 
   it("waits for that setting's list to land before it says so", async () => {
     const saved = { current: settings("Setting A") };

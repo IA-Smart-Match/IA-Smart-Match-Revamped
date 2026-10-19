@@ -99,7 +99,7 @@ describe("the refresh summary", () => {
   it("uses the singular for one person", () => {
     const one = { ...COUNTS, topics_added: 1, non_responding: 1, invited_without_card: 1, cards_completed: 1 };
     expect(refreshChangeSentences(one, "Northline")).toEqual([
-      "1 person who came to Northline now counts as having gone to a similar event.",
+      "1 person who came to Northline now counts as having gone to a similar event. This counts only toward events on the same topic as Northline.",
       "1 of the 1 invited person with no card completed one.",
       "1 person stopped responding: they stop opening messages and will not sign up for anything, mass email included.",
     ]);

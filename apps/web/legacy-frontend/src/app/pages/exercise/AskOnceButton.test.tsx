@@ -1,5 +1,5 @@
 /**
- * "Ask them now" asks before it spends the team's one refresh (issue #321).
+ * "Ask students now" asks before it spends the team's one refresh (issue #321).
  */
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

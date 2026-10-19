@@ -45,9 +45,9 @@ export function askingChoiceLabel(choice: string): string {
  * set is still the server's `choices`.
  */
 const ASKING_CHOICE_LINES: Readonly<Record<string, string>> = {
-  better_recommendations: "Tell them a card helps us suggest events worth their evening.",
+  better_recommendations: "Tell students a card helps us suggest events worth their evening.",
   small_reward: "Offer something small for a completed card.",
-  required: "Make the card a condition of hearing about events.",
+  required: "Students must fill in a card to hear about events. Some will stop responding.",
 };
 
 /** The supporting line for a choice, or `null` for a value the server adds. */

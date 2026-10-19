@@ -430,7 +430,7 @@ function AskingPanels({
           // reload and until the team is cleared (issue #321).
           <p data-slot="exercise-asking-chosen" className="ce-type-body text-ce-ink">
             <span>{`You chose: ${askingWords(choice)}${chosenAt === null ? "" : ` at ${chosenAt}`}.`}</span>{" "}
-            <span className="text-ce-ink-muted">A team picks once, so these are now fixed.</span>
+            <span className="text-ce-ink-muted">Your team picks once, so this choice is final.</span>
           </p>
         )}
       </section>
