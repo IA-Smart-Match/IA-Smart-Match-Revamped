@@ -53,12 +53,7 @@ describe("<SavedSettingsPanel /> cards (§6.11)", () => {
   it("draws one slot per max_settings and says which are free", () => {
     renderPanel(saved(["Major first"], 3));
     expect(document.querySelectorAll('[data-slot="exercise-setting-card"]')).toHaveLength(1);
-    expect(
-      screen.getByText("Slot 2 of 3 is free. Save the weights on screen to fill it."),
-    ).toBeDefined();
-    expect(
-      screen.getByText("Slot 3 of 3 is free. Save the weights on screen to fill it."),
-    ).toBeDefined();
+    expect(screen.getAllByText("Empty. Save a setting to fill this slot.")).toHaveLength(2);
   });
 
   it("lists a card's weights in Ann's words, as numbers, and never a rulebook key", () => {
@@ -91,9 +86,9 @@ describe("<SavedSettingsPanel /> cards (§6.11)", () => {
     expect(onOpen).toHaveBeenCalledWith("Major first");
   });
 
-  it("labels the name box 'Name these weights'", () => {
+  it("labels the name box 'Give this setting a name'", () => {
     renderPanel(saved([]));
-    expect(screen.getByLabelText("Name these weights")).toBeDefined();
+    expect(screen.getByLabelText("Give this setting a name")).toBeDefined();
   });
 
   it("caps Compare at two, says why, and compares in the order ticked", () => {
@@ -130,9 +125,9 @@ describe("<SavedSettingsPanel /> cards (§6.11)", () => {
 
   it("does not save a new name at the cap, even from the keyboard", () => {
     const { onSave } = renderPanel(saved(["One", "Two", "Three"]));
-    const box = screen.getByLabelText("Name these weights");
+    const box = screen.getByLabelText("Give this setting a name");
     fireEvent.change(box, { target: { value: "Four" } });
-    const save = screen.getByRole("button", { name: /save these weights/i });
+    const save = screen.getByRole("button", { name: /save this setting/i });
     expect(save.getAttribute("aria-disabled")).toBe("true");
     fireEvent.submit(box.closest("form") as HTMLFormElement);
     expect(onSave).not.toHaveBeenCalled();

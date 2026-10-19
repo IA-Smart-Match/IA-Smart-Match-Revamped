@@ -175,7 +175,7 @@ export function FreeSettingSlot({
     >
       <EmptySlotArt className="w-20" />
       <p className="ce-type-meta ce-measure text-ce-ink-muted">
-        Slot {slot} of {of} is free. Save the weights on screen to fill it.
+        Empty. Save a setting to fill this slot.
       </p>
     </li>
   );

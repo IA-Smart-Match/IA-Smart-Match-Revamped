@@ -555,13 +555,16 @@ function EventMatching({ eventKey }: { readonly eventKey: string }): React.JSX.E
             />
           )}
 
-          <p>
+          <p className="flex flex-wrap items-center gap-ce-3">
             <Link
               to={`/exercise/events/${encodeURIComponent(eventKey)}/results`}
               className={LINK_PRIMARY}
             >
-              Go to results for this event
+              Choose one setting and see results
             </Link>
+            <span className="ce-type-body text-ce-ink-muted">
+              You get one results run for this event.
+            </span>
           </p>
         </div>
       )}

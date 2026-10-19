@@ -38,7 +38,7 @@ function slotsLeft(after: SavedSettingsView | null | undefined): string {
   if (typeof used !== "number" || typeof cap !== "number") {
     return "";
   }
-  return ` You have ${Math.max(0, cap - used)} of ${cap} slots left.`;
+  return ` You can save ${Math.max(0, cap - used)} more for this event.`;
 }
 
 /** "Saved “Setting A” for Northline at 10:43:07 AM. You have 2 of 3 slots left." */

@@ -152,10 +152,11 @@ export function SavedSettingsPanel({
   return (
     <section data-slot="exercise-saved-settings" className="flex flex-col gap-ce-4">
       <div className="flex flex-col gap-ce-2">
-        <h2 className="ce-type-h2 text-ce-ink">Your team's saved settings</h2>
+        <h2 className="ce-type-h2 text-ce-ink">Save your weight settings</h2>
         <p className="ce-type-body text-ce-ink-muted" data-slot="exercise-settings-cap">
           {/* The cap, as the server reports it. */}
-          Your team may keep {saved.max_settings} for this event. You have {settings.length}.
+          Like a set of weights? Save it so you can compare it with others later. You can save up
+          to {saved.max_settings} for this event. Saved so far: {settings.length}.
         </p>
       </div>
 
@@ -182,12 +183,13 @@ export function SavedSettingsPanel({
       >
         <div className="flex min-w-0 flex-1 basis-64 flex-col gap-ce-1">
           <label htmlFor="exercise-setting-name" className="ce-type-label text-ce-ink">
-            Name these weights
+            Give this setting a name
           </label>
           <input
             id="exercise-setting-name"
             name="setting_name"
             type="text"
+            placeholder="e.g., Major first, Interest first, Balanced"
             value={name}
             onChange={(event) => setName(event.target.value)}
             className="ce-type-body min-h-ce-control w-full rounded-ce-control border-2 border-ce-line-strong bg-ce-surface px-ce-3 text-ce-ink"
@@ -201,14 +203,14 @@ export function SavedSettingsPanel({
           pendingLabel="Saving…"
           describedBy="exercise-save-note"
         >
-          Save these weights
+          Save this setting
         </Button>
         <span id="exercise-save-note" className="ce-type-meta basis-full text-ce-ink-muted">
           {saveBlockedReason !== null
             ? saveBlockedReason
             : atCapForNewName
             ? `Your team can save only ${saved.max_settings} settings for this event, and nothing was lost. Type one of those names to save over it, or delete one first.`
-            : `Saves the ${Object.keys(weights).length} numbers now on screen.`}
+            : "Saves the four slider numbers at the top of this page under this name."}
         </span>
       </form>
 
@@ -258,7 +260,7 @@ export function SavedSettingsPanel({
       </ul>
 
       {settings.length < 2 ? (
-        <p className="ce-type-body text-ce-ink-muted">Save two settings to see them side by side.</p>
+        <p className="ce-type-body text-ce-ink-muted">Save two settings to compare the two lists side by side.</p>
       ) : (
         <div className="flex flex-wrap items-center gap-ce-4">
           <Button

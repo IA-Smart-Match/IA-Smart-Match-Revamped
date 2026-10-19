@@ -130,10 +130,10 @@ describe("the sentences", () => {
   it("are Ann's example, with the slots from the server's own answer", () => {
     const after = { event_key: "northline", settings: [setting("Setting A")], max_settings: 3 };
     expect(savedSentence("Setting A", "Northline", after as never)).toBe(
-      "Saved “Setting A” for Northline. You have 2 of 3 slots left.",
+      "Saved “Setting A” for Northline. You can save 2 more for this event.",
     );
     expect(deletedSentence("Setting A", { ...after, settings: [] } as never)).toBe(
-      "Deleted “Setting A”. You have 3 of 3 slots left.",
+      "Deleted “Setting A”. You can save 3 more for this event.",
     );
   });
 
@@ -159,14 +159,14 @@ describe("<ExerciseMatching /> says what each press did", () => {
     const saved = { current: settings() };
     stub(saved, { [`PUT ${BASE}/settings/Setting%20A`]: { body: settings("Setting A") } });
     renderMatching();
-    fireEvent.change(await screen.findByLabelText("Name these weights"), {
+    fireEvent.change(await screen.findByLabelText("Give this setting a name"), {
       target: { value: "Setting A" },
     });
     saved.current = settings("Setting A");
-    fireEvent.click(screen.getByRole("button", { name: "Save these weights" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save this setting" }));
 
     const said = await within(panel()).findByText(
-      /^Saved “Setting A” for Northline at \d{1,2}:\d{2}:\d{2} [AP]M\. You have 2 of 3 slots left\.$/,
+      /^Saved “Setting A” for Northline at \d{1,2}:\d{2}:\d{2} [AP]M\. You can save 2 more for this event\.$/,
     );
     const notice = said.closest('[data-slot="exercise-notice"]') as HTMLElement;
     expect(notice.dataset.tone).toBe("done");
@@ -177,11 +177,11 @@ describe("<ExerciseMatching /> says what each press did", () => {
     const saved = { current: settings() };
     stub(saved, { [`PUT ${BASE}/settings/Setting%20A`]: { body: settings("Setting A") } });
     renderMatching();
-    fireEvent.change(await screen.findByLabelText("Name these weights"), {
+    fireEvent.change(await screen.findByLabelText("Give this setting a name"), {
       target: { value: "Setting A" },
     });
     saved.current = settings("Setting A");
-    fireEvent.click(screen.getByRole("button", { name: "Save these weights" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save this setting" }));
     await within(panel()).findByText(/^Saved “Setting A”/);
 
     await new Promise((resolve) => setTimeout(resolve, 1200));
@@ -199,10 +199,10 @@ describe("<ExerciseMatching /> says what each press did", () => {
       },
     });
     renderMatching();
-    fireEvent.change(await screen.findByLabelText("Name these weights"), {
+    fireEvent.change(await screen.findByLabelText("Give this setting a name"), {
       target: { value: "compare" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Save these weights" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save this setting" }));
 
     const said = await within(panel()).findByText("Choose another name.");
     expect((said.closest('[data-slot="exercise-notice"]') as HTMLElement).dataset.tone).toBe("calm");
@@ -218,7 +218,7 @@ describe("<ExerciseMatching /> says what each press did", () => {
 
     saved.current = settings();
     fireEvent.click(screen.getByRole("button", { name: "Delete it" }));
-    await within(panel()).findByText("Deleted “Setting A”. You have 3 of 3 slots left.");
+    await within(panel()).findByText("Deleted “Setting A”. You can save 3 more for this event.");
   });
 
   it("replaces the last sentence with the next press's", async () => {

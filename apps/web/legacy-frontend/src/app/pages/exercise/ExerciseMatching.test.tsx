@@ -156,7 +156,7 @@ function csvLink(): HTMLElement {
 }
 
 function saveButton(): HTMLElement {
-  return screen.getByRole("button", { name: /save these weights/i });
+  return screen.getByRole("button", { name: /save this setting/i });
 }
 
 beforeEach(() => {
@@ -246,9 +246,9 @@ describe("<ExerciseMatching />", () => {
   it("sends X-Exercise-Request when a team saves a setting", async () => {
     stub();
     renderMatching();
-    const name = await screen.findByLabelText(/name these weights/i);
+    const name = await screen.findByLabelText(/give this setting a name/i);
     fireEvent.change(name, { target: { value: "Wide net" } });
-    fireEvent.click(screen.getByRole("button", { name: /save these weights/i }));
+    fireEvent.click(screen.getByRole("button", { name: /save this setting/i }));
 
     await waitFor(() => {
       const put = calls.find((call) => call.init.method === "PUT");
@@ -511,13 +511,13 @@ describe("<ExerciseMatching />", () => {
       },
     });
     renderMatching();
-    const name = await screen.findByLabelText(/name these weights/i);
+    const name = await screen.findByLabelText(/give this setting a name/i);
     fireEvent.change(name, { target: { value: "Wide net" } });
-    fireEvent.click(screen.getByRole("button", { name: /save these weights/i }));
+    fireEvent.click(screen.getByRole("button", { name: /save this setting/i }));
 
     await waitFor(() => expect(screen.getByText("Enter your team number to carry on.")).toBeDefined());
     expect(screen.queryByText("Rosa Villalobos")).toBeNull();
-    expect(screen.queryByLabelText(/name these weights/i)).toBeNull();
+    expect(screen.queryByLabelText(/give this setting a name/i)).toBeNull();
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Your team's list");
   });
 
@@ -552,7 +552,7 @@ describe("<ExerciseMatching />", () => {
     );
     renderMatching();
     const box = await screen.findByRole("textbox", { name: "same major" });
-    fireEvent.change(await screen.findByLabelText(/name these weights/i), {
+    fireEvent.change(await screen.findByLabelText(/give this setting a name/i), {
       target: { value: "Wide net" },
     });
     expect(saveButton().getAttribute("aria-disabled")).toBeNull();
@@ -673,9 +673,9 @@ describe("<ExerciseMatching />", () => {
       },
     });
     renderMatching();
-    const name = (await screen.findByLabelText(/name these weights/i)) as HTMLInputElement;
+    const name = (await screen.findByLabelText(/give this setting a name/i)) as HTMLInputElement;
     fireEvent.change(name, { target: { value: "Wide net" } });
-    fireEvent.click(screen.getByRole("button", { name: /save these weights/i }));
+    fireEvent.click(screen.getByRole("button", { name: /save this setting/i }));
 
     await waitFor(() =>
       expect(
@@ -688,7 +688,7 @@ describe("<ExerciseMatching />", () => {
   it("sends one save for two presses in the same tick", async () => {
     stub();
     renderMatching();
-    const name = await screen.findByLabelText(/name these weights/i);
+    const name = await screen.findByLabelText(/give this setting a name/i);
     fireEvent.change(name, { target: { value: "Wide net" } });
     const save = saveButton();
     act(() => {
@@ -705,9 +705,9 @@ describe("<ExerciseMatching />", () => {
   it("clears the name once the save is accepted", async () => {
     stub();
     renderMatching();
-    const name = (await screen.findByLabelText(/name these weights/i)) as HTMLInputElement;
+    const name = (await screen.findByLabelText(/give this setting a name/i)) as HTMLInputElement;
     fireEvent.change(name, { target: { value: "Wide net" } });
-    fireEvent.click(screen.getByRole("button", { name: /save these weights/i }));
+    fireEvent.click(screen.getByRole("button", { name: /save this setting/i }));
 
     await waitFor(() => expect(name.value).toBe(""));
   });
@@ -744,9 +744,9 @@ describe("<ExerciseMatching />", () => {
       },
     });
     renderMatching();
-    const name = await screen.findByLabelText(/name these weights/i);
+    const name = await screen.findByLabelText(/give this setting a name/i);
     fireEvent.change(name, { target: { value: "Wide net" } });
-    fireEvent.click(screen.getByRole("button", { name: /save these weights/i }));
+    fireEvent.click(screen.getByRole("button", { name: /save this setting/i }));
     await waitFor(() =>
       expect(
         screen.getByText("Your team may keep three settings for this event. Delete one first."),
@@ -824,8 +824,8 @@ describe("<ExerciseMatching />", () => {
     };
     stub({ "/v1/exercise/workspaces/current/events/northline/settings": { body: saved } });
     renderMatching();
-    const box = await screen.findByLabelText(/name these weights/i);
-    const save = screen.getByRole("button", { name: /save these weights/i }) as HTMLButtonElement;
+    const box = await screen.findByLabelText(/give this setting a name/i);
+    const save = screen.getByRole("button", { name: /save this setting/i }) as HTMLButtonElement;
 
     fireEvent.change(box, { target: { value: "Four" } });
     // The desk button stays focusable when disabled (§6.3): `aria-disabled`.
