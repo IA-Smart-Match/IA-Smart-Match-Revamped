@@ -442,7 +442,10 @@ def test_a_second_run_is_refused_with_the_specs_own_sentence(
             _record(results, session, dataset_id=dataset_id, workspace_id=workspace_id)
 
     assert str(refused.value) == ALREADY_RUN_SENTENCE
-    assert str(refused.value) == "This team has already run results for this event."
+    assert (
+        str(refused.value)
+        == "Your team already ran results for this event. You get one run per event."
+    )
 
 
 def test_two_runs_arriving_together_leave_exactly_one_row(
