@@ -58,6 +58,7 @@ import {
   savedSentence,
   type PanelNote,
 } from "./matchingWording";
+import { FilledListNote } from "./FilledListNote";
 import { RankedList } from "./RankedList";
 import { SavedSettingsPanel } from "./SavedSettingsPanel";
 import { TeamStatusBand } from "./TeamStatusBand";
@@ -482,6 +483,7 @@ function EventMatching({ eventKey }: { readonly eventKey: string }): React.JSX.E
                   : ` Built from your team's setting “${state.data.list.setting_name}”.`}
               </p>
               {/* §5 ce-list-rebuilding: dim while a new list is fetched, or stale after a refusal. */}
+              <FilledListNote entries={state.data.list.entries} />
               <div
                 aria-busy={state.refreshing ? "true" : undefined}
                 className={cn("ce-rebuildable min-w-0", stale && "opacity-60")}
