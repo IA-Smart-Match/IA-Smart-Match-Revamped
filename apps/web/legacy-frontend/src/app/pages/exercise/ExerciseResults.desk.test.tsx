@@ -196,6 +196,8 @@ describe("<ExerciseResults /> final-setting picker (§6.13)", () => {
 
 describe("<ExerciseResults /> lock panel (§6.14)", () => {
   const LOCKED = "Your instructor has not opened results for this event yet.";
+  const ITEM6 =
+    "Your instructor has not opened results yet. You can still pick your setting and review its list. Press Check again once your instructor says results are open.";
 
   it("shows a locked event as the calm lock panel, with a read as its only action", async () => {
     stub({
@@ -217,7 +219,7 @@ describe("<ExerciseResults /> lock panel (§6.14)", () => {
     );
     const lock = document.querySelector('[data-slot="exercise-results-lock"]') as HTMLElement;
     expect(lock.textContent).toContain("Results are closed");
-    expect(lock.textContent).toContain(LOCKED);
+    expect(lock.textContent).toContain(ITEM6);
     // The team can read the lock now (§6.14, amended 2026-10-06), so the
     // panel offers "Check again": a read, never the one-time run.
     const actions = within(lock).queryAllByRole("button");
@@ -251,7 +253,7 @@ describe("<ExerciseResults /> lock panel (§6.14)", () => {
     const lock = document.querySelector('[data-slot="exercise-results-lock"]') as HTMLElement;
     expect(lock.getAttribute("role")).toBeNull();
     const status = within(lock).getByRole("status");
-    expect(status.textContent).toBe(`Results are closed${LOCKED}`);
+    expect(status.textContent).toBe(`Results are closed${ITEM6}`);
     expect(status.querySelector("svg:not([aria-hidden='true'])")).toBeNull();
   });
 
