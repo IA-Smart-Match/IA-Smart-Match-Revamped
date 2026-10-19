@@ -748,7 +748,7 @@ def get_current_workspace(
     raise ExerciseError(
         status_code=status.HTTP_401_UNAUTHORIZED,
         code="exercise_workspace_required",
-        message="Enter your team number to open your team's workspace.",
+        message="Enter your team number to open your team's work.",
     )
 
 

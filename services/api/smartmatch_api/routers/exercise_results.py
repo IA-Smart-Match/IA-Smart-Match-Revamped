@@ -146,7 +146,7 @@ def _team_state_or_refusal(
         raise ExerciseError(
             status_code=status.HTTP_401_UNAUTHORIZED,
             code="exercise_workspace_required",
-            message="Enter your team number to open your team's workspace.",
+            message="Enter your team number to open your team's work.",
         )
     return team_state
 
@@ -585,7 +585,7 @@ def _no_first_round_results() -> ExerciseError:
     return ExerciseError(
         status_code=status.HTTP_409_CONFLICT,
         code="exercise_no_first_round_results",
-        message="Run the first round's results before asking.",
+        message="Run your Round 1 results before asking for more.",
     )
 
 

@@ -41,8 +41,11 @@ export interface TeamWorkspaceView {
   readonly team_number: number;
   readonly dataset_label: string;
   readonly invite_limit: number;
-  /** Whether the team has Northline results, so round two is open. Absent before the round-two lock. */
-  readonly round_two_open?: boolean;
+  /**
+   * False until this team has its Round 1 (Northline) results. Every round-two
+   * write is refused with `exercise_round_two_locked` until then.
+   */
+  readonly round_two_open: boolean;
 }
 
 // ---------------------------------------------------------------------------

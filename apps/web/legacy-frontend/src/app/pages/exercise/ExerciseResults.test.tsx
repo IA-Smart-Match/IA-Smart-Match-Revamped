@@ -237,7 +237,7 @@ describe("<ExerciseResults />", () => {
   });
 
   it("renders an already-run event as a state, with the spec's own sentence", async () => {
-    const sentence = "This team has already run results for this event.";
+    const sentence = "Your team already ran results for this event. You get one run per event.";
     stub({
       [`GET ${RESULTS}`]: NOT_RUN,
       [LIST]: NO_LIST,

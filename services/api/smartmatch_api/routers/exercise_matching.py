@@ -105,6 +105,8 @@ from smartmatch_api.routers.exercise_matching_weights import (
     validated,
     weight_query,
 )
+from smartmatch_api.routers.exercise_results_models import round_of
+from smartmatch_api.routers.exercise_results_run import round_two_lock_or_refusal
 
 #: What this module offers, declared where a reader looks for it rather than
 #: seven hundred lines down.
@@ -663,6 +665,7 @@ def save_setting(
     workspace: CurrentWorkspace,
     datasets: DatasetRepository,
     settings: SettingsRepository,
+    results: ResultsRepository,
     event_key: str = Path(description="An event key from this team's data file."),
     name: str = Path(description="What your team wants to call this weighting."),
 ) -> SavedSettingsView:
@@ -680,13 +683,20 @@ def save_setting(
     Raises:
         ExerciseError: 401 without a workspace cookie, 403 without the
             ``X-Exercise-Request`` header, 404 for an unknown event, 409 for a
-            fourth new name or a refused write, 422 for an unusable name or a
+            fourth new name, a refused write, or the round-two event before
+            the team has its Northline results, 422 for an unusable name or a
             weight the rulebook refuses.
     """
     usable_name = _setting_name_or_refusal(name)
     weights = validated(dict(payload.weights), whole_numbers=True)
     events = datasets.list_events(session, dataset_id=workspace.dataset_id)
     event = event_or_refusal(events, event_key)
+    round_two_lock_or_refusal(
+        session,
+        results,
+        workspace=workspace,
+        round_number=round_of(events, event.event_key),
+    )
     try:
         settings.save_setting(
             session,
