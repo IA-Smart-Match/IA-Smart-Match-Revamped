@@ -388,7 +388,7 @@ function AskingPanels({
           <PartlyKnownCard />
         </div>
         {/*
-          The choice appears only after round one's results (Ann, 2026-10-02).
+          The choice appears only after Round 1's results (Ann, 2026-10-02).
           A team that somehow chose earlier still sees what it chose.
         */}
         {roundOneRun || choice !== null ? (
