@@ -119,7 +119,7 @@ describe("refresh every team: the question cannot be answered by the press that 
     fireEvent.click(confirm);
 
     await waitFor(() => expect(posts).toEqual([REFRESH_ALL]));
-    await screen.findByText("No team has entered a number yet, so there was nothing to refresh.");
+    await screen.findByText("No team has entered a number yet, so there was no one to ask.");
     expect(posts).toEqual([REFRESH_ALL]);
   });
 });

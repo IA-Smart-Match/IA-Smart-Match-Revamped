@@ -1,0 +1,16 @@
+# Built bundle for the class exercise: no source mount, no HMR.
+# Build context: apps/web/legacy-frontend. Same pinned node image as `web`.
+FROM node@sha256:2cf067cfed83d5ea958367df9f966191a942351a2df77d6f0193e162b5febfc0
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci
+COPY . .
+# Baked into the bundle, so it is a build arg. Deliberately empty: the CBA dev
+# bearer token must never ship on the public exercise hostname.
+ARG VITE_SMARTMATCH_BEARER_TOKEN=""
+ENV VITE_SMARTMATCH_BEARER_TOKEN=$VITE_SMARTMATCH_BEARER_TOKEN
+RUN npx vite build
+EXPOSE 5173
+# `vite preview` reads preview.proxy / allowedHosts from vite.config.ts;
+# SMARTMATCH_API_PROXY_TARGET is read from the environment at start.
+CMD ["npx", "vite", "preview", "--host", "0.0.0.0", "--port", "5173", "--strictPort"]

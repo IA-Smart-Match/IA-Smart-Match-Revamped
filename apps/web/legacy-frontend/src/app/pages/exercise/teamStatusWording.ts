@@ -76,9 +76,9 @@ export function roundLabel(round: RoundStatus, onThisPage: boolean): string {
  */
 export function resultsWords(round: Pick<RoundStatus, "open" | "run">): string {
   if (round.run) {
-    return "Results used";
+    return "Results run";
   }
-  return round.open ? "Results not used yet (open now)" : "Results not used yet (not open yet)";
+  return round.open ? "Results open, not run yet" : "Results not open yet";
 }
 
 /** "A small reward" / "Not chosen yet". */

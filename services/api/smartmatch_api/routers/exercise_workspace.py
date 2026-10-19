@@ -102,12 +102,14 @@ from smartmatch_api.exercise_dependencies import (
     CurrentWorkspace,
     ExerciseSession,
     ExerciseWorkspace,
+    ResultsRepository,
     WorkspaceRepository,
     WorkspaceSecret,
     require_exercise_request_header,
     workspace_token_for,
 )
 from smartmatch_api.exercise_errors import ExerciseError
+from smartmatch_api.routers.exercise_results_run import round_two_open
 
 #: A bare assignment, not an annotated one, for ``exercise_public.router``'s
 #: reason: the route ledger in ``tests/authz/test_policy_matrix.py`` reads
@@ -140,7 +142,7 @@ class EnterTeamRequest(BaseModel):
 class TeamWorkspaceView(BaseModel):
     """What a team sees about its own workspace.
 
-    Three fields, and see the module docstring for the four that are absent.
+    Four fields, and see the module docstring for the four that are absent.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -158,9 +160,16 @@ class TeamWorkspaceView(BaseModel):
             "default). The instructor page changes it; a team reads it."
         ),
     )
+    round_two_open: bool = Field(
+        description=(
+            "True once the team has its Northline (round-one) results. Until "
+            "then every round-two write is refused with "
+            "``exercise_round_two_locked``."
+        ),
+    )
 
 
-def _view(workspace: ExerciseWorkspace) -> TeamWorkspaceView:
+def _view(workspace: ExerciseWorkspace, *, round_two_open: bool) -> TeamWorkspaceView:
     """The one place a workspace becomes a response.
 
     Field by field rather than by ``model_validate``: the repository dataclass
@@ -171,7 +180,14 @@ def _view(workspace: ExerciseWorkspace) -> TeamWorkspaceView:
         team_number=workspace.team_number,
         dataset_label=workspace.dataset_label,
         invite_limit=workspace.invite_limit,
+        round_two_open=round_two_open,
     )
+
+
+def _open(
+    session: ExerciseSession, results: ResultsRepository, workspace: ExerciseWorkspace
+) -> bool:
+    return round_two_open(session, results, workspace=workspace)
 
 
 def _set_workspace_cookie(response: Response, *, policy: CookiePolicy, token: str) -> None:
@@ -207,6 +223,7 @@ def enter_team_workspace(
     dataset: ActiveDataset,
     secret: WorkspaceSecret,
     policy: CookiePolicy,
+    results: ResultsRepository,
 ) -> TeamWorkspaceView:
     """Open *the* workspace for this team number, creating it if it is new.
 
@@ -278,7 +295,7 @@ def enter_team_workspace(
     _set_workspace_cookie(
         response, policy=policy, token=workspace_token_for(secret=secret, workspace=workspace)
     )
-    return _view(workspace)
+    return _view(workspace, round_two_open=_open(session, results, workspace))
 
 
 @router.get(
@@ -286,7 +303,9 @@ def enter_team_workspace(
     response_model=TeamWorkspaceView,
     summary="The workspace this browser is in",
 )
-def read_current_workspace(workspace: CurrentWorkspace) -> TeamWorkspaceView:
+def read_current_workspace(
+    workspace: CurrentWorkspace, session: ExerciseSession, results: ResultsRepository
+) -> TeamWorkspaceView:
     """What the cookie points at, or one sentence saying to enter a team number.
 
     The reload case, and the second-tab case: both arrive here with the same
@@ -296,4 +315,4 @@ def read_current_workspace(workspace: CurrentWorkspace) -> TeamWorkspaceView:
     Raises:
         ExerciseError: 401 when the cookie is absent or names no workspace.
     """
-    return _view(workspace)
+    return _view(workspace, round_two_open=_open(session, results, workspace))

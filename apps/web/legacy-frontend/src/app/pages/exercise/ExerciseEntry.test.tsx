@@ -172,7 +172,7 @@ describe("<ExerciseEntry />", () => {
     await waitFor(() => expect(screen.getAllByRole("radio").length).toBe(3));
   });
 
-  it("shows the data file its workspace is in, even when it is not the newest", async () => {
+  it("names the team its workspace is in, even when the file is not the newest", async () => {
     // PR #186's ruling: an existing workspace wins over a newer upload, so an
     // older label here is correct and carries no warning.
     stubFetch({
@@ -184,7 +184,7 @@ describe("<ExerciseEntry />", () => {
     renderEntry();
     await waitFor(() =>
       expect(document.querySelector('[data-slot="exercise-entry-current"]')?.textContent).toContain(
-        "Autumn draft",
+        "Team 4",
       ),
     );
   });
