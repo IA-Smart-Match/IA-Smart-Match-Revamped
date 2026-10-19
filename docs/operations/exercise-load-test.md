@@ -124,6 +124,28 @@ The January sizing call needs Plan B on e2-medium hardware.
 5. If an API route or code string changed (for example the results-run refusal codes), update
    the expected codes in `classroom_load.py`; the check prints the code it got.
 
+Checks added for the Oct 23 tree (#419, #423, #425): after B1 every team's list has
+`invite_limit` 60 and 60 entries, and a Harbor run press is refused 409
+`exercise_round_two_locked`; in B4 (Harbor unlocked, no refresh yet) a Harbor run press is
+refused 409 `exercise_ask_first`; after B5 every device reads `asked_without_card` 230.
+
+## Profiling a run (py-spy)
+
+Start the API under py-spy instead of plain uvicorn (no sudo needed: py-spy is the parent):
+
+```bash
+python3 -m venv ~/loadtest/pyspy/v && ~/loadtest/pyspy/v/bin/pip install py-spy
+date +%s.%N > prof.json.t0
+~/loadtest/pyspy/v/bin/py-spy record -r 50 --gil -f chrometrace -o prof.json -- \
+  .venv/bin/python -m uvicorn smartmatch_api.main:app --host 127.0.0.1 --port 8191
+```
+
+Stop it with `kill -INT <py-spy pid>` after the run so it writes the trace, then cut it by the
+script's phase lines (`[  12.3s] phase X` in the run log). The Oct 19 profile and its slicer are
+in `sweep-recovery/oct23/perf/profile.md`. For a clean before/after of one route, time
+sequential requests against two APIs on one DB rather than comparing two loaded runs: on a
+shared box host load swings whole-run p95s by 40 % between identical trees.
+
 ## Next steps that need the owner
 
 - **Plan B** (cloud clone of the VM disk, no internet egress, e2-medium): gates B1–B4 in the plan,
