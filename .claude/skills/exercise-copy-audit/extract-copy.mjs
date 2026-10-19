@@ -138,8 +138,8 @@ if (mode === "table") {
   // A test that asserts the exact rendered text proves a string built from template pieces.
   const tests = walk(join(ROOT, "apps/web/legacy-frontend/src/app/pages/exercise"), /\.test\.tsx$/, false);
   const files = [...walk(dir), ...walk(DOMAIN, /\.py$/), ...tests];
-  const source = files.map((f) => readFileSync(f, "utf8")).join("\n").replace(/&apos;|\\'/g, "'");
-  const missing = verbatim.filter((w) => !source.includes(w));
+  const source = files.map((f) => readFileSync(f, "utf8")).join("\n").replace(/&apos;|\\'/g, "'").replace(/\s+/g, " "); // JSX wraps lines
+  const missing = verbatim.filter((w) => !source.includes(w.replace(/\s+/g, " ")));
   for (const w of missing) console.log(`MISSING: "${w}"`);
   console.error(`${verbatim.length - missing.length} of ${verbatim.length} Ann strings found`);
   process.exitCode = missing.length ? 1 : 0;
