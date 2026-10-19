@@ -56,7 +56,7 @@ export const EXERCISE_LICENSE_LINE =
 /** The room's question and the brief, as the opening title (DESIGN.md §7.1, §11.1). */
 export const OPENING_TITLE = "Who should we invite?";
 export const OPENING_LEAD =
-  "Your team is promoting a campus career event with 60 seats. Choose whom to invite, see what happened, then try again.";
+  "Your team fills a 60-seat career event. Build a list in Round 1, then again in Round 2.";
 
 /** Where a team goes once it is in. */
 export const EVENT_PICKER_PATH = "/exercise/events";

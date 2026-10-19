@@ -214,7 +214,7 @@ describe("every team page carries the status line", () => {
     await screen.findByText("You are Team 3");
     expect(value("round-1")).toBe("Results run");
     expect(value("asking")).toBe("Required");
-    expect(value("refresh")).toBe("Done at 10:42 AM");
+    expect(value("refresh")).toBe("Asked at 10:42 AM");
   });
 });
 
@@ -277,7 +277,7 @@ describe("the status line follows the page's own presses", () => {
     expect(value("refresh")).toBe("Not done yet");
 
     await pressTwice(await screen.findByRole("button", { name: "Ask them now" }));
-    await waitFor(() => expect(value("refresh")).toBe("Done at 10:42 AM"));
+    await waitFor(() => expect(value("refresh")).toBe("Asked at 10:42 AM"));
   });
 
   it("shows results as used after the run, and the page says when it ran", async () => {
