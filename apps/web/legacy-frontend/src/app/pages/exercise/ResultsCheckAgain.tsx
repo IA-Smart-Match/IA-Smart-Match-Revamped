@@ -65,9 +65,6 @@ export function ResultsCheckAgain({
 
   return (
     <>
-      <p data-slot="exercise-results-check-hint" className="ce-type-body ce-measure text-ce-ink">
-        {NOT_OPENED_YET}
-      </p>
       <Button
         variant="secondary"
         disabled={disabled}

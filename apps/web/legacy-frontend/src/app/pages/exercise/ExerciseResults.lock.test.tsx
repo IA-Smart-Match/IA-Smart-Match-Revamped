@@ -32,7 +32,9 @@ const ASKING = `${BASE}/asking-choice`;
 const SETTINGS = `${BASE}/events/northline/settings`;
 
 const EVENT_NAME = "Northline Analytics: Behind the Business";
-const NOT_OPEN = `Results for ${EVENT_NAME} are not open yet. Ask your instructor.`;
+const NOT_OPEN =
+  "Your instructor has not opened results yet. You can still pick your setting and review its list. Press Check again once your instructor says results are open.";
+const SERVER_NOT_OPEN = `Results for ${EVENT_NAME} are not open yet. Ask your instructor.`;
 const QUESTION = `Send ‘Wide net’? You get one results run for ${EVENT_NAME}.`;
 const ALREADY_RUN = "Your team already ran results for this event. You get one run per event.";
 
@@ -191,11 +193,8 @@ describe("<ExerciseResults /> before the instructor opens results", () => {
     reads({ [`GET ${EVENTS}`]: events(false, false), [`GET ${RESULTS}`]: NOT_RUN });
     renderResults();
     await screen.findByRole("button", { name: "Results not open yet." });
-    expect(
-      document.querySelector('[data-slot="exercise-results-check-hint"]')?.textContent,
-    ).toBe(
-      "Your instructor has not opened results yet. You can still pick your setting and review its list. Press Check again once your instructor says results are open.",
-    );
+    expect(screen.getAllByText(NOT_OPEN)).toHaveLength(1);
+    expect(screen.queryByText(SERVER_NOT_OPEN)).toBeNull();
   });
 
   it("shows 'You will send: [name]' with the list's makeup and a link to the full list (item 7)", async () => {
@@ -411,7 +410,7 @@ describe("<ExerciseResults /> after the one run", () => {
       [`GET ${EVENTS}`]: () => events(!closed, false),
       [`GET ${RESULTS}`]: NOT_RUN,
       [`POST ${RESULTS}`]: {
-        body: { error: { code: "exercise_results_locked", message: NOT_OPEN } },
+        body: { error: { code: "exercise_results_locked", message: SERVER_NOT_OPEN } },
         status: 409,
       },
     });

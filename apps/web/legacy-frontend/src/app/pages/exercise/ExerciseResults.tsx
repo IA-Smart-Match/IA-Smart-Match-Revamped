@@ -91,7 +91,7 @@ import { ResultPanels, type NamesByProfileNo } from "./ResultPanels";
 import { refreshSummaryText } from "./refreshWording";
 import { ProfileCardArt } from "./resultsArt";
 import { ChosenListSummary } from "./ChosenListSummary";
-import { ResultsCheckAgain } from "./ResultsCheckAgain";
+import { NOT_OPENED_YET, ResultsCheckAgain } from "./ResultsCheckAgain";
 import { ResultsLockPanel } from "./ResultsLockPanel";
 import { TeamStatusBand, useStatusRevision } from "./TeamStatusBand";
 import { isAccessRefusal, useExerciseResource } from "./useExerciseResource";
@@ -122,11 +122,6 @@ interface EventResultsState {
   readonly name: string;
   readonly open: boolean;
   readonly run: boolean;
-}
-
-/** Ann's sentence for a press that cannot do anything yet (2026-10-02). */
-function notOpenSentence(eventName: string): string {
-  return `Results for ${eventName} are not open yet. Ask your instructor.`;
 }
 
 /** The question the run button asks before the one run (Ann's checklist, section 5). */
@@ -450,8 +445,7 @@ function ResultsBody({
   const refusedAsLocked = refusal?.code === LOCKED;
   const notOpen = !hasRun && (data.event === null ? refusedAsLocked : !data.event.open);
   // The lock panel carries the sentence, so the notice does not repeat it.
-  const lockSentence =
-    data.event === null ? (refusal?.message ?? "") : notOpenSentence(data.event.name);
+  const lockSentence = NOT_OPENED_YET;
   /** When the run was made, from the run itself; `null` when it is not on screen. */
   const ranAt = clockTime(results?.created_at);
 
