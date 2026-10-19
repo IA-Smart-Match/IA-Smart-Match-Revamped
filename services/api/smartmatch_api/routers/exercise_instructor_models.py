@@ -124,7 +124,7 @@ class InviteLimitRequest(BaseModel):
 
     invite_limit: int = Field(
         description=(
-            "The cap on a ranked list for this data file. Thirty by default — "
+            "The cap on a ranked list for this data file. Sixty by default — "
             "Ann's stated number, held in the column's server default rather "
             "than repeated here."
         ),
