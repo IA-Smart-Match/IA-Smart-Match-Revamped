@@ -90,7 +90,7 @@ export function RoundStepsGate({
         className="ce-card flex flex-col gap-ce-3 p-ce-4"
       >
         <h2 className="ce-type-h2 text-ce-ink">
-          Step 1: ask students for more information
+          Round 2 starts here: ask students for more information
         </h2>
         {gate.roundTwoOpen === false ? (
           <p className="ce-type-body text-ce-ink-muted">

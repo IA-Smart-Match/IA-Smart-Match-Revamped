@@ -480,7 +480,7 @@ function AskingPanels({
         )}
         {/*
           While the server says the team has asked (a reset clears them), or
-          while this browser's own confirmed refresh is newer than the read.
+          while this browser has a confirmed ask newer than the read.
         */}
         {hasAsked ? (
           <RefreshSummary at={refreshedAt} counts={counts} eventName={roundOneName} />

@@ -71,7 +71,7 @@ describe("<RoundStepsGate />", () => {
   it("hides the Harbor list until the team has asked", async () => {
     stub({ refreshed: false, refresh_counts: null });
     show("harbor");
-    await screen.findByText("Step 1: ask students for more information");
+    await screen.findByText("Round 2 starts here: ask students for more information");
     expect(screen.queryByText("THE LIST")).toBeNull();
   });
 
