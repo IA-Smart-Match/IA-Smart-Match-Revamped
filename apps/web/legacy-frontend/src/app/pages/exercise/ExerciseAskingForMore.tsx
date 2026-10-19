@@ -439,9 +439,8 @@ function AskingPanels({
       <section className="flex flex-col gap-ce-4">
         <h2 className="ce-type-h2 text-ce-ink">Ask students without a card</h2>
         <p className="ce-type-body ce-measure text-ce-ink-muted">
-          This happens once. It goes to every student without a card, not only the people your team
-          invited. Everyone who attended the first event picks up its topics, and some of the
-          students asked fill in a card.
+          Your team asks once. Every student without a card gets your request, and some fill one
+          in. Everyone who came to the first event also picks up its topics.
         </p>
         <AskOnceButton
           asked={hasAsked}

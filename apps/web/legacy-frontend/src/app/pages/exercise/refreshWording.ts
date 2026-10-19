@@ -4,7 +4,7 @@
  * Ann's review of 2026-10-02 asks for the refresh to say that it happened,
  * when, and what it changed, and gives the words: "Refresh done at 10:42 AM.
  * 9 people who came to Northline now count as having gone to a similar event.
- * 12 of the 22 invited people with no card completed one. 0 people stopped
+ * 230 students without a card were asked. 127 completed a card. 0 stopped
  * responding." and "Already refreshed at 10:42 AM."
  *
  * **The server sends facts, never these sentences.** It sends a timestamp,
