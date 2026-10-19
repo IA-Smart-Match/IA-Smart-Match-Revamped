@@ -63,6 +63,10 @@ export function RoundStepsGate({
     (signal) => readGate(eventKey, signal),
     [eventKey],
   );
+  if (state.status === "loading") {
+    // Not the list: round two's list must not flash before the gate is known.
+    return <></>;
+  }
   const gate = state.status === "ready" ? state.data : null;
   if (gate === null) {
     return <>{children}</>;
