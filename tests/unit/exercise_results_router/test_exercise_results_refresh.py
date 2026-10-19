@@ -19,7 +19,7 @@ from smartmatch_api.routers.exercise_matching_models import (
     rankable_set,
 )
 from smartmatch_api.routers.exercise_results_refresh import (
-    invited_without_a_card,
+    profiles_without_a_card,
     refresh_plan,
 )
 from smartmatch_domain.exercise.asking import (
@@ -262,9 +262,8 @@ def test_a_refresh_reports_when_it_happened_and_what_it_changed(
     fakes: _Fakes, client: TestClient, confirmed: SimulationCoefficients
 ) -> None:
     """Every fact the checklist's summary sentence and before/after line need."""
-    first = _prepare_refresh(fakes, client)
+    _prepare_refresh(fakes, client)
     workspace = fakes.workspaces.rows[(_DATASET_ID, 1)]
-    invited = first["team"]["invited_profile_nos"]
 
     body = client.post(_REFRESH, json={}, headers=_HEADER).json()
 
@@ -274,8 +273,8 @@ def test_a_refresh_reports_when_it_happened_and_what_it_changed(
     assert {key: counts[key] for key in _LEGACY_COUNT_KEYS} == {
         key: body[key] for key in _LEGACY_COUNT_KEYS
     }
-    assert counts["invited_without_card"] == len(invited_without_a_card(_PROFILES, invited))
-    assert counts["invited_without_card"] >= counts["cards_completed"] >= 1
+    assert counts["asked_without_card"] == len(profiles_without_a_card(_PROFILES))
+    assert counts["asked_without_card"] >= counts["cards_completed"] >= 1
     before, after = counts["marker_counts_before"], counts["marker_counts_after"]
     assert set(before) == set(after) == _MARKER_KEYS
     assert sum(before.values()) == sum(after.values()) == len(_PROFILES), "every row is counted"
@@ -373,14 +372,13 @@ def test_one_teams_marks_never_reach_another_teams_list(
 
 def test_a_card_exists_when_either_side_recorded_interests() -> None:
     """Read exactly as ``exercise_matching_models._profile_evidence`` reads it."""
-    invited = [row.profile_no for row in _ROWS]
 
-    without = invited_without_a_card(_PROFILES, invited)
+    without = profiles_without_a_card(_PROFILES)
 
     assert 1 not in without, "a base-row card is a card"
     assert 3 in without
     given = replace(_PROFILES[2], overlay_card_interests=())
-    assert 3 not in invited_without_a_card((given,), invited)
+    assert 3 not in profiles_without_a_card((given,))
 
 
 def test_a_refresh_writes_the_hidden_goal_onto_every_copied_card(
@@ -690,3 +688,36 @@ def test_refresh_all_is_answered_by_the_new_router() -> None:
     }
 
     assert ("POST", _REFRESH_ALL) in declared
+
+
+def test_a_no_card_profile_the_team_did_not_invite_can_complete_a_card(
+    fakes: _Fakes, client: TestClient, confirmed: SimulationCoefficients
+) -> None:
+    """Ann, 2026-10-18: round two asks every student without a card, not only invitees."""
+    first = _prepare_refresh(fakes, client, choice="better_recommendations")
+    invited = set(first["team"]["invited_profile_nos"])
+    outsiders = {p for p in profiles_without_a_card(_PROFILES) if p not in invited}
+    assert outsiders, "the fixture must leave a card-less profile off the team's list"
+
+    assert client.post(_REFRESH, json={}, headers=_HEADER).status_code == 200
+
+    completed = {
+        profile_no
+        for (_, profile_no), row in fakes.team_view.overlays.items()
+        if row.overlay_card_interests is not None
+    }
+    assert completed & outsiders
+
+
+def test_harbor_results_are_refused_until_the_team_has_asked(
+    fakes: _Fakes, client: TestClient, confirmed: SimulationCoefficients
+) -> None:
+    _prepare_refresh(fakes, client)
+
+    response = client.post(_RESULTS_TWO, json=_FINAL_BODY, headers=_HEADER)
+
+    assert response.status_code == 409
+    assert response.json()["error"] == {
+        "code": "exercise_ask_first",
+        "message": "Ask students for more information before running Harbor results.",
+    }
