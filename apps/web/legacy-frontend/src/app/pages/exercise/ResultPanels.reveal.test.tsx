@@ -78,7 +78,7 @@ describe("ResultPanels seating chart", () => {
     render(<ResultPanels results={results()} names={new Map()} />);
 
     const room = document.querySelector('[data-slot="exercise-room"]')?.textContent ?? "";
-    for (const words of ["The room", "Front of the room", "Already coming", "Your invitations", "Still open"]) {
+    for (const words of ["The room", "Front of the room", "Already coming", "Came because of your list", "Still open"]) {
       expect(room).toContain(words);
     }
   });
@@ -88,7 +88,7 @@ describe("ResultPanels seating chart", () => {
 
     const sentence = document.querySelector('[data-slot="exercise-seats-sentence"]');
     expect(sentence?.textContent).toBe(
-      "8 were already coming. Your invitations added 6. 46 seats are still open.",
+      "8 were already coming. 6 came because of your list. 46 seats are still open.",
     );
     const numerals = Array.from(sentence?.querySelectorAll("[data-numeral]") ?? []).map(
       (node) => node.textContent,
@@ -130,7 +130,7 @@ describe("ResultPanels reveal after a run", () => {
     });
 
     expect(live?.textContent).toBe(
-      "8 were already coming. Your invitations added 6. 46 seats are still open.",
+      "8 were already coming. 6 came because of your list. 46 seats are still open.",
     );
   });
 
@@ -141,7 +141,7 @@ describe("ResultPanels reveal after a run", () => {
     expect(document.querySelectorAll('[data-slot="ce-seat"][data-animate="true"]').length).toBe(0);
     expect(
       document.querySelector('[data-slot="exercise-seats-announce"]')?.textContent,
-    ).toBe("8 were already coming. Your invitations added 6. 46 seats are still open.");
+    ).toBe("8 were already coming. 6 came because of your list. 46 seats are still open.");
     expect(document.querySelector('[data-slot="exercise-seats"]')?.textContent).toContain("46");
   });
 });
@@ -149,7 +149,7 @@ describe("ResultPanels reveal after a run", () => {
 describe("ResultPanels live region under reduced motion", () => {
   it("mounts the live region empty and fills it after mount, so it is announced", () => {
     stubReducedMotion(true);
-    const sentence = "8 were already coming. Your invitations added 6. 46 seats are still open.";
+    const sentence = "8 were already coming. 6 came because of your list. 46 seats are still open.";
 
     // The first render, before any effect runs: a live region that mounts
     // already holding its text may never be spoken.

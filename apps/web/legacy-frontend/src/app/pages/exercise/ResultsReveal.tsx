@@ -121,7 +121,7 @@ function Room({
       </div>
       <ul className="ce-type-meta flex flex-wrap gap-x-ce-5 gap-y-ce-2 border-t border-ce-line pt-ce-4 text-ce-ink-muted">
         <LegendItem kind="taken" label="Already coming" count={counts.taken} />
-        <LegendItem kind="added" label="Your invitations" count={counts.added} />
+        <LegendItem kind="added" label="Came because of your list" count={counts.added} />
         <LegendItem kind="open" label="Still open" count={counts.open} />
       </ul>
     </div>

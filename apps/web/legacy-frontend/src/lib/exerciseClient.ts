@@ -189,6 +189,8 @@ export interface PreviousRoundView {
   readonly round: number;
   readonly setting_name: string | null;
   readonly team: ResultPanelView;
+  /** That round's mass-email-alone panel; absent from an older server. */
+  readonly email_everyone?: ResultPanelView;
   readonly seats_empty: number;
   /** How many of that event's pre-registered students came (fixed draw). Absent from a server older than the 2026-10-15 rule (#410). */
   readonly existing_attended?: number;
