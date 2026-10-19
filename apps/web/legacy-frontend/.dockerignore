@@ -2,3 +2,5 @@ node_modules
 dist
 .vite
 tests
+.env
+.env.*

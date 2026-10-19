@@ -66,8 +66,17 @@ State on the VM today (2026-10-19): runs on teams 1, 3, 4; E12 unlocked 2026-10-
 
 ```bash
 H=https://exercise.plated.blog; cd ~ && umask 077
-read -rs PASS; curl -sS -c jar -X POST "$H/v1/exercise/instructor/login" -H 'Content-Type: application/json' \
-  -H 'X-Exercise-Request: 1' --data "$(printf '{"passcode":"%s"}' "$PASS")"; unset PASS
+read -rs PASS; export PASS
+python3 -c 'import json,os; print(json.dumps({"passcode": os.environ["PASS"]}))' \
+  | curl -sS -c jar -X POST "$H/v1/exercise/instructor/login" -H 'Content-Type: application/json' \
+    -H 'X-Exercise-Request: 1' --data @-; unset PASS
+```
+
+4.1b Check which data file(s) the teams are on. If every team shows the same `dataset_id`, go on. If there is more than one, add `?dataset_id=<id>` to every lock and reset call below, once per file (without it they answer 409 `exercise_teams_span_datasets`).
+
+```bash
+curl -sS -b jar "$H/v1/exercise/instructor/workspaces" \
+  | python3 -c 'import json,sys; [print(t["team_number"], t["dataset_id"], t["dataset_label"]) for t in json.load(sys.stdin)["teams"]]'
 ```
 
 4.2 Close both events (route exists: `POST /v1/exercise/instructor/events/{event_key}/lock`, idempotent, deletes nothing; the instructor page's close button calls it). Needs the `UPDATE` grant on `exercise_result_unlock` (exercise-hosting.md §3). Do this **before** clearing.
@@ -77,10 +86,10 @@ for k in E11 E12; do curl -sS -b jar -X POST "$H/v1/exercise/instructor/events/$
 curl -sS -b jar "$H/v1/exercise/instructor/events"      # both unlocked:false
 ```
 
-4.3 Clear each team that has a row, one at a time, reading each answer (page button: "Clear team N's work"). A reset **keeps the team's row** and its seed; it deletes saved settings, result runs, asking choice, refresh. Team 2 has no row and is refused (404): expected, that is the sixth team done. Instructor-page alternative to the curl loop: open `https://exercise.plated.blog/exercise/instructor`, sign in, press "Clear team N's work" per team, and the close button per event.
+4.3 Clear each team that has a row, one at a time, reading each answer (page button: "Clear team N's work"). A reset **keeps the team's row** and its seed; it deletes saved settings, result runs, asking choice, refresh. Clear every team the 4.1b list shows (today 1, 3, 4, 5, 6; Track D's load test may add Team 2 — then include it). A team with no row answers 404, which is fine: it has nothing to clear. Instructor-page alternative to the curl loop: open `https://exercise.plated.blog/exercise/instructor`, sign in, press "Clear team N's work" per team, and the close button per event.
 
 ```bash
-for n in 1 3 4 5 6; do curl -sS -b jar -X POST "$H/v1/exercise/instructor/workspaces/$n/reset" -H 'X-Exercise-Request: 1'; echo; done
+for n in 1 2 3 4 5 6; do curl -sS -b jar -X POST "$H/v1/exercise/instructor/workspaces/$n/reset" -H 'X-Exercise-Request: 1'; echo; done
 ```
 
 Pass per team: `saved_setting_count: 0`, `result_run_count: 0`, `refreshed_at: null`.
@@ -97,10 +106,16 @@ Expect, **before** 4.2: runs on teams 1, 3, 4 and E11/E12 open. **After** 4.2/4.
 ```bash
 sudo docker compose -f docker-compose.yml -f docker-compose.vm.yml exec -T db \
   psql -U smartmatch -d smartmatch -c "SELECT team_number, asking_choice, refreshed_at FROM exercise_team_workspace ORDER BY 1;" \
-  -c "\dt exercise_*"   # find the overlay table (name not verified), then SELECT count(*) from it: expect 0
+  -c "SELECT count(*) AS overlays FROM exercise_profile_overlay;"   # expect 0
 ```
 
-Expected: `asking_choice` and `refreshed_at` NULL on every row (Team 2 has no row, so 5 rows: 1,3,4,5,6). Column names above are from the repo's repositories; **VERIFY ON THE VM** (`\d exercise_team_workspace`) before trusting them.
+Expected: `asking_choice` and `refreshed_at` NULL on every row, overlays 0. Table and column names were checked read-only on the VM on 2026-10-19.
+
+4.4b Sign out and remove the cookie jar:
+
+```bash
+curl -sS -b jar -X POST "$H/v1/exercise/instructor/logout" -H 'X-Exercise-Request: 1'; rm -f ~/jar
+```
 
 4.5 **Write (owner SQL, only if the close route is refused or not deployed).** Marked WRITE. Dry-run first: it rolls back. Then change to COMMIT.
 
