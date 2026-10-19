@@ -119,6 +119,6 @@ describe("<ExerciseEventPicker />", () => {
   it("says so honestly when a data file carries no exercise events", async () => {
     answer({ events: [event("past-one", "A past event", false, 1)] });
     renderPicker();
-    await waitFor(() => expect(screen.getByText(/no exercise events in it yet/i)).toBeDefined());
+    await waitFor(() => expect(screen.getByText(/No exercise rounds are set up yet/i)).toBeDefined());
   });
 });
