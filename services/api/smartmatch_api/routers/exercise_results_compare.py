@@ -90,6 +90,7 @@ def before_after_or_none(
             event=event,
             workspace=workspace,
             run=run,
+            weights=run.setting_weights,
             seed=seed,
             coefficients=coefficients,
         )
@@ -105,6 +106,7 @@ def _before_after(
     event: ExerciseEventRow,
     workspace: ExerciseWorkspace,
     run: StoredResultRun,
+    weights: Mapping[str, float],
     seed: int,
     coefficients: SimulationCoefficients,
 ) -> BeforeAfterView:
@@ -145,7 +147,7 @@ def _before_after(
         )
 
     name = run.setting_name or "your setting"
-    before = simulate(cleared, run.setting_weights)
+    before = simulate(cleared, weights)
     major = simulate(profiles, _MAJOR_FIRST)
     return BeforeAfterView(
         rows=[
