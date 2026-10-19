@@ -296,7 +296,7 @@ describe("<ExerciseAskingForMore /> — the invitation desk (§6.18, §6.19, §7
     expect(document.querySelector('[data-slot="ce-confirm-underline"]')).not.toBeNull();
   });
 
-  it("reverts to \"Choose this way\" when the five seconds lapse", async () => {
+  it("reverts to \"Choose this way\" when the ten seconds lapse", async () => {
     stub(OPEN_CHOICES);
     renderAsking();
     const button = await chooseButton(/a small reward/);

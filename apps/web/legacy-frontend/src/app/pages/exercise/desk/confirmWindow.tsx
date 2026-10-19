@@ -43,7 +43,7 @@ export function ConfirmLabel({
     <span
       data-slot="ce-confirm-label"
       data-sizer={armed ? idle : armedLabel}
-      className="after:invisible after:block after:h-0 after:overflow-hidden after:content-[attr(data-sizer)]"
+      className="text-center after:invisible after:block after:h-0 after:overflow-hidden after:content-[attr(data-sizer)]"
     >
       {armed ? armedLabel : idle}
     </span>

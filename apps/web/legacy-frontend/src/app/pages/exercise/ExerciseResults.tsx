@@ -24,7 +24,7 @@
  *
  * - not open: grey, "Results not open yet.", with the lock panel saying why;
  * - open: live. The first press asks, on the button itself — "Send this list?
- *   You get one results run for {event}" — and a second press inside five
+ *   You get one results run for {event}" — and a second press inside ten
  *   seconds sends it. Escape or waiting puts it back. No pop-up;
  * - run: grey, "Results already run for this event.", above the stored
  *   results. Run wins over open: results closed again after a run still read
