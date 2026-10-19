@@ -63,6 +63,7 @@ import { ListCoverageNotice } from "./ListCoverageNotice.tsx";
 import { FilledListNote } from "./FilledListNote";
 import { RankedList } from "./RankedList";
 import { SavedSettingsPanel } from "./SavedSettingsPanel";
+import { RoundBanner } from "./RoundBanner";
 import { TeamStatusBand } from "./TeamStatusBand";
 import { isAccessRefusal, useExerciseResource } from "./useExerciseResource";
 import { isWeightsRefusal, WeightsControls } from "./WeightsControls";
@@ -300,7 +301,7 @@ function EventMatching({ eventKey }: { readonly eventKey: string }): React.JSX.E
           Choose a different event
         </Link>
       }
-      status={<TeamStatusBand eventKey={eventKey} />}
+      status={<><RoundBanner page="event" eventKey={eventKey} /><TeamStatusBand eventKey={eventKey} /></>}
     >
       {state.status === "loading" ? (
         // §6.21: shaped like the list, with the stated-loading sentence.

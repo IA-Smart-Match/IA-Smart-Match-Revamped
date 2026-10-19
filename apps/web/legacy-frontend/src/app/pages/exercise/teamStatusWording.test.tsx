@@ -8,6 +8,9 @@ import type { EventView } from "../../../lib/exerciseClient";
 import {
   askingWords,
   refreshWords,
+  roundBannerLine,
+  roundBannerTitle,
+  roundOneDoneLine,
   resultsWords,
   roundsOf,
   teamLine,
@@ -86,7 +89,7 @@ describe("the words for each fact", () => {
 
   it("says whether the refresh is done, with its time", () => {
     expect(refreshWords(false, null)).toBe("Not done yet");
-    expect(refreshWords(true, "2026-10-16T10:42:00")).toBe("Done at 10:42 AM");
+    expect(refreshWords(true, "2026-10-16T10:42:00")).toBe("Asked at 10:42 AM");
     expect(refreshWords(true, null)).toBe("Done");
     // A time without the flag is not a refresh.
     expect(refreshWords(false, "2026-10-16T10:42:00")).toBe("Not done yet");
@@ -108,8 +111,7 @@ describe("teamStatusItems", () => {
         value: "Results not used yet (not open yet)",
       },
       { key: "asking", label: "Way of asking", value: "Not chosen yet" },
-      { key: "refresh", label: "Refresh", value: "Not done yet" },
-      { key: "file", label: "Data file", value: "October file" },
+      { key: "refresh", label: "Asked for more", value: "Not done yet" },
     ]);
   });
 
@@ -129,14 +131,13 @@ describe("teamStatusItems", () => {
       "Results used",
       "Results not used yet (open now)",
       "Required",
-      "Done at 10:42 AM",
-      "October file",
+      "Asked at 10:42 AM",
     ]);
   });
 
   it("still says the rest when the file has no exercise events", () => {
     const items = teamStatusItems(WORKSPACE, [PAST], NOT_ASKED);
-    expect(items.map((item) => item.key)).toEqual(["asking", "refresh", "file"]);
+    expect(items.map((item) => item.key)).toEqual(["asking", "refresh"]);
   });
 });
 
@@ -145,7 +146,27 @@ describe("teamStatusSentence", () => {
     const items = teamStatusItems(WORKSPACE, [NORTHLINE], NOT_ASKED);
     expect(teamStatusSentence(3, items)).toBe(
       "You are Team 3. Round 1 · Northline Analytics: Behind the Business: Results not used yet (not open yet). " +
-        "Way of asking: Not chosen yet. Refresh: Not done yet. Data file: October file.",
+        "Way of asking: Not chosen yet. Asked for more: Not done yet.",
     );
+  });
+});
+
+describe("the round banner words", () => {
+  const [one, two] = roundsOf([HARBOR, NORTHLINE]);
+
+  it("titles each round with its number, the total and the short name", () => {
+    expect(roundBannerTitle(one!, 2)).toBe("Round 1 of 2: Northline");
+    expect(roundBannerTitle(two!, 2)).toBe("Round 2 of 2: Harbor");
+  });
+
+  it("says Round 1 is done and what to do next", () => {
+    expect(roundOneDoneLine(two!)).toBe(
+      "Round 1 done. Next: Round 2, Harbor. Start by choosing how to ask students for more information.",
+    );
+  });
+
+  it("gives one short line per page", () => {
+    expect(roundBannerLine("asking", two!)).toBe("Start by choosing how to ask students for more information.");
+    expect(roundBannerLine("results", one!)).toBe("See how your list did.");
   });
 });

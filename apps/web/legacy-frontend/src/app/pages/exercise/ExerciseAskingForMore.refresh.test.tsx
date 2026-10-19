@@ -345,7 +345,7 @@ describe("<ExerciseAskingForMore /> — the refresh", () => {
     );
     expect(isShut(ask)).toBe(true);
     // The asking response says it; the screen asks for nothing else.
-    expect(calls.map((call) => call.url)).toEqual([ASKING]);
+    expect(calls.map((call) => call.url)).toEqual(["/v1/exercise/workspaces/current/events", ASKING]);
   });
 
   it("opens the refresh once the first round's results exist", async () => {
@@ -359,7 +359,7 @@ describe("<ExerciseAskingForMore /> — the refresh", () => {
     await waitFor(() => expect(isShut(ask)).toBe(false));
     expect(screen.queryByText(/before asking\./i)).toBeNull();
     // Which event is round one is the server's answer; no event is read here.
-    expect(calls.map((call) => call.url)).toEqual([ASKING]);
+    expect(calls.map((call) => call.url)).toEqual(["/v1/exercise/workspaces/current/events", ASKING]);
   });
 
   it("names no event when the file has no rounds, and keeps the refresh shut", async () => {
@@ -610,7 +610,7 @@ describe("<ExerciseAskingForMore /> — the refresh", () => {
     renderAsking();
     const shut = await screen.findByRole("button", { name: "Already asked at 10:42 AM" });
     expect(isShut(shut)).toBe(true);
-    expect(calls.map((call) => call.url)).toEqual([ASKING]);
+    expect(calls.map((call) => call.url)).toEqual(["/v1/exercise/workspaces/current/events", ASKING]);
   });
 });
 

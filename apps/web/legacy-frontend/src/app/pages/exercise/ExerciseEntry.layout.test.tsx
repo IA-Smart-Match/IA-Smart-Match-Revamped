@@ -77,7 +77,7 @@ describe("<ExerciseEntry /> layout", () => {
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Who should we invite?");
     expect(
       screen.getByText(
-        "Your team is promoting a campus career event with 60 seats. Choose whom to invite, see what happened, then try again.",
+        "Your team fills a 60-seat career event. Build a list in Round 1, then again in Round 2.",
       ),
     ).toBeDefined();
     expect(screen.getByRole("heading", { level: 2, name: "Which team are you?" })).toBeDefined();

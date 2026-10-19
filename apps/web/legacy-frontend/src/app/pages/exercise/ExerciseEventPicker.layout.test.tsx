@@ -72,10 +72,10 @@ describe("<ExerciseEventPicker /> layout", () => {
     expect(first.textContent).toContain("Topics: analytics");
     expect(first.textContent).toContain("Aimed at: Marketing");
     const second = screen.getByRole("link", { name: /^Round 2 Harbor Consumer Brands/ });
-    expect(first.textContent).toContain("Round one");
-    expect(first.textContent).not.toContain("Opens after round one");
-    expect(second.textContent).toContain("Round two");
-    expect(second.textContent).toContain("Opens after round one (Session 2)");
+    expect(first.textContent).toContain("Round 1");
+    expect(first.textContent).not.toContain("Opens after Round 1");
+    expect(second.textContent).toContain("Round 2");
+    expect(second.textContent).toContain("Opens after Round 1 results.");
   });
 
   it("folds the past events behind a disclosure that counts them", async () => {

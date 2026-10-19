@@ -42,7 +42,7 @@ export function ExerciseEventPicker(): React.JSX.Element {
   return (
     <ExerciseScreen
       title="Choose an event"
-      intro="Build your team's list for one of the two events in the exercise."
+      intro="Start with Round 1, Northline. Round 2, Harbor, opens after your Round 1 results."
       status={<TeamStatusBand />}
     >
       {state.status === "loading" ? <PickerSkeleton /> : null}
@@ -85,14 +85,14 @@ function EventLists({ events }: { readonly events: readonly EventView[] }): Reac
 
   if (rounds.length === 0) {
     return (
-      <ExerciseNotice message="This data file has no exercise events in it yet. The instructor can upload a file that does." />
+      <ExerciseNotice message="No exercise rounds are set up yet. Ask your instructor to open the exercise." />
     );
   }
 
   return (
     <div className="flex flex-col gap-ce-6 md:gap-ce-7">
       <section className="flex flex-col gap-ce-4">
-        <h2 className="ce-type-h2 text-ce-ink">The two events you can work on</h2>
+        <h2 className="ce-type-h2 text-ce-ink">The two rounds, in order</h2>
         <ul className="flex flex-col gap-ce-4 md:gap-ce-5">
           {rounds.map((event, index) => (
             <li key={event.event_key}>
@@ -106,8 +106,6 @@ function EventLists({ events }: { readonly events: readonly EventView[] }): Reac
     </div>
   );
 }
-
-const ROUND_WORDS: Readonly<Record<number, string>> = { 1: "one", 2: "two" };
 
 /**
  * One round (§6.5): a numbered seal, the event name in the serif, its topics
@@ -129,8 +127,6 @@ function RoundCard({
   // round-journey.svg geometry: round one is a tinted ring, later rounds a
   // filled disc.
   const first = roundNumber === 1;
-  // Only rounds one and two exist; any other number shows no word label.
-  const roundWord = ROUND_WORDS[roundNumber];
   const id = React.useId();
   return (
     <Link
@@ -150,18 +146,16 @@ function RoundCard({
         {roundNumber}
       </div>
       <div className="flex min-w-0 flex-1 flex-col gap-ce-2">
-        {roundWord === undefined ? null : (
-          // aria-hidden: the seal's sr-only "Round N" already names the card.
-          <p aria-hidden="true" className="ce-type-body text-ce-ink-muted">
-            Round {roundWord}
-          </p>
-        )}
+        {/* aria-hidden: the seal's sr-only "Round N" already names the card. */}
+        <p aria-hidden="true" className="ce-type-body text-ce-ink-muted">
+          Round {roundNumber}
+        </p>
         <p id={`${id}-name`} className="ce-type-h2 break-words text-ce-ink">
           {event.name}
         </p>
         <div id={`${id}-details`} className="flex flex-col gap-ce-2">
           {roundNumber === 2 ? (
-            <p className="ce-type-body text-ce-ink-muted">Opens after round one (Session 2)</p>
+            <p className="ce-type-body text-ce-ink-muted">Opens after Round 1 results.</p>
           ) : null}
           <EventDescription text={event.description} />
           {event.topic_tags.length === 0 ? null : (
@@ -191,8 +185,7 @@ function PastEvents({ past }: { readonly past: readonly EventView[] }): React.JS
     <section className="flex flex-col gap-ce-3">
       <h2 className="ce-type-h2 text-ce-ink">Past events, for attendance history</h2>
       <p className="ce-type-body ce-measure text-ce-ink-muted">
-        These are not events you build a list for. They are what “went to similar events before”
-        reads.
+        You do not build lists for these. They count when a student went to a similar event before.
       </p>
       {count === 0 ? (
         <p className="ce-type-body text-ce-ink-muted">This data file carries no past events.</p>

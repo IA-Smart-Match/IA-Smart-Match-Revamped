@@ -92,7 +92,7 @@ export function refreshWords(refreshed: boolean, at: string | null | undefined):
     return "Not done yet";
   }
   const time = clockTime(at);
-  return time === null ? "Done" : `Done at ${time}`;
+  return time === null ? "Done" : `Asked at ${time}`;
 }
 
 /**
@@ -104,7 +104,7 @@ export function refreshWords(refreshed: boolean, at: string | null | undefined):
  * page; `eventKey` marks the one the page is about.
  */
 export function teamStatusItems(
-  workspace: TeamWorkspaceView,
+  _workspace: TeamWorkspaceView,
   events: readonly EventView[],
   asking: Pick<AskingStateView, "choice" | "refreshed" | "refreshed_at">,
   eventKey?: string,
@@ -116,8 +116,7 @@ export function teamStatusItems(
       value: resultsWords(round),
     })),
     { key: "asking", label: "Way of asking", value: askingWords(asking.choice) },
-    { key: "refresh", label: "Refresh", value: refreshWords(asking.refreshed, asking.refreshed_at) },
-    { key: "file", label: "Data file", value: workspace.dataset_label },
+    { key: "refresh", label: "Asked for more", value: refreshWords(asking.refreshed, asking.refreshed_at) },
   ];
 }
 
@@ -126,4 +125,35 @@ export function teamStatusSentence(teamNumber: number, items: readonly TeamStatu
   return [teamLine(teamNumber), ...items.map((item) => `${item.label}: ${item.value}`)]
     .map((part) => `${part}.`)
     .join(" ");
+}
+
+/** Which student page a round banner sits on. */
+export type RoundPage = "event" | "asking" | "results";
+
+/** "Northline Analytics: Behind the Business" -> "Northline". */
+export function shortEventName(name: string): string {
+  return name.trim().split(/[\s:]+/)[0] ?? name;
+}
+
+/** Dr. Wang 2026-10-23: "Round 1 of 2: Northline". */
+export function roundBannerTitle(round: RoundStatus, total: number): string {
+  return `Round ${round.round} of ${total}: ${shortEventName(round.name)}`;
+}
+
+/** The one line on what to do, per page (each at most 20 words). */
+export function roundBannerLine(page: RoundPage, round: RoundStatus): string {
+  if (page === "asking") {
+    return "Start by choosing how to ask students for more information.";
+  }
+  if (page === "results") {
+    return "See how your list did.";
+  }
+  return round.round === 1
+    ? "Build your list of students for CBACH to email, then choose one setting and see results."
+    : `Build your ${shortEventName(round.name)} list with what you now know, then choose one setting and see results.`;
+}
+
+/** Shown once round 1's results exist. */
+export function roundOneDoneLine(next: RoundStatus): string {
+  return `Round 1 done. Next: Round ${next.round}, ${shortEventName(next.name)}. Start by choosing how to ask students for more information.`;
 }
