@@ -129,7 +129,7 @@ def test_an_information_tie_says_information_decided(tied_on_major: bool) -> Non
         tie_break_key=TieBreakKey.INFORMATION,
         tied_on_major=tied_on_major,
     )
-    assert reason == "Tied; more information on file first."
+    assert reason == "Tied; students we know more about go first."
 
 
 @pytest.mark.parametrize("tied_on_major", [True, False])
@@ -272,7 +272,7 @@ def test_the_approved_wording_is_no_longer_marked_pending():
             TieBreakKey.INFORMATION,
             ("stated_interest_overlap",),
             False,
-            "Tied; more information on file first.",
+            "Tied; students we know more about go first.",
         ),
         (
             TieBreakKey.FIXED_ORDER,

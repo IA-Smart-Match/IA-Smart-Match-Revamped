@@ -338,8 +338,8 @@ def test_an_information_resolved_tie_names_the_information_key() -> None:
     thick = ProfileEvidence("thick", "Marketing", attended_event_topics=(("sports",),))
     profiles = [ExerciseProfile(1, "Senior", thin), ExerciseProfile(2, "Senior", thick)]
     assert _reasons(profiles) == [
-        "Tied; more information on file first.",
-        "Same major; nothing else on file; those with more on file go first.",
+        "Tied; students we know more about go first.",
+        "Same major; nothing else on file; students we know more about go first.",
     ]
 
 

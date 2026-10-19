@@ -99,7 +99,9 @@ _TIED_ON_WHAT_COUNTED_YEAR_PHRASE: Final[str] = "tied on what counted; ordered b
 #: claiming nothing about the major. Phrases, not sentences, so they go through
 #: the same rendering Ann's two do. Approved as written (OQ-CE-12 closed
 #: 2026-09-25).
-_TIED_ON_INFORMATION_PHRASE: Final[str] = "tied; more information on file first"
+# Ann 2026-10-16 ("Explain what decides the fixed order"): the information tie
+# is said in the glossary's words, since it is what puts a card holder first.
+_TIED_ON_INFORMATION_PHRASE: Final[str] = "tied; students we know more about go first"
 # Ann's 2026-10-16 feedback ("Explain what decides the fixed order") replaces
 # the older "placed in a fixed order that never changes" (OQ-CE-12). The order
 # is Ann's fixed random order (or one seeded from the data file): student words.
@@ -128,7 +130,7 @@ class TieBreakKey(StrEnum):
 
 #: What follows Ann's major-only phrase when a tie also decided the place.
 _MAJOR_ONLY_TIE_SUFFIX: Final[Mapping[TieBreakKey, str]] = {
-    TieBreakKey.INFORMATION: "those with more on file go first",
+    TieBreakKey.INFORMATION: "students we know more about go first",
     TieBreakKey.YEAR: "ordered by year",
     TieBreakKey.FIXED_ORDER: "placed by a fixed random order",
 }
