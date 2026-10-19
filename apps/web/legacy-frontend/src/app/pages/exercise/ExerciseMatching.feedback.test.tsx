@@ -130,10 +130,10 @@ describe("the sentences", () => {
   it("are Ann's example, with the slots from the server's own answer", () => {
     const after = { event_key: "northline", settings: [setting("Setting A")], max_settings: 3 };
     expect(savedSentence("Setting A", "Northline", after as never)).toBe(
-      "Saved “Setting A” for Northline. You have 2 of 3 slots left.",
+      "Saved “Setting A” for Northline. You can save 2 more for this event.",
     );
     expect(deletedSentence("Setting A", { ...after, settings: [] } as never)).toBe(
-      "Deleted “Setting A”. You have 3 of 3 slots left.",
+      "Deleted “Setting A”. You can save 3 more for this event.",
     );
   });
 
@@ -149,7 +149,7 @@ describe("the sentences", () => {
   });
 
   it("name what was opened and what is being compared", () => {
-    expect(openedSentence("Wide net")).toBe("Opened “Wide net”. The list above is built from it.");
+    expect(openedSentence("Wide net")).toBe("Showing the list for your setting “Wide net” above.");
     expect(comparingSentence("A", "B")).toBe("Showing “A” and “B” side by side, below.");
   });
 });
@@ -159,14 +159,14 @@ describe("<ExerciseMatching /> says what each press did", () => {
     const saved = { current: settings() };
     stub(saved, { [`PUT ${BASE}/settings/Setting%20A`]: { body: settings("Setting A") } });
     renderMatching();
-    fireEvent.change(await screen.findByLabelText("Name these weights"), {
+    fireEvent.change(await screen.findByLabelText("Give this setting a name"), {
       target: { value: "Setting A" },
     });
     saved.current = settings("Setting A");
-    fireEvent.click(screen.getByRole("button", { name: "Save these weights" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save this setting" }));
 
     const said = await within(panel()).findByText(
-      /^Saved “Setting A” for Northline at \d{1,2}:\d{2}:\d{2} [AP]M\. You have 2 of 3 slots left\.$/,
+      /^Saved “Setting A” for Northline at \d{1,2}:\d{2}:\d{2} [AP]M\. You can save 2 more for this event\.$/,
     );
     const notice = said.closest('[data-slot="exercise-notice"]') as HTMLElement;
     expect(notice.dataset.tone).toBe("done");
@@ -177,11 +177,11 @@ describe("<ExerciseMatching /> says what each press did", () => {
     const saved = { current: settings() };
     stub(saved, { [`PUT ${BASE}/settings/Setting%20A`]: { body: settings("Setting A") } });
     renderMatching();
-    fireEvent.change(await screen.findByLabelText("Name these weights"), {
+    fireEvent.change(await screen.findByLabelText("Give this setting a name"), {
       target: { value: "Setting A" },
     });
     saved.current = settings("Setting A");
-    fireEvent.click(screen.getByRole("button", { name: "Save these weights" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save this setting" }));
     await within(panel()).findByText(/^Saved “Setting A”/);
 
     await new Promise((resolve) => setTimeout(resolve, 1200));
@@ -199,10 +199,10 @@ describe("<ExerciseMatching /> says what each press did", () => {
       },
     });
     renderMatching();
-    fireEvent.change(await screen.findByLabelText("Name these weights"), {
+    fireEvent.change(await screen.findByLabelText("Give this setting a name"), {
       target: { value: "compare" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Save these weights" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save this setting" }));
 
     const said = await within(panel()).findByText("Choose another name.");
     expect((said.closest('[data-slot="exercise-notice"]') as HTMLElement).dataset.tone).toBe("calm");
@@ -213,12 +213,12 @@ describe("<ExerciseMatching /> says what each press did", () => {
     stub(saved, { [`DELETE ${BASE}/settings/Setting%20A`]: { body: settings() } });
     renderMatching();
     fireEvent.click(await screen.findByRole("button", { name: "Delete Setting A" }));
-    expect(screen.getByText("Delete Setting A? It cannot be brought back.")).toBeDefined();
+    expect(screen.getByText("Delete “Setting A”? You cannot undo this.")).toBeDefined();
     expect(within(panel()).queryByText(/^Deleted/)).toBeNull();
 
     saved.current = settings();
     fireEvent.click(screen.getByRole("button", { name: "Delete it" }));
-    await within(panel()).findByText("Deleted “Setting A”. You have 3 of 3 slots left.");
+    await within(panel()).findByText("Deleted “Setting A”. You can save 3 more for this event.");
   });
 
   it("replaces the last sentence with the next press's", async () => {
@@ -226,7 +226,7 @@ describe("<ExerciseMatching /> says what each press did", () => {
     stub(saved, { [`DELETE ${BASE}/settings/Setting%20A`]: { body: settings() } });
     renderMatching();
     fireEvent.click(await screen.findByRole("button", { name: "Open this list" }));
-    await within(panel()).findByText("Opened “Setting A”. The list above is built from it.");
+    await within(panel()).findByText("Showing the list for your setting “Setting A” above.");
 
     fireEvent.click(screen.getByRole("button", { name: "Delete Setting A" }));
     saved.current = settings();
@@ -250,7 +250,7 @@ describe("<ExerciseMatching /> says what each press did", () => {
     const boxes = await screen.findAllByRole("checkbox");
     fireEvent.click(boxes[0]);
     fireEvent.click(boxes[1]);
-    fireEvent.click(screen.getByRole("button", { name: "Show them side by side" }));
+    fireEvent.click(screen.getByRole("button", { name: "Compare the two lists side by side" }));
     await within(panel()).findByText("Showing “A” and “B” side by side, below.");
 
     fireEvent.click(await screen.findByRole("button", { name: "Close this comparison" }));
@@ -288,7 +288,7 @@ describe("<ExerciseMatching /> says what each press did", () => {
     const boxes = await screen.findAllByRole("checkbox");
     fireEvent.click(boxes[0]);
     fireEvent.click(boxes[1]);
-    fireEvent.click(screen.getByRole("button", { name: "Show them side by side" }));
+    fireEvent.click(screen.getByRole("button", { name: "Compare the two lists side by side" }));
 
     const said = await within(panel()).findByText("Your team has no saved setting with that name.");
     expect((said.closest('[data-slot="exercise-notice"]') as HTMLElement).dataset.tone).toBe("calm");
@@ -322,7 +322,7 @@ describe("<ExerciseMatching /> says what each press did", () => {
  * stops being true (PR #346 review).
  */
 describe("<ExerciseMatching /> says “Opened” only while the list is built from that setting", () => {
-  const OPENED = "Opened “Setting A”. The list above is built from it.";
+  const OPENED = "Showing the list for your setting “Setting A” above.";
 
   it("waits for that setting's list to land before it says so", async () => {
     const saved = { current: settings("Setting A") };

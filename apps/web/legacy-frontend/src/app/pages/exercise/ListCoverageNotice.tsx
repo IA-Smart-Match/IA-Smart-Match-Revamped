@@ -44,7 +44,7 @@ export function ListCoverageNotice({
       role="status"
       data-slot="exercise-list-coverage-notice"
       className={cn(
-        "ce-type-body flex items-start gap-ce-3 rounded-ce-card bg-ce-gold-tint px-ce-4 py-ce-3 text-ce-ink md:px-ce-5",
+        "ce-type-lead flex items-start gap-ce-3 rounded-ce-card bg-ce-gold-tint px-ce-4 py-ce-3 text-ce-ink md:px-ce-5",
         className,
       )}
     >

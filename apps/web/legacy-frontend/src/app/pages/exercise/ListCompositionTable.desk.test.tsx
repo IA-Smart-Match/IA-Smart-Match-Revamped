@@ -10,6 +10,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { ListCompositionView } from "../../../lib/exerciseClient";
 import { ListCompositionTable } from "./ListCompositionTable";
+import { ListCoverageNotice } from "./ListCoverageNotice.tsx";
 
 const COMPOSITION: ListCompositionView = {
   by_major: {
@@ -113,7 +114,7 @@ describe("<ListCompositionTable /> (§6.9)", () => {
   });
 
   it("shows the coverage line with its icon on the gold wash", () => {
-    renderTable();
+    render(<ListCoverageNotice missingMajors={["Finance"]} missingClassYears={[]} />);
     const notice = document.querySelector('[data-slot="exercise-list-coverage-notice"]');
     expect(notice?.textContent).toBe("Nobody on this list is a Finance major.");
     expect(notice?.className).toContain("bg-ce-gold-tint");

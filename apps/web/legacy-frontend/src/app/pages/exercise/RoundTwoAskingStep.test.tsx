@@ -80,7 +80,7 @@ describe("<RoundStepsGate />", () => {
     show("northline");
     await waitFor(() => expect(screen.getByText("THE LIST")).toBeDefined());
     expect(
-      screen.getByText("How much we know, all 300 profiles"),
+      screen.getByText("How much we know about all 300 students"),
     ).toBeDefined();
   });
 

@@ -285,10 +285,10 @@ describe("<WeightsControls /> total weight (§6.6, owner ruling 2026-09-28)", ()
 
   it("shows the total and what it means, and no percentage anywhere in the weights", () => {
     render(<WeightsControls factorLabels={LABELS} weights={WEIGHTS} onChange={vi.fn()} />);
-    expect(totalText()).toContain("Total weight: 10");
+    expect(totalText()).toContain("Total of the four slider numbers: 10");
     expect(
       screen.getByText(
-        "What matters is how the weights compare: a factor set to 6 counts twice as much as one set to 3.",
+        "What matters is how the numbers compare: a 6 counts twice as much as a 3.",
       ),
     ).toBeDefined();
     const section = document.querySelector('[data-slot="exercise-weights"]');
@@ -299,7 +299,7 @@ describe("<WeightsControls /> total weight (§6.6, owner ruling 2026-09-28)", ()
   it("updates the total after a key step", () => {
     render(<WeightsControls factorLabels={LABELS} weights={WEIGHTS} onChange={vi.fn()} />);
     fireEvent.keyDown(screen.getByRole("slider", { name: "same major" }), { key: "ArrowRight" });
-    expect(totalText()).toContain("Total weight: 11");
+    expect(totalText()).toContain("Total of the four slider numbers: 11");
     expect(document.querySelector('[data-slot="exercise-weights"]')?.textContent).not.toContain("%");
   });
 
@@ -307,7 +307,7 @@ describe("<WeightsControls /> total weight (§6.6, owner ruling 2026-09-28)", ()
     const onChange = vi.fn();
     render(<WeightsControls factorLabels={LABELS} weights={WEIGHTS} onChange={onChange} />);
     fireEvent.change(screen.getByRole("textbox", { name: "same major" }), { target: { value: "9" } });
-    expect(totalText()).toContain("Total weight: 16");
+    expect(totalText()).toContain("Total of the four slider numbers: 16");
     expect(onChange).not.toHaveBeenCalled();
   });
 
@@ -316,7 +316,7 @@ describe("<WeightsControls /> total weight (§6.6, owner ruling 2026-09-28)", ()
     for (const box of screen.getAllByRole("textbox")) {
       fireEvent.change(box, { target: { value: "0" } });
     }
-    expect(totalText()).toContain("Total weight: 0");
+    expect(totalText()).toContain("Total of the four slider numbers: 0");
     const notice = screen.getByText("At least one number must be above 0.");
     expect(notice.getAttribute("role")).toBe("status");
   });
@@ -344,7 +344,7 @@ describe("<WeightsControls /> total weight (§6.6, owner ruling 2026-09-28)", ()
         refusal={new ExerciseRefusal(422, "exercise_weights_invalid", "At least one number must be above 0.")}
       />,
     );
-    expect(totalText()).toContain("Total weight: 0");
+    expect(totalText()).toContain("Total of the four slider numbers: 0");
     const shown = screen.getAllByText("At least one number must be above 0.");
     expect(shown).toHaveLength(1);
     expect(shown[0].getAttribute("data-slot")).toBe("exercise-weight-error");
@@ -360,10 +360,10 @@ describe("<WeightsControls /> compact bar on 390 (§7.4)", () => {
     act(() => observed?.([{ isIntersecting: false }]));
 
     const bar = document.querySelector('[data-slot="exercise-weights-bar"]');
-    expect(bar?.textContent).toContain("Weights 3 · 3 · 2 · 2");
+    expect(bar?.textContent).toContain("Slider numbers 3 · 3 · 2 · 2");
     expect(bar?.textContent).toContain("Total 10");
     expect(bar?.textContent).not.toContain("%");
-    expect(screen.getByRole("button", { name: "Edit weights" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "Change slider numbers" })).toBeDefined();
 
     act(() => observed?.([{ isIntersecting: true }]));
     expect(document.querySelector('[data-slot="exercise-weights-bar"]')).toBeNull();
@@ -376,7 +376,7 @@ describe("<WeightsControls /> compact bar on 390 (§7.4)", () => {
     render(<WeightsControls factorLabels={LABELS} weights={WEIGHTS} onChange={vi.fn()} />);
     act(() => observed?.([{ isIntersecting: false }]));
 
-    fireEvent.click(screen.getByRole("button", { name: "Edit weights" }));
+    fireEvent.click(screen.getByRole("button", { name: "Change slider numbers" }));
 
     expect(scrollIntoView).toHaveBeenCalledTimes(1);
     expect(document.activeElement).toBe(screen.getByRole("slider", { name: "same major" }));

@@ -87,6 +87,7 @@ import { ResultPanels, type NamesByProfileNo } from "./ResultPanels";
 import { ProfileCardArt } from "./resultsArt";
 import { ResultsCheckAgain } from "./ResultsCheckAgain";
 import { ResultsLockPanel } from "./ResultsLockPanel";
+import { RoundBanner } from "./RoundBanner";
 import { TeamStatusBand, useStatusRevision } from "./TeamStatusBand";
 import { roundsOf } from "./teamStatusWording";
 import { isAccessRefusal, useExerciseResource } from "./useExerciseResource";
@@ -214,7 +215,7 @@ function EventResults({ eventKey }: { readonly eventKey: string }): React.JSX.El
           Back to your team's list
         </Link>
       }
-      status={<TeamStatusBand eventKey={eventKey} revision={revision} />}
+      status={<><RoundBanner page="results" eventKey={eventKey} revision={revision} /><TeamStatusBand eventKey={eventKey} revision={revision} /></>}
     >
       {state.status === "loading" ? <ExerciseLoading what="your team's results" /> : null}
       {state.status === "refused" ? workspaceRequiredNotice(state.refusal) : null}

@@ -171,7 +171,7 @@ describe("<ExerciseAskingForMore /> — the refresh", () => {
       [`GET ${ASKING}`]: { body: { choice: null, choices: ["required"], refreshed: false } },
     });
     renderAsking();
-    const ask = await screen.findByRole("button", { name: /ask them now/i });
+    const ask = await screen.findByRole("button", { name: /ask students now/i });
     expect(isShut(ask)).toBe(true);
     const reason = screen.getByText(/pick a way of asking first/i);
     expect(ask.getAttribute("aria-describedby")).toContain(reason.id);
@@ -204,7 +204,7 @@ describe("<ExerciseAskingForMore /> — the refresh", () => {
       }),
     );
     renderAsking();
-    await pressTwice(await screen.findByRole("button", { name: /ask them now/i }));
+    await pressTwice(await screen.findByRole("button", { name: /ask students now/i }));
 
     // The POST, then the reload's GET, have both been issued.
     await waitFor(() => expect(calls.filter((call) => call.url === REFRESH).length).toBe(1));
@@ -283,7 +283,7 @@ describe("<ExerciseAskingForMore /> — the refresh", () => {
 
     renderAsking();
     const ask = (await screen.findByRole("button", {
-      name: /ask them now/i,
+      name: /ask students now/i,
     })) as HTMLButtonElement;
     await pressTwice(ask);
 
@@ -296,7 +296,7 @@ describe("<ExerciseAskingForMore /> — the refresh", () => {
 
     releaseSecondGet?.();
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: "Already refreshed at 10:42 AM" })).toBeDefined(),
+      expect(screen.getByRole("button", { name: "Already asked at 10:42 AM" })).toBeDefined(),
     );
     expect(calls.filter((call) => call.url === REFRESH).length).toBe(1);
   });
@@ -317,7 +317,7 @@ describe("<ExerciseAskingForMore /> — the refresh", () => {
       // the press lands. Its sentence is still the answer.
     });
     renderAsking();
-    await pressTwice(await screen.findByRole("button", { name: /ask them now/i }));
+    await pressTwice(await screen.findByRole("button", { name: /ask students now/i }));
     await waitFor(() =>
       expect(
         screen.getByText("Run the first event's results before asking anyone for more."),
@@ -338,7 +338,7 @@ describe("<ExerciseAskingForMore /> — the refresh", () => {
     });
     renderAsking();
     const ask = (await screen.findByRole("button", {
-      name: /ask them now/i,
+      name: /ask students now/i,
     })) as HTMLButtonElement;
     await waitFor(() =>
       expect(
@@ -357,7 +357,7 @@ describe("<ExerciseAskingForMore /> — the refresh", () => {
     });
     renderAsking();
     const ask = (await screen.findByRole("button", {
-      name: /ask them now/i,
+      name: /ask students now/i,
     })) as HTMLButtonElement;
     await waitFor(() => expect(isShut(ask)).toBe(false));
     expect(screen.queryByText(/before asking\./i)).toBeNull();
@@ -380,7 +380,7 @@ describe("<ExerciseAskingForMore /> — the refresh", () => {
     });
     renderAsking();
     const ask = (await screen.findByRole("button", {
-      name: /ask them now/i,
+      name: /ask students now/i,
     })) as HTMLButtonElement;
     expect(isShut(ask)).toBe(true);
     expect(
@@ -437,7 +437,7 @@ describe("<ExerciseAskingForMore /> — the refresh", () => {
       return found as HTMLElement;
     });
     expect(summary.textContent).toContain(
-      "Refresh done at 10:42 AM. 22 students without a card were asked. 12 completed a card. 0 people stopped responding. 9 people who came to Northline now count as having gone to a similar event. This only counts toward events on the same topic as Northline.",
+      "Updated at 10:42 AM. 22 students without a card were asked. 12 completed a card. 0 people stopped responding: they stop opening messages and will not sign up for anything, mass email included. 9 people who came to Northline now count as having gone to a similar event. This counts only toward events on the same topic as Northline.",
     );
     expect(
       document.querySelector('[data-slot="exercise-refresh-summary"]')?.textContent ?? "",
@@ -462,7 +462,7 @@ describe("<ExerciseAskingForMore /> — the refresh", () => {
       expect(found).not.toBeNull();
       return found as HTMLElement;
     });
-    expect(strip.textContent).toContain("How much we know, all 300 profiles, before and after");
+    expect(strip.textContent).toContain("How much we know about all 300 students, before and after asking");
     const lines = [...strip.querySelectorAll("li")];
     expect(lines.map((line) => line.getAttribute("data-marker"))).toEqual([
       "completed_card",
@@ -479,7 +479,7 @@ describe("<ExerciseAskingForMore /> — the refresh", () => {
     // A notice that mounts already filled is often not read out; a line that
     // is there first and then filled is. The notice itself is not a second one.
     const said =
-      "Refresh done at 10:42 AM. 22 students without a card were asked. 4 completed a card. 1 person stopped responding. 6 people who came to Northline now count as having gone to a similar event. This only counts toward events on the same topic as Northline.";
+      "Updated at 10:42 AM. 22 students without a card were asked. 4 completed a card. 1 person stopped responding: they stop opening messages and will not sign up for anything, mass email included. 6 people who came to Northline now count as having gone to a similar event. This counts only toward events on the same topic as Northline.";
     const view = refreshView({ cards_completed: 4, non_responding: 1, topics_added: 6 });
     const before = {
       choice: "required",
@@ -503,7 +503,7 @@ describe("<ExerciseAskingForMore /> — the refresh", () => {
       return null;
     });
     renderAsking();
-    const ask = await screen.findByRole("button", { name: /ask them now/i });
+    const ask = await screen.findByRole("button", { name: /ask students now/i });
     const live = document.querySelector('[data-slot="exercise-refresh-announce"]');
     expect(live?.getAttribute("aria-live")).toBe("polite");
     expect(live?.className).toContain("sr-only");
@@ -550,8 +550,8 @@ describe("<ExerciseAskingForMore /> — the refresh", () => {
       return null;
     });
     renderAsking();
-    await pressTwice(await screen.findByRole("button", { name: /ask them now/i }));
-    const shut = await screen.findByRole("button", { name: "Already refreshed at 10:42 AM" });
+    await pressTwice(await screen.findByRole("button", { name: /ask students now/i }));
+    const shut = await screen.findByRole("button", { name: "Already asked at 10:42 AM" });
     expect(isShut(shut)).toBe(true);
     expect(screen.queryByText("Your team has already asked the people it invited.")).toBeNull();
     fireEvent.click(shut);
@@ -585,13 +585,13 @@ describe("<ExerciseAskingForMore /> — the refresh", () => {
       }),
     );
     renderAsking();
-    await pressTwice(await screen.findByRole("button", { name: /ask them now/i }));
+    await pressTwice(await screen.findByRole("button", { name: /ask students now/i }));
     // The reload after the press still says "not refreshed": a reset landed.
     await waitFor(() => expect(calls.filter((call) => call.url === ASKING).length).toBe(2));
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(document.querySelector('[data-slot="exercise-refresh-counts"]')).toBeNull();
     expect(document.querySelector('[data-slot="exercise-refresh-summary"]')).toBeNull();
-    expect(screen.getByRole("button", { name: /ask them now/i })).toBeDefined();
+    expect(screen.getByRole("button", { name: /ask students now/i })).toBeDefined();
     expect(refreshedOnServer).toBe(false);
   });
 
@@ -602,7 +602,7 @@ describe("<ExerciseAskingForMore /> — the refresh", () => {
       },
     });
     renderAsking();
-    await screen.findByRole("button", { name: /ask them now/i });
+    await screen.findByRole("button", { name: /ask students now/i });
     expect(document.querySelector('[data-slot="exercise-refresh-counts"]')).toBeNull();
     expect(document.querySelector('[data-slot="exercise-refresh-summary"]')).toBeNull();
   });
@@ -614,7 +614,7 @@ describe("<ExerciseAskingForMore /> — the refresh", () => {
       },
     });
     renderAsking();
-    const shut = await screen.findByRole("button", { name: "Already refreshed at 10:42 AM" });
+    const shut = await screen.findByRole("button", { name: "Already asked at 10:42 AM" });
     expect(isShut(shut)).toBe(true);
     expect(calls.map((call) => call.url)).toContain(ASKING);
     expect(calls.map((call) => call.url)).not.toContain(REFRESH);
@@ -643,7 +643,7 @@ describe("<ExerciseAskingForMore /> — once-only presses the server confirmed",
       return null;
     });
     renderAsking();
-    const ask = await screen.findByRole("button", { name: /ask them now/i });
+    const ask = await screen.findByRole("button", { name: /ask students now/i });
     // The first press asks (issue #321); a double-click is one press and
     // sends nothing.
     act(() => {
@@ -668,10 +668,10 @@ describe("<ExerciseAskingForMore /> — once-only presses the server confirmed",
       return null;
     });
     renderAsking();
-    await pressTwice(await screen.findByRole("button", { name: /ask them now/i }));
+    await pressTwice(await screen.findByRole("button", { name: /ask students now/i }));
 
     await waitFor(() => expect(screen.getByText(/could not be reached/i)).toBeDefined());
-    const shut = screen.getByRole("button", { name: "Already refreshed at 10:42 AM" });
+    const shut = screen.getByRole("button", { name: "Already asked at 10:42 AM" });
     expect(isShut(shut)).toBe(true);
     fireEvent.click(shut);
     expect(postsTo(REFRESH)).toBe(1);
@@ -680,7 +680,7 @@ describe("<ExerciseAskingForMore /> — once-only presses the server confirmed",
     expect(band?.textContent).toContain("Cards filled in8");
     const summary = document.querySelector('[data-slot="exercise-refresh-summary"]') as HTMLElement;
     expect(summary.textContent).toContain(
-      "Refresh done at 10:42 AM. 22 students without a card were asked. 8 completed a card. 2 people stopped responding. 5 people who came to Northline Career Fair now count as having gone to a similar event. This only counts toward events on the same topic as Northline Career Fair.",
+      "Updated at 10:42 AM. 22 students without a card were asked. 8 completed a card. 2 people stopped responding: they stop opening messages and will not sign up for anything, mass email included. 5 people who came to Northline Career Fair now count as having gone to a similar event. This counts only toward events on the same topic as Northline Career Fair.",
     );
 
     // "Try again" is the only way back to the server, and the server's word wins.
@@ -705,7 +705,7 @@ describe("<ExerciseAskingForMore /> — once-only presses the server confirmed",
     expect((screen.getByRole("radio", { name: /a small reward/i }) as HTMLInputElement).checked).toBe(
       true,
     );
-    expect(screen.getByText("A team picks once, so these are now fixed.")).toBeDefined();
+    expect(screen.getByText("Your team picks once, so this choice is final.")).toBeDefined();
     expect(postsTo(ASKING)).toBe(1);
     expect(document.querySelector('[data-slot="exercise-asking-confirm-live"]')?.textContent).toBe(
       "Your team chose this: A small reward.",
@@ -724,11 +724,11 @@ describe("<ExerciseAskingForMore /> — once-only presses the server confirmed",
       return null;
     });
     renderAsking();
-    await pressTwice(await screen.findByRole("button", { name: /ask them now/i }));
+    await pressTwice(await screen.findByRole("button", { name: /ask students now/i }));
     await waitFor(() =>
       expect(screen.getByRole("link", { name: "Enter your team number" })).toBeDefined(),
     );
     expect(screen.queryByRole("radiogroup")).toBeNull();
-    expect(screen.queryByRole("button", { name: /ask them now/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /ask students now/i })).toBeNull();
   });
 });

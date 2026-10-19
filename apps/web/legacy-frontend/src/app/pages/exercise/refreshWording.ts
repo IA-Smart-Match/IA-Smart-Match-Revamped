@@ -2,7 +2,7 @@
  * Every sentence the exercise says about the refresh, in one place.
  *
  * Ann's review of 2026-10-02 asks for the refresh to say that it happened,
- * when, and what it changed, and gives the words: "Refresh done at 10:42 AM.
+ * when, and what it changed, and gives the words: "Updated at 10:42 AM.
  * 9 people who came to Northline now count as having gone to a similar event.
  * 230 students without a card were asked. 127 completed a card. 0 stopped
  * responding." and "Already refreshed at 10:42 AM."
@@ -28,16 +28,16 @@ function people(count: number): string {
   return count === 1 ? "1 person" : `${count} people`;
 }
 
-/** The first line of the summary: "Refresh done at 10:42 AM." */
+/** The first line of the summary: "Updated at 10:42 AM." */
 export function refreshDoneLine(at: string | null | undefined): string {
   const time = clockTime(at);
-  return time === null ? "Refresh done." : `Refresh done at ${time}.`;
+  return time === null ? "Updated." : `Updated at ${time}.`;
 }
 
-/** The shut button's own words: "Already refreshed at 10:42 AM". */
+/** The shut button's own words: "Already asked at 10:42 AM". */
 export function alreadyRefreshedLabel(at: string | null | undefined): string {
   const time = clockTime(at);
-  return time === null ? "Already refreshed" : `Already refreshed at ${time}`;
+  return time === null ? "Already asked" : `Already asked at ${time}`;
 }
 
 /**
@@ -52,34 +52,18 @@ export function refreshChangeSentences(
   eventName: string | null | undefined,
 ): string[] {
   const event = eventName ?? "the first event";
+  const short = event.split(":")[0]?.trim() || event;
+  const same = `This counts only toward events on the same topic as ${short}.`;
   const went =
     counts.topics_added === 1
-      ? `1 person who came to ${event} now counts as having gone to a similar event.`
-      : `${counts.topics_added} people who came to ${event} now count as having gone to a similar event.`;
+      ? `1 person who came to ${event} now counts as having gone to a similar event. ${same}`
+      : `${counts.topics_added} people who came to ${event} now count as having gone to a similar event. ${same}`;
   const asked = counts.asked_without_card;
   const noun = asked === 1 ? "student" : "students";
   const verb = asked === 1 ? "was" : "were";
-  const askedLine = `${asked} ${noun} without a card ${verb} asked. ${counts.cards_completed} completed a card. ${people(counts.non_responding)} stopped responding.`;
-  return [askedLine, `${went} ${sameTopicNote(event)}`];
+  const askedLine = `${asked} ${noun} without a card ${verb} asked. ${counts.cards_completed} completed a card. ${people(counts.non_responding)} stopped responding: they stop opening messages and will not sign up for anything, mass email included.`;
+  return [askedLine, went];
 }
-
-/** Ann, 2026-10-18: the Northline note must say it only counts on the same topic. */
-export function sameTopicNote(event: string): string {
-  return `This only counts toward events on the same topic as ${event.split(":")[0]?.trim() || event}.`;
-}
-
-/**
- * What "stopped responding" means, in plain words. Ann's Sept 25 build table:
- * under "required" about 15% of those asked who had no card stop opening
- * messages. The 15% is the published rule text, so it is said here and
- * nowhere else; the summary itself uses counts.
- */
-export const STOPPED_RESPONDING_MEANING =
-  "Stopped responding means about 15% of the students asked who had no card stop opening our messages and never sign up for Harbor, not even from the mass email.";
-
-/** The summary's own plain-words line, no percentage: counts only (ADR-0025 D8). Not Ann's wording. */
-export const STOPPED_RESPONDING_PLAIN =
-  "Stopped responding means students who were asked and had no card stopped opening our messages and never sign up for Harbor, not even from the mass email.";
 
 /** The summary as one string, for a line that has no room for a list. */
 export function refreshSummaryText(

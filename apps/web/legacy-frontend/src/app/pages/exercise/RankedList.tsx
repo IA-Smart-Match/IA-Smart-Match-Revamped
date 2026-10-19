@@ -112,8 +112,7 @@ export function RankedList({
       <div className="flex items-center gap-ce-4 py-ce-4">
         <EmptySlotArt className="w-24" />
         <p className="ce-type-body ce-measure text-ce-ink">
-          Nobody is on this list. Nobody in this data file can be ranked for this event with these
-          weights.
+          Nobody is on this list. With these slider numbers, no student matches this event.
         </p>
       </div>
     );

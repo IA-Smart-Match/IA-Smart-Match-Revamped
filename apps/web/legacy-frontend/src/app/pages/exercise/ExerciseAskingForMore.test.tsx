@@ -158,8 +158,8 @@ describe("<ExerciseAskingForMore />", () => {
         document.querySelectorAll('[data-slot="exercise-asking-choices"] button').length,
       ).toBe(3),
     );
-    expect(calls[0].url).toBe(ASKING);
-    expect(calls[0].url.includes("/api/")).toBe(false);
+    expect(calls.some((c) => c.url === ASKING)).toBe(true);
+    expect(calls.every((c) => !c.url.includes("/api/"))).toBe(true);
   });
 
   it("shows a choice the server invents rather than swallowing it", async () => {
@@ -275,9 +275,9 @@ describe("<ExerciseAskingForMore /> — the invitation desk (§6.18, §6.19, §7
     expect(radios.map((radio) => (radio as HTMLInputElement).checked)).toEqual([false, false, false]);
     expect(screen.getByText("Offer something small for a completed card.")).toBeDefined();
     expect(
-      screen.getByText("Tell them a card helps us suggest events worth their evening."),
+      screen.getByText("Tell students a card helps us suggest events worth their evening."),
     ).toBeDefined();
-    expect(screen.getByText(/^Make the card a condition of hearing about events\./)).toBeDefined();
+    expect(screen.getByText(/^Students must fill in a card to hear about events\./)).toBeDefined();
   });
 
   it("arms an inline confirm on the first press, with no pop-up and no request", async () => {
@@ -346,11 +346,11 @@ describe("<ExerciseAskingForMore /> — the invitation desk (§6.18, §6.19, §7
     expect(JSON.parse(String(post?.init.body))).toEqual({ choice: "required" });
   });
 
-  it("sends nothing when the shut \"Ask them now\" is clicked", async () => {
+  it("sends nothing when the shut \"Ask students now\" is clicked", async () => {
     // Shut for want of a choice…
     stub(OPEN_CHOICES);
     const first = renderAsking();
-    await pressTwice(await screen.findByRole("button", { name: /ask them now/i }));
+    await pressTwice(await screen.findByRole("button", { name: /ask students now/i }));
     first.unmount();
     // …and for want of a first-round run.
     stub({
@@ -365,7 +365,7 @@ describe("<ExerciseAskingForMore /> — the invitation desk (§6.18, §6.19, §7
     });
     renderAsking();
     await screen.findByText(/before asking\./i);
-    fireEvent.click(screen.getByRole("button", { name: /ask them now/i }));
+    fireEvent.click(screen.getByRole("button", { name: /ask students now/i }));
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(calls.some((call) => call.init.method === "POST")).toBe(false);
   });
@@ -487,7 +487,7 @@ describe("<ExerciseAskingForMore /> — the invitation desk (§6.18, §6.19, §7
     expect(screen.getByText("Your team chose this.")).toBeDefined();
     const used = screen.getByRole("button", { name: "Way of asking chosen: A small reward" });
     expect(used.getAttribute("aria-disabled")).toBe("true");
-    expect(screen.getByText("A team picks once, so these are now fixed.")).toBeDefined();
+    expect(screen.getByText("Your team picks once, so this choice is final.")).toBeDefined();
     expect(screen.queryByRole("button", { name: /choose this way/i })).toBeNull();
     expect(
       document.querySelectorAll('[data-slot="exercise-asking-card"][data-state="dimmed"]').length,

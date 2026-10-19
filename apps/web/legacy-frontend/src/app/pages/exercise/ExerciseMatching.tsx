@@ -58,9 +58,13 @@ import {
   savedSentence,
   type PanelNote,
 } from "./matchingWording";
+// Explicit extension: `ListCoverageNotice.tsx` and `listCoverageNotice.ts` differ only in casing (TS1149).
+import { ListCoverageNotice } from "./ListCoverageNotice.tsx";
+import { FilledListNote } from "./FilledListNote";
 import { RankedList } from "./RankedList";
 import { RoundStepsGate } from "./RoundTwoAskingStep";
 import { SavedSettingsPanel } from "./SavedSettingsPanel";
+import { RoundBanner } from "./RoundBanner";
 import { TeamStatusBand } from "./TeamStatusBand";
 import { isAccessRefusal, useExerciseResource } from "./useExerciseResource";
 import { isWeightsRefusal, WeightsControls } from "./WeightsControls";
@@ -292,13 +296,13 @@ function EventMatching({ eventKey }: { readonly eventKey: string }): React.JSX.E
           ? state.data.list.event_name
           : "Your team's list"
       }
-      intro="Decide how much each thing counts, then see who that puts on the list — and who it leaves off."
+      intro="Set the four slider numbers. The list below shows who CBACH will email, and who is left off."
       aside={
         <Link to="/exercise/events" className={LINK_SECONDARY}>
           Choose a different event
         </Link>
       }
-      status={<TeamStatusBand eventKey={eventKey} />}
+      status={<><RoundBanner page="event" eventKey={eventKey} /><TeamStatusBand eventKey={eventKey} /></>}
     >
       {state.status === "loading" ? (
         // §6.21: shaped like the list, with the stated-loading sentence.
@@ -403,8 +407,8 @@ function EventMatching({ eventKey }: { readonly eventKey: string }): React.JSX.E
                       data-slot="exercise-list-not-current"
                       className="ce-type-meta text-ce-ink-muted"
                     >
-                      This list is not built from the numbers above yet. Leave the box or press
-                      Enter to rebuild it.
+                      The list below does not match the slider numbers yet. Press Enter or click
+                      outside the box to update it.
                     </p>
                   ) : settled && weighting.kind !== "default" ? (
                     // A list the team asked for has landed. It stays until the
@@ -446,8 +450,8 @@ function EventMatching({ eventKey }: { readonly eventKey: string }): React.JSX.E
               </div>
               {state.unreachable === null ? null : (
                 <p id="exercise-list-stale" data-slot="exercise-list-stale" className="ce-type-reason text-ce-ink-muted">
-                  This is the list from before that change — it could not be rebuilt, so the list
-                  has not changed.
+                  The list below has not changed. Your last change could not reach the exercise.
+                  Try again.
                 </p>
               )}
               {state.refusal === null ? null : (
@@ -458,8 +462,7 @@ function EventMatching({ eventKey }: { readonly eventKey: string }): React.JSX.E
                 // sighted readers who may not read the notice above as tied to
                 // the rows below it.
                 <p id="exercise-list-stale" data-slot="exercise-list-stale" className="ce-type-reason text-ce-ink-muted">
-                  This is the list from before that change — it was refused, so the list has not
-                  changed.
+                  The list below has not changed, because your last slider change was not accepted.
                 </p>
               )}
               {state.refreshing || (!stale && listCurrent) ? null : (
@@ -478,12 +481,18 @@ function EventMatching({ eventKey }: { readonly eventKey: string }): React.JSX.E
                 </div>
               )}
               <p className="ce-type-meta text-ce-ink-muted">
-                Cut at {state.data.list.invite_limit} names, the limit set for this data file.
+                Your list has the top {state.data.list.invite_limit} students. Your instructor set this size.
                 {state.data.list.setting_name === null
                   ? null
-                  : ` Built from your team's setting “${state.data.list.setting_name}”.`}
+                  : ` This list uses your team's setting “${state.data.list.setting_name}”.`}
               </p>
               {/* §5 ce-list-rebuilding: dim while a new list is fetched, or stale after a refusal. */}
+              {/* Directly above the list, beside the filled-list line. */}
+              <ListCoverageNotice
+                missingMajors={state.data.list.composition.coverage.missing_majors}
+                missingClassYears={state.data.list.composition.coverage.missing_class_years}
+              />
+              <FilledListNote entries={state.data.list.entries} />
               <div
                 aria-busy={state.refreshing ? "true" : undefined}
                 className={cn("ce-rebuildable min-w-0", stale && "opacity-60")}
@@ -510,7 +519,7 @@ function EventMatching({ eventKey }: { readonly eventKey: string }): React.JSX.E
             saveBlockedReason={
               settled
                 ? null
-                : "Saving is off until the list is built from the numbers above."
+                : "You can save once the list below matches the slider numbers."
             }
             feedback={panelNote}
             onSave={(name) =>
@@ -557,13 +566,16 @@ function EventMatching({ eventKey }: { readonly eventKey: string }): React.JSX.E
             />
           )}
 
-          <p>
+          <p className="flex flex-wrap items-center gap-ce-3">
             <Link
               to={`/exercise/events/${encodeURIComponent(eventKey)}/results`}
               className={LINK_PRIMARY}
             >
-              Go to results for this event
+              Choose one setting and see results
             </Link>
+            <span className="ce-type-body text-ce-ink-muted">
+              You get one results run for this event.
+            </span>
           </p>
           </RoundStepsGate>
         </div>

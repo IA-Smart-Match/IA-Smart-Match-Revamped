@@ -21,7 +21,6 @@ import {
   markerCountTotal,
   refreshChangeSentences,
   refreshDoneLine,
-  STOPPED_RESPONDING_PLAIN,
 } from "./refreshWording";
 
 export function RefreshSummary({
@@ -36,13 +35,7 @@ export function RefreshSummary({
   /** The first round's event name, or `null`. */
   readonly eventName: string | null;
 }): React.JSX.Element {
-  const sentences =
-    counts === null
-      ? []
-      : [
-          ...refreshChangeSentences(counts, eventName),
-          ...(counts.non_responding > 0 ? [STOPPED_RESPONDING_PLAIN] : []),
-        ];
+  const sentences = counts === null ? [] : refreshChangeSentences(counts, eventName);
   const lines = counts === null ? [] : markerCountLines(counts);
   return (
     <div data-slot="exercise-refresh-summary">
@@ -76,7 +69,7 @@ export function MarkerCountsBeforeAfter({
       className="flex flex-col gap-ce-2"
     >
       <p className="ce-type-label text-ce-ink">
-        {`How much we know, all ${total} profiles, before and after`}
+        {`How much we know about all ${total} students, before and after asking`}
       </p>
       <ul className="ce-type-body flex flex-col gap-ce-1 text-ce-ink">
         {lines.map((line) => (
@@ -117,7 +110,7 @@ export function MarkerCountsBefore({
       data-slot="exercise-marker-counts-before"
       className="flex flex-col gap-ce-2"
     >
-      <p className="ce-type-label text-ce-ink">{`How much we know, all ${total} profiles`}</p>
+      <p className="ce-type-label text-ce-ink">{`How much we know about all ${total} students`}</p>
       <ul className="ce-type-body flex flex-col gap-ce-1 text-ce-ink">
         {lines.map((line) => (
           <li

@@ -38,7 +38,7 @@ function slotsLeft(after: SavedSettingsView | null | undefined): string {
   if (typeof used !== "number" || typeof cap !== "number") {
     return "";
   }
-  return ` You have ${Math.max(0, cap - used)} of ${cap} slots left.`;
+  return ` You can save ${Math.max(0, cap - used)} more for this event.`;
 }
 
 /** "Saved “Setting A” for Northline at 10:43:07 AM. You have 2 of 3 slots left." */
@@ -58,7 +58,7 @@ export function deletedSentence(name: string, after: SavedSettingsView | null | 
 
 /** After "Open this list". */
 export function openedSentence(name: string): string {
-  return `Opened “${name}”. The list above is built from it.`;
+  return `Showing the list for your setting “${name}” above.`;
 }
 
 /** After "Show them side by side". */

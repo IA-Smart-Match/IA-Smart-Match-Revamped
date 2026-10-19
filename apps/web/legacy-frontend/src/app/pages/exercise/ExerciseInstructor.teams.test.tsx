@@ -216,7 +216,7 @@ describe("the instructor page keeps the Teams panel current", () => {
       (line) => line.textContent,
     );
     expect(lines).toEqual([
-      "Team 1: Asked for more at 10:42 AM. 22 students without a card were asked. 12 completed a card. 0 people stopped responding. 9 people who came to Northline now count as having gone to a similar event. This only counts toward events on the same topic as Northline. Completed card: 70 → 82.",
+      "Team 1: Asked for more at 10:42 AM. 22 students without a card were asked. 12 completed a card. 0 people stopped responding: they stop opening messages and will not sign up for anything, mass email included. 9 people who came to Northline now count as having gone to a similar event. This counts only toward events on the same topic as Northline. Completed card: 70 → 82.",
       "Team 2: Skipped: it already asked at 10:31 AM.",
       "Team 3: Skipped: it has not chosen a way of asking.",
       "Team 4: Skipped: it has not run results for its first event.",
