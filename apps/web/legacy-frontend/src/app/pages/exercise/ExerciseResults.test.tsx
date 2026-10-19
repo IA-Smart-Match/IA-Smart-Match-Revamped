@@ -200,6 +200,25 @@ describe("<ExerciseResults />", () => {
     expect(screen.getByRole("button", { name: /run results/i })).toBeDefined();
   });
 
+  it("links to the asking screen when Harbor is refused until students are asked", async () => {
+    const sentence = "Ask students for more information before running Harbor results.";
+    stub({
+      [`GET ${RESULTS}`]: NOT_RUN,
+      [LIST]: NO_LIST,
+      [ASKING]: NO_CHOICE,
+      [SETTINGS]: TWO_SAVED,
+      [`POST ${RESULTS}`]: {
+        body: { error: { code: "exercise_ask_first", message: sentence } },
+        status: 409,
+      },
+    });
+    renderResults();
+    await runWith("Wide net");
+    await waitFor(() => expect(screen.getByText(sentence)).toBeDefined());
+    const link = screen.getByRole("link", { name: "Choose how to ask students for more information" });
+    expect(link.getAttribute("href")).toBe("/exercise/asking");
+  });
+
   it("renders a locked event as a state too", async () => {
     const sentence = "Your instructor has not opened results for this event yet.";
     stub({

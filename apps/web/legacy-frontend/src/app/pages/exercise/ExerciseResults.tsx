@@ -104,6 +104,9 @@ const LOCKED = "exercise_results_locked";
 /** The run's 409 for a second run: the team has had its one. */
 const ALREADY_RUN = "exercise_results_already_run";
 
+/** The run's 409 for Harbor before the team has asked students for more information. */
+const ASK_FIRST = "exercise_ask_first";
+
 /** Says why the grey "Results not open yet." button is off. */
 const NOT_OPEN_REASON = "exercise-results-not-open-reason";
 
@@ -443,7 +446,11 @@ function ResultsBody({
   return (
     <div className="flex flex-col gap-ce-6 md:gap-ce-7">
       {refusal === null || (refusedAsLocked && notOpen) ? null : (
-        <ExerciseNotice message={refusal.message} />
+        <ExerciseNotice message={refusal.message}>
+          {refusal.code === ASK_FIRST ? (
+            <Link to="/exercise/asking">Choose how to ask students for more information</Link>
+          ) : null}
+        </ExerciseNotice>
       )}
 
       {hasRun ? (
