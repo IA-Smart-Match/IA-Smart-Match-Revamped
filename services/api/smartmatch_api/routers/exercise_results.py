@@ -295,7 +295,7 @@ def run_results(
         before_after=before_after_or_none(
             session,
             datasets=datasets,
-            profiles=profiles,
+            profiles=lambda: profiles,
             events=events,
             event=event,
             workspace=workspace,
@@ -348,7 +348,7 @@ def read_results(
         before_after=before_after_or_none(
             session,
             datasets=datasets,
-            profiles=team_view.list_team_profiles(
+            profiles=lambda: team_view.list_team_profiles(
                 session, dataset_id=workspace.dataset_id, workspace_id=workspace.id
             ),
             events=events,

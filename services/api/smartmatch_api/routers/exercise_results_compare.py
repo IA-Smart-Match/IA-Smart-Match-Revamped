@@ -8,7 +8,7 @@ contrast. Nothing is stored and the team's one results run is not touched.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import replace
 
 from smartmatch_domain.exercise.registry import EXERCISE_DEFAULT_WEIGHTS
@@ -60,7 +60,7 @@ def before_after_or_none(
     session: ExerciseSession,
     *,
     datasets: DatasetRepository,
-    profiles: Sequence[TeamProfileRow],
+    profiles: Callable[[], Sequence[TeamProfileRow]],
     events: Sequence[ExerciseEventRow],
     event: ExerciseEventRow,
     workspace: ExerciseWorkspace,
@@ -72,6 +72,9 @@ def before_after_or_none(
 
     ``None`` also for a run stored before weights were kept (revision 0046):
     the setting cannot be rebuilt, so nothing is guessed.
+
+    ``profiles`` is called only when the rows are not kept yet, so a reload
+    of the results page does not read three hundred profiles for nothing.
     """
     if run.round != COMPARED_ROUND or run.setting_weights is None:
         return None
@@ -82,7 +85,7 @@ def before_after_or_none(
         _MEMO[key] = _before_after(
             session,
             datasets=datasets,
-            profiles=profiles,
+            profiles=profiles(),
             events=events,
             event=event,
             workspace=workspace,
