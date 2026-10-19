@@ -12,7 +12,7 @@
  * Used on both screens that offer the refresh (Asking for more, and Results),
  * so the question is the same words in both places.
  *
- * Once asked, the button is grey and says so itself: "Already refreshed at
+ * Once asked, the button is grey and says so itself: "Already asked at
  * 10:42 AM" (`aria-disabled`, never `disabled`, so it stays focusable).
  */
 import * as React from "react";

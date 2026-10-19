@@ -294,7 +294,7 @@ describe("<ExerciseAskingForMore /> — the refresh", () => {
 
     releaseSecondGet?.();
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: "Already refreshed at 10:42 AM" })).toBeDefined(),
+      expect(screen.getByRole("button", { name: "Already asked at 10:42 AM" })).toBeDefined(),
     );
     expect(calls.filter((call) => call.url === REFRESH).length).toBe(1);
   });
@@ -433,7 +433,7 @@ describe("<ExerciseAskingForMore /> — the refresh", () => {
       return found as HTMLElement;
     });
     expect(summary.textContent).toContain(
-      "Refresh done at 10:42 AM. 9 people who came to Northline now count as having gone to a similar event. 12 of the 22 invited people with no card completed one. 0 people stopped responding.",
+      "Updated at 10:42 AM. 9 people who came to Northline now count as having gone to a similar event. This counts only toward events on the same topic as Northline. 12 of the 22 invited people with no card completed one. 0 people stopped responding: they stop opening messages and will not sign up for anything, mass email included.",
     );
     expect(document.body.textContent).not.toContain("%");
   });
@@ -473,7 +473,7 @@ describe("<ExerciseAskingForMore /> — the refresh", () => {
     // A notice that mounts already filled is often not read out; a line that
     // is there first and then filled is. The notice itself is not a second one.
     const said =
-      "Refresh done at 10:42 AM. 6 people who came to Northline now count as having gone to a similar event. 4 of the 22 invited people with no card completed one. 1 person stopped responding.";
+      "Updated at 10:42 AM. 6 people who came to Northline now count as having gone to a similar event. This counts only toward events on the same topic as Northline. 4 of the 22 invited people with no card completed one. 1 person stopped responding: they stop opening messages and will not sign up for anything, mass email included.";
     const view = refreshView({ cards_completed: 4, non_responding: 1, topics_added: 6 });
     const before = {
       choice: "required",
@@ -545,7 +545,7 @@ describe("<ExerciseAskingForMore /> — the refresh", () => {
     });
     renderAsking();
     await pressTwice(await screen.findByRole("button", { name: /ask them now/i }));
-    const shut = await screen.findByRole("button", { name: "Already refreshed at 10:42 AM" });
+    const shut = await screen.findByRole("button", { name: "Already asked at 10:42 AM" });
     expect(isShut(shut)).toBe(true);
     expect(screen.queryByText("Your team has already asked the people it invited.")).toBeNull();
     fireEvent.click(shut);
@@ -608,7 +608,7 @@ describe("<ExerciseAskingForMore /> — the refresh", () => {
       },
     });
     renderAsking();
-    const shut = await screen.findByRole("button", { name: "Already refreshed at 10:42 AM" });
+    const shut = await screen.findByRole("button", { name: "Already asked at 10:42 AM" });
     expect(isShut(shut)).toBe(true);
     expect(calls.map((call) => call.url)).toEqual([ASKING]);
   });
@@ -664,7 +664,7 @@ describe("<ExerciseAskingForMore /> — once-only presses the server confirmed",
     await pressTwice(await screen.findByRole("button", { name: /ask them now/i }));
 
     await waitFor(() => expect(screen.getByText(/could not be reached/i)).toBeDefined());
-    const shut = screen.getByRole("button", { name: "Already refreshed at 10:42 AM" });
+    const shut = screen.getByRole("button", { name: "Already asked at 10:42 AM" });
     expect(isShut(shut)).toBe(true);
     fireEvent.click(shut);
     expect(postsTo(REFRESH)).toBe(1);
@@ -673,7 +673,7 @@ describe("<ExerciseAskingForMore /> — once-only presses the server confirmed",
     expect(band?.textContent).toContain("Cards filled in8");
     const summary = document.querySelector('[data-slot="exercise-refresh-summary"]') as HTMLElement;
     expect(summary.textContent).toContain(
-      "Refresh done at 10:42 AM. 5 people who came to Northline Career Fair now count as having gone to a similar event. 8 of the 22 invited people with no card completed one. 2 people stopped responding.",
+      "Updated at 10:42 AM. 5 people who came to Northline Career Fair now count as having gone to a similar event. This counts only toward events on the same topic as Northline. 8 of the 22 invited people with no card completed one. 2 people stopped responding: they stop opening messages and will not sign up for anything, mass email included.",
     );
 
     // "Try again" is the only way back to the server, and the server's word wins.

@@ -30,7 +30,7 @@
  * counts, and the "how much we know" counts for every profile before and
  * after. All of it is on the asking response, so a reload, a second browser
  * and a team the instructor refreshed see the same thing. The shut button
- * reads "Already refreshed at 10:42 AM". Counts are what ADR-0025 D8 allows;
+ * reads "Already asked at 10:42 AM". Counts are what ADR-0025 D8 allows;
  * there is no percentage on this screen, and the shares in Ann's build table
  * (OQ-CE-04, confirmed 2026-09-25) are not returned by the API.
  *
