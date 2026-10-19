@@ -269,8 +269,8 @@ def test_g_ce_12_the_reason_lines_are_anns_words() -> None:
         dataset_checksum=GOLDEN_CHECKSUM,
     )
     reasons = {entry.profile_id: entry.reason for entry in listing.entries}
-    assert reasons["senior"] == "Tied on major; ordered by year."
-    assert reasons["younger"] == "Tied on major; ordered by year."
+    assert reasons["senior"] == "Same major; nothing else on file; ordered by year."
+    assert reasons["younger"] == "Same major; nothing else on file; ordered by year."
     assert reasons["carded"] == (
         "What counted: same major, said they are interested in this topic, career "
         "goal fits this event, and went to similar events before."

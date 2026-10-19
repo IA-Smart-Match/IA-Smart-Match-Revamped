@@ -304,8 +304,8 @@ def test_a_year_resolved_tie_on_major_alone_gets_anns_sentence_on_the_list() -> 
         ExerciseProfile(2, "Senior", _major_only("older")),
     ]
     assert _reasons(profiles) == [
-        "Tied on major; ordered by year.",
-        "Tied on major; ordered by year.",
+        "Same major; nothing else on file; ordered by year.",
+        "Same major; nothing else on file; ordered by year.",
     ]
 
 
@@ -339,7 +339,7 @@ def test_an_information_resolved_tie_names_the_information_key() -> None:
     profiles = [ExerciseProfile(1, "Senior", thin), ExerciseProfile(2, "Senior", thick)]
     assert _reasons(profiles) == [
         "Tied; more information on file first.",
-        "Tied; more information on file first.",
+        "Same major; nothing else on file; those with more on file go first.",
     ]
 
 
@@ -347,7 +347,10 @@ def test_a_permutation_resolved_tie_names_the_fixed_order() -> None:
     profiles = [
         ExerciseProfile(number, "Senior", _major_only(f"p{number}")) for number in range(1, 4)
     ]
-    assert _reasons(profiles) == ["Tied; placed in a fixed order that never changes."] * 3
+    assert (
+        _reasons(profiles)
+        == ["Same major; nothing else on file; placed by a fixed random order."] * 3
+    )
 
 
 def test_no_reason_on_any_list_claims_a_major_tie_that_was_not_one() -> None:
@@ -446,7 +449,10 @@ def _tied(orders: list[int | None]) -> list[ExerciseProfile]:
 
 def test_anns_tiebreak_order_settles_the_last_tie() -> None:
     assert _ranked_ids(_tied([3, 1, 2])) == ["p2", "p3", "p1"]
-    assert _reasons(_tied([3, 1, 2]))[0] == "Tied; placed in a fixed order that never changes."
+    assert (
+        _reasons(_tied([3, 1, 2]))[0]
+        == "Same major; nothing else on file; placed by a fixed random order."
+    )
 
 
 def test_the_tiebreak_order_does_not_depend_on_the_checksum() -> None:
@@ -518,7 +524,9 @@ def test_anns_year_order_wakes_the_year_sentence() -> None:
         "sophomore",
         "freshman",
     ]
-    assert {entry.reason for entry in listing.entries} == {"Tied on major; ordered by year."}
+    assert {entry.reason for entry in listing.entries} == {
+        "Same major; nothing else on file; ordered by year."
+    }
     assert listing.unlisted_class_years == ()
 
 
