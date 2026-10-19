@@ -11,11 +11,9 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
 
-from smartmatch_domain.exercise.registry import (
-    EXERCISE_DEFAULT_WEIGHTS,
-    SAME_MAJOR_FACTOR_KEY,
-)
+from smartmatch_domain.exercise.registry import EXERCISE_DEFAULT_WEIGHTS
 from smartmatch_domain.exercise.simulation import SimulationCoefficients
+from smartmatch_domain.student_factors import SAME_MAJOR_FACTOR_KEY
 
 from smartmatch_api.exercise_dependencies import (
     DatasetRepository,
