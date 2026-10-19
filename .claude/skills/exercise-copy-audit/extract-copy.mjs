@@ -37,10 +37,10 @@ export const WARN = [
   [/^(This|It|That) /, "R4 starts with 'this/it': is the referent on screen?"],
 ];
 
-function walk(d) {
+function walk(d, ext = /\.(tsx|ts)$/) {
   return readdirSync(d).flatMap((name) => {
     const p = join(d, name);
-    return statSync(p).isDirectory() ? walk(p) : /\.(tsx|ts)$/.test(name) && !SKIP_FILE.test(p) ? [p] : [];
+    return statSync(p).isDirectory() ? walk(p, ext) : ext.test(name) && !SKIP_FILE.test(p) ? [p] : [];
   });
 }
 
@@ -96,7 +96,7 @@ if (mode === "table") {
   // Each line of ann-verbatim.md shaped `- "exact text"` must appear somewhere in the sources.
   // Reason lines are built server side, so the domain's exercise package counts as source too.
   const domain = join(dir, "../../../../../../../python/smartmatch_domain/smartmatch_domain/exercise");
-  const files = [...walk(dir), ...(statSync(domain, { throwIfNoEntry: false }) ? walk(domain) : [])];
+  const files = [...walk(dir), ...(statSync(domain, { throwIfNoEntry: false }) ? walk(domain, /\.py$/) : [])];
   const source = files.map((f) => readFileSync(f, "utf8")).join("\n").replace(/&apos;|\\'/g, "'");
   const wanted = verbatim;
   const missing = wanted.filter((w) => !source.includes(w));
