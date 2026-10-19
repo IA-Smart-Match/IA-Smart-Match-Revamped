@@ -66,7 +66,9 @@ def _together(work: Callable[[int], Any]) -> dict[int, Any]:
 def _without_times(value: Any) -> Any:
     if isinstance(value, dict):
         return {
-            k: _without_times(v) for k, v in value.items() if k not in {"created_at", "refreshed_at"}
+            k: _without_times(v)
+            for k, v in value.items()
+            if k not in {"created_at", "refreshed_at"}
         }
     if isinstance(value, list):
         return [_without_times(v) for v in value]
