@@ -592,7 +592,7 @@ describe("<ExerciseResults /> once-only presses", () => {
     });
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(posts(RESULTS)).toBe(0);
-    expect(run.textContent).toContain("Send this list?");
+    expect(run.textContent).toContain("Send ‘Wide net’?");
   });
 
   it("sends one run for two confirming presses in the same tick", async () => {

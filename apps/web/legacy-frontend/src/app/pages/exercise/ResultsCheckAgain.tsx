@@ -30,6 +30,10 @@ export function stillClosedSentence(at: string | null): string {
     : `Checked at ${at}. Results are still not open.`;
 }
 
+/** Ann Wang 2026-10-16 results item 6, verbatim: shown before any press, so the screen never reads as stuck. */
+export const NOT_OPENED_YET =
+  "Your instructor has not opened results yet. You can still pick your setting and review its list. Press Check again once your instructor says results are open.";
+
 export interface ResultsCheckAgainProps {
   /** Another action is in flight. */
   readonly disabled: boolean;
@@ -61,6 +65,9 @@ export function ResultsCheckAgain({
 
   return (
     <>
+      <p data-slot="exercise-results-check-hint" className="ce-type-body ce-measure text-ce-ink">
+        {NOT_OPENED_YET}
+      </p>
       <Button
         variant="secondary"
         disabled={disabled}

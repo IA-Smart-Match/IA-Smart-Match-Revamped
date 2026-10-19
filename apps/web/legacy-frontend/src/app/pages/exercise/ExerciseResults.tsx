@@ -89,6 +89,7 @@ import { clockTime } from "./exerciseTime";
 import { ResultPanels, type NamesByProfileNo } from "./ResultPanels";
 import { refreshSummaryText } from "./refreshWording";
 import { ProfileCardArt } from "./resultsArt";
+import { ChosenListSummary } from "./ChosenListSummary";
 import { ResultsCheckAgain } from "./ResultsCheckAgain";
 import { ResultsLockPanel } from "./ResultsLockPanel";
 import { TeamStatusBand, useStatusRevision } from "./TeamStatusBand";
@@ -128,8 +129,8 @@ function notOpenSentence(eventName: string): string {
 }
 
 /** The question the run button asks before the one run (Ann's checklist, section 5). */
-function sendListQuestion(eventName: string | null): string {
-  return `Send this list? You get one results run for ${eventName ?? "this event"}`;
+function sendListQuestion(eventName: string | null, settingName: string): string {
+  return `Send ‘${settingName}’? You get one results run for ${eventName ?? "this event"}.`;
 }
 
 /** Says why the run button is off; the button points at it with `aria-describedby`. */
@@ -503,6 +504,7 @@ function ResultsBody({
             value={finalSetting}
             onChange={setFinalSetting}
           />
+          <ChosenListSummary eventKey={eventKey} settingName={finalSetting} />
           {notOpen ? (
             <div>
               <Button variant="primary" disabled describedBy={NOT_OPEN_REASON}>
@@ -611,7 +613,7 @@ function RunButton({
     }
   }, [cancel, running]);
   const armed = confirm.armed && !running;
-  const question = sendListQuestion(eventName);
+  const question = sendListQuestion(eventName, finalSetting);
 
   return (
     <div className="flex flex-col items-start gap-ce-2">
