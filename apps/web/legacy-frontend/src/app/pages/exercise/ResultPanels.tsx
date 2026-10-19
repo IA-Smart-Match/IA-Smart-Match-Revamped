@@ -71,8 +71,8 @@ export function resultsSeries(
   if (results.round_one !== null) {
     series.push(panelSeries(
         roundOneName === null || roundOneName === ""
-          ? "Your team, round one"
-          : `Your team, ${roundOneName} (round one)`,
+          ? "Your team, Round 1"
+          : `Your team, ${roundOneName} (Round 1)`,
         results.round_one.email_everyone === undefined
           ? results.round_one.team
           : unionPanel({ team: results.round_one.team, email_everyone: results.round_one.email_everyone, existing_signups: results.existing_signups }),
@@ -260,8 +260,9 @@ export function runRecordLine(results: ResultsView): string {
 }
 
 /**
- * `email_everyone` is the mass email alone; `team` is the mass email plus the
- * team's CBACH emails. K counts team sign-ups the mass email alone did not get.
+ * `team` is the listed profiles only (each got the mass email and the CBACH email);
+ * `email_everyone` is all 300 under the mass email alone, with the same draws.
+ * K counts team sign-ups the mass email alone did not get.
  */
 export function liftCounts(
   results: RoundPanels,
@@ -281,9 +282,10 @@ export interface RoundPanels {
 }
 
 /**
- * The two seat groups of the current round. The team panel is the mass email
- * plus the CBACH emails, so its attendees include everyone the mass email alone
- * would bring (Ann Wang 2026-10-10, Q2). Those people were coming anyway:
+ * The two seat groups of the current round. `team` is the listed profiles only
+ * (each got the mass email and the CBACH email); `email_everyone` is all 300 under the
+ * mass email alone, with the same draws. Listed attendees the mass email also brought
+ * were coming anyway (Ann Wang 2026-10-10, Q2):
  * "already coming" is the pre-registered students who came plus the mass email's attendees,
  * and "added" is the team's attendees the mass email missed.
  */
@@ -299,7 +301,8 @@ const plural = (n: number, one: string, many: string): string => `${n} ${n === 1
 export function liftSentence(results: RoundPanels): string {
   const { added } = liftCounts(results);
   const { added: came } = seatCountsFor(results);
-  return `Your list brought ${plural(added, "extra sign-up", "extra sign-ups")}; ${came} of them came.`;
+  const tail = added === 1 ? (came === 1 ? "they came" : "they did not come") : `${came} of them came`;
+  return `Your list brought ${plural(added, "extra sign-up", "extra sign-ups")}; ${tail}.`;
 }
 
 /** Ann Wang 2026-10-16 results item 2: why the list's own sign-ups differ from "added". */

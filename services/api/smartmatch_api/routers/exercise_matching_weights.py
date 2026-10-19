@@ -128,7 +128,7 @@ def within_bounds_or_refusal(raw: Mapping[str, object]) -> None:
         raise ExerciseError(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             code="exercise_weights_key_too_long",
-            message="One of those weights is not named like a factor.",
+            message="One of those slider names is not part of this exercise.",
         )
 
 

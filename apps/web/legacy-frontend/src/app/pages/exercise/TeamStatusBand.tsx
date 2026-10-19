@@ -167,7 +167,7 @@ export function TeamStatusBand({
         {state.unreachable === null ? null : (
           <span data-slot="exercise-team-status-stale">
             {" "}
-            This line could not be read again just now, so it may be out of date.
+            Your team's status could not be updated. Reload the page to see the latest.
           </span>
         )}
       </p>

@@ -214,7 +214,7 @@ describe("every team page carries the status line", () => {
     await screen.findByText("You are Team 3");
     expect(value("round-1")).toBe("Results run");
     expect(value("asking")).toBe("Required");
-    expect(value("refresh")).toBe("Done at 10:42 AM");
+    expect(value("refresh")).toBe("Asked at 10:42 AM");
   });
 });
 
@@ -236,7 +236,7 @@ describe("the status line follows the page's own presses", () => {
     const chosen = document.querySelector('[data-slot="exercise-asking-chosen"]');
     // A8: the time is this browser's own clock, so it is matched, not fixed.
     expect(chosen?.textContent).toMatch(
-      /^You chose: A small reward( at \d{1,2}:\d{2}:\d{2} [AP]M)?\. A team picks once, so these are now fixed\.$/,
+      /^You chose: A small reward( at \d{1,2}:\d{2}:\d{2} [AP]M)?\. Your team picks once, so this choice is final\.$/,
     );
   });
 
@@ -276,8 +276,8 @@ describe("the status line follows the page's own presses", () => {
     await screen.findByText("You are Team 3");
     expect(value("refresh")).toBe("Not done yet");
 
-    await pressTwice(await screen.findByRole("button", { name: "Ask them now" }));
-    await waitFor(() => expect(value("refresh")).toBe("Done at 10:42 AM"));
+    await pressTwice(await screen.findByRole("button", { name: "Ask students now" }));
+    await waitFor(() => expect(value("refresh")).toBe("Asked at 10:42 AM"));
   });
 
   it("shows results as used after the run, and the page says when it ran", async () => {
