@@ -59,6 +59,7 @@ import {
   type PanelNote,
 } from "./matchingWording";
 import { RankedList } from "./RankedList";
+import { RoundStepsGate } from "./RoundTwoAskingStep";
 import { SavedSettingsPanel } from "./SavedSettingsPanel";
 import { TeamStatusBand } from "./TeamStatusBand";
 import { isAccessRefusal, useExerciseResource } from "./useExerciseResource";
@@ -323,6 +324,7 @@ function EventMatching({ eventKey }: { readonly eventKey: string }): React.JSX.E
             sliders, in the data file's own words. Nothing when it has none.
           */}
           <EventDescription text={state.data.list.event_description} />
+          <RoundStepsGate eventKey={eventKey}>
           {listRefusal === null ? null : (
             <ExerciseNotice
               id="exercise-list-refusal"
@@ -563,6 +565,7 @@ function EventMatching({ eventKey }: { readonly eventKey: string }): React.JSX.E
               Go to results for this event
             </Link>
           </p>
+          </RoundStepsGate>
         </div>
       )}
     </ExerciseScreen>

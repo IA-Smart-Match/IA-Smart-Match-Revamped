@@ -46,9 +46,16 @@ export function RefreshSummary({
   const lines = counts === null ? [] : markerCountLines(counts);
   return (
     <div data-slot="exercise-refresh-summary">
-      <Notice tone="done" live={false} message={[refreshDoneLine(at), ...sentences].join(" ")}>
+      <Notice
+        tone="done"
+        live={false}
+        message={[refreshDoneLine(at), ...sentences].join(" ")}
+      >
         {counts === null || lines.length === 0 ? undefined : (
-          <MarkerCountsBeforeAfter lines={lines} total={markerCountTotal(counts)} />
+          <MarkerCountsBeforeAfter
+            lines={lines}
+            total={markerCountTotal(counts)}
+          />
         )}
       </Notice>
     </div>
@@ -64,7 +71,10 @@ export function MarkerCountsBeforeAfter({
   readonly total: number;
 }): React.JSX.Element {
   return (
-    <div data-slot="exercise-refresh-before-after" className="flex flex-col gap-ce-2">
+    <div
+      data-slot="exercise-refresh-before-after"
+      className="flex flex-col gap-ce-2"
+    >
       <p className="ce-type-label text-ce-ink">
         {`How much we know, all ${total} profiles, before and after`}
       </p>
@@ -103,11 +113,17 @@ export function MarkerCountsBefore({
   }
   const total = Object.values(before).reduce((sum, value) => sum + value, 0);
   return (
-    <div data-slot="exercise-marker-counts-before" className="flex flex-col gap-ce-2">
+    <div
+      data-slot="exercise-marker-counts-before"
+      className="flex flex-col gap-ce-2"
+    >
       <p className="ce-type-label text-ce-ink">{`How much we know, all ${total} profiles`}</p>
       <ul className="ce-type-body flex flex-col gap-ce-1 text-ce-ink">
         {lines.map((line) => (
-          <li key={line.marker} data-marker={line.marker}>{`${line.label}: ${line.before}`}</li>
+          <li
+            key={line.marker}
+            data-marker={line.marker}
+          >{`${line.label}: ${line.before}`}</li>
         ))}
       </ul>
     </div>

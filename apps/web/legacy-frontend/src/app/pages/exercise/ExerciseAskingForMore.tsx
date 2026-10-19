@@ -66,6 +66,7 @@ import {
 } from "./desk";
 import { AskingChoiceCard, type AskingCardState } from "./ExerciseAskingChoiceCard";
 import { ExerciseNotice, ExerciseScreen } from "./ExerciseScreen";
+import { NextHarborLink } from "./RoundTwoAskingStep";
 import { RefreshSummary } from "./RefreshSummary";
 import { refreshSummaryText } from "./refreshWording";
 import { TeamStatusBand, useStatusRevision } from "./TeamStatusBand";
@@ -485,13 +486,7 @@ function AskingPanels({
           <RefreshSummary at={refreshedAt} counts={counts} eventName={roundOneName} />
         ) : null}
         <RefreshCounts counts={counts} reduced={reduced} />
-        {hasAsked ? (
-          <p data-slot="exercise-asking-next">
-            <Link to={harborHref} className={BACK_LINK}>
-              Next: build the Harbor list
-            </Link>
-          </p>
-        ) : null}
+        {hasAsked ? <NextHarborLink className={BACK_LINK} /> : null}
         {/* Always present, so the summary is announced when it arrives. */}
         <p aria-live="polite" data-slot="exercise-refresh-announce" className="sr-only">
           {hasAsked ? refreshSummaryText(refreshedAt, counts, roundOneName) : ""}

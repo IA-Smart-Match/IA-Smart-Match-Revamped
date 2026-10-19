@@ -41,6 +41,8 @@ export interface TeamWorkspaceView {
   readonly team_number: number;
   readonly dataset_label: string;
   readonly invite_limit: number;
+  /** Whether the team has Northline results, so round two is open. Absent before the round-two lock. */
+  readonly round_two_open?: boolean;
 }
 
 // ---------------------------------------------------------------------------
