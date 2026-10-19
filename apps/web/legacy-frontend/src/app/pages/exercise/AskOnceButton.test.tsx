@@ -1,5 +1,5 @@
 /**
- * "Ask them now" asks before it spends the team's one refresh (issue #321).
+ * "Ask students now" asks before it spends the team's one refresh (issue #321).
  */
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -100,7 +100,7 @@ describe("<AskOnceButton />", () => {
   it("is grey once asked and says so itself, with the time; a press does nothing", () => {
     const onAsk = vi.fn();
     render(<AskOnceButton asked askedAt={AT} disabled={false} pending={false} onAsk={onAsk} />);
-    const button = screen.getByRole("button", { name: "Already refreshed at 10:42 AM" });
+    const button = screen.getByRole("button", { name: "Already asked at 10:42 AM" });
     expect(button.getAttribute("aria-disabled")).toBe("true");
     expect(button.hasAttribute("disabled")).toBe(false);
     fireEvent.click(button);
@@ -131,7 +131,7 @@ describe("<AskOnceButton />", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: ASK_LABEL }));
     view.rerender(<AskOnceButton asked askedAt={AT} disabled={false} pending={false} onAsk={onAsk} />);
-    expect(screen.getByRole("button", { name: "Already refreshed at 10:42 AM" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "Already asked at 10:42 AM" })).toBeDefined();
     expect(hint()).toBe("");
   });
 });

@@ -46,7 +46,7 @@ import { WeightsCompactBar } from "./WeightsCompactBar";
  * to add up to 1, and no percentage is shown (ADR-0025 D8).
  */
 export const WEIGHT_TOTAL_MEANING =
-  "What matters is how the weights compare: a factor set to 6 counts twice as much as one set to 3.";
+  "What matters is how the numbers compare: a 6 counts twice as much as a 3.";
 
 /** The server's sentence for an all-zero weighting (`exercise_matching_weights.py`), shown before it is sent. */
 export const WEIGHT_TOTAL_ZERO = "At least one number must be above 0.";
@@ -68,7 +68,7 @@ export function isWeightsRefusal(refusal: ExerciseRefusal | null): boolean {
  * Infinity). It is not sent: the server's answer would name the factor by its
  * rulebook key, which a screen never shows.
  */
-export const WEIGHT_TOO_LARGE_SENTENCE = "That number is too big to use. Type a smaller one, like 0.5.";
+export const WEIGHT_TOO_LARGE_SENTENCE = "That number is too big to use. Use a whole number from 0 to 10, like 3.";
 
 /** The id of a refusal sentence drawn under a box the team is still in. */
 function refusalSentenceId(key: string): string {
@@ -523,7 +523,7 @@ export function WeightsControls({
         >
           {/* The team's own numbers added up: a sum, never a percentage (D8). */}
           <p className="ce-type-label ce-tabular text-ce-ink">
-            Total weight: <span className="ce-type-value">{formatWeightTotal(total)}</span>
+            Total of the four slider numbers: <span className="ce-type-value">{formatWeightTotal(total)}</span>
           </p>
           <p className="ce-type-body text-ce-ink">{WEIGHT_TOTAL_MEANING}</p>
           {/* Shown before sending; a refusal already on screen is not repeated (owner rule). */}

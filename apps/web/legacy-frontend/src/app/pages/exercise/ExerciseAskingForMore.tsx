@@ -30,7 +30,7 @@
  * counts, and the "how much we know" counts for every profile before and
  * after. All of it is on the asking response, so a reload, a second browser
  * and a team the instructor refreshed see the same thing. The shut button
- * reads "Already refreshed at 10:42 AM". Counts are what ADR-0025 D8 allows;
+ * reads "Already asked at 10:42 AM". Counts are what ADR-0025 D8 allows;
  * there is no percentage on this screen, and the shares in Ann's build table
  * (OQ-CE-04, confirmed 2026-09-25) are not returned by the API.
  *
@@ -431,7 +431,7 @@ function AskingPanels({
           // reload and until the team is cleared (issue #321).
           <p data-slot="exercise-asking-chosen" className="ce-type-body text-ce-ink">
             <span>{`You chose: ${askingWords(choice)}${chosenAt === null ? "" : ` at ${chosenAt}`}.`}</span>{" "}
-            <span className="text-ce-ink-muted">A team picks once, so these are now fixed.</span>
+            <span className="text-ce-ink-muted">Your team picks once, so this choice is final.</span>
           </p>
         )}
       </section>
