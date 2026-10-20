@@ -139,6 +139,17 @@ _MAX_SETTING_NAME_CHARACTERS = 100
 #: answers on it. Refusing it is cheaper than a path that means two things.
 _RESERVED_SETTING_NAME = "compare"
 
+#: Class-load memo (Ann #413, lane L4): every page load, refresh and results
+#: screen asks for the same list, and each one re-ranked 300 profiles. The key
+#: holds everything the list is built from — dataset, checksum, invite limit,
+#: this team's workspace and a digest of its whole overlay, event, weights,
+#: setting name — so a hit can never be stale (Harbor after asking re-keys on
+#: the new overlay) and a second worker needs no invalidation.
+# ponytail: per-process dict wiped at 1024 entries (~30-60 MB of views); an LRU if a
+# class ever cycles past it.
+_LIST_MEMO: dict[tuple[object, ...], RankedListView] = {}
+_LIST_MEMO_CEILING = 1024
+
 
 def _setting_name_or_refusal(name: str) -> str:
     """A saved setting's name, trimmed and bounded, or one plain sentence."""
@@ -234,6 +245,21 @@ def _build_list(
             code="exercise_no_dataset",
             message="The instructor has not loaded the student body yet.",
         )
+    key = (
+        workspace.dataset_id,
+        summary.checksum,
+        summary.invite_limit,
+        workspace.id,
+        team_view.overlay_version(
+            session, dataset_id=workspace.dataset_id, workspace_id=workspace.id
+        ),
+        event.event_key,
+        None if overrides is None else tuple(sorted(overrides.items())),
+        setting_name,
+    )
+    cached = _LIST_MEMO.get(key)
+    if cached is not None:
+        return cached
     profiles = team_view.list_team_profiles(
         session, dataset_id=workspace.dataset_id, workspace_id=workspace.id
     )
@@ -246,13 +272,23 @@ def _build_list(
         year_rank=rankable.year_rank,
         dataset_checksum=summary.checksum,
     )
-    return ranked_list_view(
+    view = ranked_list_view(
         ranked,
         rankable,
         event=event,
         weights=effective_weights(overrides),
         setting_name=setting_name,
     )
+    # A refresh committing between the digest and the profile read would file the new
+    # list under the old digest, and a later reset brings that digest back. Keep the
+    # list only if the overlay did not move while it was built (review H1).
+    if key[4] == team_view.overlay_version(
+        session, dataset_id=workspace.dataset_id, workspace_id=workspace.id
+    ):
+        if len(_LIST_MEMO) >= _LIST_MEMO_CEILING:
+            _LIST_MEMO.clear()
+        _LIST_MEMO[key] = view
+    return view
 
 
 def _overrides_for(

@@ -525,6 +525,8 @@ def runnable_or_refusal(
     event = event_or_refusal(events, event_key)
     round_number = round_or_refusal(events, event.event_key)
     round_two_lock_or_refusal(session, results, workspace=workspace, round_number=round_number)
+    # Class load: a teammate's press in flight commits first, so this read sees it.
+    results.wait_for_teammates_run(session, workspace_id=workspace.id)
     if results.get_run(session, workspace_id=workspace.id, event_key=event.event_key) is not None:
         raise already_run()
     if not results.results_unlocked(

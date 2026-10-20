@@ -8,7 +8,7 @@ contrast. Nothing is stored and the team's one results run is not touched.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import replace
 
 from smartmatch_domain.exercise.registry import EXERCISE_DEFAULT_WEIGHTS
@@ -33,6 +33,13 @@ _MAJOR_FIRST: Mapping[str, float] = {
     key: (EXERCISE_DEFAULT_WEIGHTS[key] if key == SAME_MAJOR_FACTOR_KEY else 0.0)
     for key in EXERCISE_DEFAULT_WEIGHTS
 }
+#: Rows per stored run. A stored run never changes (one per team and event; a
+#: reset deletes it and the next one has a new ``created_at``), so the two
+#: simulations behind its rows are worked out once, not on every page read.
+# ponytail: per-process dict wiped at 512 entries (a class is 6 teams x 1 round-two run);
+# with uvicorn --workers each process keeps its own copy. Shared cache if that ever matters.
+_MEMO: dict[tuple[object, ...], BeforeAfterView | None] = {}
+_MEMO_CEILING = 512
 
 
 def _row(label: str, team: ResultPanel, everyone: ResultPanel) -> BeforeAfterRowView:
@@ -53,7 +60,7 @@ def before_after_or_none(
     session: ExerciseSession,
     *,
     datasets: DatasetRepository,
-    profiles: Sequence[TeamProfileRow],
+    profiles: Callable[[], Sequence[TeamProfileRow]],
     events: Sequence[ExerciseEventRow],
     event: ExerciseEventRow,
     workspace: ExerciseWorkspace,
@@ -65,9 +72,45 @@ def before_after_or_none(
 
     ``None`` also for a run stored before weights were kept (revision 0046):
     the setting cannot be rebuilt, so nothing is guessed.
+
+    ``profiles`` is called only when the rows are not kept yet, so a reload
+    of the results page does not read three hundred profiles for nothing.
     """
     if run.round != COMPARED_ROUND or run.setting_weights is None:
         return None
+    key = (workspace.id, run.event_key, run.created_at, seed, coefficients)
+    if key not in _MEMO:
+        if len(_MEMO) >= _MEMO_CEILING:
+            _MEMO.clear()
+        _MEMO[key] = _before_after(
+            session,
+            datasets=datasets,
+            profiles=profiles(),
+            events=events,
+            event=event,
+            workspace=workspace,
+            run=run,
+            weights=run.setting_weights,
+            seed=seed,
+            coefficients=coefficients,
+        )
+    return _MEMO[key]
+
+
+def _before_after(
+    session: ExerciseSession,
+    *,
+    datasets: DatasetRepository,
+    profiles: Sequence[TeamProfileRow],
+    events: Sequence[ExerciseEventRow],
+    event: ExerciseEventRow,
+    workspace: ExerciseWorkspace,
+    run: StoredResultRun,
+    weights: Mapping[str, float],
+    seed: int,
+    coefficients: SimulationCoefficients,
+) -> BeforeAfterView:
+    """The three rows, simulated. Called once per stored run (``_MEMO``)."""
     cleared = tuple(
         replace(
             p,
@@ -107,7 +150,7 @@ def before_after_or_none(
     # run_the_rule simulates with the workspace's limit; pin it to the stored run's size.
     workspace = replace(workspace, invite_limit=len(run.team.invited_profile_nos))
     name = run.setting_name or "your setting"
-    before = simulate(cleared, run.setting_weights)
+    before = simulate(cleared, weights)
     major = simulate(profiles, _MAJOR_FIRST)
     return BeforeAfterView(
         rows=[

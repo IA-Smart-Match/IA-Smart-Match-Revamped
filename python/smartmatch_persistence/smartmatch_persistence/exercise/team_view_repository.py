@@ -187,3 +187,25 @@ class ExerciseTeamViewRepository:
             )
             for row in session.execute(statement).all()
         )
+
+    def overlay_version(
+        self, session: Session, *, dataset_id: uuid.UUID, workspace_id: uuid.UUID
+    ) -> str:
+        """A digest of this team's whole overlay, worked out in the database.
+
+        Base profile rows are never updated after upload, so this digest plus the
+        dataset id pins exactly what :meth:`list_team_profiles` returns. A refresh,
+        a reset or a re-point changes it, so a cache keyed on it needs no
+        invalidation (the class-load memo in ``exercise_matching``). One row back,
+        no profile decoded.
+        """
+        return str(
+            session.execute(_OVERLAY_VERSION, {"w": workspace_id, "d": dataset_id}).scalar_one()
+        )
+
+
+# Every column of every overlay row, in profile order; '' when the team has none.
+_OVERLAY_VERSION = sa.text(
+    "SELECT md5(coalesce(string_agg(o::text, '|' ORDER BY o.profile_no), ''))"
+    f" FROM {exercise_profile_overlay.name} AS o WHERE o.workspace_id = :w AND o.dataset_id = :d"
+)

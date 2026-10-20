@@ -558,6 +558,7 @@ def test_before_after_rows_keep_the_stored_runs_invite_count_when_the_limit_chan
         return real(*args, **kwargs)  # type: ignore[arg-type]
 
     monkeypatch.setattr(compare, "run_the_rule", spy)
+    monkeypatch.setattr(compare, "_MEMO", {})  # the POST kept the rows; work them out again
     assert client.get(_RESULTS_TWO).status_code == 200
     assert sizes == [_INVITE_LIMIT, _INVITE_LIMIT], (
         "before and major-first cut at the run's own size"
@@ -596,6 +597,7 @@ def test_before_row_differs_from_after_row_on_the_same_seed(
         return real(*args, **kwargs)  # type: ignore[arg-type]
 
     monkeypatch.setattr(compare, "run_the_rule", spy)
+    monkeypatch.setattr(compare, "_MEMO", {})  # the POST kept the rows; work them out again
     assert client.get(_RESULTS_TWO).status_code == 200
     before_invited, before_seed = seen[0]
     assert set(before_invited) != set(body["team"]["invited_profile_nos"])
