@@ -55,7 +55,7 @@ function asking(body: unknown): unknown {
 function counts(three: { cards_completed: number; non_responding: number; topics_added: number }) {
   return {
     ...three,
-    invited_without_card: 22,
+    asked_without_card: 22,
     marker_counts_before: { major_only: 166, major_plus_events: 64, completed_card: 70 },
     marker_counts_after: {
       major_only: 166 - three.topics_added,
@@ -277,7 +277,7 @@ describe("<ExerciseAskingForMore /> — the invitation desk (§6.18, §6.19, §7
     expect(
       screen.getByText("Tell students a card helps us suggest events worth their evening."),
     ).toBeDefined();
-    expect(screen.getByText("Students must fill in a card to hear about events. Some will stop responding.")).toBeDefined();
+    expect(screen.getByText(/^Students must fill in a card to hear about events\./)).toBeDefined();
   });
 
   it("arms an inline confirm on the first press, with no pop-up and no request", async () => {

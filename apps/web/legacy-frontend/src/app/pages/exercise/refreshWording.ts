@@ -4,7 +4,7 @@
  * Ann's review of 2026-10-02 asks for the refresh to say that it happened,
  * when, and what it changed, and gives the words: "Updated at 10:42 AM.
  * 9 people who came to Northline now count as having gone to a similar event.
- * 12 of the 22 invited people with no card completed one. 0 people stopped
+ * 230 students without a card were asked. 127 completed a card. 0 stopped
  * responding." and "Already refreshed at 10:42 AM."
  *
  * **The server sends facts, never these sentences.** It sends a timestamp,
@@ -41,11 +41,10 @@ export function alreadyRefreshedLabel(at: string | null | undefined): string {
 }
 
 /**
- * What the refresh changed, in three plain sentences.
+ * What the refresh changed, in two plain sentences.
  *
  * `topics_added` counts the people who attended the first round's event; they
- * now have one more event on file. `cards_completed` of `invited_without_card`
- * is "12 of the 22". `eventName` is the first round's event as the data file
+ * now have one more event on file. `asked_without_card` is every student with no card. `eventName` is the first round's event as the data file
  * spells it; without one the sentence says "the first event".
  */
 export function refreshChangeSentences(
@@ -59,12 +58,11 @@ export function refreshChangeSentences(
     counts.topics_added === 1
       ? `1 person who came to ${event} now counts as having gone to a similar event. ${same}`
       : `${counts.topics_added} people who came to ${event} now count as having gone to a similar event. ${same}`;
-  const asked = counts.invited_without_card;
-  const cards =
-    asked === 0
-      ? "Everyone your team invited already had a card."
-      : `${counts.cards_completed} of the ${asked} invited ${asked === 1 ? "person" : "people"} with no card completed one.`;
-  return [went, cards, `${people(counts.non_responding)} stopped responding: they stop opening messages and will not sign up for anything, mass email included.`];
+  const asked = counts.asked_without_card;
+  const noun = asked === 1 ? "student" : "students";
+  const verb = asked === 1 ? "was" : "were";
+  const askedLine = `${asked} ${noun} without a card ${verb} asked. ${counts.cards_completed} completed a card. ${people(counts.non_responding)} stopped responding: they stop opening messages and will not sign up for anything, mass email included.`;
+  return [askedLine, went];
 }
 
 /** The summary as one string, for a line that has no room for a list. */

@@ -241,7 +241,6 @@ def _refresh_team(
             seed=team.seed,
             choice=choice,
             profiles=profiles,
-            invited_profile_nos=first_round.team.invited_profile_nos,
             attended_profile_nos=first_round.team.attended_profile_nos,
             added_topics=event.topic_tags,
             now=now,
@@ -258,7 +257,6 @@ def _refresh_team(
         team_view.list_team_profiles(
             session, dataset_id=team.dataset_id, workspace_id=team.workspace_id
         ),
-        first_round.team.invited_profile_nos,
     )
     return RefreshAllTeamView(
         team_number=team.team_number,
