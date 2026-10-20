@@ -164,12 +164,11 @@ through Cloudflare is Plan C, a separate gate.
 1. **Before.** On the VM (read-only): note the deployed SHA, which dataset is active (must be
    Ann's 300; invite limit 60), and the unlock state of E11/E12 from the instructor page.
    Confirm no team has work you need to keep: the run resets teams 1–6.
-2. **Env on the VM** (`/opt/smartmatch/app/.env`, then rebuild api-exercise with both `-f`
-   files and `--build`): `SMARTMATCH_EXERCISE_DB_POOL_SIZE=30`,
-   `SMARTMATCH_EXERCISE_DB_MAX_OVERFLOW=0` (one pooled connection per AnyIO worker thread;
-   CBA's 60 + 30 stays under Postgres's 100). Keep **one** uvicorn process: the box has 2
-   shared vCPUs that Postgres, the CBA stack and Node share, and the instructor-login limiter
-   is per process.
+2. **Env on the VM**: keep the pool at its default (20 + 10; leave
+   `SMARTMATCH_EXERCISE_DB_POOL_*` empty) and **one** uvicorn process. Measured Oct 19 at 150
+   students: with #428 the pool never ran out (0 `QueuePool` timeouts; 418 without it, all in
+   the Harbor run burst). More workers add nothing on 2 shared vCPUs that Postgres, the CBA
+   stack and Node also use, and the instructor-login limiter is per process.
 3. **Tunnel from the dev box** (generator off the VM, so it does not steal the server's CPU):
 
    ```bash
