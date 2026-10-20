@@ -38,6 +38,7 @@ from tests.unit.exercise_results_router.support import (
     _REFRESH,
     _RESULTS,
     _RESULTS_TWO,
+    _SUMMARY,
     _WHEN,
     _entered,
     _Fakes,
@@ -456,3 +457,157 @@ def test_a_results_run_from_an_old_fractional_setting_still_works(
         created_at=_WHEN,
     )
     assert client.post(_RESULTS, json=_FINAL_BODY, headers=_HEADER).status_code == 201
+
+
+# ---------------------------------------------------------------------------
+# Before and after asking (Ann Wang, Oct 2026): computed on read, round two only
+# ---------------------------------------------------------------------------
+
+
+def _lift_row(body: dict[str, object]) -> dict[str, object]:
+    mass = set(body["email_everyone"]["signed_up_profile_nos"])  # type: ignore[index]
+    added = [n for n in body["team"]["signed_up_profile_nos"] if n not in mass]  # type: ignore[index]
+    return {"mass_email_signups": len(mass), "list_added": len(added)}
+
+
+def test_before_after_is_null_in_round_one(
+    fakes: _Fakes, client: TestClient, confirmed: SimulationCoefficients
+) -> None:
+    body = _run_round_one(fakes, client)
+    assert body["before_after"] is None
+
+
+def test_before_after_rows_in_round_two(
+    fakes: _Fakes, client: TestClient, confirmed: SimulationCoefficients
+) -> None:
+    _prepare_refresh(fakes, client)
+    assert client.post(_REFRESH, json={}, headers=_HEADER).status_code == 200
+    posted = client.post(_RESULTS_TWO, json=_FINAL_BODY, headers=_HEADER).json()
+    rows = posted["before_after"]["rows"]
+    assert len(rows) == 3
+    # After asking is the stored run, exactly.
+    after = rows[1]
+    assert (after["mass_email_signups"], after["list_added"]) == tuple(_lift_row(posted).values())
+    assert after["with_list_signups"] == after["mass_email_signups"] + after["list_added"]
+    team, mass = posted["team"], posted["email_everyone"]
+    added = set(team["signed_up_profile_nos"]) - set(mass["signed_up_profile_nos"])
+    assert after["list_added_came"] == len(added & set(team["attended_profile_nos"]))
+    # Reading twice gives the posted rows, byte for byte: no second run.
+    assert client.get(_RESULTS_TWO).json()["before_after"]["rows"] == rows
+    assert client.get(_RESULTS_TWO).json()["before_after"]["rows"] == rows
+
+
+def test_before_row_uses_no_overlay(
+    fakes: _Fakes, client: TestClient, confirmed: SimulationCoefficients
+) -> None:
+    """Two teams, same seed, different asking choices: equal before rows."""
+    _prepare_refresh(fakes, client, "required")
+    assert client.post(_REFRESH, json={}, headers=_HEADER).status_code == 200
+    mine = client.post(_RESULTS_TWO, json=_FINAL_BODY, headers=_HEADER).json()
+    with _entered(fakes, 2) as other:
+        _prepare_refresh(fakes, other, "small_reward")
+        assert other.post(_REFRESH, json={}, headers=_HEADER).status_code == 200
+        theirs = other.post(_RESULTS_TWO, json=_FINAL_BODY, headers=_HEADER).json()
+    strip = lambda row: {k: v for k, v in row.items() if k != "label"}  # noqa: E731
+    assert strip(mine["before_after"]["rows"][0]) == strip(theirs["before_after"]["rows"][0])
+
+
+def test_before_after_has_three_labelled_rows(
+    fakes: _Fakes, client: TestClient, confirmed: SimulationCoefficients
+) -> None:
+    _prepare_refresh(fakes, client)
+    assert client.post(_REFRESH, json={}, headers=_HEADER).status_code == 200
+    rows = client.post(_RESULTS_TWO, json=_FINAL_BODY, headers=_HEADER).json()["before_after"][
+        "rows"
+    ]
+    assert [r["label"].split(", ")[-1] for r in rows] == [
+        "before asking",
+        "after asking",
+        "after asking",
+    ]
+    assert rows[2]["label"].startswith("Major first")
+
+
+@pytest.mark.parametrize("new_limit", [_INVITE_LIMIT * 2, _INVITE_LIMIT // 2])
+def test_before_after_rows_keep_the_stored_runs_invite_count_when_the_limit_changes(
+    fakes: _Fakes,
+    client: TestClient,
+    confirmed: SimulationCoefficients,
+    monkeypatch: pytest.MonkeyPatch,
+    new_limit: int,
+) -> None:
+    """A run stored at 6 invitees stays 6 in every row once the limit rises or falls."""
+    from smartmatch_api.routers import exercise_results_compare as compare
+
+    _prepare_refresh(fakes, client)
+    assert client.post(_REFRESH, json={}, headers=_HEADER).status_code == 200
+    stored = client.post(_RESULTS_TWO, json=_FINAL_BODY, headers=_HEADER).json()
+    assert stored["team"]["invited_count"] == _INVITE_LIMIT
+    # The instructor changes the dataset's limit; the ranker reads it from there.
+    moved = replace(_SUMMARY, invite_limit=new_limit)
+    monkeypatch.setattr(fakes.datasets, "get_dataset_summary", lambda *_a, **_k: moved)
+    key = (_DATASET_ID, 1)
+    fakes.workspaces.rows[key] = replace(fakes.workspaces.rows[key], invite_limit=new_limit)
+
+    sizes: list[int] = []
+    real = compare.run_the_rule
+
+    def spy(*args: object, **kwargs: object):
+        sizes.append(len(kwargs["invited"]))  # type: ignore[arg-type]
+        return real(*args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(compare, "run_the_rule", spy)
+    assert client.get(_RESULTS_TWO).status_code == 200
+    assert sizes == [_INVITE_LIMIT, _INVITE_LIMIT], (
+        "before and major-first cut at the run's own size"
+    )
+
+
+def test_before_row_differs_from_after_row_on_the_same_seed(
+    fakes: _Fakes,
+    client: TestClient,
+    confirmed: SimulationCoefficients,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Fixed seed. The 12-row fixture signs everyone up, so counts cannot differ;
+    the before row must still be simulated on a different invited list than the stored run."""
+    from smartmatch_api.routers import exercise_results_compare as compare
+
+    _prepare_refresh(fakes, client, "required")
+    workspace = fakes.workspaces.rows[(_DATASET_ID, 1)]
+    for profile_no in range(1, 13):
+        fakes.results._patch(
+            workspace.id,
+            profile_no,
+            overlay_added_event_topics=("brand", "outreach"),
+            overlay_card_interests=("brand", "outreach"),
+        )
+    assert client.post(_REFRESH, json={}, headers=_HEADER).status_code == 200
+    posted = client.post(_RESULTS_TWO, json=_FINAL_BODY, headers=_HEADER)
+    assert posted.status_code == 201, posted.text
+    body = posted.json()
+    runs_before = dict(fakes.results.runs)
+    seen: list[tuple[list[int], int]] = []
+    real = compare.run_the_rule
+
+    def spy(*args: object, **kwargs: object):
+        seen.append((list(kwargs["invited"]), kwargs["seed"]))  # type: ignore[arg-type]
+        return real(*args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(compare, "run_the_rule", spy)
+    assert client.get(_RESULTS_TWO).status_code == 200
+    before_invited, before_seed = seen[0]
+    assert set(before_invited) != set(body["team"]["invited_profile_nos"])
+    assert before_seed == fakes.workspaces.seeds[workspace.id], "same seed as the stored run"
+    assert fakes.results.runs == runs_before, "one run row per team and event; the read stored none"
+
+
+def test_row_counts_only_added_signups_who_attended() -> None:
+    """3 sign-ups the mass email missed, 2 of them attended: came is 2, not 3."""
+    from smartmatch_api.exercise_dependencies import ResultPanel
+    from smartmatch_api.routers.exercise_results_compare import _row
+
+    team = ResultPanel((1, 2, 3, 4, 5), (1, 2, 3, 4), (1, 3, 4))
+    everyone = ResultPanel((1, 2, 3, 4, 5), (1,), (1,))
+    row = _row("x", team, everyone)
+    assert (row.list_added, row.list_added_came) == (3, 2)
