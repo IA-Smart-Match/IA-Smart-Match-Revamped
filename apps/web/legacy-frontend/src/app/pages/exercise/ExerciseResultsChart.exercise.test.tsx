@@ -73,12 +73,27 @@ describe('<ExerciseResultsChart variant="exercise" />', () => {
     );
 
     const html = container.innerHTML;
+    // B4 item 5: light bar first (invited tint), dark bar second, hatch third.
     expect(html).toContain("var(--ce-series-invited-fill)");
-    expect(html).toContain("var(--ce-series-signed-fill)");
     expect(html).toContain("var(--ce-series-attended-fill)");
+    expect(html.indexOf("var(--ce-series-invited-fill)")).toBeLessThan(
+      html.indexOf("var(--ce-series-attended-fill)"),
+    );
     for (const oldHue of ["#1f3a93", "#0b6b53", "#8a3b00"]) {
       expect(html).not.toContain(oldHue);
     }
+  });
+
+  it("leaves 'Invited' out of the chart (table only) and uses short stage labels", () => {
+    const { container } = render(
+      <ExerciseResultsChart title="Northline" series={series} variant="exercise" />,
+    );
+    const axis = Array.from(container.querySelectorAll(".recharts-xAxis .recharts-cartesian-axis-tick-value")).map(
+      (node) => node.textContent,
+    );
+    expect(axis).toEqual(["Signed up", "Attended"]);
+    expect(container.querySelector(".recharts-legend-wrapper")?.textContent ?? "").not.toContain("Invited");
+    expect(screen.getByTestId("exercise-results-table").textContent).toContain("Invited");
   });
 
   it("puts the table under a 'Show these counts as a table' disclosure, closed on desktop", () => {

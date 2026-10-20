@@ -29,7 +29,7 @@ vi.mock("./TeamStatusBand", async (importOriginal) => ({
 async function pressRun(): Promise<void> {
   fireEvent.click(screen.getByRole("button", { name: /run results/i }));
   await new Promise((resolve) => setTimeout(resolve, CONFIRM_GUARD_MS + 20));
-  fireEvent.click(screen.getByRole("button", { name: /send this list/i }));
+  fireEvent.click(screen.getByRole("button", { name: /^send ‘.+’\?/i }));
 }
 
 let calls: { url: string; init: RequestInit }[] = [];
@@ -233,7 +233,13 @@ describe("<ExerciseResults />", () => {
     });
     renderResults();
     await runWith("Wide net");
-    await waitFor(() => expect(screen.getByText(sentence)).toBeDefined());
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          "Your instructor has not opened results yet. You can still pick your setting and review its list. Press Check again once your instructor says results are open.",
+        ),
+      ).toBeDefined(),
+    );
   });
 
   it("renders an already-run event as a state, with the spec's own sentence", async () => {
@@ -375,7 +381,7 @@ describe("<ExerciseResults />", () => {
 
     await runWith("Only majors");
 
-    await waitFor(() => expect(screen.getByText("Not open yet.")).toBeDefined());
+    await waitFor(() => expect(screen.getByText(/^Your instructor has not opened results yet\./)).toBeDefined());
     const posted = calls.find((call) => call.init.method === "POST");
     expect(JSON.parse(String(posted?.init.body))).toEqual({ setting_name: "Only majors" });
   });
@@ -611,7 +617,7 @@ describe("<ExerciseResults /> once-only presses", () => {
     });
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(posts(RESULTS)).toBe(0);
-    expect(run.textContent).toContain("Send this list?");
+    expect(run.textContent).toContain("Send ‘Wide net’?");
   });
 
   it("sends one run for two confirming presses in the same tick", async () => {

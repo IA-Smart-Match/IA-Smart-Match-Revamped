@@ -85,7 +85,8 @@ import { ExerciseLoading, ExerciseNotice, ExerciseScreen } from "./ExerciseScree
 import { clockTime } from "./exerciseTime";
 import { ResultPanels, type NamesByProfileNo } from "./ResultPanels";
 import { ProfileCardArt } from "./resultsArt";
-import { ResultsCheckAgain } from "./ResultsCheckAgain";
+import { ChosenListSummary } from "./ChosenListSummary";
+import { NOT_OPENED_YET, ResultsCheckAgain } from "./ResultsCheckAgain";
 import { ResultsLockPanel } from "./ResultsLockPanel";
 import { RoundBanner } from "./RoundBanner";
 import { TeamStatusBand, useStatusRevision } from "./TeamStatusBand";
@@ -127,14 +128,9 @@ interface EventResultsState {
   readonly nextRoundKey: string | null;
 }
 
-/** Ann's sentence for a press that cannot do anything yet (2026-10-02). */
-function notOpenSentence(eventName: string): string {
-  return `Results for ${eventName} are not open yet. Ask your instructor.`;
-}
-
 /** The question the run button asks before the one run (Ann's checklist, section 5). */
-function sendListQuestion(eventName: string | null): string {
-  return `Send this list? You get one results run for ${eventName ?? "this event"}`;
+function sendListQuestion(eventName: string | null, settingName: string): string {
+  return `Send ‘${settingName}’? You get one results run for ${eventName ?? "this event"}.`;
 }
 
 /** Says why the run button is off; the button points at it with `aria-describedby`. */
@@ -440,8 +436,7 @@ function ResultsBody({
   const refusedAsLocked = refusal?.code === LOCKED;
   const notOpen = !hasRun && (data.event === null ? refusedAsLocked : !data.event.open);
   // The lock panel carries the sentence, so the notice does not repeat it.
-  const lockSentence =
-    data.event === null ? (refusal?.message ?? "") : notOpenSentence(data.event.name);
+  const lockSentence = NOT_OPENED_YET;
   /** When the run was made, from the run itself; `null` when it is not on screen. */
   const ranAt = clockTime(results?.created_at);
 
@@ -499,6 +494,7 @@ function ResultsBody({
             value={finalSetting}
             onChange={setFinalSetting}
           />
+          <ChosenListSummary eventKey={eventKey} settingName={finalSetting} />
           {notOpen ? (
             <div>
               <Button variant="primary" disabled describedBy={NOT_OPEN_REASON}>
@@ -571,7 +567,7 @@ function RunButton({
     }
   }, [cancel, running]);
   const armed = confirm.armed && !running;
-  const question = sendListQuestion(eventName);
+  const question = sendListQuestion(eventName, finalSetting);
 
   return (
     <div className="flex flex-col items-start gap-ce-2">

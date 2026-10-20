@@ -135,6 +135,15 @@
   --ce-control-height: 48px;
 }
 
+/* Dark page: the primary is the bright green, so the mass-email bar (tint) needs a
+   lighter fill than the list bar, and the list bar a deeper one, as in light mode. */
+.dark .ce-root,
+.ce-root.dark {
+  --ce-series-invited-fill: #d4ecb0;
+  --ce-series-attended-fill: #4f7f2a;
+  --ce-series-attended-stroke: #a4d65e;
+}
+
 @media (min-width: 768px) {
   .ce-root {
     --ce-type-display: 700 72px/76px var(--ce-font-display);
