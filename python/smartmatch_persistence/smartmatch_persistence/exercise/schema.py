@@ -132,10 +132,10 @@ exercise_dataset = sa.Table(
     sa.Column("uploaded_at", _TS, nullable=False, server_default=sa.text("now()")),
     sa.Column("row_count", sa.Integer, nullable=False),
     sa.Column("checksum", sa.Text, nullable=False),
-    # §5. Thirty is Ann's stated number and carries no open question; the
-    # instructor route changes it per dataset, which is why it is a column
-    # rather than a constant.
-    sa.Column("invite_limit", sa.Integer, nullable=False, server_default=sa.text("30")),
+    # §5. Sixty is Ann's number (2026-10-16, was thirty) and carries no open
+    # question; the instructor route changes it per dataset, which is why it is
+    # a column rather than a constant.
+    sa.Column("invite_limit", sa.Integer, nullable=False, server_default=sa.text("60")),
     # Nullable: a data file that names no licence has not named one, and an
     # empty string would be a statement nobody made (ADR-0011 rule 1).
     sa.Column("license_line", sa.Text, nullable=True),

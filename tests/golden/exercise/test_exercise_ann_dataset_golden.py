@@ -115,7 +115,7 @@ def _ranked(
     weights: Mapping[str, float] | None,
     *,
     profile_nos: frozenset[int] | None = None,
-    invite_limit: int = 30,
+    invite_limit: int = 60,
 ) -> ExerciseList:
     events = _events()
     rankable = rankable_set(_rows(profile_nos), events)
@@ -203,11 +203,11 @@ def test_with_the_goal_off_too_only_the_information_tie_break_separates_them() -
 
 @pytest.mark.golden
 @pytest.mark.parametrize("event_key", ["E11", "E12"])
-def test_the_default_list_is_thirty_names_in_a_fixed_order(event_key: str) -> None:
+def test_the_default_list_is_sixty_names_in_a_fixed_order(event_key: str) -> None:
     first = _ranked(event_key, None)
     second = _ranked(event_key, None)
 
-    assert len(first.entries) == 30
+    assert len(first.entries) == 60
     assert [e.profile_id for e in first.entries] == [e.profile_id for e in second.entries]
     assert first.unlisted_class_years == ()
 
@@ -339,13 +339,14 @@ def test_an_undecided_card_is_never_told_its_goal_counted(event_key: str) -> Non
 
 
 @pytest.mark.golden
-def test_p197_leaves_the_northline_list_without_its_half_goal_fit() -> None:
+def test_p197_reaches_the_sixty_name_northline_list_on_past_events_alone() -> None:
     """The one undecided card the old default list reached, 30th of 30.
 
     P197 is an Accounting major (not Northline's major) whose card names none
     of Northline's topics and says "Undecided". Of its three past events one,
     E08, shares a topic with Northline. So one thing counts for it, at half:
-    0.25 x 0.5. That places it 39th of 300, off the list of 30.
+    0.25 x 0.5. That places it 39th of 300: off the old list of 30, on the list of 60 (Ann,
+    2026-10-16).
     """
     by_no = {p.profile_no: p for p in _dataset().profiles}
     assert by_no[197].past_event_keys == ("E02", "E08", "E09")
@@ -354,4 +355,4 @@ def test_p197_leaves_the_northline_list_without_its_half_goal_fit() -> None:
 
     assert p197.contributing_factor_keys == ("past_event_topic_overlap",)  # type: ignore[attr-defined]
     assert p197.rank == 39  # type: ignore[attr-defined]
-    assert "197" not in {entry.profile_id for entry in _ranked("E11", None).entries}
+    assert "197" in {entry.profile_id for entry in _ranked("E11", None).entries}
