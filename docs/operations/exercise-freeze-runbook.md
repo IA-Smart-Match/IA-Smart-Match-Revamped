@@ -41,7 +41,7 @@ curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:5174/v1/exercise   # A
 sudo docker ps --filter name=exercise --format '{{.Names}} {{.Status}}'   # all Up (healthy where a healthcheck exists)
 sudo docker inspect smartmatch-web-exercise-1 --format '{{.Config.Image}} {{.Config.Cmd}} {{json .Mounts}}'   # Cmd is vite preview, NOT npm run dev; no /app bind mount
 curl -s http://127.0.0.1:5174/api/health   # API health through the 5174 proxy (200, release = tag SHA)
-curl -s https://exercise.plated.blog/ | grep -c '/@vite/client'          # expect 0, through the tunnel
+curl -s https://exercise.smartmatch.cloud/ | grep -c '/@vite/client'          # expect 0, through the tunnel
 ```
 
 ## 2. Rollback {#rollback}
@@ -65,7 +65,7 @@ State on the VM today (2026-10-19): runs on teams 1, 3, 4; E12 unlocked 2026-10-
 4.1 Log in (passcode typed, not echoed):
 
 ```bash
-H=https://exercise.plated.blog; cd ~ && umask 077
+H=https://exercise.smartmatch.cloud; cd ~ && umask 077
 read -rs PASS; export PASS
 python3 -c 'import json,os; print(json.dumps({"passcode": os.environ["PASS"]}))' \
   | curl -sS -c jar -X POST "$H/v1/exercise/instructor/login" -H 'Content-Type: application/json' \
@@ -86,7 +86,7 @@ for k in E11 E12; do curl -sS -b jar -X POST "$H/v1/exercise/instructor/events/$
 curl -sS -b jar "$H/v1/exercise/instructor/events"      # both unlocked:false
 ```
 
-4.3 Clear each team that has a row, one at a time, reading each answer (page button: "Clear team N's work"). A reset **keeps the team's row** and its seed; it deletes saved settings, result runs, asking choice, refresh. Clear every team the 4.1b list shows (today 1, 3, 4, 5, 6; Track D's load test may add Team 2 — then include it). A team with no row answers 404, which is fine: it has nothing to clear. Instructor-page alternative to the curl loop: open `https://exercise.plated.blog/exercise/instructor`, sign in, press "Clear team N's work" per team, and the close button per event.
+4.3 Clear each team that has a row, one at a time, reading each answer (page button: "Clear team N's work"). A reset **keeps the team's row** and its seed; it deletes saved settings, result runs, asking choice, refresh. Clear every team the 4.1b list shows (today 1, 3, 4, 5, 6; Track D's load test may add Team 2 — then include it). A team with no row answers 404, which is fine: it has nothing to clear. Instructor-page alternative to the curl loop: open `https://exercise.smartmatch.cloud/exercise/instructor`, sign in, press "Clear team N's work" per team, and the close button per event.
 
 ```bash
 for n in 1 2 3 4 5 6; do curl -sS -b jar -X POST "$H/v1/exercise/instructor/workspaces/$n/reset" -H 'X-Exercise-Request: 1'; echo; done

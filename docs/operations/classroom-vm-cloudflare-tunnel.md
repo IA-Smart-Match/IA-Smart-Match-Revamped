@@ -367,7 +367,7 @@ a command out of it — these did not change with the cutover:
 |---|---|
 | `smartmatch-pilot` | `smartmatch` |
 | `--zone=us-west1-a` | `us-west2-c` |
-| `pilot.YOURDOMAIN` | `pilot.plated.blog` |
+| `pilot.YOURDOMAIN` | the pilot host |
 
 The hostname is the one corroborated in-repository at
 `apps/web/legacy-frontend/vite.config.ts:39`, where it appears in Vite's

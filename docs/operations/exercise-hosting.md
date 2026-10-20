@@ -17,11 +17,11 @@ this becomes production" are all still open.
 `deploy-runbook.md`, `containers.md` — and `vm-deploy.md` is past 1,000 lines
 about a different product scope. The two link to each other.
 
-**The address: `exercise.plated.blog`** — owner decision, 2026-09-21
+**The address: `exercise.smartmatch.cloud`** (class link `https://exercise.smartmatch.cloud/exercise`) — owner decision, 2026-09-21; domain updated 2026-10-19
 (OQ-CE-06, owner Danny). A **second public hostname on the existing Cloudflare
 Tunnel**, serving the exercise scope only. Its own origin is the point: an
 exercise cookie is scoped to that host and is never sent to a CBA route on
-`pilot.plated.blog`, and vice versa.
+the pilot host, and vice versa.
 
 **No Cloudflare Access policy is applied to it** — also the owner's decision of
 2026-09-21, and the one thing here that differs from the sibling host. What
@@ -37,7 +37,7 @@ away and why it is acceptable for this scope and not for the other one.
 |---|---|---|
 | ~~No compose service runs this scope~~ **Closed.** | `docker-compose.exercise.yml` (a THIRD `-f` file, loaded only when named) defines an `api-exercise` service running `SMARTMATCH_PRODUCT_SCOPE=class_exercise`, gated behind the `exercise` compose profile, bound to `127.0.0.1:8090`, with its own restart policy and `SMARTMATCH_EXERCISE_COOKIE_SECURE=true` pinned in the same file. `docker-compose.yml` and `docker-compose.vm.yml` are untouched — an earlier version of this lived inside `docker-compose.yml` and broke `docker compose up` for the whole CBA stack (Compose evaluates required-secret interpolation for every service in a loaded file, profile or no profile). `tests/unit/test_exercise_compose_service.py` pins its shape. The same file also defines `web-exercise`, the Vite server the tunnel points at (`127.0.0.1:5174`, [§4a](#4a-the-tunnel-and-why-there-is-no-access-policy)). | Steps 7-10 and 18 of [§9](#9-deploy-and-verify-checklist) are runnable by an operator; see that section for the exact commands. |
 | ~~**A CI deploy removes the exercise containers**~~ **Closed.** | `scripts/vm/deploy.sh` runs `up -d --remove-orphans`. It used to load only the two CBA files, so `api-exercise` and `web-exercise` (same compose project) were deleted as orphans on every deploy. It now adds `-f docker-compose.exercise.yml --profile exercise` whenever the VM's `.env` gives `SMARTMATCH_EXERCISE_WORKSPACE_SECRET` a value, and logs `compose scope: CBA + class exercise`. | Keep that secret in `/opt/smartmatch/app/.env`, not only in a shell export, or the deploy treats the VM as CBA-only. The boot unit (`scripts/vm/smartmatch.service`) now loads the overlay under the same condition, so a reboot keeps the exercise containers. |
-| ~~**The Vite dev server rejects `exercise.plated.blog`**~~ **Closed.** | `vite.config.ts` `allowedHosts` includes both `pilot.plated.blog` and `exercise.plated.blog` (server and preview). | — |
+| ~~**The Vite dev server rejects `exercise.smartmatch.cloud`**~~ **Closed.** | `vite.config.ts` `allowedHosts` includes `.smartmatch.cloud`, which covers `exercise.smartmatch.cloud` (server and preview). | — |
 | **No proxy rate-limit config is in the repository** | The only front door is a dashboard-managed Cloudflare Tunnel (`vm-deploy.md:87-96`); there is no nginx/Caddy/Traefik config checked in | The per-client limit on the instructor login has to be built in the Cloudflare dashboard by hand, and cannot be reviewed in git. With no Access policy on this host, that rule is the **only** edge protection. See [§5](#5-rate-limiting-belongs-at-the-proxy-oq-ce-06). |
 
 Everything below is still worth doing in order; step 1 tells you what the
@@ -428,7 +428,7 @@ prefix — gets **no cookie**, and every authenticated-by-cookie route answers a
 if the team had never entered. The failure looks like "the app logged me out",
 not like a routing bug.
 
-So the reverse proxy in front of `exercise.plated.blog` must route, to the exercise
+So the reverse proxy in front of `exercise.smartmatch.cloud` must route, to the exercise
 API process:
 
 * `/v1/exercise` and everything under it — **without rewriting the path**;
@@ -436,7 +436,7 @@ API process:
 
 The existing Vite dev server already proxies `/v1` unrewritten to the API
 (`vite.config.ts:62-67`), which is the shape to copy. What it does **not** have
-is `exercise.plated.blog` in `allowedHosts` (`vite.config.ts:53`) — see the gaps
+is `exercise.smartmatch.cloud` in `allowedHosts` (`vite.config.ts:53`) — see the gaps
 table at the top.
 
 ---
@@ -445,7 +445,7 @@ table at the top.
 
 ### Adding the hostname
 
-`exercise.plated.blog` is a **second public hostname on the tunnel that already
+`exercise.smartmatch.cloud` is a **second public hostname on the tunnel that already
 exists**, not a second tunnel. The tunnel is
 `smartmatch-classroom-pilot`, built by
 [`classroom-vm-cloudflare-tunnel.md`](classroom-vm-cloudflare-tunnel.md) Part 2,
@@ -459,10 +459,10 @@ same tunnel:
 1. Cloudflare Zero Trust → **Networks** → **Tunnels** → open
    `smartmatch-classroom-pilot`.
 2. Add a **Public hostname**: subdomain `exercise`, the same zone as
-   `pilot.plated.blog`, type **HTTP**, URL the exercise process's loopback
+   the pilot host, type **HTTP**, URL the exercise process's loopback
    origin on the VM.
 3. Save. Creating the public hostname in the dashboard normally adds the CNAME
-   `exercise.plated.blog` → `<tunnel-id>.cfargotunnel.com`
+   `exercise.smartmatch.cloud` → `<tunnel-id>.cfargotunnel.com`
    (`classroom-vm-cloudflare-tunnel.md` Part 2 step 3). If it did not, add it
    there; that guide is the authority on the DNS half.
 
@@ -471,7 +471,7 @@ same tunnel:
 API's `127.0.0.1:8080` (`vm-deploy.md:319-329`). Point the hostname at that
 origin, **not** at `api-exercise`'s `127.0.0.1:8090`:
 
-| Origin | Serves pages? | Where `/v1` goes | Result on `exercise.plated.blog` |
+| Origin | Serves pages? | Where `/v1` goes | Result on `exercise.smartmatch.cloud` |
 |---|---|---|---|
 | `127.0.0.1:5173` (`web`) | yes | CBA `api`, which does not mount the exercise routers | every exercise call is a **404** |
 | `127.0.0.1:8090` (`api-exercise`) | **no** — API only | itself | `/` and `/exercise` pages do not load |
@@ -481,19 +481,19 @@ origin, **not** at `api-exercise`'s `127.0.0.1:8090`:
 `node_modules` volume and an **empty** `VITE_SMARTMATCH_BEARER_TOKEN`, so the
 CBA dev bearer token is never bundled into pages on this public host. This
 mapping is dashboard-managed and lives in no file in this repository
-(`vm-deploy.md:87-96`), exactly as `pilot.plated.blog`'s does.
+(`vm-deploy.md:87-96`), exactly as the pilot host's does.
 
 ### No Cloudflare Access policy on this host
 
 Owner decision, 2026-09-21. This is a deliberate difference from
-`pilot.plated.blog`, and
+the pilot host, and
 [`classroom-vm-cloudflare-tunnel.md`](classroom-vm-cloudflare-tunnel.md) Part 3
 says the opposite for *that* host — "if you skip Access, anyone who guesses the
 hostname gets the demo. Do not skip it." Both are right, for different
 products, and the difference is worth stating rather than leaving a reader to
 find the contradiction:
 
-| | `pilot.plated.blog` (CBA) | `exercise.plated.blog` (this scope) |
+| | the pilot host (CBA) | `exercise.smartmatch.cloud` (this scope) |
 |---|---|---|
 | What is behind it | Seeded CBA portals with real-shaped student and speaker records | Six team workspaces over **fictional** rows (ADR-0025 D2) |
 | Login | None of its own — Access **is** the door | None **by design**: no CBA authenticated router is mounted (ADR-0025 D1), so there is no account to protect |
@@ -508,7 +508,7 @@ the first five minutes of the class would be spent on Cloudflare's login
 instead of the exercise.
 
 **What that trades away, said without softening it:** anyone who learns
-`exercise.plated.blog` can open the team surface, enter a team number and see
+`exercise.smartmatch.cloud` can open the team surface, enter a team number and see
 that team's workspace. The data is invented and there is no account to
 compromise, which is what makes the trade acceptable *for this scope*. The
 instructor surface is the part that is actually defended, by two things:
@@ -557,7 +557,7 @@ the reverse proxy**, because the proxy is the only hop that knows the real
 client address.
 
 **With no Access policy on this host ([§4a](#4a-the-tunnel-and-why-there-is-no-access-policy)),
-this rule is the only edge protection `exercise.plated.blog` has.** It is not
+this rule is the only edge protection `exercise.smartmatch.cloud` has.** It is not
 optional, and it is not in git: the front door is a dashboard-managed
 Cloudflare Tunnel (`vm-deploy.md:87-96`) and there is no nginx, Caddy or
 Traefik config in this repository to add a `limit_req` zone to. So the rule is
@@ -565,14 +565,14 @@ specified here, concretely enough to be built and reviewed by hand:
 
 | Setting | Value |
 |---|---|
-| Rule type | Cloudflare **Rate Limiting Rule** (WAF), on the zone serving `exercise.plated.blog` |
-| Match | `http.host eq "exercise.plated.blog" and http.request.method eq "POST" and http.request.uri.path eq "/v1/exercise/instructor/login"` |
+| Rule type | Cloudflare **Rate Limiting Rule** (WAF), on the zone serving `exercise.smartmatch.cloud` |
+| Match | `http.host eq "exercise.smartmatch.cloud" and http.request.method eq "POST" and http.request.uri.path eq "/v1/exercise/instructor/login"` |
 | Counting key | **client IP** — the app parses no `X-Forwarded-For`, so the proxy is the only hop that can do this |
 | Budget | **10 requests / 5 minutes** per IP — deliberately equal to `INSTRUCTOR_LOGIN_ATTEMPTS_PER_CLIENT` (`exercise_rate_limit.py:75`) and `INSTRUCTOR_LOGIN_WINDOW` (`:85`), so the two bounds cannot disagree |
 | Action | **Block**, 429, with a response indistinguishable from the app's own refusal — a different page tells an attacker exactly where the limit lives |
-| Scope check | The rule must match **only** that path. A rate limit on all of `exercise.plated.blog` would throttle thirty laptops loading the exercise at the same moment, which is the normal start of a class. |
+| Scope check | The rule must match **only** that path. A rate limit on all of `exercise.smartmatch.cloud` would throttle thirty laptops loading the exercise at the same moment, which is the normal start of a class. |
 
-Do **not** put a matching rule on `pilot.plated.blog`; that host has Access in
+Do **not** put a matching rule on the pilot host; that host has Access in
 front of it and a different threat model.
 
 **Verify it by hand before the class** from a machine that is not the
@@ -600,7 +600,7 @@ How to measure:
 2. DevTools → **Performance** → check *Disable cache*, throttling **No
    throttling** (the classroom network is the condition under test, not a
    simulated one).
-3. Load `https://exercise.plated.blog/` from a cold profile. Record **Time to
+3. Load `https://exercise.smartmatch.cloud/` from a cold profile. Record **Time to
    Interactive** from the trace summary.
 4. Repeat three times; record all three, not the best one.
 5. Record the Chrome version and the machine, because the number means nothing
@@ -628,7 +628,7 @@ session (the passcode) and sends `X-Exercise-Request`. Step 0 needs neither.
 0. **Is it up?**
 
    ```bash
-   curl -sS https://exercise.plated.blog/api/health
+   curl -sS https://exercise.smartmatch.cloud/api/health
    # {"status":"ok","release":"..."}
    ```
 
@@ -862,7 +862,7 @@ checklist for real:
    `docker-compose.exercise.yml` hard-sets it on the `api-exercise` service,
    per [§4](#4-https-and-cookies) and the owner decision, 2026-09-21. Nothing
    to set by hand. Pass: the workspace cookie (`exercise_workspace`) carries
-   `Secure` on a response from `https://exercise.plated.blog`. **VERIFY ON
+   `Secure` on a response from `https://exercise.smartmatch.cloud`. **VERIFY ON
    VM** — cannot be checked before the process exists. Also confirm
    `SMARTMATCH_EXERCISE_SEED_ON_START` appears nowhere in the VM's `.env`
    ([§2](#never-set-smartmatch_exercise_seed_on_start-on-the-vm)). Pass:
@@ -917,7 +917,7 @@ checklist for real:
 
 ### Tunnel hostname
 
-9. **Add the `exercise.plated.blog` public hostname** to the existing
+9. **Add the `exercise.smartmatch.cloud` public hostname** to the existing
    `smartmatch-classroom-pilot` tunnel, per [§4a](#4a-the-tunnel-and-why-there-is-no-access-policy),
    pointing it at `http://127.0.0.1:5174` — the loopback origin
    `docker-compose.exercise.yml`'s `web-exercise` service publishes. **Not**
@@ -925,17 +925,17 @@ checklist for real:
    fail; §4a has the table. No new tunnel, no
    new `cloudflared service install`. Pass: Cloudflare Zero Trust → Networks →
    Tunnels → `smartmatch-classroom-pilot` lists a public hostname for
-   `exercise.plated.blog` pointing at `127.0.0.1:5174`. **VERIFY ON VM** —
+   `exercise.smartmatch.cloud` pointing at `127.0.0.1:5174`. **VERIFY ON VM** —
    this is a dashboard action with no file in this repository to check it
    against.
 
 10. **Apply the rate-limit rule** in [§5](#5-rate-limiting-belongs-at-the-proxy-oq-ce-06)
-    on the zone serving `exercise.plated.blog` — Cloudflare Rate Limiting
+    on the zone serving `exercise.smartmatch.cloud` — Cloudflare Rate Limiting
     Rule, `POST /v1/exercise/instructor/login`, 10 requests / 5 minutes per
     client IP, action Block. This is the **only** edge protection this host
     has ([§4a](#4a-the-tunnel-and-why-there-is-no-access-policy)) — do not skip
     it because §9 step 9 feels done. Do **not** apply a matching rule to
-    `pilot.plated.blog`.
+    the pilot host.
 
 ### Smoke tests
 
@@ -944,7 +944,7 @@ to be live. All are **VERIFY ON VM** until then.
 
 11. **Health.**
     ```bash
-    curl -sS https://exercise.plated.blog/api/health
+    curl -sS https://exercise.smartmatch.cloud/api/health
     ```
     Pass: `{"status":"ok","release":"..."}`. This proves the process and the
     tunnel hostname, and nothing about the database or the grant
@@ -953,14 +953,14 @@ to be live. All are **VERIFY ON VM** until then.
 
 12. **Exercise entry page loads at the exercise hostname.**
     ```bash
-    curl -sS -o /dev/null -w '%{http_code}\n' https://exercise.plated.blog/
+    curl -sS -o /dev/null -w '%{http_code}\n' https://exercise.smartmatch.cloud/
     ```
     Pass: `200`.
 
 13. **Scope isolation, direction one — a CBA route is NOT reachable on the
     exercise hostname.**
     ```bash
-    curl -sS -o /dev/null -w '%{http_code}\n' https://exercise.plated.blog/v1/jobs
+    curl -sS -o /dev/null -w '%{http_code}\n' https://exercise.smartmatch.cloud/v1/jobs
     ```
     Pass: `404`. ADR-0025 D1 means the five principal-bearing CBA routers are
     never registered in the `class_exercise` scope process
@@ -970,7 +970,7 @@ to be live. All are **VERIFY ON VM** until then.
 14. **Scope isolation, direction two — an exercise route is NOT reachable on
     the pilot hostname.**
     ```bash
-    curl -sS -o /dev/null -w '%{http_code}\n' https://pilot.plated.blog/v1/exercise/public
+    curl -sS -o /dev/null -w '%{http_code}\n' https://<pilot-host>/v1/exercise/public
     ```
     Pass: `404` (or an Access challenge if it is reached before routing, which
     also counts as "not reachable" — either way the CBA process must never
@@ -981,7 +981,7 @@ to be live. All are **VERIFY ON VM** until then.
 15. **Instructor route refuses without the passcode.**
     ```bash
     curl -sS -o /dev/null -w '%{http_code}\n' \
-      -X POST https://exercise.plated.blog/v1/exercise/instructor/login \
+      -X POST https://exercise.smartmatch.cloud/v1/exercise/instructor/login \
       -H 'Content-Type: application/json' -H 'X-Exercise-Request: 1' \
       -d '{"passcode":"wrong-passcode-value"}'
     ```
@@ -999,7 +999,7 @@ to be live. All are **VERIFY ON VM** until then.
 
 17. **Cookie carries `Secure`/`HttpOnly`/`SameSite`.**
     ```bash
-    curl -sSI https://exercise.plated.blog/v1/exercise/public/something | grep -i set-cookie
+    curl -sSI https://exercise.smartmatch.cloud/v1/exercise/public/something | grep -i set-cookie
     ```
     Pass, against [§4](#4-https-and-cookies)'s table: `exercise_workspace` has
     `HttpOnly`, `SameSite=Lax`, and `Secure` (from
@@ -1136,7 +1136,7 @@ check result, and the date/SHA — in the evidence table above.
 
 | ID | Question | Status | Where it bites here |
 |---|---|---|---|
-| **OQ-CE-06** | "Where does the site live and what is its stable address?" — owner Danny. `exercise_rate_limit.py` carries the same id for the edge-limiting half | **Address decided 2026-09-21** (`exercise.plated.blog`, second hostname on the existing tunnel, no Access policy); **rate-limit rule still to be applied at the proxy** | The rule in [§5](#5-rate-limiting-belongs-at-the-proxy-oq-ce-06) is specified here but lives in the Cloudflare dashboard, not in git. This file does not edit the register; the dated OQ-CE-06 line is another agent's change. |
+| **OQ-CE-06** | "Where does the site live and what is its stable address?" — owner Danny. `exercise_rate_limit.py` carries the same id for the edge-limiting half | **Address decided 2026-09-21** (`exercise.smartmatch.cloud`, second hostname on the existing tunnel, no Access policy); **rate-limit rule still to be applied at the proxy** | The rule in [§5](#5-rate-limiting-belongs-at-the-proxy-oq-ce-06) is specified here but lives in the Cloudflare dashboard, not in git. This file does not edit the register; the dated OQ-CE-06 line is another agent's change. |
 | **OQ-CE-07** | "How is the instructor passcode set and shared with Ann and Dr. Lin?" — owner Danny + Ann | **CLOSED 2026-09-25** — set per deployment, shared out of band, rotated by changing the value | [§2](#2-environment-variables) documents it |
 | **OQ-CE-09** | "What license line goes on the opening screen?" — owner Ann | **CLOSED 2026-09-25** (Ann Wang, email reply) — "For California State Polytechnic University, Pomona — College of Business Administration instructional use only. All student profiles are fictional." | The opening screen renders it from a constant (`ExerciseEntry.tsx`); nothing to configure at deploy time |
 | **B-11** | "Error text never carries bound values" as a repository-wide invariant. PostgreSQL's `DETAIL: Failing row contains (…)` sits below the layer `hide_parameters` operates on | **RECORDED 2026-09-19, unresolved** — [`docs/architecture/decisions/adr-backlog.md:250`](../architecture/decisions/adr-backlog.md) | [§8](#8-known-limits) item 3 |

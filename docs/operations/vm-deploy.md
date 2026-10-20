@@ -19,7 +19,7 @@ What the VM *is* for: a URL a stakeholder can open, that always reflects the
 Everything here describes the CBA appliance
 (`SMARTMATCH_PRODUCT_SCOPE` unset, so `cba`). The class exercise runs as its
 own API process with `SMARTMATCH_PRODUCT_SCOPE=class_exercise` at
-`exercise.plated.blog` — a second public hostname on this same Cloudflare
+`exercise.smartmatch.cloud` — a second public hostname on this same Cloudflare
 Tunnel, with **no Access policy** (owner decision, 2026-09-21) — carrying its
 own cookies, its own restricted database role and its own runbook: see
 [`exercise-hosting.md`](exercise-hosting.md), whose
@@ -27,7 +27,7 @@ own cookies, its own restricted database role and its own runbook: see
 is the operator procedure for standing that scope up and confirming it is
 reachable — separate from the CBA promote/deploy procedure below. Nothing in
 this file changes for it, and the Access requirement stated below still applies to
-`pilot.plated.blog`. One deploy-time link: when the VM's `.env` gives
+the pilot host. One deploy-time link: when the VM's `.env` gives
 `SMARTMATCH_EXERCISE_WORKSPACE_SECRET` a value, `scripts/vm/deploy.sh` also
 loads `docker-compose.exercise.yml` with `--profile exercise`, so a promote
 keeps `api-exercise` and `web-exercise` running instead of removing them as
@@ -73,7 +73,7 @@ Current state, verified facts:
   cannot race a deployment.
 * `/api/health` reports the deployed git SHA
   (`793678b06dcf61f68f08de3e3f6fcea3bddb28bb`), not `dev` — verified publicly
-  at `https://pilot.plated.blog/api/health`.
+  at `https://<pilot-host>/api/health`.
 * GCP Workload Identity Federation exists (pool `github-pool`, provider
   `github-provider`, service account `smartmatch-deploy@...`, bound to this
   repository by immutable numeric repository and owner IDs). The GitHub
@@ -95,7 +95,7 @@ Current state, verified facts:
   `CLOUDFLARE_ACCESS_CLIENT_SECRET` are present.
 
 **One mapping that cannot be recreated from git.** The Cloudflare Tunnel's
-hostname-to-origin mapping (`pilot.plated.blog` → `http://127.0.0.1:5173`) is
+hostname-to-origin mapping (the pilot host → `http://127.0.0.1:5173`) is
 dashboard-managed in Cloudflare Zero Trust. Only a bare token exists on the VM,
 at `/etc/cloudflared/token` — there is no `config.yml` checked in anywhere,
 because there is no `config.yml` on the VM at all. If that mapping were lost,
@@ -386,9 +386,9 @@ and a real deploy target.
 
 The reason the public hostname works at all through a dev server is
 `apps/web/legacy-frontend/vite.config.ts:39` and `:57`, which add
-`pilot.plated.blog` to `allowedHosts` for the `server` and `preview`
+the pilot host to `allowedHosts` for the `server` and `preview`
 configurations. That line arrived in commit `d5ffcb05`, "fix: allow
-pilot.plated.blog host for Cloudflare-tunneled dev server", whose message
+the pilot host for Cloudflare-tunneled dev server", whose message
 records the symptom it fixed: Vite's dev-server host check rejected the `Host`
 header the tunnel forwards, and the stakeholder link answered "Blocked request".
 That commit is on `main`, and it is in-repository corroboration both of the
@@ -436,9 +436,9 @@ ahead of the images built from it. The
 recording the deployed SHA is one of the properties the scripted path has and
 the hand-run path does not.
 
-### The public URL is a Cloudflare Tunnel to `pilot.plated.blog`
+### The public URL is a Cloudflare Tunnel to the pilot host
 
-**Observed:** the public URL is `https://pilot.plated.blog`, fronted by a
+**Observed:** the public URL is `https://<pilot-host>`, fronted by a
 Cloudflare Tunnel.
 
 **What the repository says:** `apps/web/legacy-frontend/vite.config.ts:35-39`
@@ -453,7 +453,7 @@ secret of any kind. The VM's `.env` holds real credential values and is
 referenced here by name only.
 
 **Unknown from the repository:** whether a Cloudflare Access policy is currently
-attached to `pilot.plated.blog`, and who is on its allowlist. Both guides
+attached to the pilot host, and who is on its allowlist. Both guides
 require Access — `classroom-vm-cloudflare-tunnel.md:250-252` is blunt that
 skipping it hands the demo to anyone who guesses the hostname — but neither
 session reported the policy's state, and a repository cannot observe a
@@ -487,7 +487,7 @@ There is one procedure now: **promote, then let CI deploy.**
    in that section (dirty-tree refusal, fast-forward-only, pre-migration
    backup, health-gated cutover, automatic application rollback) applies to
    every deployment made this way.
-5. **Confirm.** `curl -sS https://pilot.plated.blog/api/health` should report
+5. **Confirm.** `curl -sS https://<pilot-host>/api/health` should report
    the SHA just promoted.
 
 **Manual fallback.** If GitHub Actions is not the right tool — CI is down, or
@@ -648,7 +648,7 @@ for the reason
 meaningful, but its release comparison is not — it compares `dev` against `dev`
 and passes.
 
-**6. Confirm the public surface.** Open `https://pilot.plated.blog` in a
+**6. Confirm the public surface.** Open `https://<pilot-host>` in a
 browser. This is the only step that exercises the Cloudflare Tunnel, the Access
 policy in front of it, and the dev server's `allowedHosts` list together. A
 "Blocked request" response is the Vite host check, and means the hostname is
@@ -725,7 +725,7 @@ that is the whole of the trade-off.
 | **No volume is ever removed** | `deploy.sh:32-34` states it and `tests/unit/test_vm_deploy_script.py` asserts it: `docker compose down -v` cannot appear in the file | Nothing structural stops the one command that discards the database |
 | **A bounded health suite gates success** | `deploy.sh:430-441` runs `scripts/compose_health.sh --wait --timeout` with `SMARTMATCH_RELEASE` set to the deployed SHA | "It came up" replaces "it is serving the code we deployed" |
 | **Automatic application rollback** | `deploy.sh:375-419` checks out the previous SHA, rebuilds, re-runs health, records the result — and still exits non-zero so the job fails even though the VM recovered | A failed deployment leaves the failure serving until a human notices |
-| **The deployed SHA is recorded** | `deploy.sh:215-222` writes `SMARTMATCH_RELEASE=<sha>` to `${STATE_DIR}/release.env`, which `scripts/vm/smartmatch.service:36` reads on boot and `docker-compose.vm.yml:46-54` feeds to the API | `/api/health` now reports the deployed SHA (`793678b06dcf61f68f08de3e3f6fcea3bddb28bb`, verified at `https://pilot.plated.blog/api/health`). One caveat: `web` is a Vite dev server with the checkout bind-mounted, not a production build, so a `git pull` changes the served frontend immediately, before build/migrate/health finish — `/api/health` proves the **API's** SHA, not the frontend's |
+| **The deployed SHA is recorded** | `deploy.sh:215-222` writes `SMARTMATCH_RELEASE=<sha>` to `${STATE_DIR}/release.env`, which `scripts/vm/smartmatch.service:36` reads on boot and `docker-compose.vm.yml:46-54` feeds to the API | `/api/health` now reports the deployed SHA (`793678b06dcf61f68f08de3e3f6fcea3bddb28bb`, verified at `https://<pilot-host>/api/health`). One caveat: `web` is a Vite dev server with the checkout bind-mounted, not a production build, so a `git pull` changes the served frontend immediately, before build/migrate/health finish — `/api/health` proves the **API's** SHA, not the frontend's |
 | **A redacted log and machine-readable metadata per deployment** | `deploy.sh:107-115` filters anything credential-shaped out of everything printed; `deploy.sh:194-209` writes a JSON file recording outcome, failure stage, previous and deployed SHA, backup file, and whether it rolled back | No deployment history beyond shell scrollback |
 
 Two properties are *not* on that list and should not be claimed for either path.
@@ -773,7 +773,7 @@ Everything from here to the end of this document describes the `/opt/smartmatch`
 design that the VM now runs. It is accurate both as a specification of what
 `scripts/vm/bootstrap_vm.sh`, `scripts/vm/deploy.sh`,
 `scripts/vm/smartmatch.service` and `.github/workflows/deploy.yml` do, and as a
-description of the machine currently serving `pilot.plated.blog` — see
+description of the machine currently serving the pilot host — see
 [What is on the VM today](#what-is-on-the-vm-today) for the verified facts
 behind that claim.
 

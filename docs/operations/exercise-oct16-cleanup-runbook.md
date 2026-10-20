@@ -1,7 +1,7 @@
 # Class exercise — clean-up runbook for Ann's Oct-16 run-through
 
 **Status:** written 2026-10-06, **not run**. Nobody has executed any step here against the VM. Issue #323.
-**Target:** results closed for Northline and Harbor, Teams 1–4 cleared, on `https://exercise.plated.blog`, by 2026-10-14.
+**Target:** results closed for Northline and Harbor, Teams 1–4 cleared, on `https://exercise.smartmatch.cloud`, by 2026-10-14.
 **Operator:** Danny (owner). **This document authorizes nothing.** Step 0 is a written go-ahead.
 
 Every step marked **VERIFY ON THE VM** could not be checked from the repository. Treat its command as a draft: read the output before trusting it.
@@ -15,7 +15,7 @@ Source of the ask (Ann, 2026-10-02): "Danny: clear all test work under Teams 1 t
 Stop and do not write anything if any of these is true:
 
 1. No written go-ahead from the owner naming the date, the operator, the path (A, B or C below) and the release SHA to run against.
-2. `GET /v1/exercise` does not say `synthetic_data: true`, or the hostname is not `exercise.plated.blog`.
+2. `GET /v1/exercise` does not say `synthetic_data: true`, or the hostname is not `exercise.smartmatch.cloud`.
 3. The data file's checksum does not match the file you expect (§3.3).
 4. The release on `/api/health` is not the SHA the owner named in the go-ahead (§2).
 5. Path A and the deployed build has no close route (#326 not deployed).
@@ -40,12 +40,12 @@ Two facts decide between A and B:
 
 ## 2. Confirm what is deployed
 
-Deployed facts last recorded 2026-09-28 (`docs/plans/backlog.md`): VM checkout `/opt/smartmatch/app` on branch `deploy` at `19b110eb`; `api-exercise` on `127.0.0.1:8090`; `web-exercise` on `127.0.0.1:5174`; tunnel `exercise.plated.blog` → `:5174`. **All of it: VERIFY ON THE VM.**
+Deployed facts last recorded 2026-09-28 (`docs/plans/backlog.md`): VM checkout `/opt/smartmatch/app` on branch `deploy` at `19b110eb`; `api-exercise` on `127.0.0.1:8090`; `web-exercise` on `127.0.0.1:5174`; tunnel `exercise.smartmatch.cloud` → `:5174`. **All of it: VERIFY ON THE VM.**
 
 2.1 **Release, from outside.**
 
 ```bash
-curl -sS https://exercise.plated.blog/api/health
+curl -sS https://exercise.smartmatch.cloud/api/health
 # {"status":"ok","release":"<sha>"}
 ```
 
@@ -90,7 +90,7 @@ Work from a private directory on your own machine. Do not paste the passcode or 
 3.1 **Sign in.** The passcode is on the VM, root-only, at `/opt/smartmatch/exercise-instructor-passcode` (**VERIFY ON THE VM**).
 
 ```bash
-H=https://exercise.plated.blog
+H=https://exercise.smartmatch.cloud
 mkdir -p ~/oct16-cleanup && cd ~/oct16-cleanup && umask 077
 read -rs PASS && export PASS    # type the passcode; nothing is echoed
 curl -sS -c jar -X POST "$H/v1/exercise/instructor/login" \
@@ -156,7 +156,7 @@ ls -l /opt/smartmatch/backups | tail -3
 
 Pass: no command failed, both files pass `gzip -t`, and the full dump ends with `-- PostgreSQL database dump complete`. A file that is merely not empty is not a pass: without `pipefail`, `gzip` succeeds on a dump that died half-way. `deploy.sh` prunes that folder to the 14 newest dumps — copy these two somewhere else if a deploy may run before Oct 16.
 
-3.7 **Checklist §9 license line (for #273).** Open `https://exercise.plated.blog/` in a browser. Pass: the opening screen shows "For California State Polytechnic University, Pomona — College of Business Administration instructional use only. All student profiles are fictional."
+3.7 **Checklist §9 license line (for #273).** Open `https://exercise.smartmatch.cloud/` in a browser. Pass: the opening screen shows "For California State Polytechnic University, Pomona — College of Business Administration instructional use only. All student profiles are fictional."
 
 ## 4. Close results — path A
 
@@ -236,7 +236,7 @@ Repeat 3.2–3.5 into `after-*.json`, then:
 ```bash
 for n in 5 6; do diff "before-team-$n.json" "after-team-$n.json" && echo "team $n unchanged"; done
 diff <(jq -S . before-datasets.json) <(jq -S . after-datasets.json) && echo "datasets unchanged"
-curl -sS https://exercise.plated.blog/api/health     # same release as 2.1
+curl -sS https://exercise.smartmatch.cloud/api/health     # same release as 2.1
 ```
 
 Pass, paths A and C:
