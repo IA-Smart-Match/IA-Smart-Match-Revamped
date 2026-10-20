@@ -71,8 +71,8 @@ export function resultsSeries(
   if (results.round_one !== null) {
     series.push(panelSeries(
         roundOneName === null || roundOneName === ""
-          ? "Your team, round one"
-          : `Your team, ${roundOneName} (round one)`,
+          ? "Your team, Round 1"
+          : `Your team, ${roundOneName} (Round 1)`,
         results.round_one.team,
       ));
   }
