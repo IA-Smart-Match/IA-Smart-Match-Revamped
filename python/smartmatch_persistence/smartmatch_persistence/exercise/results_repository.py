@@ -174,6 +174,13 @@ RESULT_RUN_LOCK_KEY: Final[int] = int.from_bytes(
     hashlib.sha256(b"exercise_result_run").digest()[:8], "big", signed=True
 )
 
+#: First half of the two-``int4`` per-team key in
+#: :meth:`ExerciseResultsRepository.wait_for_teammates_run`. PostgreSQL keeps
+#: the two-key space apart from the one-``bigint`` keys above.
+_TEAM_RUN_LOCK_CLASS: Final[int] = int.from_bytes(
+    hashlib.sha256(b"exercise_result_run.team").digest()[:4], "big", signed=True
+)
+
 
 def lock_result_runs(session: Session) -> None:
     """Take :data:`RESULT_RUN_LOCK_KEY` for the caller's transaction.
@@ -289,6 +296,29 @@ class ExerciseResultsRepository:
             seed=int(row.seed),
             asking_choice=row.asking_choice,
             refreshed_at=row.refreshed_at,
+        )
+
+    def wait_for_teammates_run(self, session: Session, *, workspace_id: uuid.UUID) -> None:
+        """Queue this team's run presses one behind another, before any work.
+
+        Class load (Ann #413, lane L4): 17 teammates press "run" within seconds.
+        The already-run read alone let every press that arrived before the first
+        commit build the list and simulate, then lose at the UNIQUE constraint.
+        Taken before that read, the second press waits for the first to commit
+        and is refused from one row. The UNIQUE constraint and
+        :data:`RESULT_RUN_LOCK_KEY` still decide; this only saves the work.
+
+        Per team, so teams never wait on each other. Taken only by the run route
+        and first in its transaction, so it sits ahead of the family's order
+        (``TEAM_RUN -> RESULT_RUN_LOCK_KEY``) and no path acquires it second. A
+        ``hashtext`` collision only makes two teams queue together.
+        """
+        session.execute(
+            sa.select(
+                sa.func.pg_advisory_xact_lock(
+                    _TEAM_RUN_LOCK_CLASS, sa.func.hashtext(sa.cast(workspace_id, sa.Text))
+                )
+            )
         )
 
     def get_run(

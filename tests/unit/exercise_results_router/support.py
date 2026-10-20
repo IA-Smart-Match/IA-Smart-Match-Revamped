@@ -394,6 +394,7 @@ class _FakeResultsRepository:
         self.team_view = team_view
         self.unlocked: set[tuple[uuid.UUID, str]] = set()
         self.runs: dict[tuple[uuid.UUID, str], StoredResultRun] = {}
+        self.waited: list[uuid.UUID] = []
         self.choices: dict[uuid.UUID, str] = {}
         self.refreshed: dict[uuid.UUID, datetime] = {}
 
@@ -410,6 +411,9 @@ class _FakeResultsRepository:
             asking_choice=self.choices.get(workspace_id),
             refreshed_at=self.refreshed.get(workspace_id),
         )
+
+    def wait_for_teammates_run(self, _session: object, *, workspace_id: uuid.UUID) -> None:
+        self.waited.append(workspace_id)
 
     def get_run(
         self, _session: object, *, workspace_id: uuid.UUID, event_key: str

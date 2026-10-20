@@ -6,6 +6,8 @@ once per run, not on every read of the results page.
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 from fastapi.testclient import TestClient
 from smartmatch_api.routers import exercise_results_compare
@@ -91,3 +93,34 @@ def test_rereading_round_two_results_reads_no_profiles(
     reads = _count_profile_reads(fakes, monkeypatch)
     assert client.get(_RESULTS_TWO).json()["before_after"] is not None
     assert reads == []
+
+
+def test_a_teammates_press_waits_before_the_already_run_read(
+    fakes: _Fakes,  # noqa: F811
+    client: TestClient,  # noqa: F811
+    confirmed: SimulationCoefficients,  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Class load: the second press queues on the team key, then 409s from one read."""
+    order: list[str] = []
+    real_get_run = fakes.results.get_run
+    real_wait = fakes.results.wait_for_teammates_run
+
+    def get_run(*args: Any, **kwargs: Any) -> Any:
+        order.append("read")
+        return real_get_run(*args, **kwargs)
+
+    def wait(*args: Any, **kwargs: Any) -> None:
+        order.append("wait")
+        real_wait(*args, **kwargs)
+
+    monkeypatch.setattr(fakes.results, "get_run", get_run)
+    monkeypatch.setattr(fakes.results, "wait_for_teammates_run", wait)
+    _run_round_one(fakes, client)
+    del order[:]
+    again = client.post(_RESULTS, json=_FINAL_BODY, headers=_HEADER)
+
+    assert again.status_code == 409
+    assert again.json()["error"]["code"] == "exercise_results_already_run"
+    assert order[-2:] == ["wait", "read"]
+    assert fakes.results.waited == [fakes.results.waited[0]] * 2  # one team key, both presses
