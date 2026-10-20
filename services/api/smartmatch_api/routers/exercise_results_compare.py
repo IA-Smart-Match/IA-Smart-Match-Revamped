@@ -104,6 +104,8 @@ def before_after_or_none(
             coefficients=coefficients,
         )
 
+    # run_the_rule simulates with the workspace's limit; pin it to the stored run's size.
+    workspace = replace(workspace, invite_limit=len(run.team.invited_profile_nos))
     name = run.setting_name or "your setting"
     before = simulate(cleared, run.setting_weights)
     major = simulate(profiles, _MAJOR_FIRST)
