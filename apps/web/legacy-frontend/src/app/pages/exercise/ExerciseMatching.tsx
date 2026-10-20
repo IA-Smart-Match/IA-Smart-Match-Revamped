@@ -62,6 +62,7 @@ import {
 import { ListCoverageNotice } from "./ListCoverageNotice.tsx";
 import { FilledListNote } from "./FilledListNote";
 import { RankedList } from "./RankedList";
+import { RoundStepsGate } from "./RoundTwoAskingStep";
 import { SavedSettingsPanel } from "./SavedSettingsPanel";
 import { RoundBanner } from "./RoundBanner";
 import { TeamStatusBand } from "./TeamStatusBand";
@@ -327,6 +328,7 @@ function EventMatching({ eventKey }: { readonly eventKey: string }): React.JSX.E
             sliders, in the event file's own words. Nothing when it has none.
           */}
           <EventDescription text={state.data.list.event_description} />
+          <RoundStepsGate eventKey={eventKey}>
           {listRefusal === null ? null : (
             <ExerciseNotice
               id="exercise-list-refusal"
@@ -575,6 +577,7 @@ function EventMatching({ eventKey }: { readonly eventKey: string }): React.JSX.E
               You get one results run for this event.
             </span>
           </p>
+          </RoundStepsGate>
         </div>
       )}
     </ExerciseScreen>

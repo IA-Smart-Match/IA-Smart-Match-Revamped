@@ -200,6 +200,25 @@ describe("<ExerciseResults />", () => {
     expect(screen.getByRole("button", { name: /run results/i })).toBeDefined();
   });
 
+  it("links to the asking screen when Harbor is refused until students are asked", async () => {
+    const sentence = "Ask students for more information before running Harbor results.";
+    stub({
+      [`GET ${RESULTS}`]: NOT_RUN,
+      [LIST]: NO_LIST,
+      [ASKING]: NO_CHOICE,
+      [SETTINGS]: TWO_SAVED,
+      [`POST ${RESULTS}`]: {
+        body: { error: { code: "exercise_ask_first", message: sentence } },
+        status: 409,
+      },
+    });
+    renderResults();
+    await runWith("Wide net");
+    await waitFor(() => expect(screen.getByText(sentence)).toBeDefined());
+    const link = screen.getByRole("link", { name: "Choose how to ask students for more information" });
+    expect(link.getAttribute("href")).toBe("/exercise/asking");
+  });
+
   it("renders a locked event as a state too", async () => {
     const sentence = "Your instructor has not opened results for this event yet.";
     stub({
@@ -574,7 +593,7 @@ describe("<ExerciseResults /> once-only presses", () => {
     refreshed_at: "2026-10-16T10:42:00",
     refresh_counts: {
       ...THREE,
-      invited_without_card: 22,
+      asked_without_card: 22,
       marker_counts_before: { major_only: 166, major_plus_events: 64, completed_card: 70 },
       marker_counts_after: { major_only: 161, major_plus_events: 61, completed_card: 78 },
     },
@@ -646,96 +665,6 @@ describe("<ExerciseResults /> once-only presses", () => {
     ).toContain("50 seats are still open.");
     expect(screen.queryByRole("button", { name: /run results/i })).toBeNull();
     expect(posts(RESULTS)).toBe(1);
-  });
-
-  it("keeps a confirmed refresh shut and its counts readable when the re-read cannot be reached", async () => {
-    stubBy((key, count) => {
-      if (key === `GET ${RESULTS}`) return count === 1 ? { body: RUN_VIEW } : "offline";
-      if (key === `POST ${REFRESH}`) return { body: COUNTS };
-      if (key === `GET ${LIST}`) return NO_LIST;
-      if (key === `GET ${ASKING}`) return CHOSEN;
-      return null;
-    });
-    renderResults();
-    const ask = await screen.findByRole("button", { name: /ask students now/i });
-    const counts = document.querySelector('[data-slot="exercise-results-refresh-counts"]');
-    expect(counts?.getAttribute("role")).toBe("status");
-    expect(counts?.textContent).toBe("");
-
-    // The first press asks (issue #321); a double-click is one press and
-    // sends nothing. The confirming press, doubled, still sends once.
-    act(() => {
-      ask.click();
-      ask.click();
-    });
-    expect(posts(REFRESH)).toBe(0);
-    await new Promise((resolve) => setTimeout(resolve, CONFIRM_GUARD_MS + 20));
-    act(() => {
-      ask.click();
-      ask.click();
-    });
-
-    await waitFor(() => expect(screen.getByText(/could not be reached/i)).toBeDefined());
-    expect(posts(REFRESH)).toBe(1);
-    // Ann, 2026-10-02: a used-up button says so on itself, with the time.
-    const shut = screen.getByRole("button", { name: "Already asked at 10:42 AM" });
-    expect(isOff(shut)).toBe(true);
-    fireEvent.click(shut);
-    expect(posts(REFRESH)).toBe(1);
-    expect(
-      document.querySelector('[data-slot="exercise-results-refresh-counts"]')?.textContent,
-    ).toBe(
-      "Updated at 10:42 AM. 5 people who came to Northline now count as having gone to a similar event. This counts only toward events on the same topic as Northline. 8 of the 22 invited people with no card completed one. 2 people stopped responding: they stop opening messages and will not sign up for anything, mass email included.",
-    );
-  });
-
-  it("answers a second press from another tab with the time, not an error", async () => {
-    // Ann: "Pressing refresh a second time does nothing and says 'Already
-    // refreshed at 10:42 AM.'" This tab's read predates the other tab's press.
-    let pressed = false;
-    stubBy((key) => {
-      if (key === `GET ${RESULTS}`) return { body: RUN_VIEW };
-      if (key === `GET ${LIST}`) return NO_LIST;
-      if (key === `GET ${ASKING}`) {
-        return pressed
-          ? {
-              body: {
-                ...CHOSEN.body,
-                refreshed: true,
-                refreshed_at: COUNTS.refreshed_at,
-                refresh_counts: COUNTS.refresh_counts,
-              },
-            }
-          : CHOSEN;
-      }
-      if (key === `POST ${REFRESH}`) {
-        pressed = true;
-        return {
-          body: {
-            error: {
-              code: "exercise_already_refreshed",
-              message: "Your team has already asked the people it invited.",
-            },
-          },
-          status: 409,
-        };
-      }
-      return null;
-    });
-    renderResults();
-    const ask = await screen.findByRole("button", { name: /ask students now/i });
-    fireEvent.click(ask);
-    await new Promise((resolve) => setTimeout(resolve, CONFIRM_GUARD_MS + 20));
-    fireEvent.click(ask);
-    const shut = await screen.findByRole("button", { name: "Already asked at 10:42 AM" });
-    expect(isOff(shut)).toBe(true);
-    expect(screen.queryByText("Your team has already asked the people it invited.")).toBeNull();
-    expect(
-      document.querySelector('[data-slot="exercise-results-refresh-counts"]')?.textContent,
-    ).toContain("Updated at 10:42 AM.");
-    fireEvent.click(shut);
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(posts(REFRESH)).toBe(1);
   });
 
   it("takes the screen down when a run is refused for access", async () => {

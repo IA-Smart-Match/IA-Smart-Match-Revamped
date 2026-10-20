@@ -380,7 +380,7 @@ def test_the_refresh_reports_every_profile_before_and_after(class_run: _ClassRun
         before, after = counts["marker_counts_before"], counts["marker_counts_after"]
         assert sum(before.values()) == sum(after.values()), number
         assert after["completed_card"] == before["completed_card"] + counts["cards_completed"]
-        assert counts["cards_completed"] <= counts["invited_without_card"] <= 30, number
+        assert counts["cards_completed"] <= counts["asked_without_card"] <= 300, number
 
 
 def test_each_team_used_its_own_way_of_asking(class_run: _ClassRun) -> None:

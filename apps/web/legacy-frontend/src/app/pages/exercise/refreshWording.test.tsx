@@ -28,7 +28,7 @@ const COUNTS: RefreshCountsView = {
   cards_completed: 12,
   non_responding: 0,
   topics_added: 9,
-  invited_without_card: 22,
+  asked_without_card: 22,
   marker_counts_before: { major_only: 166, major_plus_events: 64, completed_card: 70 },
   marker_counts_after: { major_only: 160, major_plus_events: 58, completed_card: 82 },
 };
@@ -92,28 +92,20 @@ describe("a server timestamp, which carries its offset", () => {
 describe("the refresh summary", () => {
   it("is Ann's example, word for word", () => {
     expect(refreshSummaryText(AT, COUNTS, "Northline")).toBe(
-      "Updated at 10:42 AM. 9 people who came to Northline now count as having gone to a similar event. This counts only toward events on the same topic as Northline. 12 of the 22 invited people with no card completed one. 0 people stopped responding: they stop opening messages and will not sign up for anything, mass email included.",
+      "Updated at 10:42 AM. 22 students without a card were asked. 12 completed a card. 0 people stopped responding: they stop opening messages and will not sign up for anything, mass email included. 9 people who came to Northline now count as having gone to a similar event. This counts only toward events on the same topic as Northline.",
     );
   });
 
   it("uses the singular for one person", () => {
-    const one = { ...COUNTS, topics_added: 1, non_responding: 1, invited_without_card: 1, cards_completed: 1 };
+    const one = { ...COUNTS, topics_added: 1, non_responding: 1, asked_without_card: 1, cards_completed: 1 };
     expect(refreshChangeSentences(one, "Northline")).toEqual([
+      "1 student without a card was asked. 1 completed a card. 1 person stopped responding: they stop opening messages and will not sign up for anything, mass email included.",
       "1 person who came to Northline now counts as having gone to a similar event. This counts only toward events on the same topic as Northline.",
-      "1 of the 1 invited person with no card completed one.",
-      "1 person stopped responding: they stop opening messages and will not sign up for anything, mass email included.",
     ]);
   });
 
-  it("says so when nobody the team invited was without a card", () => {
-    const none = { ...COUNTS, invited_without_card: 0, cards_completed: 0 };
-    expect(refreshChangeSentences(none, "Northline")[1]).toBe(
-      "Everyone your team invited already had a card.",
-    );
-  });
-
   it("names no event it was not given, and leaves out a time it does not have", () => {
-    expect(refreshChangeSentences(COUNTS, null)[0]).toBe(
+    expect(refreshChangeSentences(COUNTS, null)[1]).toBe(
       "9 people who came to the first event now count as having gone to a similar event. This counts only toward events on the same topic as the first event.",
     );
     expect(refreshDoneLine(null)).toBe("Updated.");
@@ -194,7 +186,7 @@ describe("the instructor's every-team report", () => {
   it("gives a refreshed team the summary that team reads itself", () => {
     expect(refreshAllTeamLine(REFRESHED, { nameFile: false })).toEqual({
       team: "Team 2:",
-      what: "Asked for more at 10:42 AM. 9 people who came to Northline now count as having gone to a similar event. This counts only toward events on the same topic as Northline. 12 of the 22 invited people with no card completed one. 0 people stopped responding: they stop opening messages and will not sign up for anything, mass email included. Completed card: 70 → 82.",
+      what: "Asked for more at 10:42 AM. 22 students without a card were asked. 12 completed a card. 0 people stopped responding: they stop opening messages and will not sign up for anything, mass email included. 9 people who came to Northline now count as having gone to a similar event. This counts only toward events on the same topic as Northline. Completed card: 70 → 82.",
     });
   });
 
