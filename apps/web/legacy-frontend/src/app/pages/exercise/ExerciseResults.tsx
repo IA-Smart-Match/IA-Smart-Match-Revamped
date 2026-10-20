@@ -65,18 +65,14 @@ import {
   readRankedList,
   readResults,
   readSavedSettings,
-  refreshProfiles,
   runResults,
   type AskingStateView,
   type ListWeighting,
-  type RefreshCountsView,
-  type RefreshView,
   type ResultsView,
   type SavedSettingView,
   type SavedSettingsView,
 } from "../../../lib/exerciseClient";
 import { cn } from "../../components/ui/utils";
-import { AskOnceButton } from "./AskOnceButton";
 import {
   Button,
   ConfirmLabel,
@@ -88,12 +84,12 @@ import {
 import { ExerciseLoading, ExerciseNotice, ExerciseScreen } from "./ExerciseScreen";
 import { clockTime } from "./exerciseTime";
 import { ResultPanels, type NamesByProfileNo } from "./ResultPanels";
-import { refreshSummaryText } from "./refreshWording";
 import { ProfileCardArt } from "./resultsArt";
 import { ResultsCheckAgain } from "./ResultsCheckAgain";
 import { ResultsLockPanel } from "./ResultsLockPanel";
 import { RoundBanner } from "./RoundBanner";
 import { TeamStatusBand, useStatusRevision } from "./TeamStatusBand";
+import { roundsOf } from "./teamStatusWording";
 import { isAccessRefusal, useExerciseResource } from "./useExerciseResource";
 import { workspaceRequiredNotice } from "./refusals";
 
@@ -110,6 +106,9 @@ const LOCKED = "exercise_results_locked";
 /** The run's 409 for a second run: the team has had its one. */
 const ALREADY_RUN = "exercise_results_already_run";
 
+/** The run's 409 for Harbor before the team has asked students for more information. */
+const ASK_FIRST = "exercise_ask_first";
+
 /** Says why the grey "Results not open yet." button is off. */
 const NOT_OPEN_REASON = "exercise-results-not-open-reason";
 
@@ -122,6 +121,10 @@ interface EventResultsState {
   readonly name: string;
   readonly open: boolean;
   readonly run: boolean;
+  /** 1 or 2: the event's place among the exercise events, as the picker numbers it. */
+  readonly round: number | null;
+  /** The next round's event key, or `null` for the last round or a non-round event. */
+  readonly nextRoundKey: string | null;
 }
 
 /** Ann's sentence for a press that cannot do anything yet (2026-10-02). */
@@ -192,7 +195,6 @@ function EventResults({ eventKey }: { readonly eventKey: string }): React.JSX.El
   const { revision, reloadWithStatus } = useStatusRevision(reload);
   /** What this browser's own run and refresh were answered with. */
   const [confirmedResults, setConfirmedResults] = React.useState<ResultsView | null>(null);
-  const [confirmedRefresh, setConfirmedRefresh] = React.useState<RefreshView | null>(null);
   /** A run or refresh refused because this browser lost access. */
   const [accessRefusal, setAccessRefusal] = React.useState<ExerciseRefusal | null>(null);
 
@@ -201,7 +203,6 @@ function EventResults({ eventKey }: { readonly eventKey: string }): React.JSX.El
   React.useEffect(() => {
     if (readRefused) {
       setConfirmedResults(null);
-      setConfirmedRefresh(null);
     }
   }, [readRefused]);
 
@@ -241,16 +242,13 @@ function EventResults({ eventKey }: { readonly eventKey: string }): React.JSX.El
             onChanged={reloadWithStatus}
             confirmedResults={confirmedResults}
             onResultsConfirmed={setConfirmedResults}
-            confirmedRefresh={confirmedRefresh}
-            onRefreshConfirmed={setConfirmedRefresh}
             // The read on screen may predate this browser's own confirmed
             // press: its reload is still running, or could not be reached.
             trustConfirmed={state.refreshing || state.unreachable !== null}
             readFailed={state.unreachable !== null}
             onAccessLost={(refusal) => {
               setConfirmedResults(null);
-              setConfirmedRefresh(null);
-              setAccessRefusal(refusal);
+                      setAccessRefusal(refusal);
             }}
           />
         </>
@@ -308,7 +306,15 @@ async function eventResultsState(
     }
     // Compared with `false`/`true` so a server that predates the two fields
     // reads as "open, not run", which is how the screen behaved then.
-    return { name: found.name, open: found.results_open !== false, run: found.results_run === true };
+    const rounds = roundsOf(events);
+    const index = rounds.findIndex((round) => round.eventKey === eventKey);
+    return {
+      name: found.name,
+      open: found.results_open !== false,
+      run: found.results_run === true,
+      round: index < 0 ? null : index + 1,
+      nextRoundKey: rounds[index + 1]?.eventKey ?? null,
+    };
   } catch (error) {
     if (signal.aborted || isAccessRefusal(error)) {
       throw error;
@@ -318,7 +324,7 @@ async function eventResultsState(
 }
 
 /** Which of the screen's actions is in flight; one at a time. */
-type Pending = "run" | "ask" | null;
+type Pending = "run" | null;
 
 interface ShownRefusal {
   /** The refusal's code, or `null` for a transport failure. */
@@ -326,8 +332,6 @@ interface ShownRefusal {
   readonly message: string;
 }
 
-/** The refusal a second refresh gets. The screen answers it with the time. */
-const ALREADY_REFRESHED = "exercise_already_refreshed";
 
 function ResultsBody({
   eventKey,
@@ -335,8 +339,6 @@ function ResultsBody({
   onChanged,
   confirmedResults,
   onResultsConfirmed,
-  confirmedRefresh,
-  onRefreshConfirmed,
   trustConfirmed,
   readFailed,
   onAccessLost,
@@ -348,9 +350,6 @@ function ResultsBody({
   /** The run this browser's POST was answered with, owned by the screen. */
   readonly confirmedResults: ResultsView | null;
   readonly onResultsConfirmed: (view: ResultsView) => void;
-  /** The refresh this browser's POST was answered with, owned by the screen. */
-  readonly confirmedRefresh: RefreshView | null;
-  readonly onRefreshConfirmed: (view: RefreshView) => void;
   /**
    * `data` may be older than this browser's own confirmed press, so the
    * confirmed answers above stand in for it until a later read lands.
@@ -434,17 +433,8 @@ function ResultsBody({
     });
   }
 
-  /** The run and the refresh, by the server's latest read or this browser's own confirmed press. */
+  /** The run, by the server's latest read or this browser's own confirmed press. */
   const results = data.results ?? (trustConfirmed ? confirmedResults : null);
-  const hasAsked = data.asking.refreshed || (trustConfirmed && confirmedRefresh !== null);
-  /** This browser's own press stands in only while it is newer than the read. */
-  const own = data.asking.refreshed || trustConfirmed ? confirmedRefresh : null;
-  const counts: RefreshCountsView | null = data.asking.refreshed
-    ? (data.asking.refresh_counts ?? own?.refresh_counts ?? null)
-    : (own?.refresh_counts ?? null);
-  const refreshedAt = data.asking.refreshed
-    ? (data.asking.refreshed_at ?? own?.refreshed_at ?? null)
-    : (own?.refreshed_at ?? null);
   // Run wins over open: results closed again after a run still read as run.
   const hasRun = results !== null || data.event?.run === true;
   const refusedAsLocked = refusal?.code === LOCKED;
@@ -458,7 +448,11 @@ function ResultsBody({
   return (
     <div className="flex flex-col gap-ce-6 md:gap-ce-7">
       {refusal === null || (refusedAsLocked && notOpen) ? null : (
-        <ExerciseNotice message={refusal.message} />
+        <ExerciseNotice message={refusal.message}>
+          {refusal.code === ASK_FIRST ? (
+            <Link to="/exercise/asking">Choose how to ask students for more information</Link>
+          ) : null}
+        </ExerciseNotice>
       )}
 
       {hasRun ? (
@@ -523,50 +517,14 @@ function ResultsBody({
         </section>
       )}
 
-      <section className="ce-card flex flex-col gap-ce-4 p-ce-4 md:p-ce-6">
-        <h2 className="ce-type-h2 text-ce-ink">Ask the people your team invited</h2>
-        {data.asking.choice === null ? (
-          <p className="ce-type-body ce-measure text-ce-ink">
-            Your team has not picked a way of asking yet.{" "}
-            <Link to="/exercise/asking">Pick one first</Link>.
-          </p>
-        ) : (
-          <div className="flex flex-col items-start gap-ce-2">
-            <AskOnceButton
-              variant="secondary"
-              asked={hasAsked}
-              askedAt={refreshedAt}
-              disabled={pending !== null && pending !== "ask"}
-              pending={pending === "ask"}
-              onAsk={() =>
-                void act("ask", async () => {
-                  try {
-                    onRefreshConfirmed(await refreshProfiles());
-                  } catch (error) {
-                    // A second press changes nothing; the re-read brings the
-                    // time of the first, and the button then says so.
-                    if (!(isRefusal(error) && error.code === ALREADY_REFRESHED)) {
-                      throw error;
-                    }
-                  }
-                  await onChanged();
-                })
-              }
-            />
-            <p className="ce-type-meta text-ce-ink-muted">Your team may ask once.</p>
-            {/* Always present, so the summary is announced when it arrives. */}
-            <p
-              role="status"
-              data-slot="exercise-results-refresh-counts"
-              className="ce-type-body text-ce-ink"
-            >
-              {hasAsked
-                ? refreshSummaryText(refreshedAt, counts, data.asking.first_round_event_name)
-                : ""}
-            </p>
-          </div>
-        )}
-      </section>
+      {hasRun && data.event?.round === 1 && data.event.nextRoundKey !== null ? (
+        <p data-slot="exercise-round-two-next" className="ce-type-body ce-measure text-ce-ink">
+          Round 1 done. Next: Round 2, Harbor.{" "}
+          <Link to={`/exercise/events/${encodeURIComponent(data.event.nextRoundKey)}`}>
+            Start by choosing how to ask students for more information.
+          </Link>
+        </p>
+      ) : null}
     </div>
   );
 }

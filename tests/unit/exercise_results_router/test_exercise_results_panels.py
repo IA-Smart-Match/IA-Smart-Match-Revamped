@@ -35,11 +35,13 @@ from tests.unit.exercise_results_router.support import (
     _FINAL_BODY,
     _HEADER,
     _INVITE_LIMIT,
+    _REFRESH,
     _RESULTS,
     _RESULTS_TWO,
     _WHEN,
     _entered,
     _Fakes,
+    _prepare_refresh,
     _run_round_one,
 )
 
@@ -214,8 +216,8 @@ def test_reading_a_run_this_team_has_not_made_is_ok_and_null(client: TestClient)
 def test_round_two_carries_the_stored_round_one_panel(
     fakes: _Fakes, client: TestClient, confirmed: SimulationCoefficients
 ) -> None:
-    fakes.unlock("round-one", "round-two")
-    first = client.post(_RESULTS, json=_FINAL_BODY, headers=_HEADER).json()
+    first = _prepare_refresh(fakes, client)
+    assert client.post(_REFRESH, json={}, headers=_HEADER).status_code == 200
 
     second = client.post(_RESULTS_TWO, json=_FINAL_BODY, headers=_HEADER).json()
 
