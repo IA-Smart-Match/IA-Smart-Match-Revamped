@@ -38,6 +38,7 @@ from tests.unit.exercise_results_router.support import (
     _REFRESH,
     _RESULTS,
     _RESULTS_TWO,
+    _SUMMARY,
     _WHEN,
     _entered,
     _Fakes,
@@ -525,21 +526,24 @@ def test_before_after_has_three_labelled_rows(
     assert rows[2]["label"].startswith("Major first")
 
 
+@pytest.mark.parametrize("new_limit", [_INVITE_LIMIT * 2, _INVITE_LIMIT // 2])
 def test_before_after_rows_keep_the_stored_runs_invite_count_when_the_limit_changes(
     fakes: _Fakes,
     client: TestClient,
     confirmed: SimulationCoefficients,
     monkeypatch: pytest.MonkeyPatch,
+    new_limit: int,
 ) -> None:
-    """A run stored at 6 invitees stays 6 in every row once the limit moves to 12."""
+    """A run stored at 6 invitees stays 6 in every row once the limit rises or falls."""
     from smartmatch_api.routers import exercise_results_compare as compare
 
     _prepare_refresh(fakes, client)
     assert client.post(_REFRESH, json={}, headers=_HEADER).status_code == 200
     stored = client.post(_RESULTS_TWO, json=_FINAL_BODY, headers=_HEADER).json()
     assert stored["team"]["invited_count"] == _INVITE_LIMIT
-    key = (_DATASET_ID, 1)
-    fakes.workspaces.rows[key] = replace(fakes.workspaces.rows[key], invite_limit=_INVITE_LIMIT * 2)
+    # The instructor changes the dataset's limit; the ranker reads it from there.
+    moved = replace(_SUMMARY, invite_limit=new_limit)
+    monkeypatch.setattr(fakes.datasets, "get_dataset_summary", lambda *_a, **_k: moved)
 
     sizes: list[int] = []
     real = compare.run_the_rule

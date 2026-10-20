@@ -127,7 +127,7 @@ describe("<RankedList /> on desktop (§6.7)", () => {
     render(<RankedList entries={[]} factorLabels={LABELS} caption="List" />);
     expect(
       screen.getByText(
-        "Nobody is on this list. Nobody in this data file can be ranked for this event with these weights.",
+        "Nobody is on this list. With these slider numbers, no student matches this event.",
       ),
     ).toBeDefined();
   });
