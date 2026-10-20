@@ -79,6 +79,8 @@ __all__ = [
     "MAX_ASKING_CHOICE_CHARACTERS",
     "AskingChoiceRequest",
     "AskingStateView",
+    "BeforeAfterRowView",
+    "BeforeAfterView",
     "InvitedProfileView",
     "PreviousRoundView",
     "RefreshAllTeamView",
@@ -379,6 +381,10 @@ class PreviousRoundView(BaseModel):
         default=None, description="The saved setting that run's list came from, or null."
     )
     team: ResultPanelView = Field(description="That round's invited, signed up and attended.")
+    email_everyone: ResultPanelView | None = Field(
+        default=None,
+        description="That round's mass-email-alone panel, so the recap matches the live screen.",
+    )
     seats_empty: int = Field(description="The seats still empty after that round.")
     existing_attended: int = Field(
         description="How many of that event's pre-registered students came, from the fixed draw."
@@ -387,6 +393,26 @@ class PreviousRoundView(BaseModel):
         description="Everyone in the room from the mass email and the list: the union of attendees."
     )
     created_at: datetime = Field(description="When that round was run.")
+
+
+class BeforeAfterRowView(BaseModel):
+    """One row of the Harbor before-and-after table. Counts of people only."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    label: str = Field(description="What the row shows.")
+    mass_email_signups: int = Field(description="Sign-ups from the mass email alone.")
+    with_list_signups: int = Field(description="Sign-ups with your list on top.")
+    list_added: int = Field(description="Sign-ups your list added to the mass email.")
+    list_added_came: int = Field(description="How many of those added sign-ups came.")
+
+
+class BeforeAfterView(BaseModel):
+    """Same event, same seed: before asking, after asking, and major first."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    rows: list[BeforeAfterRowView] = Field(description="Three rows, in display order.")
 
 
 class ResultsView(BaseModel):
@@ -433,6 +459,10 @@ class ResultsView(BaseModel):
     round_one: PreviousRoundView | None = Field(
         default=None, description="Your team's stored round-one result, in round two."
     )
+    before_after: BeforeAfterView | None = Field(
+        default=None,
+        description="Round two only: the same setting before and after asking, computed on read.",
+    )
     invited_profiles: list[InvitedProfileView] = Field(
         default_factory=list,
         description=(
@@ -453,7 +483,7 @@ class RefreshCountsView(BaseModel):
     asking state, and each refreshed team's line in the instructor's report. A
     screen writes its sentence from these; none of them is a sentence.
 
-    ``cards_completed`` beside ``invited_without_card`` is "12 of the 22". Both
+    ``cards_completed`` beside ``asked_without_card`` is "12 of the 22". Both
     are counts, and no fraction of them is on any response.
     """
 
@@ -466,10 +496,10 @@ class RefreshCountsView(BaseModel):
     topics_added: int = Field(
         description="How many profiles gained the first round's topics from having attended it."
     )
-    invited_without_card: int = Field(
+    asked_without_card: int = Field(
         description=(
-            "How many of the profiles the team invited in round one had no card "
-            "in the data file: the group that was asked to complete one."
+            "How many profiles had no card in the data file: every one of them is "
+            "asked to complete one in round two, invited or not."
         ),
     )
     marker_counts_before: dict[str, int] = Field(
@@ -502,6 +532,13 @@ class AskingStateView(BaseModel):
         description=(
             "What the refresh changed, read back from your team's view: null "
             "until the team has been refreshed, by itself or by the instructor."
+        ),
+    )
+    marker_counts_before: dict[str, int] = Field(
+        description=(
+            "All profiles in the data file by how much is on file about them, as "
+            "the file has it: `major_only`, `major_plus_events`, `completed_card`. "
+            "Present before any refresh, for round one's table."
         ),
     )
     first_round_results: bool = Field(
@@ -667,6 +704,7 @@ def previous_round_view(
         round=run.round,
         setting_name=run.setting_name,
         team=panel_view(run.team),
+        email_everyone=panel_view(run.email_everyone),
         seats_empty=run.seats_empty,
         existing_attended=existing_attended(seed, run.event_key, attend_rate),
         attended_in_room=len(
@@ -683,6 +721,7 @@ def stored_results_view(
     round_one: StoredResultRun | None,
     seed: int,
     attend_rate: float,
+    before_after: BeforeAfterView | None = None,
 ) -> ResultsView:
     """One stored run as the full three-panel response.
 
@@ -707,6 +746,7 @@ def stored_results_view(
             if round_one is not None
             else None
         ),
+        before_after=before_after,
         invited_profiles=[invited_profile_view(entry) for entry in run.invited],
         created_at=run.created_at,
     )
@@ -718,7 +758,7 @@ def refresh_counts_view(report: RefreshReport) -> RefreshCountsView:
         cards_completed=report.counts.cards_completed,
         non_responding=report.counts.non_responding,
         topics_added=report.counts.topics_added,
-        invited_without_card=report.invited_without_card,
+        asked_without_card=report.asked_without_card,
         marker_counts_before=dict(report.marker_counts_before),
         marker_counts_after=dict(report.marker_counts_after),
     )
@@ -730,7 +770,8 @@ def asking_state_view(
     refreshed_at: datetime | None,
     first_round_results: bool,
     first_round_event_name: str | None,
-    report: RefreshReport | None = None,
+    report: RefreshReport,
+    refreshed: bool,
 ) -> AskingStateView:
     """This team's asking choice, with the three names read off the domain.
 
@@ -747,7 +788,8 @@ def asking_state_view(
         choices=[member.value for member in AskingChoice],
         refreshed=refreshed_at is not None,
         refreshed_at=refreshed_at,
-        refresh_counts=None if report is None else refresh_counts_view(report),
+        refresh_counts=refresh_counts_view(report) if refreshed else None,
+        marker_counts_before=dict(report.marker_counts_before),
         first_round_results=first_round_results,
         first_round_event_name=first_round_event_name,
     )

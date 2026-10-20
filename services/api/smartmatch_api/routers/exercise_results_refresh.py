@@ -60,8 +60,8 @@ __all__ = [
     "NON_RESPONDING_SALT",
     "RefreshPlan",
     "RefreshReport",
-    "invited_without_a_card",
     "marker_counts",
+    "profiles_without_a_card",
     "refresh_counts_from_view",
     "refresh_one_team",
     "refresh_plan",
@@ -88,7 +88,7 @@ class RefreshPlan:
     Attributes:
         topic_gainers: The round-one attended set, which gains the round-one
             event's topics under ``added_event_topics``.
-        card_completers: The share of invited profiles with no card that complete
+        card_completers: The share of all profiles with no card that complete
             one.
         non_responding: Under ``required`` only, the further share that stops
             opening messages and never signs up in round two. Empty for the other
@@ -107,46 +107,39 @@ class RefreshReport:
 
     Counts of people only (ADR-0025 D8): no share and no fraction, so the course's
     completion shares stay on the server. ``cards_completed`` beside
-    ``invited_without_card`` is "12 of the 22"; the screen writes the words.
+    ``asked_without_card`` is "12 of the 22"; the screen writes the words.
 
     Attributes:
         counts: The three counts the refresh has always reported.
-        invited_without_card: How many of the people the team invited in round
-            one had no card in the data file — the group that was asked.
+        asked_without_card: How many students had no card in the data file: the
+            group that is asked, whether or not the team invited them in round one.
         marker_counts_before: Every row of the data file by "how much we know",
             as the file itself has it.
         marker_counts_after: The same rows as this team sees them now.
     """
 
     counts: RefreshCounts
-    invited_without_card: int
+    asked_without_card: int
     marker_counts_before: Mapping[str, int]
     marker_counts_after: Mapping[str, int]
 
 
-def invited_without_a_card(
-    profiles: Sequence[TeamProfileRow], invited_profile_nos: Sequence[int]
-) -> tuple[int, ...]:
-    """The invited profiles this team has no card for, in profile-number order.
+def profiles_without_a_card(profiles: Sequence[TeamProfileRow]) -> tuple[int, ...]:
+    """Every profile this team has no card for, in profile-number order.
+
+    Round two's ask goes to **all** students without a card, not only the
+    team's round-one invitees (Ann, 2026-10-18): Northline's invitees are mostly
+    the wrong students for Harbor.
 
     "Has a card" follows ``exercise_matching_models._profile_evidence`` exactly:
     a card exists when **either** the overlay or the base row recorded interests,
-    and ``card_career_goal`` alone does not conjure one. Reading it the same way
-    in both places is what keeps the marker a team sees on its list and the group
-    this refresh asks from the same set of people — two readings of "has a card"
-    would show a team a completed card and then offer to complete it.
-
-    ``NULL`` and ``{}`` stay distinct, which is design spec §7's three-state rule:
-    an empty card is a card that was filled in with nothing, and asking its owner
-    again is asking somebody who already answered.
+    and ``card_career_goal`` alone does not conjure one. ``NULL`` and ``{}`` stay
+    distinct (design spec section 7): an empty card is a card filled in with nothing.
     """
-    wanted = set(invited_profile_nos)
     return tuple(
         profile.profile_no
         for profile in profiles
-        if profile.profile_no in wanted
-        and profile.overlay_card_interests is None
-        and profile.stated_interests is None
+        if profile.overlay_card_interests is None and profile.stated_interests is None
     )
 
 
@@ -248,9 +241,7 @@ def marker_counts(profiles: Sequence[TeamProfileRow], *, with_overlay: bool) -> 
     return counts
 
 
-def refresh_report(
-    profiles: Sequence[TeamProfileRow], invited_profile_nos: Sequence[int]
-) -> RefreshReport:
+def refresh_report(profiles: Sequence[TeamProfileRow]) -> RefreshReport:
     """Everything a screen says about one team's refresh, read from its view.
 
     Derived, never stored — :func:`refresh_counts_from_view`'s reasoning, taken
@@ -258,17 +249,14 @@ def refresh_report(
     answer is the same whether it is asked in the request that refreshed, on a
     reload a week later, or for a team the instructor refreshed.
 
-    ``invited_without_card`` reads the **base** row only. Before the refresh it
-    equals ``len(invited_without_a_card(...))``, because a team has no overlay
+    ``asked_without_card`` reads the **base** row only. Before the refresh it
+    equals ``len(profiles_without_a_card(...))``, because a team has no overlay
     cards yet. After it, that function's answer shrinks — the new cards now read
     as cards — while this one stands, so "12 of the 22" keeps saying 22.
     """
-    invited = set(invited_profile_nos)
     return RefreshReport(
         counts=refresh_counts_from_view(profiles),
-        invited_without_card=sum(
-            1 for p in profiles if p.profile_no in invited and p.stated_interests is None
-        ),
+        asked_without_card=sum(1 for p in profiles if p.stated_interests is None),
         marker_counts_before=marker_counts(profiles, with_overlay=False),
         marker_counts_after=marker_counts(profiles, with_overlay=True),
     )
@@ -283,7 +271,6 @@ def refresh_one_team(
     seed: int,
     choice: AskingChoice,
     profiles: Sequence[TeamProfileRow],
-    invited_profile_nos: Sequence[int],
     attended_profile_nos: Sequence[int],
     added_topics: Sequence[str],
     now: datetime,
@@ -306,7 +293,7 @@ def refresh_one_team(
         choice=choice,
         seed=seed,
         attended_profile_nos=attended_profile_nos,
-        no_card_profile_nos=invited_without_a_card(profiles, invited_profile_nos),
+        no_card_profile_nos=profiles_without_a_card(profiles),
     )
     counts = results.apply_refresh(
         session,

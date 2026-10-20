@@ -92,6 +92,7 @@ from smartmatch_api.routers.exercise_matching_models import (
     event_or_refusal,
     first_round_event,
 )
+from smartmatch_api.routers.exercise_results_compare import before_after_or_none
 from smartmatch_api.routers.exercise_results_models import (
     FIRST_ROUND,
     AskingChoiceRequest,
@@ -248,6 +249,12 @@ def run_results(
     final_setting = final_setting_or_refusal(payload.setting_name)
     coefficients = coefficients_or_refusal()
     team_state = _team_state_or_refusal(session, results, workspace)
+    if round_number != FIRST_ROUND and team_state.refreshed_at is None:
+        raise ExerciseError(
+            status_code=status.HTTP_409_CONFLICT,
+            code="exercise_ask_first",
+            message="Ask students for more information before running Harbor results.",
+        )
     profiles, invited, setting_name, weights = invited_list(
         session,
         datasets=datasets,
@@ -291,6 +298,17 @@ def run_results(
         ),
         seed=team_state.seed,
         attend_rate=coefficients.attend_given_signup,
+        before_after=before_after_or_none(
+            session,
+            datasets=datasets,
+            profiles=profiles,
+            events=events,
+            event=event,
+            workspace=workspace,
+            run=stored,
+            seed=team_state.seed,
+            coefficients=coefficients,
+        ),
     )
 
 
@@ -303,6 +321,7 @@ def read_results(
     session: ExerciseSession,
     workspace: CurrentWorkspace,
     datasets: DatasetRepository,
+    team_view: TeamViewRepository,
     results: ResultsRepository,
     event_key: str = Path(description="An event key from this team's data file."),
 ) -> ResultsView | None:
@@ -322,14 +341,29 @@ def read_results(
     stored = results.get_run(session, workspace_id=workspace.id, event_key=event.event_key)
     if stored is None:
         return None
+    seed = _team_state_or_refusal(session, results, workspace).seed
+    coefficients = coefficients_or_refusal()
     return stored_results_view(
         stored,
         event=event,
         round_one=_round_one_or_none(
             session, results, workspace=workspace, round_number=stored.round
         ),
-        seed=_team_state_or_refusal(session, results, workspace).seed,
-        attend_rate=coefficients_or_refusal().attend_given_signup,
+        seed=seed,
+        attend_rate=coefficients.attend_given_signup,
+        before_after=before_after_or_none(
+            session,
+            datasets=datasets,
+            profiles=team_view.list_team_profiles(
+                session, dataset_id=workspace.dataset_id, workspace_id=workspace.id
+            ),
+            events=events,
+            event=event,
+            workspace=workspace,
+            run=stored,
+            seed=seed,
+            coefficients=coefficients,
+        ),
     )
 
 
@@ -396,20 +430,20 @@ def _asking_view(
     below is for a row nothing in this product writes.
     """
     event = first_round_event(datasets.list_events(session, dataset_id=workspace.dataset_id))
-    report = None
-    if team_state.refreshed_at is not None and first_round is not None:
-        report = refresh_report(
-            team_view.list_team_profiles(
-                session, dataset_id=workspace.dataset_id, workspace_id=workspace.id
-            ),
-            first_round.team.invited_profile_nos,
+    # Read always, not only after the refresh: round one shows "how much we
+    # know" for all 300 before anyone is asked (Ann, 2026-10-18).
+    report = refresh_report(
+        team_view.list_team_profiles(
+            session, dataset_id=workspace.dataset_id, workspace_id=workspace.id
         )
+    )
     return asking_state_view(
         team_state.asking_choice,
         refreshed_at=team_state.refreshed_at,
         first_round_results=first_round is not None,
         first_round_event_name=None if event is None else event.name,
         report=report,
+        refreshed=team_state.refreshed_at is not None,
     )
 
 
@@ -494,7 +528,7 @@ def _choice_or_refusal(raw: str) -> AskingChoice:
     "/refresh",
     response_model=RefreshView,
     dependencies=_STATE_CHANGING,
-    summary="Ask the people you invited, once",
+    summary="Ask every student without a card, once",
 )
 def refresh_profiles(
     session: ExerciseSession,
@@ -506,7 +540,7 @@ def refresh_profiles(
     """Apply your team's way of asking to your team's own view, once.
 
     Design spec §13, for this team and no other: everyone on your first round's
-    attended list gains that event's topics; a share of the people you invited
+    attended list gains that event's topics; a share of every student
     who had no card complete one; and under the third way of asking a further
     share stops answering and will not sign up in round two. How large each share
     is comes from the course's own numbers, rounded half up.
@@ -549,7 +583,6 @@ def refresh_profiles(
         seed=team_state.seed,
         choice=choice,
         profiles=profiles,
-        invited_profile_nos=first_round.team.invited_profile_nos,
         attended_profile_nos=first_round.team.attended_profile_nos,
         added_topics=event.topic_tags,
         now=now,
@@ -562,8 +595,7 @@ def refresh_profiles(
     report = refresh_report(
         team_view.list_team_profiles(
             session, dataset_id=workspace.dataset_id, workspace_id=workspace.id
-        ),
-        first_round.team.invited_profile_nos,
+        )
     )
     session.commit()
     return RefreshView(

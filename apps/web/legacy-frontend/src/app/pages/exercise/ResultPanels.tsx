@@ -31,6 +31,7 @@ import {
 import type { ResultPanelView, ResultsView } from "../../../lib/exerciseClient";
 import { RoundJourneyArt } from "./resultsArt";
 import { ResultsReveal } from "./ResultsReveal";
+import { HarborBeforeAfter } from "./HarborBeforeAfter";
 
 /** `profile_no` → the name the run stored for it. */
 export type NamesByProfileNo = ReadonlyMap<number, string>;
@@ -65,18 +66,35 @@ export function resultsSeries(
   roundOneName: string | null = null,
 ): ExerciseResultsSeries[] {
   const series: ExerciseResultsSeries[] = [
-    panelSeries(`With your ${results.team.invited_count} CBACH emails`, results.team),
     panelSeries("Mass email alone", results.email_everyone),
+    unionSeries(`Mass email plus your ${results.team.invited_count} CBACH emails`, results),
   ];
   if (results.round_one !== null) {
     series.push(panelSeries(
         roundOneName === null || roundOneName === ""
           ? "Your team, Round 1"
           : `Your team, ${roundOneName} (Round 1)`,
-        results.round_one.team,
+        results.round_one.email_everyone === undefined
+          ? results.round_one.team
+          : unionPanel({ team: results.round_one.team, email_everyone: results.round_one.email_everyone, existing_signups: results.existing_signups }),
       ));
   }
   return series;
+}
+
+/** Mass email plus the list: what the dark bar shows, never the list's own panel alone. */
+function unionPanel(round: RoundPanels): ResultPanelView {
+  const { withList } = liftCounts(round);
+  const attended = round.email_everyone.attended_profile_nos.length + seatCountsFor(round).added;
+  return {
+    ...round.team,
+    signed_up_count: withList,
+    attended_count: attended,
+  };
+}
+
+function unionSeries(label: string, round: RoundPanels): ExerciseResultsSeries {
+  return panelSeries(label, unionPanel(round));
 }
 
 function panelSeries(label: string, panel: ResultPanelView): ExerciseResultsSeries {
@@ -142,6 +160,7 @@ export function ResultPanels({
       />
 
       <LiftLine results={results} />
+      <HarborBeforeAfter beforeAfter={results.before_after} />
 
       <ExerciseResultsChart
         variant="exercise"
@@ -149,8 +168,9 @@ export function ResultPanels({
         title={`What happened for ${results.event_name}`}
         caption={
           results.round_one === null
-            ? "Mass email alone beside your CBACH emails on top of it."
-            : "Mass email alone, your CBACH emails on top of it, and your team's first round."
+            ? "Light bar: mass email alone. Dark bar: mass email plus your CBACH emails."
+            : // Wording is ours: Ann wrote the round-one-only caption.
+              "Light bar: mass email alone. Dark bar: mass email plus your CBACH emails. Hatched bar: your team's first round."
         }
       />
 
@@ -164,15 +184,7 @@ export function ResultPanels({
             {results.round_one.setting_name === null
               ? "Built without a saved setting."
               : `Built from your team's setting “${results.round_one.setting_name}”.`}{" "}
-            {seatsSentence(
-              {
-                // Of the 8 pre-registered students, only those who came count.
-                alreadyComing: results.round_one.existing_attended ?? results.existing_signups,
-                attended: results.round_one.attended_in_room,
-                open: results.round_one.seats_empty,
-              },
-              "then",
-            )}
+            {recapSentence(results)}
           </p>
         </section>
       )}
@@ -212,6 +224,33 @@ export function ResultPanels({
   );
 }
 
+/**
+ * The round-one recap, from the same helpers and wording as the round-one
+ * screen. Falls back to the old counts-only sentence for a server that does
+ * not send the round's mass-email panel.
+ */
+function recapSentence(results: ResultsView): string {
+  const one = results.round_one;
+  if (one === null) return "";
+  if (one.email_everyone === undefined) {
+    return seatsSentence(
+      { alreadyComing: one.existing_attended ?? results.existing_signups, open: one.seats_empty },
+      "then",
+    );
+  }
+  const panels: RoundPanels = {
+    team: one.team,
+    email_everyone: one.email_everyone,
+    existing_signups: results.existing_signups,
+    existing_attended: one.existing_attended,
+  };
+  const seats = seatCountsFor(panels);
+  return `${liftSentence(panels)} ${listSignupsSentence(panels)} ${seatsSentence(
+    { alreadyComing: seats.alreadyComing, added: seats.added, open: one.seats_empty },
+    "then",
+  )}`;
+}
+
 /** Says which list this stored run used; later setting or limit changes do not re-run it. */
 export function runRecordLine(results: ResultsView): string {
   const n = results.team.invited_count;
@@ -223,39 +262,68 @@ export function runRecordLine(results: ResultsView): string {
 }
 
 /**
- * `email_everyone` is the mass email alone; `team` is the mass email plus the
- * team's CBACH emails. K counts team sign-ups the mass email alone did not get.
+ * `team` is the listed profiles only (each got the mass email and the CBACH email);
+ * `email_everyone` is all 300 under the mass email alone, with the same draws.
+ * K counts team sign-ups the mass email alone did not get.
  */
-export function liftCounts(results: ResultsView): { mass: number; withList: number; added: number } {
+export function liftCounts(
+  results: RoundPanels,
+): { mass: number; withList: number; added: number; own: number; anyway: number } {
   const mass = new Set(results.email_everyone.signed_up_profile_nos);
-  const added = results.team.signed_up_profile_nos.filter((n) => !mass.has(n)).length;
-  return { mass: mass.size, withList: mass.size + added, added };
+  const own = results.team.signed_up_profile_nos;
+  const added = own.filter((n) => !mass.has(n)).length;
+  return { mass: mass.size, withList: mass.size + added, added, own: own.length, anyway: own.length - added };
+}
+
+/** What both the live screen and the round-one recap read their numbers from. */
+export interface RoundPanels {
+  readonly team: ResultPanelView;
+  readonly email_everyone: ResultPanelView;
+  readonly existing_signups: number;
+  readonly existing_attended?: number;
 }
 
 /**
- * The two seat groups of the current round. The team panel is the mass email
- * plus the CBACH emails, so its attendees include everyone the mass email alone
- * would bring (Ann Wang 2026-10-10, Q2). Those people were coming anyway:
+ * The two seat groups of the current round. `team` is the listed profiles only
+ * (each got the mass email and the CBACH email); `email_everyone` is all 300 under the
+ * mass email alone, with the same draws. Listed attendees the mass email also brought
+ * were coming anyway (Ann Wang 2026-10-10, Q2):
  * "already coming" is the pre-registered students who came plus the mass email's attendees,
  * and "added" is the team's attendees the mass email missed.
  */
-export function seatCountsFor(results: ResultsView): { alreadyComing: number; added: number } {
+export function seatCountsFor(results: RoundPanels): { alreadyComing: number; added: number } {
   const mass = new Set(results.email_everyone.attended_profile_nos);
   const added = results.team.attended_profile_nos.filter((n) => !mass.has(n)).length;
   return { alreadyComing: (results.existing_attended ?? results.existing_signups) + mass.size, added };
 }
 
-/** Ann Wang 2026-10-10 Q2: the lift, not a contest. */
-export function liftSentence(results: ResultsView): string {
-  const { mass, withList, added } = liftCounts(results);
-  const n = results.team.invited_count;
-  return `Mass email alone: ${mass} sign-ups. With your ${n} CBACH emails: ${withList}. Your list added ${added}.`;
+const plural = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`;
+
+/** Ann Wang 2026-10-16 results item 1: both measures, each labeled. */
+export function liftSentence(results: RoundPanels): string {
+  const { added } = liftCounts(results);
+  const { added: came } = seatCountsFor(results);
+  const tail = added === 1 ? (came === 1 ? "they came" : "they did not come") : `${came} of them came`;
+  return `Your list brought ${plural(added, "extra sign-up", "extra sign-ups")}; ${tail}.`;
+}
+
+/** Ann Wang 2026-10-16 results item 2: why the list's own sign-ups differ from "added". */
+export function listSignupsSentence(results: RoundPanels): string {
+  const { own, anyway, added } = liftCounts(results);
+  if (own === 0) {
+    return "Nobody on your list signed up, so your list added 0.";
+  }
+  const who = own === 1 ? "1 person on your list signed up." : `${own} people on your list signed up.`;
+  return `${who} ${anyway} of them would have signed up from the mass email anyway, so your list added ${added}.`;
 }
 
 function LiftLine({ results }: { readonly results: ResultsView }): React.JSX.Element {
   return (
     <section data-slot="exercise-lift" className="flex flex-col gap-ce-2">
       <p className="ce-type-h2 text-ce-ink">{liftSentence(results)}</p>
+      <p className="ce-type-body ce-measure text-ce-ink" data-slot="exercise-list-signups">
+        {listSignupsSentence(results)}
+      </p>
       <p className="ce-type-body ce-measure text-ce-ink-muted">
         Each team's numbers include its own luck. Look at your gap over the mass email, not just the raw number.
       </p>
@@ -269,8 +337,6 @@ export interface SeatCounts {
   readonly alreadyComing: number;
   /** People the team's list brought on top of the mass email alone (see {@link seatCountsFor}). */
   readonly added?: number;
-  /** Round-one recap only: everyone who attended, mass email and list together, uncredited. */
-  readonly attended?: number;
   /** `seats_empty`: chairs nobody fills. */
   readonly open: number;
 }
@@ -284,13 +350,11 @@ export interface SeatCounts {
  */
 export function seatsSentence(counts: SeatCounts, tense: "now" | "then"): string {
   const coming = alreadyComing(counts.alreadyComing);
-  // Omitted for the round-one recap, which lacks the mass-email baseline and would overstate.
   const added =
     counts.added === undefined
       ? ""
-      : `Your invitations added ${counts.added === 0 ? "nobody" : counts.added}. `;
-  const more = counts.attended ? `${counts.attended} more attended. ` : "";
-  return `${coming} ${added}${more}${openSeats(counts.open, tense)}`;
+      : `${counts.added === 0 ? "Nobody" : counts.added} came because of your list. `;
+  return `${coming} ${added}${openSeats(counts.open, tense)}`;
 }
 
 function alreadyComing(count: number): string {

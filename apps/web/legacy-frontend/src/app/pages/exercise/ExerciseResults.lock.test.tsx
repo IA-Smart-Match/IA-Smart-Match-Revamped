@@ -32,8 +32,10 @@ const ASKING = `${BASE}/asking-choice`;
 const SETTINGS = `${BASE}/events/northline/settings`;
 
 const EVENT_NAME = "Northline Analytics: Behind the Business";
-const NOT_OPEN = `Results for ${EVENT_NAME} are not open yet. Ask your instructor.`;
-const QUESTION = `Send this list? You get one results run for ${EVENT_NAME}`;
+const NOT_OPEN =
+  "Your instructor has not opened results yet. You can still pick your setting and review its list. Press Check again once your instructor says results are open.";
+const SERVER_NOT_OPEN = `Results for ${EVENT_NAME} are not open yet. Ask your instructor.`;
+const QUESTION = `Send ‘Wide net’? You get one results run for ${EVENT_NAME}.`;
 const ALREADY_RUN = "Your team already ran results for this event. You get one run per event.";
 
 type Answer = { body: unknown; status?: number };
@@ -187,6 +189,43 @@ describe("<ExerciseResults /> before the instructor opens results", () => {
     expect(screen.queryByRole("button", { name: /run results/i })).toBeNull();
   });
 
+  it("says Ann's not-opened-yet sentence before any press (item 6)", async () => {
+    reads({ [`GET ${EVENTS}`]: events(false, false), [`GET ${RESULTS}`]: NOT_RUN });
+    renderResults();
+    await screen.findByRole("button", { name: "Results not open yet." });
+    expect(screen.getAllByText(NOT_OPEN)).toHaveLength(1);
+    expect(screen.queryByText(SERVER_NOT_OPEN)).toBeNull();
+  });
+
+  it("shows 'You will send: [name]' with the list's makeup and a link to the full list (item 7)", async () => {
+    const entries = Array.from({ length: 60 }, (_, index) => ({ profile_no: index + 1 }));
+    reads({
+      [`GET ${EVENTS}`]: events(false, false),
+      [`GET ${RESULTS}`]: NOT_RUN,
+      [`GET ${LIST}`]: {
+        body: {
+          entries,
+          unrankable_profile_count: 0,
+          composition: {
+            by_major: { dimension: "major", on_list: { Accounting: 4 }, all_profiles: { Accounting: 40 } },
+            by_class_year: { dimension: "class_year", on_list: { Senior: 4 }, all_profiles: { Senior: 70 } },
+            by_marker: { dimension: "marker", on_list: { completed_card: 4 }, all_profiles: { completed_card: 20 } },
+            coverage: { missing_majors: [], missing_class_years: [], has_uncovered_group: false },
+          },
+          factor_labels: {},
+        },
+      },
+    });
+    renderResults();
+    fireEvent.click(await screen.findByRole("radio", { name: "Wide net" }));
+    expect((await screen.findByText("You will send: Wide net")).tagName).toBe("H2");
+    expect(await screen.findByText(/This list holds 60 names/)).toBeDefined();
+    expect(document.querySelector('[data-slot="exercise-list-composition"]')).not.toBeNull();
+    expect(
+      screen.getByRole("link", { name: "See the full list on the event page" }).getAttribute("href"),
+    ).toBe("/exercise/events/northline");
+  });
+
   it("sends no run when the grey button is pressed, with a setting chosen or not", async () => {
     reads({ [`GET ${EVENTS}`]: events(false, false), [`GET ${RESULTS}`]: NOT_RUN });
     renderResults();
@@ -292,7 +331,7 @@ describe("<ExerciseResults /> asks before the one run", () => {
     fireEvent.keyDown(run, { key: "Escape" });
 
     expect(run.textContent).toContain("Run results for this event");
-    expect(run.textContent).not.toContain("Send this list?");
+    expect(run.textContent).not.toContain("Send ‘Wide net’?");
     await pastTheGuard();
     expect(runPosts()).toBe(0);
   });
@@ -371,7 +410,7 @@ describe("<ExerciseResults /> after the one run", () => {
       [`GET ${EVENTS}`]: () => events(!closed, false),
       [`GET ${RESULTS}`]: NOT_RUN,
       [`POST ${RESULTS}`]: {
-        body: { error: { code: "exercise_results_locked", message: NOT_OPEN } },
+        body: { error: { code: "exercise_results_locked", message: SERVER_NOT_OPEN } },
         status: 409,
       },
     });

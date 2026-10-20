@@ -66,6 +66,7 @@ import {
 } from "./desk";
 import { AskingChoiceCard, type AskingCardState } from "./ExerciseAskingChoiceCard";
 import { ExerciseNotice, ExerciseScreen } from "./ExerciseScreen";
+import { NextHarborLink } from "./RoundTwoAskingStep";
 import { RefreshSummary } from "./RefreshSummary";
 import { refreshSummaryText } from "./refreshWording";
 import { RoundBanner } from "./RoundBanner";
@@ -181,7 +182,7 @@ export function ExerciseAskingForMore(): React.JSX.Element {
   return (
     <ExerciseScreen
       title="Asking for more"
-      intro="Pick one way to ask the people your team invited to fill in a card. Your team picks once."
+      intro="Pick one way to ask every student without a card to fill one in. Your team picks once."
       aside={
         <Link to="/exercise/events" className={BACK_LINK}>
           Back to the events
@@ -437,10 +438,10 @@ function AskingPanels({
       </section>
 
       <section className="flex flex-col gap-ce-4">
-        <h2 className="ce-type-h2 text-ce-ink">Ask the people your team invited</h2>
+        <h2 className="ce-type-h2 text-ce-ink">Ask students without a card</h2>
         <p className="ce-type-body ce-measure text-ce-ink-muted">
-          This happens once. Everyone who attended the first event picks up its topics, and some of
-          the people your team invited fill in a card.
+          Your team asks once. Every student without a card gets your request, and some fill one
+          in. Everyone who came to the first event also picks up its topics.
         </p>
         <AskOnceButton
           asked={hasAsked}
@@ -479,12 +480,13 @@ function AskingPanels({
         )}
         {/*
           While the server says the team has asked (a reset clears them), or
-          while this browser's own confirmed refresh is newer than the read.
+          while this browser has a confirmed ask newer than the read.
         */}
         {hasAsked ? (
           <RefreshSummary at={refreshedAt} counts={counts} eventName={roundOneName} />
         ) : null}
         <RefreshCounts counts={counts} reduced={reduced} />
+        {hasAsked ? <NextHarborLink className={BACK_LINK} /> : null}
         {/* Always present, so the summary is announced when it arrives. */}
         <p aria-live="polite" data-slot="exercise-refresh-announce" className="sr-only">
           {hasAsked ? refreshSummaryText(refreshedAt, counts, roundOneName) : ""}

@@ -225,6 +225,7 @@ def _invited_entries(
     event: ExerciseEventRow,
     workspace: ExerciseWorkspace,
     weights: Mapping[str, float],
+    invite_limit: int | None = None,
 ) -> tuple[InvitedProfile, ...]:
     """The ranked list's entries, in order — the team's invited set, with names.
 
@@ -258,7 +259,7 @@ def _invited_entries(
         event_evidence(event),
         rankable.profiles,
         weights=weights,
-        invite_limit=summary.invite_limit,
+        invite_limit=summary.invite_limit if invite_limit is None else invite_limit,
         year_rank=rankable.year_rank,
         dataset_checksum=summary.checksum,
     )
