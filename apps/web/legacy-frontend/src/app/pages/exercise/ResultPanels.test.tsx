@@ -246,7 +246,7 @@ describe("round-one recap sums to the room", () => {
 
 describe("round-one recap parity (B4 item 3)", () => {
   it("says what the round-one screen said, from the same stored panels", () => {
-    const team = { ...panel(30, 11, 9), signed_up_profile_nos: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], attended_profile_nos: [1, 2, 3, 4, 5, 6, 7, 8, 9] };
+    const team = { ...panel(30, 11, 7), signed_up_profile_nos: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], attended_profile_nos: [1, 2, 3, 4, 5, 9, 10] };
     const mass = { ...panel(300, 8, 5), signed_up_profile_nos: [1, 2, 3, 4, 5, 6, 7, 8], attended_profile_nos: [1, 2, 3, 4, 5] };
     const roundOne = results({ team, email_everyone: mass, existing_attended: 8, seats_empty: 38 });
     const screen = render(<ResultPanels results={roundOne} />);
@@ -264,13 +264,13 @@ describe("round-one recap parity (B4 item 3)", () => {
     const recap = slotText("exercise-round-one");
     expect(lift).toContain("11 people on your list signed up. 8 of them would have signed up from the mass email anyway, so your list added 3.");
     for (const sentence of [
-      "Your list brought 3 extra sign-ups; 4 of them came.",
+      "Your list brought 3 extra sign-ups; 2 of them came.",
       "11 people on your list signed up. 8 of them would have signed up from the mass email anyway, so your list added 3.",
-      "13 were already coming. 4 came because of your list. 38 seats were still open.",
+      "13 were already coming. 2 came because of your list. 38 seats were still open.",
     ]) {
       expect(recap).toContain(sentence);
     }
-    expect(seats).toContain("13 were already coming. 4 came because of your list.");
+    expect(seats).toContain("13 were already coming. 2 came because of your list.");
   });
 });
 
@@ -358,5 +358,18 @@ describe("runRecordLine (B2)", () => {
   it("renders the line in the team section", () => {
     render(<ResultPanels results={results({ team: panel(5, 1, 1) })} />);
     expect(slotText("exercise-run-record")).toContain("5 invited");
+  });
+});
+
+describe("liftSentence singular", () => {
+  it("avoids '1 of them' after one extra sign-up", () => {
+    const base = results({});
+    const mk = (att: number[]) => ({
+      ...base,
+      team: { ...base.team, signed_up_profile_nos: [1, 9], attended_profile_nos: att },
+      email_everyone: { ...base.email_everyone, signed_up_profile_nos: [1], attended_profile_nos: [1] },
+    });
+    expect(liftSentence(mk([1, 9]))).toBe("Your list brought 1 extra sign-up; they came.");
+    expect(liftSentence(mk([1]))).toBe("Your list brought 1 extra sign-up; they did not come.");
   });
 });

@@ -223,6 +223,19 @@ export interface InvitedProfileView {
   readonly reason: string | null;
 }
 
+export interface BeforeAfterRowView {
+  readonly label: string;
+  readonly mass_email_signups: number;
+  readonly with_list_signups: number;
+  readonly list_added: number;
+  readonly list_added_came: number;
+}
+
+/** Round two only: the same setting before and after asking, plus major first. */
+export interface BeforeAfterView {
+  readonly rows: BeforeAfterRowView[];
+}
+
 export interface ResultsView {
   readonly event_key: string;
   readonly event_name: string;
@@ -240,6 +253,8 @@ export interface ResultsView {
   readonly existing_attended?: number;
   /** `null` in round one; a populated panel in round two. */
   readonly round_one: PreviousRoundView | null;
+  /** Round two only; computed on read. `null` in round one. */
+  readonly before_after?: BeforeAfterView | null;
   /**
    * The people this run invited, by name, in list order — the run's own
    * record. Optional so fixtures from before issue #271 still type-check; a
