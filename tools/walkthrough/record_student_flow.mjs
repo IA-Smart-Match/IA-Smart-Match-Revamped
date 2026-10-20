@@ -12,6 +12,11 @@ const pause = Number(process.env.WALKTHROUGH_PAUSE_MS ?? 7000);
 const minMs = Number(process.env.WALKTHROUGH_MIN_MS ?? 210000);
 const passcode = process.env.EXERCISE_INSTRUCTOR_PASSCODE;
 
+const host = new URL(base).hostname;
+if (!["localhost", "127.0.0.1"].includes(host) && process.env.WALKTHROUGH_ALLOW_REMOTE !== "1") {
+  throw new Error(`Refusing ${host}: this writes data. Use localhost or set WALKTHROUGH_ALLOW_REMOTE=1.`);
+}
+
 const url = (p) => new URL(p, base).href;
 const browser = await chromium.launch({ slowMo: 400 });
 try {
@@ -24,10 +29,14 @@ try {
     await page.getByLabel("Passcode").press("Enter");
     const open = page.getByRole("button", { name: "Open results", exact: true });
     await open.first().waitFor({ timeout: 15000 });
-    while ((await open.count()) > 0) {
+    for (let guard = 0, left = await open.count(); left > 0; guard += 1) {
+      if (guard > 20) throw new Error("Instructor loop: Open results did not finish.");
       await open.first().click();
       await page.getByRole("button", { name: "Open results now" }).click();
       await page.getByRole("button", { name: "Close results", exact: true }).first().waitFor();
+      const now = await open.count();
+      if (now >= left) throw new Error("Instructor loop: open-results count did not drop.");
+      left = now;
     }
     await ctx.close();
   }
@@ -50,7 +59,7 @@ try {
     const btn = page.getByRole("button", { name });
     await btn.click();
     await beat(0.5);
-    await page.getByRole("button", { name: /^(Confirm|Send this list|Ask them now\?)/ }).click();
+    await page.getByRole("button", { name: /^(Confirm|Send |Ask students now\?)/ }).click();
   };
   const openEvent = async (index) => {
     await page.goto(url("/exercise/events"));
@@ -60,7 +69,7 @@ try {
     await beat();
   };
   const runResults = async () => {
-    await page.getByRole("link", { name: "Go to results for this event" }).click();
+    await page.getByRole("link", { name: "Choose one setting and see results" }).click();
     await page.waitForURL(/\/results$/);
     await beat();
     await page.getByRole("radio").first().check({ force: true }); // final setting
@@ -81,22 +90,22 @@ try {
   await openEvent(0);
   await scroll(4);
   // 2. Save a setting (when the page offers one), then send the list.
-  const save = page.getByRole("button", { name: /^Save/ }).first();
-  if (await save.isVisible().catch(() => false)) {
-    await save.click();
+  const nameField = page.getByLabel("Give this setting a name");
+  if (await nameField.isVisible().catch(() => false)) {
+    await nameField.fill("Major first");
+    await page.getByRole("button", { name: "Save this setting", exact: true }).click();
     await beat();
   }
   await runResults();
   // 3. Ask for more (round two).
   await page.goto(url("/exercise/asking"));
   await beat();
-  await pressTwice(/^Choose this way/);
+  await pressTwice("Choose this way: A small reward.");
   await beat();
-  const ask = page.getByRole("button", { name: /^Ask them now/ });
-  if (await ask.isVisible().catch(() => false)) {
-    await pressTwice(/^Ask them now/);
-    await beat(2);
-  }
+  const ask = page.getByRole("button", { name: "Ask students now", exact: true });
+  if (!(await ask.isVisible().catch(() => false))) throw new Error('"Ask students now" button not visible.');
+  await pressTwice("Ask students now");
+  await beat(2);
   // 4. Harbor: build the list, send it, compare before and after.
   await openEvent(1);
   await scroll(4);
