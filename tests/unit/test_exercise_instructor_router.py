@@ -1167,15 +1167,16 @@ def test_an_invite_limit_outside_its_bounds_is_one_sentence(
     assert response.json()["error"]["code"] == "exercise_invite_limit_out_of_range"
 
 
-def test_the_invite_limit_can_be_changed(signed_in: TestClient) -> None:
+@pytest.mark.parametrize("limit", [25, 60])
+def test_the_invite_limit_can_be_changed(signed_in: TestClient, limit: int) -> None:
     response = signed_in.patch(
         f"/v1/exercise/instructor/datasets/{_DATASET_ID}",
-        json={"invite_limit": 25},
+        json={"invite_limit": limit},
         headers={EXERCISE_REQUEST_HEADER: "1"},
     )
 
     assert response.status_code == 200
-    assert response.json()["invite_limit"] == 25
+    assert response.json()["invite_limit"] == limit
 
 
 def test_an_unknown_data_file_is_one_sentence(signed_in: TestClient) -> None:
