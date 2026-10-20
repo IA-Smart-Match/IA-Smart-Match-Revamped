@@ -353,6 +353,13 @@ class _FakeTeamViewRepository:
             self.overlays.get((workspace_id, profile.profile_no), profile) for profile in _PROFILES
         )
 
+    def overlay_version(
+        self, _session: object, *, dataset_id: uuid.UUID, workspace_id: uuid.UUID
+    ) -> str:
+        return repr(
+            sorted((k[1], repr(v)) for k, v in self.overlays.items() if k[0] == workspace_id)
+        )
+
 
 class _FakeSettingsRepository:
     """Only the one read the results route makes: a saved weighting by name."""
