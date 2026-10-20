@@ -194,6 +194,8 @@ export interface PreviousRoundView {
   readonly round: number;
   readonly setting_name: string | null;
   readonly team: ResultPanelView;
+  /** That round's mass-email-alone panel; absent from an older server. */
+  readonly email_everyone?: ResultPanelView;
   readonly seats_empty: number;
   /** How many of that event's pre-registered students came (fixed draw). Absent from a server older than the 2026-10-15 rule (#410). */
   readonly existing_attended?: number;
@@ -274,6 +276,8 @@ export interface AskingStateView {
    * the team is refreshed (by itself or by the instructor).
    */
   readonly refresh_counts: RefreshCountsView | null;
+  /** Every profile by "how much we know", before any refresh. Round one's table. */
+  readonly marker_counts_before: Readonly<Record<string, number>>;
   /** Whether the team has run round one's results. The choice opens only then. */
   readonly first_round_results: boolean;
   /** The first round's event name, or `null` when the file has no round. */
@@ -289,8 +293,8 @@ export interface RefreshCountsView {
   readonly cards_completed: number;
   readonly non_responding: number;
   readonly topics_added: number;
-  /** How many invited profiles had no card: "12 of the **22**". */
-  readonly invited_without_card: number;
+  /** How many profiles had no card: every one is asked in round two, invited or not. */
+  readonly asked_without_card: number;
   /** Every profile by "how much we know", before the refresh. Keyed by marker. */
   readonly marker_counts_before: Readonly<Record<string, number>>;
   /** The same, as the team sees the profiles after it. */

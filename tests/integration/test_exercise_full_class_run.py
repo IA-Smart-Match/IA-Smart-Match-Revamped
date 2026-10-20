@@ -26,7 +26,7 @@ The tests below read the record of that walk. What they hold the class to:
   instructor, can read about any other team.
 * **Nothing withheld leaks** — no ``hidden_true_*`` name and no ``OQ-CE-``
   register ID in any response body of the whole class.
-* **Plausible figures** — 0 ≤ sign-ups ≤ 30, attended ⊆ signed up ⊆ invited,
+* **Plausible figures** — 0 ≤ sign-ups ≤ 60, attended ⊆ signed up ⊆ invited,
   empty seats = 60 - (the 8 who came) - attended.
 * **An undecided true goal reaches the rule** — for every profile whose
   withheld true career goal is "Undecided", the route answers exactly what the
@@ -380,7 +380,7 @@ def test_the_refresh_reports_every_profile_before_and_after(class_run: _ClassRun
         before, after = counts["marker_counts_before"], counts["marker_counts_after"]
         assert sum(before.values()) == sum(after.values()), number
         assert after["completed_card"] == before["completed_card"] + counts["cards_completed"]
-        assert counts["cards_completed"] <= counts["invited_without_card"] <= 30, number
+        assert counts["cards_completed"] <= counts["asked_without_card"] <= 300, number
 
 
 def test_each_team_used_its_own_way_of_asking(class_run: _ClassRun) -> None:
@@ -412,7 +412,7 @@ def test_each_team_invited_exactly_its_final_settings_list(
     answered = class_run.round_one if event_key == ROUND_ONE else class_run.round_two
     for number in EXERCISE_TEAM_NUMBERS:
         shown = class_run.final_lists[(number, event_key)]
-        assert len(shown) == 30, number
+        assert len(shown) == 60, number
         assert answered[number]["team"]["invited_profile_nos"] == sorted(shown), number
 
 
@@ -542,8 +542,8 @@ def _all_results(class_run: _ClassRun) -> list[tuple[str, dict[str, Any]]]:
 def test_the_figures_are_plausible(class_run: _ClassRun) -> None:
     for label, body in _all_results(class_run):
         team, everyone = body["team"], body["email_everyone"]
-        assert 0 < team["invited_count"] <= 30, label
-        assert 0 <= team["signed_up_count"] <= 30, label
+        assert 0 < team["invited_count"] <= 60, label
+        assert 0 <= team["signed_up_count"] <= 60, label
         assert 0 <= team["attended_count"] <= team["signed_up_count"], label
         assert everyone["invited_count"] == 300, label
         # The shipped rule tops out near 0.68 per profile, so a panel where

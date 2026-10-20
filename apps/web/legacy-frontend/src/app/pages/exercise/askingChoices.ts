@@ -24,6 +24,7 @@
  * outcome a team sees is the count the refresh actually produced.
  */
 
+
 /** Ann's words per stored choice value. */
 const ASKING_CHOICE_LABELS: Readonly<Record<string, string>> = {
   better_recommendations: "Promise better recommendations.",

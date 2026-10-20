@@ -640,7 +640,7 @@ def simulate_results(
         seed: The team's seed. The only per-team state the rule reads.
         coefficients: A coefficient set. Required, never defaulted, so a test
             can isolate one lift and the shipped set is read in one place.
-        invite_limit: The dataset's invite limit (30 by default, and that
+        invite_limit: The dataset's invite limit (60 by default, and that
             default lives on the dataset row, not here).
 
     Returns:

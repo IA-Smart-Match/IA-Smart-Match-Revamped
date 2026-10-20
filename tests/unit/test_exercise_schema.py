@@ -332,11 +332,11 @@ def test_the_named_constraints_exist(table_name: str, constraint_name: str):
     assert constraint_name in names, f"{constraint_name} is missing from {table_name}"
 
 
-def test_the_invite_limit_defaults_to_thirty():
-    """§5, and Ann's stated number rather than an open question."""
+def test_the_invite_limit_defaults_to_sixty():
+    """§5, and Ann's number (2026-10-16, was thirty) rather than an open question."""
     default = _table("exercise_dataset").columns["invite_limit"].server_default
     assert default is not None
-    assert "30" in str(default.arg)
+    assert "60" in str(default.arg)
 
 
 def test_the_workspace_stores_a_hash_and_never_a_raw_token():

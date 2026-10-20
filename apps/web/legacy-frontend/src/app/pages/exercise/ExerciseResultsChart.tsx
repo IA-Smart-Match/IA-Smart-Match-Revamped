@@ -131,6 +131,11 @@ const LEGEND_FONT_SIZE = 20;
 
 const NOT_AVAILABLE = "not available";
 
+/** Exercise chart: the mass email alone is the light bar, mass email plus the list the dark one. */
+const DESK_LIGHT = { fill: "var(--ce-series-invited-fill)", stroke: "var(--ce-series-invited-stroke)" } as const;
+const DESK_DARK = { fill: "var(--ce-series-attended-fill)", stroke: "var(--ce-series-attended-stroke)" } as const;
+const hatchIdFor = (baseId: string): string => `ce-results-hatch-${baseId.replace(/[^\w-]/g, "")}`;
+
 /**
  * §3.3 series for `variant="exercise"`, as token references so dark mode
  * follows the page. Invited is an open bar, Signed up a 45° hatch, Attended
@@ -238,6 +243,21 @@ export function ExerciseResultsChart({
     attended: panel.attended,
   }));
 
+  // B4 items 4-5 (exercise look): groups are the two stages that matter, bars
+  // are the panels in the order given (light, dark, then a hatched third), so
+  // "light bar / dark bar" in the caption is literally true. "Invited" stays
+  // in the table only; its 30 to 300 range flattened the real bars.
+  const deskRows = (["signedUp", "attended"] as const).map((stage) => ({
+    label: stage === "signedUp" ? "Signed up" : "Attended",
+    ...Object.fromEntries(series.map((panel, index) => [`p${index}`, panel[stage]])),
+  }));
+  const deskBars = series.map((panel, index) => ({
+    key: `p${index}`,
+    name: panel.label,
+    fill: [DESK_LIGHT.fill, DESK_DARK.fill, `url(#${hatchIdFor(baseId)})`][index] ?? DESK_DARK.fill,
+    stroke: index === 0 ? DESK_LIGHT.stroke : DESK_DARK.stroke,
+  }));
+
   const unavailable = series.flatMap((panel) =>
     STAGES.filter((stage) => typeof panel[stage.key as StageKey] !== "number").map(
       (stage) => `${panel.label}: ${stage.label.toLowerCase()} ${NOT_AVAILABLE}`,
@@ -246,7 +266,7 @@ export function ExerciseResultsChart({
 
   // One hatch per chart for the exercise look; ids from useId so two charts
   // on a page cannot share a pattern.
-  const hatchId = `ce-results-hatch-${baseId.replace(/[^\w-]/g, "")}`;
+  const hatchId = hatchIdFor(baseId);
   const barFill = (key: StageKey, pattern: string): string => {
     if (!desk) {
       return `url(#${pattern})`;
@@ -330,7 +350,7 @@ export function ExerciseResultsChart({
         <BarChart
           width={880}
           height={460}
-          data={rows}
+          data={desk ? deskRows : rows}
           role="img"
           aria-labelledby={headingId}
           margin={{ top: 32, right: 24, bottom: 16, left: 16 }}
@@ -402,13 +422,21 @@ export function ExerciseResultsChart({
                 : undefined
             }
           />
-          {STAGES.map((stage) => (
+          {(desk
+            ? deskBars
+            : STAGES.map((stage) => ({
+                key: stage.key,
+                name: stage.label,
+                fill: barFill(stage.key, stage.pattern),
+                stroke: barStroke(stage.key, stage.fill),
+              }))
+          ).map((stage) => (
             <Bar
               key={stage.key}
               dataKey={stage.key}
-              name={stage.label}
-              fill={barFill(stage.key, stage.pattern)}
-              stroke={barStroke(stage.key, stage.fill)}
+              name={stage.name}
+              fill={stage.fill}
+              stroke={stage.stroke}
               strokeWidth={2}
               isAnimationActive={false}
             >

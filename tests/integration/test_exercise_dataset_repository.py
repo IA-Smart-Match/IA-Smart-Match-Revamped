@@ -208,7 +208,7 @@ def test_one_upload_becomes_a_dataset_its_profiles_and_its_events(session: Sessi
     assert summary.row_count == 12
     assert summary.event_count == 12
     assert summary.checksum == "0" * 64
-    assert summary.invite_limit == 30
+    assert summary.invite_limit == 60
     assert summary.license_line is None
 
 

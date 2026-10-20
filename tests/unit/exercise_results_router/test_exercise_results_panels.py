@@ -217,8 +217,8 @@ def test_reading_a_run_this_team_has_not_made_is_ok_and_null(client: TestClient)
 def test_round_two_carries_the_stored_round_one_panel(
     fakes: _Fakes, client: TestClient, confirmed: SimulationCoefficients
 ) -> None:
-    fakes.unlock("round-one", "round-two")
-    first = client.post(_RESULTS, json=_FINAL_BODY, headers=_HEADER).json()
+    first = _prepare_refresh(fakes, client)
+    assert client.post(_REFRESH, json={}, headers=_HEADER).status_code == 200
 
     second = client.post(_RESULTS_TWO, json=_FINAL_BODY, headers=_HEADER).json()
 
@@ -228,6 +228,7 @@ def test_round_two_carries_the_stored_round_one_panel(
     assert second["round_one"]["round"] == FIRST_ROUND
     assert second["round_one"]["team"] == first["team"]
     assert second["round_one"]["seats_empty"] == first["seats_empty"]
+    assert second["round_one"]["email_everyone"] == first["email_everyone"]
     recap = second["round_one"]
     assert (
         recap["existing_attended"] + recap["attended_in_room"] + recap["seats_empty"] == EVENT_SEATS
@@ -489,7 +490,9 @@ def test_before_after_rows_in_round_two(
     after = rows[1]
     assert (after["mass_email_signups"], after["list_added"]) == tuple(_lift_row(posted).values())
     assert after["with_list_signups"] == after["mass_email_signups"] + after["list_added"]
-    assert after["list_added_came"] <= after["list_added"]
+    team, mass = posted["team"], posted["email_everyone"]
+    added = set(team["signed_up_profile_nos"]) - set(mass["signed_up_profile_nos"])
+    assert after["list_added_came"] == len(added & set(team["attended_profile_nos"]))
     # Reading twice gives the posted rows, byte for byte: no second run.
     assert client.get(_RESULTS_TWO).json()["before_after"]["rows"] == rows
     assert client.get(_RESULTS_TWO).json()["before_after"]["rows"] == rows
@@ -544,6 +547,8 @@ def test_before_after_rows_keep_the_stored_runs_invite_count_when_the_limit_chan
     # The instructor changes the dataset's limit; the ranker reads it from there.
     moved = replace(_SUMMARY, invite_limit=new_limit)
     monkeypatch.setattr(fakes.datasets, "get_dataset_summary", lambda *_a, **_k: moved)
+    key = (_DATASET_ID, 1)
+    fakes.workspaces.rows[key] = replace(fakes.workspaces.rows[key], invite_limit=new_limit)
 
     sizes: list[int] = []
     real = compare.run_the_rule
@@ -579,7 +584,10 @@ def test_before_row_differs_from_after_row_on_the_same_seed(
             overlay_added_event_topics=("brand", "outreach"),
             overlay_card_interests=("brand", "outreach"),
         )
-    body = client.post(_RESULTS_TWO, json=_FINAL_BODY, headers=_HEADER).json()
+    assert client.post(_REFRESH, json={}, headers=_HEADER).status_code == 200
+    posted = client.post(_RESULTS_TWO, json=_FINAL_BODY, headers=_HEADER)
+    assert posted.status_code == 201, posted.text
+    body = posted.json()
     runs_before = dict(fakes.results.runs)
     seen: list[tuple[list[int], int]] = []
     real = compare.run_the_rule
@@ -592,6 +600,17 @@ def test_before_row_differs_from_after_row_on_the_same_seed(
     monkeypatch.setattr(compare, "_MEMO", {})  # the POST kept the rows; work them out again
     assert client.get(_RESULTS_TWO).status_code == 200
     before_invited, before_seed = seen[0]
-    assert before_invited != body["team"]["invited_profile_nos"]
+    assert set(before_invited) != set(body["team"]["invited_profile_nos"])
     assert before_seed == fakes.workspaces.seeds[workspace.id], "same seed as the stored run"
     assert fakes.results.runs == runs_before, "one run row per team and event; the read stored none"
+
+
+def test_row_counts_only_added_signups_who_attended() -> None:
+    """3 sign-ups the mass email missed, 2 of them attended: came is 2, not 3."""
+    from smartmatch_api.exercise_dependencies import ResultPanel
+    from smartmatch_api.routers.exercise_results_compare import _row
+
+    team = ResultPanel((1, 2, 3, 4, 5), (1, 2, 3, 4), (1, 3, 4))
+    everyone = ResultPanel((1, 2, 3, 4, 5), (1,), (1,))
+    row = _row("x", team, everyone)
+    assert (row.list_added, row.list_added_came) == (3, 2)

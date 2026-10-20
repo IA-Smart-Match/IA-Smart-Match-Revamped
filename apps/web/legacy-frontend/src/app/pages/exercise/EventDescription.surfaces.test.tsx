@@ -127,8 +127,8 @@ describe("the matching page", () => {
     renderMatching(NORTHLINE_TEXT);
 
     const description = await screen.findByText(NORTHLINE_TEXT);
-    const sliders = screen.getAllByRole("slider");
-    const listHeading = screen.getByRole("heading", { name: "The list" });
+    const sliders = await screen.findAllByRole("slider");
+    const listHeading = await screen.findByRole("heading", { name: "The list" });
 
     expect(sliders.length).toBeGreaterThan(0);
     expect(sliders.every((slider) => precedes(description, slider))).toBe(true);
@@ -141,7 +141,7 @@ describe("the matching page", () => {
     renderMatching(NORTHLINE_TEXT);
 
     const description = await screen.findByText(NORTHLINE_TEXT);
-    const name = screen.getByText("Rosa Villalobos");
+    const name = await screen.findByText("Rosa Villalobos");
 
     expect(description.classList.contains("ce-type-body")).toBe(true);
     // The list sets the class on the name itself (cards) or on the table body.

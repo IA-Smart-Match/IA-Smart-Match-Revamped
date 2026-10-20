@@ -103,13 +103,11 @@ _LOGGER = logging.getLogger(__name__)
 #:
 #: The floor is ``ck_exercise_dataset_invite_limit`` (``invite_limit >= 1``),
 #: restated so the refusal can be a sentence rather than a write failure. The
-#: ceiling is this module's own and is **not** a number of Ann's: it is the
-#: largest dataset the ingest path will accept
-#: (``ingest.MAX_PROFILE_ROW_COUNT``), because a limit above the number of
-#: profiles that can exist caps nothing. Ann's stated default, 30, lives in the
-#: column's server default and is not repeated here.
+#: ceiling is 60, Ann's decision of 2026-10-16: it matches the 60 seats, so a
+#: list can never name more students than can be seated. The column's server
+#: default (also 60) lives in the schema and is not repeated here.
 MIN_INVITE_LIMIT: Final[int] = 1
-MAX_INVITE_LIMIT: Final[int] = 1_000
+MAX_INVITE_LIMIT: Final[int] = 60
 
 #: How many team rows :meth:`ExerciseInstructorRepository.list_workspaces`
 #: returns (review finding F4 on PR #184).
