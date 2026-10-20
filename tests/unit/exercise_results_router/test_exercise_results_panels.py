@@ -604,8 +604,8 @@ def test_before_row_differs_from_after_row_on_the_same_seed(
 
 def test_row_counts_only_added_signups_who_attended() -> None:
     """3 sign-ups the mass email missed, 2 of them attended: came is 2, not 3."""
-    from smartmatch_api.routers.exercise_results_compare import _row
     from smartmatch_api.exercise_dependencies import ResultPanel
+    from smartmatch_api.routers.exercise_results_compare import _row
 
     team = ResultPanel((1, 2, 3, 4, 5), (1, 2, 3, 4), (1, 3, 4))
     everyone = ResultPanel((1, 2, 3, 4, 5), (1,), (1,))
