@@ -40,6 +40,7 @@ except ImportError:
 import httpx
 
 TEAMS = range(1, 7)
+PUBLIC_HOST, REFUSED_HOST = "exercise.smartmatch.cloud", "exercise.plated.blog"
 LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1"}  # Plan B/C need the owner's OK first
 ROUND1, ROUND2 = "E11", "E12"  # Northline, Harbor in Ann's fixture file
 INVITE_LIMIT = 60  # #419: 60 personalized emails in both rounds
@@ -57,6 +58,9 @@ CLOSING: set[asyncio.Future] = set()  # reload-dropped clients still closing
 RECORDS: list[dict] = []  # one row per request
 SAMPLES: list[dict] = []  # one row per resource sample
 BURST = {"name": "setup"}
+PUBLIC = {"on": False}  # set by --i-own-this-public-host; enables cloudflare_blocked counting
+BLOCKED = "cloudflare_blocked"
+BLOCK_STATUS = (403, 429, 503)
 T0 = time.perf_counter()
 
 
@@ -77,6 +81,14 @@ def pct(values: list[float], q: float) -> float:
         return 0.0
     ordered = sorted(values)
     return ordered[min(len(ordered) - 1, max(0, math.ceil(q / 100 * len(ordered)) - 1))]
+
+
+def is_cf_blocked(resp: httpx.Response) -> bool:
+    """Cloudflare rate limit / challenge, not the app: 403/429/503, HTML error, cf-mitigated."""
+    if not PUBLIC["on"] or resp.status_code < 400:
+        return False
+    html = "text/html" in resp.headers.get("content-type", "")
+    return resp.status_code in BLOCK_STATUS or html or "cf-mitigated" in resp.headers
 
 
 def error_code(resp: httpx.Response) -> str:
@@ -113,6 +125,8 @@ async def call(
             resp = await client.request(method, url, headers=HDR, **kw)
         status = resp.status_code
         code = error_code(resp) if status >= 400 else code
+        if is_cf_blocked(resp):
+            code = BLOCKED
     except (TimeoutError, httpx.HTTPError) as exc:
         code = type(exc).__name__
     except asyncio.CancelledError:
@@ -208,6 +222,8 @@ def make_client(base: str, **kw) -> httpx.AsyncClient:
     client = httpx.AsyncClient(base_url=base, **kw)
     host = client.base_url.host
     if client.base_url.scheme == "http" and host in LOOPBACK_HOSTS:
+        for c in client.cookies.jar:  # cookies copied in before any response
+            c.secure = False
 
         async def _unsecure(_resp: httpx.Response) -> None:
             for c in client.cookies.jar:
@@ -844,7 +860,10 @@ def summarize(records: list[dict]) -> list[dict]:
                 "p95": round(pct(lat, 95), 3),
                 "p99": round(pct(lat, 99), 3),
                 "max": round(max(lat, default=0), 3),
-                "unexpected": sum(1 for r in rs if not r["ok"] and r["status"] != -1),
+                "unexpected": sum(
+                    1 for r in rs if not r["ok"] and r["status"] != -1 and r["code"] != BLOCKED
+                ),
+                BLOCKED: sum(1 for r in rs if r["code"] == BLOCKED),
                 "status": dict(
                     Counter(
                         f"{r['status']}{':' + r['code'] if r['code'] and (r['status'] >= 400 or r['code'] == 'keepalive_retry') else ''}"  # noqa: E501
@@ -861,7 +880,7 @@ def verdicts(records: list[dict]) -> list[dict]:
     reads = [r["latency"] for r in api if r["method"] == "GET"]
     writes = [r["latency"] for r in api if r["method"] in ("POST", "PUT", "DELETE")]
     pages = [r["latency"] for r in records if r["name"] == "page_load"]
-    counted = [r for r in records if r["status"] != -1]
+    counted = [r for r in records if r["status"] != -1 and r["code"] != BLOCKED]
     unexpected = sum(1 for r in counted if not r["ok"])
     fivexx = sum(1 for r in counted if r["status"] >= 500 or r["status"] == 0)
     b3 = sum(1 for r in counted if r["burst"].startswith("B3") and not r["ok"])
@@ -943,6 +962,8 @@ def write_report(out: Path, meta: dict) -> int:
         f"| {v['target']} | {round(v['value'], 3)} | {'PASS' if v['ok'] else 'FAIL'} |"
         for v in verd
     ]
+    blocked = sum(1 for r in RECORDS if r["code"] == BLOCKED)
+    lines += ["", f"cloudflare_blocked: {blocked} (kept out of app errors and targets)"]
     lines += ["", f"## Correctness: {len(CHECKS) - len(failed)}/{len(CHECKS)} checks pass", ""]
     lines += [f"- FAIL {c['burst']}: {c['check']} {c['detail']}" for c in failed] or ["- all pass"]
     lines += [
@@ -955,12 +976,13 @@ def write_report(out: Path, meta: dict) -> int:
         "",
         "## Endpoints (by phase, slowest p95 first)",
         "",
-        "| phase | name | n | p50 | p95 | p99 | max | unexpected | status mix |",
-        "|---|---|---|---|---|---|---|---|---|",
+        "| phase | name | n | p50 | p95 | p99 | max | unexpected | cloudflare_blocked"
+        " | status mix |",
+        "|---|---|---|---|---|---|---|---|---|---|",
     ]
     lines += [
         f"| {r['burst']} | {r['name']} | {r['n']} | {r['p50']} | {r['p95']} | {r['p99']}"
-        f" | {r['max']} | {r['unexpected']} | {r['status']} |"
+        f" | {r['max']} | {r['unexpected']} | {r[BLOCKED]} | {r['status']} |"
         for r in rows
     ]
     (out / "report.md").write_text("\n".join(lines) + "\n")
@@ -970,6 +992,27 @@ def write_report(out: Path, meta: dict) -> int:
         flush=True,
     )
     return 0 if not failed and all(v["ok"] for v in verd) else 1
+
+
+def check_host(base: str, opt_in: str | None) -> None:
+    """Exit unless base is local, or is exactly the one public host the owner opted into."""
+    url = httpx.URL(base)
+    if url.host in LOCAL_HOSTS:
+        return
+    if url.host == REFUSED_HOST:
+        sys.exit(f"refusing {url.host!r}: no longer the team's domain")
+    if url.host != PUBLIC_HOST or opt_in != url.host or url.scheme != "https":
+        sys.exit(
+            f"refusing non-local host {url.host!r}: only https://{PUBLIC_HOST} with"
+            f" --i-own-this-public-host {PUBLIC_HOST} (Plan C, owner's OK;"
+            " docs/operations/exercise-load-test.md)"
+        )
+    PUBLIC["on"] = True
+    print(
+        f"WARNING: {url.host} is the live class site: this run writes to the live class"
+        " database and resets teams 1-6.",
+        flush=True,
+    )
 
 
 def main() -> None:
@@ -1003,12 +1046,13 @@ def main() -> None:
         action="store_true",
         help="run although /api/health release is not loadtest-* (still local hosts only)",
     )
+    p.add_argument(
+        "--i-own-this-public-host",
+        metavar="HOST",
+        help=f"opt in to the live class site; must equal the --base host ({PUBLIC_HOST})",
+    )
     args = p.parse_args()
-    if httpx.URL(args.base).host not in LOCAL_HOSTS:
-        sys.exit(
-            f"refusing non-local host {httpx.URL(args.base).host!r}: Plan B/C need the owner's OK"
-            " (docs/operations/exercise-load-test.md)"
-        )
+    check_host(args.base, args.i_own_this_public_host)
     sys.exit(asyncio.run(run(args)))
 
 

@@ -157,9 +157,8 @@ from the generator's Python should take under 5 ms per request.
 The VM run belongs to the orchestrator/owner, after the deploy, **outside class time**. It
 writes to the live class database: it resets teams 1–6 and locks E11/E12 at start and end,
 and in between it saves settings, runs results, asks and refreshes for teams 1–6. Owner OK
-first (standing rule: anything that writes on the VM is a gate). Never point it at
-`exercise.smartmatch.cloud` — the script refuses it, and a run
-through Cloudflare is Plan C, a separate gate.
+first (standing rule: anything that writes on the VM is a gate). The public link is
+Plan C (next section); without its explicit flag the script refuses `exercise.smartmatch.cloud`.
 
 The VM sets its cookies `Secure`, which httpx will not send over plain http. The tool
 handles this for loopback tunnels (`http://127.0.0.1:<port>`, `localhost`, `::1`) only; it
@@ -200,6 +199,33 @@ never relaxes other hosts. Use the IAP/SSH tunnel with `--allow-any-release` as 
 6. **After.** The script resets teams 1–6 and locks E11/E12. Re-open whatever step 1 found
    open, and record SHA, env and results next to the local runs
    (`sweep-recovery/oct23/loadtest-run2/report.md` has the local baseline to compare).
+
+## Running through the public link (Plan C)
+
+The owner chose (2026-10-20) to load-test through `https://exercise.smartmatch.cloud`, the path
+students use. Students share one campus NAT IP, so a burst from one generator is realistic.
+
+- **Off-hours only.** The run writes to the live class database: it resets teams 1–6 and locks
+  E11/E12 at start and at end. Re-open whatever was open afterwards.
+- **Opt-in flag.** `--i-own-this-public-host exercise.smartmatch.cloud` must equal the `--base`
+  host, the base must be `https`, and only that one host is allowed. Without it the tool
+  refuses. `exercise.plated.blog` is always refused (no longer the team's domain). The tool
+  prints a warning when the flag is used. Nothing about cookies is relaxed over https.
+- **Passcode** only via `LOADTEST_INSTRUCTOR_PASSCODE`; never logged.
+
+```bash
+read -rs LOADTEST_INSTRUCTOR_PASSCODE; export LOADTEST_INSTRUCTOR_PASSCODE
+.venv/bin/python tools/loadtest/classroom_load.py --base https://exercise.smartmatch.cloud \
+  --i-own-this-public-host exercise.smartmatch.cloud --allow-any-release \
+  --students 100 --out runs/vm-public-100 --label vm-public-100
+```
+
+**Reading `cloudflare_blocked`.** Cloudflare may challenge or rate-limit a burst from one IP.
+Any 403/429/503, HTML error/challenge page, or `cf-mitigated` header on a public run is counted
+as `cloudflare_blocked` (own column in `report.md` and `summary.json`), and is kept out of the
+`unexpected` counts and the error targets. A few blocks mean Cloudflare shaped the burst; many
+mean the numbers say little about the app: stop, ask the owner for a Cloudflare rule or
+allowlist for the generator IP, and re-run. Do not treat them as app failures.
 
 ## Next steps that need the owner
 
