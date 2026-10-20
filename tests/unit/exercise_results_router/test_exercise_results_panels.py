@@ -600,3 +600,14 @@ def test_before_row_differs_from_after_row_on_the_same_seed(
     assert set(before_invited) != set(body["team"]["invited_profile_nos"])
     assert before_seed == fakes.workspaces.seeds[workspace.id], "same seed as the stored run"
     assert fakes.results.runs == runs_before, "one run row per team and event; the read stored none"
+
+
+def test_row_counts_only_added_signups_who_attended() -> None:
+    """3 sign-ups the mass email missed, 2 of them attended: came is 2, not 3."""
+    from smartmatch_api.routers.exercise_results_compare import _row
+    from smartmatch_api.exercise_dependencies import ResultPanel
+
+    team = ResultPanel((1, 2, 3, 4, 5), (1, 2, 3, 4), (1, 3, 4))
+    everyone = ResultPanel((1, 2, 3, 4, 5), (1,), (1,))
+    row = _row("x", team, everyone)
+    assert (row.list_added, row.list_added_came) == (3, 2)
