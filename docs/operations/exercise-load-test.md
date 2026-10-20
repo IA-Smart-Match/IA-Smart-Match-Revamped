@@ -146,6 +146,58 @@ in `sweep-recovery/oct23/perf/profile.md`. For a clean before/after of one route
 sequential requests against two APIs on one DB rather than comparing two loaded runs: on a
 shared box host load swings whole-run p95s by 40 % between identical trees.
 
+**Load-generator check (Oct 19).** httpcore runs `import sniffio` on every request; with the
+venv on `/mnt/c` each miss cost ~19 ms of `stat` calls and capped one generator at ~25 req/s,
+so run 1's latencies were mostly the generator. The script now pre-empties that import
+(1.6 ms per request). Before trusting any run, check: a sequential `GET /api/health` loop
+from the generator's Python should take under 5 ms per request.
+
+## Running against the VM (after a deploy; owner-gated)
+
+The VM run belongs to the orchestrator/owner, after the deploy, **outside class time**. It
+writes to the live class database: it resets teams 1–6 and locks E11/E12 at start and end,
+and in between it saves settings, runs results, asks and refreshes for teams 1–6. Owner OK
+first (standing rule: anything that writes on the VM is a gate). Never point it at
+`exercise.smartmatch.cloud`/`exercise.plated.blog` — the script refuses both, and a run
+through Cloudflare is Plan C, a separate gate.
+
+1. **Before.** On the VM (read-only): note the deployed SHA, which dataset is active (must be
+   Ann's 300; invite limit 60), and the unlock state of E11/E12 from the instructor page.
+   Confirm no team has work you need to keep: the run resets teams 1–6.
+2. **Env on the VM** (`/opt/smartmatch/app/.env`, then rebuild api-exercise with both `-f`
+   files and `--build`): `SMARTMATCH_EXERCISE_DB_POOL_SIZE=30`,
+   `SMARTMATCH_EXERCISE_DB_MAX_OVERFLOW=0` (one pooled connection per AnyIO worker thread;
+   CBA's 60 + 30 stays under Postgres's 100). Keep **one** uvicorn process: the box has 2
+   shared vCPUs that Postgres, the CBA stack and Node share, and the instructor-login limiter
+   is per process.
+3. **Tunnel from the dev box** (generator off the VM, so it does not steal the server's CPU):
+
+   ```bash
+   gcloud compute ssh smartmatch --zone us-west2-c --tunnel-through-iap -- \
+     -N -L 15174:127.0.0.1:5174 -L 18090:127.0.0.1:8090
+   ```
+
+   `15174` = web-exercise (built bundle + `/v1` proxy), `18090` = api-exercise direct. Check
+   the ports in `docker-compose.exercise.yml` on the deployed SHA first. Both are `127.0.0.1`
+   locally, which the host guard accepts.
+4. **Run** (passcode typed, never echoed; the VM release is not `loadtest-*`):
+
+   ```bash
+   read -rs LOADTEST_INSTRUCTOR_PASSCODE; export LOADTEST_INSTRUCTOR_PASSCODE
+   .venv/bin/python tools/loadtest/classroom_load.py --base http://127.0.0.1:15174 \
+     --students 100 --out runs/vm-v1-100 --label vm-v1-100 --allow-any-release
+   ```
+
+   No `--api-pid`/`--web-pid`/`--pg-dsn`: sample the VM in a second IAP SSH session instead
+   (`vmstat 5`, `docker stats --no-stream` every 5 s, `free -m`) and save it beside the run.
+   Then V3 (`--students 150`). One run at a time.
+5. **Read it** as above, with two caveats: the IAP tunnel adds round-trip time and its own
+   throughput ceiling, so cold-load numbers are pessimistic; and e2-medium CPU steal shows
+   in `vmstat`'s `st` column, not in the run report.
+6. **After.** The script resets teams 1–6 and locks E11/E12. Re-open whatever step 1 found
+   open, and record SHA, env and results next to the local runs
+   (`sweep-recovery/oct23/loadtest-run2/report.md` has the local baseline to compare).
+
 ## Next steps that need the owner
 
 - **Plan B** (cloud clone of the VM disk, no internet egress, e2-medium): gates B1–B4 in the plan,
