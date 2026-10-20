@@ -30,7 +30,7 @@
  * counts, and the "how much we know" counts for every profile before and
  * after. All of it is on the asking response, so a reload, a second browser
  * and a team the instructor refreshed see the same thing. The shut button
- * reads "Already refreshed at 10:42 AM". Counts are what ADR-0025 D8 allows;
+ * reads "Already asked at 10:42 AM". Counts are what ADR-0025 D8 allows;
  * there is no percentage on this screen, and the shares in Ann's build table
  * (OQ-CE-04, confirmed 2026-09-25) are not returned by the API.
  *
@@ -68,6 +68,7 @@ import { AskingChoiceCard, type AskingCardState } from "./ExerciseAskingChoiceCa
 import { ExerciseNotice, ExerciseScreen } from "./ExerciseScreen";
 import { RefreshSummary } from "./RefreshSummary";
 import { refreshSummaryText } from "./refreshWording";
+import { RoundBanner } from "./RoundBanner";
 import { TeamStatusBand, useStatusRevision } from "./TeamStatusBand";
 import { askingWords } from "./teamStatusWording";
 import { isAccessRefusal, useExerciseResource } from "./useExerciseResource";
@@ -186,7 +187,7 @@ export function ExerciseAskingForMore(): React.JSX.Element {
           Back to the events
         </Link>
       }
-      status={<TeamStatusBand revision={revision} />}
+      status={<><RoundBanner page="asking" revision={revision} /><TeamStatusBand revision={revision} /></>}
     >
       {state.status === "loading" ? <AskingSkeleton /> : null}
       {state.status === "refused" ? workspaceRequiredNotice(state.refusal) : null}
@@ -387,7 +388,7 @@ function AskingPanels({
           <PartlyKnownCard />
         </div>
         {/*
-          The choice appears only after round one's results (Ann, 2026-10-02).
+          The choice appears only after Round 1's results (Ann, 2026-10-02).
           A team that somehow chose earlier still sees what it chose.
         */}
         {roundOneRun || choice !== null ? (
@@ -430,7 +431,7 @@ function AskingPanels({
           // reload and until the team is cleared (issue #321).
           <p data-slot="exercise-asking-chosen" className="ce-type-body text-ce-ink">
             <span>{`You chose: ${askingWords(choice)}${chosenAt === null ? "" : ` at ${chosenAt}`}.`}</span>{" "}
-            <span className="text-ce-ink-muted">A team picks once, so these are now fixed.</span>
+            <span className="text-ce-ink-muted">Your team picks once, so this choice is final.</span>
           </p>
         )}
       </section>

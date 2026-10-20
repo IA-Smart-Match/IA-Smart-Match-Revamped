@@ -2,7 +2,7 @@
  * Every sentence the exercise says about the refresh, in one place.
  *
  * Ann's review of 2026-10-02 asks for the refresh to say that it happened,
- * when, and what it changed, and gives the words: "Refresh done at 10:42 AM.
+ * when, and what it changed, and gives the words: "Updated at 10:42 AM.
  * 9 people who came to Northline now count as having gone to a similar event.
  * 12 of the 22 invited people with no card completed one. 0 people stopped
  * responding." and "Already refreshed at 10:42 AM."
@@ -28,16 +28,16 @@ function people(count: number): string {
   return count === 1 ? "1 person" : `${count} people`;
 }
 
-/** The first line of the summary: "Refresh done at 10:42 AM." */
+/** The first line of the summary: "Updated at 10:42 AM." */
 export function refreshDoneLine(at: string | null | undefined): string {
   const time = clockTime(at);
-  return time === null ? "Refresh done." : `Refresh done at ${time}.`;
+  return time === null ? "Updated." : `Updated at ${time}.`;
 }
 
-/** The shut button's own words: "Already refreshed at 10:42 AM". */
+/** The shut button's own words: "Already asked at 10:42 AM". */
 export function alreadyRefreshedLabel(at: string | null | undefined): string {
   const time = clockTime(at);
-  return time === null ? "Already refreshed" : `Already refreshed at ${time}`;
+  return time === null ? "Already asked" : `Already asked at ${time}`;
 }
 
 /**
@@ -53,16 +53,18 @@ export function refreshChangeSentences(
   eventName: string | null | undefined,
 ): string[] {
   const event = eventName ?? "the first event";
+  const short = event.split(":")[0]?.trim() || event;
+  const same = `This counts only toward events on the same topic as ${short}.`;
   const went =
     counts.topics_added === 1
-      ? `1 person who came to ${event} now counts as having gone to a similar event.`
-      : `${counts.topics_added} people who came to ${event} now count as having gone to a similar event.`;
+      ? `1 person who came to ${event} now counts as having gone to a similar event. ${same}`
+      : `${counts.topics_added} people who came to ${event} now count as having gone to a similar event. ${same}`;
   const asked = counts.invited_without_card;
   const cards =
     asked === 0
       ? "Everyone your team invited already had a card."
       : `${counts.cards_completed} of the ${asked} invited ${asked === 1 ? "person" : "people"} with no card completed one.`;
-  return [went, cards, `${people(counts.non_responding)} stopped responding.`];
+  return [went, cards, `${people(counts.non_responding)} stopped responding: they stop opening messages and will not sign up for anything, mass email included.`];
 }
 
 /** The summary as one string, for a line that has no room for a list. */

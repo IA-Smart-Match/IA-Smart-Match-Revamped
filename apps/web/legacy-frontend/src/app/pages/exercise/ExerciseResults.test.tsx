@@ -651,7 +651,7 @@ describe("<ExerciseResults /> once-only presses", () => {
       return null;
     });
     renderResults();
-    const ask = await screen.findByRole("button", { name: /ask them now/i });
+    const ask = await screen.findByRole("button", { name: /ask students now/i });
     const counts = document.querySelector('[data-slot="exercise-results-refresh-counts"]');
     expect(counts?.getAttribute("role")).toBe("status");
     expect(counts?.textContent).toBe("");
@@ -672,14 +672,14 @@ describe("<ExerciseResults /> once-only presses", () => {
     await waitFor(() => expect(screen.getByText(/could not be reached/i)).toBeDefined());
     expect(posts(REFRESH)).toBe(1);
     // Ann, 2026-10-02: a used-up button says so on itself, with the time.
-    const shut = screen.getByRole("button", { name: "Already refreshed at 10:42 AM" });
+    const shut = screen.getByRole("button", { name: "Already asked at 10:42 AM" });
     expect(isOff(shut)).toBe(true);
     fireEvent.click(shut);
     expect(posts(REFRESH)).toBe(1);
     expect(
       document.querySelector('[data-slot="exercise-results-refresh-counts"]')?.textContent,
     ).toBe(
-      "Refresh done at 10:42 AM. 5 people who came to Northline now count as having gone to a similar event. 8 of the 22 invited people with no card completed one. 2 people stopped responding.",
+      "Updated at 10:42 AM. 5 people who came to Northline now count as having gone to a similar event. This counts only toward events on the same topic as Northline. 8 of the 22 invited people with no card completed one. 2 people stopped responding: they stop opening messages and will not sign up for anything, mass email included.",
     );
   });
 
@@ -717,16 +717,16 @@ describe("<ExerciseResults /> once-only presses", () => {
       return null;
     });
     renderResults();
-    const ask = await screen.findByRole("button", { name: /ask them now/i });
+    const ask = await screen.findByRole("button", { name: /ask students now/i });
     fireEvent.click(ask);
     await new Promise((resolve) => setTimeout(resolve, CONFIRM_GUARD_MS + 20));
     fireEvent.click(ask);
-    const shut = await screen.findByRole("button", { name: "Already refreshed at 10:42 AM" });
+    const shut = await screen.findByRole("button", { name: "Already asked at 10:42 AM" });
     expect(isOff(shut)).toBe(true);
     expect(screen.queryByText("Your team has already asked the people it invited.")).toBeNull();
     expect(
       document.querySelector('[data-slot="exercise-results-refresh-counts"]')?.textContent,
-    ).toContain("Refresh done at 10:42 AM.");
+    ).toContain("Updated at 10:42 AM.");
     fireEvent.click(shut);
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(posts(REFRESH)).toBe(1);

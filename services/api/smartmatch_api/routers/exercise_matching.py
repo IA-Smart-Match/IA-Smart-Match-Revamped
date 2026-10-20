@@ -147,13 +147,13 @@ def _setting_name_or_refusal(name: str) -> str:
         raise ExerciseError(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             code="exercise_setting_name_unusable",
-            message="Give your settings a short name.",
+            message="Give this setting a short name.",
         )
     if trimmed == _RESERVED_SETTING_NAME:
         raise ExerciseError(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             code="exercise_setting_name_reserved",
-            message="Pick another name for your settings.",
+            message="Pick another name for this setting.",
         )
     return trimmed
 
@@ -280,7 +280,7 @@ def _overrides_for(
         raise ExerciseError(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             code="exercise_weights_ambiguous",
-            message="Choose saved settings or your own weights, not both.",
+            message="Choose a saved setting or move the sliders, not both.",
         )
     if setting is not None:
         name = _setting_name_or_refusal(setting)
