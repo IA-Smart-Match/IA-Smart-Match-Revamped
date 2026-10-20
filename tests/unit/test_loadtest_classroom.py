@@ -53,3 +53,28 @@ def test_refresh_once_counts_students_and_instructor() -> None:
     assert cl.once_per_team(0, True)
     assert not cl.once_per_team(1, True)
     assert not cl.once_per_team(0, False)
+
+
+def _secure_cookie_sent(base: str) -> bool:
+    import asyncio
+
+    import httpx
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.url.path == "/set":
+            return httpx.Response(200, headers={"set-cookie": "w=1; Path=/; Secure; HttpOnly"})
+        return httpx.Response(200, json={"cookie": req.headers.get("cookie", "")})
+
+    async def go() -> bool:
+        c = cl.make_client(base, transport=httpx.MockTransport(handler))
+        async with c:
+            await c.get("/set")
+            return "w=1" in (await c.get("/x")).json()["cookie"]
+
+    return asyncio.run(go())
+
+
+def test_secure_cookie_sent_to_loopback_http_only() -> None:
+    assert _secure_cookie_sent("http://127.0.0.1:15174")
+    assert _secure_cookie_sent("http://localhost:15174")
+    assert not _secure_cookie_sent("http://example.test")

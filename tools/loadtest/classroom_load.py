@@ -196,6 +196,26 @@ async def fetch_asset(base: str, path: str) -> None:
 
 # ---------------------------------------------------------------- actors
 
+LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
+
+
+def make_client(base: str, **kw) -> httpx.AsyncClient:
+    """AsyncClient that still sends Secure cookies to a loopback http base (IAP/SSH tunnel).
+
+    The VM sets `Secure` cookies; httpx never sends those over plain http, so a tunnel to
+    127.0.0.1 would 401 every call. Only loopback bases are relaxed.
+    """
+    client = httpx.AsyncClient(base_url=base, **kw)
+    host = client.base_url.host
+    if client.base_url.scheme == "http" and host in LOOPBACK_HOSTS:
+
+        async def _unsecure(_resp: httpx.Response) -> None:
+            for c in client.cookies.jar:
+                c.secure = False
+
+        client.event_hooks["response"].append(_unsecure)
+    return client
+
 
 class Student:
     def __init__(self, idx: int, team: int, base: str, rng: random.Random, assets: list[str]):
@@ -207,8 +227,8 @@ class Student:
         self.reloads = 0
 
     def _new_client(self, cookies: httpx.Cookies | None = None) -> httpx.AsyncClient:
-        return httpx.AsyncClient(
-            base_url=self.base, timeout=30, cookies=cookies, limits=httpx.Limits(max_connections=6)
+        return make_client(
+            self.base, timeout=30, cookies=cookies, limits=httpx.Limits(max_connections=6)
         )
 
     async def _assets(self) -> None:
@@ -396,7 +416,7 @@ class Student:
 
 class Instructor:
     def __init__(self, base: str):
-        self.client = httpx.AsyncClient(base_url=base, timeout=60)
+        self.client = make_client(base, timeout=60)
 
     async def login(self) -> None:
         passcode = os.environ.get("LOADTEST_INSTRUCTOR_PASSCODE", "")

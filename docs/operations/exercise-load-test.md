@@ -5,7 +5,7 @@ Proves the class exercise keeps updating **correctly** with a full room: 6 teams
 Plan B (cloud clone) / Plan C (live VM) follow-ups: the load-test plan (`loadtest-plan/PLAN.md`,
 2026-10-16).
 
-**Local only.** The script refuses `*.smartmatch.cloud` and `*.plated.blog`. Plan B and C need the
+**Local only.** The script refuses `*.smartmatch.cloud`. Plan B and C need the
 owner's OK first.
 
 ## What one run does
@@ -158,8 +158,12 @@ The VM run belongs to the orchestrator/owner, after the deploy, **outside class 
 writes to the live class database: it resets teams 1–6 and locks E11/E12 at start and end,
 and in between it saves settings, runs results, asks and refreshes for teams 1–6. Owner OK
 first (standing rule: anything that writes on the VM is a gate). Never point it at
-`exercise.smartmatch.cloud`/`exercise.plated.blog` — the script refuses both, and a run
+`exercise.smartmatch.cloud` — the script refuses it, and a run
 through Cloudflare is Plan C, a separate gate.
+
+The VM sets its cookies `Secure`, which httpx will not send over plain http. The tool
+handles this for loopback tunnels (`http://127.0.0.1:<port>`, `localhost`, `::1`) only; it
+never relaxes other hosts. Use the IAP/SSH tunnel with `--allow-any-release` as documented.
 
 1. **Before.** On the VM (read-only): note the deployed SHA, which dataset is active (must be
    Ann's 300; invite limit 60), and the unlock state of E11/E12 from the instructor page.
