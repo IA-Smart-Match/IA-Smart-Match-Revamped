@@ -28,13 +28,16 @@ try {
     await page.getByLabel("Passcode").fill(passcode);
     await page.getByLabel("Passcode").press("Enter");
     const open = page.getByRole("button", { name: "Open results", exact: true });
-    await open.first().waitFor({ timeout: 15000 });
+    await page.getByRole("button", { name: /^(Open|Close) results$/ }).first().waitFor({ timeout: 15000 });
     for (let guard = 0, left = await open.count(); left > 0; guard += 1) {
       if (guard > 20) throw new Error("Instructor loop: Open results did not finish.");
       await open.first().click();
       await page.getByRole("button", { name: "Open results now" }).click();
-      await page.getByRole("button", { name: "Close results", exact: true }).first().waitFor();
-      const now = await open.count();
+      let now = left;
+      for (let t = 0; t < 30 && now >= left; t += 1) {
+        await page.waitForTimeout(500);
+        now = await open.count();
+      }
       if (now >= left) throw new Error("Instructor loop: open-results count did not drop.");
       left = now;
     }
@@ -68,6 +71,12 @@ try {
     await page.waitForURL(/\/exercise\/events\/[^/]+$/);
     await beat();
   };
+  // Settings are saved per event; the results page shows no radios without one.
+  const saveSetting = async (name) => {
+    await page.getByLabel("Give this setting a name").fill(name);
+    await page.getByRole("button", { name: "Save this setting", exact: true }).click();
+    await beat();
+  };
   const runResults = async () => {
     await page.getByRole("link", { name: "Choose one setting and see results" }).click();
     await page.waitForURL(/\/results$/);
@@ -90,12 +99,7 @@ try {
   await openEvent(0);
   await scroll(4);
   // 2. Save a setting (when the page offers one), then send the list.
-  const nameField = page.getByLabel("Give this setting a name");
-  if (await nameField.isVisible().catch(() => false)) {
-    await nameField.fill("Major first");
-    await page.getByRole("button", { name: "Save this setting", exact: true }).click();
-    await beat();
-  }
+  await saveSetting("Balanced");
   await runResults();
   // 3. Ask for more (round two).
   await page.goto(url("/exercise/asking"));
@@ -109,6 +113,7 @@ try {
   // 4. Harbor: build the list, send it, compare before and after.
   await openEvent(1);
   await scroll(4);
+  await saveSetting("Balanced");
   await runResults();
   // 5. Pad to the target length.
   const left = minMs - (Date.now() - started);
