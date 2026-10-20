@@ -145,9 +145,10 @@ _RESERVED_SETTING_NAME = "compare"
 #: this team's workspace and a digest of its whole overlay, event, weights,
 #: setting name — so a hit can never be stale (Harbor after asking re-keys on
 #: the new overlay) and a second worker needs no invalidation.
-# ponytail: per-process dict wiped at 4096 entries; an LRU if a class ever cycles past it.
+# ponytail: per-process dict wiped at 1024 entries (~30-60 MB of views); an LRU if a
+# class ever cycles past it.
 _LIST_MEMO: dict[tuple[object, ...], RankedListView] = {}
-_LIST_MEMO_CEILING = 4096
+_LIST_MEMO_CEILING = 1024
 
 
 def _setting_name_or_refusal(name: str) -> str:
@@ -278,9 +279,15 @@ def _build_list(
         weights=effective_weights(overrides),
         setting_name=setting_name,
     )
-    if len(_LIST_MEMO) >= _LIST_MEMO_CEILING:
-        _LIST_MEMO.clear()
-    _LIST_MEMO[key] = view
+    # A refresh committing between the digest and the profile read would file the new
+    # list under the old digest, and a later reset brings that digest back. Keep the
+    # list only if the overlay did not move while it was built (review H1).
+    if key[4] == team_view.overlay_version(
+        session, dataset_id=workspace.dataset_id, workspace_id=workspace.id
+    ):
+        if len(_LIST_MEMO) >= _LIST_MEMO_CEILING:
+            _LIST_MEMO.clear()
+        _LIST_MEMO[key] = view
     return view
 
 

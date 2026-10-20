@@ -85,3 +85,29 @@ def test_one_teams_kept_list_is_never_another_teams(
         assert client_marker(team_five, base.profile_no) == five
     assert (four, five) == ("completed_card", "major_plus_events")
     assert calls[0] == 2  # one per team; team five's re-read was kept
+
+
+def test_a_refresh_landing_mid_build_is_not_kept_under_the_old_digest(
+    fakes: _Fakes,  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Review H1: digest read, refresh commits, profiles read; a reset must not get that list."""
+    base = _PROFILES[1]
+    with _entered(fakes, 4) as team_four:
+        workspace = fakes.workspaces.rows[(_DATASET_ID, 4)]
+        carded = replace(
+            base,
+            overlay_card_interests=("analytics", "brand"),
+            overlay_card_career_goal="analytics",
+        )
+        real_read = fakes.team_view.list_team_profiles
+
+        def refresh_lands_now(*args: Any, **kwargs: Any) -> Any:
+            fakes.team_view.overlays[(workspace.id, base.profile_no)] = carded
+            return real_read(*args, **kwargs)
+
+        monkeypatch.setattr(fakes.team_view, "list_team_profiles", refresh_lands_now)
+        assert client_marker(team_four, base.profile_no) == "completed_card"
+        monkeypatch.setattr(fakes.team_view, "list_team_profiles", real_read)
+        del fakes.team_view.overlays[(workspace.id, base.profile_no)]  # instructor reset
+        assert client_marker(team_four, base.profile_no) == "major_plus_events"

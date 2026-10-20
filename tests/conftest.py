@@ -38,13 +38,17 @@ def ann_sample_dataset() -> ParsedDataset | IngestRefusal:
 
 @pytest.fixture(autouse=True)
 def _fresh_ranked_list_memo() -> Iterator[None]:
-    """Clear the class-load list memo between tests.
+    """Clear the class-load memos (ranked list, before/after) between tests.
 
     In production a dataset's profiles never change; test fakes reuse one
     dataset id across modules with different profiles, so a kept list would leak.
     Looked up in ``sys.modules`` so tests that never import the API pay nothing.
     """
-    module = sys.modules.get("smartmatch_api.routers.exercise_matching")
-    if module is not None:
-        module._LIST_MEMO.clear()
+    for name, memo in (
+        ("smartmatch_api.routers.exercise_matching", "_LIST_MEMO"),
+        ("smartmatch_api.routers.exercise_results_compare", "_MEMO"),
+    ):
+        module = sys.modules.get(name)
+        if module is not None:
+            getattr(module, memo).clear()
     yield

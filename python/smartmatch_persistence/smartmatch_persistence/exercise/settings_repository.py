@@ -100,6 +100,13 @@ MAX_SAVED_SETTINGS_PER_EVENT: Final[int] = 3
 #:     WORKSPACE_MEMBERSHIP_LOCK_KEY -> SAVED_SETTING_LOCK_KEY
 #:         -> RESULT_RUN_LOCK_KEY -> row locks
 #:
+#: The run route alone takes one more key, per team and first in its transaction
+#: (``ExerciseResultsRepository.wait_for_teammates_run``, class load, Ann #413)::
+#:
+#:     TEAM_RUN (per team) -> RESULT_RUN_LOCK_KEY
+#:
+#: No path takes it second, so it adds no cycle.
+#:
 #: CE-RESULTS-API added the third key
 #: (:data:`~smartmatch_persistence.exercise.results_repository.RESULT_RUN_LOCK_KEY`,
 #: derived from ``sha256(b"exercise_result_run")`` rather than reusing this one)
