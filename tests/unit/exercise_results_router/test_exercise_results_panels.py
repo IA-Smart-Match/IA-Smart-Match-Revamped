@@ -489,7 +489,9 @@ def test_before_after_rows_in_round_two(
     after = rows[1]
     assert (after["mass_email_signups"], after["list_added"]) == tuple(_lift_row(posted).values())
     assert after["with_list_signups"] == after["mass_email_signups"] + after["list_added"]
-    assert after["list_added_came"] <= after["list_added"]
+    team, mass = posted["team"], posted["email_everyone"]
+    added = set(team["signed_up_profile_nos"]) - set(mass["signed_up_profile_nos"])
+    assert after["list_added_came"] == len(added & set(team["attended_profile_nos"]))
     # Reading twice gives the posted rows, byte for byte: no second run.
     assert client.get(_RESULTS_TWO).json()["before_after"]["rows"] == rows
     assert client.get(_RESULTS_TWO).json()["before_after"]["rows"] == rows
@@ -544,6 +546,8 @@ def test_before_after_rows_keep_the_stored_runs_invite_count_when_the_limit_chan
     # The instructor changes the dataset's limit; the ranker reads it from there.
     moved = replace(_SUMMARY, invite_limit=new_limit)
     monkeypatch.setattr(fakes.datasets, "get_dataset_summary", lambda *_a, **_k: moved)
+    key = (_DATASET_ID, 1)
+    fakes.workspaces.rows[key] = replace(fakes.workspaces.rows[key], invite_limit=new_limit)
 
     sizes: list[int] = []
     real = compare.run_the_rule
@@ -578,7 +582,10 @@ def test_before_row_differs_from_after_row_on_the_same_seed(
             overlay_added_event_topics=("brand", "outreach"),
             overlay_card_interests=("brand", "outreach"),
         )
-    body = client.post(_RESULTS_TWO, json=_FINAL_BODY, headers=_HEADER).json()
+    assert client.post(_REFRESH, json={}, headers=_HEADER).status_code == 200
+    posted = client.post(_RESULTS_TWO, json=_FINAL_BODY, headers=_HEADER)
+    assert posted.status_code == 201, posted.text
+    body = posted.json()
     runs_before = dict(fakes.results.runs)
     seen: list[tuple[list[int], int]] = []
     real = compare.run_the_rule
@@ -590,6 +597,6 @@ def test_before_row_differs_from_after_row_on_the_same_seed(
     monkeypatch.setattr(compare, "run_the_rule", spy)
     assert client.get(_RESULTS_TWO).status_code == 200
     before_invited, before_seed = seen[0]
-    assert before_invited != body["team"]["invited_profile_nos"]
+    assert set(before_invited) != set(body["team"]["invited_profile_nos"])
     assert before_seed == fakes.workspaces.seeds[workspace.id], "same seed as the stored run"
     assert fakes.results.runs == runs_before, "one run row per team and event; the read stored none"
