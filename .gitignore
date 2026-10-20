@@ -103,3 +103,4 @@ _worktrees/
 
 # Proprietary stakeholder documents (Ann Wang's Word files); never commit them.
 test_data/*.docx
+tools/walkthrough/walkthrough-video/
