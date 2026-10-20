@@ -28,6 +28,15 @@ import time
 from collections import Counter, defaultdict
 from pathlib import Path
 
+# httpcore runs `import sniffio` on every request. Where sniffio is not installed and
+# site-packages sits on /mnt/c (WSL 9P), each miss walks sys.path with ~40 stat calls
+# (~4-15 ms per request, 4 misses each): the generator, not the API, capped at ~25 req/s
+# (Oct 19 L4 finding). A None entry makes the miss free and changes nothing else.
+try:
+    import sniffio  # noqa: F401
+except ImportError:
+    sys.modules["sniffio"] = None  # type: ignore[assignment]
+
 import httpx
 
 TEAMS = range(1, 7)
