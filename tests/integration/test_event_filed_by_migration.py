@@ -109,7 +109,7 @@ REVISION = "0033_event_filed_by"
 #: ``0045_exercise_unlock_closed_at`` and is the head. It adds two nullable
 #: ``exercise_result_run`` columns and backfills only those, so this file's
 #: claims still hold through it.
-HEAD_REVISION = "0046_exercise_run_snapshot"
+HEAD_REVISION = "0047_exercise_invite_sixty"
 
 ON_DATE = "2026-10-14"
 ZONE = "America/Los_Angeles"

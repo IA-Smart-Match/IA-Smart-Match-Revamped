@@ -194,7 +194,7 @@ class DatasetSummary:
         row_count: The profile rows stored — design spec §3's "row count",
             which is what ``exercise_dataset.row_count`` holds.
         checksum: SHA-256 of the uploaded bytes, hex.
-        invite_limit: §5's cap, 30 unless the instructor changed it.
+        invite_limit: §5's cap, 60 unless the instructor changed it.
         license_line: A per-upload license line, or ``None``. The ingest
             does not fill it. The exercise's own license line (OQ-CE-09,
             closed 2026-09-25) is a constant on the opening screen
