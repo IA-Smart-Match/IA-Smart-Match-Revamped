@@ -9,7 +9,8 @@ Dr. Wang's class testing runs Oct 23–26 and the VM is frozen. Every item needs
 1. Safe before Oct 23 (all S effort, no new student wording):
    - fix 2 real bugs (S1, S2);
    - make the Round 1 → Round 2 handoff a single next step and re-check results on its own timer (S3, S4);
-   - apply 4 one-line correctness fixes (S5).
+   - apply 4 one-line correctness fixes (S5);
+   - fix L1 (stat tiles merge into "1270" at 360 px), and check L2 (seat-map vs chart counts) by hand before class.
 2. After testing:
    - turn the Harbor before/after table into the visual lesson it is meant to be (A1);
    - make the build-save-compare loop fit on one screen (A2).
@@ -22,7 +23,7 @@ Dr. Wang's class testing runs Oct 23–26 and the VM is frozen. Every item needs
 
 | Lane (Opus, own worktree) | Skills | Output |
 |---|---|---|
-| 1 | local stack + `jury` | screenshots of every state (see "Lane 1") |
+| 1 | local stack + `jury` | 45 states × 3 widths, jury score, 10 observed problems (see "Lane 1") |
 | 2 | `impeccable` critique/audit | 12 findings |
 | 3 | `design-taste-frontend-v1`, `ui-ux-pro-max` | 11 findings (engagement, visual) |
 | 4 | `web-design-guidelines`, `design:accessibility-review` | 2 bugs + 12 findings (a11y, 360 → projector) |
@@ -155,7 +156,32 @@ Live entry page (read-only, no team opened): `shots/live-entry-360.png`, `shots/
 
 ## Lane 1 (local stack + jury)
 
-Pending at the time of writing. See the PR comments for the result.
+**Setup.** Local API and Vite ran against a private database (since dropped), seeded with `make exercise-seed` (300 profiles, 12 events). The VM was not touched. Team 3 was walked through both rounds, and the instructor page through unlock and refresh.
+
+**Screenshots.** 45 states were captured at 360, 768 and 1280.
+- The 360 set is in this PR: `docs/plans/class-module-uiux/shots/local/*-360.png`.
+- The full 135-file set (43 MB) is on the local, unpushed branch `uiux/lane1-shots` @ 83101257. Push it if wanted.
+- Not captured: dataset upload and "Clear team's work" (both destructive). The asking confirm also reset on resize, so it shows unconfirmed.
+
+**Jury** (blind critic, local production build, 9 pages):
+- Critic score 5.9, jury estimate about 7.0.
+- Weakest areas, all at 4/10: Responsive, Semantics, Animations and Markup.
+- Mobile CLS is above 0.2 on 4 pages: Harbor 0.32, Northline 0.30, events 0.24, asking 0.24.
+- Mobile LCP is 2.4–2.8 s.
+- No page-level horizontal scroll at any width.
+
+Lane 1 findings not already covered above:
+
+| id | Screen / width | Finding | Proposal | Effort | Risk | Ann-frozen |
+|---|---|---|---|---|---|---|
+| L1 | Asking, 360 (`30-asking-after-summary-360`) | **Bug:** the stats "127" and "0" run together and read as "1270" | Stack the count tiles below 480 px | S 0.5 h | low | no copy. **Safe before Oct 23.** |
+| L2 | Results, Northline and Harbor | **Verify before Oct 23:** the critic reports that the seat-map counts differ from the chart (Northline seats 13+10=23 vs chart 16 attended). Possibly two different measures (already coming + list vs attended), not a bug. | Check one run by hand. If it is two measures, label both (rule R3). | S 1 h check | — | any new label needs Ann OK |
+| L3 | Status band and compact slider bar, 360 | The band is sticky and about 360 px tall (46 % of a 780 px screen). The fixed slider bar (z-30) covers it and wraps to 5 lines. Headings scroll under it at every width. | Same fix as A2: one-line band, unpinned on phones, compact bar placed under the band (`TeamStatusBand.tsx:92`, `WeightsCompactBar.tsx:69-75`) | S-M 2 h | low-med | short labels need Ann OK |
+| L4 | Harbor event page before Round 1 results (`04-harbor-reachable-before-r1`) | The list is correctly hidden, but the banner says "Build your Harbor list with what you now know…" and the card heading says "Round 2 starts here", above "Round 2 opens after your Northline results." | While Round 2 is locked, show only the lock line in the banner | S 1 h | low | reuses existing text |
+| L5 | `/exercise/<unknown>` | The exercise 404 falls through to the platform 404 ("Back to the Smart Match home page", title "SmartMatch Platform") | Add an exercise catch-all route linking to `/exercise` | S 1 h | low | new sentence needs Ann OK |
+| L6 | Harbor and Northline results with exactly 1 saved setting | Run stays grey until the team ticks its only setting | Pre-select it when there is exactly one | S 0.5 h | low | no copy |
+| L7 | Instructor teams | "Clear team 3's work" is a green link beside the primary button | Use the danger style and move it apart | S 0.5 h | low | no copy |
+| L8 | Every page, mobile | CLS above 0.2 | Reserve height for the status band and list skeletons | M 2 h | low | no copy |
 
 ## Open questions for Dr. Wang
 
