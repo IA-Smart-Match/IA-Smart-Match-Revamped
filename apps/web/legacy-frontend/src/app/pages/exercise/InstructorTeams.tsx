@@ -46,7 +46,7 @@
  */
 import * as React from "react";
 
-import { isRefusal } from "../../../lib/exerciseApi";
+import { ExerciseUnreachable, isRefusal } from "../../../lib/exerciseApi";
 import {
   listTeamWorkspaces,
   readTeamWorkspace,
@@ -106,7 +106,9 @@ export function InstructorTeams({
   /** Called when the instructor session has expired; the page shows the passcode form. */
   readonly onSignedOut?: () => void;
 } = {}): React.JSX.Element {
-  const { state, reload } = useExerciseResource(listTeamWorkspaces, [reloadKey]);
+  const { state, reload } = useExerciseResource(listTeamWorkspaces, [reloadKey], {
+    keepDataOnError: (error) => error instanceof ExerciseUnreachable,
+  });
 
   /**
    * The sentence to show for a thrown error, signing out first when the
@@ -222,6 +224,9 @@ export function InstructorTeams({
       {state.status === "refused" ? <ExerciseNotice message={state.refusal.message} /> : null}
       {state.status === "unreachable" ? (
         <ExerciseNotice message={state.message} tone="problem" />
+      ) : null}
+      {state.status === "ready" && state.unreachable !== null ? (
+        <p role="status" className="ce-type-meta text-ce-ink-muted">Reconnecting…</p>
       ) : null}
       {state.status === "ready" ? (
         <>

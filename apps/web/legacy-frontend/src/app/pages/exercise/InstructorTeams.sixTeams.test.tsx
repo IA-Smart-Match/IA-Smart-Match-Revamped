@@ -81,3 +81,31 @@ describe("InstructorTeams, six teams", () => {
     expect(copied).not.toHaveBeenCalled();
   });
 });
+
+describe("InstructorTeams, a failed poll", () => {
+  it("keeps the last teams on screen, says it is reconnecting, then recovers", async () => {
+    let fail = false;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        fail
+          ? Promise.reject(new TypeError("offline"))
+          : Promise.resolve(
+              new Response(JSON.stringify({ teams: [row(1)], active_dataset_label: "Oct2-Ann-300" }), { status: 200 }),
+            ),
+      ),
+    );
+    render(<InstructorTeams />);
+    await screen.findByText("Teams are using: Oct2-Ann-300.");
+
+    fail = true;
+    fireEvent.click(screen.getByRole("button", { name: "Check the teams again" }));
+    await screen.findByText("Reconnecting…");
+    expect(screen.getByText("Teams are using: Oct2-Ann-300.")).toBeDefined();
+
+    fail = false;
+    fireEvent.click(screen.getByRole("button", { name: "Check the teams again" }));
+    await waitFor(() => expect(screen.queryByText("Reconnecting…")).toBeNull());
+    expect(screen.getByText("Teams are using: Oct2-Ann-300.")).toBeDefined();
+  });
+});
