@@ -61,6 +61,7 @@ import { ExerciseNotice } from "./ExerciseScreen";
 import { clockNow } from "./exerciseTime";
 import { useSignOutOnExpiredRead } from "./instructorSession";
 import { TeamDetail } from "./InstructorTeamDetail";
+import { InstructorTeamCodes } from "./InstructorTeamCodes";
 import { INSTRUCTOR_WELL, PanelCard, PanelSkeleton } from "./instructorUi";
 import { INSTRUCTOR_SESSION_REQUIRED } from "./refusals";
 import { useExerciseResource } from "./useExerciseResource";
@@ -140,6 +141,8 @@ export function InstructorTeams({
    */
   const [checkedAt, setCheckedAt] = React.useState<string | null>(null);
   const [pending, setPending] = React.useState(false);
+  /** Bumped by a landed reset, which issues that team a new code. */
+  const [codesKey, setCodesKey] = React.useState(0);
   /**
    * The in-flight guard. `pending` is state, so two presses handled before a
    * re-render both read `false`; the ref is set the moment the first starts.
@@ -218,6 +221,8 @@ export function InstructorTeams({
         <Notice tone="done" message={done} className="self-start" />
       )}
 
+      <InstructorTeamCodes reloadKey={reloadKey + codesKey} />
+
       {state.status === "loading" ? <PanelSkeleton what="the teams" rows={3} /> : null}
       {state.status === "refused" ? <ExerciseNotice message={state.refusal.message} /> : null}
       {state.status === "unreachable" ? (
@@ -258,6 +263,7 @@ export function InstructorTeams({
                       run(async () => {
                         await resetTeamWorkspace(team.team_number, team.dataset_id);
                         setDone(teamClearedSentence(team.team_number, clockNow()));
+                        setCodesKey((key) => key + 1);
                         void reload();
                       })
                     }

@@ -511,11 +511,11 @@ export function readScopeFacts(signal?: AbortSignal) {
   return exerciseRequest<ExerciseScopeFacts>("", { signal });
 }
 
-/** `POST /v1/exercise/workspaces` — the entry screen's whole input. */
-export function enterTeamWorkspace(teamNumber: number, signal?: AbortSignal) {
+/** `POST /v1/exercise/workspaces` — the entry screen's whole input: number and 4-digit code. */
+export function enterTeamWorkspace(teamNumber: number, code: string, signal?: AbortSignal) {
   return exerciseRequest<TeamWorkspaceView>("/workspaces", {
     method: "POST",
-    json: { team_number: teamNumber },
+    json: { team_number: teamNumber, code },
     signal,
   });
 }
@@ -760,6 +760,15 @@ export function lockResults(eventKey: string, datasetId?: string, signal?: Abort
     query: { dataset_id: datasetId },
     signal,
   });
+}
+
+/** `GET …/instructor/team-codes`: each team's 4-digit entry code (issue #413). */
+export interface TeamCodesView {
+  readonly teams: { readonly team_number: number; readonly code: string }[];
+}
+
+export function listTeamCodes(signal?: AbortSignal) {
+  return exerciseRequest<TeamCodesView>("/instructor/team-codes", { signal });
 }
 
 export function listTeamWorkspaces(signal?: AbortSignal) {

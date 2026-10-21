@@ -203,6 +203,7 @@ describe("<ExerciseEntry />", () => {
     renderEntry();
     const radio = await screen.findByRole("radio", { name: /team 2/i });
     fireEvent.click(radio);
+    fireEvent.change(screen.getByLabelText("Team code"), { target: { value: "0482" } });
     fireEvent.click(screen.getByRole("button", { name: /open this team/i }));
 
     await waitFor(() => {
@@ -227,6 +228,7 @@ describe("<ExerciseEntry />", () => {
     renderEntry();
     const radio = await screen.findByRole("radio", { name: /team 5/i });
     fireEvent.click(radio);
+    fireEvent.change(screen.getByLabelText("Team code"), { target: { value: "0482" } });
     fireEvent.click(screen.getByRole("button", { name: /open this team/i }));
     await waitFor(() => expect(window.localStorage.getItem(WORKSPACE_POINTER_KEY)).toBe("5"));
   });
@@ -261,6 +263,7 @@ describe("<ExerciseEntry />", () => {
     renderEntry();
     const radio = await screen.findByRole("radio", { name: /team 1/i });
     fireEvent.click(radio);
+    fireEvent.change(screen.getByLabelText("Team code"), { target: { value: "0482" } });
     fireEvent.click(screen.getByRole("button", { name: /open this team/i }));
     await waitFor(() =>
       expect(calls.some((call) => call.url === "/v1/exercise/workspaces")).toBe(true),
@@ -287,6 +290,7 @@ describe("<ExerciseEntry />", () => {
     renderEntry();
     const radio = await screen.findByRole("radio", { name: /team 3/i });
     fireEvent.click(radio);
+    fireEvent.change(screen.getByLabelText("Team code"), { target: { value: "0482" } });
     fireEvent.click(screen.getByRole("button", { name: /open this team/i }));
     await waitFor(() =>
       expect(

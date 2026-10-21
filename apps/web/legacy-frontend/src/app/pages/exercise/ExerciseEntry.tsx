@@ -1,5 +1,10 @@
 /**
- * The entry screen: a team number, and nothing else.
+ * The entry screen: a team number and the team's 4-digit code.
+ *
+ * Issue #413 (Oct 2026): the site is public, so a number alone no longer opens
+ * a team's work. The instructor page shows the six codes. A browser whose
+ * cookie already opens the chosen team skips the code. The paragraph below is
+ * the original rule, kept for its history.
  *
  * Requirements, "Getting in" row: *"No login. A public web address. … a team
  * enters its team number (1-6) so its saved runs are labeled."* That is the
@@ -95,6 +100,15 @@ const TEAM_HELPER_ID = "exercise-team-helper";
 const TEAM_HEADING_ID = "exercise-team-heading";
 
 /**
+ * Issue #413: the site is public, so a team also types its 4-digit code. New
+ * student wording, pending Dr. Wang's OK.
+ */
+export const TEAM_CODE_LABEL = "Team code";
+export const TEAM_CODE_HELPER = "Enter your team's 4-digit code. Your instructor has it.";
+const TEAM_CODE_HELPER_ID = "exercise-team-code-helper";
+const FOUR_DIGITS = /^[0-9]{4}$/;
+
+/**
  * The opening screen (DESIGN.md §7.1) above the team entry (§7.2).
  *
  * Top zone: the room's question as the one `h1`, the brief as the lead, then
@@ -172,18 +186,27 @@ function EntryForm({ data }: { readonly data: EntryData }): React.JSX.Element {
   const [selected, setSelected] = React.useState<number | null>(
     () => data.workspace?.team_number ?? readWorkspacePointer(teamNumbers),
   );
+  const [code, setCode] = React.useState("");
   const [pending, setPending] = React.useState(false);
   const [refusal, setRefusal] = React.useState<string | null>(null);
 
+  // This browser's cookie already opens the chosen team: no code needed while
+  // the cookie lasts.
+  const alreadyIn = selected !== null && data.workspace?.team_number === selected;
+
   async function submit(event: React.FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
-    if (selected === null || pending) {
+    if (selected === null || pending || (!alreadyIn && !FOUR_DIGITS.test(code))) {
+      return;
+    }
+    if (alreadyIn) {
+      await navigate(EVENT_PICKER_PATH);
       return;
     }
     setPending(true);
     setRefusal(null);
     try {
-      const workspace = await enterTeamWorkspace(selected);
+      const workspace = await enterTeamWorkspace(selected, code);
       writeWorkspacePointer(workspace.team_number);
       await navigate(EVENT_PICKER_PATH);
     } catch (error) {
@@ -198,6 +221,7 @@ function EntryForm({ data }: { readonly data: EntryData }): React.JSX.Element {
   }
 
   const chosen = selected !== null;
+  const ready = chosen && (alreadyIn || FOUR_DIGITS.test(code));
 
   return (
     <form onSubmit={submit} className="flex flex-col gap-ce-5 md:w-fit">
@@ -218,6 +242,31 @@ function EntryForm({ data }: { readonly data: EntryData }): React.JSX.Element {
           ))}
         </div>
       </fieldset>
+
+      {alreadyIn ? null : (
+        <div className="flex flex-col gap-ce-2">
+          <label htmlFor="exercise-team-code" className="ce-type-h3 text-ce-ink">
+            {TEAM_CODE_LABEL}
+          </label>
+          <p id={TEAM_CODE_HELPER_ID} className="ce-type-body ce-measure text-ce-ink-muted">
+            {TEAM_CODE_HELPER}
+          </p>
+          <input
+            id="exercise-team-code"
+            name="code"
+            type="text"
+            inputMode="numeric"
+            autoComplete="off"
+            maxLength={4}
+            pattern="[0-9]{4}"
+            value={code}
+            disabled={pending}
+            aria-describedby={TEAM_CODE_HELPER_ID}
+            onChange={(event) => setCode(event.target.value.replace(/[^0-9]/g, "").slice(0, 4))}
+            className="min-h-ce-control w-32 rounded-ce-control border-2 border-ce-line-strong bg-ce-surface px-ce-3 ce-type-body ce-tabular tracking-widest text-ce-ink"
+          />
+        </div>
+      )}
 
       {data.workspace === null ? null : (
         // `md:w-0 md:min-w-full`: fill the tile row's width without widening
@@ -251,8 +300,8 @@ function EntryForm({ data }: { readonly data: EntryData }): React.JSX.Element {
           type="submit"
           pending={pending}
           pendingLabel="Opening your team's work…"
-          disabled={!chosen}
-          describedBy={chosen ? undefined : TEAM_HELPER_ID}
+          disabled={!ready}
+          describedBy={!chosen ? TEAM_HELPER_ID : ready ? undefined : TEAM_CODE_HELPER_ID}
           className="w-full md:w-auto"
         >
           Open this team's work
