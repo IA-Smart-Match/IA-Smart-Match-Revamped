@@ -53,3 +53,110 @@ def test_refresh_once_counts_students_and_instructor() -> None:
     assert cl.once_per_team(0, True)
     assert not cl.once_per_team(1, True)
     assert not cl.once_per_team(0, False)
+
+
+def _secure_cookie_sent(base: str) -> bool:
+    import asyncio
+
+    import httpx
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.url.path == "/set":
+            return httpx.Response(200, headers={"set-cookie": "w=1; Path=/; Secure; HttpOnly"})
+        return httpx.Response(200, json={"cookie": req.headers.get("cookie", "")})
+
+    async def go() -> bool:
+        c = cl.make_client(base, transport=httpx.MockTransport(handler))
+        async with c:
+            await c.get("/set")
+            return "w=1" in (await c.get("/x")).json()["cookie"]
+
+    return asyncio.run(go())
+
+
+def test_secure_cookie_sent_to_loopback_http_only() -> None:
+    assert _secure_cookie_sent("http://127.0.0.1:15174")
+    assert _secure_cookie_sent("http://localhost:15174")
+    assert not _secure_cookie_sent("http://example.test")
+
+
+def _guard(base: str, opt_in: str | None) -> str:
+    try:
+        cl.check_host(base, opt_in)
+    except SystemExit as e:
+        return str(e.code)
+    finally:
+        cl.PUBLIC["on"] = False
+    raise AssertionError("expected refusal")
+
+
+PUB = "exercise.smartmatch.cloud"
+
+
+def test_guard_refuses_without_flag_mismatch_http_and_plated() -> None:
+    assert "refusing" in _guard(f"https://{PUB}", None)
+    assert "refusing" in _guard(f"https://{PUB}", "other.example")
+    assert "refusing" in _guard(f"http://{PUB}", PUB)
+    assert "refusing" in _guard("https://exercise.plated.blog", "exercise.plated.blog")
+    assert "refusing" in _guard("https://evil.example", "evil.example")
+
+
+def test_guard_accepts_flag_and_warns(capsys) -> None:
+    cl.check_host(f"https://{PUB}", PUB)
+    assert cl.PUBLIC["on"]
+    cl.PUBLIC["on"] = False
+    assert "resets teams 1-6" in capsys.readouterr().out
+
+
+def test_cloudflare_blocks_counted_apart_from_app_errors() -> None:
+    import asyncio
+
+    import httpx
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.url.path == "/c":
+            return httpx.Response(403, html="<html>Just a moment</html>")
+        return httpx.Response(401, json={"error": {"code": "exercise_workspace_required"}})
+
+    async def go() -> None:
+        cl.RECORDS.clear()
+        cl.PUBLIC["on"] = True
+        async with httpx.AsyncClient(
+            base_url="https://x.test", transport=httpx.MockTransport(handler)
+        ) as c:
+            await cl.call(c, "a", "GET", "/c")
+            await cl.call(c, "b", "GET", "/app")
+
+    try:
+        asyncio.run(go())
+    finally:
+        cl.PUBLIC["on"] = False
+    assert [r["code"] for r in cl.RECORDS] == ["cloudflare_blocked", "exercise_workspace_required"]
+    rows = {r["name"]: r for r in cl.summarize(cl.RECORDS)}
+    assert rows["a"]["unexpected"] == 0 and rows["a"]["cloudflare_blocked"] == 1
+    assert rows["b"]["unexpected"] == 1
+
+
+def test_rebuilt_client_sends_copied_cookie_first_on_loopback() -> None:
+    import asyncio
+
+    import httpx
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.url.path == "/set":
+            return httpx.Response(200, headers={"set-cookie": "w=1; Path=/; Secure; HttpOnly"})
+        return httpx.Response(200, json={"cookie": req.headers.get("cookie", "")})
+
+    async def go() -> str:
+        old = cl.make_client("http://127.0.0.1:1", transport=httpx.MockTransport(handler))
+        await old.get("/set")
+        jar = httpx.Cookies()
+        for c in old.cookies.jar:
+            c.secure = True  # worst case: the copy still carries Secure
+            jar.jar.set_cookie(c)
+        new = cl.make_client(
+            "http://127.0.0.1:1", cookies=jar, transport=httpx.MockTransport(handler)
+        )
+        return (await new.get("/x")).json()["cookie"]
+
+    assert "w=1" in asyncio.run(go())
