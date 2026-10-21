@@ -13,7 +13,15 @@ import pytest
 
 pytest.importorskip("sqlalchemy")
 
-from exercise_class_driver import HEADER, INSTRUCTOR_BASE, build_app, enter, instructor, team_code
+from exercise_class_driver import (
+    HEADER,
+    INSTRUCTOR_BASE,
+    build_app,
+    enter,
+    forget_team_codes,
+    instructor,
+    team_code,
+)
 from exercise_private_db import seeded_private_database
 from fastapi.testclient import TestClient
 from sqlalchemy import Engine, text
@@ -71,4 +79,6 @@ def test_a_reset_writes_a_new_code(sessions: sessionmaker[Session]) -> None:
             break
     after = _stored(sessions)
     assert after[2] != before[2]
+    forget_team_codes(app)
+    assert team_code(app, [], 2) == after[2]
     assert {n: c for n, c in after.items() if n != 2} == {n: c for n, c in before.items() if n != 2}

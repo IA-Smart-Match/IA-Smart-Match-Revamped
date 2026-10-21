@@ -51,7 +51,7 @@ def upgrade() -> None:
     """Create the table, give every team a code, and mirror the runtime grant."""
     table = op.create_table(
         _TABLE,
-        sa.Column("team_number", sa.Integer, nullable=False),
+        sa.Column("team_number", sa.Integer, nullable=False, autoincrement=False),
         sa.Column("code", sa.Text, nullable=False),
         sa.Column(
             "updated_at",

@@ -756,6 +756,10 @@ CHECK_CONSTRAINT_DEFINITIONS = {
         "CHECK ((round = ANY (ARRAY[1, 2])))"
     ),
     ("exercise_result_run", "ck_exercise_result_run_seats_empty"): "CHECK ((seats_empty >= 0))",
+    ("exercise_team_code", "ck_exercise_team_code_shape"): "CHECK ((code ~ '^[0-9]{4}$'::text))",
+    ("exercise_team_code", "ck_exercise_team_code_team_number"): (
+        "CHECK (((team_number >= 1) AND (team_number <= 6)))"
+    ),
     ("exercise_saved_setting", "ck_exercise_saved_setting_name_shape"): (
         "CHECK (((length(btrim(name)) > 0) AND (length(name) <= 100)))"
     ),
@@ -1548,6 +1552,14 @@ BEHAVIOURAL_COVERAGE = {
         "0037 added, ::test_exercise_result_run_rejects_negative_empty_seats. Permitted "
         "half: ::test_exercise_result_run_accepts_both_rounds, which records zero empty "
         "seats — the full-event case"
+    ),
+    ("exercise_team_code", "ck_exercise_team_code_shape"): (
+        "0048 added, ::test_exercise_team_code_rejects_a_bad_code_or_team. Permitted half: "
+        "test_exercise_team_code_persistence.py, which stores four-digit codes"
+    ),
+    ("exercise_team_code", "ck_exercise_team_code_team_number"): (
+        "0048 added, ::test_exercise_team_code_rejects_a_bad_code_or_team. Permitted half: "
+        "test_exercise_team_code_persistence.py, which stores codes for teams 1-6"
     ),
     # --- Speaker self-service availability (migration 0038) ---------------
     ("speaker_availability", "ck_speaker_availability_capacity"): (
@@ -3084,6 +3096,28 @@ def test_the_constraint_expression_is_exactly_as_declared(
         f"  expected: {CHECK_CONSTRAINT_DEFINITIONS[key]}\n"
         f"  actual:   {definition}"
     )
+
+
+# --- exercise_team_code ----------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("team", "code", "constraint"),
+    [
+        (1, "12a4", "ck_exercise_team_code_shape"),
+        (1, "123", "ck_exercise_team_code_shape"),
+        (0, "1234", "ck_exercise_team_code_team_number"),
+        (7, "1234", "ck_exercise_team_code_team_number"),
+    ],
+)
+def test_exercise_team_code_rejects_a_bad_code_or_team(
+    engine: Engine, team: int, code: str, constraint: str
+) -> None:
+    with pytest.raises(IntegrityError, match=constraint), engine.begin() as conn:
+        conn.execute(
+            text("INSERT INTO exercise_team_code (team_number, code) VALUES (:t, :c)"),
+            {"t": team, "c": code},
+        )
 
 
 def test_this_file_covers_every_check_constraint_in_the_schema(engine: Engine) -> None:

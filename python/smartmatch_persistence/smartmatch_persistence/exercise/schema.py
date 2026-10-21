@@ -498,7 +498,7 @@ exercise_result_unlock = sa.Table(
 exercise_team_code = sa.Table(
     "exercise_team_code",
     METADATA,
-    sa.Column("team_number", sa.Integer, nullable=False),
+    sa.Column("team_number", sa.Integer, nullable=False, autoincrement=False),
     sa.Column("code", sa.Text, nullable=False),
     sa.Column("updated_at", _TS, nullable=False, server_default=sa.text("now()")),
     sa.PrimaryKeyConstraint("team_number", name="exercise_team_code_pkey"),
