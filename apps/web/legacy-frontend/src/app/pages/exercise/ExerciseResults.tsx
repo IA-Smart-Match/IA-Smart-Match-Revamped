@@ -110,6 +110,9 @@ const ALREADY_RUN = "exercise_results_already_run";
 /** The run's 409 for Harbor before the team has asked students for more information. */
 const ASK_FIRST = "exercise_ask_first";
 
+/** The server's sentence for a Round 2 read before the team has Round 1 results. */
+const NEEDS_ROUND_ONE = "Round 2 opens after your team has its Round 1 results.";
+
 /** Says why the grey "Results not open yet." button is off. */
 const NOT_OPEN_REASON = "exercise-results-not-open-reason";
 
@@ -126,6 +129,8 @@ interface EventResultsState {
   readonly round: number | null;
   /** The next round's event key, or `null` for the last round or a non-round event. */
   readonly nextRoundKey: string | null;
+  /** Round 2 only: this team has not run the round before it. */
+  readonly needsRoundOne: boolean;
 }
 
 /** The question the run button asks before the one run (Ann's checklist, section 5). */
@@ -310,6 +315,9 @@ async function eventResultsState(
       run: found.results_run === true,
       round: index < 0 ? null : index + 1,
       nextRoundKey: rounds[index + 1]?.eventKey ?? null,
+      needsRoundOne:
+        index > 0 &&
+        events.find((event) => event.event_key === rounds[index - 1]?.eventKey)?.results_run === false,
     };
   } catch (error) {
     if (signal.aborted || isAccessRefusal(error)) {
@@ -436,7 +444,8 @@ function ResultsBody({
   const refusedAsLocked = refusal?.code === LOCKED;
   const notOpen = !hasRun && (data.event === null ? refusedAsLocked : !data.event.open);
   // The lock panel carries the sentence, so the notice does not repeat it.
-  const lockSentence = NOT_OPENED_YET;
+  // Same sentence the server's round-two lock refusal uses.
+  const lockSentence = data.event?.needsRoundOne === true ? NEEDS_ROUND_ONE : NOT_OPENED_YET;
   /** When the run was made, from the run itself; `null` when it is not on screen. */
   const ranAt = clockTime(results?.created_at);
 

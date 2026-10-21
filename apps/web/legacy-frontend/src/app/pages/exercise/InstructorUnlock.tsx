@@ -6,7 +6,7 @@
 import * as React from "react";
 import { Lock, LockOpen } from "lucide-react";
 
-import { isRefusal } from "../../../lib/exerciseApi";
+import { ExerciseUnreachable, isRefusal } from "../../../lib/exerciseApi";
 import {
   listInstructorEvents,
   lockResults,
@@ -88,7 +88,9 @@ export function UnlockPanel({
   readonly onSignedOut: () => void;
   readonly reloadKey: number;
 }): React.JSX.Element {
-  const { state, reload } = useExerciseResource(listInstructorEvents, [reloadKey]);
+  const { state, reload } = useExerciseResource(listInstructorEvents, [reloadKey], {
+    keepDataOnError: (error) => error instanceof ExerciseUnreachable,
+  });
   useSignOutOnExpiredRead(state, onSignedOut);
   const [pending, setPending] = React.useState(false);
   /** Guards the unlock itself, so a second press in the same tick sends nothing. */
@@ -127,7 +129,7 @@ export function UnlockPanel({
     if (!refusedUnlockPending.current) {
       return;
     }
-    if (state.status === "ready" && !state.refreshing) {
+    if (state.status === "ready" && !state.refreshing && state.unreachable === null) {
       refusedUnlockPending.current = false;
       onRefusal(null);
     } else if (state.status === "refused" || state.status === "unreachable") {
@@ -194,6 +196,9 @@ export function UnlockPanel({
           <ExerciseNotice message={state.message} tone="problem" />
           {checkAgain}
         </>
+      ) : null}
+      {state.status === "ready" && state.unreachable !== null ? (
+        <p role="status" className="ce-type-meta text-ce-ink-muted">Reconnecting…</p>
       ) : null}
       {state.status === "ready" && state.data.events.length === 0 ? (
         <>
