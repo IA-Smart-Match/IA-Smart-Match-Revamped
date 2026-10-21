@@ -317,7 +317,7 @@ async function eventResultsState(
       nextRoundKey: rounds[index + 1]?.eventKey ?? null,
       needsRoundOne:
         index > 0 &&
-        events.find((event) => event.event_key === rounds[index - 1]?.eventKey)?.results_run !== true,
+        events.find((event) => event.event_key === rounds[index - 1]?.eventKey)?.results_run === false,
     };
   } catch (error) {
     if (signal.aborted || isAccessRefusal(error)) {

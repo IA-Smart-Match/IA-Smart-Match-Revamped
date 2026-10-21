@@ -129,7 +129,7 @@ export function UnlockPanel({
     if (!refusedUnlockPending.current) {
       return;
     }
-    if (state.status === "ready" && !state.refreshing) {
+    if (state.status === "ready" && !state.refreshing && state.unreachable === null) {
       refusedUnlockPending.current = false;
       onRefusal(null);
     } else if (state.status === "refused" || state.status === "unreachable") {

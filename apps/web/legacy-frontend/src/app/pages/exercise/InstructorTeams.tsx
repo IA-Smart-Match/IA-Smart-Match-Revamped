@@ -158,7 +158,8 @@ export function InstructorTeams({
   const hasList = React.useRef(false);
   hasList.current = state.status === "ready";
 
-  const listLanded = state.status === "ready" && !state.refreshing ? state.data : null;
+  const listLanded =
+    state.status === "ready" && !state.refreshing && state.unreachable === null ? state.data : null;
   React.useEffect(() => {
     if (listLanded !== null) {
       setCheckedAt(clockNow());

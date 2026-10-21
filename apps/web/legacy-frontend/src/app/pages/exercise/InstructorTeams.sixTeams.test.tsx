@@ -108,4 +108,33 @@ describe("InstructorTeams, a failed poll", () => {
     await waitFor(() => expect(screen.queryByText("Reconnecting…")).toBeNull());
     expect(screen.getByText("Teams are using: Oct2-Ann-300.")).toBeDefined();
   });
+
+  it("does not move 'Teams last read at' when a poll fails", async () => {
+    let fail = false;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        fail
+          ? Promise.reject(new TypeError("offline"))
+          : Promise.resolve(
+              new Response(JSON.stringify({ teams: [row(1)], active_dataset_label: "Oct2-Ann-300" }), { status: 200 }),
+            ),
+      ),
+    );
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date("2026-10-21T10:00:00"));
+      render(<InstructorTeams />);
+      const first = await screen.findByText(/^Teams last read at /);
+      const text = first.textContent;
+
+      fail = true;
+      vi.setSystemTime(new Date("2026-10-21T10:05:00"));
+      fireEvent.click(screen.getByRole("button", { name: "Check the teams again" }));
+      await screen.findByText("Reconnecting…");
+      expect(screen.getByText(/^Teams last read at /).textContent).toBe(text);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
