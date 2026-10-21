@@ -80,6 +80,8 @@ export function ExerciseScreen({
 }: ExerciseScreenProps): React.JSX.Element {
   const heading = React.useRef<HTMLHeadingElement>(null);
   const location = typeof window === "undefined" ? "/exercise" : window.location.pathname;
+  // The instructor page shares this frame but not the students' step deck or tour.
+  const student = !location.startsWith("/exercise/instructor");
 
   // §8.5: a route change moves focus to the h1. After a link click the link
   // unmounts and focus falls to <body>; only then is it moved, so a screen
@@ -103,7 +105,7 @@ export function ExerciseScreen({
   return (
     <div className="ce-root soft-studio-root min-h-screen">
       <MotionConfig reducedMotion="user">
-        <SoftStudioHeader pathname={location} />
+        {student ? <SoftStudioHeader pathname={location} /> : null}
         <main className="soft-studio-stage ce-container flex flex-col gap-ce-5 pb-ce-7 md:gap-ce-6">
           <SyntheticDataBanner
             tone="quiet"
@@ -124,7 +126,7 @@ export function ExerciseScreen({
             <p><strong>Fictional classroom data.</strong> All profiles are fictional, shaped by overall survey percentages.</p>
           </footer>
         </main>
-        <SoftStudioTour />
+        {student ? <SoftStudioTour /> : null}
       </MotionConfig>
     </div>
   );
@@ -175,7 +177,7 @@ function SoftStudioHeader({ pathname }: { readonly pathname: string }): React.JS
           ))}
         </nav>
         <div className="soft-studio-tools">
-          <span className="soft-studio-team-chip">● Team workspace</span>
+          <span className="soft-studio-team-chip">● Your team</span>
         </div>
       </div>
     </div>

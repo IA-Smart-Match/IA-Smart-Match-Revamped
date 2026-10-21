@@ -4,10 +4,10 @@ const STORAGE_KEY = "smartmatch-exercise-tour-v1";
 
 const TOUR_STEPS = [
   ["Team", "Pick your team's number so your work stays together."],
-  ["Event", "Choose one of the two events your class is exploring."],
-  ["Your list", "Tune the weights and see who rises to the top."],
-  ["Results", "Run the list when your instructor opens the results."],
-  ["Ask for more", "Choose how your team wants to learn from the next round."],
+  ["Event", "Start with Round 1, Northline. Round 2, Harbor, opens after your Round 1 results."],
+  ["Your list", "Move the four slider numbers and see who your list picks."],
+  ["Results", "Use your one results run after your instructor opens results."],
+  ["Ask for more", "In Round 2, your team picks how CBACH asks students to fill in their card."],
   ["Try it together", "Use the status line to keep your whole team in sync."],
   ["You're ready", "Replay this tour any time from the Tour button."],
 ] as const;
@@ -111,7 +111,7 @@ export function SoftStudioTour(): React.JSX.Element {
               aria-hidden="true"
             />
             <div className="soft-studio-tour-copy">
-              <p className="soft-studio-tour-count">Step {step + 1} of {TOUR_STEPS.length}</p>
+              <p className="soft-studio-tour-count">{step + 1} of {TOUR_STEPS.length}</p>
               <h2 id="soft-studio-tour-title" ref={title} tabIndex={-1}>{label}</h2>
               <p aria-live="polite">{copy}</p>
               <div className="soft-studio-tour-dots" aria-label="Tour progress">
