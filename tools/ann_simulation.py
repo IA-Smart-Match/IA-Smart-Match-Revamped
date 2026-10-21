@@ -523,6 +523,7 @@ ANN_CELLS = {
     (30, "after_required", "balanced"): 7.8,
     (30, "before", "best"): 8.4,
 }
+BY_DESIGN = "By design: built into the rule; the parity test proves the app does the same. Not measured on the runs."
 CELL_TOLERANCE = 0.5  # sign-ups; chosen before running, not tuned
 
 
@@ -622,6 +623,7 @@ def requirement_rows(summary: dict, rounds: list, det_ok: bool) -> list:
         "different seeds give different draws",
         "every run uses its own seed",
         "PASS",
+        BY_DESIGN,
     )
     add(
         "R07",
@@ -662,6 +664,7 @@ def requirement_rows(summary: dict, rounds: list, det_ok: bool) -> list:
         "sign-up chance reads the file's past events only",
         "p_signup reads len(file past events) only",
         "PASS",
+        BY_DESIGN,
     )
     add(
         "R11",
@@ -695,6 +698,7 @@ def requirement_rows(summary: dict, rounds: list, det_ok: bool) -> list:
         "1 for any overlap",
         "1 for any overlap (A10)",
         "PASS",
+        BY_DESIGN,
     )
     add(
         "R14",
@@ -740,6 +744,7 @@ def requirement_rows(summary: dict, rounds: list, det_ok: bool) -> list:
         "lists use only major, card, past events",
         "only 'best possible' (an oracle for comparison) reads them; card completers copy them, as the app does",
         "PASS",
+        BY_DESIGN,
     )
     lens = {len(list_before(e, s, 60)) for e in (NORTHLINE, HARBOR) for s in SETTINGS}
     add(
@@ -769,6 +774,7 @@ def requirement_rows(summary: dict, rounds: list, det_ok: bool) -> list:
         "60 - the 8 who came - attendees",
         f"{seats:.1f} empty on average (Northline, balanced 60)",
         "PASS",
+        BY_DESIGN,
     )
     add(
         "R27",
@@ -778,6 +784,7 @@ def requirement_rows(summary: dict, rounds: list, det_ok: bool) -> list:
         "added = with list - mass alone",
         "computed exactly that way",
         "PASS",
+        BY_DESIGN,
     )
     gap = _m(summary, 60, "nl", "balanced") - _m(summary, 60, "nl", "balanced", "attendees_added")
     add(
@@ -824,6 +831,7 @@ def requirement_rows(summary: dict, rounds: list, det_ok: bool) -> list:
         "same seed for both rows",
         "same seed for both rows",
         "PASS",
+        BY_DESIGN,
     )
     add(
         "R47",
