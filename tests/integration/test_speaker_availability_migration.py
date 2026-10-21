@@ -71,7 +71,7 @@ REVISION = "0038_speaker_availability"
 #: ``0045_exercise_unlock_closed_at`` and is the head. It adds two nullable
 #: ``exercise_result_run`` columns and backfills only those, so this file's
 #: claims still hold through it.
-HEAD_REVISION = "0047_exercise_invite_sixty"
+HEAD_REVISION = "0048_exercise_team_code"
 
 _NEW_TABLES = ("speaker_availability", "speaker_availability_window")
 

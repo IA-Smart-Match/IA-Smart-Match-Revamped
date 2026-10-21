@@ -217,7 +217,14 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON exercise_profile_overlay TO "<EXERCISE_D
 GRANT SELECT, INSERT, UPDATE, DELETE ON exercise_saved_setting   TO "<EXERCISE_DB_ROLE>";
 GRANT SELECT, INSERT, DELETE         ON exercise_result_run      TO "<EXERCISE_DB_ROLE>";
 GRANT SELECT, INSERT, UPDATE         ON exercise_result_unlock   TO "<EXERCISE_DB_ROLE>";
+GRANT SELECT, UPDATE                 ON exercise_team_code       TO "<EXERCISE_DB_ROLE>";
 ```
+
+`exercise_team_code` (migration `0048_exercise_team_code.py`, issue #413) holds
+the six 4-digit team codes. The migration grants `SELECT, UPDATE` on it to every
+role that can already read `exercise_team_workspace`, so an existing deployment
+needs no manual grant. Run the line above only if that role was created after the
+migration ran.
 
 ### `ON CONFLICT DO UPDATE` needs `UPDATE` even when nothing conflicts
 

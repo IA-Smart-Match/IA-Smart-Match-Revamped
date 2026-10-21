@@ -360,6 +360,7 @@ def test_cba_authenticated_routes_are_absent_under_class_exercise() -> None:
             "/v1/exercise/instructor/events",
             "/v1/exercise/instructor/events/{event_key}/unlock",
             "/v1/exercise/instructor/events/{event_key}/lock",
+            "/v1/exercise/instructor/team-codes",
             "/v1/exercise/instructor/workspaces",
             "/v1/exercise/instructor/workspaces/{team_number}",
             "/v1/exercise/instructor/workspaces/{team_number}/reset",

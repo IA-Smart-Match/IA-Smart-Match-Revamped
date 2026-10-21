@@ -131,11 +131,23 @@ def instructor(app: FastAPI, log: list[Exchange]) -> RecordingClient:
     return client
 
 
+def team_code(app: FastAPI, log: list[Exchange], team_number: int) -> str:
+    """The team's 4-digit code, read from the instructor's team-codes route."""
+    response = instructor(app, log).get(f"{INSTRUCTOR_BASE}/team-codes")
+    assert response.status_code == 200, response.text
+    return {t["team_number"]: t["code"] for t in response.json()["teams"]}[team_number]
+
+
 def enter(app: FastAPI, log: list[Exchange], team_number: int) -> RecordingClient:
-    """A client that has entered ``team_number`` and holds its cookie."""
+    """A client that has entered ``team_number`` and holds its cookie.
+
+    The team's code is read through the instructor API, as the load test does.
+    """
     client = RecordingClient(app, log)
     response = client.post(
-        "/v1/exercise/workspaces", json={"team_number": team_number}, headers=HEADER
+        "/v1/exercise/workspaces",
+        json={"team_number": team_number, "code": team_code(app, log, team_number)},
+        headers=HEADER,
     )
     assert response.status_code == 200, response.text
     return client

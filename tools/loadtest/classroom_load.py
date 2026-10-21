@@ -56,6 +56,9 @@ READ_P95, WRITE_P95, ANY_P99, PAGE_P95 = 1.5, 2.0, 4.0, 5.0
 
 CLOSING: set[asyncio.Future] = set()  # reload-dropped clients still closing
 RECORDS: list[dict] = []  # one row per request
+#: Each team's 4-digit entry code, read through the instructor API after every
+#: reset (a reset issues a new code). Issue #413; there is no test-only bypass.
+CODES: dict[int, str] = {}
 SAMPLES: list[dict] = []  # one row per resource sample
 BURST = {"name": "setup"}
 PUBLIC = {"on": False}  # set by --i-own-this-public-host; enables cloudflare_blocked counting
@@ -266,7 +269,7 @@ class Student:
                 "POST workspaces",
                 "POST",
                 "/v1/exercise/workspaces",
-                json={"team_number": self.team},
+                json={"team_number": self.team, "code": CODES[self.team]},
             )
             await call(self.client, "GET current", "GET", WS)
         await asyncio.gather(
@@ -462,6 +465,14 @@ class Instructor:
             )
         for ev in (ROUND1, ROUND2):
             await call(self.client, "POST lock", "POST", f"{INS}/events/{ev}/lock")
+        await self.fetch_codes()
+
+    async def fetch_codes(self) -> None:
+        """Every team's entry code, from the instructor API (never printed)."""
+        resp = await call(self.client, "GET team codes", "GET", f"{INS}/team-codes")
+        if resp is None or resp.status_code != 200:
+            sys.exit(f"team codes refused: {resp.status_code if resp else 'no response'}")
+        CODES.update({t["team_number"]: t["code"] for t in resp.json()["teams"]})
 
     async def unlock(self, ev: str) -> None:
         await call(self.client, "POST unlock", "POST", f"{INS}/events/{ev}/unlock")
@@ -489,7 +500,9 @@ class Instructor:
 async def canary(base: str, stop: asyncio.Event) -> None:
     """1 req/s cheap read: shows lock waiters starving the pool or thread pool (H10)."""
     async with httpx.AsyncClient(base_url=base, timeout=60) as c:
-        await c.post("/v1/exercise/workspaces", headers=HDR, json={"team_number": 1})
+        await c.post(
+            "/v1/exercise/workspaces", headers=HDR, json={"team_number": 1, "code": CODES[1]}
+        )
         while not stop.is_set():
             await call(c, "canary GET current", "GET", WS)
             await asyncio.sleep(1)

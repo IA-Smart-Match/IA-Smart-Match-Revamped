@@ -150,6 +150,7 @@ from smartmatch_persistence.exercise.settings_repository import (
     SavedSetting,
     TooManySavedSettingsError,
 )
+from smartmatch_persistence.exercise.team_code_repository import ExerciseTeamCodeRepository
 from smartmatch_persistence.exercise.team_view_repository import (
     ExerciseTeamViewRepository,
     TeamProfileRow,
@@ -211,6 +212,7 @@ __all__ = [
     "SettingsRepository",
     "SimulationProfileRow",
     "StoredResultRun",
+    "TeamCodeRepository",
     "TeamProfileRow",
     "TeamResultsState",
     "TeamViewRepository",
@@ -230,6 +232,7 @@ __all__ = [
     "get_maybe_active_dataset",
     "get_results_repository",
     "get_settings_repository",
+    "get_team_code_repository",
     "get_team_view_repository",
     "get_workspace_repository",
     "get_workspace_secret",
@@ -313,6 +316,15 @@ def get_workspace_repository() -> ExerciseWorkspaceRepository:
 
 #: The annotation a handler writes to get :class:`ExerciseWorkspaceRepository`.
 WorkspaceRepository = Annotated[ExerciseWorkspaceRepository, Depends(get_workspace_repository)]
+
+
+def get_team_code_repository() -> ExerciseTeamCodeRepository:
+    """The teams' 4-digit entry codes (issue #413). A dependency so tests can fake it."""
+    return ExerciseTeamCodeRepository()
+
+
+#: The annotation a handler writes to get :class:`ExerciseTeamCodeRepository`.
+TeamCodeRepository = Annotated[ExerciseTeamCodeRepository, Depends(get_team_code_repository)]
 
 
 def get_workspace_secret(settings: Annotated[Settings, Depends(get_settings)]) -> str:

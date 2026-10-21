@@ -52,7 +52,7 @@ keyed on a caller-controlled value is a memory leak with a nice name.
 from __future__ import annotations
 
 import threading
-from collections import OrderedDict
+from collections import OrderedDict, deque
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Final
@@ -62,9 +62,13 @@ __all__ = [
     "INSTRUCTOR_LOGIN_ATTEMPTS_TOTAL",
     "INSTRUCTOR_LOGIN_WINDOW",
     "MAX_TRACKED_CLIENTS",
+    "TEAM_CODE_LOCKOUT",
+    "TEAM_CODE_WINDOW",
+    "TEAM_CODE_WRONG_ATTEMPTS",
     "UNRESOLVED_CALLER_KEY",
     "Allowance",
     "FixedWindowLimiter",
+    "WrongCodeGuard",
 ]
 
 #: Attempts one client address may spend on the instructor login per window.
@@ -236,3 +240,67 @@ class FixedWindowLimiter:
         """Drop the least recently charged key once the table is full."""
         while len(self._keys) >= MAX_TRACKED_CLIENTS:
             self._keys.popitem(last=False)
+
+
+#: Wrong team codes one (team, client address) may send per window (issue #413).
+TEAM_CODE_WRONG_ATTEMPTS: Final[int] = 5
+
+#: The window wrong team codes are counted over.
+TEAM_CODE_WINDOW: Final[timedelta] = timedelta(minutes=10)
+
+#: How long entry is refused after the last wrong code once the window is full.
+TEAM_CODE_LOCKOUT: Final[timedelta] = timedelta(seconds=60)
+
+
+class WrongCodeGuard:
+    """Counts wrong team codes per key and refuses during a lockout.
+
+    :class:`FixedWindowLimiter` does not fit: it charges every attempt, right or
+    wrong, and has no short lockout. Here only wrong codes count. Once a key has
+    :data:`TEAM_CODE_WRONG_ATTEMPTS` wrong codes inside :data:`TEAM_CODE_WINDOW`,
+    every attempt is refused until :data:`TEAM_CODE_LOCKOUT` has passed since
+    the last wrong one. Each further wrong code inside the window starts a new
+    lockout, so a guesser gets about one try a minute after the first five.
+
+    Same honesty as the rest of this module: per process, forgotten on restart,
+    and keyed on the socket address (behind the VM's proxy every student shares
+    one address, so the key is effectively the team). Bounded by
+    :data:`MAX_TRACKED_CLIENTS`.
+    """
+
+    def __init__(
+        self,
+        *,
+        attempts: int = TEAM_CODE_WRONG_ATTEMPTS,
+        window: timedelta = TEAM_CODE_WINDOW,
+        lockout: timedelta = TEAM_CODE_LOCKOUT,
+    ) -> None:
+        self._attempts: Final[int] = attempts
+        self._window: Final[timedelta] = window
+        self._lockout: Final[timedelta] = lockout
+        self._lock = threading.Lock()
+        self._failures: OrderedDict[str, deque[datetime]] = OrderedDict()
+
+    def attempt(self, key: str, *, correct: bool, now: datetime) -> bool:
+        """Record one attempt; ``False`` means refused because ``key`` is locked out.
+
+        Check and record happen under one lock, so a burst of parallel guesses
+        cannot all slip past the count. A refused attempt is not recorded and
+        its correctness is not revealed.
+        """
+        with self._lock:
+            failures = self._failures.get(key)
+            if failures is not None:
+                while failures and now - failures[0] >= self._window:
+                    failures.popleft()
+                if len(failures) >= self._attempts and now - failures[-1] < self._lockout:
+                    return False
+            if correct:
+                return True
+            if failures is None:
+                while len(self._failures) >= MAX_TRACKED_CLIENTS:
+                    self._failures.popitem(last=False)
+                failures = self._failures[key] = deque()
+            self._failures.move_to_end(key)
+            failures.append(now)
+            return True

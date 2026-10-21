@@ -160,3 +160,23 @@ def test_rebuilt_client_sends_copied_cookie_first_on_loopback() -> None:
         return (await new.get("/x")).json()["cookie"]
 
     assert "w=1" in asyncio.run(go())
+
+
+def test_team_codes_come_from_the_instructor_api(monkeypatch) -> None:
+    """Issue #413: the script reads each team's code after a reset; no bypass."""
+    import asyncio
+
+    import httpx
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/v1/exercise/instructor/team-codes"
+        teams = [{"team_number": n, "code": f"000{n}"} for n in range(1, 7)]
+        return httpx.Response(200, json={"teams": teams})
+
+    monkeypatch.setattr(cl, "CODES", {})
+    ins = cl.Instructor("http://127.0.0.1:9")
+    ins.client = httpx.AsyncClient(
+        base_url="http://127.0.0.1:9", transport=httpx.MockTransport(answer)
+    )
+    asyncio.run(ins.fetch_codes())
+    assert {n: f"000{n}" for n in range(1, 7)} == cl.CODES

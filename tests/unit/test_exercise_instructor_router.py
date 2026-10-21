@@ -56,6 +56,7 @@ from smartmatch_api.exercise_dependencies import (
     get_instructor_passcode,
     get_instructor_repository,
     get_maybe_active_dataset,
+    get_team_code_repository,
     get_team_view_repository,
     get_workspace_repository,
     get_workspace_secret,
@@ -91,6 +92,8 @@ from smartmatch_persistence.exercise.instructor_repository import (
 from smartmatch_persistence.exercise.results_rows import InvitedProfile
 from smartmatch_persistence.exercise.team_view_repository import TeamProfileRow
 from smartmatch_providers import Edition
+
+from tests.unit.exercise_team_codes import FakeTeamCodes
 
 #: Assembled from pieces, for ``test_exercise_workspace_router.py``'s reason:
 #: ``tools/scan_forbidden.py`` matches ``<name ending in secret> = "<16+>"``.
@@ -495,6 +498,7 @@ def _exercise_app(settings: Settings, state: dict[str, Any]) -> FastAPI:
     app.dependency_overrides[get_dataset_repository] = lambda: state["datasets"]
     app.dependency_overrides[get_instructor_repository] = lambda: state["instructor"]
     app.dependency_overrides[get_workspace_repository] = lambda: state["workspaces"]
+    app.dependency_overrides[get_team_code_repository] = lambda: state["codes"]
     app.dependency_overrides[get_team_view_repository] = lambda: state["team_view"]
     app.dependency_overrides[get_active_dataset] = lambda: _DATASET
     app.dependency_overrides[get_maybe_active_dataset] = lambda: MaybeDataset(dataset=_DATASET)
@@ -545,6 +549,7 @@ def state() -> dict[str, Any]:
         "datasets": datasets,
         "instructor": _FakeInstructorRepository(datasets),
         "workspaces": _FakeWorkspaceRepository(),
+        "codes": FakeTeamCodes(),
         "team_view": _FakeTeamViewRepository(),
     }
 
@@ -2292,6 +2297,17 @@ _EXPECTED_INSTRUCTOR_ROUTES: dict[tuple[str, str], tuple[int, str, tuple[str, ..
             "require_instructor_session",
         ),
     ),
+    ("GET", "/v1/exercise/instructor/team-codes"): (
+        200,
+        "TeamCodesView",
+        (
+            "get_exercise_session",
+            "get_settings",
+            "get_team_code_repository",
+            "get_workspace_secret",
+            "require_instructor_session",
+        ),
+    ),
     ("GET", "/v1/exercise/instructor/workspaces"): (
         200,
         "TeamListView",
@@ -2327,6 +2343,7 @@ _EXPECTED_INSTRUCTOR_ROUTES: dict[tuple[str, str], tuple[int, str, tuple[str, ..
             "get_exercise_session",
             "get_instructor_repository",
             "get_settings",
+            "get_team_code_repository",
             "get_workspace_repository",
             "get_workspace_secret",
             "require_exercise_request_header",

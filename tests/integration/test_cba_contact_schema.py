@@ -183,7 +183,7 @@ _PARENT_REVISION = "0024_cba_classification"
 #: ``0045_exercise_unlock_closed_at`` and is the head. It adds two nullable
 #: ``exercise_result_run`` columns and backfills only those, so this file's
 #: claims still hold through it.
-_HEAD_REVISION = "0047_exercise_invite_sixty"
+_HEAD_REVISION = "0048_exercise_team_code"
 
 #: Every revision between :data:`_HEAD_REVISION` and :data:`_THIS_REVISION`, in
 #: descending order. Listed rather than derived, so extending the chain is a
