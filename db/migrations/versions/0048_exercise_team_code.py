@@ -22,7 +22,7 @@ Backfill
 
 Grants
     The runtime role (docs/operations/exercise-hosting.md §3) is not the role
-    migrations run as. Every role that can already read
+    migrations run as. Every role that can already update
     ``exercise_team_workspace`` is granted ``SELECT, UPDATE`` on the new table,
     so a deployment with a dedicated exercise role keeps working without a
     manual grant. A deployment without one grants nothing.
@@ -75,7 +75,8 @@ def upgrade() -> None:
           FOR grantee_name IN
             SELECT DISTINCT grantee FROM information_schema.role_table_grants
             WHERE table_name = 'exercise_team_workspace'
-              AND privilege_type = 'SELECT'
+              AND table_schema = current_schema()
+              AND privilege_type = 'UPDATE'
               AND grantee <> current_user
               AND grantee <> 'PUBLIC'
           LOOP

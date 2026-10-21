@@ -222,7 +222,7 @@ GRANT SELECT, UPDATE                 ON exercise_team_code       TO "<EXERCISE_D
 
 `exercise_team_code` (migration `0048_exercise_team_code.py`, issue #413) holds
 the six 4-digit team codes. The migration grants `SELECT, UPDATE` on it to every
-role that can already read `exercise_team_workspace`, so an existing deployment
+role that can already update `exercise_team_workspace`, so an existing deployment
 needs no manual grant. Run the line above only if that role was created after the
 migration ran.
 

@@ -111,7 +111,9 @@ def test_the_instructor_reads_all_six_codes(state: dict[str, Any]) -> None:  # n
     with TestClient(instructor_app(instructor_settings(), state)) as client:
         assert client.get("/v1/exercise/instructor/team-codes").status_code == 401
         assert _login(client).status_code == 200
-        body = client.get("/v1/exercise/instructor/team-codes").json()
+        response = client.get("/v1/exercise/instructor/team-codes")
+        assert response.headers["cache-control"] == "no-store"
+        body = response.json()
     assert body == {"teams": [{"team_number": n, "code": fake_code(n)} for n in range(1, 7)]}
 
 

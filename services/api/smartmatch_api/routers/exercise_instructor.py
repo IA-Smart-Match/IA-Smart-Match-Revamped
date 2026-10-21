@@ -88,7 +88,7 @@ import uuid
 from enum import Enum
 from typing import Annotated, Final
 
-from fastapi import APIRouter, Body, Depends, Query, status
+from fastapi import APIRouter, Body, Depends, Query, Response, status
 from smartmatch_domain.exercise import EXERCISE_TEAM_NUMBERS
 from smartmatch_domain.exercise.ingest import IngestRefusal, parse_exercise_file
 from smartmatch_domain.exercise.workbook import XLSX_MEDIA_TYPE
@@ -523,8 +523,11 @@ def _change_lock(
     response_model=TeamCodesView,
     summary="Every team's 4-digit entry code",
 )
-def list_team_codes(session: ExerciseSession, codes: TeamCodeRepository) -> TeamCodesView:
+def list_team_codes(
+    session: ExerciseSession, codes: TeamCodeRepository, response: Response
+) -> TeamCodesView:
     """Issue #413: the codes the instructor reads out, behind this router's passcode."""
+    response.headers["Cache-Control"] = "no-store"
     return TeamCodesView(
         teams=tuple(
             TeamCodeView(team_number=team, code=code)
