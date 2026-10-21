@@ -18,6 +18,7 @@ imported the way ``migration_harness`` is.
 from __future__ import annotations
 
 import uuid
+import weakref
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Final
@@ -131,11 +132,36 @@ def instructor(app: FastAPI, log: list[Exchange]) -> RecordingClient:
     return client
 
 
+#: Codes read once per app. Logging in as the instructor on every ``enter`` trips
+#: the production login rate limiter, which stays as it is; a reset changes a
+#: code, so the test that resets calls :func:`forget_team_codes` afterwards.
+_CODES: weakref.WeakKeyDictionary[FastAPI, dict[int, str]] = weakref.WeakKeyDictionary()
+
+
+def forget_team_codes(app: FastAPI) -> None:
+    """Drop the cached codes for ``app`` so the next read asks the instructor API again."""
+    _CODES.pop(app, None)
+
+
+def team_code(app: FastAPI, log: list[Exchange], team_number: int) -> str:
+    """The team's 4-digit code, read from the instructor's team-codes route (once per app)."""
+    if app not in _CODES:
+        response = instructor(app, log).get(f"{INSTRUCTOR_BASE}/team-codes")
+        assert response.status_code == 200, response.text
+        _CODES[app] = {t["team_number"]: t["code"] for t in response.json()["teams"]}
+    return _CODES[app][team_number]
+
+
 def enter(app: FastAPI, log: list[Exchange], team_number: int) -> RecordingClient:
-    """A client that has entered ``team_number`` and holds its cookie."""
+    """A client that has entered ``team_number`` and holds its cookie.
+
+    The team's code is read through the instructor API, as the load test does.
+    """
     client = RecordingClient(app, log)
     response = client.post(
-        "/v1/exercise/workspaces", json={"team_number": team_number}, headers=HEADER
+        "/v1/exercise/workspaces",
+        json={"team_number": team_number, "code": team_code(app, log, team_number)},
+        headers=HEADER,
     )
     assert response.status_code == 200, response.text
     return client

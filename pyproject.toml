@@ -374,6 +374,9 @@ ignore_imports = [
     # door reaches them where they live rather than through the repository that
     # re-exports them, so this edge says what is actually imported.
     "smartmatch_api.exercise_dependencies -> smartmatch_persistence.exercise.results_rows",
+    # Issue #413: the six teams' 4-digit entry codes, their own repository and
+    # therefore their own edge.
+    "smartmatch_api.exercise_dependencies -> smartmatch_persistence.exercise.team_code_repository",
 ]
 
 # SQLAlchemy is deliberately *not* on the list above, and this is why it gets a

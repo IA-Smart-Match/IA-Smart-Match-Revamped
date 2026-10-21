@@ -96,6 +96,7 @@ __all__ = [
     "exercise_result_run",
     "exercise_result_unlock",
     "exercise_saved_setting",
+    "exercise_team_code",
     "exercise_team_workspace",
 ]
 
@@ -490,6 +491,22 @@ exercise_result_unlock = sa.Table(
 )
 
 
+# Revision 0048 (issue #413): a team types its 4-digit code with its number.
+# Keyed by team number, not by workspace, because the instructor reads the six
+# codes out before any team has entered. Text, so a leading zero survives;
+# stored in the clear because the instructor page shows it.
+exercise_team_code = sa.Table(
+    "exercise_team_code",
+    METADATA,
+    sa.Column("team_number", sa.Integer, nullable=False, autoincrement=False),
+    sa.Column("code", sa.Text, nullable=False),
+    sa.Column("updated_at", _TS, nullable=False, server_default=sa.text("now()")),
+    sa.PrimaryKeyConstraint("team_number", name="exercise_team_code_pkey"),
+    sa.CheckConstraint("team_number BETWEEN 1 AND 6", name="ck_exercise_team_code_team_number"),
+    sa.CheckConstraint("code ~ '^[0-9]{4}$'", name="ck_exercise_team_code_shape"),
+)
+
+
 #: The family, by name. Used by the tests that walk it as a family rather than
 #: filtering the shared ``METADATA`` on a string prefix — the prefix is the
 #: rule being tested, so a test that selected by it could not fail.
@@ -504,6 +521,7 @@ EXERCISE_TABLES: dict[str, sa.Table] = {
         exercise_saved_setting,
         exercise_result_run,
         exercise_result_unlock,
+        exercise_team_code,
     )
 }
 

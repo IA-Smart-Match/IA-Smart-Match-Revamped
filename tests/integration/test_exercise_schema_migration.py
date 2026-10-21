@@ -81,7 +81,10 @@ REVISION = "0037_exercise_tables"
 #: ``0045_exercise_unlock_closed_at`` and is the head. It adds two nullable
 #: ``exercise_result_run`` columns and backfills only those, so this file's
 #: claims still hold through it.
-HEAD_REVISION = "0047_exercise_invite_sixty"
+#: Moved again by #413: ``0048_exercise_team_code`` adds ``exercise_team_code``
+#: (six seeded rows keyed by team number, no foreign keys), so this file's
+#: claims still hold through it.
+HEAD_REVISION = "0048_exercise_team_code"
 
 #: Design spec §2's eight tables.
 EXERCISE_TABLES = (
@@ -93,6 +96,7 @@ EXERCISE_TABLES = (
     "exercise_saved_setting",
     "exercise_result_run",
     "exercise_result_unlock",
+    "exercise_team_code",
 )
 
 

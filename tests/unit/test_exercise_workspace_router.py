@@ -43,6 +43,7 @@ from smartmatch_api.exercise_dependencies import (
     WORKSPACE_COOKIE_NAME,
     get_active_dataset,
     get_exercise_session,
+    get_team_code_repository,
     get_workspace_repository,
     get_workspace_secret,
     workspace_cookie_policy,
@@ -63,6 +64,8 @@ from smartmatch_persistence.exercise.workspace_repository import (
     ExerciseWorkspace,
 )
 from smartmatch_providers import Edition
+
+from tests.unit.exercise_team_codes import FakeTeamCodes, fake_code
 
 _ROUTER_SOURCE = Path(exercise_workspace.__file__)
 
@@ -211,6 +214,7 @@ def _exercise_app(
     session = _FakeSession()
     app.dependency_overrides[get_exercise_session] = lambda: session
     app.dependency_overrides[get_workspace_repository] = lambda: repository
+    app.dependency_overrides[get_team_code_repository] = FakeTeamCodes
     app.dependency_overrides[get_active_dataset] = lambda: dataset
     app.dependency_overrides[get_workspace_secret] = lambda: require_exercise_workspace_secret(
         settings
@@ -240,7 +244,7 @@ def client(repository: _FakeRepository) -> Iterator[TestClient]:
 def _enter(client: TestClient, team_number: int) -> Any:
     return client.post(
         "/v1/exercise/workspaces",
-        json={"team_number": team_number},
+        json={"team_number": team_number, "code": fake_code(team_number)},
         headers={EXERCISE_REQUEST_HEADER: "1"},
     )
 
@@ -622,6 +626,7 @@ def test_no_dataset_yet_is_one_plain_sentence(repository: _FakeRepository) -> No
         app.include_router(router)
     app.dependency_overrides[get_exercise_session] = lambda: _FakeSession()
     app.dependency_overrides[get_workspace_repository] = lambda: repository
+    app.dependency_overrides[get_team_code_repository] = FakeTeamCodes
     app.dependency_overrides[get_workspace_secret] = lambda: _TEST_SECRET
     with TestClient(app) as client:
         response = _enter(client, 1)

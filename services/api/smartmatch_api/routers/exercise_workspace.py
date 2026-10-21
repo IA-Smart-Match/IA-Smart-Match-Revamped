@@ -1,6 +1,8 @@
 """Team workspaces for the class exercise (design spec §15, requirements "Getting in").
 
-A team enters a number 1-6. The server creates or returns *the* workspace for
+A team enters a number 1-6 and its 4-digit code (issue #413: the site is
+public, so the number alone no longer opens a team's work; the instructor page
+shows the six codes). The server creates or returns *the* workspace for
 that team, sets an opaque pointer to it in an httpOnly cookie, and a reload —
 or a second tab, or the laptop next to it — gets the same workspace back. No
 login, no account, no principal, and nothing in this module that could resolve
@@ -81,10 +83,10 @@ requires ``X-Exercise-Request`` on top of ``SameSite=Lax`` — see
 Not in this module
 ==================
 
-* **Rate limiting** (OQ-CE-06, owner Danny). Deliberately not built here. Two
-  bounds already hold without it: ``uq_exercise_team_workspace_dataset_team``
-  caps this product at six workspace rows per dataset no matter how many times
-  anybody posts, and ``MaxBodySizeMiddleware`` caps the body ahead of routing.
+* **A per-route rate limit.** Wrong team codes are bounded instead, by
+  :class:`~smartmatch_api.exercise_rate_limit.WrongCodeGuard`; the row count
+  is capped by ``uq_exercise_team_workspace_dataset_team`` and the body by
+  ``MaxBodySizeMiddleware``.
 * **The ``localStorage`` mirror** design spec §15 names. That is the front
   end's copy of "this browser has entered team 4", and it is CE-MOUNT's work.
   Nothing here writes it and the token is never exposed to a script.
@@ -92,7 +94,11 @@ Not in this module
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Response, status
+import hmac
+import logging
+from typing import Final
+
+from fastapi import APIRouter, Depends, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field
 from smartmatch_domain.exercise import EXERCISE_TEAM_NUMBERS
 
@@ -103,13 +109,16 @@ from smartmatch_api.exercise_dependencies import (
     ExerciseSession,
     ExerciseWorkspace,
     ResultsRepository,
+    TeamCodeRepository,
     WorkspaceRepository,
     WorkspaceSecret,
     require_exercise_request_header,
     workspace_token_for,
 )
 from smartmatch_api.exercise_errors import ExerciseError
+from smartmatch_api.exercise_rate_limit import UNRESOLVED_CALLER_KEY, WrongCodeGuard
 from smartmatch_api.routers.exercise_results_run import round_two_open
+from smartmatch_api.utils import utc_now
 
 #: A bare assignment, not an annotated one, for ``exercise_public.router``'s
 #: reason: the route ledger in ``tests/authz/test_policy_matrix.py`` reads
@@ -123,6 +132,16 @@ router = APIRouter(prefix="/v1/exercise", tags=["class-exercise"])
 #: editing a signature.
 _STATE_CHANGING = [Depends(require_exercise_request_header)]
 
+_LOGGER = logging.getLogger(__name__)
+
+#: Wrong team codes, per (team, client address), in this process (issue #413).
+#: Module-level for the reason the instructor login limiter is.
+_CODE_GUARD: Final[WrongCodeGuard] = WrongCodeGuard()
+
+#: Student-facing sentences for the team code (issue #413; need Dr. Wang's OK).
+WRONG_CODE_SENTENCE: Final[str] = "That code is not right for this team. Your instructor has it."
+CODE_LOCKED_SENTENCE: Final[str] = "Too many wrong codes. Wait one minute, then try again."
+
 
 class EnterTeamRequest(BaseModel):
     """The entry screen's whole input: a team number."""
@@ -135,6 +154,14 @@ class EnterTeamRequest(BaseModel):
             "document's `Getting in` row and not configurable. Entering a "
             "number another team has already entered opens *that* team's "
             "workspace, which is the point: a team is its number."
+        ),
+    )
+    code: str = Field(
+        max_length=16,
+        description=(
+            "The team's 4-digit code (issue #413). The instructor page shows it; "
+            "a wrong one is refused, and five wrong in ten minutes lock entry "
+            "for that team for a minute."
         ),
     )
 
@@ -208,6 +235,43 @@ def _set_workspace_cookie(response: Response, *, policy: CookiePolicy, token: st
     )
 
 
+def _check_team_code(
+    request: Request,
+    session: ExerciseSession,
+    codes: TeamCodeRepository,
+    *,
+    team_number: int,
+    given: str,
+) -> None:
+    """Refuse a wrong team code, and every attempt while the team is locked out.
+
+    Compared as bytes with :func:`hmac.compare_digest`, so the time taken does
+    not leak how many digits matched. A team with no code row is never
+    entered. Neither code is ever logged.
+
+    Raises:
+        ExerciseError: 429 while locked out, 401 for a wrong code.
+    """
+    stored = codes.code_for(session, team_number=team_number)
+    correct = stored is not None and hmac.compare_digest(given.strip().encode(), stored.encode())
+    client = request.client
+    key = f"{team_number}:{client.host if client and client.host else UNRESOLVED_CALLER_KEY}"
+    if not _CODE_GUARD.attempt(key, correct=correct, now=utc_now()):
+        _LOGGER.warning("exercise team code locked out for team %s", team_number)
+        raise ExerciseError(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            code="exercise_team_code_locked",
+            message=CODE_LOCKED_SENTENCE,
+        )
+    if not correct:
+        _LOGGER.info("exercise team code refused for team %s", team_number)
+        raise ExerciseError(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            code="exercise_team_code_wrong",
+            message=WRONG_CODE_SENTENCE,
+        )
+
+
 @router.post(
     "/workspaces",
     response_model=TeamWorkspaceView,
@@ -217,8 +281,10 @@ def _set_workspace_cookie(response: Response, *, policy: CookiePolicy, token: st
 )
 def enter_team_workspace(
     payload: EnterTeamRequest,
+    request: Request,
     response: Response,
     session: ExerciseSession,
+    codes: TeamCodeRepository,
     repository: WorkspaceRepository,
     dataset: ActiveDataset,
     secret: WorkspaceSecret,
@@ -265,7 +331,8 @@ def enter_team_workspace(
 
     Raises:
         ExerciseError: 409 when no dataset has been uploaded (raised by the
-            ``dataset`` dependency), 422 when the number is outside 1-6, 403
+            ``dataset`` dependency), 422 when the number is outside 1-6, 401
+            for a wrong team code, 429 while that team is locked out, 403
             when the request carries no ``X-Exercise-Request`` header.
     """
     if payload.team_number not in EXERCISE_TEAM_NUMBERS:
@@ -274,6 +341,7 @@ def enter_team_workspace(
             code="exercise_team_number_unknown",
             message="Pick a team number from 1 to 6.",
         )
+    _check_team_code(request, session, codes, team_number=payload.team_number, given=payload.code)
     dataset_id = repository.entry_dataset_for(session, team_number=payload.team_number)
     # Defensive, and **unreachable today** (review round 2, F5). Since PR #188
     # resolved the newest data file inside `entry_dataset_for`'s lock, `None`

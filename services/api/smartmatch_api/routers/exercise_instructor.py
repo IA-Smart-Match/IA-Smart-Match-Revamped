@@ -88,7 +88,7 @@ import uuid
 from enum import Enum
 from typing import Annotated, Final
 
-from fastapi import APIRouter, Body, Depends, Query, status
+from fastapi import APIRouter, Body, Depends, Query, Response, status
 from smartmatch_domain.exercise import EXERCISE_TEAM_NUMBERS
 from smartmatch_domain.exercise.ingest import IngestRefusal, parse_exercise_file
 from smartmatch_domain.exercise.workbook import XLSX_MEDIA_TYPE
@@ -104,6 +104,7 @@ from smartmatch_api.exercise_dependencies import (
     InstructorEventRow,
     InstructorRepository,
     MaybeActiveDataset,
+    TeamCodeRepository,
     TeamWorkspaceHandle,
     WorkingDataset,
     WorkspaceRepository,
@@ -118,6 +119,8 @@ from smartmatch_api.routers.exercise_instructor_models import (
     InviteLimitRequest,
     LockView,
     RepointView,
+    TeamCodesView,
+    TeamCodeView,
     TeamListView,
     TeamSummaryView,
     UnlockView,
@@ -516,6 +519,24 @@ def _change_lock(
 
 
 @router.get(
+    "/team-codes",
+    response_model=TeamCodesView,
+    summary="Every team's 4-digit entry code",
+)
+def list_team_codes(
+    session: ExerciseSession, codes: TeamCodeRepository, response: Response
+) -> TeamCodesView:
+    """Issue #413: the codes the instructor reads out, behind this router's passcode."""
+    response.headers["Cache-Control"] = "no-store"
+    return TeamCodesView(
+        teams=tuple(
+            TeamCodeView(team_number=team, code=code)
+            for team, code in sorted(codes.all_codes(session).items())
+        )
+    )
+
+
+@router.get(
     "/workspaces",
     response_model=TeamListView,
     summary="Every team that exists, with the data file each is on",
@@ -567,9 +588,13 @@ def reset_team_workspace(
     session: ExerciseSession,
     instructor: InstructorRepository,
     workspaces: WorkspaceRepository,
+    codes: TeamCodeRepository,
     dataset_id: _DatasetChoice = None,
 ) -> TeamSummaryView:
     """Design spec §11's per-team reset, and **the only reset there is**.
+
+    Also gives the team a new 4-digit entry code (issue #413), in the same
+    transaction. Browsers already holding the team's cookie stay in.
 
     Owner ruling, 2026-09-19: per-team reset sits behind this passcode. The
     team-addressed route was removed — it resolved the workspace from a cookie
@@ -608,6 +633,7 @@ def reset_team_workspace(
             code="exercise_reset_write_refused",
             message=str(error),
         ) from error
+    codes.rotate(session, team_number=team_number)
     session.commit()
     for row in instructor.list_workspaces(session, dataset_id=dataset.dataset_id):
         if row.team_number == team_number:

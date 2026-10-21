@@ -8,6 +8,12 @@ Plan B (cloud clone) / Plan C (live VM) follow-ups: the load-test plan (`loadtes
 **Local only.** The script refuses `*.smartmatch.cloud`. Plan B and C need the
 owner's OK first.
 
+**Team codes (issue #413).** Entering a team needs its 4-digit code. After the
+instructor login and every reset (a reset issues new codes), the script reads all
+six from `GET /v1/exercise/instructor/team-codes` and never prints them. There is
+no test-only bypass, so the wrong-code lockout is the same as in production; the
+script never sends a wrong code, so it never trips it.
+
 ## What one run does
 
 It replays the run of show with real think times (6–20 s between slider moves). `--scale 6`

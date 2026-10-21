@@ -48,6 +48,7 @@ from smartmatch_api.exercise_dependencies import (
     get_exercise_session,
     get_results_repository,
     get_settings_repository,
+    get_team_code_repository,
     get_team_view_repository,
     get_workspace_repository,
     get_workspace_secret,
@@ -96,6 +97,8 @@ from smartmatch_persistence.exercise.workspace_repository import (
     ExerciseDatasetSummary,
     ExerciseWorkspace,
 )
+
+from tests.unit.exercise_team_codes import FakeTeamCodes, fake_code
 
 _ROUTER_SOURCE = Path(exercise_matching.__file__)
 _MODELS_SOURCE = Path(exercise_matching_models.__file__)
@@ -431,6 +434,7 @@ def _exercise_app(fakes: _Fakes) -> FastAPI:
     session = _FakeSession()
     app.dependency_overrides[get_exercise_session] = lambda: session
     app.dependency_overrides[get_workspace_repository] = lambda: fakes.workspaces
+    app.dependency_overrides[get_team_code_repository] = FakeTeamCodes
     app.dependency_overrides[get_dataset_repository] = lambda: fakes.datasets
     app.dependency_overrides[get_team_view_repository] = lambda: fakes.team_view
     app.dependency_overrides[get_settings_repository] = lambda: fakes.settings
@@ -450,7 +454,7 @@ def _entered(fakes: _Fakes, team_number: int) -> TestClient:
     client = TestClient(_exercise_app(fakes))
     response = client.post(
         "/v1/exercise/workspaces",
-        json={"team_number": team_number},
+        json={"team_number": team_number, "code": fake_code(team_number)},
         headers={EXERCISE_REQUEST_HEADER: "1"},
     )
     assert response.status_code == 200, response.text

@@ -48,6 +48,7 @@ EXPECTED_TABLES = (
     "exercise_saved_setting",
     "exercise_result_run",
     "exercise_result_unlock",
+    "exercise_team_code",
 )
 
 #: The columns Ann's data file fills (revision 0037, plus 0042's two).

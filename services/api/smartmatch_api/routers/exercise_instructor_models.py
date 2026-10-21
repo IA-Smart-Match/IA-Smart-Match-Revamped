@@ -74,6 +74,8 @@ __all__ = [
     "RepointView",
     "ResultRunView",
     "SavedSettingView",
+    "TeamCodeView",
+    "TeamCodesView",
     "TeamDetailView",
     "TeamListView",
     "TeamSummaryView",
@@ -272,6 +274,23 @@ class TeamListView(BaseModel):
             "file the teams below are on — only a re-point moves them."
         )
     )
+
+
+class TeamCodeView(BaseModel):
+    """One team's 4-digit entry code (issue #413). Instructor routes only."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    team_number: int
+    code: str = Field(description="Four digits; a leading zero is part of the code.")
+
+
+class TeamCodesView(BaseModel):
+    """Every team's entry code, teams 1-6, for the instructor to read out."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    teams: tuple[TeamCodeView, ...]
 
 
 class SavedSettingView(BaseModel):

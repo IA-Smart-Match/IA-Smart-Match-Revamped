@@ -524,6 +524,9 @@ UNAUTHENTICATED_ROUTES: dict[tuple[str, str], str] = {
         "`Capability.CLASS_EXERCISE`, in a scope that registers none of the "
         "authenticated CBA routers, so there is no principal to require and "
         "none reachable in the process. In a CBA process it is a 404. "
+        "Since issue #413 it also requires the team's 4-digit code, compared "
+        "in constant time, with five wrong codes per team and client in ten "
+        "minutes locking entry for a minute. "
         "What it accepts is one whole number, 1-6, validated against "
         '`EXERCISE_TEAM_NUMBERS`; `extra="forbid"` rejects a body naming '
         "anything else rather than ignoring it. What it does is create or "
@@ -708,6 +711,13 @@ UNAUTHENTICATED_ROUTES: dict[tuple[str, str], str] = {
         "event key), resolved exactly as the unlock resolves it, so it can "
         "never close results in a file no team is in. Requires "
         "`X-Exercise-Request`."
+    ),
+    ("GET", "/v1/exercise/instructor/team-codes"): (
+        "The six teams' 4-digit entry codes (issue #413), behind the "
+        "instructor passcode session that sits on the router, so a team's "
+        "workspace cookie is refused with 401. The codes are what the "
+        "instructor reads out to the room; they open a team's work on made-up "
+        "profiles and nothing else."
     ),
     ("GET", "/v1/exercise/instructor/workspaces"): (
         "Lists the teams working in the active data file, behind the "

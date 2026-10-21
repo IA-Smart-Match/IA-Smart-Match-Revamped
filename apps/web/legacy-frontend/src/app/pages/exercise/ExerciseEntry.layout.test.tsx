@@ -118,6 +118,11 @@ describe("<ExerciseEntry /> layout", () => {
     );
 
     fireEvent.click(screen.getByRole("radio", { name: "Team 2" }));
+    expect(button.getAttribute("aria-disabled")).toBe("true");
+    expect(document.getElementById(button.getAttribute("aria-describedby") ?? "")?.textContent).toBe(
+      "Enter your team's 4-digit code. Your instructor has it.",
+    );
+    fireEvent.change(screen.getByLabelText("Team code"), { target: { value: "0482" } });
     expect(button.getAttribute("aria-disabled")).toBeNull();
   });
 
@@ -150,6 +155,7 @@ describe("<ExerciseEntry /> layout", () => {
     });
     renderEntry();
     fireEvent.click(await screen.findByRole("radio", { name: "Team 3" }));
+    fireEvent.change(screen.getByLabelText("Team code"), { target: { value: "0482" } });
     fireEvent.click(screen.getByRole("button", { name: "Open this team's work" }));
 
     await waitFor(() =>
