@@ -1,7 +1,7 @@
 """The 4-digit team code (issue #413): entry needs it, the instructor sees it.
 
 The database half (migration backfill, reset rotating the stored row) is in
-``tests/integration/test_exercise_team_code.py``.
+``tests/integration/test_exercise_team_code_persistence.py``.
 """
 
 from __future__ import annotations
