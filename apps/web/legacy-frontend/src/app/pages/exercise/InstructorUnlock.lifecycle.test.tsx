@@ -272,3 +272,22 @@ describe("<UnlockPanel /> sends one unlock per confirm", () => {
     expect(unlockPosts()).toHaveLength(1);
   });
 });
+
+describe("<UnlockPanel /> a failed poll", () => {
+  it("keeps the events on screen, says it is reconnecting, then recovers", async () => {
+    answers = { [`GET ${EVENTS}`]: list(FIRST_FILE, false) };
+    stub();
+    const { rerender } = render(panel(0));
+    await screen.findByText("Harbor Consumer Brands");
+
+    vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new TypeError("offline"))));
+    rerender(panel(1));
+    await screen.findByText("Reconnecting…");
+    expect(screen.getByText("Harbor Consumer Brands")).toBeDefined();
+
+    stub();
+    rerender(panel(2));
+    await waitFor(() => expect(screen.queryByText("Reconnecting…")).toBeNull());
+    expect(screen.getByText("Harbor Consumer Brands")).toBeDefined();
+  });
+});
