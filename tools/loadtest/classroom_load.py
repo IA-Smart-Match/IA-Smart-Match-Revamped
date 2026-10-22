@@ -183,6 +183,14 @@ async def capture_assets(base: str) -> list[str]:
         return seen
 
 
+def asset_target(base: str) -> tuple[str, int, bool, str]:
+    """(host, port, tls, Host header) for the raw asset socket; https gets TLS on 443."""
+    url = httpx.URL(base)
+    tls = url.scheme == "https"
+    port = url.port or (443 if tls else 80)
+    return url.host, port, tls, f"{url.host}:{url.port}" if url.port else url.host
+
+
 async def fetch_asset(base: str, path: str) -> None:
     """GET one static file on a raw socket, gzip bytes left undecoded.
 
@@ -190,13 +198,15 @@ async def fetch_asset(base: str, path: str) -> None:
     300 KB file (gzip decode + small reads), which made the generator the
     bottleneck; a raw HTTP/1.0-style fetch costs ~1 ms. One socket per file.
     """
-    url = httpx.URL(base)
+    host, port, tls, host_header = asset_target(base)
     t0 = time.perf_counter()
     status, code = 0, ""
     try:
-        reader, writer = await asyncio.open_connection(url.host, url.port or 80)
+        reader, writer = await asyncio.open_connection(
+            host, port, ssl=tls or None, server_hostname=host if tls else None
+        )
         writer.write(
-            f"GET {path} HTTP/1.1\r\nHost: {url.host}:{url.port}\r\n"
+            f"GET {path} HTTP/1.1\r\nHost: {host_header}\r\n"
             "Accept-Encoding: gzip\r\nConnection: close\r\n\r\n".encode()
         )
         data = await reader.read()
@@ -321,7 +331,11 @@ class Student:
 
     async def matching(self, event: str, until: float) -> None:
         if self.idx < len(TEAMS):  # one device per team saves the name the results run uses
-            await self.save(event, self.prefix + "A")
+            for _ in range(3):  # a student whose page never loaded reloads, then saves again
+                await self.save(event, self.prefix + "A")
+                if (event, self.prefix + "A") in self.wrote:
+                    break
+                await self.page_load(event)
         while time.perf_counter() < until:
             # Think time stays real (plan 1.3): --scale shortens phases, never the request rate.
             await asyncio.sleep(self.rng.uniform(6, 20))
@@ -613,6 +627,11 @@ async def check_isolation(students: list[Student], ins: Instructor, event: str) 
         check(f"instructor detail team {n}: only own settings", not bad, f"{sorted(mine)}")
 
 
+def run_stamps(stamps: list[str | None]) -> tuple[int, int]:
+    """(distinct runs seen, devices that read no result). None is a failed read, not a run."""
+    return len({ts for ts in stamps if ts is not None}), sum(ts is None for ts in stamps)
+
+
 def first_per_team(students) -> list:
     return [next(s for s in students if s.team == n) for n in TEAMS]
 
@@ -674,23 +693,23 @@ async def results_burst(students, ins, event: str, window: float) -> None:
     res = await asyncio.gather(*(s.run_results(event, window) for s in students))
     for team, rows in sorted(by_team(students, res).items()):
         created = Counter(st for st, _, _ in rows)
-        stamps = {ts for _, _, ts in rows}
+        runs_seen, unread = run_stamps([ts for _, _, ts in rows])
         check(
             f"team {team}: 1 x 201, rest 409 already_run",
             one_winner([st for st, _, _ in rows], 201),
             f"{dict(created)}",
         )
         check(
-            f"team {team}: every device sees the same run",
-            len(stamps) == 1 and None not in stamps,
-            f"distinct_created_at={len(stamps)}",
+            f"team {team}: one run, every device sees it",
+            runs_seen == 1 and unread == 0,
+            f"distinct_runs={runs_seen} devices_without_a_result_read={unread}",
         )
         d = await ins.detail(team)
         runs = [r for r in d.get("result_runs", []) if r.get("event_key") == event]
         check(
             f"team {team}: instructor shows exactly 1 run for {event}",
             len(runs) == 1,
-            f"runs={len(runs)}",
+            f"runs={len(runs)}" if d else "instructor detail unreadable (no response)",
         )
 
 

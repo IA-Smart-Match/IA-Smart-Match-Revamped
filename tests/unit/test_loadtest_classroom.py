@@ -180,3 +180,23 @@ def test_team_codes_come_from_the_instructor_api(monkeypatch) -> None:
     )
     asyncio.run(ins.fetch_codes())
     assert {n: f"000{n}" for n in range(1, 7)} == cl.CODES
+
+
+def test_asset_target_uses_tls_and_a_clean_host_header_on_https() -> None:
+    """Oct 21 public run: every asset was a 400 (plain socket to :80, 'Host: x:None')."""
+    assert cl.asset_target("https://exercise.smartmatch.cloud") == (
+        "exercise.smartmatch.cloud",
+        443,
+        True,
+        "exercise.smartmatch.cloud",
+    )
+    assert cl.asset_target("http://127.0.0.1:5273") == ("127.0.0.1", 5273, False, "127.0.0.1:5273")
+    assert cl.asset_target("http://localhost") == ("localhost", 80, False, "localhost")
+
+
+def test_same_run_check_ignores_devices_that_could_not_read() -> None:
+    """A device whose GET timed out is not a second run (Oct 21 'distinct_created_at=2')."""
+    one_run_some_unread = ["2026-10-22T06:06:49Z", None, "2026-10-22T06:06:49Z", None]
+    assert cl.run_stamps(one_run_some_unread) == (1, 2)
+    two_runs = ["a", "b", None]
+    assert cl.run_stamps(two_runs) == (2, 1)
