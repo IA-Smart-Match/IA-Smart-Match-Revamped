@@ -33,7 +33,7 @@ file contents. Dated material lives in `docs/archive/` — see
 ## Operate — "how do I run/deploy it?"
 - Deploy → `operations/vm-deploy.md` · migrations/rollback → `operations/deploy-runbook.md`
 - Compose appliance → `operations/containers.md` · dev loop → `operations/local-dev-walkthrough.md`
-- Exercise hosting (`exercise.plated.blog`) → `operations/exercise-hosting.md`
+- Exercise hosting (`exercise.smartmatch.cloud`) → `operations/exercise-hosting.md`
 - Tunnel rebuild (sole record) → `operations/classroom-vm-cloudflare-tunnel.md`
 - Dataset rebuild → `operations/pilot-dataset-rebuild.md` · contract → `pilot-data/columns.yaml`
 

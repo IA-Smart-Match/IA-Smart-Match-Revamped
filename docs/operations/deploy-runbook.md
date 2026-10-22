@@ -16,7 +16,7 @@ reality.** This file used to say flatly that there is "no running instance".
 That is no longer true, and the distinction matters to anyone holding a psql
 prompt. A single GCE VM runs the `docker compose` appliance against a real
 PostgreSQL container carrying synthetic pilot data, reachable at
-`https://pilot.plated.blog` through a Cloudflare Tunnel — see
+`https://<pilot-host>` through a Cloudflare Tunnel — see
 [`vm-deploy.md`](vm-deploy.md) for what that machine is and how a commit
 actually reaches it. Every "not yet applicable" row below still stands, because
 each is about *managed cloud* infrastructure that genuinely does not exist; but
