@@ -33,8 +33,13 @@ const apiProxyTarget =
  * enough to win the race, which is why the failure only showed in the app).
  * A keep-alive agent removes the `connection: close` entirely: the upstream
  * socket stays open and the client socket closes on the response's own end.
+ *
+ * `timeout: 4000` drops an IDLE upstream socket after 4 s, before uvicorn closes
+ * it at its 5 s keep-alive default. Without it the agent could reuse a socket the
+ * API had just closed: ECONNRESET, a bare 500 to the student (#413 load runs).
+ * Requests in flight are not affected, however long they take.
  */
-const proxyAgent = new http.Agent({ keepAlive: true });
+const proxyAgent = new http.Agent({ keepAlive: true, timeout: 4000 });
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
