@@ -52,3 +52,21 @@ describe.each(blocks)("%s", (_name, proxy) => {
     expect(isProxied(proxy ?? {}, url)).toBe(true);
   });
 });
+
+/**
+ * uvicorn closes an idle keep-alive socket after 5 s (its default). An agent that
+ * keeps idle upstream sockets longer can reuse one the API just closed: the request
+ * dies with ECONNRESET and the student sees a 500 (load runs of 2026-10-21/22, #413).
+ * Idle sockets must be dropped first; a slow request in flight is not affected.
+ */
+describe("upstream keep-alive agent", () => {
+  const UVICORN_KEEP_ALIVE_MS = 5000;
+  it.each(["/api", "/v1"])("drops idle %s sockets before uvicorn does", (key) => {
+    const entry = (resolved.preview?.proxy ?? {})[key] as {
+      agent?: { keepAlive?: boolean; options?: { timeout?: number } };
+    };
+    expect(entry.agent?.keepAlive).toBe(true);
+    const timeout = entry.agent?.options?.timeout ?? Infinity;
+    expect(timeout).toBeLessThan(UVICORN_KEEP_ALIVE_MS);
+  });
+});
