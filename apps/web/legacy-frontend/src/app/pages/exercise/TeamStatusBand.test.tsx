@@ -101,21 +101,19 @@ function renderBand(props: { eventKey?: string; revision?: number } = {}) {
 }
 
 describe("TeamStatusBand", () => {
-  it("shows the team, both rounds, the way of asking and the refresh", async () => {
+  it("shows only the team identity and a way to pick again", async () => {
     renderBand();
-    await screen.findByText("You are Team 3");
-    expect(screen.getByText("Round 1 · Northline:")).toBeDefined();
-    expect(value("round-1")).toBe("Results not used yet (not open yet)");
-    expect(screen.getByText("Round 2 · Harbor:")).toBeDefined();
-    expect(value("round-2")).toBe("Results not used yet (not open yet)");
-    expect(value("asking")).toBe("Not chosen yet");
-    expect(value("refresh")).toBe("Not done yet");
-    expect(value("file")).toBe("October file");
+    await screen.findByText("You are in Team 3");
+    expect(screen.getByRole("link", { name: "Not your team? Pick again" })).toBeDefined();
+    expect(document.querySelector('[data-status="round-1"]')).toBeNull();
+    expect(document.querySelector('[data-status="asking"]')).toBeNull();
+    expect(document.querySelector('[data-status="refresh"]')).toBeNull();
+    expect(document.querySelector('[data-status="file"]')).toBeNull();
   });
 
   it("is a named region, and not a live region for its own first appearance", async () => {
     renderBand();
-    await screen.findByText("You are Team 3");
+    await screen.findByText("You are in Team 3");
     expect(screen.getByRole("region", { name: "Your team's status" })).toBe(band());
     expect(band()?.getAttribute("role")).toBeNull();
     expect(document.querySelector('[data-slot="exercise-team-status-live"]')?.textContent).toBe("");
@@ -123,14 +121,14 @@ describe("TeamStatusBand", () => {
 
   it("is pinned: sticky so it stays on screen while scrolling", async () => {
     renderBand();
-    await screen.findByText("You are Team 3");
+    await screen.findByText("You are in Team 3");
     expect(band()?.className).toContain("sticky");
   });
 
-  it("marks the round the page is about", async () => {
+  it("does not expose round details", async () => {
     renderBand({ eventKey: "harbor" });
-    await screen.findByText("Round 2 · Harbor (this page):");
-    expect(screen.getByText("Round 1 · Northline:")).toBeDefined();
+    await screen.findByText("You are in Team 3");
+    expect(screen.queryByText("Round 2 · Harbor (this page):")).toBeNull();
   });
 
   it("shows where a team is after a reload: read from the server every time", async () => {
@@ -146,22 +144,19 @@ describe("TeamStatusBand", () => {
       body: { ...NOT_ASKED, choice: "small_reward", refreshed: true, refreshed_at: AT },
     };
     const first = renderBand();
-    await screen.findByText("You are Team 3");
+    await screen.findByText("You are in Team 3");
     first.unmount();
 
     // The reload: a fresh mount, nothing carried over in the browser.
     renderBand();
-    await screen.findByText("You are Team 3");
-    expect(value("round-1")).toBe("Results used");
-    expect(value("round-2")).toBe("Results not used yet (open now)");
-    expect(value("asking")).toBe("A small reward");
-    expect(value("refresh")).toBe("Done at 10:42 AM");
+    await screen.findByText("You are in Team 3");
+    expect(document.querySelector('[data-status="round-1"]')).toBeNull();
     expect(calls.filter((url) => url === WORKSPACE)).toHaveLength(2);
   });
 
   it("reads again when the page says something changed, and says the new line aloud", async () => {
     const view = renderBand({ revision: 0 });
-    await screen.findByText("You are Team 3");
+    await screen.findByText("You are in Team 3");
     answers[ASKING] = { body: { ...NOT_ASKED, choice: "required" } };
 
     view.rerender(
@@ -169,10 +164,8 @@ describe("TeamStatusBand", () => {
         <TeamStatusBand revision={1} />
       </MemoryRouter>,
     );
-    await waitFor(() => expect(value("asking")).toBe("Required"));
-    expect(
-      document.querySelector('[data-slot="exercise-team-status-live"]')?.textContent,
-    ).toContain("Way of asking: Required.");
+    await waitFor(() => expect(calls.filter((url) => url === ASKING)).toHaveLength(2));
+    expect(document.querySelector('[data-slot="exercise-team-status-live"]')?.textContent).toBe("");
   });
 
   it("offers the way back for a team that picked the wrong number", async () => {
@@ -200,7 +193,7 @@ describe("TeamStatusBand", () => {
 
   it("keeps the line it has when a later read cannot reach the server", async () => {
     const view = renderBand({ revision: 0 });
-    await screen.findByText("You are Team 3");
+    await screen.findByText("You are in Team 3");
     answers[ASKING] = "offline";
     view.rerender(
       <MemoryRouter>
@@ -210,7 +203,7 @@ describe("TeamStatusBand", () => {
     await waitFor(() =>
       expect(document.querySelector('[data-slot="exercise-team-status-stale"]')).not.toBeNull(),
     );
-    expect(screen.getByText("You are Team 3")).toBeDefined();
+    expect(screen.getByText("You are in Team 3")).toBeDefined();
   });
 
   it("never reads the team number from the browser's own storage", async () => {
@@ -218,7 +211,7 @@ describe("TeamStatusBand", () => {
       body: { team_number: 5, dataset_label: "October file", invite_limit: 30 },
     };
     renderBand();
-    await screen.findByText("You are Team 5");
+    await screen.findByText("You are in Team 5");
   });
 });
 

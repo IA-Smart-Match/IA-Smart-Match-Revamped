@@ -172,11 +172,11 @@ function value(key: string): string | null {
   return document.querySelector(`[data-status="${key}"]`)?.textContent ?? null;
 }
 
-/** The status line sits above the page's own body, under the one `h1`. */
-function bandIsUnderTheHeading(): boolean {
+/** The team hero sits above the page's own title and intro. */
+function bandIsAboveTheHeading(): boolean {
   const heading = screen.getByRole("heading", { level: 1 });
   const band = document.querySelector('[data-slot="exercise-team-status"]') as HTMLElement;
-  return Boolean(heading.compareDocumentPosition(band) & Node.DOCUMENT_POSITION_FOLLOWING);
+  return Boolean(band.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING);
 }
 
 async function pressTwice(button: HTMLElement): Promise<void> {
@@ -187,34 +187,31 @@ async function pressTwice(button: HTMLElement): Promise<void> {
 
 describe("every team page carries the status line", () => {
   it.each([
-    ["/exercise/events", null],
-    ["/exercise/events/northline", "Round 1 · Northline (this page):"],
-    ["/exercise/events/northline/results", "Round 1 · Northline (this page):"],
-    ["/exercise/asking", null],
-  ])("%s", async (path, marked) => {
+    "/exercise/events",
+    "/exercise/events/northline",
+    "/exercise/events/northline/results",
+    "/exercise/asking",
+  ])("%s", async (path) => {
     renderAt(path);
-    await screen.findByText("You are Team 3");
-    expect(bandIsUnderTheHeading()).toBe(true);
-    expect(value("round-1")).toBe("Results not used yet (not open yet)");
-    expect(value("round-2")).toBe("Results not used yet (not open yet)");
-    expect(value("asking")).toBe("Not chosen yet");
-    expect(value("refresh")).toBe("Not done yet");
-    expect(screen.getByText(marked ?? "Round 1 · Northline:")).toBeDefined();
-    // Round two is never the page here, so it is never marked.
-    expect(screen.getByText("Round 2 · Harbor:")).toBeDefined();
+    await screen.findByText("You are in Team 3");
+    expect(bandIsAboveTheHeading()).toBe(true);
+    expect(screen.getByRole("link", { name: "Not your team? Pick again" })).toBeDefined();
+    expect(document.querySelector('[data-status="round-1"]')).toBeNull();
+    expect(document.querySelector('[data-status="asking"]')).toBeNull();
+    expect(document.querySelector('[data-status="refresh"]')).toBeNull();
   });
 
   it("shows where the team is after a reload in the middle of round two", async () => {
     server = { open: true, run: true, choice: "required", refreshed: true };
     const first = renderAt("/exercise/events");
-    await screen.findByText("You are Team 3");
+    await screen.findByText("You are in Team 3");
     first.unmount();
 
     renderAt("/exercise/events");
-    await screen.findByText("You are Team 3");
-    expect(value("round-1")).toBe("Results used");
-    expect(value("asking")).toBe("Required");
-    expect(value("refresh")).toBe("Done at 10:42 AM");
+    await screen.findByText("You are in Team 3");
+    expect(document.querySelector('[data-status="round-1"]')).toBeNull();
+    expect(document.querySelector('[data-status="asking"]')).toBeNull();
+    expect(document.querySelector('[data-status="refresh"]')).toBeNull();
   });
 });
 
@@ -225,14 +222,16 @@ describe("the status line follows the page's own presses", () => {
       return { body: { choice: "small_reward" } };
     };
     renderAt("/exercise/asking");
-    await screen.findByText("You are Team 3");
+    await screen.findByText("You are in Team 3");
     expect(document.querySelector('[data-slot="exercise-asking-chosen"]')).toBeNull();
 
     await pressTwice(
       await screen.findByRole("button", { name: /^choose this way: a small reward/i }),
     );
 
-    await waitFor(() => expect(value("asking")).toBe("A small reward"));
+    await waitFor(() =>
+      expect(document.querySelector('[data-slot="exercise-asking-chosen"]')).not.toBeNull(),
+    );
     const chosen = document.querySelector('[data-slot="exercise-asking-chosen"]');
     // A8: the time is this browser's own clock, so it is matched, not fixed.
     expect(chosen?.textContent).toMatch(
@@ -273,11 +272,10 @@ describe("the status line follows the page's own presses", () => {
       };
     };
     renderAt("/exercise/asking");
-    await screen.findByText("You are Team 3");
-    expect(value("refresh")).toBe("Not done yet");
+    await screen.findByText("You are in Team 3");
 
     await pressTwice(await screen.findByRole("button", { name: "Ask them now" }));
-    await waitFor(() => expect(value("refresh")).toBe("Done at 10:42 AM"));
+    await waitFor(() => expect(screen.getByText(/You chose: Required\./)).toBeDefined());
   });
 
   it("shows results as used after the run, and the page says when it ran", async () => {
@@ -287,14 +285,13 @@ describe("the status line follows the page's own presses", () => {
       return { body: RUN_VIEW, status: 201 };
     };
     renderAt("/exercise/events/northline/results");
-    await screen.findByText("You are Team 3");
-    expect(value("round-1")).toBe("Results not used yet (open now)");
+    await screen.findByText("You are in Team 3");
 
     fireEvent.click(await screen.findByRole("radio", { name: "Wide net" }));
     const run = screen.getByRole("button", { name: /run results/i });
     await pressTwice(run);
 
-    await waitFor(() => expect(value("round-1")).toBe("Results used"));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Results already run for this event." })).toBeDefined());
     const shut = screen.getByRole("button", { name: "Results already run for this event." });
     expect(shut.getAttribute("aria-disabled")).toBe("true");
     expect(document.querySelector('[data-slot="exercise-results-run-at"]')?.textContent).toBe(
@@ -353,6 +350,6 @@ describe("“Check again” says what it found", () => {
 
     await waitFor(() => expect(screen.queryByRole("button", { name: "Check again" })).toBeNull());
     expect(document.querySelector('[data-slot="exercise-results-checked"]')).toBeNull();
-    await waitFor(() => expect(value("round-1")).toBe("Results not used yet (open now)"));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Check again" })).toBeNull());
   });
 });

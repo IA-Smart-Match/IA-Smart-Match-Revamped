@@ -26,12 +26,13 @@ describe("ExerciseScreen (§6.1)", () => {
     expect(container.querySelector(".ce-root")).not.toBeNull();
   });
 
-  it("shows the quiet fictional-data ribbon with the owner's prefix (ruling 1)", () => {
+  it("keeps the fictional-data notice in the footer footnote", () => {
     render(<ExerciseScreen title="Choose an event">body</ExerciseScreen>);
     expect(EXERCISE_RIBBON_LABEL).toBe("Fictional data —");
     const ribbon = document.querySelector('[data-slot="synthetic-data-banner"]') as HTMLElement;
     expect(ribbon.dataset.tone).toBe("quiet");
     expect(ribbon.textContent).toBe(`Fictional data — ${EXERCISE_SYNTHETIC_REASON}`);
+    expect(ribbon.closest(".soft-studio-footer")).not.toBeNull();
   });
 
   it("has exactly one h1, the lead line and the aside", () => {
@@ -49,6 +50,7 @@ describe("ExerciseScreen (§6.1)", () => {
   it("shows the CPP logo in the header", () => {
     render(<ExerciseScreen title="Results">body</ExerciseScreen>);
     expect(screen.getByRole("img", { name: "Cal Poly Pomona" })).toBeDefined();
+    expect(screen.queryByText("SmartMatch")).toBeNull();
   });
 
   it("wraps the shared logo in the exercise's own plate, so dark mode can light it", () => {

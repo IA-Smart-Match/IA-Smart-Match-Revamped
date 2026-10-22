@@ -291,7 +291,6 @@ function EventMatching({ eventKey }: { readonly eventKey: string }): React.JSX.E
           ? state.data.list.event_name
           : "Your team's list"
       }
-      intro="Decide how much each thing counts, then see who that puts on the list — and who it leaves off."
       aside={
         <Link to="/exercise/events" className={LINK_SECONDARY}>
           Choose a different event

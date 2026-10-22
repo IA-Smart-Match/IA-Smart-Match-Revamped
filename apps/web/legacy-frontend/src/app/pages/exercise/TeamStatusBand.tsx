@@ -2,16 +2,13 @@
  * The team's status line, at the top of every team page (DESIGN.md §6.1,
  * issue #321).
  *
- * Ann's revisions of 2026-10-02: "Each team page has a line at the top that is
- * always visible: team number, which event, results used or not, way of
- * asking chosen or not, refresh done or not." Her checklist, section 8:
- * "Reload the page in the middle of each step. Nothing saved is lost, and the
- * status line still shows where the team is."
+ * Student-facing status is intentionally compact: it identifies the team and
+ * offers the route back to team selection. Round, results, asking, refresh,
+ * and data-file state are internal progress details, not student UI.
  *
- * **It reads the server and keeps nothing.** Three reads the team already
- * has: its workspace, its events and its asking state. The team number is
- * never taken from `localStorage` (`workspacePointer.ts` says why). A reload
- * or a second tab mounts this again and reads again.
+ * **It reads the server and keeps nothing.** The team number is never taken
+ * from `localStorage` (`workspacePointer.ts` says why). A reload or a second
+ * tab mounts this again and reads again.
  *
  * **It follows the page.** A page bumps `revision` after something it did has
  * landed (a run, a choice, a refresh) and the line is read again. Until the
@@ -35,7 +32,7 @@ import {
   type EventView,
   type TeamWorkspaceView,
 } from "../../../lib/exerciseClient";
-import { teamLine, teamStatusItems, teamStatusSentence } from "./teamStatusWording";
+import { teamLine } from "./teamStatusWording";
 import { useExerciseResource } from "./useExerciseResource";
 
 interface TeamStatusData {
@@ -92,14 +89,13 @@ export function useStatusRevision(reload: () => Promise<void>): {
 const BAND = "sticky top-0 z-20 ce-card ce-type-body flex flex-col gap-ce-2 p-ce-3 text-ce-ink md:px-ce-5 md:py-ce-4";
 
 export interface TeamStatusBandProps {
-  /** The event this page is about, so the line can mark its round. */
+  /** Kept for page-call-site compatibility; event details are intentionally not shown to students. */
   readonly eventKey?: string;
   /** Bumped by the page after a change of its own has landed: reads the line again. */
   readonly revision?: number;
 }
 
 export function TeamStatusBand({
-  eventKey,
   revision = 0,
 }: TeamStatusBandProps): React.JSX.Element | null {
   const { state } = useExerciseResource(readTeamStatus, [revision], {
@@ -107,9 +103,7 @@ export function TeamStatusBand({
   });
 
   const ready = state.status === "ready" ? state.data : null;
-  const items =
-    ready === null ? [] : teamStatusItems(ready.workspace, ready.events, ready.asking, eventKey);
-  const sentence = ready === null ? null : teamStatusSentence(ready.workspace.team_number, items);
+  const sentence = ready === null ? null : teamLine(ready.workspace.team_number, true);
 
   // Said aloud only when the line *changes*: its first appearance is part of
   // the page loading and is not announced on top of the page's own heading.
@@ -150,17 +144,9 @@ export function TeamStatusBand({
         <div className="flex items-baseline gap-ce-2">
           <dt className="sr-only">Team</dt>
           <dd data-status="team" className="font-semibold">
-            {teamLine(ready.workspace.team_number)}
+            {teamLine(ready.workspace.team_number, true)}
           </dd>
         </div>
-        {items.map((item) => (
-          <div key={item.key} className="flex min-w-0 flex-wrap items-baseline gap-x-ce-2">
-            <dt className="text-ce-ink-muted">{`${item.label}:`}</dt>
-            <dd data-status={item.key} className="font-semibold">
-              {item.value}
-            </dd>
-          </div>
-        ))}
       </dl>
       <p className="ce-type-meta text-ce-ink-muted">
         <Link to="/exercise">Not your team? Pick again</Link>

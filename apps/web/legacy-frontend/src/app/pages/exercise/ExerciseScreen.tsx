@@ -105,11 +105,7 @@ export function ExerciseScreen({
       <MotionConfig reducedMotion="user">
         <SoftStudioHeader pathname={location} />
         <main className="soft-studio-stage ce-container flex flex-col gap-ce-5 pb-ce-7 md:gap-ce-6">
-          <SyntheticDataBanner
-            tone="quiet"
-            label={EXERCISE_RIBBON_LABEL}
-            reason={EXERCISE_SYNTHETIC_REASON}
-          />
+          {status}
           <header className="soft-studio-heading flex flex-wrap items-start justify-between gap-ce-4">
             <div className="flex min-w-0 flex-col gap-ce-2">
               <h1 ref={heading} tabIndex={-1} className="ce-type-h1 text-ce-ink">{title}</h1>
@@ -117,11 +113,15 @@ export function ExerciseScreen({
             </div>
             {aside === undefined ? null : <div className="ce-type-body text-ce-ink-muted">{aside}</div>}
           </header>
-          {status}
           {children}
           <footer className="soft-studio-footer">
             <span aria-hidden="true">✦</span>
-            <p><strong>Fictional classroom data.</strong> All profiles are fictional, shaped by overall survey percentages.</p>
+            <SyntheticDataBanner
+              tone="quiet"
+              label={EXERCISE_RIBBON_LABEL}
+              reason={EXERCISE_SYNTHETIC_REASON}
+              className="soft-studio-footnote"
+            />
           </footer>
         </main>
         <SoftStudioTour />
@@ -142,21 +142,52 @@ function SoftStudioHeader({ pathname }: { readonly pathname: string }): React.JS
   const eventKey = pathname.match(/^\/exercise\/events\/([^/]+)/)?.[1];
   const links = ["/exercise", "/exercise/events", eventKey ? `/exercise/events/${eventKey}` : "", eventKey ? `/exercise/events/${eventKey}/results` : "", "/exercise/asking"];
   const active = pathname === "/exercise" ? 0 : pathname === "/exercise/events" ? 1 : pathname.includes("/results") ? 3 : pathname === "/exercise/asking" ? 4 : 2;
+  const deckRef = React.useRef<HTMLElement>(null);
+  const [walkerLeft, setWalkerLeft] = React.useState<number | null>(null);
+
+  const updateWalkerPosition = React.useCallback(() => {
+    const deck = deckRef.current;
+    const button = deck?.querySelectorAll<HTMLButtonElement>("button")[active];
+    if (deck === null || button === undefined) return;
+    const deckBounds = deck.getBoundingClientRect();
+    const buttonBounds = button.getBoundingClientRect();
+    setWalkerLeft(buttonBounds.left - deckBounds.left + buttonBounds.width / 2);
+  }, [active]);
+
+  React.useLayoutEffect(() => {
+    updateWalkerPosition();
+    const deck = deckRef.current;
+    if (deck === null) return;
+    const observer = new ResizeObserver(updateWalkerPosition);
+    observer.observe(deck);
+    const button = deck.querySelectorAll<HTMLButtonElement>("button")[active];
+    if (button !== undefined) observer.observe(button);
+    const fonts = document.fonts;
+    const onFontsLoaded = () => updateWalkerPosition();
+    fonts?.addEventListener("loadingdone", onFontsLoaded);
+    void fonts?.ready.then(onFontsLoaded);
+    return () => {
+      observer.disconnect();
+      fonts?.removeEventListener("loadingdone", onFontsLoaded);
+    };
+  }, [active, updateWalkerPosition]);
+
   return (
     <div className="soft-studio-band">
       <div className="soft-studio-band-inner">
-        <button className="soft-studio-brand" type="button" onClick={() => window.location.assign("/exercise")} aria-label="SmartMatch class exercise home">
-          <span className="soft-studio-brand-mark">S</span>
-          <span>SmartMatch</span>
+        <button className="soft-studio-brand" type="button" onClick={() => window.location.assign("/exercise")} aria-label="Cal Poly Pomona class exercise home">
+          <span data-slot="ce-logo" className="ce-logo soft-studio-brand-logo"><BrandLogo compact /></span>
         </button>
-        <span data-slot="ce-logo" className="ce-logo soft-studio-cpp-logo"><BrandLogo compact /></span>
-        <nav className="soft-studio-deck" aria-label="Exercise steps">
+        <nav ref={deckRef} className="soft-studio-deck" aria-label="Exercise steps">
           <img
             className="soft-studio-walker"
             src="/exercise/mascot/pose1-guide.webp"
             alt=""
             aria-hidden="true"
-            style={{ left: `calc(${active} * (100% / 5) + 8px)` }}
+            style={{
+              left: `${walkerLeft ?? 0}px`,
+              opacity: walkerLeft === null ? 0 : 1,
+            }}
           />
           {DECK.map(([label, fallback], index) => (
             <button
@@ -174,9 +205,6 @@ function SoftStudioHeader({ pathname }: { readonly pathname: string }): React.JS
             </button>
           ))}
         </nav>
-        <div className="soft-studio-tools">
-          <span className="soft-studio-team-chip">● Team workspace</span>
-        </div>
       </div>
     </div>
   );

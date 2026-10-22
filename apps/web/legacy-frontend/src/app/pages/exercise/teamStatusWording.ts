@@ -59,9 +59,9 @@ export function roundsOf(events: readonly EventView[]): RoundStatus[] {
     }));
 }
 
-/** "You are Team 3": Ann's checklist, section 3. */
-export function teamLine(teamNumber: number): string {
-  return `You are Team ${teamNumber}`;
+/** The team's identity line shown at the top of exercise pages. */
+export function teamLine(teamNumber: number, inTeam = false): string {
+  return inTeam ? `You are in Team ${teamNumber}` : `You are Team ${teamNumber}`;
 }
 
 /** "Round 1 · Northline Analytics: Behind the Business", as the instructor's page writes it. */

@@ -4,7 +4,7 @@ import ReactDOM from "react-dom/client";
 import App from "./app/App";
 import "./styles/index.css";
 
-const adobeFontsUrl = import.meta.env.VITE_ADOBE_FONTS_URL;
+const adobeFontsUrl = import.meta.env.VITE_ADOBE_FONTS_URL || "https://use.typekit.net/mqg3kpq.css";
 
 if (adobeFontsUrl) {
   const adobeFontsLink = document.createElement("link");
