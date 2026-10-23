@@ -1,18 +1,17 @@
 /**
  * The team's status line, at the top of every team page, above the title
- * (DESIGN.md §6.1, issue #321).
+ * and the round banner (DESIGN.md §6.1, issue #321).
  *
- * Ann's revisions of 2026-10-02 asked for team number, event, results,
- * way of asking and refresh on this line. Janice's revision of 2026-10-23
- * trims it to what a marketing student needs: which team they are on, and
- * the way back if that is wrong. The round and what the page is for are the
- * round banner's job, just below it. (`teamStatusItems` still builds the
- * longer line, should it come back.)
+ * Ann's revisions of 2026-10-02: "Each team page has a line at the top that is
+ * always visible: team number, which event, results used or not, way of
+ * asking chosen or not, refresh done or not." Her checklist, section 8:
+ * "Reload the page in the middle of each step. Nothing saved is lost, and the
+ * status line still shows where the team is."
  *
- * **It reads the server and keeps nothing.** One read the team already has:
- * its workspace. The team number is never taken from `localStorage`
- * (`workspacePointer.ts` says why). A reload or a second tab mounts this
- * again and reads again.
+ * **It reads the server and keeps nothing.** Three reads the team already
+ * has: its workspace, its events and its asking state. The team number is
+ * never taken from `localStorage` (`workspacePointer.ts` says why). A reload
+ * or a second tab mounts this again and reads again.
  *
  * **It follows the page.** A page bumps `revision` after something it did has
  * landed (a run, a choice, a refresh) and the line is read again. Until the
@@ -28,18 +27,42 @@ import * as React from "react";
 import { Link } from "react-router";
 
 import { ExerciseUnreachable } from "../../../lib/exerciseApi";
-import { readCurrentWorkspace, type TeamWorkspaceView } from "../../../lib/exerciseClient";
-import { teamLine } from "./teamStatusWording";
+import {
+  readAskingChoice,
+  readCurrentWorkspace,
+  readEvents,
+  type AskingStateView,
+  type EventView,
+  type TeamWorkspaceView,
+} from "../../../lib/exerciseClient";
+import { teamLine, teamStatusItems, teamStatusSentence } from "./teamStatusWording";
 import { useExerciseResource } from "./useExerciseResource";
 
-async function readTeamStatus(signal: AbortSignal): Promise<TeamWorkspaceView> {
-  const workspace = await readCurrentWorkspace(signal);
+interface TeamStatusData {
+  readonly workspace: TeamWorkspaceView;
+  readonly events: readonly EventView[];
+  readonly asking: AskingStateView;
+}
+
+async function readTeamStatus(signal: AbortSignal): Promise<TeamStatusData> {
+  const [workspace, events, asking] = await Promise.all([
+    readCurrentWorkspace(signal),
+    readEvents(signal),
+    readAskingChoice(signal),
+  ]);
   // Checked, not trusted: a line built from an answer of the wrong shape would
   // state things nobody said. It is treated as an answer that did not arrive.
-  if (typeof workspace?.team_number !== "number") {
+  if (
+    typeof workspace?.team_number !== "number" ||
+    typeof workspace.dataset_label !== "string" ||
+    !Array.isArray(events?.events) ||
+    typeof asking !== "object" ||
+    asking === null ||
+    !(asking.choice === null || typeof asking.choice === "string")
+  ) {
     throw new ExerciseUnreachable();
   }
-  return workspace;
+  return { workspace, events: events.events, asking };
 }
 
 /** A later read that cannot reach the server keeps the line already shown. */
@@ -66,15 +89,17 @@ export function useStatusRevision(reload: () => Promise<void>): {
 }
 
 // Pinned (Dr. Wang 2026-10-10): stays on screen while scrolling; .ce-card is opaque.
-const BAND =
-  "sticky top-0 z-20 ce-card ce-type-body flex flex-wrap items-baseline gap-x-ce-4 gap-y-ce-1 p-ce-3 text-ce-ink md:px-ce-5";
+const BAND = "sticky top-0 z-20 ce-card ce-type-body flex flex-col gap-ce-2 p-ce-3 text-ce-ink md:px-ce-5 md:py-ce-4";
 
 export interface TeamStatusBandProps {
+  /** The event this page is about, so the line can mark its round. */
+  readonly eventKey?: string;
   /** Bumped by the page after a change of its own has landed: reads the line again. */
   readonly revision?: number;
 }
 
 export function TeamStatusBand({
+  eventKey,
   revision = 0,
 }: TeamStatusBandProps): React.JSX.Element | null {
   const { state } = useExerciseResource(readTeamStatus, [revision], {
@@ -82,7 +107,9 @@ export function TeamStatusBand({
   });
 
   const ready = state.status === "ready" ? state.data : null;
-  const sentence = ready === null ? null : teamLine(ready.team_number);
+  const items =
+    ready === null ? [] : teamStatusItems(ready.workspace, ready.events, ready.asking, eventKey);
+  const sentence = ready === null ? null : teamStatusSentence(ready.workspace.team_number, items);
 
   // Said aloud only when the line *changes*: its first appearance is part of
   // the page loading and is not announced on top of the page's own heading.
@@ -119,9 +146,22 @@ export function TeamStatusBand({
 
   return (
     <section aria-label="Your team's status" data-slot="exercise-team-status" className={BAND}>
-      <p data-status="team" className="font-semibold">
-        {sentence}
-      </p>
+      <dl className="flex flex-wrap items-baseline gap-x-ce-5 gap-y-ce-1">
+        <div className="flex items-baseline gap-ce-2">
+          <dt className="sr-only">Team</dt>
+          <dd data-status="team" className="font-semibold">
+            {teamLine(ready.workspace.team_number)}
+          </dd>
+        </div>
+        {items.map((item) => (
+          <div key={item.key} className="flex min-w-0 flex-wrap items-baseline gap-x-ce-2">
+            <dt className="text-ce-ink-muted">{`${item.label}:`}</dt>
+            <dd data-status={item.key} className="font-semibold">
+              {item.value}
+            </dd>
+          </div>
+        ))}
+      </dl>
       <p className="ce-type-meta text-ce-ink-muted">
         <Link to="/exercise">Not your team? Pick again</Link>
         {state.unreachable === null ? null : (

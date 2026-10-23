@@ -2,10 +2,11 @@
  * The status line on the team's four pages, with the pages' own presses
  * (issue #321).
  *
- * Since Janice's revision of 2026-10-23 the line says only the team and the
- * way back, above the title, with the round banner between it and the title.
- * What the team has done is said by the pages themselves: "You chose: …",
- * the asking summary, "Run at …".
+ * Ann's checklist of 2026-10-02: "Each team page has a status line at the
+ * top, always visible, showing: team number, which event, round one or round
+ * two, results used or not, way of asking chosen or not, refresh done or
+ * not." Section 6: "After choosing, a message says “You chose: small reward,”
+ * and the status line shows it."
  */
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import * as React from "react";
@@ -167,12 +168,21 @@ function renderAt(path: string) {
   return render(<RouterProvider router={router} />);
 }
 
+function value(key: string): string | null {
+  return document.querySelector(`[data-status="${key}"]`)?.textContent ?? null;
+}
+
 function follows(first: Element, second: Element): boolean {
   return Boolean(first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING);
 }
 
 function band(): HTMLElement {
   return document.querySelector('[data-slot="exercise-team-status"]') as HTMLElement;
+}
+
+/** The status line sits above the one `h1` (Janice, 2026-10-23). */
+function bandIsAboveTheHeading(): boolean {
+  return follows(band(), screen.getByRole("heading", { level: 1 }));
 }
 
 async function pressTwice(button: HTMLElement): Promise<void> {
@@ -182,19 +192,41 @@ async function pressTwice(button: HTMLElement): Promise<void> {
 }
 
 describe("every team page carries the status line", () => {
-  it.each(["/exercise/events", "/exercise/events/northline", "/exercise/events/northline/results", "/exercise/asking"])(
-    "%s: team and the way back only, above the title",
-    async (path) => {
-      renderAt(path);
-      await screen.findByText("You are Team 3");
-      expect(screen.getByRole("link", { name: "Not your team? Pick again" })).toBeDefined();
-      expect(band().textContent).not.toMatch(/Round|Results|Way of asking|Asked for more|Data file/);
-      expect(follows(band(), screen.getByRole("heading", { level: 1 }))).toBe(true);
-    },
-  );
+  it.each([
+    ["/exercise/events", null],
+    ["/exercise/events/northline", "Round 1 · Northline (this page):"],
+    ["/exercise/events/northline/results", "Round 1 · Northline (this page):"],
+    ["/exercise/asking", null],
+  ])("%s", async (path, marked) => {
+    renderAt(path);
+    await screen.findByText("You are Team 3");
+    expect(bandIsAboveTheHeading()).toBe(true);
+    expect(value("round-1")).toBe("Results not open yet");
+    expect(value("round-2")).toBe("Results not open yet");
+    expect(value("asking")).toBe("Not chosen yet");
+    expect(value("refresh")).toBe("Not done yet");
+    expect(screen.getByText(marked ?? "Round 1 · Northline:")).toBeDefined();
+    // Round two is never the page here, so it is never marked.
+    expect(screen.getByText("Round 2 · Harbor:")).toBeDefined();
+  });
 
+  it("shows where the team is after a reload in the middle of round two", async () => {
+    server = { open: true, run: true, choice: "required", refreshed: true };
+    const first = renderAt("/exercise/events");
+    await screen.findByText("You are Team 3");
+    first.unmount();
+
+    renderAt("/exercise/events");
+    await screen.findByText("You are Team 3");
+    expect(value("round-1")).toBe("Results run");
+    expect(value("asking")).toBe("Required");
+    expect(value("refresh")).toBe("Asked at 10:42 AM");
+  });
+});
+
+describe("the round banner sits between the team line and the title", () => {
   it.each(["/exercise/events/northline", "/exercise/events/northline/results", "/exercise/asking"])(
-    "%s: the round banner sits between the team line and the title",
+    "%s",
     async (path) => {
       renderAt(path);
       await screen.findByText("You are Team 3");
@@ -210,7 +242,7 @@ describe("every team page carries the status line", () => {
 });
 
 describe("the status line follows the page's own presses", () => {
-  it("says “You chose: …” once the way of asking is chosen", async () => {
+  it("shows the way of asking once it is chosen, beside “You chose: …”", async () => {
     extra[`POST ${ASKING}`] = () => {
       server.choice = "small_reward";
       return { body: { choice: "small_reward" } };
@@ -223,9 +255,7 @@ describe("the status line follows the page's own presses", () => {
       await screen.findByRole("button", { name: /^choose this way: a small reward/i }),
     );
 
-    await waitFor(() =>
-      expect(document.querySelector('[data-slot="exercise-asking-chosen"]')).not.toBeNull(),
-    );
+    await waitFor(() => expect(value("asking")).toBe("A small reward"));
     const chosen = document.querySelector('[data-slot="exercise-asking-chosen"]');
     // A8: the time is this browser's own clock, so it is matched, not fixed.
     expect(chosen?.textContent).toMatch(
@@ -243,7 +273,37 @@ describe("the status line follows the page's own presses", () => {
     );
   });
 
-  it("shuts the results button after the run, and the page says when it ran", async () => {
+  it("shows the refresh as done, with its time, once the team has asked", async () => {
+    server.choice = "required";
+    extra[`POST ${BASE}/refresh`] = () => {
+      server.refreshed = true;
+      return {
+        body: {
+          choice: "required",
+          cards_completed: 1,
+          non_responding: 0,
+          topics_added: 1,
+          refreshed_at: AT,
+          refresh_counts: {
+            cards_completed: 1,
+            non_responding: 0,
+            topics_added: 1,
+            asked_without_card: 2,
+            marker_counts_before: {},
+            marker_counts_after: {},
+          },
+        },
+      };
+    };
+    renderAt("/exercise/asking");
+    await screen.findByText("You are Team 3");
+    expect(value("refresh")).toBe("Not done yet");
+
+    await pressTwice(await screen.findByRole("button", { name: "Ask students now" }));
+    await waitFor(() => expect(value("refresh")).toBe("Asked at 10:42 AM"));
+  });
+
+  it("shows results as used after the run, and the page says when it ran", async () => {
     server.open = true;
     extra[`POST ${RESULTS}`] = () => {
       server.run = true;
@@ -251,12 +311,14 @@ describe("the status line follows the page's own presses", () => {
     };
     renderAt("/exercise/events/northline/results");
     await screen.findByText("You are Team 3");
+    expect(value("round-1")).toBe("Results open, not run yet");
 
     fireEvent.click(await screen.findByRole("radio", { name: "Wide net" }));
     const run = screen.getByRole("button", { name: /run results/i });
     await pressTwice(run);
 
-    const shut = await screen.findByRole("button", { name: "Results already run for this event." });
+    await waitFor(() => expect(value("round-1")).toBe("Results run"));
+    const shut = screen.getByRole("button", { name: "Results already run for this event." });
     expect(shut.getAttribute("aria-disabled")).toBe("true");
     expect(document.querySelector('[data-slot="exercise-results-run-at"]')?.textContent).toBe(
       "Run at 10:42 AM. ",
@@ -314,5 +376,6 @@ describe("“Check again” says what it found", () => {
 
     await waitFor(() => expect(screen.queryByRole("button", { name: "Check again" })).toBeNull());
     expect(document.querySelector('[data-slot="exercise-results-checked"]')).toBeNull();
+    await waitFor(() => expect(value("round-1")).toBe("Results open, not run yet"));
   });
 });
