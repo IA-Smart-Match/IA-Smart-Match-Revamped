@@ -645,13 +645,13 @@ class TestNoPersistence:
 #: without any backend module importing the reader at all.
 FRONTEND_SRC = REPO_ROOT / "apps" / "web" / "legacy-frontend" / "src"
 
-#: The `/api/crawler/*` client helpers that survive in `src/lib/api.ts`. They
+#: The `/api/crawler/*` client helpers that survive in `src/lib/api.ts` (not `startCrawl`,
+#: removed in #264). They
 #: are kept, not deleted -- the same disposition `cba-phase-deferred.md` gives
 #: every gated capability -- and they call routes the API does not serve, which
 #: `TestTheContractAndTheAppAgree` already proves. What must stay true is that
 #: no component calls them, so the dead helper cannot quietly become a control.
 CRAWL_API_HELPERS = (
-    "startCrawl",
     "fetchCrawlerResults",
     "clearCrawlerResults",
     "fetchCrawlerStatus",

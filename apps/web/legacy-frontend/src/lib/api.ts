@@ -6,16 +6,6 @@ import {
   type MarkerStorage,
 } from "./signOutMarker.ts";
 
-export interface Specialist {
-  name: string;
-  board_role: string;
-  metro_region: string;
-  company: string;
-  title: string;
-  expertise_tags: string;
-  initials: string;
-}
-
 export interface CppEvent {
   "Event / Program": string;
   Category: string;
@@ -276,25 +266,6 @@ export interface FeedbackStatsSummary {
   suggested_weights: FactorWeights;
   recommended_adjustments: FeedbackAdjustment[];
   weight_history: FeedbackWeightSnapshot[];
-}
-
-export interface FeedbackSubmitInput {
-  event_name: string;
-  speaker_name: string;
-  decision: "accept" | "decline";
-  match_score?: number;
-  decline_reason?: string;
-  decline_notes?: string;
-  event_outcome?: string;
-  membership_interest?: boolean;
-  coordinator_rating?: number;
-  factor_scores?: Record<string, number>;
-  weights_used?: FactorWeights;
-}
-
-export interface FeedbackSubmitResponse {
-  feedback: Record<string, unknown>;
-  optimizer_snapshot: FeedbackWeightSnapshot;
 }
 
 /**
@@ -1170,14 +1141,6 @@ export interface WithSource<T> {
   isMockData: boolean;
 }
 
-export async function fetchSpecialists(): Promise<WithSource<Specialist[]>> {
-  const raw = await requestJson<unknown>("/api/data/specialists");
-  const payload = toRecordArray(raw);
-  const rawSource = payload[0]?.source;
-  const source: "live" | "demo" | "csv" = rawSource === "demo" ? "demo" : rawSource === "csv" ? "csv" : "live";
-  return { data: payload as unknown as Specialist[], source, isMockData: source !== "live" };
-}
-
 export async function fetchEvents(): Promise<WithSource<CppEvent[]>> {
   const raw = await requestJson<unknown>("/api/data/events");
   const payload = toRecordArray(raw);
@@ -1302,46 +1265,6 @@ export async function fetchFeedbackStats(): Promise<WithSource<FeedbackStatsSumm
   return { data: normalizeFeedbackStats(payload), source, isMockData: source !== "live" };
 }
 
-export async function submitFeedback(
-  input: FeedbackSubmitInput,
-): Promise<FeedbackSubmitResponse> {
-  const payload = await requestJson<unknown>("/api/feedback/submit", {
-    method: "POST",
-    body: JSON.stringify(input),
-  });
-  const record = extractRecord(payload);
-  return {
-    feedback: toObjectRecord(record.feedback),
-    optimizer_snapshot: normalizeFeedbackWeightSnapshot(record.optimizer_snapshot),
-  };
-}
-
-export async function generateQrAsset(
-  speakerName: string,
-  eventName: string,
-): Promise<QrCodeAsset | null> {
-  const payload = await requestJson<unknown>("/api/qr/generate", {
-    method: "POST",
-    body: JSON.stringify({
-      speaker_name: speakerName,
-      event_name: eventName,
-    }),
-  });
-  const asset = normalizeQrCodeAsset(payload);
-  if (
-    !asset.referral_code &&
-    !asset.scan_url &&
-    !asset.qr_svg &&
-    !asset.qr_svg_data_url &&
-    !asset.qr_png_data_url &&
-    !asset.qr_image_url &&
-    !asset.download_url
-  ) {
-    return null;
-  }
-  return asset;
-}
-
 export async function rankSpeakers(
   eventName: string,
   limit = 5,
@@ -1379,70 +1302,6 @@ export async function scoreSpeaker(
       ...payload,
       volunteer_fatigue: fatigue,
     };
-  });
-}
-
-export async function generateEmail(
-  speakerName: string,
-  eventName: string,
-  options?: { voice?: OutreachEmailVoice; request_source?: string },
-): Promise<OutreachEmailResponse> {
-  return requestJson<OutreachEmailResponse>("/api/outreach/email", {
-    method: "POST",
-    body: JSON.stringify({
-      speaker_name: speakerName,
-      event_name: eventName,
-      ...(options?.voice ? { voice: options.voice } : {}),
-      ...(options?.request_source ? { request_source: options.request_source } : {}),
-    }),
-  });
-}
-
-export async function generateIcs(
-  eventName: string,
-  eventDate?: string,
-  location?: string,
-  description?: string,
-): Promise<{ ics_content: string }> {
-  return requestJson<{ ics_content: string }>("/api/outreach/ics", {
-    method: "POST",
-    body: JSON.stringify({
-      event_name: eventName,
-      event_date: eventDate,
-      location,
-      description,
-    }),
-  });
-}
-
-export interface WorkflowStepResult {
-  status: "ok" | "error";
-  error?: string;
-}
-
-export interface WorkflowResponse {
-  email: string;
-  email_data: OutreachEmailPayload;
-  ics_content: string;
-  pipeline_updated: boolean;
-  steps: {
-    email: WorkflowStepResult;
-    ics: WorkflowStepResult;
-    pipeline: WorkflowStepResult;
-  };
-  dispatch_mode: string;
-}
-
-export async function initiateWorkflow(
-  speakerName: string,
-  eventName: string,
-): Promise<WorkflowResponse> {
-  return requestJson<WorkflowResponse>("/api/outreach/workflow", {
-    method: "POST",
-    body: JSON.stringify({
-      speaker_name: speakerName,
-      event_name: eventName,
-    }),
   });
 }
 
@@ -1519,12 +1378,6 @@ export async function rankSpeakersForCourse(
     body: JSON.stringify({ course_key: courseKey, limit, weights }),
   });
   return payload.map(normalizeRankedMatch);
-}
-
-export async function startCrawl(): Promise<{ status: string }> {
-  return requestJson<{ status: string }>("/api/crawler/start", {
-    method: "POST",
-  });
 }
 
 export async function fetchCrawlerResults(): Promise<CrawlerResultsResponse> {

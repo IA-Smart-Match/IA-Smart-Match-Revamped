@@ -66,15 +66,9 @@ FRONTEND_SRC = REPO_ROOT / "apps" / "web" / "legacy-frontend" / "src"
 
 METRICS_HOOK = FRONTEND_SRC / "app" / "hooks" / "useUnitMetrics.ts"
 FUNNEL_TILES = FRONTEND_SRC / "app" / "components" / "PipelineFunnelTiles.tsx"
-DASHBOARD_PAGE = FRONTEND_SRC / "app" / "pages" / "Dashboard.tsx"
-PIPELINE_PAGE = FRONTEND_SRC / "app" / "pages" / "Pipeline.tsx"
-OPPORTUNITIES_PAGE = FRONTEND_SRC / "app" / "pages" / "Opportunities.tsx"
-
-#: The pages that hold a grant and resolve the unit off it.
-GRANT_HOLDING_PAGES = (DASHBOARD_PAGE, PIPELINE_PAGE, OPPORTUNITIES_PAGE)
 
 #: Every file this fix touches, for the copy sweep.
-METRICS_SURFACES = (METRICS_HOOK, FUNNEL_TILES, *GRANT_HOLDING_PAGES)
+METRICS_SURFACES = (METRICS_HOOK, FUNNEL_TILES)
 
 
 def _code_only(source: str) -> str:
@@ -129,39 +123,6 @@ def test_the_metrics_hook_takes_the_granted_unit_and_looks_up_no_build_variable(
         )
 
 
-@pytest.mark.parametrize("path", GRANT_HOLDING_PAGES, ids=lambda value: str(value.name))
-def test_the_page_resolves_the_unit_from_the_server_granted_admin_portal(path: Path) -> None:
-    """Every call site derives the unit the way the rest of the product does.
-
-    ``grantedPortal(portalAccess, "admin")?.default_unit_id ?? null`` — the
-    literal shape ``CoordinatorEvents.tsx``, ``CoordinatorOutreach.tsx`` and
-    ``StudentRewards.tsx`` use for their own portals. Asserted here rather than
-    left implicit because the hook now accepts *any* ``string | null``, so the
-    guard against a browser-composed unit moved to the caller along with the
-    responsibility.
-
-    The portal is pinned as ``"admin"`` specifically. A page that resolved some
-    other portal's grant would type-check and would read a unit — the wrong
-    one — which is the failure mode a bare "resolves something from the grant"
-    assertion would wave through.
-    """
-    code = _code_only(path.read_text(encoding="utf-8"))
-
-    assert "usePortalAccess" in code, f"{path.name} must read the portal mapping"
-    assert 'grantedPortal(portalAccess, "admin")' in code, (
-        f"{path.name} must resolve the admin grant the way the portal pages do; "
-        "the unit is read off the server's grant, never composed in the browser"
-    )
-    assert "grant?.default_unit_id ?? null" in code, (
-        f"{path.name} must take the unit off the grant, not compose one"
-    )
-
-    for forbidden in ("getConfiguredUnitId", "VITE_SMARTMATCH_UNIT_ID"):
-        assert forbidden not in code, (
-            f"{path.name} sources its unit id from the browser build: {forbidden!r}"
-        )
-
-
 def test_the_funnel_tiles_require_the_unit_rather_than_defaulting_it() -> None:
     """``PipelineFunnelTiles`` has no grant, so its caller must supply one.
 
@@ -188,12 +149,6 @@ def test_the_funnel_tiles_require_the_unit_rather_than_defaulting_it() -> None:
     assert "useUnitMetrics(unitId, reloadToken)" in code, (
         "PipelineFunnelTiles must hand the prop straight to the hook"
     )
-
-    for path in (DASHBOARD_PAGE, PIPELINE_PAGE):
-        caller = _code_only(path.read_text(encoding="utf-8"))
-        assert "unitId={unitId}" in caller, (
-            f"{path.name} must pass its granted unit down to PipelineFunnelTiles"
-        )
 
 
 @pytest.mark.parametrize("path", METRICS_SURFACES, ids=lambda value: str(value.name))
@@ -272,7 +227,7 @@ def test_the_three_no_data_facts_stay_three_separate_sentences() -> None:
         "the in-flight case needs its own words, or it borrows the no-unit case's"
     )
 
-    for path in (FUNNEL_TILES, *GRANT_HOLDING_PAGES):
+    for path in (FUNNEL_TILES,):
         code = _code_only(path.read_text(encoding="utf-8"))
         assert "unitResolving" in code, (
             f"{path.name} must distinguish a mapping still in flight from a grant "
