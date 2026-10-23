@@ -1,7 +1,7 @@
 /**
- * The team's status line (issue #321; Ann's revisions of 2026-10-02, §1, and
- * her checklist, §8: after a reload "the status line still shows where the
- * team is").
+ * The team's status line (issue #321; trimmed by Janice on 2026-10-23 to the
+ * team and the way back). After a reload it still reads the team from the
+ * server (Ann's checklist, §8).
  */
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import * as React from "react";
@@ -92,7 +92,7 @@ function value(key: string): string | null {
   return document.querySelector(`[data-status="${key}"]`)?.textContent ?? null;
 }
 
-function renderBand(props: { eventKey?: string; revision?: number } = {}) {
+function renderBand(props: { revision?: number } = {}) {
   return render(
     <MemoryRouter>
       <TeamStatusBand {...props} />
@@ -101,15 +101,12 @@ function renderBand(props: { eventKey?: string; revision?: number } = {}) {
 }
 
 describe("TeamStatusBand", () => {
-  it("shows the team, both rounds, the way of asking and the refresh", async () => {
+  it("shows only the team and the way back, read from the team's workspace", async () => {
     renderBand();
     await screen.findByText("You are Team 3");
-    expect(screen.getByText("Round 1 · Northline:")).toBeDefined();
-    expect(value("round-1")).toBe("Results not open yet");
-    expect(screen.getByText("Round 2 · Harbor:")).toBeDefined();
-    expect(value("round-2")).toBe("Results not open yet");
-    expect(value("asking")).toBe("Not chosen yet");
-    expect(value("refresh")).toBe("Not done yet");
+    expect(screen.getByRole("link", { name: "Not your team? Pick again" })).toBeDefined();
+    expect(band()?.textContent).not.toMatch(/Round|Results|Way of asking|Asked for more|Data file/);
+    expect(calls).toEqual([WORKSPACE]);
   });
 
   it("is a named region, and not a live region for its own first appearance", async () => {
@@ -126,24 +123,7 @@ describe("TeamStatusBand", () => {
     expect(band()?.className).toContain("sticky");
   });
 
-  it("marks the round the page is about", async () => {
-    renderBand({ eventKey: "harbor" });
-    await screen.findByText("Round 2 · Harbor (this page):");
-    expect(screen.getByText("Round 1 · Northline:")).toBeDefined();
-  });
-
-  it("shows where a team is after a reload: read from the server every time", async () => {
-    answers[EVENTS] = {
-      body: {
-        events: [
-          round("northline", "Northline", 11, { results_open: true, results_run: true }),
-          round("harbor", "Harbor", 12, { results_open: true }),
-        ],
-      },
-    };
-    answers[ASKING] = {
-      body: { ...NOT_ASKED, choice: "small_reward", refreshed: true, refreshed_at: AT },
-    };
+  it("reads the team from the server again after a reload", async () => {
     const first = renderBand();
     await screen.findByText("You are Team 3");
     first.unmount();
@@ -151,27 +131,23 @@ describe("TeamStatusBand", () => {
     // The reload: a fresh mount, nothing carried over in the browser.
     renderBand();
     await screen.findByText("You are Team 3");
-    expect(value("round-1")).toBe("Results run");
-    expect(value("round-2")).toBe("Results open, not run yet");
-    expect(value("asking")).toBe("A small reward");
-    expect(value("refresh")).toBe("Asked at 10:42 AM");
     expect(calls.filter((url) => url === WORKSPACE)).toHaveLength(2);
   });
 
   it("reads again when the page says something changed, and says the new line aloud", async () => {
     const view = renderBand({ revision: 0 });
     await screen.findByText("You are Team 3");
-    answers[ASKING] = { body: { ...NOT_ASKED, choice: "required" } };
+    answers[WORKSPACE] = { body: { team_number: 4, dataset_label: "October file", invite_limit: 30 } };
 
     view.rerender(
       <MemoryRouter>
         <TeamStatusBand revision={1} />
       </MemoryRouter>,
     );
-    await waitFor(() => expect(value("asking")).toBe("Required"));
+    await waitFor(() => expect(value("team")).toBe("You are Team 4"));
     expect(
       document.querySelector('[data-slot="exercise-team-status-live"]')?.textContent,
-    ).toContain("Way of asking: Required.");
+    ).toBe("You are Team 4");
   });
 
   it("offers the way back for a team that picked the wrong number", async () => {
@@ -190,7 +166,7 @@ describe("TeamStatusBand", () => {
   });
 
   it("says so when the status cannot be read at all", async () => {
-    answers[EVENTS] = "offline";
+    answers[WORKSPACE] = "offline";
     renderBand();
     await screen.findByText(
       "Your team's status could not be read. Reload the page to read it again.",
@@ -200,7 +176,7 @@ describe("TeamStatusBand", () => {
   it("keeps the line it has when a later read cannot reach the server", async () => {
     const view = renderBand({ revision: 0 });
     await screen.findByText("You are Team 3");
-    answers[ASKING] = "offline";
+    answers[WORKSPACE] = "offline";
     view.rerender(
       <MemoryRouter>
         <TeamStatusBand revision={1} />
@@ -251,7 +227,7 @@ describe("useStatusRevision", () => {
 });
 
 describe("ExerciseScreen's status slot (§6.1)", () => {
-  it("puts the status line between the header and the page's body", () => {
+  it("puts the status line above the title, and the title above the page's body", () => {
     render(
       <ExerciseScreen title="Results" status={<p data-testid="line">status</p>}>
         <p data-testid="body">body</p>
@@ -260,8 +236,8 @@ describe("ExerciseScreen's status slot (§6.1)", () => {
     const heading = screen.getByRole("heading", { level: 1 });
     const line = screen.getByTestId("line");
     const body = screen.getByTestId("body");
-    expect(heading.compareDocumentPosition(line) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(line.compareDocumentPosition(body) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(line.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(heading.compareDocumentPosition(body) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("renders no status line on a screen that passes none", () => {

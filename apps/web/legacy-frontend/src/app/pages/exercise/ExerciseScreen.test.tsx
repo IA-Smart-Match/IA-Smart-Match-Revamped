@@ -129,6 +129,16 @@ describe("ExerciseScreen soft-studio header", () => {
     },
   );
 
+  it("uses the Cal Poly Pomona logo as the band's brand, with no SmartMatch mark or team chip", () => {
+    at("/exercise/events");
+    render(<ExerciseScreen title="Choose an event">body</ExerciseScreen>);
+    const home = screen.getByRole("link", { name: "Class exercise home" });
+    expect(home.getAttribute("href")).toBe("/exercise");
+    expect(home.querySelector('img[alt="Cal Poly Pomona"]')).not.toBeNull();
+    expect(screen.queryByText("SmartMatch")).toBeNull();
+    expect(screen.queryByText(/Your team/)).toBeNull();
+  });
+
   it("puts the walking mascot inside the active step, so it stands over it", () => {
     at("/exercise/events");
     render(<ExerciseScreen title="Choose an event">body</ExerciseScreen>);

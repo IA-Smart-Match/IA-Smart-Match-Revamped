@@ -302,7 +302,7 @@ function EventMatching({ eventKey }: { readonly eventKey: string }): React.JSX.E
           Choose a different event
         </Link>
       }
-      status={<><RoundBanner page="event" eventKey={eventKey} /><TeamStatusBand eventKey={eventKey} /></>}
+      status={<><TeamStatusBand /><RoundBanner page="event" eventKey={eventKey} /></>}
     >
       {state.status === "loading" ? (
         // §6.21: shaped like the list, with the stated-loading sentence.

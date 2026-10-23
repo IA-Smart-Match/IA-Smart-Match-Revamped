@@ -23,26 +23,34 @@ function canUseStorage(): boolean {
 export function SoftStudioTour(): React.JSX.Element {
   const [open, setOpen] = React.useState(false);
   const [step, setStep] = React.useState(0);
-  const [dontShow, setDontShow] = React.useState(false);
   const launcher = React.useRef<HTMLButtonElement>(null);
   const dialog = React.useRef<HTMLDivElement>(null);
   const title = React.useRef<HTMLHeadingElement>(null);
 
   const close = React.useCallback(() => {
     setOpen(false);
-    if (canUseStorage() && dontShow) window.localStorage.setItem(STORAGE_KEY, "hidden");
     requestAnimationFrame(() => launcher.current?.focus());
-  }, [dontShow]);
+  }, []);
 
   const openTour = React.useCallback(() => {
     setStep(0);
     setOpen(true);
   }, []);
 
+  // Opens by itself once, on a browser's first visit. It is marked seen as it
+  // opens, so the next page (every deck step is a full page load) does not
+  // open it again; after that only the Tour button does.
   React.useEffect(() => {
     if (import.meta.env.MODE === "test" || !canUseStorage()) return;
     if (window.localStorage.getItem(STORAGE_KEY) === null) {
-      const timer = window.setTimeout(() => setOpen(true), 700);
+      const timer = window.setTimeout(() => {
+        try {
+          window.localStorage.setItem(STORAGE_KEY, "seen");
+        } catch {
+          // Storage refused (private window): it opens once per page, as before.
+        }
+        setOpen(true);
+      }, 700);
       return () => window.clearTimeout(timer);
     }
   }, []);
@@ -62,7 +70,7 @@ export function SoftStudioTour(): React.JSX.Element {
         setStep((value) => Math.max(0, value - 1));
       } else if (event.key === "Tab" && dialog.current) {
         const focusable = dialog.current.querySelectorAll<HTMLElement>(
-          'button, input[type="checkbox"]',
+          'button',
         );
         if (focusable.length === 0) return;
         const first = focusable[0];
@@ -119,10 +127,6 @@ export function SoftStudioTour(): React.JSX.Element {
                   <span key={item[0]} className={index === step ? "is-current" : index < step ? "is-done" : ""} />
                 ))}
               </div>
-              <label className="soft-studio-tour-check">
-                <input type="checkbox" checked={dontShow} onChange={(event) => setDontShow(event.target.checked)} />
-                Don't show this again
-              </label>
               <div className="soft-studio-tour-actions">
                 <button type="button" className="soft-studio-button soft-studio-button--quiet" onClick={close}>Skip</button>
                 <button
