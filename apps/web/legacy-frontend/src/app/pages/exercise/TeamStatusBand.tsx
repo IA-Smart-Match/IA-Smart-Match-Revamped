@@ -1,6 +1,6 @@
 /**
- * The team's status line, at the top of every team page (DESIGN.md §6.1,
- * issue #321).
+ * The team's status line, at the top of every team page, above the title
+ * and the round banner (DESIGN.md §6.1, issue #321).
  *
  * Ann's revisions of 2026-10-02: "Each team page has a line at the top that is
  * always visible: team number, which event, results used or not, way of

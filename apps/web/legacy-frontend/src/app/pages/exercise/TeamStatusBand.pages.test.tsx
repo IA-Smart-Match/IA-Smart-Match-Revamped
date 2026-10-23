@@ -172,11 +172,17 @@ function value(key: string): string | null {
   return document.querySelector(`[data-status="${key}"]`)?.textContent ?? null;
 }
 
-/** The status line sits above the page's own body, under the one `h1`. */
-function bandIsUnderTheHeading(): boolean {
-  const heading = screen.getByRole("heading", { level: 1 });
-  const band = document.querySelector('[data-slot="exercise-team-status"]') as HTMLElement;
-  return Boolean(heading.compareDocumentPosition(band) & Node.DOCUMENT_POSITION_FOLLOWING);
+function follows(first: Element, second: Element): boolean {
+  return Boolean(first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING);
+}
+
+function band(): HTMLElement {
+  return document.querySelector('[data-slot="exercise-team-status"]') as HTMLElement;
+}
+
+/** The status line sits above the one `h1` (Janice, 2026-10-23). */
+function bandIsAboveTheHeading(): boolean {
+  return follows(band(), screen.getByRole("heading", { level: 1 }));
 }
 
 async function pressTwice(button: HTMLElement): Promise<void> {
@@ -194,7 +200,7 @@ describe("every team page carries the status line", () => {
   ])("%s", async (path, marked) => {
     renderAt(path);
     await screen.findByText("You are Team 3");
-    expect(bandIsUnderTheHeading()).toBe(true);
+    expect(bandIsAboveTheHeading()).toBe(true);
     expect(value("round-1")).toBe("Results not open yet");
     expect(value("round-2")).toBe("Results not open yet");
     expect(value("asking")).toBe("Not chosen yet");
@@ -216,6 +222,23 @@ describe("every team page carries the status line", () => {
     expect(value("asking")).toBe("Required");
     expect(value("refresh")).toBe("Asked at 10:42 AM");
   });
+});
+
+describe("the round banner sits between the team line and the title", () => {
+  it.each(["/exercise/events/northline", "/exercise/events/northline/results", "/exercise/asking"])(
+    "%s",
+    async (path) => {
+      renderAt(path);
+      await screen.findByText("You are Team 3");
+      const banner = await waitFor(() => {
+        const found = document.querySelector('[data-slot="exercise-round-banner"]');
+        expect(found).not.toBeNull();
+        return found as HTMLElement;
+      });
+      expect(follows(band(), banner)).toBe(true);
+      expect(follows(banner, screen.getByRole("heading", { level: 1 }))).toBe(true);
+    },
+  );
 });
 
 describe("the status line follows the page's own presses", () => {

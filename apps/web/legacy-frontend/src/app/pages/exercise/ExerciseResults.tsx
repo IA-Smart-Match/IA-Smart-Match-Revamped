@@ -216,7 +216,7 @@ function EventResults({ eventKey }: { readonly eventKey: string }): React.JSX.El
           Back to your team's list
         </Link>
       }
-      status={<><RoundBanner page="results" eventKey={eventKey} revision={revision} /><TeamStatusBand eventKey={eventKey} revision={revision} /></>}
+      status={<><TeamStatusBand eventKey={eventKey} revision={revision} /><RoundBanner page="results" eventKey={eventKey} revision={revision} /></>}
     >
       {state.status === "loading" ? <ExerciseLoading what="your team's results" /> : null}
       {state.status === "refused" ? workspaceRequiredNotice(state.refusal) : null}
