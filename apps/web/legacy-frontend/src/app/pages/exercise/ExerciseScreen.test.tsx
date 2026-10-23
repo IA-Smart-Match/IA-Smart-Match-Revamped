@@ -97,3 +97,44 @@ describe("ExerciseLoading", () => {
     expect(screen.getByRole("status").textContent).toBe("Loading the list…");
   });
 });
+
+describe("ExerciseScreen soft-studio header", () => {
+  function at(path: string) {
+    window.history.pushState({}, "", path);
+  }
+
+  afterEach(() => {
+    at("/");
+  });
+
+  it.each(["/exercise", "/exercise/events", "/exercise/events/northline", "/exercise/events/northline/results", "/exercise/asking"])(
+    "gives the student screen %s the step deck, the tour button and the band's logo",
+    (path) => {
+      at(path);
+      render(<ExerciseScreen title="Results">body</ExerciseScreen>);
+      expect(screen.getByRole("navigation", { name: "Exercise steps" })).toBeDefined();
+      expect(screen.getByRole("button", { name: "Replay the exercise tour" })).toBeDefined();
+      expect(screen.getAllByRole("img", { name: "Cal Poly Pomona" })).toHaveLength(1);
+    },
+  );
+
+  it.each(["/exercise/instructor", "/exercise/profile-card"])(
+    "keeps %s, which the instructor projects, free of the deck and tour but with the logo",
+    (path) => {
+      at(path);
+      render(<ExerciseScreen title="Results">body</ExerciseScreen>);
+      expect(screen.queryByRole("navigation", { name: "Exercise steps" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "Replay the exercise tour" })).toBeNull();
+      expect(screen.getAllByRole("img", { name: "Cal Poly Pomona" })).toHaveLength(1);
+    },
+  );
+
+  it("puts the walking mascot inside the active step, so it stands over it", () => {
+    at("/exercise/events");
+    render(<ExerciseScreen title="Choose an event">body</ExerciseScreen>);
+    const active = document.querySelector('[aria-current="step"]') as HTMLElement;
+    expect(active.textContent).toContain("Event");
+    expect(active.querySelector(".soft-studio-walker")).not.toBeNull();
+    expect(document.querySelectorAll(".soft-studio-walker")).toHaveLength(1);
+  });
+});

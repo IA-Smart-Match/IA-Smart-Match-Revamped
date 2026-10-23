@@ -80,8 +80,10 @@ export function ExerciseScreen({
 }: ExerciseScreenProps): React.JSX.Element {
   const heading = React.useRef<HTMLHeadingElement>(null);
   const location = typeof window === "undefined" ? "/exercise" : window.location.pathname;
-  // The instructor page shares this frame but not the students' step deck or tour.
-  const student = !location.startsWith("/exercise/instructor");
+  // Only the five student screens get the step deck and tour. The instructor
+  // page and the profile-card mock-up the instructor projects share this frame
+  // but keep the plain header, logo included.
+  const student = isStudentPath(location);
 
   // §8.5: a route change moves focus to the h1. After a link click the link
   // unmounts and focus falls to <body>; only then is it moved, so a screen
@@ -107,6 +109,11 @@ export function ExerciseScreen({
       <MotionConfig reducedMotion="user">
         {student ? <SoftStudioHeader pathname={location} /> : null}
         <main className="soft-studio-stage ce-container flex flex-col gap-ce-5 pb-ce-7 md:gap-ce-6">
+          {student ? null : (
+            <span data-slot="ce-logo" className="ce-logo">
+              <BrandLogo compact />
+            </span>
+          )}
           <SyntheticDataBanner
             tone="quiet"
             label={EXERCISE_RIBBON_LABEL}
@@ -132,6 +139,15 @@ export function ExerciseScreen({
   );
 }
 
+function isStudentPath(pathname: string): boolean {
+  return (
+    pathname === "/exercise" ||
+    pathname === "/exercise/asking" ||
+    pathname === "/exercise/events" ||
+    pathname.startsWith("/exercise/events/")
+  );
+}
+
 const DECK = [
   ["Team", "/exercise"],
   ["Event", "/exercise/events"],
@@ -153,13 +169,6 @@ function SoftStudioHeader({ pathname }: { readonly pathname: string }): React.JS
         </button>
         <span data-slot="ce-logo" className="ce-logo soft-studio-cpp-logo"><BrandLogo compact /></span>
         <nav className="soft-studio-deck" aria-label="Exercise steps">
-          <img
-            className="soft-studio-walker"
-            src="/exercise/mascot/pose1-guide.webp"
-            alt=""
-            aria-hidden="true"
-            style={{ left: `calc(${active} * (100% / 5) + 8px)` }}
-          />
           {DECK.map(([label, fallback], index) => (
             <button
               key={label}
@@ -172,6 +181,9 @@ function SoftStudioHeader({ pathname }: { readonly pathname: string }): React.JS
                 if (target) window.location.assign(target);
               }}
             >
+              {index === active ? (
+                <img className="soft-studio-walker" src="/exercise/mascot/pose1-guide.webp" alt="" aria-hidden="true" />
+              ) : null}
               {index < active ? <span aria-hidden="true">✓</span> : null}{label}
             </button>
           ))}
