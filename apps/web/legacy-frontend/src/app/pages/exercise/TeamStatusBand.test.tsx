@@ -251,7 +251,7 @@ describe("useStatusRevision", () => {
 });
 
 describe("ExerciseScreen's status slot (§6.1)", () => {
-  it("puts the status line between the header and the page's body", () => {
+  it("puts the status line above the title, and the title above the page's body", () => {
     render(
       <ExerciseScreen title="Results" status={<p data-testid="line">status</p>}>
         <p data-testid="body">body</p>
@@ -260,8 +260,8 @@ describe("ExerciseScreen's status slot (§6.1)", () => {
     const heading = screen.getByRole("heading", { level: 1 });
     const line = screen.getByTestId("line");
     const body = screen.getByTestId("body");
-    expect(heading.compareDocumentPosition(line) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(line.compareDocumentPosition(body) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(line.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(heading.compareDocumentPosition(body) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("renders no status line on a screen that passes none", () => {

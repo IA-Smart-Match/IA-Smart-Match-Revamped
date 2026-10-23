@@ -1,4 +1,23 @@
 /* Direction C: Soft Studio. Scoped to the exercise so the other portals keep CPP. */
+
+/* Fredoka and Nunito (SIL OFL 1.1, licences beside the files), self-hosted
+   like Transducer in fonts.css. Latin subset, variable weight. */
+@font-face {
+  font-family: "Fredoka";
+  src: url("/fonts/fredoka-latin-wght.woff2") format("woff2-variations");
+  font-display: swap;
+  font-style: normal;
+  font-weight: 300 700;
+}
+
+@font-face {
+  font-family: "Nunito";
+  src: url("/fonts/nunito-latin-wght.woff2") format("woff2-variations");
+  font-display: swap;
+  font-style: normal;
+  font-weight: 200 1000;
+}
+
 .soft-studio-root {
   --ce-page: #fbf5ef;
   --ce-surface: #fffcf9;
@@ -23,39 +42,24 @@
   font-family: var(--ce-font-body);
 }
 
-@media (prefers-color-scheme: dark) {
-  .soft-studio-root:not([data-theme="light"]), .soft-studio-root[data-theme="dark"] {
-    --ce-page: #1c1513; --ce-surface: #271e1b; --ce-surface-sunk: #332824;
-    --ce-ink: #f8eee9; --ce-ink-muted: #cdb9b0; --ce-primary: #a7b0ff;
-    --ce-on-primary: #1c1513; --ce-primary-tint: #2e3358; --ce-on-primary-tint: #b8c0ff;
-    --ce-line: #43352f; --ce-line-strong: #8e776e; --soft-band: #3a2522;
-    --soft-peri: #262a48; --soft-peach: #3a2b1c; --soft-shadow: 0 10px 26px -14px #000b;
-    color-scheme: dark;
-  }
-}
-
-.soft-studio-root[data-theme="dark"] { --ce-page: #1c1513; --ce-surface: #271e1b; --ce-surface-sunk: #332824; --ce-ink: #f8eee9; --ce-ink-muted: #cdb9b0; --ce-primary: #a7b0ff; --ce-on-primary: #1c1513; --ce-primary-tint: #2e3358; --ce-on-primary-tint: #b8c0ff; --ce-line: #43352f; --ce-line-strong: #8e776e; --soft-band: #3a2522; --soft-peri: #262a48; --soft-peach: #3a2b1c; color-scheme: dark; }
+/* Light only. The exercise has no dark mode (the app never sets `.dark`), so
+   an OS-driven dark palette here would ship a look nobody has reviewed. */
 
 .soft-studio-root { background: var(--ce-page); color: var(--ce-ink); }
 .soft-studio-root .ce-card { background: var(--ce-surface); box-shadow: var(--soft-shadow); }
-.soft-studio-root .ce-logo { display: inline-flex; }
 .soft-studio-band { position: relative; z-index: 2; background: var(--soft-band); border-bottom: 1px solid var(--ce-line); }
-.soft-studio-band-inner { max-width: 1280px; margin: 0 auto; padding: 18px 32px 12px; display: grid; grid-template-columns: 180px 110px 1fr auto; align-items: end; gap: 18px; }
-.soft-studio-brand { display: inline-flex; align-items: center; gap: 9px; border: 0; background: transparent; color: var(--ce-ink); cursor: pointer; font: 600 22px/1 var(--ce-font-display); padding: 0 0 8px; text-align: left; }
-.soft-studio-brand-mark { display: grid; width: 34px; height: 34px; place-items: center; border-radius: 12px; background: var(--ce-primary); color: var(--ce-on-primary); font: 700 21px/1 var(--ce-font-display); }
-.soft-studio-cpp-logo { padding-bottom: 8px; opacity: .78; }
-.soft-studio-cpp-logo img { max-width: 100px !important; }
-.soft-studio-deck { position: relative; display: flex; align-items: flex-end; justify-content: center; gap: 8px; padding-top: 48px; }
-.soft-studio-walker { position: absolute; top: 0; z-index: 1; width: auto; height: 48px; pointer-events: none; filter: drop-shadow(0 2px 2px rgb(58 37 32 / 18%)); transition: left .45s cubic-bezier(.45, 0, .2, 1); }
-.soft-studio-deck button { display: inline-flex; align-items: center; gap: 6px; min-height: 48px; padding: 0 15px; border: 0; border-radius: 15px 15px 11px 11px; background: var(--ce-surface); color: var(--ce-ink-muted); box-shadow: var(--soft-shadow); cursor: pointer; font: 600 15px/1 var(--ce-font-display); transform: rotate(-1deg); transition: transform .2s ease, background .2s ease, color .2s ease; }
+.soft-studio-band-inner { max-width: 1280px; margin: 0 auto; padding: 18px 32px 12px; display: grid; grid-template-columns: auto 1fr; align-items: end; gap: 18px; }
+.soft-studio-brand { display: inline-flex; align-items: center; align-self: end; justify-self: start; padding-bottom: 12px; border-radius: var(--ce-radius-control); }
+.soft-studio-band .soft-studio-cpp-logo { display: block; }
+.soft-studio-cpp-logo img { display: block; width: 150px; max-width: 150px; }
+.soft-studio-deck { position: relative; display: flex; align-items: flex-end; justify-content: center; gap: 8px; padding-top: 56px; }
+.soft-studio-walker { position: absolute; bottom: 100%; left: 50%; z-index: 1; width: auto; height: 48px; pointer-events: none; transform: translateX(-50%); filter: drop-shadow(0 2px 2px rgb(58 37 32 / 18%)); }
+.soft-studio-deck button { position: relative; display: inline-flex; align-items: center; gap: 6px; min-height: 48px; padding: 0 15px; border: 0; border-radius: 15px 15px 11px 11px; background: var(--ce-surface); color: var(--ce-ink-muted); box-shadow: var(--soft-shadow); cursor: pointer; font: 600 15px/1 var(--ce-font-display); transform: rotate(-1deg); transition: transform .2s ease, background .2s ease, color .2s ease; }
 .soft-studio-deck button:nth-child(even) { transform: rotate(1deg); }
 .soft-studio-deck button:hover { color: var(--ce-ink); transform: translateY(-3px) rotate(0); }
 .soft-studio-deck button.is-active { background: var(--ce-primary); color: var(--ce-on-primary); transform: translateY(-5px); min-height: 54px; }
 .soft-studio-deck button.is-done { color: var(--ce-ink); }
 .soft-studio-deck button.is-done span { color: var(--ce-primary); font-size: 18px; }
-.soft-studio-tools { padding-bottom: 8px; }
-.soft-studio-team-chip { display: inline-flex; align-items: center; gap: 7px; padding: 8px 13px; border-radius: 999px; background: var(--ce-surface); box-shadow: var(--soft-shadow); font: 700 14px/1 var(--ce-font-body); white-space: nowrap; }
-.soft-studio-team-chip::first-letter { color: var(--ce-primary); }
 .soft-studio-stage { position: relative; padding-top: 52px; }
 .soft-studio-heading { margin-bottom: 8px; }
 .soft-studio-heading h1 { font-family: var(--ce-font-display); letter-spacing: -.025em; }
@@ -78,12 +82,11 @@
 .soft-studio-tour-dots span { width: 9px; height: 9px; border-radius: 50%; background: var(--ce-line-strong); }
 .soft-studio-tour-dots span.is-current { background: var(--ce-primary); transform: scale(1.35); }
 .soft-studio-tour-dots span.is-done { background: var(--ce-on-primary-tint); }
-.soft-studio-tour-check { display: flex; align-items: center; gap: 8px; color: var(--ce-ink-muted); font-size: 14px; }
 .soft-studio-tour-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 24px; }
 .soft-studio-button { min-height: 44px; padding: 0 17px; border: 0; border-radius: 12px; cursor: pointer; font: 700 15px/1 var(--ce-font-display); }
 .soft-studio-button--primary { background: var(--ce-primary); color: var(--ce-on-primary); }
 .soft-studio-button--quiet { background: transparent; color: var(--ce-ink-muted); }
 .soft-studio-root :focus-visible { outline-color: var(--ce-primary); }
-@media (max-width: 900px) { .soft-studio-band-inner { grid-template-columns: 1fr auto; } .soft-studio-cpp-logo { display: none; } .soft-studio-deck { grid-column: 1 / -1; grid-row: 2; justify-content: flex-start; overflow-x: auto; padding-bottom: 4px; } .soft-studio-tools { grid-column: 2; grid-row: 1; } }
+@media (max-width: 900px) { .soft-studio-band-inner { grid-template-columns: 1fr; } .soft-studio-brand { padding-bottom: 0; } .soft-studio-deck { grid-row: 2; justify-content: flex-start; overflow-x: auto; padding-bottom: 4px; } }
 @media (max-width: 600px) { .soft-studio-band-inner { padding: 14px 16px 10px; } .soft-studio-deck button { min-width: max-content; min-height: 44px; padding-inline: 12px; font-size: 14px; } .soft-studio-stage { padding-top: 34px; } .soft-studio-tour-launcher { right: 16px; bottom: 16px; } .soft-studio-tour-card { grid-template-columns: 1fr; overflow: visible; max-height: calc(100vh - 32px); margin-top: auto; } .soft-studio-tour-mascot { width: 92px; height: 92px; min-height: 0; padding: 0; position: absolute; top: 0; left: 0; transform: translate(14px, -70px); background: transparent; } .soft-studio-tour-copy { padding: 26px 22px 22px; } }
 @media (prefers-reduced-motion: reduce) { .soft-studio-deck button, .soft-studio-tour-dots span { transition: none; transform: none !important; } }

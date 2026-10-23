@@ -188,7 +188,7 @@ export function ExerciseAskingForMore(): React.JSX.Element {
           Back to the events
         </Link>
       }
-      status={<><RoundBanner page="asking" revision={revision} /><TeamStatusBand revision={revision} /></>}
+      status={<><TeamStatusBand revision={revision} /><RoundBanner page="asking" revision={revision} /></>}
     >
       {state.status === "loading" ? <AskingSkeleton /> : null}
       {state.status === "refused" ? workspaceRequiredNotice(state.refusal) : null}

@@ -19,7 +19,7 @@
  * (`src/styles/exercise.css`) to the exercise so no CBA screen changes. The
  * header follows §6.1: compact CPP logo, the quiet fictional-data ribbon
  * (§6.2), one `h1` in the display face, one lead line, an optional aside, and
- * on a team's pages the team's status line under them.
+ * on a team's pages the team's status line above the title.
  * Shared pieces pages compose live in `./desk` (see its README).
  */
 import * as React from "react";
@@ -62,8 +62,8 @@ export interface ExerciseScreenProps {
   /** Shown at the top right of the header: the page's one way back. */
   readonly aside?: React.ReactNode;
   /**
-   * The team's status line (§6.1, issue #321), between the header and the
-   * body, so it is in the same place on every team page. Team pages pass
+   * The team's status line (§6.1, issue #321), above the title, so it is in
+   * the same place on every team page. Team pages pass
    * `<TeamStatusBand />`; the opening screen and the instructor page pass
    * nothing, because neither is a team's page.
    */
@@ -80,8 +80,10 @@ export function ExerciseScreen({
 }: ExerciseScreenProps): React.JSX.Element {
   const heading = React.useRef<HTMLHeadingElement>(null);
   const location = typeof window === "undefined" ? "/exercise" : window.location.pathname;
-  // The instructor page shares this frame but not the students' step deck or tour.
-  const student = !location.startsWith("/exercise/instructor");
+  // Only the five student screens get the step deck and tour. The instructor
+  // page and the profile-card mock-up the instructor projects share this frame
+  // but keep the plain header, logo included.
+  const student = isStudentPath(location);
 
   // §8.5: a route change moves focus to the h1. After a link click the link
   // unmounts and focus falls to <body>; only then is it moved, so a screen
@@ -107,11 +109,17 @@ export function ExerciseScreen({
       <MotionConfig reducedMotion="user">
         {student ? <SoftStudioHeader pathname={location} /> : null}
         <main className="soft-studio-stage ce-container flex flex-col gap-ce-5 pb-ce-7 md:gap-ce-6">
+          {student ? null : (
+            <span data-slot="ce-logo" className="ce-logo">
+              <BrandLogo compact />
+            </span>
+          )}
           <SyntheticDataBanner
             tone="quiet"
             label={EXERCISE_RIBBON_LABEL}
             reason={EXERCISE_SYNTHETIC_REASON}
           />
+          {status}
           <header className="soft-studio-heading flex flex-wrap items-start justify-between gap-ce-4">
             <div className="flex min-w-0 flex-col gap-ce-2">
               <h1 ref={heading} tabIndex={-1} className="ce-type-h1 text-ce-ink">{title}</h1>
@@ -119,7 +127,6 @@ export function ExerciseScreen({
             </div>
             {aside === undefined ? null : <div className="ce-type-body text-ce-ink-muted">{aside}</div>}
           </header>
-          {status}
           {children}
           <footer className="soft-studio-footer">
             <span aria-hidden="true">✦</span>
@@ -129,6 +136,15 @@ export function ExerciseScreen({
         {student ? <SoftStudioTour /> : null}
       </MotionConfig>
     </div>
+  );
+}
+
+function isStudentPath(pathname: string): boolean {
+  return (
+    pathname === "/exercise" ||
+    pathname === "/exercise/asking" ||
+    pathname === "/exercise/events" ||
+    pathname.startsWith("/exercise/events/")
   );
 }
 
@@ -147,19 +163,10 @@ function SoftStudioHeader({ pathname }: { readonly pathname: string }): React.JS
   return (
     <div className="soft-studio-band">
       <div className="soft-studio-band-inner">
-        <button className="soft-studio-brand" type="button" onClick={() => window.location.assign("/exercise")} aria-label="SmartMatch class exercise home">
-          <span className="soft-studio-brand-mark">S</span>
-          <span>SmartMatch</span>
-        </button>
-        <span data-slot="ce-logo" className="ce-logo soft-studio-cpp-logo"><BrandLogo compact /></span>
+        <a href="/exercise" className="soft-studio-brand" aria-label="Class exercise home">
+          <span data-slot="ce-logo" className="ce-logo soft-studio-cpp-logo"><BrandLogo compact /></span>
+        </a>
         <nav className="soft-studio-deck" aria-label="Exercise steps">
-          <img
-            className="soft-studio-walker"
-            src="/exercise/mascot/pose1-guide.webp"
-            alt=""
-            aria-hidden="true"
-            style={{ left: `calc(${active} * (100% / 5) + 8px)` }}
-          />
           {DECK.map(([label, fallback], index) => (
             <button
               key={label}
@@ -172,13 +179,13 @@ function SoftStudioHeader({ pathname }: { readonly pathname: string }): React.JS
                 if (target) window.location.assign(target);
               }}
             >
+              {index === active ? (
+                <img className="soft-studio-walker" src="/exercise/mascot/pose1-guide.webp" alt="" aria-hidden="true" />
+              ) : null}
               {index < active ? <span aria-hidden="true">✓</span> : null}{label}
             </button>
           ))}
         </nav>
-        <div className="soft-studio-tools">
-          <span className="soft-studio-team-chip">● Your team</span>
-        </div>
       </div>
     </div>
   );
