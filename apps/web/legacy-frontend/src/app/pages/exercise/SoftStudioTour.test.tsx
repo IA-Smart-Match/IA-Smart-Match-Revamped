@@ -68,4 +68,22 @@ describe("SoftStudioTour", () => {
     settle();
     expect(screen.queryByRole("checkbox")).toBeNull();
   });
+
+  it("walks six steps with no mascot picture in the card", () => {
+    render(<SoftStudioTour />);
+    settle();
+    const dialog = screen.getByRole("dialog");
+    expect(dialog.querySelector("img")).toBeNull();
+    expect(screen.getByText("1 of 6")).toBeDefined();
+
+    const seen: string[] = [];
+    for (let i = 0; i < 6; i += 1) {
+      seen.push(screen.getByRole("heading", { level: 2 }).textContent ?? "");
+      if (i < 5) fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    }
+    expect(seen).not.toContain("Try it together");
+    expect(seen[5]).toBe("You're ready");
+    fireEvent.click(screen.getByRole("button", { name: "Finish" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
 });

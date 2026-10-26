@@ -8,7 +8,6 @@ const TOUR_STEPS = [
   ["Your list", "Move the four slider numbers and see who your list picks."],
   ["Results", "Use your one results run after your instructor opens results."],
   ["Ask for more", "In Round 2, your team picks how CBACH asks students to fill in their card."],
-  ["Try it together", "Use the status line to keep your whole team in sync."],
   ["You're ready", "Replay this tour any time from the Tour button."],
 ] as const;
 
@@ -112,12 +111,6 @@ export function SoftStudioTour(): React.JSX.Element {
             aria-modal="true"
             aria-labelledby="soft-studio-tour-title"
           >
-            <img
-              className="soft-studio-tour-mascot"
-              src="/exercise/mascot/pose1-guide.webp"
-              alt=""
-              aria-hidden="true"
-            />
             <div className="soft-studio-tour-copy">
               <p className="soft-studio-tour-count">{step + 1} of {TOUR_STEPS.length}</p>
               <h2 id="soft-studio-tour-title" ref={title} tabIndex={-1}>{label}</h2>
