@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mockup 3: Round 1 to Round 2 handoff</title>
+<style>
+  :root { --page:#F8F6F1; --surface:#FFFFFF; --sunk:#F2EEE8; --ink:#163229; --muted:#59665F;
+    --primary:#005030; --primary-tint:#D9EADF; --on-primary-tint:#003D24; --gold:#FFB81C; --gold-tint:#FFF1CC;
+    --line:#D9CBC4; --line-strong:#8F7A70; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--page); color:var(--ink); font:400 17px/26px system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .wrap { max-width:1152px; margin:0 auto; padding:24px 16px 48px; }
+  h1 { font:700 28px/36px system-ui; margin:0 0 4px; }
+  h2 { font:700 22px/30px system-ui; margin:28px 0 4px; }
+  .note { font-size:14px; line-height:20px; color:var(--muted); margin:4px 0 12px; }
+  .grid { display:grid; gap:20px; }
+  @media (min-width:960px) { .grid { grid-template-columns:1fr 1fr; } }
+  .tag { display:inline-block; font:600 13px/20px system-ui; letter-spacing:.06em; text-transform:uppercase; padding:2px 10px; border-radius:999px; margin-bottom:8px; }
+  .tag.before { background:var(--sunk); color:var(--muted); }
+  .tag.after { background:var(--primary-tint); color:var(--on-primary-tint); }
+  .frame { border:2px dashed var(--line-strong); border-radius:16px; padding:14px; background:var(--page); min-width:0; }
+  .card { background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:14px; margin-bottom:12px; }
+  .banner { background:var(--sunk); border-radius:12px; padding:12px 14px; margin-bottom:12px; }
+  .banner .t { font:800 24px/30px system-ui; margin:0; }
+  a.inline { color:var(--primary); text-decoration:underline; font-weight:600; }
+  .btn { display:inline-flex; align-items:center; justify-content:center; min-height:48px; padding:0 20px; border-radius:10px; font:700 17px system-ui; border:0; }
+  .btn.p { background:var(--primary); color:#fff; }
+  .btn.dis { background:var(--sunk); color:var(--muted); border:2px solid var(--line-strong); }
+  .btn.ghost { background:transparent; color:var(--primary); border:2px solid var(--primary); }
+  .next { background:var(--primary-tint); border:2px solid var(--primary); border-radius:14px; padding:16px; }
+  .next p { margin:0 0 12px; font-weight:600; }
+  .seats { display:grid; grid-template-columns:repeat(15,1fr); gap:3px; max-width:320px; margin:8px 0; }
+  .seats i { aspect-ratio:1; border-radius:3px; background:var(--primary); }
+  .seats i.o { background:var(--sunk); outline:1px solid var(--line); }
+  .muted { color:var(--muted); font-size:15px; }
+  .pick { display:grid; gap:10px; }
+  .pc { background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:12px 14px; display:grid; grid-template-columns:44px 1fr; gap:10px; align-items:center; }
+  .seal { width:44px; height:44px; border-radius:22px; display:grid; place-items:center; font:800 18px system-ui; }
+  .seal.solid { background:var(--primary); color:#fff; }
+  .seal.tint { background:var(--primary-tint); color:var(--on-primary-tint); }
+  .seal.lock { background:var(--sunk); color:var(--muted); border:2px solid var(--line-strong); }
+  .pc.cur { border:2px solid var(--primary); box-shadow:0 0 0 4px var(--primary-tint); }
+  .chip { display:inline-block; font:600 13px/20px system-ui; padding:0 8px; border-radius:999px; background:var(--sunk); color:var(--muted); margin-left:6px; }
+  .chip.done { background:var(--primary-tint); color:var(--on-primary-tint); }
+  .chip.up { background:var(--gold-tint); color:#7A5200; }
+  .focus { outline:3px solid var(--gold); outline-offset:3px; }
+  .live { font-size:14px; color:var(--muted); display:flex; gap:8px; align-items:center; }
+  .pulse { width:8px; height:8px; border-radius:4px; background:var(--primary); display:inline-block; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Mockup 3: from Round 1 results to Round 2 asking, one clear next step</h1>
+  <p class="note">Static proposal. Frozen text kept word for word: "Round 1 done. Next: Round 2, Harbor. Start by choosing how to ask students for more information.", "Your instructor has not opened results yet. You can still pick your setting and review its list. Press Check again once your instructor says results are open." New strings marked [needs Ann OK]. Numbers illustrative.</p>
+
+  <h2>A. Northline results, after the run</h2>
+  <div class="grid">
+    <div class="frame"><span class="tag before">Now</span>
+      <div class="banner"><p class="t">Round 1 of 2: Northline</p><p>Round 1 done. Next: Round 2, Harbor. Start by choosing how to ask students for more information. <a class="inline" href="#">Go to Round 2</a></p></div>
+      <div class="card"><button class="btn dis">Results already run for this event.</button><p class="muted">Run at 10:42.</p></div>
+      <div class="card"><strong>21 signed up. 14 came.</strong><div class="seats"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i class="o"></i></div><p class="muted">Lift line, luck line, chart, people…</p></div>
+      <div class="card"><p>Round 1 done. Next: Round 2, Harbor. Start by choosing how to ask students for more information. <a class="inline" href="#">Harbor event page</a></p><p class="muted">Second copy of the same line; this link goes to the Harbor list, which then bounces to asking.</p></div>
+    </div>
+    <div class="frame"><span class="tag after">Proposed</span>
+      <div class="banner"><p class="t">Round 1 of 2: Northline</p><p>See how your list did.</p></div>
+      <div class="card"><strong>21 signed up. 14 came.</strong><div class="seats"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i class="o"></i></div><p class="muted">Lift line, luck line, chart, people… (outcome first)</p></div>
+      <div class="next"><p>Round 1 done. Next: Round 2, Harbor. Start by choosing how to ask students for more information.</p><button class="btn p">Go to Round 2</button></div>
+      <div class="card" style="margin-top:12px"><button class="btn dis">Results already run for this event.</button><p class="muted">Run at 10:42. (moved below the outcome)</p></div>
+    </div>
+  </div>
+
+  <h2>B. Waiting for the instructor to open results</h2>
+  <div class="grid">
+    <div class="frame"><span class="tag before">Now</span>
+      <div class="card"><p>Your instructor has not opened results yet. You can still pick your setting and review its list. Press Check again once your instructor says results are open.</p><button class="btn ghost">Check again</button><p class="muted">Nothing happens when the instructor opens results until a student presses the button.</p></div>
+    </div>
+    <div class="frame"><span class="tag after">Proposed</span>
+      <div class="card"><p>Your instructor has not opened results yet. You can still pick your setting and review its list. Press Check again once your instructor says results are open.</p><button class="btn ghost">Check again</button>
+      <p class="live"><span class="pulse"></span>The page also checks by itself every 15 seconds. [needs Ann OK, or ship with no new text]</p></div>
+      <p class="note">Same lock text, same button. A 15 s background re-read swaps in the setting picker as soon as results open.</p>
+    </div>
+  </div>
+
+  <h2>C. Choose-an-event page after Round 1</h2>
+  <div class="grid">
+    <div class="frame"><span class="tag before">Now</span>
+      <div class="pick">
+        <div class="pc"><span class="seal tint">1</span><span><strong>Round 1</strong> · Northline Analytics: Behind the Business</span></div>
+        <div class="pc"><span class="seal solid">2</span><span><strong>Round 2</strong> · Harbor …<br><span class="muted">Opens after Round 1 results.</span></span></div>
+      </div>
+      <p class="note">Round 2's seal is the stronger one even before Round 1; the lock line stays after Round 1 is done.</p>
+    </div>
+    <div class="frame"><span class="tag after">Proposed</span>
+      <div class="pick">
+        <div class="pc"><span class="seal tint">1</span><span><strong>Round 1</strong> · Northline <span class="chip done">Done</span></span></div>
+        <div class="pc cur"><span class="seal solid">2</span><span><strong>Round 2</strong> · Harbor <span class="chip up">Up next</span><br><span class="muted">Start by choosing how to ask students for more information.</span></span></div>
+      </div>
+      <p class="note">Chips "Done", "Up next", "Locked until Round 1 results" [needs Ann OK]. The Round 2 card links to asking until the team has asked. Before Round 1 is run, Round 1 gets the solid seal and Round 2 the outline.</p>
+    </div>
+  </div>
+
+  <h2>D. Asking page, after a way to ask is chosen</h2>
+  <div class="grid">
+    <div class="frame"><span class="tag before">Now</span>
+      <div class="card"><p><strong>You chose: A small reward at 10:51.</strong> Your team picks once, so this choice is final.</p></div>
+      <div class="card"><p class="muted">(scroll)</p><button class="btn ghost">Ask students now</button></div>
+      <p class="note">Teams read "final" and think they are done; the Harbor list stays gated until they ask.</p>
+    </div>
+    <div class="frame"><span class="tag after">Proposed</span>
+      <div class="card"><p><strong>You chose: A small reward at 10:51.</strong> Your team picks once, so this choice is final.</p></div>
+      <div class="card"><button class="btn p focus">Ask students now</button></div>
+      <p class="note">Focus and scroll move to the Ask button, which becomes the only primary button. No new words.</p>
+    </div>
+  </div>
+</div>
+</body>
+</html>

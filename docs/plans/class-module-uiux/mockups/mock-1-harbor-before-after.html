@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mockup 1: Harbor before and after</title>
+<style>
+  /* Tokens copied from apps/web/legacy-frontend/src/app/pages/exercise/desk/tokens.ts (light). */
+  :root { --page:#F8F6F1; --surface:#FFFFFF; --sunk:#F2EEE8; --ink:#163229; --muted:#59665F;
+    --primary:#005030; --primary-tint:#D9EADF; --on-primary-tint:#003D24; --gold:#FFB81C; --gold-tint:#FFF1CC;
+    --line:#D9CBC4; --line-strong:#8F7A70; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--page); color:var(--ink); font:400 18px/28px system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .wrap { max-width:1152px; margin:0 auto; padding:24px 16px 48px; }
+  .tag { display:inline-block; font:600 13px/20px system-ui; letter-spacing:.06em; text-transform:uppercase; padding:2px 10px; border-radius:999px; }
+  .tag.before { background:var(--sunk); color:var(--muted); }
+  .tag.after { background:var(--primary-tint); color:var(--on-primary-tint); }
+  .note { font-size:14px; line-height:20px; color:var(--muted); margin:4px 0 16px; }
+  .grid { display:grid; gap:24px; }
+  @media (min-width:1024px) { .grid { grid-template-columns:1fr 1fr; } }
+  .card { background:var(--surface); border:1px solid var(--line); border-radius:16px; padding:20px; min-width:0; }
+  h1 { font:700 28px/36px system-ui; margin:0 0 4px; }
+  h2 { font:700 24px/32px system-ui; margin:12px 0 8px; }
+  p { margin:0 0 12px; }
+  .muted { color:var(--muted); }
+  table { width:100%; border-collapse:collapse; font-size:16px; }
+  th, td { padding:8px 10px; text-align:right; border-bottom:1px solid var(--line); }
+  th:first-child, td:first-child { text-align:left; }
+  thead th { background:var(--sunk); font-size:14px; }
+  .scroll { overflow-x:auto; }
+  /* After */
+  .quote { background:var(--gold-tint); border-left:4px solid var(--gold); border-radius:4px 12px 12px 4px; padding:16px 20px; font:700 22px/30px system-ui; margin:4px 0 20px; }
+  .row { margin:0 0 18px; }
+  .row.yours { background:var(--primary-tint); margin:0 -12px 18px; padding:10px 12px; border-radius:12px; }
+  .row-label { font:600 16px/22px system-ui; margin-bottom:6px; display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+  .chip { font:700 16px/22px system-ui; color:var(--on-primary-tint); white-space:nowrap; }
+  .row.yours .chip { color:var(--primary); }
+  .track { position:relative; height:28px; }
+  .bar { position:absolute; left:0; height:12px; border-radius:6px; }
+  .bar.mass { top:0; background:var(--sunk); outline:2px solid var(--line-strong); outline-offset:-2px; }
+  .bar.list { top:15px; background:var(--primary); }
+  .row.major .bar.list { background:var(--muted); }
+  .nums { font-size:14px; line-height:20px; color:var(--muted); margin-top:2px; }
+  .rule { border:0; border-top:1px solid var(--line); margin:4px 0 16px; }
+  .legend { display:flex; gap:20px; flex-wrap:wrap; font-size:14px; color:var(--muted); margin-bottom:14px; }
+  .sw { display:inline-block; width:18px; height:10px; border-radius:5px; vertical-align:middle; margin-right:6px; }
+  details { margin-top:8px; font-size:16px; }
+  summary { cursor:pointer; font-weight:600; min-height:44px; display:flex; align-items:center; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Mockup 1: Harbor results, "Before and after asking"</h1>
+  <p class="note">Static proposal. Numbers are illustrative (shaped like Dr. Wang's 60-email targets), not app output. Frozen sentence unchanged; only its styling and position change.</p>
+  <div class="grid">
+    <section class="card" aria-label="Before: current screen">
+      <span class="tag before">Now</span>
+      <h2>Before and after asking</h2>
+      <p class="muted">These rows use the same event and the same chance draws as your run. They do not use up your results run.</p>
+      <div class="scroll"><table>
+        <thead><tr><th>Setting</th><th>Mass email alone</th><th>With your list</th><th>Your list added</th></tr></thead>
+        <tbody>
+          <tr><td>Your setting 'Balanced', before asking</td><td>12</td><td>21</td><td>9 (5 came)</td></tr>
+          <tr><td>Your setting 'Balanced', after asking</td><td>12</td><td>24</td><td>12 (8 came)</td></tr>
+          <tr><td>Major first, after asking</td><td>12</td><td>19</td><td>7 (4 came)</td></tr>
+        </tbody>
+      </table></div>
+      <p>Same event, same students, same luck. The only difference is what we knew about them.</p>
+      <p class="note">Sits under the reveal, lift line and luck line; on Harbor the chart below adds a Round 1 bar from a different event.</p>
+    </section>
+
+    <section class="card" aria-label="After: proposed screen">
+      <span class="tag after">Proposed</span>
+      <h2>Before and after asking</h2>
+      <p class="quote">Same event, same students, same luck. The only difference is what we knew about them.</p>
+      <div class="legend">
+        <span><span class="sw" style="background:var(--sunk);outline:2px solid var(--line-strong);outline-offset:-2px"></span>Mass email alone</span>
+        <span><span class="sw" style="background:var(--primary)"></span>With your list</span>
+      </div>
+      <!-- scale: 0..24 => 0..100% -->
+      <div class="row">
+        <div class="row-label"><span>Your setting 'Balanced', before asking</span><span class="chip">+9 (5 came)</span></div>
+        <div class="track"><div class="bar mass" style="width:50%"></div><div class="bar list" style="width:87.5%"></div></div>
+        <div class="nums">12 → 21 sign-ups</div>
+      </div>
+      <div class="row yours">
+        <div class="row-label"><span>Your setting 'Balanced', after asking</span><span class="chip">+12 (8 came)</span></div>
+        <div class="track"><div class="bar mass" style="width:50%"></div><div class="bar list" style="width:100%"></div></div>
+        <div class="nums">12 → 24 sign-ups</div>
+      </div>
+      <hr class="rule">
+      <div class="row major">
+        <div class="row-label"><span>Major first, after asking</span><span class="chip">+7 (4 came)</span></div>
+        <div class="track"><div class="bar mass" style="width:50%"></div><div class="bar list" style="width:79%"></div></div>
+        <div class="nums">12 → 19 sign-ups</div>
+      </div>
+      <p class="muted" style="font-size:16px">These rows use the same event and the same chance draws as your run. They do not use up your results run.</p>
+      <details><summary>See the numbers</summary>
+        <div class="scroll"><table>
+          <thead><tr><th>Setting</th><th>Mass email alone</th><th>With your list</th><th>Your list added</th></tr></thead>
+          <tbody>
+            <tr><td>Your setting 'Balanced', before asking</td><td>12</td><td>21</td><td>9 (5 came)</td></tr>
+            <tr><td>Your setting 'Balanced', after asking</td><td>12</td><td>24</td><td>12 (8 came)</td></tr>
+            <tr><td>Major first, after asking</td><td>12</td><td>19</td><td>7 (4 came)</td></tr>
+          </tbody>
+        </table></div>
+      </details>
+      <p class="note">Placed straight under the seat reveal on Harbor results (before the lift line and chart). Same row labels and data as the server sends; table kept for screen readers and tests.</p>
+    </section>
+  </div>
+</div>
+</body>
+</html>
