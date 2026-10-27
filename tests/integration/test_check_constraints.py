@@ -736,7 +736,7 @@ CHECK_CONSTRAINT_DEFINITIONS = {
     # `ck_exercise_team_workspace_refresh_after_choice` is the §13 ordering
     # rule: a refresh recorded before the team has chosen would attribute a
     # share to a choice that was never made.
-    ("exercise_dataset", "ck_exercise_dataset_invite_limit"): "CHECK ((invite_limit >= 1))",
+    ("exercise_dataset", "ck_exercise_dataset_invite_limit"): "CHECK ((invite_limit = 60))",
     ("exercise_dataset", "ck_exercise_dataset_label_shape"): (
         "CHECK (((length(btrim(label)) > 0) AND (length(label) <= 200)))"
     ),
@@ -1481,9 +1481,9 @@ BEHAVIOURAL_COVERAGE = {
         "uploaded-but-empty spreadsheet, which is a real state rather than an error"
     ),
     ("exercise_dataset", "ck_exercise_dataset_invite_limit"): (
-        "0037 added, ::test_exercise_dataset_rejects_an_invite_limit_below_one. The floor is "
-        "1 rather than 0 because a dataset nobody can be invited to is not a runnable "
-        "exercise. Permitted half: ::test_exercise_dataset_accepts_an_invite_limit_of_one"
+        "0037 added, 0049 narrowed to 60 (Ann, #413, 2026-10-22: 60, fixed), "
+        "::test_exercise_dataset_rejects_an_invite_limit_other_than_sixty. "
+        "Permitted half: ::test_exercise_dataset_accepts_an_invite_limit_of_sixty"
     ),
     ("exercise_profile", "ck_exercise_profile_profile_no"): (
         "0037 added, ::test_exercise_profile_rejects_a_profile_number_below_one. Permitted "
@@ -2509,7 +2509,7 @@ def _insert_exercise_dataset(
     *,
     label: str = "Ann's section, autumn",
     row_count: int = 3,
-    invite_limit: int = 30,
+    invite_limit: int = 60,
 ) -> None:
     conn.execute(
         text(
@@ -2698,20 +2698,23 @@ def test_exercise_dataset_accepts_zero_and_positive_row_counts(
         exercise_dataset(conn, row_count=1)
 
 
-def test_exercise_dataset_rejects_an_invite_limit_below_one(
-    engine: Engine, exercise_dataset
+@pytest.mark.parametrize("limit", [0, 1, 30, 59, 61])
+def test_exercise_dataset_rejects_an_invite_limit_other_than_sixty(
+    engine: Engine, exercise_dataset, limit: int
 ) -> None:
-    """The floor is 1, not 0: a dataset nobody can be invited to is not runnable."""
+    """Ann, #413, 2026-10-22: "List size: 60, fixed for this class.\""""
     with (
         pytest.raises(IntegrityError, match="ck_exercise_dataset_invite_limit"),
         engine.begin() as conn,
     ):
-        exercise_dataset(conn, invite_limit=0)
+        exercise_dataset(conn, invite_limit=limit)
 
 
-def test_exercise_dataset_accepts_an_invite_limit_of_one(engine: Engine, exercise_dataset) -> None:
+def test_exercise_dataset_accepts_an_invite_limit_of_sixty(
+    engine: Engine, exercise_dataset
+) -> None:
     with engine.begin() as conn:
-        exercise_dataset(conn, invite_limit=1)
+        exercise_dataset(conn, invite_limit=60)
 
 
 # --- exercise_profile ------------------------------------------------------

@@ -903,8 +903,8 @@ nothing.
 the top of the Teams panel, "Team 3 cleared at 10:42:07 AM. It is back at
 the start. No other team was changed.", which stays until the next clear (the
 time is the browser's clock when the answer landed; the server sends none).
-Setting the list limit shows "Limit set to 25." in the Data files panel's
-done slot. The Teams panel says "Teams last read at 10:43:07 AM." under its
+The list limit is fixed at 60 and has no control (Ann, #413, 2026-10-22).
+The Teams panel says "Teams last read at 10:43:07 AM." under its
 lead line, so "Check the teams again" visibly did something even when no
 team changed. These two lines and the results screen's "Checked at …" are
 the only times read off the browser's clock, and the only ones shown to the
@@ -1235,7 +1235,6 @@ labels and the license line are unchanged and not listed.
 | Instructor, a run stored before names were kept (#319, #271) | "Names were not kept for this run." |
 | Instructor, after a team is cleared (2026-10-06, #321; Ann's checklist §2 "Team X cleared.", with the time and the scope) | "Team 3 cleared at 10:42:07 AM. It is back at the start. No other team was changed." (no time known: "Team 3 cleared. …") |
 | Instructor, when the Teams panel was last read (#321; browser's clock, to the second) | "Teams last read at 10:43:07 AM." |
-| Instructor, after the list limit is set (#321; Ann's checklist §2 wording) | "Limit set to 25." |
 | Instructor, upload in progress | "Uploading and checking the file…" |
 | Instructor, upload done (#325; composed on the page from the server's file name and counts) | "SmartMatch_Student_Body_300.xlsx — 300 profiles, 12 events loaded." |
 | Instructor, upload refused (#325; the server's sentence, now sent without backticks) | "The Events sheet is missing the column seats." |

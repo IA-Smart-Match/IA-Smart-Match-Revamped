@@ -69,7 +69,7 @@ def exercise_sessions(engine: Engine) -> Iterator[sessionmaker[Session]]:
 
 
 def _insert_dataset(
-    session: Session, *, label: str, uploaded_at: datetime | None = None, invite_limit: int = 30
+    session: Session, *, label: str, uploaded_at: datetime | None = None, invite_limit: int = 60
 ) -> uuid.UUID:
     """One ``exercise_dataset`` row, written directly.
 
@@ -142,7 +142,7 @@ def test_the_most_recently_uploaded_dataset_is_the_active_one(
     assert found is not None
     assert found.id == newest
     assert found.label == "second"
-    assert found.invite_limit == 30
+    assert found.invite_limit == 60
 
 
 def test_a_tie_on_upload_time_still_has_one_answer(
@@ -587,14 +587,14 @@ def test_a_workspace_read_carries_no_seed_and_no_token_hash(
     """The columns are named explicitly, so the dataclass cannot grow them."""
     repository = ExerciseWorkspaceRepository()
     with exercise_sessions() as session:
-        dataset_id = _insert_dataset(session, label="read-shape", invite_limit=25)
+        dataset_id = _insert_dataset(session, label="read-shape")
         workspace = repository.get_or_create_workspace(
             session, dataset_id=dataset_id, team_number=6, workspace_secret=_SECRET
         )
         session.commit()
     fields = set(vars(type(workspace)).get("__slots__", ()))
     assert fields == {"id", "dataset_id", "team_number", "dataset_label", "invite_limit"}
-    assert workspace.invite_limit == 25
+    assert workspace.invite_limit == 60
     assert workspace.dataset_label == "read-shape"
 
 

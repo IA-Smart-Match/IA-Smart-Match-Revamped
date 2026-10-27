@@ -220,60 +220,27 @@ describe("clearing a team says it was cleared", () => {
   });
 });
 
-describe("setting the list limit says what it was set to", () => {
-  it("shows “Limit set to 25.” after the server accepts it", async () => {
-    const dataset = {
-      dataset_id: FILE,
-      label: "October file",
-      source_filename: "SmartMatch_Student_Body_300.xlsx",
-      row_count: 300,
-      event_count: 12,
-      invite_limit: 30,
-      license_line: null,
-      created_at: "2026-10-16T09:00:00",
-    };
+describe("the list size is fixed at 60", () => {
+  it("offers no control to change it", async () => {
     stub({
-      [`GET ${DATASETS}`]: { body: [dataset] },
-      [`PATCH ${DATASETS}/${FILE}`]: { body: { ...dataset, invite_limit: 25 } },
-    });
-    render(<InstructorDatasets />);
-    fireEvent.change(await screen.findByLabelText("How many names a list may hold"), {
-      target: { value: "25" },
-    });
-    expect(screen.queryByText("Limit set to 25.")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Set the limit" }));
-
-    await screen.findByText("Limit set to 25.");
-    expect(sent(`PATCH ${DATASETS}/${FILE}`)).toBe(1);
-  });
-
-  it("shows the server's sentence, and no “Limit set”, when it is refused", async () => {
-    const dataset = {
-      dataset_id: FILE,
-      label: "October file",
-      source_filename: "x.xlsx",
-      row_count: 300,
-      event_count: 12,
-      invite_limit: 30,
-      license_line: null,
-      created_at: "2026-10-16T09:00:00",
-    };
-    stub({
-      [`GET ${DATASETS}`]: { body: [dataset] },
-      [`PATCH ${DATASETS}/${FILE}`]: {
-        body: {
-          error: { code: "exercise_invite_limit_invalid", message: "Choose a smaller limit." },
-        },
-        status: 422,
+      [`GET ${DATASETS}`]: {
+        body: [
+          {
+            dataset_id: FILE,
+            label: "October file",
+            source_filename: "SmartMatch_Student_Body_300.xlsx",
+            row_count: 300,
+            event_count: 12,
+            invite_limit: 60,
+            license_line: null,
+            created_at: "2026-10-16T09:00:00",
+          },
+        ],
       },
     });
     render(<InstructorDatasets />);
-    fireEvent.change(await screen.findByLabelText("How many names a list may hold"), {
-      target: { value: "9999" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Set the limit" }));
-
-    await screen.findByText("Choose a smaller limit.");
-    expect(screen.queryByText(/^Limit set/)).toBeNull();
+    await screen.findByText("October file");
+    expect(screen.queryByLabelText("How many names a list may hold")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Set the limit" })).toBeNull();
   });
 });

@@ -69,7 +69,6 @@ __all__ = [
     "InstructorEventsView",
     "InstructorLoginRequest",
     "InstructorSessionView",
-    "InviteLimitRequest",
     "LockView",
     "RepointView",
     "ResultRunView",
@@ -117,20 +116,6 @@ class InstructorSessionView(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     signed_in: bool = Field(description="True. The screen switches on this and nothing else.")
-
-
-class InviteLimitRequest(BaseModel):
-    """Design spec §5: how many names a ranked list may hold."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    invite_limit: int = Field(
-        description=(
-            "The cap on a ranked list for this data file. Sixty by default — "
-            "Ann's stated number, held in the column's server default rather "
-            "than repeated here."
-        ),
-    )
 
 
 class DatasetView(BaseModel):

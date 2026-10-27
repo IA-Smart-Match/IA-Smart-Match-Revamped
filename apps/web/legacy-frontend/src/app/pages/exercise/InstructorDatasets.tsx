@@ -1,5 +1,6 @@
 /**
- * The instructor's data files: list, upload, invite limit, re-point.
+ * The instructor's data files: list, upload, re-point. The list holds 60 names
+ * and the instructor cannot change it (Ann, #413, 2026-10-22).
  *
  * Design spec §3 and §5. Four facts shape this panel:
  *
@@ -39,7 +40,7 @@
  *
  * An expired session signs the page out, from the list read or from any
  * action, as every instructor panel does (`instructorSession.ts`). Visual
- * layout: DESIGN.md §6.24 (dropzone, dataset row, invite limit).
+ * layout: DESIGN.md §6.24 (dropzone, dataset row).
  */
 import * as React from "react";
 import { CircleCheck, FileSpreadsheet } from "lucide-react";
@@ -49,7 +50,6 @@ import {
   XLSX_CONTENT_TYPE,
   listDatasets,
   repointWorkspaces,
-  setInviteLimit,
   uploadDataset,
   type DatasetView,
   type UploadedDatasetView,
@@ -63,7 +63,7 @@ import { INSTRUCTOR_SESSION_REQUIRED } from "./refusals";
 import { useExerciseResource } from "./useExerciseResource";
 
 /** Which action is in flight, so only its own button shows the in-progress verb. */
-type PendingAction = "upload" | "limit" | "repoint";
+type PendingAction = "upload" | "repoint";
 
 export function InstructorDatasets({
   onDataChanged,
@@ -188,14 +188,6 @@ export function InstructorDatasets({
               <DatasetRow
                 dataset={dataset}
                 pending={pending}
-                onLimit={(limit) =>
-                  run("limit", async () => {
-                    await setInviteLimit(dataset.dataset_id, limit);
-                    // Ann's checklist, section 2: "You see “Limit set to 25.”"
-                    setDone(`Limit set to ${limit}.`);
-                    reload();
-                  })
-                }
                 onRepoint={() =>
                   run("repoint", async () => {
                     const moved = await repointWorkspaces(dataset.dataset_id);
@@ -379,17 +371,13 @@ function UploadForm({
 function DatasetRow({
   dataset,
   pending,
-  onLimit,
   onRepoint,
 }: {
   readonly dataset: DatasetView;
   readonly pending: boolean;
-  readonly onLimit: (limit: number) => Promise<void>;
   readonly onRepoint: () => Promise<void>;
 }): React.JSX.Element {
-  const [limit, setLimit] = React.useState(String(dataset.invite_limit));
   const [confirming, setConfirming] = React.useState(false);
-  const limitId = `exercise-invite-limit-${dataset.dataset_id}`;
 
   return (
     <div className={cn(INSTRUCTOR_WELL, "flex flex-col gap-ce-3")}>
@@ -403,34 +391,6 @@ function DatasetRow({
           <p className="ce-type-meta text-ce-ink">{dataset.license_line}</p>
         )}
       </div>
-
-      <form
-        className="flex flex-col gap-ce-2 border-t border-ce-line pt-ce-3"
-        onSubmit={(event) => {
-          event.preventDefault();
-          const parsed = Number.parseInt(limit, 10);
-          if (!Number.isNaN(parsed)) {
-            void onLimit(parsed);
-          }
-        }}
-      >
-        <label htmlFor={limitId} className="ce-type-label text-ce-ink">
-          How many names a list may hold
-        </label>
-        <div className="flex flex-wrap items-center gap-ce-3">
-          <input
-            id={limitId}
-            type="number"
-            min={1}
-            value={limit}
-            onChange={(event) => setLimit(event.target.value)}
-            className={`${INSTRUCTOR_INPUT} ce-tabular w-24`}
-          />
-          <Button type="submit" variant="secondary" disabled={pending}>
-            Set the limit
-          </Button>
-        </div>
-      </form>
 
       {confirming ? (
         <div className="flex flex-col gap-ce-3 rounded-ce-control bg-ce-surface p-ce-3">

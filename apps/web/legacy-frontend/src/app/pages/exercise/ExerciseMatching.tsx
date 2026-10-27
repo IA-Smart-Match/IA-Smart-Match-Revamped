@@ -481,7 +481,7 @@ function EventMatching({ eventKey }: { readonly eventKey: string }): React.JSX.E
                 </div>
               )}
               <p className="ce-type-meta text-ce-ink-muted">
-                Your list has the top {state.data.list.invite_limit} students. Your instructor set this size.
+                Your list has the top {state.data.list.invite_limit} students. Every team's list holds this many.
                 {state.data.list.setting_name === null
                   ? null
                   : ` This list uses your team's setting “${state.data.list.setting_name}”.`}

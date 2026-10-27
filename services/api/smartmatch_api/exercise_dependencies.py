@@ -114,8 +114,6 @@ from smartmatch_persistence.exercise.dataset_repository import (
     SimulationProfileRow,
 )
 from smartmatch_persistence.exercise.instructor_repository import (
-    MAX_INVITE_LIMIT,
-    MIN_INVITE_LIMIT,
     ExerciseInstructorRepository,
     ExerciseWriteRefused,
 )
@@ -172,9 +170,7 @@ __all__ = [
     "ALREADY_RUN_SENTENCE",
     "EXERCISE_REQUEST_HEADER",
     "INSTRUCTOR_COOKIE_NAME",
-    "MAX_INVITE_LIMIT",
     "MAX_SAVED_SETTINGS_PER_EVENT",
-    "MIN_INVITE_LIMIT",
     "WORKSPACE_COOKIE_NAME",
     "ActiveDataset",
     "AlreadyRunError",

@@ -124,7 +124,7 @@ def _insert_dataset(session: Session, *, label: str) -> uuid.UUID:
             source_filename=f"{label}.csv",
             row_count=3,
             checksum=uuid.uuid4().hex,
-            invite_limit=30,
+            invite_limit=60,
         )
     )
     return dataset_id

@@ -83,9 +83,7 @@ from smartmatch_persistence.exercise.workspace_repository import (
 )
 
 __all__ = [
-    "MAX_INVITE_LIMIT",
     "MAX_WORKSPACE_LIST_ROWS",
-    "MIN_INVITE_LIMIT",
     "ExerciseInstructorRepository",
     "ExerciseWriteRefused",
     "InstructorEventRow",
@@ -98,16 +96,6 @@ __all__ = [
 ]
 
 _LOGGER = logging.getLogger(__name__)
-
-#: The bounds design spec §5's invite limit is accepted within.
-#:
-#: The floor is ``ck_exercise_dataset_invite_limit`` (``invite_limit >= 1``),
-#: restated so the refusal can be a sentence rather than a write failure. The
-#: ceiling is 60, Ann's decision of 2026-10-16: it matches the 60 seats, so a
-#: list can never name more students than can be seated. The column's server
-#: default (also 60) lives in the schema and is not repeated here.
-MIN_INVITE_LIMIT: Final[int] = 1
-MAX_INVITE_LIMIT: Final[int] = 60
 
 #: How many team rows :meth:`ExerciseInstructorRepository.list_workspaces`
 #: returns (review finding F4 on PR #184).
@@ -368,45 +356,6 @@ class ExerciseInstructorRepository:
     # -----------------------------------------------------------------------
     # Writes
     # -----------------------------------------------------------------------
-
-    def set_invite_limit(
-        self, session: Session, *, dataset_id: uuid.UUID, invite_limit: int
-    ) -> bool:
-        """Design spec §5: change how many names a ranked list may hold.
-
-        Args:
-            session: Not committed here.
-            dataset_id: The dataset to change.
-            invite_limit: Already checked against :data:`MIN_INVITE_LIMIT` and
-                :data:`MAX_INVITE_LIMIT` by the caller, which is where the
-                sentence lives. ``ck_exercise_dataset_invite_limit`` is the
-                backstop, not the validation.
-
-        Returns:
-            Whether a row was changed. ``False`` means no such dataset — not
-            "the value was already that", because the statement writes
-            unconditionally.
-
-        Raises:
-            ValueError: if ``invite_limit`` is outside the bounds. Raised rather
-                than written, so a caller that skipped its own check still
-                cannot store a value the column would refuse.
-        """
-        if not MIN_INVITE_LIMIT <= invite_limit <= MAX_INVITE_LIMIT:
-            raise ValueError(
-                f"invite_limit must be between {MIN_INVITE_LIMIT} and "
-                f"{MAX_INVITE_LIMIT}, not {invite_limit}"
-            )
-        changed = self._execute(
-            session,
-            sa.update(exercise_dataset)
-            .where(exercise_dataset.c.id == dataset_id)
-            .values(invite_limit=invite_limit)
-            .returning(exercise_dataset.c.id),
-            dataset_id=dataset_id,
-            refusal="The invite limit could not be changed.",
-        )
-        return bool(changed.all())
 
     def unlock_results(self, session: Session, *, dataset_id: uuid.UUID, event_key: str) -> bool:
         """Design spec §9: let the teams run results for one event.

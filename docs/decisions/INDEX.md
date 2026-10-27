@@ -9,7 +9,7 @@ closes. (`docs/architecture/decisions/` ADRs have their own CI-gated index.)
 |---|---|---|
 | `plans/open-questions/cba-phase-deferred.md` | CBA boundary, OQ-CBA-001…066 | ~36 open (011, 021, 044, 063–066 block soon) |
 | `plans/open-questions/student-engagement-deferred.md` | OQ-SC-01…13 + OQ-SE-01…22 | all 35 open |
-| `plans/open-questions/class-exercise-open-questions.md` | OQ-CE-01…16, OQ-CE-19…31 | CE-06 rate-limit half open; results rule 2026-10-06, replaced in part 2026-10-10 (Ann Wang, email 2026-10-10): CE-24, 26, 30, 31 answered, CE-25 partly answered; CE-19, 22, 29 (Step B) decided by owner ruling 2026-10-12 (see register; to confirm with Ann; PR #398); still open CE-20, 23, 27, 28 |
+| `plans/open-questions/class-exercise-open-questions.md` | OQ-CE-01…16, OQ-CE-19…31 | CE-06 rate-limit half open; results rule 2026-10-06, replaced in part 2026-10-10 (Ann Wang, email 2026-10-10): CE-24, 26, 30, 31 answered, CE-25 partly answered; CE-19, 22, 29 (Step B) decided by owner ruling 2026-10-12 (see register; to confirm with Ann; PR #398); still open CE-20, 23, 27, 28. **2026-10-22 (Ann Wang, #413):** CE-23 closed; still open CE-20, 27, first half of 28 |
 | `plans/open-questions/a1b-live-idp-deferred.md` | OQ-A1b-001…006 | all open (JWKS trust anchors) |
 | `plans/open-questions/architecture-stage-2-deferred.md` | OQ-S2-003…006 | open (S2-001/002 answered) |
 | `plans/open-questions/r4-outreach-deferred.md` | **OQ-R4**-001…009 | 001–008 open; 009 partial |
@@ -35,7 +35,8 @@ closes. (`docs/architecture/decisions/` ADRs have their own CI-gated index.)
 | `class-exercise-factor-revisions-2026-10-02.md` | implemented | binary interest fit; related-past-event count (0 / 0.5 / 1); undecided half removed; `exercise-0.2.0` |
 | `class-exercise-current-rule.md` | **current — read first** | Every ruled class-exercise number on one page (Step B, 20/60/65, seats, check numbers, weights, asking), each with its ruling and code line |
 | `class-exercise-results-rule-2026-10-06.md` | **superseded 2026-10-10, except Step B** | Ann's relayed results rule; notice 75%/15%, 70% attend and luck replaced by the 2026-10-10 record below; its Step B sign-up points are kept (owner ruling 2026-10-12, #398); raised OQ-CE-19…31 |
-| `class-exercise-results-rule-2026-10-10.md` | ruling recorded; merged #392–#396; sign-up numbers = Ann's Step B (owner ruling 2026-10-12, PR #398) | Ann's 2026-10-10 answers: mass email 20% + CBACH email 60%, existing sign-up chances, 65% show up, no extra luck, lift line, Part 2 and data-file answers |
+| `class-exercise-results-rule-2026-10-10.md` | ruling recorded; merged #392–#396; sign-up numbers = Ann's Step B (owner ruling 2026-10-12, PR #398); **list of 30 superseded 2026-10-22 (60, fixed)** | Ann's 2026-10-10 answers: mass email 20% + CBACH email 60%, existing sign-up chances, 65% show up, no extra luck, lift line, Part 2 and data-file answers |
+| `class-exercise-starting-chances-and-list-size-2026-10-22.md` | ruling recorded; list-size code on `chau-1027`, not merged | Ann Wang, #413 2026-10-22: (a) 5 / +15 / +5 confirmed; (b) list 60, fixed, no instructor setting; (c) ties confirmed; round-two design approved; closes OQ-CE-23 |
 | `d6-rewards-budget-decision-record.md` | closed | owner=Danny Tran; D7 tentative |
 | `f5-deploy-target-note-2026-09-03.md` | current | classroom=synthetic; `ALLOW_CLOUD_DEPLOY=false` |
 | `g3-crawler-decision.md` | signed | CPP-only scope; fail-closed |
