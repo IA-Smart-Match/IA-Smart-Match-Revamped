@@ -391,14 +391,6 @@ class _FakeInstructorRepository:
         known = {_DATASET_ID, _TEAMS_DATASET_ID}
         return dataset_id in known and event_key in {_EVENT_KEY, _PAST_EVENT.event_key}
 
-    def set_invite_limit(
-        self, _session: object, *, dataset_id: uuid.UUID, invite_limit: int
-    ) -> bool:
-        if dataset_id != _DATASET_ID:
-            return False
-        self.datasets.invite_limit = invite_limit
-        return True
-
     def list_exercise_events(
         self, _session: object, *, dataset_id: uuid.UUID
     ) -> tuple[InstructorEventRow, ...]:
@@ -934,7 +926,6 @@ def _call(client: TestClient, method: str, path: str) -> Any:
         method,
         concrete,
         headers={EXERCISE_REQUEST_HEADER: "1"},
-        json={"invite_limit": 25} if method == "PATCH" else None,
         content=b"record_type\n" if method == "POST" and concrete.endswith("datasets") else None,
         params={"label": "A file"} if method == "POST" else None,
     )
@@ -981,7 +972,6 @@ def test_a_session_from_another_deployment_is_refused(client: TestClient) -> Non
     ("method", "path"),
     [
         ("POST", "/v1/exercise/instructor/datasets"),
-        ("PATCH", "/v1/exercise/instructor/datasets/{dataset_id}"),
         ("POST", "/v1/exercise/instructor/datasets/{dataset_id}/repoint"),
         ("POST", "/v1/exercise/instructor/events/{event_key}/unlock"),
         ("POST", "/v1/exercise/instructor/events/{event_key}/lock"),
@@ -997,7 +987,7 @@ def test_every_state_changing_route_requires_the_csrf_header(
         .replace("{team_number}", "3")
         .replace("{event_key}", _EVENT_KEY)
     )
-    response = signed_in.request(method, concrete, json={"invite_limit": 25})
+    response = signed_in.request(method, concrete)
 
     assert response.status_code == 403
     assert response.json()["error"]["code"] == "exercise_request_header_required"
@@ -1158,36 +1148,20 @@ def test_the_dataset_list_is_behind_the_session_and_names_the_file(
     assert response.json()[0]["invite_limit"] == 30
 
 
-@pytest.mark.parametrize("limit", [0, -1, 61, 1_000_000])
-def test_an_invite_limit_outside_its_bounds_is_one_sentence(
-    signed_in: TestClient, limit: int
-) -> None:
+def test_the_invite_limit_cannot_be_changed(signed_in: TestClient) -> None:
+    """Ann, #413, 2026-10-22: "List size: 60, fixed for this class."""
     response = signed_in.patch(
         f"/v1/exercise/instructor/datasets/{_DATASET_ID}",
-        json={"invite_limit": limit},
+        json={"invite_limit": 25},
         headers={EXERCISE_REQUEST_HEADER: "1"},
     )
 
-    assert response.status_code == 422
-    assert response.json()["error"]["code"] == "exercise_invite_limit_out_of_range"
-
-
-@pytest.mark.parametrize("limit", [25, 60])
-def test_the_invite_limit_can_be_changed(signed_in: TestClient, limit: int) -> None:
-    response = signed_in.patch(
-        f"/v1/exercise/instructor/datasets/{_DATASET_ID}",
-        json={"invite_limit": limit},
-        headers={EXERCISE_REQUEST_HEADER: "1"},
-    )
-
-    assert response.status_code == 200
-    assert response.json()["invite_limit"] == limit
+    assert response.status_code in {404, 405}
 
 
 def test_an_unknown_data_file_is_one_sentence(signed_in: TestClient) -> None:
-    response = signed_in.patch(
-        f"/v1/exercise/instructor/datasets/{uuid.uuid4()}",
-        json={"invite_limit": 25},
+    response = signed_in.post(
+        f"/v1/exercise/instructor/datasets/{uuid.uuid4()}/repoint",
         headers={EXERCISE_REQUEST_HEADER: "1"},
     )
 
@@ -1932,7 +1906,7 @@ _ALLOWED_WEIGHT_FIELDS = frozenset(
 #: that is what a login screen sends — and the rules below are about what
 #: leaves the server. Listed by name rather than detected by a suffix, so a
 #: response model accidentally named ``…Request`` cannot exempt itself.
-_REQUEST_MODELS = frozenset({"InstructorLoginRequest", "InviteLimitRequest"})
+_REQUEST_MODELS = frozenset({"InstructorLoginRequest"})
 
 #: Every module on the instructor side of this track, walked as one.
 #:
@@ -2230,19 +2204,6 @@ _EXPECTED_INSTRUCTOR_ROUTES: dict[tuple[str, str], tuple[int, str, tuple[str, ..
         (
             "get_dataset_repository",
             "get_exercise_session",
-            "get_settings",
-            "get_workspace_secret",
-            "require_exercise_request_header",
-            "require_instructor_session",
-        ),
-    ),
-    ("PATCH", "/v1/exercise/instructor/datasets/{dataset_id}"): (
-        200,
-        "DatasetView",
-        (
-            "get_dataset_repository",
-            "get_exercise_session",
-            "get_instructor_repository",
             "get_settings",
             "get_workspace_secret",
             "require_exercise_request_header",

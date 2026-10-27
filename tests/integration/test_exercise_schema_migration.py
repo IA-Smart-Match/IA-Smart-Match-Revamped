@@ -84,7 +84,7 @@ REVISION = "0037_exercise_tables"
 #: Moved again by #413: ``0048_exercise_team_code`` adds ``exercise_team_code``
 #: (six seeded rows keyed by team number, no foreign keys), so this file's
 #: claims still hold through it.
-HEAD_REVISION = "0048_exercise_team_code"
+HEAD_REVISION = "0049_exercise_invite_fixed"
 
 #: Design spec §2's eight tables.
 EXERCISE_TABLES = (

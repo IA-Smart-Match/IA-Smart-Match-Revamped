@@ -1,7 +1,7 @@
 """The instructor page (design spec §14, ADR-0025 D1/D2/D6/D8).
 
 One passcode from the environment opens one page. Behind it: upload a data
-file, set the invite limit, unlock results per event, see what the six teams
+file, unlock results per event, see what the six teams
 have done, reset one team, and re-point every team at a data file. No account,
 no role, no principal, no CBA table — the instructor is not a *who* here, and
 the passcode is a door rather than an identity.
@@ -94,8 +94,6 @@ from smartmatch_domain.exercise.ingest import IngestRefusal, parse_exercise_file
 from smartmatch_domain.exercise.workbook import XLSX_MEDIA_TYPE
 
 from smartmatch_api.exercise_dependencies import (
-    MAX_INVITE_LIMIT,
-    MIN_INVITE_LIMIT,
     DatasetRepository,
     ExerciseDatasetLabelError,
     ExerciseDatasetWriteError,
@@ -116,7 +114,6 @@ from smartmatch_api.routers.exercise_instructor_models import (
     TEAMS_HAVE_NOT_MOVED,
     DatasetView,
     InstructorEventsView,
-    InviteLimitRequest,
     LockView,
     RepointView,
     TeamCodesView,
@@ -250,56 +247,6 @@ def upload_dataset(
         report=report_view(parsed),
         notice=TEAMS_HAVE_NOT_MOVED,
     )
-
-
-@router.patch(
-    "/datasets/{dataset_id}",
-    response_model=DatasetView,
-    dependencies=_STATE_CHANGING,
-    summary="Set the invite limit for a data file (design spec §5)",
-)
-def set_invite_limit(
-    dataset_id: uuid.UUID,
-    payload: InviteLimitRequest,
-    session: ExerciseSession,
-    repository: DatasetRepository,
-    instructor: InstructorRepository,
-) -> DatasetView:
-    """Change how many names a ranked list may hold.
-
-    The bound is checked here rather than by a pydantic validator, for
-    ``exercise_workspace.enter_team_workspace``'s reason:
-    ``errors._describe_validation_error`` replaces a validator's message with a
-    generic one, because a validator-authored message may interpolate the value
-    it rejected. The rule is right and this route is not an exception to it.
-
-    Raises:
-        ExerciseError: 422 when the limit is outside its bounds, 404 when no
-            such data file exists, 409 when the write is refused.
-    """
-    if not MIN_INVITE_LIMIT <= payload.invite_limit <= MAX_INVITE_LIMIT:
-        raise ExerciseError(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            code="exercise_invite_limit_out_of_range",
-            message=(f"Pick an invite limit between {MIN_INVITE_LIMIT} and {MAX_INVITE_LIMIT}."),
-        )
-    try:
-        changed = instructor.set_invite_limit(
-            session, dataset_id=dataset_id, invite_limit=payload.invite_limit
-        )
-    except ExerciseWriteRefused as error:
-        raise ExerciseError(
-            status_code=status.HTTP_409_CONFLICT,
-            code="exercise_invite_limit_write_refused",
-            message=str(error),
-        ) from error
-    if not changed:
-        raise _no_such_dataset()
-    session.commit()
-    summary = repository.get_dataset_summary(session, dataset_id=dataset_id)
-    if summary is None:  # pragma: no cover - the update above just matched it
-        raise _no_such_dataset()
-    return dataset_view(summary)
 
 
 @router.post(

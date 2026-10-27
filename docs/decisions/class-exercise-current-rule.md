@@ -7,17 +7,17 @@ this page in the same PR.
 **Read this first.** Everything older (the 2026-10-06 rule, D7, the impact
 analysis, the 09-16 design spec §10-§11) is history; where it conflicts, this
 page and the records it cites win.
-**Code reference:** `origin/main` @ `97445df3` (#398 merged 2026-10-12).
+**Code reference:** `origin/main` @ `97445df3` (#398 merged 2026-10-12); simulation lines re-read and list-size rows updated 2026-10-27 on `origin/main` @ `4fc80d02` plus branch `chau-1027` (migration `0049`).
 
 ## The results rule (who signs up, who shows up)
 
-Every one of the 300 gets CPP's usual mass email. The team's 30 also get a
-personal CBACH email. For each person, in order:
+Every one of the 300 gets CPP's usual mass email. The team's 60 also get a
+personal CBACH email (60, fixed: Ann Wang, #413, 2026-10-22). For each person, in order:
 
 | Step | Rule | Ruled by | Code |
 |---|---|---|---|
-| 1. Notice | Mass email 20 in 100 (all 300). CBACH email 60 in 100 (the team's 30 only). Both: about 68 in 100 notice at least one | Ann Wang, email 2026-10-10, Q2 | `simulation.py:482-483,585-586` |
-| 2. Sign up (Step B) | Start at 5. +35 if the hidden true interests match the event. +15 if the hidden true career goal fits. +5 for 1–2 past events, +10 for 3 or more (**any** past event on the file row; refresh-added topics never count). +5 if the event targets the student's major. Points are added; the most anyone can reach is 70; 5 is the floor | Ann Wang 2026-10-06 Step B, kept by the owner ruling of 2026-10-12; past-event points and "any past event" ruled by Ann Wang, second reply 2026-10-15 ([record](class-exercise-ann-reply-2026-10-15.md)) | `simulation.py:477-489,540-559`; `exercise_results_models.py:205` |
+| 1. Notice | Mass email 20 in 100 (all 300). CBACH email 60 in 100 (the team's 60 only). Both: about 68 in 100 notice at least one | Ann Wang, email 2026-10-10, Q2 | `simulation.py:482-483,585-586` |
+| 2. Sign up (Step B) | Start at 5. +35 if the hidden true interests match the event. +15 if the hidden true career goal fits. +5 for 1–2 past events, +10 for 3 or more (**any** past event on the file row; refresh-added topics never count). +5 if the event targets the student's major. Points are added; the most anyone can reach is 70; 5 is the floor | Ann Wang 2026-10-06 Step B, kept by the owner ruling of 2026-10-12; past-event points and "any past event" ruled by Ann Wang, second reply 2026-10-15 ([record](class-exercise-ann-reply-2026-10-15.md)); start 5, +15 goal, +5 target major confirmed by Ann Wang, #413, 2026-10-22, (a) ([record](class-exercise-starting-chances-and-list-size-2026-10-22.md)) | `simulation.py:480` (5), `:481,488` (+15 = 0.50 × 0.3), `:483` (+5), `:540-559`; `exercise_results_models.py:205` |
 | 3. Show up | 65 in 100 of sign-ups | Ann Wang, email 2026-10-10, Q2 and Q4 | `simulation.py:484,593` |
 | 3b. The 8 pre-registered | Each of the 8 attends at 65 in 100 too, from a fixed draw (team seed + event), the same in the mass-only and the team run. Seats open = 60 - (the 8 who came) - everyone else who attended | Ann Wang 2026-10-15, Q2 | `simulation.py` `existing_attended`, `seats_empty` |
 | Luck | None. Each team's fixed chance draw alone decides; same list, same result | Ann Wang, email 2026-10-10, Q4 | `simulation.py:508-523` (5 draws only) |
@@ -52,7 +52,16 @@ survives. Its Step A (notice 75 / 15), Step C (flat 70% show-up) and the
   `ResultPanels.tsx:207-211`). Example: "15 were already coming. Your
   invitations added 4. 41 seats are still open."
 
-## Check numbers (Oct 2 file, suggested 30 at 3/3/2/2, mean of 5,000 seeds)
+## Check numbers (Oct 2 file, suggested 60 at 3/3/2/2, mean of 5,000 seeds)
+
+| Event | Mass email alone (N) | List adds (K) | With list (M) | Ann expected (Oct 16) |
+|---|---|---|---|---|
+| Northline | 10.48 | 9.42 | 19.90 | about 9 (9.4) |
+| Harbor, before asking | 12.10 | 9.14 | 21.24 | about 9 (9.2) |
+
+Run on the code 2026-10-27 ([record](class-exercise-starting-chances-and-list-size-2026-10-22.md)). Harbor after asking: Ann reviewed the #435 package ("the numbers match my estimates").
+
+### History: suggested 30 at 3/3/2/2, mean of 5,000 seeds
 
 | Event | Mass email alone (N) | List adds (K) | With list (M) | Ann expected |
 |---|---|---|---|---|
@@ -70,8 +79,8 @@ Pinned per seed by `tests/golden/exercise/test_exercise_ann_check_numbers_golden
 | Weights | Four dials, whole steps 0-10; defaults 3 / 3 / 2 / 2 (major, stated interest, career goal, past events); all-zero refused. Copy: "a factor set to 6 counts twice as much as one set to 3" | Ann Wang 2026-10-06, reconfirmed 2026-10-10 Part 2 ([record](class-exercise-default-weights-2026-10-06.md)) | `registry.py:142-146,363-371`; `WeightsControls.tsx:48-49` |
 | Stated interest | Any match = full credit | Ann Wang 2026-10-02 ([record](class-exercise-factor-revisions-2026-10-02.md)) | `student_factors/factors.py:122-147` |
 | Past events (matching factor) | 0 / 0.5 / 1 for 0 / 1 / 2+ **related** past events | Ann 2026-10-02; "ok" 2026-10-10 Part 2 | `student_factors/factors.py:15,76` |
-| Ties | More information on file first, then seniors first, then the file's fixed order | OQ-CE-01, D-rulings 2026-09-24/25 | `vocabulary.py:86-93` |
-| List size | Top 30; the instructor can lower the limit (e.g. 25) | Requirements; Ann's checklist | `matching.py:489,509-518` |
+| Ties | More information on file first, then seniors first, then the file's fixed order, explained on screen | OQ-CE-01, D-rulings 2026-09-24/25; confirmed by Ann Wang, #413, 2026-10-22, (c) ([record](class-exercise-starting-chances-and-list-size-2026-10-22.md)) | `vocabulary.py:86-93` |
+| List size | Top 60, fixed; no instructor setting | Ann Wang, #413, 2026-10-22, (b) ([record](class-exercise-starting-chances-and-list-size-2026-10-22.md)); supersedes "Top 30; the instructor can lower the limit" | `matching.py:489,509-518`; migration `0049_exercise_invite_limit_fixed.py:29-31`; `schema.py:149` |
 | Hidden columns | Never shown on screen, in the list, the CSV or any response | ADR-0025 D6 | `exercise/__init__.py:39-43` |
 
 Note the two different "past events": the matching factor counts **related**
@@ -91,9 +100,9 @@ code `asking.py:82-84,92,191-203`.
 
 ## Still open (to confirm with Ann)
 
-- OQ-CE-20 (several true interests), OQ-CE-23 (same major = event's target
-  majors), OQ-CE-27 (notice drawn per event). The code runs the recommended
-  default (a) for each.
+- OQ-CE-20 (several true interests), OQ-CE-27 (notice drawn per event). The
+  code runs the recommended default (a) for each. OQ-CE-23 closed 2026-10-22
+  ("+5 for the target major", #413).
 - OQ-CE-28 first half (round two improves only through a better list): no reply.
 - Register: [`class-exercise-open-questions.md`](../plans/open-questions/class-exercise-open-questions.md).
 

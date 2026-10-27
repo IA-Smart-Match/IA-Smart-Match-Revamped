@@ -146,7 +146,7 @@ exercise_dataset = sa.Table(
         name="ck_exercise_dataset_label_shape",
     ),
     sa.CheckConstraint("row_count >= 0", name="ck_exercise_dataset_row_count"),
-    sa.CheckConstraint("invite_limit >= 1", name="ck_exercise_dataset_invite_limit"),
+    sa.CheckConstraint("invite_limit = 60", name="ck_exercise_dataset_invite_limit"),
 )
 
 

@@ -718,14 +718,6 @@ export function uploadDataset(
   });
 }
 
-export function setInviteLimit(datasetId: string, inviteLimit: number, signal?: AbortSignal) {
-  return exerciseRequest<DatasetView>(`/instructor/datasets/${encodeURIComponent(datasetId)}`, {
-    method: "PATCH",
-    json: { invite_limit: inviteLimit },
-    signal,
-  });
-}
-
 export function repointWorkspaces(datasetId: string, signal?: AbortSignal) {
   return exerciseRequest<RepointView>(
     `/instructor/datasets/${encodeURIComponent(datasetId)}/repoint`,

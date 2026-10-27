@@ -1,5 +1,7 @@
 # Class exercise: Ann Wang's answers of 2026-10-10 (results rule, luck, Part 2, data file)
 
+> **Partly superseded 2026-10-22.** The team's list is 60, fixed, with no instructor setting (Ann Wang, #413, 2026-10-22, (b)); every "30" below is history. Check numbers for 60 and her confirmation of 5 / +15 / +5 are in [`class-exercise-starting-chances-and-list-size-2026-10-22.md`](class-exercise-starting-chances-and-list-size-2026-10-22.md). The body below is unchanged.
+
 **Status:** Ruling recorded. Code merged to main: #396 (notice rule), #394 (lift line), #392, #393. No migration. **Step B DECIDED (2026-10-12). Owner ruling 2026-10-12: Step B (Ann, 2026-10-06) is the sign-up step; past events = any past event, to confirm with Ann. Background: Ann's 2026-10-10 words say "the team's existing sign-up chances"; the team read that as the code's numbers, which Ann never saw. The only sign-up numbers she gave are her 2026-10-06 Step B (5 / +35 / +15 / +5 or +10 / +5). Recomputed on the Oct 2 file at 3/3/2/2, the app's suggested 30, 1,000 seeds: the code's numbers add 4.6 (Northline) and 3.9 (Harbor); Step B adds 6.4 and 5.1, which is Ann's "about 6 and 4-5". PR #398 implements Step B.**
 **Decided by:** Ann Wang, email reply received 2026-10-10 to the team's Oct 9
 email "Smart Match: choices before your Oct 16 run-through". Her words are

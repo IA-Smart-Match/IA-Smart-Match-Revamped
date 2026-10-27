@@ -174,13 +174,6 @@ describe("<ExerciseInstructor /> returns to the passcode form on a 401", () => {
     await expectPasscodeForm();
   });
 
-  it("when setting the invite limit is refused", async () => {
-    signedIn({ [`PATCH ${DATASETS}/${TEAMS_FILE}`]: [EXPIRED] });
-    renderPage();
-    fireEvent.click(await screen.findByRole("button", { name: /set the limit/i }));
-    await expectPasscodeForm();
-  });
-
   it("when moving every team is refused", async () => {
     signedIn({ [`POST ${DATASETS}/${TEAMS_FILE}/repoint`]: [EXPIRED] });
     renderPage();

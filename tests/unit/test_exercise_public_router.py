@@ -161,7 +161,6 @@ def test_the_exercise_scope_mounts_this_route_and_nothing_authenticated() -> Non
             "/v1/exercise/instructor/login",
             "/v1/exercise/instructor/logout",
             "/v1/exercise/instructor/datasets",
-            "/v1/exercise/instructor/datasets/{dataset_id}",
             "/v1/exercise/instructor/datasets/{dataset_id}/repoint",
             "/v1/exercise/instructor/events",
             "/v1/exercise/instructor/events/{event_key}/unlock",

@@ -654,15 +654,6 @@ UNAUTHENTICATED_ROUTES: dict[tuple[str, str], str] = {
         "keep pointing at their old dataset until the instructor re-points "
         "them. Requires `X-Exercise-Request`."
     ),
-    ("PATCH", "/v1/exercise/instructor/datasets/{dataset_id}"): (
-        "Sets a data file's invite limit (design spec §5), behind the "
-        "instructor passcode session. One whole number, bounded in the "
-        "handler so the refusal can be a sentence rather than the generic "
-        "validation message `errors._describe_validation_error` substitutes. "
-        "Not an oracle: a data file that does not exist answers 404 with a "
-        "sentence naming nothing, and the response carries only the file's "
-        "own facts. Requires `X-Exercise-Request`."
-    ),
     ("POST", "/v1/exercise/instructor/datasets/{dataset_id}/repoint"): (
         "Points every team at one data file (design spec §3: *a re-point "
         "resets every team*), behind the instructor passcode session. "

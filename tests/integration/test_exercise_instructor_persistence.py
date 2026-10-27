@@ -471,37 +471,9 @@ def test_an_event_that_is_not_in_the_file_is_recognised_before_the_write(
         assert not REPOSITORY.event_exists(session, dataset_id=dataset_id, event_key="not-an-event")
 
 
-def test_the_invite_limit_is_written_and_read_back(
-    exercise_sessions: sessionmaker[Session],
-) -> None:
-    table = schema.exercise_dataset
-    with exercise_sessions() as session:
-        dataset_id = _insert_dataset(session, label="invite-limit")
-
-        assert REPOSITORY.set_invite_limit(session, dataset_id=dataset_id, invite_limit=42)
-        session.commit()
-
-        stored = session.execute(
-            sa.select(table.c.invite_limit).where(table.c.id == dataset_id)
-        ).scalar_one()
-    assert stored == 42
-
-
-def test_an_invite_limit_the_column_would_refuse_is_refused_before_the_write(
-    exercise_sessions: sessionmaker[Session],
-) -> None:
-    with exercise_sessions() as session:
-        dataset_id = _insert_dataset(session, label="bad-limit")
-        with pytest.raises(ValueError, match="invite_limit must be between"):
-            REPOSITORY.set_invite_limit(session, dataset_id=dataset_id, invite_limit=0)
-
-
-def test_setting_the_limit_on_a_file_that_is_not_there_changes_nothing(
-    exercise_sessions: sessionmaker[Session],
-) -> None:
-    with exercise_sessions() as session:
-        _insert_dataset(session, label="present")
-        assert not REPOSITORY.set_invite_limit(session, dataset_id=uuid.uuid4(), invite_limit=25)
+def test_the_instructor_repository_cannot_change_the_invite_limit() -> None:
+    """Ann, #413, 2026-10-22: "List size: 60, fixed for this class."""
+    assert not hasattr(REPOSITORY, "set_invite_limit")
 
 
 def test_the_team_list_counts_a_teams_work_without_reading_it(
