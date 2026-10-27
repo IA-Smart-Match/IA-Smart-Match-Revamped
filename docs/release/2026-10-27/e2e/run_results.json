@@ -1,0 +1,127 @@
+{
+  "revision": "4fc80d0",
+  "base": "http://127.0.0.1:5174",
+  "scope": "LOCAL ONLY (exercise.smartmatch.cloud not reachable)",
+  "started_utc": "2026-10-27T21:32:33.452Z",
+  "finished_utc": "2026-10-27T21:33:28.551Z",
+  "rounds": {
+    "team1": {
+      "round1_northline_E11": {
+        "visible": {
+          "already_coming": 12,
+          "came_because_of_list": 7,
+          "still_open": 41,
+          "extra_signups_lift": 8,
+          "list_signed_up": 9,
+          "mass_email_alone_would_sign_up": 1
+        },
+        "source": "screenshots/t1-ERROR.jpg (results page as displayed; the run itself succeeded, see notes)"
+      },
+      "round2_harbor_E12": {
+        "visible": {
+          "extra_signups_lift": 9,
+          "came_because_of_list": 8,
+          "list_signed_up": 15,
+          "mass_email_alone_would_sign_up": 6,
+          "still_open": 39
+        },
+        "source": "run_edges.json t1_rest.round2_text_excerpt"
+      }
+    },
+    "team2": {
+      "round1_northline_E11": {
+        "visible": {
+          "already_coming": 18,
+          "came_because_of_list": 4,
+          "still_open": 38,
+          "extra_signups_lift": 8,
+          "list_signed_up": 16,
+          "mass_email_alone_would_sign_up": 8
+        },
+        "source": "run_results.json teams.2 (parsed from page text)"
+      },
+      "round2_harbor_E12": {
+        "visible": {
+          "already_coming": 11,
+          "came_because_of_list": 6,
+          "still_open": 43,
+          "extra_signups_lift": 12,
+          "list_signed_up": 17,
+          "mass_email_alone_would_sign_up": 5
+        },
+        "source": "run_results.json teams.2 (parsed from page text)"
+      }
+    }
+  },
+  "steps": [
+    {
+      "id": "T1-enter-team",
+      "ok": true
+    },
+    {
+      "id": "instructor-open-results",
+      "events": "E11,E12",
+      "method": "Open results -> Open results now, per event"
+    },
+    {
+      "id": "T2-enter-team",
+      "ok": true
+    },
+    {
+      "id": "T2-r1-save-setting",
+      "setting": "Balanced",
+      "url": "/exercise/events/E11"
+    },
+    {
+      "id": "T1-r1-save-setting",
+      "setting": "Balanced",
+      "url": "/exercise/events/E11"
+    },
+    {
+      "id": "T2-r1-run-results",
+      "event": "E11",
+      "numbers": {
+        "already_coming": 18,
+        "came_because_of_list": 4,
+        "still_open": 38,
+        "extra_signups_from_list": 8,
+        "people_on_list_signed_up": 16,
+        "would_have_signed_up_anyway": 8
+      }
+    },
+    {
+      "id": "T2-refresh-after-run",
+      "kept_results_run": true
+    },
+    {
+      "id": "T2-asking",
+      "choice": "A small reward"
+    },
+    {
+      "id": "T2-r2-save-setting",
+      "setting": "Balanced",
+      "url": "/exercise/events/E12"
+    },
+    {
+      "id": "T2-r2-run-results",
+      "event": "E12",
+      "numbers": {
+        "already_coming": 11,
+        "came_because_of_list": 6,
+        "still_open": 43,
+        "extra_signups_from_list": 12,
+        "people_on_list_signed_up": 17,
+        "would_have_signed_up_anyway": 5
+      }
+    },
+    {
+      "id": "T1-ERROR",
+      "error": "locator.click: Timeout 30000ms exceeded."
+    }
+  ],
+  "edge_checks": "run_edges.json",
+  "notes": [
+    "Team 1 Round 1 run was recorded by the server (HTTP 201) but the script then timed out on the confirm click; page state read from screenshot t1-ERROR.png.",
+    "Team 3 used only for edge checks; no round numbers."
+  ]
+}

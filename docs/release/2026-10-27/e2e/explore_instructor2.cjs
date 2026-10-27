@@ -1,0 +1,24 @@
+const { chromium } = require("playwright");
+const fs = require("fs");
+const env = fs.readFileSync("/home/claude/IA-Smart-Match-Revamped/.env", "utf8");
+const pass = env.match(/^SMARTMATCH_EXERCISE_INSTRUCTOR_PASSCODE=(.*)$/m)[1].trim();
+const base = "http://127.0.0.1:5174";
+(async () => {
+  const browser = await chromium.launch();
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+  const page = await ctx.newPage();
+  await page.goto(base + "/exercise/instructor");
+  await page.getByLabel("Passcode").fill(pass);
+  await page.getByLabel("Passcode").press("Enter");
+  await page.waitForTimeout(2500);
+  await page.getByRole("button", { name: "Show team codes" }).click();
+  await page.waitForTimeout(1500);
+  const txt = await page.locator("body").innerText();
+  const i = txt.indexOf("Show team codes");
+  console.log("AFTER_SHOW_CODES:", txt.slice(i, i + 500).replace(/\n+/g, " | "));
+  console.log("EVENT_LINK_BUTTONS:", await page.getByRole("button").allInnerTexts());
+  const j = txt.indexOf("Open results for an event");
+  console.log("EVENTS_SECTION:", txt.slice(j, j + 700).replace(/\n+/g, " | "));
+  await page.screenshot({ path: "/tmp/claude-0/instr_codes.png", fullPage: true });
+  await browser.close();
+})().catch((e) => { console.error("EXPLORE_ERR", e.message); process.exit(1); });

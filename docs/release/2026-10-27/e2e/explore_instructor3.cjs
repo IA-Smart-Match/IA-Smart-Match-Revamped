@@ -1,0 +1,22 @@
+const { chromium } = require("playwright");
+const fs = require("fs");
+const env = fs.readFileSync("/home/claude/IA-Smart-Match-Revamped/.env", "utf8");
+const pass = env.match(/^SMARTMATCH_EXERCISE_INSTRUCTOR_PASSCODE=(.*)$/m)[1].trim();
+const base = "http://127.0.0.1:5174";
+(async () => {
+  const browser = await chromium.launch();
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+  const page = await ctx.newPage();
+  await page.goto(base + "/exercise/instructor");
+  await page.getByLabel("Passcode").fill(pass);
+  await page.getByLabel("Passcode").press("Enter");
+  await page.getByRole("button", { name: /^(Open|Close) results$/ }).first().waitFor({ timeout: 20000 });
+  console.log("OPEN_BTNS:", await page.getByRole("button", { name: /^(Open|Close) results$/ }).count());
+  const first = page.getByRole("button", { name: "Open results", exact: true }).first();
+  await first.click();
+  await page.waitForTimeout(500);
+  console.log("CONFIRM_TEXT:", (await page.locator("body").innerText()).match(/Open results for [^\n]+/g));
+  console.log("CONFIRM_BTNS:", await page.getByRole("button").allInnerTexts());
+  await page.screenshot({ path: "/tmp/claude-0/instr_confirm.png" });
+  await browser.close();
+})().catch((e) => { console.error("EXPLORE_ERR", e.message); process.exit(1); });

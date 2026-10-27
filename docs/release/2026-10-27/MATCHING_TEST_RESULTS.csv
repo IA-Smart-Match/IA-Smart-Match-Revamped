@@ -1,0 +1,5 @@
+test_id,round,event,setting,asking_choice,seed,list_size,unique_students,no_card_in_scope,non_responding,list_signed_up,mass_email_alone_signed_up,list_added,list_attended,order_ok,weights_ok,tiebreak_ok,unique_check_ok,run1_equals_run2,status
+R1-NL-balanced,1,Northline Analytics: Behind the Business,balanced 3/3/2/2,,20261027,60,60,230,0,20,7,16,8,True,True,True,True,True,PASS
+R1-NL-major-first,1,Northline Analytics: Behind the Business,major first,,20261027,60,60,230,0,12,7,11,4,True,True,True,True,True,PASS
+R2-HB-balanced-before,2,Harbor Consumer Brands: Behind the Business,balanced 3/3/2/2,none,20261027,60,60,22,0,8,16,5,6,True,True,True,True,True,PASS
+R2-HB-balanced-after,2,Harbor Consumer Brands: Behind the Business,balanced 3/3/2/2,small_reward,20261027,60,60,38,0,16,16,9,11,True,True,True,True,True,PASS

@@ -1,0 +1,79 @@
+{
+  "started_utc": "2026-10-27T21:33:57.108Z",
+  "t1_rest": {
+    "asking_before": "✓\nTeam\n✓\nEvent\n✓\nYour list\n✓\nResults\nAsk for more\nFictional data — All student profiles are fictional, shaped by overall survey percentages.\nTeam\nYou are Team 1\nRound 1 · Northline Analytics: Behind t",
+    "asking": "done",
+    "round2_text_excerpt": "l open\n39\nYour list brought 9 extra sign-ups; 8 of them came.\n15 people on your list signed up. 6 of them would have signed up from the mass email anyway, so your list ad",
+    "round2": "run recorded"
+  },
+  "edges": [
+    {
+      "id": "E-01",
+      "input": "team 3, code 0000 (wrong)",
+      "url": "/exercise",
+      "refusal": [
+        "Team code",
+        "Enter your team's 4-digit code. Your instructor has it.",
+        "That code is not right for this team. Your instructor has it."
+      ]
+    },
+    {
+      "id": "E-02",
+      "input": "code '12' (too short)",
+      "button_disabled": true
+    },
+    {
+      "id": "E-03",
+      "input": "code 'abcd'",
+      "stored_value_length": 0
+    },
+    {
+      "id": "E-04",
+      "input": "direct load /exercise/events/E11/results without team",
+      "url": "/exercise/events/E11/results",
+      "text": "✓ | Team | ✓ | Event | ✓ | Your list | Results | Ask for more | Fictional data — All student profiles are fictional, shaped by overall s"
+    },
+    {
+      "id": "E-05",
+      "input": "setting name empty",
+      "save_disabled": true
+    },
+    {
+      "id": "E-06",
+      "input": "save 'Refresh test' then reload mid-exercise",
+      "setting_kept": true
+    },
+    {
+      "id": "E-07",
+      "input": "double press of confirm 'Send'",
+      "ui_after": "Results already run (one run)",
+      "click_errors": [
+        "second:locator.click: Timeout 5000ms exceeded."
+      ]
+    },
+    {
+      "id": "E-08a",
+      "route": "/exercise/events/E11/results",
+      "after_reload_path": "/exercise/events/E11/results",
+      "rendered": true
+    },
+    {
+      "id": "E-08b",
+      "route": "/exercise/asking",
+      "after_reload_path": "/exercise/asking",
+      "rendered": true
+    },
+    {
+      "id": "E-08c",
+      "route": "/exercise/events",
+      "after_reload_path": "/exercise/events",
+      "rendered": true
+    },
+    {
+      "id": "E-09",
+      "route": "/exercise/instructor (direct load)",
+      "renders_passcode": true
+    }
+  ],
+  "finished_utc": "2026-10-27T21:34:51.686Z"
+}

@@ -1,0 +1,55 @@
+const { chromium } = require("playwright");
+const fs = require("fs");
+const env = fs.readFileSync("/home/claude/IA-Smart-Match-Revamped/.env", "utf8");
+const pass = env.match(/^SMARTMATCH_EXERCISE_INSTRUCTOR_PASSCODE=(.*)$/m)[1].trim();
+const base = "http://127.0.0.1:5174";
+const dump = async (page, tag) => {
+  const txt = (await page.locator("body").innerText()).replace(/\n+/g, " | ");
+  console.log(`[${tag}] URL=${new URL(page.url()).pathname}`);
+  console.log(`[${tag}] TEXT=${txt.slice(0, 900)}`);
+  console.log(`[${tag}] BUTTONS=${JSON.stringify(await page.getByRole("button").allInnerTexts())}`);
+  console.log(`[${tag}] INPUTS=${JSON.stringify(await page.locator("input,textarea,select").evaluateAll(els => els.map(e => [e.tagName, e.type, e.id, e.name, e.getAttribute("aria-label")])))}`);
+};
+(async () => {
+  const browser = await chromium.launch();
+  const ai = await browser.newContext();
+  const ip = await ai.newPage();
+  await ip.goto(base + "/exercise/instructor");
+  await ip.getByLabel("Passcode").fill(pass);
+  await ip.getByLabel("Passcode").press("Enter");
+  await ip.getByRole("button", { name: "Show team codes" }).waitFor({ timeout: 20000 });
+  await ip.getByRole("button", { name: "Show team codes" }).click();
+  await ip.waitForTimeout(1200);
+  const codes = (await ip.locator("body").innerText()).match(/Team (\d): (\d{4})/g);
+  console.log("CODES_COUNT", codes && codes.length);
+  const code1 = codes.find(c => c.startsWith("Team 1:")).split(": ")[1];
+  await ai.close();
+
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+  const page = await ctx.newPage();
+  await page.goto(base + "/exercise");
+  await page.waitForTimeout(2000);
+  await dump(page, "entry-initial");
+  await page.screenshot({ path: "/tmp/claude-0/entry.png", fullPage: true });
+  const skip = page.getByRole("button", { name: "Skip" });
+  if (await skip.isVisible().catch(() => false)) { await skip.click(); await page.waitForTimeout(500); }
+  await page.locator("label:has(input[aria-label='Team 1'])").click();
+  await page.waitForTimeout(500);
+  console.log("RADIO_CHECKED", await page.getByLabel("Team 1").isChecked());
+  await page.getByLabel("Team code").fill(code1);
+  await page.waitForTimeout(500);
+  await dump(page, "entry-filled");
+  await page.getByRole("button", { name: "Open this team's work" }).click();
+  await page.waitForURL(/\/exercise\/events$/, { timeout: 20000 }).catch(() => {});
+  await page.waitForTimeout(2000);
+  await dump(page, "events");
+  const evLinks = await page.locator('a[href^="/exercise/events/"]').evaluateAll(as => as.map(a => a.getAttribute("href")));
+  console.log("EVENT_LINKS", JSON.stringify(evLinks));
+  await page.locator('a[href^="/exercise/events/"]').first().click();
+  await page.waitForTimeout(2000);
+  await dump(page, "event0");
+  await page.screenshot({ path: "/tmp/claude-0/event0.png", fullPage: true });
+  const sub = await page.locator('a').evaluateAll(as => as.map(a => [a.textContent.trim().slice(0,60), a.getAttribute("href")]).filter(x => x[1] && x[1].startsWith("/exercise")));
+  console.log("SUBLINKS", JSON.stringify(sub));
+  await browser.close();
+})().catch((e) => { console.error("EXPLORE_ERR", e.message); process.exit(1); });

@@ -1,0 +1,47 @@
+const { chromium } = require("playwright");
+const L = require("./lib.cjs");
+const dumpB = async (page, tag) => {
+  console.log(`[${tag}] URL=${new URL(page.url()).pathname}`);
+  console.log(`[${tag}] BUTTONS=${JSON.stringify(await page.getByRole("button").allInnerTexts())}`);
+  console.log(`[${tag}] RADIOS=${JSON.stringify(await page.getByRole("radio").evaluateAll(r => r.map(x => [x.name, x.getAttribute("aria-label") || x.value, x.checked])))}`);
+  console.log(`[${tag}] TEXT=${(await L.bodyText(page)).replace(/\n+/g," | ").slice(0, 1800)}`);
+};
+(async () => {
+  const browser = await chromium.launch();
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  const page = await ctx.newPage();
+  await page.goto(L.BASE + "/exercise");
+  await page.waitForTimeout(1500);
+  const skip = page.getByRole("button", { name: "Skip" });
+  if (await skip.isVisible().catch(() => false)) await skip.click();
+  // Codes from instructor page
+  const ictx = await L.instructorLogin(browser);
+  const codes = await L.readTeamCodes(ictx.page);
+  await ictx.ctx.close();
+  await page.locator("label:has(input[aria-label='Team 1'])").click();
+  await page.getByLabel("Team code").fill(codes["1"]);
+  await page.getByRole("button", { name: "Open this team's work" }).click();
+  await page.waitForURL(/\/exercise\/events$/, { timeout: 20000 });
+  await page.goto(L.BASE + "/exercise/events/E11");
+  await page.waitForTimeout(2000);
+  await dumpB(page, "E11-list");
+  await page.getByLabel("Give this setting a name").fill("Balanced");
+  await page.getByRole("button", { name: "Save this setting", exact: true }).click();
+  await page.waitForTimeout(1500);
+  await dumpB(page, "E11-after-save");
+  await page.getByRole("link", { name: "Choose one setting and see results" }).click();
+  await page.waitForURL(/\/results$/, { timeout: 20000 });
+  await page.waitForTimeout(2000);
+  await dumpB(page, "E11-results-pre");
+  await page.locator("label:has(input[name='exercise-final-setting'])").first().click();
+  await page.waitForTimeout(500);
+  await page.getByRole("button", { name: "Run results for this event" }).click();
+  await page.waitForTimeout(800);
+  await dumpB(page, "E11-confirm");
+  await page.screenshot({ path: "/tmp/claude-0/E11-confirm.png", fullPage: true });
+  await page.getByRole("button", { name: /^(Send|Confirm|Yes)/ }).first().click().catch(e => console.log("CONFIRM_CLICK_ERR", e.message.slice(0,120)));
+  await page.waitForTimeout(3000);
+  await dumpB(page, "E11-after-run");
+  await page.screenshot({ path: "/tmp/claude-0/E11-after-run.png", fullPage: true });
+  await browser.close();
+})().catch((e) => { console.error("EXPLORE_ERR", e.message); process.exit(1); });
