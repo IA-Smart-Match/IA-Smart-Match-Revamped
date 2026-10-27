@@ -24,41 +24,44 @@ SmartMatch is a two-round classroom exercise for AI in Marketing. Each team choo
 
 ## 3. Test Method
 
-- **Environment:** local copy of the exercise stack (PostgreSQL 16, exercise API, web front end) at `4fc80d0`, driven by Playwright in Chromium. Public deployment evidence comes from the GitHub deploy workflow.
-- **Dataset:** the shipped 300-profile fictional fixture (SHA-256 `57cb47e7…9866`).
-- **Procedure:** the instructor opened results for both events. Team 1 and Team 2 worked at the same time in separate browser sessions. Each saved the setting "Balanced" (3/3/2/2), sent the Northline list, read the results, chose "A small reward", asked students, then sent and read the Harbor list.
-- **Checks:** 25 screenshots; server run counts; negative tests (wrong code, short code, empty setting name, double send, page reload, deep-link reload). A separate script ran the real matching code twice with fixed seed 20261027 and compared the outputs. Unit and golden tests ran with pytest; front-end tests ran with Vitest.
+- **Public test:** on 27 October 2026 at 23:04 UTC, a team member ran the exercise on https://exercise.smartmatch.cloud/exercise with the live data file "Oct2-Ann-300". The VM runs `4fc80d0` according to the last deploy log. Screenshots of each step are kept as evidence. The run used Team 1, whose work must be cleared before class.
+- **Local test:** a local copy of the same revision (PostgreSQL 16, exercise API, web front end), driven by Playwright in Chromium. Team 1 and Team 2 worked at the same time in separate browser sessions. Negative tests: wrong code, short code, empty setting name, double send, page reload, deep-link reload.
+- **Procedure (both tests):** the instructor opened results for both events. Each team entered with its code, saved the setting "Balanced" (3/3/2/2), sent the Northline list and read the results. It then chose "A small reward", asked students, and sent and read the Harbor list.
+- **Matching check:** a script ran the real matching code on the shipped fixture (SHA-256 `57cb47e7…9866`) twice with fixed seed 20261027 and compared the outputs. Unit and golden tests ran with pytest; front-end tests ran with Vitest.
 
 ## 4. Test Results
 
-Results as shown on the results pages, 27 October 2026, 21:31–21:33 UTC. Each list has 60 students.
+Results as shown on the results pages on 27 October 2026. Each list has 60 students, and the room has 60 seats. All runs used the setting "Balanced" and, for Harbor, "A small reward".
 
-| Round | Team | Way of asking | List signed up | Would sign up from mass email anyway | List added | Came because of list | Seats still open |
-|---|---|---|---:|---:|---:|---:|---:|
-| 1 Northline | Team 1 | — | 9 | 1 | 8 | 7 | 41 |
-| 1 Northline | Team 2 | — | 16 | 8 | 8 | 4 | 38 |
-| 2 Harbor | Team 1 | Small reward | 15 | 6 | 9 | 8 | 39 |
-| 2 Harbor | Team 2 | Small reward | 17 | 5 | 12 | 6 | 43 |
+| Run | Round | Already coming | Came because of list | Seats still open | List added (sign-ups) |
+|---|---|---:|---:|---:|---:|
+| Public, Team 1 | 1 Northline | 14 | 2 | 44 | not recorded |
+| Public, Team 1 | 2 Harbor | 18 | 4 | 38 | not recorded |
+| Local, Team 1 | 1 Northline | 12 | 7 | 41 | 8 |
+| Local, Team 1 | 2 Harbor | 13 | 8 | 39 | 9 |
+| Local, Team 2 | 1 Northline | 18 | 4 | 38 | 8 |
+| Local, Team 2 | 2 Harbor | 11 | 6 | 43 | 12 |
 
-Both teams used the same setting but got different numbers. This is expected: each team has its own seed, so each team has its own luck. In every row, *list added* equals *list signed up* minus *would sign up anyway*. The fixed-seed script gave identical output on two runs and under a different Python hash seed. All four fixed-seed lists had 60 unique students, in weight order.
+In every row the three seat counts add up to 60, as expected. The same setting gives different numbers for each team. This is expected: each team has its own seed, so each team has its own luck. On the public site, asking with a small reward reached the 230 students without a card; 127 completed a card and 0 stopped responding. The card count rose from 70 to 197. This agrees with the rule (55% of 230, rounded half up, is 127). The fixed-seed script gave identical output on two runs, and all four of its lists had 60 unique students in weight order.
 
 ## 5. What Worked
 
-- A first-time team entered with its code, completed Round 1, chose a way of asking, completed Round 2, and saw both results pages. Two teams did this at the same time.
-- Matching follows the documented rules. The code agrees with every rule in Section 2.
+- The public URL served the full exercise. A team entered with its code, completed Round 1, asked for more, completed Round 2, and saw both results pages.
+- In the local test, two teams completed the exercise at the same time.
+- Matching follows the documented rules. The code agrees with every rule in Section 2. The asking numbers on the public site agree with the rule.
 - Results persist: reloading the page keeps the run, and a double press of "Send list" recorded one run.
 - Invalid input is rejected: a wrong team code shows "That code is not right for this team"; a short code and an empty setting name disable the button.
-- Automated tests: 1,271 front-end tests passed; 66 golden exercise tests passed; 1,440 exercise unit tests passed.
-- The last deploy (26 October, 06:32 UTC) placed `4fc80d0` on the VM. All checks passed. On the same day the exercise host answered HTTP 200 from the deploy runner.
+- Automated tests: 1,271 front-end tests, 66 golden exercise tests and 1,440 exercise unit tests passed.
+- The last deploy (26 October, 06:32 UTC) placed `4fc80d0` on the VM, and all of its checks passed.
 
 ## 6. What Did Not Work
 
 - **Deploy check (fixed).** On 26 October two deploys failed at the public check. The first used the retired `pilot.plated.blog` address. The second pointed the check at the exercise host, which does not serve the route the check expects. The third deploy, against `pilot.smartmatch.cloud`, passed. No automated check covers the exercise host yet.
 - **Walkthrough recorder (open).** `tools/walkthrough/record_student_flow.mjs` does not enter the 4-digit team code, so it fails at step 1. This does not affect students.
-- **Test environment limits (open).** Docker Hub rate limits stopped the container image build, so the local API and front end ran as host processes on Python 3.12. `make setup` fails on Python 3.13. Two unit tests failed only because of a local settings file.
+- **Test environment limits (open).** Docker Hub rate limits stopped the local container image build, so the local API and front end ran as host processes on Python 3.12. `make setup` fails on Python 3.13. Two unit tests failed only because of a local settings file.
 - **Not reproduced.** The "5,000 simulated runs" table in the earlier write-up has no script in the repository, so this report does not use it.
-- **Not tested.** PUBLIC-RUN-PLACEHOLDER
+- **Not tested.** The public test was one team only; it did not test concurrent teams, page reload or invalid input on the public site. Main now has a newer revision (`763e666`, list size fixed at 60 in the database); it is not deployed and was not tested.
 
 ## 7. Conclusion
 
-The full two-round exercise passed in the local test at revision `4fc80d0`. Matching agrees with the documented rules, and results are repeatable with a fixed seed. CONCLUSION-PLACEHOLDER
+The full two-round exercise passed on the public URL (VM revision `4fc80d0`) and in the local two-team test. Matching agrees with the documented rules, and results are repeatable with a fixed seed. No blocking defect was found. The main limits are a single-team public test and no automated health check for the exercise host.
