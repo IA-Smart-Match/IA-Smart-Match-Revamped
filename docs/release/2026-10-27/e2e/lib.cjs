@@ -1,8 +1,10 @@
 // Shared helpers for the local class-exercise E2E run (Agent B). Local only.
 const fs = require("fs");
-const ENV = fs.readFileSync("/home/claude/IA-Smart-Match-Revamped/.env", "utf8");
-const PASS = ENV.match(/^SMARTMATCH_EXERCISE_INSTRUCTOR_PASSCODE=(.*)$/m)[1].trim();
-const BASE = "http://127.0.0.1:5174";
+// E2E_BASE_URL and EXERCISE_INSTRUCTOR_PASSCODE override the local defaults (public run).
+const ENV_FILE = require("path").resolve(__dirname, "../../../../.env");
+const PASS = process.env.EXERCISE_INSTRUCTOR_PASSCODE ||
+  fs.readFileSync(ENV_FILE, "utf8").match(/^SMARTMATCH_EXERCISE_INSTRUCTOR_PASSCODE=(.*)$/m)[1].trim();
+const BASE = process.env.E2E_BASE_URL || "http://127.0.0.1:5174";
 
 async function instructorLogin(browser) {
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
