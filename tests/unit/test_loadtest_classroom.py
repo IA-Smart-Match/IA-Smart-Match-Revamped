@@ -231,3 +231,29 @@ def test_same_run_check_ignores_devices_that_could_not_read() -> None:
     assert cl.run_stamps(one_run_some_unread) == (1, 2)
     two_runs = ["a", "b", None]
     assert cl.run_stamps(two_runs) == (2, 1)
+
+
+def test_transport_errors_keep_the_message_not_only_the_class() -> None:
+    """Oct 27: 238 OSError / 195 ConnectError / 40 reset, and no way to tell why."""
+    import asyncio
+
+    import httpx
+
+    def refuse(req: httpx.Request) -> httpx.Response:
+        try:
+            raise ConnectionRefusedError(111, "Connection refused")
+        except OSError as exc:
+            raise httpx.ConnectError("All connection attempts failed", request=req) from exc
+
+    async def go() -> None:
+        async with httpx.AsyncClient(
+            base_url="https://x.test", transport=httpx.MockTransport(refuse)
+        ) as c:
+            await cl.call(c, "a", "GET", "/a")
+            await cl.fetch_asset(c, "/assets/x.js")
+
+    cl.RECORDS.clear()
+    asyncio.run(go())
+    for r in cl.RECORDS:
+        assert (r["status"], r["code"]) == (0, "ConnectError")
+        assert "Connection refused" in r["detail"] and "ConnectionRefusedError" in r["detail"]

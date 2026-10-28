@@ -114,7 +114,7 @@ async def call(
 ) -> httpx.Response | None:
     """One timed request. Status outside `expect` (or a transport error) is unexpected."""
     t0 = time.perf_counter()
-    status, code, resp = 0, "", None
+    status, code, resp, detail = 0, "", None, ""
     try:
         try:
             resp = await client.request(method, url, headers=HDR, **kw)
@@ -131,15 +131,24 @@ async def call(
         if is_cf_blocked(resp):
             code = BLOCKED
     except (TimeoutError, httpx.HTTPError) as exc:
-        code = type(exc).__name__
+        code, detail = type(exc).__name__, transport_detail(exc)
     except asyncio.CancelledError:
         RECORDS.append(_row(name, method, t0, -1, "cancelled", False))
         raise
-    RECORDS.append(_row(name, method, t0, status, code, status in expect))
+    RECORDS.append(_row(name, method, t0, status, code, status in expect, detail))
     return resp
 
 
-def _row(name, method, t0, status, code, ok) -> dict:
+def transport_detail(exc: BaseException) -> str:
+    """Message of each chained cause, so refused vs reset vs DNS vs TLS read apart."""
+    parts: list[str] = []
+    while exc is not None and len(parts) < 4:
+        parts.append(f"{type(exc).__name__}: {exc}" if str(exc) else type(exc).__name__)
+        exc = exc.__cause__
+    return " <- ".join(parts)[:300]
+
+
+def _row(name, method, t0, status, code, ok, detail="") -> dict:
     return {
         "burst": BURST["name"],
         "name": name,
@@ -149,6 +158,7 @@ def _row(name, method, t0, status, code, ok) -> dict:
         "status": status,
         "code": code,
         "ok": ok,
+        "detail": detail,
     }
 
 
@@ -201,7 +211,7 @@ async def fetch_asset(client: httpx.AsyncClient, path: str) -> None:
     not installed.
     """
     t0 = time.perf_counter()
-    status, code = 0, ""
+    status, code, detail = 0, "", ""
     try:
         try:
             resp = await _drain(client, path)
@@ -212,11 +222,11 @@ async def fetch_asset(client: httpx.AsyncClient, path: str) -> None:
         if is_cf_blocked(resp):
             code = BLOCKED
     except (TimeoutError, httpx.HTTPError) as exc:
-        code = type(exc).__name__
+        code, detail = type(exc).__name__, transport_detail(exc)
     except asyncio.CancelledError:
         RECORDS.append(_row("asset", "GET", t0, -1, "cancelled", False))
         raise
-    RECORDS.append(_row("asset", "GET", t0, status, code, status == 200))
+    RECORDS.append(_row("asset", "GET", t0, status, code, status == 200, detail))
 
 
 # ---------------------------------------------------------------- actors
@@ -994,6 +1004,9 @@ def write_report(out: Path, meta: dict) -> int:
     ]
     blocked = sum(1 for r in RECORDS if r["code"] == BLOCKED)
     lines += ["", f"cloudflare_blocked: {blocked} (kept out of app errors and targets)"]
+    causes = Counter((r["name"], r["detail"]) for r in RECORDS if r.get("detail"))
+    lines += ["", "## Transport errors by cause (requests.csv `detail`)", ""]
+    lines += [f"- {n} x {name}: {d}" for (name, d), n in causes.most_common(10)] or ["- none"]
     lines += ["", f"## Correctness: {len(CHECKS) - len(failed)}/{len(CHECKS)} checks pass", ""]
     lines += [f"- FAIL {c['burst']}: {c['check']} {c['detail']}" for c in failed] or ["- all pass"]
     lines += [
