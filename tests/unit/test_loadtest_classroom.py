@@ -182,16 +182,47 @@ def test_team_codes_come_from_the_instructor_api(monkeypatch) -> None:
     assert {n: f"000{n}" for n in range(1, 7)} == cl.CODES
 
 
-def test_asset_target_uses_tls_and_a_clean_host_header_on_https() -> None:
-    """Oct 21 public run: every asset was a 400 (plain socket to :80, 'Host: x:None')."""
-    assert cl.asset_target("https://exercise.smartmatch.cloud") == (
-        "exercise.smartmatch.cloud",
-        443,
-        True,
-        "exercise.smartmatch.cloud",
-    )
-    assert cl.asset_target("http://127.0.0.1:5273") == ("127.0.0.1", 5273, False, "127.0.0.1:5273")
-    assert cl.asset_target("http://localhost") == ("localhost", 80, False, "localhost")
+def test_assets_reuse_the_devices_keepalive_connections() -> None:
+    """Oct 27 public-50: one new socket per asset; a device must reuse its <= 6."""
+    import asyncio
+    import gzip
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    body, peers = gzip.compress(b"x" * 300_000), set()
+
+    class Handler(BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"  # keep-alive
+
+        def do_GET(self) -> None:
+            peers.add(self.client_address)
+            self.send_response(200 if self.path != "/missing.js" else 404)
+            self.send_header("Content-Encoding", "gzip")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *_a) -> None:
+            pass
+
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    paths = [f"/assets/{i}.js" for i in range(40)] + ["/missing.js"]
+    s = cl.Student(0, 1, f"http://127.0.0.1:{srv.server_port}", random.Random(0), paths)
+
+    async def go() -> None:
+        await s._assets()
+        await s._assets()  # a reload on the same tab
+        await s.client.aclose()
+
+    cl.RECORDS.clear()
+    try:
+        asyncio.run(go())
+    finally:
+        srv.shutdown()
+    statuses = [r["status"] for r in cl.RECORDS if r["name"] == "asset"]
+    assert statuses.count(200) == 80 and statuses.count(404) == 2
+    assert 1 <= len(peers) <= 6, f"{len(peers)} connections for 82 fetches"
 
 
 def test_same_run_check_ignores_devices_that_could_not_read() -> None:
@@ -200,3 +231,29 @@ def test_same_run_check_ignores_devices_that_could_not_read() -> None:
     assert cl.run_stamps(one_run_some_unread) == (1, 2)
     two_runs = ["a", "b", None]
     assert cl.run_stamps(two_runs) == (2, 1)
+
+
+def test_transport_errors_keep_the_message_not_only_the_class() -> None:
+    """Oct 27: 238 OSError / 195 ConnectError / 40 reset, and no way to tell why."""
+    import asyncio
+
+    import httpx
+
+    def refuse(req: httpx.Request) -> httpx.Response:
+        try:
+            raise ConnectionRefusedError(111, "Connection refused")
+        except OSError as exc:
+            raise httpx.ConnectError("All connection attempts failed", request=req) from exc
+
+    async def go() -> None:
+        async with httpx.AsyncClient(
+            base_url="https://x.test", transport=httpx.MockTransport(refuse)
+        ) as c:
+            await cl.call(c, "a", "GET", "/a")
+            await cl.fetch_asset(c, "/assets/x.js")
+
+    cl.RECORDS.clear()
+    asyncio.run(go())
+    for r in cl.RECORDS:
+        assert (r["status"], r["code"]) == (0, "ConnectError")
+        assert "Connection refused" in r["detail"] and "ConnectionRefusedError" in r["detail"]

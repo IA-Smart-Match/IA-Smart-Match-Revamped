@@ -114,7 +114,7 @@ async def call(
 ) -> httpx.Response | None:
     """One timed request. Status outside `expect` (or a transport error) is unexpected."""
     t0 = time.perf_counter()
-    status, code, resp = 0, "", None
+    status, code, resp, detail = 0, "", None, ""
     try:
         try:
             resp = await client.request(method, url, headers=HDR, **kw)
@@ -131,15 +131,24 @@ async def call(
         if is_cf_blocked(resp):
             code = BLOCKED
     except (TimeoutError, httpx.HTTPError) as exc:
-        code = type(exc).__name__
+        code, detail = type(exc).__name__, transport_detail(exc)
     except asyncio.CancelledError:
         RECORDS.append(_row(name, method, t0, -1, "cancelled", False))
         raise
-    RECORDS.append(_row(name, method, t0, status, code, status in expect))
+    RECORDS.append(_row(name, method, t0, status, code, status in expect, detail))
     return resp
 
 
-def _row(name, method, t0, status, code, ok) -> dict:
+def transport_detail(exc: BaseException) -> str:
+    """Message of each chained cause, so refused vs reset vs DNS vs TLS read apart."""
+    parts: list[str] = []
+    while exc is not None and len(parts) < 4:
+        parts.append(f"{type(exc).__name__}: {exc}" if str(exc) else type(exc).__name__)
+        exc = exc.__cause__
+    return " <- ".join(parts)[:300]
+
+
+def _row(name, method, t0, status, code, ok, detail="") -> dict:
     return {
         "burst": BURST["name"],
         "name": name,
@@ -149,6 +158,7 @@ def _row(name, method, t0, status, code, ok) -> dict:
         "status": status,
         "code": code,
         "ok": ok,
+        "detail": detail,
     }
 
 
@@ -183,42 +193,40 @@ async def capture_assets(base: str) -> list[str]:
         return seen
 
 
-def asset_target(base: str) -> tuple[str, int, bool, str]:
-    """(host, port, tls, Host header) for the raw asset socket; https gets TLS on 443."""
-    url = httpx.URL(base)
-    tls = url.scheme == "https"
-    port = url.port or (443 if tls else 80)
-    return url.host, port, tls, f"{url.host}:{url.port}" if url.port else url.host
+async def _drain(client: httpx.AsyncClient, path: str) -> httpx.Response:
+    async with client.stream("GET", path) as resp:
+        async for _ in resp.aiter_raw():  # gzip bytes left undecoded
+            pass
+    return resp
 
 
-async def fetch_asset(base: str, path: str) -> None:
-    """GET one static file on a raw socket, gzip bytes left undecoded.
+async def fetch_asset(client: httpx.AsyncClient, path: str) -> None:
+    """GET one static file on the device's pooled keep-alive client, like a browser tab.
 
-    ponytail: httpx's async client spends 40-150 ms of load-generator CPU per
-    300 KB file (gzip decode + small reads), which made the generator the
-    bottleneck; a raw HTTP/1.0-style fetch costs ~1 ms. One socket per file.
+    The device's client holds at most 6 connections and reuses them, so a cold load
+    opens ~6 TLS connections, not one per file (the Oct 27 public-50 drops all fell
+    in the two bursts where the old one-socket-per-file fetch opened ~650 at once).
+    Streaming with aiter_raw skips the gzip decode that made httpx cost 40-150 ms of
+    generator CPU per 300 KB file (now ~2 ms, raw socket ~1 ms). HTTP/1.1 only: h2 is
+    not installed.
     """
-    host, port, tls, host_header = asset_target(base)
     t0 = time.perf_counter()
-    status, code = 0, ""
+    status, code, detail = 0, "", ""
     try:
-        reader, writer = await asyncio.open_connection(
-            host, port, ssl=tls or None, server_hostname=host if tls else None
-        )
-        writer.write(
-            f"GET {path} HTTP/1.1\r\nHost: {host_header}\r\n"
-            "Accept-Encoding: gzip\r\nConnection: close\r\n\r\n".encode()
-        )
-        data = await reader.read()
-        writer.close()
-        status = int(data.split(b" ", 2)[1]) if data.startswith(b"HTTP/") else 0
-        code = "" if status else "no_status_line"
-    except (OSError, ValueError, IndexError) as exc:
-        code = type(exc).__name__
+        try:
+            resp = await _drain(client, path)
+        except httpx.RemoteProtocolError:
+            code = "keepalive_retry"  # idle socket closed as we reused it; a GET retries
+            resp = await _drain(client, path)
+        status = resp.status_code
+        if is_cf_blocked(resp):
+            code = BLOCKED
+    except (TimeoutError, httpx.HTTPError) as exc:
+        code, detail = type(exc).__name__, transport_detail(exc)
     except asyncio.CancelledError:
         RECORDS.append(_row("asset", "GET", t0, -1, "cancelled", False))
         raise
-    RECORDS.append(_row("asset", "GET", t0, status, code, status == 200))
+    RECORDS.append(_row("asset", "GET", t0, status, code, status == 200, detail))
 
 
 # ---------------------------------------------------------------- actors
@@ -265,7 +273,7 @@ class Student:
 
         async def one(path: str) -> None:
             async with sem:
-                await fetch_asset(self.base, path)
+                await fetch_asset(self.client, path)
 
         await asyncio.gather(*(one(p) for p in self.assets))
 
@@ -996,6 +1004,9 @@ def write_report(out: Path, meta: dict) -> int:
     ]
     blocked = sum(1 for r in RECORDS if r["code"] == BLOCKED)
     lines += ["", f"cloudflare_blocked: {blocked} (kept out of app errors and targets)"]
+    causes = Counter((r["name"], r["detail"]) for r in RECORDS if r.get("detail"))
+    lines += ["", "## Transport errors by cause (requests.csv `detail`)", ""]
+    lines += [f"- {n} x {name}: {d}" for (name, d), n in causes.most_common(10)] or ["- none"]
     lines += ["", f"## Correctness: {len(CHECKS) - len(failed)}/{len(CHECKS)} checks pass", ""]
     lines += [f"- FAIL {c['burst']}: {c['check']} {c['detail']}" for c in failed] or ["- all pass"]
     lines += [
