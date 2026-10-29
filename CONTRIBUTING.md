@@ -330,14 +330,12 @@ ADR-0015 is reserved; do not take it.
 
 ## What is not decided here
 
-**There is deliberately no `LICENSE` file, and adding one is not an engineering
-task.** Backlog item F13 blocks it on decision D9 — whether this repository may
-be open-sourced — which is owned by the program owner and is itself gated by the
-unremediated severity-1 finding recorded as MM-A09 in
-`docs/migration/migration-manifest.yaml`: real-identity datasets tracked in the
-*legacy* repository's git history, which archiving at HEAD does not remove.
-Publishing history that includes those paths would broaden that exposure. Leave
-the file absent until D9 is recorded.
+**Licensing is decided (Oct 2026).** App code is under the MIT License (see
+`LICENSE`); the class materials are under CC BY 4.0 (see the README's "License
+and credit" section). The license covers this repository only. The *legacy*
+hackathon repository still holds real-identity datasets in its git history
+(finding MM-A09 in `docs/migration/migration-manifest.yaml`), so it stays
+private and nothing may be copied from it into this one.
 
 The same applies more generally: the release gates G1–G5 in the README have
 owners outside engineering, and they are never inferred from technical

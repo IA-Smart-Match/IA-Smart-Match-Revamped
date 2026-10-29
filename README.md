@@ -3,6 +3,10 @@
 SmartMatch Platform — production platform, built to
 [Architecture v1.1](docs/architecture/review/contract-findings.md).
 
+**License:** app code under the [MIT License](LICENSE); class materials under
+CC BY 4.0. Funded by the California Education Learning Lab's AI FAST Grant.
+See [License and credit](#license-and-credit).
+
 > **Status: Foundation scaffold.** This repository is *not* production-ready and
 > does not claim to be. What is implemented and what is merely proposed are
 > listed explicitly below, because the single most damaging habit in the demo
@@ -349,21 +353,23 @@ readiness.
 
 ---
 
-## Notice — private pilot, not open-source licensed
+## License and credit
 
-> **This repository is a private pilot for SmartMatch Platform. It is not
-> open-source licensed, and it carries no `LICENSE` file deliberately.**
->
-> The absence of a `LICENSE` is a decision, not an oversight. No license is
-> granted to anyone by this repository being visible.
->
-> This is a plain statement of intent, not legal language, and nobody qualified
-> to write licensing terms has reviewed it.
+**App code: MIT License.** The code in this repository is released under the
+MIT License. See the [`LICENSE`](LICENSE) file.
 
-The decision behind it is **D9**, recorded as a **tentative, not organizationally
-ratified** position in
-[`docs/decisions/pilot-decisions.md`](docs/decisions/pilot-decisions.md). It
-stays gated on the unremediated finding **MM-A09**: the archived legacy
-repository's git history still contains paths naming real people, and publishing
-that history would broaden the exposure. `CONTRIBUTING.md` carries the same
-position from the engineering side.
+**Class materials: CC BY 4.0.** The Smart Match class module (background note,
+case, student forms, instructor guide, debrief slides), the team report, and the
+video walkthrough are released under the
+[Creative Commons Attribution 4.0 International license (CC BY 4.0)](https://creativecommons.org/licenses/by/4.0/).
+
+**Please credit as:** *Smart Match: AI Customer Matching Module*, by Fan (Ann)
+Wang and Yufan Lin, Cal Poly Pomona, with student developers Chau Nguyen, Danny
+Tran, Janice Lachan, and Justin Li. Funded by the California Education Learning
+Lab's AI FAST Grant (Customizable AI Integration – Marketing Examples).
+
+The class-exercise student data is made up. No real student appears in it.
+
+The license covers this repository only. The archived hackathon repository it
+replaced is not part of this release and stays private (see decision D9 in
+[`docs/decisions/pilot-decisions.md`](docs/decisions/pilot-decisions.md)).
