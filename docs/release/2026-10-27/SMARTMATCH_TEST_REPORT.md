@@ -18,7 +18,7 @@ SmartMatch is a two-round classroom exercise for AI in Marketing. Each team choo
 2. Signs up, if noticed: 5 in 100, plus 35 if a true interest matches the event topic, 15 for a fitting career goal, 5 or 10 for past events (1+ or 3+), and 5 for the targeted major.
 3. Attends, if signed up: 65 in 100.
 
-"True interest" is hidden data, not the card. Each chance uses a SHA-256 hash of the team's stored seed, the event, the student and the step. Therefore the same team and list always give the same result. **List added** is the number of listed students who signed up and would not have signed up from the mass email alone.
+"True interest" is hidden data, not the card. Each chance uses a SHA-256 hash of the team's stored seed, the event, the student and the step. Therefore the same team and list always give the same result. **Extra sign-ups from the list** is the number of listed students who signed up and would not have signed up from the mass email alone.
 
 **Round 2.** Before Harbor, the team chooses how to ask students without a card for one: a promise (30% respond), a small reward (55%), or required (80%, but 15% of students stop responding). New cards change only the information the ranking uses. The Harbor list uses the same rules. Each team runs results once per event; the database rejects a second run.
 
@@ -33,18 +33,18 @@ SmartMatch is a two-round classroom exercise for AI in Marketing. Each team choo
 
 Results as shown on the results pages. Each list has 60 students, and the room has 60 seats. All runs used the setting "Balanced" and, before Harbor, asked with "A small reward".
 
-| Run | Round | Already coming | Came because of list | Seats open | List signed up | Would sign up anyway | List added |
+| Test and team | Event | Seats filled without the list | Seats filled by the list | Empty seats | Listed students who signed up | Of those, would sign up from mass email anyway | Extra sign-ups from the list |
 |---|---|---:|---:|---:|---:|---:|---:|
-| **Public, Team 6** | 1 Northline | 13 | 5 | 42 | 15 | 4 | 11 |
-| **Public, Team 6** | 2 Harbor | 17 | 7 | 36 | 20 | 8 | 12 |
-| Local, Team 1 | 1 Northline | 12 | 7 | 41 | 9 | 1 | 8 |
-| Local, Team 1 | 2 Harbor | 13 | 8 | 39 | 15 | 6 | 9 |
-| Local, Team 2 | 1 Northline | 18 | 4 | 38 | 16 | 8 | 8 |
-| Local, Team 2 | 2 Harbor | 11 | 6 | 43 | 17 | 5 | 12 |
+| **Public, Team 6** | R1 Northline | 13 | 5 | 42 | 15 | 4 | 11 |
+| **Public, Team 6** | R2 Harbor | 17 | 7 | 36 | 20 | 8 | 12 |
+| Local, Team 1 | R1 Northline | 12 | 7 | 41 | 9 | 1 | 8 |
+| Local, Team 1 | R2 Harbor | 13 | 8 | 39 | 15 | 6 | 9 |
+| Local, Team 2 | R1 Northline | 18 | 4 | 38 | 16 | 8 | 8 |
+| Local, Team 2 | R2 Harbor | 11 | 6 | 43 | 17 | 5 | 12 |
 
-*Already coming:* attendees the list did not bring (pre-registered students who came, plus everyone the mass email alone brought). *Came because of list:* listed students who came and whom the mass email would not have brought. *List added:* the same idea for sign-ups; only 65 in 100 sign-ups attend, so it is higher than *came because of list*.
+The first three columns count people in the 60 seats. *Seats filled without the list* are pre-registered students who came plus everyone the mass email alone brought (the site calls this "already coming"). *Seats filled by the list* are listed students who came and whom the mass email would not have brought. The last three columns count sign-ups, not attendance. Only 65 in 100 sign-ups attend, so *extra sign-ups from the list* is higher than *seats filled by the list*.
 
-The three seat counts add up to 60 in every row, and *list added* equals *list signed up* minus *would sign up anyway*. For Team 6, the mass email alone gave 10 sign-ups (Northline) and 15 (Harbor); with the list there were 21 and 27, a difference of 11 and 12. Each team has its own seed, so the same setting gives different numbers for each team. Asking with a small reward reached the 230 students without a card; 127 completed a card and 0 stopped responding (55% of 230, rounded half up, is 127). For Team 6, Harbor's *list added* was 8 before asking and 12 after; "Major first" after asking gave 6. The fixed-seed script gave identical output twice; all four of its lists had 60 unique students in weight order.
+The three seat counts add up to 60 in every row, and extra sign-ups equal listed sign-ups minus those who would have signed up anyway. For Team 6, the mass email alone gave 10 sign-ups (Northline) and 15 (Harbor); with the list there were 21 and 27, a difference of 11 and 12. Each team has its own seed, so the same setting gives different numbers for each team. Asking with a small reward reached the 230 students without a card; 127 completed a card and 0 stopped responding (55% of 230, rounded half up, is 127). For Team 6, Harbor's extra sign-ups from the list were 8 before asking and 12 after; "Major first" after asking gave 6. The fixed-seed script gave identical output twice; all four of its lists had 60 unique students in weight order.
 
 ## 5. What Worked
 
