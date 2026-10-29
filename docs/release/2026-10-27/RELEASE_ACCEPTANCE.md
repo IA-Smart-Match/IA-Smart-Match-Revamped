@@ -4,14 +4,14 @@
 
 - Public URL: https://exercise.smartmatch.cloud/exercise
 - Revision on the VM: `4fc80d02783fa64b2418f379a44f8689080b3907` (deploy run 17, 2026-10-26 06:32 UTC, all jobs green). `main` is at `763e666` (PR #444); not deployed, not tested.
-- Report: `SMARTMATCH_TEST_REPORT.pdf` (2 pages), source `SMARTMATCH_TEST_REPORT.md`.
+- Report: `SMARTMATCH_TEST_REPORT.pdf` (2 pages; table redone 2026-10-29 with the full Team 6 public run), source `SMARTMATCH_TEST_REPORT.md`.
 - Models: lead Claude Opus 5.5; workers A (deploy audit), B (browser workflow) and C (matching) ran as `claude-haiku-5-5` by their own report. Agents D and E were not spawned: no UX defect needed a fix, and the lead wrote the report from the evidence.
 
 ## Acceptance matrix
 
 | ID | Status | Evidence |
 |---|---|---|
-| APP-01 Public URL | PASS | `public/02`–`07` screenshots, 2026-10-27 23:04 UTC |
+| APP-01 Public URL | PASS | `public/team6-run-2026-10-29.md` (full run, 2026-10-29 05:53–05:57 UTC); `public/02`–`07` screenshots (Team 1, 2026-10-27) |
 | APP-02 Release | PASS | VM runs 4fc80d0 (DEPLOYMENT_AUDIT.md §1). Newer main not deployed. |
 | APP-03 Setup | PASS | `public/02-team-entry.jpg`; E2E S-01..S-04 |
 | APP-04 Round 1 | PASS | `public/03`, `public/04`; E2E R1-01..R1-05 |
@@ -33,18 +33,18 @@
 | Test group | Passed | Failed | Blocked |
 |---|---:|---:|---:|
 | Deployment runs (Oct 26) | 1 | 2 (fixed by run 17) | 0 |
-| Round 1 (public + 2 local teams) | 3 | 0 | 0 |
-| Round 2 (public + 2 local teams) | 3 | 0 | 0 |
+| Round 1 (2 public + 2 local teams) | 4 | 0 | 0 |
+| Round 2 (2 public + 2 local teams) | 4 | 0 | 0 |
 | Matching fixture runs | 4 | 0 | 0 |
 | Exercise unit / golden tests | 1,440 / 66 | 2 / 0 (local `.env` only) | 0 |
 | Front-end tests | 1,271 | 0 | 0 |
-| Full workflow (public + local) | 3 | 0 | 0 |
+| Full workflow (2 public + 2 local) | 4 | 0 | 0 |
 
 ## Open issues
 
 | Severity | Issue | Remaining action |
 |---|---|---|
-| P1 (ops) | Team 1 holds the public test run | Clear Team 1 on the instructor page before class |
+| P1 (ops) | Teams 1 and 6 hold test runs on the live site | Clear Team 1 and Team 6 on the instructor page before class |
 | P2 | No automated check of the exercise host | Add a separate exercise probe to deploy.yml |
 | P2 | Walkthrough recorder lacks team code step | Update `tools/walkthrough` before re-recording |
 | P2 | `make setup` fails on Python 3.13 | Pin a 3.11/3.12 interpreter in the Makefile |
